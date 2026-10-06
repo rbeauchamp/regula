@@ -2624,7 +2624,14 @@ private unsafe def adopterQualification (repo scratch : FilePath) : IO (Array St
   failures.get
 
 /-- In-process fixture, scanner, and fence-corpus controls. Imports
-remain serialized, and transcript workers finish before parent imports. -/
+remain serialized, and transcript workers finish before parent imports.
+
+The recursion-helper fixtures among them (the positive recursion modules and the
+`…UnsafeRecForge` mutations of `Fixtures/fixtures.json`) test an external boundary: the observing
+pass of the comparison and the regeneration, against the pinned toolchain. They are not tests of
+the comparison's rules: `RegulaPolicy.Erasure.equalWithin_iff` proves the executed comparison
+against its relation for every pair of terms and every observation, and no fixture stands in for
+that theorem. -/
 private unsafe def runFixtures (repo : FilePath) (jobs : Nat)
     (fixtures : Array FixtureSpec) (failures : IO.Ref (Array String)) : IO Unit := do
   let inventory ← Lake.surfaceInventory repo

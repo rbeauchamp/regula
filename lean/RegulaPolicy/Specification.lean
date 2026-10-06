@@ -6,7 +6,15 @@ public import RegulaPolicy.Foundation
 
 Declaration-policy meaning over observations. These predicates state membership,
 safety, and recorded contract obligations independently of decision outputs. Extraction
-and the truth of the observed contract/replay fields remain operational boundaries. -/
+and the truth of the observed contract/replay fields remain operational boundaries.
+
+Each requirement takes the part of the record whose fields it reads, so its signature shows
+where its inputs come from: `SafetyOK` takes `Declaration.KernelChecked`; `KnownDependencies`,
+`CompilerPolicyOK` and `ProfileOK` take `Declaration.ToolchainObserved`; `FoundationOK` takes
+`Declaration.Inspected`; and `ContractOK` takes `Declaration.ProjectWritten`, because a mark a
+project writes decides one refusal of the recorded contract. `DeclarationOK` and
+`declarationRequirements` join them and take the whole record, as the decision requirement
+(`DecisionOK`) does, which reads the project's own registration. -/
 
 @[expose] public section
 
@@ -27,22 +35,25 @@ theorem compilerAxiom_absent (h : Compiler.legacyCompilerTrust = .absent)
   simp [CompilerAxiom, h]
 
 /-- Every transitive dependency has a known logical or compiler-trusting classification. -/
-def KnownDependencies (d : Declaration) (native : Array Name) : Prop :=
+def KnownDependencies (d : Declaration.ToolchainObserved) (native : Array Name) : Prop :=
   ∀ n ∈ d.axioms, Permitted .standardLogical n ∨ CompilerAxiom native n
-instance (d : Declaration) (native : Array Name) : Decidable (KnownDependencies d native) := by
+instance (d : Declaration.ToolchainObserved) (native : Array Name) :
+    Decidable (KnownDependencies d native) := by
   unfold KnownDependencies; infer_instance
 
 /-- Authored unsafe/partial code is refused; the data-level exceptions are inventory-validated
 recursion and constructor-index helpers. The public theorem substitutes authenticated roles. -/
-def SafetyOK (d : Declaration) (helpers : Array Name) : Prop :=
+def SafetyOK (d : Declaration.KernelChecked) (helpers : Array Name) : Prop :=
   (d.isUnsafe = false ∧ d.isPartial = false) ∨ d.name ∈ helpers
-instance (d : Declaration) (helpers : Array Name) : Decidable (SafetyOK d helpers) := by
+instance (d : Declaration.KernelChecked) (helpers : Array Name) :
+    Decidable (SafetyOK d helpers) := by
   unfold SafetyOK; infer_instance
 
 /-- Each recorded contract inspection completed without a failure. Its exact proposition
 and implementation were checked by Probe and owned logical admission, not by these strings. -/
-def ContractOK (d : Declaration) : Prop := ∀ c ∈ d.executableContract, c.failure = none
-instance (d : Declaration) : Decidable (ContractOK d) := by
+def ContractOK (d : Declaration.ProjectWritten) : Prop :=
+  ∀ c ∈ d.executableContract, c.failure = none
+instance (d : Declaration.ProjectWritten) : Decidable (ContractOK d) := by
   unfold ContractOK; infer_instance
 
 /-- `n` is the implementation a decision contract of the inventory decides: some declaration of
@@ -63,18 +74,20 @@ instance (d : Declaration) (decided : Array Name) : Decidable (DecisionOK d deci
   unfold DecisionOK; infer_instance
 
 /-- Teaching may retain compiler trust; other inspections cannot. -/
-def CompilerPolicyOK (d : Declaration) (request : InspectionRequest) (native : Array Name) : Prop :=
+def CompilerPolicyOK (d : Declaration.ToolchainObserved) (request : InspectionRequest)
+    (native : Array Name) : Prop :=
   request = .teaching ∨ ∀ n ∈ d.axioms, ¬ CompilerAxiom native n
-instance (d : Declaration) (r : InspectionRequest) (native : Array Name) :
+instance (d : Declaration.ToolchainObserved) (r : InspectionRequest) (native : Array Name) :
     Decidable (CompilerPolicyOK d r native) := by unfold CompilerPolicyOK; infer_instance
 
 /-- Only an explicitly conforming request imposes a positive profile bound. Compiler
 members are separately refused by CompilerPolicyOK for every conforming request. -/
-def ProfileOK (d : Declaration) (request : InspectionRequest) (native : Array Name) : Prop :=
+def ProfileOK (d : Declaration.ToolchainObserved) (request : InspectionRequest)
+    (native : Array Name) : Prop :=
   match request with
   | .conforming p => ∀ n ∈ d.axioms, CompilerAxiom native n ∨ Permitted p n
   | _ => True
-instance (d : Declaration) (r : InspectionRequest) (native : Array Name) :
+instance (d : Declaration.ToolchainObserved) (r : InspectionRequest) (native : Array Name) :
     Decidable (ProfileOK d r native) := by cases r <;> unfold ProfileOK <;> infer_instance
 
 /-- Inspection success. An owned axiom has only the independently authenticated teaching
@@ -88,7 +101,7 @@ def DeclarationOK (d : Declaration) (request : InspectionRequest)
 
 /-- Positive logical foundation: no project axiom, hole, unknown or compiler axiom;
 the selected permitted set contains every observed transitive dependency. -/
-def FoundationOK (d : Declaration) (p : ConformingProfile) : Prop :=
+def FoundationOK (d : Declaration.Inspected) (p : ConformingProfile) : Prop :=
   d.kind ≠ .«axiom» ∧ ContainsFoundation p d.axioms
 
 /-- Exact six-way classification. Forbidden classes precede logical profiles; logical

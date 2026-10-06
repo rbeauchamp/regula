@@ -76,7 +76,7 @@ recursion equation for the helper's value (`Declaration.unsafeRecRegenerated`), 
 Lean-linked base (`Declaration.unsafeRecBase`) is an inventory definition of the same module and
 type, neither `partial` nor `unsafe`, with every axiom within Standard-Logical. Where that
 observation is truthful, the base is Lean's compilation of the helper's own recursion up to the
-comparison the checker makes (`Collect.equalErased`: compilation erasure, with a `match` that
+comparison the checker makes (`Erasure.reproduces`: compilation erasure, with a `match` that
 passes a variable through taken as the direct one where the kernel checks the two equal), so its
 kernel-checked value carries the decreasing proofs of the recursion Lean compiled, after its
 well-founded preprocessing; those proofs rest on no `sorryAx` or project axiom. The theorem states
@@ -180,7 +180,9 @@ def labelOf (axioms : Array Name) (native : Array Name := #[]) : FoundationClass
 
 /-- Raw computational kernel over supplied role sets; callers can supply arbitrary
 sets here. This is not an admission or authorization API. Production decisions
-use `policyFor`, whose inventory and Roles arguments enforce the receipt boundary. -/
+use `policyFor`, whose inventory and Roles arguments enforce the receipt boundary. It takes the
+whole record: it reads kernel-checked data, the observed axioms, and the recorded contract, which
+is a field of `Declaration.ProjectWritten`. -/
 @[regula_decision]
 def declarationFailure (decl : Declaration) (claim : InspectionRequest)
     (native : Array Name := #[]) (unsafeHelpers : Array Name := #[]) :

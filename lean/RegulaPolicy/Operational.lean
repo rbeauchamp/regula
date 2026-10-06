@@ -161,7 +161,11 @@ up to its escape-hatch flags: no toolchain axiom is removed from a proof. -/
 theorem operationalFailure_prop (t : ToolchainAxioms) (d : Declaration) (hp : d.isProp = true) :
     operationalFailure t d = declarationFailure { d with isUnsafe := false, isPartial := false }
       (.conforming .standardLogical) #[] #[] := by
-  simp [operationalFailure, operationalView, operationalAxioms, hp]
+  have hax : operationalAxioms t d = d.axioms := by simp [operationalAxioms, hp]
+  have hview : operationalView t d = { d with isUnsafe := false, isPartial := false } := by
+    unfold operationalView
+    rw [hax]
+  rw [operationalFailure, hview]
 
 /-- On a declaration with no reported fact (no escape hatch and no toolchain axiom), the
 operational decision is the conforming Standard-Logical decision itself. -/
@@ -175,7 +179,9 @@ theorem operationalFailure_eq_conforming (t : ToolchainAxioms) (d : Declaration)
     · rfl
     · exact Array.filter_eq_self.mpr fun n hn => by simpa using hnone n hn
   have hview : operationalView t d = d := by
-    cases d
+    obtain ⟨⟨checked, observed⟩, written⟩ := d
+    cases checked
+    cases observed
     simp_all [operationalView]
   simp [operationalFailure, hview]
 

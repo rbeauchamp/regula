@@ -751,46 +751,32 @@ structure ExecutableContract where
   kind : Option DecisionKind := none
   deriving Repr, DecidableEq
 
-/-- Complete Lean-semantic report for one owned constant. -/
-structure Declaration where
+/-- The part of a declaration's record that is kernel-checked declaration data: a field of the
+constant's `ConstantInfo`, which Lean's kernel admitted with the declaration, or a value computed
+from such fields alone by a pure function. The gate replays the owned declarations of an
+inspected environment (standard §7.3), so these are the fields that rest on the kernel and on
+reading the environment's constant map, and on nothing an audited project can write beside the
+declaration itself. -/
+structure Declaration.KernelChecked where
   /-- The constant's name. -/
   name : Lean.Name
-  /-- Structural original Name for new diagnostic transport; absent legacy records are
-  unsupported. -/
-  «module» : Lean.Name
   /-- The kind of its `ConstantInfo`. -/
   kind : DeclarationKind
   /-- The `repr` of its kernel type expression. -/
   «type» : String
-  /-- Its type as Lean's pretty-printer shows it. -/
-  prettyType : String
-  /-- Its type is a proposition. -/
-  isProp : Bool
   /-- The constant is `unsafe`. -/
   isUnsafe : Bool
   /-- The constant is `partial`. -/
   isPartial : Bool
   /-- `partial` if the constant is partial, else `unsafe` if it is unsafe, else `none`. -/
   safety : Option Safety
-  /-- The constant is registered as a type-class instance. -/
-  «instance» : Bool
-  /-- Lean marks the constant `noncomputable`. -/
-  «noncomputable» : Bool
-  /-- The constant the compiler runs in its place, from `@[implemented_by]`. -/
-  implementedBy : Option Lean.Name
-  /-- The constant has an `@[extern]` implementation. -/
-  «extern» : Bool
-  /-- The name is internal: some component begins with `_`. -/
+  /-- The name is internal: some component begins with `_`. A function of the name. -/
   internal : Bool
-  /-- The name is a private name. -/
+  /-- The name is a private name. A function of the name. -/
   «private» : Bool
-  /-- The constant is a structure projection function. -/
-  projection : Bool
-  /-- The constant is a `match` auxiliary function (a matcher). -/
-  matcher : Bool
-  /-- Lean reports the definition as recursive (`Meta.isRecursiveDefinition`). -/
-  recursive : Bool
-  /-- For an `_unsafe_rec` helper, the name of the definition it implements. -/
+  /-- For an `_unsafe_rec` helper, the name of the definition it implements
+  (`Compiler.isUnsafeRecName?`). A function of the name: it selects a base and shows nothing
+  about it. -/
   unsafeRecBase : Option Lean.Name
   /-- The constant's universe parameters. -/
   levelParams : Array Lean.Name
@@ -800,6 +786,36 @@ structure Declaration where
   hints : Option Reducibility
   /-- The constants its value mentions, sorted and without duplicates; empty without a value. -/
   valueConstants : Array Lean.Name
+  /-- For an axiom whose name the `nativeEqTrue` scheme generates for a native tactic
+  (`nativeAxiomOrigin?`) and whose type is `e = true` with `e` in that tactic's asserted shape
+  (`decide p` for `native_decide` and `decide +native`, `verifyBVExpr expr cert` over the run's
+  own auxiliary definitions for `bv_decide`): the `repr` of `e`, naming each of those auxiliary
+  definitions by its unindexed base. Otherwise `none`. A function of the name and the type. -/
+  nativeStatement : Option String
+  deriving Repr, DecidableEq
+
+/-- The part of a declaration's record that is a toolchain observation: the answer of Lean's
+elaborator, compiler or kernel, or of the checker's own observing code, run at inspection. Each
+field is an answer computed at inspection, and none is decided by a mark an audited project
+writes. State a project writes can still enter an observation, and each field says how:
+`prettyType` and `isProp` are Lean's own answers, which read the notations and the reducibility
+statuses in force; `nativeReplay` runs compiled code; and what a project writes selects which
+regeneration `unsafeRecRegenerated` reports, while the pure comparison and the kernel decide it.
+The two observations that a project-written mark does decide, `constructorIndex` and
+`executableContract`, are fields of `Declaration.ProjectWritten`. No policy theorem proves an
+observation truthful. -/
+structure Declaration.ToolchainObserved where
+  /-- The module that declares the constant, as Lean's import record of the inspected
+  environment gives it. Structural original Name for new diagnostic transport; absent legacy
+  records are unsupported. -/
+  «module» : Lean.Name
+  /-- Its type as Lean's pretty-printer shows it. The printer reads the notations and
+  unexpanders in force, which a project declares; the text is shown and decides nothing. -/
+  prettyType : String
+  /-- Its type is a proposition (`Meta.isProp`). The reduction that decides it does not unfold
+  an irreducible definition, so a project's reducibility attributes can make it answer `false`
+  for a proposition, and cannot make it answer `true` for another type. -/
+  isProp : Bool
   /-- For an `_unsafe_rec` helper inspected as a replay candidate: the route by which Lean's own
   recursion compiler, rerun on the values of the helper's group (each helper's calls to its group
   standing for the recursive calls), reproduced the observed base and every auxiliary definition it
@@ -808,22 +824,42 @@ structure Declaration where
   kernel also checked, for each helper of the group, the recursion equation of its base for the
   helper's value, with no axiom outside Standard-Logical (`Collect.recursionEquationChecked`).
   `none` when neither route did or an equation was not checked, and for every other declaration or
-  inspection stage. -/
+  inspection stage. What a project writes (termination arguments, reducibility statuses, matcher
+  and equation records) selects which regeneration runs; the pure decision
+  `Erasure.reproduces` and the kernel decide. -/
   unsafeRecRegenerated : Option RecursionOrigin
-  /-- For a replay candidate matching the pinned constructor-index generator: its inductive
-  parent and safe base. The observer checks the kernel-generated eliminator, the base's exact
-  alternatives, and the closed `getObjTagNat` wrapper without compiling any declaration.
-  This records a structural observation, not native execution correspondence. -/
-  constructorIndex : Option (Lean.Name × Lean.Name)
-  /-- For an axiom whose name the `nativeEqTrue` scheme generates for a native tactic
-  (`nativeAxiomOrigin?`) and whose type is `e = true` with `e` in that tactic's asserted shape
-  (`decide p` for `native_decide` and `decide +native`, `verifyBVExpr expr cert` over the run's
-  own auxiliary definitions for `bv_decide`): the `repr` of `e`, naming each of those auxiliary
-  definitions by its unindexed base. Otherwise `none`. -/
-  nativeStatement : Option String
   /-- For a replay candidate with a statement: whether an independent native evaluation of
-  `e` returned `true` (`false` also when the replay failed). -/
+  `e` returned `true` (`false` also when the replay failed). The evaluation runs the compiled
+  code of the definitions `e` mentions. -/
   nativeReplay : Option Bool
+  /-- The axioms the constant transitively depends on (`collectAxioms`), sorted and without
+  duplicates. -/
+  axioms : Array Lean.Name
+  deriving Repr, DecidableEq
+
+/-- The part of a declaration's record that is read from environment state an audited project
+can write, or that such state decides: an environment extension's entry, an attribute, a
+declaration range, and the two observations of the checker that read such marks directly
+(`constructorIndex`, `executableContract`). Lean's own commands write this state for the
+declarations they add, and a metaprogram of the audited project can write it for any declaration.
+A decision that reads one of these fields rests on what the project recorded, so no field here is
+evidence that a declaration is what the record says. -/
+structure Declaration.ProjectWritten where
+  /-- The constant is registered as a type-class instance. -/
+  «instance» : Bool
+  /-- Lean marks the constant `noncomputable`. -/
+  «noncomputable» : Bool
+  /-- The constant the compiler runs in its place, from `@[implemented_by]`. -/
+  implementedBy : Option Lean.Name
+  /-- The constant has an `@[extern]` implementation. -/
+  «extern» : Bool
+  /-- The constant is a structure projection function. -/
+  projection : Bool
+  /-- The constant is a `match` auxiliary function (a matcher). -/
+  matcher : Bool
+  /-- Lean reports the definition as recursive (`Meta.isRecursiveDefinition`, a tag Lean's
+  recursion compilers write). -/
+  recursive : Bool
   /-- Lean's declaration ranges as it recorded them, when it did: the raw evidence. Admission and
   finding locations read the admitted pair (`Declaration.ranges`), not this. -/
   recordedRanges : Option Ranges
@@ -832,15 +868,60 @@ structure Declaration where
   constructor, a recursor's or equation lemma's declaration, and so on; `none` when Lean did not
   generate it from another declaration. -/
   generatedFrom : Option Lean.Name
-  /-- The axioms the constant transitively depends on (`collectAxioms`), sorted and without
-  duplicates. -/
-  axioms : Array Lean.Name
-  /-- The collector's observation when the constant registers an executable contract. -/
+  /-- For a replay candidate matching the pinned constructor-index generator: its inductive
+  parent and safe base. The observer (`Collect.constructorIndexObservation`) checks the
+  kernel-generated eliminator, the base's exact alternatives, and the closed `getObjTagNat` wrapper
+  without compiling any declaration. This records a structural observation, not native execution
+  correspondence. It is a field of this part because marks a project writes decide it: the
+  observer requires that the base's replacement (`@[implemented_by]`) is the helper, that the
+  helper has no replacement and no recorded declaration range, that neither has an `extern`
+  implementation, that the eliminator has no replacement and no `extern` implementation, and that
+  `getObjTagNat` has no replacement. -/
+  constructorIndex : Option (Lean.Name × Lean.Name)
+  /-- The collector's observation when the constant registers an executable contract: its type
+  reduced to an `ExecutableContract`, with the refusals the collector finds. It is a field of this
+  part because a mark a project writes decides one refusal: the collector reads whether Lean
+  marks the implementation `noncomputable`. The requirement's text is pretty-printed with the
+  notations in force. -/
   executableContract : Option ExecutableContract := none
   /-- For a constant registered with `@[regula_decision]`: whether its result type is
-  `Decidable _`. `none` for a constant without that registration. -/
+  `Decidable _`. `none` for a constant without that registration. The registration is the
+  project's own statement that the function is a decision; the result type is read by
+  reduction. -/
   decisionResult : Option DecisionResult := none
   deriving Repr, DecidableEq
+
+/-- The part of a declaration's record that holds no field of `Declaration.ProjectWritten`: its
+kernel-checked data and the toolchain's observations. A decision that takes this, and not the
+whole `Declaration`, cannot name a field of `Declaration.ProjectWritten`: to read one it has to
+change its signature. -/
+structure Declaration.Inspected extends Declaration.KernelChecked, Declaration.ToolchainObserved
+  deriving Repr, DecidableEq
+
+/-- Complete Lean-semantic report for one owned constant. Each field is declared in the part
+that says where its value comes from: kernel-checked declaration data
+(`Declaration.KernelChecked`), a toolchain observation (`Declaration.ToolchainObserved`), or
+environment state an audited project can write (`Declaration.ProjectWritten`). The classification
+is of the source of each value. No theorem of this library proves an observation truthful. -/
+structure Declaration extends Declaration.Inspected, Declaration.ProjectWritten
+  deriving Repr, DecidableEq
+
+/-- A declaration's record is read as its part without the project-written fields wherever a
+decision takes only that part. Nothing is computed: the other part is dropped. -/
+instance : Coe Declaration Declaration.Inspected := ⟨Declaration.toInspected⟩
+
+/-- A declaration's record is read as its project-written part wherever a decision takes only
+that part. -/
+instance : Coe Declaration Declaration.ProjectWritten := ⟨Declaration.toProjectWritten⟩
+
+/-- The inspected part is read as its kernel-checked data wherever a decision takes only that. -/
+instance : Coe Declaration.Inspected Declaration.KernelChecked :=
+  ⟨Declaration.Inspected.toKernelChecked⟩
+
+/-- The inspected part is read as its toolchain observations wherever a decision takes only
+those. -/
+instance : Coe Declaration.Inspected Declaration.ToolchainObserved :=
+  ⟨Declaration.Inspected.toToolchainObserved⟩
 
 /-- The declaration's admitted ranges: the pair Lean recorded (`recordedRanges`) when its
 selection range lies within its full range, and otherwise that full range as its own selection

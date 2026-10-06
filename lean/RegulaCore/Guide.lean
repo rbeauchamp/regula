@@ -357,7 +357,9 @@ def guide : RuleId → Guide
           mutual). It is admitted by exact match (standard §7.4): rerunning Lean's recursion \
           compiler on the helper's recursion, with only the toolchain's own preprocessing rules \
           and the checker's built-in syntax handlers, regenerates the observed base, up to \
-          compilation erasure, the base's axioms are within Standard-Logical, and Lean's kernel \
+          compilation erasure (the two values are the same once every proof and every type of \
+          each is erased, so an erased term matches only an erased term, never one that \
+          compilation keeps), the base's axioms are within Standard-Logical, and Lean's kernel \
           checks the recursion equation of each helper of the group: with the helper's value \
           `fun xs => body` and every helper of the group replaced by its base `f`, the theorem \
           `∀ xs, f xs = body`, in the inspected environment, by a proof that uses no axiom \
@@ -529,10 +531,19 @@ def guide : RuleId → Guide
         `Regula.Checker.Policy.partialParent_rule` with `subject_contract` reports a \
         `partial def`'s helper under the `partial def`. \
         `authorizedConstructorIndexHelpers_iff` characterizes the separate constructor relation, \
-        and `Roles.safetyHelpers_iff` binds both families to the same inventory."
+        and `Roles.safetyHelpers_iff` binds both families to the same inventory. The comparison \
+        that records a recursion helper's observation is the pure decision \
+        `RegulaPolicy.Erasure.reproduces` over the regenerated and the observed values, the \
+        observations of their terms and whether the observing pass finished. \
+        `Erasure.reproduces_iff` proves that it accepts exactly a regeneration whose pass \
+        finished, that added at least one definition, and whose every value `Erasure.EqualWithin` \
+        relates to the observed value of its name; `Erasure.equalWithin_iff` proves that the \
+        comparison of two values accepts exactly the values that relation relates, one \
+        constructor for each comparison rule; and `Erasure.checked_reproduces` registers the \
+        kind. The observations themselves and the regeneration (`Regula.Collect`) are operational."
       sources :=
-          ["lean/RegulaPolicy/Decision.lean", "lean/Regula/Collect.lean",
-              "lean/RegulaCore/Policy.lean"] }
+          ["lean/RegulaPolicy/Decision.lean", "lean/RegulaPolicy/Erasure.lean",
+              "lean/Regula/Collect.lean", "lean/RegulaCore/Policy.lean"] }
   | .executableContract => {
       problem := "A closed `ExecutableContract f R` registration does not have the supported \
         shape: it is not closed, it names no complete implementation constant, the \
