@@ -1,0 +1,29 @@
+{
+  "version": 1,
+  "checks": ["C1", "C2", "C3", "C4", "C5", "C6", "C7", "C8"],
+  "documents": [
+    [".agents/skills/lean-ci/SKILL.md", "14", "0", "1", "22", "0", "0", "20", "0"],
+    [".agents/skills/lean-ci/references/evidence.md", "3", "0", "2", "13", "0", "0", "7", "0"],
+    [".agents/skills/pr-review-toolkit/SKILL.md", "0", "0", "0", "5", "0", "0", "4", "0"],
+    [".agents/skills/pr-review-toolkit/references/lean-lens-contracts.md", "9", "0", "0", "19", "0", "0", "18", "0"],
+    [".agents/skills/pr-review-toolkit/references/review-workflow.md", "7", "0", "1", "15", "0", "0", "11", "0"],
+    [".agents/skills/regula/SKILL.md", "generated", "lake exe regula skill"],
+    ["AGENTS.md", "10", "0", "3", "31", "0", "1", "22", "0"],
+    ["README.md", "11", "2", "0", "16", "4", "0", "27", "0"],
+    ["SECURITY.md", "6", "0", "0", "7", "0", "0", "6", "0"],
+    ["docs/README.md", "0", "0", "0", "2", "0", "1", "3", "0"],
+    ["docs/guides/adoption.md", "93", "0", "2", "77", "0", "0", "123", "0"],
+    ["docs/guides/architecture.md", "109", "2", "10", "98", "0", "0", "102", "0"],
+    ["docs/guides/contributing.md", "111", "20", "14", "94", "0", "0", "154", "0"],
+    ["docs/guides/design-influences.md", "8", "0", "2", "12", "0", "1", "5", "0"],
+    ["docs/guides/performance-notes.md", "24", "0", "0", "44", "0", "0", "30", "0"],
+    ["docs/guides/proofs-and-boundaries.md", "486", "0", "40", "483", "0", "1", "569", "0"],
+    ["docs/guides/toolchains.md", "0", "0", "0", "2", "0", "0", "1", "0"],
+    ["docs/guides/website.md", "46", "18", "6", "56", "0", "1", "111", "0"],
+    ["examples/README.md", "1", "0", "0", "1", "0", "0", "0", "0"],
+    ["examples/build-lint/README.md", "2", "0", "0", "4", "0", "0", "6", "0"],
+    ["examples/lake-lint-toml/README.md", "2", "0", "0", "0", "0", "0", "1", "0"],
+    ["examples/rules/README.md", "2", "0", "1", "5", "0", "1", "4", "0"],
+    ["lean/README.md", "9", "0", "0", "22", "0", "0", "6", "0"]
+  ]
+}
