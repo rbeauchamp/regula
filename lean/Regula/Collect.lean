@@ -348,37 +348,49 @@ private def observe (need : RegulaPolicy.Erasure.Need) : StateRefT Observing Met
     set (record side
       (fun seen => { seen with threading := seen.threading.insert application shape? }) state)
 
-/-- The observations one step of the comparison may ask for before it is refused: more than any
-step needs, since a step asks for the erasure of its two terms, one decomposition, and one variable
-for each binder of the alternatives of a `match`. -/
+/-- The observations one step of the comparison may ask the pass for: more than any step needs,
+since a step asks for the erasure of its two terms, one decomposition, and one variable for each
+binder of the alternatives of a `match`. A step that still needs an observation after them is
+left as it is: the pass stops and reports that it did not finish, which
+`RegulaPolicy.Erasure.reproduces` refuses (`reproduces_eq_false_of_unfinished`). -/
 private def stepNeeds : Nat := 1000000
 
 /-- One step of the pure comparison of `a` with `b` (`RegulaPolicy.Erasure.step`), with each
-observation it asks for recorded (`observe`) until it asks for no more. -/
+observation it asks for recorded (`observe`), at most `needs` of them. What is returned is always
+the pure step's own answer over what the pass has recorded: where the step still needs an
+observation after `needs` of them, that answer is the refusal that names the need, and the pass
+records nothing more for it. -/
 private def stepObserved (pairs : RegulaPolicy.Erasure.Pairs) (a b : Expr) :
-    StateRefT Observing MetaM RegulaPolicy.Erasure.Step := do
-  for _ in [:stepNeeds] do
+    Nat → StateRefT Observing MetaM RegulaPolicy.Erasure.Step
+  | 0 => do
+    let state ← get
+    return RegulaPolicy.Erasure.step state.left.observations state.right.observations pairs a b
+  | needs + 1 => do
     let state ← get
     match RegulaPolicy.Erasure.step state.left.observations state.right.observations pairs a b with
-    | .error (.unobserved need) => observe need
+    | .error (.unobserved need) =>
+      observe need
+      stepObserved pairs a b needs
     | settled => return settled
-  return .error .different
 
 /-- The observing pass over two terms: record every observation the pure comparison of `a` with
 `b` asks for, to depth `fuel`, by taking the comparison's own steps (`stepObserved`) part by part
 in its order, and stopping at the first part it refuses. So the pass asks Lean what the
 comparison reads and nothing else, and carries no comparison rule of its own. The answer returned
-only says whether to go on observing: the verdict is `RegulaPolicy.Erasure.reproduces` over what
-was recorded, which refuses whatever was left unobserved.
+says whether the pass finished: `false` where it stopped at a part the comparison refuses, at
+exhausted depth or at `stepNeeds`. The verdict is `RegulaPolicy.Erasure.reproduces` over what was
+recorded and that answer: it refuses whatever was left unobserved, and it refuses a pass that did
+not finish (`RegulaPolicy.Erasure.reproduces_eq_false_of_unfinished`).
 
-The recursion fixtures that `checkerSelftest fixtures` runs test this pass and the regeneration
-against the pinned toolchain, which is the external boundary. They are not tests of the comparison
-rules: `RegulaPolicy.Erasure.equalWithin_iff` proves those for every pair of terms. -/
+The pass binds each binder a fresh variable (`observe`), and a term cannot hold itself as a part,
+so the variables of one path are different and the comparison's test that they are new
+(`RegulaPolicy.Erasure.newVariables`) holds for them; the test, not this argument, is what the
+verdict rests on. -/
 private def observeEqual : Nat → RegulaPolicy.Erasure.Pairs → Expr → Expr →
     StateRefT Observing MetaM Bool
   | 0, _, _, _ => return false
   | fuel + 1, pairs, a, b => do
-    match ← stepObserved pairs a b with
+    match ← stepObserved pairs a b stepNeeds with
     | .ok parts => parts.allM fun part => observeEqual fuel part.pairs part.left part.right
     | .error _ => return false
 
@@ -449,10 +461,12 @@ private def regeneratedDefinitions (before after : Environment) : Option (Array 
 /-- Whether each regenerated definition equals up to compilation erasure the observed definition of
 its name in the current environment; at least one must have been regenerated. The observing pass
 (`observeEqual`) records what the comparison asks about each pair of values, in order, and stops at
-the first pair it refuses. The verdict is then the pure decision
+the first pair it refuses or at its bound. The verdict is then the pure decision
 `RegulaPolicy.Erasure.reproduces`, run through its registered contract, over the regenerated and
-the observed values and those observations alone (`RegulaPolicy.Erasure.reproduces_iff`): nothing
-else of the environment, and nothing that selected the regeneration, is an argument of it. -/
+the observed values, those observations and whether the pass finished
+(`RegulaPolicy.Erasure.reproduces_iff`): nothing else of the environment, and nothing that selected
+the regeneration, is an argument of it. A pass that did not finish is refused by the decision
+itself (`RegulaPolicy.Erasure.reproduces_eq_false_of_unfinished`). -/
 private def regenerationMatches (regenerated : Array (Name × Expr)) : MetaM Bool := do
   let env ← getEnv
   let definitions := regenerated.toList.map fun (name, value) =>
@@ -462,10 +476,11 @@ private def regenerationMatches (regenerated : Array (Name × Expr)) : MetaM Boo
   let observing := definitions.allM fun
     | (value, some observed) => observeEqual RegulaPolicy.Erasure.depthLimit #[] value observed
     | (_, none) => pure false
-  let (_, seen) ← observing.run
+  let (finished, seen) ← observing.run
     { context := ← getLCtx, instances := ← Meta.getLocalInstances }
   return RegulaPolicy.Erasure.checked_reproduces.run
-    { regenerated := seen.left.observations, observed := seen.right.observations, definitions }
+    { regenerated := seen.left.observations, observed := seen.right.observations, definitions,
+      finished }
 
 /-- The relation of a well-founded fixpoint, as `WF.mkFix` of Lean 4.34.0 takes it: `w` of
 `WellFounded.fix α C w.1 hwf F`, and `invImage h Nat.lt_wfRel` of `WellFounded.Nat.fix α motive h

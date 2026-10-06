@@ -316,40 +316,44 @@ and each field is declared in the part that says where its value comes from
 | Part of the record | Source of its fields | Fields |
 | --- | --- | --- |
 | `Declaration.KernelChecked` | Kernel-checked declaration data: a field of the constant's `ConstantInfo`, or a pure function of such fields. | `name`, `kind`, `type`, `isUnsafe`, `isPartial`, `safety`, `internal`, `private`, `unsafeRecBase`, `levelParams`, `all`, `hints`, `valueConstants`, `nativeStatement` |
-| `Declaration.ToolchainObserved` | A toolchain observation: the answer of Lean's elaborator, compiler or kernel, or of the checker's own observing code, at inspection. Each is an answer computed at inspection, not a copy of an extension's entry. It can depend on project-written state as the limits below say. | `module`, `prettyType`, `isProp`, `axioms`, `unsafeRecRegenerated`, `constructorIndex`, `nativeReplay`, `executableContract` |
-| `Declaration.ProjectWritten` | Environment state an audited project can write: an extension's entry, an attribute, a declaration range. | `instance`, `noncomputable`, `implementedBy`, `extern`, `projection`, `matcher`, `recursive`, `recordedRanges`, `generatedFrom`, `decisionResult` |
+| `Declaration.ToolchainObserved` | A toolchain observation: the answer of Lean's elaborator, compiler or kernel, or of the checker's own observing code, at inspection. No mark a project writes decides one of these fields. | `module`, `prettyType`, `isProp`, `axioms`, `unsafeRecRegenerated`, `nativeReplay` |
+| `Declaration.ProjectWritten` | Environment state an audited project can write, or an observation such state decides: an extension's entry, an attribute, a declaration range, and the two observations of the checker that read such marks directly. | `instance`, `noncomputable`, `implementedBy`, `extern`, `projection`, `matcher`, `recursive`, `recordedRanges`, `generatedFrom`, `constructorIndex`, `executableContract`, `decisionResult` |
 
 `Declaration.Inspected` is the first two parts, and `Declaration` adds the third. A decision or a
-relation whose argument is `Declaration.Inspected` cannot name a field of
-`Declaration.ProjectWritten`: Lean rejects the reference, and reading such a field takes a change
-of the signature that every caller sees. Moving a field to another part is rejected the same way
-at each use that takes the narrower part. What takes which part:
+relation takes the part whose fields it reads, so its signature shows where its inputs come from:
+Lean rejects a reference to a field of another part, and reading one takes a change of the
+signature that every caller sees. Moving a field to another part is rejected the same way at each
+use that takes a narrower part. What takes which part:
 
 | Decision or relation | Argument | Fields it can read |
 | --- | --- | --- |
-| `declarationFailure`, `DeclarationOK` and its conjuncts (`KnownDependencies`, `SafetyOK`, `CompilerPolicyOK`, `ContractOK`, `ProfileOK`), `FoundationOK`, `declarationRequirements` and their theorems (`declarationFailure_none_iff`, `declarationFailure_iff`, `declarationFailure_ne_decisionContract`) | `Declaration.Inspected` | Kernel-checked data and toolchain observations. No field of `Declaration.ProjectWritten`. They can still depend on project-written state through an observation: `declarationFailure` and `ContractOK` read `executableContract.failure`. The role sets are separate arguments. |
-| `Erasure.reproduces` ([below](#the-recursion-helper-comparison-decision-and-observing-pass)) | No record: two values and `Erasure.Observations` | Toolchain observations of the terms of the two values. |
+| `SafetyOK` | `Declaration.KernelChecked` | Kernel-checked data alone (`isUnsafe`, `isPartial`, `name`). The helper set is a separate argument. |
+| `KnownDependencies`, `CompilerPolicyOK`, `ProfileOK` | `Declaration.ToolchainObserved` | Toolchain observations alone (`axioms`). |
+| `FoundationOK` | `Declaration.Inspected` | Kernel-checked data and toolchain observations (`kind`, `axioms`). |
+| `ContractOK` | `Declaration.ProjectWritten` | The recorded contract, whose refusals a project-written mark can decide. |
+| `Erasure.reproduces` ([below](#the-recursion-helper-comparison-decision-and-observing-pass)) | No record: two values, `Erasure.Observations` and whether the pass finished | Toolchain observations of the terms of the two values, and the pass's report of its own run. |
+| `declarationFailure`, `DeclarationOK`, `declarationRequirements` and their theorems | `Declaration` | Every part: they join the relations above, so through `ContractOK` they read the recorded contract. |
 | `decisionFailure`, `DecisionOK` | `Declaration` | `decisionResult`, the project's own registration, and `name`. |
 | `NativeTeachingOK`, `RecursiveHelperOK`, `ConstructorIndexHelperOK` and the `authorized…` validators | `Declaration` | Every part. Each also requires values of project-written fields. A native-proof axiom must have no replacement and no `extern` implementation. A recursion helper and a constructor-index helper must have no replacement, no `extern` implementation and no recorded range. A recursion base must have no replacement and no `extern` implementation. A constructor-index base must have the helper as its replacement and no `extern` implementation. These conditions narrow what is admitted and authenticate nothing. |
-| `policyFor`, `memberFailure`, `operationalFailure`, the editor decision | `Declaration` | Every part, through the decisions above: each passes `declarationFailure` the inspected part. |
+| `policyFor`, `memberFailure`, the editor decision | `Declaration` | Every part, through the decisions above. |
+| `operationalFailure`, `OperationalOK`, `operationalView`, `operationalAxioms` | `Declaration` | `kind`, `isProp`, `axioms` and, through `ContractOK`, the recorded contract. The view also clears `isUnsafe` and `isPartial`. |
 
 **Limits.** The parts classify the source of a value. They do not make an observation truthful,
 and that `Collect.declaration` fills each field from the source its part names is by inspection of
-that function, not proved. A toolchain observation is an answer computed at inspection, not a copy
-of an extension's entry, and it can depend on project-written state in two ways. The docstring of
-each such field says what it reads. The first way is where the toolchain's own answer does:
-`isProp` does not unfold an irreducible definition; `prettyType` and the requirement text of
-`executableContract` use the notations in force; and `nativeReplay` runs compiled code. The second
-way is where the checker's own observer reads a mark directly: `executableContract` reads Lean's
-`noncomputable` mark for one refusal; `constructorIndex` requires that the base's replacement
+that function, not proved. State a project writes can still enter a toolchain observation, and the
+docstring of each such field says how: `isProp` is Lean's answer, which does not unfold an
+irreducible definition; `prettyType` is Lean's printer, which uses the notations in force;
+`nativeReplay` runs compiled code; and what a project writes selects which regeneration
+`unsafeRecRegenerated` reports, while the pure comparison and the kernel decide it. The two
+observations of the checker that a project-written mark decides are fields of
+`Declaration.ProjectWritten` for that reason: `executableContract` reads Lean's `noncomputable`
+mark for one refusal, and `constructorIndex` requires that the base's replacement
 (`@[implemented_by]`) is the helper, that the helper has no replacement and no recorded declaration
 range, that neither has an `extern` implementation, that the eliminator has no replacement and no
-`extern` implementation, and that `getObjTagNat` has no replacement; and what a project writes
-selects which regeneration `unsafeRecRegenerated` reports, while the pure comparison and the kernel
-decide it. So a decision that takes `Declaration.Inspected` cannot name a field of
-`Declaration.ProjectWritten`, and it can still depend on project-written state through an
-observation: `declarationFailure` reads `executableContract.failure`. The role validators and the
-decisions that take the whole `Declaration` still read project-written fields: narrowing them is
+`extern` implementation, and that `getObjTagNat` has no replacement. The declaration decision, the
+role validators and the other decisions that take the whole `Declaration` still read
+project-written fields: a decision of [RG1007] that does not read the `noncomputable` mark
+through the recorded contract, and role validators that do not read attribute and range marks, are
 the rest of [#199](https://github.com/rbeauchamp/regula/issues/199).
 
 **Consumers** (paths from `lean/Regula/`):
@@ -502,7 +506,7 @@ Two-way decisions (`Regula.Decides`), each with an accepted and a refused input:
 | `Regula.Checker.Frontend.coordinateCheck` (accepts on `.ok`) | `CoordinatesAgree` | Transcript coordinates, checked before inventory admission (`checked_scope`). |
 | The spelling parsers `DeclarationKind.parse?`, `BoundaryKind.parse?`, `Correspondence.parse?`, `FoundationClass.parse?`, `ConformingProfile.parse?`, `ExecutionClaim.parse?`, `EvidenceMode.parse?`, `Safety.parse?`, `Reducibility.parse?`, `RecursionOrigin.parse?`, `DecisionKind.parse?`, `DecisionResult.parse?`, `EvaluatorRole.parse?`, `Profile.parse?` and `RuleId.parse?` | The text is the spelling of a value (`roundtrip`, `canonical`) | Transport of closed vocabularies. |
 | `RegulaPolicy.DecisionKind.ofStructureName?` | The name is a kind's structure | Reading a registration's kind ([RG1007]). |
-| `RegulaPolicy.Erasure.reproduces` | `Erasure.Reproduction`: the regeneration added a definition, and each value is related by `Erasure.EqualWithin` to the observed value of its name | The recursion-helper comparison of [RG1006], over the two values and the recorded observations of their terms ([below](#the-recursion-helper-comparison-decision-and-observing-pass)). |
+| `RegulaPolicy.Erasure.reproduces` | `Erasure.Reproduction`: the observing pass finished, the regeneration added a definition, and each value is related by `Erasure.EqualWithin` to the observed value of its name | The recursion-helper comparison of [RG1006], over the two values and the recorded observations of their terms ([below](#the-recursion-helper-comparison-decision-and-observing-pass)). |
 | `Regula.SourceTexts.intern` | One `sourceTexts` member, `null`, and string `sourceText` members (`intern_isOk_iff`) | Writing a result document. |
 | `Regula.Markdown.documentErrors`, `Regula.Prose.bareMentions`, `Regula.Site.linkErrors`, `Regula.Site.missingAnchors`, `Regula.Site.rowsMismatch` | Their `_nil_iff` and `_eq_none_iff` relations | The rule-ID checks of Markdown and of the rendered standard, and the site's link, anchor and checklist checks. |
 | `RegulaQualification.evaluate`, `validateDecoded`, `Registry.validate`, `Native.validate`, `Launcher.equivalent` | `Satisfied` and their `_exact` relations | Qualification evidence. |
@@ -618,30 +622,35 @@ erasure, is split into an observing pass and a pure decision that has one.
   policy library ([`RegulaPolicy/Erasure.lean`](../../lean/RegulaPolicy/Erasure.lean)). Its one
   argument, `Erasure.Regeneration`, holds, for each definition a regeneration added, its value and
   the value of the observed definition of its name (or that the inspected environment holds
-  none), and the `Erasure.Observations` of the terms of each side. It takes nothing else: no
-  environment, reducibility status, attribute, matcher record or termination argument is among
-  its arguments, so whatever selected the regeneration cannot enter the decision without a change
-  of that signature. It is registered with `@[regula_decision]`, `Erasure.checked_reproduces`
-  registers the kind `Regula.Decides`, and the collector takes the verdict from
-  `checked_reproduces.run` (`Collect.regenerationMatches`).
+  none), the `Erasure.Observations` of the terms of each side, and `finished`, what the observing
+  pass reports of its own run. It takes nothing else: no environment, reducibility status,
+  attribute, matcher record or termination argument is among its arguments, so whatever selected
+  the regeneration cannot enter the decision without a change of that signature. It is registered
+  with `@[regula_decision]`, `Erasure.checked_reproduces` registers the kind `Regula.Decides`, and
+  the collector takes the verdict from `checked_reproduces.run` (`Collect.regenerationMatches`).
 - **The observing pass** is `Collect.observeEqual` with `Collect.observe`, in `MetaM`. It takes the
   comparison's own steps (`Erasure.step`) in the comparison's order and, where a step asks for an
   observation it was not given (`Erasure.Need`), records it: whether a term is a proof or a type
   (`Meta.isProof`, `Meta.isType`), a fresh variable for a binder, or a decomposition of a `match`
   application whose threading law Lean's kernel checked (`Collect.threadingLawChecked`). The pass
-  holds no comparison rule, an observation of a term never reads the other side's term, and what
-  the pass returns only says whether to go on observing. Whatever it leaves unobserved the
-  decision refuses.
+  holds no comparison rule, and an observation of a term never reads the other side's term. What
+  the pass returns says whether it finished: `false` where it stopped at a part the comparison
+  refuses, at exhausted depth, or at its bound on the observations one step may ask for
+  (`Collect.stepNeeds`, 1,000,000). The decision takes that answer as `Regeneration.finished` and
+  refuses a pass that did not finish, and it also refuses whatever the pass left unobserved.
 
-**Proved**, about `Erasure.equalWithin`, the function `reproduces` runs (kernel-checked in the
-claimed library, with `propext` and `Quot.sound` only):
+**Proved**, about `Erasure.equalWithin` and `Erasure.reproduces`, the functions the collector runs
+(kernel-checked in the claimed library, with `propext` and `Quot.sound` only):
 
 | Property | Declarations | Meaning and limit |
 | --- | --- | --- |
 | Exact relation | `Erasure.equalWithin_iff` | For every two terms, pairing of variables, depth and pair of observations, the executed comparison answers `true` exactly when `Erasure.EqualWithin` relates the terms within that depth. |
-| The registered decision | `Erasure.reproduces_iff`, `Erasure.checked_reproduces` | `reproduces` accepts exactly a regeneration that added a definition and whose every value is related, within `Erasure.depthLimit` (100000), to the observed value of its name. It accepts one whose two values are erased and refuses one that added no definition. |
-| One constructor for each rule | The constructors of `Erasure.EqualWithin` | `closed` (Lean's expression equality, no free variable), `erased` (both a proof or a type), `mdataLeft`, `mdataRight`, `fvar`, `const`, `lit`, `sort`, `proj`, `fixpoint` (the arguments of a well-founded fixpoint that carry its computation, `Erasure.fixpointArguments?`), `threadedLeft` and `threadedRight` (a `match` that passes a variable through against the direct one, only under a recorded kernel-checked law, `Erasure.Threads`), `app`, `lam`, `forallE` and `letE`. A rule added to the comparison without a constructor, or a constructor without its rule, makes `equalWithin_iff` fail to check. |
-| Outside `closed`, unobserved is refused, and so is an erased term against a kept one | `Erasure.EqualWithin`, `Erasure.Kept` (every rule but `closed` reads the erasure of both terms) | A term the pass was not asked about has no observation, and no rule relates it by its erasure or its structure. A structural rule applies only where both terms are observed not to be erased, so no rule but `closed` relates an erased term to a kept one. `closed` reads no observation: it relates only two terms that Lean's expression equality identifies and that have no free variable, and for two such terms the erasure of one is the erasure of the other when the observations are truthful. That is argued, not proved: `equalWithin_iff` holds for every pair of observations. With truthful observations the relation is the standard's sentence: the two values are the same once every proof and every type of each is erased. |
+| The registered decision | `Erasure.reproduces_iff`, `Erasure.checked_reproduces` | `reproduces` accepts exactly a regeneration whose pass finished, that added a definition, and whose every value is related, within `Erasure.depthLimit` (100000), to the observed value of its name. It accepts one whose two values are erased and refuses one that added no definition. |
+| A pass that stops is refused | `Erasure.reproduces_eq_false_of_unfinished` | A regeneration whose `finished` is `false` is refused, whatever the pass recorded: a bound, exhausted depth or a refused part cannot be followed by an acceptance. It does not prove that the pass reports its own run truthfully. |
+| One constructor for each rule | The constructors of `Erasure.EqualWithin` | `closed` (Lean's expression equality, no free variable), `erased` (both a proof or a type), `mdataLeft`, `mdataRight`, `fvar`, `const`, `lit`, `sort`, `proj`, `fixpoint` (the arguments of a well-founded fixpoint that carry its computation, `Erasure.Fixpoint`), `threadedLeft` and `threadedRight` (a `match` that passes a variable through against the direct one, only under a recorded kernel-checked law, `Erasure.Threads`), `app`, `lam`, `forallE` and `letE`. A new case of `Erasure.step`, `Erasure.structural` or `Erasure.application` without a constructor, or a constructor without its case, makes `equalWithin_iff` fail to check. A change inside a definition that selects the parts a rule compares (`threadedParts`, `alternative`, `openLambdas`, `standingFor`, `paired`) does not: the relation and the comparison share those definitions, so such a change alters both, and it is a review item. |
+| The parts of a fixpoint | `Erasure.Fixpoint`, `Erasure.fixpointArguments?_eq_some_iff`, `Erasure.fixpointArguments?_eq_none_iff` | The `fixpoint` rule states which arguments it compares without the executed selection: the domain, the motive, the functional and the arguments after it of `WellFounded.fix` or `WellFounded.Nat.fix`. The executed `fixpointArguments?` selects exactly those, so a change of the selection fails these theorems. The rule does not compare the combinator or its universe levels: an application of `WellFounded.fix` is related to one of `WellFounded.Nat.fix` with equal such arguments, as the comparison on `main` did. |
+| A variable stands for one binder | `Erasure.newVariables`, `Erasure.under_eq_ok_iff`, `Erasure.under_eq_error_of_reused`, `Erasure.newVariables_of_alternative` | A binder rule and each alternative of a threaded `match` read a body only with variables that no pair holds, on either side, and that differ from each other. A binder whose variable is not new is refused, whatever `Observations.bound` answers. So no answer of the pass makes the relation pair one variable with two binders on one path, as `fun a b => a` against `fun a b => b` would need. |
+| Outside `closed`, unobserved is refused, and so is an erased term against a kept one | `Erasure.equalWithin_unobserved_left`, `Erasure.equalWithin_unobserved_right`, `Erasure.equalWithin_erased_kept`, `Erasure.equalWithin_kept_erased` (each for two terms the `closed` rule does not relate) | A term the pass was not asked about has no observation, and no rule relates it by its erasure or its structure. A structural rule applies only where both terms are observed not to be erased, so no rule but `closed` relates an erased term to a kept one. `closed` reads no observation: it relates only two terms that Lean's expression equality identifies and that have no free variable, and for two such terms the erasure of one is the erasure of the other when the observations are truthful. That is argued, not proved: `equalWithin_iff` holds for every pair of observations. With truthful observations the relation is the standard's sentence: the two values are the same once every proof and every type of each is erased. |
 | Threading pairs | `Erasure.mem_standingFor_left`, `Erasure.mem_standingFor_right` | The pairs under which the variable an alternative binds stands for the variable passed relate that variable alone, and to exactly the variables the passed one was paired with. |
 
 **Hypotheses and trusted boundary.** The theorems start from the observations and the two values.
@@ -649,8 +658,10 @@ They do not prove:
 
 - that an observation is what Lean answers. Erasure is `Meta.isProof` or `Meta.isType` of the
   term in the context of the variables the pass bound; a recorded decomposition is one for which
-  `Environment.addDeclCore` accepted the threading law. Both are the pass's, and a wrong answer
-  is a wrong observation, not a refuted theorem;
+  `Environment.addDeclCore` accepted the threading law, where what Lean records about the applied
+  constant gave the decomposition; and `finished` is what the pass reports of its own run. All are
+  the pass's, and a wrong answer is a wrong observation, not a refuted theorem. The variable the
+  pass gives a binder is not among these hypotheses: the comparison refuses one that is not new;
 - anything about Lean's own functions the comparison runs and the relation names as it runs them:
   expression equality (`Expr.eqv`), the free-variable test, `Expr.instantiate1`, the head and
   arguments of an application, and the equality of names, universe levels and literals. Several
@@ -658,13 +669,15 @@ They do not prove:
   stated as those Boolean tests;
 - the adequacy of the relation: that two related values compile to code that computes the same.
   That is argued, with no theorem, rule by rule: a proof or a type has no code; a well-founded
-  fixpoint's relation, measure and well-foundedness proof have none either; the kernel-checked
-  law makes a threaded `match` equal to the direct one with each alternative applied to the
-  variable passed, and the alternatives are compared with the bound variable standing for it;
-  and every other rule compares the same constructor part by part. The relation's vocabulary
-  (`fixpointArguments?`, `threadedParts`, `alternative`, `openLambdas`, `standingFor`, `paired`)
-  is the comparison's own: a constructor states when its rule applies and that every part is
-  related, and which parts those are is the definition both share;
+  fixpoint's relation, measure and well-foundedness proof have none either, and the rule takes the
+  two fixpoint combinators as one, on the claim, which is not checked, that each computes the
+  same from its domain, motive, functional and remaining arguments; the kernel-checked law makes
+  a threaded `match` equal to the direct one with each alternative applied to the variable
+  passed, and the alternatives are compared with the bound variable standing for it; and every
+  other rule compares the same constructor part by part. For the threaded rules, which parts are
+  compared is `threadedParts`, the definition the relation shares with the comparison: how the
+  relation can constrain that selection without a copy of it is open
+  ([#199](https://github.com/rbeauchamp/regula/issues/199));
 - the regeneration that supplies the values, the selection of the observed definitions by name,
   or the kernel's check of the recursion equation, which are as described under
   [editor feedback](#editor-feedback).
@@ -674,9 +687,9 @@ whether a term is a proof or a type: an irreducible definition can make Lean ans
 or a type is neither, which sends the comparison to the structural rules or, where the other term
 is erased, refuses the pair, and it cannot make Lean answer that a term with code is erased, since
 a reduction step is a definitional equality under every assignment of statuses (argued from Lean's
-source, not checked). And matcher and `casesOn`
-metadata, which proposes the decomposition whose law the kernel then checks or refuses. Neither
-is an argument of the decision.
+source, not checked). And matcher and `casesOn` metadata, which gives the decomposition whose law
+the kernel then checks or refuses: what the pass records is that check. Neither is an argument of
+the decision.
 
 **The counterexample that narrowed the rule.** Standard §7.4 says the two values are the same
 once every proof and every type of each is erased. Until this split the comparison accepted two
@@ -686,22 +699,37 @@ the two by their structure, as it does where neither is. So it accepted
 bodies are paired variables, of which the first is a proof and the second is not. Stating the
 relation exposed that case. Outside the `closed` rule, the comparison now reads the erasure of both
 terms, compares structure only where compilation keeps both (`Erasure.Kept`), and refuses a pair of
-which exactly one is erased. `equalWithin_iff` refuses that pair with every other of its kind: no
-rule but `closed` relates an erased term to a kept one. `closed` is the exception because it reads
-no observation. It relates only two terms that Lean's expression equality identifies and that have
-no free variable, and for two such terms the erasure of one is the erasure of the other when the
-observations are truthful: the pass asks Lean about both in one environment, and the answer for a
-term with no free variable does not depend on the variables the term is under. That is argued, not
-proved, because `equalWithin_iff` holds for every pair of observations. With truthful observations
-`Erasure.EqualWithin` is therefore the standard's sentence. The rule only refuses more than it did,
-so it admits no helper the earlier comparison refused. The two values the collector compares are
-kernel-checked values of one declared type, and no helper is known whose verdict the narrowing
-changes.
+which exactly one is erased (`Erasure.equalWithin_erased_kept`, `Erasure.equalWithin_kept_erased`).
+`closed` is the exception because it reads no observation. It relates only two terms that Lean's
+expression equality identifies and that have no free variable, and for two such terms the erasure
+of one is the erasure of the other when the observations are truthful: the pass asks Lean about
+both in one environment, and the answer for a term with no free variable does not depend on the
+variables the term is under. That is argued, not proved, because `equalWithin_iff` holds for every
+pair of observations. With truthful observations `Erasure.EqualWithin` is therefore the standard's
+sentence.
+
+What the narrowing changes is this. For one regeneration it only refuses more: a pair of values
+the comparison accepts now, the earlier comparison accepted too. That does not hold for the search
+over regenerations. The first regeneration the comparison accepts decides
+(`Collect.unsafeRecRegeneration`): where the kernel then does not check the recursion equation,
+the helper is not admitted and no other regeneration is tried. A regeneration that the earlier
+comparison accepted through a pair with one erased term, and whose equation the kernel did not
+check, is refused now, so the search goes on to a later regeneration, which can reproduce the base
+and pass the equation check. Such a helper is admitted now and was not before, and a recorded
+origin can change in the same way. What holds in every case is that each admitted helper has a
+regeneration the relation accepts and a kernel-checked recursion equation for each helper of its
+group. No such helper is known: the recorded origin of every recursion helper of the fixtures and
+of Regula's own libraries is the same as with the earlier comparison (observed; the pull request
+that made the change gives the numbers).
 
 **Observed.** `checkerSelftest fixtures` exercises the pass and the regeneration against the pinned
-toolchain: every helper of the positive recursion fixtures is admitted, and each forged helper of
-the mutation fixtures is rejected. Those fixtures test this external boundary, not the comparison
-rules, which the theorem settles.
+toolchain: every helper of the positive recursion fixtures is admitted, each completed mutation
+control rejects its forged helper, and the two bound controls
+(`Fixtures.Mutations.ReducibilitySearchBoundUnsafeRecForge` and
+`Fixtures.Mutations.ReducibilityFallbackBoundUnsafeRecForge`) leave theirs undecided, with the
+audit incomplete. Those fixtures test this external boundary. They are not tests of the comparison
+rules: the theorem proves that the executed comparison accepts exactly the related terms, and the
+adequacy of the rules stays argued.
 
 The other producers of [#199](https://github.com/rbeauchamp/regula/issues/199) (native-axiom
 replay matching, contract recognition and reach, receipt validation, root and closure discovery,
@@ -1734,8 +1762,11 @@ No theorem covers the regeneration itself, which runs in Lean's elaborator; sinc
 check, it selects the base and carries no claim about what the helper computes. The comparison's
 verdict is a pure decision with a kind
 ([above](#the-recursion-helper-comparison-decision-and-observing-pass)); its observing pass
-never uses `Meta.isDefEq`: where two values differ under a recursive call, its lazy unfolding of
-the self-referential helper does not terminate. The regeneration runs Lean's elaborator in the
+does not compare the two values with `Meta.isDefEq`: where two values differ under a recursive
+call, its lazy unfolding of the self-referential helper does not terminate. The pass does use
+Lean's definitional equality inside the check of a threading law (`Collect.threadingLawChecked`
+type-checks the law's left-hand side and closes its cases with `rfl`), where the kernel then
+decides. The regeneration runs Lean's elaborator in the
 report worker and is undone before the comparison, whose pass reads the observed definitions and
 observes erasure in the inspected environment; a pass that throws counts as no regeneration. The
 report's other elaborator observations (`Meta.isProp`, the pretty-printed type, and `Probe`'s

@@ -533,8 +533,9 @@ def guide : RuleId → Guide
         `authorizedConstructorIndexHelpers_iff` characterizes the separate constructor relation, \
         and `Roles.safetyHelpers_iff` binds both families to the same inventory. The comparison \
         that records a recursion helper's observation is the pure decision \
-        `RegulaPolicy.Erasure.reproduces` over the regenerated and the observed values and the \
-        observations of their terms: `Erasure.equalWithin_iff` proves it accepts exactly the \
+        `RegulaPolicy.Erasure.reproduces` over the regenerated and the observed values, the \
+        observations of their terms and whether the observing pass finished: \
+        `Erasure.equalWithin_iff` proves it accepts exactly the \
         values `Erasure.EqualWithin` relates, one constructor for each comparison rule, and \
         `Erasure.checked_reproduces` registers the kind. The observations themselves and the \
         regeneration (`Regula.Collect`) are operational."
