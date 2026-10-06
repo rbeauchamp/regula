@@ -811,6 +811,15 @@ def provision (repo : FilePath) : IO Unit := do
       lock.unlock
   say s!"Mathlib {pins.mathlibRev} is shared read-only from {shared}"
 
+/-- The commit that the Lake manifest of `package` pins for the Git package `name`. -/
+def manifestRevision (repo : FilePath) (package name : String) : IO String := do
+  let manifest ← IO.ofExcept
+    (Json.parse (← IO.FS.readFile (repo / package / "lake-manifest.json")))
+  for entry in ← IO.ofExcept (manifest.getObjValAs? (Array Json) "packages") do
+    if let some (_, pin, _) ← IO.ofExcept (gitPin entry) then
+      if pin.name == name then return pin.rev
+  throw <| IO.userError s!"provisioning: {package}/lake-manifest.json pins no Git package {name}"
+
 /-- Provision the website's pinned Verso with the released compiler. -/
 def provisionVerso (repo : FilePath) : IO Unit := do
   requireCompiler repo
@@ -819,6 +828,16 @@ def provisionVerso (repo : FilePath) : IO Unit := do
     unless (← IO.FS.readFile (repo / "lean-toolchain")) ==
         (← IO.FS.readFile (repo / package / "lean-toolchain")) do
       throw <| IO.userError s!"provisioning: {package}/lean-toolchain differs from the root"
+  -- The `markdown/` package pins MD4Lean in its own manifest, and the website's manifest pins it
+  -- through Verso. Lake has one lock manifest for each workspace, so the commit has two sources.
+  -- The two workspaces keep one checkout in the root `.lake/packages`: two commits would make
+  -- each workspace move that checkout and build it again during the timed documentation step.
+  let reader ← manifestRevision repo "markdown" "MD4Lean"
+  let verso ← manifestRevision repo "website" "MD4Lean"
+  unless reader == verso do
+    throw <| IO.userError s!"provisioning: markdown/lake-manifest.json pins MD4Lean {reader} \
+      and website/lake-manifest.json pins MD4Lean {verso}; the two packages keep one checkout, \
+      so pin the same commit in the two manifests"
   stream (repo / "website") "lake" #["build", "verso/VersoManual"]
 
 /-- Check the exact supported compiler before provisioning any dependency artifacts. -/

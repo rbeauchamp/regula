@@ -11,9 +11,9 @@ md4c's decision, and which piece each becomes is that module's (see Boundaries).
 
 ## Main declarations
 
-- `Piece`, `Reading`: what the parser reports of a document, in document order: prose, code, the
-  edges of each link's text, the constructs the check refuses, and the boundaries between runs
-  and between source lines.
+- `Kind`, `Piece`, `Reading`: what the parser reports of a document, in document order: prose,
+  code, the edges of each link's text, the constructs the check refuses, the boundaries between
+  runs and between source lines, and the start of each block with its kind.
 - `Place`, `Standing`, `Found`, `findings`: the rule-ID tokens (`Regula.Prose.tokenAt`) of the
   rendered text, each with how it stands, and the refused constructs. A token is read over the
   whole text of a run, so one that a link's edge or a code span's edge divides is found too.
@@ -64,6 +64,23 @@ open Regula.Prose
 
 /-! ## What the parser reports -/
 
+/-- The kind of a block of a document, as far as the checks of its prose tell blocks apart
+(`RegulaCore/ControlledProse.lean`). The rule-ID check does not read it. -/
+inductive Kind where
+  /-- A heading. -/
+  | heading
+  /-- A paragraph that is not in a list item: also a paragraph of a block quote. -/
+  | paragraph
+  /-- A paragraph of an item of an ordered list. -/
+  | step
+  /-- A paragraph of an item of an unordered list. -/
+  | bullet
+  /-- A table cell. -/
+  | cell
+  /-- A code block or a raw HTML block, which has no prose. -/
+  | code
+  deriving DecidableEq, Repr
+
 /-- One piece of a Markdown document as its parser reports it, in document order. -/
 inductive Piece where
   /-- Prose: `slice` is the text as the parser reported it from the source and `rendered` what it
@@ -85,6 +102,8 @@ inductive Piece where
   /-- A line boundary: the pieces after it lie on a later source line than the pieces before
   it. -/
   | line
+  /-- The start of a block of `kind`: the pieces from here to the next start are the block's. -/
+  | start (kind : Kind)
   deriving DecidableEq, Repr
 
 /-- What the parser reports of one document. -/
@@ -105,7 +124,7 @@ def blank (text : String) : Bool := text.toList.all Char.isWhitespace
 `blank`. -/
 def Piece.located? : Piece → Option String
   | .text slice _ | .code slice => if blank slice then none else some slice
-  | .enter _ | .leave | .refused _ | .gap | .line => none
+  | .enter _ | .leave | .refused _ | .gap | .line | .start _ => none
 
 /-- Where one character of a run stands. -/
 inductive Place where
@@ -216,8 +235,9 @@ def Scan.place (s : Scan) : Place :=
   | [] => .prose
 
 /-- Read one piece. Prose and code continue the run in progress, each character with its place;
-the edge of a table cell or of an image's description and a line boundary end it, so a token is
-read across the edges of links and code spans and across nothing else. A link's text may hold
+the edge of a table cell or of an image's description, a line boundary and the start of a block
+end it, so a token is read across the edges of links and code spans and across nothing else. A
+link's text may hold
 another link: leaving the inner link returns to the outer link's text. md4c reports an autolink
 inside a link's text so, a bare URL and `<URL>` alike, and its reading of such a link is
 refused where the pieces are made, since GitHub renders neither form that way. -/
@@ -229,7 +249,7 @@ def Scan.step (s : Scan) : Piece → Scan
     { s with entered := (s.links, destination) :: s.entered, links := s.links + 1 }
   | .leave => { s with entered := s.entered.tail }
   | .refused reason => { s with found := ⟨.refused reason, s.anchor⟩ :: s.found }
-  | .gap | .line => s.flush
+  | .gap | .line | .start _ => s.flush
 
 /-- The findings of a document: the mentions of its runs and its refused constructs, run by run
 in document order. Within one run the constructs refused in it come first, then its mentions. -/

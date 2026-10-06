@@ -1321,28 +1321,46 @@ theorem Draft.lineOf_spec (d : Draft) {line : List Char} (h : line ∈ d.lines) 
 
 /-- Why `text` is not the text of a vocabulary: each reason, with the number of its line. -/
 def explain (text : String) : List (Nat × String) :=
-  match scan text.toList with
-  | .error (remaining, reason) => [((linesOf text.toList).length + 1 - remaining, reason)]
-  | .ok d =>
-    if d.render = text.toList then
-      d.defects.map fun (line, reason) => (d.lineOf line, reason)
-    else
-      [(firstDifference 1 d.lines (split '\n' text.toList),
-        "the text is not the print of its vocabulary from this line on: a missing line feed at \
-          the end of the text, a cell that the print writes with other spaces, a `Replaces` \
-          cell that is not `-` or names with `, ` between them, or a `Source` cell that is not \
-          a path in backticks with or without a Lean name in backticks and parentheses after \
-          it")]
+  if text.toList.getLast? = some '\n' then
+    match scan text.toList with
+    | .error (remaining, reason) => [((linesOf text.toList).length + 1 - remaining, reason)]
+    | .ok d =>
+      if d.render = text.toList then
+        d.defects.map fun (line, reason) => (d.lineOf line, reason)
+      else
+        [(firstDifference 1 d.lines (split '\n' text.toList),
+          "the text is not the print of its vocabulary from this line on: a cell that the \
+            print writes with other spaces, a `Replaces` cell that is not `-` or names with \
+            `, ` between them, or a `Source` cell that is not a path in backticks with or \
+            without a Lean name in backticks and parentheses after it")]
+  else [((split '\n' text.toList).length, "the text has no line feed at its end")]
+
+/-- A text with one terminated part or more ends with the terminator. -/
+theorem terminated_getLast? (terminator : Char) {parts : List (List Char)} (h : parts ≠ []) :
+    (terminated terminator parts).getLast? = some terminator := by
+  rcases List.eq_nil_or_concat parts with rfl | ⟨init, last, rfl⟩
+  · exact absurd rfl h
+  · simp [terminated, List.concat_eq_append, List.flatMap_append]
+
+/-- The print of a draft ends with a line feed. -/
+theorem Draft.render_getLast? (d : Draft) : d.render.getLast? = some '\n' :=
+  terminated_getLast? '\n' (by simp [Draft.lines])
 
 /-- `explain` reports nothing exactly when `parse` accepts the text. -/
 theorem explain_nil_iff (text : String) : explain text = [] ↔ (parse text).isSome = true := by
   unfold explain parse
-  cases hscan : scan text.toList with
-  | error refusal => simp
-  | ok d =>
-    by_cases hrender : d.render = text.toList
-    · by_cases hdefects : d.defects = [] <;> simp [hrender, hdefects]
-    · simp [hrender]
+  by_cases hlast : text.toList.getLast? = some '\n'
+  · cases hscan : scan text.toList with
+    | error refusal => simp [hlast]
+    | ok d =>
+      by_cases hrender : d.render = text.toList
+      · by_cases hdefects : d.defects = [] <;> simp [hlast, hrender, hdefects]
+      · simp [hlast, hrender]
+  · cases hscan : scan text.toList with
+    | error refusal => simp [hlast]
+    | ok d =>
+      have hrender : d.render ≠ text.toList := fun heq => hlast (heq ▸ d.render_getLast?)
+      simp [hlast, hrender]
 
 /-! ## Sources and shared tables -/
 
