@@ -8,12 +8,16 @@ documents are the files Git tracks below the repository root whose extension is 
 `markdown`, as `git ls-files` lists them; each is read from the working tree. The documentation
 step of acceptance runs it (`lean/RegulaVerification.lean`).
 
-Everything this program decides, it decides with a registered decision of `RegulaCore`:
-`documentErrors` for the rule IDs, and `parse`, `adopt` and `untracked` for the vocabulary.
-`vocabularyOf` puts the three decisions of the vocabulary together, and `explain` and `clashes`
-give the lines of a refusal (`explain_nil_iff`, `clashes_nil_iff`). The rest is not proved: the
-list of tracked files is Git's, the content of a file is the file system's, and md4c's reading
-of a document is `Regula.Markdown.read`'s (`RegulaMarkdown.lean`). -/
+This program uses four registered decisions of `RegulaCore`: `documentErrors` for the rule IDs,
+and `parse`, `adopt` and `untracked` for the vocabulary. `vocabularyOf` puts the three decisions
+of the vocabulary together, and `explain` and `clashes` give the lines of a refusal
+(`explain_nil_iff`, `clashes_nil_iff`). The other refusals of a repository have no registered
+decision and no theorem: `vocabularyOf` refuses a vocabulary that names a shared vocabulary when
+it is given none; `loadVocabulary` refuses when Git does not track `CONTEXT.md`, and when Git
+does not list the files of the repository of the shared vocabulary; and `check` refuses when Git
+does not list the files of the repository, and when it lists no Markdown document. The rest is
+not proved: the list of tracked files is Git's, the content of a file is the file system's, and
+md4c's reading of a document is `Regula.Markdown.read`'s (`RegulaMarkdown.lean`). -/
 
 open Regula.Markdown Regula.Controlled
 
@@ -176,7 +180,8 @@ def check (options : Options) : IO UInt32 := do
 /-! ## Controls
 
 The files of `lean/Fixtures/ControlledProse` are controls of the decisions of check C9
-(`parse`, `adopt` and `untracked`): a text that the check accepts, and texts that it refuses.
+(`parse`, `adopt` and `untracked`) and of the one refusal of `vocabularyOf` that none of them
+decides: a text that the check accepts, and texts that it refuses.
 Each is read as `CONTEXT.md` is, by `vocabularyOf`, with the names of the files of the directory
 as the tracked files. The run below refuses unless each control has the result that `controls`
 gives, with the exact file, line and check at the start of each refusal, and unless the
@@ -215,6 +220,9 @@ def controls : List Control := [
   { own := "C9.refuse-no-word.text", expect := .refused "C9.refuse-no-word.text" 10 },
   -- `untracked` refuses a source path that is no tracked file.
   { own := "C9.refuse-source.text", expect := .refused "C9.refuse-source.text" 10 },
+  -- The branch of `vocabularyOf` that refuses a vocabulary that names a shared vocabulary when
+  -- it is given none. This refusal is of no registered decision.
+  { own := "C9.project.accept.text", expect := .refused "C9.project.accept.text" 5 },
   -- `adopt` accepts a project vocabulary with the `Shared` tables of the vocabulary it names.
   { own := "C9.project.accept.text", shared := some "C9.accept.text", expect := .accepted },
   -- `adopt` refuses a row of a `Project` table that has the term of a row of a `Shared` table.

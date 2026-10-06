@@ -528,7 +528,16 @@ decision has a decision contract and the attribute `regula_decision`. The defini
 and of a sentence are in
 [`RegulaCore/ControlledText.lean`](../../lean/RegulaCore/ControlledText.lean). The function
 `vocabularyOf` in [`markdown/MarkdownMain.lean`](../../markdown/MarkdownMain.lean) uses these
-decisions and no other decision to accept the file.
+decisions.
+
+The executable also does not accept the file in each of these conditions, and it has no decision
+contract for them:
+
+- The file has the line `Shared vocabulary:`, and the command does not have the option
+  `--shared`.
+- Git does not track the file.
+- Git gives no list of tracked files for the repository, or for the directory of the file of the
+  option `--shared`.
 
 The controls of the check are the files in
 [`lean/Fixtures/ControlledProse/`](../../lean/Fixtures/ControlledProse/). The documentation step

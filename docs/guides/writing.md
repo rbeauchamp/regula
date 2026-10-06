@@ -49,7 +49,7 @@ The check compares terms, names and words in lowercase. The statement `Draft.Wel
 
 C9 also does not accept a row with a source path that is not a tracked file of the repository.
 
-A second project can use the `Shared` tables of this `CONTEXT.md`. The `CONTEXT.md` of that project has the line `Shared vocabulary:` with the name of the package, and it has no `Shared` table. The option `--shared` gives the `CONTEXT.md` of the package to the check. The check then reads the rows of the two files together. Thus a `Project` row cannot have the term of a `Shared` row. The source path of a `Shared` row must be a tracked file of the repository of the package.
+A second project can use the `Shared` tables of this `CONTEXT.md`. The `CONTEXT.md` of that project has the line `Shared vocabulary:` with the name of the package, and it has no `Shared` table. The option `--shared` gives the `CONTEXT.md` of the package to the check. The check then reads the rows of that project together with the `Shared` tables of the package, but not with its other tables. Thus a `Project` row cannot have the term of a `Shared` row. The source path of a `Shared` row must be a tracked file of the repository of the package.
 
 ### Words and sentences
 
