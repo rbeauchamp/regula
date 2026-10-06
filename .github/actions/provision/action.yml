@@ -104,7 +104,8 @@ runs:
         key: ${{ steps.dependencies.outputs.cache-primary-key }}
 
     # The website package's dependencies (Verso and its own: SubVerso, MD4Lean, illuminate, Cli,
-    # plausible), pinned by its lock manifest in the root `.lake/packages`.
+    # plausible), pinned by its lock manifest in the root `.lake/packages`. The `markdown/` package
+    # pins the same MD4Lean checkout in its own lock manifest, so the key reads the two manifests.
     - name: Restore pinned Verso dependencies
       if: inputs.verso == 'true'
       id: verso
