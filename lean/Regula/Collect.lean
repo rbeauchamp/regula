@@ -2158,56 +2158,222 @@ private def mentionChain? (env : Environment) (target : Name) (e : Expr) :
           pending := pending.push next
   return none
 
-/-- Whether `decided` is the constant `implementation`, or `Function.uncurry` applied any number
-of times to it: the function a decision kind is stated about is then the registered
-implementation on the product of its arguments. -/
-private def decidesImplementation (implementation : Name) : Expr → Bool
-  | .const name _ => name == implementation
-  | .mdata _ decided => decidesImplementation implementation decided
-  | .app function decided =>
-      function.isAppOfArity ``Function.uncurry 3 && decidesImplementation implementation decided
-  | _ => false
+/-- The structure, the position of the field and the number of the structure's parameters when
+`value`, under `binders` binders already opened, is a field's projection function: one binder
+for each parameter, one for the structure's value, and the primitive projection of that value. -/
+private def projectionBody? : Expr → Nat → Option (Name × Nat × Nat)
+  | .lam _ _ body _, binders => projectionBody? body (binders + 1)
+  | .proj structureName index (.bvar 0), binders + 1 => some (structureName, index, binders)
+  | _, _ => none
 
-/-- The decision kind of a registration's requirement, with the acceptance predicate, the
-specification and the decided function it states: `requirement` reduced to weak head normal form
-at the ambient transparency is an application of the kind's structure
-(`RegulaPolicy.DecisionKind.ofStructureName?`) to its two type arguments and those three. `none`
-for every other requirement. The requirement is reduced only when
-`ContractScope.mayReachDecision` admits that the reduction can produce a kind, as a declared type
-is in `executableContract?`. -/
+/-- The structure and the position of the field when `argument` is a field of the variable that
+the innermost binder binds: the primitive projection of that variable, or a constant whose value
+is a field's projection function (`projectionBody?`) applied to the structure's parameters and
+that variable. The constant is a definition, or a theorem for a field that is a proof. `none`
+for every other term, a field of a field among them. Whether a constant is a projection function
+is read from its kernel-checked value, not from Lean's record of projection functions, which is
+environment state an audited project can write. -/
+private def boundField? (env : Environment) (argument : Expr) : Option (Name × Nat) :=
+  match argument.consumeMData with
+  | .proj structureName index (.bvar 0) => some (structureName, index)
+  | .app function (.bvar 0) => do
+      let .const projection _ := function.getAppFn | none
+      let value ← match ← env.find? projection with
+        | .defnInfo definition => some definition.value
+        | .thmInfo proof => some proof.value
+        | _ => none
+      let (structureName, index, parameters) ← projectionBody? value 0
+      guard (function.getAppNumArgs == parameters)
+      some (structureName, index)
+  | _ => none
+
+/-- What the kernel-checked declarations say of a term that, under one binder, applies a constant
+to `arguments`: the shape of the inductive type of whose value the first argument is a field,
+and for each argument the field of the bound variable in that type that it is (`boundField?`).
+`none` when the first argument is no field or its type has no constructor. -/
+private def fieldPacking? (env : Environment) (arguments : Array Expr) :
+    Option RegulaPolicy.FieldPacking := do
+  let (typeName, _) ← boundField? env (← arguments[0]?)
+  let .inductInfo type ← env.find? typeName | none
+  let .ctorInfo first ← env.find? (← type.ctors.head?) | none
+  some {
+    constructors := type.ctors.length
+    indices := type.numIndices
+    fields := first.numFields
+    arguments := arguments.toList.map fun argument =>
+      (boundField? env argument).bind fun (name, index) =>
+        if name == typeName then some index else none }
+
+/-- The universe levels at which `body` names the constant `implementation`, with what the
+kernel-checked declarations say of its arguments (`fieldPacking?`), when `body`, under one
+binder, is that constant applied to arguments of which the first is a field of the bound
+variable. `none` for every other term. Whether the arguments are the fields of the bound
+variable, each once and in the order of the fields, in a type with one constructor and no index,
+is decided with the rest of the reading (`RegulaPolicy.DecidedFunction.covers`). A field left
+out, given twice or out of order, a field the constant does not take, and a type with an index,
+whose values are only some of the tuples of its fields, each fail that decision. -/
+private def fieldApplication? (env : Environment) (implementation : Name) (body : Expr) :
+    Option (List Level × RegulaPolicy.FieldPacking) := do
+  let .const name levels := body.getAppFn | none
+  guard (name == implementation)
+  let packing ← fieldPacking? env body.getAppArgs
+  some (levels, packing)
+
+/-- Whether `function`, applied to one more argument, packs or erases that argument, a function,
+without changing which inputs it is defined on: `Function.uncurry` at its three implicit
+arguments, which packs two arguments into a pair, or one of the two erasures of
+`Regula.Contract` at its implicit arguments (`Regula.Dependent.isSome`, `Regula.Dependent.isOk`),
+each of which forgets the part of the result whose type depends on the input. These three
+constants are read by name and no other function is. -/
+private def packsOrErases (function : Expr) : Bool :=
+  function.isAppOfArity ``Function.uncurry 3 ||
+    function.isAppOfArity ``Regula.Dependent.isSome 2 ||
+    function.isAppOfArity ``Regula.Dependent.isOk 3
+
+/-- The universe levels at which `decided` names the constant `implementation`, with the field
+application at its core when it has one, when `decided` has one of the forms that are read: the
+constant itself; the constant applied to fields of the variable of one binder
+(`fieldApplication?`); or `Function.uncurry` or an erasure of `Regula.Contract` (`packsOrErases`)
+applied any number of times to one of the two. `none` for every other term, so no other way of
+supplying the arguments is read as a packing, and no other function of the result as an erasure.
+Whether a term of these forms is the implementation on every argument is decided afterwards
+(`RegulaPolicy.DecidedFunction.covers`). -/
+private def decidedReading? (env : Environment) (implementation : Name) :
+    Expr → Option (List Level × Option RegulaPolicy.FieldPacking)
+  | .const name levels => if name == implementation then some (levels, none) else none
+  | .mdata _ decided => decidedReading? env implementation decided
+  | .lam _ _ body _ =>
+      (fieldApplication? env implementation body).map fun (levels, packing) =>
+        (levels, some packing)
+  | .app function decided =>
+      if packsOrErases function then decidedReading? env implementation decided else none
+  | _ => none
+
+/-- The constant that `argument` applies to the variable of the innermost binder, in the place
+of a field's projection function (`boundField?`), when `env` is the environment of a file with a
+`module` header and has that constant as an axiom. Lean gives such a file a theorem of an
+imported module, and a definition or an opaque constant that the module does not export with
+its value, as an axiom. The projection function of a proof field is such a theorem, so that
+environment cannot say whether the constant is a projection function. `none` for every other
+argument, and for every argument in an environment with no `module` header, where every imported
+constant has its own declaration and an axiom is no field. -/
+private def hiddenProjection? (env : Environment) (argument : Expr) : Option Name := do
+  guard env.header.isModule
+  let .app function (.bvar 0) := argument.consumeMData | none
+  let .const projection _ := function.getAppFn | none
+  let .axiomInfo _ ← env.find? projection | none
+  some projection
+
+/-- The constant that keeps `env` from saying whether `decided` is a field application of
+`implementation`: under `Function.uncurry` and the erasures (`packsOrErases`), as
+`decidedReading?` reads them, `decided` is the constant `implementation` applied under one
+binder, and an argument applies to the bound variable a constant that `env` has only as an axiom
+(`hiddenProjection?`). `none` for every other term. -/
+private def hiddenField? (env : Environment) (implementation : Name) : Expr → Option Name
+  | .mdata _ decided => hiddenField? env implementation decided
+  | .lam _ _ body _ =>
+      if body.getAppFn.isConstOf implementation then
+        body.getAppArgs.findSome? (hiddenProjection? env)
+      else none
+  | .app function decided =>
+      if packsOrErases function then hiddenField? env implementation decided else none
+  | _ => none
+
+/-- The number of arguments that a value of `type` takes: the leading binders of `type`, with
+every definition unfolded. A term can be applied only when its type reduces to a function type,
+so a value of a type with no leading binder takes no argument. For the result type of the
+function that a decision kind is stated about, a number above zero says that the function is the
+implementation with arguments left. -/
+private def unsuppliedArguments (type : Expr) : MetaM Nat :=
+  Meta.withTransparency .all <| Meta.forallTelescopeReducing type fun arguments _ =>
+    pure arguments.size
+
+/-- Whether `levels` are universe parameters, no two of them the same. A registration is stated
+for every value of its own universe parameters, so a kind about a constant at such levels holds
+of every universe instance of the constant. At any other levels, such as a literal level or one
+parameter twice, it holds only of some instances. -/
+private def ownParameters (levels : List Level) : Bool :=
+  levels.all (·.isParam) && levels.eraseDups.length == levels.length
+
+/-- The decision kind of a registration's requirement, with the result type, the acceptance
+predicate, the specification and the decided function it states: `requirement` reduced to weak
+head normal form at the ambient transparency is an application of the kind's structure
+(`RegulaPolicy.DecisionKind.ofStructureName?`) to its two type arguments, of which the result
+type is the second, and those three. `none` for every other requirement. The requirement is
+reduced only when `ContractScope.mayReachDecision` admits that the reduction can produce a kind,
+as a declared type is in `executableContract?`. -/
 private def decisionRequirement? (env : Environment) (scope : ContractScope) (requirement : Expr) :
-    MetaM (Option (RegulaPolicy.DecisionKind × Expr × Expr × Expr)) := do
+    MetaM (Option (RegulaPolicy.DecisionKind × Expr × Expr × Expr × Expr)) := do
   unless (← scope.mayReachDecision env requirement) do return none
   let reduced ← Meta.whnf requirement
   let some kind := reduced.getAppFn.constName?.bind RegulaPolicy.DecisionKind.ofStructureName?
     | return none
   let args := reduced.getAppArgs
-  let (some accepts, some spec, some decided) := (args[2]?, args[3]?, args[4]?) | return none
+  let (some result, some accepts, some spec, some decided) :=
+    (args[1]?, args[2]?, args[3]?, args[4]?) | return none
   unless args.size == 5 do return none
-  return some (kind, accepts, spec, decided)
+  return some (kind, result, accepts, spec, decided)
 
 /-- Why a decision registration of `implementation` is refused: the kind is stated about a
-function other than the implementation or its uncurrying, so it says nothing of the registered
-constant across its domain, or the acceptance predicate or the specification mentions the
-implementation (`mentionChain?`), as the tautology `spec := fun x => f x = true` does. `none`
-when neither holds. This establishes only that the two are stated without the implementation's
-constant; whether the specification is the intended one remains review. -/
+function that is not one of the forms that are read (`decidedReading?`), or that is not the
+implementation on every argument (`RegulaPolicy.DecidedFunction.covers`, proved exact in
+`DecidedFunction.covers_iff`), so it can say nothing of the registered constant, or nothing of a
+part of its domain; it is stated about the implementation at universe levels other than its own
+parameters (`ownParameters`), so it says nothing of the other universe instances; or the
+acceptance predicate or the specification mentions the implementation (`mentionChain?`), as the
+tautology `spec := fun x => f x = true` does. `none` when none of these holds. `result` is the
+result type of the kind: a function that is the implementation with an argument left has a
+result that is itself a function (`unsuppliedArguments`). Every such kind is refused, without a
+reading of its acceptance predicate: one that reads the result at one fixed value of the
+argument is the kind of one slice of the implementation (`Regula.Decides.iff_slice`), and one
+that quantifies over the argument is refused too, which is conservative. The search for a
+mention establishes only that the acceptance predicate and the specification are stated without
+the implementation's constant; whether the specification is the intended one remains review. -/
 private def decisionFailure? (env : Environment) (implementation : Name)
-    (accepts spec decided : Expr) : MetaM (Option String) := do
+    (result accepts spec decided : Expr) : MetaM (Option String) := do
   let mention (part : String) (chain : Array Name) : String :=
     let route := chain.pop.toList.map (s!"`{·}`")
     let through := if route.isEmpty then "" else s!" through {", then ".intercalate route}"
     s!"decision contract's {part} mentions its implementation `{implementation}`{through}; \
       state it without the implementation"
-  if !decidesImplementation implementation decided.eta then
-    return some s!"decision contract decides `{← Meta.ppExpr decided}`, not its implementation \
-      `{implementation}`; state the kind about the implementation, or about \
-      `Function.uncurry` of it for a function of several arguments"
+  let shown ← Meta.ppExpr decided
+  let other := s!"decision contract decides `{shown}`, not its implementation \
+    `{implementation}`; state the kind about the implementation, about `Function.uncurry` of \
+    it, or about it applied to every field of one structure with no index, in order, and for \
+    a result type that depends on the input about `Regula.Dependent.isSome` or `isOk` of that \
+    function"
+  let some (levels, packing) := decidedReading? env implementation decided.eta
+    | return some other
+  let reading : RegulaPolicy.DecidedFunction :=
+    { packing, unsupplied := ← unsuppliedArguments result }
+  unless reading.covers do
+    -- The decision is `reading.covers`; this only selects which of its two conditions to name.
+    unless packing.all RegulaPolicy.FieldPacking.covers do return some other
+    return some s!"decision contract decides `{shown}`, whose result is a function of \
+      {reading.unsupplied} more argument(s); a kind is read only about a result that is not a \
+      function, so state it about the implementation `{implementation}` applied to every \
+      argument, with one more `Function.uncurry` or one more field of the structure for each \
+      of them"
+  unless ownParameters levels do
+    return some s!"decision contract decides its implementation `{implementation}` at the \
+      universe levels {levels}, not at its own universe parameters; state the kind for every \
+      universe level"
   if let some chain := mentionChain? env implementation accepts then
     return some (mention "acceptance predicate" chain)
   if let some chain := mentionChain? env implementation spec then
     return some (mention "specification" chain)
   return none
+
+/-- Acquisition stage, independent of whether a subsequent policy check succeeds.
+Local snapshots deliberately omit replay and whole-environment parent searches. -/
+inductive Stage where
+  /-- A local editor snapshot of the current command: the record without the replay-only
+  observations. -/
+  | snapshot
+  /-- A declaration of the trusted environment probe: the record also carries the regeneration
+  of a recursion helper and the native-decision evidence that replay needs. -/
+  | replayCandidate
+  deriving DecidableEq, Inhabited
 
 /-- Recognize a closed proof-bearing requirement by its elaborated type. No
 annotation, theorem-name inventory, or proposition matcher supplies evidence:
@@ -2224,12 +2390,19 @@ Lean's resource limits on an ordinary proposition, such as one computed from 64-
 The record's decision kind is read from the head constant of the requirement, reduced the same
 way (`decisionRequirement?`), so an alias of a kind is recognized and no theorem text is
 matched. A registration that is eligible and states a kind is refused when the kind is not about
-the implementation or when its acceptance predicate or specification mentions the implementation
-(`decisionFailure?`); an eligibility refusal is reported first, so a registration that states no
-kind has the record it had before kinds existed, with no kind.
+the implementation on every argument and at its own universe parameters, or when its acceptance
+predicate or specification mentions the implementation (`decisionFailure?`); an eligibility
+refusal is reported first, so a registration that states no kind has the record it had before
+kinds existed, with no kind.
+At the `snapshot` stage, a kind is not read when the environment cannot say whether its decided
+function is a field application (`hiddenField?`): the record then has no failure of the kind,
+and the constant that the environment has only as an axiom is returned with it, so that the
+caller can report the reading as unavailable. Every other stage reads every kind, and the second
+component is `none`.
 -/
-private def executableContract? (env : Environment) (scope : ContractScope) (info : ConstantInfo) :
-    CommandElabM (Option RegulaPolicy.ExecutableContract) := do
+private def executableContract? (env : Environment) (scope : ContractScope) (stage : Stage)
+    (info : ConstantInfo) :
+    CommandElabM (Option (RegulaPolicy.ExecutableContract × Option Name)) := do
   if !#[DeclarationKind.definition, .theorem, .opaque].contains (kindOf info) then return none
   if info.name == Lean.mkFlatCtorOfStructCtorName ``Regula.ExecutableContract.mk then return none
   unless (← scope.mayReach env info.type) do return none
@@ -2260,26 +2433,19 @@ private def executableContract? (env : Environment) (scope : ContractScope) (inf
               some "promised implementation returns a type, not runtime data" else none
         else pure <| some "promised implementation is not an executable data/function definition"
     let decision ← decisionRequirement? env scope applied
-    let failure ← match failure, root, decision with
-      | none, some name, some (_, accepts, spec, decided) =>
-          decisionFailure? env name accepts spec decided
-      | _, _, _ => pure failure
-    return some {
+    let hidden := match stage, failure, root, decision with
+      | .snapshot, none, some name, some (_, _, _, _, decided) =>
+          hiddenField? env name decided.eta
+      | _, _, _, _ => none
+    let failure ← match hidden, failure, root, decision with
+      | none, none, some name, some (_, result, accepts, spec, decided) =>
+          decisionFailure? env name result accepts spec decided
+      | _, _, _, _ => pure failure
+    return some ({
       root := root.getD .anonymous
       requirement := toString requirement
       failure
-      kind := decision.map (·.1) }
-
-/-- Acquisition stage, independent of whether a subsequent policy check succeeds.
-Local snapshots deliberately omit replay and whole-environment parent searches. -/
-inductive Stage where
-  /-- A local editor snapshot of the current command: the record without the replay-only
-  observations. -/
-  | snapshot
-  /-- A declaration of the trusted environment probe: the record also carries the regeneration
-  of a recursion helper and the native-decision evidence that replay needs. -/
-  | replayCandidate
-  deriving DecidableEq, Inhabited
+      kind := decision.map (·.1) }, hidden)
 
 /-- Exact module attribution, including declarations added by the current document.
 A missing imported index is not by itself evidence of current-module ownership. -/
@@ -2737,13 +2903,10 @@ def generatedFrom? (name : Name) : MetaM (Option Name) := do
   GeneratedFamily.all.findSomeM? fun family =>
     return (← generatedBy? family name).filter env.contains
 
-/-- Construct the canonical record from this command's actual environment.
-Replay candidates still require the existing fresh transcript and admission guards;
-these observations alone never authorize a generated role. A caller recording several declarations
-of one environment passes one `ContractScope.new` of it, so its memo is shared; without one, a
-fresh scope is built. Every observation runs with smart unfolding off (`withoutSmartUnfolding`). -/
-def declaration (name : Name) (stage : Stage) (scope? : Option ContractScope := none) :
-    CommandElabM RegulaPolicy.Declaration := withoutSmartUnfolding do
+/-- The record of `declaration`, with the constant that keeps a snapshot from reading the kind
+of the declaration's decision registration, when there is one (`executableContract?`). -/
+private def declarationReading (name : Name) (stage : Stage) (scope? : Option ContractScope) :
+    CommandElabM (RegulaPolicy.Declaration × Option Name) := withoutSmartUnfolding do
   let env ← getEnv
   let scope ← match scope? with
     | some scope => pure scope
@@ -2780,7 +2943,9 @@ def declaration (name : Name) (stage : Stage) (scope? : Option ContractScope := 
     match valueOf? info with
     | some value => value.getUsedConstants
     | none       => #[]
-  return {
+  let generatedFrom ← liftTermElabM (generatedFrom? name)
+  let contract? ← executableContract? env scope stage info
+  return ({
     name := name
     «module» := moduleName
     kind := kindOf info
@@ -2810,11 +2975,23 @@ def declaration (name : Name) (stage : Stage) (scope? : Option ContractScope := 
     nativeStatement := nativeStatement? name info.type
     nativeReplay := nativeReplay?
     recordedRanges := ranges?.map rangesReport
-    generatedFrom := ← liftTermElabM (generatedFrom? name)
+    generatedFrom
     axioms := RegulaPolicy.canonicalNames axioms
-    executableContract := ← executableContract? env scope info
+    executableContract := contract?.map (·.1)
     decisionResult := ← liftTermElabM (decisionResult? scope.decisions info)
-  }
+  }, contract?.bind (·.2))
+
+/-- Construct the canonical record from this command's actual environment.
+Replay candidates still require the existing fresh transcript and admission guards;
+these observations alone never authorize a generated role. A caller recording several declarations
+of one environment passes one `ContractScope.new` of it, so its memo is shared; without one, a
+fresh scope is built. Every observation runs with smart unfolding off (`withoutSmartUnfolding`).
+At the `snapshot` stage, in the environment of a file with a `module` header, the record of a
+decision registration has no failure of its kind when that environment cannot read the kind;
+`commandDeclarations` returns those registrations. -/
+def declaration (name : Name) (stage : Stage) (scope? : Option ContractScope := none) :
+    CommandElabM RegulaPolicy.Declaration :=
+  (·.1) <$> declarationReading name stage scope?
 
 /-- Complete current-module inventory, with no visibility or generated-name filter.
 Uses Lean's own local constant map through its environment-linter API. The caller
@@ -2825,8 +3002,12 @@ def currentModule (stage : Stage := .snapshot) : CommandElabM (Array RegulaPolic
 
 /-- Declaration binders recorded in this command's information trees. This is a
 local feedback selection, not a complete module census: elaborators can add
-constants without binder information. `currentModule` covers those as well. -/
-def commandDeclarations : CommandElabM (Array RegulaPolicy.Declaration) := do
+constants without binder information. `currentModule` covers those as well. The second component
+is each decision registration whose kind the snapshot does not read, with the constant that the
+environment has only as an axiom (`executableContract?`): its record has no failure of the kind,
+and the project check reads it. -/
+def commandDeclarations :
+    CommandElabM (Array RegulaPolicy.Declaration × Array (Name × Name)) := do
   let env ← getEnv
   let mut names : Array Name := #[]
   for tree in (← get).infoState.trees do
@@ -2836,8 +3017,10 @@ def commandDeclarations : CommandElabM (Array RegulaPolicy.Declaration) := do
       -- with actual current declarations before constructing observations.
       if (env.getModuleIdxFor? name).isNone && (env.find? name).isSome &&
           !names.contains name then names := names.push name
-  if names.isEmpty then return #[]
+  if names.isEmpty then return (#[], #[])
   let scope ← ContractScope.new env
-  names.mapM (declaration · .snapshot scope)
+  let readings ← names.mapM (declarationReading · .snapshot scope)
+  return (readings.map (·.1), readings.filterMap fun (record, hidden) =>
+    hidden.map (record.name, ·))
 
 end Regula.Collect

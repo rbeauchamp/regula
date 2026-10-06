@@ -149,6 +149,79 @@
    "failure=decision contract decides `model`, not its implementation `positive`"
   ]
  },
+ "Fixtures.Positive.DependentDecisionKinds": {
+  "expect": "pass",
+  "claim": "standard-logical",
+  "output": [
+   "executable-contract=positive? decision-kind=sound-and-complete requires=(fun parse",
+   "(Regula.Dependent.isSome parse)) positive?",
+   "executable-contract=smallEven? decision-kind=sound requires=(fun parse",
+   "executable-contract=belowTen? decision-kind=complete requires=(fun parse",
+   "executable-contract=low decision-kind=sound-and-complete requires=(fun check",
+   "fun input => check input.fst input.snd)",
+   "executable-contract=inhabited decision-kind=sound-and-complete requires=(fun check",
+   "executable-contract=halfLow decision-kind=sound-and-complete requires=(fun check",
+   "executable-contract=lowIndex decision-kind=sound-and-complete requires=LowIndexContract lowIndex",
+   "executable-contract=lowOrAny decision-kind=sound-and-complete requires=(fun check",
+   "(Function.uncurry fun input => check input.fst input.snd)",
+   "[OK] positive? (def)",
+   "[OK] inhabited (def)",
+   "[OK] halfLow (def)",
+   "[OK] lowIndex (def)"
+  ]
+ },
+ "Fixtures.Mutations.DecisionRepeatedField": {
+  "expect": "fail",
+  "reason": "executable-contract",
+  "output": [
+   "failure=decision contract decides `fun input => bothBelow input.fst input.fst`, not its implementation `bothBelow`"
+  ]
+ },
+ "Fixtures.Mutations.DecisionRestrictedStructure": {
+  "expect": "fail",
+  "reason": "executable-contract",
+  "output": [
+   "failure=decision contract decides `fun input => within input.low input.high`, not its implementation `within`"
+  ]
+ },
+ "Fixtures.Mutations.DependentDecisionSelfSpecification": {
+  "expect": "fail",
+  "reason": "executable-contract",
+  "output": [
+   "decision-kind=sound-and-complete",
+   "failure=decision contract's specification mentions its implementation `positive?`"
+  ]
+ },
+ "Fixtures.Mutations.DecisionUniverseInstance": {
+  "expect": "fail",
+  "reason": "executable-contract",
+  "output": [
+   "failure=decision contract decides its implementation `inhabited` at the universe levels [0], not at its own universe parameters"
+  ]
+ },
+ "Fixtures.Mutations.DecisionOwnErasure": {
+  "expect": "fail",
+  "reason": "executable-contract",
+  "output": [
+   "failure=decision contract decides `hasPayload refuseAll`, not its implementation `refuseAll`"
+  ]
+ },
+ "Fixtures.Mutations.DecisionIndexedPacking": {
+  "expect": "fail",
+  "reason": "executable-contract",
+  "output": [
+   "failure=decision contract decides `fun input => check (Limited.field true input)`, not its implementation `check`"
+  ]
+ },
+ "Fixtures.Mutations.DecisionPartialApplication": {
+  "expect": "fail",
+  "reason": "executable-contract",
+  "output": [
+   "failure=decision contract decides `fun p => lowUnless p.fst p.snd`, whose result is a function of 1 more argument(s); a kind is read only about a result that is not a function, so state it about the implementation `lowUnless` applied to every argument",
+   "failure=decision contract decides `smallUnless`, whose result is a function of 1 more argument(s); a kind is read only about a result that is not a function, so state it about the implementation `smallUnless` applied to every argument",
+   "failure=decision contract decides `Function.uncurry sumUnless`, whose result is a function of 1 more argument(s); a kind is read only about a result that is not a function, so state it about the implementation `sumUnless` applied to every argument"
+  ]
+ },
  "Fixtures.Positive.DecisionRegistration": {
   "expect": "pass",
   "claim": "standard-logical",

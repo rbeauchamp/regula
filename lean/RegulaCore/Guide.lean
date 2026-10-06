@@ -548,7 +548,8 @@ def guide : RuleId → Guide
       problem := "A closed `ExecutableContract f R` registration does not have the supported \
         shape: it is not closed, it names no complete implementation constant, the \
         implementation is not an eligible executable definition, or it states a decision kind \
-        that is not about the implementation or whose specification mentions the implementation."
+        that is not about the implementation on every argument or whose specification mentions \
+        the implementation."
       trigger := [
         "The checker recognizes declarations of type `Regula.ExecutableContract f R` as executable \
           promises about `f`. It rejects, with applicability `executable-contract`, a registration \
@@ -561,10 +562,40 @@ def guide : RuleId → Guide
           requirement, so an alias of a kind is recognized and no theorem text or name is matched, \
           and it reports the kind with the direction a one-way kind leaves open.",
         "It rejects a decision registration whose kind is stated about a function other than `f` \
-          or `Function.uncurry` applied to `f` one or more times, or whose acceptance predicate \
-          or specification mentions `f`: `f` is among the constants the term mentions, closed \
-          under the types and unfoldable values of those constants and the constructors of their \
-          inductive types. The finding names the constants through which `f` is reached.",
+          on its arguments, on a packing of them, or with its result erased. A packing is `f` \
+          applied to every field of the variable of one function, each field once and in the \
+          order of the fields, where the variable's type has one constructor and no index \
+          (`RegulaPolicy.FieldPacking.covers`). `Function.uncurry` and the two erasures \
+          (`Regula.Dependent.isSome` and `Regula.Dependent.isOk`) can each be applied, any \
+          number of times, to `f` or to that field application. No other way of supplying the \
+          arguments is read as a packing, and no other function of the result as an erasure: \
+          these three constants are read by name.",
+        "A function that fixes an argument or gives a field twice decides `f` on part of its \
+          domain. A structure with a field that `f` does not take, such as a proof about the \
+          other fields, can restrict the domain, and so can an index: a type with an index holds \
+          only the tuples whose fields compute that index. Lean's `structure` command makes no \
+          projection for such a type, but Lean's kernel admits a primitive projection on it, so \
+          the checker reads the index count from the type's kernel-checked declaration. It reads \
+          whether an argument is a field from the kernel-checked value of the projection, not \
+          from Lean's record of projection functions, which a project can write.",
+        "It rejects a decision registration whose decided function has a result that is a \
+          function: `f` with an argument left, through `f` itself, `Function.uncurry` or a field \
+          application. The result type of the kind, with every definition unfolded, then has a \
+          leading binder, and the finding gives the number of them. The decision on the packing \
+          and on that number is one pure function (`RegulaPolicy.DecidedFunction.covers`).",
+        "That refusal is a conservative structural restriction. A kind whose acceptance predicate \
+          reads a function-valued result at one fixed value of the argument is the kind of one \
+          slice of `f` (`Regula.Decides.iff_slice`) and says nothing of `f` at another value. A \
+          kind whose acceptance predicate quantifies over the argument can constrain every \
+          value, and the checker, which does not read the acceptance predicate, refuses it too. \
+          The remedy for both is to supply the argument.",
+        "It rejects a decision registration that states its kind about `f` at universe levels \
+          other than the universe parameters of `f`, each once: such a kind holds of some \
+          universe instances of `f` and not of the others. The finding names the levels.",
+        "It rejects a decision registration whose acceptance predicate or specification mentions \
+          `f`: `f` is among the constants the term mentions, closed under the types and \
+          unfoldable values of those constants and the constructors of their inductive types. \
+          The finding names the constants through which `f` is reached.",
         "Lean's type checker separately checks the supplied proof of `R f`."]
       rationaleDetail := [
         "A checker with only a soundness theorem can refuse every input, and one with only a \
@@ -584,8 +615,23 @@ def guide : RuleId → Guide
           predicate and a specification: `Regula.Decides accepts spec` for both directions, \
           `Regula.DecidesSoundly accepts spec` when a refusal may be wrong, \
           `Regula.DecidesCompletely accepts spec` when an acceptance may be. A function of several \
-          arguments is decided on their product: `fun g => Regula.Decides accepts spec \
-          (Function.uncurry g)`, with `spec` over the pairs."]
+          arguments is decided on their product, with every argument supplied: `fun g => \
+          Regula.Decides accepts spec (Function.uncurry g)` for two arguments, with `spec` over \
+          the pairs, and one more `Function.uncurry` for each further argument.",
+        "Where the type of an argument depends on an earlier argument, or an argument is a type, \
+          an instance or a proof, the kind is stated about `f` applied to every field of one \
+          structure, in the order of the fields: `fun g => Regula.Decides accepts spec (fun \
+          input : Input => g input.a input.b input.c)`, with `spec` over `Input`, a structure \
+          whose fields are the arguments. For two arguments the structure can be a pair \
+          (`Prod`, `Sigma`, `PSigma` or `Subtype`). A kind about a function with universe \
+          parameters is stated at those parameters, as `@f.{u}` in a registration with the \
+          universe parameter `u`.",
+        "Where the result type depends on the arguments, the kind is stated about an erasure of \
+          the result, a function whose type does not depend on the input: \
+          `Regula.Dependent.isSome g` for an `Option` of a payload and `Regula.Dependent.isOk g` \
+          for an `Except` of one, both to `Bool`. So `R` is `fun g => Regula.Decides (· = true) \
+          spec (Regula.Dependent.isOk g)`, and the acceptance predicate reads the erased result \
+          and nothing else."]
       established := [
         "The registration is closed, names an eligible executable constant, and Lean checked a \
           proof of the stated predicate about it.",
@@ -605,16 +651,42 @@ def guide : RuleId → Guide
           independent of the implementation in substance (a copy of the implementation under \
           another name passes), the direction a one-way kind leaves open, and which value an \
           accepting result carries.",
+        "For a decision registration: that the acceptance predicate is the intended reading of a \
+          result (R-INTENT). A constant function has no two-way kind \
+          (`Regula.Decides.not_of_constant`). But when the result of `f` determines its input, \
+          as the result of the identity function does, an acceptance predicate can restate the \
+          specification: `Regula.Decides spec spec id` holds of every specification that some \
+          input satisfies and some input does not.",
         "Behavior of compiled code beyond the Lean definition; execution boundaries are RG3001 and \
           RG3002."]
       configuration := []
       limitations := [
         "Term-parameterized and partial-application registrations are unsupported shapes, not \
           proofs of incorrectness; restate them as closed full-domain contracts.",
-        "A decision kind covers a function whose argument types do not depend on earlier \
-          arguments, through `Function.uncurry`. A function with a dependent or implicit argument \
-          is decided through a named function over a product, sigma or subtype domain, or \
-          registered with an ordinary requirement, which is reported with no kind.",
+        "A result type whose dependency on the input neither erasure removes, such as an \
+          inductive family indexed by the input, has no kind: return `Decidable _`, or register \
+          an ordinary requirement, which is reported with no kind. A registration cannot supply \
+          an erasure of its own: one stated for every payload type can read the payload type, \
+          and \"the payload type has a value\" is the specification of a proof-carrying \
+          payload, whatever the function returns.",
+        "A result of a subtype type that depends on the input, `{r : ρ // P x r}`, has no kind \
+          until [issue 243](https://github.com/rbeauchamp/regula/issues/243) is decided: an \
+          erasure that returns the value of the subtype would keep a free acceptance predicate \
+          on a data value. Such a function returns `Decidable p`, or is registered with an \
+          ordinary requirement.",
+        "In a file with a `module` header, the editor does not read a decision kind whose \
+          decided function applies to its variable an imported constant that Lean gives the \
+          file as an axiom, as it gives the projection function of a proof field: the editor \
+          cannot tell whether that argument is a field. It reports the reading as incomplete \
+          under RG2005 and names `lake lint`, which reads the kind.",
+        "The fields are those of one structure: a field of a field, as in a nested pair, is not \
+          read as a field. Nested dependent pairs are also costly: each projection of a pair \
+          carries the pair's type, so the elaborated statement grows by a large factor with each \
+          argument. Declare one structure for three or more arguments whose types depend on \
+          each other.",
+        "A kind requires an input with a proof: an accepted input for a sound kind and a refused \
+          input for a complete kind. For a function with universe parameters the witness is at \
+          every universe level, so its types are universe-polymorphic, such as `PUnit`.",
         "A requirement that contains a kind inside a larger proposition, such as a conjunction, \
           is reported with no kind: the kind is read from the head constant only. Register the \
           further clauses separately.",
@@ -629,9 +701,20 @@ def guide : RuleId → Guide
           ["BUILD-03", "THEOREM-07", "SCOPE-02", "SCOPE-03", "TYPE-01", "THEOREM-01",
               "THEOREM-03", "COMP-01", "BUILD-01", "BUILD-02"]
       linkage := declarationLinkage ++ " Extracting the contract observation (`Regula.Collect`), \
-        including the reduction that reads a decision kind and the search for a mention of the \
-        implementation, is operational; that a head constant is read as a kind exactly when it \
-        is that kind's structure is proved (`RegulaPolicy.DecisionKind.ofStructureName?_eq_some_iff`)."
+        including the reduction that reads a decision kind, the reading of the decided function \
+        and of its universe levels, and the search for a mention of the implementation, is \
+        operational. Two decisions in it are proved: a head constant is read as a kind exactly \
+        when it is that kind's structure \
+        (`RegulaPolicy.DecisionKind.ofStructureName?_eq_some_iff`), and a decided function of a \
+        form that is read is accepted exactly when its field application, if it has one, is on \
+        a type with one constructor and no index with the arguments its fields in order, and \
+        the kind's result type has no leading binder (`RegulaPolicy.DecidedFunction.covers_iff` \
+        with `RegulaPolicy.FieldPacking.covers_iff`). Two steps from those numbers to the claim \
+        are argued from Lean's typing rules and are not machine-checked. A result type with no \
+        leading binder is the type of a result that takes no argument, so no argument of the \
+        implementation is left. A type with one constructor and no index has a value for every \
+        tuple of fields, so the packing reaches every tuple of arguments, which is the \
+        hypothesis of `Regula.Decides.of_packing`."
       sources :=
           ["lean/Regula/Contract.lean", "lean/Regula/Collect.lean", "lean/Regula/Probe.lean",
               "lean/RegulaCore/Policy.lean"] }
@@ -672,7 +755,10 @@ def guide : RuleId → Guide
       proofShape := [
         "`ExecutableContract f (Regula.Decides accepts spec)`, or `Regula.DecidesSoundly` or \
           `Regula.DecidesCompletely` for a declared one-way guarantee, in the library that \
-          declares `f`. RG1007 gives the supported shape of the registration.",
+          declares `f`. RG1007 gives the supported shape of the registration, with a structure \
+          of the arguments for a function with a dependent argument type or a type argument, \
+          and an erasure of the result (`Regula.Dependent.isSome` or `isOk`) for one with a \
+          dependent result type.",
         "Or a result type `Decidable (spec x)`, as a `DecidablePred spec` instance has."]
       established := [
         "Every owned declaration registered with `@[regula_decision]` whose result type is not \
@@ -701,10 +787,10 @@ def guide : RuleId → Guide
           stops the audit without a verdict, naming the module and the declaration: that \
           inventory records no declaration to decide the requirement for. Register a function \
           in a module of the library that declares it.",
-        "A function whose argument or result type depends on an earlier argument, or that is \
-          polymorphic in a type, has no decision kind (a limitation of RG1007). Decide a named \
-          function over a product, sigma or subtype domain, or leave the function unregistered \
-          and record why.",
+        "A function whose result type depends on its arguments in a way neither erasure \
+          removes, or for which no accepted or refused input can be given with a proof, has no \
+          decision kind (limitations of RG1007). Return `Decidable _`, or leave the \
+          function unregistered and record why.",
         "A function in `IO`, `MetaM` or another monad comes into scope through the pure decision \
           it runs: register that decision.",
         "The registration is environment state an audited project writes. It only adds a \
@@ -940,7 +1026,13 @@ def guide : RuleId → Guide
         "In the editor, this rule marks results that need fresh evidence only the project command \
           collects, and those messages name `lake lint`. The editor also reports it, as \
           incomplete, when its own analysis of a declaration fails or the module has elaboration \
-          errors."]
+          errors.",
+        "In a file with a `module` header, the editor also reports a decision kind as incomplete \
+          when its decided function gives the implementation an argument that applies, to the \
+          variable of that function, a constant that the environment has only as an axiom. Lean \
+          gives such a file an imported theorem in that form, and the projection function of a \
+          proof field is a theorem, so the editor cannot tell whether the argument is a field \
+          (limitations of RG1007). The message names `lake lint`, which reads the kind."]
       rationaleDetail := []
       proofShape := [
         "The replayed declaration must type-check in the kernel with exactly its stated type and \
@@ -967,8 +1059,12 @@ def guide : RuleId → Guide
           ["DECL-01", "DECL-02", "FOUND-05", "SCOPE-02", "TYPE-01", "THEOREM-01", "THEOREM-03",
               "THEOREM-07", "DECL-03", "DECL-04", "COMP-02", "COMP-04", "BUILD-01", "BUILD-04"]
       linkage := "Acceptance side only: an accepted run satisfies `RegulaPolicy.AdmissionOK`. \
-        The editor's deferral to the project audit is \
-        `Regula.Checker.Policy.editor_decision_pending`."
+        The editor's deferral to the project audit of a result that needs generated-role \
+        evidence is `Regula.Checker.Policy.editor_decision_pending`. Its deferral of a decision \
+        kind that it does not read is operational collector code (`hiddenField?` in \
+        `Regula.Collect`), which that theorem does not cover: the collector records the \
+        registration with no failure of its kind, so the editor decision reports no RG1007 \
+        finding for that record, and the linter reports the reading as incomplete."
       sources :=
           ["lean/Regula/Checker/Admission.lean", "lean/Regula/Checker/SourceAudit.lean",
               "lean/Regula/Checker/SourceBinding.lean"] }

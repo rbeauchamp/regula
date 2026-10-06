@@ -10,7 +10,7 @@ meta import Regula.Decision
 
 Closed policy vocabulary and observation data. No operational Lean imports: `Regula.Decision`
 is imported for elaboration only (`meta import`), for the `@[regula_decision]` registration of the
-parsers and admissions below, so no definition here can run what it brings.
+decisions below, so no definition here can run what it brings.
 Canonical representation is informed by con-leche PropWhen; these are original domain
 definitions, not imported con-leche proofs. Source observation authenticity remains
 with the operational collector. -/
@@ -696,6 +696,90 @@ theorem DecisionKind.leavesOpen_eq_none_iff (kind : DecisionKind) :
     kind.leavesOpen = none ↔ kind = .«soundAndComplete» := by
   cases kind <;> simp [leavesOpen]
 
+/-- What the collector reads, from kernel-checked declarations, of a decided function that
+applies the implementation to arguments under one binder (`fun input => f a₁ … aₙ`): the shape of
+the inductive type of whose value the first argument is a field, and which field of the bound
+variable each argument is. -/
+structure FieldPacking where
+  /-- The number of constructors of that type. -/
+  constructors : Nat
+  /-- The number of indices of that type. -/
+  indices : Nat
+  /-- The number of fields of its first constructor. -/
+  fields : Nat
+  /-- For each argument in order, the position of the field of the bound variable that it is;
+  `none` for an argument that is not a field of the bound variable in that type. -/
+  arguments : List (Option Nat)
+  deriving Repr, DecidableEq
+
+/-- The packing covers every argument of the implementation: the type has one constructor and no
+index, and the arguments are its fields, each once and in the order of the fields.
+
+With one constructor and no index, the constructor takes every tuple of fields to a value of the
+binder's type, and Lean's kernel reduces each projection of that value to the field. So every
+tuple of arguments is the fields of a packed value, which is the hypothesis of
+`Regula.Decides.of_packing`. An index breaks this: the constructor's result has the index its
+fields compute, so the binder's type holds only the tuples with that index. -/
+def FieldPacking.Covers (packing : FieldPacking) : Prop :=
+  packing.constructors = 1 ∧ packing.indices = 0 ∧
+    packing.arguments = (List.range packing.fields).map some
+
+/-- Whether the packing covers every argument of the implementation (`FieldPacking.covers_iff`).
+The collector reads a decided function as a field application only when this holds. -/
+@[regula_decision]
+def FieldPacking.covers (packing : FieldPacking) : Bool :=
+  packing.constructors == 1 && packing.indices == 0 &&
+    packing.arguments == (List.range packing.fields).map some
+
+/-- The executed decision accepts exactly the packings that cover every argument. -/
+theorem FieldPacking.covers_iff (packing : FieldPacking) :
+    packing.covers = true ↔ packing.Covers := by
+  simp [covers, Covers, and_assoc]
+
+/-- What the collector reads, from the kernel-checked statement, of the function that a decision
+kind is stated about, when that function is the implementation's constant or a field application
+of it, under any number of applications of `Function.uncurry` and of the erasures of
+`Regula.Contract`. -/
+structure DecidedFunction where
+  /-- The field application at the core of the function (`FieldPacking`), or `none` when the
+  core is the implementation's constant itself. -/
+  packing : Option FieldPacking
+  /-- The number of arguments that a result of the function takes: the leading binders of the
+  kind's result type, with every definition unfolded. -/
+  unsupplied : Nat
+  deriving Repr, DecidableEq
+
+/-- The decided function is the implementation on every argument: a field application covers
+every field (`FieldPacking.Covers`), and no result of the function takes an argument.
+
+A term can be applied only when its type reduces to a function type, so a result type with no
+leading binder is the type of a result that takes no argument. The implementation then has no
+argument after those that its constant, the field application and the surrounding
+`Function.uncurry` applications supply.
+
+The condition on the result is structural and conservative. With an argument left, an
+acceptance predicate that reads the function-valued result at one fixed value of that argument
+gives the kind of one slice of the implementation (`Regula.Decides.iff_slice`). One that
+quantifies over the argument can constrain every value, and this decision, which does not read
+the acceptance predicate, refuses it too. The remedy for both is to supply the argument. -/
+def DecidedFunction.Covers (decided : DecidedFunction) : Prop :=
+  (∀ packing, decided.packing = some packing → packing.Covers) ∧ decided.unsupplied = 0
+
+/-- Whether the decided function is the implementation on every argument
+(`DecidedFunction.covers_iff`). The collector refuses a decision registration unless this
+holds. -/
+@[regula_decision]
+def DecidedFunction.covers (decided : DecidedFunction) : Bool :=
+  decided.packing.all FieldPacking.covers && decided.unsupplied == 0
+
+/-- The executed decision accepts exactly the decided functions that are the implementation on
+every argument. -/
+theorem DecidedFunction.covers_iff (decided : DecidedFunction) :
+    decided.covers = true ↔ decided.Covers := by
+  cases decided with
+  | mk packing unsupplied =>
+    cases packing <;> simp [covers, Covers, FieldPacking.covers_iff]
+
 /-- What the collector observes of a function registered with `@[regula_decision]`: whether its
 result type is `Decidable _`, the form whose every result carries a proof of the decided
 proposition or of its negation; parsing cannot manufacture an unknown constructor. -/
@@ -1088,6 +1172,7 @@ def boundaryEvidenceCandidate (kind : BoundaryKind) (state : Correspondence)
     | _, _ => .error "invalid checked boundary evidence"
 
 /-- Admission retains every supplied evidence field or refuses the observation. -/
+@[regula_decision]
 def admitBoundaryEvidence (kind : BoundaryKind) (state : Correspondence)
     (detail : Option String) (origin : Option ToolchainOrigin) : Except String
     (BoundaryEvidence kind) :=
@@ -1124,6 +1209,61 @@ theorem boundaryEvidence_roundtrip {kind : BoundaryKind} (e : BoundaryEvidence k
   unfold admitBoundaryEvidence
   rw [boundaryEvidenceCandidate_roundtrip]
   simp
+
+/-- The raw fields `admitBoundaryEvidence` admits for a kind: they are the correspondence, detail
+and toolchain origin of some evidence of that kind. It is stated without
+`admitBoundaryEvidence`. -/
+def BoundaryFieldsOK (kind : BoundaryKind) (state : Correspondence) (detail : Option String)
+    (origin : Option ToolchainOrigin) : Prop :=
+  ∃ e : BoundaryEvidence kind,
+    e.correspondence = state ∧ e.detail = detail ∧ e.toolchainOrigin? = origin
+
+/-- Boundary-evidence admission succeeds exactly for the fields of some evidence of the kind
+(`boundaryEvidence_admission_preserves`, `boundaryEvidence_roundtrip`). -/
+theorem admitBoundaryEvidence_isOk_iff (kind : BoundaryKind) (state : Correspondence)
+    (detail : Option String) (origin : Option ToolchainOrigin) :
+    (admitBoundaryEvidence kind state detail origin).isOk = true ↔
+      BoundaryFieldsOK kind state detail origin := by
+  constructor
+  · intro accepted
+    cases admitted : admitBoundaryEvidence kind state detail origin with
+    | ok e => exact ⟨e, boundaryEvidence_admission_preserves kind state detail origin e admitted⟩
+    | error _ => rw [admitted] at accepted; cases accepted
+  · rintro ⟨e, rfl, rfl, rfl⟩
+    rw [boundaryEvidence_roundtrip]
+    rfl
+
+/-- The arguments of `admitBoundaryEvidence`, as the fields of one structure, in the order of
+the arguments. -/
+structure BoundaryFields where
+  /-- The kind of the boundary. -/
+  kind : BoundaryKind
+  /-- The observed correspondence. -/
+  state : Correspondence
+  /-- The observed detail. -/
+  detail : Option String
+  /-- The observed toolchain origin. -/
+  origin : Option ToolchainOrigin
+
+/-- `admitBoundaryEvidence` accepts exactly the fields of some evidence of the kind
+(`admitBoundaryEvidence_isOk_iff`): it accepts an unresolved external boundary and refuses a
+trusted native-runtime boundary with no origin. The result type depends on the kind, so the
+decision is of whether the result is a success (`Regula.Dependent.isOk`), on the structure of
+the four arguments; that the admitted evidence has the supplied fields is
+`boundaryEvidence_admission_preserves`. -/
+theorem checked_admitBoundaryEvidence :
+    Regula.ExecutableContract admitBoundaryEvidence (fun admit =>
+      Regula.Decides (· = true)
+        (fun input : BoundaryFields =>
+          BoundaryFieldsOK input.kind input.state input.detail input.origin)
+        (Regula.Dependent.isOk fun input =>
+          admit input.kind input.state input.detail input.origin)) :=
+  ⟨.of_iff (fun input =>
+      admitBoundaryEvidence_isOk_iff input.kind input.state input.detail input.origin)
+    ⟨⟨.external, .unresolved, none, none⟩,
+      (admitBoundaryEvidence_isOk_iff .external .unresolved none none).mpr
+        ⟨.unresolved none, rfl, rfl, rfl⟩⟩
+    ⟨⟨.nativeRuntime, .trusted, none, none⟩, by decide⟩⟩
 
 /-- Canonical toolchain-origin admission preserves its module and exact path observation. -/
 theorem toolchainOrigin_roundtrip (o : ToolchainOrigin) :
@@ -1452,5 +1592,25 @@ theorem DecisionKind.checked_ofStructureName :
   ⟨.of_roundtrip (fun kind => (ofStructureName?_eq_some_iff _ kind).mpr rfl)
     (fun name kind read => ((ofStructureName?_eq_some_iff name kind).mp read).symm)
     .«sound» (unwritten := .anonymous) rfl⟩
+
+/-- `FieldPacking.covers` accepts exactly the packings that cover every argument
+(`FieldPacking.covers_iff`): the collector reads a field application with it. It accepts the two
+fields, in order, of a type with one constructor and no index, and refuses the one field of a
+type with one constructor and an index, whose values are only some of the field tuples. -/
+theorem FieldPacking.checked_covers :
+    Regula.ExecutableContract FieldPacking.covers
+      (Regula.Decides (· = true) FieldPacking.Covers) :=
+  ⟨.of_iff covers_iff ⟨⟨1, 0, 2, [some 0, some 1]⟩, by decide⟩
+    ⟨⟨1, 1, 1, [some 0]⟩, by decide⟩⟩
+
+/-- The decision the collector makes of a decided function is exact
+(`DecidedFunction.covers_iff`): the collector refuses a decision registration unless it holds.
+It accepts the implementation's constant itself when no result takes an argument, and refuses
+that constant when a result takes one more argument, which is a kind about a partially applied
+implementation. -/
+theorem DecidedFunction.checked_covers :
+    Regula.ExecutableContract DecidedFunction.covers
+      (Regula.Decides (· = true) DecidedFunction.Covers) :=
+  ⟨.of_iff covers_iff ⟨⟨none, 0⟩, by decide⟩ ⟨⟨none, 1⟩, by decide⟩⟩
 
 end RegulaPolicy

@@ -22,6 +22,9 @@ run_cmd do
       ``Regula.Website.admitExampleRequest_sound,
       ``Regula.Website.admitExampleSources_sound,
       ``Regula.Website.admitExampleSources_complete,
+      ``Regula.Website.checked_admitExampleRequest,
+      ``Regula.Website.checked_admitExampleSources,
+      ``Regula.Website.checked_admitDemonstration,
       ``Regula.Checker.Documentation.positiveClassifications_sound] do
     let axioms ← Lean.collectAxioms name
     unless axioms.all (fun ax => #[`propext, `Quot.sound, `Classical.choice].contains ax) do

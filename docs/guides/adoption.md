@@ -703,8 +703,48 @@ which direction you proved in the registration itself. `Regula.Contract` provide
 function accepts or refuses some input, so a function that refuses everything cannot be
 registered as sound. Register `theorem c : Regula.ExecutableContract check (Regula.Decides (· =
 true) Spec)`, with `fun g => Regula.Decides accepts Spec (Function.uncurry g)` for a function of
-several arguments, and state `Spec` without `check`. The accepted account then reports the kind
+two arguments, and state `Spec` without `check`. The accepted account then reports the kind
 and, for a one-way kind, the direction it leaves open.
+
+State the kind about the function applied to every one of its arguments. [RG1007] refuses every
+kind whose result is still a function. The restriction is structural and conservative: a kind
+whose acceptance predicate reads that result at one fixed value of the remaining argument is
+about one slice of the function and says nothing of it at another value, and a kind whose
+acceptance predicate quantifies over that argument is refused too, because the rule does not
+read the acceptance predicate. For both, supply the argument: add one more `Function.uncurry`
+for each further argument, or use a structure of all the arguments.
+
+Two forms cover the functions that this form does not reach (standard §3.8):
+
+- **A dependent argument type, or a type, instance or proof argument.** Declare a structure
+  whose fields are the arguments, and state the kind about the function applied to every field,
+  in the order of the fields: `fun g => Regula.Decides accepts Spec (fun input : Input => g
+  input.a input.b input.c)`, with `Spec` over `Input`. For two arguments a pair is enough
+  (`Prod`, `Sigma`, `PSigma` or `Subtype`). Give each field once and leave none out: [RG1007]
+  refuses a function that fixes an argument or repeats a field, because it decides the function
+  on part of its domain, and a structure with a field the function does not take, because such
+  a field can restrict the domain. The type must have one constructor and no index, as a type
+  declared with `structure` has: a type with an index holds only some of the tuples of its
+  fields. Do not nest dependent pairs for three or more arguments:
+  each projection of a pair carries the pair's type, and the statement grows by a large factor
+  with each argument. State a kind about a function with universe parameters at those
+  parameters (`@check.{u}` in a theorem with the universe parameter `u`), with witnesses at
+  every universe level, such as a list of `PUnit`; [RG1007] refuses a kind stated at other
+  levels.
+- **A result type that depends on the arguments**, such as `Except String (Admitted x)`. State
+  one of the three kinds about an erasure of the result that `Regula.Contract` provides:
+  `Regula.Dependent.isOk g` (whether an `Except` result is `.ok`) or `Regula.Dependent.isSome g`
+  (whether an `Option` result is `some`). The registration is `fun g => Regula.Decides (· =
+  true) Spec (Regula.Dependent.isOk g)`, or the same with `g` applied to the fields of a
+  structure. [RG1007] reads these two erasures and no other: an erasure of your own can read
+  the type of the payload, and so can accept or refuse by what the type is and not by what the
+  function returns. A result type that neither erasure fits has no kind; return `Decidable p`,
+  or register an ordinary requirement. A result of a subtype type that depends on the input,
+  such as `{r : Nat // r ≤ x}`, is such a type until
+  [#243](https://github.com/rbeauchamp/regula/issues/243) is decided: an erasure that returns
+  the value of the subtype would keep a free acceptance predicate on a data value.
+
+The account reports the kind of such a registration as it does for every other one.
 
 To make that registration a requirement, mark the function with `@[regula_decision]` (`import
 Regula.Decision`, or `meta import Regula.Decision` in a file that is a `module`). A function whose

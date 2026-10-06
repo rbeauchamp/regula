@@ -757,7 +757,7 @@ A type invariant describes valid results; a functional contract also relates the
   * State the exact input domain, any precondition, and the input–output relation. A restricted domain MUST appear in the API when promised (§3.2.1).
 *
   * Parser, decoder, admission
-  * Prove accepted-result soundness and input meaning. State and prove rejection behavior and any normalization/default policy. If the API promises success on a class of inputs, prove that completeness; a conditional soundness theorem alone does not deliver it. A registered decision states its direction with a decision kind (§3.8): `Regula.Decides` for both directions, `Regula.DecidesSoundly` or `Regula.DecidesCompletely` for one. A one-way kind is a statement that the other direction is not claimed. A function the project registers with `@[regula_decision]` MUST have such a registration or a `Decidable` result type (§3.8).
+  * Prove accepted-result soundness and input meaning. State and prove rejection behavior and any normalization/default policy. If the API promises success on a class of inputs, prove that completeness; a conditional soundness theorem alone does not deliver it. A registered decision states its direction with a decision kind (§3.8): `Regula.Decides` for both directions, `Regula.DecidesSoundly` or `Regula.DecidesCompletely` for one. A one-way kind is a statement that the other direction is not claimed. A function whose result type depends on its input states its kind about an erasure of that result (§3.8). A function the project registers with `@[regula_decision]` MUST have such a registration or a `Decidable` result type (§3.8).
 *
   * Update
   * Establish the invariant at the write boundary, the intended change, and frame conditions for components promised unchanged.
@@ -986,6 +986,90 @@ theorem within_decides :
      refused := ⟨(0, 0), by decide⟩ }⟩
 ```
 
+A function with an argument whose type depends on an earlier argument, or with a type, instance or proof argument, is decided on a structure whose fields are its arguments: the kind is stated about the function that applies `f` to every field of the structure, each field once and in the order of the fields, as `fun input : Input => f input.a input.b input.c`. The type of a field can depend on an earlier field. For two arguments the structure can be a pair (`Prod`, `Sigma`, `PSigma` or `Subtype`), and `Function.uncurry f` is this form at `Prod` (`Regula.uncurry_eq_fields`). A kind about that function is the kind about `f` when every tuple of arguments is the fields of some value of the structure (`Regula.Decides.of_packing`, with its one-way forms). A type with one constructor and no index has that property: the constructor takes every tuple of fields to a value of the type, and Lean's kernel reduces each projection of that value to the field. A function that fixes an argument or gives a field twice decides `f` on part of its domain; a structure with a field that `f` does not take, such as a proof about the other fields, can restrict the domain; and a type with an index holds only the tuples whose fields compute that index. None of these has this form, and the build linter rejects such a registration (§7.11). A kind about a function with universe parameters MUST be stated at those parameters, so that it holds of every universe instance of the function; its witnesses are then inputs at every universe level.
+
+A kind MUST be stated about the function applied to every one of its arguments: the result type of the function that is decided is not a function type. This restriction is structural, and it is conservative. With an argument left, the result is a function, and how much of it the kind constrains depends on the acceptance predicate. An acceptance predicate that reads the result at one fixed value `b` of that argument gives exactly the kind of the slice of the function at `b` (`Regula.Decides.iff_slice`), which says nothing of the function at another value. An acceptance predicate that quantifies over that argument can constrain the function at every value. The build linter does not read the acceptance predicate: it rejects every kind whose result type is a function type after every definition is unfolded (§7.11), a kind of the second form included. The remedy is the same for both forms: supply the argument, with one more `Function.uncurry` (`Regula.packing_uncurry_covers`) or as one more field of the structure.
+
+A function whose result type depends on its arguments is decided through an erasure of its result: one of two functions of `Regula.Contract`, each of which forgets the part of the result whose type depends on the input. `Regula.Dependent.isSome f` is `fun x => (f x).isSome` for `f : ∀ x, Option (payload x)`, and `Regula.Dependent.isOk f` is `fun x => (f x).isOk` for `f : ∀ x, Except (ε x) (payload x)`. The kind is one of the three of the table, stated about the erased function, as `Regula.Decides (· = true) spec (Regula.Dependent.isOk f)`. The type of its acceptance predicate has no payload in it, so the predicate reads the erased result and nothing else, and the witnesses stay statements about `f`. The erased result corresponds to the result by `Regula.Dependent.isSome_eq_true_iff` and `Regula.Dependent.isOk_eq_true_iff`. An acceptance predicate stated for every payload type does not have that property, and neither does an erasure that a registration supplies: each can read the payload type, and "the payload type has a value" is the specification of a proof-carrying payload, whatever the function returns. So there is no kind with such a predicate, and the build linter reads these two erasures and no other (§7.11). A result of a subtype type that depends on the input, `{r : ρ // P x r}`, has no kind until [issue 243](https://github.com/rbeauchamp/regula/issues/243) is decided: an erasure that returns the value of the subtype would keep a free acceptance predicate on a data value. Such a function returns `Decidable p`, or is registered with an ordinary requirement.
+
+```lean
+import Regula.Contract
+
+/-- The number itself with a proof that it is positive, or nothing. -/
+def positive? (n : Nat) : Option {m : Nat // m = n ∧ 0 < m} :=
+  if h : 0 < n then some ⟨n, rfl, h⟩ else none
+
+/-- `positive?` returns a number exactly for a positive input. -/
+theorem positive?_isSome (n : Nat) : Regula.Dependent.isSome positive? n = true ↔ 0 < n := by
+  unfold Regula.Dependent.isSome positive?
+  split <;> simp_all
+
+/-- `positive?` accepts exactly the positive numbers: it accepts `1` and refuses `0`. Its result
+type depends on its argument, so the kind is stated about whether it returns a value. -/
+theorem positive?_decides :
+    Regula.ExecutableContract positive? (fun parse =>
+      Regula.Decides (· = true) (fun n => 0 < n) (Regula.Dependent.isSome parse)) :=
+  ⟨.of_iff positive?_isSome ⟨1, (positive?_isSome 1).mpr (by decide)⟩
+    ⟨0, fun accepted => absurd ((positive?_isSome 0).mp accepted) (by decide)⟩⟩
+
+/-- Whether an index below `limit + 1` is below three. -/
+def low (limit : Nat) (index : Fin (limit + 1)) : Bool := decide (index.val < 3)
+
+/-- `low` accepts exactly the dependent pairs of a limit and an index below three. -/
+theorem low_decides :
+    Regula.ExecutableContract low (fun check =>
+      Regula.Decides (· = true) (fun input => input.2.val < 3)
+        (fun input : (limit : Nat) ×' Fin (limit + 1) => check input.1 input.2)) :=
+  ⟨{ sound := fun _ accepted => of_decide_eq_true accepted
+     accepted := ⟨⟨0, 0⟩, by decide⟩
+     complete := fun _ holds => decide_eq_true holds
+     refused := ⟨⟨3, 3⟩, by decide⟩ }⟩
+
+universe u
+
+/-- Whether a list of any element type has a member. -/
+def inhabited {α : Type u} (items : List α) : Bool := !items.isEmpty
+
+/-- `inhabited` accepts exactly the pairs of a type and a nonempty list of it, at every universe
+level: the witnesses are lists of `PUnit`. -/
+theorem inhabited_decides :
+    Regula.ExecutableContract @inhabited.{u} (fun check =>
+      Regula.Decides (· = true) (fun input => input.2 ≠ [])
+        (fun input : (α : Type u) × List α => @check input.1 input.2)) :=
+  ⟨.of_iff (fun input => by cases input.2 <;> simp [inhabited])
+    ⟨⟨PUnit, [PUnit.unit]⟩, rfl⟩ ⟨⟨PUnit, []⟩, by simp [inhabited]⟩⟩
+
+/-- An index below `limit + 1` that is below three, or below four when `wide`, with a proof
+that it is the supplied index. -/
+def lowIndex (limit : Nat) (index : Fin (limit + 1)) (wide : Bool) :
+    Except String {found : Fin (limit + 1) // found = index} :=
+  if index.val < (if wide then 4 else 3) then .ok ⟨index, rfl⟩ else .error "not low"
+
+/-- The arguments of `lowIndex`, as the fields of one structure. -/
+structure LowIndexInput where
+  /-- The bound of the index. -/
+  limit : Nat
+  /-- The index, below `limit + 1`. -/
+  index : Fin (limit + 1)
+  /-- Whether the wider bound applies. -/
+  wide : Bool
+
+/-- `lowIndex` accepts exactly an index below its bound: the three arguments are the fields of
+`LowIndexInput`, and the result type depends on the first two, so the kind is stated about
+whether it succeeds. -/
+theorem lowIndex_decides :
+    Regula.ExecutableContract lowIndex (fun admit =>
+      Regula.Decides (· = true)
+        (fun input : LowIndexInput => input.index.val < (if input.wide then 4 else 3))
+        (Regula.Dependent.isOk fun input => admit input.limit input.index input.wide)) :=
+  ⟨.of_iff (fun input => by
+      by_cases low : input.index.val < (if input.wide then 4 else 3) <;>
+        simp [Regula.Dependent.isOk, lowIndex, low, Except.isOk, Except.toBool])
+    ⟨⟨0, 0, false⟩, by decide⟩ ⟨⟨3, 3, false⟩, by decide⟩⟩
+```
+
+Nested dependent pairs are not a form for three or more arguments. Each projection of a pair carries the pair's type, so the elaborated statement grows by a large factor with each argument, whichever way the pairs nest. A structure declared for the arguments has projections of constant size.
+
 A soundness proof without its witness does not inhabit the sound kind:
 
 ```lean (fails := "Fields missing.*accepted")
@@ -1019,7 +1103,7 @@ theorem positive_decides :
 @[regula_decision] def positive? (n : Nat) : Decidable (0 < n) := inferInstance
 ```
 
-A kind states which directions hold against the written specification. These remain semantic review: whether `spec` is the intended specification, and whether it is independent of `f` in substance (a copy of the implementation under another name satisfies both directions); whether every function that acts as a checker is registered as a decision; whether a one-way kind should have been two-way; and which value an accepting result carries, which needs a dependent result type or a further requirement. A result of type `Decidable p` already carries both directions by construction (§3.2.4) and needs no kind for that claim. A function whose argument types depend on earlier arguments is decided through a named function over a product, sigma or subtype domain. The build linter reads the kind of each registration and reports it with the direction a one-way kind leaves open ({ref "exact-contract-and-coverage-scope"}[§7.11]).
+A kind states which directions hold against the written specification. These remain semantic review: whether `spec` is the intended specification, and whether it is independent of `f` in substance (a copy of the implementation under another name satisfies both directions); whether every function that acts as a checker is registered as a decision; whether a one-way kind should have been two-way; and which value an accepting result carries, which needs a dependent result type or a further requirement. Whether `accepts` is the intended reading of a result is semantic review too. A constant function has no two-way kind (`Regula.Decides.not_of_constant`): a sound kind about one proves the specification of every input (`Regula.DecidesSoundly.spec_of_constant`), and a complete kind about one refutes it of every input (`Regula.DecidesCompletely.not_spec_of_constant`). But when the result of `f` determines its input, as the result of the identity function does, an acceptance predicate can restate the specification: `Regula.Decides spec spec id` holds of every specification that some input satisfies and some input does not. A result of type `Decidable p` already carries both directions by construction (§3.2.4) and needs no kind for that claim. A result type whose dependency on the input neither erasure removes, such as an inductive family indexed by the input or a subtype type that depends on the input, has no kind: return `Decidable p`, or register an ordinary requirement. A kind also requires an input with a proof, so a function for which no accepted input can be given has no sound kind, and one for which no refused input can be given has no complete kind. The build linter reads the kind of each registration and reports it with the direction a one-way kind leaves open ({ref "exact-contract-and-coverage-scope"}[§7.11]).
 
 # 3.9 Stateful Refinement and Finite-Prefix Safety
 %%%
