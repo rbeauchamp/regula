@@ -548,7 +548,8 @@ def guide : RuleId → Guide
       problem := "A closed `ExecutableContract f R` registration does not have the supported \
         shape: it is not closed, it names no complete implementation constant, the \
         implementation is not an eligible executable definition, or it states a decision kind \
-        that is not about the implementation or whose specification mentions the implementation."
+        that is not about the implementation on every argument or whose specification mentions \
+        the implementation."
       trigger := [
         "The checker recognizes declarations of type `Regula.ExecutableContract f R` as executable \
           promises about `f`. It rejects, with applicability `executable-contract`, a registration \
@@ -576,6 +577,15 @@ def guide : RuleId → Guide
           the checker reads the index count from the type's kernel-checked declaration. It reads \
           whether an argument is a field from the kernel-checked value of the projection, not \
           from Lean's record of projection functions, which a project can write.",
+        "It rejects a decision registration whose decided function has a result that is a \
+          function: `f` with an argument left, through `f` itself, `Function.uncurry` or a field \
+          application, or `Regula.Dependent.val` of a function-valued subtype. The result type \
+          of the kind, with every definition unfolded, then has a leading binder, and the \
+          finding gives the number of them. An acceptance predicate reads such a result at the \
+          values it selects, so the kind is the kind of one slice of `f` \
+          (`Regula.Decides.iff_slice`) and says nothing of `f` at another value of the argument. \
+          The decision on the packing and on that number is one pure function \
+          (`RegulaPolicy.DecidedFunction.covers`).",
         "It rejects a decision registration that states its kind about `f` at universe levels \
           other than the universe parameters of `f`, each once: such a kind holds of some \
           universe instances of `f` and not of the others. The finding names the levels.",
@@ -602,8 +612,9 @@ def guide : RuleId → Guide
           predicate and a specification: `Regula.Decides accepts spec` for both directions, \
           `Regula.DecidesSoundly accepts spec` when a refusal may be wrong, \
           `Regula.DecidesCompletely accepts spec` when an acceptance may be. A function of several \
-          arguments is decided on their product: `fun g => Regula.Decides accepts spec \
-          (Function.uncurry g)`, with `spec` over the pairs.",
+          arguments is decided on their product, with every argument supplied: `fun g => \
+          Regula.Decides accepts spec (Function.uncurry g)` for two arguments, with `spec` over \
+          the pairs, and one more `Function.uncurry` for each further argument.",
         "Where the type of an argument depends on an earlier argument, or an argument is a type, \
           an instance or a proof, the kind is stated about `f` applied to every field of one \
           structure, in the order of the fields: `fun g => Regula.Decides accepts spec (fun \
@@ -681,11 +692,16 @@ def guide : RuleId → Guide
         and of its universe levels, and the search for a mention of the implementation, is \
         operational. Two decisions in it are proved: a head constant is read as a kind exactly \
         when it is that kind's structure \
-        (`RegulaPolicy.DecisionKind.ofStructureName?_eq_some_iff`), and a field application is \
-        read as a packing exactly when the type has one constructor and no index and the \
-        arguments are its fields in order (`RegulaPolicy.FieldPacking.covers_iff`). That such a \
-        packing reaches every argument is `Regula.Decides.of_packing` with the constructor of \
-        the type."
+        (`RegulaPolicy.DecisionKind.ofStructureName?_eq_some_iff`), and a decided function of a \
+        form that is read is accepted exactly when its field application, if it has one, is on \
+        a type with one constructor and no index with the arguments its fields in order, and \
+        the kind's result type has no leading binder (`RegulaPolicy.DecidedFunction.covers_iff` \
+        with `RegulaPolicy.FieldPacking.covers_iff`). Two steps from those numbers to the claim \
+        are argued from Lean's typing rules and are not machine-checked. A result type with no \
+        leading binder is the type of a result that takes no argument, so no argument of the \
+        implementation is left. A type with one constructor and no index has a value for every \
+        tuple of fields, so the packing reaches every tuple of arguments, which is the \
+        hypothesis of `Regula.Decides.of_packing`."
       sources :=
           ["lean/Regula/Contract.lean", "lean/Regula/Collect.lean", "lean/Regula/Probe.lean",
               "lean/RegulaCore/Policy.lean"] }

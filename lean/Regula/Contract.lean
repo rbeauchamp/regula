@@ -65,6 +65,14 @@ type that depends on its arguments. They can be used separately:
   payload type can read the payload type: "the payload type has a value" is the specification
   of a proof-carrying payload, whatever the function returns.
 
+A kind is stated about the function applied to every one of its arguments: the result type of
+the function that is decided is not a function type. With an argument left, an acceptance
+predicate reads the function-valued result at the values it selects, and the kind is the kind of
+one slice of the function (`Decides.iff_slice`). The linter refuses such a kind, in each form:
+the function itself, `Function.uncurry` of it, a field application, and `Dependent.val`. Supply a
+remaining argument with one more `Function.uncurry` (`packing_uncurry_covers`) or as a field of
+the structure.
+
 A kind about a function with universe parameters is stated at those parameters, so that it
 holds of every instance; the linter refuses a kind stated at other universe levels. A result
 type whose dependency on the input none of the three erasures removes, such as an inductive
@@ -262,7 +270,12 @@ theorem DecidesCompletely.of_packing (covers : ∀ x, ∃ s, fields s = x)
 /-- A two-way kind about `f` on a packing of its arguments is the two-way kind about `f`, when
 every argument is `fields s` for some packed value `s`. This is the property a kind stated about
 the fields of a structure relies on: for a type with one constructor and no index, the
-constructor makes every tuple of fields the fields of a value. -/
+constructor makes every tuple of fields the fields of a value.
+
+The domain `α` is the type of the complete argument tuples of the function that is decided, and
+`f` is that function applied to all of them. No hypothesis can say so: that a result type is not
+a function type is not a proposition of Lean's logic. A kind about a function with an argument
+left is the kind of one slice of it (`Decides.iff_slice`), and the linter refuses it. -/
 theorem Decides.of_packing (covers : ∀ x, ∃ s, fields s = x)
     (decides : Decides accepts (fun s => spec (fields s)) (fun s => f (fields s))) :
     Decides accepts spec f :=
@@ -276,6 +289,52 @@ through `Function.uncurry` is the kind stated about the fields of a structure, a
 `Prod`. -/
 theorem uncurry_eq_fields {α : Type u} {β : Type v} {φ : Sort w} (f : α → β → φ) :
     Function.uncurry f = fun p => f p.1 p.2 := rfl
+
+/-- A packing under `Function.uncurry` reaches every pair of a packed part and a remaining
+argument, when it reaches every packed part. So with `Decides.of_packing`, a kind about
+`Function.uncurry (fun s => g (fields s))` is the kind of `Function.uncurry g`: an application of
+`Function.uncurry` around a packing supplies the next argument of the function. -/
+theorem packing_uncurry_covers {σ : Type u} {α : Type v} {β : Type w} {fields : σ → α}
+    (covers : ∀ x, ∃ s, fields s = x) : ∀ p : α × β, ∃ q : σ × β, (fields q.1, q.2) = p :=
+  fun p => (covers p.1).elim fun s packed => ⟨(s, p.2), by rw [packed]⟩
+
+section
+variable {α : Sort u} {β : Sort w} {ρ : Sort v} {accepts : ρ → Prop} {spec : α → Prop}
+  {g : α → β → ρ}
+
+/-- A sound kind about a function with an argument left, whose acceptance predicate reads the
+function-valued result at one value `b` of that argument, is the sound kind of the slice of the
+function at `b`, and of nothing else. -/
+theorem DecidesSoundly.iff_slice (b : β) :
+    DecidesSoundly (fun h : β → ρ => accepts (h b)) spec g ↔
+      DecidesSoundly accepts spec (fun x => g x b) :=
+  ⟨fun decides => ⟨decides.sound, decides.accepted⟩,
+    fun decides => ⟨decides.sound, decides.accepted⟩⟩
+
+/-- A complete kind about a function with an argument left, whose acceptance predicate reads the
+function-valued result at one value `b` of that argument, is the complete kind of the slice of
+the function at `b`, and of nothing else. -/
+theorem DecidesCompletely.iff_slice (b : β) :
+    DecidesCompletely (fun h : β → ρ => accepts (h b)) spec g ↔
+      DecidesCompletely accepts spec (fun x => g x b) :=
+  ⟨fun decides => ⟨decides.complete, decides.refused⟩,
+    fun decides => ⟨decides.complete, decides.refused⟩⟩
+
+/-- A two-way kind about a function with an argument left, whose acceptance predicate reads the
+function-valued result at one value `b` of that argument, is the two-way kind of the slice of
+the function at `b`. It holds of every function with that slice, so it says nothing of `g` at
+another value of the argument. This is why a kind is stated about a function applied to every
+argument, and why the linter refuses a kind whose result type is a function type. -/
+theorem Decides.iff_slice (b : β) :
+    Decides (fun h : β → ρ => accepts (h b)) spec g ↔ Decides accepts spec (fun x => g x b) :=
+  ⟨fun decides =>
+      { toDecidesSoundly := (DecidesSoundly.iff_slice b).mp decides.toDecidesSoundly
+        toDecidesCompletely := (DecidesCompletely.iff_slice b).mp decides.toDecidesCompletely },
+    fun decides =>
+      { toDecidesSoundly := (DecidesSoundly.iff_slice b).mpr decides.toDecidesSoundly
+        toDecidesCompletely := (DecidesCompletely.iff_slice b).mpr decides.toDecidesCompletely }⟩
+
+end
 
 namespace Dependent
 

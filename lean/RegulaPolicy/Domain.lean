@@ -742,6 +742,47 @@ theorem FieldPacking.Covers.length_eq {packing : FieldPacking} (covers : packing
   rw [covers.2.2]
   simp
 
+/-- What the collector reads, from the kernel-checked statement, of the function that a decision
+kind is stated about, when that function is the implementation's constant or a field application
+of it, under any number of applications of `Function.uncurry` and of the erasures of
+`Regula.Contract`. -/
+structure DecidedFunction where
+  /-- The field application at the core of the function (`FieldPacking`), or `none` when the
+  core is the implementation's constant itself. -/
+  packing : Option FieldPacking
+  /-- The number of arguments that a result of the function takes: the leading binders of the
+  kind's result type, with every definition unfolded. -/
+  unsupplied : Nat
+  deriving Repr, DecidableEq
+
+/-- The decided function is the implementation on every argument: a field application covers
+every field (`FieldPacking.Covers`), and no result of the function takes an argument.
+
+A term can be applied only when its type reduces to a function type, so a result type with no
+leading binder is the type of a result that takes no argument. The implementation then has no
+argument after those that its constant, the field application and the surrounding
+`Function.uncurry` applications supply, and a result that `Regula.Dependent.val` returns is not
+itself a function. With an argument left, an acceptance predicate reads the function-valued
+result at the values it selects, and the kind is the kind of one slice of the implementation
+(`Regula.Decides.iff_slice`). -/
+def DecidedFunction.Covers (decided : DecidedFunction) : Prop :=
+  (∀ packing, decided.packing = some packing → packing.Covers) ∧ decided.unsupplied = 0
+
+/-- Whether the decided function is the implementation on every argument
+(`DecidedFunction.covers_iff`). The collector refuses a decision registration unless this
+holds. -/
+@[regula_decision]
+def DecidedFunction.covers (decided : DecidedFunction) : Bool :=
+  decided.packing.all FieldPacking.covers && decided.unsupplied == 0
+
+/-- The executed decision accepts exactly the decided functions that are the implementation on
+every argument. -/
+theorem DecidedFunction.covers_iff (decided : DecidedFunction) :
+    decided.covers = true ↔ decided.Covers := by
+  cases decided with
+  | mk packing unsupplied =>
+    cases packing <;> simp [covers, Covers, FieldPacking.covers_iff]
+
 /-- What the collector observes of a function registered with `@[regula_decision]`: whether its
 result type is `Decidable _`, the form whose every result carries a proof of the decided
 proposition or of its negation; parsing cannot manufacture an unknown constructor. -/
@@ -1564,5 +1605,15 @@ theorem FieldPacking.checked_covers :
       (Regula.Decides (· = true) FieldPacking.Covers) :=
   ⟨.of_iff covers_iff ⟨⟨1, 0, 2, [some 0, some 1]⟩, by decide⟩
     ⟨⟨1, 1, 1, [some 0]⟩, by decide⟩⟩
+
+/-- The decision the collector makes of a decided function is exact
+(`DecidedFunction.covers_iff`): the collector refuses a decision registration unless it holds.
+It accepts the implementation's constant itself when no result takes an argument, and refuses
+that constant when a result takes one more argument, which is a kind about a partially applied
+implementation. -/
+theorem DecidedFunction.checked_covers :
+    Regula.ExecutableContract DecidedFunction.covers
+      (Regula.Decides (· = true) DecidedFunction.Covers) :=
+  ⟨.of_iff covers_iff ⟨⟨none, 0⟩, by decide⟩ ⟨⟨none, 1⟩, by decide⟩⟩
 
 end RegulaPolicy

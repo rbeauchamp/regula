@@ -618,7 +618,8 @@ def descriptor : (id : RuleId) → RuleDescriptor id
           `c.run`.",
         "Universe-polymorphic implementations are supported; explicit universe instantiation is \
           recorded. State a decision kind about such an implementation at its own universe \
-          parameters.",
+          parameters. State a decision kind about an implementation applied to every argument: a \
+          kind whose result is still a function is refused.",
         "For a checker, state the direction with a kind: `ExecutableContract check (Decides (· = \
           true) Spec)`, or `DecidesSoundly` or `DecidesCompletely` for a one-way guarantee, with \
           `Spec` stated without `check`. Decide several arguments through `Function.uncurry`, or \

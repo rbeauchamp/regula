@@ -220,6 +220,16 @@
    "failure=decision contract decides `fun input => check (Limited.field true input)`, not its implementation `check`"
   ]
  },
+ "Fixtures.Mutations.DecisionPartialApplication": {
+  "expect": "fail",
+  "reason": "executable-contract",
+  "output": [
+   "failure=decision contract decides `fun p => lowUnless p.fst p.snd`, whose result is a function of 1 more argument(s), so the kind is about a part of its implementation `lowUnless`",
+   "failure=decision contract decides `smallUnless`, whose result is a function of 1 more argument(s), so the kind is about a part of its implementation `smallUnless`",
+   "failure=decision contract decides `Function.uncurry sumUnless`, whose result is a function of 1 more argument(s), so the kind is about a part of its implementation `sumUnless`",
+   "failure=decision contract decides `Regula.Dependent.val wrappedUnless`, whose result is a function of 1 more argument(s), so the kind is about a part of its implementation `wrappedUnless`"
+  ]
+ },
  "Fixtures.Positive.DecisionRegistration": {
   "expect": "pass",
   "claim": "standard-logical",

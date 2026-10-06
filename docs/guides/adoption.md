@@ -703,8 +703,13 @@ which direction you proved in the registration itself. `Regula.Contract` provide
 function accepts or refuses some input, so a function that refuses everything cannot be
 registered as sound. Register `theorem c : Regula.ExecutableContract check (Regula.Decides (· =
 true) Spec)`, with `fun g => Regula.Decides accepts Spec (Function.uncurry g)` for a function of
-several arguments, and state `Spec` without `check`. The accepted account then reports the kind
+two arguments, and state `Spec` without `check`. The accepted account then reports the kind
 and, for a one-way kind, the direction it leaves open.
+
+State the kind about the function applied to every one of its arguments. [RG1007] refuses a kind
+whose result is still a function: such a kind is about one slice of the function and says nothing
+of it at another value of the argument that is left. Add one more `Function.uncurry` for each
+further argument, or use a structure of all the arguments.
 
 Two forms cover the functions that this form does not reach (standard §3.8):
 
