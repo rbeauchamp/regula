@@ -8,4 +8,4 @@ Shared vocabulary: regula
 
 | Term | Category | Definition | Replaces | Source |
 | --- | --- | --- | --- | --- |
-| agent | 7 | The program that selects an action at each step. | - | `C9.shared.text` |
+| module | 19 | One source file of a program. | - | `C9.project.refuse-term.text` |

@@ -28,8 +28,8 @@ block of the standard and every Lean fence below `docs/` follows the
 
 - [Work on this repository](guides/contributing.md): layout, development, verification, the
   repository's own conformance, review, and releases.
-- [Writing rules](guides/writing.md): the rules for new and changed Markdown documents, the
-  check of these rules, and the baseline.
+- [Writing rules](guides/writing.md): the rules for new and changed Markdown documents, and the
+  check of the vocabulary.
 - [Supported toolchain](guides/toolchains.md): the exact released compiler identity and
   the boundary for unsupported versions.
 - [Architecture](guides/architecture.md): packages, the rule registry, findings, output

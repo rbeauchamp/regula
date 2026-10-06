@@ -1,0 +1,10 @@
+# CONTEXT
+
+Vocabulary version: 1
+Standard: ASD-STE100 Issue 9
+
+## Project technical nouns
+
+| Term | Category | Definition | Replaces | Source |
+| --- | --- | --- | --- | --- |
+| checker | 19 | . | - | `C9.accept.text` |

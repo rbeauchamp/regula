@@ -2,10 +2,10 @@
 
 Vocabulary version: 1
 Standard: ASD-STE100 Issue 9
-Shared vocabulary: regula
 
 ## Project technical nouns
 
 | Term | Category | Definition | Replaces | Source |
 | --- | --- | --- | --- | --- |
-| module | 19 | One source file of a program. | - | `C9.clash.text` |
+| unit test | 19 | A test of one function. | - | `C9.accept.text` |
+| checker | 19 | The program that reads a project and gives findings. | - | `C9.accept.text` |

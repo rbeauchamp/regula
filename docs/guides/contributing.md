@@ -403,7 +403,7 @@ Link to the actual Lean module for larger definitions and proofs; do not copy an
 implementation merely to mirror the chapter structure.
 
 For a new or changed Markdown document, obey the [writing rules](writing.md). The documentation
-step does the [check of the prose](#the-prose-of-markdown-documents).
+step does the [check of the vocabulary](#the-vocabulary-of-the-project).
 
 For review, use the repository-local
 [review toolkit](../../.agents/skills/pr-review-toolkit/SKILL.md) and the applicable
@@ -517,29 +517,26 @@ what md4c's parse shows of the difference. The rest is not seen:
 Link destinations and titles, code block info strings, and link reference definitions are not
 prose and are not checked.
 
-### The prose of Markdown documents
+### The vocabulary of the project
 
-The same executable does a second check of each tracked Markdown document. This check is for the
-[writing rules](writing.md) of the repository. It has nine parts, C1 to C9, and the writing
-rules give the definition of each part.
+The same executable does a check of [`CONTEXT.md`](../../CONTEXT.md), the vocabulary of the
+project. This check is check C9 of the [writing rules](writing.md), and the writing rules give
+its definition.
 
-The decisions are in [`RegulaCore/Vocabulary.lean`](../../lean/RegulaCore/Vocabulary.lean) and
-[`RegulaCore/ControlledProse.lean`](../../lean/RegulaCore/ControlledProse.lean). Each decision
-has a decision contract and the attribute `regula_decision`. The executable in
-[`markdown/MarkdownMain.lean`](../../markdown/MarkdownMain.lean) uses these decisions and no
-other code to accept a document.
-
-The vocabulary is [`CONTEXT.md`](../../CONTEXT.md), and the baseline is
-[`prose-baseline.json`](../../prose-baseline.json). The check compares the baseline with the
-baseline of the base revision. Thus the `verify` job of CI gets the full history, which has
-`origin/main`.
+The decisions are in [`RegulaCore/Vocabulary.lean`](../../lean/RegulaCore/Vocabulary.lean). Each
+decision has a decision contract and the attribute `regula_decision`. The definitions of a word
+and of a sentence are in
+[`RegulaCore/ControlledText.lean`](../../lean/RegulaCore/ControlledText.lean). The function
+`vocabularyOf` in [`markdown/MarkdownMain.lean`](../../markdown/MarkdownMain.lean) uses these
+decisions and no other decision to accept the file.
 
 The controls of the check are the files in
 [`lean/Fixtures/ControlledProse/`](../../lean/Fixtures/ControlledProse/). The documentation step
 operates them first: `lake exe regula-markdown --controls ../lean/Fixtures/ControlledProse` in
-`markdown/`. Each check and each decision about the baseline accepts one control and does not
-accept one or more controls. A control has the extension `text` or `json`. Thus the check of
-the tracked Markdown documents does not read the controls.
+`markdown/`. The check accepts two controls and does not accept the others. For a control that
+it does not accept, each message must start with the file, the line and the check of the
+control. A control has the extension `text`. Thus the check of the tracked Markdown documents
+does not read the controls.
 
 This check is not a rule of the checker and not a requirement of the standard. It has no rule
 ID.

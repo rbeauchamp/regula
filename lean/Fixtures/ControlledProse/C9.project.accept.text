@@ -1,0 +1,11 @@
+# CONTEXT
+
+Vocabulary version: 1
+Standard: ASD-STE100 Issue 9
+Shared vocabulary: regula
+
+## Project technical nouns
+
+| Term | Category | Definition | Replaces | Source |
+| --- | --- | --- | --- | --- |
+| agent | 7 | The program that selects an action at each step. | - | `C9.project.accept.text` |

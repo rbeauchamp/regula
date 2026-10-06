@@ -7,14 +7,14 @@ Standard: ASD-STE100 Issue 9
 
 | Term | Category | Definition | Replaces | Source |
 | --- | --- | --- | --- | --- |
-| module | 19 | One source file of a program. | unit | `C1.accept.text` |
+| module | 19 | One source file of a program. | unit | `C9.accept.text` |
 
 ## Project technical nouns
 
 | Term | Category | Definition | Replaces | Source |
 | --- | --- | --- | --- | --- |
 | checker | 19 | The program that reads a project and gives findings. | auditor, audit tool | `C9.accept.text` (`Regula.Controlled.parse`) |
-| unit test | 19 | A test of one function. | - | `C6.accept.text` |
+| unit test | 19 | A test of one function. | - | `C9.accept.text` |
 
 ## Project technical verbs
 

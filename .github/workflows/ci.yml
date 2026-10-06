@@ -24,13 +24,9 @@ jobs:
     # Provisioning has its own allowance; each verify.sh step enforces exactly 420 seconds.
     timeout-minutes: 45
     steps:
-      # The full history, with `origin/main`: the documentation step compares the baseline of the
-      # prose checks (`prose-baseline.json`) with the one at the merge base of the checked-out
-      # commit and `origin/main` (docs/guides/writing.md#the-baseline).
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-          fetch-depth: 0
 
       - uses: ./.github/actions/provision
         with:

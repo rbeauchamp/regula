@@ -11,8 +11,8 @@ name = "MD4Lean"
 git = "https://github.com/acmepjz/md4lean"
 rev = "31907cc18f48a95384f99cee5582c00fb39e0f67"
 
-# The root package: `RegulaCore.Markdown`, `RegulaCore.Vocabulary` and
-# `RegulaCore.ControlledProse` hold the decisions that this package's reader gives its parse to.
+# The root package: `RegulaCore.Markdown` holds the decision that this package's reader gives its
+# parse to, and `RegulaCore.Vocabulary` the decisions of the check of `CONTEXT.md`.
 [[require]]
 name = "regula"
 path = ".."

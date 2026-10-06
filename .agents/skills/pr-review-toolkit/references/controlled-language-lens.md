@@ -35,7 +35,7 @@ Write a block "Controlled-language review" in the description of the pull reques
 - Each finding: the file and the line, the rule number, the problem in the words of the reviewer, and the new text.
 - Each dictionary check: the word, the result and the decision.
 - That the reviewer read ASD-STE100 and did not get its text with a program.
-- The result of the review: each finding is corrected, or the document has an entry in the baseline with the cause.
+- The result of the review: each finding is corrected, or the record gives the cause.
 
 The result of a dictionary check is one of these: approved with a part of speech, not approved, or not in the dictionary. The decision is one of these: keep the word, replace it with a different word, or add a term to `CONTEXT.md` with a category.
 
