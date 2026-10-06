@@ -20,14 +20,15 @@ inductive Limited : Bool → Type where
 def check (n : Nat) : Bool := decide (n ≠ 3)
 
 -- `Limited.field : (b : Bool) → Limited b → Nat := fun b self => self.1`, a constant whose
--- kernel value is the primitive projection of the constructor's field.
+-- kernel value is the primitive projection of the constructor's field. It is compiled, as an
+-- authored definition is, so the registration is the only thing the checker refuses.
 run_cmd do
   let limited := mkApp (mkConst ``Limited) (.bvar 0)
   let value := Expr.lam `b (mkConst ``Bool)
     (Expr.lam `self limited (Expr.proj ``Limited 0 (.bvar 0)) .default) .default
   let type := Expr.forallE `b (mkConst ``Bool)
     (Expr.forallE `self limited (mkConst ``Nat) .default) .default
-  liftCoreM <| addDecl <| Declaration.defnDecl
+  liftCoreM <| addAndCompile <| Declaration.defnDecl
     { name := `Limited.field, levelParams := [], type, value, hints := .abbrev, safety := .safe }
 
 theorem Limited.field_mk (n : Nat) : Limited.field _ (Limited.mk n) = n := rfl
