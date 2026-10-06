@@ -18,12 +18,15 @@ puts the three decisions of the vocabulary together, and `explain`, `clashes` an
 `Baseline.explain_nil_iff`). The other refusals of a repository have no registered decision and
 no theorem: `vocabularyOf` refuses a vocabulary that names a shared vocabulary when it is given
 none; `loadVocabulary` refuses when Git does not track `CONTEXT.md`, and when Git does not list
-the files of the repository of the shared vocabulary; `baseReference` refuses when Git has no
-base revision or does not give its baseline or its documents; and `check` refuses when Git does
-not list the files of the repository, and when it lists no Markdown document. The rest is not
-proved: the list of tracked files, the baseline and the documents of the base revision are
-Git's, the content of a file is the file system's, a digest is `shasum`'s, and md4c's reading of
-a document is `Regula.Markdown.read`'s (`RegulaMarkdown.lean`). -/
+the files of the repository of the shared vocabulary; `baseRevision` refuses when Git gives no
+merge base of `HEAD` and the revision that the run was given, and no other revision replaces it;
+`baseReference` refuses when Git does not give the baseline or the documents of the base
+revision; and `examine` refuses when Git does not list the files of the repository, and when it
+lists no Markdown document. The rest is not proved: the list of tracked files, the merge base,
+the baseline and the documents of the base revision are Git's, the revision that a workflow
+gives for its event is GitHub's, the content of a file is the file system's, a digest is
+`shasum`'s, and md4c's reading of a document is `Regula.Markdown.read`'s
+(`RegulaMarkdown.lean`). -/
 
 open Regula.Markdown Regula.Controlled
 
@@ -49,21 +52,34 @@ def ratchetCheck : String := "B2"
 def refusal (file : String) (line : Nat) (check reason : String) : String :=
   s!"{file}:{line}: {check}: {reason}"
 
+/-- The environment variable that gives the revision of `--base` when the option is absent. The
+workflow of CI sets it from the event that started the run (`.github/workflows/ci.yml`). -/
+def baseVariable : String := "REGULA_PROSE_BASE"
+
+/-- The revision of `--base` when neither the option nor the variable gives one: the run of a
+developer. -/
+def defaultBase : String := "origin/main"
+
 /-- What the program was asked to do. -/
 structure Options where
   /-- The repository root. -/
   root : System.FilePath
   /-- The `CONTEXT.md` of the package that the vocabulary names as shared. -/
   shared : Option System.FilePath := none
-  /-- The revision whose merge base with `HEAD` is the base revision of check B2. -/
-  base : String := "origin/main"
+  /-- The revision whose merge base with `HEAD` is the base revision of check B2: the option
+  `--base`, or the variable `REGULA_PROSE_BASE` when the option is absent, or `origin/main` when
+  the two are absent. A value that is given is used as it is: no other revision replaces an
+  empty value or a revision that Git does not have. -/
+  base : String := defaultBase
   /-- Write the baseline of the documents as they are instead of checking them. -/
   write : Bool := false
   /-- Print every finding of this document instead of checking the repository. -/
   list : Option String := none
 
-/-- The options of the arguments `args`, if they are a root and known options. -/
-def Options.parse : List String → Option Options
+/-- The options of the arguments `args`, if they are a root and known options. `environment` is
+the value of the environment variable `REGULA_PROSE_BASE`, if it is set: the option `--base`
+comes before it, and it comes before `origin/main`. -/
+def Options.parse (environment : Option String) : List String → Option Options
   | root :: rest =>
     let rec go (options : Options) : List String → Option Options
       | [] => some options
@@ -72,8 +88,16 @@ def Options.parse : List String → Option Options
       | "--write-baseline" :: rest => go { options with write := true } rest
       | "--list" :: path :: rest => go { options with list := some path } rest
       | _ => none
-    if root.startsWith "--" then none else go { root } rest
+    if root.startsWith "--" then none else go { root, base := environment.getD defaultBase } rest
   | [] => none
+
+-- The option `--base` comes before the variable, and the variable comes before `origin/main`.
+-- A variable that is set and empty stays empty: `origin/main` does not replace it.
+-- Compiled-evaluation observations at build time, not kernel-checked proofs.
+#guard (Options.parse (some "v") ["r", "--base", "o"]).map (·.base) == some "o"
+#guard (Options.parse (some "v") ["r"]).map (·.base) == some "v"
+#guard (Options.parse (some "") ["r"]).map (·.base) == some ""
+#guard (Options.parse none ["r"]).map (·.base) == some defaultBase
 
 /-- Run `git` with `args` in `directory`. -/
 def git (directory : System.FilePath) (args : Array String) : IO IO.Process.Output :=
@@ -264,16 +288,23 @@ def loadBaseline (root : System.FilePath) (tracked : List String) :
   unless tracked.contains baselineFile do return .ok none
   return (baselineOf baselineFile (← IO.FS.readFile (root / baselineFile))).map some
 
-/-- The base revision: the merge base of `HEAD` and the revision `options.base`, or that
-revision itself when Git finds no merge base (in a shallow clone, where the history between the
-two is not there). -/
+/-- The base revision: the merge base of `HEAD` and the revision `options.base`, as Git gives
+it. When Git gives none, the base revision is not available, and no other revision replaces it:
+the revision is empty, Git does not have it, or the history between it and `HEAD` is not there
+(a shallow clone). -/
 def baseRevision (options : Options) : IO (Except String String) := do
+  let unavailable (cause : String) : Except String String :=
+    .error s!"the base revision is not available: {cause}; get the full history of the \
+      repository, or give the revision that the change starts from with --base or with the \
+      variable {baseVariable}"
+  if options.base.isEmpty then
+    return unavailable "the start of the check gave an empty revision"
+  if options.base.startsWith "-" then
+    return unavailable s!"`{options.base}` is not a revision"
   let merged ← git options.root #["merge-base", "HEAD", options.base]
-  if merged.exitCode == 0 then return .ok merged.stdout.trimAscii.toString
-  let tip ← git options.root #["rev-parse", "--verify", "--quiet", options.base ++ "^{commit}"]
-  if tip.exitCode == 0 then return .ok tip.stdout.trimAscii.toString
-  return .error s!"the base revision is not available: Git has no revision {options.base}; \
-    fetch it, or give the revision that the change starts from with --base"
+  let commit := merged.stdout.trimAscii.toString
+  if merged.exitCode == 0 && !commit.isEmpty then return .ok commit
+  return unavailable s!"Git gives no merge base of `HEAD` and `{options.base}`"
 
 /-- What the checks observe of each Markdown document of the commit `commit`, as Git gives it:
 the documents of a base revision that has no baseline (`measureOne`). -/
@@ -319,20 +350,29 @@ def documentsOf (root : System.FilePath) (tracked : List String) : IO (List Docu
     let source ← IO.FS.readFile (root / path)
     return ⟨path, source, read source⟩
 
-/-- Check the repository: the rule IDs of every tracked Markdown document, the vocabulary, the
-checks C1 to C8 of every document with the baseline, and the baseline in relation to the base
-revision. Exit code 0 when there is at least one document and nothing is refused, and 1
-otherwise, after printing each refusal. -/
-def check (options : Options) : IO UInt32 := do
+/-- What the checks of a repository give. -/
+structure Outcome where
+  /-- The refusals of the rule IDs. -/
+  ruleIds : List String
+  /-- The refusals of the vocabulary, of the prose and of the baseline. -/
+  prose : List String
+  /-- What the checks of the vocabulary, the prose and the baseline accepted, when they
+  accepted. -/
+  summary : String
+  /-- The number of tracked Markdown documents. -/
+  documents : Nat
+
+/-- The checks of the repository: the rule IDs of every tracked Markdown document, the
+vocabulary, the checks C1 to C8 of every document with the baseline, and the baseline in
+relation to the base revision. The reason, when Git does not list the files of the repository
+or lists no Markdown document. -/
+def examine (options : Options) : IO (Except String Outcome) := do
   let tracked ← match ← trackedFiles options.root with
     | .ok tracked => pure tracked
-    | .error reason =>
-      IO.eprintln s!"FAIL: {reason}"
-      return 1
+    | .error reason => return .error reason
   let documents ← documentsOf options.root tracked
   if documents.isEmpty then
-    IO.eprintln s!"FAIL: Git tracks no Markdown document below {options.root}"
-    return 1
+    return .error s!"Git tracks no Markdown document below {options.root}"
   let ruleIds := documents.flatMap fun d => documentErrors d.path d.source d.reading
   let vocabulary ← loadVocabulary options tracked
   let baseline ← loadBaseline options.root tracked
@@ -354,16 +394,27 @@ def check (options : Options) : IO UInt32 := do
   | vocabulary, baseline =>
     prose := (match vocabulary with | .error refusals => refusals | .ok _ => []) ++
       (match baseline with | .error refusals => refusals | .ok _ => [])
-  unless ruleIds.isEmpty do
+  return .ok ⟨ruleIds, prose, summary, documents.length⟩
+
+/-- Check the repository (`examine`). Exit code 0 when there is at least one document and
+nothing is refused, and 1 otherwise, after printing each refusal. -/
+def check (options : Options) : IO UInt32 := do
+  let outcome ← match ← examine options with
+    | .ok outcome => pure outcome
+    | .error reason =>
+      IO.eprintln s!"FAIL: {reason}"
+      return 1
+  unless outcome.ruleIds.isEmpty do
     IO.eprintln ("FAIL: tracked Markdown documents have a rule ID in prose that is not a link to \
-      its rule page, or a construct the check does not read:\n" ++ "\n".intercalate ruleIds)
-  unless prose.isEmpty do
+      its rule page, or a construct the check does not read:\n" ++
+      "\n".intercalate outcome.ruleIds)
+  unless outcome.prose.isEmpty do
     IO.eprintln ("FAIL: the vocabulary, the prose of the tracked Markdown documents or the \
       baseline is refused (docs/guides/writing.md gives each check):\n" ++
-      "\n".intercalate prose)
-  unless ruleIds.isEmpty && prose.isEmpty do return 1
-  IO.println s!"Markdown documents: {documents.length} tracked documents read by md4c; every \
-    rule ID in their prose links to its rule page; {summary}"
+      "\n".intercalate outcome.prose)
+  unless outcome.ruleIds.isEmpty && outcome.prose.isEmpty do return 1
+  IO.println s!"Markdown documents: {outcome.documents} tracked documents read by md4c; every \
+    rule ID in their prose links to its rule page; {outcome.summary}"
   return 0
 
 /-- Print every finding of the checks C1 to C8 in one Markdown document of the repository. -/
@@ -597,8 +648,182 @@ def controls : List Control := [
   ⟨.first ["C1.accept.text"] "B2.first.refuse-frozen.json",
     .refused "B2.first.refuse-frozen.json" 5 "B2"⟩]
 
+/-! ## Controls of the base revision
+
+A control of the base revision is a repository that the run makes with Git in a temporary
+directory, a branch that the check reads, and a revision that the control gives as `--base`, in
+a form that the workflow of CI gives it: the commit of the base of a pull request, the commit
+before a push, or the first parent of the checked commit. The control is the check of that
+repository (`examine`), as the documentation step does it. The values that GitHub gives for an
+event are not a part of a control: no local run has them. -/
+
+/-- One commit of the repository of a control. -/
+structure Commit where
+  /-- The branch that gets the commit. -/
+  branch : String
+  /-- The branch whose commit is the parent, or `none` for the first commit. -/
+  parent : Option String
+  /-- The files that the commit changes: the text of each one, or `none` to remove the file. -/
+  files : List (String × Option String)
+
+/-- The revision that a control gives as `--base`. -/
+inductive Given where
+  /-- The full name of the commit of a branch: the base of a pull request, or the revision
+  before a push. -/
+  | commit (branch : String)
+  /-- The first parent of the commit of a branch, as `<commit>^`: a manual start. -/
+  | parent (branch : String)
+  /-- A text as it is: the default of a developer's run, or a value that gives no revision. -/
+  | text (revision : String)
+
+/-- A control of the base revision of check B2. -/
+structure RepositoryControl where
+  /-- The name of the repository of the control (`repositories`). -/
+  repository : String
+  /-- The branch that the check reads. -/
+  head : String
+  /-- Read a clone that has only the commit of `head` and the commit of `main`, with no
+  history, as a checkout of depth 1 has. -/
+  shallow : Bool
+  /-- The revision given as `--base`. -/
+  base : Given
+  /-- The result that the control must give. -/
+  expect : Expect
+
+/-- The print of the vocabulary with no row: the `CONTEXT.md` of each repository. -/
+def controlVocabulary : String := write Vocabulary.empty
+
+/-- The print of a baseline with `entries`. -/
+def controlBaseline (entries : List Entry) : String := String.ofList (ledgerOf entries).render
+
+/-- An entry that permits `count` findings of check C4 and no other finding for `path`. -/
+def semicolonEntry (path : String) (count : Nat) : Entry :=
+  ⟨path.toList, .counts (((List.replicate 8 0).set 3 count).map fun n => (Nat.repr n).toList)⟩
+
+/-- The repositories of the controls of the base revision, each with its name. -/
+def repositories : List (String × List Commit) := [
+  -- The branch `target` permits one finding less than `main`. The branch `change`, from
+  -- `target`, has the two findings of `main` again.
+  ("narrowed", [
+    ⟨"main", none, [(vocabularyFile, some controlVocabulary),
+      ("a.md", some "# A\n\nOne; two; three.\n"),
+      (baselineFile, some (controlBaseline [semicolonEntry "a.md" 2]))]⟩,
+    ⟨"target", some "main", [("a.md", some "# A\n\nOne; two three.\n"),
+      (baselineFile, some (controlBaseline [semicolonEntry "a.md" 1]))]⟩,
+    ⟨"change", some "target", [("a.md", some "# A\n\nOne; two; three.\n"),
+      (baselineFile, some (controlBaseline [semicolonEntry "a.md" 2]))]⟩]),
+  -- The branch `next`, from `main`, adds a document with a semicolon and an entry that agrees
+  -- with it. The branch `removed`, from `main`, removes the baseline.
+  ("pushed", [
+    ⟨"main", none, [(vocabularyFile, some controlVocabulary),
+      ("a.md", some "# A\n\nOne two three.\n"), (baselineFile, some (controlBaseline []))]⟩,
+    ⟨"next", some "main", [("new.md", some "# N\n\nNew text; more text.\n"),
+      (baselineFile, some (controlBaseline [semicolonEntry "new.md" 1]))]⟩,
+    ⟨"removed", some "main", [(baselineFile, none)]⟩]),
+  -- The first commit has a frozen document. The branch `side` changes the document and removes
+  -- its entry. A later commit of `main` removes the document and its entry.
+  ("diverged", [
+    ⟨"main", none, [(vocabularyFile, some controlVocabulary),
+      ("record.md", some "# Record\n\nThe first text.\n"),
+      (baselineFile, some (controlBaseline [⟨"record.md".toList, .frozen
+        "f181adc34424559724d267a81d4090eedd38a8864b55641b801d6b20a593551b".toList⟩]))]⟩,
+    ⟨"side", some "main", [("record.md", some "# Record\n\nA changed text.\n"),
+      (baselineFile, some (controlBaseline []))]⟩,
+    ⟨"main", some "main", [("record.md", none), (baselineFile, some (controlBaseline []))]⟩])]
+
+/-- The controls of the base revision. -/
+def repositoryControls : List RepositoryControl := [
+  -- A pull request whose target is not `main`: in relation to `main` the change has no larger
+  -- number, and in relation to its target, which the workflow gives, it has one.
+  ⟨"narrowed", "change", false, .commit "main", .accepted⟩,
+  ⟨"narrowed", "change", false, .commit "target", .refused baselineFile 5 ratchetCheck⟩,
+  -- A push: a comparison of the pushed commit with itself accepts a new document with an entry
+  -- that agrees with it. The comparison with the commit before the push, which the workflow
+  -- gives, refuses that entry, and so does the comparison with the first parent, which the
+  -- workflow gives for a manual start.
+  ⟨"pushed", "next", false, .commit "next", .accepted⟩,
+  ⟨"pushed", "next", false, .commit "main", .refused baselineFile 5 ratchetCheck⟩,
+  ⟨"pushed", "next", false, .parent "next", .refused baselineFile 5 ratchetCheck⟩,
+  -- A push that removes the baseline is refused in relation to the commit before the push.
+  ⟨"pushed", "removed", false, .commit "main", .refused baselineFile 1 ratchetCheck⟩,
+  -- With the full history, the merge base of `side` and `main` has the frozen entry, and the
+  -- change of the frozen document is refused. With no history, Git gives no merge base: the
+  -- check refuses, and the later commit of `main` does not replace the merge base.
+  ⟨"diverged", "side", false, .commit "main", .refused baselineFile 5 ratchetCheck⟩,
+  ⟨"diverged", "side", true, .text defaultBase, .refused baselineFile 1 ratchetCheck⟩,
+  -- A start that gives an empty revision, or the name of no commit, is refused: `origin/main`
+  -- does not replace the value.
+  ⟨"pushed", "next", false, .text "", .refused baselineFile 1 ratchetCheck⟩,
+  ⟨"pushed", "next", false, .text "0000000000000000000000000000000000000000",
+    .refused baselineFile 1 ratchetCheck⟩]
+
+/-- Run `git` with `args` in `directory` for a control, with no configuration of the user or of
+the system and with one author, and give its output. -/
+def gitControl (directory : System.FilePath) (args : Array String) : IO String := do
+  let out ← IO.Process.output {
+    cmd := "git", args, cwd := some directory,
+    env := #[("GIT_CONFIG_GLOBAL", some "/dev/null"), ("GIT_CONFIG_SYSTEM", some "/dev/null"),
+      ("GIT_AUTHOR_NAME", some "control"), ("GIT_AUTHOR_EMAIL", some "control@example.invalid"),
+      ("GIT_COMMITTER_NAME", some "control"),
+      ("GIT_COMMITTER_EMAIL", some "control@example.invalid")] }
+  unless out.exitCode == 0 do
+    throw <| IO.userError s!"git {args} failed in {directory}: {out.stderr}"
+  return out.stdout.trimAscii.toString
+
+/-- Make the repository of `commits` in `directory`. -/
+def makeRepository (directory : System.FilePath) (commits : List Commit) : IO Unit := do
+  IO.FS.createDirAll directory
+  discard <| gitControl directory #["init", "--quiet", "--initial-branch", "main"]
+  for commit in commits do
+    if let some parent := commit.parent then
+      discard <| gitControl directory #["checkout", "--quiet", "-B", commit.branch, parent]
+    for (path, text) in commit.files do
+      match text with
+      | some text => IO.FS.writeFile (directory / path) text
+      | none => IO.FS.removeFile (directory / path)
+    discard <| gitControl directory #["add", "--all"]
+    discard <| gitControl directory #["commit", "--quiet", "--message", commit.branch]
+
+/-- The result of the controls of the base revision: what each control that does not give its
+expected result gave. -/
+def runRepositoryControls (judge : String → Expect → List String → List String) :
+    IO (List String) :=
+  IO.FS.withTempDir fun root => do
+    for (name, commits) in repositories do
+      makeRepository (root / name) commits
+    let mut failures : List String := []
+    let mut index := 0
+    for control in repositoryControls do
+      index := index + 1
+      let origin := root / control.repository
+      discard <| gitControl origin #["checkout", "--quiet", control.head]
+      let directory ←
+        if control.shallow then do
+          let clone := root / s!"shallow-{index}"
+          discard <| gitControl root #["clone", "--quiet", "--depth", "1", "--branch",
+            control.head, s!"file://{origin}", clone.toString]
+          discard <| gitControl clone #["fetch", "--quiet", "--depth", "1", "origin",
+            "main:refs/remotes/origin/main"]
+          pure clone
+        else pure origin
+      let (form, base) ← match control.base with
+        | .commit branch =>
+          pure (s!"the commit of `{branch}`", ← gitControl origin #["rev-parse", branch])
+        | .parent branch =>
+          pure (s!"the first parent of `{branch}`",
+            (← gitControl origin #["rev-parse", branch]) ++ "^")
+        | .text revision => pure (s!"`{revision}`", revision)
+      let subject := s!"repository `{control.repository}`, branch `{control.head}`\
+        {if control.shallow then " with no history" else ""}, base {form}"
+      let result ← match ← examine { root := directory, base } with
+        | .ok outcome => pure (outcome.ruleIds ++ outcome.prose)
+        | .error reason => pure [reason]
+      failures := failures ++ judge subject control.expect result
+    return failures
+
 /-- Run the controls of `directory`. Exit code 0 when each control gives what `controls` expects
-and the directory holds exactly the files of the controls, and 1 otherwise. -/
+and the directory holds exactly the files of the controls, and when each control of the base
+revision gives what `repositoryControls` expects. Exit code 1 otherwise. -/
 def runControls (directory : System.FilePath) : IO UInt32 := do
   let names := (← directory.readDir).toList.map (·.fileName)
   let text (name : String) : IO String := IO.FS.readFile (directory / name)
@@ -612,6 +837,16 @@ def runControls (directory : System.FilePath) : IO UInt32 := do
     if let .document file := control.subject then
       let content ← text file
       documents := documents ++ [⟨file, content, read content⟩]
+  -- What a control that does not give its expected result gave.
+  let judge (subject : String) (expect : Expect) (result : List String) : List String :=
+    match expect, result with
+    | .accepted, [] => []
+    | .accepted, refusals => [s!"{subject}: expected no refusal, got: {refusals}"]
+    | .refused .., [] => [s!"{subject}: expected a refusal, got none"]
+    | .refused file line check, refusals =>
+      let start := refusal file line check ""
+      if refusals.all (·.startsWith start) then []
+      else [s!"{subject}: expected each refusal to start with `{start}`, got: {refusals}"]
   let mut failures : List String := []
   for control in controls do
     let (subject, result) ← match control.subject with
@@ -653,27 +888,19 @@ def runControls (directory : System.FilePath) : IO UInt32 := do
         | .ok before =>
           pure (s!"no baseline in relation to {base}",
             ratchetRefusals base (.baseline before) none names)
-    match control.expect, result with
-    | .accepted, [] => pure ()
-    | .accepted, refusals =>
-      failures := failures ++ [s!"{subject}: expected no refusal, got: {refusals}"]
-    | .refused .., [] =>
-      failures := failures ++ [s!"{subject}: expected a refusal, got none"]
-    | .refused file line check, refusals =>
-      let start := refusal file line check ""
-      unless refusals.all (·.startsWith start) do
-        failures := failures ++
-          [s!"{subject}: expected each refusal to start with `{start}`, got: {refusals}"]
+    failures := failures ++ judge subject control.expect result
   let expected := controls.flatMap (·.subject.files)
   for name in names do
     unless expected.contains name do
       failures := failures ++ [s!"{name}: the directory has a file that is no control"]
+  failures := failures ++ (← runRepositoryControls judge)
   unless failures.isEmpty do
     IO.eprintln ("FAIL: controls of the checks of Markdown prose:\n" ++ "\n".intercalate failures)
     return 1
   IO.println s!"Controls of the checks of Markdown prose: {controls.length} controls in \
-    {directory} gave the expected results (each refusal starts with its file, its line and its \
-    check)"
+    {directory} and {repositoryControls.length} controls of the base revision, in repositories \
+    that the run made with Git, gave the expected results (each refusal starts with its file, \
+    its line and its check)"
   return 0
 
 end Regula.Controlled.Run
@@ -686,7 +913,7 @@ def main (args : List String) : IO UInt32 := do
   match args with
   | ["--controls", directory] => runControls directory
   | _ =>
-    let some options := Options.parse args
+    let some options := Options.parse (← IO.getEnv baseVariable) args
       | IO.eprintln "usage: lake exe regula-markdown REPOSITORY [--shared CONTEXT.md] [--base \
           REVISION] [--write-baseline | --list DOCUMENT]\n       lake exe regula-markdown \
           --controls DIRECTORY"

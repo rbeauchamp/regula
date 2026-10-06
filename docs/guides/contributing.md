@@ -566,8 +566,15 @@ The decisions are in
 [`RegulaCore/ProseBaseline.lean`](../../lean/RegulaCore/ProseBaseline.lean). Each decision has a
 decision contract and the attribute `regula_decision`.
 
-The base revision is the merge base of `HEAD` and `origin/main`. Thus the `verify` job of CI
-gets the full history of the repository.
+The base revision is the merge base of `HEAD` and a revision that the start of the check gives.
+The [writing rules](writing.md#the-baseline) give that revision for each start. The workflow
+gives it to the documentation step in the variable `REGULA_PROSE_BASE`, and the `verify` job of
+CI gets the full history of the repository. If Git gives no merge base, check B2 does not accept
+the baseline.
+
+The controls of the base revision are repositories that the executable makes with Git in a
+temporary directory. Each control gives a revision in a form that the workflow gives. No control
+has the values that GitHub gives for an event.
 
 The controls of these checks are in the same directory as the controls of the vocabulary. A
 control of C1 to C8 is a document with the extension `text`. A control of B1 or B2 is a baseline

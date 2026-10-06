@@ -93,6 +93,8 @@ Lean does not prove these conditions, because they are about the meaning of the 
 
 The check does not accept some sentences that are in the limit of rules 8.4 to 8.7. For example, the check gives two or more words to a decimal number that is not in code font. The check also gives one word to each word of a title or of a proper noun.
 
+Check C2 also uses the smaller limit where the check cannot make a decision. An unordered list or a table in an item of an ordered list can be a description. A description has the limit of 25 words of rule 6.3. The check cannot know that, thus it uses the limit of 20 words for each block in that item.
+
 Lean proves these facts about the definitions:
 
 - Each definition gives only one result for a text, and the function of the check gives that result (the theorems `runs_iff`, `folded_iff` and `divided_iff`).
@@ -138,6 +140,7 @@ The contracts are about the data that the functions get. Lean does not prove the
 - That the text of a file is the text that a function gets. The file system gives the text.
 - That the lists of tracked files are correct. Git gives them.
 - That the baseline and the documents of the base revision are correct. Git gives them.
+- That the revision which CI gives is the state of the target branch before the change. GitHub gives that revision for the event, and no local run has it.
 - That a digest is the SHA-256 digest of a file. The `shasum` program gives it.
 - That md4c and GitHub read a document with the same result.
 - That the code which makes pieces from the result of md4c is correct. That code is in [`markdown/RegulaMarkdown.lean`](../../markdown/RegulaMarkdown.lean). It has controls, but no theorem.
@@ -152,7 +155,14 @@ The file [`prose-baseline.json`](../../prose-baseline.json) is the baseline. It 
 - `frozen` and a SHA-256 digest: the document is a record that must not change. The checks do not read it, and B1 does not accept a change to its text.
 - `generated` and a source: a program writes the document from sources that the checks do not read. The checks do not read the document.
 
-A document with no entry must have no finding (check B1). Check B2 compares the baseline with the base revision. The base revision is the merge base of `HEAD` and `origin/main`.
+A document with no entry must have no finding (check B1). Check B2 compares the baseline with the base revision. The base revision is the merge base of `HEAD` and a revision that the start of the check gives:
+
+- A developer gives the revision with the option `--base` of the executable. Without that option, the revision is `origin/main`. If `HEAD` is `origin/main`, B2 compares the baseline with itself and accepts it.
+- CI gives the revision in the variable `REGULA_PROSE_BASE`. For a pull request, it is the base of the pull request. For a push, it is the commit before the push.
+- For a manual start of the workflow, CI gives the first parent of the commit. Thus B2 does not compare that commit with itself.
+- For the release commit, CI gives `HEAD`. The documents of the release commit are the documents of its parent, a commit of `main` that CI examined with the base of its event.
+
+If Git gives no merge base, B2 does not accept the baseline, and no other revision replaces the base revision. An empty revision and a revision that Git does not have give that result. A checkout with no history gives it also, thus the documentation step gets the full history.
 
 If the base revision has a baseline, B2 compares the two baselines:
 
@@ -193,7 +203,7 @@ To see each finding of one document, use the command `lake exe regula-markdown .
 Each check is a Lean function with a decision contract. The contract compares the function with a specification. These rules are for the specification of each check of these writing rules, and for each new check:
 
 - A specification is a statement about the data that the function reads. It uses logic, the core library of Lean, the data types of the check and definitions of the project.
-- The function of a check uses no definition that its specification uses. The data types are the only declarations that the two use: each type, its constructors and the parts that Lean makes for it.
+- The function of a check uses no definition that its specification uses. The data types are the only declarations that the two use: each type, its constructors and the parts that Lean makes for it. An equality test that `deriving DecidableEq` makes for a data type is such a part, because it is the structural equality of that type. An instance that a person wrote is not such a part.
 - A step that changes the data before the decision is a relation in the specification. A theorem connects the function of that step with the relation. Examples are `Blocks`, `Divided`, `Marks` and `Normal`.
 - If the function must have a definition of the specification, it has a second definition in the namespace `Exec`. A theorem shows that the two definitions are equal. Thus after a change to one of the two definitions, Lean does not accept that theorem.
 - The function `write` is the definition of the grammar of a file. The function `parse` compares a text with a second definition of that grammar. A theorem shows that `parse` accepts only a text that `write` gives.
