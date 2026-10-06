@@ -1,12 +1,19 @@
 import RegulaPolicy.Collections
 import RegulaPolicy.Traversal
 import Regula.Contract
+import Regula.Decision
 
 /-! # Invariant-preserving result admission
 
 Invariant-preserving finite result admission. The required key set and binding
 relation are parameters fixed by the caller's plan. This module proves representation
-closure, not that an external census is complete or a policy observation is true. -/
+closure, not that an external census is complete or a policy observation is true.
+
+`insertResult`, `collect` and `admitIndexedResults` are polymorphic in the key and payload
+types, so each is registered as a decision on a structure whose fields are all of its arguments,
+the types and instances among them (`InsertInput`, `CollectInput`, `IndexedResultsInput`). Each
+result type depends on those arguments, so the decision is of whether the result is a success
+(`Regula.Dependent.isOk`). -/
 namespace RegulaPolicy
 open Std
 
@@ -42,6 +49,7 @@ def empty : ResultState required bound :=
 
 /-- Admission checks membership, then occupancy, then binding. Failure returns no
 replacement state; the immutable previous state remains available unchanged. -/
+@[regula_decision]
 def insertResult [DecidableRel bound] (s : ResultState required bound) (k : κ) (v : β) :
     Except AdmissionFailure (ResultState required bound) :=
   if hk : k ∈ required then
@@ -150,9 +158,21 @@ theorem insertResult_success_iff [DecidableRel bound] (s : ResultState required 
   · rintro ⟨hk, hf, hb⟩
     exact insertResult_complete s k v hk hf hb
 
+/-- The insertions `insertResult` admits: a required key that holds no result yet, with a
+payload bound to it. It is stated without `insertResult`. -/
+def InsertOK (s : ResultState required bound) (k : κ) (v : β) : Prop :=
+  k ∈ required ∧ s.entries[k]? = none ∧ bound k v
+
+/-- Insertion succeeds exactly for an insertion `InsertOK` admits. -/
+theorem insertResult_isOk_iff [DecidableRel bound] (s : ResultState required bound) (k : κ)
+    (v : β) : (insertResult s k v).isOk = true ↔ InsertOK s k v := by
+  rw [InsertOK, ← insertResult_success_iff]
+  cases insertResult s k v <;> simp [Except.isOk, Except.toBool]
+
 /-- Collect the complete supplied sequence without filtering, normalizing or overwriting
 any occurrence. Failure exposes no partial replacement table. Both operational worker
 admission and the concrete acceptance finalizer use this fold. -/
+@[regula_decision]
 def collect [DecidableRel bound] (s : ResultState required bound) :
     List (κ × β) → Except AdmissionFailure (ResultState required bound)
   | [] => .ok s
@@ -259,7 +279,122 @@ theorem collect_empty_lookup [DecidableRel bound] (inputs : List (κ × β))
     final.entries[key]? = some value ↔ (key, value) ∈ inputs := by
   simpa [empty] using collect_lookup inputs .empty final h key value
 
+/-- Collection succeeds exactly for a batch `BatchOK` admits. -/
+theorem collect_isOk_iff [DecidableRel bound] (s : ResultState required bound)
+    (inputs : List (κ × β)) : (collect s inputs).isOk = true ↔ BatchOK s inputs := by
+  rw [← collect_success_iff]
+  cases collect s inputs <;> simp [Except.isOk, Except.toBool]
+
 end ResultState
+
+/-- The arguments of `ResultState.insertResult`, as the fields of one structure, in the order of
+the arguments. -/
+structure InsertInput where
+  /-- The key type. -/
+  κ : Type u
+  /-- The payload type. -/
+  β : Type v
+  /-- The order of the keys. -/
+  order : Ord κ
+  /-- The order is transitive. -/
+  transitive : TransOrd κ
+  /-- Keys that compare equal are equal. -/
+  lawful : LawfulEqOrd κ
+  /-- The required key set. -/
+  required : CanonicalSet κ
+  /-- The binding relation between a key and a payload. -/
+  bound : κ → β → Prop
+  /-- A decision of the binding relation. -/
+  decidable : DecidableRel bound
+  /-- The table before the insertion. -/
+  state : ResultState required bound
+  /-- The key of the result to insert. -/
+  key : κ
+  /-- The payload of the result to insert. -/
+  value : β
+
+/-- The arguments of `ResultState.collect`, as the fields of one structure, in the order of the
+arguments. -/
+structure CollectInput where
+  /-- The key type. -/
+  κ : Type u
+  /-- The payload type. -/
+  β : Type v
+  /-- The order of the keys. -/
+  order : Ord κ
+  /-- The order is transitive. -/
+  transitive : TransOrd κ
+  /-- Keys that compare equal are equal. -/
+  lawful : LawfulEqOrd κ
+  /-- The required key set. -/
+  required : CanonicalSet κ
+  /-- The binding relation between a key and a payload. -/
+  bound : κ → β → Prop
+  /-- A decision of the binding relation. -/
+  decidable : DecidableRel bound
+  /-- The table before the collection. -/
+  state : ResultState required bound
+  /-- The results to collect, in order. -/
+  inputs : List (κ × β)
+
+/-- `ResultState.insertResult` accepts exactly the insertions `ResultState.InsertOK` admits
+(`insertResult_isOk_iff`), for every key type, payload type, order, required set and binding
+relation, at every universe level. The witnesses are over the one-point key and payload types
+with the one-point order: it accepts the point into the empty table of the set that holds it,
+and refuses it for the empty set. Which table it returns is `insertResult_entries`. -/
+theorem checked_insertResult :
+    Regula.ExecutableContract @ResultState.insertResult.{u, v} (fun insert =>
+      Regula.Decides (· = true)
+        (fun input : InsertInput.{u, v} => @ResultState.InsertOK _ _ input.order
+          input.transitive _ _ input.state input.key input.value)
+        (Regula.Dependent.isOk fun input => @insert input.κ input.β input.order input.transitive
+          input.lawful input.required input.bound input.decidable input.state input.key
+          input.value)) :=
+  let order : Ord PUnit.{u + 1} := ⟨fun _ _ => .eq⟩
+  have transitive : @TransOrd PUnit.{u + 1} order := @TransCmp.mk _ _ ⟨rfl⟩ (fun _ _ => rfl)
+  have lawful : @LawfulEqOrd PUnit.{u + 1} order := @LawfulEqCmp.mk _ _ ⟨rfl⟩ (fun _ => rfl)
+  let bound : PUnit.{u + 1} → PUnit.{v + 1} → Prop := fun _ _ => True
+  let decidable : DecidableRel bound := fun _ _ => instDecidableTrue
+  let witness (required : CanonicalSet PUnit.{u + 1}) : InsertInput.{u, v} :=
+    ⟨PUnit, PUnit, order, transitive, lawful, required, bound, decidable, .empty, PUnit.unit,
+      PUnit.unit⟩
+  have iff (input : InsertInput.{u, v}) :=
+    @ResultState.insertResult_isOk_iff _ _ input.order input.transitive input.lawful _ _
+      input.decidable input.state input.key input.value
+  ⟨.of_iff iff
+    ⟨witness (CanonicalSet.normalize [PUnit.unit]),
+      (iff (witness (CanonicalSet.normalize [PUnit.unit]))).mpr
+        ⟨by simp [witness], by simp [witness, ResultState.empty], trivial⟩⟩
+    ⟨witness ∅, fun accepted => absurd ((iff (witness ∅)).mp accepted).1 (by simp [witness])⟩⟩
+
+/-- `ResultState.collect` accepts exactly the batches `ResultState.BatchOK` admits
+(`collect_isOk_iff`), for every key type, payload type, order, required set and binding
+relation, at every universe level. The witnesses are over the one-point key and payload types
+with the empty required set: it accepts the empty batch and refuses the batch of the point.
+Which table it returns is `collect_lookup`. -/
+theorem checked_collect :
+    Regula.ExecutableContract @ResultState.collect.{u, v} (fun collect =>
+      Regula.Decides (· = true)
+        (fun input : CollectInput.{u, v} => @ResultState.BatchOK _ _ input.order
+          input.transitive _ _ input.state input.inputs)
+        (Regula.Dependent.isOk fun input => @collect input.κ input.β input.order
+          input.transitive input.lawful input.required input.bound input.decidable input.state
+          input.inputs)) :=
+  let order : Ord PUnit.{u + 1} := ⟨fun _ _ => .eq⟩
+  have transitive : @TransOrd PUnit.{u + 1} order := @TransCmp.mk _ _ ⟨rfl⟩ (fun _ _ => rfl)
+  have lawful : @LawfulEqOrd PUnit.{u + 1} order := @LawfulEqCmp.mk _ _ ⟨rfl⟩ (fun _ => rfl)
+  let bound : PUnit.{u + 1} → PUnit.{v + 1} → Prop := fun _ _ => True
+  let decidable : DecidableRel bound := fun _ _ => instDecidableTrue
+  let witness (inputs : List (PUnit.{u + 1} × PUnit.{v + 1})) : CollectInput.{u, v} :=
+    ⟨PUnit, PUnit, order, transitive, lawful, ∅, bound, decidable, .empty, inputs⟩
+  have iff (input : CollectInput.{u, v}) :=
+    @ResultState.collect_isOk_iff _ _ input.order input.transitive input.lawful _ _
+      input.decidable input.state input.inputs
+  ⟨.of_iff iff
+    ⟨witness [], rfl⟩
+    ⟨witness [(PUnit.unit, PUnit.unit)], fun accepted =>
+      absurd (((iff (witness [(PUnit.unit, PUnit.unit)])).mp accepted).2 _
+        (List.mem_singleton.mpr rfl)).1 (by simp [witness])⟩⟩
 
 /-! Indexed worker results: the complete requested slot sequence `0, …, count - 1`. -/
 
@@ -294,6 +429,7 @@ def slotResult {α : Type} (entries : Std.ExtTreeMap Nat α) (slot : Nat) :
 
 /-- Admit indexed results through `ResultState.collect` over the fixed slot set, then
 project every requested slot in order. No response is filtered, merged or overwritten. -/
+@[regula_decision]
 def admitIndexedResults {α : Type} (count : Nat) (binding : Nat → α → Bool)
     (responses : List (Nat × α)) : Except IndexedFailure (Array α) := do
   let initial : ResultState (CanonicalSet.normalize (List.range count))
@@ -406,5 +542,61 @@ It concerns the decoded responses; transport, process and payload truth remain e
 theorem checked_indexedResults :
     Regula.ExecutableContract @admitIndexedResults IndexedResultsContract :=
   ⟨fun _ count binding responses out => admitIndexedResults_ok_iff count binding responses out⟩
+
+/-- The responses indexed admission admits: in some order, they are the indexed pairs of an
+array of `count` payloads, each bound to its slot. It is stated without
+`admitIndexedResults`. -/
+def IndexedResultsOK {α : Type} (count : Nat) (binding : Nat → α → Bool)
+    (responses : List (Nat × α)) : Prop :=
+  ∃ out : Array α, out.size = count ∧ (∀ i (h : i < out.size), binding i out[i] = true) ∧
+    responses.Perm ((List.range count).zip out.toList)
+
+/-- Indexed admission succeeds exactly for the responses `IndexedResultsOK` admits. -/
+theorem admitIndexedResults_isOk_iff {α : Type} (count : Nat) (binding : Nat → α → Bool)
+    (responses : List (Nat × α)) :
+    (admitIndexedResults count binding responses).isOk = true ↔
+      IndexedResultsOK count binding responses := by
+  cases admitted : admitIndexedResults count binding responses with
+  | ok out =>
+    simp only [Except.isOk, Except.toBool, true_iff]
+    exact ⟨out, (admitIndexedResults_ok_iff count binding responses out).mp admitted⟩
+  | error failure =>
+    simp only [Except.isOk, Except.toBool, Bool.false_eq_true, false_iff]
+    rintro ⟨out, relation⟩
+    rw [(admitIndexedResults_ok_iff count binding responses out).mpr relation] at admitted
+    cases admitted
+
+/-- The arguments of `admitIndexedResults`, as the fields of one structure, in the order of the
+arguments. -/
+structure IndexedResultsInput where
+  /-- The payload type. -/
+  α : Type
+  /-- The number of requested slots. -/
+  count : Nat
+  /-- The binding of a payload to its slot. -/
+  binding : Nat → α → Bool
+  /-- The supplied responses, each with its slot. -/
+  responses : List (Nat × α)
+
+/-- `admitIndexedResults` accepts exactly the responses `IndexedResultsOK` admits
+(`admitIndexedResults_isOk_iff`), for every payload type: over `Unit`, it accepts no responses
+for no slot and refuses no responses for one slot. Which array it returns is the registered
+`checked_indexedResults`. -/
+theorem checked_admitIndexedResults :
+    Regula.ExecutableContract @admitIndexedResults (fun admit =>
+      Regula.Decides (· = true)
+        (fun input : IndexedResultsInput =>
+          IndexedResultsOK input.count input.binding input.responses)
+        (Regula.Dependent.isOk fun input =>
+          @admit input.α input.count input.binding input.responses)) :=
+  have iff (input : IndexedResultsInput) :=
+    admitIndexedResults_isOk_iff input.count input.binding input.responses
+  let witness (count : Nat) : IndexedResultsInput := ⟨Unit, count, fun _ _ => true, []⟩
+  ⟨.of_iff iff
+    ⟨witness 0, (iff (witness 0)).mpr ⟨#[], rfl, by simp, by simp [witness]⟩⟩
+    ⟨witness 1, fun accepted => by
+      obtain ⟨out, size, _, permutation⟩ := (iff (witness 1)).mp accepted
+      have length := permutation.length_eq
+      simp [witness, size] at length⟩⟩
 
 end RegulaPolicy

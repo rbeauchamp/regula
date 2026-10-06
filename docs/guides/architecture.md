@@ -125,9 +125,10 @@ registered where it is declared, so each claimed module with a registered decisi
 attribute is then available while the file is elaborated, and Lean refuses a definition of that
 file that would run anything the import brings (`may not access declaration … imported as
 meta`), so those modules still cannot use the environment API. The claimed files that are not
-modules (`RegulaPolicy.Claim`, `Execution`, `Pattern` and `Plan`, the registered files of
-`RegulaCore` other than `RuleId`, those of `RegulaQualification`, `AuditApp.Limiter`, and the
-`Decisions` modules of `RegulaProvision` and
+modules (`RegulaPolicy.Claim`, `Execution`, `Pattern`, `Plan`, `ResultState` and, through
+`ResultState`, `Acceptance`, the registered files of
+`RegulaCore` other than `RuleId` and `EditorPolicy`, those of `RegulaQualification`,
+`AuditApp.Limiter`, and the `Decisions` modules of `RegulaProvision` and
 `RegulaVerification`) import
 it with a plain `import`,
 which brings those declarations into scope; that none of their definitions uses them is by

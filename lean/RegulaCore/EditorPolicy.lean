@@ -2,6 +2,7 @@ module
 
 public import RegulaCore.Rule
 public import RegulaPolicy.Decision
+meta import Regula.Decision
 
 /-! # Editor linter decisions
 
@@ -96,6 +97,7 @@ def EditorDecisionContract
 /-- The failure of the member's own requirements (`declarationFailure` with the inventory's
 roles), mapped to `.pending` when it needs fresh role evidence and otherwise to the rule of that
 failure; `none` when they pass. The decision requirement (`decisionFailure`) is not run. -/
+@[regula_decision]
 def editorDecisionImpl (i : Inventory) (roles : Roles i) (d : Declaration)
     (_member : d ∈ i.declarations) (request : InspectionRequest) : Option EditorDecision :=
   (declarationFailure d request roles.native roles.safetyHelpers).map fun f =>
@@ -134,6 +136,32 @@ theorem checked_editorDecision :
           fun ⟨_, hg, _, _, h⟩ => by subst hg; rw [h]⟩
       · refine ⟨by simp [differs], by simp [hf], fun id => ?_⟩
         simp [hf]⟩
+
+/-- The editor decision passes a member, with no outcome, exactly when the member meets its own
+requirements under the inventory's roles (`declarationFailure_none_iff`): it passes the
+axiom-free definition of its inventory under Kernel-only and reports the authored axiom of its
+inventory. The type of the roles and of the membership proof depend on earlier arguments, so the
+kind is stated on `RegulaPolicy.MemberInput`, the structure of the five arguments. Which outcome
+a failure gives is `checked_editorDecision`. -/
+theorem checked_editorDecision_decides :
+    Regula.ExecutableContract editorDecisionImpl (fun decide =>
+      Regula.Decides (· = none)
+        (fun input : MemberInput =>
+          DeclarationOK input.declaration input.request input.roles.native
+            input.roles.safetyHelpers)
+        (fun input =>
+          decide input.inventory input.roles input.declaration input.member input.request)) :=
+  have none_iff (input : MemberInput) :
+      editorDecisionImpl input.inventory input.roles input.declaration input.member
+          input.request = none ↔
+        DeclarationOK input.declaration input.request input.roles.native
+          input.roles.safetyHelpers := by
+    rw [editorDecisionImpl, Option.map_eq_none_iff, declarationFailure_none_iff]
+  ⟨.of_iff none_iff
+    ⟨witnessMember .«definition»,
+      (none_iff (witnessMember .«definition»)).mpr (witnessDeclaration_definition_ok _ _ #[]).1⟩
+    ⟨witnessMember .«axiom», fun accepted =>
+      witnessDeclaration_axiom_not_ok _ _ ((none_iff (witnessMember .«axiom»)).mp accepted)⟩⟩
 
 /-- The decision for an inventory member, through `checked_editorDecision`. -/
 def editorDecision (i : Inventory) (roles : Roles i) (d : Declaration)

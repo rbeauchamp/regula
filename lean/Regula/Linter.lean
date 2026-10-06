@@ -110,7 +110,7 @@ initialize addLinter {
     unless ← enabled do return
     try
       let some request ← localRequest stx | return
-      let ds ← Collect.commandDeclarations
+      let (ds, unread) ← Collect.commandDeclarations
       if ds.isEmpty then return
       -- A recoverable compiler error may still leave a real declaration with
       -- a hole. Diagnose that actual observation; retain the compiler error.
@@ -121,6 +121,10 @@ initialize addLinter {
       if !result.pending.isEmpty then
         unavailable s!"fresh generated-role evidence remains required for {result.pending}; run \
           `lake lint` for the project check"
+      for (registration, constant) in unread do
+        unavailable s!"the decision kind of {registration} is not read here: {constant} has no \
+          value in the environment of this `module` file, so whether it is a field of the \
+          argument of the decided function is unknown; run `lake lint` for the project check"
     catch ex =>
       if ex.isInterrupt then throw ex
       unavailable s!"local declaration analysis unavailable: {← ex.toMessageData.toString}" }
