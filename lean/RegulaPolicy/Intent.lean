@@ -33,16 +33,13 @@ complete. Those comparisons remain the R-INTENT and R-DOC semantic-review obliga
 
 namespace RegulaPolicy.Intent
 
-/-- Whitespace that surrounds heading text and makes a line blank. -/
-def isSpace (c : Char) : Bool := c.isWhitespace
-
 /-- Remove leading and trailing whitespace from one line. -/
 def trim (line : List Char) : List Char :=
-  ((line.dropWhile isSpace).reverse.dropWhile isSpace).reverse
+  ((line.dropWhile Char.isWhitespace).reverse.dropWhile Char.isWhitespace).reverse
 
 /-- Remove trailing whitespace, including a carriage return before the line feed. -/
 def trimEnd (line : List Char) : List Char :=
-  (line.reverse.dropWhile isSpace).reverse
+  (line.reverse.dropWhile Char.isWhitespace).reverse
 
 /-- Remove at most `n` leading spaces (CommonMark permits three before a heading). -/
 def dropIndent : Nat → List Char → List Char
@@ -76,7 +73,7 @@ def endsSection (level : Nat) (line : List Char) : Bool :=
   (headingLevel? line).any (decide <| · ≤ level)
 
 /-- A line with at least one non-whitespace character. -/
-def isContent (line : List Char) : Bool := line.any (!isSpace ·)
+def isContent (line : List Char) : Bool := line.any (!Char.isWhitespace ·)
 
 /-- A non-heading line with content; a subsection heading line itself is not content. -/
 def isText (line : List Char) : Bool := !isHeading line && isContent line
@@ -142,7 +139,7 @@ theorem endsSection_eq_false_iff (level : Nat) (line : List Char) :
 /-- A line is text exactly when it is no heading and has a character that is not whitespace. -/
 theorem isText_iff (line : List Char) :
     isText line = true ↔ heading? line = none ∧ ∃ c ∈ line, c.isWhitespace = false := by
-  simp [isText, isHeading, isContent, isSpace]
+  simp [isText, isHeading, isContent]
 
 /-- The specification holds exactly when the tests of the scan state the section. -/
 theorem intentSection_iff_scanned (lines : List (List Char)) :

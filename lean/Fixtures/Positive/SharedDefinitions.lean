@@ -1,41 +1,31 @@
 /-
-Controls for the functions that the two sides of a decision registration share. The collector
-refuses no registration for a shared function, so each registration below must be accepted. The
-record of each registration must name the functions that its specification reaches first and
-that its implementation or its acceptance predicate reaches too, by class
-(`RegulaPolicy.SharedNames`):
+Controls for the functions that the two sides of a decision registration share, where no
+registration is refused. A registration is refused for a shared function with a result of `Bool`
+or `BEq` (`Fixtures.Mutations.SharedTests` has those controls). Each registration below shares
+no such function, so each must be accepted. The record of each must name the functions of the
+other class that its specification reaches first and that its implementation or its acceptance
+predicate reaches too (`RegulaPolicy.SharedNames`):
 
 * `apart_decides`: the specification states a proposition, and the function decides it with a
   test of Lean's library. No function is named.
-* `smallEven_decides`: the specification and the function both call a helper with a result of
-  `Bool`. The helper is named in the class `boolean`.
-* `throughStatement_decides`: the specification reaches a helper through a definition of a
-  proposition, and the function decides that proposition with `decide`. The instance that the
-  function runs calls the helper, so the helper is named in the class `boolean`.
-* `sameItem_decides`: the specification and the function both use a derived `BEq`. The instance
-  is named in the class `boolean`.
+* `library_decides`: the specification and the function both call a test of Lean's library.
+  A function of that library is not counted, so no function is named.
+* `decided_decides`: the remedy with a theorem. The specification names a proposition, and the
+  function decides it with a `Decidable` instance that runs a helper with a result of `Bool`.
+  The specification's side does not read the value of the instance, so the helper is not shared.
+* `copy_decides`: a limit of the search. The specification calls a helper with a result of
+  `Bool`, and the function calls a second helper with the same text. They are two constants, so
+  no function is named.
 * `noEven_decides`: the form of `marks` in issue 249. A helper prepares the input of the two
   sides, and its result is a list. The helper is named in the class `other`.
 * `below_decides`: the two sides share a definition of a proposition, its `Decidable` instance
   and a constant. No function is named.
 * `knownSign_decides`: the two sides share a closed list whose value has a function
   abstraction. The list takes no argument, so it is no function and is not named.
-* `sameNat_decides`: the two sides share a `BEq` record that is a name for an instance of
-  Lean's library, with no argument and no function abstraction in its value. It is named in the
-  class `boolean`.
-* `littleCheck_decides`: the two sides share a function whose result is `Box Prop`. The field
-  of `Box` is read at the argument `Prop`, so the function is a statement and is not named, and
-  the search reads its value: the helper with a result of `Bool` inside the statement is named.
-* `same_decides`: the function does not use the helper. The acceptance predicate and the
-  specification do, and the helper is named in the class `boolean`.
-* `unchanged_decides`: the function does not use the helper. The acceptance predicate is a
-  named definition of a proposition that is stated with the helper. The search reads the value
-  of that definition, so the helper is named in the class `boolean`.
 * `firstBefore_decides`: the two sides share a record of one function, with no argument. Its
-  type has a field that takes an argument, so it is a function, named in the class `other`.
-* `noOdd_decides`: the two sides share a helper of the class `other` that calls a helper of
-  this file with a result of `Bool`. The search stops at the first helper: it is named, and the
-  helper below it is not, so the list of the class `boolean` is empty.
+  type has a field that takes an argument, so it is a function, named in the class `other`. The
+  test is a function abstraction inside the record and no constant, so the search has no
+  function with a result of `Bool` to name.
 -/
 import Regula.Contract
 
@@ -46,48 +36,41 @@ theorem apart_decides :
     Regula.ExecutableContract apart (Regula.Decides (· = true) fun n => n < 4) :=
   ⟨.of_iff (fun n => by simp [apart]) ⟨0, by decide⟩ ⟨4, by decide⟩⟩
 
+/-- Whether `n` is at most three, by a test of Lean's library. -/
+def library (n : Nat) : Bool := Nat.ble n 3
+
+theorem library_decides :
+    Regula.ExecutableContract library (Regula.Decides (· = true) fun n => Nat.ble n 3 = true) :=
+  ⟨.of_iff (fun _ => Iff.rfl) ⟨0, by decide⟩ ⟨4, by decide⟩⟩
+
 /-- A helper with a result of `Bool`. -/
 def small (n : Nat) : Bool := decide (n < 4)
 
-/-- Whether `n` is an even number below four: it calls `small`. -/
-def smallEven (n : Nat) : Bool := small n && decide (n % 2 = 0)
+/-- The statement that `small` decides, with no test. -/
+def Small (n : Nat) : Prop := n < 4
 
-theorem smallEven_decides :
-    Regula.ExecutableContract smallEven
-      (Regula.Decides (· = true) fun n => small n = true ∧ n % 2 = 0) :=
-  ⟨.of_iff (fun n => by simp [smallEven]) ⟨0, by decide⟩ ⟨1, by decide⟩⟩
+/-- The helper decides the statement. -/
+theorem small_iff (n : Nat) : small n = true ↔ Small n := by
+  simp [small, Small]
 
-/-- A second helper with a result of `Bool`. -/
-def tiny (n : Nat) : Bool := decide (n < 2)
+instance (n : Nat) : Decidable (Small n) := decidable_of_iff _ (small_iff n)
 
-/-- A statement that is stated with the helper `tiny`. -/
-def Tiny (n : Nat) : Prop := tiny n = true
+/-- Decides `Small` with its instance, which runs `small`. -/
+def decided (n : Nat) : Bool := decide (Small n)
 
-instance (n : Nat) : Decidable (Tiny n) := by
-  unfold Tiny
-  infer_instance
+theorem decided_decides :
+    Regula.ExecutableContract decided (Regula.Decides (· = true) Small) :=
+  ⟨.of_iff (fun n => by simp [decided]) ⟨0, by decide⟩ ⟨4, by decide⟩⟩
 
-/-- Decides `Tiny` with its instance, which calls `tiny`. -/
-def throughStatement (n : Nat) : Bool := decide (Tiny n)
+/-- A second helper with the text of `small`: a different constant. -/
+def smallCopy (n : Nat) : Bool := decide (n < 4)
 
-theorem throughStatement_decides :
-    Regula.ExecutableContract throughStatement (Regula.Decides (· = true) Tiny) :=
-  ⟨.of_iff (fun n => by simp [throughStatement]) ⟨0, by decide⟩ ⟨2, by decide⟩⟩
+/-- Whether `n` is below four: it calls `small`. -/
+def copy (n : Nat) : Bool := small n
 
-/-- A record with a derived `BEq`. -/
-structure Item where
-  /-- The number of the item. -/
-  id : Nat
-  deriving BEq
-
-/-- Whether two items are the same by the derived `BEq`. -/
-def sameItem (a b : Item) : Bool := a == b
-
-theorem sameItem_decides :
-    Regula.ExecutableContract sameItem (fun run =>
-      Regula.Decides (· = true) (fun input : Item × Item => (input.1 == input.2) = true)
-        (Function.uncurry run)) :=
-  ⟨.of_iff (fun _ => Iff.rfl) ⟨(⟨0⟩, ⟨0⟩), by decide⟩ ⟨(⟨0⟩, ⟨1⟩), by decide⟩⟩
+theorem copy_decides :
+    Regula.ExecutableContract copy (Regula.Decides (· = true) fun n => smallCopy n = true) :=
+  ⟨.of_iff (fun _ => Iff.rfl) ⟨0, by decide⟩ ⟨4, by decide⟩⟩
 
 /-- A step that prepares the input: the even numbers of a list. -/
 def evens (numbers : List Nat) : List Nat := numbers.filter fun n => n % 2 = 0
@@ -128,60 +111,6 @@ theorem knownSign_decides :
       (Regula.Decides (· = true) fun sign => ∃ pair ∈ signs, pair.1 = sign) :=
   ⟨.of_iff (fun sign => by simp [knownSign]) ⟨"a", by decide⟩ ⟨"c", by decide⟩⟩
 
-/-- A `BEq` record that is a name for an instance of Lean's library. -/
-@[instance_reducible] def eqForNat : BEq Nat := inferInstance
-
-/-- Whether two numbers are the same by `eqForNat`. -/
-def sameNat (a b : Nat) : Bool := eqForNat.beq a b
-
-theorem sameNat_decides :
-    Regula.ExecutableContract sameNat (fun run =>
-      Regula.Decides (· = true) (fun input : Nat × Nat => eqForNat.beq input.1 input.2 = true)
-        (Function.uncurry run)) :=
-  ⟨.of_iff (fun _ => Iff.rfl) ⟨(0, 0), by decide⟩ ⟨(0, 1), by decide⟩⟩
-
-/-- A record of one value of any type. -/
-structure Box (α : Type) where
-  /-- The value. -/
-  value : α
-
-/-- A third helper with a result of `Bool`. -/
-def little (n : Nat) : Bool := decide (n < 3)
-
-/-- A statement in a record: the result type is `Box Prop`. -/
-def boxed (n : Nat) : Box Prop := ⟨little n = true⟩
-
-instance (n : Nat) : Decidable (boxed n).value := by
-  unfold boxed
-  infer_instance
-
-/-- Decides the statement of `boxed` with its instance, which calls `little`. -/
-def littleCheck (n : Nat) : Bool := decide (boxed n).value
-
-theorem littleCheck_decides :
-    Regula.ExecutableContract littleCheck
-      (Regula.Decides (· = true) fun n => (boxed n).value) :=
-  ⟨.of_iff (fun n => by simp [littleCheck]) ⟨0, by decide⟩ ⟨3, by decide⟩⟩
-
-/-- Returns its argument: it calls no helper. -/
-def same (n : Nat) : Nat := n
-
-theorem same_decides :
-    Regula.ExecutableContract same
-      (Regula.Decides (fun result => small result = true) fun n => small n = true) :=
-  ⟨.of_iff (fun _ => Iff.rfl) ⟨0, by decide⟩ ⟨4, by decide⟩⟩
-
-/-- A statement that is stated with the helper `small`. -/
-def Small (n : Nat) : Prop := small n = true
-
-/-- Returns its argument: it calls no helper. -/
-def unchanged (n : Nat) : Nat := n
-
-theorem unchanged_decides :
-    Regula.ExecutableContract unchanged (Regula.Decides Small fun n => small n = true) :=
-  ⟨.of_iff (fun _ => Iff.rfl) ⟨0, (by decide : small 0 = true)⟩
-    ⟨4, (by decide : ¬ small 4 = true)⟩⟩
-
 /-- An order, as a record of one function. -/
 structure Order where
   /-- Whether the first number is before the second. -/
@@ -199,17 +128,3 @@ theorem firstBefore_decides :
         (fun input : Nat × Nat => descending.before input.1 input.2 = true)
         (Function.uncurry run)) :=
   ⟨.of_iff (fun _ => Iff.rfl) ⟨(1, 0), by decide⟩ ⟨(0, 1), by decide⟩⟩
-
-/-- A fourth helper with a result of `Bool`. -/
-def odd (n : Nat) : Bool := decide (n % 2 = 1)
-
-/-- A step that prepares the input with the helper `odd`: the odd numbers of a list. -/
-def odds (numbers : List Nat) : List Nat := numbers.filter odd
-
-/-- Whether a list has no odd number: it calls `odds`. -/
-def noOdd (numbers : List Nat) : Bool := (odds numbers).isEmpty
-
-theorem noOdd_decides :
-    Regula.ExecutableContract noOdd
-      (Regula.Decides (· = true) fun numbers => odds numbers = []) :=
-  ⟨.of_iff (fun numbers => by simp [noOdd]) ⟨[2], by decide⟩ ⟨[1], by decide⟩⟩

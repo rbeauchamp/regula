@@ -77,9 +77,10 @@ theorem printsExactly_iff (n : Name) : printsExactly n = true ↔ n.toString.toN
 /-- A name as result JSON writes it, wherever it occurs: the text Lean prints for it when Lean's
 parser reads that text back as the name, and otherwise its structural components (`nameJson`), a
 JSON array. The writer states that condition as the proposition `n.toString.toName = n` and
-decides it with Lean's own equality of names, so a specification that names the writer names no
-test of this module; the reader tests the same condition with `printsExactly`
-(`printedNameJson_eq`). -/
+decides it with Lean's own equality of names, and so does the reader (`parsePrintedNameJson`).
+So a specification that names the writer or the reader names no test of this module:
+`printsExactly` is that condition as a test (`printsExactly_iff`, `printedNameJson_eq`), and
+neither function runs it. -/
 def printedNameJson (n : Name) : Json :=
   if n.toString.toName = n then .str n.toString else nameJson n
 
@@ -100,7 +101,8 @@ def parsePrintedNameJson : Json → Except String Name
     if n.toString == text then .ok n else .error s!"not a Lean name as Lean prints it: {text}"
   | j => do
     let n ← parseName j
-    if printsExactly n then .error s!"structural components of {n}, which its printed text denotes"
+    if n.toString.toName = n then
+      .error s!"structural components of {n}, which its printed text denotes"
     else .ok n
 
 /-- Every name survives its written form: the printed text where Lean's printer and parser agree
@@ -114,11 +116,13 @@ theorem printedNameJson_roundtrip (n : Name) :
     have e := (printsExactly_iff n).mp h
     simp [parsePrintedNameJson, e]
   | false =>
+    have differs : ¬ n.toString.toName = n := fun same => by
+      simp [(printsExactly_iff n).mpr same] at h
     simp only [Bool.false_eq_true, ↓reduceIte]
     have := name_roundtrip n
     unfold nameJson at this ⊢
     simp only [parsePrintedNameJson, this]
-    simp [bind, Except.bind, h]
+    simp [bind, Except.bind, differs]
 
 /-- A name is written as a string exactly when Lean's parser reads its printed text back as the
 name, and the string is then that text. -/

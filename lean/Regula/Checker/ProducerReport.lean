@@ -635,11 +635,11 @@ theorem recordedRangesValid_of (r : Environment) (h : r.validateSourceEvidence =
   have full := RegulaPolicy.Ranges.admitted_validForLines range (s.content.splitOn "\n")
   change range.admitted.validFor s.content = _ at full
   rw [admitted] at full
-  cases nested : range.nested
-  · simp only [nested, Bool.false_eq_true, ↓reduceIte] at full
-    exact full.symm
+  by_cases nested : range.Nested
   · simp only [nested, ↓reduceIte] at full
     exact (RegulaPolicy.Ranges.validForLines_parts full.symm).1
+  · simp only [nested, ↓reduceIte] at full
+    exact full.symm
 
 private theorem mem_of_foldl_insert {l : List (Name × Name)} {s : Std.HashSet (Name × Name)}
     {k : Name × Name} (h : (l.foldl (fun s k => s.insert k) s).contains k = true) :

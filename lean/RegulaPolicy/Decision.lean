@@ -178,11 +178,58 @@ def labelOf (axioms : Array Name) (native : Array Name := #[]) : FoundationClass
   else if axioms.all (ConformingProfile.permits .choiceFree) then .choiceFree
   else .standardLogical
 
+/-- The decision of the shared-test requirement over a recorded declaration: the failure where
+the record of its decision registration names a function with a result of `Bool` or `BEq` that
+the specification shares with the implementation or the acceptance predicate, and nothing
+otherwise (`checked_sharedTestFailure`). It reads the names alone, which are the collector's
+observation (`sharedNames`), so it decides nothing about a function that the collector's search
+does not name: a copy of a test under a second name, or a shared function of the other class. -/
+@[regula_decision]
+def sharedTestFailure (decl : Declaration.ProjectWritten) : Option DeclarationFailure :=
+  if decl.executableContract.any (!·.shared.booleans.isEmpty) then some .sharedTest else none
+
+/-- Exact success relation of the executed shared-test decision, for every record. -/
+theorem sharedTestFailure_none_iff (d : Declaration.ProjectWritten) :
+    sharedTestFailure d = none ↔ SharedTestOK d := by
+  unfold sharedTestFailure SharedTestOK
+  cases d.executableContract <;> simp
+
+/-- The shared-test decision has one failure, reported exactly where the requirement is unmet. -/
+theorem sharedTestFailure_eq_some_iff (d : Declaration.ProjectWritten)
+    (failure : DeclarationFailure) :
+    sharedTestFailure d = some failure ↔ failure = .sharedTest ∧ ¬ SharedTestOK d := by
+  rw [← sharedTestFailure_none_iff]
+  unfold sharedTestFailure
+  split <;> simp [eq_comm]
+
+/-- The shared-test decision reports a failure exactly where the requirement is unmet. -/
+@[simp] theorem sharedTestFailure_isSome_iff (d : Declaration.ProjectWritten) :
+    (sharedTestFailure d).isSome = true ↔ ¬ SharedTestOK d := by
+  rw [← sharedTestFailure_none_iff, Option.isSome_iff_ne_none]
+
+/-- `sharedTestFailure` reports nothing exactly when the record meets `SharedTestOK`
+(`sharedTestFailure_none_iff`): nothing for a record with no contract, and the failure for the
+record of a decision registration that names one shared test. The decision is over the recorded
+names. That the names are the functions that the two sides of the registration share is the
+collector's, whose search compares constants by name. -/
+theorem checked_sharedTestFailure : Regula.ExecutableContract sharedTestFailure
+    (Regula.Decides (· = none) SharedTestOK) :=
+  let recorded (executableContract : Option ExecutableContract) : Declaration.ProjectWritten :=
+    { «instance» := false, «noncomputable» := false, implementedBy := none, «extern» := false
+      projection := false, matcher := false, recursive := false, recordedRanges := none
+      generatedFrom := none, constructorIndex := none, executableContract }
+  ⟨.of_iff sharedTestFailure_none_iff
+    ⟨recorded none, by simp [sharedTestFailure, recorded]⟩
+    ⟨recorded (some { root := `check, requirement := "", failure := none
+                      kind := some .«soundAndComplete», shared := { booleans := #[`test] } }),
+      by simp [sharedTestFailure, recorded]⟩⟩
+
 /-- Raw computational kernel over supplied role sets; callers can supply arbitrary
 sets here. This is not an admission or authorization API. Production decisions
 use `policyFor`, whose inventory and Roles arguments enforce the receipt boundary. It takes the
-whole record: it reads kernel-checked data, the observed axioms, and the recorded contract, which
-is a field of `Declaration.ProjectWritten`. -/
+whole record: it reads kernel-checked data, the observed axioms, and the recorded contract with
+the names of its shared tests (`sharedTestFailure`), which is a field of
+`Declaration.ProjectWritten`. -/
 @[regula_decision]
 def declarationFailure (decl : Declaration) (claim : InspectionRequest)
     (native : Array Name := #[]) (unsafeHelpers : Array Name := #[]) :
@@ -199,6 +246,7 @@ def declarationFailure (decl : Declaration) (claim : InspectionRequest)
   else if decl.axioms.any (compilerAxiom native) && claim != .teaching then
     some .compilerTrusting
   else if decl.executableContract.any (·.failure.isSome) then some .executableContract
+  else if (sharedTestFailure decl).isSome then some .sharedTest
   else match claim with
     | .conforming profile =>
         if decl.axioms.all fun name => compilerAxiom native name ||
@@ -390,7 +438,7 @@ theorem declarationFailure_none_iff (d : Declaration) (r : InspectionRequest)
     (native helpers : Array Name) :
     declarationFailure d r native helpers = none ↔ DeclarationOK d r native helpers := by
   simp only [declarationFailure, DeclarationOK, KnownDependencies, SafetyOK,
-    CompilerPolicyOK, ContractOK, ProfileOK]
+    CompilerPolicyOK, ContractOK, ProfileOK, sharedTestFailure_isSome_iff]
   cases r <;>
     simp [standardLogicalAxiom, permits_iff, compilerAxiom_iff,
       -Array.any_eq_true, -Array.any_eq_false, -Array.all_eq_true, -Array.all_eq_false,
@@ -421,7 +469,7 @@ theorem checked_declarationFailure : Regula.ExecutableContract @declarationFailu
       nativeReplay := none, recordedRanges := none, generatedFrom := none, axioms := #[] }
   ⟨.of_iff (fun input => declarationFailure_none_iff input.1.1.1 input.1.1.2 input.1.2 input.2)
     ⟨(((recorded .«definition», .conforming .«kernelOnly»), #[]), #[]),
-      by simp [Function.uncurry, declarationFailure, recorded]⟩
+      by simp [Function.uncurry, declarationFailure, SharedTestOK, recorded]⟩
     ⟨(((recorded .«axiom», .conforming .«kernelOnly»), #[]), #[]),
       by simp [Function.uncurry, declarationFailure, recorded]⟩⟩
 
@@ -503,7 +551,8 @@ axiom and is registered as no decision. -/
 theorem witnessDeclaration_definition_ok (native helpers decided : Array Name) :
     DeclarationOK (witnessDeclaration .«definition») (.conforming .«kernelOnly») native helpers ∧
       DecisionOK (witnessDeclaration .«definition») decided :=
-  ⟨(declarationFailure_none_iff _ _ _ _).mp (by simp [declarationFailure, witnessDeclaration]),
+  ⟨(declarationFailure_none_iff _ _ _ _).mp
+      (by simp [declarationFailure, SharedTestOK, witnessDeclaration]),
     (decisionFailure_none_iff _ _).mp (by simp [decisionFailure, witnessDeclaration])⟩
 
 /-- The axiom `witnessDeclaration .axiom` fails its own requirements under Kernel-only, for
@@ -808,16 +857,16 @@ theorem permitted_standard (p : ConformingProfile) (n : Name) (h : Permitted p n
     · exact Or.inr (Or.inl h)
   | standardLogical => exact h
 
-/-- Positive inspection is exactly the permitted foundation, safety exception and recorded
-contract requirements. Teaching authorization never relaxes a conforming profile. -/
+/-- Positive inspection is exactly the permitted foundation, safety exception, recorded contract
+and shared-test requirements. Teaching authorization never relaxes a conforming profile. -/
 theorem conforming_iff (i : Inventory) (roles : Roles i) (d : Declaration) (p : ConformingProfile) :
     DeclarationOK d (.conforming p) roles.native roles.safetyHelpers ↔
-      FoundationOK d p ∧ SafetyOK d roles.safetyHelpers ∧ ContractOK d := by
+      FoundationOK d p ∧ SafetyOK d roles.safetyHelpers ∧ ContractOK d ∧ SharedTestOK d := by
   constructor
   · intro h
-    rcases h with h | ⟨ha, _, _, hs, hc, ht, hp⟩
+    rcases h with h | ⟨ha, _, _, hs, hc, ht, hshared, hp⟩
     · cases h.2.2
-    · refine ⟨⟨ha, ?_⟩, hs, ht⟩
+    · refine ⟨⟨ha, ?_⟩, hs, ht, hshared⟩
       have free : ∀ n ∈ d.axioms, ¬ CompilerAxiom roles.native n := by
         rcases hc with hc | hc
         · cases hc
@@ -826,12 +875,12 @@ theorem conforming_iff (i : Inventory) (roles : Roles i) (d : Declaration) (p : 
       rcases hp n hn with hcomp | hperm
       · exact False.elim (free n hn hcomp)
       · exact hperm
-  · rintro ⟨⟨ha, hp⟩, hs, ht⟩
+  · rintro ⟨⟨ha, hp⟩, hs, ht, hshared⟩
     have logical : ContainsFoundation .standardLogical d.axioms :=
       fun n hn => permitted_standard p n (hp n hn)
     have free : ∀ n ∈ d.axioms, ¬ CompilerAxiom roles.native n :=
       fun n hn hc => compiler_not_logical i roles n hc (logical n hn)
-    refine Or.inr ⟨ha, ?_, ?_, hs, Or.inr free, ht, ?_⟩
+    refine Or.inr ⟨ha, ?_, ?_, hs, Or.inr free, ht, hshared, ?_⟩
     · intro hh
       have := logical _ hh
       simp [Permitted] at this
@@ -843,7 +892,7 @@ refuses exactly when membership or one of those requirements fails. -/
 theorem policyFor_conforming_iff (i : Inventory) (roles : Roles i) (d : Declaration)
     (p : ConformingProfile) :
     policyFor i roles d (.conforming p) = none ↔ d ∈ i.declarations ∧
-      (FoundationOK d p ∧ SafetyOK d roles.safetyHelpers ∧ ContractOK d) ∧
+      (FoundationOK d p ∧ SafetyOK d roles.safetyHelpers ∧ ContractOK d ∧ SharedTestOK d) ∧
         DecisionOK d roles.decided := by
   rw [policyFor_none_iff, conforming_iff]
 
@@ -885,7 +934,7 @@ theorem declarationFailure_ordered (d : Declaration) (r : InspectionRequest)
       compilerAxiom_iff, bne_iff_ne, ne_eq, and_true, Option.any_eq_true,
       Option.isSome_iff_ne_none, Classical.not_forall, not_or, not_and,
       Bool.not_eq_false, true_or, bne_self_eq_false, Bool.and_false, Bool.false_eq_true,
-      Array.all_eq_true', permits_iff] <;>
+      Array.all_eq_true', permits_iff, sharedTestFailure_none_iff] <;>
     (repeat' split) <;> (try simp_all) <;> grind
 
 /-- Exact outcome equivalence follows from existence and uniqueness of the first failure. -/

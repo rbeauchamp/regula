@@ -76,8 +76,8 @@ structure ContextArguments where
 /-- Distinct argument domains prevent constructing a declaration rule with a project payload. -/
 def Payload : RuleId → Type
   | .projectAxiom | .proofHole | .unknownAxiom | .compilerTrusting | .profileExceeded
-  | .escapeHatch | .executableContract | .decisionContract | .materialDocumentation
-  | .materialIntent => DeclarationArguments
+  | .escapeHatch | .executableContract | .decisionContract | .sharedTest
+  | .materialDocumentation | .materialIntent => DeclarationArguments
   | .executionUnresolved | .executionBoundary => ExecutionArguments
   | .environment | .configuration | .sourceBuild | .coverage | .admission | .communityConfiguration
   | .fenceStructure | .positiveExample | .negativeExample | .trustedExample
@@ -126,7 +126,8 @@ abbrev Finding := (id : RuleId) × Diagnostic id
 def argumentParts : (id : RuleId) → Payload id → String × String
   | .projectAxiom, a | .proofHole, a | .unknownAxiom, a | .compilerTrusting, a
   | .profileExceeded, a | .escapeHatch, a | .executableContract, a | .decisionContract, a
-  | .materialDocumentation, a | .materialIntent, a => (toString a.declaration, a.detail)
+  | .sharedTest, a | .materialDocumentation, a | .materialIntent, a =>
+    (toString a.declaration, a.detail)
   | .executionUnresolved, a | .executionBoundary, a => (toString a.root, a.detail)
   | .environment, a | .configuration, a | .sourceBuild, a | .coverage, a
   | .admission, a | .communityConfiguration, a | .fenceStructure, a | .positiveExample, a

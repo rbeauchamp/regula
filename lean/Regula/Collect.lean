@@ -2354,7 +2354,9 @@ that quantifies over the argument is refused too, which is conservative. The sea
 mention establishes only that the acceptance predicate and the specification are stated without
 the implementation's constant; whether the specification is the intended one remains review. A
 registration that this function does not refuse is then searched for the functions that its two
-sides share (`sharedReading`). That search names them in the record and refuses nothing. -/
+sides share (`sharedReading`). That search names them in the record and refuses nothing itself:
+the pure decision `RegulaPolicy.sharedTestFailure` refuses a registration whose record names a
+function with a result of `Bool` or `BEq`. -/
 private def decisionFailure? (env : Environment) (implementation : Name)
     (result accepts spec decided : Expr) : MetaM (Option String) := do
   let mention (part : String) (chain : Array Name) : String :=
@@ -3181,18 +3183,34 @@ runtime replacement (`implemented_by`, `extern`, `csimp`) is in no such value: a
 theorem about the definition that Lean's kernel reads, and the execution closure accounts for
 the code that runs in its place.
 
-`RegulaPolicy.sharedNames` gives the names by class over what the search read
+The record has two lists, from two readings of the specification. The first reading stops at
+each counted constant that the other side reaches (`sharedFrontier`), and the functions of the
+class `other` are named from it. The second reading stops nowhere: it has each constant that
+the specification reaches by the rule of a statement (`sideReach`) and that the other side
+reaches too, also below a counted one. The functions of the class `boolean` are named from the
+second reading, so a record that names none has none at any depth, a function of that class
+below a function of the class `other` included.
+
+`RegulaPolicy.sharedNames` gives the names by class over what the two readings read
 (`RegulaPolicy.mem_sharedNames_booleans`, `RegulaPolicy.mem_sharedNames_others`). The search
-itself is operational, and it refuses no registration. It names the functions that the two sides
-share by name. It does not establish that the specification is the intended one, and a copy of
-a definition under a second name is a different constant, which it does not find. -/
+itself is operational, and it refuses no registration: the pure decision
+`RegulaPolicy.sharedTestFailure` refuses a registration whose record names a function of the
+class `boolean`. The search names the functions that the two sides share by name. It does not
+establish that the specification is the intended one, and a copy of a definition under a second
+name is a different constant, which it does not find. -/
 private def sharedReading (env : Environment) (scope : ContractScope)
     (statement : DecisionStatement) : MetaM RegulaPolicy.SharedNames := do
   let implementation ← sideReach env scope false #[statement.implementation]
   let acceptance ← sideReach env scope true statement.accepts.getUsedConstants
-  let frontier ← sharedFrontier env scope
-    (fun name => implementation.contains name || acceptance.contains name) statement.spec
-  return RegulaPolicy.sharedNames frontier.toList
+  let other := fun name => implementation.contains name || acceptance.contains name
+  let first ← sharedFrontier env scope other statement.spec
+  let specification ← sideReach env scope true statement.spec.getUsedConstants
+  let mut reached : Array RegulaPolicy.SharedDefinition := #[]
+  for name in specification do
+    if other name then
+      let some info := env.find? name | continue
+      reached := reached.push (← sharedDefinition env scope info)
+  return RegulaPolicy.sharedNames first.toList reached.toList
 
 /-- The record of `declaration`, with the constant that keeps a snapshot from reading the kind
 of the declaration's decision registration, when there is one (`executableContract?`). The

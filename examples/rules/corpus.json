@@ -629,6 +629,57 @@
       }
     ]
   },
+  "RG1009": {
+    "invocation": "file",
+    "mode": "freshFile",
+    "kind": "policyRejection",
+    "diagnostics": [
+      {
+        "id": "RG1009",
+        "subreason": "shared-test",
+        "detailPattern": "shared-booleans=.*\"small\".*shared-others=",
+        "location": {
+          "uri": "$SOURCE",
+          "sourceText": "$SOURCE_TEXT",
+          "selectionRange": {
+            "startByte": 326,
+            "endByte": 334
+          },
+          "range": {
+            "startByte": 318,
+            "endByte": 485
+          },
+          "lspSelectionRange": {
+            "start": {
+              "line": 9,
+              "character": 8
+            },
+            "end": {
+              "line": 9,
+              "character": 16
+            }
+          },
+          "lspRange": {
+            "start": {
+              "line": 9,
+              "character": 0
+            },
+            "end": {
+              "line": 10,
+              "character": 54
+            }
+          },
+          "kind": "source"
+        },
+        "subject": {
+          "declaration": "contract",
+          "sourceDeclaration": null
+        },
+        "impact": "violation",
+        "claim": "kernel-only"
+      }
+    ]
+  },
   "RG2001": {
     "invocation": "file",
     "mode": "freshFile",

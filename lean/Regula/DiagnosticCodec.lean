@@ -44,8 +44,8 @@ private def parseArguments (id : RuleId) (j : Json) : Except String (Payload id)
   let detail ← string j "detail"
   match (dependent := true) id with
   | .projectAxiom | .proofHole | .unknownAxiom | .compilerTrusting | .profileExceeded
-  | .escapeHatch | .executableContract | .decisionContract | .materialDocumentation
-  | .materialIntent =>
+  | .escapeHatch | .executableContract | .decisionContract | .sharedTest
+  | .materialDocumentation | .materialIntent =>
       return { declaration := ← parsePrintedNameJson (← field j "declaration"),
                sourceDeclaration := ← parseSource j, detail := detail : DeclarationArguments }
   | .executionUnresolved | .executionBoundary =>

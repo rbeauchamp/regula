@@ -152,7 +152,7 @@ Equality on natural numbers must be reflexive for every value, with no side cond
 
 ## Executable code
 
-Applies to `ExecutableContract` registrations, `@[regula_decision]` functions and code reached from executable roots.
+Applies to `ExecutableContract` registrations, `@[regula_decision]` functions and code reached from executable roots. The shared-test rule compares names: a copy of a test under a second name passes. A shared function with a result other than `Bool` or `BEq` is not refused, and the account of the contract names it for review.
 
 ### [RG1007](https://rbeauchamp.github.io/regula/dev/rules/RG1007/) Executable contracts require supported closed evidence
 
@@ -187,6 +187,26 @@ A decision that a natural number is zero, with its two-way contract. -/
   | _ + 1 => false
 theorem contract : Regula.ExecutableContract isZero (Regula.Decides (· = true) (· = 0)) :=
   ⟨.of_iff (fun | 0 => ⟨fun _ => rfl, fun _ => rfl⟩ | _ + 1 => ⟨nofun, nofun⟩) ⟨0, rfl⟩ ⟨1, nofun⟩⟩
+```
+
+### [RG1009](https://rbeauchamp.github.io/regula/dev/rules/RG1009/) Decision specifications share no Boolean test with the implementation
+
+The specification of a decision contract reaches no function with a result of `Bool` or `BEq`, outside Lean's own library, that the implementation or the acceptance predicate also reaches.
+Fix: State the condition as a proposition in the specification and let the function decide it: `if P x then … else …` with a `Decidable (P x)` instance, or keep the test in the function with a theorem `test x = true ↔ P x`.
+
+```lean
+import Regula.Contract
+import Regula.Decision
+/-! # Bound test
+
+A bound stated as a proposition. -/
+/-- `n` is below four. -/
+def Small (n : Nat) : Prop := n < 4
+instance (n : Nat) : Decidable (Small n) := n.decLt 4
+/-- Whether `n` is below four. -/
+@[regula_decision] def check (n : Nat) : Bool := decide (Small n)
+theorem contract : Regula.ExecutableContract check (Regula.Decides (· = true) Small) :=
+  ⟨.of_iff (fun _ => ⟨of_decide_eq_true, decide_eq_true⟩) ⟨0, rfl⟩ ⟨4, by decide⟩⟩
 ```
 
 ### [RG3002](https://rbeauchamp.github.io/regula/dev/rules/RG3002/) Checked execution requires admitted correspondence

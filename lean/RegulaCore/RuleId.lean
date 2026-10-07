@@ -41,6 +41,9 @@ inductive RuleId where
   /-- RG1008: a function registered with `@[regula_decision]` has neither a decision contract in
   its inventory nor a `Decidable` result type. -/
   | decisionContract
+  /-- RG1009: the specification of a decision registration shares a function with a result of
+  `Bool` or `BEq` with its implementation or its acceptance predicate. -/
+  | sharedTest
   /-- RG2001: the audit cannot run in the declared environment (toolchain, workspace or
   dependencies). -/
   | environment
@@ -91,6 +94,7 @@ def spelling : RuleId → String
   | .escapeHatch => "RG1006"
   | .executableContract => "RG1007"
   | .decisionContract => "RG1008"
+  | .sharedTest => "RG1009"
   | .environment => "RG2001"
   | .configuration => "RG2002"
   | .sourceBuild => "RG2003"
@@ -118,6 +122,7 @@ inverts `spelling` and accepts nothing else. -/
   | "RG1006" => some .escapeHatch
   | "RG1007" => some .executableContract
   | "RG1008" => some .decisionContract
+  | "RG1009" => some .sharedTest
   | "RG2001" => some .environment
   | "RG2002" => some .configuration
   | "RG2003" => some .sourceBuild
@@ -137,8 +142,8 @@ inverts `spelling` and accepts nothing else. -/
 
 /-- Every rule ID once, in registry order; `mem_all` and `all_nodup` state both properties. -/
 def all : List RuleId := [.projectAxiom, .proofHole, .unknownAxiom, .compilerTrusting,
-  .profileExceeded, .escapeHatch, .executableContract, .decisionContract, .environment,
-  .configuration, .sourceBuild, .coverage, .admission, .communityConfiguration,
+  .profileExceeded, .escapeHatch, .executableContract, .decisionContract, .sharedTest,
+  .environment, .configuration, .sourceBuild, .coverage, .admission, .communityConfiguration,
   .executionUnresolved, .executionBoundary, .fenceStructure, .positiveExample, .negativeExample,
   .trustedExample, .moduleDocumentation, .materialDocumentation, .materialIntent]
 

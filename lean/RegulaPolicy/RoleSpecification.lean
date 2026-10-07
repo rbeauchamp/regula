@@ -24,6 +24,20 @@ constant records before paying any environment load. -/
 def declarationNeedsTranscript (kind : DeclarationKind) (name : Name) : Bool :=
   kind == .«axiom» && (nativeParent? name).isSome
 
+/-- A declaration could receive the native-proof exception, as a proposition: it is an axiom and
+its name has a native parent. `declarationNeedsTranscript` decides it
+(`declarationNeedsTranscript_iff`). -/
+def NeedsTranscript (kind : DeclarationKind) (name : Name) : Prop :=
+  kind = .«axiom» ∧ ∃ parent, nativeParent? name = some parent
+
+/-- The executed test accepts exactly the declarations that `NeedsTranscript` holds of. -/
+theorem declarationNeedsTranscript_iff (kind : DeclarationKind) (name : Name) :
+    declarationNeedsTranscript kind name = true ↔ NeedsTranscript kind name := by
+  cases kind <;> simp [declarationNeedsTranscript, NeedsTranscript, Option.isSome_iff_exists]
+
+instance (kind : DeclarationKind) (name : Name) : Decidable (NeedsTranscript kind name) :=
+  decidable_of_iff _ (declarationNeedsTranscript_iff kind name)
+
 /-- Only declaration kinds that could receive a generated-role exception need
 the extra fresh frontend transcript. -/
 def needsFrontendTranscript (decls : Array Declaration) : Bool :=

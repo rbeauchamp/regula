@@ -307,7 +307,7 @@ workspace that dispatched it. Its exit status separates the outcome:
 | Exit | Outcome |
 | --- | --- |
 | 0 | `ACCEPTED`: the audit constructed its accepted result for the selected mode. |
-| 1 | `VIOLATION`: completed policy rejections, for example [RG1001]–[RG1008], [RG3002], or [RG2004] for a claimed import of a module outside every library. |
+| 1 | `VIOLATION`: completed policy rejections, for example [RG1001]–[RG1009], [RG3002], or [RG2004] for a claimed import of a module outside every library. |
 | 2 | `INVALID CONFIGURATION`: only [RG2002] manifest/scope rejections, an invalid driver argument, a working directory that is not the dispatching workspace, or `--help`/`--explain-config`, which run no audit. |
 | 3 | `INCOMPLETE`: an incomplete finding, for example [RG2001], [RG2003], [RG2005] or [RG3001], a failed audit-worker build, a failed audit worker ([RG2001], whose detail carries the worker's error), a working directory outside any Lean project or whose workspace fails to load, or an error that escaped the audit. It takes precedence over violations reported in the same run. |
 
@@ -593,7 +593,7 @@ not a report edited by hand.
 Import `Regula.Linter` from a module your project already imports widely (the
 [TOML example](../../examples/lake-lint-toml/) imports it in `Gadget/Double.lean`). The
 supported editor is VS Code with the Lean 4 extension. Completed commands and modules then show
-warnings with codes `Regula.RG1001`–`RG1007`, `RG2002` and `RG2005` at the declaration, plus
+warnings with codes `Regula.RG1001`–`RG1007`, `RG1009`, `RG2002` and `RG2005` at the declaration, plus
 `RG5001`–`RG5003` once the module elaborates without errors, each with its fix, rule link and
 offline `explain` command; the infoview adds a **View explanation** link. `RG2005` means a
 finding needs evidence only `lake lint` collects.
@@ -714,10 +714,17 @@ true) Spec)`, with `fun g => Regula.Decides accepts Spec (Function.uncurry g)` f
 two arguments, and state `Spec` without `check`. The accepted account then reports the kind
 and, for a one-way kind, the direction it leaves open.
 
-The account also names each function that `Spec` reaches first and that `check` or the
+[RG1009] refuses the registration when `Spec` and `check` reach one function with a result of
+`Bool` or `BEq`. The acceptance predicate counts as `check` does, and the search reads at any
+depth. State that condition as a proposition in `Spec`, and let `check` decide it. The rule
+compares names. A copy of a test under a second name passes, and so does a test of Lean's own
+library.
+
+The account names each other function that `Spec` reaches first and that `check` or the
 acceptance predicate also reaches. The kind does not establish that such a function is the
-intended one, and [RG1007] refuses no registration for it. The [RG1007] page gives the two
-classes of these functions and the limits of the search.
+intended one, and no registration is refused for it. That function remains review, and the
+account is the list. The [RG1007] and [RG1009] pages give the two classes of these functions and
+the limits of the search.
 
 State the kind about the function applied to every one of its arguments. [RG1007] refuses every
 kind whose result is still a function. The restriction is structural and conservative: a kind
@@ -804,6 +811,7 @@ The [RG1008] page shows a marked function with and without its registration.
 [RG1005]: https://rbeauchamp.github.io/regula/dev/rules/RG1005/
 [RG1007]: https://rbeauchamp.github.io/regula/dev/rules/RG1007/
 [RG1008]: https://rbeauchamp.github.io/regula/dev/rules/RG1008/
+[RG1009]: https://rbeauchamp.github.io/regula/dev/rules/RG1009/
 [RG2001]: https://rbeauchamp.github.io/regula/dev/rules/RG2001/
 [RG2002]: https://rbeauchamp.github.io/regula/dev/rules/RG2002/
 [RG2003]: https://rbeauchamp.github.io/regula/dev/rules/RG2003/
