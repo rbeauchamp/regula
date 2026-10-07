@@ -230,8 +230,8 @@ The pending record has the same word in its field `origin`.
 
 The gate audits a project in its isolated copy as before, if it has none of the options
 `--driver-copy`, `--incremental` and `--build-lint`. The `lint` driver gives `--incremental` to
-the gate unless it has `--fresh`. Thus only the `lint` driver with `--fresh` uses that isolated
-copy. This change does not alter the fence audit and the gates of `audit/` and
+the gate unless it has `--fresh`. Thus the `lint` driver uses that isolated copy only with
+`--fresh`. This change does not alter the fence audit and the gates of `audit/` and
 `integration/mathlib/`.
 
 The driver cannot import the checker before the build. Thus it has its own code for the protocol

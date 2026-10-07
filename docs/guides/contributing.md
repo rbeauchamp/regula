@@ -69,8 +69,9 @@ its commands ended with exit status 0. Its driver first makes one copy of the ch
 in that copy. Then the gate that the copy built audits the build output of the copy. Thus the
 step builds the claimed libraries one time.
 
-If the checkout has no build output, the driver then moves the build output of the copy to
-`.lake/build` of the checkout. If the checkout has build output, the driver does not change it.
+If the step passed and the checkout has no build output, the driver moves the build output of
+the copy to `.lake/build` of the checkout. After a step that failed, a checkout with no build
+output stays without it. If the checkout has build output, the driver does not change it.
 The driver removes the copy at the end of the step. A killed step leaves its copy. The next
 first step or the next run of the checker removes it.
 
