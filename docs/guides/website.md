@@ -145,7 +145,8 @@ difference). The website
 package and the checker and examples use the same supported Lean release. Verso setup is
 also required before `./scripts/verify.sh docs`, which builds the standard. That step also reads
 the tracked Markdown documents with md4c. The `markdown/` package requires MD4Lean at the same
-revision as Verso, and the two packages use one checkout of it in `.lake/packages`.
+revision as Verso, and the two packages use one checkout of it in `.lake/packages`. The command
+that provisions Verso compares the two revisions, and it stops if they are different.
 
 Any change to a module source, the corpus or the Lake configuration makes earlier shard
 exports stale; the site build refuses them, so rerun both shards. The checker embeds its commit

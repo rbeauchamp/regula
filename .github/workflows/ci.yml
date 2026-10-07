@@ -24,9 +24,13 @@ jobs:
     # Provisioning has its own allowance; each verify.sh step enforces exactly 420 seconds.
     timeout-minutes: 45
     steps:
+      # The full history: check B2 of the documentation step compares the baseline of the prose
+      # checks (`prose-baseline.json`) with the base revision, which is a parent of the
+      # checked-out commit or the commit before a push (docs/guides/writing.md#the-baseline).
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+          fetch-depth: 0
 
       - uses: ./.github/actions/provision
         with:
@@ -52,8 +56,16 @@ jobs:
       # tracks (which need the Git checkout), the fresh acceptance of the example package in
       # audit/, then every docs/ Lean fence and every `lean` block of the Verso standard (built
       # fresh and rendered), admitted only when its inputs equal the accepted ordinary inputs at
-      # this same commit.
+      # this same commit. `REGULA_PROSE_START` gives the start of the run to check B2. For a
+      # pull request it is `pull:` and the head of the pull request: the base revision is the
+      # first parent of the checked-out merge commit, whose second parent must be that head. For
+      # a push it is `before:` and the commit before the push, and for a manual start `before:`
+      # and the first parent of the checked-out commit: the base revision is that commit, and
+      # the check asks Git for no merge base. Each other event gives an empty value, which the
+      # check refuses.
       - name: Verify documentation fences (same command and seven-minute limit as local)
+        env:
+          REGULA_PROSE_START: ${{ github.event_name == 'pull_request' && format('pull:{0}', github.event.pull_request.head.sha) || github.event_name == 'push' && format('before:{0}', github.event.before) || github.event_name == 'workflow_dispatch' && format('before:{0}^', github.sha) || '' }}
         run: ./scripts/verify.sh docs
 
   # The Mathlib integration check (docs/guides/contributing.md#mathlib-integration-check): the
@@ -178,7 +190,14 @@ jobs:
       - name: Verify (same command and seven-minute limit as local)
         run: ./scripts/verify.sh
 
+      # The release commit is this commit of main with the one edit that `adopt` derived and
+      # checked. Thus its Markdown documents and its `prose-baseline.json` are those of this
+      # commit, which `verify` checked in this run with the base revision of its start, and
+      # check B2 compares the release commit with itself. This checkout has no history, so Git
+      # does not give the parent of the release commit.
       - name: Verify documentation fences (same command and seven-minute limit as local)
+        env:
+          REGULA_PROSE_START: before:HEAD
         run: ./scripts/verify.sh docs
 
   # The release commit's corpus shards and site build, one after another: its budget of 105

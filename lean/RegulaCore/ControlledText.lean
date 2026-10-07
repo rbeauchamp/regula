@@ -28,6 +28,12 @@ The definition is four divisions, each stated as a relation between a text and i
 one its function computes: `runs_iff`, `folded_iff` and `divided_iff`. A specification is stated
 with the relations, and a check runs the functions.
 
+`Normal` is the form of a word for a comparison, with its function `normalize` (`normal_iff`),
+and `Paired` relates two lists position by position (`paired_iff`).
+
+A function uses no definition that a specification uses. The definitions that a function needs
+have a second definition in the namespace `Exec`, each with a theorem that the two are equal.
+
 Two theorems say what a token of letters is. A token that has a letter, a digit, a hyphen or an
 apostrophe has only such characters (`Runs.wordy`), and each letter, each digit, each piece of
 code and each counted character outside ASCII is in a token that is a word (`Runs.counted`).
@@ -693,10 +699,250 @@ theorem Runs.counted {atoms : List Atom} {tokens : List Token} (h : Runs Joins a
   cases hother
   exact ⟨atom, hmem, hcounted⟩
 
+/-! ## Lists that agree at each position -/
+
+/-- The lists `left` and `right` have the same length, and their elements at each position have
+`R`. -/
+inductive Paired {α β : Type} (R : α → β → Prop) : List α → List β → Prop
+  /-- Two empty lists agree. -/
+  | nil : Paired R [] []
+  /-- Two lists agree when their first elements have `R` and the lists after them agree. -/
+  | cons {a : α} {b : β} {left : List α} {right : List β} :
+    R a b → Paired R left right → Paired R (a :: left) (b :: right)
+
+/-- When `R` holds of one result only for each element, the one that `f` computes, `Paired R`
+holds of one list only: the one that `List.map f` computes. -/
+theorem paired_iff {α β : Type} {R : α → β → Prop} {f : α → β} (h : ∀ a b, R a b ↔ b = f a)
+    (left : List α) (right : List β) : Paired R left right ↔ right = left.map f := by
+  constructor
+  · intro hpaired
+    induction hpaired with
+    | nil => rfl
+    | cons hab _ ih => rw [(h _ _).mp hab, ih, List.map_cons]
+  · rintro rfl
+    induction left with
+    | nil => exact .nil
+    | cons a left ih => exact .cons ((h a _).mpr rfl) ih
+
+/-! ## The form of a word for a comparison -/
+
+/-- `letters` is the form of the word `text` for a comparison: `text` without the hyphens and
+the apostrophes at its start and at its end, in lowercase. `text` is hyphens and apostrophes,
+then `core`, then hyphens and apostrophes, where `core` does not start and does not end with a
+hyphen or an apostrophe. Each comparison of a word of prose with a word of the vocabulary, with a
+contraction or with an abbreviation is a comparison of this form. -/
+def Normal (text letters : List Char) : Prop :=
+  ∃ before core after, text = before ++ core ++ after ∧
+    (∀ c ∈ before, c = '-' ∨ c = '\'') ∧ (∀ c ∈ after, c = '-' ∨ c = '\'') ∧
+    (∀ c ∈ core.head?, ¬(c = '-' ∨ c = '\'')) ∧ (∀ c ∈ core.getLast?, ¬(c = '-' ∨ c = '\'')) ∧
+    letters = core.map Char.toLower
+
+/-- The form of the word `text` for a comparison. -/
+def normalize (text : List Char) : List Char :=
+  (((text.dropWhile fun c => c == '-' || c == '\'').reverse.dropWhile fun c =>
+    c == '-' || c == '\'').reverse).map Char.toLower
+
+theorem dropWhile_append_stop {α : Type} (p : α → Bool) {pre rest : List α}
+    (hpre : ∀ x ∈ pre, p x = true) (hrest : ∀ x ∈ rest.head?, p x = false) :
+    (pre ++ rest).dropWhile p = rest := by
+  rw [List.dropWhile_append_of_pos hpre]
+  cases rest with
+  | nil => rfl
+  | cons x rest => exact List.dropWhile_cons_of_neg (by simp [hrest x rfl])
+
+theorem dropWhile_all {α : Type} (p : α → Bool) {text : List α} (h : ∀ x ∈ text, p x = true) :
+    text.dropWhile p = [] := by
+  have := List.dropWhile_append_of_pos (l₂ := []) h
+  simpa using this
+
+/-- The form of a word for a comparison is one text only: the one that `normalize` computes. -/
+theorem normal_iff (text letters : List Char) :
+    Normal text letters ↔ letters = normalize text := by
+  have hedge : ∀ c : Char, (c == '-' || c == '\'') = true ↔ (c = '-' ∨ c = '\'') := by simp
+  have hnot : ∀ c : Char, (c == '-' || c == '\'') = false ↔ ¬(c = '-' ∨ c = '\'') := by simp
+  constructor
+  · rintro ⟨before, core, after, rfl, hbefore, hafter, hhead, hlast, rfl⟩
+    cases hcore : core with
+    | nil =>
+      have hall : (before ++ [] ++ after).dropWhile (fun c => c == '-' || c == '\'') = [] :=
+        dropWhile_all _ fun c hc => by
+          rcases List.mem_append.mp hc with hc | hc
+          · exact (hedge c).mpr (hbefore c (by simpa using hc))
+          · exact (hedge c).mpr (hafter c hc)
+      rw [normalize, hall]
+      rfl
+    | cons first more =>
+      subst hcore
+      have hfront : (before ++ (first :: more) ++ after).dropWhile
+          (fun c => c == '-' || c == '\'') = (first :: more) ++ after := by
+        rw [List.append_assoc]
+        exact dropWhile_append_stop _ (fun c hc => (hedge c).mpr (hbefore c hc))
+          (fun c hc => (hnot c).mpr (hhead c (by simpa using hc)))
+      have hback : (after.reverse ++ (first :: more).reverse).dropWhile
+          (fun c => c == '-' || c == '\'') = (first :: more).reverse :=
+        dropWhile_append_stop _ (fun c hc => (hedge c).mpr (hafter c (by simpa using hc)))
+          (fun c hc => (hnot c).mpr (hlast c (by rw [← List.head?_reverse]; exact hc)))
+      rw [normalize, hfront, List.reverse_append, hback, List.reverse_reverse]
+  · rintro rfl
+    refine ⟨text.takeWhile (fun c => c == '-' || c == '\''),
+      (((text.dropWhile fun c => c == '-' || c == '\'').reverse.dropWhile fun c =>
+        c == '-' || c == '\'').reverse),
+      (((text.dropWhile fun c => c == '-' || c == '\'').reverse.takeWhile fun c =>
+        c == '-' || c == '\'').reverse), ?_, ?_, ?_, ?_, ?_, rfl⟩
+    · rw [List.append_assoc, ← List.reverse_append, List.takeWhile_append_dropWhile,
+        List.reverse_reverse, List.takeWhile_append_dropWhile]
+    · exact fun c hc => (hedge c).mp (List.all_eq_true.mp List.all_takeWhile c hc)
+    · exact fun c hc =>
+        (hedge c).mp (List.all_eq_true.mp List.all_takeWhile c (List.mem_reverse.mp hc))
+    · intro c hc
+      have hmid : text.dropWhile (fun c => c == '-' || c == '\'') =
+          (((text.dropWhile fun c => c == '-' || c == '\'').reverse.dropWhile fun c =>
+            c == '-' || c == '\'').reverse) ++
+          (((text.dropWhile fun c => c == '-' || c == '\'').reverse.takeWhile fun c =>
+            c == '-' || c == '\'').reverse) := by
+        rw [← List.reverse_append, List.takeWhile_append_dropWhile, List.reverse_reverse]
+      have hhead : (text.dropWhile fun c => c == '-' || c == '\'').head? = some c := by
+        rw [hmid, List.head?_append, hc]
+        rfl
+      have := List.head?_dropWhile_not (fun c => c == '-' || c == '\'') text
+      rw [hhead] at this
+      exact (hnot c).mp this
+    · intro c hc
+      rw [List.getLast?_reverse] at hc
+      have := List.head?_dropWhile_not (fun c => c == '-' || c == '\'')
+        (text.dropWhile fun c => c == '-' || c == '\'').reverse
+      rw [hc] at this
+      exact (hnot c).mp this
+
+/-! ## The definitions that the functions use
+
+A function of a check does not use a definition that a specification uses. Each definition of
+the specification that a function needs has a second definition here, in the namespace `Exec`,
+with a theorem that the two are equal. Thus a change to one of the two definitions does not
+change the other, and it makes the theorem fail. The data types are the only shared
+declarations. -/
+
+namespace Exec
+
+/-- Whether `c` is a space character, for the functions: equal to `Regula.Controlled.spacing`
+(`spacing_eq`). -/
+def spacing (c : Char) : Bool :=
+  c.isWhitespace || c.val = 0xA0 || c.val = 0x1680 || (0x2000 ≤ c.val && c.val ≤ 0x200A) ||
+    c.val = 0x2028 || c.val = 0x2029 || c.val = 0x202F || c.val = 0x205F || c.val = 0x3000
+
+/-- The role of a character, for the functions: equal to `Regula.Controlled.roleOf`
+(`roleOf_eq`). -/
+def roleOf (c : Char) : Role :=
+  if c.isUpper then .upper
+  else if c.isLower then .lower
+  else if c.isDigit then .digit
+  else if c = '-' ∨ c = '\'' then .joiner
+  else if spacing c then .space
+  else if c = '.' ∨ c = '?' ∨ c = '!' then .stop
+  else if c = '"' ∨ c = '“' ∨ c = '”' then .quote
+  else if c = '(' then .opening
+  else if c = ')' then .closing
+  else if c.val < 128 ∨ c = '‘' ∨ c = '’' ∨ c = '–' ∨ c = '—' ∨ c = '…' then .mark
+  else .symbol
+
+/-- The role of an atom, for the functions: equal to `Regula.Controlled.Atom.role`
+(`role_eq`). -/
+def role (atom : Atom) : Role :=
+  match atom.char with
+  | none => .code
+  | some c => roleOf c
+
+/-- The atom of a character of a text that has no pieces, for the functions (`plain_eq`). -/
+def plain (c : Char) : Atom := ⟨0, some c⟩
+
+/-- A role of a character of a word, for the functions (`Wordy_eq`). -/
+abbrev Wordy (r : Role) : Prop := r = .upper ∨ r = .lower ∨ r = .digit ∨ r = .joiner
+
+/-- A role that makes its token a word, for the functions (`Counted_eq`). -/
+abbrev Counted (r : Role) : Prop :=
+  r = .upper ∨ r = .lower ∨ r = .digit ∨ r = .code ∨ r = .symbol
+
+/-- Two atoms next to each other are in one token, for the functions (`Joins_eq`). -/
+abbrev Joins (a b : Atom) : Prop :=
+  (Wordy (role a) ∧ Wordy (role b)) ∨ (role a = .space ∧ role b = .space) ∨
+    (role a = .code ∧ role b = .code) ∨ (role a = .stop ∧ role b = .space)
+
+/-- The token has an atom with the role, for the functions (`TokenHas_eq`). -/
+abbrev TokenHas (r : Role) (token : Token) : Prop := ∃ atom ∈ token, role atom = r
+
+/-- The token of an item that is no quotation, for the functions (`itemToken?_eq`). -/
+def itemToken? : Item → Option Token
+  | .one token => some token
+  | .many .. => none
+
+/-- The item is a token that has an atom with the role, for the functions (`ItemHas_eq`). -/
+abbrev ItemHas (r : Role) (item : Item) : Prop := ∃ token ∈ itemToken? item, TokenHas r token
+
+/-- The token of a part that is no quotation and no group, for the functions
+(`partToken?_eq`). -/
+def partToken? : Part → Option Token
+  | .one (.one token) => some token
+  | _ => none
+
+/-- The part is one word, for the functions (`PartWord_eq`). -/
+abbrev PartWord (part : Part) : Prop :=
+  ∀ token ∈ partToken? part, ∃ atom ∈ token, Counted (role atom)
+
+/-- The part can end a sentence, for the functions (`PartEnds_eq`). -/
+abbrev PartEnds (part : Part) : Prop :=
+  ∃ token ∈ partToken? part, TokenHas .stop token ∧ TokenHas .space token
+
+/-- The part can start a sentence, for the functions (`PartStarts_eq`). -/
+abbrev PartStarts (part : Part) : Prop :=
+  ∀ token ∈ partToken? part,
+    ∃ r ∈ [Role.upper, .digit, .code, .opening], token.head?.map role = some r
+
+/-- The regions in which sentences are read, for the functions (`spread_eq`). -/
+def spread (parts : List Part) : List (Option Part) :=
+  parts.map some ++ parts.flatMap fun
+    | .one _ => []
+    | .many _ inside _ => none :: inside.map fun item => some (.one item)
+
+/-- Two slots next to each other are in one sentence, for the functions (`Flows_eq`). -/
+abbrev Flows (a b : Option Part) : Prop := ∃ p ∈ a, ∃ q ∈ b, ¬(PartEnds p ∧ PartStarts q)
+
+instance : DecidableRel Flows := fun _ _ => inferInstance
+
+/-- The slot is a word, for the functions (`SlotWord_eq`). -/
+abbrev SlotWord (slot : Option Part) : Prop := ∃ part ∈ slot, PartWord part
+
+/-- The run has a word, for the functions (`Worded_eq`). -/
+abbrev Worded (run : List (Option Part)) : Prop := ∃ slot ∈ run, SlotWord slot
+
+/-- The number of words of a run, for the functions (`wordCount_eq`). -/
+def wordCount (run : List (Option Part)) : Nat := run.countP fun slot => decide (SlotWord slot)
+
+theorem spacing_eq : @spacing = @Controlled.spacing := rfl
+theorem roleOf_eq : @roleOf = @Controlled.roleOf := rfl
+theorem role_eq : @role = @Atom.role := rfl
+theorem plain_eq : @plain = @Atom.plain := rfl
+theorem Wordy_eq : @Wordy = @Role.Wordy := rfl
+theorem Counted_eq : @Counted = @Role.Counted := rfl
+theorem Joins_eq : @Joins = @Controlled.Joins := rfl
+theorem TokenHas_eq : @TokenHas = @Token.Has := rfl
+theorem itemToken?_eq : @itemToken? = @Item.token? := rfl
+theorem ItemHas_eq : @ItemHas = @Item.Has := rfl
+theorem partToken?_eq : @partToken? = @Part.token? := rfl
+theorem PartWord_eq : @PartWord = @Part.Word := rfl
+theorem PartEnds_eq : @PartEnds = @Part.Ends := rfl
+theorem PartStarts_eq : @PartStarts = @Part.Starts := rfl
+theorem spread_eq : @spread = @Controlled.spread := rfl
+theorem Flows_eq : @Flows = @Controlled.Flows := rfl
+theorem SlotWord_eq : @SlotWord = @Slot.Word := rfl
+theorem Worded_eq : @Worded = @Controlled.Worded := rfl
+theorem wordCount_eq : @wordCount = @Controlled.wordCount := rfl
+
+end Exec
+
 /-- The division of `atoms` into the runs that sentences are. -/
 def divide (atoms : List Atom) : List (List (Option Part)) :=
-  runs Flows (spread (fold (Item.Has .opening) (Item.Has .closing)
-    (fold (Token.Has .quote) (Token.Has .quote) (runs Joins atoms))))
+  runs Exec.Flows (Exec.spread (fold (Exec.ItemHas .opening) (Exec.ItemHas .closing)
+    (fold (Exec.TokenHas .quote) (Exec.TokenHas .quote) (runs Exec.Joins atoms))))
 
 /-- The division into sentences holds of one result only: the computed one. -/
 theorem divided_iff (atoms : List Atom) (cut : List (List (Option Part))) :
@@ -705,8 +951,12 @@ theorem divided_iff (atoms : List Atom) (cut : List (List (Option Part))) :
   · rintro ⟨tokens, items, parts, htokens, hitems, hparts, hcut⟩
     rw [runs_iff] at htokens hcut
     rw [folded_iff] at hitems hparts
-    rw [hcut, hparts, hitems, htokens, divide]
+    rw [hcut, hparts, hitems, htokens]
+    rfl
   · rintro rfl
-    exact ⟨_, _, _, runs_spec _, folded_fold _, folded_fold _, runs_spec _⟩
+    exact ⟨runs Joins atoms, fold (Token.Has .quote) (Token.Has .quote) (runs Joins atoms),
+      fold (Item.Has .opening) (Item.Has .closing)
+        (fold (Token.Has .quote) (Token.Has .quote) (runs Joins atoms)),
+      runs_spec _, folded_fold _, folded_fold _, runs_spec _⟩
 
 end Regula.Controlled
