@@ -1597,7 +1597,7 @@ def documentErrors (file source : String) : Reading → List String
 document is accepted (`PiecesAccepted`): it has no construct the check refuses to read, and
 every rule-ID token of its runs that is not wholly code is a registered rule ID inside one link
 to a page of that rule for the file (`Target`): the stable address of a rule only when the file
-is one of `stableDocuments`. The statement names the characters of the runs (`placed`) and the
+is one of `stableDocuments`. The statement names the characters of the runs (`RunText`) and the
 tokens (`Regula.Prose.TokenAt`), and not the scan `findings`, which `findings_accepted_iff`
 connects to them. -/
 theorem documentErrors_nil_iff (file source : String) (reading : Reading) :
