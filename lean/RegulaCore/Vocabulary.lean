@@ -47,10 +47,10 @@ when the print of what it reads is that text.
 ## Specifications
 
 `Draft.WellFormed` is a statement about the rows, with no call of a function that searches or
-recurses. `Draft.defects` and the other functions of a decision use no definition that a
-specification uses: where a function needs one, it has a second definition in the namespace
-`Exec`, with a theorem that the two are equal, as in `RegulaCore.ControlledText`. The data types
-are the only declarations that a specification and its function share. A clause that needs a
+recurses. `Draft.defects` and the other functions of a decision use the definitions that their
+specifications name, such as the print of a row and the key of a term. No second definition
+takes the place of one, and the account of each decision registration names the functions that
+its two sides share. A clause that needs a
 search has a theorem that says its function is exact: `separated_iff` for the words of a term
 and of a name, `normal_iff` for the form of a word, and `oneSentence_iff` for a definition.
 
@@ -236,7 +236,7 @@ abbrev Numeral (text : List Char) : Prop :=
 
 /-- A text that is not empty and has no space character, no backtick and no `|` character. -/
 abbrev Solid (text : List Char) : Prop :=
-  text ≠ [] ∧ ∀ c ∈ text, spacing c = false ∧ c ≠ '`' ∧ c ≠ '|'
+  text ≠ [] ∧ ∀ c ∈ text, ¬ Spacing c ∧ c ≠ '`' ∧ c ≠ '|'
 
 /-- `text` is one sentence of 25 words or less that ends with a period: its last character is a
 period, and the division of its characters into the runs that sentences are (`Divided`) has
@@ -249,8 +249,8 @@ def OneSentence (text : List Char) : Prop :=
 /-- Whether `text` is one sentence of 25 words or less that ends with a period. -/
 def oneSentence (text : List Char) : Bool :=
   text.getLast? = some '.' &&
-    match (divide (text.map Exec.plain)).filter fun run => decide (Exec.Worded run) with
-    | [sentence] => Exec.wordCount sentence ≤ 25
+    match (divide (text.map Atom.plain)).filter fun run => decide (Controlled.Worded run) with
+    | [sentence] => Controlled.wordCount sentence ≤ 25
     | _ => false
 
 /-- `oneSentence` is exact for `OneSentence`. -/
@@ -266,9 +266,9 @@ theorem oneSentence_iff (text : List Char) : oneSentence text = true ↔ OneSent
   · rintro ⟨hlast, cut, sentence, hcut, hfilter, hcount⟩
     rw [divided_iff] at hcut
     subst hcut
-    have hfilter' : (divide (text.map Exec.plain)).filter (fun run => decide (Exec.Worded run)) =
+    have hfilter' : (divide (text.map Atom.plain)).filter (fun run => decide (Worded run)) =
         [sentence] := hfilter
-    have hcount' : Exec.wordCount sentence ≤ 25 := hcount
+    have hcount' : Controlled.wordCount sentence ≤ 25 := hcount
     simp [oneSentence, hlast, hfilter', hcount']
 
 /-! ## The tables as written -/
@@ -509,166 +509,33 @@ def Draft.lines (d : Draft) : List (List Char) :=
 /-- The print of `d`: its lines, each ended by a line feed. -/
 def Draft.render (d : Draft) : List Char := terminated '\n' d.lines
 
-/-! ## The definitions that the functions use
-
-The parser reads a text and then compares it with the print of what it read. The functions
-that follow use the second definitions of the namespace `Exec`, as in
-`RegulaCore.ControlledText`: a change to a definition of the print does not change the print
-that the parser compares, and it makes the theorem that the two are equal fail. -/
+/-! ## The statements that the functions decide -/
 
 namespace Exec
 
-/-- Each of `parts` with `terminator` after it, for the functions (`terminated_eq`). -/
-def terminated (terminator : Char) (parts : List (List Char)) : List Char :=
-  parts.flatMap (· ++ [terminator])
-
-/-- `text` in lowercase, for the functions (`lower_eq`). -/
-def lower (text : List Char) : List Char := text.map Char.toLower
-
-/-- The text of a `Replaces` cell, for the functions (`printNames_eq`). -/
-def printNames : List (List Char) → List Char
-  | [] => ['-']
-  | first :: rest => first ++ rest.flatMap fun name => ',' :: ' ' :: name
-
-/-- The text of a `Source` cell, for the functions (`printSource_eq`). -/
-def printSource (path : List Char) (name : Option (List Char)) : List Char :=
-  '`' :: path ++ '`' ::
-    match name with
-    | none => []
-    | some name => ' ' :: '(' :: '`' :: name ++ ['`', ')']
-
-/-- The cells of a row of terms, for the functions (`termCells_eq`). -/
-def termCells (t : Term) : List (List Char) :=
-  [t.term, t.category, t.definition, printNames t.replaces, printSource t.path t.name]
-
-/-- The cells of a row of replaced words, for the functions (`replacedCells_eq`). -/
-def replacedCells (r : Replaced) : List (List Char) := [r.word, r.write]
-
-/-- The line of a table row, for the functions (`row_eq`). -/
-def row (cells : List (List Char)) : List Char :=
-  '|' :: terminated '|' (cells.map fun cell => ' ' :: cell ++ [' '])
-
-/-- The line under the column names, for the functions (`rule_eq`). -/
-def rule (heading : Heading) : List Char :=
-  row (heading.columns.map fun _ => "---".toList)
-
-/-- The lines of a table, for the functions (`table_eq`). -/
-def table (heading : Heading) (rows : List (List (List Char))) : List (List Char) :=
-  if rows.isEmpty then []
-  else [] :: heading.title :: [] :: row heading.columns :: rule heading :: rows.map row
-
-/-- The lines of tables, for the functions (`printTables_eq`). -/
-def printTables : List Heading → List (List (List (List Char))) → List (List Char)
-  | heading :: headings, rows :: tables => table heading rows ++ printTables headings tables
-  | _, _ => []
-
-/-- The columns of a table of terms, for the functions (`termColumns_eq`). -/
-def termColumns : List (List Char) :=
-  ["Term", "Category", "Definition", "Replaces", "Source"].map String.toList
-
-/-- The five tables, for the functions (`headings_eq`). -/
-def headings : List Heading := [
-  ⟨"## Shared technical nouns".toList, termColumns⟩,
-  ⟨"## Shared technical verbs".toList, termColumns⟩,
-  ⟨"## Project technical nouns".toList, termColumns⟩,
-  ⟨"## Project technical verbs".toList, termColumns⟩,
-  ⟨"## Replaced words".toList, ["Do not write", "Write"].map String.toList⟩]
-
-/-- The first line of the print, for the functions (`titleLine_eq`). -/
-def titleLine : List Char := "# CONTEXT".toList
-
-/-- The text before the version, for the functions (`versionLabel_eq`). -/
-def versionLabel : List Char := "Vocabulary version: ".toList
-
-/-- The line that names the edition, for the functions (`standardLine_eq`). -/
-def standardLine : List Char := "Standard: ASD-STE100 Issue 9".toList
-
-/-- The text before the shared package, for the functions (`sharedLabel_eq`). -/
-def sharedLabel : List Char := "Shared vocabulary: ".toList
-
-/-- The rows of terms of a draft, for the functions (`rows_eq`). -/
-def rows (d : Draft) : List Term :=
-  d.sharedNouns ++ d.sharedVerbs ++ d.projectNouns ++ d.projectVerbs
-
-/-- The rows of the five tables as cells, for the functions (`tables_eq`). -/
-def tables (d : Draft) : List (List (List (List Char))) :=
-  [d.sharedNouns.map termCells, d.sharedVerbs.map termCells, d.projectNouns.map termCells,
-    d.projectVerbs.map termCells, d.replaced.map replacedCells]
-
-/-- The lines of the print of a draft, for the functions (`lines_eq`). -/
-def lines (d : Draft) : List (List Char) :=
-  titleLine :: [] :: (versionLabel ++ d.version) :: standardLine ::
-    ((match d.shared with
-      | none => []
-      | some package => [sharedLabel ++ package]) ++ printTables headings (tables d))
-
-/-- The print of a draft, for the functions (`render_eq`). -/
-def render (d : Draft) : List Char := terminated '\n' (lines d)
-
-/-- A word of the vocabulary, for the functions (`word_iff`). -/
+/-- A word of the vocabulary, as the functions test it: the comparison form is computed with
+`normalize`. `word_iff` connects it to the statement `Regula.Controlled.Word`, which names the
+relation `Normal`. -/
 def Word (word : List Char) : Prop :=
-  word ≠ [] ∧ (∀ c ∈ word, Wordy (roleOf c)) ∧ word.map Char.toLower = normalize word
+  word ≠ [] ∧ (∀ c ∈ word, Role.Wordy (roleOf c)) ∧ word.map Char.toLower = normalize word
 
 instance : DecidablePred Word := fun word => by
   unfold Word
   infer_instance
-
-/-- A number in decimal digits with no zero before it, for the functions (`Numeral_eq`). -/
-def Numeral (text : List Char) : Prop :=
-  text ≠ [] ∧ (∀ c ∈ text, c.isDigit = true) ∧ (text.head? = some '0' → text = ['0'])
-
-instance : DecidablePred Numeral := fun text => by
-  unfold Numeral
-  infer_instance
-
-/-- A text that is not empty and has no space character, no backtick and no `|` character, for
-the functions (`Solid_eq`). -/
-def Solid (text : List Char) : Prop :=
-  text ≠ [] ∧ ∀ c ∈ text, spacing c = false ∧ c ≠ '`' ∧ c ≠ '|'
-
-instance : DecidablePred Solid := fun text => by
-  unfold Solid
-  infer_instance
-
-theorem terminated_eq : @terminated = @Controlled.terminated := rfl
-theorem lower_eq : @lower = @Controlled.lower := rfl
-theorem printNames_eq : @printNames = @Controlled.printNames := rfl
-theorem printSource_eq : @printSource = @Controlled.printSource := rfl
-theorem termCells_eq : @termCells = @Term.cells := rfl
-theorem replacedCells_eq : @replacedCells = @Replaced.cells := rfl
-theorem row_eq : @row = @Controlled.row := rfl
-theorem rule_eq : @rule = @Heading.rule := rfl
-theorem table_eq : @table = @Controlled.table := rfl
-theorem printTables_eq : @printTables = @Controlled.printTables := by
-  funext headings tables
-  induction headings generalizing tables with
-  | nil => rfl
-  | cons heading headings ih =>
-    cases tables with
-    | nil => rfl
-    | cons rows tables =>
-      show table heading rows ++ printTables headings tables =
-        Controlled.table heading rows ++ Controlled.printTables headings tables
-      rw [ih]
-      rfl
-theorem termColumns_eq : @termColumns = @Controlled.termColumns := rfl
-theorem headings_eq : @headings = @Controlled.headings := rfl
-theorem titleLine_eq : @titleLine = @Controlled.titleLine := rfl
-theorem versionLabel_eq : @versionLabel = @Controlled.versionLabel := rfl
-theorem standardLine_eq : @standardLine = @Controlled.standardLine := rfl
-theorem sharedLabel_eq : @sharedLabel = @Controlled.sharedLabel := rfl
-theorem rows_eq : @rows = @Draft.rows := rfl
-theorem tables_eq : @tables = @Draft.tables := rfl
-theorem lines_eq : @lines = @Draft.lines := rfl
-theorem render_eq : @render = @Draft.render := rfl
-theorem Numeral_eq : @Numeral = @Controlled.Numeral := rfl
-theorem Solid_eq : @Solid = @Controlled.Solid := rfl
 
 /-- The word of the functions is the word of the vocabulary. -/
 theorem word_iff (word : List Char) : Word word ↔ Controlled.Word word :=
   and_congr_right fun _ => and_congr_right fun _ => (normal_iff _ _).symm
 
 end Exec
+
+instance : DecidablePred Numeral := fun text => by
+  unfold Numeral
+  infer_instance
+
+instance : DecidablePred Solid := fun text => by
+  unfold Solid
+  infer_instance
 
 /-! ## The scanner -/
 
@@ -707,7 +574,7 @@ def takeTable (heading : Heading) (lines : List (List Char)) :
     if title = heading.title then
       match rest with
       | [] :: columns :: rule :: rest =>
-        if columns = Exec.row heading.columns ∧ rule = Exec.rule heading then
+        if columns = Controlled.row heading.columns ∧ rule = Heading.rule heading then
           match readRows (rest.takeWhile fun line => !line.isEmpty) with
           | some rows =>
             if rows.isEmpty then throw (rest.length + 1, "the table has no row")
@@ -724,7 +591,7 @@ def takeTable (heading : Heading) (lines : List (List Char)) :
         else
           throw (rest.length + 2,
             s!"the table has other column names or another rule than `{String.ofList
-              (Exec.row heading.columns)}` and `{String.ofList (Exec.rule heading)}`")
+              (Controlled.row heading.columns)}` and `{String.ofList (Heading.rule heading)}`")
       | _ =>
         throw (rest.length,
           "the title of a table has no empty line, column names and rule after it")
@@ -762,27 +629,27 @@ theorem readAll_map {α : Type} {read : List (List Char) → Option α}
 
 /-- What a text that does not start with the head lines is refused for. -/
 def headReason : String :=
-  s!"expected the lines `{String.ofList Exec.titleLine}`, an empty line, \
-    `{String.ofList Exec.versionLabel}` with the version, and \
-    `{String.ofList Exec.standardLine}`"
+  s!"expected the lines `{String.ofList Controlled.titleLine}`, an empty line, \
+    `{String.ofList Controlled.versionLabel}` with the version, and \
+    `{String.ofList Controlled.standardLine}`"
 
 /-- The draft whose print has `lines`. -/
 def scanLines (lines : List (List Char)) : Scan Draft :=
   match lines with
   | first :: [] :: version :: standard :: rest =>
-    if first = Exec.titleLine ∧ standard = Exec.standardLine then
-      match dropPrefix Exec.versionLabel version with
+    if first = Controlled.titleLine ∧ standard = Controlled.standardLine then
+      match dropPrefix Controlled.versionLabel version with
       | none => throw (lines.length, headReason)
       | some version =>
         let (shared, rest) : Option (List Char) × List (List Char) :=
           match rest with
           | line :: more =>
-            match dropPrefix Exec.sharedLabel line with
+            match dropPrefix Controlled.sharedLabel line with
             | some package => (some package, more)
             | none => (none, rest)
           | [] => (none, rest)
         do
-          let (tables, rest) ← takeTables Exec.headings rest
+          let (tables, rest) ← takeTables Controlled.headings rest
           match tables, rest with
           | [sharedNouns, sharedVerbs, projectNouns, projectVerbs, replaced], [] =>
             match readAll Term.ofCells sharedNouns, readAll Term.ofCells sharedVerbs,
@@ -796,7 +663,7 @@ def scanLines (lines : List (List Char)) : Scan Draft :=
               throw (lines.length, "a row has another number of cells than its table has columns")
           | _, _ =>
             throw (rest.length,
-              s!"expected `{String.ofList Exec.sharedLabel}` with a package directly after the head \
+              s!"expected `{String.ofList sharedLabel}` with a package directly after the head \
                 lines, or an empty line and the title of a table that is not yet read, in the \
                 order of the tables, or the end of the text")
     else throw (lines.length, headReason)
@@ -859,7 +726,7 @@ theorem takeTable_table (heading : Heading) {rows : List (List (List Char))}
   have hempty : rows.isEmpty = false := by simpa using hrows
   have hall : (rows.all fun cells => cells.length == heading.columns.length) = true := by
     simpa using hfit
-  simp [table, hempty, takeTable, Exec.row_eq, Exec.rule_eq, takeWhile_rows rows hrest,
+  simp [table, hempty, takeTable, takeWhile_rows rows hrest,
     dropWhile_rows rows hrest, readRows_rows hclean, hall]
 
 /-- Each row of each table has as many cells as the heading at the table's position has
@@ -979,15 +846,13 @@ theorem scanLines_lines (d : Draft) (h : d.Clean) : scanLines d.lines = pure d :
     readAll_map _ fun _ _ => rfl
   cases hpackage : d.shared with
   | none =>
-    simp only [Draft.lines, hpackage, scanLines, Exec.titleLine_eq, Exec.standardLine_eq,
-      Exec.versionLabel_eq, Exec.sharedLabel_eq, Exec.headings_eq, and_self, ite_true,
+    simp only [Draft.lines, hpackage, scanLines,       and_self, ite_true,
       dropPrefix_append, List.nil_append, dropPrefix_printTables, htables, pure_bind]
     simp only [Draft.tables, h1, h2, h3, h4, hreplaced]
     cases d
     simp_all
   | some package =>
-    simp only [Draft.lines, hpackage, scanLines, Exec.titleLine_eq, Exec.standardLine_eq,
-      Exec.versionLabel_eq, Exec.sharedLabel_eq, Exec.headings_eq, and_self, ite_true,
+    simp only [Draft.lines, hpackage, scanLines,       and_self, ite_true,
       dropPrefix_append, List.singleton_append, htables, pure_bind]
     simp only [Draft.tables, h1, h2, h3, h4, hreplaced]
     cases d
@@ -1082,10 +947,10 @@ def Term.key (t : Term) : List Char := lower t.term
 def Replaced.key (r : Replaced) : List Char := lower r.word
 
 /-- The line of a row of terms in the print. -/
-def Term.line (t : Term) : List Char := Exec.row (Exec.termCells t)
+def Term.line (t : Term) : List Char := Controlled.row (Term.cells t)
 
 /-- The line of a row of replaced words in the print. -/
-def Replaced.line (r : Replaced) : List Char := Exec.row (Exec.replacedCells r)
+def Replaced.line (r : Replaced) : List Char := Controlled.row (Replaced.cells r)
 
 /-- The names that the rows of `d` replace, in lowercase, in the order of the print. -/
 def Draft.replacedNames (d : Draft) : List (List Char) :=
@@ -1158,40 +1023,6 @@ structure Draft.WellFormed (d : Draft) : Prop where
 
 /-! ## Defects -/
 
-namespace Exec
-
-/-- The categories of a noun, for the functions (`nounCategories_eq`). -/
-def nounCategories : List (List Char) :=
-  ["1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12", "13", "14", "15", "16", "17",
-    "18", "19", "20", "21", "22"].map String.toList
-
-/-- The categories of a verb, for the functions (`verbCategories_eq`). -/
-def verbCategories : List (List Char) :=
-  ["1a", "1b", "1c", "1d", "1e", "1f", "2a", "2b", "2c", "3a", "3b", "3c", "3d", "3e", "3f",
-    "4"].map String.toList
-
-/-- The key of a row of terms, for the functions (`termKey_eq`). -/
-def termKey (t : Term) : List Char := lower t.term
-
-/-- The key of a row of replaced words, for the functions (`replacedKey_eq`). -/
-def replacedKey (r : Replaced) : List Char := lower r.word
-
-/-- The names that the rows of a draft replace, for the functions (`replacedNames_eq`). -/
-def replacedNames (d : Draft) : List (List Char) :=
-  (rows d).flatMap fun t => t.replaces.map lower
-
-/-- The words of the table of replaced words, for the functions (`replacedWords_eq`). -/
-def replacedWords (d : Draft) : List (List Char) := d.replaced.map replacedKey
-
-theorem nounCategories_eq : @nounCategories = @Controlled.nounCategories := rfl
-theorem verbCategories_eq : @verbCategories = @Controlled.verbCategories := rfl
-theorem termKey_eq : @termKey = @Term.key := rfl
-theorem replacedKey_eq : @replacedKey = @Replaced.key := rfl
-theorem replacedNames_eq : @replacedNames = @Draft.replacedNames := rfl
-theorem replacedWords_eq : @replacedWords = @Draft.replacedWords := rfl
-
-end Exec
-
 theorem ite_nil_iff {α : Type} {p : Prop} [Decidable p] {x : α} :
     (if p then [] else [x]) = [] ↔ p := by
   by_cases h : p <;> simp [h]
@@ -1206,10 +1037,10 @@ def Term.defects (categories : List (List Char)) (t : Term) : List String :=
     else ["the definition is not one sentence of 25 words or less that ends with a period"]) ++
   (if ∀ name ∈ t.replaces, ∀ word ∈ split ' ' name, Exec.Word word then []
     else ["a replaced name is not one word or more with one space between them"]) ++
-  (if Exec.Solid t.path then []
+  (if Controlled.Solid t.path then []
     else ["the path of the source is empty, or has a space character, a backtick or a `|` \
       character"]) ++
-  (if ∀ name ∈ t.name, Exec.Solid name then []
+  (if ∀ name ∈ t.name, Controlled.Solid name then []
     else ["the Lean name of the source is empty, or has a space character, a backtick or a \
       `|` character"])
 
@@ -1217,7 +1048,7 @@ def Term.defects (categories : List (List Char)) (t : Term) : List String :=
 theorem Term.defects_nil_iff (categories : List (List Char)) (t : Term) :
     t.defects categories = [] ↔ t.Sound categories := by
   simp only [Term.defects, List.append_eq_nil_iff, ite_nil_iff]
-  simp only [Exec.word_iff, Exec.Solid_eq, oneSentence_iff]
+  simp only [Exec.word_iff, oneSentence_iff]
   exact ⟨fun ⟨⟨⟨⟨⟨a, b⟩, c⟩, d⟩, e⟩, f⟩ =>
       ⟨(separated_iff ' ' _ _).mpr a, b, c, fun name h => (separated_iff ' ' _ _).mpr (d name h),
         e, f⟩,
@@ -1287,18 +1118,18 @@ theorem repeated_nil (what : String) (rows : List (List Char × List Char)) :
 
 /-- The defects of the head lines and of the cells of `d`. -/
 def Draft.headDefects (d : Draft) : List (List Char × String) :=
-  (if ∀ rows ∈ Exec.tables d, ∀ cells ∈ rows, ∀ cell ∈ cells, '|' ∉ cell ∧ '\n' ∉ cell then []
-    else [(Exec.titleLine, "a cell has a `|` character or a line feed")]) ++
-  (if Exec.Numeral d.version then []
-    else [(Exec.versionLabel ++ d.version, "the vocabulary version is not a number")]) ++
+  (if ∀ rows ∈ Draft.tables d, ∀ cells ∈ rows, ∀ cell ∈ cells, '|' ∉ cell ∧ '\n' ∉ cell then []
+    else [(Controlled.titleLine, "a cell has a `|` character or a line feed")]) ++
+  (if Controlled.Numeral d.version then []
+    else [(Controlled.versionLabel ++ d.version, "the vocabulary version is not a number")]) ++
   (match d.shared with
     | none => []
     | some package =>
-      (if Exec.Solid package then []
-        else [(Exec.sharedLabel ++ package,
+      (if Controlled.Solid package then []
+        else [(Controlled.sharedLabel ++ package,
           "the package of the shared vocabulary is not a name without spaces")]) ++
       (if d.sharedNouns = [] ∧ d.sharedVerbs = [] then []
-        else [(Exec.sharedLabel ++ package,
+        else [(Controlled.sharedLabel ++ package,
           "a vocabulary that names a shared vocabulary has a `Shared` table")]))
 
 theorem Draft.headDefects_nil_iff (d : Draft) :
@@ -1312,15 +1143,14 @@ theorem Draft.headDefects_nil_iff (d : Draft) :
   | none => simp
   | some package =>
     simp only [List.append_eq_nil_iff, ite_nil_iff, Option.mem_def, Option.some.injEq]
-    simp only [Exec.Solid_eq]
     exact ⟨fun ⟨a, b⟩ p hp => hp ▸ ⟨a, b⟩, fun h => ⟨(h package rfl).1, (h package rfl).2⟩⟩
 
 /-- The defects of the rows of `d`, each row alone. -/
 def Draft.rowDefects (d : Draft) : List (List Char × String) :=
   ((d.sharedNouns ++ d.projectNouns).flatMap fun t =>
-    (t.defects Exec.nounCategories).map fun reason => (t.line, reason)) ++
+    (t.defects Controlled.nounCategories).map fun reason => (t.line, reason)) ++
   ((d.sharedVerbs ++ d.projectVerbs).flatMap fun t =>
-    (t.defects Exec.verbCategories).map fun reason => (t.line, reason)) ++
+    (t.defects Controlled.verbCategories).map fun reason => (t.line, reason)) ++
   (d.replaced.flatMap fun r => r.defects.map fun reason => (r.line, reason))
 
 theorem Draft.rowDefects_nil_iff (d : Draft) :
@@ -1329,8 +1159,7 @@ theorem Draft.rowDefects_nil_iff (d : Draft) :
         (∀ t ∈ d.sharedVerbs ++ d.projectVerbs, t.Sound verbCategories) ∧
         ∀ r ∈ d.replaced, r.Sound := by
   simp only [Draft.rowDefects, List.append_eq_nil_iff, List.flatMap_eq_nil_iff,
-    List.map_eq_nil_iff, Term.defects_nil_iff, Replaced.defects_nil_iff, Exec.nounCategories_eq,
-    Exec.verbCategories_eq]
+    List.map_eq_nil_iff, Term.defects_nil_iff, Replaced.defects_nil_iff]
   exact and_assoc
 
 /-- The reason for a row of a table of the vocabulary whose key is not after `before`, the key
@@ -1340,26 +1169,25 @@ def tableOrder (before : List Char) : String :=
 
 /-- The rows of `d` that are not in the sequence of their table. -/
 def Draft.orderDefects (d : Draft) : List (List Char × String) :=
-  unordered tableOrder Term.line Exec.termKey d.sharedNouns ++
-    unordered tableOrder Term.line Exec.termKey d.sharedVerbs ++
-    unordered tableOrder Term.line Exec.termKey d.projectNouns ++
-    unordered tableOrder Term.line Exec.termKey d.projectVerbs ++
-    unordered tableOrder Replaced.line Exec.replacedKey d.replaced
+  unordered tableOrder Term.line Term.key d.sharedNouns ++
+    unordered tableOrder Term.line Term.key d.sharedVerbs ++
+    unordered tableOrder Term.line Term.key d.projectNouns ++
+    unordered tableOrder Term.line Term.key d.projectVerbs ++
+    unordered tableOrder Replaced.line Replaced.key d.replaced
 
 theorem Draft.orderDefects_nil_iff (d : Draft) :
     d.orderDefects = [] ↔
       Ascending Term.key d.sharedNouns ∧ Ascending Term.key d.sharedVerbs ∧
         Ascending Term.key d.projectNouns ∧ Ascending Term.key d.projectVerbs ∧
         Ascending Replaced.key d.replaced := by
-  simp only [Draft.orderDefects, List.append_eq_nil_iff, unordered_nil_iff, Exec.termKey_eq,
-    Exec.replacedKey_eq]
+  simp only [Draft.orderDefects, List.append_eq_nil_iff, unordered_nil_iff]
   exact ⟨fun ⟨⟨⟨⟨a, b⟩, c⟩, d⟩, e⟩ => ⟨a, b, c, d, e⟩, fun ⟨a, b, c, d, e⟩ => ⟨⟨⟨⟨a, b⟩, c⟩, d⟩, e⟩⟩
 
 /-- The rows of `d` whose term or whose replaced name is given a second time. -/
 def Draft.repeatDefects (d : Draft) : List (List Char × String) :=
-  repeated "term" [] ((Exec.rows d).map fun t => (t.line, Exec.termKey t)) ++
+  repeated "term" [] ((Draft.rows d).map fun t => (t.line, Term.key t)) ++
     repeated "replaced name" []
-      ((Exec.rows d).flatMap fun t => t.replaces.map fun name => (t.line, Exec.lower name))
+      ((Draft.rows d).flatMap fun t => t.replaces.map fun name => (t.line, Controlled.lower name))
 
 theorem Draft.repeatDefects_nil_iff (d : Draft) :
     d.repeatDefects = [] ↔ (d.rows.map Term.key).Nodup ∧ d.replacedNames.Nodup := by
@@ -1368,21 +1196,20 @@ theorem Draft.repeatDefects_nil_iff (d : Draft) :
   have hnames : (d.rows.flatMap fun t => t.replaces.map fun name => (t.line, lower name)).map
       (·.2) = d.replacedNames := by
     simp [Draft.replacedNames, List.map_flatMap, List.map_map, Function.comp_def]
-  simp only [Draft.repeatDefects, Exec.rows_eq, Exec.termKey_eq, Exec.lower_eq,
-    List.append_eq_nil_iff, repeated_nil, hkeys, hnames]
+  simp only [Draft.repeatDefects,     List.append_eq_nil_iff, repeated_nil, hkeys, hnames]
 
 /-- The rows of `d` whose term is also a replaced name or a replaced word, and the rows with a
 replaced name that is also a replaced word. -/
 def Draft.clashDefects (d : Draft) : List (List Char × String) :=
-  ((Exec.rows d).filterMap fun t =>
-    if Exec.termKey t ∈ Exec.replacedNames d ∨ Exec.termKey t ∈ Exec.replacedWords d then
-      some (t.line, s!"the term `{String.ofList (Exec.termKey t)}` is also a replaced name or a \
+  ((Draft.rows d).filterMap fun t =>
+    if Term.key t ∈ Draft.replacedNames d ∨ Term.key t ∈ Draft.replacedWords d then
+      some (t.line, s!"the term `{String.ofList (Term.key t)}` is also a replaced name or a \
         replaced word")
     else none) ++
-  ((Exec.rows d).flatMap fun t => t.replaces.filterMap fun name =>
-    if Exec.lower name ∈ Exec.replacedWords d then
+  ((Draft.rows d).flatMap fun t => t.replaces.filterMap fun name =>
+    if Controlled.lower name ∈ Draft.replacedWords d then
       some (t.line,
-        s!"the replaced name `{String.ofList (Exec.lower name)}` is also a replaced word")
+        s!"the replaced name `{String.ofList (Controlled.lower name)}` is also a replaced word")
     else none)
 
 theorem Draft.clashDefects_nil_iff (d : Draft) :
@@ -1391,8 +1218,6 @@ theorem Draft.clashDefects_nil_iff (d : Draft) :
         ∀ name ∈ d.replacedNames, name ∉ d.replacedWords := by
   simp only [Draft.clashDefects, List.append_eq_nil_iff, List.filterMap_eq_nil_iff,
     List.flatMap_eq_nil_iff, ite_eq_right_iff, reduceCtorEq, imp_false, not_or]
-  simp only [Exec.rows_eq, Exec.termKey_eq, Exec.lower_eq, Exec.replacedNames_eq,
-    Exec.replacedWords_eq]
   refine and_congr_right fun _ => ?_
   simp only [Draft.replacedNames, List.mem_flatMap, List.mem_map]
   constructor
@@ -1487,13 +1312,13 @@ def write (v : Vocabulary) : String := String.ofList v.draft.render
 def parse (text : String) : Option Vocabulary :=
   match scan text.toList with
   | .ok d =>
-    if h : d.defects = [] ∧ Exec.render d = text.toList then some ⟨d, d.defects_nil_iff.mp h.1⟩
+    if h : d.defects = [] ∧ Draft.render d = text.toList then some ⟨d, d.defects_nil_iff.mp h.1⟩
     else none
   | .error _ => none
 
 theorem parse_write (v : Vocabulary) : parse (write v) = some v := by
   have hscan : scan v.draft.render = .ok v.draft := scan_render v.draft v.wellFormed.clean
-  simp only [parse, write, String.toList_ofList, hscan, Exec.render_eq]
+  simp only [parse, write, String.toList_ofList, hscan]
   split
   · rfl
   · rename_i hrefused
@@ -1535,13 +1360,13 @@ def firstDifference (n : Nat) : List (List Char) → List (List Char) → Nat
   | _, _ => n
 
 /-- The number of the first line of the print of `d` that is `line`, counting from 1. -/
-def Draft.lineOf (d : Draft) (line : List Char) : Nat := (Exec.lines d).idxOf line + 1
+def Draft.lineOf (d : Draft) (line : List Char) : Nat := (Draft.lines d).idxOf line + 1
 
 /-- The line that `lineOf` gives for a line of the print is that line. -/
 theorem Draft.lineOf_spec (d : Draft) {line : List Char} (h : line ∈ d.lines) :
     d.lines[d.lineOf line - 1]? = some line := by
   have hlt : d.lines.idxOf line < d.lines.length := List.idxOf_lt_length_iff.mpr h
-  simp [Draft.lineOf, Exec.lines_eq, List.getElem?_eq_getElem hlt, List.getElem_idxOf hlt]
+  simp [Draft.lineOf, List.getElem?_eq_getElem hlt, List.getElem_idxOf hlt]
 
 /-- Why `text` is not the text of a vocabulary: each reason, with the number of its line. -/
 def explain (text : String) : List (Nat × String) :=
@@ -1549,10 +1374,10 @@ def explain (text : String) : List (Nat × String) :=
     match scan text.toList with
     | .error (remaining, reason) => [((linesOf text.toList).length + 1 - remaining, reason)]
     | .ok d =>
-      if Exec.render d = text.toList then
+      if Draft.render d = text.toList then
         d.defects.map fun (line, reason) => (d.lineOf line, reason)
       else
-        [(firstDifference 1 (Exec.lines d) (split '\n' text.toList),
+        [(firstDifference 1 (Draft.lines d) (split '\n' text.toList),
           "the text is not the print of its vocabulary from this line on: a cell that the \
             print writes with other spaces, a `Replaces` cell that is not `-` or names with \
             `, ` between them, or a `Source` cell that is not a path in backticks with or \
@@ -1577,13 +1402,13 @@ theorem explain_nil_iff (text : String) : explain text = [] ↔ (parse text).isS
   · cases hscan : scan text.toList with
     | error refusal => simp [hlast]
     | ok d =>
-      by_cases hrender : Exec.render d = text.toList
+      by_cases hrender : Draft.render d = text.toList
       · by_cases hdefects : d.defects = [] <;> simp [hlast, hrender, hdefects]
       · simp [hlast, hrender]
   · cases hscan : scan text.toList with
     | error refusal => simp [hlast]
     | ok d =>
-      have hrender : Exec.render d ≠ text.toList := fun heq =>
+      have hrender : Draft.render d ≠ text.toList := fun heq =>
         hlast ((show d.render = text.toList from heq) ▸ d.render_getLast?)
       simp [hlast, hrender]
 
@@ -1675,10 +1500,10 @@ def clashes (shared project : Vocabulary) : List (Bool × Nat × String) :=
   (if project.draft.shared.isSome then []
     else [(false, 1, "the vocabulary names no shared vocabulary")]) ++
   (if shared.draft.shared.isNone then []
-    else [(true, shared.draft.lineOf (Exec.sharedLabel ++ shared.draft.shared.getD []),
+    else [(true, shared.draft.lineOf (Controlled.sharedLabel ++ shared.draft.shared.getD []),
       "the shared vocabulary names a shared vocabulary of its own")]) ++
   (shared.draft.adopt project.draft).defects.map fun (line, reason) =>
-    if line ∈ Exec.lines project.draft then (false, project.draft.lineOf line, reason)
+    if line ∈ Draft.lines project.draft then (false, project.draft.lineOf line, reason)
     else (true, shared.draft.lineOf line, reason)
 
 /-- `clashes` reports nothing exactly when `adopt` succeeds. -/
