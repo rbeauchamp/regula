@@ -11,11 +11,16 @@ such a link, and rewrites generated prose so that it has none.
 
 - `tokenAt`, `splitTokens`: a rule-ID token is `RG` and four digits with no ASCII letter or digit
   directly before or after it, so emphasis such as `_RG2003_` does not hide one.
+- `TokenAt`, `tokenAt_eq_some_iff`, `TokenAt.apart`, `mem_tokenOffsets_iff`: that statement of a
+  token as a proposition, with no function of this module, and the theorem that `splitTokens`
+  returns the tokens of a text and no others, each at its place.
 - `Run`, `Mention`, `Run.mentions`: a run is a maximal piece of prose with the destination of the
   link it lies in, if any; a mention is one token of a run.
-- `Mention.Linked`, `bareMentions`, `bareMentions_nil_iff`, `checked_bareMentions`: a mention is
-  linked when its token is a registered rule ID and its link's destination is that rule's page;
-  the executed check returns nothing exactly when every mention of every run is linked.
+- `Mention.Linked`, `Run.Linked`, `Run.mentions_linked_iff`, `bareMentions`,
+  `bareMentions_nil_iff`, `checked_bareMentions`: a mention is linked when its token is a
+  registered rule ID and its link's destination is that rule's page. A run is linked when each
+  rule-ID token of its text (`TokenAt`) is such a token in such a link. The executed check
+  returns nothing exactly when every run is linked.
 - `pageTarget`, `pageTarget_iff`: the page of a rule for a rendered page of an edition (the rule's
   page file of that edition).
 - `htmlRuns`, `ownPage`: the prose of an HTML page, and the one place a rule ID is not written as
@@ -84,6 +89,216 @@ def splitTokens : Option Char → Nat → List Char → List Char → List (Stri
     | some token => textPart acc ++ .inr token :: splitTokens (some c) 5 [] rest
     | none => splitTokens (some c) 0 (c :: acc) rest
 
+/-! ## What a rule-ID token is -/
+
+/-- `chars` is a rule-ID token after the character `prev`, if any, and before the text `after`:
+`RG` and four digits, with no ASCII letter or digit directly before or after it. The statement
+uses Lean's own `Char.isDigit` and `Char.isAlphanum` and no function of this module. `tokenAt`
+decides it (`tokenAt_eq_some_iff`). -/
+def TokenAt (prev : Option Char) (chars after : List Char) : Prop :=
+  ∃ a b c d, chars = ['R', 'G', a, b, c, d] ∧ a.isDigit = true ∧ b.isDigit = true ∧
+    c.isDigit = true ∧ d.isDigit = true ∧ (∀ p, prev = some p → p.isAlphanum = false) ∧
+    ∀ n, after.head? = some n → n.isAlphanum = false
+
+/-- `tokenAt` returns a token exactly when the text starts with a rule-ID token, and returns
+that token. -/
+theorem tokenAt_eq_some_iff (prev : Option Char) (text : List Char) (token : String) :
+    tokenAt prev text = some token ↔
+      ∃ chars after, text = chars ++ after ∧ token = String.ofList chars ∧
+        TokenAt prev chars after := by
+  unfold tokenAt
+  split
+  · rename_i a b c d rest
+    constructor
+    · intro found
+      split at found
+      · rename_i holds
+        cases found
+        simp only [Bool.and_eq_true, Bool.not_eq_true', Option.any_eq_false, isWordChar] at holds
+        obtain ⟨⟨⟨⟨⟨hp, ha⟩, hb⟩, hc⟩, hd⟩, hn⟩ := holds
+        exact ⟨['R', 'G', a, b, c, d], rest, rfl, rfl, a, b, c, d, rfl, ha, hb, hc, hd,
+          fun p hp' => hp p hp', fun n hn' => hn n hn'⟩
+      · cases found
+    · rintro ⟨chars, after, split, rfl, a', b', c', d', rfl, ha, hb, hc, hd, hp, hn⟩
+      simp only [List.cons_append, List.nil_append, List.cons.injEq, true_and] at split
+      obtain ⟨rfl, rfl, rfl, rfl, rfl⟩ := split
+      have hp' : prev.any isWordChar = false := by
+        cases prev with
+        | none => rfl
+        | some p => simpa [isWordChar] using hp p rfl
+      have hn' : rest.head?.any isWordChar = false := by
+        cases h : rest.head? with
+        | none => rfl
+        | some n => simpa [isWordChar] using hn n h
+      simp [hp', hn', ha, hb, hc, hd]
+  · rename_i unmatched
+    constructor
+    · intro found
+      cases found
+    · rintro ⟨chars, after, rfl, -, a, b, c, d, rfl, -⟩
+      exact absurd rfl (unmatched a b c d after)
+
+theorem tokenAt_length {prev : Option Char} {text : List Char} {token : String}
+    (found : tokenAt prev text = some token) : token.length = 6 := by
+  obtain ⟨chars, after, -, rfl, a, b, c, d, rfl, -⟩ :=
+    (tokenAt_eq_some_iff prev text token).mp found
+  rw [String.length_ofList]
+  rfl
+
+/-- Two rule-ID tokens of one text do not overlap: a token that starts after the start of an
+other token starts after its end. `splitTokens` passes the five characters after the start of a
+token for this reason. -/
+theorem TokenAt.apart {prev prev' : Option Char} {chars after chars' after' before : List Char}
+    {c : Char} (first : TokenAt prev chars after) (second : TokenAt prev' chars' after')
+    (same : chars ++ after = c :: before ++ chars' ++ after') : 5 ≤ before.length := by
+  obtain ⟨a, b, c₀, d, rfl, ha, hb, hc, hd, -, -⟩ := first
+  obtain ⟨a', b', c', d', rfl, -⟩ := second
+  match before, same with
+  | [], same => simp at same
+  | [_], same =>
+    simp only [List.cons_append, List.nil_append, List.cons.injEq] at same
+    obtain ⟨-, -, rfl, -⟩ := same
+    simp at ha
+  | [_, _], same =>
+    simp only [List.cons_append, List.nil_append, List.cons.injEq] at same
+    obtain ⟨-, -, -, rfl, -⟩ := same
+    simp at hb
+  | [_, _, _], same =>
+    simp only [List.cons_append, List.nil_append, List.cons.injEq] at same
+    obtain ⟨-, -, -, -, rfl, -⟩ := same
+    simp at hc
+  | [_, _, _, _], same =>
+    simp only [List.cons_append, List.nil_append, List.cons.injEq] at same
+    obtain ⟨-, -, -, -, -, rfl, -⟩ := same
+    simp at hd
+  | _ :: _ :: _ :: _ :: _ :: _, _ => simp
+
+/-- The tokens of `parts`, in order, each with the number of characters of the parts before it,
+counted from `start`. The theorems about `splitTokens` use it; no executed function does. -/
+def tokenOffsets (start : Nat) : List (String ⊕ String) → List (Nat × String)
+  | [] => []
+  | .inl text :: rest => tokenOffsets (start + text.length) rest
+  | .inr token :: rest => (start, token) :: tokenOffsets (start + token.length) rest
+
+private theorem tokenOffsets_textPart (start : Nat) (acc : List Char)
+    (rest : List (String ⊕ String)) :
+    tokenOffsets start (textPart acc ++ rest) = tokenOffsets (start + acc.length) rest := by
+  unfold textPart
+  split
+  · rename_i empty
+    simp [List.isEmpty_iff.mp empty]
+  · simp [tokenOffsets, String.length_ofList]
+
+/-- The invariant of `splitTokens`: with `pre` the text already read, the tokens it returns are
+the rule-ID tokens of `text` that start at or after `skip`, each at its place. -/
+private theorem mem_tokenOffsets_splitTokens (text : List Char) :
+    ∀ (pre : List Char) (skip : Nat) (acc : List Char) (start o : Nat) (token : String),
+      (o, token) ∈ tokenOffsets start (splitTokens pre.getLast? skip acc text) ↔
+        ∃ before chars after, text = before ++ chars ++ after ∧ token = String.ofList chars ∧
+          TokenAt (pre ++ before).getLast? chars after ∧ skip ≤ before.length ∧
+          o + skip = start + acc.length + before.length := by
+  induction text with
+  | nil =>
+    intro pre skip acc start o token
+    have none : tokenOffsets start (splitTokens pre.getLast? skip acc []) = [] := by
+      have := tokenOffsets_textPart start acc []
+      simpa [splitTokens, tokenOffsets] using this
+    rw [none]
+    constructor
+    · intro h
+      cases h
+    · rintro ⟨before, chars, after, split, -, ⟨a, b, c, d, rfl, -⟩, -⟩
+      simp at split
+  | cons c rest ih =>
+    intro pre skip acc start o token
+    have last : some c = (pre ++ [c]).getLast? := by simp
+    have step : ∀ (skip' : Nat) (acc' : List Char) (start' : Nat),
+        (o, token) ∈ tokenOffsets start' (splitTokens (some c) skip' acc' rest) ↔
+          ∃ before chars after, c :: rest = c :: before ++ chars ++ after ∧
+            token = String.ofList chars ∧ TokenAt (pre ++ c :: before).getLast? chars after ∧
+            skip' ≤ before.length ∧ o + skip' = start' + acc'.length + before.length := by
+      intro skip' acc' start'
+      rw [last, ih]
+      constructor
+      · rintro ⟨before, chars, after, rfl, rfl, at', hskip, ho⟩
+        exact ⟨before, chars, after, rfl, rfl, by simpa using at', hskip, ho⟩
+      · rintro ⟨before, chars, after, split, rfl, at', hskip, ho⟩
+        exact ⟨before, chars, after, by simpa using split, rfl, by simpa using at', hskip, ho⟩
+    cases skip with
+    | succ skip =>
+      rw [splitTokens, step]
+      constructor
+      · rintro ⟨before, chars, after, split, rfl, at', hskip, ho⟩
+        exact ⟨c :: before, chars, after, split, rfl, at', by simp; omega, by simp; omega⟩
+      · rintro ⟨before, chars, after, split, rfl, at', hskip, ho⟩
+        cases before with
+        | nil => simp at hskip
+        | cons b before =>
+          obtain ⟨rfl, -⟩ : b = c ∧ _ := by simpa using split.symm
+          exact ⟨before, chars, after, split, rfl, at', by simpa using hskip,
+            by simp at ho; omega⟩
+    | zero =>
+      rw [splitTokens]
+      cases found : tokenAt pre.getLast? (c :: rest) with
+      | none =>
+        simp only []
+        rw [step]
+        constructor
+        · rintro ⟨before, chars, after, split, rfl, at', -, ho⟩
+          exact ⟨c :: before, chars, after, split, rfl, at', Nat.zero_le _, by simp at ho ⊢; omega⟩
+        · rintro ⟨before, chars, after, split, rfl, at', -, ho⟩
+          cases before with
+          | nil =>
+            have := (tokenAt_eq_some_iff pre.getLast? (c :: rest) (String.ofList chars)).mpr
+              ⟨chars, after, by simpa using split, rfl, by simpa using at'⟩
+            rw [found] at this
+            cases this
+          | cons b before =>
+            obtain ⟨rfl, -⟩ : b = c ∧ _ := by simpa using split.symm
+            exact ⟨before, chars, after, split, rfl, at', Nat.zero_le _, by simp at ho ⊢; omega⟩
+      | some token' =>
+        simp only [tokenOffsets_textPart, tokenOffsets, List.mem_cons, Prod.mk.injEq]
+        rw [step]
+        obtain ⟨chars', after', split', rfl, at''⟩ :=
+          (tokenAt_eq_some_iff pre.getLast? (c :: rest) token').mp found
+        have six : chars'.length = 6 := by
+          rw [← String.length_ofList]
+          exact tokenAt_length found
+        constructor
+        · rintro (⟨rfl, rfl⟩ | ⟨before, chars, after, split, rfl, at', hskip, ho⟩)
+          · exact ⟨[], chars', after', by simpa using split', rfl, by simpa using at'',
+              Nat.zero_le _, by simp⟩
+          · exact ⟨c :: before, chars, after, split, rfl, at', Nat.zero_le _,
+              by simp at ho ⊢; omega⟩
+        · rintro ⟨before, chars, after, split, rfl, at', -, ho⟩
+          cases before with
+          | nil =>
+            left
+            have same : chars' ++ after' = chars ++ after := by
+              rw [← split']; simpa using split
+            obtain ⟨a, b, c₀, d, rfl, -⟩ := at'
+            obtain ⟨a', b', c', d', rfl, -⟩ := at''
+            simp only [List.cons_append, List.nil_append, List.cons.injEq, true_and] at same
+            obtain ⟨rfl, rfl, rfl, rfl, -⟩ := same
+            exact ⟨by simp at ho; omega, rfl⟩
+          | cons b before =>
+            right
+            obtain ⟨rfl, -⟩ : b = c ∧ _ := by simpa using split.symm
+            have far : 5 ≤ before.length :=
+              TokenAt.apart at'' at' (by rw [← split']; exact split)
+            exact ⟨before, chars, after, split, rfl, at', far, by simp at ho ⊢; omega⟩
+
+/-- The tokens that `splitTokens` returns for a text are the rule-ID tokens of that text
+(`TokenAt`) and no others, each with the number of characters before it. -/
+theorem mem_tokenOffsets_iff (text : List Char) (o : Nat) (token : String) :
+    (o, token) ∈ tokenOffsets 0 (splitTokens none 0 [] text) ↔
+      ∃ before chars after, text = before ++ chars ++ after ∧ token = String.ofList chars ∧
+        TokenAt before.getLast? chars after ∧ o = before.length := by
+  have invariant := mem_tokenOffsets_splitTokens text [] 0 [] 0 o token
+  simp only [List.getLast?_nil, List.nil_append, Nat.zero_le, true_and, Nat.add_zero,
+    List.length_nil, Nat.zero_add] at invariant
+  exact invariant
+
 private def newlines (s : String) : Nat := s.toList.count '\n'
 
 /-! ## Mentions and the decision -/
@@ -151,22 +366,82 @@ theorem Mention.linked_iff (target : RuleId → String → Bool) (m : Mention) :
     · rintro ⟨id, destination, written, hlink, _⟩
       exact (hnot id destination (written ▸ RuleId.parse_spelling id) hlink).elim
 
+/-- Every rule-ID token of run `r` is linked: at each place where the text of `r` has a rule-ID
+token (`TokenAt`), that token is the spelling of a registered rule ID, and `r` lies in the text
+of a link whose destination `target` accepts as that rule's page. The statement names no
+function that reads tokens. `Run.mentions` computes them (`Run.mentions_linked_iff`). -/
+def Run.Linked (target : RuleId → String → Bool) (r : Run) : Prop :=
+  ∀ before chars after, r.text.toList = before ++ chars ++ after →
+    TokenAt before.getLast? chars after →
+      ∃ id destination, String.ofList chars = id.spelling ∧ r.link = some destination ∧
+        target id destination = true
+
+private theorem mentions_fold (link : Option String) (parts : List (String ⊕ String)) :
+    ∀ (line start : Nat) (found : List Mention),
+      ((parts.foldl (fun (acc : Nat × List Mention) part =>
+          match part with
+          | .inl text => (acc.1 + newlines text, acc.2)
+          | .inr token => (acc.1, ⟨acc.1, token, link⟩ :: acc.2)) (line, found)).2).map
+          (fun m => (m.token, m.link)) =
+        ((tokenOffsets start parts).map fun p => (p.2, link)).reverse ++
+          found.map fun m => (m.token, m.link) := by
+  induction parts with
+  | nil =>
+    intro line start found
+    simp [tokenOffsets]
+  | cons part parts ih =>
+    intro line start found
+    cases part with
+    | inl text =>
+      rw [List.foldl_cons]
+      simpa [tokenOffsets] using ih (line + newlines text) (start + text.length) found
+    | inr token =>
+      rw [List.foldl_cons]
+      simp only []
+      rw [ih line (start + token.length)]
+      simp [tokenOffsets]
+
+/-- The mentions of a run are linked exactly when the run is: `Run.mentions` returns the rule-ID
+tokens of the run's text and no others (`mem_tokenOffsets_iff`), each with the run's link. -/
+theorem Run.mentions_linked_iff (target : RuleId → String → Bool) (r : Run) :
+    (∀ m ∈ r.mentions, m.Linked target) ↔ r.Linked target := by
+  have tokens := mentions_fold r.link (splitTokens none 0 [] r.text.toList) r.line 0 []
+  have viaTokens : (∀ m ∈ r.mentions, m.Linked target) ↔
+      ∀ p ∈ r.mentions.map (fun m => (m.token, m.link)),
+        ∃ id destination, p.1 = id.spelling ∧ p.2 = some destination ∧
+          target id destination = true := by
+    rw [List.forall_mem_map]
+    exact Iff.rfl
+  rw [viaTokens]
+  unfold Run.mentions
+  rw [List.map_reverse, tokens]
+  simp only [List.map_nil, List.append_nil, List.reverse_reverse, List.forall_mem_map]
+  constructor
+  · intro h before chars after split at'
+    exact h (before.length, String.ofList chars)
+      ((mem_tokenOffsets_iff _ _ _).mpr ⟨before, chars, after, split, rfl, at', rfl⟩)
+  · rintro h ⟨o, token⟩ found
+    obtain ⟨before, chars, after, split, rfl, at', -⟩ := (mem_tokenOffsets_iff _ _ _).mp found
+    exact h before chars after split at'
+
 /-- The mentions of `runs` that are not linked, in document order. -/
 @[regula_decision]
 def bareMentions (target : RuleId → String → Bool) (runs : List Run) : List Mention :=
   (runs.flatMap Run.mentions).filter fun m => !m.linked target
 
 /-- The executed check returns nothing exactly when every rule-ID token of every run is a
-registered rule ID inside a link to that rule's page. -/
+registered rule ID inside a link to that rule's page (`Run.Linked`). -/
 theorem bareMentions_nil_iff (target : RuleId → String → Bool) (runs : List Run) :
-    bareMentions target runs = [] ↔ ∀ run ∈ runs, ∀ m ∈ run.mentions, m.Linked target := by
+    bareMentions target runs = [] ↔ ∀ run ∈ runs, run.Linked target := by
   simp only [bareMentions, List.filter_eq_nil_iff, List.mem_flatMap, Bool.not_eq_true',
     Bool.not_eq_false]
   constructor
-  · intro h run hr m hm
-    exact (Mention.linked_iff target m).mp (h m ⟨run, hr, hm⟩)
+  · intro h run hr
+    exact (Run.mentions_linked_iff target run).mp fun m hm =>
+      (Mention.linked_iff target m).mp (h m ⟨run, hr, hm⟩)
   · rintro h m ⟨run, hr, hm⟩
-    exact (Mention.linked_iff target m).mpr (h run hr m hm)
+    exact (Mention.linked_iff target m).mpr
+      ((Run.mentions_linked_iff target run).mpr (h run hr) m hm)
 
 /-- Registered contract of the executed prose check, as a two-way decision over the page
 predicate and the runs (`bareMentions_nil_iff`): it reports nothing for no run, and reports a
@@ -174,7 +449,7 @@ bare rule ID in a run outside every link. -/
 theorem checked_bareMentions : Regula.ExecutableContract bareMentions (fun run =>
     Regula.Decides (· = [])
       (fun input : (RuleId → String → Bool) × List Run =>
-        ∀ r ∈ input.2, ∀ m ∈ r.mentions, m.Linked input.1)
+        ∀ r ∈ input.2, r.Linked input.1)
       (Function.uncurry run)) :=
   ⟨.of_iff (fun input => bareMentions_nil_iff input.1 input.2)
     ⟨(fun _ _ => false, []), (bareMentions_nil_iff _ []).mpr (by simp)⟩
@@ -346,8 +621,8 @@ in the page's prose is a registered rule ID linked to its page under `root`, whe
 top heading of a rule's own page count as linked to that page (`ownPage`). -/
 theorem htmlErrors_nil_iff (root path html : String) :
     htmlErrors root path html = [] ↔ htmlClosed html = true ∧
-      ∀ run ∈ htmlRuns (ownPage root path) html, ∀ m ∈ run.mentions,
-        m.Linked (pageTarget root (Page.ofHtml path html)) := by
+      ∀ run ∈ htmlRuns (ownPage root path) html,
+        run.Linked (pageTarget root (Page.ofHtml path html)) := by
   unfold htmlErrors
   cases htmlClosed html <;> simp [bareMentions_nil_iff]
 
