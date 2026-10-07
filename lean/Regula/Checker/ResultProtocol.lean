@@ -19,7 +19,14 @@ open Lean
 /-- This checker build's producer identity, written into every result envelope. -/
 abbrev producer := Regula.Checker.Producer.identity
 
-/-- Result schema 10 records the decision registration of each declaration: its `decisionResult`
+/-- Result schema 11 records the functions that the specification of each decision registration
+shares with its implementation or its acceptance predicate: a declaration's `executableContract`
+carries `shared`, an object with the members `booleans` and `others`, each the names of the
+shared functions of that class, sorted and without duplicates
+(`RegulaPolicy.ExecutableContract.shared`, `RegulaPolicy.SharedNames`), and each `contracts`
+entry of the acceptance account carries the same two lists as `sharedDefinitions`
+(`accountJson`). Earlier schemas wrote neither member.
+Schema 10 records the decision registration of each declaration: its `decisionResult`
 is `decidable` or `other` for a declaration registered with `@[regula_decision]`, by whether its
 result type is `Decidable _` (`RegulaPolicy.DecisionResult.spelling`), and `null` for any other.
 Earlier schemas did not write the member.
@@ -99,7 +106,7 @@ frozen configuration and dependency text from the snapshot (`snapshotJson`: a cl
 dependency is identified by its pinned revision, a dirty one only by package and `dirty`
 status) and imported-environment module lists (`acceptedJson`,
 `ProducerReport.Environment.resultJson`); schema 1 embedded them. -/
-def schemaVersion : Nat := 10
+def schemaVersion : Nat := 11
 
 /-- Envelope identity of every result file. -/
 def identityFields : List (String × Json) := RegistryCodec.identityFields producer schemaVersion
@@ -441,7 +448,10 @@ mechanisms and residual identifiers; mode, scope, surfaces and toolchain are ren
 they leave open; `unresolvedReview` names open obligations, never completed reviews. Since
 schema 9 each entry also carries `decisionKind`, the spelling of the decision kind its
 requirement states or `null` for a requirement that states none, and `notEstablished`, the
-direction a one-way kind leaves open or `null` (`RegulaPolicy.DecisionKind.leavesOpen`). -/
+direction a one-way kind leaves open or `null` (`RegulaPolicy.DecisionKind.leavesOpen`). Since
+schema 11 each entry carries `sharedDefinitions`, an object with the members `booleans` and
+`others`: the functions that its specification shares with its implementation or its acceptance
+predicate, by class, of which the kind says nothing. No entry is refused for them. -/
 def accountJson (account : Regula.Checker.Account) : Json :=
   let a := account.val
   let residuals (rs : List Regula.Checker.Account.Residual) := toJson (rs.map (·.spelling))
@@ -458,6 +468,9 @@ def accountJson (account : Regula.Checker.Account) : Json :=
       ("requirement", toJson contract.requirement),
       ("decisionKind", toJson (contract.kind.map (·.spelling))),
       ("notEstablished", toJson (contract.kind.bind (·.leavesOpen))),
+      ("sharedDefinitions", Json.mkObj [
+        ("booleans", toJson (contract.shared.booleans.map RegistryCodec.printedNameJson)),
+        ("others", toJson (contract.shared.others.map RegistryCodec.printedNameJson))]),
       ("unresolvedReview", residuals Regula.Checker.Account.ContractAccount.unresolved)])),
     ("executionSummary", toJson (a.execution.mapIdx fun environment summary => Json.mkObj [
       ("environment", toJson environment), ("roots", toJson summary.roots),

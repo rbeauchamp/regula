@@ -90,6 +90,30 @@ carries the pair's type, so the elaborated statement grows by a large factor wit
 whichever way the pairs nest, and the linter does not read a field of a field as a field of the
 structure. A structure declared for the arguments has projections of constant size.
 
+## Functions that the two sides share
+
+A kind compares `accepts (f x)` with `spec x`. When `spec` and `f` both call a function, a
+change of that function changes the two sides together, and the proof of the kind can stay
+valid. The kind then holds for every definition of that function and says nothing of it. The
+linter refuses no registration for this. It reads the definitions outside Lean's own library
+that `spec` reaches and that `f` or `accepts` also reaches, and the report names each function
+that `spec` reaches first, in two classes:
+
+* **A function with a result of `Bool` or `BEq _`.** A proposition can take its place in
+  `spec`, with a theorem that connects the proposition to the function, or with a function that
+  decides the proposition with `decide`.
+* **Each other function**, such as an encoding, a measure or a state transition. No type tells
+  a function that the specification is about from one that only prepares the input.
+
+Data and statements are not named. They are an inductive type with its constructors, its
+recursor and its projection functions; a definition whose value is a type, a proposition or a
+record of propositions; a proof; a definition with a result of `Decidable p`; and a constant
+that is no function. A type `Decidable p` has at most one value, so a function that decides a
+proposition of `spec` with `decide` uses the statement itself.
+
+This is a search by name over definitions. A copy of a definition under a second name is a
+different constant, and the search does not find it.
+
 None of the kinds says that `spec` is the intended specification, that `accepts` is the intended
 reading of a result, that every caller acts on the verdict, or which value an accepting result
 carries. Those remain review. A constant function has no two-way kind

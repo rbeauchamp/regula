@@ -221,6 +221,10 @@ structure ContractAccount where
   directions Lean checked about the implementation. `none` for a requirement that is not a
   `Regula.DecidesSoundly`, `Regula.DecidesCompletely` or `Regula.Decides`. -/
   kind : Option DecisionKind := none
+  /-- The functions that the specification of a decision kind shares with the implementation
+  or the acceptance predicate, by class, as the collector recorded them
+  (`RegulaPolicy.ExecutableContract.shared`): the kind says nothing of these definitions. -/
+  shared : RegulaPolicy.SharedNames := {}
   deriving Repr, DecidableEq
 
 /-- RG1007 checks the registration's shape and Lean checks `R f`; whether `R` is the intended
@@ -241,6 +245,19 @@ def ContractAccount.decision (k : ContractAccount) : String :=
       (match kind.leavesOpen with
         | some direction => s!"; not established: it {direction}"
         | none => "")
+
+/-- The account's statement of the functions that a contract's specification shares with its
+implementation or its acceptance predicate: the definitions by name, those with a result of
+`Bool` or `BEq` first and marked as such, and that the kind says nothing of them. Empty for a
+contract whose record names none. The account refuses no contract for a shared function. -/
+def ContractAccount.sharing (k : ContractAccount) : String :=
+  if k.shared.isEmpty then "" else
+    let names (list : Array Lean.Name) := ", ".intercalate (list.toList.map (s!"{·}"))
+    let booleans := if k.shared.booleans.isEmpty then []
+      else [s!"{names k.shared.booleans} (each with a result of Bool or BEq)"]
+    let others := if k.shared.others.isEmpty then [] else [names k.shared.others]
+    s!"; the specification and the implementation both use \
+      {" and ".intercalate (booleans ++ others)}: the kind says nothing of these definitions"
 
 /-- Fence expectations of an accepted documentation claim, by kind. Only positive fences are
 conforming evidence; expected rejections and trusted teaching are not interchangeable with it. -/
@@ -290,16 +307,19 @@ structure AccountData where
   unresolved : List Residual
 
 /-- Every `ExecutableContract` registration among the census's declarations, with its module,
-implementation, rendered requirement and decision kind, environment by environment. -/
+implementation, rendered requirement, decision kind and shared functions, environment by
+environment. -/
 def contractsOf (i : Census) : Array ContractAccount :=
   i.environments.flatMap fun e => e.policy.declarations.filterMap fun d =>
-    d.executableContract.map fun k => ⟨d.name, d.module, k.root, k.requirement, k.kind⟩
+    d.executableContract.map fun k =>
+      ⟨d.name, d.module, k.root, k.requirement, k.kind, k.shared⟩
 
 /-- Required meaning of the account, for every claim and accepted run. Mode, scope,
 surfaces, toolchain and job count are the accepted report's own. Coverage is `coverageOf` the
 claim's mode (`coverage_fresh_iff`: fresh whole-project exactly for a fresh project claim). The
 contracts are exactly the inventory's
-registrations, each with the decision kind the collector recorded. Execution counts are
+registrations, each with the decision kind and the shared functions the collector recorded.
+Execution counts are
 `executionSummary` of each accepted environment, in order. The fence counts partition the
 accepted fences by expectation. Every residual obligation stays unresolved, R-GRAPH exactly
 when a serialized graph is claimed. -/
@@ -313,7 +333,7 @@ def AccountContract (project : {c : Claim} → AcceptedRun c → AccountData) : 
     (∀ x, x ∈ (project run).contracts ↔
       ∃ e ∈ run.report.census.environments, ∃ d ∈ e.policy.declarations,
         ∃ k, d.executableContract = some k ∧
-          x = ⟨d.name, d.module, k.root, k.requirement, k.kind⟩) ∧
+          x = ⟨d.name, d.module, k.root, k.requirement, k.kind, k.shared⟩) ∧
     (project run).execution = run.report.census.environments.map (executionSummary ·.execution) ∧
     ((project run).fences.positive = (run.report.census.fences.filter isPositive).size ∧
       (project run).fences.compilerRejection =
@@ -439,8 +459,9 @@ def pass (label : String) (a : Account) : String :=
     {a.val.coverage.text}"
 
 /-- Human account lines: the checked relation, each contract with its decision kind
-(`ContractAccount.decision`) and its open review, the execution counts, fence kinds, trusted
-mechanisms, and the unresolved review identifiers. -/
+(`ContractAccount.decision`), its shared functions (`ContractAccount.sharing`) and its open
+review, the execution counts, fence kinds, trusted mechanisms, and the unresolved review
+identifiers. -/
 def lines (a : Account) : Array String :=
   let d := a.val
   let checked :=
@@ -449,7 +470,7 @@ def lines (a : Account) : Array String :=
   let contracts := d.contracts.map fun k =>
     s!"{RuleId.executableContract.spelling} contract {k.registration}: Lean checked the \
       requirement about implementation " ++
-      s!"{k.implementation}: {k.requirement}{k.decision}; unresolved review: " ++
+      s!"{k.implementation}: {k.requirement}{k.decision}{k.sharing}; unresolved review: " ++
       s!"{residualList ContractAccount.unresolved} (adequacy of the requirement, caller coverage)"
   let execution := d.execution.mapIdx fun i s =>
     s!"execution environment {i}: {s.roots} root(s), {s.boundaries} boundary observation(s) " ++

@@ -117,6 +117,18 @@
    "executable-contract=positive requires=(fun check"
   ]
  },
+ "Fixtures.Positive.SharedDefinitions": {
+  "expect": "pass",
+  "claim": "standard-logical",
+  "output": [
+   "executable-contract=apart decision-kind=sound-and-complete requires=Regula.Decides (fun x => x = true) (fun n => n < 4) apart shared-booleans=[] shared-others=[]",
+   "smallEven shared-booleans=[\"small\"] shared-others=[]",
+   "throughStatement shared-booleans=[\"tiny\"] shared-others=[]",
+   "sameItem shared-booleans=[\"instBEqItem.beq\"] shared-others=[]",
+   "noEven shared-booleans=[] shared-others=[\"evens\"]",
+   "executable-contract=below decision-kind=sound-and-complete requires=Regula.Decides (fun x => x = true) Below below shared-booleans=[] shared-others=[]"
+  ]
+ },
  "Fixtures.Mutations.DecisionMissingWitness": {
   "expect": "fail",
   "reason": "compile-error",

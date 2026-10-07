@@ -1070,6 +1070,37 @@ theorem lowIndex_decides :
 
 Nested dependent pairs are not a form for three or more arguments. Each projection of a pair carries the pair's type, so the elaborated statement grows by a large factor with each argument, whichever way the pairs nest. A structure declared for the arguments has projections of constant size.
 
+A kind compares `accepts (f x)` with `spec x`. When `spec` and `f` both call a function, a change of that function changes the two sides together, and the proof of the kind can stay valid: the kind then holds for every definition of that function and says nothing of it. Where the shared function has a result of `Bool`, the specification can state the proposition that the function decides, and a theorem connects the two. The build linter names each function that the two sides share in its report, and it refuses no registration for one ({ref "exact-contract-and-coverage-scope"}[§7.11]).
+
+```lean
+import Regula.Contract
+
+/-- Whether `n` is below four. -/
+def low (n : Nat) : Bool := decide (n < 4)
+
+/-- `low` accepts exactly the numbers below four. -/
+theorem low_iff (n : Nat) : low n = true ↔ n < 4 := by simp [low]
+
+/-- Whether `n` is an even number below four: it calls `low`. -/
+def lowEven (n : Nat) : Bool := low n && decide (n % 2 = 0)
+
+/-- `lowEven` accepts exactly the even numbers below four. The specification states `n < 4`,
+the proposition that `low` decides, and does not call `low`. -/
+theorem lowEven_decides :
+    Regula.ExecutableContract lowEven
+      (Regula.Decides (· = true) fun n => n < 4 ∧ n % 2 = 0) :=
+  ⟨.of_iff (fun n => by simp [lowEven, low_iff]) ⟨0, by decide⟩ ⟨1, by decide⟩⟩
+
+/-- A `low` that accepts every number. -/
+def lax (_ : Nat) : Bool := true
+
+/-- With the specification stated through the helper, the same statement and the same witnesses
+hold of a helper that accepts every number: the kind says nothing of the helper. -/
+example : Regula.Decides (· = true) (fun n => lax n = true ∧ n % 2 = 0)
+    (fun n => lax n && decide (n % 2 = 0)) :=
+  .of_iff (fun n => by simp) ⟨0, by decide⟩ ⟨1, by decide⟩
+```
+
 A soundness proof without its witness does not inhabit the sound kind:
 
 ```lean (fails := "Fields missing.*accepted")
@@ -1103,7 +1134,7 @@ theorem positive_decides :
 @[regula_decision] def positive? (n : Nat) : Decidable (0 < n) := inferInstance
 ```
 
-A kind states which directions hold against the written specification. These remain semantic review: whether `spec` is the intended specification, and whether it is independent of `f` in substance (a copy of the implementation under another name satisfies both directions); whether every function that acts as a checker is registered as a decision; whether a one-way kind should have been two-way; and which value an accepting result carries, which needs a dependent result type or a further requirement. Whether `accepts` is the intended reading of a result is semantic review too. A constant function has no two-way kind (`Regula.Decides.not_of_constant`): a sound kind about one proves the specification of every input (`Regula.DecidesSoundly.spec_of_constant`), and a complete kind about one refutes it of every input (`Regula.DecidesCompletely.not_spec_of_constant`). But when the result of `f` determines its input, as the result of the identity function does, an acceptance predicate can restate the specification: `Regula.Decides spec spec id` holds of every specification that some input satisfies and some input does not. A result of type `Decidable p` already carries both directions by construction (§3.2.4) and needs no kind for that claim. A result type whose dependency on the input neither erasure removes, such as an inductive family indexed by the input or a subtype type that depends on the input, has no kind: return `Decidable p`, or register an ordinary requirement. A kind also requires an input with a proof, so a function for which no accepted input can be given has no sound kind, and one for which no refused input can be given has no complete kind. The build linter reads the kind of each registration and reports it with the direction a one-way kind leaves open ({ref "exact-contract-and-coverage-scope"}[§7.11]).
+A kind states which directions hold against the written specification. These remain semantic review: whether `spec` is the intended specification, and whether it is independent of `f` in substance (a copy of the implementation under another name satisfies both directions, and so does a copy of a helper); what each shared function that the report names computes; whether every function that acts as a checker is registered as a decision; whether a one-way kind should have been two-way; and which value an accepting result carries, which needs a dependent result type or a further requirement. Whether `accepts` is the intended reading of a result is semantic review too. A constant function has no two-way kind (`Regula.Decides.not_of_constant`): a sound kind about one proves the specification of every input (`Regula.DecidesSoundly.spec_of_constant`), and a complete kind about one refutes it of every input (`Regula.DecidesCompletely.not_spec_of_constant`). But when the result of `f` determines its input, as the result of the identity function does, an acceptance predicate can restate the specification: `Regula.Decides spec spec id` holds of every specification that some input satisfies and some input does not. A result of type `Decidable p` already carries both directions by construction (§3.2.4) and needs no kind for that claim. A result type whose dependency on the input neither erasure removes, such as an inductive family indexed by the input or a subtype type that depends on the input, has no kind: return `Decidable p`, or register an ordinary requirement. A kind also requires an input with a proof, so a function for which no accepted input can be given has no sound kind, and one for which no refused input can be given has no complete kind. The build linter reads the kind of each registration and reports it with the direction a one-way kind leaves open ({ref "exact-contract-and-coverage-scope"}[§7.11]).
 
 # 3.9 Stateful Refinement and Finite-Prefix Safety
 %%%

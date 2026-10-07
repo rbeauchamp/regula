@@ -780,6 +780,234 @@ theorem DecidedFunction.covers_iff (decided : DecidedFunction) :
   | mk packing unsupplied =>
     cases packing <;> simp [covers, Covers, FieldPacking.covers_iff]
 
+/-- The form of the result type of a constant, as the collector reads it: the constant's type
+with every leading binder opened and every definition unfolded. The class of a definition that
+the two sides of a decision registration share depends on this form (`SharedDefinition`). -/
+inductive ResultForm where
+  /-- A sort, or a structure with no index whose every field is a proof or has a sort as its
+  result: a value is a type, a proposition or a record of propositions, as a value of `LT α`
+  is. -/
+  | «statement»
+  /-- The type of the constant is itself a proposition, so each of its values is a proof. -/
+  | «proof»
+  /-- `Decidable p`: each value carries a proof of `p` or a proof of its negation. -/
+  | «decidable»
+  /-- `Bool`. -/
+  | «bool»
+  /-- `Option _`. -/
+  | «option»
+  /-- `Except _ _`. -/
+  | «except»
+  /-- `BEq _`, a structure of one function to `Bool`. -/
+  | «beq»
+  /-- Every other type. -/
+  | «other»
+  deriving Repr, DecidableEq, Inhabited
+
+/-- The value of a definition with this result form is read as a part of a term that mentions
+the definition. On each side this is no proof. In a specification it is also no `Decidable`
+value, and on the side of the implementation it is also no statement.
+
+A proposition does not depend on which proof of a statement a term holds. A type `Decidable p`
+has at most one value (`Subsingleton (Decidable p)`), so a specification does not depend on
+which decision procedure of `p` it mentions, and the value of the procedure is not read there.
+
+A function runs the procedure, so on the side of the implementation the value of a `Decidable`
+definition is read: with `P x := h x = true` and `f x := decide (P x)`, the instance that `f`
+runs calls `h`, and a wrong `h` changes `f` and a specification that mentions `h` together. A
+function does not run a statement, so the value of a statement is not read on that side: a
+function that decides a proposition depends on the procedure that it runs, and not also on each
+definition that the proposition mentions and the procedure does not call. -/
+def ResultForm.ValueRead (specification : Bool) (form : ResultForm) : Prop :=
+  form ≠ .«proof» ∧ (specification = true → form ≠ .«decidable») ∧
+    (specification = false → form ≠ .«statement»)
+
+instance (specification : Bool) (form : ResultForm) :
+    Decidable (form.ValueRead specification) := by
+  unfold ResultForm.ValueRead; infer_instance
+
+/-- What the collector reads of a constant that the specification of a decision registration
+reaches and that the implementation, or the acceptance predicate, reaches too.
+
+The kind, the projection and the result form are read from the constant's kernel-checked
+declaration. Whether Lean generated the constant is read from Lean's records of the declarations
+it generates, which are environment state that an audited project can write; that field takes a
+definition out of the class `SharedClass.other` only, and never out of the class
+`SharedClass.boolean` (`SharedDefinition.class`). -/
+structure SharedDefinition where
+  /-- The constant. -/
+  name : Lean.Name
+  /-- The kind of its `ConstantInfo`. -/
+  kind : DeclarationKind
+  /-- The value of the constant is a field's projection function: under its binders, the
+  primitive projection of its last argument. -/
+  projection : Bool
+  /-- The constant is a function: its type, with every definition unfolded, has a leading
+  binder, or its value has a function abstraction, as a record of functions has. A constant
+  that is no function gives a name to a closed term with no abstraction, such as a number or a
+  table, and the search reads the constants of that term. -/
+  function : Bool
+  /-- Lean's records say that Lean generated the constant for an inductive type or as a
+  matcher: a parent projection, an auxiliary recursor such as `casesOn`, a `noConfusion`, a
+  matcher, or a construction such as `ctorIdx`. -/
+  generated : Bool
+  /-- The form of its result type. -/
+  result : ResultForm
+  deriving Repr, DecidableEq
+
+/-- The constant computes a result from an input: it is a definition or an opaque constant, it
+is no projection function, and it is a function. An inductive type, a constructor and a recursor
+are data, a projection function reads a field of data, and a theorem and an axiom have no value
+that a term can depend on. A definition that is no function has no input to be wrong about: it
+names a closed term, which a specification that mentions it states. -/
+def SharedDefinition.Computes (shared : SharedDefinition) : Prop :=
+  (shared.kind = .«definition» ∨ shared.kind = .«opaque») ∧ shared.projection = false ∧
+    shared.function = true
+
+instance (shared : SharedDefinition) : Decidable shared.Computes := by
+  unfold SharedDefinition.Computes; infer_instance
+
+/-- The class of a constant that the two sides of a decision registration share
+(`SharedDefinition.class`). The record of the registration names each constant of the classes
+`boolean` and `other` that its specification reaches first (`SharedNames`). It names no constant
+of the other three classes. -/
+inductive SharedClass where
+  /-- A type, a statement or a proof: a constant whose value is a type, a proposition or a
+  record of propositions, and a proof. An inductive type, a theorem and a definition of a
+  proposition are in this class. -/
+  | «statement»
+  /-- A constant with a result of `Decidable p`. -/
+  | decidable
+  /-- Data, or a name for data: each constant of another result form that does not compute
+  (`SharedDefinition.Computes`), such as a constructor, a recursor, a field's projection
+  function and a constant that is no function, and a function with a result that is not `Bool`
+  or `BEq _` that Lean's records say Lean generated. -/
+  | data
+  /-- A function with a result of `Bool` or `BEq _`. -/
+  | boolean
+  /-- Each other function: a result of `Option _`, of `Except _ _` or of every other type. -/
+  | other
+  deriving Repr, DecidableEq, Inhabited
+
+/-- The class of a shared constant, from what the collector read of it.
+
+A kind of a decision registration says nothing of a function that its two sides share: a change
+of that function changes the two sides together. The classes `boolean` and `other` are those
+functions. A constant of the class `statement` is no function that runs. A type `Decidable p`
+has at most one value, so a statement does not depend on which value of it a term names. A
+constant of the class `data` computes nothing from an input.
+
+The result of a function of the class `boolean` is a truth value, or a test that gives one. A
+proposition can take its place in a specification. No type tells a function of the class
+`other` that a specification is about, such as an encoding or a state transition, from one that
+only prepares the input. -/
+def SharedDefinition.class (shared : SharedDefinition) : SharedClass :=
+  match shared.result with
+  | .«proof» | .«statement» => .«statement»
+  | .«decidable» => .decidable
+  | .«bool» | .«beq» => if shared.Computes then .boolean else .data
+  | .«option» | .«except» | .«other» =>
+    if shared.Computes ∧ shared.generated = false then .other else .data
+
+/-- A constant is of the class `boolean` exactly when it computes and its result is `Bool` or
+`BEq _`. Lean's records of generated declarations have no part in this class. -/
+theorem SharedDefinition.class_eq_boolean_iff (shared : SharedDefinition) :
+    shared.class = .boolean ↔
+      shared.Computes ∧ (shared.result = .«bool» ∨ shared.result = .«beq») := by
+  unfold SharedDefinition.class
+  cases shared.result <;> by_cases computes : shared.Computes <;> simp [computes] <;>
+    split <;> simp
+
+/-- A constant is of the class `other` exactly when it computes, Lean's records do not say that
+Lean generated it, and its result is `Option _`, `Except _ _` or of a type with no other
+form. -/
+theorem SharedDefinition.class_eq_other_iff (shared : SharedDefinition) :
+    shared.class = .other ↔
+      shared.Computes ∧ shared.generated = false ∧ (shared.result = .«option» ∨
+        shared.result = .«except» ∨ shared.result = .«other») := by
+  unfold SharedDefinition.class
+  cases shared.result <;> by_cases computes : shared.Computes <;> simp [computes]
+
+/-- Controls of the classes, each with the kind, the projection, the function, the generated
+record and the result form that the collector reads. A function with a result of `Bool` is of
+the class `boolean`, also where Lean's records say that Lean generated it. A function with a
+result of a list is of the class `other`, and of the class `data` where Lean's records say that
+Lean generated it. A `Decidable` value, a proof, a constant that is no function and a field's
+projection function are of no named class. -/
+example :
+    (⟨`test, .«definition», false, true, false, .«bool»⟩ : SharedDefinition).class = .boolean ∧
+    (⟨`derived, .«definition», false, true, true, .«beq»⟩ : SharedDefinition).class = .boolean ∧
+    (⟨`marks, .«definition», false, true, false, .«other»⟩ : SharedDefinition).class = .other ∧
+    (⟨`matcher, .«definition», false, true, true, .«other»⟩ : SharedDefinition).class = .data ∧
+    (⟨`decides, .«definition», false, true, false, .«decidable»⟩ : SharedDefinition).class =
+      .decidable ∧
+    (⟨`proved, .«theorem», false, false, false, .«proof»⟩ : SharedDefinition).class =
+      .«statement» ∧
+    (⟨`limit, .«definition», false, false, false, .«other»⟩ : SharedDefinition).class = .data ∧
+    (⟨`field, .«definition», true, true, false, .«bool»⟩ : SharedDefinition).class = .data := by
+  decide
+
+/-- The constant is counted: its class is `boolean` or `other`. The search from the
+specification does not read the value of a counted constant that the other side reaches: what
+that value mentions is a part of the counted constant, which the record names. -/
+def SharedDefinition.Counted (shared : SharedDefinition) : Prop :=
+  shared.class = .boolean ∨ shared.class = .other
+
+instance (shared : SharedDefinition) : Decidable shared.Counted := by
+  unfold SharedDefinition.Counted; infer_instance
+
+/-- The names that the record of a decision registration holds of the constants that its
+specification reaches first and that its implementation, or its acceptance predicate, reaches
+too, by class. Each list is sorted and has no duplicate (`sharedNames`). -/
+structure SharedNames where
+  /-- The constants of the class `SharedClass.boolean`. -/
+  booleans : Array Lean.Name := #[]
+  /-- The constants of the class `SharedClass.other`. -/
+  others : Array Lean.Name := #[]
+  deriving Repr, DecidableEq, Inhabited
+
+/-- No constant is named. -/
+def SharedNames.isEmpty (names : SharedNames) : Bool :=
+  names.booleans.isEmpty && names.others.isEmpty
+
+/-- The names of the counted constants among `shared`, by class, each list sorted and without
+duplicates: what the record of a decision registration holds for the account
+(`mem_sharedNames_booleans`, `mem_sharedNames_others`). It decides the class of each constant
+with `SharedDefinition.class`, so the executed class is the stated one. -/
+def sharedNames (shared : List SharedDefinition) : SharedNames where
+  booleans := canonicalNames
+    ((shared.filter fun definition => decide (definition.class = .boolean)).map (·.name)).toArray
+  others := canonicalNames
+    ((shared.filter fun definition => decide (definition.class = .other)).map (·.name)).toArray
+
+/-- A name is among the named constants of the class `boolean` exactly when it is the name of a
+constant of that class in the list. -/
+theorem mem_sharedNames_booleans (shared : List SharedDefinition) (name : Lean.Name) :
+    name ∈ (sharedNames shared).booleans ↔ ∃ definition ∈ shared,
+      definition.class = .boolean ∧ definition.name = name := by
+  simp [sharedNames, mem_canonicalNames, and_assoc]
+
+/-- A name is among the named constants of the class `other` exactly when it is the name of a
+constant of that class in the list. -/
+theorem mem_sharedNames_others (shared : List SharedDefinition) (name : Lean.Name) :
+    name ∈ (sharedNames shared).others ↔ ∃ definition ∈ shared,
+      definition.class = .other ∧ definition.name = name := by
+  simp [sharedNames, mem_canonicalNames, and_assoc]
+
+/-- No constant is named exactly when no constant of the list is counted. -/
+theorem sharedNames_isEmpty_iff (shared : List SharedDefinition) :
+    (sharedNames shared).isEmpty = true ↔ ∀ definition ∈ shared, ¬ definition.Counted := by
+  simp only [SharedNames.isEmpty, Bool.and_eq_true, Array.isEmpty_iff,
+    Array.eq_empty_iff_forall_not_mem, mem_sharedNames_booleans, mem_sharedNames_others,
+    SharedDefinition.Counted, not_or]
+  constructor
+  · rintro ⟨booleans, others⟩ definition member
+    exact ⟨fun boolean => booleans _ ⟨definition, member, boolean, rfl⟩,
+      fun other => others _ ⟨definition, member, other, rfl⟩⟩
+  · intro none
+    exact ⟨fun _ ⟨definition, member, boolean, _⟩ => (none definition member).1 boolean,
+      fun _ ⟨definition, member, other, _⟩ => (none definition member).2 other⟩
+
 /-- What the collector observes of a function registered with `@[regula_decision]`: whether its
 result type is `Decidable _`, the form whose every result carries a proof of the decided
 proposition or of its negation; parsing cannot manufacture an unknown constructor. -/
@@ -818,7 +1046,8 @@ theorem DecisionResult.canonical (s : String) (x : DecisionResult) (h : parse? s
 
 /-- The collector's observation of a registered proof-bearing executable contract.
 The actual contract is checked during elaboration and admission; this record contains
-its rendered requirement, its decision kind and any refusal, not a proof of the predicate. -/
+its rendered requirement, its decision kind, any refusal and the names of the functions that its
+specification shares with its implementation, not a proof of the predicate. -/
 structure ExecutableContract where
   /-- The promised implementation constant; anonymous when the implementation is not a
   constant. -/
@@ -833,6 +1062,11 @@ structure ExecutableContract where
   `Regula.DecidesSoundly`, `Regula.DecidesCompletely` or `Regula.Decides`; `none` for every
   other requirement. -/
   kind : Option DecisionKind := none
+  /-- For a decision registration whose statement the collector searched: the names of the
+  functions that its specification reaches first and that its implementation, or its acceptance
+  predicate, reaches too (`sharedNames`). The kind says nothing of these functions, and no
+  registration is refused for them. Empty for every other registration. -/
+  shared : SharedNames := {}
   deriving Repr, DecidableEq
 
 /-- The part of a declaration's record that is kernel-checked declaration data: a field of the
