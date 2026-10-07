@@ -911,7 +911,9 @@ def guide : RuleId → Guide
       notEstablished := [
         "That the specification is the intended one (R-INTENT). The rule compares names. A \
           copy of a test under a second name is a different constant and passes, and so does a \
-          proposition that copies the expression of the test with `= true`.",
+          proposition that copies the expression of the test with `= true`. A test with no name \
+          of its own passes too: a function abstraction inside a shared function, or inside a \
+          shared record of functions.",
         "Anything about a shared function of another result type, such as a function that \
           returns a list or a record. The account names it and no registration is refused for \
           it. Whether the specification is about that function, as it is about an encoding or \
