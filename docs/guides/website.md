@@ -106,7 +106,8 @@ fails and removes `_site/`:
   inventory, the pages whose example content the check verified, and every rule ID the
   examples emitted.
 - **Routes and editions.** Each path is a root file, a file of `dev/` or of `v/<version>/`
-  for a release, or a file of a stable route (`sitePath_iff`). The root `index.html` opens `rootEdition`, a published edition (`rootEdition_published`);
+  for a release, or a file below `rules/` or `standard/` (`sitePath_iff`). The root `index.html`
+  opens `rootEdition`, a published edition (`rootEdition_published`);
   its link names the same route as its refresh, and the link check resolves it. `dev/` is the
   rendered edition, byte for byte. Each release edition is its copy
   ([versions](#versions-and-routes)) with the latest-release banner on every HTML page when a
@@ -123,8 +124,9 @@ fails and removes `_site/`:
 - **Content of the stable routes.** The check compares the files of the stable routes, byte for
   byte, with the pages that the build calculates from the files of `rootEdition`. The file
   `build.json` lists these files.
-- **Addresses of the root README.** The build finds each address of the site in the text of the
-  root `README.md`, with `siteAnchors`. The function `missingAnchors` refuses an address that
+- **Addresses of the root README.** The build finds each occurrence of the text
+  `https://rbeauchamp.github.io/regula/` in the root `README.md`, and the route after it, with
+  `siteAnchors`. The function `missingAnchors` refuses an address that
   is not a file of the artifact. The page of a stable route has no element for a fragment.
   Thus the check refuses a stable address with a fragment.
 - **Size.** The artifact is at most `artifactBudget` (900 MB) of file bytes, below GitHub Pages'

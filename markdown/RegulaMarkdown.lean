@@ -408,8 +408,11 @@ case. -/
 def isMarkdown (path : String) : Bool :=
   path.toLower.endsWith ".md" || path.toLower.endsWith ".markdown"
 
-/-! Evaluated controls (observations of the compiled check on md4c's parse, not proofs). The
-link every control accepts is the development page of the rule. -/
+/-! Evaluated controls (observations of the compiled check on md4c's parse, not proofs). In the
+controls of the rule IDs (`check`), the link accepted as the page of a rule is its development
+page, and in `README.md` also its stable address. The controls of the site links of `README.md`
+(`checkSiteLinks`) accept the site root and the stable addresses, and refuse an address that
+names an edition. -/
 
 private def page (id : String) : String := s!"https://rbeauchamp.github.io/regula/dev/rules/{id}/"
 

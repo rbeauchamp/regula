@@ -118,7 +118,7 @@ def notFound (ident : Identity) : String :=
       address below " ++
     " or ".intercalate (stableRoots.map fun r => "<code>" ++ basePath ++ escape r ++ "</code>") ++
     " names no version: it opens the same page of <code>" ++ basePath ++ escape rootEdition.root ++
-    "</code>, the edition that the site root opens. An \
+    "</code>, the edition that the site root opens, if that edition has the page. An \
       unavailable page is never redirected to other rules, whose meaning may differ from the \
       version you linked.</p>" ++
     "<p>The explanations and checked examples of any commit are in its source on GitHub: \
@@ -154,8 +154,8 @@ def editionJson (g : Generated) : Json := Json.mkObj (identityFields g)
 
 /-- The machine-readable identity of an artifact: the build's identity, its published editions,
 how each release's edition was obtained (`releaseSource`) and whether the build's commit is the
-one the installed release's tag names, the value of `publishable` for the sources, and `stable`,
-the files of its stable routes. The
+one the installed release's tag names, the value of `publishable` for the sources, and
+`stableRoutes`, the files of its stable routes. The
 deployment check compares the live copy with these exact bytes, and `Deployment gate` refuses to
 publish unless the recorded `publishable` is `true`. -/
 def buildJson (g : Generated) (tag : TagState) (sources : List (ReleaseVersion × ReleaseSource))

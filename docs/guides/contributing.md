@@ -503,9 +503,13 @@ address of the site if the text `rbeauchamp.github.io/regula` is in it. The theo
 `v/<version>/`, for each version. The check does not read an image, and it does not read a link
 reference definition that no link uses.
 
-`./scripts/verify.sh site` then finds each address of the site in the text of that file
-(`Regula.Site.siteAnchors`). It refuses an address that is not a file of the artifact
-(`missingAnchors`). Thus it refuses a stable address that has no page in the latest release.
+`./scripts/verify.sh site` then reads the text of that file (`Regula.Site.siteAnchors`). It finds
+an address of the site only where the text `https://rbeauchamp.github.io/regula/` is in the file.
+The route is the text after it, up to the first character that is not a letter, a digit, `-`,
+`_`, `/` or `#`.
+
+The command refuses an address that is not a file of the artifact (`missingAnchors`). Thus it
+refuses a stable address that has no page in the latest release.
 
 The root `README.md` cannot link a rule that is in no release, because that rule has no stable
 address. It also cannot give the ID of that rule in prose. Write the ID as code, or add the rule

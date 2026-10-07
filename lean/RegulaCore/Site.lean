@@ -262,9 +262,9 @@ files of `rootEdition` relative to its root: each stable route has the path of i
 edition. -/
 def stablePages (files : List String) : List String := files.filter stablePage
 
-/-- The site has a stable route exactly for each HTML page of `rootEdition` below a `stableRoots`
-directory. A page that only another edition has, such as the page of a rule that is in no
-release while a release exists, has none. -/
+/-- `stablePages files` has exactly the HTML pages of `files` below a `stableRoots` directory.
+With `files` the files of `rootEdition`, a page that only another edition has, such as the page
+of a rule that is in no release while a release exists, is not one of them. -/
 theorem mem_stablePages (files : List String) (path : String) :
     path ∈ stablePages files ↔ path ∈ files ∧ path.endsWith ".html" = true ∧
       ∃ r ∈ stableRoots, path.startsWith r = true := by
@@ -982,7 +982,7 @@ names its `index.html`, and only elements of the row class are rows. -/
   ">; `" ++ standardUrl ++ "introduction/`."] ==
   [("8-compliance-audit/index.html", "DOC-04"), ("index.html", ""), ("introduction/index.html", "")]
 -- A document's addresses of the site: the site root, a stable route and a route with a fragment.
--- A stable route has a file exactly for a page of the root edition below a stable root.
+-- A stable route has a file exactly for an HTML page of the root edition below a stable root.
 -- Compiled-evaluation observation at build time, not a kernel-checked proof.
 #guard siteAnchors ("[a](" ++ siteBase ++ ") [b](" ++ stableUrl "rules/RG1001/" ++ ")\n\n[c]: " ++
     stableUrl "standard/#top") ==

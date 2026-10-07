@@ -34,7 +34,7 @@ md4c's decision, and which piece each becomes is that module's (see Boundaries).
 - `OnSite`, `Stable`, `Stable.not_edition`, `siteLinkErrors`, `siteLinkErrors_nil_iff`,
   `checked_siteLinkErrors`: the executed check of the links of each document of
   `stableDocuments` to the site. Each has a stable address, the site root or an address below a
-  `stableRoots` directory with no fragment, so it names no edition and opens the latest release.
+  `stableRoots` directory with no fragment, so it names no edition.
 
 ## What prose is
 
@@ -61,8 +61,9 @@ module's evaluated controls. Both parts are stated there and in the contributor 
 parser does not report as a link, an image and a link reference definition that no link uses are
 not read. An address of the site is a destination that has `siteAddress`, in that spelling.
 That a stable address has a page is not decided here. `target` accepts the stable address of a
-rule only in a document of `stableDocuments`, and the site build requires each address of each
-document of that same list in its artifact (`Regula.Site.siteAnchors`).
+rule only in a document of `stableDocuments`, and the site build requires in its artifact each
+address that `Regula.Site.siteAnchors` finds in the text of each document of that same list: an
+address written as a literal `siteBase`, as that module's boundaries state.
 `leftmost_le` and `le_rightmost` bound every placement that `Placed`
 admits; that the true lines of the reported text are such a placement rests on the parser
 reporting each piece of text as it stands on one source line, in source order, and on a line
