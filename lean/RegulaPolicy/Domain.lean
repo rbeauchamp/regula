@@ -878,12 +878,18 @@ structure SharedDefinition where
   result : ResultForm
   deriving Repr, DecidableEq
 
-/-- The constant has a value that a term can depend on, and it is no field of data: it is a
-definition or an opaque constant, and it is no projection function. An inductive type, a
-constructor and a recursor are data, a projection function reads a field of data, and a theorem
-and an axiom have no value that a term can depend on. -/
+/-- The constant stands for a value that a term can depend on, and it is no field of data: it is
+a definition, an opaque constant or an axiom, and it is no projection function. An inductive
+type, a constructor and a recursor are data, a projection function reads a field of data, and a
+theorem has no value that a term can depend on. An axiom is counted as an opaque constant is:
+Lean's kernel unfolds neither, and a term depends on what each stands for. Lean gives a file with
+a `module` header an imported definition as an axiom when its module does not export the value,
+so the class of such a constant is read from its type alone (`SharedDefinition.class`). An axiom
+that states a proposition has the result form of a proof, whose class this condition does not
+decide. -/
 def SharedDefinition.Defines (shared : SharedDefinition) : Prop :=
-  (shared.kind = .«definition» ∨ shared.kind = .«opaque») ∧ shared.projection = false
+  (shared.kind = .«definition» ∨ shared.kind = .«opaque» ∨ shared.kind = .«axiom») ∧
+    shared.projection = false
 
 instance (shared : SharedDefinition) : Decidable shared.Defines := by
   unfold SharedDefinition.Defines; infer_instance
@@ -976,11 +982,13 @@ theorem SharedDefinition.class_eq_other_iff (shared : SharedDefinition) :
 
 /-- Controls of the classes, each with the kind, the projection, the function, the generated
 record and the result form that the collector reads. A function with a result of `Bool` is of
-the class `boolean`, also where Lean's records say that Lean generated it. A function with a
-result of a list is of the class `other`, and of the class `data` where Lean's records say that
-Lean generated it. A `BEq` record is of the class `boolean` also where it takes no argument. A
-`Decidable` value, a proof, a constant that is no function and a field's projection function
-are of no named class. -/
+the class `boolean`, also where Lean's records say that Lean generated it, and also where the
+environment has it as an axiom, as a file with a `module` header has an imported function with no
+exported value. A function with a result of a list is of the class `other`, and of the class
+`data` where Lean's records say that Lean generated it. A `BEq` record is of the class `boolean`
+also where it takes no argument. A `Decidable` value, a proof, an axiom that states a
+proposition, a constant that is no function and a field's projection function are of no named
+class. -/
 example :
     (⟨`test, .«definition», false, true, false, .«bool»⟩ : SharedDefinition).class = .boolean ∧
     (⟨`derived, .«definition», false, true, true, .«beq»⟩ : SharedDefinition).class = .boolean ∧
@@ -992,7 +1000,10 @@ example :
     (⟨`proved, .«theorem», false, false, false, .«proof»⟩ : SharedDefinition).class =
       .«statement» ∧
     (⟨`limit, .«definition», false, false, false, .«other»⟩ : SharedDefinition).class = .data ∧
-    (⟨`field, .«definition», true, true, false, .«bool»⟩ : SharedDefinition).class = .data := by
+    (⟨`field, .«definition», true, true, false, .«bool»⟩ : SharedDefinition).class = .data ∧
+    (⟨`hidden, .«axiom», false, true, false, .«bool»⟩ : SharedDefinition).class = .boolean ∧
+    (⟨`assumed, .«axiom», false, false, false, .«proof»⟩ : SharedDefinition).class =
+      .«statement» := by
   decide
 
 /-- The constant is counted: its class is `boolean` or `other`. The search from the
@@ -1021,6 +1032,11 @@ structure SharedNames where
 /-- No function is named. -/
 def SharedNames.isEmpty (names : SharedNames) : Bool :=
   names.booleans.isEmpty && names.others.isEmpty
+
+/-- The named functions of the class `boolean` as a finding and a classification line print
+them: `shared-booleans=` and the list of the names as Lean prints them. -/
+def SharedNames.booleansText (names : SharedNames) : String :=
+  s!"shared-booleans={repr (names.booleans.toList.map (·.toString))}"
 
 /-- The names that the record of a decision registration holds, from what the collector read of
 two lists of shared constants. `first` has each counted constant that the specification reaches

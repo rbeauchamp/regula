@@ -209,6 +209,37 @@ def checkAt (root scratch : FilePath) (launcher : Launcher.State) (jobs : Nat :=
       `unknownDeclaration).toOption.isNone do\n    throwError \"invented unknown ownership\"\n  if \
       env.header.modules.any (fun m => m.module.getRoot == `Mathlib) then\n    throwError \"public \
       import required Mathlib\"\n"
+    -- The shared-test rule in the editor. `HiddenTest` is a `module` file whose test and whose
+    -- function around the test are `public` with no exported value, so a `module` file that
+    -- imports it has each as an axiom.
+    let hiddenTest := "\n".intercalate [
+      "module", "import Regula.Linter",
+      "/-! A test and a function around it, with no exported value. -/",
+      "public def small (n : Nat) : Bool := decide (n < 4)",
+      "public theorem small_zero : small 0 = true := by decide",
+      "public theorem small_four : ¬ small 4 = true := by decide",
+      "public def countSmall (numbers : List Nat) : Nat := (numbers.filter small).length",
+      "public theorem countSmall_eq_zero_iff (numbers : List Nat) :",
+      "    countSmall numbers = 0 ↔ ∀ n ∈ numbers, small n = false := by simp [countSmall]",
+      "public theorem small_eq_false_iff (n : Nat) : small n = false ↔ 4 ≤ n := by simp [small]",
+      ""]
+    let hiddenImporter := "\n".intercalate [
+      "module", "import Regula.Linter", "public import Regula.Contract",
+      "public import HiddenTest", "/-! A decision over the imported test. -/", ""]
+    let sharedHidden := hiddenImporter ++ "\n".intercalate [
+      "public def check (n : Nat) : Bool := small n",
+      "public theorem check_decides : Regula.ExecutableContract check",
+      "    (Regula.Decides (· = true) fun n => small n = true) :=",
+      "  ⟨.of_iff (fun _ => Iff.rfl) ⟨0, small_zero⟩ ⟨4, small_four⟩⟩", ""]
+    let below (specification rewrites : String) := hiddenImporter ++ "\n".intercalate [
+      "public def none4 (numbers : List Nat) : Bool := countSmall numbers == 0",
+      "public theorem none4_decides : Regula.ExecutableContract none4",
+      s!"    (Regula.Decides (· = true) fun numbers => ∀ n ∈ numbers, {specification}) :=",
+      s!"  ⟨.of_iff (fun numbers => by simp only [none4, beq_iff_eq, {rewrites}])",
+      "    ⟨[], by simp [none4, countSmall_eq_zero_iff]⟩",
+      "    ⟨[0], by simp [none4, countSmall_eq_zero_iff, small_zero]⟩⟩", ""]
+    let belowHidden := below "small n = false" "countSmall_eq_zero_iff"
+    let belowHiddenStated := below "4 ≤ n" "countSmall_eq_zero_iff, small_eq_false_iff"
     let independent : Array Control := #[
       { label := "Axiom", source := axiomSource, ids := ["RG1001"] },
       { label := "PromotedAxiom", source := axiomSource, ids := ["RG1001"],
@@ -250,6 +281,16 @@ def checkAt (root scratch : FilePath) (launcher : Launcher.State) (jobs : Nat :=
           "    (fun input : Nat × Nat => check input.1 input.1)) :=\n" ++
           "  ⟨.of_iff (fun input => by simp [bothBelow]) ⟨(0, 5), by decide⟩ ⟨(3, 0), by decide⟩⟩\n",
         ids := ["RG1007"] },
+      -- The finding of the shared-test rule names the shared test.
+      { label := "SharedTestNamed", source := "import Regula.Linter\nimport Regula.Contract\n" ++
+          "/-! A decision whose specification calls the test it runs. -/\n" ++
+          "def small (n : Nat) : Bool := decide (n < 4)\n" ++
+          "def check (n : Nat) : Bool := small n\n" ++
+          "theorem check_decides : Regula.ExecutableContract check\n" ++
+          "    (Regula.Decides (· = true) fun n => small n = true) :=\n" ++
+          "  ⟨.of_iff (fun _ => Iff.rfl) ⟨0, by decide⟩ ⟨4, by decide⟩⟩\n",
+        ids := ["RG1009"], detail := some "shared-test shared-booleans=[\"small\"]" },
+      { label := "HiddenTest", source := hiddenTest, output := true },
       { label := "Collect", source := inspect },
       -- RG5001 beyond presence: a command before the module docstring, and a repeated import.
       { label := "MisplacedDoc", source :=
@@ -292,6 +333,15 @@ def checkAt (root scratch : FilePath) (launcher : Launcher.State) (jobs : Nat :=
       ({ label := "ImportedVerso", source := observer.replace "Control" "Verso" }, env),
       ({ label := "ImportedMissing", source := ((observer.replace "Control" "Missing").replace
         "== true" "== false").replace "some true" "some false" }, env),
+      -- An imported test with no value is of the class of its type, so the editor refuses a
+      -- registration that shares it. Where the function reaches the test only below an imported
+      -- function with no value, the editor reports the reading as incomplete. Where the
+      -- specification then reaches no test, no test can be shared, and the editor is silent.
+      ({ label := "SharedTestHidden", source := sharedHidden, ids := ["RG1009"],
+         detail := some "shared-test shared-booleans=[\"small\"]" }, env),
+      ({ label := "SharedTestBelowHidden", source := belowHidden, ids := ["RG2005"],
+         detail := some "countSmall has no value" }, env),
+      ({ label := "SharedTestBelowHiddenStated", source := belowHiddenStated }, env),
       ({ label := "RestoredRange", source := restored, ids := ["RG1001"] }, #[]),
       ({ label := "Restored", source := base }, #[])] ++ retired.map fun (label, name) =>
       ({ label := label ++ "Importer", source := s!"import {label}\n" ++

@@ -156,6 +156,21 @@
    "deepOdd shared-booleans=[\"odd\"] shared-others=[\"oddsLast\"]"
   ]
  },
+ "Fixtures.Positive.HiddenTest": {
+  "expect": "pass",
+  "claim": "standard-logical"
+ },
+ "Fixtures.Mutations.SharedTestImported": {
+  "expect": "fail",
+  "reason": "shared-test",
+  "claim": "standard-logical",
+  "output": [
+   "[VIOLATION[shared-test]] fixtures_imported_check_decides (theorem)",
+   "fixtures_imported_check shared-booleans=[\"fixtures_hidden_small\"] shared-others=[]",
+   "[VIOLATION[shared-test]] fixtures_imported_none_decides (theorem)",
+   "fixtures_imported_none shared-booleans=[\"fixtures_hidden_small\"] shared-others=[]"
+  ]
+ },
  "Fixtures.Mutations.DecisionMissingWitness": {
   "expect": "fail",
   "reason": "compile-error",

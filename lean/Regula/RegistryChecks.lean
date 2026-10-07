@@ -58,6 +58,16 @@ result, diagnostic and example admission, throwing on the first failed check and
 def main : IO Unit := do
   let producer := Regula.Checker.ResultProtocol.producer
   let manifest := registryJson producer
+  -- Where no classification line is printed (the editor and the self-audit), the detail of a
+  -- finding of the shared-test rule names the shared tests that the record holds, and the detail
+  -- of another rule is its applicability.
+  let sharing : RegulaPolicy.Declaration := { RegulaPolicy.witnessDeclaration .«definition» with
+    executableContract := some { root := `check, requirement := "", failure := none,
+                                 shared := { booleans := #[`small] } } }
+  require (Regula.Findings.ruleDetail .sharedTest sharing ==
+    "shared-test shared-booleans=[\"small\"]") "shared-test detail names the shared tests"
+  require (Regula.Findings.ruleDetail .executableContract sharing == "executable-contract")
+    "detail of a rule with no names"
   -- Exhaustive checks over the genuinely closed 24-rule vocabulary.
   for id in RuleId.all do
     require (succeeded (parseDescriptor (descriptorJson id))) s!"descriptor {id}"

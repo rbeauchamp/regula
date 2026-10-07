@@ -720,12 +720,15 @@ def guide : RuleId → Guide
           are no inductive type, constructor or recursor. It reads the value of a `Decidable` \
           instance, which a function runs. It does not read the value of a definition of a \
           type, of a proposition or of a record of propositions, which a function does not run. \
-          It reads no proof and no module of Lean's own library. For a function with a result \
-          of `Bool` or `BEq` it reads at any depth, also below a named function of the other \
-          class. For the other class it does not read below a named function. A second \
-          definition with the text of a helper is a different constant, and the search does \
-          not find it. A second definition with a theorem that the two are equal is not named \
-          either, and it is not a second statement of the meaning.",
+          It does not read the body of a named proof declaration, and it reads no module of \
+          Lean's own library. A proof term that is written inline in the specification or in \
+          the acceptance predicate is a part of that term, so the search reads the constants \
+          that it names. For a function with a result of `Bool` or `BEq` it reads at any \
+          depth, also below a named function of the other class. For the other class it does \
+          not read below a named function. A second definition with the text of a helper is a \
+          different constant, and the search does not find it. A second definition with a \
+          theorem that the two are equal is not named either, and it is not a second statement \
+          of the meaning.",
         "Data and statements are not named: an inductive type with its constructors, its \
           recursor and its projection functions, a definition whose value is a type, a \
           proposition or a record of propositions, a proof, a definition with a result of \
@@ -926,8 +929,18 @@ def guide : RuleId → Guide
         "The search compares constants by name. It follows the types of constants, the \
           unfoldable values of definitions and the constructors of inductive types from the \
           specification and the acceptance predicate, and the unfoldable values of definitions \
-          from the implementation. It reads no proof and no value of a `Decidable` instance on \
-          the specification's side (limitations of RG1007).",
+          from the implementation. It does not read the body of a named proof declaration, \
+          and it reads no value of a `Decidable` instance on the specification's side \
+          (limitations of RG1007). A proof term that is written inline in a specification is a \
+          part of that term, so a test that it names is counted and the registration is \
+          refused, which is the safe side.",
+        "In a file with a `module` header, the editor has an imported function as an axiom \
+          when its module does not export the value. The class of such a function is read from \
+          its type, so the editor refuses a registration that shares one with a result of \
+          `Bool` or `BEq`. The editor does not read below such a function. Where a test could \
+          be shared only below one, the editor reports the reading as incomplete under RG2005 \
+          and names `lake lint`, which has each value. That is where each side reaches such a \
+          function, or one side reaches one and the other side reaches a test.",
         "Whether a definition is a function is read from its type alone: it takes an argument, \
           or its result is a structure with a field that takes one. A constant of type `Bool` \
           is not a function and is not counted.",

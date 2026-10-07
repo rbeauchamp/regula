@@ -168,7 +168,7 @@ private def decide (o : ModuleObservation) : Except String ModuleResult := do
         (checked_decisionFailure.run d decided) then
       let id := ruleForFailure failure
       let extra := d.axioms.filter fun n => !standardLogicalAxiom n
-      let detail := (descriptor id).applicability ++
+      let detail := Findings.ruleDetail id d ++
         (if extra.isEmpty then "" else s!" (axioms outside Standard-Logical: {extra.toList})")
       violations := violations.push (← declarationText id d.name detail o.module)
   return ⟨o.module.toString, o.declarations.size, o.admitted, contracts, violations,
