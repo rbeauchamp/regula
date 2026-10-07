@@ -161,13 +161,13 @@ private def lakeIn (dir : String) (args : Array String) : Command := ⟨"lake", 
 /-- Ordinary acceptance records its accepted input identity here; the separately timed
 documentation step refuses unless its own identity is equal. The driver puts the record here as
 its last action before the success line (`Attempt.promote`), so an accepted record here means
-that every command of the step exited 0. -/
+that every command of the step exited 0. The gate of a run records the identity in the pending
+record of that run (`Copy.pending`), and that record becomes this one only by that promotion, so
+a run that fails or is killed before then leaves this record incomplete. -/
 def linkPath : String := "tmp/acceptance-link.json"
 
-/-- Where the gate of ordinary acceptance records that identity. This record becomes `linkPath`
-only once every command of the step has exited 0 (`Attempt.promote`), as the driver's last
-action, so a run that fails or is killed before then leaves `linkPath` incomplete. -/
-def pendingLinkPath : String := "tmp/acceptance-link.pending.json"
+/-- The text of an acceptance record that is not accepted. -/
+def incompleteLink : String := "{\"schemaVersion\":1,\"status\":\"incomplete\"}\n"
 
 /-- The standard's Verso source: package directory, library and its render-only executable.
 Both acceptance steps capture its sources and the package inputs its check reads, including the
@@ -209,8 +209,9 @@ private def selftest (selection : Array String) (tools : Array String := #[]) : 
 
 /-- Existing acceptance and diagnostic recipes, executed inside the outer deadline.
 Qualification's private flag retains the already timed process group. `copy` is the root of the
-copy that the first acceptance step builds in (`makeCopy`); no other mode uses it. -/
-def commands (copy : String) : Mode → List Command
+copy that the first acceptance step builds in, and `pending` the pending record of that run,
+which its gate writes (`makeCopy`); no other mode uses them. -/
+def commands (copy pending : String) : Mode → List Command
   | .ordinary => [
       -- The one build of the step, in the copy, which has no build output: the acceptance
       -- executables, the modules the step type-checks, and every claimed target of the root
@@ -227,7 +228,7 @@ def commands (copy : String) : Mode → List Command
       lakeIn copy #["exe", "qualify", "--under-deadline", "combined"],
       -- Last, and from the repository root: the gate of the copy audits the copy, reads the
       -- linked documents of the checkout and writes the pending link there.
-      lake #["-d", copy, "exe", "axiomGate", "--acceptance-link", pendingLinkPath, "--verso",
+      lake #["-d", copy, "exe", "axiomGate", "--acceptance-link", pending, "--verso",
           versoStandard, "--driver-copy", copy]]
   | .docs => [
       lake #["build", "docFenceAudit"],
@@ -301,14 +302,15 @@ def commands (copy : String) : Mode → List Command
   | mode => selftest (#["--partition"] ++ ((arguments mode).drop 1).toArray)
 
 /-- Every mode schedules actual work rather than accepting an empty campaign. -/
-theorem commands_nonempty (copy : String) (mode : Mode) : commands copy mode ≠ [] := by
+theorem commands_nonempty (copy pending : String) (mode : Mode) :
+    commands copy pending mode ≠ [] := by
   cases mode <;> simp [commands, ruleExampleShard, selftest]
 
 /-- The first acceptance step runs its build, the registry checks and the combined qualification
 in the copy, and then the gate from the repository root: the gate is last, and it is the only
 command of the step that runs in the checkout. -/
-theorem ordinary_places (copy : String) :
-    (commands copy .ordinary).map (·.dir) = [copy, copy, copy, "."] := rfl
+theorem ordinary_places (copy pending : String) :
+    (commands copy pending .ordinary).map (·.dir) = [copy, copy, copy, "."] := rfl
 
 /-- Whether a step passed, from how its commands ended. An end is `some status` for a command
 that ran to its end with that exit status, and `none` for one that was not run, could not be
@@ -535,7 +537,8 @@ The copy is in a new scratch directory of the checker's scratch area, by the pro
 when no scratch owner lives, an ownership marker beside the directory, and a shared lock on the
 area's lock file for as long as the copy is in use. So a first step that starts while no other
 scratch owner of the checkout lives leaves no scratch directory of a run that died before it,
-and it removes its own at its end. A scratch owner that dies during the step, which is not this
+when each removal succeeds, and it removes its own at its end. A removal that fails is reported
+with its path and does not fail the step. A scratch owner that dies during the step, which is not this
 driver, leaves its directory to the next scratch user. So the build output of
 the copy holds only what the commands of this step made, the build reads files that no other
 process is given, and the step removes nothing of the checkout. The acceptance gate cannot
@@ -596,6 +599,12 @@ structure Copy where
   marker : System.FilePath
   /-- The root of the copy: the directory `project` of the scratch directory. -/
   project : System.FilePath
+  /-- The pending acceptance record of this run, in the scratch directory beside the copy. Only
+  this run has the path: the scratch directory has a new name and is created by a call that
+  fails when the name exists, and the record by one that fails when the file exists. The gate of
+  this run writes it, and this run promotes it (`Attempt.promote`). A record that no run
+  promoted is removed with its scratch directory, by this run or by a reclamation. -/
+  pending : System.FilePath
   /-- The handle that holds the shared lock of the scratch area while the copy is in use. -/
   lock : IO.FS.Handle
 
@@ -604,25 +613,30 @@ structure Copy where
 exclusively, so no owner of a scratch directory lives, and each marked directory is one of a run
 that ended without its removal. A marker counts only when it is a regular file. Its directory is
 removed only as `removal` decides, a marker with no directory is removed, and with anything
-else at the directory's place nothing is removed. A removal that fails is reported and is no
-error of the step. -/
-def reclaim (area : System.FilePath) : IO Unit := do
-  for entry in ← area.readDir do
-    unless entry.path.extension == some "owner" do continue
-    let some name := entry.path.fileStem | continue
-    let path := area / name
-    let one : IO Unit := do
-      unless (← entry.path.symlinkMetadata).type == .file do return
-      let observed ← observe path
-      match decided : removal observed with
-      | .remove =>
-          removeDecided path observed decided
-          IO.FS.removeFile entry.path
-          announce s!"removed the scratch directory {path} of a run that ended without removing it"
-      | .nothing => IO.FS.removeFile entry.path
-      | .refuse => pure ()
-    if let .error error ← one.toBaseIO then
-      announce s!"could not remove the scratch directory {path}: {error}"
+else at the directory's place nothing is removed. It cannot raise: a removal that fails, or a
+scratch area that cannot be read, is reported with its path and is no error of the step, and
+that directory then stays. -/
+def reclaim (area : System.FilePath) : BaseIO Unit := do
+  let all : IO Unit := do
+    for entry in ← area.readDir do
+      unless entry.path.extension == some "owner" do continue
+      let some name := entry.path.fileStem | continue
+      let path := area / name
+      let one : IO Unit := do
+        unless (← entry.path.symlinkMetadata).type == .file do return
+        let observed ← observe path
+        match decided : removal observed with
+        | .remove =>
+            removeDecided path observed decided
+            IO.FS.removeFile entry.path
+            announce s!"removed the scratch directory {path} of a run that ended without \
+              removing it"
+        | .nothing => IO.FS.removeFile entry.path
+        | .refuse => pure ()
+      if let .error error ← one.toBaseIO then
+        announce s!"could not remove the scratch directory {path}, which stays: {error}"
+  if let .error error ← all.toBaseIO then
+    announce s!"could not read the scratch area {area} for its reclamation: {error}"
 
 /-- Make the copy of the project at the real path `root`, by the steps of
 `Regula.Scratch.withScratch` in its order. When the lock of the checker's scratch area can be
@@ -649,7 +663,11 @@ def makeCopy (root : System.FilePath) : IO Copy := do
   IO.FS.createDir scratch
   let project := scratch / "project"
   copyTree root project
-  return { scratch, marker, project, lock }
+  let pending := scratch / "acceptance-link.pending.json"
+  let record ← IO.FS.Handle.mk pending .writeNew
+  record.putStr incompleteLink
+  record.flush
+  return { scratch, marker, project, pending, lock }
 
 /-- Give the build output of the copy to the project at `root`, when the project has none:
 rename the copy's `.lake/build` to the project's, only when nothing is at that place by a read
@@ -697,8 +715,8 @@ private def usage : String :=
     lint-driver|producers|history|self-lint|self-audit|rule-examples [1/2|2/2]]]"
 
 /-- The earlier verdicts an attempt of a diagnostic `mode` invalidates, each with the constant
-text recording it as incomplete. Ordinary acceptance invalidates its two records under the lock
-of its attempt (`Attempt.invalidate`). -/
+text recording it as incomplete. Ordinary acceptance invalidates its accepted link under the
+lock of its attempt (`Attempt.invalidate`). -/
 def invalidated : Mode → List (String × String)
   | .ruleExamples =>
       [("tmp/rule-examples.json", "{\"outcome\":\"INCOMPLETE\",\"phase\":\"setup\"}\n")]
@@ -710,53 +728,54 @@ def invalidated : Mode → List (String × String)
 
 /-! ## The lock of an ordinary attempt
 
-Every ordinary attempt of a checkout writes the same two records: the accepted link and the
-gate's pending record of it. Each process of an attempt that writes them holds one exclusive
-lock of the checkout while it does: the begin-attempt for its invalidation, and the run from its
-own invalidation to the promotion. So between the invalidation of a run and its promotion the
-only writer of the pending record is the gate that this run started, and the record that the run
-promotes is the one its own gate wrote.
+The safety of the two acceptance steps does not rest on this lock. The documentation step
+accepts only a record with the status `accepted` whose identity is the identity of its own
+inputs, and only a gate that accepted the root-package inputs of that identity writes such a
+record. The gate of a run writes the pending record of that run, a path that only that run has
+(`Copy.pending`), and the run promotes that same path, so the record that a run promotes is the
+one its own gate wrote, by the names. So two ordinary attempts of one checkout at one time can
+give a refusal of the documentation step or a confusing message, and cannot give an acceptance
+that no gate gave. Two such attempts at one time are not a supported use.
 
-An attempt that finds the lock held stops with a message and writes nothing. It reports a
-failure, so it cannot report a PASS that another attempt earned, and the attempt that holds the
-lock is not disturbed. Waiting would spend the limit of the timed step on another attempt. The
-lock is an advisory lock of the operating system on an open file, so it ends with its process: a
-killed attempt leaves the lock file and no lock. That every writer of the two records takes the
-lock holds for this driver and the gate it starts; a process that writes the records by itself
-is outside it. File locking and process death are trusted operating-system effects. -/
+The lock is a guard against a confusing result. Every ordinary attempt of a checkout invalidates
+and promotes the same accepted link. Each process of an attempt holds one exclusive lock of the
+checkout while it can write that link: the begin-attempt for its invalidation, and the run from
+its own invalidation through its success line. An attempt that finds the lock held stops with a
+message and has written neither record of the acceptance link. The lock is an advisory lock of
+the operating system on an open file, so it ends with its process: a killed attempt leaves the
+lock file and no lock. File locking and process death are trusted operating-system effects. -/
 
 /-- The lock file of an ordinary attempt of the checkout. It is opened and never written. -/
 def attemptLockPath : String := "tmp/acceptance-link.lock"
 
 /-- An ordinary attempt that holds the lock of its checkout (`Attempt.begin`). The two actions
-that write the acceptance records, `Attempt.invalidate` and `Attempt.promote`, take one. -/
+that write the accepted link, `Attempt.invalidate` and `Attempt.promote`, take one. -/
 structure Attempt where
   /-- The handle that holds the exclusive lock on `attemptLockPath`. -/
   lock : IO.FS.Handle
 
-/-- Take the lock of an ordinary attempt of this checkout, or stop with nothing written when
-another process holds it. -/
+/-- Take the lock of an ordinary attempt of this checkout, or stop when another process holds
+it. An attempt that stops here has written neither record of the acceptance link. -/
 def Attempt.begin : IO Attempt := do
   IO.FS.createDirAll "tmp"
   let lock ← IO.FS.Handle.mk attemptLockPath .append
   unless ← lock.tryLock do
     throw <| IO.userError s!"an ordinary acceptance attempt of this checkout holds \
-      {attemptLockPath}: this attempt stops and has written nothing; start it again after that \
-      attempt has ended"
+      {attemptLockPath}: this attempt stops and has written neither record of the acceptance \
+      link; start it again after that attempt has ended"
   return ⟨lock⟩
 
-/-- Record the accepted link and the gate's pending record of it as incomplete, so neither is
-accepted from then on unless this attempt wrote it. -/
+/-- Record the accepted link as incomplete, so it is not accepted from then on unless this
+attempt promotes a record to it. -/
 def Attempt.invalidate (_attempt : Attempt) : IO Unit :=
-  for path in [linkPath, pendingLinkPath] do
-    IO.FS.writeFile path "{\"schemaVersion\":1,\"status\":\"incomplete\"}\n"
+  IO.FS.writeFile linkPath incompleteLink
 
-/-- Move the gate's pending record to the accepted link. The run does this once every command
-of the step has exited 0, as its last action before the success line. -/
-def Attempt.promote (_attempt : Attempt) : IO Unit :=
-  IO.FS.rename pendingLinkPath linkPath
+/-- Move the pending record of the run, which its gate wrote, to the accepted link. The run does
+this once every command of the step has exited 0, before the success line. -/
+def Attempt.promote (_attempt : Attempt) (pending : System.FilePath) : IO Unit :=
+  IO.FS.rename pending linkPath
 
-/-- Give the lock back at the end of the attempt's process. -/
+/-- Give the lock back, after the success line of the run. -/
 def Attempt.finish (attempt : Attempt) : IO Unit :=
   attempt.lock.unlock
 
@@ -782,8 +801,9 @@ theorem dependencyFree_packages (manifest : Lean.Json) (h : dependencyFree manif
 /-- Begin an attempt: invalidate the selected mode's earlier PASS or accepted link, and remove
 an earlier site artifact. `scripts/verify.sh` runs this toolchain-only step before provisioning
 and before any checker is built, so a failed setup or build cannot leave either in place. An
-ordinary attempt invalidates its two records under the lock of its attempt, and stops with
-nothing written when another ordinary attempt of the checkout holds it (`Attempt.begin`). The
+ordinary attempt invalidates its accepted link under the lock of its attempt, and stops with
+neither record of the acceptance link written when another ordinary attempt of the checkout
+holds it (`Attempt.begin`). The
 site artifact is removed only when a directory is at its own place (`removeOwn`): with a symbolic
 link at `_site` the attempt stops and removes nothing. -/
 def beginAttempt (args : List String) : IO Unit := do
@@ -802,8 +822,9 @@ def beginAttempt (args : List String) : IO Unit := do
 preliminary checks it runs the commands of the mode one after another, starts one only while
 every end known so far passed, and reports success only when `passed` accepts how every one of
 those commands ended (`passed_covers`). The first acceptance step holds the lock of its attempt
-from its start to its end (`Attempt.begin`), invalidates its two records inside it, and promotes
-the pending record of its gate before the success line (`Attempt.promote`). It makes its copy
+from its start through its success line (`Attempt.begin`), invalidates the accepted link inside
+it, and promotes the pending record of its own gate before the success line and before the
+removal of its copy (`Attempt.promote`). It makes its copy
 after the preliminary checks (`makeCopy`), runs its commands for that copy (`ordinary_places`),
 gives the copy's build output to a project that has none when the step passed (`Copy.adopt`),
 and removes the copy in each case (`Copy.remove`). -/
@@ -826,17 +847,21 @@ def run (args : List String) : IO Unit := do
       some <$> makeCopy root
     else pure none
   let later ← executeInOrder early.statuses
-    (commands ((copy.map (·.project.toString)).getD ".") selection.val)
+    (commands ((copy.map (·.project.toString)).getD ".")
+      ((copy.map (·.pending.toString)).getD "") selection.val)
   let all := early.append later
   if let some copy := copy then
-    if passed all.statuses then discard <| copy.adopt root
-    copy.remove
+    -- The pending record is in the scratch directory of the copy, so the promotion is before
+    -- the removal of the copy, which follows in each case.
+    try
+      if passed all.statuses then
+        discard <| copy.adopt root
+        if let some attempt := attempt then
+          attempt.promote copy.pending
+          announce s!"every command exited 0: moved {copy.pending} to {linkPath}"
+    finally copy.remove
   unless passed all.statuses do
     throw <| IO.userError (report all.ends)
-  if let some attempt := attempt then
-    attempt.promote
-    announce s!"every command exited 0: moved {pendingLinkPath} to {linkPath}"
-    attempt.finish
   IO.println (match selection.val with
     | .ordinary => "local verification: PASS (ordinary mechanical acceptance commands completed; \
       semantic review is separate; run `scripts/verify.sh docs` for documentation)"
@@ -853,6 +878,8 @@ def run (args : List String) : IO Unit := do
     | .mathlib => "Mathlib integration check: PASS (the Mathlib integration package accepted fresh \
       and linted on its pinned Mathlib; separate from acceptance, which needs no Mathlib)"
     | _ => "diagnostic qualification: PASS (selected scope only; not ordinary verification)")
+  -- The lock of the attempt is held through the success line.
+  if let some attempt := attempt then attempt.finish
 
 /-- The private `--copy-control` entry, for the controls of the checker self-test, so that they
 qualify the copy, the lock and the marker of this driver and not a second implementation of
@@ -883,7 +910,7 @@ def copyControl : IO Unit := do
 
 /-- The private `--attempt-control` entry, for the controls of the checker self-test, so that
 they qualify the lock of this driver and not a second implementation of it. It takes the lock of
-an ordinary attempt of the project in the current directory and invalidates the two records as
+an ordinary attempt of the project in the current directory and invalidates the accepted link as
 the first acceptance step does (`Attempt.begin`, `Attempt.invalidate`), prints `held`, and holds
 the lock until a line or the end of its standard input. It runs no check and reports no
 verification result. -/
