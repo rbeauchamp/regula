@@ -82,9 +82,10 @@ SIGKILL cannot execute user-space cleanup. The OS remains a trusted boundary.
 
 These values are observations on hosted `ubuntu-24.04` runners with four processors, and they
 are not bounds. In 18 CI runs, the time of the first acceptance step was 226 s to 414 s with its
-420-second deadline. An examination of five of those runs gave the time of each phase. Each
-phase was 1.6 to 1.8 times longer in the slowest of those five runs (405 s) than in the fastest
-(236 s). Thus the cause of the difference was the speed of the runner.
+420-second deadline. An examination of five of those runs gave the time of each phase. In the
+slowest of those five runs the step took 405 s, and in the fastest it took 236 s. Each phase was
+1.6 to 1.8 times longer in the slowest run than in the fastest run. Thus the cause of the
+difference was the speed of the runner.
 
 In [run 37513374192](https://github.com/rbeauchamp/regula/actions/runs/37513374192), the time of
 the step was 364 s. The build was 173 s, `qualify combined` was 25 s and the gate was 157 s. The
@@ -111,12 +112,14 @@ assumptions are correct.
 At this time, the driver builds the gate first. Then it operates the gate at the same time as
 the complete build and the other checks
 ([proofs and boundaries](../../../../docs/guides/proofs-and-boundaries.md#the-acceptance-boundary)).
+
 In one local probe (14 processors, two threads for each side), the second build compiled 106
 jobs. None of those jobs was a module that the gate imports. The gate recorded the same input
 identity as the sequential run.
 
 That probe shows that the arrangement operates. It does not show the hosted gain. The hosted
 times of the new schedule are at the end of this section.
+
 Two items are not established. The first item is that two Lake processes in one build directory
 do not interfere (one of them builds nothing here). The second item is an upper bound of the
 time of the step.
@@ -142,9 +145,11 @@ processors. Thus these runs do not show the hosted result.
 
 After those runs, the driver starts each command that operates at the same time as the gate with
 `nice -n 19` (`RegulaVerification.Priority`). The gate keeps the priority of the driver. The
-purpose is that the other commands do not make the gate slower. The step ends when the gate and
-the other commands are complete. It ends when the gate ends only if the other commands end
-first. The program and the arguments of each command did not change.
+purpose is that the other commands do not make the gate slower. The program and the arguments of
+each command did not change.
+
+The step ends when the gate and the other commands are complete. It ends when the gate ends only
+if the other commands end first.
 
 One local pair of cold runs compared that schedule with the sequential run on the same machine.
 A sampler looked for builds of a different directory each 10 s, and it found none during the two
@@ -174,28 +179,34 @@ attempts 1 and 2). The first step took 386 s and 351 s. The documentation step o
 took 243 s and 222 s, and the change does not touch its work. Thus the ratio of the two steps
 compares the schedules on runners of different speeds. That ratio was 1.59 and 1.58.
 
-Two sequential runs of the same tree gave the ratios 1.71 and 1.74 (CI runs 37542593631 and
-37540594216, 295 s and 351 s for the first step). Thus the measured gain is approximately
-8 percent of the first step, which is approximately 30 s at those runner speeds. The estimate
-above is a gain of 65 s to 90 s on the reference run. The hosted runs refute that estimate.
+Two sequential runs measured the tree of commit `4e9a1fd8`, which is the base of the pull
+request. Their ratios were 1.71 and 1.74 (CI runs 37542593631 and 37540594216, 295 s and 351 s
+for the first step). The comparison is between that tree with the sequential schedule and the
+tree of the pull request with the new schedule. Thus the ratios compare two trees and not only
+two schedules.
 
-The sample is small: two runs for each schedule on that tree. Two earlier trees each had two
-sequential runs. Their ratios were 1.68 and 1.59 for one tree, and 1.68 and 1.58 for the other.
-Thus two runs of one tree can give ratios that are 0.10 apart. The lowest ratio of a sequential
-run is equal to the ratio of the schedule. The gain is a measurement on this sample, and it is
-not established.
+By those ratios, the measured gain is approximately 8 percent of the first step, which is
+approximately 30 s at those runner speeds. The estimate above is a gain of 65 s to 90 s on the
+reference run. The hosted runs refute that estimate.
+
+The sample is small: two runs for each schedule, with the sequential runs on the tree of commit
+`4e9a1fd8`. Two earlier trees each had two sequential runs. Their ratios were 1.68 and 1.59 for
+one tree, and 1.68 and 1.58 for the other. Thus two runs of one tree can give ratios that are
+0.10 apart. The lowest ratio of a sequential run is equal to the ratio of the schedule. The gain
+is a measurement on this sample, and it is not established.
 
 The gate took 251 s and 229 s at the same time as the low-priority commands. It took 139 s and
-164 s alone in the two sequential runs of that tree. Thus `nice -n 19` did not keep the gate at
-the speed that it has alone, and the first assumption was not correct on the hosted runner. A
-possible cause is that the four processors of the runner are hardware threads of two cores. No
-run measured the processor topology or the processor time. Thus that cause is a hypothesis.
+164 s alone in the two sequential runs of the tree of commit `4e9a1fd8`. Thus `nice -n 19` did
+not keep the gate at the speed that it has alone, and the first assumption was not correct on
+the hosted runner. A possible cause is that the four processors of the runner are hardware
+threads of two cores. No run measured the processor topology or the processor time. Thus that
+cause is a hypothesis.
 
 In the two hosted runs, the other commands ended approximately 25 s before the gate. Before
 that, the two chains operated at the same time.
 Thus a different sequence of the same commands can probably decrease the time only a small
-quantity more. More margin needs less work in the step or a second runner. In the slower of the
-two runs, the margin of the step was 34 s.
+quantity more. For more margin, less work in the step or a second runner is necessary. In the
+slower of the two runs, the margin of the step was 34 s.
 
 An independent review of the first version found one path on which the driver did not wait for
 the gate. On that path, the line that reported the failure of a different command could raise an

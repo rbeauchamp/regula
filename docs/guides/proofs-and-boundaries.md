@@ -173,22 +173,26 @@ refused. The claimed targets are built with the audit-build marker `weak.regula.
 modules last built with ordinary options are rebuilt for the audit and their replayed logs never
 enter its warning check.
 
-The command `./scripts/verify.sh` first builds `axiomGate` alone (`RegulaVerification.prebuild`).
-Then it operates `axiomGate --acceptance-link tmp/acceptance-link.pending.json --verso
-website:RegulaStandard:regula-standard` at the same time as its complete build and its other
-required checks (`beside` and `inOrder`). The driver of that command
-(`lean/RegulaVerification.lean`) waits for each command that it started before it gives its
-result. The driver moves the pending record to `tmp/acceptance-link.json` only if
-`RegulaVerification.passed` accepts the exit status of each command (`promoted`). That move is
-the last action of the driver before the success line. The command `./scripts/verify.sh docs`
-operates `docFenceAudit --acceptance-link tmp/acceptance-link.json` with the same `--verso`
-argument for each `docs/` fence and each `lean` block of the standard.
+The command `./scripts/verify.sh` first builds `axiomGate` alone. The function
+`RegulaVerification.prebuild` gives that early build. Then the command operates `axiomGate
+--acceptance-link tmp/acceptance-link.pending.json --verso website:RegulaStandard:regula-standard`
+at the same time as its complete build and its other required checks. The function `beside`
+gives the gate, and the function `inOrder` gives the other commands. The driver of that command,
+`lean/RegulaVerification.lean`, waits for each command that it started before it gives its
+result.
+
+The driver moves the pending record to `tmp/acceptance-link.json` only if
+`RegulaVerification.passed` accepts the exit status of each command. The function `promoted`
+gives the two paths of that move. That move is the last action of the driver before the success
+line. The command `./scripts/verify.sh docs` operates `docFenceAudit --acceptance-link
+tmp/acceptance-link.json` with the same `--verso` argument for each `docs/` fence and each `lean`
+block of the standard.
 
 The driver starts the gate at its own priority. It starts the complete build and the other
 required checks at low priority (`RegulaVerification.Priority`). For such a command, the driver
-starts `nice -n 19` with the program and the arguments of the command (`Command.launch`). Thus
-each command has the same program and the same arguments as before. The behavior of `nice` and
-the scheduler of the operating system are trusted.
+starts `nice -n 19` with the program and the arguments of the command, as the function
+`Command.launch` gives them. Thus each command has the same program and the same arguments as
+before. The behavior of `nice` and the scheduler of the operating system are trusted.
 
 Thus an accepted record at `tmp/acceptance-link.json` shows that the gate accepted. It also shows
 that each other command of the first step ended with exit status 0. If an attempt fails or is
@@ -202,7 +206,7 @@ command, if the driver got one. The driver gets no exit status for a command tha
 operate, could not start or could not wait for.
 
 The entries of the commands that operate in sequence are one side. The entries of the commands
-that operate at the same time as them are the second side (`beside`). The function `passed`
+of `beside`, which operate at the same time as them, are the second side. The function `passed`
 accepts the entries of the two sides if, and only if, each entry has exit status 0
 (`passed_iff`). The theorem `checked_passed` is the decision contract of that function. The
 driver uses that function before it operates one more command, before the success line and
