@@ -228,8 +228,11 @@ In the JSON result, `scope.buildOrigin` is `isolatedCopy`, `driverCopy` or `incr
 For a copy of the driver, the success line also says that the statement rests on the driver.
 The pending record has the same word in its field `origin`.
 
-The gate with no such option makes its isolated copy as before. So do the `lint` driver, the
-fence audit and the gates of `audit/` and `integration/mathlib/`.
+The gate audits a project in its isolated copy as before, if it has none of the options
+`--driver-copy`, `--incremental` and `--build-lint`. The `lint` driver gives `--incremental` to
+the gate unless it has `--fresh`. Thus only the `lint` driver with `--fresh` uses that isolated
+copy. This change does not alter the fence audit and the gates of `audit/` and
+`integration/mathlib/`.
 
 The driver cannot import the checker before the build. Thus it has its own code for the protocol
 of `Regula.Scratch`, with the same steps in the same sequence. First it tries to get the
@@ -237,8 +240,9 @@ exclusive lock on the file `.lock` of the scratch area. If it gets that lock, no
 is alive, and it removes each marked directory and its marker (`reclaim`). Then it holds a
 shared lock, makes the ownership marker, and makes the directory.
 
-The checker and the driver remove a marked directory only with the exclusive lock. Thus no run
-removes a live copy. A first step can start while no other scratch owner of the checkout is
+An owner removes its own marked directory while it holds the shared lock. The checker and the
+driver remove the marked directory of a different run only with the exclusive lock. Thus no run
+removes the live copy of a different run. A first step can start while no other scratch owner of the checkout is
 alive. After such a step ends, the scratch area has no directory of a run that died before the
 step, if each removal was successful. A scratch owner that dies during the step leaves its
 directory for the next scratch user.
