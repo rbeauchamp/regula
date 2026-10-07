@@ -43,20 +43,34 @@ theorem checked_select : Regula.ExecutableContract select (fun selected =>
   ⟨.of_iff (fun args => by rw [isSome]; exact checked_parseMode.evidence.iff args)
     ⟨[], by rw [isSome]; decide⟩ ⟨["unsupported"], by rw [isSome]; decide⟩⟩
 
-/-- `passed` accepts exactly the ends in which every command of each side ran to its end with exit
-status 0 (`passed_iff`): the gate, which runs beside the others, and each of the others. It
-accepts a step whose one command of each side so ended, and refuses one whose gate ended with
-another status. The specification is stated with membership and equality alone; it uses nothing
-`passed` is defined with. -/
-theorem checked_passed : Regula.ExecutableContract passed (fun decide =>
-    Regula.Decides (· = true)
-      (fun input : List (Option UInt32) × List (Option UInt32) =>
-        (∀ ended ∈ input.1, ended = some 0) ∧ (∀ ended ∈ input.2, ended = some 0))
-      (Function.uncurry decide)) :=
-  ⟨.of_iff (fun input => passed_iff input.1 input.2)
-    ⟨([some 0], [some 0]), by decide⟩
-    ⟨([some 0], [some 1]), by decide⟩⟩
+/-- `passed` accepts exactly the ends in which every command ran to its end with exit status 0
+(`passed_iff`). It accepts a step whose one command so ended, and refuses one whose command
+ended with another status. The specification is stated with membership and equality alone; it
+uses nothing `passed` is defined with. -/
+theorem checked_passed : Regula.ExecutableContract passed
+    (Regula.Decides (· = true)
+      (fun ends : List (Option UInt32) => ∀ ended ∈ ends, ended = some 0)) :=
+  ⟨.of_iff passed_iff ⟨[some 0], by decide⟩ ⟨[some 1], by decide⟩⟩
 
-attribute [regula_decision] parseMode dependencyFree select passed
+/-- `walked` accepts exactly the paths below the project root that the copy of the first
+acceptance step holds (`walked_iff`): the path does not start with `tmp`, and none of its
+components is a name that an isolated copy of a project leaves out. It accepts `lean` and
+refuses `tmp`. That this is the rule of the checker's isolated copy is not claimed. -/
+theorem checked_walked : Regula.ExecutableContract walked
+    (Regula.Decides (· = true) (fun relative => relative.head? ≠ some "tmp" ∧
+      ∀ component ∈ relative, component ≠ ".git" ∧ component ≠ ".lake" ∧ component ≠ ".cache" ∧
+        component ≠ ".regula-scratch")) :=
+  ⟨.of_iff walked_iff ⟨["lean"], by decide⟩ ⟨["tmp"], by decide⟩⟩
+
+/-- `removal` decides to remove exactly when a directory is at the path and its real path is that
+path (`removal_remove_iff`). It removes for a directory at its own place and does not remove when
+nothing is there. With a symbolic link at the path the place is not a directory, so it does not
+remove. -/
+theorem checked_removal : Regula.ExecutableContract removal
+    (Regula.Decides (· = .remove) (fun observed =>
+      observed.place = .directory ∧ observed.sameLocation = true)) :=
+  ⟨.of_iff removal_remove_iff ⟨⟨.directory, true⟩, rfl⟩ ⟨⟨.absent, false⟩, by decide⟩⟩
+
+attribute [regula_decision] parseMode dependencyFree select passed walked removal
 
 end RegulaVerification

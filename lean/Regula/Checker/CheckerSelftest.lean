@@ -6,6 +6,7 @@ import Regula.Checker.PolicyQualification
 import Regula.Checker.BuildLintQualification
 import Regula.Checker.LintQualification
 import Regula.Checker.Inspection
+import RegulaCore.ScratchCopy
 
 /-!
 # Checker qualification suite
@@ -2777,11 +2778,193 @@ private def libraryCycleControl (repo : FilePath) : IO (Array String) :=
       the key of its reused module Right.Base"
   return failures
 
+/-- External-boundary controls of the copy that the verification driver makes for the first
+acceptance step (`RegulaVerification.makeCopy`) and of the gate's admission of such a copy
+(`AxiomGate.driverCopy`). The boundary is the driver's own code for the copy, the lock and the
+marker, the filesystem, and the scratch protocol between the driver and the checker.
+`ScratchCopy.checked_name?`, `ScratchCopy.checked_inside` and
+`RegulaVerification.removal_remove_iff` prove the decisions; no control here stands in for those
+theorems. The positive case of the admission is the first acceptance step itself, on each run:
+only a copy that built the gate is admitted, and these controls build no gate.
+
+Each copy is made by the driver itself, through its private entry (`lean --run
+lean/RegulaVerification.lean --copy-control`), in a project with one library and no dependency:
+
+* While the driver lives, its copy holds the project's files and no `.lake`; a file in the
+  project's build output from before is still there and is not in the copy; and a scratch user
+  of the checker in the same project (`Regula.Scratch.withScratch`, which reclaims) does not
+  remove the copy.
+* The gate refuses that copy while it has no build directory, and then because the gate was not
+  built there; it refuses a directory outside the scratch area, a directory of the right shape
+  with no ownership marker, and the option together with `--incremental`.
+* The driver leaves a project's build output as it is, and gives a project with none the copy's
+  by a rename. With a symbolic link at the project's `.lake/build` it leaves the link and the
+  marked content of its target.
+* A driver that is killed leaves the directory and its marker, and the next scratch user of the
+  checker removes both.
+* With a symbolic link at `_site`, the driver's `--begin-attempt site` stops and the marked
+  content of the target stays; a real `_site` directory is removed. -/
+private def driverCopyControl (repo : FilePath) : IO (Array String) :=
+  withScratch repo "driver-copy-control" fun scratch => do
+  let project := scratch / "project"
+  IO.FS.createDirAll (project / "Solo")
+  IO.FS.writeFile (project / "lean-toolchain") (← IO.FS.readFile (repo / "lean-toolchain"))
+  IO.FS.writeFile (project / "lakefile.toml") <|
+    "name = \"driver_copy_control\"\n[leanOptions]\nautoImplicit = false\n" ++
+      "relaxedAutoImplicit = false\nlinter.missingDocs = true\n" ++
+      "[[lean_lib]]\nname = \"Solo\"\nglobs = [\"Solo.+\"]\n"
+  IO.FS.writeFile (Manifest.defaultPath project) <|
+    "{\"schema-version\":2,\"surfaces\":[{\"library\":\"Solo\",\"executables\":[]," ++
+      "\"claim\":\"standard-logical\",\"execution\":\"report\"," ++
+      "\"rationale\":\"Driver copy control\"}]," ++
+      "\"excluded-libraries\":[],\"excluded-executables\":[]}"
+  IO.FS.writeFile (project / "Solo" / "Base.lean")
+    "/-! The base module of the control. -/\n\ntheorem soloBase : True := True.intro\n"
+  let locked ← runProcess project "lake" #["update"] scrubbedLeanPathEnv
+  unless locked.succeeded do
+    return #[s!"driver-copy/setup: lake update failed:\n{locked.output}"]
+  let driver := (repo / "lean" / "RegulaVerification.lean").toString
+  let area := Regula.Scratch.directory project
+  let build := project / ".lake" / "build"
+  let marked := scratch / "marked"
+  IO.FS.createDirAll marked
+  IO.FS.writeFile (marked / "kept.txt") "kept"
+  let link (target place : FilePath) : IO Unit := do
+    let made ← runProcess scratch "ln" #["-s", target.toString, place.toString]
+    unless made.succeeded do throw <| IO.userError s!"could not make a link: {made.output}"
+  let gate ← toolPath repo "axiomGate"
+  let refused (label needle : String) (args : Array String) : IO (Array String) := do
+    let result ← runProcess project gate.toString args scrubbedLeanPathEnv
+    if result.succeeded then
+      return #[s!"driver-copy/{label}: unexpectedly accepted:\n{result.output}"]
+    else if !result.output.contains needle then
+      return #[s!"driver-copy/{label}: missing {repr needle}:\n{result.output}"]
+    else return #[]
+  let expect (label : String) (holds : Bool) : Array String :=
+    if holds then #[] else #[s!"driver-copy/{label}"]
+  -- Whether the checker's scratch protocol, used in the same project, leaves `path` there.
+  let survivesReclamation (path : FilePath) : IO Bool := do
+    discard <| Regula.Scratch.withScratch project "reclaim-probe" fun _ => pure ()
+    path.pathExists
+  -- The driver's answer to a line: its next line that is not one of its progress lines.
+  let answer (out : IO.FS.Handle) : IO String := do
+    let mut line := (← out.getLine)
+    while line.startsWith "verification: " do line ← out.getLine
+    return line.trimAscii.toString
+  let mut failures := #[]
+  -- 1. A live copy, in a project that has build output.
+  IO.FS.createDirAll build
+  IO.FS.writeFile (build / "kept.txt") "from before the step"
+  let child ← IO.Process.spawn {
+    cmd := "lean", args := #["--run", driver, "--copy-control"], cwd := some project
+    env := scrubbedLeanPathEnv, stdin := .piped, stdout := .piped, stderr := .inherit }
+  let (input, child) ← child.takeStdin
+  let copy := FilePath.mk (← child.stdout.getLine).trimAscii.toString
+  let some name := ScratchCopy.name? (← IO.FS.realPath area).normalize.components
+      copy.normalize.components
+    | return #[s!"driver-copy/place: the driver's copy {copy} is not in the scratch area {area}"]
+  let marker := area / s!"{name}.{Regula.Scratch.markerExtension}"
+  failures := failures ++ expect "copy: a file of the project is missing"
+    (← (copy / "Solo" / "Base.lean").pathExists)
+  failures := failures ++ expect "copy: it has a .lake directory" !(← (copy / ".lake").pathExists)
+  failures := failures ++ expect "copy: no ownership marker" (← marker.pathExists)
+  failures := failures ++ expect "project: its build output changed"
+    (← (build / "kept.txt").pathExists)
+  failures := failures ++ expect "live: the checker's reclamation removed a live copy"
+    (← survivesReclamation copy)
+  failures := failures ++ (← refused "no-build-directory" "has no build directory"
+    #["--driver-copy", copy.toString])
+  IO.FS.createDirAll (copy / ".lake" / "build")
+  IO.FS.writeFile (copy / ".lake" / "build" / "made.txt") "made in the copy"
+  failures := failures ++ (← refused "other-gate" "did not build this gate"
+    #["--driver-copy", copy.toString])
+  failures := failures ++ (← refused "outside-scratch" "is not the directory `project`"
+    #["--driver-copy", (project / "Solo").toString])
+  IO.FS.createDirAll (area / "unmarked" / "project")
+  failures := failures ++ (← refused "no-marker" "has no ownership marker"
+    #["--driver-copy", (area / "unmarked" / "project").toString])
+  failures := failures ++ (← refused "incremental" "applies only to"
+    #["--driver-copy", copy.toString, "--incremental"])
+  input.putStrLn "adopt"
+  input.flush
+  failures := failures ++ expect "adopt: a project with build output did not keep it"
+    ((← answer child.stdout) == "kept" && (← (build / "kept.txt").pathExists)
+      && !(← (build / "made.txt").pathExists))
+  input.putStrLn "remove"
+  input.flush
+  failures := failures ++ expect "remove: the driver did not end with exit code 0"
+    ((← child.wait) == 0)
+  failures := failures ++ expect "remove: the copy or its marker is still there"
+    (!(← copy.pathExists) && !(← marker.pathExists))
+  -- 2. A project with a symbolic link at `.lake/build`, and then a driver that is killed.
+  IO.FS.removeDirAll build
+  link marked build
+  let child ← IO.Process.spawn {
+    cmd := "lean", args := #["--run", driver, "--copy-control"], cwd := some project
+    env := scrubbedLeanPathEnv, stdin := .piped, stdout := .piped, stderr := .inherit
+    setsid := true }
+  let (input, child) ← child.takeStdin
+  let copy := FilePath.mk (← child.stdout.getLine).trimAscii.toString
+  let some name := ScratchCopy.name? (← IO.FS.realPath area).normalize.components
+      copy.normalize.components
+    | return failures.push s!"driver-copy/place: the second copy {copy} is not in {area}"
+  let marker := area / s!"{name}.{Regula.Scratch.markerExtension}"
+  IO.FS.createDirAll (copy / ".lake" / "build")
+  IO.FS.writeFile (copy / ".lake" / "build" / "made.txt") "made in the copy"
+  input.putStrLn "adopt"
+  input.flush
+  failures := failures ++ expect "adopt: a link at the build directory's place was not kept"
+    ((← answer child.stdout) == "kept" &&
+      (← (marked / "kept.txt").pathExists) && !(← (marked / "made.txt").pathExists) &&
+      (← build.symlinkMetadata).type == .symlink)
+  -- A killed driver removes nothing, and its lock ends with its process.
+  child.kill
+  discard child.wait
+  failures := failures ++ expect "left: a killed driver left no copy or no marker"
+    ((← copy.pathExists) && (← marker.pathExists))
+  failures := failures ++ expect "left: the checker's reclamation did not remove the copy of a \
+    killed driver" (!(← survivesReclamation copy) && !(← marker.pathExists))
+  -- 3. A project with no build output gets the copy's.
+  IO.FS.removeFile build
+  let child ← IO.Process.spawn {
+    cmd := "lean", args := #["--run", driver, "--copy-control"], cwd := some project
+    env := scrubbedLeanPathEnv, stdin := .piped, stdout := .piped, stderr := .inherit }
+  let (input, child) ← child.takeStdin
+  let copy := FilePath.mk (← child.stdout.getLine).trimAscii.toString
+  IO.FS.createDirAll (copy / ".lake" / "build")
+  IO.FS.writeFile (copy / ".lake" / "build" / "made.txt") "made in the copy"
+  input.putStrLn "adopt"
+  input.flush
+  failures := failures ++ expect "adopt: a project with no build output did not get the copy's"
+    ((← answer child.stdout) == "adopted" &&
+      (← (build / "made.txt").pathExists) && !(← (copy / ".lake" / "build").pathExists))
+  input.putStrLn "remove"
+  input.flush
+  failures := failures ++ expect "remove: the driver did not end with exit code 0 after adopt"
+    ((← child.wait) == 0 && !(← copy.pathExists))
+  -- 4. The site artifact of an earlier run.
+  let site := project / "_site"
+  link marked site
+  let stopped ← runProcess project "lean" #["--run", driver, "--begin-attempt", "site"]
+    scrubbedLeanPathEnv
+  failures := failures ++ expect "site: a link at _site was followed or removed"
+    (!stopped.succeeded && stopped.output.contains "nothing was removed" &&
+      (← (marked / "kept.txt").pathExists) && (← site.symlinkMetadata).type == .symlink)
+  IO.FS.removeFile site
+  IO.FS.createDirAll (site / "pages")
+  IO.FS.writeFile (site / "pages" / "old.html") "an earlier artifact"
+  let removed ← runProcess project "lean" #["--run", driver, "--begin-attempt", "site"]
+    scrubbedLeanPathEnv
+  failures := failures ++ expect "site: an earlier artifact was not removed"
+    (removed.succeeded && !(← site.pathExists))
+  return failures
+
 /-- The groups of controls the structural partition reports separately. -/
 private inductive StructuralGroup where
   | frozen
   | clusters
   | cycle
+  | driverCopy
   | manifest
   deriving BEq
 
@@ -2792,8 +2975,9 @@ private def shardDescription (shard : Shard) (names : Array String) : String :=
 
 /-- Structural mutations and manifest controls retain their isolated projects, worker joins,
 and complete failure accumulation. The frozen-artifact controls, the mutation clusters, the
-library cycle control and the manifest controls share one queue of `jobs` workers, so no more
-than `jobs` of them run at once. The two short controls wait behind the clusters and take the
+library cycle control, the driver copy control and the manifest controls share one queue of
+`jobs` workers, so no more than `jobs` of them run at once. The short controls wait behind the
+clusters and take the
 workers the first clusters free, instead of competing with the first clusters for the
 processors. Each control has its shard; with `shard`, only that shard's controls run, and only
 the groups it ran report. -/
@@ -2809,6 +2993,8 @@ private unsafe def runStructural (layout : SourceLayout) (repo : FilePath) (jobs
           (structuralClusters layout repo scratch).map (fun (assigned, name, run) =>
             (assigned, StructuralGroup.clusters, s!"structural {name}", run)) ++
           [(Shard.second, StructuralGroup.cycle, "library cycle control", libraryCycleControl repo),
+            (Shard.second, StructuralGroup.driverCopy, "driver copy control",
+              driverCopyControl repo),
             (Shard.second, StructuralGroup.manifest, "manifest controls",
               manifestQualification repo manifests)]
         mapWorkQueue (max 1 jobs) ((inShard shard controls).map (·.2)).toArray
@@ -2841,6 +3027,13 @@ private unsafe def runStructural (layout : SourceLayout) (repo : FilePath) (jobs
     IO.println <| "self-test library cycle: " ++ verdict .cycle ++
       " (two claimed libraries that import one another: accepted, each module replayed in one \
         environment, a requested module reused with its keys)"
+  if ran .driverCopy then
+    IO.println <| "self-test driver copy: " ++ verdict .driverCopy ++
+      " (the driver's copy holds the project and no build output, and the checker's reclamation \
+        keeps it while the driver lives and removes it after; the gate refuses a copy that did \
+        not build it, a directory outside the scratch area, one with no marker and \
+        --incremental; a project keeps its build output or a link at its place, and one with \
+        none gets the copy's; a link at _site is not followed)"
 
 /-- Execution-evidence controls: the correspondence controls and every compiler-path case,
 each with its positive, mutation and fresh restoration in an isolated project. With `shard`,

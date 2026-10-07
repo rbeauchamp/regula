@@ -5,19 +5,19 @@ import Lean
 Cold-start verification plan and operational interpreter. This module imports only
 the pinned toolchain, so it can run before any root-package artifacts exist. Argument
 selection has soundness and round-trip proofs; the interpreter consumes its proof-bearing
-selection. Recipes name Lake targets, not a source-file census. The interpreter schedules every
-command of the selected recipe (`inOrder_append_beside`), starts a command only while every end
-known so far passed, waits for each command it started, and reports success only when `passed`
-accepts how each scheduled command ended (`passed_covers`); it starts the gate of ordinary
-acceptance beside the others once that gate is built (`prebuild`, `beside`, `beside_prebuilt`),
-and starts those others at low scheduling priority while it does (`Priority`).
+selection. Recipes name Lake targets, not a source-file census. The interpreter runs the
+commands of the selected recipe one after another, starts a command only while every end known
+so far passed, and reports success only when `passed` accepts how each command ended
+(`passed_covers`). The first acceptance step makes its one build in a private copy of the
+project that this driver makes, and the acceptance gate audits that copy (`makeCopy`).
 Process effects remain trusted IO under the shell's single 420-second process-group deadline. -/
 namespace RegulaVerification
 
 /-- Closed vocabulary of supported verification invocations. -/
 inductive Mode where
-  /-- No argument: the first acceptance step, which builds the acceptance executables, runs the
-  registry checks and combined qualification, and audits the root package's claimed surfaces. -/
+  /-- No argument: the first acceptance step, which makes a private copy of the project, builds
+  the acceptance executables and the claimed surfaces of the root package there, runs the
+  registry checks and combined qualification, and audits those surfaces in that copy. -/
   | ordinary
   /-- `docs`: the second acceptance step: the rule-ID check of every tracked Markdown document,
   the checks C1 to C8 of their prose with the baseline (checks B1 and B2, of which B2 reads the
@@ -164,10 +164,9 @@ its last action before the success line (`promoted`), so an accepted record here
 command of the step exited 0. -/
 def linkPath : String := "tmp/acceptance-link.json"
 
-/-- Where the gate of ordinary acceptance records that identity. The gate runs beside the step's
-other commands (`beside`), so its own success does not end the step: this record becomes
-`linkPath` only once every command has exited 0 (`promoted`), and a run that fails or is killed
-before then leaves `linkPath` incomplete. -/
+/-- Where the gate of ordinary acceptance records that identity. This record becomes `linkPath`
+only once every command of the step has exited 0 (`promoted`), as the driver's last action, so a
+run that fails or is killed before then leaves `linkPath` incomplete. -/
 def pendingLinkPath : String := "tmp/acceptance-link.pending.json"
 
 /-- The standard's Verso source: package directory, library and its render-only executable.
@@ -209,19 +208,27 @@ private def selftest (selection : Array String) (tools : Array String := #[]) : 
   lake (#["exe", "checkerSelftest", "--build-bound"] ++ selection ++ #["--jobs", "4"])]
 
 /-- Existing acceptance and diagnostic recipes, executed inside the outer deadline.
-Qualification's private flag retains the already timed process group. -/
-def commands : Mode → List Command
+Qualification's private flag retains the already timed process group. `copy` is the root of the
+copy that the first acceptance step builds in (`makeCopy`); no other mode uses it. -/
+def commands (copy : String) : Mode → List Command
   | .ordinary => [
-      lake
-          #["build", "RegulaPolicy", "RegulaCore", "RegulaQualification", "axiomGate",
+      -- The one build of the step, in the copy, which has no build output: the acceptance
+      -- executables, the modules the step type-checks, and every claimed target of the root
+      -- package, which the gate then audits in this build output.
+      lakeIn copy
+          #["build", "RegulaPolicy", "RegulaVerification", "RegulaProvision",
+              "RegulaQualification", "RegulaCore", "AuditApp", "auditApp", "axiomGate",
               "docFenceAudit", "qualify",
         "+Regula.Checker.CheckerSelftest:olean", "+Regula.Checker.FreshChecker:olean",
         "+Regula.RegistryChecks:olean", "+Regula.Linter:olean", "+Regula.Checker.LintMain:olean",
         "+Regula.Checker.RuleExamples:olean", "+Regula.Checker.RuleExampleQualificationMain:olean",
         "+Regula.Cli.Main:olean", "+Regula.Release:olean", "+Regula.DiagnosticsGate:olean"],
-      lake #["env", "lean", "--run", "lean/Regula/RegistryChecks.lean"],
-      lake #["exe", "qualify", "--under-deadline", "combined"],
-      lake #["exe", "axiomGate", "--acceptance-link", pendingLinkPath, "--verso", versoStandard]]
+      lakeIn copy #["env", "lean", "--run", "lean/Regula/RegistryChecks.lean"],
+      lakeIn copy #["exe", "qualify", "--under-deadline", "combined"],
+      -- Last, and from the repository root: the gate of the copy audits the copy, reads the
+      -- linked documents of the checkout and writes the pending link there.
+      lake #["-d", copy, "exe", "axiomGate", "--acceptance-link", pendingLinkPath, "--verso",
+          versoStandard, "--driver-copy", copy]]
   | .docs => [
       lake #["build", "docFenceAudit"],
       -- The controls of the checks C1 to C9, B1 and B2: each check accepts its positive controls
@@ -294,129 +301,58 @@ def commands : Mode → List Command
   | mode => selftest (#["--partition"] ++ ((arguments mode).drop 1).toArray)
 
 /-- Every mode schedules actual work rather than accepting an empty campaign. -/
-theorem commands_nonempty (mode : Mode) : commands mode ≠ [] := by
+theorem commands_nonempty (copy : String) (mode : Mode) : commands copy mode ≠ [] := by
   cases mode <;> simp [commands, ruleExampleShard, selftest]
 
-/-- Builds the driver runs before a mode's `commands`. They decide cost, never results: each is a
-`lake build` in the repository root that names a target (`prebuild_builds`), and every target one
-names is named again by a build among those commands (`prebuild_named`), which still builds
-whatever is missing. Ordinary acceptance builds `axiomGate` alone first, so that the gate
-can start before the rest of the step's build has ended: that rest and the other checks then run
-beside the gate (`beside`). How much time that saves is an estimate, not a property of this
-definition. -/
-def prebuild : Mode → List Command
-  | .ordinary => [lake #["build", "axiomGate"]]
-  | _ => []
+/-- The first acceptance step runs its build, the registry checks and the combined qualification
+in the copy, and then the gate from the repository root: the gate is last, and it is the only
+command of the step that runs in the checkout. -/
+theorem ordinary_places (copy : String) :
+    (commands copy .ordinary).map (·.dir) = [copy, copy, copy, "."] := rfl
 
-/-- The Lake targets a command builds: the arguments after `build` of a `lake build` in the
-repository root, and none for any other command. -/
-def buildTargets (command : Command) : List String :=
-  if command.program = "lake" ∧ command.dir = "." ∧ command.args[0]? = some "build" then
-    command.args.toList.drop 1
-  else []
+/-- Whether a step passed, from how its commands ended. An end is `some status` for a command
+that ran to its end with that exit status, and `none` for one that was not run, could not be
+started, or whose end could not be observed. A step passes exactly when every command ended with
+exit status 0 (`passed_iff`). It is the driver's one decision about an exit status: the driver
+asks it before it runs a further command, before it reports, and before it moves an acceptance
+record. -/
+def passed (ends : List (Option UInt32)) : Bool :=
+  ends.all (· == some 0)
 
-/-- A prebuild only builds: it has a target, which `buildTargets` gives to nothing but a
-`lake build` in the repository root. So `prebuild_named` speaks about every prebuild. -/
-theorem prebuild_builds (mode : Mode) (command : Command) (h : command ∈ prebuild mode) :
-    buildTargets command ≠ [] := by
-  cases mode <;> simp [prebuild] at h
-  subst h
-  simp [buildTargets, lake]
-
-/-- A prebuild selects nothing: it is a build (`prebuild_builds`), and each target it names is a
-target of a build among the mode's own commands, which runs to completion before any success
-report. -/
-theorem prebuild_named (mode : Mode) (command : Command) (target : String)
-    (h : command ∈ prebuild mode) (named : target ∈ buildTargets command) :
-    ∃ later ∈ commands mode, target ∈ buildTargets later := by
-  cases mode <;> simp [prebuild] at h
-  subst h
-  refine ⟨_, List.mem_cons_self, ?_⟩
-  simp [buildTargets, lake] at named ⊢
-  simp [named]
-
-/-- How many of a mode's last `commands` run beside the others (`beside`). Ordinary acceptance
-runs its gate so; every other mode runs its commands one after another. -/
-def besideCount : Mode → Nat
-  | .ordinary => 1
-  | _ => 0
-
-/-- The commands of `mode` that run one after another: all but its last `besideCount`. -/
-def inOrder (mode : Mode) : List Command :=
-  (commands mode).take ((commands mode).length - besideCount mode)
-
-/-- The commands of `mode` that each run as a process of their own, started before `inOrder` and
-joined after it: its last `besideCount`. Each runs an executable that a prebuild names
-(`beside_prebuilt`). -/
-def beside (mode : Mode) : List Command :=
-  (commands mode).drop ((commands mode).length - besideCount mode)
-
-/-- The two groups are the mode's commands, each once and in their order, whatever
-`besideCount` is: the schedule drops no command and adds none. -/
-theorem inOrder_append_beside (mode : Mode) : inOrder mode ++ beside mode = commands mode :=
-  List.take_append_drop _ _
-
-/-- A command that runs beside the others is a `lake exe` in the repository root, and a prebuild
-of its mode names its executable as a target. That the prebuild has ended before the command
-starts is the driver's order (`run`), and that Lake then builds nothing for the command is Lake's
-behaviour; neither is this theorem. -/
-theorem beside_prebuilt (mode : Mode) (command : Command) (h : command ∈ beside mode) :
-    command.program = "lake" ∧ command.dir = "." ∧ command.args[0]? = some "exe" ∧
-      ∃ target, command.args[1]? = some target ∧
-        ∃ early ∈ prebuild mode, target ∈ buildTargets early := by
-  cases mode <;> simp [beside, besideCount, commands] at h
-  subst h
-  simp [lake, prebuild, buildTargets]
-
-/-- Whether a step passed, from how its commands ended: `inOrder` for those that run one after
-another and `beside` for those that run beside them. An end is `some status` for a command that
-ran to its end with that exit status, and `none` for one that was not run, could not be started,
-or whose end could not be observed. A step passes exactly when every command of each side ended
-with exit status 0 (`passed_iff`). It is the driver's one decision about an exit status: the
-driver asks it before it runs a further command, before it reports, and before it moves an
-acceptance record. -/
-def passed (inOrder beside : List (Option UInt32)) : Bool :=
-  (inOrder ++ beside).all (· == some 0)
-
-/-- `passed` accepts exactly the ends in which each command of each side has exit status 0. -/
-theorem passed_iff (inOrder beside : List (Option UInt32)) :
-    passed inOrder beside = true ↔
-      (∀ ended ∈ inOrder, ended = some 0) ∧ (∀ ended ∈ beside, ended = some 0) := by
+/-- `passed` accepts exactly the ends in which each command has exit status 0. -/
+theorem passed_iff (ends : List (Option UInt32)) :
+    passed ends = true ↔ ∀ ended ∈ ends, ended = some 0 := by
   simp [passed]
 
-/-- The commands of one side with how each ended. It has an entry for each of `commands`, in
-their order, so no value of this type leaves a command out. -/
+/-- Commands with how each ended. It has an entry for each of `commands`, in their order, so no
+value of this type leaves a command out. -/
 structure Ends (commands : List Command) where
   /-- Each command with how it ended (`passed`). -/
   ends : List (Command × Option UInt32)
   /-- One entry for each command, in the commands' order. -/
   complete : ends.map (·.1) = commands
 
-/-- How the commands of a side ended, without the commands: what `passed` reads. -/
-def Ends.statuses {commands : List Command} (side : Ends commands) : List (Option UInt32) :=
-  side.ends.map (·.2)
+/-- How the commands ended, without the commands: what `passed` reads. -/
+def Ends.statuses {commands : List Command} (group : Ends commands) : List (Option UInt32) :=
+  group.ends.map (·.2)
 
 /-- The ends of two groups of commands that ran one after the other, as the ends of both. -/
 def Ends.append {first second : List Command} (early : Ends first) (late : Ends second) :
     Ends (first ++ second) :=
   ⟨early.ends ++ late.ends, by simp [early.complete, late.complete]⟩
 
-/-- When `passed` accepts the ends of two sides, every command of each side is recorded with exit
-status 0. None is left out, because an `Ends` has an entry for each of its commands. That each
-recorded status is the one the command's process ended with is the trusted process runtime. -/
-theorem passed_covers {inOrder beside : List Command} (first : Ends inOrder)
-    (second : Ends beside) (accepted : passed first.statuses second.statuses = true) :
-    ∀ command ∈ inOrder ++ beside, (command, some 0) ∈ first.ends ++ second.ends := by
+/-- When `passed` accepts the ends of the commands, every command is recorded with exit status
+0. None is left out, because an `Ends` has an entry for each of its commands. That each recorded
+status is the one the command's process ended with is the trusted process runtime. -/
+theorem passed_covers {commands : List Command} (group : Ends commands)
+    (accepted : passed group.statuses = true) :
+    ∀ command ∈ commands, (command, some 0) ∈ group.ends := by
   intro command member
-  have ⟨inFirst, inSecond⟩ := (passed_iff _ _).mp accepted
-  rw [← first.complete, ← second.complete] at member
-  rcases List.mem_append.mp member with here | here
-  · obtain ⟨⟨recorded, ended⟩, entry, rfl⟩ := List.mem_map.mp here
-    have zero := inFirst ended (List.mem_map.mpr ⟨_, entry, rfl⟩)
-    exact List.mem_append_left _ (zero ▸ entry)
-  · obtain ⟨⟨recorded, ended⟩, entry, rfl⟩ := List.mem_map.mp here
-    have zero := inSecond ended (List.mem_map.mpr ⟨_, entry, rfl⟩)
-    exact List.mem_append_right _ (zero ▸ entry)
+  have zeros := (passed_iff _).mp accepted
+  rw [← group.complete] at member
+  obtain ⟨⟨recorded, ended⟩, entry, rfl⟩ := List.mem_map.mp member
+  have zero := zeros ended (List.mem_map.mpr ⟨_, entry, rfl⟩)
+  exact zero ▸ entry
 
 /-- Print one line of the driver's own progress at once, so that it stands in the output where it
 happened among the lines its child processes write. It cannot raise: a progress line that could
@@ -442,48 +378,16 @@ def describe : Option UInt32 → String
 /-- The standard streams of every command: no input, and the driver's own output. -/
 def stdio : IO.Process.StdioConfig := { stdin := .null, stdout := .inherit, stderr := .inherit }
 
-/-- The scheduling priority the driver asks of the operating system for a command. It changes
-when a command gets a processor, never which command runs or what the driver does with its
-end. -/
-inductive Priority where
-  /-- The driver's own priority. -/
-  | normal
-  /-- The lowest priority, for a command that runs while a command of `beside` runs: the
-  scheduler is asked to prefer the command of `beside` whenever both ask for a processor. A
-  command keeps this priority to its end, also after the command of `beside` ended, and the
-  scheduler is asked to prefer any other work at normal priority in the same way. So on a machine
-  that such other work fills, a command at low priority can get little processor time, and the
-  schedule can then take longer than the same commands one after another. That it takes no longer
-  than they do therefore assumes, as the third of three assumptions, that no other work at normal
-  priority uses the machine (`executeBeside`). -/
-  | low
-
-/-- How the progress line of a start names a priority: nothing for the driver's own. -/
-def Priority.display : Priority → String
-  | .normal => ""
-  | .low => "at low priority: "
-
-/-- The program and the arguments that start `command` at `priority`. At low priority the program
-is the POSIX utility `nice`, which is given the command's own program and arguments, unchanged
-and in their order, after `-n 19`. That `nice` then runs exactly that program with those
-arguments at that priority, and ends with the status the program ends with, is the utility's
-behaviour and is trusted, as is the scheduler's use of the priority. POSIX gives `nice` a status
-other than 0 when it could not run the program. -/
-def Command.launch (command : Command) : Priority → String × Array String
-  | .normal => (command.program, command.args)
-  | .low => ("nice", #["-n", "19", command.program] ++ command.args)
-
-/-- Start `command` at `priority` without waiting for it; `none`, with a report, when it could not
-be started. It cannot raise. The child stays in the driver's process group, so the outer
-deadline's kill reaches it. Process execution and signal delivery remain trusted. -/
-def start (priority : Priority) (command : Command) :
-    BaseIO (Option (IO.Process.Child stdio)) := do
-  announce s!"start {priority.display}{command.display}"
-  let (program, args) := command.launch priority
+/-- Start `command` without waiting for it; `none`, with a report, when it could not be started.
+It cannot raise. The child stays in the driver's process group, so the outer deadline's kill
+reaches it. The inherited Lean search paths are removed, so a Lake command resolves modules only
+through the workspace it runs in. Process execution and signal delivery remain trusted. -/
+def start (command : Command) : BaseIO (Option (IO.Process.Child stdio)) := do
+  announce s!"start {command.display}"
   let spawn : IO (IO.Process.Child stdio) := IO.Process.spawn {
     stdio with
-    cmd := program, args := args, cwd := some command.dir,
-    env := #[("GHCR_TOKEN", none)] }
+    cmd := command.program, args := command.args, cwd := some command.dir,
+    env := #[("GHCR_TOKEN", none), ("LEAN_PATH", none), ("LEAN_SRC_PATH", none)] }
   match ← spawn.toBaseIO with
   | .ok child => return some child
   | .error error =>
@@ -499,67 +403,255 @@ def await (command : Command) (child : IO.Process.Child stdio) : BaseIO (Option 
       announce s!"could not wait for {command.display}: {error}"
       return none
 
-/-- Run one command at `priority` to its end and return how it ended. It cannot raise. -/
-def execute (priority : Priority) (command : Command) : BaseIO (Option UInt32) := do
+/-- Run one command to its end and return how it ended. It cannot raise. -/
+def execute (command : Command) : BaseIO (Option UInt32) := do
   let started ← IO.monoMsNow
-  let some child ← start priority command | return none
+  let some child ← start command | return none
   let ended ← await command child
   let seconds := ((← IO.monoMsNow) - started) / 1000
-  if passed [ended] [] then announce s!"done in {seconds} s: {command.display}"
+  if passed [ended] then announce s!"done in {seconds} s: {command.display}"
   else announce s!"failed in {seconds} s ({describe ended}): {command.display}"
   return ended
 
-/-- Run `commands` one after another, each at `priority`, and return how each ended. A command
-runs only while everything that has ended so far passed: `known` holds the ends known before it,
-of either side. A command after a failure is not run and has no end. It cannot raise. -/
-def executeInOrder (priority : Priority) : (known : List (Option UInt32)) →
-    (commands : List Command) → BaseIO (Ends commands)
+/-- Run `commands` one after another and return how each ended. A command runs only while
+everything that has ended so far passed: `known` holds the ends known before it. A command after
+a failure is not run and has no end. It cannot raise. -/
+def executeInOrder : (known : List (Option UInt32)) → (commands : List Command) →
+    BaseIO (Ends commands)
   | _, [] => return ⟨[], rfl⟩
   | known, command :: rest => do
-      let ended ← if passed known [] then execute priority command else pure none
-      let later ← executeInOrder priority (ended :: known) rest
+      let ended ← if passed known then execute command else pure none
+      let later ← executeInOrder (ended :: known) rest
       return ⟨(command, ended) :: later.ends, by simp [later.complete]⟩
 
-/-- Start each of `beside` as a process of its own, run `inOrder` one after another meanwhile,
-then wait for each started command, and return how the commands of each side ended. Nothing is
-started once something has failed (`known`). This is a `BaseIO` action, which has no exception,
-so nothing can leave between a start and the wait for it: every started command is joined, also
-when another command failed. The driver never kills a child, because that would not stop the
-child's own descendants.
+/-! ## Places the driver removes
 
-`priority` is the priority of the commands of `inOrder`. Each command of `beside` starts at the
-driver's own priority, and the commands of `inOrder` then run at low priority, because they run
-while it does. With no command in `beside`, they run at the priority the caller gives.
+The driver removes two directories: the site artifact of an earlier run (`siteOutput`), and the
+scratch directory of the copy it made (`Copy.remove`). `IO.FS.removeDirAll` reads the entries of
+the path it is given, also when that path is a symbolic link to a directory, and then removes
+the entries of the link's target. So the driver removes a directory only after `removal` decided
+it from an observation that follows no link at the path.
 
-That priority is chosen once, before the first command of `inOrder`, and is not looked at again:
-a command of `inOrder` keeps it to its end, and each later one starts at it, also after every
-command of `beside` ended. That the two sides then take no longer than the same commands one
-after another is an argument, not a measurement and not a theorem, and it has three assumptions:
-the scheduler gives a command of `beside` every processor it can use, memory is not the limit,
-and no other work at normal priority uses the machine. On a machine that such other work fills,
-the commands at low priority can get little processor time, also after the commands of `beside`
-ended, and the two sides can then take longer than the same commands one after another. -/
-def executeBeside (priority : Priority) : (known : List (Option UInt32)) →
-    (beside inOrder : List Command) → BaseIO (Ends inOrder × Ends beside)
-  | known, [], inOrder => return (← executeInOrder priority known inOrder, ⟨[], rfl⟩)
-  | known, command :: rest, inOrder => do
-      let child ← if passed known [] then start .normal command else pure none
-      let (others, later) ←
-        executeBeside .low (if child.isSome then known else none :: known) rest inOrder
-      let ended ← match child with
-        | none => pure none
-        | some child => do
-            unless passed others.statuses later.statuses do
-              announce s!"a command failed; waiting for {command.display}"
-            let ended ← await command child
-            announce s!"joined ({describe ended}): {command.display}"
-            pure ended
-      return (others, ⟨(command, ended) :: later.ends, by simp [later.complete]⟩)
+**Outside this decision:** a process that replaces an entry below the directory with a link
+while the removal runs. `IO.FS.removeDirAll` examines each entry and then opens it by its path,
+so such a process can make it remove the entries of a different directory. The checker removes
+its own scratch directories with the same function (`Regula.Scratch`). -/
+
+/-- What is at a path, observed without following a symbolic link at the path itself. -/
+inductive Place where
+  /-- Nothing is there. -/
+  | absent
+  /-- A directory is there. -/
+  | directory
+  /-- Something else is there: a symbolic link, a file, or a different kind of entry. -/
+  | other
+  deriving DecidableEq, Repr
+
+/-- What the driver observed of a path before it removes the directory there. -/
+structure Observed where
+  /-- What is at the path. -/
+  place : Place
+  /-- Whether the real path of what is there is the path itself. -/
+  sameLocation : Bool
+  deriving DecidableEq, Repr
+
+/-- What the driver does about a directory it is to remove. -/
+inductive Removal where
+  /-- Nothing is there: there is nothing to remove. -/
+  | nothing
+  /-- A directory is there, at its own place: the driver removes it. -/
+  | remove
+  /-- Something else is there: the driver removes nothing and stops. -/
+  | refuse
+  deriving DecidableEq, Repr
+
+/-- The driver removes only a directory at its own place; it has nothing to remove when nothing
+is there; and it refuses in every other case, which is each case with a symbolic link at the
+path. -/
+def removal (observed : Observed) : Removal :=
+  match observed.place with
+  | .absent => .nothing
+  | .directory => if observed.sameLocation then .remove else .refuse
+  | .other => .refuse
+
+/-- The driver removes exactly when a directory is at the path and its real path is that path. -/
+theorem removal_remove_iff (observed : Observed) :
+    removal observed = .remove ↔ observed.place = .directory ∧ observed.sameLocation = true := by
+  obtain ⟨place, sameLocation⟩ := observed
+  cases place <;> cases sameLocation <;> simp [removal]
+
+/-- The driver has nothing to remove exactly when nothing is at the path. -/
+theorem removal_nothing_iff (observed : Observed) :
+    removal observed = .nothing ↔ observed.place = .absent := by
+  obtain ⟨place, sameLocation⟩ := observed
+  cases place <;> cases sameLocation <;> simp [removal]
+
+/-- What is at `path`, by a read that does not follow a symbolic link at `path` itself. -/
+def place (path : System.FilePath) : IO Place := do
+  match ← path.symlinkMetadata.toBaseIO with
+  | .ok metadata => return if metadata.type == .dir then .directory else .other
+  | .error (.noFileOrDirectory ..) => return .absent
+  | .error error => throw error
+
+/-- Remove the directory at `path`. A caller must give the proof that `removal` decided to remove
+it, so no call exists for a path that `removal` refused or found empty. -/
+def removeDecided (path : System.FilePath) (observed : Observed)
+    (_decided : removal observed = .remove) : IO Unit :=
+  IO.FS.removeDirAll path
+
+/-- Remove the directory at `path` when one is there at its own place, do nothing when nothing
+is there, and stop with nothing removed when a symbolic link or a file is there
+(`removal_remove_iff`). `path` must have no symbolic link at a component above its last one: its
+callers give a path below a real path. That no process changes the path between the observation
+and the removal is trusted. -/
+def removeOwn (path : System.FilePath) : IO Unit := do
+  let observed : Observed := {
+    place := ← place path
+    sameLocation := match ← (IO.FS.realPath path).toBaseIO with
+      | .ok real => real == path
+      | .error _ => false }
+  match decided : removal observed with
+  | .nothing => pure ()
+  | .remove => removeDecided path observed decided
+  | .refuse =>
+      throw <| IO.userError s!"nothing was removed: {path} is not a directory at its own place \
+        (a symbolic link or a file is there)"
+
+/-! ## The copy of the first acceptance step
+
+The first acceptance step makes its one build in a private copy of the project, and the
+acceptance gate audits that copy. The gate executable imports the claimed libraries, so those
+libraries are compiled before the gate can run, and a gate that made its own copy would compile
+them a second time. This driver is the only process of the step that runs before any project
+artifact exists, so it makes the copy.
+
+The copy is in a new scratch directory of the checker's scratch area, by the protocol of
+`Regula.Scratch`, which this module cannot import: an ownership marker beside the directory, and
+a shared lock on the area's lock file for as long as the copy is in use. So the build output of
+the copy holds only what the commands of this step made, the build reads files that no other
+process is given, and the step removes nothing of the checkout. The acceptance gate cannot
+observe that this driver made the copy new in this run; that statement rests on `makeCopy`. -/
+
+/-- Whether a path below the project root, given by its components from the root, is part of
+the copy. It is the rule by which the checker makes an isolated copy of a project
+(`Regula.Checker.copyProject`): VCS data, Lake's directory, artifact caches and the checker's old
+scratch directory are left out at every depth, and so is the root `tmp` directory. The two
+modules cannot import one another, so the rule is written twice. The copy is the project that the
+gate audits, whatever this rule copied, and a missing file fails the build. -/
+def walked : List String → Bool
+  | "tmp" :: _ => false
+  | relative => relative.all fun component =>
+      !([".git", ".lake", ".cache", ".regula-scratch"].contains component)
+
+/-- `walked` accepts exactly the paths that do not start with `tmp` and have none of the four
+left-out names as a component. -/
+theorem walked_iff (relative : List String) :
+    walked relative = true ↔ relative.head? ≠ some "tmp" ∧ ∀ component ∈ relative,
+      component ≠ ".git" ∧ component ≠ ".lake" ∧ component ≠ ".cache" ∧
+        component ≠ ".regula-scratch" := by
+  unfold walked
+  split
+  · simp
+  · next notTmp =>
+    have head : relative.head? ≠ some "tmp" := by
+      cases relative with
+      | nil => simp
+      | cons first rest =>
+        intro isTmp
+        simp only [List.head?_cons, Option.some.injEq] at isTmp
+        exact notTmp rest (isTmp ▸ rfl)
+    simp [head]
+
+/-- Copy each walked entry of the project at `root` (`walked`) to the same place below `target`.
+A file's bytes are copied; a symbolic link is followed, as `Regula.Checker.copyProject` follows
+it. Every write is below `target`. -/
+def copyTree (root target : System.FilePath) : IO Unit := do
+  let rootComponents := root.normalize.components
+  let included := fun (path : System.FilePath) =>
+    walked (path.normalize.components.drop rootComponents.length)
+  IO.FS.createDirAll target
+  for path in ← root.walkDir (fun path => pure (included path)) do
+    unless included path do continue
+    let destination := (path.normalize.components.drop rootComponents.length).foldl
+      (· / System.FilePath.mk ·) target
+    if ← path.isDir then IO.FS.createDirAll destination
+    else
+      if let some parent := destination.parent then IO.FS.createDirAll parent
+      IO.FS.writeBinFile destination (← IO.FS.readBinFile path)
+
+/-- The copy of the project that the first acceptance step builds and audits. -/
+structure Copy where
+  /-- The scratch directory that holds the copy, by its real path. -/
+  scratch : System.FilePath
+  /-- The ownership marker beside the scratch directory. -/
+  marker : System.FilePath
+  /-- The root of the copy: the directory `project` of the scratch directory. -/
+  project : System.FilePath
+  /-- The handle that holds the shared lock of the scratch area while the copy is in use. -/
+  lock : IO.FS.Handle
+
+/-- Make the copy of the project at the real path `root`: take the shared lock of the checker's
+scratch area, create the ownership marker of a new name exclusively, create the directory of
+that name, which must not exist, and copy the project into its directory `project`
+(`copyTree`). The order is the one of `Regula.Scratch.withScratch`, so the checker's reclamation
+removes the directory of a driver that died, and removes none while this driver holds the lock.
+The copy has no `.lake`, so it has no build output. -/
+def makeCopy (root : System.FilePath) : IO Copy := do
+  IO.FS.createDirAll (root / ".lake" / "regula-scratch")
+  let area ← IO.FS.realPath (root / ".lake" / "regula-scratch")
+  let lock ← IO.FS.Handle.mk (area / ".lock") .append
+  lock.lock (exclusive := false)
+  let random := (← IO.getRandomBytes 8).foldl (fun value byte => value * 256 + byte.toNat) 0
+  let name := s!"acceptance-{← IO.Process.getPID}-{← IO.monoNanosNow}-{random}"
+  let scratch := area / name
+  let marker := area / s!"{name}.owner"
+  unless (← place scratch) == .absent do
+    throw <| IO.userError s!"refusing to reuse scratch path {scratch}"
+  discard <| IO.FS.Handle.mk marker .writeNew
+  IO.FS.createDir scratch
+  let project := scratch / "project"
+  copyTree root project
+  return { scratch, marker, project, lock }
+
+/-- Give the build output of the copy to the project at `root`, when the project has none:
+rename the copy's `.lake/build` to the project's, only when nothing is at that place by a read
+that follows no link. A project with build output, or with anything else at that place, keeps
+it. The rename is in one file system, deletes nothing, and does not follow a link at its target.
+It returns whether it renamed. A rename that fails is reported and is no error of the step: the
+documentation step then builds what it needs. -/
+def Copy.adopt (copy : Copy) (root : System.FilePath) : BaseIO Bool := do
+  let made := copy.project / ".lake" / "build"
+  let target := root / ".lake" / "build"
+  let rename : IO Bool := do
+    unless (← place target) == .absent && (← place made) == .directory do return false
+    IO.FS.rename made target
+    return true
+  match ← rename.toBaseIO with
+  | .ok true =>
+      announce s!"the project had no build output: moved the copy's to {target}"
+      return true
+  | .ok false =>
+      announce s!"the build output at {target} stays as it is"
+      return false
+  | .error error =>
+      announce s!"could not move the copy's build output to {target}: {error}"
+      return false
+
+/-- Remove the copy: its scratch directory, then its marker, then the lock, in the order of
+`Regula.Scratch.withScratch`. The directory is removed only as `removeOwn` decides. A failure is
+reported and is no error of the step: the checker's reclamation removes the directory later. -/
+def Copy.remove (copy : Copy) : BaseIO Unit := do
+  let remove : IO Unit := do
+    removeOwn copy.scratch
+    IO.FS.removeFile copy.marker
+    copy.lock.unlock
+  if let .error error ← remove.toBaseIO then
+    announce s!"could not remove the copy {copy.scratch}: {error}"
 
 /-- The failure report: each command that did not end with exit status 0, with how it ended. -/
 def report (ends : List (Command × Option UInt32)) : String :=
   "\n".intercalate ("verification failed:" :: ends.filterMap fun (command, ended) =>
-    if passed [ended] [] then none else some s!"  {command.display}: {describe ended}")
+    if passed [ended] then none else some s!"  {command.display}: {describe ended}")
 
 private def usage : String :=
   "usage: scripts/verify.sh [docs | serialized-graph | site | mathlib | diagnostics \
@@ -607,21 +699,25 @@ theorem dependencyFree_packages (manifest : Lean.Json) (h : dependencyFree manif
 
 /-- Begin an attempt: invalidate the selected mode's earlier PASS or accepted link, and remove
 an earlier site artifact. `scripts/verify.sh` runs this toolchain-only step before provisioning
-and before any checker is built, so a failed setup or build cannot leave either in place. -/
+and before any checker is built, so a failed setup or build cannot leave either in place. The
+site artifact is removed only when a directory is at its own place (`removeOwn`): with a symbolic
+link at `_site` the attempt stops and removes nothing. -/
 def beginAttempt (args : List String) : IO Unit := do
   let some selection := select args | throw <| IO.userError usage
   for (path, text) in invalidated selection.val do
     IO.FS.createDirAll "tmp"
     IO.FS.writeFile path text
   if selection.val == .site then
-    if ← System.FilePath.pathExists siteOutput then IO.FS.removeDirAll siteOutput
+    removeOwn ((← IO.FS.realPath ".") / siteOutput)
 
 /-- Cold-start driver; all builds and checks stay within the inherited outer deadline. After the
-preliminary checks and the mode's `prebuild`, it schedules every command of the mode
-(`inOrder_append_beside`), starts one only while every end known so far passed, and waits for
-each one it started before it reports. It reports success, and first
-moves a record the mode promotes (`promoted`), only when `passed` accepts how every one of those
-commands ended (`passed_covers`). -/
+preliminary checks it runs the commands of the mode one after another, starts one only while
+every end known so far passed, and reports success, and first moves a record the mode promotes
+(`promoted`), only when `passed` accepts how every one of those commands ended
+(`passed_covers`). The first acceptance step makes its copy after the preliminary checks
+(`makeCopy`), runs its commands for that copy (`ordinary_places`), gives the copy's build output
+to a project that has none when the step passed (`Copy.adopt`), and removes the copy in each
+case (`Copy.remove`). -/
 def run (args : List String) : IO Unit := do
   let some selection := select args | throw <| IO.userError usage
   if selection.val == .ordinary then
@@ -630,16 +726,22 @@ def run (args : List String) : IO Unit := do
       throw <| IO.userError "lake-manifest.json records a dependency: the regula package must \
         require nothing beyond the Lean toolchain (a Mathlib-dependent module belongs in \
         integration/mathlib/)"
-  let early ← executeInOrder .normal []
-    ([({ program := "git", args := #["diff", "--check"] } : Command),
+  let early ← executeInOrder []
+    [({ program := "git", args := #["diff", "--check"] } : Command),
       { program := "git", args := #["diff", "--cached", "--check"] },
-      { program := "shellcheck", args := #["scripts/verify.sh", "scripts/provision.sh"] }] ++
-          prebuild selection.val)
-  let (others, gates) ←
-    executeBeside .normal early.statuses (beside selection.val) (inOrder selection.val)
-  let ordered := early.append others
-  unless passed ordered.statuses gates.statuses do
-    throw <| IO.userError (report (ordered.ends ++ gates.ends))
+      { program := "shellcheck", args := #["scripts/verify.sh", "scripts/provision.sh"] }]
+  let root ← IO.FS.realPath "."
+  let copy ← if selection.val == .ordinary && passed early.statuses then
+      some <$> makeCopy root
+    else pure none
+  let later ← executeInOrder early.statuses
+    (commands ((copy.map (·.project.toString)).getD ".") selection.val)
+  let all := early.append later
+  if let some copy := copy then
+    if passed all.statuses then discard <| copy.adopt root
+    copy.remove
+  unless passed all.statuses do
+    throw <| IO.userError (report all.ends)
   if let some (pending, accepted) := promoted selection.val then
     IO.FS.rename pending accepted
     announce s!"every command exited 0: moved {pending} to {accepted}"
@@ -660,10 +762,39 @@ def run (args : List String) : IO Unit := do
       and linted on its pinned Mathlib; separate from acceptance, which needs no Mathlib)"
     | _ => "diagnostic qualification: PASS (selected scope only; not ordinary verification)")
 
+/-- The private `--copy-control` entry, for the controls of the checker self-test, so that they
+qualify the copy, the lock and the marker of this driver and not a second implementation of
+them. It makes the copy of the project in the current directory as the first acceptance step
+makes it (`makeCopy`), prints the copy's root, and then obeys the lines of its standard input:
+`adopt` gives the copy's build output to the project when it has none (`Copy.adopt`) and prints
+`adopted` or `kept`; `remove` removes the copy (`Copy.remove`) and ends. At the end of the input
+it ends and leaves the copy with its marker, as a killed run leaves it. It runs no check and
+reports no verification result. -/
+def copyControl : IO Unit := do
+  let root ← IO.FS.realPath "."
+  let copy ← makeCopy root
+  let stdout ← IO.getStdout
+  stdout.putStrLn copy.project.toString
+  stdout.flush
+  let stdin ← IO.getStdin
+  repeat
+    let line ← stdin.getLine
+    if line.isEmpty then return
+    match line.trimAscii.toString with
+    | "adopt" =>
+        stdout.putStrLn (if ← copy.adopt root then "adopted" else "kept")
+        stdout.flush
+    | "remove" =>
+        copy.remove
+        return
+    | other => throw <| IO.userError s!"--copy-control: unknown line {other}"
+
 end RegulaVerification
 
 /-- Standalone cold-start entrypoint; invoke through the timed `scripts/verify.sh`, which
-first runs it with the private `--begin-attempt` protocol flag before setup. -/
+first runs it with the private `--begin-attempt` protocol flag before setup. The private
+`--copy-control` entry is for the controls of the checker self-test. -/
 def main : List String → IO Unit
   | "--begin-attempt" :: args => RegulaVerification.beginAttempt args
+  | ["--copy-control"] => RegulaVerification.copyControl
   | args => RegulaVerification.run args

@@ -127,10 +127,11 @@ or an INCOMPLETE diagnostic demonstration is not an audit-success certificate.
 
 | Route | Accepted value and remaining boundary |
 | --- | --- |
-| `AxiomGate.auditSurfaceAt` (fresh, `--incremental`, `--build-lint`) | `Acceptance.freeze` reconciles Lake modules, sources, configuration, dependencies, reports, replay inventories and origins; `Acceptance.finish` returns `AcceptedRun` with checked equality to `finalize` (`finalize_collection_error`, `finalize_of_collected`). Cached build artifacts never cache a policy decision, and build-lint has no second exit-code-only PASS branch. |
+| `AxiomGate.auditSurfaceAt` (fresh, `--driver-copy`, `--incremental`, `--build-lint`) | `Acceptance.freeze` reconciles Lake modules, sources, configuration, dependencies, reports, replay inventories and origins; `Acceptance.finish` returns `AcceptedRun` with checked equality to `finalize` (`finalize_collection_error`, `finalize_of_collected`). Cached build artifacts never cache a policy decision, and build-lint has no second exit-code-only PASS branch. |
 | `Lint.run` (`lake lint`) | The same project audit; exit 0 only through the claimed `Lint.classify` (`checked_classify`, `accepted_sound`): a zero audit exit and a recorded `completed` account of the requested mode. Exits 1, 2, 3 classify rejected, configuration-only and incomplete statuses; a missing or disagreeing status is 3. The audit's own exit code is the recorded `Lint.Observation`'s, or 3 when it recorded none or failed after recording a success (`gateExitCode`, `gateExitCode_some`, `gateExitCode_eq_zero`); an error escaping the audit discards any recorded result, so both sides are 3 (`AxiomGate.entry`). The driver reports the code the audit returned for its recorded result (`classify_gateExitCode`); the observation also decides the result status and the summary counts, each the number of findings of its impact (`Observation.status`, `Observation.tally`, `tally_eq`), and an incomplete finding exits 3 (`exitCode_incomplete`). Which findings a run records is operational. That the recorded observation is this invocation's audit is checked by inspection. `--explain-config` validates the manifest and Lake scope with the audit's own functions (`Manifest.loadFor`, `Acceptance.surfaceAssignments`, `AxiomGate.checkClassification`) and issues no audit certificate; it and `--help` are read-only, exit 2, refuse `--json-out` and `--verbose`, and first invalidate any recognizable `--json-out` destination. An error escaping `Lint.run` is exit 3, or 2 for a `manifest-` refusal, never 0 or 1. |
 | `AxiomGate.auditSurface --with-docs` | One process: the project plan and the documentation plan over the same snapshot and build, joined by `combineAccepted`; no evidence crosses a process boundary between the stages. The documentation stage runs inside the project's frozen-input guard (`withSourceEvidenceOr`): a source or configuration change during it is the project's [RG2005] refusal, which replaces the stage's result. |
 | `--acceptance-link PATH` (`axiomGate`, `docFenceAudit`) | `axiomGate` records the link for fresh project success only (no `--with-docs`): after `AcceptedRun`, the SHA-256 of the copy-relative accepted sources, configuration, dependency captures, `docs/` Markdown and, with `--verso`, the Verso library's inputs; `docFenceAudit` computes the same identity from its own fresh capture before building and refuses unless it is equal. `axiomGate` invalidates PATH before the audit starts and records the identity only after its outer configuration recheck passes, so any refusal leaves it incomplete. Equality establishes identical captured inputs; `shasum` and the filesystem are trusted. |
+| `--driver-copy DIR` (`axiomGate`, internal to `scripts/verify.sh`) | The gate audits the build output of `DIR` and makes no copy of its own. It admits `DIR` only by the facts that [the acceptance boundary](#the-acceptance-boundary) gives. The result names that origin, and the statement that the copy was new rests on the driver. |
 | `AxiomGate.auditFile` with a conforming profile | A `freshFile` plan and `AcceptedRun`; dependencies stay incremental. No profile or a compiler-trusting file without a finding is `CLASSIFIED` (exit 0); the file audit's other exits follow its recorded observation as a project audit's do. |
 | `Documentation.auditBuiltProject`, `DocFenceAudit.run` | Markdown (and Verso) bytes, fence spans and task identities frozen before compiling; `finishDocuments` calls `finalize`. A corpus with a structural problem has no request plan: it reports each located problem and is refused. Group observations retain every unit and authenticate roles against the whole reconciled inventory; policy selection is per original fence. With `--verso`, the fresh build and render of the standard, then `Regula.Site.missingAnchors_nil_iff` for the registry's and the docs' links into it and `rowsMismatch_eq_none_iff` for its checklist rows. Also with `--verso`, `Regula.Prose.htmlErrors_nil_iff` for the rule IDs in the prose of the rendered pages: each is a registered rule linked to its page, for the runs the HTML scanner extracts, which is operational. `Documentation.Sources.check` compares the documentation inventory and bytes before fence work and before `finishDocuments`; that terminal recheck (with `Snapshot.inputsUnchanged`) and the fence audit run in `BaseIO`, so a failure of either is rethrown only after the structural problems and the fence results obtained are reported. With `--verso`, `Sources.checkLinked` rechecks the linked inputs after the Verso build. |
 | `RuleExamples.documentation` | Keeps the documentation driver's accepted run. Canonical positive completion additionally requires a nonempty, all-positive fence inventory; negative and teaching expectations stay classified; failed and incomplete checks retain their own outcomes, and the receipt retains each actual fence classification. The qualifier separately applies `PositiveClassifications` to require a nonempty list with every fence positive, passing and complete before admitting a positive correction. The adapter verifies the original requested documents before emitting accepted metadata. |
@@ -173,13 +174,100 @@ refused. The claimed targets are built with the audit-build marker `weak.regula.
 modules last built with ordinary options are rebuilt for the audit and their replayed logs never
 enter its warning check.
 
-The command `./scripts/verify.sh` first builds `axiomGate` alone. The function
-`RegulaVerification.prebuild` gives that early build. Then the command operates `axiomGate
---acceptance-link tmp/acceptance-link.pending.json --verso website:RegulaStandard:regula-standard`
-at the same time as its complete build and its other required checks. The function `beside`
-gives the gate, and the function `inOrder` gives the other commands. The driver of that command,
-`lean/RegulaVerification.lean`, waits for each command that it started before it gives its
-result.
+The command `./scripts/verify.sh` makes one copy of the checkout, and its first step operates in
+that copy. The driver of that command, `lean/RegulaVerification.lean`, makes the copy before it
+starts a Lake command. The function `RegulaVerification.makeCopy` makes it. The copy is a new
+directory in `.lake/regula-scratch/` of the checkout.
+
+The copy has the files of the checkout, but not the directories `.git`, `.lake`, `.cache` and
+`.regula-scratch`, and not the root directory `tmp`. The theorem `walked_iff` gives that set of
+names. Thus the copy starts with no build output, and the first build in it compiles each
+module.
+
+The step has four commands in one sequence, which the function `RegulaVerification.commands`
+gives. The build, the registry checks and the qualification controls operate in the copy. The
+last command is the gate that the copy built. The driver starts it in the root of the checkout
+as `lake -d COPY exe axiomGate --acceptance-link tmp/acceptance-link.pending.json --verso
+website:RegulaStandard:regula-standard --driver-copy COPY`. The theorem `ordinary_places` gives
+the directory of each command.
+
+With `--driver-copy`, the gate audits the build output of that copy. It makes no copy of its
+own, and it does not compile the claimed libraries a second time. The gate keeps its own Lake
+builds, its check of the build output and its inspection of each declaration. In one local
+measurement, those builds compiled no module, and Lake gave the stored warnings again. That is
+the behavior of Lake, and no theorem shows it.
+
+The gate admits the directory of `--driver-copy` only by facts that it can read. The function
+`AxiomGate.driverCopy` reads them:
+
+- The directory is the directory `project` of a scratch directory of the checkout
+  (`ScratchCopy.checked_name?`).
+- That scratch directory has its ownership marker, and the marker is a regular file.
+- The executable of the gate is in the build directory that Lake gives for the copy
+  (`ScratchCopy.checked_inside`).
+
+The gate refuses each other directory. It also refuses the option together with
+`--incremental`, `--with-docs`, `--project` or a file. Thus only the fresh audit of the current
+project can use a copy of the driver.
+
+One statement stays trusted: the driver made the copy new in this run. The gate cannot read
+that fact. A directory that a person made with the same name, the marker and a build of the gate
+passes the three checks. Thus the result names the origin of its build output. It does not give
+that statement as a result of the gate.
+
+The origin is a value of the type `AxiomGate.Origin`. It is the copy of the gate, the copy of
+the driver or the incremental build. The theorem `Origin.mode_fresh_iff` proves that the gate
+reports the fresh mode only for the first two. Each of those two holds a value of the type
+`Copied`. The constructor of that type is private to the module of the gate, and there only
+`isolatedCopy` and `driverCopy` use it. That use is read from the code.
+
+In the JSON result, `scope.buildOrigin` is `isolatedCopy`, `driverCopy` or `incrementalBuild`.
+For a copy of the driver, the success line also says that the statement rests on the driver.
+The pending record has the same word in its field `origin`.
+
+The gate with no such option makes its isolated copy as before. So do the `lint` driver, the
+fence audit and the gates of `audit/` and `integration/mathlib/`.
+
+The driver cannot import the checker before the build. Thus it has its own code for the protocol
+of `Regula.Scratch`. It holds a shared lock on the file `.lock` of the scratch area, then makes
+the ownership marker, and then makes the directory. The checker removes a marked directory only
+when it gets the exclusive lock. Thus a different run of the checker does not remove a live
+copy.
+
+That code is a second implementation of the protocol, and no theorem relates the two. A control
+of the checker self-test operates the driver itself with its private entry `--copy-control`. It
+shows that a scratch user of the checker keeps the copy of a live driver. It also shows that the
+next scratch user removes the copy of a killed driver.
+
+After the commands of an accepted step, the driver gives the build output of the copy to the
+checkout if the checkout has none. The function `Copy.adopt` reads the place `.lake/build` of
+the checkout and does not follow a link there. If nothing is at that place, it renames the build
+directory of the copy to that place. If something is there, it changes nothing.
+
+An entry can come to that place after the read. The `rename` call of the operating system does
+not follow a link at its target. It does not replace a directory that has an entry. That
+behavior is trusted. A rename that fails does not make the step fail. The driver reports it, and
+the documentation step then builds what it uses.
+
+In one local measurement, Lake compiled no Lean module again after that rename. The driver then
+removes the copy. It also removes the copy after a step that failed.
+
+The driver removes a directory only by one decision, `RegulaVerification.removal`. The decision
+uses a read of the place that follows no link. It also uses a comparison of the real path of the
+place with the place itself. The driver removes the place only if a directory is there at its
+own place (`removal_remove_iff`). The theorem `checked_removal` is the decision contract of that
+function.
+
+The driver uses that decision for its copy and for the directory `_site` of the site mode.
+Before this decision, the site mode removed `_site` with no such read. With a link at `_site`,
+it deleted the content of the target of the link
+([issue 260](https://github.com/rbeauchamp/regula/issues/260)). At this time, the site mode
+stops there and removes nothing.
+
+One case stays outside that decision. A process can replace an entry in the directory with a
+link during the removal. `IO.FS.removeDirAll` examines an entry and then opens it by its path.
+Thus it can then remove the entries of a different directory. The checker removes its own
+scratch directories with the same function.
 
 The driver moves the pending record to `tmp/acceptance-link.json` only if
 `RegulaVerification.passed` accepts the exit status of each command. The function `promoted`
@@ -188,12 +276,6 @@ line. The command `./scripts/verify.sh docs` operates `docFenceAudit --acceptanc
 tmp/acceptance-link.json` with the same `--verso` argument for each `docs/` fence and each `lean`
 block of the standard.
 
-The driver starts the gate at its own priority. It starts the complete build and the other
-required checks at low priority (`RegulaVerification.Priority`). For such a command, the driver
-starts `nice -n 19` with the program and the arguments of the command, as the function
-`Command.launch` gives them. Thus each command has the same program and the same arguments as
-before. The behavior of `nice` and the scheduler of the operating system are trusted.
-
 Thus an accepted record at `tmp/acceptance-link.json` shows that the gate accepted. It also shows
 that each other command of the first step ended with exit status 0. If an attempt fails or is
 killed before the move, the record at that path stays incomplete. It is the incomplete record
@@ -201,122 +283,48 @@ that the begin-attempt of the step wrote. The shell's zero exit records complete
 those commands, not a separate Lean proof.
 
 The result of the driver is one decision. The driver keeps an entry for each command, and the
-preliminary checks and the early build are included. An entry has the exit status of its
-command, if the driver got one. The driver gets no exit status for a command that it did not
-operate, could not start or could not wait for.
+preliminary checks are included. An entry has the exit status of its command, if the driver got
+one. The driver gets no exit status for a command that it did not operate, could not start or
+could not wait for.
 
-The entries of the commands that operate in sequence are one side. The entries of the commands
-of `beside`, which operate at the same time as them, are the second side. The function `passed`
-accepts the entries of the two sides if, and only if, each entry has exit status 0
+The function `passed` accepts the entries if, and only if, each entry has exit status 0
 (`passed_iff`). The theorem `checked_passed` is the decision contract of that function. The
 driver uses that function before it operates one more command, before the success line and
 before the move.
 
-By its type (`Ends`), a side has one entry for each of its commands. Thus the theorem
-`passed_covers` proves that an accepted result has an entry with exit status 0 for each command
-of the two sides. The theorem `inOrder_append_beside` proves that `inOrder` and `beside` together
-are the commands of the step, each one time and in the same sequence. Lean does not prove that
-the exit status of an entry is the exit status of the process. The process runtime is trusted
-for that relation.
+By its type (`Ends`), a result has one entry for each of its commands. Thus the theorem
+`passed_covers` proves that an accepted result has an entry with exit status 0 for each command.
+Lean does not prove that the exit status of an entry is the exit status of the process. The
+process runtime is trusted for that relation.
 
 From the start of a command until the driver waits for it, the driver operates only `BaseIO`
 actions. A `BaseIO` action has no exception. Thus no failure can stop the driver before it waits
-for that command. This includes the failure of a different command and the failure to write a
-progress line.
+for that command. This includes the failure to write a progress line.
 
-The driver does not kill a command that it started, because that does not stop the processes
-that the command started. The driver waits for each command that it started. Thus, if a command
-fails while the gate operates, the driver gives its failure report only after the gate stops.
-The kill signal of the outer deadline still goes to each process.
+An earlier schedule operated the gate at the same time as the build and the other checks
+([pull request 252](https://github.com/rbeauchamp/regula/pull/252)). That schedule was a
+stopgap, and this sequence replaces it. The gate of this sequence audits the build output that
+the first command makes. Thus it cannot start before that build ends. The driver starts no
+command at low priority, and one Lake process operates at a time.
 
-That schedule changes the cost of the first step, but not its results. The theorem
-`prebuild_builds` proves that the function `buildTargets` gives a minimum of one target for each
-early build. That function gives targets only for a `lake build` command in the root of the
-repository. The theorem `prebuild_named` proves that each target of an early build is also a
-target of a build among the commands of the step. The complete build then builds each target
-that is missing. That is the behavior of Lake, and no theorem shows it.
+This sequence removes work from the step. Before it, the step built the claimed libraries in
+the checkout, and the gate built them again in its own copy. That second build took 55 s to 76 s
+in the hosted runs of the sequential schedule on the same tree. That is approximately 18 percent
+of the step.
 
-Lean does not prove the next relation, which is read from the code. While the gate operates, it
-reads nothing that the other commands of the step write:
-
-- The gate audits an isolated copy that has its own build output.
-- The complete build writes only modules that are not in the import closure of the gate
-  executable.
-- The early build made the modules of that import closure current.
-
-The gate keeps its repeated checks of its sources, its configuration and its frozen artifacts.
-Thus interference that those checks can find causes a refusal and not an acceptance.
-
-Two Lake processes then use the build directory of the repository at the same time. The theorem
-`beside_prebuilt` proves that each command of `beside` is a `lake exe` command in the root of the
-repository. It also proves that an early build names the executable of that command. The driver
-starts such a command only after each early build ended with exit status 0, which is read from
-the function `run`. No theorem shows that the Lake process of that command then builds nothing.
-The behavior of Lake with two processes in one build directory is trusted.
-
-After the early build, the first step has two chains of commands. The first chain is the gate.
-The second chain is the complete build, the registry checks and the qualification controls. The
-step ends when the two chains are complete. The schedule removes no work. Thus it decreases the
-time of the step only if a processor was idle in the sequential schedule.
-
-With equal priority, the operating system divides the processors between the two chains. Four
-pairs of local runs showed the result of that division
-([evidence notes](../../.agents/skills/lean-ci/references/evidence.md)). The gate started
-earlier, and it took longer by approximately the same time. Thus the time of the step did not
-decrease on that machine.
-
-The low priority of the second chain has this purpose: the gate must not become slower. The
-statement that follows is an argument and not a measurement. It uses three assumptions. The
-first assumption is that the operating system gives the gate each processor that the gate can
-use. The second assumption is that memory is not the limit. The third assumption is that no
-other work at normal priority uses the machine.
-
-If the first two assumptions are correct, the gate takes the time that it takes alone. The
-second chain then uses only the processors that the gate leaves idle. If the third assumption is
-also correct, the low priority does not make the second chain slower after the gate ends. Thus
-the time of the step is not more than the time of the same commands in sequence, plus the time
-to start the processes. That sequence is the early build, the gate and then the second chain.
-The time of the step is less than that sum if, and only if, the gate leaves a processor idle for
-the second chain.
-
-Equal priority gives no such limit, because the second chain can then make the gate slower. Low
-priority gives no such limit on a machine that other work at normal priority fills. A command
-keeps its low priority until it ends, and the driver starts each command of the second chain at
-low priority. Thus the second chain can get only a small quantity of processor time on that
-machine, also after the gate ended. The time of the step can then be more than in the sequential
-schedule. The hosted runner has no other load.
-
-These limits apply to that argument. The first assumption was not fully correct in the runs that
-measured it. In one local pair and in two hosted runs with low priority, the gate was slower than
-alone ([evidence notes](../../.agents/skills/lean-ci/references/evidence.md)). The sequence of
-the argument has two builds, but the earlier schedule had one complete build. The time that this
-division of the build adds is not measured.
-
-The facts that follow are about one hosted run of the sequential schedule (CI run 37513374192,
-four processors). Lake logs the elapsed time of each job and not its processor time. By those
-logged durations, the isolated build of the gate ended with one or two jobs in progress. The
-declaration inspection of the gate has three worker slots, which is read from the code. An
-estimate from those facts gave a gain of 65 s to 90 s for that run.
-
-Two hosted runs of the schedule refute that estimate. They measured a gain of approximately
-8 percent of the first step, which is approximately 30 s. The sample is two runs for each
-schedule. One sequential run of an earlier tree had the same relative time of the first step as
-the schedule. Thus the gain is a measurement on that sample and is not established.
-
-The two hosted runs of the schedule measured a tree with the base `4e9a1fd8`. Thus their figures
-do not show the time or the margin of the step on a later base. The
-[evidence notes](../../.agents/skills/lean-ci/references/evidence.md) give the runs, the method
-and a possible cause.
+The [evidence notes](../../.agents/skills/lean-ci/references/evidence.md) give those runs and
+the calculation of the time of this sequence. They also give the criterion for the hosted
+result, which was set before a hosted run of this sequence.
 
 The driver writes each line that starts with `verification:`. It writes such a line at the start
-of each command. For a command that starts at low priority, that line has the words `at low
-priority`. It writes a second line when the command ends or, for the gate, after it waited for
-the gate. The output lines of commands that operate at the same time are mixed. The other
-`verification:` lines are for these events:
+of each command and a second line when the command ends. For a command that operates in the
+copy, the line gives the directory of the copy. The other `verification:` lines are for these
+events:
 
 - The driver could not start a command.
 - The driver could not wait for a command.
-- A command failed, and the driver waits for the gate.
+- The driver moved the build output of the copy, or it left the build output of the checkout.
+- The driver could not remove the copy.
 - The driver moved the pending record.
 
 Source capture keeps each prefix for failure reporting; a prefix is not a completed inventory. A
@@ -719,7 +727,11 @@ Two-way decisions (`Regula.Decides`), each with an accepted and a refused input:
 | `FieldPacking.covers` | `FieldPacking.Covers`: one constructor, no index, and the arguments are the fields, each once and in order (`FieldPacking.covers_iff`) | Whether a decision registration's statement applies its implementation to every argument ([RG1007]). It accepts a type with one constructor, no index and two fields given in order, and refuses a type with one constructor, one index and its one field given. The collector's reading of those numbers from Lean's declarations is not part of this kind. |
 | `DecidedFunction.covers` | `DecidedFunction.Covers`: a field application covers (`FieldPacking.Covers`), and the number of arguments that a result takes is zero (`DecidedFunction.covers_iff`) | Whether a decision registration's statement is about its implementation on every argument ([RG1007]). It accepts the function itself when no result takes an argument, and refuses it when a result takes one more, which is a kind about a partially applied function. The collector's reading of that number from the kind's result type is not part of this kind. |
 | `Regula.Website.admitExampleRequest`, `admitExampleSources`, `admitDemonstration` (accept on `.ok`) | The observed request is the frozen one; `ExampleSourcesOK`; `DemonstrationOK` | Admission of a rule-example producer's request, sources and diagnostic demonstration. Each returns the admitted value with its proof, so each result type depends on the arguments. The first and the third are decided on the pair of their two arguments, and the second on the structure of its three (`ExampleSourcesInput`). |
-| `RegulaVerification.passed` | Each command of the two sides of a step ended with exit status 0 (`passed_iff`). One side has the commands that operate in sequence, and the second side has the commands that operate at the same time as them. | The driver of `scripts/verify.sh` uses it before it operates one more command, before its success line and before it moves the acceptance record. |
+| `RegulaVerification.passed` | Each command of a step ended with exit status 0 (`passed_iff`). | The driver of `scripts/verify.sh` uses it before it operates one more command, before its success line and before it moves the acceptance record. |
+| `RegulaVerification.walked` | The path does not start with `tmp`, and no component of it is `.git`, `.lake`, `.cache` or `.regula-scratch` (`walked_iff`). | The files that the driver copies for the first acceptance step. No theorem relates it to the rule of the isolated copy of the checker. |
+| `RegulaVerification.removal` (accepts on `.remove`) | A directory is at the place by a read that follows no link, and its real path is the place (`removal_remove_iff`). | The driver removes its copy and the `_site` directory only by this decision. The two reads of the file system are trusted. |
+| `ScratchCopy.name?` (accepts on `some`) | The path is the scratch area, then one name, then `project` (`name?_eq_some_iff`). | The gate admits a copy of the driver only at such a path. The components come from real paths, which the file system gives. |
+| `ScratchCopy.inside` | The path is the directory with one or more components after it (`inside_iff`). | The gate requires its own executable in the build directory of a copy of the driver. |
 
 Sound only, each a declared choice:
 
@@ -755,9 +767,9 @@ Decisions with no kind, and what stands instead:
 ### Decisions not registered with `regula_decision`
 
 Every decision of the three tables with a kind is registered with `@[regula_decision]`, so
-[RG1008] requires its contract: 52 functions of `RegulaPolicy`, 26 of `RegulaCore`, 9 of
-`RegulaQualification`, 3 of `AuditApp`, 8 of `RegulaProvision`, 4 of `RegulaVerification` and 14 of the excluded `Regula` library, where the
-`self-audit` diagnostic decides the rule. Fourteen of them are registered from another module of
+[RG1008] requires its contract: 52 functions of `RegulaPolicy`, 28 of `RegulaCore`, 9 of
+`RegulaQualification`, 3 of `AuditApp`, 8 of `RegulaProvision`, 6 of `RegulaVerification` and 14 of the excluded `Regula` library, where the
+`self-audit` diagnostic decides the rule. Sixteen of them are registered from another module of
 their library, with
 `attribute [regula_decision]` beside their contracts, because the module that declares them
 imports only the toolchain:
@@ -769,7 +781,8 @@ imports only the toolchain:
   a second module that imports the program with `Regula.Contract` and `Regula.Decision`, and that
   no program imports: `RegulaProvision.Decisions` registers `component?`, `admits`, `mathlibStep`, `cloneStep`, `found`, `prunes`, `retires` and
   `mathlibApplies`;
-  `RegulaVerification.Decisions` registers `parseMode`, `dependencyFree`, `select` and `passed`.
+  `RegulaVerification.Decisions` registers `parseMode`, `dependencyFree`, `select`, `passed`,
+  `walked` and `removal`.
   Each kind restates a theorem the program proves about the same definition, except that of
   `component?` (`checked_component`).
 
@@ -2849,7 +2862,7 @@ structural selection, the other checker executables its baseline names (none for
 shard) in one Lake invocation
 (`RegulaVerification.commands`), so the gate's own modules compile beside the self-test's last
 ones instead of after its link; that command selects nothing, and the baseline build still
-names and builds its targets. The frozen-artifact, library cycle and manifest
+names and builds its targets. The frozen-artifact, library cycle, driver copy and manifest
 controls run in the structural clusters' queue, so no more of them run at once than the queue
 has workers.
 
@@ -2860,7 +2873,7 @@ shard where the partition lists it, and a shard runs the controls that carry it 
 so each control runs in exactly one shard. Both shards list the same controls because they run
 the same sources, which no theorem states. The structural shards are the mutation clusters
 `self-hosted` and `self-hosted-positive` with the frozen-artifact controls, and `a`, `b`, `c`
-and `d` with the library cycle and manifest controls; the execution shards hold one
+and `d` with the library cycle, driver copy and manifest controls; the execution shards hold one
 correspondence cluster each and alternate compiler-path cases. A shard's PASS names the
 controls it ran and is not the partition's.
 
@@ -2929,17 +2942,17 @@ execution, and calling a proved oracle does not prove the driver or its IO effec
   accepts has an empty `packages` array. `RegulaVerification.Decisions` registers the kinds of
   the driver's decisions ([above](#decisions-not-registered-with-regula_decision)). Process
   execution remains IO.
-- The theorem `RegulaVerification.inOrder_append_beside` proves that `inOrder` and `beside`
-  together are the selected recipe, each command one time.
-- The theorem `RegulaVerification.prebuild_builds` proves that `buildTargets` gives a minimum of
-  one target for each command of `prebuild`. The theorem `prebuild_named` proves that each of
-  those targets is also a target of a build of the selected recipe.
-- The theorem `RegulaVerification.beside_prebuilt` proves that each command of `beside` is a
-  `lake exe` command in the root of the repository. It also proves that a command of `prebuild`
-  names the executable of that command.
+- The theorem `RegulaVerification.ordinary_places` gives the directory of each command of the
+  first step. Three commands operate in the copy, and the gate starts in the root of the
+  checkout.
+- The theorems `walked_iff`, `removal_remove_iff` and `removal_nothing_iff` of
+  `RegulaVerification` state the decisions of the copy and of the removal. The theorems
+  `ScratchCopy.name?_eq_some_iff` and `ScratchCopy.inside_iff` state the two decisions with which
+  the gate admits a copy of the driver. The reads of the file system that give their arguments
+  are trusted.
 - The theorems `RegulaVerification.passed_iff` and `passed_covers` are about the function
-  `passed`. If `passed` accepts the entries of two groups of commands, each command of each group
-  has an entry with exit status 0. The driver reports success only after `passed` accepts. That
+  `passed`. If `passed` accepts the entries of the commands of a step, each command has an entry
+  with exit status 0. The driver reports success only after `passed` accepts. That
   caller is read from the code and is not proved.
 
 ## Operational assumptions

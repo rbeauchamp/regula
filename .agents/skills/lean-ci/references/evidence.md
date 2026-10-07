@@ -109,9 +109,9 @@ when other work operates at the same time. If the two assumptions are correct, a
 of the step on that runner was thus approximately 300 s. No measurement shows that the two
 assumptions are correct.
 
-At this time, the driver builds the gate first. Then it operates the gate at the same time as
-the complete build and the other checks
-([proofs and boundaries](../../../../docs/guides/proofs-and-boundaries.md#the-acceptance-boundary)).
+After that change, the driver built the gate first. Then it operated the gate at the same time
+as the complete build and the other checks. A later change removed that schedule
+([one build for the first acceptance step](#regula-one-build-for-the-first-acceptance-step-2026-10-07)).
 
 In one local probe (14 processors, two threads for each side), the second build compiled 106
 jobs. None of those jobs was a module that the gate imports. The gate recorded the same input
@@ -224,6 +224,63 @@ the gate. On that path, the line that reported the failure of a different comman
 exception before the driver waited for the gate. At this time, the orchestration of the driver
 is a `BaseIO` action. One pure decision with a registered decision contract
 (`RegulaVerification.passed`) gives the result from the end of each command.
+
+## Regula: one build for the first acceptance step (2026-10-07)
+
+The first acceptance step built the claimed libraries two times. The root build compiled them
+in the checkout, and the gate compiled them again in its isolated copy. Five hosted runs
+measured the tree of 71 owned modules with the sequential schedule (CI runs 37590092134,
+37566600166, 37566370794, 37558661121 and 37560297066). In the first four runs, the first step
+took 309 s, 318 s, 410 s and 420 s. The deadline killed the fifth run at 425 s.
+
+In those runs, the build in the copy of the gate took 55 s to 76 s. That is 17.7 to 17.8 percent
+of the step in each run. The root build was 41 to 44 percent, and the inspection was 26 to
+27 percent. Thus the difference between the runs is the speed of the runner.
+
+At this time, the driver makes one copy of the checkout, and the complete step operates in it
+([proofs and boundaries](../../../../docs/guides/proofs-and-boundaries.md#the-acceptance-boundary)).
+The gate audits the build output of that copy and makes no copy of its own. The schedule of
+pull request 252 was a stopgap, and the driver has one sequence of commands again. The gate
+cannot start before the build of the copy ends, because it audits that build output.
+
+The figures of that stopgap are these. Its two hosted runs took 351 s and 386 s, with ratios of
+1.58 and 1.59 to the documentation step. That is 5 to 8 percent less than the sequential runs.
+For the slowest runner observed, that gives 387 s to 400 s by calculation, which is a margin of
+20 s to 33 s.
+
+The calculation for this sequence uses the killed run 37560297066 as the slowest runner
+observed. It removes the second build of the claimed libraries, which took 76 s in that run. It
+adds the 17 jobs that only the copy of the gate compiled. It also adds two Lake processes of
+the gate that compile nothing. The result is 352 s to 365 s under the 420-second deadline,
+which is a margin of 55 s to 68 s. That result is a prediction and not a measurement.
+
+One sequence with two chains was also possible. An estimate for it is 328 s to 341 s on the same
+runner. That estimate uses the gain of the two hosted runs of the stopgap for the work that
+overlaps, which is 12 percent. A second Lake process then writes the build directory that the
+gate inspects. Thus the change does not use two chains.
+
+A local measurement with two threads gave these times. The copy took 0.15 s, and the build took
+106 s. The registry checks took 2 s, the qualification controls took 20 s, and the gate took
+67 s. The copy had 488 files of 6.7 MB.
+
+In that measurement, the Lake builds of the gate compiled no job. After the
+rename of the build output to a checkout that had none, the documentation step passed. It
+compiled only the five C files of the Markdown checker, as a hosted run of `main` does.
+
+The criterion for the hosted result was set before a hosted run of this sequence. The
+documentation step does not change, and thus it measures the runner. The ratio of the first
+step to the documentation step was 1.60 to 1.67 in the four complete sequential runs. The
+prediction for this sequence is 1.34 to 1.45. Two hosted runs with a ratio of 1.47 or less
+confirm the prediction. A ratio of 1.55 or more refutes it.
+
+These notes record no hosted run of this sequence at this time. Thus the margin is not
+established.
+
+Two reviews of an earlier design found nine defects. That design built in the checkout from
+empty build output and recorded that fact for the gate. Each defect was in a comparison of two
+observations at two times, and each correction added one more such comparison. The design with
+the copy has no such comparison of the audited inputs. The gate reads the copy that the driver
+built, and the result names the one statement that the gate cannot read.
 
 ## Regula: Veil scout for the corpus harness (2026-09-23)
 

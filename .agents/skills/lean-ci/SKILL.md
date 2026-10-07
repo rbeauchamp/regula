@@ -127,6 +127,10 @@ faster sample.
 - The change removes no work. Thus it decreases the time only if processors were idle before
   the change. Do a measurement of the gain on the hosted runner. A different machine does not
   show the hosted gain.
+- Before a change of the schedule, look for work that the sequence does two times. If a
+  consumer builds in its own copy what the sequence built before, make one copy for the complete
+  sequence. The consumer then audits that copy and names the origin of its build output in its
+  result ([evidence notes](references/evidence.md)).
 - The speed of a hosted runner changes from run to run. To compare two schedules, use a step of
   the same job that did not change. Divide the time of the changed step by the time of that
   step. Give the number of runs and the range of that ratio for one tree. A gain that is not

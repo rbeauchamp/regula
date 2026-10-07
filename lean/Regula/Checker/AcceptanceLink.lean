@@ -79,13 +79,18 @@ structure Pending where
   digest : String
   /-- The run's account, whose accepted jobs `record` writes beside the digest. -/
   account : Account
+  /-- Where the build output that the run inspected came from: `isolatedCopy` for a copy the
+  audit made, `driverCopy` for a copy that the verification driver made
+  (`AxiomGate.Origin.spelling`). -/
+  origin : String
 
 /-- Written only after accepted ordinary success. It cannot be called without a `Pending`, whose
 `Account` is a projection of some `AcceptedRun`; that it is this run's account, and that
 `digest` matches it, is the caller's binding. -/
 def record (path : FilePath) (pending : Pending) : IO Unit :=
   writeJson path (Json.mkObj [("schemaVersion", toJson (1 : Nat)), ("status", .str "accepted"),
-      ("identity", .str pending.digest), ("acceptedJobs", toJson pending.account.val.jobs)])
+      ("identity", .str pending.digest), ("acceptedJobs", toJson pending.account.val.jobs),
+      ("origin", .str pending.origin)])
 
 /-- Refuse unless ordinary acceptance recorded an accepted success over equal inputs.
 The `status: accepted` record lives in a writable `tmp/` file and is trusted as written

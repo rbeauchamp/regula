@@ -444,6 +444,8 @@ metadata, not authenticated binary identity.
   the environments and roots that reach it; project scope also keeps its source snapshots, Lake
   library inventory and completed stage names. File scope keeps its nullable foundation claim,
   execution claim and exact source even without findings.
+- **Build origin:** In `axiomGate` project results, `scope.buildOrigin` names the origin of the
+  build output. It is `isolatedCopy`, `driverCopy` or `incrementalBuild`.
 - **Acceptance account:** a completed result's `acceptance.account` renders the report account:
   `coverage` (only `freshWholeProject` is whole-project acceptance), `checked` (the theorem
   `RegulaPolicy.accept_iff` and the job count), `contracts` (each [RG1007] registration with its

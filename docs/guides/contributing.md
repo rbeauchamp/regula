@@ -64,11 +64,17 @@ that limit, under its own 30-minute limit; it validates the released compiler an
 provisioning the pinned Verso artifacts.
 
 Ordinary acceptance puts the accepted record at `tmp/acceptance-link.json` only after each of
-its commands ended with exit status 0. It builds `axiomGate` first. Then it operates that gate at
-the same time as the remaining part of its build and the qualification controls. It starts those
-other commands with `nice` at low priority, so that the gate gets a processor first.
+its commands ended with exit status 0. Its driver first makes one copy of the checkout in
+`.lake/regula-scratch/`. The build, the registry checks and the qualification controls operate
+in that copy. Then the gate that the copy built audits the build output of the copy. Thus the
+step builds the claimed libraries one time.
 
-Thus the output lines of those commands are mixed. Each line that starts with `verification:` is
+If the checkout has no build output, the driver then moves the build output of the copy to
+`.lake/build` of the checkout. If the checkout has build output, the driver does not change it.
+The driver removes the copy at the end of the step. A killed step leaves its copy, and the next
+run of the checker removes it.
+
+Each line that starts with `verification:` is
 a progress line of the driver of `./scripts/verify.sh`. Such a line gives the start of a command,
 the end of a command, or a different event of the driver
 ([proofs and boundaries](proofs-and-boundaries.md#the-acceptance-boundary)).
