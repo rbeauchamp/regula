@@ -670,7 +670,7 @@ def descriptor : (id : RuleId) → RuleDescriptor id
           test: it accepts exactly zero, with zero as the accepted input and one as the refused \
           input." } }
   | .sharedTest => {
-      lifecycle := .active .unreleased
+      lifecycle := .active (.release ⟨0, 10, 0⟩)
       title := "Decision specifications share no Boolean test with the implementation"
       category := .execution
       normativeClauses := [.enforcingBuildLinter, .proofCompleteness]

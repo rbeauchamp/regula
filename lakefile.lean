@@ -41,7 +41,7 @@ package «regula» where
   -- changes and CI checks against `Regula.releases` (docs/guides/contributing.md#release). Each
   -- release is tagged `v<version>`. The first release, tagged `v4.34.0` for its Lean release,
   -- declares no version, which Lake reads as this `0.0.0`.
-  version := v!"0.9.0"
+  version := v!"0.10.0"
   -- Reservoir (https://reservoir.lean-lang.org) lists these, and each release tag with the version
   -- its lakefile declares.
   description := "A strict linter for Lean: no holes, no hidden axioms, no unstated trust, and a \
