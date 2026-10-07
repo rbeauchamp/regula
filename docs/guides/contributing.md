@@ -53,7 +53,7 @@ registry and native qualification controls (`qualify combined`, which runs those
 `qualify registry` and then `qualify native`). It refuses a root
 lock manifest that records any dependency. It records the content
 identity of the inputs it accepted in `tmp/acceptance-link.json`. `./scripts/verify.sh docs`
-then refuses a rule ID in the prose of a tracked Markdown document that is not a link to its rule page ([rule IDs in documentation](#rule-ids-in-documentation)), audits the `audit/` package's claimed surface from fresh output, checks every Lean example
+then refuses a rule ID in the prose of a tracked Markdown document that is not a link to its rule page ([rule IDs in documentation](#rule-ids-in-documentation)), refuses a link of the root `README.md` to the rule-reference site that is not a stable address ([links of the root README](#links-of-the-root-readme)), audits the `audit/` package's claimed surface from fresh output, checks every Lean example
 under `docs/` and in the Verso standard (each elaborated in the Verso package's workspace, which
 requires both packages), builds and renders the standard fresh, refuses such a rule ID in the prose of the rendered standard, and refuses unless its own freshly captured inputs have the same identity. That command also operates the controls of the [checks of the prose](#the-prose-of-markdown-documents) and of the [check of the vocabulary](#the-vocabulary-of-the-project), and then does those checks. `DOC-*` rows need both commands. The
 declaration gate performs Lake-semantic discovery and a clean, warning-free build before
@@ -425,7 +425,8 @@ Markdown document, from a CommonMark parser's reading of it
 
 | Document | The link |
 | --- | --- |
-| Every Markdown document the repository tracks | The development page, `https://rbeauchamp.github.io/regula/dev/rules/<ID>/` (`Edition.url`, which a finding's rule link also uses), optionally with a fragment. Write `[RG2003]` and define `[RG2003]: https://rbeauchamp.github.io/regula/dev/rules/RG2003/` once at the end of the document, after a blank line; an inline link is accepted too. The agent skill, `.agents/skills/regula/SKILL.md`, is generated with every rule ID it names already such a link (`Regula.Guidance.citation`); regenerate it with `lake exe regula skill` and never edit it. |
+| Each Markdown document that the repository tracks, but not the root `README.md` | The development page, `https://rbeauchamp.github.io/regula/dev/rules/<ID>/` (`Edition.url`, which a finding's rule link also uses), optionally with a fragment. Write `[RG2003]` and define `[RG2003]: https://rbeauchamp.github.io/regula/dev/rules/RG2003/` once at the end of the document, after a blank line; an inline link is accepted too. The agent skill, `.agents/skills/regula/SKILL.md`, is generated with every rule ID it names already such a link (`Regula.Guidance.citation`); regenerate it with `lake exe regula skill` and never edit it. |
+| The root `README.md` | The stable address `https://rbeauchamp.github.io/regula/rules/<ID>/` with no fragment, for a rule that is in a release (`Regula.Markdown.target`, `released_iff`). The check accepts this address only in a document of the list `Regula.Markdown.stableDocuments`, and that list has only this file. The site build examines the addresses of the documents of the same list ([links of the root README](#links-of-the-root-readme)). |
 | A rendered page of the standard or of the rule-reference site | The rule's page in the same edition: its route `rules/<ID>/` (`RuleId.route`) relative to the edition root. In the standard write `{rule}[RG2003]`, which refuses an unregistered ID; generated pages link the IDs of registry and explanation prose themselves (`Prose.linkVerso`, `ruleLink`), and generator text names a rule with `Prose.relativeCitation`. |
 
 In a rendered page, prose is the text outside the `code`, `pre`, `script` and `style` elements and
@@ -459,8 +460,11 @@ prose, and `RegulaPolicy.Intent`, which finds the heading lines of a docstring.
 
 - Prose is every text md4c reports outside code spans and code blocks: paragraphs, headings,
   list items, block quotes, table cells, emphasis, link text and image descriptions. A rule ID
-  there must be a registered rule inside one link to its development page, written inline or as
-  a reference to a link reference definition; a reference without a definition is prose.
+  there must be a registered rule inside one link to a page of that rule. That page is its
+  development page. In the root `README.md` only, that page can also be the stable address of
+  the rule, if the rule is in a release. The link is written
+  inline or as a reference to a link reference definition. A reference without a definition is
+  prose.
 - A rule ID is read in the rendered text of a line, across the edges of links and code spans.
   One that such an edge divides, as in `RG[2003](…)`, is refused; one that is wholly code is not
   a mention. md4c itself decodes each character reference, in text and in a link's destination.
@@ -481,6 +485,40 @@ prose, and `RegulaPolicy.Intent`, which finds the heading lines of a docstring.
   and every such placement lies between the first and the last (`leftmost_le`, `le_rightmost`).
   Where they differ, because the same text also stands on a line md4c does not report (a link
   reference definition, usually), the refusal names both, as in `README.md:88-162`.
+
+#### Links of the root README
+
+Each link of the root `README.md` to the rule-reference site is a stable address. A stable
+address names no edition. Thus the link opens the latest release, and a release changes no line
+of that file. A stable address is one of these:
+
+- The site root, `https://rbeauchamp.github.io/regula/`.
+- An address below `https://rbeauchamp.github.io/regula/rules/` or
+  `https://rbeauchamp.github.io/regula/standard/`, with no fragment.
+
+`./scripts/verify.sh docs` does this check on md4c's reading of the file
+(`Regula.Markdown.siteLinkErrors`, `siteLinkErrors_nil_iff`). It reads a link destination as an
+address of the site if the text `rbeauchamp.github.io/regula` is in it. The theorem
+`Stable.not_edition` shows that a stable address is not an address of `dev/` or of
+`v/<version>/`, for each version. The check does not read an image, and it does not read a link
+reference definition that no link uses.
+
+`./scripts/verify.sh site` then reads the text of that file (`Regula.Site.siteAnchors`). It finds
+an address of the site only where the text `https://rbeauchamp.github.io/regula/` is in the file.
+The route is the text after it, up to the first character that is not a letter, a digit, `-`,
+`_`, `/` or `#`.
+
+The command refuses an address that is not a file of the artifact (`missingAnchors`). Thus it
+refuses a stable address that has no page in the latest release.
+
+The root `README.md` cannot link a rule that is in no release, because that rule has no stable
+address. It also cannot give the ID of that rule in prose. Write the ID as code, or add the rule
+to that file after its release.
+
+The other tracked documents link the development edition. This check does not read their links
+to the site. The check of rule IDs refuses the stable address of a rule in such a document.
+The site build examines only the addresses of the root `README.md`. The list
+`Regula.Markdown.stableDocuments` gives the documents to the two checks.
 
 The check trusts, and does not verify:
 

@@ -247,10 +247,19 @@ def versionsPage (ident : Identity) : Except String String := do
     "* `" ++ siteBase ++ "v/<version>/` is the permanent copy of a release, made when it is \
       released. A released Regula build's findings link to its own release's copy. Once a later \
       release exists, every page of an earlier copy names the latest release and links the same \
-      page there.\n\n" ++
-    "A route that is not published shows the site's not-available page. It never redirects to \
-      other rules: an old link cannot silently acquire changed semantics. Rule IDs are never \
-      reused for a changed rule; a retired rule keeps a page that says so.\n"
+      page there.\n" ++
+    "* An address below " ++
+    " or ".intercalate (stableRoots.map fun r => "`" ++ stableUrl r ++ "`") ++
+    " is a stable address. It names no version and opens the same page of the version that `" ++
+    siteBase ++ "` opens. It does not keep a fragment.\n\n" ++
+    "An address that names a version never redirects and never changes its meaning: `dev/` is \
+      always the development version, and `v/<version>/` is always the copy of that release. \
+      While a release exists, a stable address opens the same page of the latest release: its \
+      target moves at each release, and it has no page for a rule that no release has. To cite \
+      a rule as one release has it, use the address of that release.\n\n" ++
+    "A route that is not published shows the site's not-available page, which never redirects \
+      to other rules. Rule IDs are never reused for a changed rule; a retired rule keeps a page \
+      that says so.\n"
 
 /-- The credits and licenses page. -/
 def creditsPage (ident : Identity) : Except String String := do
