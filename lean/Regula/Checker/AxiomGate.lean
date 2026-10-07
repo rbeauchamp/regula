@@ -1392,7 +1392,9 @@ def invalidateResults (kinds : List Destination) (args : List String) : IO Unit 
     for (path, link) in relative do invalidate (resolve root path) link
 
 /-- The options of an audit invocation: parsed, without a duplicated option, and in a
-combination the usage text allows; otherwise an error naming the problem. -/
+combination the usage text allows; otherwise an error naming the problem. The usage text does
+not list the internal `--driver-copy`, which is admitted only in the fresh surface mode of the
+current project, without `--with-docs` and `--project`. -/
 private def admitOptions (args : List String) : IO Options := do
   for flag in #["--json-out", "--acceptance-link", "--project", "--file",
       "--manifest", "--claim", "--execution", "--driver-copy"] do

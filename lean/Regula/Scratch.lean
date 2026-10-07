@@ -3,9 +3,12 @@ import Lake.Config.Defaults
 /-! # Owned scratch directories
 
 Scratch directories in Regula's own `.lake/regula-scratch/` under a project, and reclamation
-of those whose run died. `directory` is the only place that location is derived, and
-`withScratch`, the only source of a scratch path, creates nothing outside it. The Lake
-directory holds build output, so a project's own walks of its sources already skip it.
+of those whose run died. In the checker, `directory` is the only place that location is derived,
+and `withScratch`, the only source of a scratch path, creates nothing outside it. The Lake
+directory holds build output, so a project's own walks of its sources already skip it. The
+verification driver cannot import this module, so it repeats the location and this protocol for
+the copy of the first acceptance step (`RegulaVerification.makeCopy`); no theorem relates the
+two.
 
 Each scratch directory `<name>` is created only after its ownership marker `<name>.owner` was
 created exclusively beside it, and the marker is removed only after the directory. Every
