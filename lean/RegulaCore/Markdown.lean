@@ -289,6 +289,26 @@ def target (id : RuleId) (destination : String) : Bool :=
   destination == Edition.dev.url id.route ||
     destination.startsWith (Edition.dev.url id.route ++ "#")
 
+/-- `destination` is rule `id`'s page in the development edition, with or without a fragment, as
+a proposition stated with Lean's own `String.startsWith`. `target` decides it (`target_iff`). -/
+def Target (id : RuleId) (destination : String) : Prop :=
+  destination = Edition.dev.url id.route ∨
+    destination.startsWith (Edition.dev.url id.route ++ "#") = true
+
+/-- The executed test accepts exactly the destinations that are the rule's page. -/
+theorem target_iff (id : RuleId) (destination : String) :
+    target id destination = true ↔ Target id destination := by
+  simp [target, Target]
+
+instance (id : RuleId) (destination : String) : Decidable (Target id destination) :=
+  decidable_of_iff _ (target_iff id destination)
+
+/-- The page predicate that the document check runs is the decision of `Target`. -/
+theorem target_eq : target = fun id destination => decide (Target id destination) := by
+  funext id destination
+  rw [Bool.eq_iff_iff, decide_eq_true_eq]
+  exact target_iff id destination
+
 /-- Whether `text`, the text of a raw HTML block, is exactly one fence marker of the
 documentation audit, the two forms the standard defines (§7, `Regula.Checker.Documentation`):
 `<!-- lean-trusted-compiler -->`, or `<!-- lean-fail: PATTERN -->` on one line with no `>` in
@@ -616,7 +636,9 @@ token of its runs that is not wholly code is a registered rule ID inside one lin
 rule's development page. -/
 theorem documentErrors_nil_iff (file source : String) (reading : Reading) :
     documentErrors file source reading = [] ↔
-      ∃ pieces, reading = .read pieces ∧ ∀ f ∈ findings pieces, f.Accepted target := by
+      ∃ pieces, reading = .read pieces ∧ ∀ f ∈ findings pieces,
+        f.Accepted fun id destination => decide (Target id destination) := by
+  rw [← target_eq]
   cases reading with
   | unread reason => simp [documentErrors]
   | read pieces => simp [documentErrors, errors_nil_iff, rejected_nil_iff]
@@ -627,7 +649,8 @@ document read as no pieces, and an error for a document that was not read. -/
 theorem checked_documentErrors : Regula.ExecutableContract documentErrors (fun run =>
     Regula.Decides (· = [])
       (fun input : (String × String) × Reading =>
-        ∃ pieces, input.2 = .read pieces ∧ ∀ f ∈ findings pieces, f.Accepted target)
+        ∃ pieces, input.2 = .read pieces ∧ ∀ f ∈ findings pieces,
+          f.Accepted fun id destination => decide (Target id destination))
       (Function.uncurry (Function.uncurry run))) :=
   ⟨.of_iff (fun input => documentErrors_nil_iff input.1.1 input.1.2 input.2)
     ⟨(("", ""), .read []), (documentErrors_nil_iff "" "" (.read [])).mpr

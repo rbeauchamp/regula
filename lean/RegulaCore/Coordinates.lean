@@ -105,7 +105,7 @@ def RangesConvert (column : Utf16Column) (snapshot : SourceSnapshot)
     (ranges : RegulaPolicy.Ranges) : Prop :=
   ReportedAgrees column snapshot.source.toFileMap ranges.range ∧
     ReportedAgrees column snapshot.source.toFileMap ranges.selectionRange ∧
-    (reportedCandidate snapshot ranges).valid = true
+    (reportedCandidate snapshot ranges).Valid
 
 /-- The source snapshot a transcript records. -/
 def snapshotOf (transcript : Transcript) : SourceSnapshot :=
@@ -134,7 +134,7 @@ def reportObligations (column : Utf16Column) (snapshot : SourceSnapshot)
       "reported source coordinates disagree with the snapshot"),
     (ReportedAgrees column snapshot.source.toFileMap ranges.selectionRange,
       "reported source coordinates disagree with the snapshot"),
-    ((reportedCandidate snapshot ranges).valid = true, "invalid source coordinates")]
+    ((reportedCandidate snapshot ranges).Valid, "invalid source coordinates")]
 
 /-- Traversal order: every command's obligations in transcript order, then the
 reported-range obligations of each same-module declaration in inventory order. -/
@@ -188,7 +188,7 @@ theorem sourceFromReportWith_decides (column : Utf16Column) (snapshot : SourceSn
   simp only [sourceFromReportWith, reportedRange_eq, reportObligations]
   by_cases h1 : ReportedAgrees column snapshot.source.toFileMap ranges.range <;>
   by_cases h2 : ReportedAgrees column snapshot.source.toFileMap ranges.selectionRange <;>
-  by_cases h3 : (reportedCandidate snapshot ranges).valid = true <;>
+  by_cases h3 : (reportedCandidate snapshot ranges).Valid <;>
   simp_all [FirstUnmet, admitSource, reportedCandidate, Except.map, Bind.bind, Except.bind]
 
 theorem coordinateCheck_decides (column : Utf16Column) (declarations : Array Declaration)

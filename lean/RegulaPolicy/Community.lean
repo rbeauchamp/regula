@@ -97,11 +97,25 @@ inductive OptionValue where
   deriving DecidableEq, Repr
 
 /-- Lean reads `v` as `r` for an option declared with the type of `r`: a string as it parses a
-command-line or string option value, any other value only when it is `r`. -/
+command-line or string option value, any other value only when it is `r`. This is the relation,
+as a proposition; `OptionValue.readsAs` decides it (`OptionValue.readsAs_iff`). -/
+def OptionValue.ReadsAs : OptionValue → OptionValue → Prop
+  | .string s, .bool b => s = toString b
+  | .string s, .nat n => s.toNat? = some n
+  | v, r => v = r
+
+/-- The executed comparison: whether Lean reads `v` as `r` (`OptionValue.ReadsAs`). -/
 def OptionValue.readsAs : OptionValue → OptionValue → Bool
   | .string s, .bool b => s == toString b
   | .string s, .nat n => s.toNat? == some n
   | v, r => v == r
+
+/-- The executed comparison accepts exactly the values that Lean reads as the required one. -/
+theorem OptionValue.readsAs_iff (v r : OptionValue) : v.readsAs r = true ↔ v.ReadsAs r := by
+  cases v <;> cases r <;> simp [OptionValue.readsAs, OptionValue.ReadsAs]
+
+instance (v r : OptionValue) : Decidable (v.ReadsAs r) :=
+  decidable_of_iff _ (v.readsAs_iff r)
 
 /-- The options Lake builds one target's modules with. -/
 structure BuildOptions where
@@ -421,8 +435,8 @@ def admits (o : BuildOptions) (r : Name × OptionValue) (v : OptionValue) : Bool
 /-- `admits` decides exactly what the requirement admits, stated without the executed decisions. -/
 theorem admits_iff (o : BuildOptions) (r : Name × OptionValue) (v : OptionValue) :
     admits o r v = true ↔
-      v.readsAs r.2 = true ∨ (r.1 = headerLinter ∧ v.readsAs (.bool true) = true ∧ Licensed o) := by
-  simp [admits, licensed_iff, and_assoc]
+      v.ReadsAs r.2 ∨ (r.1 = headerLinter ∧ v.ReadsAs (.bool true) ∧ Licensed o) := by
+  simp [admits, licensed_iff, OptionValue.readsAs_iff, and_assoc]
 
 /-- The options give the required option `r` a value, and only values that the requirement
 admits. -/
@@ -504,13 +518,13 @@ extra `lean` arguments gives a required option a value the requirement does not 
 such a linter. -/
 def Conforming (o : BuildOptions) (mathlib : Bool) : Prop :=
   (∀ r ∈ required mathlib, valuesOf o r.1 ≠ [] ∧ ∀ v ∈ valuesOf o r.1,
-    v.readsAs r.2 = true ∨ (r.1 = headerLinter ∧ v.readsAs (.bool true) = true ∧ Licensed o)) ∧
+    v.ReadsAs r.2 ∨ (r.1 = headerLinter ∧ v.ReadsAs (.bool true) ∧ Licensed o)) ∧
   (∀ entry ∈ o.options, rootOf (optionOf entry.1) = some "linter" →
-    entry.2.readsAs (.bool false) = true → optionOf entry.1 ∈ exclusions) ∧
+    entry.2.ReadsAs (.bool false) → optionOf entry.1 ∈ exclusions) ∧
   ∀ s ∈ argumentSettings o.arguments,
-    (∀ r ∈ required mathlib, optionOf s.1 = r.1 → s.2.readsAs r.2 = true ∨
-      (r.1 = headerLinter ∧ s.2.readsAs (.bool true) = true ∧ Licensed o)) ∧
-    (rootOf (optionOf s.1) = some "linter" → s.2.readsAs (.bool false) = true →
+    (∀ r ∈ required mathlib, optionOf s.1 = r.1 → s.2.ReadsAs r.2 ∨
+      (r.1 = headerLinter ∧ s.2.ReadsAs (.bool true) ∧ Licensed o)) ∧
+    (rootOf (optionOf s.1) = some "linter" → s.2.ReadsAs (.bool false) →
       optionOf s.1 ∈ exclusions)
 
 /-- `meets` decides exactly the first conjunct's condition for one option. -/
@@ -522,15 +536,15 @@ theorem meets_iff (o : BuildOptions) (r : Name × OptionValue) :
 /-- `disables` decides exactly the negation of the second conjunct's condition. -/
 theorem disables_iff (name : Name) (value : OptionValue) :
     disables name value = true ↔
-      rootOf name = some "linter" ∧ value.readsAs (.bool false) = true ∧ name ∉ exclusions := by
-  simp [disables, and_assoc]
+      rootOf name = some "linter" ∧ value.ReadsAs (.bool false) ∧ name ∉ exclusions := by
+  simp [disables, OptionValue.readsAs_iff, and_assoc]
 
 /-- `contradicts` decides exactly the negation of the third conjunct's condition. -/
 theorem contradicts_eq_false_iff (o : BuildOptions) (mathlib : Bool) (name : Name)
     (value : OptionValue) :
     contradicts o mathlib name value = false ↔
       (∀ r ∈ required mathlib, optionOf name = r.1 → admits o r value = true) ∧
-      (rootOf (optionOf name) = some "linter" → value.readsAs (.bool false) = true →
+      (rootOf (optionOf name) = some "linter" → value.ReadsAs (.bool false) →
         optionOf name ∈ exclusions) := by
   have := disables_iff (optionOf name) value
   cases h : disables (optionOf name) value <;> simp_all [contradicts]
@@ -567,9 +581,9 @@ theorem admits_of_ne (o : BuildOptions) (r : Name × OptionValue) (h : r.1 ≠ h
 as `false`, in its options and in its `-D` arguments. -/
 theorem conforming_autoImplicit (o : BuildOptions) (mathlib : Bool) (h : Conforming o mathlib) :
     ∀ name ∈ [`autoImplicit, `relaxedAutoImplicit],
-      (∀ v ∈ valuesOf o name, v.readsAs (.bool false) = true) ∧
+      (∀ v ∈ valuesOf o name, v.ReadsAs (.bool false)) ∧
       ∀ s ∈ argumentSettings o.arguments, optionOf s.1 = name →
-        s.2.readsAs (.bool false) = true := by
+        s.2.ReadsAs (.bool false) := by
   intro name hname
   have hr : (name, OptionValue.bool false) ∈ required mathlib := by
     simp only [List.mem_cons, List.not_mem_nil, or_false] at hname
@@ -585,9 +599,9 @@ once and only values Lean reads as `true`, and no `-D` among its extra `lean` ar
 another value. -/
 theorem conforming_missingDocs (o : BuildOptions) (mathlib : Bool) (h : Conforming o mathlib) :
     valuesOf o `linter.missingDocs ≠ [] ∧
-      (∀ v ∈ valuesOf o `linter.missingDocs, v.readsAs (.bool true) = true) ∧
+      (∀ v ∈ valuesOf o `linter.missingDocs, v.ReadsAs (.bool true)) ∧
       ∀ s ∈ argumentSettings o.arguments, optionOf s.1 = `linter.missingDocs →
-        s.2.readsAs (.bool true) = true := by
+        s.2.ReadsAs (.bool true) := by
   have hr : (`linter.missingDocs, OptionValue.bool true) ∈ required mathlib := by
     simp [required, baseline]
   have hne : (`linter.missingDocs : Name) ≠ headerLinter := by simp [headerLinter]
@@ -611,8 +625,8 @@ theorem contradicts_string_eq_true_iff (o : BuildOptions) (mathlib : Bool) (n : 
     contradicts o mathlib n (.string value) = true ↔
       (∃ r ∈ required mathlib, optionOf n = r.1 ∧ admits o r (.string value) = false) ∨
       (rootOf (optionOf n) = some "linter" ∧ value = "false" ∧ optionOf n ∉ exclusions) := by
-  have hfalse : (OptionValue.string value).readsAs (.bool false) = true ↔ value = "false" := by
-    simp only [OptionValue.readsAs, beq_iff_eq]
+  have hfalse : (OptionValue.string value).ReadsAs (.bool false) ↔ value = "false" := by
+    simp only [OptionValue.ReadsAs]
     rfl
   rw [contradicts, Bool.or_eq_true, List.any_eq_true, disables_iff, hfalse]
   simp
@@ -726,15 +740,15 @@ A Mathlib target may leave `linter.style.header` on when it configures the linte
 `linter.style.header.license`; otherwise the requirement is unchanged. -/
 
 /-- No value is read as both `true` and `false`. -/
-theorem readsAs_true_false (v : OptionValue) (ht : v.readsAs (.bool true) = true)
-    (hf : v.readsAs (.bool false) = true) : False := by
+theorem readsAs_true_false (v : OptionValue) (ht : v.ReadsAs (.bool true))
+    (hf : v.ReadsAs (.bool false)) : False := by
   cases v with
   | string s =>
-    simp only [OptionValue.readsAs, beq_iff_eq] at ht hf
+    simp only [OptionValue.ReadsAs] at ht hf
     rw [hf] at ht
     exact absurd ht (by decide)
   | bool b => cases b <;> first | exact absurd ht (by decide) | exact absurd hf (by decide)
-  | nat n => simp [OptionValue.readsAs] at ht
+  | nat n => simp [OptionValue.ReadsAs] at ht
 
 /-- The header linter, set to `false`, is required of every Mathlib target. -/
 theorem header_mem_required : (headerLinter, OptionValue.bool false) ∈ required true := by
@@ -744,7 +758,7 @@ theorem header_mem_required : (headerLinter, OptionValue.bool false) ∈ require
 the target configures the license line. -/
 theorem admits_header_iff (o : BuildOptions) (v : OptionValue) :
     admits o (headerLinter, .bool false) v = true ↔
-      v.readsAs (.bool false) = true ∨ (v.readsAs (.bool true) = true ∧ Licensed o) := by
+      v.ReadsAs (.bool false) ∨ (v.ReadsAs (.bool true) ∧ Licensed o) := by
   simp [admits_iff]
 
 /-- A conforming Mathlib target gives the header linter, in its options and in its `-D`
@@ -753,9 +767,9 @@ license line; its options give the header linter a value. -/
 theorem conforming_header (o : BuildOptions) (h : Conforming o true) :
     valuesOf o headerLinter ≠ [] ∧
       (∀ v ∈ valuesOf o headerLinter,
-        v.readsAs (.bool false) = true ∨ (v.readsAs (.bool true) = true ∧ Licensed o)) ∧
+        v.ReadsAs (.bool false) ∨ (v.ReadsAs (.bool true) ∧ Licensed o)) ∧
       ∀ s ∈ argumentSettings o.arguments, optionOf s.1 = headerLinter →
-        s.2.readsAs (.bool false) = true ∨ (s.2.readsAs (.bool true) = true ∧ Licensed o) :=
+        s.2.ReadsAs (.bool false) ∨ (s.2.ReadsAs (.bool true) ∧ Licensed o) :=
   ⟨(h.1 _ header_mem_required).1,
     fun v hv => ((h.1 _ header_mem_required).2 v hv).imp_right And.right,
     fun s hs hs' => ((h.2.2 s hs).1 _ header_mem_required hs').imp_right And.right⟩
@@ -763,9 +777,9 @@ theorem conforming_header (o : BuildOptions) (h : Conforming o true) :
 /-- A Mathlib target that leaves the header linter on and configures no license line fails: the
 header linter's `true`, in a value its options give or in a `-D` argument, is not admitted. -/
 theorem header_on_unlicensed_fails (o : BuildOptions) (hl : ¬ Licensed o) :
-    (∀ v ∈ valuesOf o headerLinter, v.readsAs (.bool true) = true → ¬ Conforming o true) ∧
+    (∀ v ∈ valuesOf o headerLinter, v.ReadsAs (.bool true) → ¬ Conforming o true) ∧
     (∀ s ∈ argumentSettings o.arguments, optionOf s.1 = headerLinter →
-      s.2.readsAs (.bool true) = true → ¬ Conforming o true) := by
+      s.2.ReadsAs (.bool true) → ¬ Conforming o true) := by
   refine ⟨fun v hv ht hc => ?_, fun s hs hs' ht hc => ?_⟩
   · rcases (conforming_header o hc).2.1 v hv with hf | ⟨-, hl'⟩
     · exact readsAs_true_false v ht hf

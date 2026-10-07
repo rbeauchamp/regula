@@ -354,10 +354,10 @@ theorem nativeAxiomOrigin?_isSome_iff (hAppend : RuntimeStringAppend) (n : Name)
 /-- Every name classified compiler-trusting is an enabled legacy compiler axiom or generated
 by the `nativeEqTrue` scheme for a native tactic. -/
 theorem compilerTrustingAxiomName_sound {n : Name} (h : compilerTrustingAxiomName n = true) :
-    builtinCompilerAxiom n = true ∨ GeneratedNativeAxiom n := by
+    BuiltinCompilerAxiom n ∨ GeneratedNativeAxiom n := by
   unfold compilerTrustingAxiomName at h
   rcases Bool.or_eq_true_iff.mp h with h | h
-  · exact Or.inl h
+  · exact Or.inl ((builtinCompilerAxiom_iff n).mp h)
   · obtain ⟨⟨parent, t⟩, ho⟩ := Option.isSome_iff_exists.mp h
     obtain ⟨idxs, hg, rfl⟩ := nativeAxiomOrigin?_sound ho
     exact Or.inr ⟨parent, t, idxs, hg, rfl⟩
@@ -366,10 +366,10 @@ theorem compilerTrustingAxiomName_sound {n : Name} (h : compilerTrustingAxiomNam
 compiler axiom, classifies as compiler-trusting, and no other name does. -/
 theorem compilerTrustingAxiomName_iff (hAppend : RuntimeStringAppend) (n : Name) :
     compilerTrustingAxiomName n = true ↔
-      builtinCompilerAxiom n = true ∨ GeneratedNativeAxiom n := by
+      BuiltinCompilerAxiom n ∨ GeneratedNativeAxiom n := by
   refine ⟨compilerTrustingAxiomName_sound, ?_⟩
   rintro (h | h)
-  · simp [compilerTrustingAxiomName, h]
+  · simp [compilerTrustingAxiomName, (builtinCompilerAxiom_iff n).mpr h]
   · simp [compilerTrustingAxiomName, (nativeAxiomOrigin?_isSome_iff hAppend n).mpr h]
 
 /-- `nativeAxiomOrigin?` is a complete decision of the names the scheme generates, where the
@@ -395,10 +395,10 @@ kind is one-way as for `checked_nativeAxiomOrigin`; soundness with no hypothesis
 theorem checked_compilerTrustingAxiomName :
     Regula.ExecutableContract compilerTrustingAxiomName
       (Regula.DecidesCompletely (· = true) fun n =>
-        builtinCompilerAxiom n = true ∨ (RuntimeStringAppend ∧ GeneratedNativeAxiom n)) :=
+        BuiltinCompilerAxiom n ∨ (RuntimeStringAppend ∧ GeneratedNativeAxiom n)) :=
   ⟨{ complete := fun n trusting => by
        rcases trusting with builtin | ⟨hAppend, generated⟩
-       · simp [compilerTrustingAxiomName, builtin]
+       · simp [compilerTrustingAxiomName, (builtinCompilerAxiom_iff n).mpr builtin]
        · exact (compilerTrustingAxiomName_iff hAppend n).mpr (.inr generated)
      refused := ⟨.anonymous, by decide⟩ }⟩
 

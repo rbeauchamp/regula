@@ -52,6 +52,17 @@ structure Expected where
 /-- Regula owns precisely the native named-error prefix used by the old harness. -/
 def isNative (message : Message) : Bool := message.kind.startsWith "Regula.RG"
 
+/-- A message of Regula, as a proposition stated with Lean's own `String.startsWith`: its kind
+has the prefix of the native named errors. `isNative` decides it (`decide_isNative`). -/
+def IsNative (message : Message) : Prop := message.kind.startsWith "Regula.RG" = true
+
+instance : DecidablePred IsNative := fun _ => inferInstanceAs (Decidable (_ = true))
+
+/-- The executed test is the decision of `IsNative`. -/
+@[simp] theorem decide_isNative (message : Message) :
+    decide (IsNative message) = isNative message :=
+  Bool.decide_eq_true
+
 /-- Successful native-message shape, separate from kind multiplicity. -/
 def nativeMatches (expected : Expected) (message : Message) : Bool :=
   message.fileName == expected.fileName &&
@@ -114,8 +125,9 @@ def checks (expected : Expected) (exitCode : Nat) (stderr : String)
 the pinned Lean definitions; no alternate text normalization is promised. -/
 def Matches (expected : Expected) (exitCode : Nat) (stderr : String)
     (messages : List Message) : Prop :=
-  let native := messages.filter isNative
-  CompilerMatches (messages.filter (fun message => !isNative message)) expected.compiler ∧
+  let native := messages.filter fun message => decide (IsNative message)
+  CompilerMatches (messages.filter (fun message => !decide (IsNative message)))
+    expected.compiler ∧
   (native.map (·.kind)).mergeSort (· ≤ ·) = expected.kinds.mergeSort (· ≤ ·) ∧
   (exitCode != 0) = expected.errors ∧ stderr = "" ∧
   (∀ message ∈ native, NativeMatches expected message) ∧
@@ -136,7 +148,8 @@ theorem validate_exact (expected : Expected) (exitCode : Nat) (stderr : String)
   simp only [validate, Regula.ExecutableContract.run, checks, List.all_filter, List.any_filter,
     evaluate_success, Satisfied, List.mem_cons, List.not_mem_nil, or_false, forall_eq_or_imp,
     compilerMatches_exact, beq_iff_eq, List.all_eq_true, Bool.or_eq_true, Bool.not_eq_eq_eq_not,
-    Bool.not_true, nativeMatches_exact, forall_eq, Matches, List.mem_filter, and_imp,
+    Bool.not_true, nativeMatches_exact, forall_eq, Matches, decide_isNative, List.mem_filter,
+    and_imp,
     and_congr_right_iff, and_congr_left_iff]
   intro _ _ _ _ _
   constructor

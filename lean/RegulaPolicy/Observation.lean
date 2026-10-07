@@ -317,11 +317,11 @@ A registered material declaration additionally needs an Intent section
 def DocumentationPresenceOK (docstring : Option String) : Prop := docstring ≠ none
 
 /-- Toolchain-origin evidence must agree with every boundary of the module that claims toolchain
-ownership (`ExecutionBoundary.claimsToolchain`): each carries exactly this origin. -/
+ownership (`ExecutionBoundary.ClaimsToolchain`): each carries exactly this origin. -/
 def OriginOK (i : EnvironmentCensus) (m : ModuleKey) (origin : ToolchainOrigin) : Prop :=
   origin.moduleName = m.name.name ∧
   ∀ r ∈ i.execution.roots, ∀ b ∈ r.boundaries,
-    b.module = m.name.name → b.claimsToolchain = true → b.toolchainOrigin? = some origin
+    b.module = m.name.name → b.ClaimsToolchain → b.toolchainOrigin? = some origin
 instance (i : EnvironmentCensus) (m : ModuleKey) (o : ToolchainOrigin) : Decidable
     (OriginOK i m o) := by
   unfold OriginOK; infer_instance
@@ -334,7 +334,7 @@ def HistoryOK (c : Claim) (i : EnvironmentCensus) (m : ModuleKey) (o : HistoryOb
   (∃ entry ∈ i.allModuleSources, entry.1 = m ∧ entry.2 = o.before) ∧
   o.after = o.before ∧ o.unsupported = #[] ∧
   ∀ r ∈ i.execution.roots, ∀ b ∈ r.boundaries,
-    b.module = m.name.name → b.needsHistory = true →
+    b.module = m.name.name → b.NeedsHistory →
       ∃ target ∈ b.replacement, (b.name, target) ∈ o.replacements
 set_option synthInstance.maxSize 1024 in
 instance (c : Claim) (i : EnvironmentCensus) (m : ModuleKey) (o : HistoryObservation) : Decidable

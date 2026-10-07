@@ -115,10 +115,12 @@ def Run.mentions (r : Run) : List Mention :=
     | .inl text => (acc.1 + newlines text, acc.2)
     | .inr token => (acc.1, ⟨acc.1, token, r.link⟩ :: acc.2)) (r.line, [])).2.reverse
 
-/-- Mention `m` is linked: its token is a registered rule ID, and it lies in the text of a link
-whose destination `target` accepts as that rule's page. -/
+/-- Mention `m` is linked: its token is the spelling of a registered rule ID, and it lies in the
+text of a link whose destination `target` accepts as that rule's page. The token is stated with
+`RuleId.spelling`, the written form of a rule ID, and not with the parser that the function
+calls (`RuleId.parse_spelling`, `RuleId.spelling_of_parse`). -/
 def Mention.Linked (target : RuleId → String → Bool) (m : Mention) : Prop :=
-  ∃ id destination, RuleId.parse? m.token = some id ∧ m.link = some destination ∧
+  ∃ id destination, m.token = id.spelling ∧ m.link = some destination ∧
     target id destination = true
 
 /-- `Mention.Linked`, decided. -/
@@ -134,8 +136,9 @@ theorem Mention.linked_iff (target : RuleId → String → Bool) (m : Mention) :
   · rename_i id destination hid hlink
     constructor
     · intro h
-      exact ⟨id, destination, hid, hlink, h⟩
-    · rintro ⟨id', destination', hid', hlink', h⟩
+      exact ⟨id, destination, (RuleId.spelling_of_parse hid).symm, hlink, h⟩
+    · rintro ⟨id', destination', written, hlink', h⟩
+      have hid' : RuleId.parse? m.token = some id' := written ▸ RuleId.parse_spelling id'
       rw [hid] at hid'
       rw [hlink] at hlink'
       cases hid'
@@ -145,8 +148,8 @@ theorem Mention.linked_iff (target : RuleId → String → Bool) (m : Mention) :
     constructor
     · intro h
       cases h
-    · rintro ⟨id, destination, hid, hlink, _⟩
-      exact (hnot id destination hid hlink).elim
+    · rintro ⟨id, destination, written, hlink, _⟩
+      exact (hnot id destination (written ▸ RuleId.parse_spelling id) hlink).elim
 
 /-- The mentions of `runs` that are not linked, in document order. -/
 @[regula_decision]

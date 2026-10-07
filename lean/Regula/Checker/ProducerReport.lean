@@ -472,7 +472,7 @@ def Environment.SourceEvidenceSound (r : Environment) : Prop :=
   (∀ s ∈ r.sourceBindings, s.path ≠ "" ∧ s.moduleName ∈ r.modules) ∧
   (∀ m ∈ r.census.modules, ∃ s ∈ r.sourceBindings, s.moduleName = m) ∧
   (∀ d ∈ r.declarations, ∃ s ∈ r.sourceBindings, s.moduleName = d.module ∧
-    ∀ range, d.ranges = some range → range.validFor s.content = true)
+    ∀ range, d.ranges = some range → range.ValidFor s.content)
 
 /-- Every declaration has a source binding of its module in which the full range and the
 selection range Lean recorded for it (`Declaration.recordedRanges`) are valid.
@@ -481,7 +481,7 @@ that leaves the full range. -/
 def Environment.RecordedRangesSound (r : Environment) : Prop :=
   ∀ d ∈ r.declarations, ∃ s ∈ r.sourceBindings, s.moduleName = d.module ∧
     ∀ range, d.recordedRanges = some range →
-      range.range.validFor s.content = true ∧ range.selectionRange.validFor s.content = true
+      range.range.ValidFor s.content ∧ range.selectionRange.ValidFor s.content
 
 /-- The replay receipt exists, admits exactly its unique requirements, each a key of one of its
 unique replayed modules or of a reused module, replays or reuses every claimed module, requires
@@ -530,7 +530,7 @@ def Environment.HistoriesSound (r : Environment) : Prop :=
 /-- Every runtime replacement the toolchain does not own is requested; for a resolved root its
 replacement edge is in its module's completed history. -/
 def Environment.ReplacementsSound (r : Environment) : Prop :=
-  ∀ root ∈ r.execution, ∀ b ∈ root.boundaries, b.needsHistory = true →
+  ∀ root ∈ r.execution, ∀ b ∈ root.boundaries, b.NeedsHistory →
     (root.name, b.module) ∈ r.census.historyRequests ∧
     (root.unresolved = #[] → ∃ mod path before after edges replacement,
       r.histories.find? (·.1 == b.module) = some (mod, .completed path before after edges) ∧
@@ -611,7 +611,8 @@ theorem sourceEvidenceSound_of (r : Environment) (h : r.validateSourceEvidence =
   obtain ⟨h₁, h₂, h₃, h₄⟩ := h
   refine ⟨nodup_of_canonicalNames_size _ (by simpa using h₁), h₂, h₃, fun d hd => ?_⟩
   obtain ⟨s, hs, hm, hr, -⟩ := h₄ d hd
-  exact ⟨s, hs, hm, (Option.all_eq_true _ _).mp hr⟩
+  exact ⟨s, hs, hm, fun range found =>
+    (RegulaPolicy.Ranges.validFor_iff range s.content).mp ((Option.all_eq_true _ _).mp hr range found)⟩
 
 /-- Admitted source evidence also holds every range Lean recorded, not only the admitted pair:
 each declaration's recorded full and selection ranges are valid in its module's source. With
@@ -629,7 +630,8 @@ theorem recordedRangesValid_of (r : Environment) (h : r.validateSourceEvidence =
   refine ⟨s, hs, hm, fun range recorded => ?_⟩
   simp only [RegulaPolicy.Declaration.ranges, recorded, Option.map_some, Option.all_some]
     at admitted selection
-  refine ⟨?_, selection⟩
+  refine ⟨(RegulaPolicy.Range.validFor_iff _ _).mp ?_,
+    (RegulaPolicy.Range.validFor_iff _ _).mp selection⟩
   have full := RegulaPolicy.Ranges.admitted_validForLines range (s.content.splitOn "\n")
   change range.admitted.validFor s.content = _ at full
   rw [admitted] at full
@@ -850,7 +852,8 @@ theorem validate_sound (r : Environment) (h : r.validate = .ok ()) : r.Admissibl
     recordedRangesValid_of r hs,
     admissionSound_of r receipt hr hro, documentationSound_of r docs hdo hdok,
     historyRequestsSound_of r hq, historiesSound_of r hh,
-    fun root hroot b hb hk => replacementBoundary_sound r root b ((roots root hroot).1 b hb) hk,
+    fun root hroot b hb hk => replacementBoundary_sound r root b ((roots root hroot).1 b hb)
+      ((RegulaPolicy.ExecutionBoundary.needsHistory_iff b).mpr hk),
     closureAccountSound_of r (fun root hroot => ⟨(roots root hroot).2.1, (roots root hroot).2.2.1⟩),
     historyEdgesSound_of r fun root hroot => (roots root hroot).2.2.2⟩
 

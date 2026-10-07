@@ -27,11 +27,24 @@ def checks (exitCode : Nat) (report : Json) : List Check := [
     (report.getObjValAs? String "status").toOption == some "incomplete"⟩,
   ⟨"seeded stale output must be removed", !oldPresent report⟩]
 
+/-- The root is a JSON object exactly when `isObject` accepts it. -/
+theorem isObject_iff (report : Json) : isObject report = true ↔ ∃ members, report = .obj members := by
+  cases report <;> simp [isObject]
+
+/-- The report has no `old` member exactly when `oldPresent` refuses it. -/
+theorem oldPresent_eq_false_iff (report : Json) :
+    oldPresent report = false ↔ ∀ value, report.getObjVal? "old" ≠ .ok value := by
+  unfold oldPresent
+  cases report.getObjVal? "old" <;> simp [Except.isOk, Except.toBool]
+
 /-- Independent statement of the required meaning; there are no defaults for a
-missing status and no exception for a present-but-null stale marker. -/
+missing status and no exception for a present-but-null stale marker. It is stated with Lean's
+own `Json` functions and names no test of this module: the report is an object, and it has no
+member `old`. -/
 def Invalidated (exitCode : Nat) (report : Json) : Prop :=
-  exitCode ≠ 0 ∧ isObject report = true ∧
-    (report.getObjValAs? String "status").toOption = some "incomplete" ∧ oldPresent report = false
+  exitCode ≠ 0 ∧ (∃ members, report = .obj members) ∧
+    (report.getObjValAs? String "status").toOption = some "incomplete" ∧
+    ∀ value, report.getObjVal? "old" ≠ .ok value
 
 /-- Run the same generic proof-backed evaluator consumed by the operational driver. -/
 @[regula_decision]
@@ -43,7 +56,7 @@ invocation invalidated its output in the stated sense. Runtime/authenticity excl
 theorem validate_exact (exitCode : Nat) (report : Json) :
     validate exitCode report = .ok () ↔ Invalidated exitCode report := by
   simp [validate, Regula.ExecutableContract.run, evaluate_success, Satisfied,
-    checks, Invalidated]
+    checks, Invalidated, isObject_iff, oldPresent_eq_false_iff]
 
 /-- Closed executable contract: deleting the equivalence proof breaks this registration. It is a
 two-way decision (`validate_exact`) that accepts a nonzero exit with a clean incomplete object

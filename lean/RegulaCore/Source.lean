@@ -45,14 +45,42 @@ def valid (c : SourceCandidate) : Bool :=
   c.selection.start ≤ c.selection.stop && c.selection.stop ≤ c.full.stop &&
   [c.full.start, c.full.stop, c.selection.start, c.selection.stop].all
     (boundary c.snapshot.source)
+
+/-- `n` is a character boundary of `source`, as a proposition: it is at most the byte size, and
+`FileMap` maps it to a position and back to `n` itself. `boundary` decides it
+(`boundary_iff`). -/
+def Boundary (source : String) (n : Nat) : Prop :=
+  n ≤ source.utf8ByteSize ∧
+    (source.toFileMap.ofPosition (source.toFileMap.toPosition ⟨n⟩)).byteIdx = n
+
+/-- The executed test accepts exactly the character boundaries. -/
+theorem boundary_iff (source : String) (n : Nat) :
+    boundary source n = true ↔ Boundary source n := by
+  simp [boundary, Boundary]
+
+/-- The coordinates of a candidate are valid, as a proposition: the URI is not empty, the
+selection lies within the full range with ordered ends, and the four offsets are character
+boundaries of the source. `valid` decides it (`valid_iff`). -/
+def Valid (c : SourceCandidate) : Prop :=
+  c.snapshot.uri ≠ "" ∧ c.full.start ≤ c.selection.start ∧
+  c.selection.start ≤ c.selection.stop ∧ c.selection.stop ≤ c.full.stop ∧
+  Boundary c.snapshot.source c.full.start ∧ Boundary c.snapshot.source c.full.stop ∧
+  Boundary c.snapshot.source c.selection.start ∧ Boundary c.snapshot.source c.selection.stop
+
+/-- The executed test accepts exactly the candidates with valid coordinates. -/
+theorem valid_iff (c : SourceCandidate) : c.valid = true ↔ c.Valid := by
+  simp [valid, Valid, boundary_iff, and_assoc]
+
+instance (c : SourceCandidate) : Decidable c.Valid := decidable_of_iff _ c.valid_iff
 end SourceCandidate
 
 /-- Invalid coordinates cannot inhabit an admitted source location. -/
-abbrev SourceLocation := { c : SourceCandidate // c.valid = true }
+abbrev SourceLocation := { c : SourceCandidate // c.Valid }
 
-/-- Admits a candidate as a `SourceLocation` exactly when `valid` holds, refusing it otherwise. -/
+/-- Admits a candidate as a `SourceLocation` exactly when its coordinates are valid
+(`SourceCandidate.Valid`), refusing it otherwise. -/
 def admitSource (c : SourceCandidate) : Except String SourceLocation :=
-  if h : c.valid = true then .ok ⟨c, h⟩ else .error "invalid source coordinates"
+  if h : c.Valid then .ok ⟨c, h⟩ else .error "invalid source coordinates"
 
 /-- The UTF-16 column of a Lean position in a file map. -/
 abbrev Utf16Column := FileMap → Lean.Position → Nat

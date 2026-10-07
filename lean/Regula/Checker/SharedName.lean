@@ -28,6 +28,20 @@ binder annotations ignored) equates in either direction. Their proofs may differ
         a.levelParams == b.levelParams && a.all == b.all
   | _, _ => false
 
+/-- Two constants of one name are theorems that Lean's import accepts together, as a
+proposition: the two are theorems with the same name, universe parameters and mutual block, and
+Lean's own comparison of expressions (`==`, which is `Expr.eqv`) equates their types in one of
+the two directions. `sameTheorem` decides it (`sameTheorem_iff`). -/
+@[expose] public def SameTheorem (a b : ConstantInfo) : Prop :=
+  ∃ left right, a = .thmInfo left ∧ b = .thmInfo right ∧ left.name = right.name ∧
+    ((left.type == right.type) = true ∨ (right.type == left.type) = true) ∧
+    left.levelParams = right.levelParams ∧ left.all = right.all
+
+/-- The executed test accepts exactly the pairs that `SameTheorem` relates. -/
+public theorem sameTheorem_iff (a b : ConstantInfo) :
+    sameTheorem a b = true ↔ SameTheorem a b := by
+  cases a <;> cases b <;> simp [sameTheorem, SameTheorem, and_assoc]
+
 /-- On two theorems, `sameTheorem` is Lean's private `subsumesInfo` in either direction, for any
 constant map; on any other pair it is false. Read from the pinned `Lean.finalizeImport` source,
 not modeled here: it accepts a second constant of one name beside an earlier one exactly when

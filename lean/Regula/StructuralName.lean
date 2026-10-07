@@ -75,10 +75,19 @@ theorem printsExactly_iff (n : Name) : printsExactly n = true ↔ n.toString.toN
   beq_iff_eq
 
 /-- A name as result JSON writes it, wherever it occurs: the text Lean prints for it when Lean's
-parser reads that text back as the name (`printsExactly`), and otherwise its structural
-components (`nameJson`), a JSON array. -/
+parser reads that text back as the name, and otherwise its structural components (`nameJson`), a
+JSON array. The writer states that condition as the proposition `n.toString.toName = n` and
+decides it with Lean's own equality of names, so a specification that names the writer names no
+test of this module; the reader tests the same condition with `printsExactly`
+(`printedNameJson_eq`). -/
 def printedNameJson (n : Name) : Json :=
-  if printsExactly n then .str n.toString else nameJson n
+  if n.toString.toName = n then .str n.toString else nameJson n
+
+/-- The writer takes the branch that `printsExactly` selects. -/
+theorem printedNameJson_eq (n : Name) :
+    printedNameJson n = if printsExactly n then .str n.toString else nameJson n := by
+  unfold printedNameJson printsExactly
+  by_cases same : n.toString.toName = n <;> simp [same]
 
 /-- Read a name `printedNameJson` wrote: a string is read with Lean's parser and must be the text
 Lean prints for the name it reads (`parsePrintedNameJson_str`); anything else is read as structural
@@ -99,7 +108,7 @@ on it, its structural components otherwise. The parser is executed Lean code who
 `printsExactly` decides for each name; no claim is made about which names it reads back. -/
 theorem printedNameJson_roundtrip (n : Name) :
     parsePrintedNameJson (printedNameJson n) = .ok n := by
-  unfold printedNameJson
+  rw [printedNameJson_eq]
   cases h : printsExactly n with
   | true =>
     have e := (printsExactly_iff n).mp h
@@ -115,8 +124,8 @@ theorem printedNameJson_roundtrip (n : Name) :
 name, and the string is then that text. -/
 theorem printedNameJson_eq_str_iff (n : Name) (text : String) :
     printedNameJson n = .str text ↔ n.toString.toName = n ∧ text = n.toString := by
-  rw [← printsExactly_iff]
-  unfold printedNameJson nameJson
+  rw [← printsExactly_iff, printedNameJson_eq]
+  unfold nameJson
   cases printsExactly n <;> simp [eq_comm]
 
 /-- A string is read only as the name whose written form it is, so each name has one written form
@@ -129,7 +138,7 @@ theorem parsePrintedNameJson_str {text : String} {n : Name}
     cases h
     have e : text.toName.toString = text := beq_iff_eq.mp hp
     have hx : printsExactly text.toName = true := (printsExactly_iff _).mpr (by rw [e])
-    simp [printedNameJson, hx, e]
+    simp [printedNameJson_eq, hx, e]
   · cases h
 
 /-- `parseName` is a complete decision of the written names (`name_roundtrip`): it accepts the

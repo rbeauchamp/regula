@@ -12,14 +12,29 @@ Each kind restates a theorem of the program about the same definition, or for `c
 follows from its definition, and adds the witnesses a kind requires. -/
 namespace RegulaProvision
 
-/-- `component?` accepts exactly a text that passes `isComponent`: it accepts `a` and refuses the
+/-- One path component that is not hidden and has no separator, as a proposition stated with
+Lean's own `String` functions: the text is not empty, it does not start with a period, and each
+of its characters is a letter, a digit, `-`, `_` or `.`. `isComponent` decides it
+(`isComponent_iff`). -/
+def IsComponent (text : String) : Prop :=
+  text.isEmpty = false ∧ text.startsWith "." = false ∧
+    text.all (fun c => c.isAlphanum || c == '-' || c == '_' || c == '.') = true
+
+/-- The executed test accepts exactly the path components. -/
+theorem isComponent_iff (text : String) : isComponent text = true ↔ IsComponent text := by
+  simp [isComponent, IsComponent, and_assoc]
+
+/-- `component?` accepts exactly a path component (`IsComponent`): it accepts `a` and refuses the
 empty text. That the admitted component is that text is in its definition, not in the kind. -/
 theorem checked_component : Regula.ExecutableContract component?
-    (Regula.Decides (·.isSome = true) (fun text => isComponent text = true)) :=
-  have admitted (text : String) : (component? text).isSome = true ↔ isComponent text = true := by
+    (Regula.Decides (·.isSome = true) IsComponent) :=
+  have admitted (text : String) : (component? text).isSome = true ↔ IsComponent text := by
+    rw [← isComponent_iff]
     by_cases passes : isComponent text = true <;> simp [component?, passes]
-  ⟨.of_iff admitted ⟨"a", (admitted "a").mpr (by simp [isComponent])⟩
-    ⟨"", fun accepted => absurd ((admitted "").mp accepted) (by decide)⟩⟩
+  ⟨.of_iff admitted
+    ⟨"a", (admitted "a").mpr ((isComponent_iff "a").mp (by simp [isComponent]))⟩
+    ⟨"", fun accepted =>
+      absurd ((isComponent_iff "").mpr ((admitted "").mp accepted)) (by decide)⟩⟩
 
 /-- What receipt admission establishes about the exact stable store and compatible pins. -/
 def Admitted (receipt : Receipt) (mathlibRev githash : String) (pins : Array Pin) : Prop :=

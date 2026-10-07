@@ -344,6 +344,60 @@ def identical : ConstantInfo → ConstantInfo → Bool
   | .recInfo a, .recInfo b => a == b
   | _, _ => false
 
+/-- Two constants are the same constant, as a proposition: the same kind, and Lean's own
+comparison of the two records holds (`==`, which compares expressions by `Expr.eqv`). For a
+quotient constant and for an inductive type, for which Lean has no comparison of the record, the
+constant data are compared so and each other field is equal. `identical` decides it
+(`identical_iff`). -/
+def Identical : ConstantInfo → ConstantInfo → Prop
+  | .axiomInfo a, .axiomInfo b => (a == b) = true
+  | .defnInfo a, .defnInfo b => (a == b) = true
+  | .thmInfo a, .thmInfo b => (a == b) = true
+  | .opaqueInfo a, .opaqueInfo b => (a == b) = true
+  | .quotInfo a, .quotInfo b => (a.toConstantVal == b.toConstantVal) = true ∧ a.kind = b.kind
+  | .inductInfo a, .inductInfo b =>
+      (a.toConstantVal == b.toConstantVal) = true ∧ a.numParams = b.numParams ∧
+        a.numIndices = b.numIndices ∧ a.all = b.all ∧ a.ctors = b.ctors ∧
+        a.numNested = b.numNested ∧ a.isRec = b.isRec ∧ a.isUnsafe = b.isUnsafe ∧
+        a.isReflexive = b.isReflexive
+  | .ctorInfo a, .ctorInfo b => (a == b) = true
+  | .recInfo a, .recInfo b => (a == b) = true
+  | _, _ => False
+
+/-- The derived comparison of two quotient kinds accepts exactly equal kinds. -/
+private theorem quotKind_beq_iff (a b : QuotKind) : (a == b) = true ↔ a = b := by
+  cases a <;> cases b <;> first
+    | exact ⟨fun _ => rfl, fun _ => rfl⟩
+    | exact ⟨fun h => absurd h (by decide), fun h => nomatch h⟩
+
+/-- The derived comparison of two quotient records compares the constant data and the kind. -/
+private theorem quotVal_beq_iff (a b : QuotVal) :
+    (a == b) = true ↔ (a.toConstantVal == b.toConstantVal) = true ∧ a.kind = b.kind := by
+  have unfolded : (a == b) = (a.toConstantVal == b.toConstantVal && a.kind == b.kind) := by
+    cases a; cases b; rfl
+  rw [unfolded, Bool.and_eq_true, quotKind_beq_iff]
+
+/-- The derived comparison of two inductive records compares the constant data and each other
+field. -/
+private theorem inductiveVal_beq_iff (a b : InductiveVal) :
+    (a == b) = true ↔
+      (a.toConstantVal == b.toConstantVal) = true ∧ a.numParams = b.numParams ∧
+        a.numIndices = b.numIndices ∧ a.all = b.all ∧ a.ctors = b.ctors ∧
+        a.numNested = b.numNested ∧ a.isRec = b.isRec ∧ a.isUnsafe = b.isUnsafe ∧
+        a.isReflexive = b.isReflexive := by
+  have unfolded : (a == b) = (a.toConstantVal == b.toConstantVal &&
+      (a.numParams == b.numParams && (a.numIndices == b.numIndices && (a.all == b.all &&
+      (a.ctors == b.ctors && (a.numNested == b.numNested && (a.isRec == b.isRec &&
+      (a.isUnsafe == b.isUnsafe && a.isReflexive == b.isReflexive)))))))) := by
+    cases a; cases b; rfl
+  rw [unfolded]
+  simp
+
+/-- The executed comparison accepts exactly the pairs that `Identical` relates. -/
+theorem identical_iff (a b : ConstantInfo) : identical a b = true ↔ Identical a b := by
+  cases a <;> cases b <;>
+    simp only [identical, Identical, Bool.false_eq_true, quotVal_beq_iff, inductiveVal_beq_iff]
+
 /-- Whether every constant of module `m` is attributed to `m` in `env` and is the constant `env`
 keeps under its name (`identical`). Lean's import attributes a name to the first module declaring
 it and keeps the last copy that replaces the others (read from `Lean.finalizeImport`), so this
@@ -1190,6 +1244,17 @@ def isAxiomIn (find : Name → Option ConstantInfo) (n : Name) : Bool :=
   | some (.axiomInfo _) => true
   | _ => false
 
+/-- `find` holds an axiom under `n`, as a proposition. `isAxiomIn` decides it
+(`isAxiomIn_iff`). -/
+def IsAxiomIn (find : Name → Option ConstantInfo) (n : Name) : Prop :=
+  ∃ value, find n = some (.axiomInfo value)
+
+/-- The executed test accepts exactly the names that `find` holds as axioms. -/
+theorem isAxiomIn_iff (find : Name → Option ConstantInfo) (n : Name) :
+    isAxiomIn find n = true ↔ IsAxiomIn find n := by
+  unfold isAxiomIn IsAxiomIn
+  split <;> simp_all
+
 /-- The names of `seen` that `find` holds as axioms and `bound` lacks. -/
 def extraAxioms (find : Name → Option ConstantInfo) (seen bound : Std.HashSet Name) : List Name :=
   seen.toList.filter fun a => isAxiomIn find a && !bound.contains a
@@ -1277,9 +1342,9 @@ def checkProof (checked : Kernel.Environment) (find : Name → Option ConstantIn
 def ProofOK (checked : Kernel.Environment) (find : Name → Option ConstantInfo) (name : Name)
     (held info : ConstantInfo) : Prop :=
   RenamedOK checked info ∧ (∀ m ∈ successorsOf info, ¬ Reach find m name) ∧
-    (∀ m ∈ successorsOf info, ∀ a, Reach find m a → isAxiomIn find a = true →
+    (∀ m ∈ successorsOf info, ∀ a, Reach find m a → IsAxiomIn find a →
       ∃ m' ∈ successorsOf held, Reach checked.find? m' a) ∧
-    ∀ m' ∈ successorsOf held, ∀ a, Reach checked.find? m' a → isAxiomIn checked.find? a = true →
+    ∀ m' ∈ successorsOf held, ∀ a, Reach checked.find? m' a → IsAxiomIn checked.find? a →
       ∃ m ∈ successorsOf info, Reach find m a
 
 /-- A successful `checkProof` gives `ProofOK`. -/
@@ -1315,8 +1380,10 @@ theorem checkProof_ok {checked : Kernel.Environment} {find : Name → Option Con
           · have := complete m hm _ hreach
             rw [Std.HashSet.mem_iff_contains, hc] at this
             cases this
-          · exact soundHeld a (extraAxioms_nil hx.1 a (complete m hm a ha) hax)
-          · exact sound a (extraAxioms_nil hx.2 a (completeHeld m hm a ha) hax)
+          · exact soundHeld a (extraAxioms_nil hx.1 a (complete m hm a ha)
+              ((isAxiomIn_iff _ _).mpr hax))
+          · exact sound a (extraAxioms_nil hx.2 a (completeHeld m hm a ha)
+              ((isAxiomIn_iff _ _).mpr hax))
       · simp [hc] at h
 
 /-- A copy of a `shared` name and the constant `held` under it must be theorems Lean's import
@@ -1401,10 +1468,10 @@ def CopyAdmitted (checked : Kernel.Environment) (kept : Name → Option Constant
     (shared : Copy → Bool) (copy : Copy) : Prop :=
   (copy.info.isUnsafe || copy.info.isPartial) = true ∧ shared copy = false ∨
   ∃ held keptInfo, checked.find? copy.name = some held ∧ kept copy.name = some keptInfo ∧
-    (shared copy = true → sameTheorem held copy.info = true) ∧
-    (identical held copy.info = true ∨ ProofOK checked checked.find? copy.name held copy.info) ∧
-    (identical held keptInfo = true ∨
-      sameTheorem held keptInfo = true ∧ ProofOK checked kept copy.name held keptInfo)
+    (shared copy = true → SameTheorem held copy.info) ∧
+    (Identical held copy.info ∨ ProofOK checked checked.find? copy.name held copy.info) ∧
+    (Identical held keptInfo ∨
+      SameTheorem held keptInfo ∧ ProofOK checked kept copy.name held keptInfo)
 
 /-- A successful `checkCopy` admits its copy. -/
 theorem checkCopy_ok {checked : Kernel.Environment} {kept : Name → Option ConstantInfo}
@@ -1425,7 +1492,10 @@ theorem checkCopy_ok {checked : Kernel.Environment} {kept : Name → Option Cons
         simp only [hh, hk] at h
         obtain ⟨⟨⟩, h1, h⟩ := RegulaPolicy.Guards.bind_eq_ok.mp h
         obtain ⟨⟨⟩, h2, h3⟩ := RegulaPolicy.Guards.bind_eq_ok.mp h
-        exact ⟨held, keptInfo, rfl, rfl, checkShared_ok h1, checkOwn_ok h2, checkKept_ok h3⟩
+        exact ⟨held, keptInfo, rfl, rfl,
+          fun isShared => (sameTheorem_iff _ _).mp (checkShared_ok h1 isShared),
+          (checkOwn_ok h2).imp (identical_iff _ _).mp id,
+          (checkKept_ok h3).imp (identical_iff _ _).mp (And.imp (sameTheorem_iff _ _).mp id)⟩
   · left
     refine ⟨hu, ?_⟩
     cases hs : shared copy

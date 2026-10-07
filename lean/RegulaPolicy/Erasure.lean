@@ -83,6 +83,21 @@ def Threading.sameLevels (shape : Threading) (us vs : List Level) : Bool :=
     us.toArray.eraseIdxIfInBounds position == vs.toArray.eraseIdxIfInBounds position
   | none => us.toArray == vs.toArray
 
+/-- The levels `us` and `vs` of the constant agree apart from the motive's level, as a
+proposition stated with Lean's own comparison of levels (`==`). `Threading.sameLevels` decides
+it (`Threading.sameLevels_iff`). -/
+def Threading.SameLevels (shape : Threading) (us vs : List Level) : Prop :=
+  match shape.motiveLevel with
+  | some position =>
+    (us.toArray.eraseIdxIfInBounds position == vs.toArray.eraseIdxIfInBounds position) = true
+  | none => (us.toArray == vs.toArray) = true
+
+/-- The executed test accepts exactly the levels that agree apart from the motive's. -/
+theorem Threading.sameLevels_iff (shape : Threading) (us vs : List Level) :
+    shape.sameLevels us vs = true ↔ shape.SameLevels us vs := by
+  unfold Threading.sameLevels Threading.SameLevels
+  split <;> exact Iff.rfl
+
 /-- What the observing pass shows of the terms of one side. Each field answers for a term as it
 stands under the variables the pass bound, and `none` says that the pass was not asked about it.
 `erased` and `threading` are toolchain observations: what Lean answers, or what its kernel
@@ -248,6 +263,17 @@ theorem newVariables_eq_false_of_held {pairs : Pairs} {x : FVarId}
     rcases List.mem_cons.mp member with rfl | later
     · simp [newVariables, held]
     · simp [newVariables, newVariables_eq_false_of_held held later]
+
+/-- The variables are new, as a proposition: no pair of `pairs` holds one of them, on either
+side, and no two of them are the same. `newVariables` decides it (`newVariables_iff`). -/
+def NewVariables (pairs : Pairs) (variables : List FVarId) : Prop :=
+  (∀ x ∈ variables, ∀ pair ∈ pairs, pair.1 ≠ x ∧ pair.2 ≠ x) ∧ variables.Nodup
+
+/-- The executed test accepts exactly the lists of new variables. -/
+theorem newVariables_iff (pairs : Pairs) (variables : List FVarId) :
+    newVariables pairs variables = true ↔ NewVariables pairs variables := by
+  rw [newVariables_eq_true_iff]
+  simp only [NewVariables, unpaired_eq_true_iff]
 
 /-- The arguments of a well-founded fixpoint application that carry its computation: for
 `WellFounded.fix α C r hwf F x…` and `WellFounded.Nat.fix α motive h F x…` (the two combinators
@@ -455,7 +481,7 @@ structure Threads (seen : Observations) (threaded direct : Expr) (shape : Thread
   more : threaded.getAppArgs.size = direct.getAppArgs.size + 1
   /-- Both apply the same constant, at levels that agree apart from the motive's. -/
   same : ∃ name us name' vs, threaded.getAppFn = .const name us ∧
-    direct.getAppFn = .const name' vs ∧ (name == name') = true ∧ shape.sameLevels us vs = true
+    direct.getAppFn = .const name' vs ∧ (name == name') = true ∧ shape.SameLevels us vs
   /-- The kernel checked the threading law of `threaded` for `shape`. -/
   law : seen.threading threaded = some (some shape)
   /-- The argument after the alternatives is the variable `passed`. -/
@@ -702,12 +728,12 @@ inductive EqualWithin (left right : Observations) : Nat → Pairs → Expr → E
       EqualWithin left right (depth + 1) pairs (.app f x) (.app g y)
   /-- Two functions with equal binder types and with bodies that are equal when each is read
   with its own variable and the two variables are paired. The two variables are new
-  (`newVariables`). -/
+  (`NewVariables`). -/
   | lam {depth : Nat} {pairs : Pairs} {n n' : Name} {t t' body body' : Expr}
       {bi bi' : Lean.BinderInfo} {x y : FVarId} :
       Kept left right (.lam n t body bi) (.lam n' t' body' bi') →
       left.bound (.lam n t body bi) = some x → right.bound (.lam n' t' body' bi') = some y →
-      newVariables pairs [x, y] = true →
+      NewVariables pairs [x, y] →
       EqualWithin left right depth pairs t t' →
       EqualWithin left right depth (pairs.push (x, y)) (body.instantiate1 (.fvar x))
         (body'.instantiate1 (.fvar y)) →
@@ -718,7 +744,7 @@ inductive EqualWithin (left right : Observations) : Nat → Pairs → Expr → E
       Kept left right (.forallE n t body bi) (.forallE n' t' body' bi') →
       left.bound (.forallE n t body bi) = some x →
       right.bound (.forallE n' t' body' bi') = some y →
-      newVariables pairs [x, y] = true →
+      NewVariables pairs [x, y] →
       EqualWithin left right depth pairs t t' →
       EqualWithin left right depth (pairs.push (x, y)) (body.instantiate1 (.fvar x))
         (body'.instantiate1 (.fvar y)) →
@@ -730,7 +756,7 @@ inductive EqualWithin (left right : Observations) : Nat → Pairs → Expr → E
       Kept left right (.letE n t v body nondep) (.letE n' t' v' body' nondep') →
       left.bound (.letE n t v body nondep) = some x →
       right.bound (.letE n' t' v' body' nondep') = some y →
-      newVariables pairs [x, y] = true →
+      NewVariables pairs [x, y] →
       EqualWithin left right depth pairs t t' → EqualWithin left right depth pairs v v' →
       EqualWithin left right depth (pairs.push (x, y)) (body.instantiate1 (.fvar x))
         (body'.instantiate1 (.fvar y)) →
@@ -1061,10 +1087,11 @@ theorem threaded_eq_some_ok_iff (side : Side) (seen other : Observations) (pairs
     rename_i levels
     split at found <;> try cases found
     rename_i passed passes
-    exact ⟨shape, passed, ⟨more, ⟨name, us, name', vs, function, function', named, levels⟩, law,
-      passes⟩, Option.some.inj found⟩
-  · rintro ⟨shape, passed, ⟨more, ⟨name, us, name', vs, function, function', named, levels⟩, law,
+    exact ⟨shape, passed, ⟨more, ⟨name, us, name', vs, function, function', named,
+      (Threading.sameLevels_iff ..).mp levels⟩, law, passes⟩, Option.some.inj found⟩
+  · rintro ⟨shape, passed, ⟨more, ⟨name, us, name', vs, function, function', named, agree⟩, law,
       passes⟩, found⟩
+    have levels := (Threading.sameLevels_iff ..).mpr agree
     simp [threaded, more, function, function', named, law, levels, passes, found]
 
 /-- `threaded` does not apply where `threaded` does not have exactly one more argument than
@@ -1310,15 +1337,15 @@ theorem EqualWithin.of_structural {left right : Observations} {depth : Nat} {pai
   · obtain ⟨x, y, bound, bound', new, rfl⟩ := (under_eq_ok_iff ..).mp found
     simp only [List.cons_append, List.nil_append, List.mem_cons, List.not_mem_nil, or_false,
       forall_eq_or_imp, forall_eq] at related
-    exact .lam kept bound bound' new related.1 related.2
+    exact .lam kept bound bound' ((newVariables_iff ..).mp new) related.1 related.2
   · obtain ⟨x, y, bound, bound', new, rfl⟩ := (under_eq_ok_iff ..).mp found
     simp only [List.cons_append, List.nil_append, List.mem_cons, List.not_mem_nil, or_false,
       forall_eq_or_imp, forall_eq] at related
-    exact .forallE kept bound bound' new related.1 related.2
+    exact .forallE kept bound bound' ((newVariables_iff ..).mp new) related.1 related.2
   · obtain ⟨x, y, bound, bound', new, rfl⟩ := (under_eq_ok_iff ..).mp found
     simp only [List.cons_append, List.nil_append, List.mem_cons, List.not_mem_nil, or_false,
       forall_eq_or_imp, forall_eq] at related
-    exact .letE kept bound bound' new related.1 related.2.1 related.2.2
+    exact .letE kept bound bound' ((newVariables_iff ..).mp new) related.1 related.2.1 related.2.2
   · cases found
 
 /-- Where a step reduces the comparison to parts that are all related, the two terms are
@@ -1417,7 +1444,7 @@ theorem equalWithin_of_related {left right : Observations} {fuel : Nat} {pairs :
     · exact acceptedArguments part member
   | lam kept bound bound' new _ _ acceptedType acceptedBody =>
     refine equalWithin_of_structural kept
-      ((under_eq_ok_iff ..).mpr ⟨_, _, bound, bound', new, rfl⟩) ?_
+      ((under_eq_ok_iff ..).mpr ⟨_, _, bound, bound', (newVariables_iff ..).mpr new, rfl⟩) ?_
     intro part member
     simp only [List.cons_append, List.nil_append, List.mem_cons, List.not_mem_nil,
       or_false] at member
@@ -1426,7 +1453,7 @@ theorem equalWithin_of_related {left right : Observations} {fuel : Nat} {pairs :
     · exact acceptedBody
   | forallE kept bound bound' new _ _ acceptedType acceptedBody =>
     refine equalWithin_of_structural kept
-      ((under_eq_ok_iff ..).mpr ⟨_, _, bound, bound', new, rfl⟩) ?_
+      ((under_eq_ok_iff ..).mpr ⟨_, _, bound, bound', (newVariables_iff ..).mpr new, rfl⟩) ?_
     intro part member
     simp only [List.cons_append, List.nil_append, List.mem_cons, List.not_mem_nil,
       or_false] at member
@@ -1435,7 +1462,7 @@ theorem equalWithin_of_related {left right : Observations} {fuel : Nat} {pairs :
     · exact acceptedBody
   | letE kept bound bound' new _ _ _ acceptedType acceptedValue acceptedBody =>
     refine equalWithin_of_structural kept
-      ((under_eq_ok_iff ..).mpr ⟨_, _, bound, bound', new, rfl⟩) ?_
+      ((under_eq_ok_iff ..).mpr ⟨_, _, bound, bound', (newVariables_iff ..).mpr new, rfl⟩) ?_
     intro part member
     simp only [List.cons_append, List.nil_append, List.mem_cons, List.not_mem_nil,
       or_false] at member

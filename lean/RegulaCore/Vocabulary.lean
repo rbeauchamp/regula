@@ -235,7 +235,7 @@ abbrev Numeral (text : List Char) : Prop :=
 
 /-- A text that is not empty and has no space character, no backtick and no `|` character. -/
 abbrev Solid (text : List Char) : Prop :=
-  text ≠ [] ∧ ∀ c ∈ text, spacing c = false ∧ c ≠ '`' ∧ c ≠ '|'
+  text ≠ [] ∧ ∀ c ∈ text, ¬ Spacing c ∧ c ≠ '`' ∧ c ≠ '|'
 
 /-- `text` is one sentence of 25 words or less that ends with a period: its last character is a
 period, and the division of its characters into the runs that sentences are (`Divided`) has

@@ -74,6 +74,17 @@ theorem builtinCompilerAxiom_absent (h : Compiler.legacyCompilerTrust = .absent)
     builtinCompilerAxiom name = false := by
   simp [builtinCompilerAxiom, h]
 
+/-- A legacy compiler-trust name of a compiler whose Core declares that family, as a
+proposition. `builtinCompilerAxiom` decides it (`builtinCompilerAxiom_iff`). -/
+def BuiltinCompilerAxiom (name : Name) : Prop :=
+  Compiler.legacyCompilerTrust = .present ∧
+    (name = `Lean.trustCompiler ∨ name = `Lean.ofReduceBool ∨ name = `Lean.ofReduceNat)
+
+/-- The executed classification accepts exactly the enabled legacy compiler axioms. -/
+theorem builtinCompilerAxiom_iff (name : Name) :
+    builtinCompilerAxiom name = true ↔ BuiltinCompilerAxiom name := by
+  simp [builtinCompilerAxiom, legacyCompilerAxiom, BuiltinCompilerAxiom, or_assoc]
+
 
 /-- The three permitted sets, specified by membership rather than a classifier result. -/
 def Permitted : ConformingProfile → Name → Prop

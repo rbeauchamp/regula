@@ -531,7 +531,7 @@ inductive Role where
   | digit
   /-- A hyphen (`-`) or an apostrophe (`'`). -/
   | joiner
-  /-- A space character (`spacing`). -/
+  /-- A space character (`Spacing`). -/
   | space
   /-- A period, a question mark or an exclamation mark. -/
   | stop
@@ -550,12 +550,17 @@ inductive Role where
   | mark
   deriving DecidableEq, Repr
 
-/-- Whether `c` is a space character: ASCII white space, or one of the space characters outside
-ASCII that are known here (U+00A0, U+1680, U+2000 to U+200A, U+2028, U+2029, U+202F, U+205F and
-U+3000). -/
-def spacing (c : Char) : Bool :=
-  c.isWhitespace || c.val = 0xA0 || c.val = 0x1680 || (0x2000 ≤ c.val && c.val ≤ 0x200A) ||
-    c.val = 0x2028 || c.val = 0x2029 || c.val = 0x202F || c.val = 0x205F || c.val = 0x3000
+/-- `c` is a space character: ASCII white space, or one of the space characters outside ASCII
+that are known here (U+00A0, U+1680, U+2000 to U+200A, U+2028, U+2029, U+202F, U+205F and
+U+3000). The class is a proposition, so a statement that uses it names no test of this module,
+and a function decides it with its `Decidable` instance. -/
+def Spacing (c : Char) : Prop :=
+  c.isWhitespace = true ∨ c.val = 0xA0 ∨ c.val = 0x1680 ∨ (0x2000 ≤ c.val ∧ c.val ≤ 0x200A) ∨
+    c.val = 0x2028 ∨ c.val = 0x2029 ∨ c.val = 0x202F ∨ c.val = 0x205F ∨ c.val = 0x3000
+
+instance (c : Char) : Decidable (Spacing c) := by
+  unfold Spacing
+  infer_instance
 
 /-- The role of a character. The known marks outside ASCII are `‘`, `’`, `–`, `—` and `…`. -/
 def roleOf (c : Char) : Role :=
@@ -563,7 +568,7 @@ def roleOf (c : Char) : Role :=
   else if c.isLower then .lower
   else if c.isDigit then .digit
   else if c = '-' ∨ c = '\'' then .joiner
-  else if spacing c then .space
+  else if Spacing c then .space
   else if c = '.' ∨ c = '?' ∨ c = '!' then .stop
   else if c = '"' ∨ c = '“' ∨ c = '”' then .quote
   else if c = '(' then .opening

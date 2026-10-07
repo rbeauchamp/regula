@@ -168,11 +168,94 @@ theorem Ranges.validForLines_iff_admitted (r : Ranges) (lines : List String) :
     simp only [Ranges.validForLines, Bool.and_eq_true] at valid
     exact valid.1.1.2
 
+/-- `a` is at or before `b`, as a proposition: lines compared first, then columns on the same
+line. `positionLE` decides it (`positionLE_iff`). -/
+def PositionLE (a b : Position) : Prop :=
+  a.line < b.line ∨ (a.line = b.line ∧ a.column ≤ b.column)
+
+/-- The executed comparison accepts exactly the positions that `PositionLE` relates. -/
+theorem positionLE_iff (a b : Position) : positionLE a b = true ↔ PositionLE a b := by
+  simp [positionLE, PositionLE]
+
+/-- Codepoint coordinates select an existing line and a boundary on that line, as a
+proposition. `Position.validForLines` decides it (`Position.validForLines_iff`). -/
+def Position.ValidForLines (p : Position) (lines : List String) : Prop :=
+  0 < p.line ∧ ∃ line, lines[p.line - 1]? = some line ∧ p.column ≤ line.length
+
+/-- The executed check accepts exactly the positions that are valid for the lines. -/
+theorem Position.validForLines_iff (p : Position) (lines : List String) :
+    p.validForLines lines = true ↔ p.ValidForLines lines := by
+  unfold Position.validForLines Position.ValidForLines
+  cases lines[p.line - 1]? <;> simp
+
+/-- Both ends select boundaries on existing lines, the start is not after the end, and the
+recorded UTF-16 columns are those of the two ends (`utf16ColumnLines`), as a proposition.
+`Range.validForLines` decides it (`Range.validForLines_iff`). -/
+def Range.ValidForLines (r : Range) (lines : List String) : Prop :=
+  r.start.ValidForLines lines ∧ r.end.ValidForLines lines ∧ PositionLE r.start r.end ∧
+    r.startUtf16 = utf16ColumnLines r.start lines ∧ r.endUtf16 = utf16ColumnLines r.end lines
+
+/-- The executed check accepts exactly the ranges that are valid for the lines. -/
+theorem Range.validForLines_iff (r : Range) (lines : List String) :
+    r.validForLines lines = true ↔ r.ValidForLines lines := by
+  simp [Range.validForLines, Range.ValidForLines, Position.validForLines_iff, positionLE_iff,
+    and_assoc]
+
+/-- `Range.ValidForLines` over the lines of `source`, split at each `\n`. -/
+def Range.ValidFor (r : Range) (source : String) : Prop :=
+  r.ValidForLines (source.splitOn "\n")
+
+/-- The executed check accepts exactly the ranges that are valid for the source. -/
+theorem Range.validFor_iff (r : Range) (source : String) :
+    r.validFor source = true ↔ r.ValidFor source :=
+  r.validForLines_iff _
+
+/-- Both ranges are valid for the lines and the selection range lies within the full range, as
+a proposition. `Ranges.validForLines` decides it (`Ranges.validForLines_iff`). -/
+def Ranges.ValidForLines (r : Ranges) (lines : List String) : Prop :=
+  r.range.ValidForLines lines ∧ r.selectionRange.ValidForLines lines ∧
+    PositionLE r.range.start r.selectionRange.start ∧ PositionLE r.selectionRange.end r.range.end
+
+/-- The executed check accepts exactly the pairs that are valid for the lines. -/
+theorem Ranges.validForLines_iff (r : Ranges) (lines : List String) :
+    r.validForLines lines = true ↔ r.ValidForLines lines := by
+  simp [Ranges.validForLines, Ranges.ValidForLines, Range.validForLines_iff, positionLE_iff,
+    and_assoc]
+
+/-- `Ranges.ValidForLines` over the lines of `source`, split at each `\n`. -/
+def Ranges.ValidFor (r : Ranges) (source : String) : Prop :=
+  r.ValidForLines (source.splitOn "\n")
+
+/-- The executed check accepts exactly the pairs that are valid for the source. -/
+theorem Ranges.validFor_iff (r : Ranges) (source : String) :
+    r.validFor source = true ↔ r.ValidFor source :=
+  r.validForLines_iff _
+
 /-- Every command's `added` names are exactly its `addedDeclarations` names, none anonymous. -/
 def Frontend.Transcript.validCoordinates (t : Frontend.Transcript) : Bool :=
   t.commands.all fun command =>
     command.added == command.addedDeclarations.map (·.name) &&
     command.added.all (· != .anonymous)
+
+/-- Every command's `added` names are exactly its `addedDeclarations` names, none anonymous, as a
+proposition. `Frontend.Transcript.validCoordinates` decides it
+(`Frontend.Transcript.validCoordinates_iff`). -/
+def Frontend.Transcript.ValidCoordinates (t : Frontend.Transcript) : Prop :=
+  ∀ command ∈ t.commands, command.added = command.addedDeclarations.map (·.name) ∧
+    ∀ name ∈ command.added, name ≠ .anonymous
+
+/-- The executed check accepts exactly the transcripts with valid coordinates. -/
+theorem Frontend.Transcript.validCoordinates_iff (t : Frontend.Transcript) :
+    t.validCoordinates = true ↔ t.ValidCoordinates := by
+  simp [Frontend.Transcript.validCoordinates, Frontend.Transcript.ValidCoordinates,
+    -Array.all_eq_true, Array.all_eq_true']
+
+/-- The executed check of a declaration's admitted ranges accepts exactly a declaration whose
+admitted pair, if it has one, is valid for the lines. -/
+theorem Declaration.ranges_all_validForLines_iff (d : Declaration) (lines : List String) :
+    d.ranges.all (·.validForLines lines) = true ↔
+      ∀ ranges ∈ d.ranges, ranges.ValidForLines lines := by
+  cases d.ranges <;> simp [Ranges.validForLines_iff]
 
 /-- Admitted inventories have one declaration per name and one transcript per module.
 Ordered mutual-group sequences are intentionally not normalized. -/
@@ -183,8 +266,8 @@ def InventoryValid (decls : Array Declaration) (transcripts : Array Frontend.Tra
   (∀ t ∈ transcripts, Named t.module ∧ t.source ≠ "" ∧
     t.sourceBytes = t.sourceContent.utf8ByteSize ∧
     t.leanVersion = Compiler.version ∧ t.leanGitHash = Compiler.commit ∧
-    t.validCoordinates = true ∧
-    ∀ d ∈ decls, d.module = t.module → d.ranges.all (·.validFor t.sourceContent) = true)
+    t.ValidCoordinates ∧
+    ∀ d ∈ decls, d.module = t.module → ∀ ranges ∈ d.ranges, ranges.ValidFor t.sourceContent)
 /-- Decide the unchanged declaration-coordinate relation using one supplied line list. -/
 def declarationCoordinatesDecidable (decls : Array Declaration)
     (moduleName : Lean.Name) (lines : List String) : Decidable
@@ -197,9 +280,16 @@ instance instDecidableInventoryValid (decls : Array Declaration)
   unfold InventoryValid
   -- A let in the proposition is reduced during instance synthesis. Bind the
   -- derived lines in the executable decision so all declarations share them.
+  letI (t : Frontend.Transcript) : Decidable t.ValidCoordinates :=
+    decidable_of_iff _ t.validCoordinates_iff
   letI (t : Frontend.Transcript) : Decidable
-      (∀ d ∈ decls, d.module = t.module → d.ranges.all (·.validFor t.sourceContent) = true) :=
-    declarationCoordinatesDecidable decls t.module (t.sourceContent.splitOn "\n")
+      (∀ d ∈ decls, d.module = t.module →
+        ∀ ranges ∈ d.ranges, ranges.ValidFor t.sourceContent) :=
+    letI := declarationCoordinatesDecidable decls t.module (t.sourceContent.splitOn "\n")
+    decidable_of_iff
+      (∀ d ∈ decls, d.module = t.module →
+        d.ranges.all (·.validForLines (t.sourceContent.splitOn "\n")) = true)
+      (by simp only [Declaration.ranges_all_validForLines_iff, Ranges.ValidFor])
   infer_instance
 
 /-- A shared declaration name prevents concatenated inventories from being valid,

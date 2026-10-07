@@ -18,14 +18,39 @@ must occur in order. -/
 def patternAlternatives (pattern : String) : List (List String) :=
   (patternBody pattern).splitOn "|" |>.map (·.splitOn ".*")
 
-/-- Only alternation, ordered literals and the optional leading (?s) marker are supported.
-The remaining regex metacharacters, a stray star, and empty literals are refused. -/
-def PatternValid (pattern : String) : Prop :=
-  patternBody pattern ≠ "" ∧
-  ∀ alternative ∈ (patternBody pattern).splitOn "|", alternative ≠ "" ∧
+/-- `body` is `pattern` without its optional leading `(?s)` marker, as a relation that the
+specifications below state. `patternBody` computes it (`patternBody_iff`). -/
+def PatternBody (pattern body : String) : Prop :=
+  (pattern.startsWith "(?s)" = true ∧ body = (pattern.drop 4).toString) ∨
+    (pattern.startsWith "(?s)" = false ∧ body = pattern)
+
+/-- The body of a pattern is one text only: the computed one. -/
+theorem patternBody_iff (pattern body : String) :
+    PatternBody pattern body ↔ body = patternBody pattern := by
+  unfold PatternBody patternBody
+  cases pattern.startsWith "(?s)" <;> simp
+
+/-- A pattern body in the supported language: alternation and ordered literals. The remaining
+regex metacharacters, a stray star, and empty literals are refused. -/
+def BodyValid (body : String) : Prop :=
+  body ≠ "" ∧
+  ∀ alternative ∈ body.splitOn "|", alternative ≠ "" ∧
     ∀ literal ∈ alternative.splitOn ".*", literal ≠ "" ∧
       ∀ ch ∈ literal.toList, ch ∉ ['[', ']', '(', ')', '{', '}', '?', '+', '^', '$', '\\', '*']
-instance (p : String) : Decidable (PatternValid p) := by unfold PatternValid; infer_instance
+instance (body : String) : Decidable (BodyValid body) := by unfold BodyValid; infer_instance
+
+/-- Only alternation, ordered literals and the optional leading (?s) marker are supported: the
+body of the pattern (`PatternBody`) is valid (`BodyValid`). -/
+def PatternValid (pattern : String) : Prop :=
+  ∃ body, PatternBody pattern body ∧ BodyValid body
+
+/-- A pattern is valid exactly when its computed body is. -/
+theorem patternValid_iff (pattern : String) :
+    PatternValid pattern ↔ BodyValid (patternBody pattern) := by
+  simp [PatternValid, patternBody_iff]
+
+instance (p : String) : Decidable (PatternValid p) :=
+  decidable_of_iff _ (patternValid_iff p).symm
 
 /-- Exact successful decomposition at successive leftmost literal occurrences. String's
 split operation supplies the prefix and remaining suffix; no cross-message concatenation
@@ -37,9 +62,12 @@ def OrderedLiteralMatch : List String → String → Prop
     | _ :: suffix :: suffixes => OrderedLiteralMatch rest (literal.intercalate (suffix :: suffixes))
     | _ => False
 
-/-- The supported expected-error relation is one alternative's ordered literal sequence. -/
+/-- The supported expected-error relation is one alternative's ordered literal sequence: the
+body of the pattern is valid, and `text` matches the literals of one alternative of the body,
+which are the body split at `|` and then at `.*`. -/
 def PatternMatch (pattern text : String) : Prop :=
-  PatternValid pattern ∧ ∃ literals ∈ patternAlternatives pattern, OrderedLiteralMatch literals text
+  ∃ body, PatternBody pattern body ∧ BodyValid body ∧
+    ∃ alternative ∈ body.splitOn "|", OrderedLiteralMatch (alternative.splitOn ".*") text
 
 /-- Same greedy literal consumer as the existing checker, with structural recursion on
 fragments instead of the unnecessary partial declaration previously used by the adapter. -/
@@ -68,7 +96,8 @@ def matchesPattern (pattern text : String) : Bool :=
 /-- All and only the declared valid ordered-split relations are recognized. -/
 theorem matchesPattern_iff (pattern text : String) :
     matchesPattern pattern text = true ↔ PatternMatch pattern text := by
-  simp [matchesPattern, PatternMatch, orderedLiterals_iff]
+  simp [matchesPattern, PatternMatch, orderedLiterals_iff, patternBody_iff, patternValid_iff,
+    patternAlternatives]
 end RegulaPolicy
 
 namespace RegulaPolicy
