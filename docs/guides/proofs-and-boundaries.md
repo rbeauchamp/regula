@@ -627,7 +627,7 @@ imports only the toolchain:
   `mathlibApplies`;
   `RegulaVerification.Decisions` registers `parseMode`, `dependencyFree` and `select`.
   Each kind restates a theorem the program proves about the same definition, except that of
-  `component?`, which follows from its definition (`checked_component`).
+  `component?` (`checked_component`).
 
 Deleting one of those contracts, such as `checked_compilerAccepts` or `checked_admits`, is then
 rejected under [RG1008] like any other registered decision's contract. The decisions below carry

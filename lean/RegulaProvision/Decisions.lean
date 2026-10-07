@@ -9,7 +9,7 @@ registration. The provisioning program imports only the toolchain, because `scri
 runs it with `lean --run` before the package is built. This second module of its library imports
 it together with the two checker interfaces, and nothing the program runs imports this module.
 Each kind restates a theorem of the program about the same definition, or for `component?`
-follows from its definition, and adds the witnesses a kind requires. -/
+follows from its definition and `isComponent_iff`, and adds the witnesses a kind requires. -/
 namespace RegulaProvision
 
 /-- One path component that is not hidden and has no separator, stated over the text and its
