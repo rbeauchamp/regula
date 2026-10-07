@@ -24,7 +24,8 @@ about that data is a function here. The editions and the route policy are
   `rootEdition` below a `stableRoots` directory, and the address it opens, the same page of
   that edition.
 - `siteAnchors`: the pages and fragments that a document names on the site, which the site
-  build checks against the artifact for the root `README.md`, by `missingAnchors`.
+  build checks against the artifact for each document of `Regula.Markdown.stableDocuments`, by
+  `missingAnchors`.
 - `bannerRelease`, `bannerRelease_eq_some`, `bannerTarget`, `bannerTarget_mem`, `outdatedBanner`,
   `bannerAnchor`, `insertBanner`, `insertBanner_ok`: the note at the top of every page of an
   earlier release's edition, which names the latest release and links the same page there, or

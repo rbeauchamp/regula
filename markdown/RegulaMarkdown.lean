@@ -608,6 +608,12 @@ private def bodyless : String :=
 #guard checkSiteLinks "README.md" (s!"See [the rules]({site "dev/rules/"}), [RG2003] and " ++
   s!"<{site "v/0.9.0/"}>.\n\n[RG2003]: {page "RG2003"}\n") ==
   [site "dev/rules/", page "RG2003", site "v/0.9.0/"].map (unstableReason "README.md")
+-- The same link to the stable address of a rule, as md4c reports it: a link to its rule page in
+-- `README.md`, and in no document outside `stableDocuments`.
+-- Compiled-evaluation observation at build time, not a kernel-checked proof.
+#guard check "README.md" (s!"See [RG2003]({site "rules/RG2003/"}).\n") == [] &&
+  check "docs/README.md" (s!"See [RG2003]({site "rules/RG2003/"}).\n") ==
+    [s!"docs/README.md:1: RG2003 is linked to {site "rules/RG2003/"}, which is not its rule page"]
 
 /-! Evaluated controls of the reader boundary of the prose checks
 (`RegulaCore/ControlledProse.lean`): the kind of each block md4c reports. The controls of the

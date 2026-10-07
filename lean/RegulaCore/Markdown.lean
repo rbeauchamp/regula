@@ -20,8 +20,9 @@ md4c's decision, and which piece each becomes is that module's (see Boundaries).
 - `Found.Accepted`, `rejected`, `rejected_nil_iff`: a finding is accepted only when it is a
   registered rule ID all of which lies in the text of one link to that rule's page
   (`Regula.Prose.Mention.Linked`).
-- `target`, `released`, `released_iff`: the pages a Markdown document links a rule to: its
-  development page, or its stable address when the rule is in a release.
+- `stableDocuments`, `target`, `released`, `released_iff`: the pages a Markdown document links a
+  rule to: its development page, or, in a document of `stableDocuments` only, its stable address
+  when the rule is in a release.
 - `auditMarker`: the one form of raw HTML that is read, a fence marker of the documentation audit.
 - `Anchor`, `Placed`, `leftmost`, `rightmost`, `leftmost_le`, `le_rightmost`: the source lines of
   a finding. The parser reports text, not positions, so the lines are bracketed: every placement
@@ -30,9 +31,9 @@ md4c's decision, and which piece each becomes is that module's (see Boundaries).
 - `documentErrors`, `documentErrors_nil_iff`, `checked_documentErrors`: the executed check of one
   document, reporting the file, the line or lines and the ID or the refused construct; a
   document whose reading cannot be used is reported by file and reason alone, without its IDs.
-- `OnSite`, `Stable`, `Stable.not_edition`, `stableDocuments`, `siteLinkErrors`,
-  `siteLinkErrors_nil_iff`, `checked_siteLinkErrors`: the executed check of the links of the root
-  `README.md` to the site. Each has a stable address, the site root or an address below a
+- `OnSite`, `Stable`, `Stable.not_edition`, `siteLinkErrors`, `siteLinkErrors_nil_iff`,
+  `checked_siteLinkErrors`: the executed check of the links of each document of
+  `stableDocuments` to the site. Each has a stable address, the site root or an address below a
   `stableRoots` directory with no fragment, so it names no edition and opens the latest release.
 
 ## What prose is
@@ -59,8 +60,9 @@ module's evaluated controls. Both parts are stated there and in the contributor 
 `siteLinkErrors_nil_iff` is about the link destinations among those pieces: a link that the
 parser does not report as a link, an image and a link reference definition that no link uses are
 not read. An address of the site is a destination that has `siteAddress`, in that spelling.
-That a stable address has a page is not decided here: the site build requires each address of
-the root `README.md` in its artifact (`Regula.Site.siteAnchors`).
+That a stable address has a page is not decided here. `target` accepts the stable address of a
+rule only in a document of `stableDocuments`, and the site build requires each address of each
+document of that same list in its artifact (`Regula.Site.siteAnchors`).
 `leftmost_le` and `le_rightmost` bound every placement that `Placed`
 admits; that the true lines of the reported text are such a placement rests on the parser
 reporting each piece of text as it stands on one source line, in source order, and on a line
@@ -316,13 +318,20 @@ theorem rejected_nil_iff (target : RuleId → String → Bool) (pieces : List Pi
   exact ⟨fun h f hf => (Found.accepted_iff target f).mp (h f hf),
     fun h f hf => (Found.accepted_iff target f).mpr (h f hf)⟩
 
+/-- The tracked documents whose links to the site name no edition, so that each link opens the
+latest release and a release changes no such document: the root `README.md`. Only in these
+documents is the stable address of a rule a link to its page (`target`), and the site build
+requires each address of the site in each of them in its artifact (`Regula.Site.siteAnchors`). -/
+def stableDocuments : List String := ["README.md"]
+
 /-- Whether rule `id` is in a release: its lifecycle records the release that introduced it. -/
 def released (id : RuleId) : Bool := (descriptor id).lifecycle.introduced != .unreleased
 
 /-- A rule is in a release exactly when a listed release introduced it. Each release's edition
 has a page for every rule of its build, and a rule is never removed, so the edition of every
 later release has the page too; that step is argued, and the site build observes it for the
-addresses of the root `README.md` (`Regula.Site.siteAnchors`). -/
+addresses of each document of `stableDocuments` (`Regula.Site.siteAnchors`), the only documents
+in which `target` accepts a stable address. -/
 theorem released_iff (id : RuleId) :
     released id = true ↔ ∃ v ∈ versions, (descriptor id).lifecycle.introduced = .release v := by
   have listed := lifecycle_listed id (descriptor id).lifecycle.introduced
@@ -334,14 +343,15 @@ theorem released_iff (id : RuleId) :
     rw [h] at listed
     simpa [Build.listedIn] using listed
 
-/-- Whether `destination` is a page of rule `id` that a tracked Markdown document links: the
-rule's page in the development edition (`Edition.url`), with or without a fragment, or, for a
-rule that is in a release (`released`), its stable address (`stableUrl`) with no fragment, which
-opens the page of the latest release. A stable route does not keep a fragment. -/
-def target (id : RuleId) (destination : String) : Bool :=
+/-- Whether `destination` is a page of rule `id` that the tracked Markdown document `file`
+links: the rule's page in the development edition (`Edition.url`), with or without a fragment,
+or, only in a document of `stableDocuments` and for a rule that is in a release (`released`), its
+stable address (`stableUrl`) with no fragment, which opens the page of the latest release. A
+stable route does not keep a fragment. -/
+def target (file : String) (id : RuleId) (destination : String) : Bool :=
   destination == Edition.dev.url id.route ||
     destination.startsWith (Edition.dev.url id.route ++ "#") ||
-    (released id && destination == stableUrl id.route)
+    (stableDocuments.contains file && released id && destination == stableUrl id.route)
 
 /-- Whether `text`, the text of a raw HTML block, is exactly one fence marker of the
 documentation audit, the two forms the standard defines (§7, `Regula.Checker.Documentation`):
@@ -639,11 +649,12 @@ def Found.describe (file : String) (first last : Nat) (f : Found) : String :=
       s!"{token} " ++ (⟨first, token, some destination⟩ : Mention).reason
 
 /-- What the document `file` with text `source` and pieces `pieces` is refused for: each
-construct the check refuses to read and each rule ID in its prose that is not a link to its rule
-page (`target`), with the line it lies on, or the first and last line it can lie on (`leftmost`,
-`rightmost`, `occursOn`; the whole document when the pieces have no placement). -/
+construct the check refuses to read and each rule ID in its prose that is not a link to a page
+of its rule that `target` accepts for `file`, with the line it lies on, or the first and last
+line it can lie on (`leftmost`, `rightmost`, `occursOn`; the whole document when the pieces have
+no placement). -/
 def errors (file source : String) (pieces : List Piece) : List String :=
-  match rejected target pieces with
+  match rejected (target file) pieces with
   | [] => []
   | found =>
     let lines := source.splitOn "\n"
@@ -654,8 +665,8 @@ def errors (file source : String) (pieces : List Piece) : List String :=
       f.describe file (first[f.anchor]?.getD 1) (last[f.anchor]?.getD lines.length)
 
 theorem errors_nil_iff (file source : String) (pieces : List Piece) :
-    errors file source pieces = [] ↔ rejected target pieces = [] := by
-  cases h : rejected target pieces <;> simp [errors, h]
+    errors file source pieces = [] ↔ rejected (target file) pieces = [] := by
+  cases h : rejected (target file) pieces <;> simp [errors, h]
 
 /-- What the document `file` with text `source` is refused for, given the parser's reading of
 it: that the reading cannot be used, or the `errors` of its pieces. -/
@@ -667,10 +678,11 @@ def documentErrors (file source : String) : Reading → List String
 /-- The document check reports nothing exactly when the parser's reading can be used and every
 finding of it is accepted: it has no construct the check refuses to read, and every rule-ID
 token of its runs that is not wholly code is a registered rule ID inside one link to a page of
-that rule that `target` accepts. -/
+that rule that `target` accepts for the file: the stable address of a rule only when the file is
+one of `stableDocuments`. -/
 theorem documentErrors_nil_iff (file source : String) (reading : Reading) :
     documentErrors file source reading = [] ↔
-      ∃ pieces, reading = .read pieces ∧ ∀ f ∈ findings pieces, f.Accepted target := by
+      ∃ pieces, reading = .read pieces ∧ ∀ f ∈ findings pieces, f.Accepted (target file) := by
   cases reading with
   | unread reason => simp [documentErrors]
   | read pieces => simp [documentErrors, errors_nil_iff, rejected_nil_iff]
@@ -681,7 +693,8 @@ document read as no pieces, and an error for a document that was not read. -/
 theorem checked_documentErrors : Regula.ExecutableContract documentErrors (fun run =>
     Regula.Decides (· = [])
       (fun input : (String × String) × Reading =>
-        ∃ pieces, input.2 = .read pieces ∧ ∀ f ∈ findings pieces, f.Accepted target)
+        ∃ pieces, input.2 = .read pieces ∧
+          ∀ f ∈ findings pieces, f.Accepted (target input.1.1))
       (Function.uncurry (Function.uncurry run))) :=
   ⟨.of_iff (fun input => documentErrors_nil_iff input.1.1 input.1.2 input.2)
     ⟨(("", ""), .read []), (documentErrors_nil_iff "" "" (.read [])).mpr
@@ -810,10 +823,6 @@ theorem unstableLinks_nil_iff (pieces : List Piece) :
   simp only [unstableLinks, List.filter_eq_nil_iff, mem_destinations, Bool.and_eq_true,
     Bool.not_eq_true', not_and, Bool.not_eq_false, onSite_iff, stable_iff]
 
-/-- The tracked documents whose links to the site name no edition, so that each link opens the
-latest release and a release changes no such document: the root `README.md`. -/
-def stableDocuments : List String := ["README.md"]
-
 /-- What a link of `file` to `destination` is refused for. -/
 def unstableReason (file destination : String) : String :=
   s!"{file}: the link to {destination} is not a stable address of the rule reference. A link of \
@@ -926,12 +935,24 @@ private def bare (line : String) : String :=
 #guard auditMarker "<!-- lean-trusted-compiler -->\n" && auditMarker "<!-- lean-fail: unknown -->" &&
   !auditMarker "<!-- lean-fail: a --> RG2003 -->" && !auditMarker "<!-- RG2003 -->" &&
   !auditMarker "<!-- lean-fail: a\nb -->" && !auditMarker "<!-->"
--- The stable address of a rule that is in a release is a page of the rule; with a fragment, or
--- as the address of another rule, it is not.
+-- The stable address of a rule that is in a release is a page of the rule in `README.md` and in
+-- no other document; with a fragment, or as the address of another rule, it is not one there
+-- either. The development page is a page of the rule in each document.
 -- Compiled-evaluation observation at build time, not a kernel-checked proof.
-#guard target .sourceBuild (stableUrl RuleId.sourceBuild.route) &&
-  !target .sourceBuild (stableUrl RuleId.sourceBuild.route ++ "#fix") &&
-  !target .sourceBuild (stableUrl RuleId.proofHole.route) && target .sourceBuild (page ++ "#fix")
+#guard target "README.md" .sourceBuild (stableUrl RuleId.sourceBuild.route) &&
+  !target "docs/README.md" .sourceBuild (stableUrl RuleId.sourceBuild.route) &&
+  !target "README.md" .sourceBuild (stableUrl RuleId.sourceBuild.route ++ "#fix") &&
+  !target "README.md" .sourceBuild (stableUrl RuleId.proofHole.route) &&
+  target "README.md" .sourceBuild (page ++ "#fix") && target "docs/README.md" .sourceBuild page
+-- The same link to the stable address of the rule, in the pieces of two documents: accepted in
+-- `README.md`, refused in a document that is not one of `stableDocuments`.
+-- Compiled-evaluation observation at build time, not a kernel-checked proof.
+#guard documentErrors "README.md" "[RG2003]" (.read [.line,
+    .enter (stableUrl RuleId.sourceBuild.route), .text "RG2003" "RG2003", .leave]) == [] &&
+  documentErrors "docs/README.md" "[RG2003]" (.read [.line,
+    .enter (stableUrl RuleId.sourceBuild.route), .text "RG2003" "RG2003", .leave]) ==
+  [s!"docs/README.md:1: RG2003 is linked to {stableUrl RuleId.sourceBuild.route}, which is not \
+    its rule page"]
 -- The site links of `README.md`: the site root, a stable route below each stable root and a link
 -- to another site are accepted. An address that names the development edition or a release, a
 -- stable route with a fragment, an address with another scheme and an address of the site below

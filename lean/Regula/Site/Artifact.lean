@@ -1,4 +1,5 @@
 import Regula.Site.Build
+import RegulaCore.Markdown
 
 /-! # Rule-reference artifact assembly and check
 
@@ -31,7 +32,8 @@ be uploaded.
   `artifactBudget`, only the published routes (`sitePath`) with every published edition present,
   the development edition equal to the rendered one, every release edition equal to its published
   copy, the files below the `stableRoots` directories equal to `stableFiles`, every address of
-  the site in the root `README.md` a file of the tree (`siteAnchors`), one page per registered
+  the site in each document of `Regula.Markdown.stableDocuments` a file of the tree
+  (`siteAnchors`), one page per registered
   rule in the development and installed editions and no other rule
   route, page content equal to the admitted example text, every scanned link of the whole tree
   resolving under the project base path (`linkErrors_nil_iff`), every rule ID in the prose of the
@@ -325,11 +327,14 @@ def checkArtifact (root out : FilePath) (g : Generated) (tag : TagState)
     if p.endsWith ".html" then return Page.ofHtml p (← utf8 p bytes) else return Page.ofOther p
   let errors := linkErrors pages
   requireChecks [⟨s!"{errors.length} unresolved link(s): {errors.take 10}", errors.isEmpty⟩]
-  -- Every address of the site in the root `README.md` names a file of the artifact, and a
-  -- fragment an element of that file. The Markdown check requires each to be a stable address.
-  let readme := missingAnchors pages (siteAnchors (← IO.FS.readFile (root / "README.md")))
-  requireChecks [⟨s!"every address of the site in README.md is a file of the artifact, with its \
-    fragment; missing: {readme}", readme.isEmpty⟩]
+  -- Every address of the site in each document of `stableDocuments` names a file of the
+  -- artifact, and a fragment an element of that file. The Markdown check requires each to be a
+  -- stable address, and accepts the stable address of a rule in these documents only.
+  let linked := (← Regula.Markdown.stableDocuments.mapM fun (document : String) =>
+    IO.FS.readFile (root / document)).flatMap siteAnchors
+  let missing := missingAnchors pages linked
+  requireChecks [⟨s!"every address of the site in {Regula.Markdown.stableDocuments} is a file of \
+    the artifact, with its fragment; missing: {missing}", missing.isEmpty⟩]
   -- Every rule ID in the prose of the rendered edition links to its page in that edition; the
   -- release editions are that rendering or copies frozen when they were released.
   let mut bare : List String := []
