@@ -714,6 +714,11 @@ true) Spec)`, with `fun g => Regula.Decides accepts Spec (Function.uncurry g)` f
 two arguments, and state `Spec` without `check`. The accepted account then reports the kind
 and, for a one-way kind, the direction it leaves open.
 
+The account also names each function that `Spec` reaches first and that `check` or the
+acceptance predicate also reaches. The kind does not establish that such a function is the
+intended one, and [RG1007] refuses no registration for it. The [RG1007] page gives the two
+classes of these functions and the limits of the search.
+
 State the kind about the function applied to every one of its arguments. [RG1007] refuses every
 kind whose result is still a function. The restriction is structural and conservative: a kind
 whose acceptance predicate reads that result at one fixed value of the remaining argument is

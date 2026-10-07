@@ -2,7 +2,8 @@
 Controls for the functions that the two sides of a decision registration share. The collector
 refuses no registration for a shared function, so each registration below must be accepted. The
 record of each registration must name the functions that its specification reaches first and
-that its implementation reaches too, by class (`RegulaPolicy.SharedNames`):
+that its implementation or its acceptance predicate reaches too, by class
+(`RegulaPolicy.SharedNames`):
 
 * `apart_decides`: the specification states a proposition, and the function decides it with a
   test of Lean's library. No function is named.
