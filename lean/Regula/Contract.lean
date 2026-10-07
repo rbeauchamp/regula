@@ -97,17 +97,21 @@ When `spec` and `f` both call a function, a change of that function changes the 
 together. Each direction then holds or fails as its proof does, and a proof that goes through
 the shared function on the two sides can stay valid although the meaning changed. So the kind
 does not establish that the shared function is the intended one. The same holds of a function
-that `spec` and `accepts` both call. The linter refuses no registration for this. It reads the
-definitions outside Lean's own library that `spec` reaches and that `f` or `accepts` also
-reaches. It reads `accepts` as it reads `spec`: each is a statement, and the value of a
-definition of a proposition that it names is read. The report names each function that `spec`
-reaches first, in two classes:
+that `spec` and `accepts` both call. The linter refuses a registration whose two sides share a
+function of the first class below (rule RG1009), which it searches for at any depth of `spec`,
+outside Lean's own library. It reads the definitions outside Lean's own library that `spec`
+reaches and that `f` or `accepts` also reaches. It reads `accepts` as it reads `spec`: each is
+a statement, and the value of a definition of a proposition that it names is read. It reads the
+functions that the two sides share in two classes:
 
-* **A function with a result of `Bool`, and a definition with a result of `BEq _`.** A
-  proposition can take its place in `spec`, with a theorem that connects the proposition to the
-  function, or with a function that decides the proposition with `decide`.
+* **A function with a result of `Bool`, and a definition with a result of `BEq _`.** The
+  registration is refused. A proposition takes its place in `spec`, with a theorem that
+  connects the proposition to the function, or with a function that decides the proposition
+  with `decide`.
 * **Each other function**, such as an encoding, a measure or a state transition. No type tells
-  a function that the specification is about from one that only prepares the input.
+  a function that the specification is about from one that only prepares the input. The report
+  names each such function where `spec` reaches it first, and no registration is refused for
+  it.
 
 Data and statements are not named. They are an inductive type with its constructors, its
 recursor and its projection functions; a definition whose value is a type, a proposition or a
@@ -116,9 +120,11 @@ that is no function. A type `Decidable p` has at most one value, so a function t
 proposition of `spec` with `decide` uses the statement itself.
 
 This is a search by name over definitions. A copy of a definition under a second name is a
-different constant, and the search does not find it. The search stops at each named function,
-so a function that only a named function calls is not named: a report with no function of the
-first class does not exclude such a function below a function of the second class.
+different constant, and the search does not find it. A test with no name of its own, such as a
+function abstraction inside a shared function, is not found either. For the first class the
+search reads at any depth, also below a named function of the second class, so a registration
+with none has none at any depth. For the second class the search stops at each named function,
+so a function of that class that only a named function calls is not named.
 
 None of the kinds says that `spec` is the intended specification, that `accepts` is the intended
 reading of a result, that every caller acts on the verdict, or which value an accepting result
