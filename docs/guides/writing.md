@@ -219,7 +219,7 @@ The decisions of the baseline are four Lean functions in [`RegulaCore/ProseBasel
 
 A number of the baseline is a text of decimal digits. B2 compares two numbers as such texts. A number with a smaller number of digits is the smaller number. B2 compares two numbers with the same number of digits digit by digit.
 
-Each message of B1 and B2 starts with `prose-baseline.json`, the line of an entry and the check. For a document or a frozen entry that is not in the baseline, the line is the line where its entry would be. For an entry with no document, the line is the line of that entry. For a baseline that a change removed, the line is 1.
+Each message of B1 and B2 starts with `prose-baseline.json`, the line of an entry and the check. For a document or a frozen entry that is not in the baseline, the line is the line where its entry would be. For an entry with no document, the line is the line of that entry. For a baseline that a change removed, the line is 1. For a base revision that Git does not give, the line is also 1.
 
 Do these steps after you correct findings in a document that has an entry, or after you remove such a document:
 
