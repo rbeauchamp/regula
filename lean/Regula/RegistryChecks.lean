@@ -58,9 +58,9 @@ result, diagnostic and example admission, throwing on the first failed check and
 def main : IO Unit := do
   let producer := Regula.Checker.ResultProtocol.producer
   let manifest := registryJson producer
-  -- Where no classification line is printed (the editor and the self-audit), the detail of a
-  -- finding of the shared-test rule names the shared tests that the record holds, and the detail
-  -- of another rule is its applicability.
+  -- Where no classification line is printed (the editor, the self-audit and a documentation
+  -- example), the detail of a finding of the shared-test rule names the shared tests that the
+  -- record holds, and the detail of another rule is its applicability.
   let sharing : RegulaPolicy.Declaration := { RegulaPolicy.witnessDeclaration .«definition» with
     executableContract := some { root := `check, requirement := "", failure := none,
                                  shared := { booleans := #[`small] } } }

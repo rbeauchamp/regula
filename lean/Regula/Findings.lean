@@ -23,10 +23,11 @@ def declarationName (decl : RegulaPolicy.Declaration) : Except String Name := do
   return decl.name
 
 /-- The detail of a declaration finding where no classification line of the declaration is
-printed, as in the editor and in the self-audit: the applicability of rule `id` and, for the
-shared-test rule, the names of the shared functions with a result of `Bool` or `BEq` that the
-record of the declaration's contract holds (`RegulaPolicy.SharedNames.booleansText`), as the
-classification line of a project finding prints them. -/
+printed, as in the editor, in the self-audit and in a documentation example: the applicability
+of rule `id` and, for the shared-test rule, the names of the shared functions with a result of
+`Bool` or `BEq` that the record of the declaration's contract holds
+(`RegulaPolicy.SharedNames.booleansText`), as the classification line of a project finding
+prints them. -/
 def ruleDetail (id : RuleId) (decl : RegulaPolicy.Declaration) : String :=
   (descriptor id).applicability ++
     match id, decl.executableContract with
