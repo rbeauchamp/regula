@@ -282,9 +282,8 @@ Thus it can then remove the entries of a different directory. The checker remove
 scratch directories with the same function.
 
 The driver moves the pending record to `tmp/acceptance-link.json` only if
-`RegulaVerification.passed` accepts the exit status of each command. The function
-`Attempt.promote` does that move. The driver does that move before it removes its copy and
-before the success line. The command `./scripts/verify.sh docs` operates `docFenceAudit --acceptance-link
+`RegulaVerification.passed` accepts the exit status of each command. The driver does that move
+before it removes its copy and before the success line. The command `./scripts/verify.sh docs` operates `docFenceAudit --acceptance-link
 tmp/acceptance-link.json` with the same `--verso` argument for each `docs/` fence and each `lean`
 block of the standard.
 
@@ -294,8 +293,8 @@ killed before the move, the record at that path stays incomplete. It is the inco
 that the begin-attempt of the step wrote. The shell's zero exit records completed execution of
 those commands, not a separate Lean proof.
 
-The safety of the two steps does not use a lock. The documentation step accepts only a record
-with the status `accepted` and with the identity of its own inputs (`AcceptanceLink.require`).
+The safety of the two steps is the identity that the documentation step compares. That step
+accepts only a record with the status `accepted` and with the identity of its own inputs (`AcceptanceLink.require`).
 Only a gate that accepted the root-package inputs of that identity writes such a record. The
 function `AcceptanceLink.record` has one caller in the code, which is the gate after its
 accepted result. The identity also has the `docs/` Markdown and the Verso
@@ -314,24 +313,8 @@ Thus two ordinary attempts in one checkout at the same time can cause a refusal 
 documentation step or a confusing message. They cannot cause an acceptance that no gate gave.
 Two such attempts at the same time are not a supported use.
 
-A lock prevents some of those confusing results, and it is not a safety mechanism. The lock is
-on the file `tmp/acceptance-link.lock`. The begin-attempt holds it for its invalidation of the
-accepted record. The driver holds it from its start until after its success line. It
-invalidates the accepted record again after it gets the lock (`Attempt.begin`,
-`Attempt.invalidate`).
-
-An attempt that finds the lock held stops with a message. It writes no accepted record and no
-pending record. Before that, the command `./scripts/verify.sh` writes `tmp/rule-examples.json`
-in each mode, and the lock does not prevent that write. A control of the checker self-test
-operates the driver with its private entry `--attempt-control` and shows that a second attempt
-stops.
-
-The lock is an advisory lock of the operating system on an open file. It goes away when its
-process ends, also after a kill. Thus a killed attempt leaves the lock file but no lock. The
-behavior of the lock is trusted.
-
-Other files of a checkout have no such lock. Two rule-example attempts of the same mode write
-the same evidence file, and two site builds write the same directories. Each Lake command in the
+The evidence files, the site directories and the build output of a checkout have no lock. Two
+rule-example attempts of the same mode write the same evidence file, and two site builds write the same directories. Each Lake command in the
 checkout writes `.lake/build`, and this project found no lock of Lake for that directory. The
 first acceptance step writes there only with the one rename, because its build is in its copy.
 Do not operate two of those other commands in one checkout at the same time.

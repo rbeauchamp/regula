@@ -74,8 +74,6 @@ If the checkout has no build output, the driver then moves the build output of t
 The driver removes the copy at the end of the step. A killed step leaves its copy. The next
 first step or the next run of the checker removes it.
 
-An ordinary attempt holds a lock of the checkout (`tmp/acceptance-link.lock`). A second
-ordinary attempt in the same checkout stops with a message while the first attempt operates.
 Two ordinary attempts at the same time in one checkout are not a supported use.
 
 Each line that starts with `verification:` is

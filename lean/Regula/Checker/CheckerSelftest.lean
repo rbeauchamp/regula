@@ -2804,11 +2804,7 @@ lean/RegulaVerification.lean --copy-control`), in a project with one library and
 * A driver that is killed leaves the directory and its marker. The next scratch user of the
   checker removes both, and so does the next driver, before it makes its own copy.
 * With a symbolic link at `_site`, the driver's `--begin-attempt site` stops and the marked
-  content of the target stays; a real `_site` directory is removed.
-* While one ordinary attempt holds the lock of the project (`--attempt-control`), a second
-  begin-attempt and a second run stop with a message and write neither record of the
-  acceptance link. After a kill of the holder, the next begin-attempt gets the lock and
-  invalidates the accepted link. -/
+  content of the target stays; a real `_site` directory is removed. -/
 private def driverCopyControl (repo : FilePath) : IO (Array String) :=
   withScratch repo "driver-copy-control" fun scratch => do
   let project := scratch / "project"
@@ -2981,34 +2977,6 @@ private def driverCopyControl (repo : FilePath) : IO (Array String) :=
     scrubbedLeanPathEnv
   failures := failures ++ expect "site: an earlier artifact was not removed"
     (removed.succeeded && !(← site.pathExists))
-  -- 5. Two ordinary attempts in one project. While one holds the lock, a second begin-attempt
-  -- and a second run stop and write neither record of the acceptance link: the accepted link
-  -- keeps its content, and no pending record of a run is made. A killed holder leaves no lock.
-  let accepted := project / "tmp" / "acceptance-link.json"
-  let holder ← IO.Process.spawn {
-    cmd := "lean", args := #["--run", driver, "--attempt-control"], cwd := some project
-    env := scrubbedLeanPathEnv, stdin := .piped, stdout := .piped, stderr := .inherit
-    setsid := true }
-  failures := failures ++ expect "attempt: the first attempt did not get the lock"
-    ((← answer holder.stdout) == "held")
-  -- What the first attempt promotes while it holds the lock.
-  IO.FS.writeFile accepted "the record that the first attempt promoted"
-  let scratchEntries ← area.readDir
-  for (label, args) in [("begin-attempt", #["--run", driver, "--begin-attempt"]),
-      ("run", #["--run", driver])] do
-    let second ← runProcess project "lean" args scrubbedLeanPathEnv
-    failures := failures ++ expect s!"attempt: a second {label} did not stop with the acceptance \
-      link as it was"
-      (!second.succeeded && second.output.contains "has written neither record of the \
-        acceptance link" &&
-        (← IO.FS.readFile accepted) == "the record that the first attempt promoted" &&
-        (← area.readDir).size == scratchEntries.size)
-  holder.kill
-  discard holder.wait
-  let next ← runProcess project "lean" #["--run", driver, "--begin-attempt"] scrubbedLeanPathEnv
-  failures := failures ++ expect "attempt: a killed holder left the lock held, or the next \
-    attempt did not invalidate the accepted link" (next.succeeded &&
-      (← IO.FS.readFile accepted).contains "\"status\":\"incomplete\"")
   return failures
 
 /-- The groups of controls the structural partition reports separately. -/
@@ -3086,8 +3054,7 @@ private unsafe def runStructural (layout : SourceLayout) (repo : FilePath) (jobs
         not build it, a directory outside the scratch area, one with no marker and \
         --incremental; a project keeps its build output or a link at its place, and one with \
         none gets the copy's; the next driver removes the copy of a killed one; a link at _site \
-        is not followed; a second ordinary attempt stops and writes neither record of the \
-        acceptance link while one holds the lock)"
+        is not followed)"
 
 /-- Execution-evidence controls: the correspondence controls and every compiler-path case,
 each with its positive, mutation and fresh restoration in an isolated project. With `shard`,
