@@ -1324,6 +1324,34 @@ runs belongs to the toolchain's trusted base, with no history obligation. -/
 def ExecutionBoundary.needsHistory (b : ExecutionBoundary) : Bool :=
   b.boundary == .runtimeReplacement && b.toolchainOrigin?.isNone
 
+/-- The boundary claims toolchain ownership, as a proposition: it is a native-runtime `extern`
+or carries a toolchain origin. `ExecutionBoundary.claimsToolchain` decides it
+(`ExecutionBoundary.claimsToolchain_iff`). -/
+def ExecutionBoundary.ClaimsToolchain (b : ExecutionBoundary) : Prop :=
+  b.boundary = .nativeRuntime ∨ ∃ origin, b.toolchainOrigin? = some origin
+
+/-- The executed test accepts exactly the boundaries that claim toolchain ownership. -/
+theorem ExecutionBoundary.claimsToolchain_iff (b : ExecutionBoundary) :
+    b.claimsToolchain = true ↔ b.ClaimsToolchain := by
+  simp [ExecutionBoundary.claimsToolchain, ExecutionBoundary.ClaimsToolchain,
+    Option.isSome_iff_exists]
+
+instance (b : ExecutionBoundary) : Decidable b.ClaimsToolchain :=
+  decidable_of_iff _ b.claimsToolchain_iff
+
+/-- The boundary is a runtime replacement the toolchain does not own, as a proposition.
+`ExecutionBoundary.needsHistory` decides it (`ExecutionBoundary.needsHistory_iff`). -/
+def ExecutionBoundary.NeedsHistory (b : ExecutionBoundary) : Prop :=
+  b.boundary = .runtimeReplacement ∧ b.toolchainOrigin? = none
+
+/-- The executed test accepts exactly the replacements that the toolchain does not own. -/
+theorem ExecutionBoundary.needsHistory_iff (b : ExecutionBoundary) :
+    b.needsHistory = true ↔ b.NeedsHistory := by
+  simp [ExecutionBoundary.needsHistory, ExecutionBoundary.NeedsHistory]
+
+instance (b : ExecutionBoundary) : Decidable b.NeedsHistory :=
+  decidable_of_iff _ b.needsHistory_iff
+
 /-- One first visit, recorded before inspecting its policy outcomes. A non-root visit
 retains the earlier visit that queued it; IR-only names may lack module attribution. -/
 structure ExecutionVisit where

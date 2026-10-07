@@ -388,7 +388,7 @@ theorem surfaceExecutables_ok {item : Json} {location : String} {out : Array Str
 
 theorem surfaceClaim_ok {item : Json} {location : String} {claim : Profile}
     (h : surfaceClaim item location = .ok claim) :
-    ∃ text, item.getObjVal? "claim" = .ok (.str text) ∧ Profile.parse? text = some claim := by
+    ∃ text, item.getObjVal? "claim" = .ok (.str text) ∧ claim.toString = text := by
   unfold surfaceClaim at h
   simp only [bind_eq_ok] at h
   obtain ⟨text, htext, h⟩ := h
@@ -397,14 +397,13 @@ theorem surfaceClaim_ok {item : Json} {location : String} {claim : Profile}
     split at h
     · simp [throw, throwThe, MonadExceptOf.throw, Functor.map, Except.map] at h
     · simp only [pure_eq_ok] at h
-      exact ⟨text, stringField_ok htext, h ▸ hc⟩
+      exact ⟨text, stringField_ok htext, (Profile.parse?_eq_some_iff _ _).mp (h ▸ hc)⟩
   · simp [throw, throwThe, MonadExceptOf.throw] at h
 
 theorem surfaceExecution_ok {item : Json} {location : String} {execution : ExecutionClaim}
     (h : surfaceExecution item location = .ok execution) :
     ((∃ e, item.getObjVal? "execution" = .error e) ∧ execution = .report) ∨
-      ∃ text, item.getObjVal? "execution" = .ok (.str text) ∧
-        ExecutionClaim.parse? text = some execution := by
+      ∃ text, item.getObjVal? "execution" = .ok (.str text) ∧ execution.spelling = text := by
   unfold surfaceExecution at h
   split at h
   · rename_i e he
@@ -414,20 +413,21 @@ theorem surfaceExecution_ok {item : Json} {location : String} {execution : Execu
     split at h
     · rename_i mode hmode
       simp only [pure_eq_ok] at h
-      exact .inr ⟨text, htext, h ▸ hmode⟩
+      exact .inr ⟨text, htext, RegulaPolicy.ExecutionClaim.canonical _ _ (h ▸ hmode)⟩
     · simp [throw, throwThe, MonadExceptOf.throw] at h
   · simp [throw, throwThe, MonadExceptOf.throw] at h
 
 /-- `s` is the decoding of the JSON surface `item`: every field is its JSON value, an absent
-`executables` is empty and an absent `execution` is `report`. -/
+`executables` is empty and an absent `execution` is `report`. The claim and the
+execution mode are stated with their written forms (`Profile.toString`,
+`ExecutionClaim.spelling`), and not with the parsers that the function calls. -/
 def SurfaceDecodes (item : Json) (s : Surface) : Prop :=
   item.getObjVal? "library" = .ok (.str s.library) ∧
   (((∃ e, item.getObjVal? "executables" = .error e) ∧ s.executables = #[]) ∨
     item.getObjVal? "executables" = .ok (.arr (s.executables.map .str))) ∧
-  (∃ text, item.getObjVal? "claim" = .ok (.str text) ∧ Profile.parse? text = some s.claim) ∧
+  (∃ text, item.getObjVal? "claim" = .ok (.str text) ∧ s.claim.toString = text) ∧
   (((∃ e, item.getObjVal? "execution" = .error e) ∧ s.execution = .report) ∨
-    ∃ text, item.getObjVal? "execution" = .ok (.str text) ∧
-      ExecutionClaim.parse? text = some s.execution) ∧
+    ∃ text, item.getObjVal? "execution" = .ok (.str text) ∧ s.execution.spelling = text) ∧
   item.getObjVal? "rationale" = .ok (.str s.rationale)
 
 /-- `l` is the decoding of the excluded-library JSON object `item`: its `library` and `rationale`
@@ -1290,19 +1290,21 @@ theorem surfaceExecutables_complete {item : Json} {location : String} {xs : Arra
   · simp [surfaceExecutables, h, stringArray_complete hne hnd]
 
 theorem surfaceClaim_complete {item : Json} {location : String} {claim : Profile}
-    (hd : ∃ text, item.getObjVal? "claim" = .ok (.str text) ∧ Profile.parse? text = some claim)
+    (hd : ∃ text, item.getObjVal? "claim" = .ok (.str text) ∧ claim.toString = text)
     (hc : claim ≠ .compilerTrusting) : surfaceClaim item location = .ok claim := by
-  obtain ⟨text, htext, hparse⟩ := hd
+  obtain ⟨text, htext, written⟩ := hd
+  have hparse := (Profile.parse?_eq_some_iff _ _).mpr written
   simp [surfaceClaim, stringField_complete htext, hparse, hc, bind, Except.bind, pure, Except.pure]
 
 theorem surfaceExecution_complete {item : Json} {location : String} {execution : ExecutionClaim}
     (hd : ((∃ e, item.getObjVal? "execution" = .error e) ∧ execution = .report) ∨
-      ∃ text, item.getObjVal? "execution" = .ok (.str text) ∧
-        ExecutionClaim.parse? text = some execution) :
+      ∃ text, item.getObjVal? "execution" = .ok (.str text) ∧ execution.spelling = text) :
     surfaceExecution item location = .ok execution := by
-  rcases hd with ⟨⟨e, he⟩, rfl⟩ | ⟨text, htext, hparse⟩
+  rcases hd with ⟨⟨e, he⟩, rfl⟩ | ⟨text, htext, written⟩
   · simp [surfaceExecution, he, pure, Except.pure]
-  · simp [surfaceExecution, htext, hparse, pure, Except.pure]
+  · have hparse : ExecutionClaim.parse? text = some execution :=
+      written ▸ RegulaPolicy.ExecutionClaim.roundtrip execution
+    simp [surfaceExecution, htext, hparse, pure, Except.pure]
 
 /-- The parsing state after accepting surface `s`. -/
 def Acc.addSurface (acc : Acc) (s : Surface) : Acc :=
@@ -1896,8 +1898,7 @@ theorem toJson_encodes (m : Manifest) : Encodes (toJson m) m := by
     keysAllowed_of_keys (keys := #["excluded-executables", "excluded-libraries", "schema-version",
       "surfaces"]) rfl rfl (by simp), rfl, rfl, rfl, rfl, ?_, ?_, ?_, ?_, ?_, ?_⟩
   · rw [Array.toList_map]
-    exact Decodes.map fun s _ => ⟨rfl, .inr rfl, ⟨_, rfl, (Profile.parse?_eq_some_iff _ _).mpr rfl⟩,
-      .inr ⟨_, rfl, RegulaPolicy.ExecutionClaim.roundtrip _⟩, rfl⟩
+    exact Decodes.map fun s _ => ⟨rfl, .inr rfl, ⟨_, rfl, rfl⟩, .inr ⟨_, rfl, rfl⟩, rfl⟩
   · rw [Array.toList_map]
     exact Decodes.map fun _ _ => ⟨rfl, rfl⟩
   · rw [Array.toList_map]

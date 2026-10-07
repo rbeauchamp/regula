@@ -18,14 +18,71 @@ must occur in order. -/
 def patternAlternatives (pattern : String) : List (List String) :=
   (patternBody pattern).splitOn "|" |>.map (·.splitOn ".*")
 
-/-- Only alternation, ordered literals and the optional leading (?s) marker are supported.
-The remaining regex metacharacters, a stray star, and empty literals are refused. -/
-def PatternValid (pattern : String) : Prop :=
-  patternBody pattern ≠ "" ∧
-  ∀ alternative ∈ (patternBody pattern).splitOn "|", alternative ≠ "" ∧
+/-- A text starts with `marker` exactly when it is `marker` and then a rest. -/
+private theorem startsWith_iff_append (text marker : String) :
+    text.startsWith marker = true ↔ ∃ rest, text = marker ++ rest := by
+  rw [String.startsWith_string_iff]
+  constructor
+  · rintro ⟨rest, split⟩
+    exact ⟨String.ofList rest, by rw [← String.toList_inj]; simp [← split]⟩
+  · rintro ⟨rest, rfl⟩
+    exact ⟨rest.toList, by simp⟩
+
+/-- `body` is `pattern` without its optional leading `(?s)` marker, as equations over the two
+texts: `pattern` is the marker and then `body`, or `pattern` does not start with the marker and
+`body` is `pattern`. The statement has no test and no operation of `patternBody`, which computes
+the body (`patternBody_iff`). -/
+def PatternBody (pattern body : String) : Prop :=
+  pattern = "(?s)" ++ body ∨ ((∀ rest, pattern ≠ "(?s)" ++ rest) ∧ body = pattern)
+
+/-- The body of a pattern is one text only: the computed one. -/
+theorem patternBody_iff (pattern body : String) :
+    PatternBody pattern body ↔ body = patternBody pattern := by
+  unfold PatternBody patternBody
+  by_cases marked : pattern.startsWith "(?s)" = true
+  · obtain ⟨rest, rfl⟩ := (startsWith_iff_append pattern "(?s)").mp marked
+    have dropped : (("(?s)" ++ rest).drop 4).toString = rest := by
+      rw [← String.toList_inj, String.Slice.toString_eq, String.toList_copy_drop]
+      simp
+    simp only [marked, ↓reduceIte, dropped]
+    constructor
+    · rintro (same | ⟨unmarked, -⟩)
+      · rw [← String.toList_inj] at same ⊢
+        simpa using same.symm
+      · exact absurd rfl (unmarked rest)
+    · rintro rfl
+      exact Or.inl rfl
+  · simp only [marked]
+    have unmarked : ∀ rest, pattern ≠ "(?s)" ++ rest := fun rest same =>
+      marked ((startsWith_iff_append pattern "(?s)").mpr ⟨rest, same⟩)
+    constructor
+    · rintro (same | ⟨-, same⟩)
+      · exact absurd same (unmarked body)
+      · exact same
+    · rintro rfl
+      exact Or.inr ⟨unmarked, rfl⟩
+
+/-- A pattern body in the supported language: alternation and ordered literals. The remaining
+regex metacharacters, a stray star, and empty literals are refused. -/
+def BodyValid (body : String) : Prop :=
+  body ≠ "" ∧
+  ∀ alternative ∈ body.splitOn "|", alternative ≠ "" ∧
     ∀ literal ∈ alternative.splitOn ".*", literal ≠ "" ∧
       ∀ ch ∈ literal.toList, ch ∉ ['[', ']', '(', ')', '{', '}', '?', '+', '^', '$', '\\', '*']
-instance (p : String) : Decidable (PatternValid p) := by unfold PatternValid; infer_instance
+instance (body : String) : Decidable (BodyValid body) := by unfold BodyValid; infer_instance
+
+/-- Only alternation, ordered literals and the optional leading (?s) marker are supported: the
+body of the pattern (`PatternBody`) is valid (`BodyValid`). -/
+def PatternValid (pattern : String) : Prop :=
+  ∃ body, PatternBody pattern body ∧ BodyValid body
+
+/-- A pattern is valid exactly when its computed body is. -/
+theorem patternValid_iff (pattern : String) :
+    PatternValid pattern ↔ BodyValid (patternBody pattern) := by
+  simp [PatternValid, patternBody_iff]
+
+instance (p : String) : Decidable (PatternValid p) :=
+  decidable_of_iff _ (patternValid_iff p).symm
 
 /-- Exact successful decomposition at successive leftmost literal occurrences. String's
 split operation supplies the prefix and remaining suffix; no cross-message concatenation
@@ -37,9 +94,12 @@ def OrderedLiteralMatch : List String → String → Prop
     | _ :: suffix :: suffixes => OrderedLiteralMatch rest (literal.intercalate (suffix :: suffixes))
     | _ => False
 
-/-- The supported expected-error relation is one alternative's ordered literal sequence. -/
+/-- The supported expected-error relation is one alternative's ordered literal sequence: the
+body of the pattern is valid, and `text` matches the literals of one alternative of the body,
+which are the body split at `|` and then at `.*`. -/
 def PatternMatch (pattern text : String) : Prop :=
-  PatternValid pattern ∧ ∃ literals ∈ patternAlternatives pattern, OrderedLiteralMatch literals text
+  ∃ body, PatternBody pattern body ∧ BodyValid body ∧
+    ∃ alternative ∈ body.splitOn "|", OrderedLiteralMatch (alternative.splitOn ".*") text
 
 /-- Same greedy literal consumer as the existing checker, with structural recursion on
 fragments instead of the unnecessary partial declaration previously used by the adapter. -/
@@ -68,7 +128,8 @@ def matchesPattern (pattern text : String) : Bool :=
 /-- All and only the declared valid ordered-split relations are recognized. -/
 theorem matchesPattern_iff (pattern text : String) :
     matchesPattern pattern text = true ↔ PatternMatch pattern text := by
-  simp [matchesPattern, PatternMatch, orderedLiterals_iff]
+  simp [matchesPattern, PatternMatch, orderedLiterals_iff, patternBody_iff, patternValid_iff,
+    patternAlternatives]
 end RegulaPolicy
 
 namespace RegulaPolicy

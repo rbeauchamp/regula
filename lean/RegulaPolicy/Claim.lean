@@ -318,19 +318,25 @@ theorem claimCandidateDecidableEq_eq (left right : ClaimCandidate) :
     claimCandidateDecidableEq left right = instDecidableEqClaimCandidate left right :=
   Subsingleton.elim _ _
 
-/-- Supported scope/mode combinations. Fresh files never acquire whole-project scope. -/
-def scopeModeCompatible : Scope → EvidenceMode → Bool
-  | .project, .freshProject | .project, .incrementalProject | .project, .serializedGraph => true
-  | .file .., .freshFile => true
-  | .documentation _, .documentationExample => true
-  | .editor .., .editorSnapshot => true
-  | _, _ => false
+/-- Supported scope/mode combinations. Fresh files never acquire whole-project scope. The table
+is a proposition, so a statement that uses it names no decision of this library, and a function
+decides it with its `Decidable` instance. -/
+def ScopeModeCompatible : Scope → EvidenceMode → Prop
+  | .project, .freshProject | .project, .incrementalProject | .project, .serializedGraph => True
+  | .file .., .freshFile => True
+  | .documentation _, .documentationExample => True
+  | .editor .., .editorSnapshot => True
+  | _, _ => False
+
+instance (scope : Scope) (mode : EvidenceMode) : Decidable (ScopeModeCompatible scope mode) := by
+  unfold ScopeModeCompatible
+  split <;> infer_instance
 
 /-- Functional source maps and disjoint positive module ownership; an empty library environment,
 including a library whose modules are all its claimed executables' roots, remains
 unsupported. This does not assert completeness of an external Lake inventory. -/
 def ClaimCandidate.Valid (c : ClaimCandidate) : Prop :=
-  scopeModeCompatible c.scope c.mode = true ∧
+  ScopeModeCompatible c.scope c.mode ∧
   c.snapshot.Valid ∧
   (∀ s ∈ c.surfaces, s.target ≠ "" ∧ s.library.size > 0) ∧
   (c.surfaces.toList.flatMap (fun s => s.modules.toList)).Pairwise (fun a b => a.name ≠ b.name) ∧
@@ -430,19 +436,25 @@ inductive JobSubject where
   | fence (key : FenceKey)
   deriving Repr, DecidableEq
 
-/-- Stage tags restrict the kind of evidence subject they can request. -/
-def stageSubjectCompatible : Stage → JobSubject → Bool
+/-- Stage tags restrict the kind of evidence subject they can request. The table is a
+proposition, as `ScopeModeCompatible` is. -/
+def StageSubjectCompatible : Stage → JobSubject → Prop
   | .configuration, .scope | .discovery, .scope | .build, .scope
   | .documentScan, .scope
-  | .graph, .scope => true
-  | .admission, .environment _ .scope => true
+  | .graph, .scope => True
+  | .admission, .environment _ .scope => True
   | .transcript, .environment _ (.module _) | .history, .environment _ (.module _)
-  | .origin, .environment _ (.module _) | .documentationPresence, .environment _ (.module _) => true
+  | .origin, .environment _ (.module _) | .documentationPresence, .environment _ (.module _) => True
   | .declarationPolicy, .environment _ (.declaration _)
-  | .documentationPresence, .environment _ (.declaration _) => true
-  | .execution, .environment _ (.root _) | .execution, .environment _ (.boundary _) => true
-  | .example, .fence _ => true
-  | _, _ => false
+  | .documentationPresence, .environment _ (.declaration _) => True
+  | .execution, .environment _ (.root _) | .execution, .environment _ (.boundary _) => True
+  | .example, .fence _ => True
+  | _, _ => False
+
+instance (stage : Stage) (subject : JobSubject) :
+    Decidable (StageSubjectCompatible stage subject) := by
+  unfold StageSubjectCompatible
+  split <;> infer_instance
 
 /-- Every subject retains the exact snapshot of its requested claim. -/
 def LocalSubjectSnapshotOK (claim : Claim) : LocalJobSubject → Prop
@@ -476,7 +488,7 @@ structure JobKey where
   /-- The claim's mode requires the stage. -/
   requiredStage : stage ∈ requiredStages claim
   /-- The stage accepts this kind of subject. -/
-  compatibleSubject : stageSubjectCompatible stage subject = true
+  compatibleSubject : StageSubjectCompatible stage subject
   /-- The subject belongs to the claim's snapshot. -/
   subjectSnapshot : SubjectSnapshotOK claim subject
   deriving Repr, DecidableEq
@@ -484,7 +496,7 @@ structure JobKey where
 @[regula_decision]
 def admitJobKey (claim : Claim) (stage : Stage) (subject : JobSubject) : Except String JobKey :=
   if hr : stage ∈ requiredStages claim then
-    if hc : stageSubjectCompatible stage subject = true then
+    if hc : StageSubjectCompatible stage subject then
       if hs : SubjectSnapshotOK claim subject then
         .ok ⟨claim, stage, subject, hr, hc, hs⟩
       else .error "job subject snapshot differs from requested claim"
@@ -509,11 +521,11 @@ private def fileClaim : Claim :=
 subject of the claim's snapshot. -/
 theorem admitJobKey_isOk_iff (claim : Claim) (stage : Stage) (subject : JobSubject) :
     (admitJobKey claim stage subject).isOk = true ↔
-      stage ∈ requiredStages claim ∧ stageSubjectCompatible stage subject = true ∧
+      stage ∈ requiredStages claim ∧ StageSubjectCompatible stage subject ∧
         SubjectSnapshotOK claim subject := by
   unfold admitJobKey
   by_cases required : stage ∈ requiredStages claim
-  · by_cases compatible : stageSubjectCompatible stage subject = true
+  · by_cases compatible : StageSubjectCompatible stage subject
     · by_cases snapshot : SubjectSnapshotOK claim subject <;>
         simp [required, compatible, snapshot, Except.isOk, Except.toBool]
     · simp [required, compatible, Except.isOk, Except.toBool]
@@ -527,12 +539,12 @@ theorem checked_admitJobKey : Regula.ExecutableContract admitJobKey (fun admit =
     Regula.Decides (·.isOk = true)
       (fun input : (Claim × Stage) × JobSubject =>
         input.1.2 ∈ requiredStages input.1.1 ∧
-          stageSubjectCompatible input.1.2 input.2 = true ∧ SubjectSnapshotOK input.1.1 input.2)
+          StageSubjectCompatible input.1.2 input.2 ∧ SubjectSnapshotOK input.1.1 input.2)
       (Function.uncurry (Function.uncurry admit))) :=
   ⟨.of_iff (fun input => admitJobKey_isOk_iff input.1.1 input.1.2 input.2)
     ⟨((fileClaim, .discovery), .scope),
       (admitJobKey_isOk_iff fileClaim .discovery .scope).mpr
-        ⟨by simp [requiredStages, fileClaim], rfl, trivial⟩⟩
+        ⟨by simp [requiredStages, fileClaim], trivial, trivial⟩⟩
     ⟨((fileClaim, .configuration), .scope), fun accepted => absurd
       ((admitJobKey_isOk_iff fileClaim .configuration .scope).mp accepted).1
       (by simp [requiredStages, fileClaim])⟩⟩

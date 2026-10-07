@@ -97,11 +97,68 @@ def splitLines (cs : List Char) : List (List Char) :=
 def docLines (doc : String) : List (List Char) := splitLines doc.toList
 
 /-- The specification: some level-`level` Intent heading is followed, before any heading
-of level at most `level`, by a text line. `body` is an initial run of the section's lines. -/
+of level at most `level`, by a text line. `body` is an initial run of the section's lines.
+
+It is stated over the line grammar `heading?` and Lean's `Char.isWhitespace`, with no test that
+the scan calls: the heading is one that the grammar reads at `level` with the text `Intent`, no
+line of `body` is a heading of level at most `level`, and a line of `body` is no heading and has
+a character that is not whitespace. `intentSection_iff_scanned` connects these statements to
+the tests of the scan. -/
 def IntentSection (lines : List (List Char)) : Prop :=
+  ∃ before heading level body after, lines = before ++ heading :: (body ++ after) ∧
+    heading? heading = some (level, "Intent".toList) ∧
+    (∀ line ∈ body, ∀ found, heading? line = some found → level < found.1) ∧
+    ∃ line ∈ body, heading? line = none ∧ ∃ c ∈ line, c.isWhitespace = false
+
+/-- The section structure as the tests of the scan state it: the form that the scan decides
+directly (`hasIntentLines_iff_scanned`). It is a step of the proof of `hasIntentLines_iff`, and
+no specification names it. -/
+def ScannedSection (lines : List (List Char)) : Prop :=
   ∃ before heading level body after, lines = before ++ heading :: (body ++ after) ∧
     isIntentHeading heading = true ∧ headingLevel? heading = some level ∧
     (∀ line ∈ body, endsSection level line = false) ∧ ∃ line ∈ body, isText line = true
+
+/-- A line is a heading labelled `Intent` whose level is `level` exactly when the line grammar
+reads that level and that text. -/
+theorem intentHeading_iff (line : List Char) (level : Nat) :
+    (isIntentHeading line = true ∧ headingLevel? line = some level) ↔
+      heading? line = some (level, "Intent".toList) := by
+  unfold isIntentHeading headingLevel? headingText?
+  cases heading? line with
+  | none => simp
+  | some found =>
+    obtain ⟨foundLevel, text⟩ := found
+    simp [and_comm]
+
+/-- A line does not end a section of level `level` exactly when it is no heading of level at
+most `level`. -/
+theorem endsSection_eq_false_iff (level : Nat) (line : List Char) :
+    endsSection level line = false ↔ ∀ found, heading? line = some found → level < found.1 := by
+  unfold endsSection headingLevel?
+  cases heading? line with
+  | none => simp
+  | some found => simp [Nat.not_le]
+
+/-- A line is text exactly when it is no heading and has a character that is not whitespace. -/
+theorem isText_iff (line : List Char) :
+    isText line = true ↔ heading? line = none ∧ ∃ c ∈ line, c.isWhitespace = false := by
+  simp [isText, isHeading, isContent, isSpace]
+
+/-- The specification holds exactly when the tests of the scan state the section. -/
+theorem intentSection_iff_scanned (lines : List (List Char)) :
+    IntentSection lines ↔ ScannedSection lines := by
+  constructor
+  · rintro ⟨before, heading, level, body, after, split, labelled, deeper, line, member, text⟩
+    exact ⟨before, heading, level, body, after, split,
+      ((intentHeading_iff heading level).mpr labelled).1,
+      ((intentHeading_iff heading level).mpr labelled).2,
+      fun l hl => (endsSection_eq_false_iff level l).mpr (deeper l hl),
+      line, member, (isText_iff line).mpr text⟩
+  · rintro ⟨before, heading, level, body, after, split, labelled, lvl, deeper, line, member, text⟩
+    exact ⟨before, heading, level, body, after, split,
+      (intentHeading_iff heading level).mp ⟨labelled, lvl⟩,
+      fun l hl => (endsSection_eq_false_iff level l).mp (deeper l hl),
+      line, member, (isText_iff line).mp text⟩
 
 /-- Scan a section opened at `level`: text occurs before a heading that ends it. -/
 def sectionHasContent (level : Nat) : List (List Char) → Bool
@@ -148,14 +205,14 @@ theorem sectionHasContent_iff (level : Nat) (lines : List (List Char)) :
         · exact Or.inr ⟨body, after, rfl, fun m hm => headings m (List.mem_cons_of_mem _ hm),
             l, hl, hc⟩
 
-/-- The line scanner decides exactly `IntentSection`. -/
-theorem hasIntentLines_iff (lines : List (List Char)) :
-    hasIntentLines lines = true ↔ IntentSection lines := by
+/-- The line scanner decides exactly the section that its tests state. -/
+theorem hasIntentLines_iff_scanned (lines : List (List Char)) :
+    hasIntentLines lines = true ↔ ScannedSection lines := by
   induction lines with
-  | nil => simp [hasIntentLines, IntentSection]
+  | nil => simp [hasIntentLines, ScannedSection]
   | cons line rest ih =>
     simp only [hasIntentLines, Bool.or_eq_true, Bool.and_eq_true, Option.any_eq_true,
-      sectionHasContent_iff, ih, IntentSection]
+      sectionHasContent_iff, ih, ScannedSection]
     constructor
     · rintro (⟨heading, level, lvl, body, after, split, headings, found⟩ |
           ⟨before, h, level, body, after, split, rest'⟩)
@@ -171,6 +228,11 @@ theorem hasIntentLines_iff (lines : List (List Char)) :
         simp only [List.cons_append, List.cons.injEq] at split
         obtain ⟨rfl, rfl⟩ := split
         exact Or.inr ⟨before, h, level, body, after, rfl, heading, lvl, headings, found⟩
+
+/-- The line scanner decides exactly `IntentSection`. -/
+theorem hasIntentLines_iff (lines : List (List Char)) :
+    hasIntentLines lines = true ↔ IntentSection lines :=
+  (hasIntentLines_iff_scanned lines).trans (intentSection_iff_scanned lines).symm
 
 /-- The executed docstring decision accepts exactly the docstrings with a nonempty
 labelled Intent section. -/
@@ -322,7 +384,8 @@ instance (docstring : Option String) : Decidable (MaterialDocumentationOK docstr
 
 /-- `hasIntentSection` accepts exactly the docstrings whose lines have a nonempty Intent section
 (`hasIntentSection_iff`): it accepts one with such a section and refuses the empty docstring.
-`IntentSection` is stated over the line structure, without the executed scan. -/
+`IntentSection` is stated over the line structure and the line grammar `heading?`, without the
+executed scan and without the tests that the scan calls. -/
 theorem checked_hasIntentSection : Regula.ExecutableContract hasIntentSection
     (Regula.Decides (· = true) fun doc => IntentSection (docLines doc)) :=
   ⟨.of_iff hasIntentSection_iff

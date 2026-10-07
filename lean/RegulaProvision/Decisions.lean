@@ -9,17 +9,44 @@ registration. The provisioning program imports only the toolchain, because `scri
 runs it with `lean --run` before the package is built. This second module of its library imports
 it together with the two checker interfaces, and nothing the program runs imports this module.
 Each kind restates a theorem of the program about the same definition, or for `component?`
-follows from its definition, and adds the witnesses a kind requires. -/
+follows from its definition and `isComponent_iff`, and adds the witnesses a kind requires. -/
 namespace RegulaProvision
 
-/-- `component?` accepts exactly a text that passes `isComponent`: it accepts `a` and refuses the
+/-- One path component that is not hidden and has no separator, stated over the text and its
+characters: the text is not empty, it is not a period and then a rest, and each of its
+characters is an ASCII letter or digit (Lean's own `Char.isAlphanum`), `-`, `_` or `.`. The
+statement has no test of `isComponent`, which decides it (`isComponent_iff`). -/
+def IsComponent (text : String) : Prop :=
+  text ≠ "" ∧ (∀ rest, text ≠ "." ++ rest) ∧
+    ∀ c ∈ text.toList, c.isAlphanum = true ∨ c = '-' ∨ c = '_' ∨ c = '.'
+
+/-- A text does not start with a period exactly when it is not a period and then a rest. -/
+private theorem not_hidden_iff (text : String) :
+    text.startsWith "." = false ↔ ∀ rest, text ≠ "." ++ rest := by
+  rw [String.startsWith_string_eq_false_iff]
+  constructor
+  · rintro shown rest rfl
+    exact shown ⟨rest.toList, by simp⟩
+  · rintro shown ⟨rest, split⟩
+    exact shown (String.ofList rest) (by rw [← String.toList_inj]; simp [← split])
+
+/-- The executed test accepts exactly the path components. -/
+theorem isComponent_iff (text : String) : isComponent text = true ↔ IsComponent text := by
+  simp only [isComponent, IsComponent, Bool.and_eq_true, Bool.not_eq_true',
+    String.isEmpty_eq_false_iff, not_hidden_iff, String.all_bool_eq, List.all_eq_true,
+    Bool.or_eq_true, beq_iff_eq, and_assoc, or_assoc]
+
+/-- `component?` accepts exactly a path component (`IsComponent`): it accepts `a` and refuses the
 empty text. That the admitted component is that text is in its definition, not in the kind. -/
 theorem checked_component : Regula.ExecutableContract component?
-    (Regula.Decides (·.isSome = true) (fun text => isComponent text = true)) :=
-  have admitted (text : String) : (component? text).isSome = true ↔ isComponent text = true := by
+    (Regula.Decides (·.isSome = true) IsComponent) :=
+  have admitted (text : String) : (component? text).isSome = true ↔ IsComponent text := by
+    rw [← isComponent_iff]
     by_cases passes : isComponent text = true <;> simp [component?, passes]
-  ⟨.of_iff admitted ⟨"a", (admitted "a").mpr (by simp [isComponent])⟩
-    ⟨"", fun accepted => absurd ((admitted "").mp accepted) (by decide)⟩⟩
+  ⟨.of_iff admitted
+    ⟨"a", (admitted "a").mpr ((isComponent_iff "a").mp (by simp [isComponent]))⟩
+    ⟨"", fun accepted =>
+      absurd ((isComponent_iff "").mpr ((admitted "").mp accepted)) (by decide)⟩⟩
 
 /-- What receipt admission establishes about the exact stable store and compatible pins. -/
 def Admitted (receipt : Receipt) (mathlibRev githash : String) (pins : Array Pin) : Prop :=

@@ -354,6 +354,47 @@ def target (file : String) (id : RuleId) (destination : String) : Bool :=
     destination.startsWith (Edition.dev.url id.route ++ "#") ||
     (stableDocuments.contains file && released id && destination == stableUrl id.route)
 
+/-- `destination` is a page of rule `id` that the document `file` links, as equations over the
+text. It is the address of the rule's page in the development edition, or that address, `#` and
+then a fragment. Or `file` is one of `stableDocuments`, a listed release introduced the rule, and
+it is the rule's stable address. The statement has no test of `target`, which decides it
+(`target_iff`), and no test of `released`. -/
+def Target (file : String) (id : RuleId) (destination : String) : Prop :=
+  destination = Edition.dev.url id.route ∨
+    (∃ fragment, destination = Edition.dev.url id.route ++ "#" ++ fragment) ∨
+    (file ∈ stableDocuments ∧
+      (∃ v ∈ versions, (descriptor id).lifecycle.introduced = .release v) ∧
+      destination = stableUrl id.route)
+
+/-- A text starts with `marker` exactly when it is `marker` and then a rest. -/
+private theorem startsWith_iff_append (text marker : String) :
+    text.startsWith marker = true ↔ ∃ rest, text = marker ++ rest := by
+  rw [String.startsWith_string_iff]
+  constructor
+  · rintro ⟨rest, split⟩
+    exact ⟨String.ofList rest, by rw [← String.toList_inj]; simp [← split]⟩
+  · rintro ⟨rest, rfl⟩
+    exact ⟨rest.toList, by simp⟩
+
+/-- The executed test accepts, for a document, exactly the destinations that are a page of the
+rule for that document. -/
+theorem target_iff (file : String) (id : RuleId) (destination : String) :
+    target file id destination = true ↔ Target file id destination := by
+  simp only [target, Target, Bool.or_eq_true, Bool.and_eq_true, beq_iff_eq,
+    List.contains_iff_mem, startsWith_iff_append, released_iff, or_assoc, and_assoc]
+
+instance (file : String) (id : RuleId) (destination : String) :
+    Decidable (Target file id destination) :=
+  decidable_of_iff _ (target_iff file id destination)
+
+/-- The page predicate that the document check runs for a document is the decision of
+`Target`. -/
+theorem target_eq (file : String) :
+    target file = fun id destination => decide (Target file id destination) := by
+  funext id destination
+  rw [Bool.eq_iff_iff, decide_eq_true_eq]
+  exact target_iff file id destination
+
 /-- Whether `text`, the text of a raw HTML block, is exactly one fence marker of the
 documentation audit, the two forms the standard defines (§7, `Regula.Checker.Documentation`):
 `<!-- lean-trusted-compiler -->`, or `<!-- lean-fail: PATTERN -->` on one line with no `>` in
@@ -679,11 +720,13 @@ def documentErrors (file source : String) : Reading → List String
 /-- The document check reports nothing exactly when the parser's reading can be used and every
 finding of it is accepted: it has no construct the check refuses to read, and every rule-ID
 token of its runs that is not wholly code is a registered rule ID inside one link to a page of
-that rule that `target` accepts for the file: the stable address of a rule only when the file is
-one of `stableDocuments`. -/
+that rule for the file (`Target`): the stable address of a rule only when the file is one of
+`stableDocuments`. -/
 theorem documentErrors_nil_iff (file source : String) (reading : Reading) :
     documentErrors file source reading = [] ↔
-      ∃ pieces, reading = .read pieces ∧ ∀ f ∈ findings pieces, f.Accepted (target file) := by
+      ∃ pieces, reading = .read pieces ∧ ∀ f ∈ findings pieces,
+        f.Accepted fun id destination => decide (Target file id destination) := by
+  rw [← target_eq file]
   cases reading with
   | unread reason => simp [documentErrors]
   | read pieces => simp [documentErrors, errors_nil_iff, rejected_nil_iff]
@@ -694,8 +737,8 @@ document read as no pieces, and an error for a document that was not read. -/
 theorem checked_documentErrors : Regula.ExecutableContract documentErrors (fun run =>
     Regula.Decides (· = [])
       (fun input : (String × String) × Reading =>
-        ∃ pieces, input.2 = .read pieces ∧
-          ∀ f ∈ findings pieces, f.Accepted (target input.1.1))
+        ∃ pieces, input.2 = .read pieces ∧ ∀ f ∈ findings pieces,
+          f.Accepted fun id destination => decide (Target input.1.1 id destination))
       (Function.uncurry (Function.uncurry run))) :=
   ⟨.of_iff (fun input => documentErrors_nil_iff input.1.1 input.1.2 input.2)
     ⟨(("", ""), .read []), (documentErrors_nil_iff "" "" (.read [])).mpr

@@ -344,6 +344,183 @@ def identical : ConstantInfo → ConstantInfo → Bool
   | .recInfo a, .recInfo b => a == b
   | _, _ => false
 
+/-- The constant data of two constants agree: the same name, the same universe parameters, and
+types that Lean's own comparison of expressions equates (`==`, which is `Expr.eqv`). Lean has no
+lawful equality of expressions, so that test of one expression stays. -/
+def SameData (a b : ConstantVal) : Prop :=
+  a.name = b.name ∧ a.levelParams = b.levelParams ∧ (a.type == b.type) = true
+
+/-- Two rules of a recursor agree: the same constructor, the same number of fields, and
+right-hand sides that Lean's own comparison of expressions equates. -/
+def SameRule (a b : RecursorRule) : Prop :=
+  a.ctor = b.ctor ∧ a.nfields = b.nfields ∧ (a.rhs == b.rhs) = true
+
+/-- Two constants are the same constant, stated field by field: the two are of the same kind,
+their constant data agree (`SameData`), Lean's own comparison of expressions equates each other
+expression field, and each remaining field is equal. The rules of two recursors agree one by
+one (`SameRule`). The statement has no comparison of a whole record: the only test in it is the
+comparison of one expression. `identical` decides it (`identical_iff`). -/
+def Identical : ConstantInfo → ConstantInfo → Prop
+  | .axiomInfo a, .axiomInfo b =>
+      SameData a.toConstantVal b.toConstantVal ∧ a.isUnsafe = b.isUnsafe
+  | .defnInfo a, .defnInfo b =>
+      SameData a.toConstantVal b.toConstantVal ∧ (a.value == b.value) = true ∧
+        a.hints = b.hints ∧ a.safety = b.safety ∧ a.all = b.all
+  | .thmInfo a, .thmInfo b =>
+      SameData a.toConstantVal b.toConstantVal ∧ (a.value == b.value) = true ∧ a.all = b.all
+  | .opaqueInfo a, .opaqueInfo b =>
+      SameData a.toConstantVal b.toConstantVal ∧ (a.value == b.value) = true ∧
+        a.isUnsafe = b.isUnsafe ∧ a.all = b.all
+  | .quotInfo a, .quotInfo b => SameData a.toConstantVal b.toConstantVal ∧ a.kind = b.kind
+  | .inductInfo a, .inductInfo b =>
+      SameData a.toConstantVal b.toConstantVal ∧ a.numParams = b.numParams ∧
+        a.numIndices = b.numIndices ∧ a.all = b.all ∧ a.ctors = b.ctors ∧
+        a.numNested = b.numNested ∧ a.isRec = b.isRec ∧ a.isUnsafe = b.isUnsafe ∧
+        a.isReflexive = b.isReflexive
+  | .ctorInfo a, .ctorInfo b =>
+      SameData a.toConstantVal b.toConstantVal ∧ a.induct = b.induct ∧ a.cidx = b.cidx ∧
+        a.numParams = b.numParams ∧ a.numFields = b.numFields ∧ a.isUnsafe = b.isUnsafe
+  | .recInfo a, .recInfo b =>
+      SameData a.toConstantVal b.toConstantVal ∧ a.all = b.all ∧ a.numParams = b.numParams ∧
+        a.numIndices = b.numIndices ∧ a.numMotives = b.numMotives ∧
+        a.numMinors = b.numMinors ∧
+        (a.rules.length = b.rules.length ∧
+          ∀ (i : Nat) x y, a.rules[i]? = some x → b.rules[i]? = some y → SameRule x y) ∧
+        a.k = b.k ∧ a.isUnsafe = b.isUnsafe
+  | _, _ => False
+
+/-- The derived comparison of the constant data compares the name, the universe parameters and
+the type. -/
+private theorem constantVal_beq_iff (a b : ConstantVal) : (a == b) = true ↔ SameData a b := by
+  have unfolded : (a == b) =
+      (a.name == b.name && (a.levelParams == b.levelParams && a.type == b.type)) := by
+    cases a; cases b; rfl
+  rw [unfolded]
+  simp only [SameData, Bool.and_eq_true, beq_iff_eq]
+
+/-- The derived comparison of two quotient kinds accepts exactly equal kinds. -/
+private theorem quotKind_beq_iff (a b : QuotKind) : (a == b) = true ↔ a = b := by
+  cases a <;> cases b <;> first
+    | exact ⟨fun _ => rfl, fun _ => rfl⟩
+    | exact ⟨fun h => absurd h (by decide), fun h => nomatch h⟩
+
+/-- The derived comparison of two safety classes accepts exactly equal classes. -/
+private theorem safety_beq_iff (a b : DefinitionSafety) : (a == b) = true ↔ a = b := by
+  cases a <;> cases b <;> first
+    | exact ⟨fun _ => rfl, fun _ => rfl⟩
+    | exact ⟨fun h => absurd h (by decide), fun h => nomatch h⟩
+
+/-- The derived comparison of two reducibility hints accepts exactly equal hints. -/
+private theorem hints_beq_iff (a b : ReducibilityHints) : (a == b) = true ↔ a = b := by
+  cases a <;> cases b
+  case regular.regular x y =>
+    have unfolded : (ReducibilityHints.regular x == .regular y) = (x == y) := rfl
+    rw [unfolded, beq_iff_eq, ReducibilityHints.regular.injEq]
+  all_goals first
+    | exact ⟨fun _ => rfl, fun _ => rfl⟩
+    | exact ⟨fun h => Bool.noConfusion h, fun h => nomatch h⟩
+
+/-- The derived comparison of two recursor rules compares the three fields. -/
+private theorem recursorRule_beq_iff (a b : RecursorRule) : (a == b) = true ↔ SameRule a b := by
+  have unfolded : (a == b) = (a.ctor == b.ctor && (a.nfields == b.nfields && a.rhs == b.rhs)) := by
+    cases a; cases b; rfl
+  rw [unfolded]
+  simp only [SameRule, Bool.and_eq_true, beq_iff_eq]
+
+private theorem axiomVal_beq_iff (a b : AxiomVal) :
+    (a == b) = true ↔ SameData a.toConstantVal b.toConstantVal ∧ a.isUnsafe = b.isUnsafe := by
+  have unfolded : (a == b) = (a.toConstantVal == b.toConstantVal && a.isUnsafe == b.isUnsafe) := by
+    cases a; cases b; rfl
+  rw [unfolded]
+  simp only [Bool.and_eq_true, constantVal_beq_iff, beq_iff_eq]
+
+private theorem definitionVal_beq_iff (a b : DefinitionVal) :
+    (a == b) = true ↔
+      SameData a.toConstantVal b.toConstantVal ∧ (a.value == b.value) = true ∧
+        a.hints = b.hints ∧ a.safety = b.safety ∧ a.all = b.all := by
+  have unfolded : (a == b) = (a.toConstantVal == b.toConstantVal && (a.value == b.value &&
+      (a.hints == b.hints && (a.safety == b.safety && a.all == b.all)))) := by
+    cases a; cases b; rfl
+  rw [unfolded]
+  simp only [Bool.and_eq_true, constantVal_beq_iff, hints_beq_iff, safety_beq_iff, beq_iff_eq]
+
+private theorem theoremVal_beq_iff (a b : TheoremVal) :
+    (a == b) = true ↔
+      SameData a.toConstantVal b.toConstantVal ∧ (a.value == b.value) = true ∧ a.all = b.all := by
+  have unfolded : (a == b) =
+      (a.toConstantVal == b.toConstantVal && (a.value == b.value && a.all == b.all)) := by
+    cases a; cases b; rfl
+  rw [unfolded]
+  simp only [Bool.and_eq_true, constantVal_beq_iff, beq_iff_eq]
+
+private theorem opaqueVal_beq_iff (a b : OpaqueVal) :
+    (a == b) = true ↔
+      SameData a.toConstantVal b.toConstantVal ∧ (a.value == b.value) = true ∧
+        a.isUnsafe = b.isUnsafe ∧ a.all = b.all := by
+  have unfolded : (a == b) = (a.toConstantVal == b.toConstantVal && (a.value == b.value &&
+      (a.isUnsafe == b.isUnsafe && a.all == b.all))) := by
+    cases a; cases b; rfl
+  rw [unfolded]
+  simp only [Bool.and_eq_true, constantVal_beq_iff, beq_iff_eq]
+
+/-- The derived comparison of two quotient records compares the constant data and the kind. -/
+private theorem quotVal_beq_iff (a b : QuotVal) :
+    (a == b) = true ↔ SameData a.toConstantVal b.toConstantVal ∧ a.kind = b.kind := by
+  have unfolded : (a == b) = (a.toConstantVal == b.toConstantVal && a.kind == b.kind) := by
+    cases a; cases b; rfl
+  rw [unfolded, Bool.and_eq_true, quotKind_beq_iff, constantVal_beq_iff]
+
+/-- The derived comparison of two inductive records compares the constant data and each other
+field. -/
+private theorem inductiveVal_beq_iff (a b : InductiveVal) :
+    (a == b) = true ↔
+      SameData a.toConstantVal b.toConstantVal ∧ a.numParams = b.numParams ∧
+        a.numIndices = b.numIndices ∧ a.all = b.all ∧ a.ctors = b.ctors ∧
+        a.numNested = b.numNested ∧ a.isRec = b.isRec ∧ a.isUnsafe = b.isUnsafe ∧
+        a.isReflexive = b.isReflexive := by
+  have unfolded : (a == b) = (a.toConstantVal == b.toConstantVal &&
+      (a.numParams == b.numParams && (a.numIndices == b.numIndices && (a.all == b.all &&
+      (a.ctors == b.ctors && (a.numNested == b.numNested && (a.isRec == b.isRec &&
+      (a.isUnsafe == b.isUnsafe && a.isReflexive == b.isReflexive)))))))) := by
+    cases a; cases b; rfl
+  rw [unfolded]
+  simp only [Bool.and_eq_true, constantVal_beq_iff, beq_iff_eq]
+
+private theorem constructorVal_beq_iff (a b : ConstructorVal) :
+    (a == b) = true ↔
+      SameData a.toConstantVal b.toConstantVal ∧ a.induct = b.induct ∧ a.cidx = b.cidx ∧
+        a.numParams = b.numParams ∧ a.numFields = b.numFields ∧ a.isUnsafe = b.isUnsafe := by
+  have unfolded : (a == b) = (a.toConstantVal == b.toConstantVal && (a.induct == b.induct &&
+      (a.cidx == b.cidx && (a.numParams == b.numParams && (a.numFields == b.numFields &&
+      a.isUnsafe == b.isUnsafe))))) := by
+    cases a; cases b; rfl
+  rw [unfolded]
+  simp only [Bool.and_eq_true, constantVal_beq_iff, beq_iff_eq]
+
+private theorem recursorVal_beq_iff (a b : RecursorVal) :
+    (a == b) = true ↔
+      SameData a.toConstantVal b.toConstantVal ∧ a.all = b.all ∧ a.numParams = b.numParams ∧
+        a.numIndices = b.numIndices ∧ a.numMotives = b.numMotives ∧
+        a.numMinors = b.numMinors ∧
+        (a.rules.length = b.rules.length ∧
+          ∀ (i : Nat) x y, a.rules[i]? = some x → b.rules[i]? = some y → SameRule x y) ∧
+        a.k = b.k ∧ a.isUnsafe = b.isUnsafe := by
+  have unfolded : (a == b) = (a.toConstantVal == b.toConstantVal && (a.all == b.all &&
+      (a.numParams == b.numParams && (a.numIndices == b.numIndices &&
+      (a.numMotives == b.numMotives && (a.numMinors == b.numMinors && (a.rules == b.rules &&
+      (a.k == b.k && a.isUnsafe == b.isUnsafe)))))))) := by
+    cases a; cases b; rfl
+  rw [unfolded]
+  simp only [Bool.and_eq_true, constantVal_beq_iff,
+    RegulaPolicy.Erasure.beq_iff_pointwise recursorRule_beq_iff, beq_iff_eq]
+
+/-- The executed comparison accepts exactly the pairs that `Identical` relates. -/
+theorem identical_iff (a b : ConstantInfo) : identical a b = true ↔ Identical a b := by
+  cases a <;> cases b <;>
+    simp only [identical, Identical, Bool.false_eq_true, axiomVal_beq_iff, definitionVal_beq_iff,
+      theoremVal_beq_iff, opaqueVal_beq_iff, quotVal_beq_iff, inductiveVal_beq_iff,
+      constructorVal_beq_iff, recursorVal_beq_iff]
+
 /-- Whether every constant of module `m` is attributed to `m` in `env` and is the constant `env`
 keeps under its name (`identical`). Lean's import attributes a name to the first module declaring
 it and keeps the last copy that replaces the others (read from `Lean.finalizeImport`), so this
@@ -1190,6 +1367,17 @@ def isAxiomIn (find : Name → Option ConstantInfo) (n : Name) : Bool :=
   | some (.axiomInfo _) => true
   | _ => false
 
+/-- `find` holds an axiom under `n`, as a proposition. `isAxiomIn` decides it
+(`isAxiomIn_iff`). -/
+def IsAxiomIn (find : Name → Option ConstantInfo) (n : Name) : Prop :=
+  ∃ value, find n = some (.axiomInfo value)
+
+/-- The executed test accepts exactly the names that `find` holds as axioms. -/
+theorem isAxiomIn_iff (find : Name → Option ConstantInfo) (n : Name) :
+    isAxiomIn find n = true ↔ IsAxiomIn find n := by
+  unfold isAxiomIn IsAxiomIn
+  split <;> simp_all
+
 /-- The names of `seen` that `find` holds as axioms and `bound` lacks. -/
 def extraAxioms (find : Name → Option ConstantInfo) (seen bound : Std.HashSet Name) : List Name :=
   seen.toList.filter fun a => isAxiomIn find a && !bound.contains a
@@ -1277,9 +1465,9 @@ def checkProof (checked : Kernel.Environment) (find : Name → Option ConstantIn
 def ProofOK (checked : Kernel.Environment) (find : Name → Option ConstantInfo) (name : Name)
     (held info : ConstantInfo) : Prop :=
   RenamedOK checked info ∧ (∀ m ∈ successorsOf info, ¬ Reach find m name) ∧
-    (∀ m ∈ successorsOf info, ∀ a, Reach find m a → isAxiomIn find a = true →
+    (∀ m ∈ successorsOf info, ∀ a, Reach find m a → IsAxiomIn find a →
       ∃ m' ∈ successorsOf held, Reach checked.find? m' a) ∧
-    ∀ m' ∈ successorsOf held, ∀ a, Reach checked.find? m' a → isAxiomIn checked.find? a = true →
+    ∀ m' ∈ successorsOf held, ∀ a, Reach checked.find? m' a → IsAxiomIn checked.find? a →
       ∃ m ∈ successorsOf info, Reach find m a
 
 /-- A successful `checkProof` gives `ProofOK`. -/
@@ -1315,8 +1503,10 @@ theorem checkProof_ok {checked : Kernel.Environment} {find : Name → Option Con
           · have := complete m hm _ hreach
             rw [Std.HashSet.mem_iff_contains, hc] at this
             cases this
-          · exact soundHeld a (extraAxioms_nil hx.1 a (complete m hm a ha) hax)
-          · exact sound a (extraAxioms_nil hx.2 a (completeHeld m hm a ha) hax)
+          · exact soundHeld a (extraAxioms_nil hx.1 a (complete m hm a ha)
+              ((isAxiomIn_iff _ _).mpr hax))
+          · exact sound a (extraAxioms_nil hx.2 a (completeHeld m hm a ha)
+              ((isAxiomIn_iff _ _).mpr hax))
       · simp [hc] at h
 
 /-- A copy of a `shared` name and the constant `held` under it must be theorems Lean's import
@@ -1401,10 +1591,10 @@ def CopyAdmitted (checked : Kernel.Environment) (kept : Name → Option Constant
     (shared : Copy → Bool) (copy : Copy) : Prop :=
   (copy.info.isUnsafe || copy.info.isPartial) = true ∧ shared copy = false ∨
   ∃ held keptInfo, checked.find? copy.name = some held ∧ kept copy.name = some keptInfo ∧
-    (shared copy = true → sameTheorem held copy.info = true) ∧
-    (identical held copy.info = true ∨ ProofOK checked checked.find? copy.name held copy.info) ∧
-    (identical held keptInfo = true ∨
-      sameTheorem held keptInfo = true ∧ ProofOK checked kept copy.name held keptInfo)
+    (shared copy = true → SameTheorem held copy.info) ∧
+    (Identical held copy.info ∨ ProofOK checked checked.find? copy.name held copy.info) ∧
+    (Identical held keptInfo ∨
+      SameTheorem held keptInfo ∧ ProofOK checked kept copy.name held keptInfo)
 
 /-- A successful `checkCopy` admits its copy. -/
 theorem checkCopy_ok {checked : Kernel.Environment} {kept : Name → Option ConstantInfo}
@@ -1425,7 +1615,10 @@ theorem checkCopy_ok {checked : Kernel.Environment} {kept : Name → Option Cons
         simp only [hh, hk] at h
         obtain ⟨⟨⟩, h1, h⟩ := RegulaPolicy.Guards.bind_eq_ok.mp h
         obtain ⟨⟨⟩, h2, h3⟩ := RegulaPolicy.Guards.bind_eq_ok.mp h
-        exact ⟨held, keptInfo, rfl, rfl, checkShared_ok h1, checkOwn_ok h2, checkKept_ok h3⟩
+        exact ⟨held, keptInfo, rfl, rfl,
+          fun isShared => (sameTheorem_iff _ _).mp (checkShared_ok h1 isShared),
+          (checkOwn_ok h2).imp (identical_iff _ _).mp id,
+          (checkKept_ok h3).imp (identical_iff _ _).mp (And.imp (sameTheorem_iff _ _).mp id)⟩
   · left
     refine ⟨hu, ?_⟩
     cases hs : shared copy

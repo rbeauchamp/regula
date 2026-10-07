@@ -563,9 +563,9 @@ def localStageSubjects (i : EnvironmentCensus) : Stage → Array LocalJobSubject
   | .transcript => (i.modules.filter (fun m => i.policy.declarations.any (fun d =>
       d.module == m.name.name && declarationNeedsTranscript d.kind d.name))).map .module
   | .history => (i.allModules.filter (fun m => i.execution.roots.any (fun r => r.boundaries.any
-      (fun b => b.module == m.name.name && b.needsHistory)))).map .module
+      (fun b => b.module == m.name.name && decide b.NeedsHistory)))).map .module
   | .origin => (i.allModules.filter (fun m => i.execution.roots.any (fun r => r.boundaries.any
-      (fun b => b.module == m.name.name && b.claimsToolchain)))).map .module
+      (fun b => b.module == m.name.name && decide b.ClaimsToolchain)))).map .module
   | .documentationPresence => i.modules.map .module ++ i.materialDeclarations.map .declaration
   | _ => #[]
 
@@ -639,7 +639,7 @@ def PlanOK (c : Claim) (i : Census) : Prop :=
   c.val.snapshot.toolchain.leanVersion = Compiler.version ∧
   c.val.snapshot.toolchain.compilerCommit = Compiler.commit ∧
   CensusOK c i ∧ (requiredJobs c i).toList.Pairwise (· ≠ ·) ∧
-  (∀ job ∈ requiredJobs c i, stageSubjectCompatible job.1 job.2 = true) ∧
+  (∀ job ∈ requiredJobs c i, StageSubjectCompatible job.1 job.2) ∧
   (∀ e ∈ i.environments, ∀ d ∈ e.declarations,
       (profileForModule c d.moduleKey.name.name).isSome = true) ∧
   (∀ e ∈ i.environments, ∀ r ∈ e.roots, rootRequests c e r.name.name ≠ #[]) ∧
@@ -790,9 +790,9 @@ theorem witness_planOK : PlanOK witnessClaim witnessCensus := by
 
 /-- The plan of the witness claim and census: its three required jobs. -/
 def witnessPlan : Plan witnessClaim witnessCensus :=
-  { jobs := #[⟨witnessClaim, .discovery, .scope, by decide, rfl, trivial⟩,
-      ⟨witnessClaim, .build, .scope, by decide, rfl, trivial⟩,
-      ⟨witnessClaim, .documentScan, .scope, by decide, rfl, trivial⟩]
+  { jobs := #[⟨witnessClaim, .discovery, .scope, by decide, trivial, trivial⟩,
+      ⟨witnessClaim, .build, .scope, by decide, trivial, trivial⟩,
+      ⟨witnessClaim, .documentScan, .scope, by decide, trivial, trivial⟩]
     valid := witness_planOK
     exactJobs := by rw [witness_requiredJobs]; simp
     exactClaim := by simp }

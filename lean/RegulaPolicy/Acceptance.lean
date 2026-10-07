@@ -716,11 +716,11 @@ def witnessRoles : CensusRoles witnessCensus := fun slot => slot.elim0
 the witness census for discovery, a clean build, and a scan of the claim's document with no
 fence. -/
 def witnessObservations : List (Nat × JobObservation) :=
-  [(0, ⟨⟨witnessClaim, .discovery, .scope, by decide, rfl, trivial⟩, witnessClaim.val.snapshot,
+  [(0, ⟨⟨witnessClaim, .discovery, .scope, by decide, trivial, trivial⟩, witnessClaim.val.snapshot,
       .completed, .discovery witnessCensus⟩),
-    (1, ⟨⟨witnessClaim, .build, .scope, by decide, rfl, trivial⟩, witnessClaim.val.snapshot,
+    (1, ⟨⟨witnessClaim, .build, .scope, by decide, trivial, trivial⟩, witnessClaim.val.snapshot,
       .completed, .build ⟨0, #[], #[]⟩⟩),
-    (2, ⟨⟨witnessClaim, .documentScan, .scope, by decide, rfl, trivial⟩,
+    (2, ⟨⟨witnessClaim, .documentScan, .scope, by decide, trivial, trivial⟩,
       witnessClaim.val.snapshot, .completed, .documentScan ⟨#[⟨"README.md", ""⟩], #[], #[]⟩⟩)]
 
 /-- The witness observations are a batch `finalize` accepts for `witnessPlan`. -/

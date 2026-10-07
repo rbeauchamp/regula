@@ -165,11 +165,11 @@ theorem Coverage.text_eq_fresh_iff (x : Coverage) :
     x.text = Coverage.freshWholeProject.text ↔ x = .freshWholeProject := by
   cases x <;> decide
 
-/-- A fresh-project claim is always a project-scope claim (`scopeModeCompatible`). -/
+/-- A fresh-project claim is always a project-scope claim (`ScopeModeCompatible`). -/
 theorem fresh_scope (c : Claim) (h : c.val.mode = .freshProject) : c.val.scope = .project := by
   have compatible := c.property.1
   rw [h] at compatible
-  cases hs : c.val.scope <;> simp_all [scopeModeCompatible]
+  cases hs : c.val.scope <;> simp_all [ScopeModeCompatible]
 
 /-- Mechanisms every accepted run relies on without verifying. -/
 inductive Trusted where
