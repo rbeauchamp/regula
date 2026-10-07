@@ -273,8 +273,26 @@ step to the documentation step was 1.60 to 1.67 in the four complete sequential 
 prediction for this sequence is 1.34 to 1.45. Two hosted runs with a ratio of 1.47 or less
 confirm the prediction. A ratio of 1.55 or more refutes it.
 
-These notes record no hosted run of this sequence at this time. Thus the margin is not
-established.
+The criterion has the date 2026-10-07. Two hosted runs then measured this sequence on the head
+`63993d55` of [pull request 262](https://github.com/rbeauchamp/regula/pull/262). They are
+attempts [1](https://github.com/rbeauchamp/regula/actions/runs/37637451453/attempts/1) and
+[2](https://github.com/rbeauchamp/regula/actions/runs/37637451453/attempts/2) of CI run
+37637451453, on two runners.
+
+| Attempt | First step | Documentation step | Ratio | Margin of the first step | Margin of the documentation step |
+| --- | --- | --- | --- | --- | --- |
+| 1 | 283 s | 205 s | 1.38 | 143 s | 215 s or more |
+| 2 | 265 s | 190 s | 1.39 | 161 s | 230 s or more |
+
+The two ratios are 1.47 or less. Thus the two runs confirm the prediction by that criterion. The
+margin of a step is the time that stays before its 420-second deadline. The deadline of the
+first step started approximately 6 s after the start of the step.
+
+For the slowest runner observed, the margin is calculated and not measured. The calculation
+uses the 425.5 s of the killed run 37560297066 with the sequential schedule. It multiplies that
+time by a measured ratio of 1.3804 or 1.3947. It divides the product by a sequential ratio of
+1.597 to 1.674. The result is 346 s to 367 s under the deadline, which is a calculated margin
+of 53 s to 74 s. The sample is two runs.
 
 Two reviews of an earlier design found nine defects. That design built in the checkout from
 empty build output and recorded that fact for the gate. Each defect was in a comparison of two

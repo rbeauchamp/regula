@@ -351,7 +351,8 @@ of the step.
 
 The [evidence notes](../../.agents/skills/lean-ci/references/evidence.md) give those runs and
 the calculation of the time of this sequence. They also give the criterion for the hosted
-result, which was set before a hosted run of this sequence.
+result, which was set before a hosted run of this sequence. Two hosted runs then had ratios of
+1.38 and 1.39, which confirms the prediction by that criterion.
 
 The driver writes each line that starts with `verification:`. It writes such a line at the start
 of each command and a second line when the command ends. For a command that operates in the
