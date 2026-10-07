@@ -262,21 +262,29 @@ pairs of local runs showed the result of that division
 machine.
 
 The low priority of the second chain has this purpose: the gate must not become slower. The
-statement that follows is an argument and not a measurement. It uses two assumptions. The first
-assumption is that the operating system gives the gate each processor that the gate can use.
-The second assumption is that memory is not the limit. If the two assumptions are correct, the
-gate takes the time that it takes alone.
+statement that follows is an argument and not a measurement. It uses three assumptions. The
+first assumption is that the operating system gives the gate each processor that the gate can
+use. The second assumption is that memory is not the limit. The third assumption is that no
+other work at normal priority uses the machine.
 
-The second chain then uses only the processors that the gate leaves idle. Thus the time of the
-step is not more than the time of the same commands in sequence, plus the time to start the
-processes. That sequence is the early build, the gate and then the second chain. The time of the
-step is less than that sum if, and only if, the gate leaves a processor idle for the second
-chain. Equal priority gives no such limit, because the second chain can then make the gate
-slower.
+If the first two assumptions are correct, the gate takes the time that it takes alone. The
+second chain then uses only the processors that the gate leaves idle. If the third assumption is
+also correct, the low priority does not make the second chain slower after the gate ends. Thus
+the time of the step is not more than the time of the same commands in sequence, plus the time
+to start the processes. That sequence is the early build, the gate and then the second chain.
+The time of the step is less than that sum if, and only if, the gate leaves a processor idle for
+the second chain.
 
-These limits apply to that argument. No measurement shows the two assumptions on the hosted
-runner. In one local pair of runs, the gate was approximately 11 s slower than alone. Thus the
-first assumption was not fully correct on that machine. The sequence of the argument has two
+Equal priority gives no such limit, because the second chain can then make the gate slower. Low
+priority gives no such limit on a machine that other work at normal priority fills. A command
+keeps its low priority until it ends, and the driver starts each command of the second chain at
+low priority. Thus the second chain can get only a small quantity of processor time on that
+machine, also after the gate ended. The time of the step can then be more than in the sequential
+schedule. The hosted runner has no other load.
+
+These limits apply to that argument. No measurement shows the first two assumptions on the
+hosted runner. In one local pair of runs, the gate was approximately 11 s slower than alone. Thus
+the first assumption was not fully correct on that machine. The sequence of the argument has two
 builds, but the earlier schedule had one complete build. The time that this division of the
 build adds is not measured.
 

@@ -142,9 +142,10 @@ machine decreased to approximately 100 MB. The hosted runner is a different mach
 processors. Thus these runs do not show the hosted result.
 
 After those runs, the driver starts each command that operates at the same time as the gate with
-`nice -n 19` (`RegulaVerification.Priority`). The gate keeps the priority of the driver. The step
-ends when the gate ends, and the purpose is that the other commands do not make the gate slower.
-The program and the arguments of each command did not change.
+`nice -n 19` (`RegulaVerification.Priority`). The gate keeps the priority of the driver. The
+purpose is that the other commands do not make the gate slower. The step ends when the gate and
+the other commands are complete. It ends when the gate ends only if the other commands end
+first. The program and the arguments of each command did not change.
 
 One local pair of cold runs compared that schedule with the sequential run on the same machine.
 A sampler looked for builds of a different directory each 10 s, and it found none during the two
@@ -160,8 +161,13 @@ build of a different directory operated during each of them. One pair is not a d
 The estimate for the hosted reference run with low priority is approximately 275 s to 300 s,
 where the step took 364 s. It has three parts. They are approximately 7 s before the early
 build, approximately 110 s for the early build, and 157 s to 180 s for the gate. The larger value
-for the gate uses the delay of the local pair. That estimate is a prediction. It assumes that the
-scheduler gives the gate the processors that it can use and that memory is not the limit.
+for the gate uses the delay of the local pair.
+
+That estimate is a prediction, and it uses three assumptions. The first two assumptions are that
+the scheduler gives the gate the processors that it can use and that memory is not the limit.
+The third assumption is that the other commands end before the gate ends. If they end after the
+gate, their time after the gate adds to the estimate. These notes show that the other commands
+ended first only for the local pair, on 14 processors.
 
 An independent review of the first version found one path on which the driver did not wait for
 the gate. On that path, the line that reported the failure of a different command could raise an

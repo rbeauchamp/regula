@@ -449,7 +449,13 @@ inductive Priority where
   /-- The driver's own priority. -/
   | normal
   /-- The lowest priority, for a command that runs while a command of `beside` runs: the
-  scheduler is asked to prefer the command of `beside` whenever both ask for a processor. -/
+  scheduler is asked to prefer the command of `beside` whenever both ask for a processor. A
+  command keeps this priority to its end, also after the command of `beside` ended, and the
+  scheduler is asked to prefer any other work at normal priority in the same way. So on a machine
+  that such other work fills, a command at low priority can get little processor time, and the
+  schedule can then take longer than the same commands one after another. That it takes no longer
+  than they do therefore assumes, as the third of three assumptions, that no other work at normal
+  priority uses the machine (`executeBeside`). -/
   | low
 
 /-- How the progress line of a start names a priority: nothing for the driver's own. -/
@@ -523,7 +529,16 @@ child's own descendants.
 
 `priority` is the priority of the commands of `inOrder`. Each command of `beside` starts at the
 driver's own priority, and the commands of `inOrder` then run at low priority, because they run
-while it does. With no command in `beside`, they run at the priority the caller gives. -/
+while it does. With no command in `beside`, they run at the priority the caller gives.
+
+That priority is chosen once, before the first command of `inOrder`, and is not looked at again:
+a command of `inOrder` keeps it to its end, and each later one starts at it, also after every
+command of `beside` ended. That the two sides then take no longer than the same commands one
+after another is an argument, not a measurement and not a theorem, and it has three assumptions:
+the scheduler gives a command of `beside` every processor it can use, memory is not the limit,
+and no other work at normal priority uses the machine. On a machine that such other work fills,
+the commands at low priority can get little processor time, also after the commands of `beside`
+ended, and the two sides can then take longer than the same commands one after another. -/
 def executeBeside (priority : Priority) : (known : List (Option UInt32)) →
     (beside inOrder : List Command) → BaseIO (Ends inOrder × Ends beside)
   | known, [], inOrder => return (← executeInOrder priority known inOrder, ⟨[], rfl⟩)

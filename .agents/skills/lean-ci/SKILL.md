@@ -105,9 +105,15 @@ faster sample.
 - If the consumer is the longer chain, start each command of the other chain with `nice`. Do
   not change the program or the arguments of a command. The other chain then uses the
   processors that the consumer leaves idle.
-- That construction uses two assumptions. The scheduler gives the consumer each processor that
-  it can use, and memory is not the limit. With them, the time is not more than the time of the
-  same commands in sequence. The time is less only if the consumer leaves a processor idle.
+- That construction uses three assumptions. The scheduler gives the consumer each processor that
+  it can use, and memory is not the limit. The third assumption is that no other work at normal
+  priority uses the machine. With them, the time is not more than the time of the same commands
+  in sequence. That limit is an argument and not a measurement. The time is less only if the
+  consumer leaves a processor idle.
+- A command keeps its low priority until it ends, also after the consumer ended. Thus, on a
+  machine that other work at normal priority fills, the other chain can get only a small quantity
+  of processor time. The time can then be more than the time of the same commands in sequence. A
+  hosted runner with no other load does not have that risk.
 - In one local pair with low priority, the step took 121.6 s and the sequential run took
   134.3 s. The consumer was approximately 11 s slower than alone in that pair. Thus the first
   assumption was not fully correct there.
