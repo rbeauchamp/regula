@@ -274,9 +274,11 @@ step is less than that sum if, and only if, the gate leaves a processor idle for
 chain. Equal priority gives no such limit, because the second chain can then make the gate
 slower.
 
-Three limits apply to that argument. No measurement shows the two assumptions on the hosted
-runner. The sequence of the argument has two builds, but the earlier schedule had one complete
-build. The time that this division of the build adds is not measured.
+These limits apply to that argument. No measurement shows the two assumptions on the hosted
+runner. In one local pair of runs, the gate was approximately 11 s slower than alone. Thus the
+first assumption was not fully correct on that machine. The sequence of the argument has two
+builds, but the earlier schedule had one complete build. The time that this division of the
+build adds is not measured.
 
 The facts that follow are about one hosted run of the sequential schedule (CI run 37513374192,
 four processors). Lake logs the elapsed time of each job and not its processor time. By those

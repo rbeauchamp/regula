@@ -104,9 +104,9 @@ chain of those modules, with the C file of the gate, logged 96 s.
 The estimate uses two assumptions. The first assumption is that each job uses approximately one
 processor for its logged duration. The second assumption is that this duration does not change
 when other work operates at the same time. If the two assumptions are correct, approximately
-225 s of the work of the build was not necessary before the gate. The time of the step on that
-runner is then approximately 300 s. No measurement shows that the two assumptions are correct,
-and thus that value is a prediction.
+225 s of the work of the build was not necessary before the gate. The first estimate of the time
+of the step on that runner was thus approximately 300 s. No measurement shows that the two
+assumptions are correct.
 
 At this time, the driver builds the gate first. Then it operates the gate at the same time as
 the complete build and the other checks
@@ -140,6 +140,28 @@ pair. The measurement does not identify the cause of the longer durations. Durin
 other processes used approximately three to four processors, and the unused memory of the
 machine decreased to approximately 100 MB. The hosted runner is a different machine with four
 processors. Thus these runs do not show the hosted result.
+
+After those runs, the driver starts each command that operates at the same time as the gate with
+`nice -n 19` (`RegulaVerification.Priority`). The gate keeps the priority of the driver. The step
+ends when the gate ends, and the purpose is that the other commands do not make the gate slower.
+The program and the arguments of each command did not change.
+
+One local pair of cold runs compared that schedule with the sequential run on the same machine.
+A sampler looked for builds of a different directory each 10 s, and it found none during the two
+runs. The time of the step was 121.6 s with the schedule and 134.3 s with the sequential run.
+The gate took approximately 89 s at the same time as the other commands and approximately 78 s in
+the sequential run. The other commands ended 34 s after the start of the gate.
+
+Thus the gate was approximately 11 s slower than alone. The low priority did not remove the full
+delay on that machine. Three more runs are not a part of that pair. One run of the schedule took
+127.0 s, with no record of other builds. Two sequential runs took 148.2 s and 140.4 s, and a
+build of a different directory operated during each of them. One pair is not a distribution.
+
+The estimate for the hosted reference run with low priority is approximately 275 s to 300 s,
+where the step took 364 s. It has three parts. They are approximately 7 s before the early
+build, approximately 110 s for the early build, and 157 s to 180 s for the gate. The larger value
+for the gate uses the delay of the local pair. That estimate is a prediction. It assumes that the
+scheduler gives the gate the processors that it can use and that memory is not the limit.
 
 An independent review of the first version found one path on which the driver did not wait for
 the gate. On that path, the line that reported the failure of a different command could raise an

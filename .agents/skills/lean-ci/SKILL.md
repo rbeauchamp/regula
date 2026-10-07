@@ -97,10 +97,23 @@ faster sample.
   also raises an exception. Thus this construction makes sure that the driver waits for each
   started process.
 - Make the pass decision in one pure function of the end of each command, with a decision
-  contract. Do not make that decision in the control flow. Do a measurement of the gain on the
-  hosted runner. The change removes no work, and thus it decreases the time only if processors
-  were idle before the change. A different machine does not show the hosted gain. On a local
-  machine that other work also used, four pairs of runs showed no gain.
+  contract. Do not make that decision in the control flow.
+- The sequence ends when the longer of the two chains ends. With equal priority, the operating
+  system divides the processors between the chains, and the longer chain becomes slower. On a
+  local machine that other work also used, four pairs of runs with equal priority showed no
+  gain. The consumer started 32 s to 37 s earlier and took 32 s to 39 s longer.
+- If the consumer is the longer chain, start each command of the other chain with `nice`. Do
+  not change the program or the arguments of a command. The other chain then uses the
+  processors that the consumer leaves idle.
+- That construction uses two assumptions. The scheduler gives the consumer each processor that
+  it can use, and memory is not the limit. With them, the time is not more than the time of the
+  same commands in sequence. The time is less only if the consumer leaves a processor idle.
+- In one local pair with low priority, the step took 121.6 s and the sequential run took
+  134.3 s. The consumer was approximately 11 s slower than alone in that pair. Thus the first
+  assumption was not fully correct there.
+- The change removes no work. Thus it decreases the time only if processors were idle before
+  the change. Do a measurement of the gain on the hosted runner. A different machine does not
+  show the hosted gain.
 - When the bound still exceeds the target, divide the checks into shards under an approved
   budget each, and size them on the slowest observed run. Let every check carry its one shard
   where it is listed and select by that tag, so cover and disjointness are a theorem about the
