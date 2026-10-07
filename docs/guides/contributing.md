@@ -63,6 +63,16 @@ limit; a timeout is an incomplete run, not acceptance. `./scripts/provision.sh` 
 that limit, under its own 30-minute limit; it validates the released compiler and acquires no dependencies. CI runs both commands, in that order in one job, after restoring or
 provisioning the pinned Verso artifacts.
 
+Ordinary acceptance puts the accepted record at `tmp/acceptance-link.json` only after each of
+its commands ended with exit status 0. It builds `axiomGate` first. Then it operates that gate at
+the same time as the remaining part of its build and the qualification controls. It starts those
+other commands with `nice` at low priority, so that the gate gets a processor first.
+
+Thus the output lines of those commands are mixed. Each line that starts with `verification:` is
+a progress line of the driver of `./scripts/verify.sh`. Such a line gives the start of a command,
+the end of a command, or a different event of the driver
+([proofs and boundaries](proofs-and-boundaries.md#the-acceptance-boundary)).
+
 The applicable command evidence is required but does not complete the standard's checklist:
 theorem, type and prose rows still require semantic review. A conformance record for this
 repository states the Lean version, the exact dependency source state (including Mathlib when

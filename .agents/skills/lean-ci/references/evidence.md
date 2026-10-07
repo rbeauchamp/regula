@@ -78,6 +78,153 @@ A Python timeout that kills/waits its direct checker child alone does not establ
 that nested Lake/compiler descendants have stopped before scratch cleanup; an outer
 SIGKILL cannot execute user-space cleanup. The OS remains a trusted boundary.
 
+## Regula: the gate beside the rest of ordinary acceptance (2026-10-06)
+
+These values are observations on hosted `ubuntu-24.04` runners with four processors, and they
+are not bounds. In 18 CI runs, the time of the first acceptance step was 226 s to 414 s with its
+420-second deadline. An examination of five of those runs gave the time of each phase. In the
+slowest of those five runs the step took 405 s, and in the fastest it took 236 s. Each phase was
+1.6 to 1.8 times longer in the slowest run than in the fastest run. Thus the cause of the
+difference was the speed of the runner.
+
+In [run 37513374192](https://github.com/rbeauchamp/regula/actions/runs/37513374192), the time of
+the step was 364 s. The build was 173 s, `qualify combined` was 25 s and the gate was 157 s. The
+isolated build of the gate was approximately 66 s of those 157 s.
+
+The next values are an estimate from the durations that Lake logs for each job. Lake measures
+each duration with `IO.monoMsNow` before and after the job, and thus a duration is elapsed time.
+A job that is idle until it gets a processor, or that uses more than one thread, logs its
+duration in the same way. Thus the sum of the durations is not processor work. The build logged
+273 jobs, and the sum of their durations is 640 s. By those durations, approximately four jobs
+were in progress from the start of the build to its end.
+
+The isolated build of the gate logged 163 s, with one or two jobs in progress during its last
+40 s. The modules that the gate executable imports logged 414 s of the 640 s. The longest import
+chain of those modules, with the C file of the gate, logged 96 s.
+
+The estimate uses two assumptions. The first assumption is that each job uses approximately one
+processor for its logged duration. The second assumption is that this duration does not change
+when other work operates at the same time. If the two assumptions are correct, approximately
+225 s of the work of the build was not necessary before the gate. The first estimate of the time
+of the step on that runner was thus approximately 300 s. No measurement shows that the two
+assumptions are correct.
+
+At this time, the driver builds the gate first. Then it operates the gate at the same time as
+the complete build and the other checks
+([proofs and boundaries](../../../../docs/guides/proofs-and-boundaries.md#the-acceptance-boundary)).
+
+In one local probe (14 processors, two threads for each side), the second build compiled 106
+jobs. None of those jobs was a module that the gate imports. The gate recorded the same input
+identity as the sequential run.
+
+That probe shows that the arrangement operates. It does not show the hosted gain. The hosted
+times of the new schedule are at the end of this section.
+
+Two items are not established. The first item is that two Lake processes in one build directory
+do not interfere (one of them builds nothing here). The second item is an upper bound of the
+time of the step.
+
+Four pairs of local runs compared the new schedule with the sequential run of the first
+acceptance step, on one machine with 14 processors. Each run started with no build output of the
+root package, and other projects used the machine during the runs. The times of the runs were
+158 s to 194 s. In each pair, the difference of the two times was smaller than 8 s
+(+7.2 s, +1.0 s, -0.5 s and -3.9 s, new schedule minus sequential run). Thus those runs showed no
+gain.
+
+With the new schedule, the gate started 32 s to 37 s earlier in the step and took 32 s to 39 s
+longer. Lake logged the durations of the jobs of the isolated build of the gate. Their sum was
+182 s to 261 s with the new schedule and 103 s to 116 s with the sequential run. Thus the second
+assumption was not correct on that machine.
+
+In the last pair, the processor time of the step was 727 s with the new schedule and 703 s with
+the sequential run. Thus the two schedules used approximately the same processor time in that
+pair. The measurement does not identify the cause of the longer durations. During that pair,
+other processes used approximately three to four processors, and the unused memory of the
+machine decreased to approximately 100 MB. The hosted runner is a different machine with four
+processors. Thus these runs do not show the hosted result.
+
+After those runs, the driver starts each command that operates at the same time as the gate with
+`nice -n 19` (`RegulaVerification.Priority`). The gate keeps the priority of the driver. The
+purpose is that the other commands do not make the gate slower. The program and the arguments of
+each command did not change.
+
+The step ends when the gate and the other commands are complete. It ends when the gate ends only
+if the other commands end first.
+
+One local pair of cold runs compared that schedule with the sequential run on the same machine.
+A sampler looked for builds of a different directory each 10 s, and it found none during the two
+runs. The time of the step was 121.6 s with the schedule and 134.3 s with the sequential run.
+The gate took approximately 89 s at the same time as the other commands and approximately 78 s in
+the sequential run. The other commands ended 34 s after the start of the gate.
+
+Thus the gate was approximately 11 s slower than alone. The low priority did not remove the full
+delay on that machine. Three more runs are not a part of that pair. One run of the schedule took
+127.0 s, with no record of other builds. Two sequential runs took 148.2 s and 140.4 s, and a
+build of a different directory operated during each of them. One pair is not a distribution.
+
+The estimate for the hosted reference run with low priority is approximately 275 s to 300 s,
+where the step took 364 s. It has three parts. They are approximately 7 s before the early
+build, approximately 110 s for the early build, and 157 s to 180 s for the gate. The larger value
+for the gate uses the delay of the local pair.
+
+That estimate is a prediction, and it uses three assumptions. The first two assumptions are that
+the scheduler gives the gate the processors that it can use and that memory is not the limit.
+The third assumption is that the other commands end before the gate ends. If they end after the
+gate, their time after the gate adds to the estimate. These notes show that the other commands
+ended first only for the local pair, on 14 processors.
+
+Two hosted runs then measured the schedule with low priority
+([pull request 252](https://github.com/rbeauchamp/regula/pull/252), CI run 37556704230,
+attempts 1 and 2). The first step took 386 s and 351 s. The documentation step of the same jobs
+took 243 s and 222 s, and the change does not touch its work. Thus the ratio of the two steps
+compares the schedules on runners of different speeds. That ratio was 1.59 and 1.58.
+
+Two sequential runs measured the tree of commit `4e9a1fd8`, which was the base of the pull
+request for the two hosted runs. Their ratios were 1.71 and 1.74 (CI runs 37542593631 and
+37540594216, 295 s and 351 s for the first step). The comparison is between that tree with the
+sequential schedule and the tree of the pull request with the new schedule. Thus the ratios
+compare two trees and not only two schedules.
+
+By those ratios, the measured gain is approximately 8 percent of the first step, which is
+approximately 30 s at those runner speeds. The estimate above is a gain of 65 s to 90 s on the
+reference run. The hosted runs refute that estimate.
+
+The sample is small: two runs for each schedule, with the sequential runs on the tree of commit
+`4e9a1fd8`. Two earlier trees each had two sequential runs. Their ratios were 1.68 and 1.59 for
+one tree, and 1.68 and 1.58 for the other. Thus two runs of one tree can give ratios that are
+0.10 apart. The lowest ratio of a sequential run is equal to the ratio of the schedule. The gain
+is a measurement on this sample, and it is not established.
+
+The gate took 251 s and 229 s at the same time as the low-priority commands. It took 139 s and
+164 s alone in the two sequential runs of the tree of commit `4e9a1fd8`. Thus `nice -n 19` did
+not keep the gate at the speed that it has alone, and the first assumption was not correct on
+the hosted runner. A possible cause is that the four processors of the runner are hardware
+threads of two cores. No run measured the processor topology or the processor time. Thus that
+cause is a hypothesis.
+
+In the two hosted runs, the other commands ended approximately 25 s before the gate. Before
+that, the two chains operated at the same time.
+Thus a different sequence of the same commands can probably decrease the time only a small
+quantity more. For more margin, less work in the step or a second runner is necessary. In the
+slower of the two runs, the margin of the step was 34 s.
+
+After those runs, `main` moved to commit `5dcae344`.
+[CI run 37560297066](https://github.com/rbeauchamp/regula/actions/runs/37560297066) measured
+`main` at that commit, with the sequential schedule. The 420-second deadline killed
+`./scripts/verify.sh` in the first step of that run. The step took 425 s and ended with exit
+status 137. The documentation step did not start.
+
+These notes record no hosted run of the new schedule on a tree that contains that commit. Each
+hosted figure of the new schedule in these notes is for the tree with the base `4e9a1fd8`. Those
+figures are the times 386 s and 351 s, the margin of 34 s and the gain of approximately
+8 percent. Thus they do not show the time or the margin of the step for a later tree.
+
+An independent review of the first version found one path on which the driver did not wait for
+the gate. On that path, the line that reported the failure of a different command could raise an
+exception before the driver waited for the gate. At this time, the orchestration of the driver
+is a `BaseIO` action. One pure decision with a registered decision contract
+(`RegulaVerification.passed`) gives the result from the end of each command.
+
 ## Regula: Veil scout for the corpus harness (2026-09-23)
 
 On 2026-09-23, Veil ([verse-lab/veil](https://github.com/verse-lab/veil), main `517f2ba`)

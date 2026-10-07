@@ -69,6 +69,68 @@ faster sample.
   output the selected build did not name, since a stale file can stand in for it locally.
 - Tasks started beside a bounded worker queue run outside its bound. Put them in the queue,
   behind the items that decide its end, so they take workers that would otherwise idle.
+- A build can use as many jobs as the runner has processors. If a consumer of one output of that
+  build then uses fewer jobs, some processors can be idle while the consumer operates. To make an
+  estimate of the work that can move, use one hosted log. Add the logged durations of the jobs of
+  the complete build. Then add the logged durations of the modules that the executable of the
+  consumer imports (its import closure).
+- Lake logs elapsed time, not processor time. Thus those two sums are work only if two
+  assumptions are correct, and the log does not show that they are correct. The first assumption
+  is that each job uses approximately one processor for its logged duration. The second
+  assumption is that this duration does not change when other work operates at the same time.
+- With those assumptions, the difference of the two sums is the work that can operate at the
+  same time as the consumer. Two values give an estimate of the time before the consumer can
+  start. The first value is the sum of the import closure divided by the number of processors.
+  The second value is the longest import chain of that closure. The result is a prediction and
+  not a bound. For a bound, evidence of processor time is necessary.
+- Build that import closure first. Then start the consumer. Operate the complete build at the
+  same time as the consumer. Make sure that the complete build continues to name each target.
+  Show the files that the consumer reads and the files that the build then writes. Keep the
+  freshness checks of the consumer, so that interference causes a refusal.
+- If the consumer wrote a receipt as the last command of the sequence, its success does not end
+  the sequence after the change. Thus make the driver promote the receipt only after it waited
+  for each command. If the driver does not do that, an attempt that failed or was killed can have
+  an accepted receipt. Keep each child process in the process group of the deadline.
+- Do not kill a child process. Make the driver wait for each child process. From the start of a
+  process until the driver waits for it, use only actions that raise no exception. In Lean, such
+  an action is a `BaseIO` action. In an `IO` action, a progress line that the driver cannot print
+  also raises an exception. Thus this construction makes sure that the driver waits for each
+  started process.
+- Make the pass decision in one pure function of the end of each command, with a decision
+  contract. Do not make that decision in the control flow.
+- The sequence ends when the longer of the two chains ends. With equal priority, the operating
+  system divides the processors between the chains, and the longer chain becomes slower. On a
+  local machine that other work also used, four pairs of runs with equal priority showed no
+  gain. The consumer started earlier, and it took longer by approximately the same time
+  ([evidence notes](references/evidence.md)).
+- If the consumer is the longer chain, start each command of the other chain with `nice`. Do
+  not change the program or the arguments of a command. The other chain then uses the
+  processors that the consumer leaves idle.
+- That construction uses three assumptions. The scheduler gives the consumer each processor that
+  it can use, and memory is not the limit. The third assumption is that no other work at normal
+  priority uses the machine. With them, the time is not more than the time of the same commands
+  in sequence. That limit is an argument and not a measurement. The time is less only if the
+  consumer leaves a processor idle.
+- A command keeps its low priority until it ends, also after the consumer ended. Thus, on a
+  machine that other work at normal priority fills, the other chain can get only a small quantity
+  of processor time. The time can then be more than the time of the same commands in sequence. A
+  hosted runner with no other load does not have that risk.
+- In one local pair with low priority, the step took less time than the sequential run. In two
+  hosted runs, the relative time of the step was smaller
+  ([evidence notes](references/evidence.md)). But the consumer was slower than alone in each of
+  those runs. Thus the first assumption was not fully correct there.
+- Do not use logged job durations to make a prediction of the gain of such a schedule. On the
+  hosted runner, that prediction was more than two times the measured gain. An idle logical
+  processor is not always an idle core. If a core has two hardware threads, work on one thread
+  makes the other thread slower, and `nice` does not prevent that. For the hosted runner, that
+  cause is a hypothesis, because no run measured the processor topology.
+- The change removes no work. Thus it decreases the time only if processors were idle before
+  the change. Do a measurement of the gain on the hosted runner. A different machine does not
+  show the hosted gain.
+- The speed of a hosted runner changes from run to run. To compare two schedules, use a step of
+  the same job that did not change. Divide the time of the changed step by the time of that
+  step. Give the number of runs and the range of that ratio for one tree. A gain that is not
+  larger than that range is not established.
 - When the bound still exceeds the target, divide the checks into shards under an approved
   budget each, and size them on the slowest observed run. Let every check carry its one shard
   where it is listed and select by that tag, so cover and disjointness are a theorem about the
