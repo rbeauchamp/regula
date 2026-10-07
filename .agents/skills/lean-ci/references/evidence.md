@@ -179,11 +179,11 @@ attempts 1 and 2). The first step took 386 s and 351 s. The documentation step o
 took 243 s and 222 s, and the change does not touch its work. Thus the ratio of the two steps
 compares the schedules on runners of different speeds. That ratio was 1.59 and 1.58.
 
-Two sequential runs measured the tree of commit `4e9a1fd8`, which is the base of the pull
-request. Their ratios were 1.71 and 1.74 (CI runs 37542593631 and 37540594216, 295 s and 351 s
-for the first step). The comparison is between that tree with the sequential schedule and the
-tree of the pull request with the new schedule. Thus the ratios compare two trees and not only
-two schedules.
+Two sequential runs measured the tree of commit `4e9a1fd8`, which was the base of the pull
+request for the two hosted runs. Their ratios were 1.71 and 1.74 (CI runs 37542593631 and
+37540594216, 295 s and 351 s for the first step). The comparison is between that tree with the
+sequential schedule and the tree of the pull request with the new schedule. Thus the ratios
+compare two trees and not only two schedules.
 
 By those ratios, the measured gain is approximately 8 percent of the first step, which is
 approximately 30 s at those runner speeds. The estimate above is a gain of 65 s to 90 s on the
@@ -207,6 +207,17 @@ that, the two chains operated at the same time.
 Thus a different sequence of the same commands can probably decrease the time only a small
 quantity more. For more margin, less work in the step or a second runner is necessary. In the
 slower of the two runs, the margin of the step was 34 s.
+
+After those runs, `main` moved to commit `5dcae344`.
+[CI run 37560297066](https://github.com/rbeauchamp/regula/actions/runs/37560297066) measured
+`main` at that commit, with the sequential schedule. The 420-second deadline killed
+`./scripts/verify.sh` in the first step of that run. The step took 425 s and ended with exit
+status 137. The documentation step did not start.
+
+These notes record no hosted run of the new schedule on a tree that contains that commit. Each
+hosted figure of the new schedule in these notes is for the tree with the base `4e9a1fd8`. Those
+figures are the times 386 s and 351 s, the margin of 34 s and the gain of approximately
+8 percent. Thus they do not show the time or the margin of the step for a later tree.
 
 An independent review of the first version found one path on which the driver did not wait for
 the gate. On that path, the line that reported the failure of a different command could raise an

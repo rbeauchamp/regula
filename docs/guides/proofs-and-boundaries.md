@@ -301,7 +301,10 @@ estimate from those facts gave a gain of 65 s to 90 s for that run.
 Two hosted runs of the schedule refute that estimate. They measured a gain of approximately
 8 percent of the first step, which is approximately 30 s. The sample is two runs for each
 schedule. One sequential run of an earlier tree had the same relative time of the first step as
-the schedule. Thus the gain is a measurement on that sample and is not established. The
+the schedule. Thus the gain is a measurement on that sample and is not established.
+
+The two hosted runs of the schedule measured a tree with the base `4e9a1fd8`. Thus their figures
+do not show the time or the margin of the step on a later base. The
 [evidence notes](../../.agents/skills/lean-ci/references/evidence.md) give the runs, the method
 and a possible cause.
 
