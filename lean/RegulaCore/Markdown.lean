@@ -22,9 +22,10 @@ md4c's decision, and which piece each becomes is that module's (see Boundaries).
   (`Regula.Prose.Mention.Linked`).
 - `PiecesAccepted`, `IsRun`, `RunText`, `StandsAfter`, `Closed`, `RunLinked`: what the check
   decides, stated over the list of pieces and the characters of the text. A run is a part of the
-  pieces between two pieces that end a run. Prose stands in the text of the link that is entered
-  last and not yet left. Each rule-ID token (`Regula.Prose.TokenAt`) of the text of a run is
-  wholly code, or stands wholly in one link to its rule's page.
+  pieces with no piece that ends a run, where the piece before it and the piece after it, if
+  any, end a run. Prose stands in the text of the link that is entered last and not yet left.
+  Each rule-ID token (`Regula.Prose.TokenAt`) of the text of a run is wholly code, or stands
+  wholly in one link to its rule's page.
 - `findings_accepted_iff`: the findings of the scan are accepted exactly when the document is
   accepted in that statement.
 - `stableDocuments`, `target`, `Target`, `target_iff`, `released`, `released_iff`: the pages a
@@ -761,25 +762,7 @@ private theorem scan_accepted_iff {target : RuleId → String → Bool}
         cases finding
       · rintro ⟨-, ⟨impossible, -⟩, -⟩
         exact impossible.elim
-    | gap =>
-      simp only [Scan.step, Scan.flush, placed, List.mem_append, List.mem_reverse, List.mem_cons,
-        forall_eq_or_imp, reduceCtorEq, false_or, List.reverse_nil,
-        ← runTokens_accepted_iff decides]
-      constructor
-      · rintro ⟨accepted, none, runs⟩
-        exact ⟨fun f hf => accepted f (.inr hf), none, fun f hf => accepted f (.inl hf), runs⟩
-      · rintro ⟨accepted, none, run, runs⟩
-        exact ⟨fun f hf => hf.elim (run f) (accepted f), none, runs⟩
-    | line =>
-      simp only [Scan.step, Scan.flush, placed, List.mem_append, List.mem_reverse, List.mem_cons,
-        forall_eq_or_imp, reduceCtorEq, false_or, List.reverse_nil,
-        ← runTokens_accepted_iff decides]
-      constructor
-      · rintro ⟨accepted, none, runs⟩
-        exact ⟨fun f hf => accepted f (.inr hf), none, fun f hf => accepted f (.inl hf), runs⟩
-      · rintro ⟨accepted, none, run, runs⟩
-        exact ⟨fun f hf => hf.elim (run f) (accepted f), none, runs⟩
-    | start kind =>
+    | gap | line | start _ =>
       simp only [Scan.step, Scan.flush, placed, List.mem_append, List.mem_reverse, List.mem_cons,
         forall_eq_or_imp, reduceCtorEq, false_or, List.reverse_nil,
         ← runTokens_accepted_iff decides]
