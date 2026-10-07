@@ -939,8 +939,10 @@ def guide : RuleId → Guide
           its type, so the editor refuses a registration that shares one with a result of \
           `Bool` or `BEq`. The editor does not read below such a function. Where a test could \
           be shared only below one, the editor reports the reading as incomplete under RG2005 \
-          and names `lake lint`, which has each value. That is where each side reaches such a \
-          function, or one side reaches one and the other side reaches a test.",
+          and names `lake lint`, which has each value. That is where it searches the two \
+          sides, finds no shared test, and one of two cases holds. Each side reaches such a \
+          function whose value the search of that side would read. Or one side reaches one, \
+          and the other side reaches a test that the rule counts.",
         "Whether a definition is a function is read from its type alone: it takes an argument, \
           or its result is a structure with a field that takes one. A constant of type `Bool` \
           is not a function and is not counted.",
@@ -1188,9 +1190,11 @@ def guide : RuleId → Guide
           file does not have (limitations of RG1009). A function with such a result is shared \
           only where each side reaches it. So where one side is read completely and reaches \
           none, nothing can be shared, and the editor gives no notice. It gives the notice \
-          where each side reaches a function with no value, or where one side reaches one and \
-          the other side reaches a function with such a result. The message names `lake lint`, \
-          which has each value."]
+          where it searches the two sides, finds no shared function with such a result \
+          (RG1009), and one of two cases holds. Each side reaches an imported function whose \
+          value the search of that side would read and the file does not have. Or one side \
+          reaches one, and the other side reaches a function with such a result that RG1009 \
+          counts. The message names `lake lint`, which has each value."]
       rationaleDetail := []
       proofShape := [
         "The replayed declaration must type-check in the kernel with exactly its stated type and \
