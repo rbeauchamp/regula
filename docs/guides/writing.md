@@ -192,11 +192,13 @@ If the base revision has a baseline, B2 compares the two baselines:
 
 This comparison has a limit. The numbers of the base revision are the counts that the vocabulary and the checks of that revision gave. For check B1, the numbers of the change must be the counts that the vocabulary and the checks of the change give. Thus a count can become larger with no change to the text of its document. B2 compares the numbers of the two baselines as they are, and a number cannot become larger. Thus B2 has these conditions for a change:
 
-- A change that adds a replaced word or a replaced name to `CONTEXT.md` must correct each document in which the checks then find it.
-- A change that corrects a check must correct each document for which a count of that check becomes larger.
+- A change that adds a replaced word or a replaced name to `CONTEXT.md` must correct documents so that no count of a document becomes larger.
+- A change that corrects a check must correct documents so that no count of a document becomes larger.
 - A change of the list of checks or of the format of the baseline must read the baseline of the base revision. If the function `Baseline.parse` of the change does not accept that file, B2 does not accept the change.
 
 [Issue 251](https://github.com/rbeauchamp/regula/issues/251) is about a design that removes this limit.
+
+The first two conditions are about the counts only. A new replaced word or a new replaced name can stay in a document when a different finding of the same check goes away there. Then the count stays the same, and B1 and B2 accept the change. A new finding of a corrected check can stay in the same way. Thus the writer must correct each such document, and a reviewer examines the correction.
 
 If the base revision has no baseline, B2 compares the baseline with the Markdown documents of the base revision. The checks count the findings of each of those documents, with the vocabulary of the change:
 
@@ -208,7 +210,7 @@ Thus no entry has a new path (the theorem `Shrinks.paths`), and the baseline can
 
 A new document gets no entry, and it must have no finding. The cause is that each entry has the path of a document of the base revision. For a base revision with a baseline, the theorem `entry_has_base_document` shows it. That theorem has one condition: check B1 accepted the base revision. B2 does not examine the documents of a base revision that has a baseline.
 
-These checks are not a check of each changed line. A change can add one finding and remove one finding in the same document, and the checks accept that change.
+These checks are not a check of each changed line. A change can remove one finding and add a different finding of the same check in the same document. The count stays the same, and the checks accept that change.
 
 The decisions of the baseline are four Lean functions in [`RegulaCore/ProseBaseline.lean`](../../lean/RegulaCore/ProseBaseline.lean), each with a decision contract:
 
@@ -286,7 +288,7 @@ Add a row to `CONTEXT.md` in the same pull request as the text that uses the ter
 
 The record of the review in the pull request gives the result of the dictionary check of the term. For a verb, the record also gives the approved verb that the writer tried first.
 
-A new replaced name or a new replaced word changes the result of check C6 or C7 for each document. The same pull request must correct each document in which the checks then find that name or that word. If it does not, the checks B1 and B2 do not accept the change (see "The baseline").
+A new replaced name or a new replaced word changes the result of check C6 or C7 for each document. The writer must correct each old document in which the checks then find that name or that word. A reviewer examines that correction, because the checks B1 and B2 keep only one count for each check of each document. They do not accept the change if a count of a document becomes larger. They accept a change that removes one finding and adds a different finding of the same check in the same document (see "The baseline").
 
 ## Text that these writing rules do not change
 
