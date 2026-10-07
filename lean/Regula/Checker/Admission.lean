@@ -344,25 +344,59 @@ def identical : ConstantInfo → ConstantInfo → Bool
   | .recInfo a, .recInfo b => a == b
   | _, _ => false
 
-/-- Two constants are the same constant, as a proposition: the same kind, and Lean's own
-comparison of the two records holds (`==`, which compares expressions by `Expr.eqv`). For a
-quotient constant and for an inductive type, for which Lean has no comparison of the record, the
-constant data are compared so and each other field is equal. `identical` decides it
-(`identical_iff`). -/
+/-- The constant data of two constants agree: the same name, the same universe parameters, and
+types that Lean's own comparison of expressions equates (`==`, which is `Expr.eqv`). Lean has no
+lawful equality of expressions, so that test of one expression stays. -/
+def SameData (a b : ConstantVal) : Prop :=
+  a.name = b.name ∧ a.levelParams = b.levelParams ∧ (a.type == b.type) = true
+
+/-- Two rules of a recursor agree: the same constructor, the same number of fields, and
+right-hand sides that Lean's own comparison of expressions equates. -/
+def SameRule (a b : RecursorRule) : Prop :=
+  a.ctor = b.ctor ∧ a.nfields = b.nfields ∧ (a.rhs == b.rhs) = true
+
+/-- Two constants are the same constant, stated field by field: the two are of the same kind,
+their constant data agree (`SameData`), Lean's own comparison of expressions equates each other
+expression field, and each remaining field is equal. The rules of two recursors agree one by
+one (`SameRule`). The statement has no comparison of a whole record: the only test in it is the
+comparison of one expression. `identical` decides it (`identical_iff`). -/
 def Identical : ConstantInfo → ConstantInfo → Prop
-  | .axiomInfo a, .axiomInfo b => (a == b) = true
-  | .defnInfo a, .defnInfo b => (a == b) = true
-  | .thmInfo a, .thmInfo b => (a == b) = true
-  | .opaqueInfo a, .opaqueInfo b => (a == b) = true
-  | .quotInfo a, .quotInfo b => (a.toConstantVal == b.toConstantVal) = true ∧ a.kind = b.kind
+  | .axiomInfo a, .axiomInfo b =>
+      SameData a.toConstantVal b.toConstantVal ∧ a.isUnsafe = b.isUnsafe
+  | .defnInfo a, .defnInfo b =>
+      SameData a.toConstantVal b.toConstantVal ∧ (a.value == b.value) = true ∧
+        a.hints = b.hints ∧ a.safety = b.safety ∧ a.all = b.all
+  | .thmInfo a, .thmInfo b =>
+      SameData a.toConstantVal b.toConstantVal ∧ (a.value == b.value) = true ∧ a.all = b.all
+  | .opaqueInfo a, .opaqueInfo b =>
+      SameData a.toConstantVal b.toConstantVal ∧ (a.value == b.value) = true ∧
+        a.isUnsafe = b.isUnsafe ∧ a.all = b.all
+  | .quotInfo a, .quotInfo b => SameData a.toConstantVal b.toConstantVal ∧ a.kind = b.kind
   | .inductInfo a, .inductInfo b =>
-      (a.toConstantVal == b.toConstantVal) = true ∧ a.numParams = b.numParams ∧
+      SameData a.toConstantVal b.toConstantVal ∧ a.numParams = b.numParams ∧
         a.numIndices = b.numIndices ∧ a.all = b.all ∧ a.ctors = b.ctors ∧
         a.numNested = b.numNested ∧ a.isRec = b.isRec ∧ a.isUnsafe = b.isUnsafe ∧
         a.isReflexive = b.isReflexive
-  | .ctorInfo a, .ctorInfo b => (a == b) = true
-  | .recInfo a, .recInfo b => (a == b) = true
+  | .ctorInfo a, .ctorInfo b =>
+      SameData a.toConstantVal b.toConstantVal ∧ a.induct = b.induct ∧ a.cidx = b.cidx ∧
+        a.numParams = b.numParams ∧ a.numFields = b.numFields ∧ a.isUnsafe = b.isUnsafe
+  | .recInfo a, .recInfo b =>
+      SameData a.toConstantVal b.toConstantVal ∧ a.all = b.all ∧ a.numParams = b.numParams ∧
+        a.numIndices = b.numIndices ∧ a.numMotives = b.numMotives ∧
+        a.numMinors = b.numMinors ∧
+        (a.rules.length = b.rules.length ∧
+          ∀ (i : Nat) x y, a.rules[i]? = some x → b.rules[i]? = some y → SameRule x y) ∧
+        a.k = b.k ∧ a.isUnsafe = b.isUnsafe
   | _, _ => False
+
+/-- The derived comparison of the constant data compares the name, the universe parameters and
+the type. -/
+private theorem constantVal_beq_iff (a b : ConstantVal) : (a == b) = true ↔ SameData a b := by
+  have unfolded : (a == b) =
+      (a.name == b.name && (a.levelParams == b.levelParams && a.type == b.type)) := by
+    cases a; cases b; rfl
+  rw [unfolded]
+  simp only [SameData, Bool.and_eq_true, beq_iff_eq]
 
 /-- The derived comparison of two quotient kinds accepts exactly equal kinds. -/
 private theorem quotKind_beq_iff (a b : QuotKind) : (a == b) = true ↔ a = b := by
@@ -370,18 +404,77 @@ private theorem quotKind_beq_iff (a b : QuotKind) : (a == b) = true ↔ a = b :=
     | exact ⟨fun _ => rfl, fun _ => rfl⟩
     | exact ⟨fun h => absurd h (by decide), fun h => nomatch h⟩
 
+/-- The derived comparison of two safety classes accepts exactly equal classes. -/
+private theorem safety_beq_iff (a b : DefinitionSafety) : (a == b) = true ↔ a = b := by
+  cases a <;> cases b <;> first
+    | exact ⟨fun _ => rfl, fun _ => rfl⟩
+    | exact ⟨fun h => absurd h (by decide), fun h => nomatch h⟩
+
+/-- The derived comparison of two reducibility hints accepts exactly equal hints. -/
+private theorem hints_beq_iff (a b : ReducibilityHints) : (a == b) = true ↔ a = b := by
+  cases a <;> cases b
+  case regular.regular x y =>
+    have unfolded : (ReducibilityHints.regular x == .regular y) = (x == y) := rfl
+    rw [unfolded, beq_iff_eq, ReducibilityHints.regular.injEq]
+  all_goals first
+    | exact ⟨fun _ => rfl, fun _ => rfl⟩
+    | exact ⟨fun h => Bool.noConfusion h, fun h => nomatch h⟩
+
+/-- The derived comparison of two recursor rules compares the three fields. -/
+private theorem recursorRule_beq_iff (a b : RecursorRule) : (a == b) = true ↔ SameRule a b := by
+  have unfolded : (a == b) = (a.ctor == b.ctor && (a.nfields == b.nfields && a.rhs == b.rhs)) := by
+    cases a; cases b; rfl
+  rw [unfolded]
+  simp only [SameRule, Bool.and_eq_true, beq_iff_eq]
+
+private theorem axiomVal_beq_iff (a b : AxiomVal) :
+    (a == b) = true ↔ SameData a.toConstantVal b.toConstantVal ∧ a.isUnsafe = b.isUnsafe := by
+  have unfolded : (a == b) = (a.toConstantVal == b.toConstantVal && a.isUnsafe == b.isUnsafe) := by
+    cases a; cases b; rfl
+  rw [unfolded]
+  simp only [Bool.and_eq_true, constantVal_beq_iff, beq_iff_eq]
+
+private theorem definitionVal_beq_iff (a b : DefinitionVal) :
+    (a == b) = true ↔
+      SameData a.toConstantVal b.toConstantVal ∧ (a.value == b.value) = true ∧
+        a.hints = b.hints ∧ a.safety = b.safety ∧ a.all = b.all := by
+  have unfolded : (a == b) = (a.toConstantVal == b.toConstantVal && (a.value == b.value &&
+      (a.hints == b.hints && (a.safety == b.safety && a.all == b.all)))) := by
+    cases a; cases b; rfl
+  rw [unfolded]
+  simp only [Bool.and_eq_true, constantVal_beq_iff, hints_beq_iff, safety_beq_iff, beq_iff_eq]
+
+private theorem theoremVal_beq_iff (a b : TheoremVal) :
+    (a == b) = true ↔
+      SameData a.toConstantVal b.toConstantVal ∧ (a.value == b.value) = true ∧ a.all = b.all := by
+  have unfolded : (a == b) =
+      (a.toConstantVal == b.toConstantVal && (a.value == b.value && a.all == b.all)) := by
+    cases a; cases b; rfl
+  rw [unfolded]
+  simp only [Bool.and_eq_true, constantVal_beq_iff, beq_iff_eq]
+
+private theorem opaqueVal_beq_iff (a b : OpaqueVal) :
+    (a == b) = true ↔
+      SameData a.toConstantVal b.toConstantVal ∧ (a.value == b.value) = true ∧
+        a.isUnsafe = b.isUnsafe ∧ a.all = b.all := by
+  have unfolded : (a == b) = (a.toConstantVal == b.toConstantVal && (a.value == b.value &&
+      (a.isUnsafe == b.isUnsafe && a.all == b.all))) := by
+    cases a; cases b; rfl
+  rw [unfolded]
+  simp only [Bool.and_eq_true, constantVal_beq_iff, beq_iff_eq]
+
 /-- The derived comparison of two quotient records compares the constant data and the kind. -/
 private theorem quotVal_beq_iff (a b : QuotVal) :
-    (a == b) = true ↔ (a.toConstantVal == b.toConstantVal) = true ∧ a.kind = b.kind := by
+    (a == b) = true ↔ SameData a.toConstantVal b.toConstantVal ∧ a.kind = b.kind := by
   have unfolded : (a == b) = (a.toConstantVal == b.toConstantVal && a.kind == b.kind) := by
     cases a; cases b; rfl
-  rw [unfolded, Bool.and_eq_true, quotKind_beq_iff]
+  rw [unfolded, Bool.and_eq_true, quotKind_beq_iff, constantVal_beq_iff]
 
 /-- The derived comparison of two inductive records compares the constant data and each other
 field. -/
 private theorem inductiveVal_beq_iff (a b : InductiveVal) :
     (a == b) = true ↔
-      (a.toConstantVal == b.toConstantVal) = true ∧ a.numParams = b.numParams ∧
+      SameData a.toConstantVal b.toConstantVal ∧ a.numParams = b.numParams ∧
         a.numIndices = b.numIndices ∧ a.all = b.all ∧ a.ctors = b.ctors ∧
         a.numNested = b.numNested ∧ a.isRec = b.isRec ∧ a.isUnsafe = b.isUnsafe ∧
         a.isReflexive = b.isReflexive := by
@@ -391,12 +484,42 @@ private theorem inductiveVal_beq_iff (a b : InductiveVal) :
       (a.isUnsafe == b.isUnsafe && a.isReflexive == b.isReflexive)))))))) := by
     cases a; cases b; rfl
   rw [unfolded]
-  simp
+  simp only [Bool.and_eq_true, constantVal_beq_iff, beq_iff_eq]
+
+private theorem constructorVal_beq_iff (a b : ConstructorVal) :
+    (a == b) = true ↔
+      SameData a.toConstantVal b.toConstantVal ∧ a.induct = b.induct ∧ a.cidx = b.cidx ∧
+        a.numParams = b.numParams ∧ a.numFields = b.numFields ∧ a.isUnsafe = b.isUnsafe := by
+  have unfolded : (a == b) = (a.toConstantVal == b.toConstantVal && (a.induct == b.induct &&
+      (a.cidx == b.cidx && (a.numParams == b.numParams && (a.numFields == b.numFields &&
+      a.isUnsafe == b.isUnsafe))))) := by
+    cases a; cases b; rfl
+  rw [unfolded]
+  simp only [Bool.and_eq_true, constantVal_beq_iff, beq_iff_eq]
+
+private theorem recursorVal_beq_iff (a b : RecursorVal) :
+    (a == b) = true ↔
+      SameData a.toConstantVal b.toConstantVal ∧ a.all = b.all ∧ a.numParams = b.numParams ∧
+        a.numIndices = b.numIndices ∧ a.numMotives = b.numMotives ∧
+        a.numMinors = b.numMinors ∧
+        (a.rules.length = b.rules.length ∧
+          ∀ (i : Nat) x y, a.rules[i]? = some x → b.rules[i]? = some y → SameRule x y) ∧
+        a.k = b.k ∧ a.isUnsafe = b.isUnsafe := by
+  have unfolded : (a == b) = (a.toConstantVal == b.toConstantVal && (a.all == b.all &&
+      (a.numParams == b.numParams && (a.numIndices == b.numIndices &&
+      (a.numMotives == b.numMotives && (a.numMinors == b.numMinors && (a.rules == b.rules &&
+      (a.k == b.k && a.isUnsafe == b.isUnsafe)))))))) := by
+    cases a; cases b; rfl
+  rw [unfolded]
+  simp only [Bool.and_eq_true, constantVal_beq_iff,
+    RegulaPolicy.Erasure.beq_iff_pointwise recursorRule_beq_iff, beq_iff_eq]
 
 /-- The executed comparison accepts exactly the pairs that `Identical` relates. -/
 theorem identical_iff (a b : ConstantInfo) : identical a b = true ↔ Identical a b := by
   cases a <;> cases b <;>
-    simp only [identical, Identical, Bool.false_eq_true, quotVal_beq_iff, inductiveVal_beq_iff]
+    simp only [identical, Identical, Bool.false_eq_true, axiomVal_beq_iff, definitionVal_beq_iff,
+      theoremVal_beq_iff, opaqueVal_beq_iff, quotVal_beq_iff, inductiveVal_beq_iff,
+      constructorVal_beq_iff, recursorVal_beq_iff]
 
 /-- Whether every constant of module `m` is attributed to `m` in `env` and is the constant `env`
 keeps under its name (`identical`). Lean's import attributes a name to the first module declaring

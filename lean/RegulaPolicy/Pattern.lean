@@ -18,17 +18,49 @@ must occur in order. -/
 def patternAlternatives (pattern : String) : List (List String) :=
   (patternBody pattern).splitOn "|" |>.map (·.splitOn ".*")
 
-/-- `body` is `pattern` without its optional leading `(?s)` marker, as a relation that the
-specifications below state. `patternBody` computes it (`patternBody_iff`). -/
+/-- A text starts with `marker` exactly when it is `marker` and then a rest. -/
+private theorem startsWith_iff_append (text marker : String) :
+    text.startsWith marker = true ↔ ∃ rest, text = marker ++ rest := by
+  rw [String.startsWith_string_iff]
+  constructor
+  · rintro ⟨rest, split⟩
+    exact ⟨String.ofList rest, by rw [← String.toList_inj]; simp [← split]⟩
+  · rintro ⟨rest, rfl⟩
+    exact ⟨rest.toList, by simp⟩
+
+/-- `body` is `pattern` without its optional leading `(?s)` marker, as equations over the two
+texts: `pattern` is the marker and then `body`, or `pattern` does not start with the marker and
+`body` is `pattern`. The statement has no test and no operation of `patternBody`, which computes
+the body (`patternBody_iff`). -/
 def PatternBody (pattern body : String) : Prop :=
-  (pattern.startsWith "(?s)" = true ∧ body = (pattern.drop 4).toString) ∨
-    (pattern.startsWith "(?s)" = false ∧ body = pattern)
+  pattern = "(?s)" ++ body ∨ ((∀ rest, pattern ≠ "(?s)" ++ rest) ∧ body = pattern)
 
 /-- The body of a pattern is one text only: the computed one. -/
 theorem patternBody_iff (pattern body : String) :
     PatternBody pattern body ↔ body = patternBody pattern := by
   unfold PatternBody patternBody
-  cases pattern.startsWith "(?s)" <;> simp
+  by_cases marked : pattern.startsWith "(?s)" = true
+  · obtain ⟨rest, rfl⟩ := (startsWith_iff_append pattern "(?s)").mp marked
+    have dropped : (("(?s)" ++ rest).drop 4).toString = rest := by
+      rw [← String.toList_inj, String.Slice.toString_eq, String.toList_copy_drop]
+      simp
+    simp only [marked, ↓reduceIte, dropped]
+    constructor
+    · rintro (same | ⟨unmarked, -⟩)
+      · rw [← String.toList_inj] at same ⊢
+        simpa using same.symm
+      · exact absurd rfl (unmarked rest)
+    · rintro rfl
+      exact Or.inl rfl
+  · simp only [marked]
+    have unmarked : ∀ rest, pattern ≠ "(?s)" ++ rest := fun rest same =>
+      marked ((startsWith_iff_append pattern "(?s)").mpr ⟨rest, same⟩)
+    constructor
+    · rintro (same | ⟨-, same⟩)
+      · exact absurd same (unmarked body)
+      · exact same
+    · rintro rfl
+      exact Or.inr ⟨unmarked, rfl⟩
 
 /-- A pattern body in the supported language: alternation and ordered literals. The remaining
 regex metacharacters, a stray star, and empty literals are refused. -/

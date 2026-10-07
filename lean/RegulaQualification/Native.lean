@@ -52,16 +52,27 @@ structure Expected where
 /-- Regula owns precisely the native named-error prefix used by the old harness. -/
 def isNative (message : Message) : Bool := message.kind.startsWith "Regula.RG"
 
-/-- A message of Regula, as a proposition stated with Lean's own `String.startsWith`: its kind
-has the prefix of the native named errors. `isNative` decides it (`decide_isNative`). -/
-def IsNative (message : Message) : Prop := message.kind.startsWith "Regula.RG" = true
+/-- A message of Regula, as an equation over the text of its kind: the kind is `Regula.RG` and
+then a rest. The statement has no test of `isNative`, which decides it (`isNative_iff`). -/
+def IsNative (message : Message) : Prop := ∃ rest, message.kind = "Regula.RG" ++ rest
 
-instance : DecidablePred IsNative := fun _ => inferInstanceAs (Decidable (_ = true))
+/-- The executed test accepts exactly the messages of Regula. -/
+theorem isNative_iff (message : Message) : isNative message = true ↔ IsNative message := by
+  unfold isNative IsNative
+  rw [String.startsWith_string_iff]
+  constructor
+  · rintro ⟨rest, split⟩
+    exact ⟨String.ofList rest, by rw [← String.toList_inj]; simp [← split]⟩
+  · rintro ⟨rest, same⟩
+    exact ⟨rest.toList, by simp [same]⟩
+
+instance : DecidablePred IsNative := fun message => decidable_of_iff _ (isNative_iff message)
 
 /-- The executed test is the decision of `IsNative`. -/
 @[simp] theorem decide_isNative (message : Message) :
-    decide (IsNative message) = isNative message :=
-  Bool.decide_eq_true
+    decide (IsNative message) = isNative message := by
+  rw [Bool.eq_iff_iff, decide_eq_true_eq]
+  exact (isNative_iff message).symm
 
 /-- Successful native-message shape, separate from kind multiplicity. -/
 def nativeMatches (expected : Expected) (message : Message) : Bool :=

@@ -177,16 +177,29 @@ def PositionLE (a b : Position) : Prop :=
 theorem positionLE_iff (a b : Position) : positionLE a b = true ↔ PositionLE a b := by
   simp [positionLE, PositionLE]
 
-/-- Codepoint coordinates select an existing line and a boundary on that line, as a
-proposition. `Position.validForLines` decides it (`Position.validForLines_iff`). -/
+/-- Codepoint coordinates select an existing line and a boundary on that line, as equations over
+the list of lines: `lines` is the lines `before`, the line `line` and the lines `after`, `line`
+has the number `p.line` where the first line has the number 1, and the column is at most the
+number of characters of `line`. The statement has no index expression and no test of
+`Position.validForLines`, which decides it (`Position.validForLines_iff`). -/
 def Position.ValidForLines (p : Position) (lines : List String) : Prop :=
-  0 < p.line ∧ ∃ line, lines[p.line - 1]? = some line ∧ p.column ≤ line.length
+  ∃ before line after, lines = before ++ line :: after ∧ p.line = before.length + 1 ∧
+    p.column ≤ line.length
 
 /-- The executed check accepts exactly the positions that are valid for the lines. -/
 theorem Position.validForLines_iff (p : Position) (lines : List String) :
     p.validForLines lines = true ↔ p.ValidForLines lines := by
   unfold Position.validForLines Position.ValidForLines
-  cases lines[p.line - 1]? <;> simp
+  simp only [Bool.and_eq_true, decide_eq_true_eq, Option.any_eq_true]
+  constructor
+  · rintro ⟨positive, line, found, fits⟩
+    obtain ⟨inside, rfl⟩ := List.getElem?_eq_some_iff.mp found
+    refine ⟨lines.take (p.line - 1), _, lines.drop (p.line - 1 + 1), ?_, ?_, fits⟩
+    · rw [List.getElem_cons_drop, List.take_append_drop]
+    · rw [List.length_take]
+      omega
+  · rintro ⟨before, line, after, rfl, numbered, fits⟩
+    exact ⟨by omega, line, by simp [numbered], fits⟩
 
 /-- Both ends select boundaries on existing lines, the start is not after the end, and the
 recorded UTF-16 columns are those of the two ends (`utf16ColumnLines`), as a proposition.

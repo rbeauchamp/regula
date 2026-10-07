@@ -83,20 +83,85 @@ def Threading.sameLevels (shape : Threading) (us vs : List Level) : Bool :=
     us.toArray.eraseIdxIfInBounds position == vs.toArray.eraseIdxIfInBounds position
   | none => us.toArray == vs.toArray
 
-/-- The levels `us` and `vs` of the constant agree apart from the motive's level, as a
-proposition stated with Lean's own comparison of levels (`==`). `Threading.sameLevels` decides
-it (`Threading.sameLevels_iff`). -/
+/-- Two lists agree under the comparison `==` exactly when they have the same length and the
+two elements at each position do, where `same` gives the comparison of two elements as the
+relation `R`. -/
+theorem beq_iff_pointwise {α : Type} [BEq α] {R : α → α → Prop}
+    (same : ∀ a b : α, (a == b) = true ↔ R a b) :
+    ∀ xs ys : List α, (xs == ys) = true ↔
+      xs.length = ys.length ∧ ∀ (i : Nat) x y, xs[i]? = some x → ys[i]? = some y → R x y
+  | [], [] => by simp
+  | [], _ :: _ => by simp
+  | _ :: _, [] => by simp
+  | x :: xs, y :: ys => by
+    rw [List.cons_beq_cons, Bool.and_eq_true, same, beq_iff_pointwise same xs ys]
+    constructor
+    · rintro ⟨head, length, tail⟩
+      refine ⟨by simp [length], fun i a b ha hb => ?_⟩
+      cases i with
+      | zero =>
+        simp only [List.getElem?_cons_zero, Option.some.injEq] at ha hb
+        exact ha ▸ hb ▸ head
+      | succ i => exact tail i a b (by simpa using ha) (by simpa using hb)
+    · rintro ⟨length, pointwise⟩
+      exact ⟨pointwise 0 x y rfl rfl, by simpa using length,
+        fun i a b ha hb => pointwise (i + 1) a b (by simpa using ha) (by simpa using hb)⟩
+
+/-- The level lists `us` and `vs` agree: they have the same length, and at each position Lean's
+own comparison of levels equates the two levels. That comparison (`==`, an opaque function of
+the kernel) is the only test in the statement, because Lean has no lawful equality of levels. -/
+def LevelsAgree (us vs : List Level) : Prop :=
+  us.length = vs.length ∧
+    ∀ (i : Nat) u v, us[i]? = some u → vs[i]? = some v → (u == v) = true
+
+/-- `rest` is `levels` without the level at `position`, as equations over the lists: `levels` is
+`front`, one level and `back`, with `position` levels in `front`, and `rest` is `front` and
+`back`. Where `levels` has no level at `position`, `rest` is `levels`. -/
+def WithoutLevel (position : Nat) (levels rest : List Level) : Prop :=
+  (∃ front level back, levels = front ++ level :: back ∧ front.length = position ∧
+      rest = front ++ back) ∨ (levels.length ≤ position ∧ rest = levels)
+
+/-- The list without the level at a position is one list only: the list that Lean's `eraseIdx`
+computes. -/
+theorem withoutLevel_iff (position : Nat) (levels rest : List Level) :
+    WithoutLevel position levels rest ↔ rest = levels.eraseIdx position := by
+  constructor
+  · rintro (⟨front, level, back, rfl, rfl, rfl⟩ | ⟨short, rfl⟩)
+    · simp [List.eraseIdx_eq_take_drop_succ]
+    · exact (List.eraseIdx_eq_self.mpr short).symm
+  · rintro rfl
+    by_cases inside : position < levels.length
+    · refine .inl ⟨levels.take position, levels[position], levels.drop (position + 1), ?_, ?_,
+        List.eraseIdx_eq_take_drop_succ ..⟩
+      · rw [List.getElem_cons_drop, List.take_append_drop]
+      · simp [List.length_take, Nat.le_of_lt inside]
+    · exact .inr ⟨Nat.le_of_not_lt inside, List.eraseIdx_eq_self.mpr (Nat.le_of_not_lt inside)⟩
+
+/-- The levels `us` and `vs` of the constant agree apart from the motive's level: where the
+shape has a motive level, the two lists without the level at its position agree (`WithoutLevel`,
+`LevelsAgree`), and otherwise the two lists agree. The statement has no array, no erasure and no
+comparison of lists. `Threading.sameLevels` decides it (`Threading.sameLevels_iff`). -/
 def Threading.SameLevels (shape : Threading) (us vs : List Level) : Prop :=
   match shape.motiveLevel with
   | some position =>
-    (us.toArray.eraseIdxIfInBounds position == vs.toArray.eraseIdxIfInBounds position) = true
-  | none => (us.toArray == vs.toArray) = true
+    ∃ us' vs', WithoutLevel position us us' ∧ WithoutLevel position vs vs' ∧ LevelsAgree us' vs'
+  | none => LevelsAgree us vs
 
 /-- The executed test accepts exactly the levels that agree apart from the motive's. -/
 theorem Threading.sameLevels_iff (shape : Threading) (us vs : List Level) :
     shape.sameLevels us vs = true ↔ shape.SameLevels us vs := by
+  have agree : ∀ xs ys : List Level, (xs == ys) = true ↔ LevelsAgree xs ys :=
+    beq_iff_pointwise fun _ _ => Iff.rfl
   unfold Threading.sameLevels Threading.SameLevels
-  split <;> exact Iff.rfl
+  split
+  · simp only [List.eraseIdxIfInBounds_toArray, List.beq_toArray, agree]
+    constructor
+    · intro agreed
+      exact ⟨_, _, (withoutLevel_iff ..).mpr rfl, (withoutLevel_iff ..).mpr rfl, agreed⟩
+    · rintro ⟨us', vs', without, without', agreed⟩
+      rw [(withoutLevel_iff ..).mp without, (withoutLevel_iff ..).mp without'] at agreed
+      exact agreed
+  · simp only [List.beq_toArray, agree]
 
 /-- What the observing pass shows of the terms of one side. Each field answers for a term as it
 stands under the variables the pass bound, and `none` says that the pass was not asked about it.
@@ -627,8 +692,11 @@ A constructor states when its rule applies and that every part is related. Which
 are, and which variables are new, is what the shared definitions compute. The two rules for a
 threaded `match` take their parts from `threadedParts`, which uses `alternative`, `openLambdas`,
 `standingFor`, `Side.orient`, `Side.pair` and `Threading.head`. `Threads` reads a decomposition
-with `Threading.head` and `Threading.sameLevels`. Every rule that pairs arguments position by
-position uses `paired`, and every rule that reads a body uses `newVariables` with `unpaired`.
+with `Threading.head`. Every rule that pairs arguments position by position uses `paired`. Two
+tests of the comparison are not shared. `Threads` states the levels with the proposition
+`Threading.SameLevels`, and every rule that reads a body states its variables with the
+proposition `NewVariables`. The theorems `Threading.sameLevels_iff` and `newVariables_iff` tie
+the two propositions to the executed tests `Threading.sameLevels` and `newVariables`.
 
 Theorems state these of them exactly, so a change fails a theorem: when `threadedParts` and
 `alternative` yield parts and which (`threadedParts_eq_ok_iff`, `alternative_eq_ok_iff`), the
@@ -636,8 +704,8 @@ pairs of `standingFor` (`mem_standingFor_left`, `mem_standingFor_right`), and th
 `newVariables` and of `unpaired` (`newVariables_eq_true_iff`, `unpaired_eq_true_iff`). Of
 `Side.orient` and `paired` a theorem states only the pairs of their parts (`Side.orient_pairs`,
 `pairs_of_mem_paired`), not which term is on which side or which terms are paired. No theorem
-states what `openLambdas`, `Side.pair`, `Threading.head` and `Threading.sameLevels` compute: the
-theorems name them, and the relation means what they are written to compute. `Side.other` only
+states what `openLambdas`, `Side.pair` and `Threading.head` compute: the theorems name them, and
+the relation means what they are written to compute. `Side.other` only
 names the side in a refusal, and no rule reads it. A change inside a shared definition, in a part
 that no theorem states, is a matter for review, not a failed proof. The `fixpoint` rule states
 its parts by `Fixpoint`, which `fixpointArguments?_eq_some_iff` ties to the executed selection. -/

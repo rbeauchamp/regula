@@ -12,17 +12,29 @@ Each kind restates a theorem of the program about the same definition, or for `c
 follows from its definition, and adds the witnesses a kind requires. -/
 namespace RegulaProvision
 
-/-- One path component that is not hidden and has no separator, as a proposition stated with
-Lean's own `String` functions: the text is not empty, it does not start with a period, and each
-of its characters is a letter, a digit, `-`, `_` or `.`. `isComponent` decides it
-(`isComponent_iff`). -/
+/-- One path component that is not hidden and has no separator, stated over the text and its
+characters: the text is not empty, it is not a period and then a rest, and each of its
+characters is an ASCII letter or digit (Lean's own `Char.isAlphanum`), `-`, `_` or `.`. The
+statement has no test of `isComponent`, which decides it (`isComponent_iff`). -/
 def IsComponent (text : String) : Prop :=
-  text.isEmpty = false ∧ text.startsWith "." = false ∧
-    text.all (fun c => c.isAlphanum || c == '-' || c == '_' || c == '.') = true
+  text ≠ "" ∧ (∀ rest, text ≠ "." ++ rest) ∧
+    ∀ c ∈ text.toList, c.isAlphanum = true ∨ c = '-' ∨ c = '_' ∨ c = '.'
+
+/-- A text does not start with a period exactly when it is not a period and then a rest. -/
+private theorem not_hidden_iff (text : String) :
+    text.startsWith "." = false ↔ ∀ rest, text ≠ "." ++ rest := by
+  rw [String.startsWith_string_eq_false_iff]
+  constructor
+  · rintro shown rest rfl
+    exact shown ⟨rest.toList, by simp⟩
+  · rintro shown ⟨rest, split⟩
+    exact shown (String.ofList rest) (by rw [← String.toList_inj]; simp [← split])
 
 /-- The executed test accepts exactly the path components. -/
 theorem isComponent_iff (text : String) : isComponent text = true ↔ IsComponent text := by
-  simp [isComponent, IsComponent, and_assoc]
+  simp only [isComponent, IsComponent, Bool.and_eq_true, Bool.not_eq_true',
+    String.isEmpty_eq_false_iff, not_hidden_iff, String.all_bool_eq, List.all_eq_true,
+    Bool.or_eq_true, beq_iff_eq, and_assoc, or_assoc]
 
 /-- `component?` accepts exactly a path component (`IsComponent`): it accepts `a` and refuses the
 empty text. That the admitted component is that text is in its definition, not in the kind. -/

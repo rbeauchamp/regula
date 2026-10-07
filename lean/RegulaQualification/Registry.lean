@@ -28,23 +28,51 @@ def checks (exitCode : Nat) (report : Json) : List Check := [
   ⟨"seeded stale output must be removed", !oldPresent report⟩]
 
 /-- The root is a JSON object exactly when `isObject` accepts it. -/
-theorem isObject_iff (report : Json) : isObject report = true ↔ ∃ members, report = .obj members := by
+theorem isObject_iff (report : Json) :
+    isObject report = true ↔ ∃ members, report = .obj members := by
   cases report <;> simp [isObject]
 
-/-- The report has no `old` member exactly when `oldPresent` refuses it. -/
+/-- Lean's accessor reads the text `text` for `key` exactly when the report is an object whose
+member `key` is that text. -/
+theorem textMember_iff (report : Json) (key text : String) :
+    (report.getObjValAs? String key).toOption = some text ↔
+      ∃ members, report = .obj members ∧ members[key]? = some (.str text) := by
+  cases report with
+  | obj members =>
+    cases found : members[key]? with
+    | none =>
+      simp [Json.getObjValAs?, Json.getObjValD, Json.getObjVal?, found, fromJson?, Json.getStr?,
+        Except.toOption, throw, throwThe, MonadExceptOf.throw]
+    | some value =>
+      cases value <;>
+        simp [Json.getObjValAs?, Json.getObjValD, Json.getObjVal?, found, fromJson?, Json.getStr?,
+          Except.toOption, pure, Except.pure, throw, throwThe, MonadExceptOf.throw]
+  | _ =>
+    simp [Json.getObjValAs?, Json.getObjValD, Json.getObjVal?, fromJson?, Json.getStr?,
+      Except.toOption, throw, throwThe, MonadExceptOf.throw]
+
+/-- `oldPresent` refuses the report exactly when the report, if it is an object, has no member
+`old`. -/
 theorem oldPresent_eq_false_iff (report : Json) :
-    oldPresent report = false ↔ ∀ value, report.getObjVal? "old" ≠ .ok value := by
+    oldPresent report = false ↔ ∀ members, report = .obj members → members["old"]? = none := by
   unfold oldPresent
-  cases report.getObjVal? "old" <;> simp [Except.isOk, Except.toBool]
+  cases report with
+  | obj members =>
+    cases found : members["old"]? with
+    | none =>
+      simp [Json.getObjVal?, found, Except.isOk, Except.toBool, throw, throwThe,
+        MonadExceptOf.throw]
+    | some value => simp [Json.getObjVal?, found, Except.isOk, Except.toBool, pure, Except.pure]
+  | _ => simp [Json.getObjVal?, Except.isOk, Except.toBool, throw, throwThe, MonadExceptOf.throw]
 
 /-- Independent statement of the required meaning; there are no defaults for a
-missing status and no exception for a present-but-null stale marker. It is stated with Lean's
-own `Json` functions and names no test of this module: the report is an object, and it has no
+missing status and no exception for a present-but-null stale marker. It is stated over the
+members of the JSON object and has no accessor and no test of this module: the exit code is not
+zero, the report is an object, its member `status` is the text `incomplete`, and it has no
 member `old`. -/
 def Invalidated (exitCode : Nat) (report : Json) : Prop :=
-  exitCode ≠ 0 ∧ (∃ members, report = .obj members) ∧
-    (report.getObjValAs? String "status").toOption = some "incomplete" ∧
-    ∀ value, report.getObjVal? "old" ≠ .ok value
+  exitCode ≠ 0 ∧ ∃ members, report = .obj members ∧
+    members["status"]? = some (.str "incomplete") ∧ members["old"]? = none
 
 /-- Run the same generic proof-backed evaluator consumed by the operational driver. -/
 @[regula_decision]
@@ -55,8 +83,18 @@ def validate (exitCode : Nat) (report : Json) : Except String Unit :=
 invocation invalidated its output in the stated sense. Runtime/authenticity excluded. -/
 theorem validate_exact (exitCode : Nat) (report : Json) :
     validate exitCode report = .ok () ↔ Invalidated exitCode report := by
-  simp [validate, Regula.ExecutableContract.run, evaluate_success, Satisfied,
-    checks, Invalidated, isObject_iff, oldPresent_eq_false_iff]
+  simp only [validate, Regula.ExecutableContract.run, evaluate_success, Satisfied, checks,
+    Invalidated, List.mem_cons, List.not_mem_nil, or_false, forall_eq_or_imp, forall_eq,
+    bne_iff_ne, ne_eq, isObject_iff, beq_iff_eq, textMember_iff, Bool.not_eq_true',
+    oldPresent_eq_false_iff]
+  constructor
+  · rintro ⟨nonzero, ⟨members, rfl⟩, ⟨members', same, status⟩, absent⟩
+    cases same
+    exact ⟨nonzero, members, rfl, status, absent members rfl⟩
+  · rintro ⟨nonzero, members, rfl, status, absent⟩
+    exact ⟨nonzero, ⟨members, rfl⟩, ⟨members, rfl, status⟩, fun members' same => by
+      cases same
+      exact absent⟩
 
 /-- Closed executable contract: deleting the equivalence proof breaks this registration. It is a
 two-way decision (`validate_exact`) that accepts a nonzero exit with a clean incomplete object

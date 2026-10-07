@@ -290,15 +290,26 @@ def target (id : RuleId) (destination : String) : Bool :=
     destination.startsWith (Edition.dev.url id.route ++ "#")
 
 /-- `destination` is rule `id`'s page in the development edition, with or without a fragment, as
-a proposition stated with Lean's own `String.startsWith`. `target` decides it (`target_iff`). -/
+equations over the text: it is the address of the page, or that address, `#` and then a
+fragment. The statement has no test of `target`, which decides it (`target_iff`). -/
 def Target (id : RuleId) (destination : String) : Prop :=
   destination = Edition.dev.url id.route ∨
-    destination.startsWith (Edition.dev.url id.route ++ "#") = true
+    ∃ fragment, destination = Edition.dev.url id.route ++ "#" ++ fragment
+
+/-- A text starts with `marker` exactly when it is `marker` and then a rest. -/
+private theorem startsWith_iff_append (text marker : String) :
+    text.startsWith marker = true ↔ ∃ rest, text = marker ++ rest := by
+  rw [String.startsWith_string_iff]
+  constructor
+  · rintro ⟨rest, split⟩
+    exact ⟨String.ofList rest, by rw [← String.toList_inj]; simp [← split]⟩
+  · rintro ⟨rest, rfl⟩
+    exact ⟨rest.toList, by simp⟩
 
 /-- The executed test accepts exactly the destinations that are the rule's page. -/
 theorem target_iff (id : RuleId) (destination : String) :
     target id destination = true ↔ Target id destination := by
-  simp [target, Target]
+  simp only [target, Target, Bool.or_eq_true, beq_iff_eq, startsWith_iff_append]
 
 instance (id : RuleId) (destination : String) : Decidable (Target id destination) :=
   decidable_of_iff _ (target_iff id destination)
