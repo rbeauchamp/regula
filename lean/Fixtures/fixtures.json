@@ -122,18 +122,53 @@
   "claim": "standard-logical",
   "output": [
    "executable-contract=apart decision-kind=sound-and-complete requires=Regula.Decides (fun x => x = true) (fun n => n < 4) apart shared-booleans=[] shared-others=[]",
-   "smallEven shared-booleans=[\"small\"] shared-others=[]",
-   "throughStatement shared-booleans=[\"tiny\"] shared-others=[]",
-   "sameItem shared-booleans=[\"instBEqItem\"] shared-others=[]",
+   "library shared-booleans=[] shared-others=[]",
+   "decided shared-booleans=[] shared-others=[]",
+   "copy shared-booleans=[] shared-others=[]",
    "noEven shared-booleans=[] shared-others=[\"evens\"]",
    "executable-contract=below decision-kind=sound-and-complete requires=Regula.Decides (fun x => x = true) Below below shared-booleans=[] shared-others=[]",
    "knownSign shared-booleans=[] shared-others=[]",
+   "firstBefore shared-booleans=[] shared-others=[\"descending\"]"
+  ]
+ },
+ "Fixtures.Mutations.SharedTests": {
+  "expect": "fail",
+  "reason": "shared-test",
+  "claim": "standard-logical",
+  "output": [
+   "[VIOLATION[shared-test]] smallEven_decides (theorem)",
+   "smallEven shared-booleans=[\"small\"] shared-others=[]",
+   "[VIOLATION[shared-test]] throughStatement_decides (theorem)",
+   "throughStatement shared-booleans=[\"tiny\"] shared-others=[]",
+   "[VIOLATION[shared-test]] sameItem_decides (theorem)",
+   "sameItem shared-booleans=[\"instBEqItem.beq\", \"instBEqItem\"] shared-others=[]",
+   "[VIOLATION[shared-test]] sameNat_decides (theorem)",
    "sameNat shared-booleans=[\"eqForNat\"] shared-others=[]",
+   "[VIOLATION[shared-test]] littleCheck_decides (theorem)",
    "littleCheck shared-booleans=[\"little\"] shared-others=[]",
+   "[VIOLATION[shared-test]] same_decides (theorem)",
    "same shared-booleans=[\"small\"] shared-others=[]",
+   "[VIOLATION[shared-test]] unchanged_decides (theorem)",
    "unchanged shared-booleans=[\"small\"] shared-others=[]",
-   "firstBefore shared-booleans=[] shared-others=[\"descending\"]",
-   "noOdd shared-booleans=[] shared-others=[\"odds\"]"
+   "[VIOLATION[shared-test]] noOdd_decides (theorem)",
+   "noOdd shared-booleans=[\"odd\"] shared-others=[\"odds\"]",
+   "[VIOLATION[shared-test]] deepOdd_decides (theorem)",
+   "deepOdd shared-booleans=[\"odd\"] shared-others=[\"oddsLast\"]"
+  ]
+ },
+ "Fixtures.Positive.HiddenTest": {
+  "expect": "pass",
+  "claim": "standard-logical"
+ },
+ "Fixtures.Mutations.SharedTestImported": {
+  "expect": "fail",
+  "reason": "shared-test",
+  "claim": "standard-logical",
+  "output": [
+   "[VIOLATION[shared-test]] fixtures_imported_check_decides (theorem)",
+   "fixtures_imported_check shared-booleans=[\"fixtures_hidden_small\"] shared-others=[]",
+   "[VIOLATION[shared-test]] fixtures_imported_none_decides (theorem)",
+   "fixtures_imported_none shared-booleans=[\"fixtures_hidden_small\"] shared-others=[]"
   ]
  },
  "Fixtures.Mutations.DecisionMissingWitness": {

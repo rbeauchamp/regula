@@ -187,7 +187,8 @@ def blockedStage (mode : EvidenceMode) : RuleId → Option Stage
   | .coverage => some .admission
   | .admission => some (match mode with | .documentationExample => .example | _ => .admission)
   | .projectAxiom | .proofHole | .unknownAxiom | .compilerTrusting | .profileExceeded
-  | .escapeHatch | .executableContract | .decisionContract => some .declarationPolicy
+  | .escapeHatch | .executableContract | .decisionContract | .sharedTest =>
+    some .declarationPolicy
   | .executionBoundary => some .execution
   | .executionUnresolved => none
   | .fenceStructure | .positiveExample | .negativeExample | .trustedExample => some .example
@@ -451,8 +452,10 @@ requirement states or `null` for a requirement that states none, and `notEstabli
 direction a one-way kind leaves open or `null` (`RegulaPolicy.DecisionKind.leavesOpen`). Since
 schema 11 each entry carries `sharedDefinitions`, an object with the members `booleans` and
 `others`: the functions that its specification shares with its implementation or its acceptance
-predicate, by class. The search stops at each named function. The kind does not establish that
-a named function is the intended one, and no entry is refused for one. -/
+predicate, by class. A registration is refused for a function in `booleans`, which is named at
+any depth, so an accepted registration has none. A function in `others` is named where the
+specification reaches it first. The kind does not establish that it is the intended one, and no
+entry is refused for it. -/
 def accountJson (account : Regula.Checker.Account) : Json :=
   let a := account.val
   let residuals (rs : List Regula.Checker.Account.Residual) := toJson (rs.map (·.spelling))

@@ -185,7 +185,7 @@ private def classifyWith (decl : Declaration) (foundation : String) : String :=
       s!" requires={contract.requirement}" ++
       (contract.failure.map (s!" failure={·}")).getD "" ++
       (if contract.kind.isSome && contract.failure.isNone then
-          s!" shared-booleans={repr (contract.shared.booleans.toList.map (·.toString))}" ++
+          " " ++ contract.shared.booleansText ++
           s!" shared-others={repr (contract.shared.others.toList.map (·.toString))}"
         else "")) |>.getD ""
   let decisionText := (decl.decisionResult.map (s!" decision-result={·.spelling}")).getD ""

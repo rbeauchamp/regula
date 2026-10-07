@@ -41,6 +41,28 @@ def importedRootExecuted (execution : Array Json) (ownModule : Json) : Bool :=
     (entry.getObjVal? "name").toOption == some (nameJson "Nat.add") &&
       (entry.getObjVal? "module").toOption.any (fun moduleName => moduleName != ownModule)
 
+/-- The imported registered root `Nat.add` executed, attributed to a module other than the
+audited one, as a proposition: some entry of `execution` has the name `Nat.add` and a module that
+is not `ownModule`. The two comparisons of JSON values are Lean's own, and
+`importedRootExecuted` decides the proposition (`importedRootExecuted_iff`). -/
+def ImportedRootExecuted (execution : Array Json) (ownModule : Json) : Prop :=
+  ∃ entry ∈ execution,
+    ((entry.getObjVal? "name").toOption == some (nameJson "Nat.add")) = true ∧
+      ∃ moduleName, (entry.getObjVal? "module").toOption = some moduleName ∧
+        (moduleName != ownModule) = true
+
+/-- The executed test accepts exactly the execution lists that `ImportedRootExecuted` holds
+of. -/
+theorem importedRootExecuted_iff (execution : Array Json) (ownModule : Json) :
+    importedRootExecuted execution ownModule = true ↔
+      ImportedRootExecuted execution ownModule := by
+  simp [importedRootExecuted, ImportedRootExecuted, -Array.any_eq_true, Array.any_eq_true',
+    Option.any_eq_true]
+
+instance (execution : Array Json) (ownModule : Json) :
+    Decidable (ImportedRootExecuted execution ownModule) :=
+  decidable_of_iff _ (importedRootExecuted_iff execution ownModule)
+
 /-- Every root requested from the audited module has an execution entry with nonempty
 unresolved evidence. -/
 def requestedRootsUnresolved (requests execution : Array Json) (ownModule : Json) :
@@ -130,7 +152,7 @@ def closureRequirements (account ownModule : Json) (source : String) (unsupporte
     ⟨"unregistered private root inventoried", census.contains (toJson #[ownModule, hidden])⟩,
     ⟨"unregistered private root not executed", execution.all
         (fun entry => (entry.getObjVal? "name").toOption != some hidden)⟩,
-    ⟨"registered imported root executed", importedRootExecuted execution ownModule⟩]
+    ⟨"registered imported root executed", decide (ImportedRootExecuted execution ownModule)⟩]
   let perRoot ← execution.toList.mapM (rootChecks unsupported)
   return fixed ++ (perRoot.map (·.1)).flatten ++
       [⟨"recursive IR calls retained", perRoot.any (·.2)⟩]
@@ -242,7 +264,8 @@ theorem closureRequirements_imported {account ownModule : Json} {source : String
     {checks : List Check}
         (h : closureRequirements account ownModule source unsupported = .ok checks) :
     ∃ execution, account.getObjValAs? (Array Json) "execution" = .ok execution ∧
-      ⟨"registered imported root executed", importedRootExecuted execution ownModule⟩ ∈ checks := by
+      ⟨"registered imported root executed",
+        decide (ImportedRootExecuted execution ownModule)⟩ ∈ checks := by
   unfold closureRequirements at h
   simp only [bind_eq_ok] at h
   obtain ⟨_, _, _, _, _, _, h⟩ := h
@@ -312,11 +335,11 @@ theorem validate_importedRootExecuted {report : Json} {code : Nat} {mode source 
     ∃ acc own execution, History.account report fileMode = .ok acc ∧
         History.ownModule acc = .ok own ∧
       acc.getObjValAs? (Array Json) "execution" = .ok execution ∧
-      importedRootExecuted execution own = true := by
+      ImportedRootExecuted execution own := by
   obtain ⟨checks, hreq, hsat⟩ := (validateDecoded_exact _).mp h
   obtain ⟨acc, own, _, hacc, hown, _, ⟨closure, hclosure, hsub⟩, _⟩ := requirements_parts hreq
   obtain ⟨execution, hexec, hmem⟩ := closureRequirements_imported hclosure
-  exact ⟨acc, own, execution, hacc, hown, hexec, hsat _ (hsub _ hmem)⟩
+  exact ⟨acc, own, execution, hacc, hown, hexec, of_decide_eq_true (hsat _ (hsub _ hmem))⟩
 
 /-- Every admitted unsupported-evaluator report leaves every root requested from the
 audited module with nonempty unresolved execution evidence. -/

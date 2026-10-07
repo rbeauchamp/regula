@@ -255,7 +255,9 @@ the two sides of that statement as one that `spec` and `f` both use is, and the 
 "the implementation or the acceptance predicate". A proof of the kind that goes through a named
 function on the two sides can stay valid when that function changes, so the line says that the
 kind does not establish that these definitions are the intended ones. Empty for a contract
-whose record names none. The account refuses no contract for a shared function. -/
+whose record names none. A registration whose record names a function with a result of `Bool` or
+`BEq` is refused before the account (`RegulaPolicy.sharedTestFailure`), and none is refused for a
+function of the other class. -/
 def ContractAccount.sharing (k : ContractAccount) : String :=
   if k.shared.isEmpty then "" else
     let names (list : Array Lean.Name) := ", ".intercalate (list.toList.map (s!"{·}"))

@@ -120,7 +120,7 @@ theorem Ranges.validForLines_parts {r : Ranges} {lines : List String}
 theorem positionLE_refl (a : Position) : positionLE a a = true := by simp [positionLE]
 
 /-- A recorded pair whose selection range lies within its full range is admitted as it is. -/
-theorem Ranges.admitted_eq_self {r : Ranges} (nested : r.nested = true) : r.admitted = r := by
+theorem Ranges.admitted_eq_self {r : Ranges} (nested : r.Nested) : r.admitted = r := by
   simp [Ranges.admitted, nested]
 
 /-- The admitted pair keeps the recorded full range: nothing is enlarged. -/
@@ -129,18 +129,18 @@ theorem Ranges.admitted_range (r : Ranges) : r.admitted.range = r.range := by
   split <;> rfl
 
 /-- The admitted pair's selection range lies within its full range, whatever was recorded. -/
-theorem Ranges.admitted_nested (r : Ranges) : r.admitted.nested = true := by
+theorem Ranges.admitted_nested (r : Ranges) : r.admitted.Nested := by
   unfold Ranges.admitted
   split
   · assumption
-  · simp [Ranges.nested, positionLE_refl]
+  · exact ⟨.refl _, .refl _⟩
 
 /-- What the admitted pair's validity requires of the recorded pair: all of
 `Ranges.validForLines` when the recorded selection range lies within the recorded full range,
 and otherwise the validity of the recorded full range. -/
 theorem Ranges.admitted_validForLines (r : Ranges) (lines : List String) :
     r.admitted.validForLines lines =
-      if r.nested then r.validForLines lines else r.range.validForLines lines := by
+      if r.Nested then r.validForLines lines else r.range.validForLines lines := by
   unfold Ranges.admitted
   split
   · rfl
@@ -154,28 +154,15 @@ source. -/
 theorem Ranges.validForLines_iff_admitted (r : Ranges) (lines : List String) :
     r.validForLines lines = true ↔
       (r.admitted.validForLines lines = true ∧ r.selectionRange.validForLines lines = true) ∧
-        r.nested = true := by
+        r.Nested := by
   rw [Ranges.admitted_validForLines]
-  cases nested : r.nested
-  · simp only [Bool.false_eq_true, and_false, iff_false, Bool.not_eq_true]
-    simp only [Ranges.nested, Bool.and_eq_false_iff] at nested
-    simp only [Ranges.validForLines, Bool.and_eq_false_iff]
-    rcases nested with starts | ends
-    · exact .inl (.inr starts)
-    · exact .inr ends
-  · simp only [↓reduceIte, and_true]
-    refine ⟨fun valid => ⟨valid, ?_⟩, And.left⟩
-    simp only [Ranges.validForLines, Bool.and_eq_true] at valid
-    exact valid.1.1.2
-
-/-- `a` is at or before `b`, as a proposition: lines compared first, then columns on the same
-line. `positionLE` decides it (`positionLE_iff`). -/
-def PositionLE (a b : Position) : Prop :=
-  a.line < b.line ∨ (a.line = b.line ∧ a.column ≤ b.column)
-
-/-- The executed comparison accepts exactly the positions that `PositionLE` relates. -/
-theorem positionLE_iff (a b : Position) : positionLE a b = true ↔ PositionLE a b := by
-  simp [positionLE, PositionLE]
+  by_cases nested : r.Nested
+  · simp only [nested, ↓reduceIte, and_true]
+    exact ⟨fun valid => ⟨valid, (Ranges.validForLines_parts valid).2⟩, And.left⟩
+  · simp only [nested, and_false, iff_false]
+    intro valid
+    simp only [Ranges.validForLines, Bool.and_eq_true, positionLE_iff] at valid
+    exact nested ⟨valid.1.2, valid.2⟩
 
 /-- Codepoint coordinates select an existing line and a boundary on that line, as equations over
 the list of lines: `lines` is the lines `before`, the line `line` and the lines `after`, `line`

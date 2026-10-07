@@ -640,11 +640,12 @@ def guide : RuleId → Guide
           refused input for a complete kind, and neither the acceptance predicate nor the \
           specification mentions `f`.",
         "For a decision registration: the report names each function outside Lean's own library \
-          that the specification reaches first and that `f` or the acceptance predicate also \
-          reaches, by name. It names them in two classes: a function with a result of `Bool` or \
-          `BEq`, and each other function. No registration is refused for a named function. The \
-          search stops at each named function, so a function that only a named function calls \
-          is not named."]
+          that the specification and `f` or the acceptance predicate both reach, by name, in \
+          two classes. A function with a result of `Bool` or `BEq` is named at any depth, and \
+          RG1009 refuses the registration for it. Each other function is named where the \
+          specification reaches it first, and no registration is refused for it. The search \
+          for that class stops at each named function, so a function of that class that only \
+          a named function calls is not named."]
       notEstablished := [
         "That `R` expresses the intended behavior (R-INTENT) and that every caller uses the \
           contracted implementation (R-INVARIANT). Every accepted account lists these as open for \
@@ -664,9 +665,8 @@ def guide : RuleId → Guide
           although the meaning changed. The same holds of a function that the specification \
           and the acceptance predicate both call. Whether the specification is about the function, \
           as it is about an encoding or a state transition, or only uses it to prepare the \
-          input, remains review (R-INTENT). For a function with a result of `Bool` or `BEq`, a \
-          proposition can take its place in the specification, with a theorem that connects \
-          the two or with a function that decides the proposition.",
+          input, remains review (R-INTENT). Where the function has a result of `Bool` or \
+          `BEq`, RG1009 refuses the registration.",
         "For a decision registration: that the acceptance predicate is the intended reading of a \
           result (R-INTENT). A constant function has no two-way kind \
           (`Regula.Decides.not_of_constant`). But when the result of `f` determines its input, \
@@ -720,12 +720,15 @@ def guide : RuleId → Guide
           are no inductive type, constructor or recursor. It reads the value of a `Decidable` \
           instance, which a function runs. It does not read the value of a definition of a \
           type, of a proposition or of a record of propositions, which a function does not run. \
-          It reads no proof and no module of Lean's own library, and it does not read below a \
-          named function: a report that names no function with a result of `Bool` does not \
-          exclude one below a named function of the other class. A second definition with the \
-          text of a helper is a different constant, and the search does not find it. A second \
-          definition with a theorem that the two are equal is not named either, and it is not \
-          a second statement of the meaning.",
+          It does not read the body of a named proof declaration, and it reads no module of \
+          Lean's own library. A proof term that is written inline in the specification or in \
+          the acceptance predicate is a part of that term, so the search reads the constants \
+          that it names. For a function with a result of `Bool` or `BEq` it reads at any \
+          depth, also below a named function of the other class. For the other class it does \
+          not read below a named function. A second definition with the text of a helper is a \
+          different constant, and the search does not find it. A second definition with a \
+          theorem that the two are equal is not named either, and it is not a second statement \
+          of the meaning.",
         "Data and statements are not named: an inductive type with its constructors, its \
           recursor and its projection functions, a definition whose value is a type, a \
           proposition or a record of propositions, a proof, a definition with a result of \
@@ -756,7 +759,7 @@ def guide : RuleId → Guide
         implementation is left. A type with one constructor and no index has a value for every \
         tuple of fields, so the packing reaches every tuple of arguments, which is the \
         hypothesis of `Regula.Decides.of_packing`. The names of the shared functions are proved \
-        over what the search reads of each first shared definition \
+        over what the search reads of each shared definition \
         (`RegulaPolicy.SharedDefinition`: its kind, whether its value is a projection function, \
         and the form of its result type). A name is in a class of the record exactly when a \
         definition of that class has it (`RegulaPolicy.mem_sharedNames_booleans`, \
@@ -788,10 +791,10 @@ def guide : RuleId → Guide
           like a generated declaration. Lean applies the registration after compilation, so it \
           is not copied to the `_unary` or `_mutual` definition Lean generates for a function \
           defined by well-founded recursion.",
-        "The rule is decided after the declaration's other requirements (RG1001 to RG1007), so it \
-          is reported for a declaration that meets them. The editor does not render it: a contract \
-          normally follows its function, in a later command or module, so a snapshot of one \
-          command cannot decide whether the inventory has one."]
+        "The rule is decided after the declaration's other requirements (RG1001 to RG1007 and \
+          RG1009), so it is reported for a declaration that meets them. The editor does not \
+          render it: a contract normally follows its function, in a later command or module, so \
+          a snapshot of one command cannot decide whether the inventory has one."]
       rationaleDetail := [
         "Standard §7.5 requires that removing evidence while its requirement remains fails the \
           gate. For a contract no caller consumes through `ExecutableContract.run`, deleting the \
@@ -861,6 +864,104 @@ def guide : RuleId → Guide
           ["lean/Regula/Decision.lean", "lean/RegulaPolicy/Decision.lean",
               "lean/RegulaPolicy/Specification.lean", "lean/Regula/Collect.lean",
               "lean/RegulaCore/Policy.lean"] }
+  | .sharedTest => {
+      problem := "The specification of a decision contract and its implementation, or its \
+        acceptance predicate, both reach one function with a result of `Bool` or `BEq`. The \
+        specification then states the condition with the test that the function runs. The kind \
+        is a theorem that compares the test with itself at that point, so it does not state \
+        the condition a second time."
+      trigger := [
+        "For each `ExecutableContract` registration with a decision kind that RG1007 does not \
+          refuse, the checker searches the two sides of the kind. One side is the \
+          specification. The other side is the implementation with the acceptance predicate.",
+        "The registration is rejected, with applicability `shared-test`, when the specification \
+          reaches a function with a result of `Bool`, or a definition with a result of `BEq`, \
+          that the other side reaches too. The search for such a function reads at any depth: \
+          also below a function of another result type that the two sides share. The finding \
+          names each such function after `shared-booleans=`.",
+        "A function of Lean's own library is not counted, and no module of that library is \
+          read. A structure projection is not counted. A definition with a result of \
+          `Decidable p` is not counted, and the specification's side does not read its value.",
+        "The rule is decided after RG1007 for the same registration and before RG1005. The \
+          editor renders it at the registration theorem."]
+      rationaleDetail := [
+        "A kind is a theorem about the present definitions. When the specification and the \
+          implementation both call `test`, a change of `test` changes the two together. Each \
+          direction then holds or fails as its proof does, and a proof that goes through \
+          `test` on the two sides stays valid although the meaning changed. In the smallest \
+          case the specification is `test x = true`, the function is `test`, and the proof of \
+          the two directions is `Iff.rfl`.",
+        "A proposition in the place of the test is a second statement, in other terms: a \
+          quantifier, an order relation or an equation in place of a fold, a comparison \
+          function or a `BEq`. The theorem that the test decides the proposition, or the \
+          `Decidable` instance that the function runs, is then a proof that connects two \
+          statements."]
+      proofShape := [
+        "`def P (x : α) : Prop := …`, `instance (x : α) : Decidable (P x) := …`, a function \
+          that runs `decide (P x)` or `if P x then … else …`, and `ExecutableContract f \
+          (Regula.Decides accepts P)`.",
+        "Or a function that keeps its test, a theorem `test x = true ↔ P x`, and an instance \
+          `decidable_of_iff _ (test_iff x)`: the specification names `P`, and the function \
+          reaches the test through the instance.",
+        "For a comparison of values of a type with a derived `BEq`: `deriving DecidableEq`, and \
+          `=` in the specification."]
+      established := [
+        "The record of every accepted decision registration names no function with a result of \
+          `Bool` or `BEq`, outside Lean's own library, that the specification and the other \
+          side both reach, at any depth of the specification.",
+        "The account still names each other function that the two sides share, where the \
+          specification reaches it first (`shared-others=`)."]
+      notEstablished := [
+        "That the specification is the intended one (R-INTENT). The rule compares names. A \
+          copy of a test under a second name is a different constant and passes, and so does a \
+          proposition that copies the expression of the test with `= true`. A test with no name \
+          of its own passes too: a function abstraction inside a shared function, or inside a \
+          shared record of functions.",
+        "Anything about a shared function of another result type, such as a function that \
+          returns a list or a record. The account names it and no registration is refused for \
+          it. Whether the specification is about that function, as it is about an encoding or \
+          a state transition, remains review (R-INTENT).",
+        "Anything about a test of Lean's own library, which the two sides can both call.",
+        "A test that only a runtime replacement runs (`implemented_by`, `extern`, `csimp`): the \
+          search reads kernel-checked values. RG3001 and RG3002 account for the replacement."]
+      configuration := []
+      limitations := [
+        "The search compares constants by name. It follows the types of constants, the \
+          unfoldable values of definitions and the constructors of inductive types from the \
+          specification and the acceptance predicate, and the unfoldable values of definitions \
+          from the implementation. It does not read the body of a named proof declaration, \
+          and it reads no value of a `Decidable` instance on the specification's side \
+          (limitations of RG1007). A proof term that is written inline in a specification is a \
+          part of that term, so a test that it names is counted and the registration is \
+          refused, which is the safe side.",
+        "In a file with a `module` header, the editor has an imported function as an axiom \
+          when its module does not export the value. The class of such a function is read from \
+          its type, so the editor refuses a registration that shares one with a result of \
+          `Bool` or `BEq`. The editor does not read below such a function. Where a test could \
+          be shared only below one, the editor reports the reading as incomplete under RG2005 \
+          and names `lake lint`, which has each value. That is where each side reaches such a \
+          function, or one side reaches one and the other side reaches a test.",
+        "Whether a definition is a function is read from its type alone: it takes an argument, \
+          or its result is a structure with a field that takes one. A constant of type `Bool` \
+          is not a function and is not counted.",
+        "A registration that RG1007 refuses, and one with no decision kind, has no search and \
+          names no function."]
+      residuals := [.intent, .qualify]
+      checklist := ["THEOREM-07", "BUILD-03"]
+      linkage := declarationLinkage ++ " The decision of this rule is \
+        `RegulaPolicy.sharedTestFailure`, which `declarationFailure` runs after the recorded \
+        refusals of the contract. `RegulaPolicy.checked_sharedTestFailure` proves that it \
+        reports nothing exactly when the record names no function of the class `boolean` \
+        (`RegulaPolicy.SharedTestOK`). A name is in that class of the record exactly when the \
+        search read a definition of that class with that name \
+        (`RegulaPolicy.mem_sharedNames_booleans`), and the class is a stated condition on what \
+        was read of the definition (`RegulaPolicy.SharedDefinition.class_eq_boolean_iff`). The \
+        search that finds the definitions (`Regula.Collect`), and the reading of each, are \
+        operational."
+      sources :=
+          ["lean/RegulaPolicy/Decision.lean", "lean/RegulaPolicy/Specification.lean",
+              "lean/RegulaPolicy/Domain.lean", "lean/Regula/Collect.lean",
+              "lean/Regula/Contract.lean"] }
   | .environment => {
       problem := "The declared Lean environment could not be loaded or identified, so the \
         requested audit could not run. The result is INCOMPLETE, not a violation of the source."
@@ -1080,7 +1181,12 @@ def guide : RuleId → Guide
           variable of that function, a constant that the environment has only as an axiom. Lean \
           gives such a file an imported theorem in that form, and the projection function of a \
           proof field is a theorem, so the editor cannot tell whether the argument is a field \
-          (limitations of RG1007). The message names `lake lint`, which reads the kind."]
+          (limitations of RG1007). The message names `lake lint`, which reads the kind.",
+        "In such a file the editor also reports its reading of the functions that the two \
+          sides of a decision registration share as incomplete, when a function with a result \
+          of `Bool` or `BEq` could be shared only below an imported function whose value the \
+          file does not have (limitations of RG1009). The message names `lake lint`, which has \
+          each value."]
       rationaleDetail := []
       proofShape := [
         "The replayed declaration must type-check in the kernel with exactly its stated type and \
@@ -1112,7 +1218,10 @@ def guide : RuleId → Guide
         kind that it does not read is operational collector code (`hiddenField?` in \
         `Regula.Collect`), which that theorem does not cover: the collector records the \
         registration with no failure of its kind, so the editor decision reports no RG1007 \
-        finding for that record, and the linter reports the reading as incomplete."
+        finding for that record, and the linter reports the reading as incomplete. Its deferral \
+        of the shared functions that it does not read is operational collector code too \
+        (`sharedReading` in `Regula.Collect`): that record names no shared function with a \
+        result of `Bool` or `BEq`, so the editor decision reports no RG1009 finding for it."
       sources :=
           ["lean/Regula/Checker/Admission.lean", "lean/Regula/Checker/SourceAudit.lean",
               "lean/Regula/Checker/SourceBinding.lean"] }

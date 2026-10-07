@@ -41,7 +41,7 @@ and `ruleExampleQualification` (qualification), `site` (the rule reference) and 
 ## The rule registry
 
 `RuleId` ([`RegulaCore.RuleId`](../../lean/RegulaCore/RuleId.lean)) is a closed inductive type
-with 23 constructors; `spelling`, `parse?`, `all` and `route` are the executed definitions, and a
+with 24 constructors; `spelling`, `parse?`, `all` and `route` are the executed definitions, and a
 route (`rules/<ID>/`) cannot be set independently. `descriptor : (id : RuleId) → RuleDescriptor id`
 ([`RegulaCore.Rule`](../../lean/RegulaCore/Rule.lean)) is exhaustive, so there is no runtime
 registration table whose missing entries silently disappear. A descriptor carries title,
@@ -464,12 +464,14 @@ metadata, not authenticated binary identity.
   `mode` is the account's, and a listed identifier names an open obligation, not a completed
   review.
 - **Shared definitions:** since schema 11 each `contracts` entry of the account carries
-  `sharedDefinitions`. It is an object with the lists `booleans` and `others`. The lists name
-  the functions that the specification of a decision kind reaches first and that the
-  implementation or the acceptance predicate reaches too. The search does not read below a
-  named function. The kind does not establish that a named function is the intended one, and
-  no registration is refused for one. A declaration's `executableContract` carries the same
-  two lists as `shared`.
+  `sharedDefinitions`, an object with the lists `booleans` and `others`. The lists name the
+  functions that the specification of a decision kind shares with the implementation or the
+  acceptance predicate. A function with a result of `Bool` or `BEq` is in `booleans` at any
+  depth, and [RG1009] refuses a registration that has one. Each other function is in `others`
+  where the specification reaches it first, and that search does not read below a named
+  function. The kind does not establish that a function in `others` is the intended one, and
+  no registration is refused for it. A declaration's `executableContract` carries the same two
+  lists as `shared`.
 - **Snapshot rendering:** `acceptance.snapshot` renders the audited sources in full, the
   configuration by URI and each dependency by package, pinned revision and input-scoped `dirty`
   bit (a dirty or path dependency as `{package, revision, dirty: true}`, with no content
@@ -602,7 +604,7 @@ displayed source is stale or whose required source account was dropped. Three re
 `RG1005/WrongClaim`, authentic Standard-Logical output of [RG1005]'s violation refused against its
 frozen Kernel-only request; and `RG4004/TrustedControl` and `RG4004/NegativeControl`, a
 trusted-teaching fence and a compiler-rejection fence that complete as `classified` and are
-refused as a positive documentation correction. The full corpus is 49 productions (46
+refused as a positive documentation correction. The full corpus is 51 productions (48
 Fixed/Violation phases plus these 3 controls), 3 individual control admissions and one corpus
 admission of every record. These controls qualify the adapters; the universal data predicates
 and their proofs remain distinct from observed process behavior. Version fields alone do not
@@ -690,6 +692,7 @@ defines Lean policy or permits suppressing mandatory requirements.
 [RG1005]: https://rbeauchamp.github.io/regula/dev/rules/RG1005/
 [RG1007]: https://rbeauchamp.github.io/regula/dev/rules/RG1007/
 [RG1008]: https://rbeauchamp.github.io/regula/dev/rules/RG1008/
+[RG1009]: https://rbeauchamp.github.io/regula/dev/rules/RG1009/
 [RG2001]: https://rbeauchamp.github.io/regula/dev/rules/RG2001/
 [RG2002]: https://rbeauchamp.github.io/regula/dev/rules/RG2002/
 [RG2003]: https://rbeauchamp.github.io/regula/dev/rules/RG2003/

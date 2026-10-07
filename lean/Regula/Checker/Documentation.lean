@@ -503,7 +503,7 @@ private def assessPositive (observed : RegulaPolicy.Compiler.LegacyCompilerTrust
     for h : decl in scope.inventory.declarations do
       if decl.module != unitName then continue
       if let some id := Policy.ruleForMember decl (some claim) scope h then
-        let reason := (Regula.descriptor id).applicability
+        let reason := Regula.Findings.ruleDetail id decl
         -- The finding names the declaration the author wrote (`Policy.subject_contract`).
         let named := Policy.subject decl scope h
         problems := problems.push s!"{reason}: {named.name} axioms={repr decl.axioms.toList}"

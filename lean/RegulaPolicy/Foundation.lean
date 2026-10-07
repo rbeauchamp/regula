@@ -29,6 +29,10 @@ inductive DeclarationFailure where
   | compilerTrusting
   /-- An executable-contract observation of the declaration records a failure. -/
   | executableContract
+  /-- The record of a decision registration of the declaration names a function with a result of
+  `Bool` or `BEq` that its specification shares with its implementation or its acceptance
+  predicate (`SharedNames.booleans`). -/
+  | sharedTest
   /-- A transitive axiom lies outside the requested conforming profile. -/
   | profileExceeded
   /-- The declaration is registered as a decision (`@[regula_decision]`), its result type is not

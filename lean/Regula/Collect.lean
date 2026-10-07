@@ -2354,7 +2354,9 @@ that quantifies over the argument is refused too, which is conservative. The sea
 mention establishes only that the acceptance predicate and the specification are stated without
 the implementation's constant; whether the specification is the intended one remains review. A
 registration that this function does not refuse is then searched for the functions that its two
-sides share (`sharedReading`). That search names them in the record and refuses nothing. -/
+sides share (`sharedReading`). That search names them in the record and refuses nothing itself:
+the pure decision `RegulaPolicy.sharedTestFailure` refuses a registration whose record names a
+function with a result of `Bool` or `BEq`. -/
 private def decisionFailure? (env : Environment) (implementation : Name)
     (result accepts spec decided : Expr) : MetaM (Option String) := do
   let mention (part : String) (chain : Array Name) : String :=
@@ -3060,14 +3062,19 @@ for an inductive type or as a matcher is what `generatedBy?` says for the famili
 projection, a recursor, a matcher, a constructor lemma and a type construction; those clauses
 read Lean's records, which a project can write, and the pure classification uses the answer
 only to take a definition out of the class `other`
-(`RegulaPolicy.SharedDefinition.class`). -/
+(`RegulaPolicy.SharedDefinition.class`).
+
+A constant that the environment has as an axiom is read in the same way, from its type and its
+name: the environment of a file with a `module` header has an imported definition as an axiom
+when its module does not export the value (`hiddenValue?`), and the type of such a constant
+still says whether it is a function and what the form of its result is. -/
 private def sharedDefinition (env : Environment) (scope : ContractScope) (info : ConstantInfo) :
     MetaM RegulaPolicy.SharedDefinition := do
   let projection := match info with
     | .defnInfo definition => (projectionBody? definition.value 0).isSome
     | _ => false
   let generated ← match info with
-    | .defnInfo _ | .opaqueInfo _ =>
+    | .defnInfo _ | .opaqueInfo _ | .axiomInfo _ =>
       [GeneratedFamily.projection, .recursor, .matcher, .constructorLemma,
         .typeConstruction].anyM fun family =>
           return (← generatedBy? family info.name).isSome
@@ -3166,8 +3173,46 @@ private def sharedFrontier (env : Environment) (scope : ContractScope) (other : 
         pending := pending.push next
   return found
 
+/-- What the snapshot of a file with a `module` header did not read of a decision registration,
+with the imported constant that its environment has only as an axiom. The project check, whose
+environment has the value of each constant, reads both. -/
+inductive Unread where
+  /-- The kind: whether the constant is a field of the argument of the decided function is
+  unknown (`executableContract?`). The record has no failure of the kind. -/
+  | kind (constant : Name)
+  /-- The shared functions: a function with a result of `Bool` or `BEq` that the two sides share
+  only below the constant is not found (`sharedReading`). The record names no such function. -/
+  | shared (constant : Name)
+  deriving Repr, DecidableEq, Inhabited
+
+/-- A constant of `reach` whose value the search would read and the environment does not have:
+an imported constant that `env` has as an axiom, with a result form whose value the rule of the
+side reads (`RegulaPolicy.ResultForm.ValueRead`; `specification` selects the rule of a statement).
+The environment of a file with a `module` header has an imported definition or opaque constant as
+an axiom when its module does not export the value, so the search cannot follow it. An axiom that
+a project declares is such a constant too: it has no value in any environment, and the notice of
+the caller is then more than is needed. -/
+private def hiddenValue? (env : Environment) (scope : ContractScope) (specification : Bool)
+    (reach : NameSet) : MetaM (Option Name) := do
+  for name in reach do
+    if (env.getModuleIdxFor? name).isNone then continue
+    let some info := env.find? name | continue
+    let .axiomInfo _ := info | continue
+    if decide ((← scope.resultForm env info).ValueRead specification) then return some name
+  return none
+
+/-- Whether `reach` has a constant of the class `boolean`
+(`RegulaPolicy.SharedDefinition.class`). -/
+private def reachesTest (env : Environment) (scope : ContractScope) (reach : NameSet) :
+    MetaM Bool := do
+  for name in reach do
+    let some info := env.find? name | continue
+    if decide ((← sharedDefinition env scope info).class = .boolean) then return true
+  return false
+
 /-- The functions that the two sides of a decision registration share, as its record names
-them (`RegulaPolicy.SharedNames`).
+them (`RegulaPolicy.SharedNames`), and the constant that keeps a snapshot from reading them all,
+when there is one.
 
 One side is the specification. The other side is the implementation with the acceptance
 predicate: a kind states `accepts (f x)` against `spec x`, so a definition that the acceptance
@@ -3181,25 +3226,67 @@ runtime replacement (`implemented_by`, `extern`, `csimp`) is in no such value: a
 theorem about the definition that Lean's kernel reads, and the execution closure accounts for
 the code that runs in its place.
 
-`RegulaPolicy.sharedNames` gives the names by class over what the search read
+The record has two lists, from two readings of the specification. The first reading stops at
+each counted constant that the other side reaches (`sharedFrontier`), and the functions of the
+class `other` are named from it. The second reading stops nowhere: it has each constant that
+the specification reaches by the rule of a statement (`sideReach`) and that the other side
+reaches too, also below a counted one. The functions of the class `boolean` are named from the
+second reading, so a record that names none has none at any depth, a function of that class
+below a function of the class `other` included.
+
+`RegulaPolicy.sharedNames` gives the names by class over what the two readings read
 (`RegulaPolicy.mem_sharedNames_booleans`, `RegulaPolicy.mem_sharedNames_others`). The search
-itself is operational, and it refuses no registration. It names the functions that the two sides
-share by name. It does not establish that the specification is the intended one, and a copy of
-a definition under a second name is a different constant, which it does not find. -/
-private def sharedReading (env : Environment) (scope : ContractScope)
-    (statement : DecisionStatement) : MetaM RegulaPolicy.SharedNames := do
+itself is operational, and it refuses no registration: the pure decision
+`RegulaPolicy.sharedTestFailure` refuses a registration whose record names a function of the
+class `boolean`. The search names the functions that the two sides share by name. It does not
+establish that the specification is the intended one, and a copy of a definition under a second
+name is a different constant, which it does not find.
+
+The second component is for the `snapshot` stage in the environment of a file with a `module`
+header, where a side can reach a constant with no value (`hiddenValue?`). The search does not
+read below such a constant, so a function of the class `boolean` that the two sides share only
+below it is not found. That can be only in three cases, and the component is the constant of
+the first that holds, of the other side where the two sides have one. Each side has such a
+constant. Or the other side has one, and the
+specification reaches a function of the class `boolean`, which the other side could reach below
+that constant. Or the specification has one, and the other side reaches a function of that
+class. In every other case each shared function of the class is one that the two readings have,
+so the list is complete. The component is `none` when the record names a function of the class,
+since the registration is then refused whatever is below, and at every other stage, whose
+environment has the value of each constant. -/
+private def sharedReading (env : Environment) (scope : ContractScope) (stage : Stage)
+    (statement : DecisionStatement) : MetaM (RegulaPolicy.SharedNames × Option Name) := do
   let implementation ← sideReach env scope false #[statement.implementation]
   let acceptance ← sideReach env scope true statement.accepts.getUsedConstants
-  let frontier ← sharedFrontier env scope
-    (fun name => implementation.contains name || acceptance.contains name) statement.spec
-  return RegulaPolicy.sharedNames frontier.toList
+  let other := fun name => implementation.contains name || acceptance.contains name
+  let first ← sharedFrontier env scope other statement.spec
+  let specification ← sideReach env scope true statement.spec.getUsedConstants
+  let mut reached : Array RegulaPolicy.SharedDefinition := #[]
+  for name in specification do
+    if other name then
+      let some info := env.find? name | continue
+      reached := reached.push (← sharedDefinition env scope info)
+  let names := RegulaPolicy.sharedNames first.toList reached.toList
+  unless stage == .snapshot && env.header.isModule && names.booleans.isEmpty do
+    return (names, none)
+  let hiddenOther ← match ← hiddenValue? env scope false implementation with
+    | some constant => pure (some constant)
+    | none => hiddenValue? env scope true acceptance
+  match ← hiddenValue? env scope true specification, hiddenOther with
+  | none, none => return (names, none)
+  | some _, some constant => return (names, some constant)
+  | none, some constant =>
+    return (names, if ← reachesTest env scope specification then some constant else none)
+  | some constant, none =>
+    let tested ← reachesTest env scope implementation <||> reachesTest env scope acceptance
+    return (names, if tested then some constant else none)
 
-/-- The record of `declaration`, with the constant that keeps a snapshot from reading the kind
-of the declaration's decision registration, when there is one (`executableContract?`). The
-record of a decision registration that was read and not refused also holds the names of the
-functions that its two sides share (`sharedReading`). -/
+/-- The record of `declaration`, with what a snapshot did not read of the declaration's decision
+registration, when there is such a part (`Unread`): its kind (`executableContract?`), or the
+functions that its two sides share (`sharedReading`). The record of a decision registration that
+was read and not refused holds the names of the functions that its two sides share. -/
 private def declarationReading (name : Name) (stage : Stage) (scope? : Option ContractScope) :
-    CommandElabM (RegulaPolicy.Declaration × Option Name) := withoutSmartUnfolding do
+    CommandElabM (RegulaPolicy.Declaration × Option Unread) := withoutSmartUnfolding do
   let env ← getEnv
   let scope ← match scope? with
     | some scope => pure scope
@@ -3239,9 +3326,9 @@ private def declarationReading (name : Name) (stage : Stage) (scope? : Option Co
   let generatedFrom ← liftTermElabM (generatedFrom? name)
   let contract? ← (← executableContract? env scope stage info).mapM
     fun (record, hidden, statement) => do
-      let some statement := statement | return (record, hidden)
-      let shared ← liftTermElabM <| sharedReading env scope statement
-      return ({ record with shared }, hidden)
+      let some statement := statement | return (record, hidden.map Unread.kind)
+      let (shared, unread) ← liftTermElabM <| sharedReading env scope stage statement
+      return ({ record with shared }, unread.map Unread.shared)
   return ({
     name := name
     «module» := moduleName
@@ -3284,7 +3371,8 @@ these observations alone never authorize a generated role. A caller recording se
 of one environment passes one `ContractScope.new` of it, so its memo is shared; without one, a
 fresh scope is built. Every observation runs with smart unfolding off (`withoutSmartUnfolding`).
 At the `snapshot` stage, in the environment of a file with a `module` header, the record of a
-decision registration has no failure of its kind when that environment cannot read the kind;
+decision registration has no failure of its kind when that environment cannot read the kind, and
+it names no shared function below a constant that the environment has no value of;
 `commandDeclarations` returns those registrations. -/
 def declaration (name : Name) (stage : Stage) (scope? : Option ContractScope := none) :
     CommandElabM RegulaPolicy.Declaration :=
@@ -3300,11 +3388,11 @@ def currentModule (stage : Stage := .snapshot) : CommandElabM (Array RegulaPolic
 /-- Declaration binders recorded in this command's information trees. This is a
 local feedback selection, not a complete module census: elaborators can add
 constants without binder information. `currentModule` covers those as well. The second component
-is each decision registration whose kind the snapshot does not read, with the constant that the
-environment has only as an axiom (`executableContract?`): its record has no failure of the kind,
-and the project check reads it. -/
+is each decision registration of which the snapshot does not read a part, with that part and the
+constant that the environment has only as an axiom (`Unread`): its record has no failure for
+that part, and the project check reads it. -/
 def commandDeclarations :
-    CommandElabM (Array RegulaPolicy.Declaration × Array (Name × Name)) := do
+    CommandElabM (Array RegulaPolicy.Declaration × Array (Name × Unread)) := do
   let env ← getEnv
   let mut names : Array Name := #[]
   for tree in (← get).infoState.trees do
@@ -3317,7 +3405,7 @@ def commandDeclarations :
   if names.isEmpty then return (#[], #[])
   let scope ← ContractScope.new env
   let readings ← names.mapM (declarationReading · .snapshot scope)
-  return (readings.map (·.1), readings.filterMap fun (record, hidden) =>
-    hidden.map (record.name, ·))
+  return (readings.map (·.1), readings.filterMap fun (record, unread) =>
+    unread.map (record.name, ·))
 
 end Regula.Collect

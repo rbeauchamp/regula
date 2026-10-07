@@ -12,7 +12,8 @@ Each requirement takes the part of the record whose fields it reads, so its sign
 where its inputs come from: `SafetyOK` takes `Declaration.KernelChecked`; `KnownDependencies`,
 `CompilerPolicyOK` and `ProfileOK` take `Declaration.ToolchainObserved`; `FoundationOK` takes
 `Declaration.Inspected`; and `ContractOK` takes `Declaration.ProjectWritten`, because a mark a
-project writes decides one refusal of the recorded contract. `DeclarationOK` and
+project writes decides one refusal of the recorded contract, as does `SharedTestOK`, which reads
+the names that the collector recorded with that contract. `DeclarationOK` and
 `declarationRequirements` join them and take the whole record, as the decision requirement
 (`DecisionOK`) does, which reads the project's own registration. -/
 
@@ -56,6 +57,17 @@ def ContractOK (d : Declaration.ProjectWritten) : Prop :=
 instance (d : Declaration.ProjectWritten) : Decidable (ContractOK d) := by
   unfold ContractOK; infer_instance
 
+/-- No recorded decision registration shares a test: the record of each names no function with a
+result of `Bool` or `BEq` that its specification and its other side both reach
+(`SharedNames.booleans`). The names are the collector's observation: `sharedNames` gives them over
+what its search read, at any depth below the specification. A record with a refused contract or
+with no decision kind names none. A function that the two sides share under two names is two
+constants, and this does not see it. -/
+def SharedTestOK (d : Declaration.ProjectWritten) : Prop :=
+  ∀ c ∈ d.executableContract, c.shared.booleans = #[]
+instance (d : Declaration.ProjectWritten) : Decidable (SharedTestOK d) := by
+  unfold SharedTestOK; infer_instance
+
 /-- `n` is the implementation a decision contract of the inventory decides: some declaration of
 `ds` records an executable contract that states a decision kind, was not refused, and names `n`
 as its implementation. -/
@@ -97,7 +109,7 @@ def DeclarationOK (d : Declaration) (request : InspectionRequest)
   (d.kind = .«axiom» ∧ d.name ∈ native ∧ request = .teaching) ∨
   (d.kind ≠ .«axiom» ∧ `sorryAx ∉ d.axioms ∧ KnownDependencies d native ∧
     SafetyOK d helpers ∧ CompilerPolicyOK d request native ∧ ContractOK d ∧
-    ProfileOK d request native)
+    SharedTestOK d ∧ ProfileOK d request native)
 
 /-- Positive logical foundation: no project axiom, hole, unknown or compiler axiom;
 the selected permitted set contains every observed transitive dependency. -/
@@ -176,7 +188,8 @@ def declarationRequirements (d : Declaration) (r : InspectionRequest)
   else
     [(.proofHole, `sorryAx ∉ d.axioms), (.unknownAxiom, KnownDependencies d native),
      (.escapeHatch, SafetyOK d helpers), (.compilerTrusting, CompilerPolicyOK d r native),
-     (.executableContract, ContractOK d), (.profileExceeded, ProfileOK d r native)]
+     (.executableContract, ContractOK d), (.sharedTest, SharedTestOK d),
+     (.profileExceeded, ProfileOK d r native)]
 
 /-- A requirement appended to an ordered list is decided only where every earlier one is met:
 an earlier failure is the outcome whatever the appended requirement, and otherwise the outcome is

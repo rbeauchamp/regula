@@ -137,8 +137,11 @@ def writingSections : List (String × String × List RuleId) := [
     [.moduleDocumentation, .materialDocumentation, .materialIntent]),
   ("Executable code",
       "Applies to `ExecutableContract` registrations, `@[regula_decision]` functions and code \
-        reached from executable roots.",
-    [.executableContract, .decisionContract, .executionBoundary, .executionUnresolved]),
+        reached from executable roots. The shared-test rule compares names: a copy of a test \
+        under a second name passes. A shared function with a result other than `Bool` or `BEq` \
+        is not refused, and the account of the contract names it for review.",
+    [.executableContract, .decisionContract, .sharedTest, .executionBoundary,
+      .executionUnresolved]),
   ("Project configuration",
     "Applies to `foundation_manifest.json`, the Lake options of claimed targets and the build \
       environment.",
@@ -237,7 +240,7 @@ def agentGuideIn (e : Edition) : String :=
 def agentGuide : String := agentGuideIn installed.edition
 
 /-- Byte budget of the agent briefing, so pasting it into an agent's context stays cheap. -/
-def agentGuideBudget : Nat := 18432
+def agentGuideBudget : Nat := 19456
 
 /-- The briefing of a build whose pages are edition `e`, as an Agent Skills `SKILL.md`. -/
 def skillIn (e : Edition) : String :=

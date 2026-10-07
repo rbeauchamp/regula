@@ -141,14 +141,19 @@ inductive Reading where
 
 /-! ## Findings -/
 
-/-- Whether `text` has no character other than whitespace. The parser reports the spaces and
-line ends it supplies itself as such text, so only other text is located in the source. -/
-def blank (text : String) : Bool := text.toList.all Char.isWhitespace
+/-- `text` has no character other than whitespace, as a proposition. The parser reports the
+spaces and line ends it supplies itself as such text, so only other text is located in the
+source. It is stated with no test of this module: a function decides it with Lean's own test of
+a character. -/
+def Blank (text : String) : Prop := ∀ c ∈ text.toList, c.isWhitespace = true
+
+instance (text : String) : Decidable (Blank text) := by
+  unfold Blank; infer_instance
 
 /-- The source text that locates a piece: what the parser reported for it, unless it is
-`blank`. -/
+`Blank`. -/
 def Piece.located? : Piece → Option String
-  | .text slice _ | .code slice => if blank slice then none else some slice
+  | .text slice _ | .code slice => if Blank slice then none else some slice
   | .enter _ | .leave | .refused _ | .gap | .line | .start _ => none
 
 /-- Where one character of a run stands. -/
@@ -248,7 +253,7 @@ def Scan.flush (s : Scan) : Scan :=
 
 /-- The scan after a piece with source text `slice`. -/
 def Scan.past (s : Scan) (slice : String) : Scan :=
-  if blank slice then s else { s with anchor := s.anchor + 1 }
+  if Blank slice then s else { s with anchor := s.anchor + 1 }
 
 /-- Where prose read now stands: in the text of the link entered last and not yet left, if
 any. This is how the pieces are read, not a claim about how a link inside a link's text is

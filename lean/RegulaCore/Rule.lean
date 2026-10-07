@@ -64,7 +64,7 @@ inductive RuleCategory where
   /-- The form of a declaration itself, such as `unsafe` or `partial` (RG1006). -/
   | declaration
   /-- Executable contracts, decision contracts and the execution closure of executable roots
-  (RG1007, RG1008, RG3001, RG3002). -/
+  (RG1007–RG1009, RG3001, RG3002). -/
   | execution
   /-- Availability of the declared Lean environment (RG2001). -/
   | environment
@@ -102,7 +102,7 @@ inductive Impact where
   /-- Evidence the rule needs is missing or could not be obtained, so the check did not
   complete. -/
   | incomplete
-  deriving Repr, BEq, DecidableEq
+  deriving Repr, DecidableEq
 
 /-- What one finding of a rule is about. -/
 inductive RuleScope where
@@ -153,7 +153,7 @@ inductive EvidenceKind where
 /-- The scope of each rule's findings; `RuleDescriptor.scope` defaults to it. -/
 def scopeFor : RuleId → RuleScope
   | .projectAxiom | .proofHole | .unknownAxiom | .compilerTrusting | .profileExceeded
-  | .escapeHatch | .executableContract | .decisionContract => .declaration
+  | .escapeHatch | .executableContract | .decisionContract | .sharedTest => .declaration
   | .environment | .configuration | .sourceBuild | .coverage | .admission
   | .communityConfiguration => .project
   | .executionUnresolved | .executionBoundary => .executionRoot
@@ -169,16 +169,16 @@ def registrationFor : RuleId → Option String
   | .materialDocumentation | .materialIntent => some "regula_material"
   | .decisionContract => some "regula_decision"
   | .projectAxiom | .proofHole | .unknownAxiom | .compilerTrusting | .profileExceeded
-  | .escapeHatch | .executableContract | .environment | .configuration | .sourceBuild | .coverage
-  | .admission | .communityConfiguration | .executionUnresolved | .executionBoundary
-  | .fenceStructure | .positiveExample | .negativeExample | .trustedExample
+  | .escapeHatch | .executableContract | .sharedTest | .environment | .configuration
+  | .sourceBuild | .coverage | .admission | .communityConfiguration | .executionUnresolved
+  | .executionBoundary | .fenceStructure | .positiveExample | .negativeExample | .trustedExample
   | .moduleDocumentation => none
 
 /-- The evidence each rule's decision reads; `RuleDescriptor.evidenceKind` defaults to it. -/
 def evidenceFor : RuleId → EvidenceKind
   | .projectAxiom | .proofHole | .unknownAxiom | .profileExceeded => .kernelAxioms
   | .compilerTrusting | .escapeHatch => .generatedRole
-  | .executableContract | .decisionContract => .contractEvidence
+  | .executableContract | .decisionContract | .sharedTest => .contractEvidence
   | .environment => .environment
   | .configuration | .communityConfiguration => .configuration
   | .sourceBuild => .compilation
@@ -384,6 +384,7 @@ def ruleForFailure : RegulaPolicy.DeclarationFailure → RuleId
   | .unknownAxiom => .unknownAxiom | .escapeHatch => .escapeHatch
   | .compilerTrusting => .compilerTrusting | .executableContract => .executableContract
   | .profileExceeded => .profileExceeded | .decisionContract => .decisionContract
+  | .sharedTest => .sharedTest
   | .invalidInventory => .coverage
 
 /-- Distinct policy failures reach distinct rules, so the rule preserves the failure category. -/
@@ -668,6 +669,44 @@ def descriptor : (id : RuleId) → RuleDescriptor id
         correction := "The correction registers the two-way contract of the unchanged zero \
           test: it accepts exactly zero, with zero as the accepted input and one as the refused \
           input." } }
+  | .sharedTest => {
+      lifecycle := .active .unreleased
+      title := "Decision specifications share no Boolean test with the implementation"
+      category := .execution
+      normativeClauses := [.enforcingBuildLinter, .proofCompleteness]
+      applicability := "shared-test"
+      evidenceModes := .editorSnapshot :: declarationModes
+      requirement := "The specification of a decision contract reaches no function with a \
+        result of `Bool` or `BEq`, outside Lean's own library, that the implementation or the \
+        acceptance predicate also reaches."
+      rationale := "A kind is a theorem about the present definitions. When the specification \
+        and the implementation call one test, a change of that test changes the two together, \
+        and a proof that goes through the test on the two sides can stay valid although the \
+        meaning changed. A proposition in the place of the test states the meaning a second \
+        time, in other terms."
+      remedy := "State the condition as a proposition in the specification and let the function \
+        decide it: `if P x then … else …` with a `Decidable (P x)` instance, or keep the test \
+        in the function with a theorem `test x = true ↔ P x`."
+      rewrites := [
+        "Replace `def small (n : Nat) : Bool := n < 4` in the specification by `def Small (n : \
+          Nat) : Prop := n < 4` with `instance (n : Nat) : Decidable (Small n) := by unfold \
+          Small; infer_instance`, and write `decide (Small n)` or `if Small n then … else …` in \
+          the function.",
+        "Where a function that the two sides share calls the test, change that function: it \
+          decides the proposition, and the specification then reaches the proposition and not \
+          the test.",
+        "For a type with a derived `BEq` that the two sides compare, derive `DecidableEq` and \
+          state the specification with `=`. Lean's own `BEq` of a type with `DecidableEq` is \
+          not counted.",
+        "Use a test of Lean's own library directly, such as `Char.isWhitespace` or `Nat.ble`: \
+          the rule does not count a function of that library."]
+      examples := {
+        language := .lean
+        audience := .adopter
+        compliant := include_str "../../examples/rules/RG1009/Fixed.lean"
+        noncompliant := include_str "../../examples/rules/RG1009/Violation.lean"
+        correction := "The correction states the bound as the proposition `Small`, which the \
+          function decides, so the specification names no test that the function runs." } }
   | .environment => {
       lifecycle := .active (.release ⟨4, 34, 0⟩)
       title := "The declared Lean environment must be available", category := .environment

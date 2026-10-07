@@ -121,10 +121,17 @@ initialize addLinter {
       if !result.pending.isEmpty then
         unavailable s!"fresh generated-role evidence remains required for {result.pending}; run \
           `lake lint` for the project check"
-      for (registration, constant) in unread do
-        unavailable s!"the decision kind of {registration} is not read here: {constant} has no \
-          value in the environment of this `module` file, so whether it is a field of the \
-          argument of the decided function is unknown; run `lake lint` for the project check"
+      for (registration, part) in unread do
+        match part with
+        | .kind constant =>
+          unavailable s!"the decision kind of {registration} is not read here: {constant} has \
+            no value in the environment of this `module` file, so whether it is a field of the \
+            argument of the decided function is unknown; run `lake lint` for the project check"
+        | .shared constant =>
+          unavailable s!"the functions that the two sides of {registration} share are not all \
+            read here: {constant} has no value in the environment of this `module` file, so a \
+            function with a result of `Bool` or `BEq` that the two sides share below it is \
+            not found; run `lake lint` for the project check"
     catch ex =>
       if ex.isInterrupt then throw ex
       unavailable s!"local declaration analysis unavailable: {← ex.toMessageData.toString}" }

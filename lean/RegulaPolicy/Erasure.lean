@@ -340,6 +340,9 @@ theorem newVariables_iff (pairs : Pairs) (variables : List FVarId) :
   rw [newVariables_eq_true_iff]
   simp only [NewVariables, unpaired_eq_true_iff]
 
+instance (pairs : Pairs) (variables : List FVarId) : Decidable (NewVariables pairs variables) :=
+  decidable_of_iff _ (newVariables_iff pairs variables)
+
 /-- The arguments of a well-founded fixpoint application that carry its computation: for
 `WellFounded.fix α C r hwf F x…` and `WellFounded.Nat.fix α motive h F x…` (the two combinators
 Lean 4.34.0's well-founded recursion uses) the domain, the motive, the functional and the
@@ -484,7 +487,7 @@ def openLambdas (bound : Expr → Option FVarId) : Nat → Expr → Array FVarId
 direct one. `threaded` binds `binders` pattern variables and then one more, which stands for the
 variable `passed`; `direct` binds the same pattern variables. The two bodies are compared with the
 pattern variables paired in order and the further variable standing for `passed`
-(`standingFor`). The variables must be new (`newVariables`): the pattern variables of both
+(`standingFor`). The variables must be new (`NewVariables`): the pattern variables of both
 alternatives and the further variable. A pair must hold `passed` on the threaded side, so that
 `standingFor` gives the further variable a pair, and a later binder is refused that variable as
 it is refused each other one. An error is the refusal the comparison comes to instead: a variable
@@ -505,8 +508,8 @@ def alternative (side : Side) (seen other : Observations) (pairs : Pairs) (passe
           match seen.bound body with
           | none => .error (.unobserved (.bound side body))
           | some further =>
-            if newVariables pairs (xs.toList ++ ys.toList ++ [further]) &&
-                !(standingFor side pairs passed further).isEmpty then
+            if NewVariables pairs (xs.toList ++ ys.toList ++ [further]) ∧
+                (standingFor side pairs passed further).isEmpty = false then
               .ok (side.orient
                 (pairs ++ (xs.zip ys).map (fun (x, y) => side.pair x y) ++
                   standingFor side pairs passed further)
@@ -596,7 +599,7 @@ def application (left right : Observations) (pairs : Pairs) (a b : Expr) : Step 
 
 /-- The step that compares the bodies of two binders `a` and `b` after the parts `before`: each
 body is read with the variable the pass gave its binder, and the two variables are paired. The two
-variables must be new (`newVariables`): a variable that a pair already holds, or one variable for
+variables must be new (`NewVariables`): a variable that a pair already holds, or one variable for
 both binders, is refused, whatever the pass gave. -/
 def under (left right : Observations) (pairs : Pairs) (a b : Expr) (before : List Part)
     (body body' : Expr) : Step :=
@@ -606,7 +609,7 @@ def under (left right : Observations) (pairs : Pairs) (a b : Expr) (before : Lis
     match right.bound b with
     | none => .error (.unobserved (.bound .right b))
     | some y =>
-      if newVariables pairs [x, y] then
+      if NewVariables pairs [x, y] then
         .ok (before ++
           [⟨pairs.push (x, y), body.instantiate1 (.fvar x), body'.instantiate1 (.fvar y)⟩])
       else .error .different
@@ -693,13 +696,15 @@ are, and which variables are new, is what the shared definitions compute. The tw
 threaded `match` take their parts from `threadedParts`, which uses `alternative`, `openLambdas`,
 `standingFor`, `Side.orient`, `Side.pair` and `Threading.head`. `Threads` reads a decomposition
 with `Threading.head`. Every rule that pairs arguments position by position uses `paired`.
-Only the three binder rules (`lam`, `forallE`, `letE`) state their variables with the proposition
+The three binder rules (`lam`, `forallE`, `letE`) state their variables with the proposition
 `NewVariables`, which `newVariables_iff` ties to the executed test `newVariables`. `Threads`
 states the levels with the proposition `Threading.SameLevels`, which `Threading.sameLevels_iff`
-ties to the executed test `Threading.sameLevels`, so that test is no longer shared. The two rules
-for a threaded `match` (`threadedLeft`, `threadedRight`) take their parts from `threadedParts`,
-whose `alternative` reads each alternative body under the executed test `newVariables`. So
-`newVariables` stays shared with the comparison through `threadedParts`.
+ties to the executed test `Threading.sameLevels`. The two rules for a threaded `match`
+(`threadedLeft`, `threadedRight`) take their parts from `threadedParts`, whose `alternative`
+reads each alternative body where `NewVariables` holds, and `under` reads the bodies of two
+binders where it holds. Each decides that proposition through its `Decidable` instance, which
+runs `newVariables`. So the relation names none of the tests that this module defines:
+`newVariables`, `unpaired` and `Threading.sameLevels` are not shared with the comparison.
 
 Theorems state these of them exactly, so a change fails a theorem: when `threadedParts` and
 `alternative` yield parts and which (`threadedParts_eq_ok_iff`, `alternative_eq_ok_iff`), the
@@ -841,7 +846,7 @@ paired. -/
 theorem under_eq_ok_iff (left right : Observations) (pairs : Pairs) (a b : Expr)
     (before : List Part) (body body' : Expr) (parts : List Part) :
     under left right pairs a b before body body' = .ok parts ↔
-      ∃ x y, left.bound a = some x ∧ right.bound b = some y ∧ newVariables pairs [x, y] = true ∧
+      ∃ x y, left.bound a = some x ∧ right.bound b = some y ∧ NewVariables pairs [x, y] ∧
         parts = before ++
           [⟨pairs.push (x, y), body.instantiate1 (.fvar x), body'.instantiate1 (.fvar y)⟩] := by
   unfold under
@@ -851,7 +856,7 @@ theorem under_eq_ok_iff (left right : Observations) (pairs : Pairs) (a b : Expr)
     cases onRight : right.bound b with
     | none => simp
     | some y =>
-      by_cases new : newVariables pairs [x, y] = true
+      by_cases new : NewVariables pairs [x, y]
       · constructor
         · intro found
           simp only [new, ↓reduceIte] at found
@@ -873,7 +878,7 @@ already holds, on either side, or one variable for both binders. This is the tes
 against the pairs it is given; `Reached.newVariables_eq_false` states what follows for a path. -/
 theorem under_eq_error_of_reused (left right : Observations) (pairs : Pairs) (a b : Expr)
     (before : List Part) (body body' : Expr) {x y : FVarId} (bound : left.bound a = some x)
-    (bound' : right.bound b = some y) (reused : newVariables pairs [x, y] = false) :
+    (bound' : right.bound b = some y) (reused : ¬ NewVariables pairs [x, y]) :
     under left right pairs a b before body body' = .error .different := by
   simp [under, bound, bound', reused]
 
@@ -896,7 +901,7 @@ theorem alternative_eq_ok_iff (side : Side) (seen other : Observations) (pairs :
         openLambdas other.bound binders direct #[] = .opened ys body' ∧
         (xs.size = binders ∧ ys.size = binders) ∧
         seen.bound (.lam name type inner info) = some further ∧
-        newVariables pairs (xs.toList ++ ys.toList ++ [further]) = true ∧
+        NewVariables pairs (xs.toList ++ ys.toList ++ [further]) ∧
         (standingFor side pairs passed further).isEmpty = false ∧
         part = side.orient
           (pairs ++ (xs.zip ys).map (fun (x, y) => side.pair x y) ++
@@ -917,13 +922,11 @@ theorem alternative_eq_ok_iff (side : Side) (seen other : Observations) (pairs :
     rename_i further bound
     split at found <;> try cases found
     rename_i accepted
-    rw [Bool.and_eq_true, Bool.not_eq_true'] at accepted
     exact ⟨xs, ys, name, type, inner, info, body', further, opened, opened', sizes, bound,
       accepted.1, accepted.2, rfl⟩
   · rintro ⟨xs, ys, name, type, inner, info, body', further, opened, opened', sizes, bound, new,
       standing, rfl⟩
-    simp only [alternative, opened, opened', sizes, and_self, ↓reduceIte, bound, new, standing,
-      Bool.not_false, Bool.and_self]
+    simp only [alternative, opened, opened', sizes, and_self, ↓reduceIte, bound, new, standing]
 
 /-- An alternative one of whose variables is not new is refused, whatever the pass gave: a
 pattern variable or the further variable that a pair already holds, on either side, or two of
@@ -936,10 +939,9 @@ theorem alternative_eq_error_of_reused (side : Side) (seen other : Observations)
     (opened' : openLambdas other.bound binders direct #[] = .opened ys body')
     (sizes : xs.size = binders ∧ ys.size = binders)
     (bound : seen.bound (.lam name type inner info) = some further)
-    (reused : newVariables pairs (xs.toList ++ ys.toList ++ [further]) = false) :
+    (reused : ¬ NewVariables pairs (xs.toList ++ ys.toList ++ [further])) :
     alternative side seen other pairs passed binders threaded direct = .error .different := by
-  simp only [alternative, opened, opened', sizes, and_self, ↓reduceIte, bound, reused,
-    Bool.false_and, Bool.false_eq_true]
+  simp only [alternative, opened, opened', sizes, and_self, ↓reduceIte, bound, reused, false_and]
 
 /-- An alternative whose passed variable no pair holds on the threaded side is refused, whatever
 the pass gave: `standingFor` then gives the further variable no pair. -/
@@ -954,7 +956,7 @@ theorem alternative_eq_error_of_unpaired (side : Side) (seen other : Observation
     (unpaired : (standingFor side pairs passed further).isEmpty = true) :
     alternative side seen other pairs passed binders threaded direct = .error .different := by
   simp only [alternative, opened, opened', sizes, and_self, ↓reduceIte, bound, unpaired,
-    Bool.not_true, Bool.and_false, Bool.false_eq_true]
+    Bool.true_eq_false, and_false]
 
 /-- The pairs with which the two bodies of an alternative are compared hold every variable the
 bodies are read with: the pattern variables of both alternatives and the further variable. -/
@@ -1408,15 +1410,15 @@ theorem EqualWithin.of_structural {left right : Observations} {depth : Nat} {pai
   · obtain ⟨x, y, bound, bound', new, rfl⟩ := (under_eq_ok_iff ..).mp found
     simp only [List.cons_append, List.nil_append, List.mem_cons, List.not_mem_nil, or_false,
       forall_eq_or_imp, forall_eq] at related
-    exact .lam kept bound bound' ((newVariables_iff ..).mp new) related.1 related.2
+    exact .lam kept bound bound' new related.1 related.2
   · obtain ⟨x, y, bound, bound', new, rfl⟩ := (under_eq_ok_iff ..).mp found
     simp only [List.cons_append, List.nil_append, List.mem_cons, List.not_mem_nil, or_false,
       forall_eq_or_imp, forall_eq] at related
-    exact .forallE kept bound bound' ((newVariables_iff ..).mp new) related.1 related.2
+    exact .forallE kept bound bound' new related.1 related.2
   · obtain ⟨x, y, bound, bound', new, rfl⟩ := (under_eq_ok_iff ..).mp found
     simp only [List.cons_append, List.nil_append, List.mem_cons, List.not_mem_nil, or_false,
       forall_eq_or_imp, forall_eq] at related
-    exact .letE kept bound bound' ((newVariables_iff ..).mp new) related.1 related.2.1 related.2.2
+    exact .letE kept bound bound' new related.1 related.2.1 related.2.2
   · cases found
 
 /-- Where a step reduces the comparison to parts that are all related, the two terms are
@@ -1515,7 +1517,7 @@ theorem equalWithin_of_related {left right : Observations} {fuel : Nat} {pairs :
     · exact acceptedArguments part member
   | lam kept bound bound' new _ _ acceptedType acceptedBody =>
     refine equalWithin_of_structural kept
-      ((under_eq_ok_iff ..).mpr ⟨_, _, bound, bound', (newVariables_iff ..).mpr new, rfl⟩) ?_
+      ((under_eq_ok_iff ..).mpr ⟨_, _, bound, bound', new, rfl⟩) ?_
     intro part member
     simp only [List.cons_append, List.nil_append, List.mem_cons, List.not_mem_nil,
       or_false] at member
@@ -1524,7 +1526,7 @@ theorem equalWithin_of_related {left right : Observations} {fuel : Nat} {pairs :
     · exact acceptedBody
   | forallE kept bound bound' new _ _ acceptedType acceptedBody =>
     refine equalWithin_of_structural kept
-      ((under_eq_ok_iff ..).mpr ⟨_, _, bound, bound', (newVariables_iff ..).mpr new, rfl⟩) ?_
+      ((under_eq_ok_iff ..).mpr ⟨_, _, bound, bound', new, rfl⟩) ?_
     intro part member
     simp only [List.cons_append, List.nil_append, List.mem_cons, List.not_mem_nil,
       or_false] at member
@@ -1533,7 +1535,7 @@ theorem equalWithin_of_related {left right : Observations} {fuel : Nat} {pairs :
     · exact acceptedBody
   | letE kept bound bound' new _ _ _ acceptedType acceptedValue acceptedBody =>
     refine equalWithin_of_structural kept
-      ((under_eq_ok_iff ..).mpr ⟨_, _, bound, bound', (newVariables_iff ..).mpr new, rfl⟩) ?_
+      ((under_eq_ok_iff ..).mpr ⟨_, _, bound, bound', new, rfl⟩) ?_
     intro part member
     simp only [List.cons_append, List.nil_append, List.mem_cons, List.not_mem_nil,
       or_false] at member

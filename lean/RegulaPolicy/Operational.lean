@@ -94,12 +94,12 @@ def operationalFailure (t : ToolchainAxioms) (d : Declaration) : Option Declarat
   declarationFailure (operationalView t d) (.conforming .standardLogical) #[] #[]
 
 /-- Operational success: not an axiom declaration, every transitive axiom Standard-Logical or
-(for a non-proposition) a reported toolchain axiom, and every recorded contract complete.
-Escape hatches do not appear. -/
+(for a non-proposition) a reported toolchain axiom, every recorded contract complete, and no
+recorded decision registration sharing a test. Escape hatches do not appear. -/
 def OperationalOK (t : ToolchainAxioms) (d : Declaration) : Prop :=
   d.kind ≠ .«axiom» ∧
   (∀ n ∈ d.axioms, Permitted .standardLogical n ∨ (d.isProp = false ∧ n ∈ t.names)) ∧
-  ContractOK d
+  ContractOK d ∧ SharedTestOK d
 
 theorem mem_operationalAxioms (t : ToolchainAxioms) (d : Declaration) (n : Name) :
     n ∈ operationalAxioms t d ↔ n ∈ d.axioms ∧ (d.isProp = false → n ∉ t.names) := by
@@ -112,13 +112,13 @@ theorem operationalFailure_none_iff (t : ToolchainAxioms) (d : Declaration) :
   unfold operationalFailure
   rw [declarationFailure_none_iff]
   simp only [DeclarationOK, operationalView, KnownDependencies, SafetyOK, CompilerPolicyOK,
-    ContractOK, ProfileOK, OperationalOK, mem_operationalAxioms]
+    ContractOK, SharedTestOK, ProfileOK, OperationalOK, mem_operationalAxioms]
   have hsorry := t.not_hole
   have hcomp := t.not_compiler
   constructor
-  · rintro (⟨_, hn, _⟩ | ⟨hk, _, hknown, _, hcompiler, hcontract, _⟩)
+  · rintro (⟨_, hn, _⟩ | ⟨hk, _, hknown, _, hcompiler, hcontract, hshared, _⟩)
     · simp at hn
-    · refine ⟨hk, fun n hn => ?_, hcontract⟩
+    · refine ⟨hk, fun n hn => ?_, hcontract, hshared⟩
       by_cases ht : d.isProp = false ∧ n ∈ t.names
       · exact Or.inr ht
       · have hmem : n ∈ d.axioms ∧ (d.isProp = false → n ∉ t.names) :=
@@ -126,7 +126,7 @@ theorem operationalFailure_none_iff (t : ToolchainAxioms) (d : Declaration) :
         rcases hknown n hmem with hs | hc
         · exact Or.inl hs
         · exact absurd hc (hcompiler.resolve_left (by simp) n hmem)
-  · rintro ⟨hk, hall, hcontract⟩
+  · rintro ⟨hk, hall, hcontract, hshared⟩
     have hlog : ∀ n, n ∈ d.axioms ∧ (d.isProp = false → n ∉ t.names) →
         Permitted .standardLogical n := fun n ⟨hn, hnt⟩ =>
       (hall n hn).resolve_right fun ⟨hp, hm⟩ => hnt hp hm
@@ -139,7 +139,7 @@ theorem operationalFailure_none_iff (t : ToolchainAxioms) (d : Declaration) :
       · simp [Permitted] at hs
       · simp at hc
     refine Or.inr ⟨hk, fun h => ?_, fun n h => Or.inl (hlog n h), by simp,
-      Or.inr hnc, hcontract, fun n h => Or.inr (hlog n h)⟩
+      Or.inr hnc, hcontract, hshared, fun n h => Or.inr (hlog n h)⟩
     have hs := hlog _ h
     simp [Permitted] at hs
 
@@ -222,7 +222,8 @@ theorem checked_operationalDecision : Regula.ExecutableContract operationalFailu
   ⟨.of_iff (fun input => operationalFailure_none_iff input.1 input.2)
     ⟨(toolchain, recorded .«definition»),
       (operationalFailure_none_iff _ _).mpr
-        ⟨by simp [recorded], by simp [recorded], by simp [ContractOK, recorded]⟩⟩
+        ⟨by simp [recorded], by simp [recorded], by simp [ContractOK, recorded],
+          by simp [SharedTestOK, recorded]⟩⟩
     ⟨(toolchain, recorded .«axiom»),
       fun accepted => ((operationalFailure_none_iff _ _).mp accepted).1 rfl⟩⟩
 

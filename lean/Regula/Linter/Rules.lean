@@ -53,7 +53,7 @@ def declarations (observed : Compiler.LegacyCompilerTrust)
     | some (.rule id) =>
         let location ← Findings.declarationLocation d (some source)
         let finding ← Findings.declarationFinding id d.name
-          (descriptor id).applicability location .editorSnapshot claim
+          (Findings.ruleDetail id d) location .editorSnapshot claim
         result := { result with findings := result.findings.push finding }
   return result
 

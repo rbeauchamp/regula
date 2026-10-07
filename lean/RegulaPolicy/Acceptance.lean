@@ -623,7 +623,11 @@ theorem accepted_no_transcript_subjects {c : Claim} {i : Census} {p : Plan c i}
   intro m _ found
   obtain ⟨d, inventory, both⟩ := Array.any_eq_true'.mp found
   have none := accepted_no_transcript_declaration accepted required member inventory
-  simp [none] at both
+  have needs : NeedsTranscript d.kind d.name := by
+    simp only [Bool.and_eq_true, decide_eq_true_eq] at both
+    exact both.2
+  rw [(declarationNeedsTranscript_iff _ _).mpr needs] at none
+  cases none
 
 /-- Combined ordinary acceptance retains both independently complete plans, indexed by
 one exact snapshot and the requested Markdown inventory. Neither component is promoted

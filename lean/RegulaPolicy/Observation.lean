@@ -417,9 +417,10 @@ theorem localDeclaration_preserves_flattened (c : Claim)
   have compiler (n : Name) (hn : n ∈ declaration.axioms) :
       CompilerAxiom localRoles.native n ↔ CompilerAxiom flattenedRoles.native n := by
     simp only [CompilerAxiom, native n hn]
-  rcases judgment with ⟨_, _, impossible⟩ | ⟨kind, hole, known, safety, trust, contract, foundation⟩
+  rcases judgment with ⟨_, _, impossible⟩ |
+    ⟨kind, hole, known, safety, trust, contract, shared, foundation⟩
   · cases impossible
-  · refine Or.inr ⟨kind, hole, ?_, ?_, ?_, contract, ?_⟩
+  · refine Or.inr ⟨kind, hole, ?_, ?_, ?_, contract, shared, ?_⟩
     · intro n hn
       exact (known n hn).imp_right (compiler n hn).mpr
     · exact safety.imp_right helpers

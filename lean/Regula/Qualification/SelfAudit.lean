@@ -12,7 +12,7 @@ Operational self-audit of the checker's own excluded `Regula` library
 The library is not a conforming proof surface, so the project audit excludes it. This
 campaign applies the rules that do hold for operational code, per module of the library as
 Lake discovers it: completed kernel admission of every owned safe declaration (RG2005), the
-executed `RegulaPolicy.checked_operationalFailure` decision (RG1001–RG1005, RG1007) on the
+executed `RegulaPolicy.checked_operationalFailure` decision (RG1001–RG1005, RG1007, RG1009) on the
 observations the live linter's shared collector (`Regula.Collect.declaration`) constructs, the
 executed `RegulaPolicy.checked_decisionFailure` decision (RG1008) against the decision contracts
 the same module registers (`RegulaPolicy.decidedImplementations` of its declarations), and
@@ -168,7 +168,7 @@ private def decide (o : ModuleObservation) : Except String ModuleResult := do
         (checked_decisionFailure.run d decided) then
       let id := ruleForFailure failure
       let extra := d.axioms.filter fun n => !standardLogicalAxiom n
-      let detail := (descriptor id).applicability ++
+      let detail := Findings.ruleDetail id d ++
         (if extra.isEmpty then "" else s!" (axioms outside Standard-Logical: {extra.toList})")
       violations := violations.push (← declarationText id d.name detail o.module)
   return ⟨o.module.toString, o.declarations.size, o.admitted, contracts, violations,

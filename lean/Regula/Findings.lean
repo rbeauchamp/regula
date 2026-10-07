@@ -22,6 +22,18 @@ def declarationName (decl : RegulaPolicy.Declaration) : Except String Name := do
   unless decl.name != .anonymous do throw "anonymous declaration identity"
   return decl.name
 
+/-- The detail of a declaration finding where no classification line of the declaration is
+printed, as in the editor, in the self-audit and in a documentation example: the applicability
+of rule `id` and, for the shared-test rule, the names of the shared functions with a result of
+`Bool` or `BEq` that the record of the declaration's contract holds
+(`RegulaPolicy.SharedNames.booleansText`), as the classification line of a project finding
+prints them. -/
+def ruleDetail (id : RuleId) (decl : RegulaPolicy.Declaration) : String :=
+  (descriptor id).applicability ++
+    match id, decl.executableContract with
+    | .sharedTest, some contract => " " ++ contract.shared.booleansText
+    | _, _ => ""
+
 /-- The violation finding of a declaration-scoped rule `id` for declaration `name`, with its
 detail, location, mode and claim, the declaration it is attributed to, if any
 (`sourceName?`), and related locations. A rule outside the declaration domain, or a mode
@@ -51,6 +63,9 @@ def declarationFinding (id : RuleId) (name : Name) (detail : String)
   | .decisionContract =>
       (fun d => ⟨.decisionContract, d⟩) <$> makeDiagnostic .decisionContract a location mode
           claim .violation (related := related)
+  | .sharedTest =>
+      (fun d => ⟨.sharedTest, d⟩) <$> makeDiagnostic .sharedTest a location mode claim .violation
+          (related := related)
   | .materialDocumentation =>
       (fun d => ⟨.materialDocumentation, d⟩) <$> makeDiagnostic .materialDocumentation a location
           mode claim .violation (related := related)

@@ -186,7 +186,7 @@ def locationJson : Location → Json
 private def argumentsJson : (id : RuleId) → Payload id → Json
   | .projectAxiom, a | .proofHole, a | .unknownAxiom, a | .compilerTrusting, a
   | .profileExceeded, a | .escapeHatch, a | .executableContract, a | .decisionContract, a
-  | .materialDocumentation, a | .materialIntent, a =>
+  | .sharedTest, a | .materialDocumentation, a | .materialIntent, a =>
       Json.mkObj [("declaration", printedNameJson a.declaration),
         ("sourceDeclaration", (a.sourceDeclaration.map printedNameJson).getD .null),
         ("detail", toJson a.detail)]

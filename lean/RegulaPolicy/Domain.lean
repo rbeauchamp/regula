@@ -589,9 +589,29 @@ structure Ranges where
   selectionRange : Range
   deriving Repr, DecidableEq
 
-/-- The selection range lies within the full range. -/
-def Ranges.nested (r : Ranges) : Bool :=
-  positionLE r.range.start r.selectionRange.start && positionLE r.selectionRange.end r.range.end
+/-- `a` is at or before `b`, as a proposition: lines compared first, then columns on the same
+line. `positionLE` decides it (`positionLE_iff`). -/
+def PositionLE (a b : Position) : Prop :=
+  a.line < b.line ∨ (a.line = b.line ∧ a.column ≤ b.column)
+
+instance (a b : Position) : Decidable (PositionLE a b) := by
+  unfold PositionLE; infer_instance
+
+/-- The executed comparison accepts exactly the positions that `PositionLE` relates. -/
+theorem positionLE_iff (a b : Position) : positionLE a b = true ↔ PositionLE a b := by
+  simp [positionLE, PositionLE]
+
+/-- A position is at or before itself. -/
+theorem PositionLE.refl (a : Position) : PositionLE a a := .inr ⟨rfl, Nat.le_refl _⟩
+
+/-- The selection range lies within the full range, as a proposition: the full range starts at or
+before the selection range, and the selection range ends at or before the full range. It is stated
+with no test: `Ranges.admitted` decides it with the comparisons of Lean's natural numbers. -/
+def Ranges.Nested (r : Ranges) : Prop :=
+  PositionLE r.range.start r.selectionRange.start ∧ PositionLE r.selectionRange.end r.range.end
+
+instance (r : Ranges) : Decidable r.Nested := by
+  unfold Ranges.Nested; infer_instance
 
 /-- The pair admission and finding locations use for a recorded pair: the recorded pair itself
 when its selection range lies within its full range, and otherwise the full range as its own
@@ -603,7 +623,7 @@ command that called `aux_def` and the second the positions of that caller's name
 `macro_rules` over several syntax kinds gives a kind's definition a selection range that ends
 after its range. -/
 def Ranges.admitted (r : Ranges) : Ranges :=
-  if r.nested then r else { range := r.range, selectionRange := r.range }
+  if r.Nested then r else { range := r.range, selectionRange := r.range }
 
 /-- Which directions of a decision a registered contract's requirement states, one value for
 each of the structures `Regula.DecidesSoundly`, `Regula.DecidesCompletely` and `Regula.Decides`
@@ -858,12 +878,18 @@ structure SharedDefinition where
   result : ResultForm
   deriving Repr, DecidableEq
 
-/-- The constant has a value that a term can depend on, and it is no field of data: it is a
-definition or an opaque constant, and it is no projection function. An inductive type, a
-constructor and a recursor are data, a projection function reads a field of data, and a theorem
-and an axiom have no value that a term can depend on. -/
+/-- The constant stands for a value that a term can depend on, and it is no field of data: it is
+a definition, an opaque constant or an axiom, and it is no projection function. An inductive
+type, a constructor and a recursor are data, a projection function reads a field of data, and a
+theorem has no value that a term can depend on. An axiom is counted as an opaque constant is:
+Lean's kernel unfolds neither, and a term depends on what each stands for. Lean gives a file with
+a `module` header an imported definition as an axiom when its module does not export the value,
+so the class of such a constant is read from its type alone (`SharedDefinition.class`). An axiom
+that states a proposition has the result form of a proof, whose class this condition does not
+decide. -/
 def SharedDefinition.Defines (shared : SharedDefinition) : Prop :=
-  (shared.kind = .«definition» ∨ shared.kind = .«opaque») ∧ shared.projection = false
+  (shared.kind = .«definition» ∨ shared.kind = .«opaque» ∨ shared.kind = .«axiom») ∧
+    shared.projection = false
 
 instance (shared : SharedDefinition) : Decidable shared.Defines := by
   unfold SharedDefinition.Defines; infer_instance
@@ -879,9 +905,11 @@ instance (shared : SharedDefinition) : Decidable shared.Computes := by
   unfold SharedDefinition.Computes; infer_instance
 
 /-- The class of a constant that the two sides of a decision registration share
-(`SharedDefinition.class`). The record of the registration names each constant of the classes
-`boolean` and `other` that its specification reaches first (`SharedNames`). It names no constant
-of the other three classes. -/
+(`SharedDefinition.class`). The record of the registration names each constant of the class
+`boolean` that its specification reaches at any depth, and each constant of the class `other`
+that its specification reaches first (`SharedNames`). It names no constant of the other three
+classes. A registration is refused for a constant of the class `boolean` (`sharedTestFailure`),
+and for no other class. -/
 inductive SharedClass where
   /-- A type, a statement or a proof: a constant whose value is a type, a proposition or a
   record of propositions, and a proof. An inductive type, a theorem and a definition of a
@@ -954,11 +982,13 @@ theorem SharedDefinition.class_eq_other_iff (shared : SharedDefinition) :
 
 /-- Controls of the classes, each with the kind, the projection, the function, the generated
 record and the result form that the collector reads. A function with a result of `Bool` is of
-the class `boolean`, also where Lean's records say that Lean generated it. A function with a
-result of a list is of the class `other`, and of the class `data` where Lean's records say that
-Lean generated it. A `BEq` record is of the class `boolean` also where it takes no argument. A
-`Decidable` value, a proof, a constant that is no function and a field's projection function
-are of no named class. -/
+the class `boolean`, also where Lean's records say that Lean generated it, and also where the
+environment has it as an axiom, as a file with a `module` header has an imported function with no
+exported value. A function with a result of a list is of the class `other`, and of the class
+`data` where Lean's records say that Lean generated it. A `BEq` record is of the class `boolean`
+also where it takes no argument. A `Decidable` value, a proof, an axiom that states a
+proposition, a constant that is no function and a field's projection function are of no named
+class. -/
 example :
     (⟨`test, .«definition», false, true, false, .«bool»⟩ : SharedDefinition).class = .boolean ∧
     (⟨`derived, .«definition», false, true, true, .«beq»⟩ : SharedDefinition).class = .boolean ∧
@@ -970,7 +1000,10 @@ example :
     (⟨`proved, .«theorem», false, false, false, .«proof»⟩ : SharedDefinition).class =
       .«statement» ∧
     (⟨`limit, .«definition», false, false, false, .«other»⟩ : SharedDefinition).class = .data ∧
-    (⟨`field, .«definition», true, true, false, .«bool»⟩ : SharedDefinition).class = .data := by
+    (⟨`field, .«definition», true, true, false, .«bool»⟩ : SharedDefinition).class = .data ∧
+    (⟨`hidden, .«axiom», false, true, false, .«bool»⟩ : SharedDefinition).class = .boolean ∧
+    (⟨`assumed, .«axiom», false, false, false, .«proof»⟩ : SharedDefinition).class =
+      .«statement» := by
   decide
 
 /-- The constant is counted: its class is `boolean` or `other`. The search from the
@@ -982,57 +1015,82 @@ def SharedDefinition.Counted (shared : SharedDefinition) : Prop :=
 instance (shared : SharedDefinition) : Decidable shared.Counted := by
   unfold SharedDefinition.Counted; infer_instance
 
-/-- The names that the record of a decision registration holds of the constants that its
-specification reaches first and that its implementation, or its acceptance predicate, reaches
-too, by class. Each list is sorted and has no duplicate (`sharedNames`). -/
+/-- The names that the record of a decision registration holds of the functions that its
+specification shares with its implementation or its acceptance predicate, by class
+(`sharedNames`). Each list is sorted and has no duplicate. The two lists come from two searches:
+a function of the class `boolean` is named at any depth, and a function of the class `other` is
+named where the specification reaches it first. -/
 structure SharedNames where
-  /-- The constants of the class `SharedClass.boolean`. -/
+  /-- The functions of the class `SharedClass.boolean` that the specification reaches at any
+  depth, also below a function of the class `other`, and that the other side reaches too. -/
   booleans : Array Lean.Name := #[]
-  /-- The constants of the class `SharedClass.other`. -/
+  /-- The functions of the class `SharedClass.other` that the specification reaches first, with
+  no counted function between, and that the other side reaches too. -/
   others : Array Lean.Name := #[]
   deriving Repr, DecidableEq, Inhabited
 
-/-- No constant is named. -/
+/-- No function is named. -/
 def SharedNames.isEmpty (names : SharedNames) : Bool :=
   names.booleans.isEmpty && names.others.isEmpty
 
-/-- The names of the counted constants among `shared`, by class, each list sorted and without
-duplicates: what the record of a decision registration holds for the account
-(`mem_sharedNames_booleans`, `mem_sharedNames_others`). It decides the class of each constant
-with `SharedDefinition.class`, so the executed class is the stated one. -/
-def sharedNames (shared : List SharedDefinition) : SharedNames where
-  booleans := canonicalNames
-    ((shared.filter fun definition => decide (definition.class = .boolean)).map (·.name)).toArray
-  others := canonicalNames
-    ((shared.filter fun definition => decide (definition.class = .other)).map (·.name)).toArray
+/-- The named functions of the class `boolean` as a finding and a classification line print
+them: `shared-booleans=` and the list of the names as Lean prints them. -/
+def SharedNames.booleansText (names : SharedNames) : String :=
+  s!"shared-booleans={repr (names.booleans.toList.map (·.toString))}"
 
-/-- A name is among the named constants of the class `boolean` exactly when it is the name of a
-constant of that class in the list. -/
-theorem mem_sharedNames_booleans (shared : List SharedDefinition) (name : Lean.Name) :
-    name ∈ (sharedNames shared).booleans ↔ ∃ definition ∈ shared,
+/-- The names that the record of a decision registration holds, from what the collector read of
+two lists of shared constants. `first` has each counted constant that the specification reaches
+first: that reading stops at each of them. `reached` has each constant that the specification
+reaches at any depth and that the other side reaches too: that reading stops at no constant. The
+functions of the class `boolean` are named from `reached`, and those of the class `other` from
+`first` (`mem_sharedNames_booleans`, `mem_sharedNames_others`). The class of each constant is
+`SharedDefinition.class`, so the executed class is the stated one. -/
+def sharedNames (first reached : List SharedDefinition) : SharedNames where
+  booleans := canonicalNames
+    ((reached.filter fun definition => decide (definition.class = .boolean)).map (·.name)).toArray
+  others := canonicalNames
+    ((first.filter fun definition => decide (definition.class = .other)).map (·.name)).toArray
+
+/-- A name is among the named functions of the class `boolean` exactly when it is the name of a
+constant of that class that the search at any depth read. -/
+theorem mem_sharedNames_booleans (first reached : List SharedDefinition) (name : Lean.Name) :
+    name ∈ (sharedNames first reached).booleans ↔ ∃ definition ∈ reached,
       definition.class = .boolean ∧ definition.name = name := by
   simp [sharedNames, mem_canonicalNames, and_assoc]
 
-/-- A name is among the named constants of the class `other` exactly when it is the name of a
-constant of that class in the list. -/
-theorem mem_sharedNames_others (shared : List SharedDefinition) (name : Lean.Name) :
-    name ∈ (sharedNames shared).others ↔ ∃ definition ∈ shared,
+/-- A name is among the named functions of the class `other` exactly when it is the name of a
+constant of that class that the specification reaches first. -/
+theorem mem_sharedNames_others (first reached : List SharedDefinition) (name : Lean.Name) :
+    name ∈ (sharedNames first reached).others ↔ ∃ definition ∈ first,
       definition.class = .other ∧ definition.name = name := by
   simp [sharedNames, mem_canonicalNames, and_assoc]
 
-/-- No constant is named exactly when no constant of the list is counted. -/
-theorem sharedNames_isEmpty_iff (shared : List SharedDefinition) :
-    (sharedNames shared).isEmpty = true ↔ ∀ definition ∈ shared, ¬ definition.Counted := by
-  simp only [SharedNames.isEmpty, Bool.and_eq_true, Array.isEmpty_iff,
-    Array.eq_empty_iff_forall_not_mem, mem_sharedNames_booleans, mem_sharedNames_others,
-    SharedDefinition.Counted, not_or]
-  constructor
-  · rintro ⟨booleans, others⟩ definition member
-    exact ⟨fun boolean => booleans _ ⟨definition, member, boolean, rfl⟩,
-      fun other => others _ ⟨definition, member, other, rfl⟩⟩
-  · intro none
-    exact ⟨fun _ ⟨definition, member, boolean, _⟩ => (none definition member).1 boolean,
-      fun _ ⟨definition, member, other, _⟩ => (none definition member).2 other⟩
+/-- No function of the class `boolean` is named exactly when the search at any depth read no
+constant of that class. -/
+theorem sharedNames_booleans_eq_empty_iff (first reached : List SharedDefinition) :
+    (sharedNames first reached).booleans = #[] ↔
+      ∀ definition ∈ reached, definition.class ≠ .boolean := by
+  simp only [Array.eq_empty_iff_forall_not_mem, mem_sharedNames_booleans]
+  exact ⟨fun absent definition member boolean => absent _ ⟨definition, member, boolean, rfl⟩,
+    fun absent _ ⟨definition, member, boolean, _⟩ => absent definition member boolean⟩
+
+/-- No function of the class `other` is named exactly when the specification reaches no constant
+of that class first. -/
+theorem sharedNames_others_eq_empty_iff (first reached : List SharedDefinition) :
+    (sharedNames first reached).others = #[] ↔
+      ∀ definition ∈ first, definition.class ≠ .other := by
+  simp only [Array.eq_empty_iff_forall_not_mem, mem_sharedNames_others]
+  exact ⟨fun absent definition member other => absent _ ⟨definition, member, other, rfl⟩,
+    fun absent _ ⟨definition, member, other, _⟩ => absent definition member other⟩
+
+/-- No function is named exactly when the search at any depth read no constant of the class
+`boolean` and the specification reaches no constant of the class `other` first. -/
+theorem sharedNames_isEmpty_iff (first reached : List SharedDefinition) :
+    (sharedNames first reached).isEmpty = true ↔
+      (∀ definition ∈ reached, definition.class ≠ .boolean) ∧
+        ∀ definition ∈ first, definition.class ≠ .other := by
+  rw [SharedNames.isEmpty, Bool.and_eq_true, Array.isEmpty_iff, Array.isEmpty_iff,
+    sharedNames_booleans_eq_empty_iff, sharedNames_others_eq_empty_iff]
 
 /-- What the collector observes of a function registered with `@[regula_decision]`: whether its
 result type is `Decidable _`, the form whose every result carries a proof of the decided
@@ -1089,10 +1147,11 @@ structure ExecutableContract where
   other requirement. -/
   kind : Option DecisionKind := none
   /-- For a decision registration whose statement the collector searched: the names of the
-  functions that its specification reaches first and that its implementation, or its acceptance
-  predicate, reaches too (`sharedNames`). The search stops at each of them. The kind does not
-  establish that a named function is the intended one, and no registration is refused for one.
-  Empty for every other registration. -/
+  functions that its specification shares with its implementation or its acceptance predicate
+  (`sharedNames`). A function of the class `boolean` is named at any depth, and the registration
+  is refused for it (`sharedTestFailure`). A function of the class `other` is named where the
+  specification reaches it first. The kind does not establish that such a function is the
+  intended one, and no registration is refused for it. Empty for every other registration. -/
   shared : SharedNames := {}
   deriving Repr, DecidableEq
 
