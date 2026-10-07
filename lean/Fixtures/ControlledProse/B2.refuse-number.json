@@ -1,0 +1,9 @@
+{
+  "version": 1,
+  "checks": ["C1", "C2", "C3", "C4", "C5", "C6", "C7", "C8"],
+  "documents": [
+    ["C1.accept.text", "frozen", "1a4819aeadbd714a35a4665d6dd11ad32be9d1f4b2d302da06bfdebf3eff042e"],
+    ["C3.refuse.text", "0", "0", "4", "0", "0", "0", "0", "0"],
+    ["C6.refuse.text", "0", "0", "0", "0", "0", "2", "0", "0"]
+  ]
+}

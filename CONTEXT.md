@@ -29,6 +29,7 @@ Standard: ASD-STE100 Issue 9
 
 | Term | Category | Definition | Replaces | Source |
 | --- | --- | --- | --- | --- |
+| baseline | 19 | The file that gives the permitted findings of each document that has findings. | - | `prose-baseline.json` |
 | checker | 19 | The Regula program that reads a Lake project and gives findings. | - | `docs/guides/architecture.md` |
 | control | 7 | An input for a check, with the result that the check must give for it. | - | `docs/guides/contributing.md` |
 | decision contract | 7 | A theorem that tells which inputs a decision function accepts, in relation to a specification. | - | `lean/Regula/Contract.lean` |

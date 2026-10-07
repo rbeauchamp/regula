@@ -4,10 +4,28 @@ import RegulaCore.Markdown
 /-! # Markdown documents, read by md4c
 
 `read` parses a Markdown document with md4c (through `MD4Lean`, at the revision the website
-package's pinned Verso resolves to) and reports its parse as the pieces
-`Regula.Markdown.documentErrors` (`RegulaCore/Markdown.lean`) decides on. Nothing here reads
-Markdown syntax: what is a paragraph, a code span, a table cell or a link, which link reference
-definition a reference uses, and what a character reference stands for, is md4c's.
+package's pinned Verso resolves to) and reports its parse as the pieces that
+`Regula.Markdown.documentErrors` (`RegulaCore/Markdown.lean`) and the checks of
+`RegulaCore/ControlledProse.lean` decide on. Nothing here reads Markdown syntax: what is a
+paragraph, a list item, a code span, a table cell or a link, which link reference definition a
+reference uses, and what a character reference stands for, is md4c's.
+
+## Blocks
+
+Each leaf block starts with its kind (`Regula.Markdown.Kind`): a heading, a paragraph, a table
+cell, or a code block or raw HTML block. A paragraph in an item of an ordered list is a `step`
+and a table cell there is a `stepCell`, at each depth: also when an unordered list, a block
+quote or a table in that item holds them. A paragraph in items of unordered lists only is a
+`bullet`, also in a block quote there. A block quote and a table thus keep the lists around
+them. In a tight list md4c
+reports the text of an item with no paragraph, and MD4Lean's wrapper supplies one, so an item's
+text is a paragraph in both kinds of list.
+
+The type `MD4Lean.Block` has nine constructors. Four of them hold blocks or cells: an unordered
+list, an ordered list, a block quote and a table. `block` gives each of the four the lists
+around it. md4c has no footnote and no definition list in this dialect: it reads their text as
+paragraphs, or as a link reference definition ("What is refused" and "What is not seen" below).
+A raw HTML block is refused.
 
 ## The parse
 
@@ -87,9 +105,11 @@ is decoded (`decode`).
 The translation in this module from MD4Lean's document to pieces (`read` and every definition
 it calls: `block`, `inline`, `flat`, `link` and the rest) has no theorem. It decides which piece
 each element md4c reports becomes: what is prose, code, a link's edge, a boundary between runs
-or lines, and a refusal. `Regula.Markdown.documentErrors_nil_iff` is about the pieces it is
-given, so that an accepted document has no bare rule ID in the prose md4c reports rests on this
-translation too, which only the evaluated controls below observe.
+or lines, the start of a block with its kind, and a refusal.
+`Regula.Markdown.documentErrors_nil_iff` and the contracts of `RegulaCore/ControlledProse.lean`
+are about the pieces they are given, so that an accepted document has no bare rule ID, and no
+finding, in the prose md4c reports rests on this translation too, which only the evaluated
+controls below observe.
 -/
 
 namespace Regula.Markdown
@@ -285,28 +305,53 @@ line end, so each `"\n"` is a line boundary. The text is located and not read. -
 def verbatim (slices : Array String) : List Piece :=
   slices.toList.map fun slice => if slice == "\n" then .line else .code slice
 
-/-- The pieces of the cells of one table row, which lie on one source line. -/
-def row (cells : Array (Array Text)) : List Piece :=
-  cells.toList.flatMap fun cell => .gap :: inlines true cell
+/-- The pieces of the cells of one table row, which lie on one source line. Each cell is a
+block of the kind `kind`. -/
+def row (kind : Kind) (cells : Array (Array Text)) : List Piece :=
+  cells.toList.flatMap fun cell => .start kind :: .gap :: inlines true cell
 
-/-- The pieces of one block. Each leaf block starts on a later source line than the text before
-it, as does each row of a table. A raw HTML block is refused unless it is a fence marker of the
-documentation audit (`auditMarker`). -/
-def block (b : Block) : List Piece :=
+/-- The kind of a paragraph for the lists `list` around it: `some true` in an item of an ordered
+list, at each depth, `some false` in items of unordered lists only, and `none` outside every
+list. -/
+def paragraphKind : Option Bool → Kind
+  | none => .paragraph
+  | some true => .step
+  | some false => .bullet
+
+/-- The kind of a table cell for the lists `list` around it: a cell of a step in an item of an
+ordered list, at each depth, and otherwise a cell. -/
+def cellKind : Option Bool → Kind
+  | some true => .stepCell
+  | _ => .cell
+
+/-- The pieces of one block; `list` says which lists are around it (`paragraphKind`). Each leaf
+block starts with its kind, on a later source line than the text before it, as does each row of
+a table. A block in an item of an ordered list stays in it at each depth: an unordered list, a
+block quote and a table there give their blocks the same `list`. A raw HTML block is refused
+unless it is a fence marker of the documentation audit (`auditMarker`). -/
+def block (list : Option Bool) (b : Block) : List Piece :=
   match b with
-  | .p texts | .header _ texts => .line :: inlines false texts
-  | .ul _ _ items | .ol _ _ _ items =>
+  | .p texts => .start (paragraphKind list) :: .line :: inlines false texts
+  | .header _ texts => .start .heading :: .line :: inlines false texts
+  | .ul _ _ items =>
     items.attach.toList.flatMap fun ⟨item, _⟩ =>
-      item.contents.attach.toList.flatMap fun ⟨inner, _⟩ => block inner
+      item.contents.attach.toList.flatMap fun ⟨inner, _⟩ =>
+        block (some (list == some true)) inner
+  | .ol _ _ _ items =>
+    items.attach.toList.flatMap fun ⟨item, _⟩ =>
+      item.contents.attach.toList.flatMap fun ⟨inner, _⟩ => block (some true) inner
   | .hr => []
-  | .code _ _ _ slices => .line :: verbatim slices
+  | .code _ _ _ slices => .start .code :: .line :: verbatim slices
   | .html slices =>
-    if auditMarker (String.join slices.toList) then .line :: verbatim slices
+    if auditMarker (String.join slices.toList) then .start .code :: .line :: verbatim slices
     else
-      .line :: .refused "raw HTML block, which the check does not read; write it in Markdown" ::
+      .start .code :: .line ::
+        .refused "raw HTML block, which the check does not read; write it in Markdown" ::
         verbatim slices
-  | .blockquote blocks => blocks.attach.toList.flatMap fun ⟨inner, _⟩ => block inner
-  | .table head body => .line :: row head ++ body.toList.flatMap fun cells => .line :: row cells
+  | .blockquote blocks => blocks.attach.toList.flatMap fun ⟨inner, _⟩ => block list inner
+  | .table head body =>
+    .line :: row (cellKind list) head ++
+      body.toList.flatMap fun cells => .line :: row (cellKind list) cells
 termination_by b
 decreasing_by
   all_goals simp_wf
@@ -345,7 +390,7 @@ def read (source : String) : Reading :=
           MD4Lean cannot represent, or raw HTML, which the check does not read"
       else
         match MD4Lean.parse source htmlAsText with
-        | some document => .read (document.blocks.toList.flatMap block)
+        | some document => .read (document.blocks.toList.flatMap (block none))
         | none => .unread "md4c could not parse the document"
     | _, _ => .unread "md4c could not render the document"
 
@@ -545,5 +590,46 @@ private def bodyless : String :=
   "<https://example.org/RG2003> and <https://example.org/>.\n") ==
   (["1", "2", "3"].map fun line => s!"a.md:{line}: RG2003 is in an autolink (a bare URL or \
     <URL>), whose end GitHub and md4c find by their own rules; write the link in brackets")
+
+/-! Evaluated controls of the reader boundary of the prose checks
+(`RegulaCore/ControlledProse.lean`): the kind of each block md4c reports. The controls of the
+checks themselves, on documents read by md4c, are the files of `lean/Fixtures/ControlledProse`,
+which the executable runs (`MarkdownMain.lean`). -/
+
+/-- The kinds of the blocks of `source`, in order. -/
+private def kinds (source : String) : List Kind :=
+  match read source with
+  | .read pieces => pieces.filterMap fun
+    | .start kind => some kind
+    | _ => none
+  | .unread _ => []
+
+-- A heading, a paragraph, the items of a tight unordered and of a tight ordered list (md4c
+-- reports no paragraph there and MD4Lean's wrapper supplies one), a paragraph of a block quote,
+-- the cells of a table, head row first, and a code block.
+-- Compiled-evaluation observation at build time, not a kernel-checked proof.
+#guard kinds ("# T\n\nP one.\n\n- a\n- b\n\n1. c\n2. d\n\n> q\n\n| h |\n| --- |\n| x |\n\n" ++
+  "```\ncode\n```\n") ==
+  [.heading, .paragraph, .bullet, .bullet, .step, .step, .paragraph, .cell, .cell, .code]
+-- A block in an item of an ordered list is a step at each depth: a paragraph of an unordered
+-- list there, a paragraph of a block quote there and the cells of a table there.
+-- Compiled-evaluation observation at build time, not a kernel-checked proof.
+#guard kinds "1. a\n\n   - b\n\n   > q\n\n2. c\n" == [.step, .step, .step, .step]
+-- Compiled-evaluation observation at build time, not a kernel-checked proof.
+#guard kinds "1. > q\n" == [.step]
+-- Compiled-evaluation observation at build time, not a kernel-checked proof.
+#guard kinds "1. a\n\n   | h |\n   | --- |\n   | x |\n" == [.step, .stepCell, .stepCell]
+-- An ordered list in an item of an unordered list, with an unordered list in its item.
+-- Compiled-evaluation observation at build time, not a kernel-checked proof.
+#guard kinds "- a\n  1. b\n     - c\n" == [.bullet, .step, .step]
+-- A block quote and a table in items of unordered lists only keep those lists.
+-- Compiled-evaluation observation at build time, not a kernel-checked proof.
+#guard kinds "- a\n\n  > q\n\n  | h |\n  | --- |\n  | x |\n" == [.bullet, .bullet, .cell, .cell]
+-- md4c has no definition list and no footnote in this dialect: their text is a paragraph.
+-- Compiled-evaluation observation at build time, not a kernel-checked proof.
+#guard kinds "Term\n: text\n\n[^n]: A note.\n" == [.paragraph, .paragraph]
+-- A raw HTML block has no prose, also when it is refused.
+-- Compiled-evaluation observation at build time, not a kernel-checked proof.
+#guard kinds "<p>x</p>\n\n<!-- lean-trusted-compiler -->\n" == [.code, .code]
 
 end Regula.Markdown

@@ -55,7 +55,7 @@ lock manifest that records any dependency. It records the content
 identity of the inputs it accepted in `tmp/acceptance-link.json`. `./scripts/verify.sh docs`
 then refuses a rule ID in the prose of a tracked Markdown document that is not a link to its rule page ([rule IDs in documentation](#rule-ids-in-documentation)), audits the `audit/` package's claimed surface from fresh output, checks every Lean example
 under `docs/` and in the Verso standard (each elaborated in the Verso package's workspace, which
-requires both packages), builds and renders the standard fresh, refuses such a rule ID in the prose of the rendered standard, and refuses unless its own freshly captured inputs have the same identity. That command also operates the controls of the [check of the vocabulary](#the-vocabulary-of-the-project) and then does that check. `DOC-*` rows need both commands. The
+requires both packages), builds and renders the standard fresh, refuses such a rule ID in the prose of the rendered standard, and refuses unless its own freshly captured inputs have the same identity. That command also operates the controls of the [checks of the prose](#the-prose-of-markdown-documents) and of the [check of the vocabulary](#the-vocabulary-of-the-project), and then does those checks. `DOC-*` rows need both commands. The
 declaration gate performs Lake-semantic discovery and a clean, warning-free build before
 inspection, so a redundant preliminary clean build is unnecessary; `lake build` remains the
 development command. Each command has its own hard seven-minute
@@ -403,7 +403,8 @@ Link to the actual Lean module for larger definitions and proofs; do not copy an
 implementation merely to mirror the chapter structure.
 
 For a new or changed Markdown document, obey the [writing rules](writing.md). The documentation
-step does the [check of the vocabulary](#the-vocabulary-of-the-project).
+step does the [checks of the prose](#the-prose-of-markdown-documents) and the
+[check of the vocabulary](#the-vocabulary-of-the-project).
 
 For review, use the repository-local
 [review toolkit](../../.agents/skills/pr-review-toolkit/SKILL.md) and the applicable
@@ -539,16 +540,65 @@ contract for them:
 - Git gives no list of tracked files for the repository, or for the directory of the file of the
   option `--shared`.
 
-The controls of the check are the files in
-[`lean/Fixtures/ControlledProse/`](../../lean/Fixtures/ControlledProse/). The documentation step
-operates them first: `lake exe regula-markdown --controls ../lean/Fixtures/ControlledProse` in
-`markdown/`. The check accepts two controls and does not accept the others. For a control that
-it does not accept, each message must start with the file, the line and the check of the
-control. A control has the extension `text`. Thus the check of the tracked Markdown documents
-does not read the controls.
+The controls of the check are the files of
+[`lean/Fixtures/ControlledProse/`](../../lean/Fixtures/ControlledProse/) with a name that starts
+with `C9`. The documentation step operates the controls of that directory first:
+`lake exe regula-markdown --controls ../lean/Fixtures/ControlledProse` in `markdown/`. The check
+accepts two controls of C9 and does not accept the others. For a control that it does not
+accept, each message must start with the file, the line and the check of the control. A control
+has the extension `text`. Thus the check of the tracked Markdown documents does not read the
+controls.
 
 This check is not a rule of the checker and not a requirement of the standard. It has no rule
 ID.
+
+### The prose of Markdown documents
+
+The same executable does the checks C1 to C8 of the [writing rules](writing.md) on each tracked
+Markdown document. The baseline [`prose-baseline.json`](../../prose-baseline.json) gives the
+findings of each document that does not obey the writing rules at this time. Check B1 compares
+each document with its entry, and it does not accept an entry with no tracked Markdown document.
+Check B2 compares the baseline with the baseline of the base revision. If the base revision has
+no baseline, B2 compares the baseline with the Markdown documents of the base revision.
+
+The decisions are in
+[`RegulaCore/ControlledProse.lean`](../../lean/RegulaCore/ControlledProse.lean) and
+[`RegulaCore/ProseBaseline.lean`](../../lean/RegulaCore/ProseBaseline.lean). Each decision has a
+decision contract and the attribute `regula_decision`.
+
+The start of the check gives the base revision of check B2. The
+[writing rules](writing.md#the-baseline) give the base revision for each start. The workflow
+gives the start to the documentation step in the variable `REGULA_PROSE_START`. The `verify`
+job of CI gets the full history of the repository. If Git does not give the base revision,
+check B2 does not accept the baseline.
+
+The controls of the base revision are repositories that the executable makes with Git in a
+temporary directory. Each control gives the variable in a form that a start gives, or no
+variable for the run of a developer. No control has the values that GitHub gives for an event.
+
+A control that expects a refusal does not pass if the check uses a base that accepts. A control
+that expects no refusal does not pass if the check uses a base that refuses. The comment of each
+control gives the bases that the control tells apart from the correct base. No control that
+expects no refusal tells the correct base apart from the examined commit.
+
+The controls of an entry with no document are commits of one of these repositories. Three
+commits remove a document and keep its entry: an entry of numbers, a `generated` entry and a
+`frozen` entry. One commit has an entry for a file that Git does not track. One commit has an
+entry for a tracked file that is not a Markdown document. Check B1 must give a refusal for each
+of these commits, at the line of the entry.
+
+One more control is a repository with a baseline that Git does not track. The option
+`--write-baseline` must keep the `frozen` entry and the `generated` entry of a document. It
+must write no entry that has no document.
+
+The controls of these checks are in the same directory as the controls of the vocabulary. A
+control of C1 to C8 is a document with the extension `text`. A control of B1 or B2 is a baseline
+with the extension `json`. Thus the checks of the tracked Markdown documents do not read the
+controls. For a control that a check does not accept, each message must start with the file,
+the line and the check of the control.
+
+These checks are not rules of the checker and not requirements of the standard. They have no
+rule ID.
 
 ## Change an acceptance boundary
 
