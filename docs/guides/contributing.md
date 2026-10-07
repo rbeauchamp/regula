@@ -71,8 +71,11 @@ step builds the claimed libraries one time.
 
 If the checkout has no build output, the driver then moves the build output of the copy to
 `.lake/build` of the checkout. If the checkout has build output, the driver does not change it.
-The driver removes the copy at the end of the step. A killed step leaves its copy, and the next
-run of the checker removes it.
+The driver removes the copy at the end of the step. A killed step leaves its copy. The next
+first step or the next run of the checker removes it.
+
+An ordinary attempt holds a lock of the checkout (`tmp/acceptance-link.lock`). A second
+ordinary attempt in the same checkout stops with a message while the first attempt operates.
 
 Each line that starts with `verification:` is
 a progress line of the driver of `./scripts/verify.sh`. Such a line gives the start of a command,

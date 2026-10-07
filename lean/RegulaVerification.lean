@@ -160,13 +160,13 @@ private def lakeIn (dir : String) (args : Array String) : Command := ⟨"lake", 
 
 /-- Ordinary acceptance records its accepted input identity here; the separately timed
 documentation step refuses unless its own identity is equal. The driver puts the record here as
-its last action before the success line (`promoted`), so an accepted record here means that every
-command of the step exited 0. -/
+its last action before the success line (`Attempt.promote`), so an accepted record here means
+that every command of the step exited 0. -/
 def linkPath : String := "tmp/acceptance-link.json"
 
 /-- Where the gate of ordinary acceptance records that identity. This record becomes `linkPath`
-only once every command of the step has exited 0 (`promoted`), as the driver's last action, so a
-run that fails or is killed before then leaves `linkPath` incomplete. -/
+only once every command of the step has exited 0 (`Attempt.promote`), as the driver's last
+action, so a run that fails or is killed before then leaves `linkPath` incomplete. -/
 def pendingLinkPath : String := "tmp/acceptance-link.pending.json"
 
 /-- The standard's Verso source: package directory, library and its render-only executable.
@@ -499,17 +499,22 @@ def removeDecided (path : System.FilePath) (observed : Observed)
     (_decided : removal observed = .remove) : IO Unit :=
   IO.FS.removeDirAll path
 
+/-- What the driver observes of `path` before a removal: what is there, by a read that follows
+no link at the path, and whether its real path is the path. -/
+def observe (path : System.FilePath) : IO Observed := do
+  return {
+    place := ← place path
+    sameLocation := match ← (IO.FS.realPath path).toBaseIO with
+      | .ok real => real == path
+      | .error _ => false }
+
 /-- Remove the directory at `path` when one is there at its own place, do nothing when nothing
 is there, and stop with nothing removed when a symbolic link or a file is there
 (`removal_remove_iff`). `path` must have no symbolic link at a component above its last one: its
 callers give a path below a real path. That no process changes the path between the observation
 and the removal is trusted. -/
 def removeOwn (path : System.FilePath) : IO Unit := do
-  let observed : Observed := {
-    place := ← place path
-    sameLocation := match ← (IO.FS.realPath path).toBaseIO with
-      | .ok real => real == path
-      | .error _ => false }
+  let observed ← observe path
   match decided : removal observed with
   | .nothing => pure ()
   | .remove => removeDecided path observed decided
@@ -526,8 +531,12 @@ them a second time. This driver is the only process of the step that runs before
 artifact exists, so it makes the copy.
 
 The copy is in a new scratch directory of the checker's scratch area, by the protocol of
-`Regula.Scratch`, which this module cannot import: an ownership marker beside the directory, and
-a shared lock on the area's lock file for as long as the copy is in use. So the build output of
+`Regula.Scratch`, which this module cannot import: the reclamation of the marked directories
+when no scratch owner lives, an ownership marker beside the directory, and a shared lock on the
+area's lock file for as long as the copy is in use. So a first step that starts while no other
+scratch owner of the checkout lives leaves no scratch directory of a run that died before it,
+and it removes its own at its end. A scratch owner that dies during the step, which is not this
+driver, leaves its directory to the next scratch user. So the build output of
 the copy holds only what the commands of this step made, the build reads files that no other
 process is given, and the step removes nothing of the checkout. The acceptance gate cannot
 observe that this driver made the copy new in this run; that statement rests on `makeCopy`. -/
@@ -590,16 +599,45 @@ structure Copy where
   /-- The handle that holds the shared lock of the scratch area while the copy is in use. -/
   lock : IO.FS.Handle
 
-/-- Make the copy of the project at the real path `root`: take the shared lock of the checker's
-scratch area, create the ownership marker of a new name exclusively, create the directory of
-that name, which must not exist, and copy the project into its directory `project`
-(`copyTree`). The order is the one of `Regula.Scratch.withScratch`, so the checker's reclamation
-removes the directory of a driver that died, and removes none while this driver holds the lock.
+/-- Remove each marked scratch directory of `area`, then its marker: the reclamation of
+`Regula.Scratch`, with its conditions in its order. The caller holds the lock of the area
+exclusively, so no owner of a scratch directory lives, and each marked directory is one of a run
+that ended without its removal. A marker counts only when it is a regular file. Its directory is
+removed only as `removal` decides, a marker with no directory is removed, and with anything
+else at the directory's place nothing is removed. A removal that fails is reported and is no
+error of the step. -/
+def reclaim (area : System.FilePath) : IO Unit := do
+  for entry in ← area.readDir do
+    unless entry.path.extension == some "owner" do continue
+    let some name := entry.path.fileStem | continue
+    let path := area / name
+    let one : IO Unit := do
+      unless (← entry.path.symlinkMetadata).type == .file do return
+      let observed ← observe path
+      match decided : removal observed with
+      | .remove =>
+          removeDecided path observed decided
+          IO.FS.removeFile entry.path
+          announce s!"removed the scratch directory {path} of a run that ended without removing it"
+      | .nothing => IO.FS.removeFile entry.path
+      | .refuse => pure ()
+    if let .error error ← one.toBaseIO then
+      announce s!"could not remove the scratch directory {path}: {error}"
+
+/-- Make the copy of the project at the real path `root`, by the steps of
+`Regula.Scratch.withScratch` in its order. When the lock of the checker's scratch area can be
+taken exclusively, no scratch owner lives, and the marked directories are removed first
+(`reclaim`). Then: take the shared lock of the area, create the ownership marker of a new name
+exclusively, create the directory of that name, which must not exist, and copy the project into
+its directory `project` (`copyTree`). So the checker's reclamation and that of a later driver
+remove the directory of a driver that died, and remove none while this driver holds the lock.
 The copy has no `.lake`, so it has no build output. -/
 def makeCopy (root : System.FilePath) : IO Copy := do
   IO.FS.createDirAll (root / ".lake" / "regula-scratch")
   let area ← IO.FS.realPath (root / ".lake" / "regula-scratch")
   let lock ← IO.FS.Handle.mk (area / ".lock") .append
+  if ← lock.tryLock then
+    try reclaim area finally lock.unlock
   lock.lock (exclusive := false)
   let random := (← IO.getRandomBytes 8).foldl (fun value byte => value * 256 + byte.toNat) 0
   let name := s!"acceptance-{← IO.Process.getPID}-{← IO.monoNanosNow}-{random}"
@@ -658,12 +696,10 @@ private def usage : String :=
     [fixtures|structural [1/2|2/2]|execution [1/2|2/2]|cli|environments|build-policy|\
     lint-driver|producers|history|self-lint|self-audit|rule-examples [1/2|2/2]]]"
 
-/-- The earlier verdicts an attempt of `mode` invalidates, each with the constant text recording
-it as incomplete. Ordinary acceptance invalidates the accepted link and the gate's pending record
-of it, so neither is accepted from then on unless this attempt wrote it. -/
+/-- The earlier verdicts an attempt of a diagnostic `mode` invalidates, each with the constant
+text recording it as incomplete. Ordinary acceptance invalidates its two records under the lock
+of its attempt (`Attempt.invalidate`). -/
 def invalidated : Mode → List (String × String)
-  | .ordinary => [linkPath, pendingLinkPath].map
-      (·, "{\"schemaVersion\":1,\"status\":\"incomplete\"}\n")
   | .ruleExamples =>
       [("tmp/rule-examples.json", "{\"outcome\":\"INCOMPLETE\",\"phase\":\"setup\"}\n")]
   | .ruleExamplesFirst =>
@@ -672,11 +708,57 @@ def invalidated : Mode → List (String × String)
       [(shardEvidence 2, "{\"outcome\":\"INCOMPLETE\",\"phase\":\"setup\"}\n")]
   | _ => []
 
-/-- The record a mode's gate writes and the place the driver moves it to once every command of
-the mode has exited 0, as the driver's last action before the success line. -/
-def promoted : Mode → Option (String × String)
-  | .ordinary => some (pendingLinkPath, linkPath)
-  | _ => none
+/-! ## The lock of an ordinary attempt
+
+Every ordinary attempt of a checkout writes the same two records: the accepted link and the
+gate's pending record of it. Each process of an attempt that writes them holds one exclusive
+lock of the checkout while it does: the begin-attempt for its invalidation, and the run from its
+own invalidation to the promotion. So between the invalidation of a run and its promotion the
+only writer of the pending record is the gate that this run started, and the record that the run
+promotes is the one its own gate wrote.
+
+An attempt that finds the lock held stops with a message and writes nothing. It reports a
+failure, so it cannot report a PASS that another attempt earned, and the attempt that holds the
+lock is not disturbed. Waiting would spend the limit of the timed step on another attempt. The
+lock is an advisory lock of the operating system on an open file, so it ends with its process: a
+killed attempt leaves the lock file and no lock. That every writer of the two records takes the
+lock holds for this driver and the gate it starts; a process that writes the records by itself
+is outside it. File locking and process death are trusted operating-system effects. -/
+
+/-- The lock file of an ordinary attempt of the checkout. It is opened and never written. -/
+def attemptLockPath : String := "tmp/acceptance-link.lock"
+
+/-- An ordinary attempt that holds the lock of its checkout (`Attempt.begin`). The two actions
+that write the acceptance records, `Attempt.invalidate` and `Attempt.promote`, take one. -/
+structure Attempt where
+  /-- The handle that holds the exclusive lock on `attemptLockPath`. -/
+  lock : IO.FS.Handle
+
+/-- Take the lock of an ordinary attempt of this checkout, or stop with nothing written when
+another process holds it. -/
+def Attempt.begin : IO Attempt := do
+  IO.FS.createDirAll "tmp"
+  let lock ← IO.FS.Handle.mk attemptLockPath .append
+  unless ← lock.tryLock do
+    throw <| IO.userError s!"an ordinary acceptance attempt of this checkout holds \
+      {attemptLockPath}: this attempt stops and has written nothing; start it again after that \
+      attempt has ended"
+  return ⟨lock⟩
+
+/-- Record the accepted link and the gate's pending record of it as incomplete, so neither is
+accepted from then on unless this attempt wrote it. -/
+def Attempt.invalidate (_attempt : Attempt) : IO Unit :=
+  for path in [linkPath, pendingLinkPath] do
+    IO.FS.writeFile path "{\"schemaVersion\":1,\"status\":\"incomplete\"}\n"
+
+/-- Move the gate's pending record to the accepted link. The run does this once every command
+of the step has exited 0, as its last action before the success line. -/
+def Attempt.promote (_attempt : Attempt) : IO Unit :=
+  IO.FS.rename pendingLinkPath linkPath
+
+/-- Give the lock back at the end of the attempt's process. -/
+def Attempt.finish (attempt : Attempt) : IO Unit :=
+  attempt.lock.unlock
 
 /-- The package adopters require stays dependency-free: its lock manifest records no package. Lake
 refuses to load a workspace whose configuration requires a package that the lock manifest does not
@@ -699,11 +781,17 @@ theorem dependencyFree_packages (manifest : Lean.Json) (h : dependencyFree manif
 
 /-- Begin an attempt: invalidate the selected mode's earlier PASS or accepted link, and remove
 an earlier site artifact. `scripts/verify.sh` runs this toolchain-only step before provisioning
-and before any checker is built, so a failed setup or build cannot leave either in place. The
+and before any checker is built, so a failed setup or build cannot leave either in place. An
+ordinary attempt invalidates its two records under the lock of its attempt, and stops with
+nothing written when another ordinary attempt of the checkout holds it (`Attempt.begin`). The
 site artifact is removed only when a directory is at its own place (`removeOwn`): with a symbolic
 link at `_site` the attempt stops and removes nothing. -/
 def beginAttempt (args : List String) : IO Unit := do
   let some selection := select args | throw <| IO.userError usage
+  if selection.val == .ordinary then
+    let attempt ← Attempt.begin
+    attempt.invalidate
+    attempt.finish
   for (path, text) in invalidated selection.val do
     IO.FS.createDirAll "tmp"
     IO.FS.writeFile path text
@@ -712,14 +800,17 @@ def beginAttempt (args : List String) : IO Unit := do
 
 /-- Cold-start driver; all builds and checks stay within the inherited outer deadline. After the
 preliminary checks it runs the commands of the mode one after another, starts one only while
-every end known so far passed, and reports success, and first moves a record the mode promotes
-(`promoted`), only when `passed` accepts how every one of those commands ended
-(`passed_covers`). The first acceptance step makes its copy after the preliminary checks
-(`makeCopy`), runs its commands for that copy (`ordinary_places`), gives the copy's build output
-to a project that has none when the step passed (`Copy.adopt`), and removes the copy in each
-case (`Copy.remove`). -/
+every end known so far passed, and reports success only when `passed` accepts how every one of
+those commands ended (`passed_covers`). The first acceptance step holds the lock of its attempt
+from its start to its end (`Attempt.begin`), invalidates its two records inside it, and promotes
+the pending record of its gate before the success line (`Attempt.promote`). It makes its copy
+after the preliminary checks (`makeCopy`), runs its commands for that copy (`ordinary_places`),
+gives the copy's build output to a project that has none when the step passed (`Copy.adopt`),
+and removes the copy in each case (`Copy.remove`). -/
 def run (args : List String) : IO Unit := do
   let some selection := select args | throw <| IO.userError usage
+  let attempt ← if selection.val == .ordinary then some <$> Attempt.begin else pure none
+  if let some attempt := attempt then attempt.invalidate
   if selection.val == .ordinary then
     let manifest ← IO.ofExcept (Lean.Json.parse (← IO.FS.readFile "lake-manifest.json"))
     unless dependencyFree manifest do
@@ -742,9 +833,10 @@ def run (args : List String) : IO Unit := do
     copy.remove
   unless passed all.statuses do
     throw <| IO.userError (report all.ends)
-  if let some (pending, accepted) := promoted selection.val then
-    IO.FS.rename pending accepted
-    announce s!"every command exited 0: moved {pending} to {accepted}"
+  if let some attempt := attempt then
+    attempt.promote
+    announce s!"every command exited 0: moved {pendingLinkPath} to {linkPath}"
+    attempt.finish
   IO.println (match selection.val with
     | .ordinary => "local verification: PASS (ordinary mechanical acceptance commands completed; \
       semantic review is separate; run `scripts/verify.sh docs` for documentation)"
@@ -789,12 +881,29 @@ def copyControl : IO Unit := do
         return
     | other => throw <| IO.userError s!"--copy-control: unknown line {other}"
 
+/-- The private `--attempt-control` entry, for the controls of the checker self-test, so that
+they qualify the lock of this driver and not a second implementation of it. It takes the lock of
+an ordinary attempt of the project in the current directory and invalidates the two records as
+the first acceptance step does (`Attempt.begin`, `Attempt.invalidate`), prints `held`, and holds
+the lock until a line or the end of its standard input. It runs no check and reports no
+verification result. -/
+def attemptControl : IO Unit := do
+  let attempt ← Attempt.begin
+  attempt.invalidate
+  let stdout ← IO.getStdout
+  stdout.putStrLn "held"
+  stdout.flush
+  discard <| (← IO.getStdin).getLine
+  attempt.finish
+
 end RegulaVerification
 
 /-- Standalone cold-start entrypoint; invoke through the timed `scripts/verify.sh`, which
 first runs it with the private `--begin-attempt` protocol flag before setup. The private
-`--copy-control` entry is for the controls of the checker self-test. -/
+`--copy-control` and `--attempt-control` entries are for the controls of the checker
+self-test. -/
 def main : List String → IO Unit
   | "--begin-attempt" :: args => RegulaVerification.beginAttempt args
   | ["--copy-control"] => RegulaVerification.copyControl
+  | ["--attempt-control"] => RegulaVerification.attemptControl
   | args => RegulaVerification.run args

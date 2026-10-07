@@ -229,15 +229,21 @@ The gate with no such option makes its isolated copy as before. So do the `lint`
 fence audit and the gates of `audit/` and `integration/mathlib/`.
 
 The driver cannot import the checker before the build. Thus it has its own code for the protocol
-of `Regula.Scratch`. It holds a shared lock on the file `.lock` of the scratch area, then makes
-the ownership marker, and then makes the directory. The checker removes a marked directory only
-when it gets the exclusive lock. Thus a different run of the checker does not remove a live
-copy.
+of `Regula.Scratch`, with the same steps in the same sequence. First it tries to get the
+exclusive lock on the file `.lock` of the scratch area. If it gets that lock, no scratch owner
+is alive, and it removes each marked directory and its marker (`reclaim`). Then it holds a
+shared lock, makes the ownership marker, and makes the directory.
+
+The checker and the driver remove a marked directory only with the exclusive lock. Thus no run
+removes a live copy. A first step can start while no other scratch owner of the checkout is
+alive. After such a step ends, the scratch area has no directory of a run that died before the
+step. A scratch owner that dies during the step leaves its directory for the next scratch user.
 
 That code is a second implementation of the protocol, and no theorem relates the two. A control
 of the checker self-test operates the driver itself with its private entry `--copy-control`. It
 shows that a scratch user of the checker keeps the copy of a live driver. It also shows that the
-next scratch user removes the copy of a killed driver.
+next scratch user removes the copy of a killed driver. The next driver also removes such a copy
+before it makes its own.
 
 After the commands of an accepted step, the driver gives the build output of the copy to the
 checkout if the checkout has none. The function `Copy.adopt` reads the place `.lake/build` of
@@ -270,8 +276,8 @@ Thus it can then remove the entries of a different directory. The checker remove
 scratch directories with the same function.
 
 The driver moves the pending record to `tmp/acceptance-link.json` only if
-`RegulaVerification.passed` accepts the exit status of each command. The function `promoted`
-gives the two paths of that move. That move is the last action of the driver before the success
+`RegulaVerification.passed` accepts the exit status of each command. The function
+`Attempt.promote` does that move. That move is the last action of the driver before the success
 line. The command `./scripts/verify.sh docs` operates `docFenceAudit --acceptance-link
 tmp/acceptance-link.json` with the same `--verso` argument for each `docs/` fence and each `lean`
 block of the standard.
@@ -281,6 +287,39 @@ that each other command of the first step ended with exit status 0. If an attemp
 killed before the move, the record at that path stays incomplete. It is the incomplete record
 that the begin-attempt of the step wrote. The shell's zero exit records completed execution of
 those commands, not a separate Lean proof.
+
+Each ordinary attempt of a checkout writes the same two records. Thus an ordinary attempt holds
+one exclusive lock of the checkout while it writes them. The lock is on the file
+`tmp/acceptance-link.lock`. The begin-attempt holds it for its invalidation. The driver holds it
+from its start to its end, and it invalidates the two records again after it gets the lock
+(`Attempt.begin`, `Attempt.invalidate`).
+
+Thus, between that invalidation and the move, the only writer of the pending record is the gate
+that the same driver started. The record that an attempt moves is the record of its own gate.
+This statement is an argument from the code and the lock, and no theorem shows it. A process
+that writes the records with no lock is outside that argument.
+
+An attempt that finds the lock held stops with a message, and it writes nothing. It reports a
+failure. Thus it cannot report a result that a different attempt got, and it does not change the
+records of that attempt. An attempt that waits for the lock can use its own time limit for the
+wait. A control of the checker self-test operates the driver with its private entry
+`--attempt-control` and shows that a second attempt stops.
+
+The lock is an advisory lock of the operating system on an open file. It goes away when its
+process ends, also after a kill. Thus a killed attempt leaves the lock file but no lock. In one
+local probe, a child process of a killed holder did not keep the lock. The behavior of the lock
+is trusted.
+
+The documentation step does not use that lock. It reads the accepted record one time, after it
+calculated its own identity (`AcceptanceLink.require`). The move puts a complete accepted record
+at that path in one operation. The step refuses a record that is missing, incomplete or not
+complete JSON. It also refuses a record with a different identity.
+
+Other files of a checkout have no such lock. Two rule-example attempts of the same mode write
+the same evidence file, and two site builds write the same directories. Each Lake command in the
+checkout writes `.lake/build`, and this project found no lock of Lake for that directory. The
+first acceptance step writes there only with the one rename, because its build is in its copy.
+Do not operate two of those other commands in one checkout at the same time.
 
 The result of the driver is one decision. The driver keeps an entry for each command, and the
 preliminary checks are included. An entry has the exit status of its command, if the driver got

@@ -2800,10 +2800,13 @@ lean/RegulaVerification.lean --copy-control`), in a project with one library and
 * The driver leaves a project's build output as it is, and gives a project with none the copy's
   by a rename. With a symbolic link at the project's `.lake/build` it leaves the link and the
   marked content of its target.
-* A driver that is killed leaves the directory and its marker, and the next scratch user of the
-  checker removes both.
+* A driver that is killed leaves the directory and its marker. The next scratch user of the
+  checker removes both, and so does the next driver, before it makes its own copy.
 * With a symbolic link at `_site`, the driver's `--begin-attempt site` stops and the marked
-  content of the target stays; a real `_site` directory is removed. -/
+  content of the target stays; a real `_site` directory is removed.
+* While one ordinary attempt holds the lock of the project (`--attempt-control`), a second
+  begin-attempt and a second run stop with a message and write nothing to the pending record.
+  After a kill of the holder, the next begin-attempt gets the lock and invalidates the record. -/
 private def driverCopyControl (repo : FilePath) : IO (Array String) :=
   withScratch repo "driver-copy-control" fun scratch => do
   let project := scratch / "project"
@@ -2859,7 +2862,7 @@ private def driverCopyControl (repo : FilePath) : IO (Array String) :=
     cmd := "lean", args := #["--run", driver, "--copy-control"], cwd := some project
     env := scrubbedLeanPathEnv, stdin := .piped, stdout := .piped, stderr := .inherit }
   let (input, child) ← child.takeStdin
-  let copy := FilePath.mk (← child.stdout.getLine).trimAscii.toString
+  let copy := FilePath.mk (← answer child.stdout)
   let some name := ScratchCopy.name? (← IO.FS.realPath area).normalize.components
       copy.normalize.components
     | return #[s!"driver-copy/place: the driver's copy {copy} is not in the scratch area {area}"]
@@ -2904,7 +2907,7 @@ private def driverCopyControl (repo : FilePath) : IO (Array String) :=
     env := scrubbedLeanPathEnv, stdin := .piped, stdout := .piped, stderr := .inherit
     setsid := true }
   let (input, child) ← child.takeStdin
-  let copy := FilePath.mk (← child.stdout.getLine).trimAscii.toString
+  let copy := FilePath.mk (← answer child.stdout)
   let some name := ScratchCopy.name? (← IO.FS.realPath area).normalize.components
       copy.normalize.components
     | return failures.push s!"driver-copy/place: the second copy {copy} is not in {area}"
@@ -2924,13 +2927,29 @@ private def driverCopyControl (repo : FilePath) : IO (Array String) :=
     ((← copy.pathExists) && (← marker.pathExists))
   failures := failures ++ expect "left: the checker's reclamation did not remove the copy of a \
     killed driver" (!(← survivesReclamation copy) && !(← marker.pathExists))
-  -- 3. A project with no build output gets the copy's.
+  -- 3. A second killed driver, and then a project with no build output: the next driver removes
+  -- the copy of the dead one before it makes its own, and the project gets the copy's output.
   IO.FS.removeFile build
+  let child ← IO.Process.spawn {
+    cmd := "lean", args := #["--run", driver, "--copy-control"], cwd := some project
+    env := scrubbedLeanPathEnv, stdin := .piped, stdout := .piped, stderr := .inherit
+    setsid := true }
+  let dead := FilePath.mk (← answer child.stdout)
+  let some deadName := ScratchCopy.name? (← IO.FS.realPath area).normalize.components
+      dead.normalize.components
+    | return failures.push s!"driver-copy/place: the third copy {dead} is not in {area}"
+  let deadMarker := area / s!"{deadName}.{Regula.Scratch.markerExtension}"
+  child.kill
+  discard child.wait
+  failures := failures ++ expect "dead: a killed driver left no copy or no marker"
+    ((← dead.pathExists) && (← deadMarker.pathExists))
   let child ← IO.Process.spawn {
     cmd := "lean", args := #["--run", driver, "--copy-control"], cwd := some project
     env := scrubbedLeanPathEnv, stdin := .piped, stdout := .piped, stderr := .inherit }
   let (input, child) ← child.takeStdin
-  let copy := FilePath.mk (← child.stdout.getLine).trimAscii.toString
+  let copy := FilePath.mk (← answer child.stdout)
+  failures := failures ++ expect "dead: the next driver did not remove the copy of a dead driver"
+    (!(← dead.pathExists) && !(← deadMarker.pathExists) && (← copy.pathExists))
   IO.FS.createDirAll (copy / ".lake" / "build")
   IO.FS.writeFile (copy / ".lake" / "build" / "made.txt") "made in the copy"
   input.putStrLn "adopt"
@@ -2957,6 +2976,29 @@ private def driverCopyControl (repo : FilePath) : IO (Array String) :=
     scrubbedLeanPathEnv
   failures := failures ++ expect "site: an earlier artifact was not removed"
     (removed.succeeded && !(← site.pathExists))
+  -- 5. Two ordinary attempts in one project. While one holds the lock, a second begin-attempt
+  -- and a second run stop and write nothing; a killed holder leaves no lock.
+  let pending := project / "tmp" / "acceptance-link.pending.json"
+  let holder ← IO.Process.spawn {
+    cmd := "lean", args := #["--run", driver, "--attempt-control"], cwd := some project
+    env := scrubbedLeanPathEnv, stdin := .piped, stdout := .piped, stderr := .inherit
+    setsid := true }
+  failures := failures ++ expect "attempt: the first attempt did not get the lock"
+    ((← answer holder.stdout) == "held")
+  -- What the gate of the first attempt writes while its run holds the lock.
+  IO.FS.writeFile pending "the record of the gate of the first attempt"
+  for (label, args) in [("begin-attempt", #["--run", driver, "--begin-attempt"]),
+      ("run", #["--run", driver])] do
+    let second ← runProcess project "lean" args scrubbedLeanPathEnv
+    failures := failures ++ expect s!"attempt: a second {label} did not stop with nothing written"
+      (!second.succeeded && second.output.contains "this attempt stops and has written nothing" &&
+        (← IO.FS.readFile pending) == "the record of the gate of the first attempt")
+  holder.kill
+  discard holder.wait
+  let next ← runProcess project "lean" #["--run", driver, "--begin-attempt"] scrubbedLeanPathEnv
+  failures := failures ++ expect "attempt: a killed holder left the lock held, or the next \
+    attempt did not invalidate the record" (next.succeeded &&
+      (← IO.FS.readFile pending).contains "\"status\":\"incomplete\"")
   return failures
 
 /-- The groups of controls the structural partition reports separately. -/
@@ -3033,7 +3075,9 @@ private unsafe def runStructural (layout : SourceLayout) (repo : FilePath) (jobs
         keeps it while the driver lives and removes it after; the gate refuses a copy that did \
         not build it, a directory outside the scratch area, one with no marker and \
         --incremental; a project keeps its build output or a link at its place, and one with \
-        none gets the copy's; a link at _site is not followed)"
+        none gets the copy's; the next driver removes the copy of a killed one; a link at _site \
+        is not followed; a second ordinary attempt stops and writes nothing while one holds the \
+        lock)"
 
 /-- Execution-evidence controls: the correspondence controls and every compiler-path case,
 each with its positive, mutation and fresh restoration in an isolated project. With `shard`,
