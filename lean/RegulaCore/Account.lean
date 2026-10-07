@@ -223,7 +223,8 @@ structure ContractAccount where
   kind : Option DecisionKind := none
   /-- The functions that the specification of a decision kind shares with the implementation
   or the acceptance predicate, by class, as the collector recorded them
-  (`RegulaPolicy.ExecutableContract.shared`): the kind says nothing of these definitions. -/
+  (`RegulaPolicy.ExecutableContract.shared`): the kind does not establish that these definitions
+  are the intended ones. -/
   shared : RegulaPolicy.SharedNames := {}
   deriving Repr, DecidableEq
 
@@ -246,18 +247,24 @@ def ContractAccount.decision (k : ContractAccount) : String :=
         | some direction => s!"; not established: it {direction}"
         | none => "")
 
-/-- The account's statement of the functions that a contract's specification shares with its
-implementation or its acceptance predicate: the definitions by name, those with a result of
-`Bool` or `BEq` first and marked as such, and that the kind says nothing of them. Empty for a
-contract whose record names none. The account refuses no contract for a shared function. -/
+/-- The account's statement of the functions that a contract's specification shares with the
+other side of its kind, which is the implementation with the acceptance predicate: the
+definitions by name, those with a result of `Bool` or `BEq` first and marked as such. A kind
+compares `accepts (f x)` with `spec x`, so a function that `spec` and `accepts` both use is on
+the two sides of that statement as one that `spec` and `f` both use is, and the line says
+"the implementation or the acceptance predicate". The directions of the kind do not depend on
+what a named function computes, so the line says that the kind does not establish that these
+definitions are the intended ones. Empty for a contract whose record names none. The account
+refuses no contract for a shared function. -/
 def ContractAccount.sharing (k : ContractAccount) : String :=
   if k.shared.isEmpty then "" else
     let names (list : Array Lean.Name) := ", ".intercalate (list.toList.map (s!"{·}"))
     let booleans := if k.shared.booleans.isEmpty then []
       else [s!"{names k.shared.booleans} (each with a result of Bool or BEq)"]
     let others := if k.shared.others.isEmpty then [] else [names k.shared.others]
-    s!"; the specification and the implementation both use \
-      {" and ".intercalate (booleans ++ others)}: the kind says nothing of these definitions"
+    s!"; the specification, and the implementation or the acceptance predicate, both use \
+      {" and ".intercalate (booleans ++ others)}: the kind does not establish that these \
+      definitions are the intended ones"
 
 /-- Fence expectations of an accepted documentation claim, by kind. Only positive fences are
 conforming evidence; expected rejections and trusted teaching are not interchangeable with it. -/

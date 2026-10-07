@@ -2975,28 +2975,53 @@ def ContractScope.outsideToolchain (scope : ContractScope) (env : Environment) (
   | none => pure true
   | some index => return !(← scope.fromToolchain env index.toNat)
 
-/-- Whether a value of the inductive type `head` is a record of statements: the type has one
-constructor and no index, and each field of that constructor is a proof or has a sort as its
-result, as the one field of `LT α` has. The numbers of constructors, of indices and of fields are
-read from the kernel-checked declarations. -/
-private def recordOfStatements (env : Environment) (head : Name) : MetaM Bool := do
-  let some (.inductInfo type) := env.find? head | return false
-  let [constructorName] := type.ctors | return false
-  unless type.numIndices == 0 do return false
-  let some (.ctorInfo constructor) := env.find? constructorName | return false
-  let arity := constructor.numParams + constructor.numFields
-  Meta.forallBoundedTelescope constructor.type (some arity) fun arguments _ => do
-    unless arguments.size == arity do return false
-    (arguments.extract constructor.numParams arity).allM fun field => do
+/-- What the fields of a structure type say of its values, read at the arguments of the type. -/
+private structure FieldReading where
+  /-- Every field is a proof or has a sort as its result, as the one field of `LT α` has: a
+  value is a record of statements. A structure with no field is read so too. -/
+  statements : Bool
+  /-- Some field that is no proof and has no sort as its result takes an argument: a value
+  carries a function, as a value of `BEq α` or of `Ord α` does. -/
+  function : Bool
+
+/-- The reading of the fields of `result`, when it is a structure type applied to its
+parameters: an inductive type with one constructor and no index. The fields are the binders of
+the constructor's type at the universe levels and the parameters of `result`. So a field whose
+type is a parameter is read at the actual argument: the field of `Box Prop` is a statement, and
+the field of `Box Nat` is not. The numbers of constructors, of indices, of parameters and of
+fields are read from the kernel-checked declarations. `none` for every other type. A field is
+read one level deep: a field whose type is itself a structure is no statement and no function
+here. -/
+private def readFields (env : Environment) (result : Expr) : MetaM (Option FieldReading) := do
+  let .const head levels := result.getAppFn | return none
+  let some (.inductInfo type) := env.find? head | return none
+  let [constructorName] := type.ctors | return none
+  unless type.numIndices == 0 do return none
+  let some (.ctorInfo constructor) := env.find? constructorName | return none
+  let parameters := result.getAppArgs
+  unless parameters.size == constructor.numParams do return none
+  unless levels.length == constructor.levelParams.length do return none
+  let fieldsType ← Meta.instantiateForall
+    (constructor.type.instantiateLevelParams constructor.levelParams levels) parameters
+  Meta.forallBoundedTelescope fieldsType (some constructor.numFields) fun fields _ => do
+    unless fields.size == constructor.numFields do return none
+    let mut statements := true
+    let mut function := false
+    for field in fields do
       let fieldType ← Meta.inferType field
-      if ← Meta.isProp fieldType then return true
-      Meta.forallTelescopeReducing fieldType (whnfType := true) fun _ result =>
-        pure result.isSort
+      if ← Meta.isProp fieldType then continue
+      let (sort, takesArgument) ← Meta.forallTelescopeReducing fieldType (whnfType := true)
+        fun arguments fieldResult => pure (fieldResult.isSort, !arguments.isEmpty)
+      if sort then continue
+      statements := false
+      if takesArgument then function := true
+    return some { statements, function }
 
 /-- The result form of a constant of type `type` (`RegulaPolicy.ResultForm`): `proof` when
 `type` is a proposition, and otherwise the form of `type` with every leading binder opened and
 every definition unfolded. `Decidable`, `Bool`, `Option`, `Except` and `BEq` are read by name,
-at their own numbers of arguments. -/
+at their own numbers of arguments. A structure type is a statement when each of its fields, at
+the arguments of that type, is a proof or has a sort as its result (`readFields`). -/
 private def readResultForm (env : Environment) (type : Expr) :
     MetaM RegulaPolicy.ResultForm :=
   Meta.withTransparency .all do
@@ -3008,8 +3033,8 @@ private def readResultForm (env : Environment) (type : Expr) :
       if result.isAppOfArity ``Option 1 then return .«option»
       if result.isAppOfArity ``Except 2 then return .«except»
       if result.isAppOfArity ``BEq 1 then return .«beq»
-      let some head := result.getAppFn.constName? | return .«other»
-      if ← recordOfStatements env head then return .«statement»
+      if let some reading ← readFields env result then
+        if reading.statements then return .«statement»
       return .«other»
 
 /-- The result form of the constant `info` (`readResultForm`), kept in the scope. -/
@@ -3023,13 +3048,21 @@ def ContractScope.resultForm (scope : ContractScope) (env : Environment) (info :
 /-- What the search for shared definitions reads of the constant `info`
 (`RegulaPolicy.SharedDefinition`). Its kind is the kind of its `ConstantInfo`. Whether it is a
 projection function is read from its kernel-checked value (`projectionBody?`), as `boundField?`
-reads it. Whether it is a function is read from its type, which then has a leading binder with
-every definition unfolded, and from its value, which then has a function abstraction. Its result
-form is read from its type (`ContractScope.resultForm`). Whether Lean
-generated it for an inductive type or as a matcher is what `generatedBy?` says for the families
-of a projection, a recursor, a matcher, a constructor lemma and a type construction; those
-clauses read Lean's records, which a project can write, and the pure classification uses the
-answer only to take a definition out of the class `other`
+reads it: no type tells a field's projection function from a function that computes, and Lean's
+record of projection functions is environment state that a project can write.
+
+Whether it is a function is read from its type alone, with every definition unfolded: the type
+has a leading binder, or its result is a structure type with a field that takes an argument and
+is neither a proof nor a statement, at the arguments of that type (`readFields`), as `BEq α` and
+`Ord α` are. The form of its value has no part: a closed list whose value has a function
+abstraction is no function, and a record of functions is one whether its value is a constructor
+application or a name for one.
+
+Its result form is read from its type (`ContractScope.resultForm`). Whether Lean generated it
+for an inductive type or as a matcher is what `generatedBy?` says for the families of a
+projection, a recursor, a matcher, a constructor lemma and a type construction; those clauses
+read Lean's records, which a project can write, and the pure classification uses the answer
+only to take a definition out of the class `other`
 (`RegulaPolicy.SharedDefinition.class`). -/
 private def sharedDefinition (env : Environment) (scope : ContractScope) (info : ConstantInfo) :
     MetaM RegulaPolicy.SharedDefinition := do
@@ -3042,13 +3075,11 @@ private def sharedDefinition (env : Environment) (scope : ContractScope) (info :
         .typeConstruction].anyM fun family =>
           return (← generatedBy? family info.name).isSome
     | _ => pure false
-  let takesArgument ← Meta.withTransparency .all <|
-    Meta.forallTelescopeReducing info.type fun arguments _ => pure !arguments.isEmpty
-  let abstracts := match info with
-    | .defnInfo definition => (definition.value.find? (·.isLambda)).isSome
-    | _ => false
-  return { name := info.name, kind := kindOf info, projection
-           function := takesArgument || abstracts, generated
+  let function ← Meta.withTransparency .all <|
+    Meta.forallTelescopeReducing info.type (whnfType := true) fun arguments result => do
+      if !arguments.isEmpty then return true
+      return ((← readFields env result).map (·.function)).getD false
+  return { name := info.name, kind := kindOf info, projection, function, generated
            result := ← scope.resultForm env info }
 
 /-- The constants that the search for shared definitions follows from `info`, on the side of

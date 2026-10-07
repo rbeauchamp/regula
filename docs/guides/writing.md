@@ -238,7 +238,7 @@ To see each finding of one document, use the command `lake exe regula-markdown .
 Each check is a Lean function with a decision contract. The contract compares the function with a specification. These rules are for the specification of each check of these writing rules, and for each new check:
 
 - A specification is a statement about the data that the function reads. It uses logic, the core library of Lean, the data types of the check and definitions of the project.
-- The function of a check can use a definition that its specification names. The report of the first acceptance command names each function that the two use, with the contract of the check.
+- The function of a check can use a definition that its specification names. The report of the first acceptance command names the first functions that the specification and the function use, with the contract of the check. It does not name a function that only a named function uses.
 - A definition with a result of `Bool` is not such a function. The specification names a proposition, and the function decides that proposition. The proposition `Spacing` is an example.
 - A step that changes the data before the decision is a relation in the specification. A theorem connects the function of that step with the relation. Examples are `Blocks`, `Divided`, `Marks` and `Normal`.
 - The function `write` is the definition of the grammar of a file. The function `parse` reads a text and compares it with the text that `write` gives for the result. A theorem shows that `parse` accepts only a text that `write` gives.

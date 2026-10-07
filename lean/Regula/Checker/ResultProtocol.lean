@@ -451,7 +451,8 @@ requirement states or `null` for a requirement that states none, and `notEstabli
 direction a one-way kind leaves open or `null` (`RegulaPolicy.DecisionKind.leavesOpen`). Since
 schema 11 each entry carries `sharedDefinitions`, an object with the members `booleans` and
 `others`: the functions that its specification shares with its implementation or its acceptance
-predicate, by class, of which the kind says nothing. No entry is refused for them. -/
+predicate, by class. The search stops at each named function. The kind does not establish that
+a named function is the intended one, and no entry is refused for one. -/
 def accountJson (account : Regula.Checker.Account) : Json :=
   let a := account.val
   let residuals (rs : List Regula.Checker.Account.Residual) := toJson (rs.map (·.spelling))

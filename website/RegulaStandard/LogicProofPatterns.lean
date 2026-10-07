@@ -1070,7 +1070,7 @@ theorem lowIndex_decides :
 
 Nested dependent pairs are not a form for three or more arguments. Each projection of a pair carries the pair's type, so the elaborated statement grows by a large factor with each argument, whichever way the pairs nest. A structure declared for the arguments has projections of constant size.
 
-A kind compares `accepts (f x)` with `spec x`. When `spec` and `f` both call a function, a change of that function changes the two sides together, and the proof of the kind can stay valid: the kind then holds for every definition of that function and says nothing of it. Where the shared function has a result of `Bool`, the specification can state the proposition that the function decides, and a theorem connects the two. The build linter names each function that the two sides share in its report, and it refuses no registration for one ({ref "exact-contract-and-coverage-scope"}[§7.11]).
+A kind compares `accepts (f x)` with `spec x`. When `spec` and `f` both call a function, a change of that function changes the two sides together, so the two directions of the kind do not depend on what that function computes. Only the witnesses do: a two-way kind still needs an input that is accepted and an input that is refused. The kind then does not establish that the shared function is the intended one. Where the shared function has a result of `Bool`, the specification can state the proposition that the function decides, and a theorem connects the two. The build linter names in its report each function that the specification reaches first and that the implementation or the acceptance predicate also reaches, and it refuses no registration for one ({ref "exact-contract-and-coverage-scope"}[§7.11]). It does not read below a named function, so a report that names no function with a result of `Bool` does not exclude such a function below a named one.
 
 ```lean
 import Regula.Contract
@@ -1095,7 +1095,8 @@ theorem lowEven_decides :
 def lax (_ : Nat) : Bool := true
 
 /-- With the specification stated through the helper, the same statement and the same witnesses
-hold of a helper that accepts every number: the kind says nothing of the helper. -/
+hold of a helper that accepts every number: the kind does not establish that the helper tests
+anything. -/
 example : Regula.Decides (· = true) (fun n => lax n = true ∧ n % 2 = 0)
     (fun n => lax n && decide (n % 2 = 0)) :=
   .of_iff (fun n => by simp) ⟨0, by decide⟩ ⟨1, by decide⟩

@@ -642,7 +642,9 @@ def guide : RuleId → Guide
         "For a decision registration: the report names each function outside Lean's own library \
           that the specification reaches first and that `f` or the acceptance predicate also \
           reaches, by name. It names them in two classes: a function with a result of `Bool` or \
-          `BEq`, and each other function. No registration is refused for a named function."]
+          `BEq`, and each other function. No registration is refused for a named function. The \
+          search stops at each named function, so a function that only a named function calls \
+          is not named."]
       notEstablished := [
         "That `R` expresses the intended behavior (R-INTENT) and that every caller uses the \
           contracted implementation (R-INVARIANT). Every accepted account lists these as open for \
@@ -657,8 +659,10 @@ def guide : RuleId → Guide
           leaves open, and which value an accepting result carries.",
         "For a decision registration: anything about a function that the report names as \
           shared. When the specification and `f` both call a function, a change of that function \
-          changes the two together, and the proof of the kind can stay valid: the kind holds for \
-          every definition of that function. Whether the specification is about the function, \
+          changes the two together, so the directions of the kind do not depend on what the \
+          function computes. Only the witnesses do: a two-way kind still needs an accepted and a \
+          refused input. The same holds of a function that the specification and the \
+          acceptance predicate both call. Whether the specification is about the function, \
           as it is about an encoding or a state transition, or only uses it to prepare the \
           input, remains review (R-INTENT). For a function with a result of `Bool` or `BEq`, a \
           proposition can take its place in the specification, with a theorem that connects \
@@ -713,18 +717,23 @@ def guide : RuleId → Guide
           inductive types. For `f` and the acceptance predicate it follows types and unfoldable \
           values, and it reads the value of a `Decidable` instance, which a function runs. It \
           reads no proof and no module of Lean's own library, and it does not read below a \
-          named function. A second definition with the text of a helper is a different \
+          named function: a report that names no function with a result of `Bool` does not \
+          exclude one below a named function of the other class. A second definition with the \
+          text of a helper is a different \
           constant, and the search does not find it. A second definition with a theorem that \
           the two are equal is not named either, and it is not a second statement of the \
           meaning.",
         "Data and statements are not named: an inductive type with its constructors, its \
           recursor and its projection functions, a definition whose value is a type, a \
           proposition or a record of propositions, a proof, a definition with a result of \
-          `Decidable p`, and a constant that is no function. Which definitions Lean generated \
+          `Decidable p`, and a constant that is no function. Whether a definition is a function \
+          is read from its type alone: it takes an argument, or its result is a structure with \
+          a field that takes one, as `BEq` is. Which definitions Lean generated \
           for a type or as a matcher is read from Lean's records, which a project can write. \
           That reading only keeps a function out of the second class: a function with a result \
           of `Bool` or `BEq` is named unless its kernel-checked value is a field's projection \
-          function."]
+          function. A field of a structure is read one level deep, at the arguments of the \
+          structure type."]
       residuals := [.intent, .invariant, .qualify]
       checklist :=
           ["BUILD-03", "THEOREM-07", "SCOPE-02", "SCOPE-03", "TYPE-01", "THEOREM-01",

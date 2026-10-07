@@ -464,9 +464,10 @@ metadata, not authenticated binary identity.
 - **Shared definitions:** since schema 11 each `contracts` entry of the account carries
   `sharedDefinitions`. It is an object with the lists `booleans` and `others`. The lists name
   the functions that the specification of a decision kind reaches first and that the
-  implementation or the acceptance predicate reaches too. The kind says nothing of these
-  functions, and no registration is refused for them. A declaration's `executableContract`
-  carries the same two lists as `shared`.
+  implementation or the acceptance predicate reaches too. The search does not read below a
+  named function. The kind does not establish that a named function is the intended one, and
+  no registration is refused for one. A declaration's `executableContract` carries the same
+  two lists as `shared`.
 - **Snapshot rendering:** `acceptance.snapshot` renders the audited sources in full, the
   configuration by URI and each dependency by package, pinned revision and input-scoped `dirty`
   bit (a dirty or path dependency as `{package, revision, dirty: true}`, with no content

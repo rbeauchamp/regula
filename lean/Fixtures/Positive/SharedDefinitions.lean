@@ -17,6 +17,18 @@ that its implementation reaches too, by class (`RegulaPolicy.SharedNames`):
   sides, and its result is a list. The helper is named in the class `other`.
 * `below_decides`: the two sides share a definition of a proposition, its `Decidable` instance
   and a constant. No function is named.
+* `knownSign_decides`: the two sides share a closed list whose value has a function
+  abstraction. The list takes no argument, so it is no function and is not named.
+* `sameNat_decides`: the two sides share a `BEq` record that is a name for an instance of
+  Lean's library, with no argument and no function abstraction in its value. It is named in the
+  class `boolean`.
+* `littleCheck_decides`: the two sides share a function whose result is `Box Prop`. The field
+  of `Box` is read at the argument `Prop`, so the function is a statement and is not named, and
+  the search reads its value: the helper with a result of `Bool` inside the statement is named.
+* `same_decides`: the function does not use the helper. The acceptance predicate and the
+  specification do, and the helper is named in the class `boolean`.
+* `firstBefore_decides`: the two sides share a record of one function, with no argument. Its
+  type has a field that takes an argument, so it is a function, named in the class `other`.
 -/
 import Regula.Contract
 
@@ -97,3 +109,75 @@ def below (n : Nat) : Bool := decide (Below n)
 theorem below_decides :
     Regula.ExecutableContract below (Regula.Decides (· = true) Below) :=
   ⟨.of_iff (fun n => by simp [below]) ⟨0, by decide⟩ ⟨4, by decide⟩⟩
+
+/-- A closed list. Its value has a function abstraction and it takes no argument. -/
+def signs : List (String × Nat) := ["a", "bb"].map fun sign => (sign, sign.length)
+
+/-- Whether `sign` is one of `signs`. -/
+def knownSign (sign : String) : Bool := decide (∃ pair ∈ signs, pair.1 = sign)
+
+theorem knownSign_decides :
+    Regula.ExecutableContract knownSign
+      (Regula.Decides (· = true) fun sign => ∃ pair ∈ signs, pair.1 = sign) :=
+  ⟨.of_iff (fun sign => by simp [knownSign]) ⟨"a", by decide⟩ ⟨"c", by decide⟩⟩
+
+/-- A `BEq` record that is a name for an instance of Lean's library. -/
+@[instance_reducible] def eqForNat : BEq Nat := inferInstance
+
+/-- Whether two numbers are the same by `eqForNat`. -/
+def sameNat (a b : Nat) : Bool := eqForNat.beq a b
+
+theorem sameNat_decides :
+    Regula.ExecutableContract sameNat (fun run =>
+      Regula.Decides (· = true) (fun input : Nat × Nat => eqForNat.beq input.1 input.2 = true)
+        (Function.uncurry run)) :=
+  ⟨.of_iff (fun _ => Iff.rfl) ⟨(0, 0), by decide⟩ ⟨(0, 1), by decide⟩⟩
+
+/-- A record of one value of any type. -/
+structure Box (α : Type) where
+  /-- The value. -/
+  value : α
+
+/-- A third helper with a result of `Bool`. -/
+def little (n : Nat) : Bool := decide (n < 3)
+
+/-- A statement in a record: the result type is `Box Prop`. -/
+def boxed (n : Nat) : Box Prop := ⟨little n = true⟩
+
+instance (n : Nat) : Decidable (boxed n).value := by
+  unfold boxed
+  infer_instance
+
+/-- Decides the statement of `boxed` with its instance, which calls `little`. -/
+def littleCheck (n : Nat) : Bool := decide (boxed n).value
+
+theorem littleCheck_decides :
+    Regula.ExecutableContract littleCheck
+      (Regula.Decides (· = true) fun n => (boxed n).value) :=
+  ⟨.of_iff (fun n => by simp [littleCheck]) ⟨0, by decide⟩ ⟨3, by decide⟩⟩
+
+/-- Returns its argument: it calls no helper. -/
+def same (n : Nat) : Nat := n
+
+theorem same_decides :
+    Regula.ExecutableContract same
+      (Regula.Decides (fun result => small result = true) fun n => small n = true) :=
+  ⟨.of_iff (fun _ => Iff.rfl) ⟨0, by decide⟩ ⟨4, by decide⟩⟩
+
+/-- An order, as a record of one function. -/
+structure Order where
+  /-- Whether the first number is before the second. -/
+  before : Nat → Nat → Bool
+
+/-- The order of the larger number first. It takes no argument. -/
+def descending : Order := ⟨fun a b => decide (b < a)⟩
+
+/-- Whether `a` is before `b` in `descending`. -/
+def firstBefore (a b : Nat) : Bool := descending.before a b
+
+theorem firstBefore_decides :
+    Regula.ExecutableContract firstBefore (fun run =>
+      Regula.Decides (· = true)
+        (fun input : Nat × Nat => descending.before input.1 input.2 = true)
+        (Function.uncurry run)) :=
+  ⟨.of_iff (fun _ => Iff.rfl) ⟨(1, 0), by decide⟩ ⟨(0, 1), by decide⟩⟩
