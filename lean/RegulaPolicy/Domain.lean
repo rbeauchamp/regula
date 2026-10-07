@@ -794,10 +794,6 @@ inductive ResultForm where
   | «decidable»
   /-- `Bool`. -/
   | «bool»
-  /-- `Option _`. -/
-  | «option»
-  /-- `Except _ _`. -/
-  | «except»
   /-- `BEq _`, a structure of one function to `Bool`. -/
   | «beq»
   /-- Every other type. -/
@@ -805,19 +801,25 @@ inductive ResultForm where
   deriving Repr, DecidableEq, Inhabited
 
 /-- The value of a definition with this result form is read as a part of a term that mentions
-the definition. On each side this is no proof. In a specification it is also no `Decidable`
-value, and on the side of the implementation it is also no statement.
+the definition. `specification` says that the term is a statement: the specification of a
+decision registration, or its acceptance predicate, which is read by the same rule. Otherwise
+the term is the implementation, a function. In each term this is no proof. In a statement it is
+also no `Decidable` value, and in the implementation it is also no statement.
 
 A proposition does not depend on which proof of a statement a term holds. A type `Decidable p`
-has at most one value (`Subsingleton (Decidable p)`), so a specification does not depend on
-which decision procedure of `p` it mentions, and the value of the procedure is not read there.
+has at most one value (`Subsingleton (Decidable p)`), so a statement does not depend on which
+decision procedure of `p` it mentions, and the value of the procedure is not read there.
 
-A function runs the procedure, so on the side of the implementation the value of a `Decidable`
-definition is read: with `P x := h x = true` and `f x := decide (P x)`, the instance that `f`
-runs calls `h`, and a wrong `h` changes `f` and a specification that mentions `h` together. A
-function does not run a statement, so the value of a statement is not read on that side: a
+A function runs the procedure, so in the implementation the value of a `Decidable` definition
+is read: with `P x := h x = true` and `f x := decide (P x)`, the instance that `f` runs calls
+`h`, and a wrong `h` changes `f` and a specification that mentions `h` together. A function
+does not run a statement, so the value of a statement is not read in the implementation: a
 function that decides a proposition depends on the procedure that it runs, and not also on each
-definition that the proposition mentions and the procedure does not call. -/
+definition that the proposition mentions and the procedure does not call.
+
+The acceptance predicate is a statement about the result of the function, so the value of a
+statement that it mentions is read: with `Small n := h n = true`, the search reaches `h` from
+the acceptance predicate `Small` as it does from `fun n => h n = true`. -/
 def ResultForm.ValueRead (specification : Bool) (form : ResultForm) : Prop :=
   form ≠ .«proof» ∧ (specification = true → form ≠ .«decidable») ∧
     (specification = false → form ≠ .«statement»)
@@ -895,7 +897,7 @@ inductive SharedClass where
   /-- A function with a result of `Bool`, and a definition with a result of `BEq _`, which is a
   record of one function to `Bool`. -/
   | boolean
-  /-- Each other function: a result of `Option _`, of `Except _ _` or of every other type. -/
+  /-- Each other function: a function with a result of any other type. -/
   | other
   deriving Repr, DecidableEq, Inhabited
 
@@ -919,7 +921,7 @@ def SharedDefinition.class (shared : SharedDefinition) : SharedClass :=
   | .«decidable» => .decidable
   | .«bool» => if shared.Computes then .boolean else .data
   | .«beq» => if shared.Defines then .boolean else .data
-  | .«option» | .«except» | .«other» =>
+  | .«other» =>
     if shared.Computes ∧ shared.generated = false then .other else .data
 
 /-- A constant is of the class `boolean` exactly when it computes and its result is `Bool`, or
@@ -942,12 +944,10 @@ theorem SharedDefinition.class_of_beq (shared : SharedDefinition) (defines : sha
   shared.class_eq_boolean_iff.mpr (.inr ⟨defines, result⟩)
 
 /-- A constant is of the class `other` exactly when it computes, Lean's records do not say that
-Lean generated it, and its result is `Option _`, `Except _ _` or of a type with no other
-form. -/
+Lean generated it, and its result is of a type with no other form. -/
 theorem SharedDefinition.class_eq_other_iff (shared : SharedDefinition) :
     shared.class = .other ↔
-      shared.Computes ∧ shared.generated = false ∧ (shared.result = .«option» ∨
-        shared.result = .«except» ∨ shared.result = .«other») := by
+      shared.Computes ∧ shared.generated = false ∧ shared.result = .«other» := by
   unfold SharedDefinition.class
   cases shared.result <;> by_cases computes : shared.Computes <;> simp [computes]
   all_goals split <;> simp

@@ -131,6 +131,7 @@
    "sameNat shared-booleans=[\"eqForNat\"] shared-others=[]",
    "littleCheck shared-booleans=[\"little\"] shared-others=[]",
    "same shared-booleans=[\"small\"] shared-others=[]",
+   "unchanged shared-booleans=[\"small\"] shared-others=[]",
    "firstBefore shared-booleans=[] shared-others=[\"descending\"]",
    "noOdd shared-booleans=[] shared-others=[\"odds\"]"
   ]

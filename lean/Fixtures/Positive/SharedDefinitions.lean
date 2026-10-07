@@ -27,6 +27,9 @@ that its implementation reaches too, by class (`RegulaPolicy.SharedNames`):
   the search reads its value: the helper with a result of `Bool` inside the statement is named.
 * `same_decides`: the function does not use the helper. The acceptance predicate and the
   specification do, and the helper is named in the class `boolean`.
+* `unchanged_decides`: the function does not use the helper. The acceptance predicate is a
+  named definition of a proposition that is stated with the helper. The search reads the value
+  of that definition, so the helper is named in the class `boolean`.
 * `firstBefore_decides`: the two sides share a record of one function, with no argument. Its
   type has a field that takes an argument, so it is a function, named in the class `other`.
 * `noOdd_decides`: the two sides share a helper of the class `other` that calls a helper of
@@ -166,6 +169,17 @@ theorem same_decides :
     Regula.ExecutableContract same
       (Regula.Decides (fun result => small result = true) fun n => small n = true) :=
   ⟨.of_iff (fun _ => Iff.rfl) ⟨0, by decide⟩ ⟨4, by decide⟩⟩
+
+/-- A statement that is stated with the helper `small`. -/
+def Small (n : Nat) : Prop := small n = true
+
+/-- Returns its argument: it calls no helper. -/
+def unchanged (n : Nat) : Nat := n
+
+theorem unchanged_decides :
+    Regula.ExecutableContract unchanged (Regula.Decides Small fun n => small n = true) :=
+  ⟨.of_iff (fun _ => Iff.rfl) ⟨0, (by decide : small 0 = true)⟩
+    ⟨4, (by decide : ¬ small 4 = true)⟩⟩
 
 /-- An order, as a record of one function. -/
 structure Order where

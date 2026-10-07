@@ -99,7 +99,9 @@ the shared function on the two sides can stay valid although the meaning changed
 does not establish that the shared function is the intended one. The same holds of a function
 that `spec` and `accepts` both call. The linter refuses no registration for this. It reads the
 definitions outside Lean's own library that `spec` reaches and that `f` or `accepts` also
-reaches, and the report names each function that `spec` reaches first, in two classes:
+reaches. It reads `accepts` as it reads `spec`: each is a statement, and the value of a
+definition of a proposition that it names is read. The report names each function that `spec`
+reaches first, in two classes:
 
 * **A function with a result of `Bool`, and a definition with a result of `BEq _`.** A
   proposition can take its place in `spec`, with a theorem that connects the proposition to the

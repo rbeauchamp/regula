@@ -712,17 +712,20 @@ def guide : RuleId → Guide
           definition is not followed: that theorem's statement is searched and its proof is \
           not, so a mention that occurs only in such a proof is not reported. The specification \
           does not depend on which proof of that statement it is.",
-        "The search for shared functions compares names. For the specification it follows the \
-          types of constants, the unfoldable values of definitions and the constructors of \
-          inductive types. For `f` and the acceptance predicate it follows types and unfoldable \
-          values, and it reads the value of a `Decidable` instance, which a function runs. It \
-          reads no proof and no module of Lean's own library, and it does not read below a \
+        "The search for shared functions compares names. The specification and the acceptance \
+          predicate are statements. For each of the two it follows the types of constants, the \
+          unfoldable values of definitions, a definition of a proposition among them, and the \
+          constructors of inductive types, and it reads no value of a `Decidable` instance. For \
+          `f` it follows the unfoldable values of definitions and the types of constants that \
+          are no inductive type, constructor or recursor. It reads the value of a `Decidable` \
+          instance, which a function runs. It does not read the value of a definition of a \
+          type, of a proposition or of a record of propositions, which a function does not run. \
+          It reads no proof and no module of Lean's own library, and it does not read below a \
           named function: a report that names no function with a result of `Bool` does not \
           exclude one below a named function of the other class. A second definition with the \
-          text of a helper is a different \
-          constant, and the search does not find it. A second definition with a theorem that \
-          the two are equal is not named either, and it is not a second statement of the \
-          meaning.",
+          text of a helper is a different constant, and the search does not find it. A second \
+          definition with a theorem that the two are equal is not named either, and it is not \
+          a second statement of the meaning.",
         "Data and statements are not named: an inductive type with its constructors, its \
           recursor and its projection functions, a definition whose value is a type, a \
           proposition or a record of propositions, a proof, a definition with a result of \

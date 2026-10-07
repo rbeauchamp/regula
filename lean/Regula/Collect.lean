@@ -65,6 +65,15 @@ private def toolchainLibraryDirectory : IO System.FilePath := do
   toolchainLibrary.set (some directory)
   return directory
 
+/-- Whether Lean loaded the module `moduleName` from the toolchain library directory `library`:
+its `.olean` file is that module's file in `library`, by canonical path. A module's name does not
+establish this, since a project or a dependency can supply a module under `Init`, `Std` or
+`Lean`. That the path identifies the toolchain's own artifact is a filesystem observation. -/
+private def loadedFromLibrary (library : System.FilePath) (moduleName : Name) : IO Bool := do
+  let expected := Lean.modToFilePath library moduleName "olean"
+  unless ← expected.pathExists do return false
+  return (← IO.FS.realPath (← Lean.findOLean moduleName)) == (← IO.FS.realPath expected)
+
 /-- Memoize the Core capability after independently confirming the resolved compiler's
 identity. Installation contents and process execution remain trusted. -/
 def compilerCapability : IO RegulaPolicy.Compiler.LegacyCompilerTrust := do
@@ -600,19 +609,16 @@ private def observedRecursionArgument? (base : Name) (levelParams : List Name) (
     return some { ref := .missing, structural := true, fn := ← Meta.mkLambdaFVars params argument }
 
 /-- The `wf_preprocess` rules of the running Lean toolchain: the global entries of the modules Lean
-loaded from the toolchain's own library directory, recognized by canonical path, since a module's
-name does not establish toolchain ownership. Rules a project or dependency adds are left out. -/
+loaded from the toolchain's own library directory, recognized by canonical path
+(`loadedFromLibrary`). Rules a project or dependency adds are left out. -/
 private def toolchainPreprocessRules (env : Environment) : IO Meta.SimpTheorems := do
   let ext := Lean.Elab.WF.wfPreprocessSimpExtension
-  let libDir ← Lean.getLibDir (← Lean.findSysroot)
+  let library ← toolchainLibraryDirectory
   let mut rules ← ext.descr.mkInitial
   for (moduleName, index) in env.header.moduleNames.zipIdx do
     let entries := ext.ext.getModuleEntries env index
     if entries.isEmpty then continue
-    let expected := Lean.modToFilePath libDir moduleName "olean"
-    unless ← expected.pathExists do continue
-    unless (← IO.FS.realPath (← Lean.findOLean moduleName)) == (← IO.FS.realPath expected) do
-      continue
+    unless ← loadedFromLibrary library moduleName do continue
     for entry in entries do
       if let .global rule := entry then rules := ext.descr.addEntry rules rule
   return ext.descr.finalizeImport rules
@@ -2946,20 +2952,13 @@ def generatedFrom? (name : Name) : MetaM (Option Name) := do
 
 /-- Whether Lean loaded the imported module of index `index` from the toolchain's own library
 directory: its `.olean` file is that module's file in the library directory of the running
-toolchain, by canonical path, as in `toolchainPreprocessRules`. A module's name does not
-establish this, since a project or a dependency can supply a module under `Init`, `Std` or
-`Lean`. The answer is kept in the scope. That the path identifies the toolchain's own artifact is
-a filesystem observation. -/
+toolchain, by canonical path (`loadedFromLibrary`). The answer is kept in the scope. -/
 def ContractScope.fromToolchain (scope : ContractScope) (env : Environment) (index : Nat) :
     IO Bool := do
   if let some known := (← scope.toolchain.get)[index]? then return known
   let answer ← match env.header.moduleNames[index]? with
     | none => pure false
-    | some moduleName => do
-      let expected := Lean.modToFilePath (← toolchainLibraryDirectory) moduleName "olean"
-      if ← expected.pathExists then
-        pure ((← IO.FS.realPath (← Lean.findOLean moduleName)) == (← IO.FS.realPath expected))
-      else pure false
+    | some moduleName => loadedFromLibrary (← toolchainLibraryDirectory) moduleName
   scope.toolchain.modify (·.insert index answer)
   return answer
 
@@ -3019,9 +3018,9 @@ private def readFields (env : Environment) (result : Expr) : MetaM (Option Field
 
 /-- The result form of a constant of type `type` (`RegulaPolicy.ResultForm`): `proof` when
 `type` is a proposition, and otherwise the form of `type` with every leading binder opened and
-every definition unfolded. `Decidable`, `Bool`, `Option`, `Except` and `BEq` are read by name,
-at their own numbers of arguments. A structure type is a statement when each of its fields, at
-the arguments of that type, is a proof or has a sort as its result (`readFields`). -/
+every definition unfolded. `Decidable`, `Bool` and `BEq` are read by name, at their own numbers
+of arguments. A structure type is a statement when each of its fields, at the arguments of that
+type, is a proof or has a sort as its result (`readFields`). -/
 private def readResultForm (env : Environment) (type : Expr) :
     MetaM RegulaPolicy.ResultForm :=
   Meta.withTransparency .all do
@@ -3030,8 +3029,6 @@ private def readResultForm (env : Environment) (type : Expr) :
       if result.isSort then return .«statement»
       if result.isAppOfArity ``Decidable 1 then return .«decidable»
       if result.isConstOf ``Bool then return .«bool»
-      if result.isAppOfArity ``Option 1 then return .«option»
-      if result.isAppOfArity ``Except 2 then return .«except»
       if result.isAppOfArity ``BEq 1 then return .«beq»
       if let some reading ← readFields env result then
         if reading.statements then return .«statement»
@@ -3082,20 +3079,25 @@ private def sharedDefinition (env : Environment) (scope : ContractScope) (info :
   return { name := info.name, kind := kindOf info, projection, function, generated
            result := ← scope.resultForm env info }
 
-/-- The constants that the search for shared definitions follows from `info`, on the side of
-the specification (`specification`) or on the other side.
+/-- The constants that the search for shared definitions follows from `info`, by the rule of a
+statement (`specification`) or by the rule of a function. The search reads the specification
+and the acceptance predicate by the rule of a statement, and the implementation by the rule of
+a function (`sharedReading`).
 
-Each side follows the type of every constant. It follows the value of a definition when the
-pure decision says that the value is read (`RegulaPolicy.ResultForm.ValueRead`): not the value
-of a proof, in a specification not a `Decidable` value, and on the side of the implementation
-not the value of a statement, which a function does not run. The implementation runs a
-`Decidable` value, so its value is read on that side. The constants of a value are all the
-constants that it mentions: in `decide p`, those of the proposition `p` and those of the
-instance term, which names the same functions. It follows no value of a theorem or
-of an opaque constant: Lean's kernel unfolds neither, so a statement about the constant does not
-depend on that value. The specification also follows the constructors of an inductive type and
-the rules of a recursor (`unfoldReferences`): the fields of a structure, the proof fields among
-them, are a part of the meaning of a statement about it. The other side does not follow them: a
+Each rule follows the type of a definition, of a theorem, of an opaque constant and of an
+axiom. It follows the value of a definition when the pure decision says that the value is read
+(`RegulaPolicy.ResultForm.ValueRead`): not the value of a proof, by the rule of a statement not
+a `Decidable` value, and by the rule of a function not the value of a statement, which a
+function does not run. A function runs a `Decidable` value, so its value is read by the rule of
+a function. The constants of a value are all the constants that it mentions: in `decide p`,
+those of the proposition `p` and those of the instance term, which names the same functions.
+Neither rule follows the value of a theorem or of an opaque constant: Lean's kernel unfolds
+neither, so a statement about the constant does not depend on that value.
+
+From an inductive type, a constructor and a recursor, the rule of a statement follows the type,
+the constructors of the inductive type and the rules of the recursor (`unfoldReferences`): the
+fields of a structure, the proof fields among them, are a part of the meaning of a statement
+about it. The rule of a function follows nothing from those three, not their types either: a
 function depends on the declaration of its data, which is not a shared definition, and not on
 what a field's type mentions. -/
 private def searchReferences (env : Environment) (scope : ContractScope) (specification : Bool)
@@ -3110,11 +3112,11 @@ private def searchReferences (env : Environment) (scope : ContractScope) (specif
     return if specification then unfoldReferences info else #[]
   | _ => return info.type.getUsedConstants
 
-/-- The constants outside Lean's own library that `roots` reach on the side of the
-implementation: the roots themselves and, closed under `searchReferences`, the constants that
-they mention. A constant of Lean's own library is not followed
-(`ContractScope.outsideToolchain`). -/
-private def implementationReach (env : Environment) (scope : ContractScope)
+/-- The constants outside Lean's own library that `roots` reach by one rule of
+`searchReferences`, the rule of a statement (`specification`) or the rule of a function: the
+roots themselves and, closed under that rule, the constants that they mention. A constant of
+Lean's own library is not followed (`ContractScope.outsideToolchain`). -/
+private def sideReach (env : Environment) (scope : ContractScope) (specification : Bool)
     (roots : Array Name) : MetaM NameSet := do
   let mut reached : NameSet := {}
   let mut seen : NameSet := {}
@@ -3127,7 +3129,7 @@ private def implementationReach (env : Environment) (scope : ContractScope)
     unless ← scope.outsideToolchain env name do continue
     let some info := env.find? name | continue
     reached := reached.insert name
-    pending := pending ++ (← searchReferences env scope false info)
+    pending := pending ++ (← searchReferences env scope specification info)
   return reached
 
 /-- The first shared functions of a specification: each constant outside Lean's own library
@@ -3170,7 +3172,11 @@ them (`RegulaPolicy.SharedNames`).
 One side is the specification. The other side is the implementation with the acceptance
 predicate: a kind states `accepts (f x)` against `spec x`, so a definition that the acceptance
 predicate and the specification share enters both sides of that statement as one that the
-implementation and the specification share does. The search reads kernel-checked values only. A
+implementation and the specification share does. The acceptance predicate is a statement, so
+the search reads it by the rule of a statement, as it reads the specification, and it reads the
+implementation by the rule of a function (`searchReferences`): the value of a definition of a
+proposition that the acceptance predicate names is read, and the value of a `Decidable`
+instance that it names is not. The search reads kernel-checked values only. A
 runtime replacement (`implemented_by`, `extern`, `csimp`) is in no such value: a kind is a
 theorem about the definition that Lean's kernel reads, and the execution closure accounts for
 the code that runs in its place.
@@ -3182,8 +3188,8 @@ share by name. It does not establish that the specification is the intended one,
 a definition under a second name is a different constant, which it does not find. -/
 private def sharedReading (env : Environment) (scope : ContractScope)
     (statement : DecisionStatement) : MetaM RegulaPolicy.SharedNames := do
-  let implementation ← implementationReach env scope #[statement.implementation]
-  let acceptance ← implementationReach env scope statement.accepts.getUsedConstants
+  let implementation ← sideReach env scope false #[statement.implementation]
+  let acceptance ← sideReach env scope true statement.accepts.getUsedConstants
   let frontier ← sharedFrontier env scope
     (fun name => implementation.contains name || acceptance.contains name) statement.spec
   return RegulaPolicy.sharedNames frontier.toList
