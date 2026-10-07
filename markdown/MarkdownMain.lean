@@ -41,8 +41,8 @@ def baselineFile : String := "prose-baseline.json"
 /-- The name of the check of the vocabulary. -/
 def vocabularyCheck : String := "C9"
 
-/-- The name of the check of the findings that the baseline permits (`gate`), and of the form of
-the baseline (`Baseline.parse`). -/
+/-- The name of the check of the findings that the baseline permits and of the entries that have
+a document (`gate`), and of the form of the baseline (`Baseline.parse`). -/
 def gateCheck : String := "B1"
 
 /-- The name of the check of the baseline in relation to the base revision (`ratchet`). -/
@@ -244,7 +244,8 @@ def observe (directory : System.FilePath) (baseline : Baseline) (vocabulary : Vo
 
 /-- The refusals of the checks C1 to C8 and B1 for `documents` and `baseline`: each finding of a
 document with no entry, with its file, its line and its check, and each document that the
-baseline does not admit, with the line of the baseline. -/
+baseline does not admit and each entry that has no document among `observed`, with the line of
+the baseline. -/
 def documentRefusals (file : String) (baseline : Baseline) (vocabulary : Vocabulary)
     (documents : List Document) (observed : List Observed) : List String :=
   (documents.flatMap fun d =>
@@ -465,9 +466,10 @@ def list (options : Options) (path : String) : IO UInt32 := do
   return 0
 
 /-- Write the baseline of the documents as they are: the frozen and generated entries of the
-baseline file of the working tree, also when Git does not track that file, and one entry of
-numbers for each other document with a finding. Check B2 of the next run still refuses a new
-path and a larger number. -/
+baseline file of the working tree that have a tracked Markdown document, also when Git does not
+track that file, and one entry of numbers for each other document with a finding. Thus it writes
+no entry for a path that is not a tracked Markdown document, which check B1 refuses. Check B2 of
+the next run still refuses a new path and a larger number. -/
 def writeBaseline (options : Options) : IO UInt32 := do
   let tracked ← match ← trackedFiles options.root with
     | .ok tracked => pure tracked
@@ -490,7 +492,8 @@ def writeBaseline (options : Options) : IO UInt32 := do
     match entry.allowance with
     | .counts _ => false
     | _ => true
-  let kept := baseline.entries.filter fixed
+  let kept := baseline.entries.filter fun entry =>
+    fixed entry && documents.any fun d => d.path.toList == entry.path
   let counted := documents.filterMap fun d =>
     if ((entryOf baseline d.path).map fixed).getD false then none
     else
@@ -697,7 +700,11 @@ tells the correct base apart from the checked commit. The comment of each contro
 bases that it tells apart from the correct one. The comment of a control that expects no
 refusal also says which of these bases it does not tell apart: the checked commit, its parents,
 the commit that the start names, the merge base with that commit, and `origin/main`. No comment
-is about each other commit of the repository. -/
+is about each other commit of the repository.
+
+A control of an entry with no document (check B1) is a commit of the repository `entries`, read
+by the same check. Its base revision has the baseline of the commit, thus check B2 accepts, and
+each refusal is of check B1 at the line of the entry. -/
 
 /-- One commit of the repository of a control. -/
 structure Commit where
@@ -710,7 +717,8 @@ structure Commit where
   /-- A branch that the commit merges into its parent, as the second parent. -/
   merges : Option String := none
 
-/-- A control of the base revision of check B2. -/
+/-- A control of a repository that the run makes: of the base revision of check B2, or of an
+entry with no document (check B1). -/
 structure RepositoryControl where
   /-- The name of the repository of the control (`repositories`). -/
   repository : String
@@ -737,6 +745,16 @@ def controlBaseline (entries : List Entry) : String := String.ofList (ledgerOf e
 def semicolonEntry (path : String) (count : Nat) : Entry :=
   ⟨path.toList, .counts (((List.replicate 8 0).set 3 count).map fun n => (Nat.repr n).toList)⟩
 
+/-- The text of the frozen document `record.md` of a control. -/
+def recordText : String := "# Record\n\nThe first text.\n"
+
+/-- The frozen entry of `record.md`, with the SHA-256 digest of `recordText`. -/
+def recordEntry : Entry := ⟨"record.md".toList, .frozen
+  "f181adc34424559724d267a81d4090eedd38a8864b55641b801d6b20a593551b".toList⟩
+
+/-- The generated entry of the document `made.md` of a control. -/
+def madeEntry : Entry := ⟨"made.md".toList, .generated "a program".toList⟩
+
 /-- The files of a commit whose document `a.md` has `count` semicolons, of two or less, and
 whose baseline permits them. -/
 def semicolons (count : Nat) : List (String × Option String) :=
@@ -747,7 +765,8 @@ def semicolons (count : Nat) : List (String × Option String) :=
     (baselineFile,
       some (controlBaseline (if count == 0 then [] else [semicolonEntry "a.md" count])))]
 
-/-- The repositories of the controls of the base revision, each with its name. -/
+/-- The repositories of the controls of the base revision and of the controls of an entry with
+no document, each with its name. -/
 def repositories : List (String × List Commit) := [
   -- Commits for a push. `a` permits two findings, and its child `b` permits one. `c`, from `b`,
   -- adds a document with a semicolon and an entry that agrees with it, and `d`, from `c`, adds
@@ -795,13 +814,33 @@ def repositories : List (String × List Commit) := [
   -- its entry. A later commit of `main` removes the document and its entry.
   ("diverged", [
     ⟨"main", none, [(vocabularyFile, some controlVocabulary),
-      ("record.md", some "# Record\n\nThe first text.\n"),
-      (baselineFile, some (controlBaseline [⟨"record.md".toList, .frozen
-        "f181adc34424559724d267a81d4090eedd38a8864b55641b801d6b20a593551b".toList⟩]))], none⟩,
+      ("record.md", some recordText),
+      (baselineFile, some (controlBaseline [recordEntry]))], none⟩,
     ⟨"side", some "main", [("record.md", some "# Record\n\nA changed text.\n"),
       (baselineFile, some (controlBaseline []))], none⟩,
     ⟨"main", some "main", [("record.md", none), (baselineFile, some (controlBaseline []))],
-      none⟩])]
+      none⟩]),
+  -- Commits for an entry with no document. `main` has a document with a semicolon, a generated
+  -- document, a frozen document and a file that is no Markdown document, with one entry for
+  -- each of the three documents. Its file `.gitignore` has the line `draft.md`, thus Git does
+  -- not track the file `draft.md`, which is in the working tree of each commit of this
+  -- repository. `numbers`, `generated` and `frozen`, each from `main`, remove one document and
+  -- keep its entry. `untracked`, from `main`, adds an entry for `draft.md`. `text`, from
+  -- `main`, adds an entry for the file that is no Markdown document.
+  ("entries", [
+    ⟨"main", none, [(vocabularyFile, some controlVocabulary),
+      (".gitignore", some "draft.md\n"), ("draft.md", some "# Draft\n\nA draft text.\n"),
+      ("a.md", some "# A\n\nOne; two three.\n"), ("made.md", some "# Made\n\nMade text.\n"),
+      ("record.md", some recordText), ("notes.txt", some "Notes.\n"),
+      (baselineFile, some (controlBaseline [semicolonEntry "a.md" 1, madeEntry, recordEntry]))],
+      none⟩,
+    ⟨"numbers", some "main", [("a.md", none)], none⟩,
+    ⟨"generated", some "main", [("made.md", none)], none⟩,
+    ⟨"frozen", some "main", [("record.md", none)], none⟩,
+    ⟨"untracked", some "main", [(baselineFile, some (controlBaseline [semicolonEntry "a.md" 1,
+      ⟨"draft.md".toList, .generated "a program".toList⟩, madeEntry, recordEntry]))], none⟩,
+    ⟨"text", some "main", [(baselineFile, some (controlBaseline [semicolonEntry "a.md" 1,
+      madeEntry, semicolonEntry "notes.txt" 1, recordEntry]))], none⟩])]
 
 /-- The controls of the base revision. The comment of each control gives the base that the
 check must take. For a control that expects a refusal, it gives a base that accepts, which the
@@ -914,6 +953,27 @@ def repositoryControls : List RepositoryControl := [
   { repository := "diverged", head := "side", origin := some "main", shallow := true,
     expect := .refused baselineFile 1 ratchetCheck }]
 
+/-- The controls of an entry with no document (check B1), in the repository `entries`. The base
+revision of each control has the baseline of the checked commit, thus check B2 accepts. -/
+def entryControls : List RepositoryControl := [
+  -- Accepted: each entry of `main` has a tracked Markdown document.
+  { repository := "entries", head := "main", expect := .accepted },
+  -- A change that removes a document and keeps its entry is refused at the line of that entry:
+  -- an entry of numbers, a generated entry and a frozen entry. The base is `main`, the commit
+  -- before the change.
+  { repository := "entries", head := "numbers", start := some "before:{main}",
+    expect := .refused baselineFile 5 gateCheck },
+  { repository := "entries", head := "generated", start := some "before:{main}",
+    expect := .refused baselineFile 6 gateCheck },
+  { repository := "entries", head := "frozen", start := some "before:{main}",
+    expect := .refused baselineFile 7 gateCheck },
+  -- An entry for a file of the working tree that Git does not track is refused. The base is
+  -- the checked commit, which `origin/main` names.
+  { repository := "entries", head := "untracked", expect := .refused baselineFile 6 gateCheck },
+  -- An entry for a tracked file that is no Markdown document is refused. The base is the
+  -- checked commit, which `origin/main` names.
+  { repository := "entries", head := "text", expect := .refused baselineFile 7 gateCheck }]
+
 /-- Run `git` with `args` in `directory` for a control, with no configuration of the user or of
 the system and with one author, and give its output. -/
 def gitControl (directory : System.FilePath) (args : Array String) : IO String := do
@@ -966,8 +1026,8 @@ def expand (directory : System.FilePath) (text : String) : IO String := do
       | [] => pure ()
   return result
 
-/-- The result of the controls of the base revision: what each control that does not give its
-expected result gave. -/
+/-- The result of the controls of the base revision and of the controls of an entry with no
+document: what each control that does not give its expected result gave. -/
 def runRepositoryControls (judge : String → Expect → List String → List String) :
     IO (List String) :=
   IO.FS.withTempDir fun root => do
@@ -975,7 +1035,7 @@ def runRepositoryControls (judge : String → Expect → List String → List St
       makeRepository (root / name) commits
     let mut failures : List String := []
     let mut index := 0
-    for control in repositoryControls do
+    for control in repositoryControls ++ entryControls do
       index := index + 1
       let made := root / control.repository
       discard <| gitControl made #["checkout", "--quiet", "--detach", control.head]
@@ -1005,24 +1065,25 @@ def runRepositoryControls (judge : String → Expect → List String → List St
 /-- The result of the control of `--write-baseline`: what `writeBaseline` gave, when it is not
 the expected result. The repository of the control has a document with a semicolon, a generated
 document with a semicolon and a frozen document. Its `prose-baseline.json` has the entries of
-the generated document and of the frozen document, and Git does not track that file. The option
-must keep the two entries and add the entry of numbers of the first document. A run that reads
-the baseline only when Git tracks it writes an entry of numbers for the generated document and
-no entry for the frozen document. -/
+the generated document and of the frozen document, and Git does not track that file. It also
+has three entries with no document: a generated entry, a frozen entry and an entry of numbers.
+The option must keep the two entries of the documents, add the entry of numbers of the first
+document and write no entry that has no document. A run that reads the baseline only when Git
+tracks it writes an entry of numbers for the generated document and no entry for the frozen
+document. -/
 def runWriteControl : IO (List String) :=
   IO.FS.withTempDir fun directory => do
     makeRepository directory [⟨"main", none, [(vocabularyFile, some controlVocabulary),
       ("a.md", some "# A\n\nOne; two three.\n"),
       ("made.md", some "# Made\n\nMade text; more text.\n"),
-      ("record.md", some "# Record\n\nThe first text.\n")], none⟩]
-    let kept : List Entry := [
-      ⟨"made.md".toList, .generated "a program".toList⟩,
-      ⟨"record.md".toList, .frozen
-        "f181adc34424559724d267a81d4090eedd38a8864b55641b801d6b20a593551b".toList⟩]
-    IO.FS.writeFile (directory / baselineFile) (controlBaseline kept)
+      ("record.md", some recordText)], none⟩]
+    IO.FS.writeFile (directory / baselineFile) (controlBaseline [
+      ⟨"gone.md".toList, .generated "a program".toList⟩,
+      ⟨"lost.md".toList, .frozen sampleDigest⟩, madeEntry, semicolonEntry "old.md" 1,
+      recordEntry])
     let (output, code) ← IO.FS.withIsolatedStreams (writeBaseline { root := directory })
     let written ← IO.FS.readFile (directory / baselineFile)
-    let expected := controlBaseline (semicolonEntry "a.md" 1 :: kept)
+    let expected := controlBaseline [semicolonEntry "a.md" 1, madeEntry, recordEntry]
     if code == 0 && written == expected then return []
     return [s!"--write-baseline with a {baselineFile} that Git does not track: expected the \
       file {expected.quote}, got the exit code {code}, the output {output.quote} and the file \
@@ -1030,8 +1091,9 @@ def runWriteControl : IO (List String) :=
 
 /-- Run the controls of `directory`. Exit code 0 when each control gives what `controls` expects
 and the directory holds exactly the files of the controls, when each control of the base
-revision gives what `repositoryControls` expects, and when the control of `--write-baseline`
-gives the baseline that it expects. Exit code 1 otherwise. -/
+revision gives what `repositoryControls` expects, when each control of an entry with no
+document gives what `entryControls` expects, and when the control of `--write-baseline` gives
+the baseline that it expects. Exit code 1 otherwise. -/
 def runControls (directory : System.FilePath) : IO UInt32 := do
   let names := (← directory.readDir).toList.map (·.fileName)
   let text (name : String) : IO String := IO.FS.readFile (directory / name)
@@ -1107,8 +1169,9 @@ def runControls (directory : System.FilePath) : IO UInt32 := do
     IO.eprintln ("FAIL: controls of the checks of Markdown prose:\n" ++ "\n".intercalate failures)
     return 1
   IO.println s!"Controls of the checks of Markdown prose: {controls.length} controls in \
-    {directory}, and {repositoryControls.length} controls of the base revision and one control \
-    of --write-baseline, in repositories that the run made with Git, gave the expected results \
+    {directory}, and {repositoryControls.length} controls of the base revision, \
+    {entryControls.length} controls of an entry with no document and one control of \
+    --write-baseline, in repositories that the run made with Git, gave the expected results \
     (each refusal starts with its file, its line and its check)"
   return 0
 

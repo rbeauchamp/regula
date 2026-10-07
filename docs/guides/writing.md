@@ -23,7 +23,7 @@ The command `./scripts/verify.sh docs` does the checks of the tracked Markdown d
 | C7 | A rule of the project | A word of the table "Replaced words" of `CONTEXT.md`. |
 | C8 | A rule of the project | One of the abbreviations `e.g.`, `i.e.`, `etc.`, `vs.` and `cf.`. |
 | C9 | The format | A `CONTEXT.md` that is not the text of a vocabulary, or a source path that is not a tracked file. |
-| B1 | The baseline | A document with findings that the baseline does not give. |
+| B1 | The baseline | A document with findings that the baseline does not give. Also an entry of the baseline with no tracked Markdown document. |
 | B2 | The baseline | A baseline with a new path, a larger number or a different class, when the check compares it with the base revision. Also a change that removes the baseline, if the base revision has one. |
 
 ### How the checks read a document
@@ -156,7 +156,9 @@ The file [`prose-baseline.json`](../../prose-baseline.json) is the baseline. It 
 - `frozen` and a SHA-256 digest: the document is a record that must not change. The checks do not read it, and B1 does not accept a change to its text.
 - `generated` and a source: a program writes the document from sources that the checks do not read. The checks do not read the document.
 
-A document with no entry must have no finding (check B1). Check B2 compares the baseline with the base revision. The base revision is a commit, and the start of the check gives it:
+Check B1 compares each tracked Markdown document with the baseline. A document with no entry must have no finding. Each entry must have a tracked Markdown document with its path. Thus B1 does not accept an entry for a file that Git does not track or that is not a Markdown document. A change that removes a document must also remove its entry.
+
+Check B2 compares the baseline with the base revision. The base revision is a commit, and the start of the check gives it:
 
 | Start of the check | Base revision |
 | --- | --- |
@@ -202,28 +204,30 @@ If the base revision has no baseline, B2 compares the baseline with the Markdown
 - B2 does not accept a number that is larger than the number of findings of that document.
 - B2 does not accept a `frozen` entry with a digest that is not the digest of that document.
 
-Thus no entry has a new path (the theorem `Shrinks.paths`), and the baseline can only become smaller. A new document gets no entry, and it must have no finding. The first baseline of a repository can give the class `frozen` or `generated` to a document of the base revision. A reviewer examines each such entry.
+Thus no entry has a new path (the theorem `Shrinks.paths`), and the baseline can only become smaller. The first baseline of a repository can give the class `frozen` or `generated` to a document of the base revision. A reviewer examines each such entry.
+
+A new document gets no entry, and it must have no finding. The cause is that each entry has the path of a document of the base revision. For a base revision with a baseline, the theorem `entry_has_base_document` shows it. That theorem has one condition: check B1 accepted the base revision. B2 does not examine the documents of a base revision that has a baseline.
 
 These checks are not a check of each changed line. A change can add one finding and remove one finding in the same document, and the checks accept that change.
 
 The decisions of the baseline are four Lean functions in [`RegulaCore/ProseBaseline.lean`](../../lean/RegulaCore/ProseBaseline.lean), each with a decision contract:
 
 - `Baseline.parse` accepts a text if, and only if, the text is the text that `Baseline.write` gives for a baseline (`checked_baselineParse`).
-- `gate` (check B1) gives no document if, and only if, each document agrees with the baseline (`checked_gate`). The statement is `Observed.Admitted`.
+- `gate` (check B1) gives no message if, and only if, each document agrees with the baseline and each entry has a document (`checked_gate`). The statements are `Observed.Admitted` and `Baseline.Documented`.
 - `ratchet` (check B2) gives no message if, and only if, the statement `Shrinks` is correct for the base revision, the baseline and the tracked paths (`checked_ratchet`).
 - `baseOf` gives a base revision if, and only if, the statement `Start.Base` gives one for the start and for the data that Git gives (`checked_baseOf`). The theorem `baseOf_eq_some_iff` shows that the two give the same commit.
 
 A number of the baseline is a text of decimal digits. B2 compares two numbers as such texts. A number with a smaller number of digits is the smaller number. B2 compares two numbers with the same number of digits digit by digit.
 
-Each message of B1 and B2 starts with `prose-baseline.json`, the line of an entry and the check. For a document or a frozen entry that is not in the baseline, the line is the line where its entry would be. For a baseline that a change removed, the line is 1.
+Each message of B1 and B2 starts with `prose-baseline.json`, the line of an entry and the check. For a document or a frozen entry that is not in the baseline, the line is the line where its entry would be. For an entry with no document, the line is the line of that entry. For a baseline that a change removed, the line is 1.
 
-Do these steps after you correct findings in a document that has an entry:
+Do these steps after you correct findings in a document that has an entry, or after you remove such a document:
 
 1. Go to the directory `markdown`.
 2. Use the command `lake exe regula-markdown .. --write-baseline`.
 3. Make sure that the baseline has only smaller numbers and no new entry.
 
-The command reads the file `prose-baseline.json` of the working tree, also if Git does not track that file. It keeps each `frozen` entry and each `generated` entry of that file.
+The command reads the file `prose-baseline.json` of the working tree, also if Git does not track that file. It keeps each `frozen` entry and each `generated` entry that has a tracked Markdown document. It writes no entry for a path that is not a tracked Markdown document.
 
 To see each finding of one document, use the command `lake exe regula-markdown .. --list PATH` in the directory `markdown`.
 

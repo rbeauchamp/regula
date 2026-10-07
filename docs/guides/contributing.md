@@ -557,9 +557,9 @@ ID.
 The same executable does the checks C1 to C8 of the [writing rules](writing.md) on each tracked
 Markdown document. The baseline [`prose-baseline.json`](../../prose-baseline.json) gives the
 findings of each document that does not obey the writing rules at this time. Check B1 compares
-each document with its entry. Check B2 compares the baseline with the baseline of the base
-revision. If the base revision has no baseline, B2 compares the baseline with the Markdown
-documents of the base revision.
+each document with its entry, and it does not accept an entry with no tracked Markdown document.
+Check B2 compares the baseline with the baseline of the base revision. If the base revision has
+no baseline, B2 compares the baseline with the Markdown documents of the base revision.
 
 The decisions are in
 [`RegulaCore/ControlledProse.lean`](../../lean/RegulaCore/ControlledProse.lean) and
@@ -581,8 +581,15 @@ that expects no refusal does not pass if the check uses a base that refuses. The
 control gives the bases that the control tells apart from the correct base. No control that
 expects no refusal tells the correct base apart from the examined commit.
 
+The controls of an entry with no document are commits of one of these repositories. Three
+commits remove a document and keep its entry: an entry of numbers, a `generated` entry and a
+`frozen` entry. One commit has an entry for a file that Git does not track. One commit has an
+entry for a tracked file that is not a Markdown document. Check B1 must give a refusal for each
+of these commits, at the line of the entry.
+
 One more control is a repository with a baseline that Git does not track. The option
-`--write-baseline` must keep the `frozen` entry and the `generated` entry of that baseline.
+`--write-baseline` must keep the `frozen` entry and the `generated` entry of a document. It
+must write no entry that has no document.
 
 The controls of these checks are in the same directory as the controls of the vocabulary. A
 control of C1 to C8 is a document with the extension `text`. A control of B1 or B2 is a baseline

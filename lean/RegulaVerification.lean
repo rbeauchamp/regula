@@ -213,19 +213,20 @@ def commands : Mode → List Command
       lake #["build", "docFenceAudit"],
       -- The controls of the checks C1 to C9, B1 and B2: each check accepts its positive controls
       -- and refuses the others, with the exact file, line and check at the start of each
-      -- refusal. The controls of the base revision of check B2 and the control of
-      -- `--write-baseline` are repositories that the run makes with Git in a temporary
-      -- directory (`markdown/MarkdownMain.lean`).
+      -- refusal. The controls of the base revision of check B2, of an entry with no document
+      -- (check B1) and of `--write-baseline` are repositories that the run makes with Git in a
+      -- temporary directory (`markdown/MarkdownMain.lean`).
       lakeIn markdownPackage #["exe", "regula-markdown", "--controls", proseControls],
       -- Every Markdown document Git tracks, read by md4c: a rule ID in prose that is not a link
       -- to its rule page is refused, and so is a `CONTEXT.md` that is not the print of a
       -- vocabulary or that has a source path Git does not track (check C9). A finding of the
-      -- checks C1 to C8 that the baseline `prose-baseline.json` does not permit is refused
-      -- (check B1). A baseline with a new path, a larger number or a different class in
-      -- relation to the base revision is refused, and so is the removal of the baseline (check
-      -- B2). Check B2 reads the Git history: the base revision is the commit that the start of
-      -- the run gives, in the variable `REGULA_PROSE_START` or as the merge base of `HEAD` and
-      -- `origin/main`. The argument is the repository root, relative to the Markdown package.
+      -- checks C1 to C8 that the baseline `prose-baseline.json` does not permit is refused, and
+      -- so is an entry of the baseline with no tracked Markdown document (check B1). A baseline
+      -- with a new path, a larger number or a different class in relation to the base revision
+      -- is refused, and so is the removal of the baseline (check B2). Check B2 reads the Git
+      -- history: the base revision is the commit that the start of the run gives, in the
+      -- variable `REGULA_PROSE_START` or as the merge base of `HEAD` and `origin/main`. The
+      -- argument is the repository root, relative to the Markdown package.
       lakeIn markdownPackage #["exe", "regula-markdown", ".."],
       -- The `audit/` package's own fresh acceptance, as an adopter of `regula` runs it: the
       -- standard's `lean` blocks import its modules, and the linked identity below brackets the

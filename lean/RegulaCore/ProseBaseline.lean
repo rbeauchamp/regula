@@ -15,17 +15,20 @@ and the two decisions about it.
   what a baseline is, stated on its entries.
 - `Baseline`, `Baseline.write`, `Baseline.parse`, `checked_baselineParse`: the parser is a
   two-way decision of "is the print of a baseline" (`Regula.Decides.of_roundtrip`).
-- `Observed`, `Observed.Admitted`, `gate`, `checked_gate` (check B1): a repository is accepted
-  when each document has the findings its entry permits, and no finding without an entry.
+- `Observed`, `Observed.Admitted`, `Baseline.Documented`, `gate`, `checked_gate` (check B1): a
+  repository is accepted when each document has the findings its entry permits, and no finding
+  without an entry, and when each entry has a document. Thus a change that removes a document
+  must remove its entry.
 - `Reference`, `Covers`, `Allowance.Within`, `Keeps`, `Shrinks`, `ratchet`, `checked_ratchet`
   (check B2): a baseline is accepted in relation to the reference of a base revision. The
   reference is the baseline of the base revision, or, when the base revision has none, what the
   checks observe of each of its documents. The baseline has no new path, no larger number and
   no other class, each frozen entry of a tracked document is kept, and the baseline is not
   removed.
-- `Shrinks.paths`, `ratchet_removed`, `frozen_unchanged`: no entry has a path that the
-  reference does not have, a removed baseline is refused, and the two decisions together keep
-  the digest of each frozen document.
+- `Shrinks.paths`, `ratchet_removed`, `frozen_unchanged`, `entry_has_base_document`: no entry
+  has a path that the reference does not have, a removed baseline is refused, and the two
+  decisions together keep the digest of each frozen document and give no entry to a new
+  document.
 - `lineOf`, `lineOf_spec`: the line of the entry of a path in the print.
 - `Start`, `History`, `Start.Base`, `baseOf`, `checked_baseOf`: the base revision of check B2
   for the start of a check, with what Git gives. Only the run of a developer takes a merge base
@@ -34,21 +37,23 @@ and the two decisions about it.
 
 ## Specifications
 
-`Observed.Admitted` and `Shrinks` are statements about the entries, with no call of a recursive
-function of the project. A function of a decision uses no definition of its specification:
-where it needs one, it has a second definition in the namespace `Exec`, with a theorem that the
-two are equal, as in `RegulaCore.ControlledText`. A number of an entry is a text of decimal
-digits: two numbers are compared as such texts (`NotMore`), and a number of findings is compared
-with the text that `Nat.repr` gives for it.
+`Observed.Admitted`, `Baseline.Documented` and `Shrinks` are statements about the entries, with
+no call of a recursive function of the project. A function of a decision uses no definition of
+its specification: where it needs one, it has a second definition in the namespace `Exec`, with
+a theorem that the two are equal, as in `RegulaCore.ControlledText`. A number of an entry is a
+text of decimal digits: two numbers are compared as such texts (`NotMore`), and a number of
+findings is compared with the text that `Nat.repr` gives for it.
 
 ## Boundaries
 
-`checked_gate` is about the tallies and digests given: that a digest is the SHA-256 of a file
-rests on the tool that computes it, that the documents given are the tracked ones rests on Git,
-and that a tally is the document's rests on the reading of the document
+`checked_gate` is about the paths, tallies and digests given: that a digest is the SHA-256 of a
+file rests on the tool that computes it, that the documents given are the tracked Markdown
+documents rests on Git, and that a tally is the document's rests on the reading of the document
 (`RegulaCore.ControlledProse`). `checked_ratchet` is about the reference, the baseline and the
 paths given: that the reference is the baseline or the documents of the base revision rests on
-Git and on the reading of those documents.
+Git and on the reading of those documents. `entry_has_base_document` has the hypothesis that the
+gate accepted the base revision: a run does not examine the documents of a base revision that
+has a baseline.
 -/
 
 namespace Regula.Controlled
@@ -696,6 +701,11 @@ def Observed.Admitted (b : Baseline) (d : Observed) : Prop :=
   (∀ e ∈ b.entries, e.path = d.path.toList → e.allowance.Permits d) ∧
     ((∀ e ∈ b.entries, e.path ≠ d.path.toList) → ∀ n ∈ d.tally, n = 0)
 
+/-- Each entry of the baseline has a document: a document, among `documents`, with the path of
+the entry. -/
+def Baseline.Documented (b : Baseline) (documents : List Observed) : Prop :=
+  ∀ e ∈ b.entries, ∃ d ∈ documents, d.path.toList = e.path
+
 namespace Exec
 
 /-- What an entry permits is what the run observes, for the functions (`Permits_eq`). -/
@@ -728,22 +738,31 @@ theorem Admitted_eq : @Admitted = @Observed.Admitted := by
 end Exec
 
 /-- Check B1: the documents that the baseline does not admit, each with the line of its entry in
-the print of the baseline, or the line where its entry would be, and with the reason. -/
+the print of the baseline, or the line where its entry would be, and with the reason. Then the
+entries that have no document among `documents`, each with its line in the print of the
+baseline and with the reason. -/
 @[regula_decision]
 def gate (b : Baseline) (documents : List Observed) : List (Nat × String) :=
-  (documents.filter fun d => !decide (Exec.Admitted b d)).map fun d =>
+  ((documents.filter fun d => !decide (Exec.Admitted b d)).map fun d =>
     if d.path.toList ∈ b.entries.map Entry.path then
       (lineOf b.entries d.path.toList,
         s!"{d.path} has other findings or another content than its entry permits: it has the \
           numbers {d.tally} and the digest `{d.digest}`")
     else
       (lineFor b.entries d.path.toList,
-        s!"{d.path} has findings and no entry: it has the numbers {d.tally}")
+        s!"{d.path} has findings and no entry: it has the numbers {d.tally}")) ++
+  (b.entries.filter fun e => !decide (∃ d ∈ documents, d.path.toList = e.path)).map fun e =>
+    (lineOf b.entries e.path,
+      s!"{String.ofList e.path}: the entry has no tracked Markdown document; remove the entry, \
+        because a change that removes a document must remove its entry")
 
 theorem gate_nil_iff (b : Baseline) (documents : List Observed) :
-    gate b documents = [] ↔ ∀ d ∈ documents, d.Admitted b := by
-  have h : gate b documents = [] ↔ ∀ d ∈ documents, Exec.Admitted b d := by
+    gate b documents = [] ↔ (∀ d ∈ documents, d.Admitted b) ∧ b.Documented documents := by
+  have h : gate b documents = [] ↔
+      (∀ d ∈ documents, Exec.Admitted b d) ∧
+        ∀ e ∈ b.entries, ∃ d ∈ documents, d.path.toList = e.path := by
     simp [gate, List.filter_eq_nil_iff]
+  unfold Baseline.Documented
   rw [h, Exec.Admitted_eq]
 
 /-- A digest for the witnesses of the contracts. -/
@@ -757,15 +776,20 @@ def Baseline.sample : Baseline :=
     (defects_nil_iff _).mp (by decide)⟩
 
 /-- Registered contract of the gate (check B1), as a two-way decision over the baseline and the
-documents: it reports nothing exactly when the baseline admits each document. It accepts no
-document and refuses a document with one finding and no entry. -/
+documents: it reports nothing exactly when the baseline admits each document
+(`Observed.Admitted`) and each entry has a document (`Baseline.Documented`). It accepts the
+sample baseline with the two documents of its entries. It refuses the sample baseline with no
+document: no document is refused, and each entry has no document. -/
 theorem checked_gate : Regula.ExecutableContract gate (fun run =>
     Regula.Decides (· = [])
-      (fun input : Baseline × List Observed => ∀ d ∈ input.2, d.Admitted input.1)
+      (fun input : Baseline × List Observed =>
+        (∀ d ∈ input.2, d.Admitted input.1) ∧ input.1.Documented input.2)
       (Function.uncurry run)) :=
   ⟨.of_iff (fun input => gate_nil_iff input.1 input.2)
-    ⟨(Baseline.empty, []), by decide⟩
-    ⟨(Baseline.empty, [⟨"a", "", [1]⟩]), by decide⟩⟩
+    ⟨(Baseline.sample,
+        [⟨"a", "", [1, 0, 0, 0, 0, 0, 0, 0]⟩, ⟨"b", String.ofList sampleDigest, []⟩]),
+      by decide⟩
+    ⟨(Baseline.sample, []), by decide⟩⟩
 
 /-! ## The ratchet (check B2) -/
 
@@ -1010,7 +1034,7 @@ theorem frozen_unchanged {base head : Baseline} {documents : List Observed}
     ∀ d ∈ documents, ∀ f ∈ base.entries, ∀ digest, f.path = d.path.toList →
       f.allowance = .frozen digest → d.digest.toList = digest := by
   intro d hd f hf digest hpath hfrozen
-  have hadmitted := (gate_nil_iff head documents).mp hgate d hd
+  have hadmitted := ((gate_nil_iff head documents).mp hgate).1 d hd
   obtain ⟨kept, hkept, hkeeps⟩ := (ratchet_nil_iff (.baseline base) (some head) _).mp hratchet
   cases hkept
   have htracked : String.ofList f.path ∈ documents.map (·.path) := by
@@ -1021,6 +1045,20 @@ theorem frozen_unchanged {base head : Baseline} {documents : List Observed}
   have hpermits := hadmitted.1 e he (hepath.trans hpath)
   rw [heallowance] at hpermits
   exact hpermits.symm
+
+/-- The two decisions together give no entry to a new document: when the gate accepted the
+documents `before` of the base revision for its baseline `base`, and the ratchet accepts `head`
+in relation to `base`, each entry of `head` has a document of `before` with its path. -/
+theorem entry_has_base_document {base head : Baseline} {before : List Observed}
+    {tracked : List String} (hgate : gate base before = [])
+    (hratchet : ratchet (.baseline base) (some head) tracked = []) :
+    ∀ e ∈ head.entries, ∃ d ∈ before, d.path.toList = e.path := by
+  intro e he
+  have hmem : e.path ∈ base.entries.map Entry.path :=
+    ((ratchet_nil_iff _ _ _).mp hratchet).paths e he
+  obtain ⟨f, hf, hpath⟩ := List.mem_map.mp hmem
+  obtain ⟨d, hd, hdocument⟩ := ((gate_nil_iff base before).mp hgate).2 f hf
+  exact ⟨d, hd, hdocument.trans hpath⟩
 
 /-! ## The base revision of check B2
 
