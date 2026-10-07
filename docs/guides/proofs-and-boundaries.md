@@ -561,7 +561,7 @@ Two-way decisions (`Regula.Decides`), each with an accepted and a refused input:
 | `RegulaPolicy.DecisionKind.ofStructureName?` | The name is a kind's structure | Reading a registration's kind ([RG1007]). |
 | `RegulaPolicy.Erasure.reproduces` | `Erasure.Reproduction`: the observing pass finished, the regeneration added a definition, and each value is related by `Erasure.EqualWithin` to the observed value of its name | The recursion-helper comparison of [RG1006], over the two values and the recorded observations of their terms ([below](#the-recursion-helper-comparison-decision-and-observing-pass)). |
 | `Regula.SourceTexts.intern` | One `sourceTexts` member, `null`, and string `sourceText` members (`intern_isOk_iff`) | Writing a result document. |
-| `Regula.Markdown.documentErrors`, `Regula.Prose.bareMentions`, `Regula.Site.linkErrors`, `Regula.Site.missingAnchors`, `Regula.Site.rowsMismatch` | Their `_nil_iff` and `_eq_none_iff` relations | The rule-ID checks of Markdown and of the rendered standard, and the site's link, anchor and checklist checks. |
+| `Regula.Markdown.documentErrors`, `Regula.Markdown.siteLinkErrors`, `Regula.Prose.bareMentions`, `Regula.Site.linkErrors`, `Regula.Site.missingAnchors`, `Regula.Site.rowsMismatch` | Their `_nil_iff` and `_eq_none_iff` relations | The rule-ID checks of Markdown and of the rendered standard, and the site's link, anchor and checklist checks. `siteLinkErrors` is the check of the links of the root `README.md` to the rule-reference site. |
 | `Regula.Controlled.parse` | The text is the text that `write` gives for a vocabulary (`parse_write`, `write_of_parse`). A vocabulary is a draft with `Draft.WellFormed` (`Draft.defects_nil_iff`). | The vocabulary `CONTEXT.md` (check C9) of the [writing rules](writing.md). The file system gives the text. |
 | `Regula.Controlled.untracked`, `Regula.Controlled.adopt` | Each source path is a tracked path of the repository of its row. `adopt` accepts two vocabularies if, and only if, three conditions are correct (`checked_adopt`). The vocabulary of the project has the line `Shared vocabulary:`. The vocabulary of the package does not have that line. The rows of the project and the `Shared` tables of the package together have `Draft.WellFormed`. | The other parts of check C9. Git gives the tracked paths. |
 | `Regula.Controlled.longSentences`, `longSteps`, `longParagraphs`, `semicolons`, `contractions`, `replacedNames`, `replacedWords`, `abbreviations` (accept on `[]`) | `ShortSentences`, `ShortSteps`, `ShortParagraphs`, `NoSemicolon`, `NoContraction`, `NoReplacedName`, `NoReplacedWord`, `NoAbbreviation`. Each statement is about the blocks (`Blocks`) and the sentences (`Divided`) of the pieces. The statements of C5 to C8 use the form of a word (`Normal`). | The checks C1 to C8 of the prose of a Markdown document. The md4c reader gives the pieces, and that reader has no theorem. |
@@ -614,7 +614,7 @@ Decisions with no kind, and what stands instead:
 ### Decisions not registered with `regula_decision`
 
 Every decision of the three tables with a kind is registered with `@[regula_decision]`, so
-[RG1008] requires its contract: 52 functions of `RegulaPolicy`, 25 of `RegulaCore`, 9 of
+[RG1008] requires its contract: 52 functions of `RegulaPolicy`, 26 of `RegulaCore`, 9 of
 `RegulaQualification`, 3 of `AuditApp`, 8 of `RegulaProvision`, 3 of `RegulaVerification` and 14 of the excluded `Regula` library, where the
 `self-audit` diagnostic decides the rule. Thirteen of them are registered from another module of
 their library, with

@@ -196,6 +196,10 @@ the prose of a tracked Markdown document or of the rendered standard that is not
 headings included, and the site check refuses one in a page of the site
 ([how to write one, and what the checks rely on](contributing.md#rule-ids-in-documentation)).
 
+The root `README.md` does not link the development pages. It links the stable address of each
+rule, `https://rbeauchamp.github.io/regula/rules/<ID>/`, which names no edition and opens the
+page of the latest release ([links of the root README](contributing.md#links-of-the-root-readme)).
+
 ## 3. Review the claimed surface
 
 Conformance is claimed per Lake library or executable, and the checker discovers modules through

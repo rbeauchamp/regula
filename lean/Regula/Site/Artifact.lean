@@ -3,8 +3,9 @@ import Regula.Site.Build
 /-! # Rule-reference artifact assembly and check
 
 Renders the generated manual with the pinned Verso package, assembles the GitHub Pages
-artifact (`index.html`, `404.html`, `build.json`, the development edition `dev/` and the
-permanent edition `v/<version>/` of every release) and checks the assembled tree before it can
+artifact (`index.html`, `404.html`, `build.json`, the development edition `dev/`, the
+permanent edition `v/<version>/` of every release and the stable routes below `rules/` and
+`standard/`) and checks the assembled tree before it can
 be uploaded.
 
 ## Main declarations
@@ -12,6 +13,9 @@ be uploaded.
 - `render`: run the website package's Verso executable (trusted process boundary).
 - `landing`: the site root `index.html`, which opens `rootEdition`: the latest release's edition,
   or `dev/` while no release exists.
+- `stableRedirect`, `rootCopy`, `stableFiles`: the page at each stable route, which names no
+  edition and opens the same page of `rootEdition`, one for each HTML page of that edition below
+  a `stableRoots` directory.
 - `releaseSources`, `releaseCopies`: each release's edition before banners, from
   `releaseSource`: the frozen copy whenever its release asset exists; before that asset exists,
   this build's rendered edition in a build of the installed release while its tag is absent or
@@ -26,7 +30,9 @@ be uploaded.
 - `checkArtifact`: the complete finite check of an assembled tree: size within
   `artifactBudget`, only the published routes (`sitePath`) with every published edition present,
   the development edition equal to the rendered one, every release edition equal to its published
-  copy, one page per registered rule in the development and installed editions and no other rule
+  copy, the files below the `stableRoots` directories equal to `stableFiles`, every address of
+  the site in the root `README.md` a file of the tree (`siteAnchors`), one page per registered
+  rule in the development and installed editions and no other rule
   route, page content equal to the admitted example text, every scanned link of the whole tree
   resolving under the project base path (`linkErrors_nil_iff`), every rule ID in the prose of the
   development edition linked to its page there (`Regula.Prose.htmlErrors_nil_iff`), and the
@@ -87,6 +93,18 @@ def landing : String :=
     href=\"" ++ siteBase ++ target ++ "\"></head><body><main><h1>Regula rule reference</h1><p><a \
     href=\"" ++ target ++ "\">Open the rule reference</a>.</p></main></body></html>\n"
 
+/-- The page at the stable route whose file is `path`: a link (and immediate refresh) to the same
+page of `rootEdition` (`stableTarget`), so the route names no edition and a release moves it with
+no other edit. Its canonical link names that page. A fragment after the route is not kept. -/
+def stableRedirect (path : String) : String :=
+  let target := escape (stableTarget path)
+  "<!doctype html>\n<html lang=\"en\"><head><meta charset=\"utf-8\"><meta name=\"viewport\" \
+    content=\"width=device-width, initial-scale=1\">" ++
+  "<title>Regula rule reference</title><meta http-equiv=\"refresh\" content=\"0; url=" ++ target ++
+  "\"><link rel=\"canonical\" href=\"" ++ escape (rootEdition.url (pageRoute path)) ++
+  "\"></head><body><main><h1>Regula rule reference</h1><p><a href=\"" ++ target ++
+  "\">Open this page of the rule reference</a>.</p></main></body></html>\n"
+
 /-- The page GitHub Pages serves for every unpublished path. Links are root-relative because
 it is served at arbitrary paths. -/
 def notFound (ident : Identity) : String :=
@@ -95,6 +113,10 @@ def notFound (ident : Identity) : String :=
     "<p>The address does not name a published page of the Regula rule reference. The site \
       publishes the development version under <code>" ++ basePath ++ "dev/</code> and the \
       permanent copy of each release under <code>" ++ basePath ++ "v/&lt;version&gt;/</code>. An \
+      address below " ++
+    " or ".intercalate (stableRoots.map fun r => "<code>" ++ basePath ++ escape r ++ "</code>") ++
+    " names no version: it opens the same page of <code>" ++ basePath ++ escape rootEdition.root ++
+    "</code>, the edition that the site root opens. An \
       unavailable page is never redirected to other rules, whose meaning may differ from the \
       version you linked.</p>" ++
     "<p>The explanations and checked examples of any commit are in its source on GitHub: \
@@ -130,12 +152,14 @@ def editionJson (g : Generated) : Json := Json.mkObj (identityFields g)
 
 /-- The machine-readable identity of an artifact: the build's identity, its published editions,
 how each release's edition was obtained (`releaseSource`) and whether the build's commit is the
-one the installed release's tag names, and the value of `publishable` for the sources. The
+one the installed release's tag names, the value of `publishable` for the sources, and `stable`,
+the files of its stable routes. The
 deployment check compares the live copy with these exact bytes, and `Deployment gate` refuses to
 publish unless the recorded `publishable` is `true`. -/
-def buildJson (g : Generated) (tag : TagState) (sources : List (ReleaseVersion × ReleaseSource)) :
-    Json :=
+def buildJson (g : Generated) (tag : TagState) (sources : List (ReleaseVersion × ReleaseSource))
+    (stable : List String) : Json :=
   Json.mkObj (identityFields g ++ [("editions", toJson (published.map Edition.root)),
+    ("stableRoutes", toJson stable),
     ("releaseSources", toJson (sources.map fun (v, s) => Json.mkObj [
       ("version", .str v.spelling), ("source", .str s.spelling)])),
     ("headTagged", .bool (tag == .head)),
@@ -193,19 +217,38 @@ def publishedCopies (copies : List (ReleaseVersion × List (String × ByteArray)
     | none => []
   copies.mapM fun (v, copy) => return (v, ← publishedCopy latestFiles v copy)
 
-/-- Write the artifact tree: the rendered edition as `dev/` and each release's published
-edition as `v/<version>/`. -/
+/-- The files of the edition that the site root opens (`rootEdition`), relative to its root, from
+the rendered edition and the published editions of the releases; `none` when that edition is a
+release with no published edition among `editions`. -/
+def rootCopy (edition : List (String × ByteArray))
+    (editions : List (ReleaseVersion × List (String × ByteArray))) :
+    Option (List (String × ByteArray)) :=
+  match rootEdition with
+  | .dev => some edition
+  | .release l => editions.lookup l
+
+/-- The file of each stable route, relative to the site root, with its page (`stableRedirect`),
+given `copy`, the files of `rootEdition`: one for each of `stablePages`, so a stable route exists
+exactly for an HTML page of that edition below a `stableRoots` directory (`mem_stablePages`). -/
+def stableFiles (copy : List (String × ByteArray)) : List (String × ByteArray) :=
+  (stablePages (copy.map (·.1))).map fun path => (path, (stableRedirect path).toUTF8)
+
+/-- Write the artifact tree: the rendered edition as `dev/`, each release's published edition as
+`v/<version>/`, and the stable routes `stable` below the site root. -/
 def assemble (out : FilePath) (g : Generated) (tag : TagState)
     (sources : List (ReleaseVersion × ReleaseSource)) (edition : List (String × ByteArray))
-    (editions : List (ReleaseVersion × List (String × ByteArray))) : IO Unit := do
+    (editions : List (ReleaseVersion × List (String × ByteArray)))
+    (stable : List (String × ByteArray)) : IO Unit := do
   if ← out.pathExists then IO.FS.removeDirAll out
   IO.FS.createDirAll out
   writeTree (out / Edition.dev.root) edition
   for (v, files) in editions do
     writeTree (out / (Edition.release v).root) files
+  writeTree out stable
   IO.FS.writeFile (out / "index.html") landing
   IO.FS.writeFile (out / "404.html") (notFound g.ident)
-  IO.FS.writeFile (out / "build.json") ((buildJson g tag sources).pretty ++ "\n")
+  IO.FS.writeFile (out / "build.json")
+    ((buildJson g tag sources (stable.map (·.1))).pretty ++ "\n")
 
 private def utf8 (path : String) (bytes : ByteArray) : IO String :=
   match String.fromUTF8? bytes with
@@ -218,7 +261,7 @@ private def editionFiles (files : List (String × ByteArray)) (e : Edition) :
   files.filterMap fun (p, b) => (p.dropPrefix? e.root).map fun r => (r.toString, b)
 
 /-- Check an assembled artifact against the build that produced it, its rendered edition and the
-published editions of the releases. -/
+published editions of the releases, from which it calculates the stable routes (`stableFiles`). -/
 def checkArtifact (root out : FilePath) (g : Generated) (tag : TagState)
     (sources : List (ReleaseVersion × ReleaseSource)) (edition : List (String × ByteArray))
     (editions : List (ReleaseVersion × List (String × ByteArray))) : IO Unit := do
@@ -229,8 +272,8 @@ def checkArtifact (root out : FilePath) (g : Generated) (tag : TagState)
           artifactBudget⟩]
   let unexpected := files.filter (fun f => !sitePath f.1) |>.map (·.1)
   requireChecks
-      [⟨s!"artifact has only the published routes {published.map Edition.root}; unexpected: \
-        {unexpected.take 5}", unexpected.isEmpty⟩]
+      [⟨s!"artifact has only the published routes {published.map Edition.root} and the stable \
+        routes below {stableRoots}; unexpected: {unexpected.take 5}", unexpected.isEmpty⟩]
   -- The Pages upload drops hidden files, so the checked tree must not contain any.
   let hidden := files.filter (fun f => (f.1.splitOn "/").any (·.startsWith ".")) |>.map (·.1)
   requireChecks
@@ -241,6 +284,16 @@ def checkArtifact (root out : FilePath) (g : Generated) (tag : TagState)
   for (v, published) in editions do
     requireChecks [⟨s!"v/{v.spelling}/ is the published copy of release {v.spelling}",
       editionFiles files (.release v) == published⟩]
+  -- A stable route exists exactly for an HTML page of the edition the site root opens, below a
+  -- stable root, and is the redirect to that page (`stableFiles`).
+  let some copy := rootCopy edition editions
+    | throw <| IO.userError s!"the edition {rootEdition.root}, which the site root opens, is not \
+        among the editions of this build"
+  let stable := stableFiles copy
+  let below := files.filter fun f => stableRoots.any fun r => f.1.startsWith r
+  requireChecks [⟨s!"the files below {stableRoots} are the {stable.length} stable routes: one for \
+    each HTML page of {rootEdition.root} there, each the redirect to that page",
+    below == byPath stable⟩]
   let spellings := RuleId.all.map RuleId.spelling
   let ruleDirs := (dev.filterMap fun (p, _) => match p.splitOn "/" with
     | "rules" :: d :: _ :: _ => some d | _ => none).eraseDups
@@ -272,6 +325,11 @@ def checkArtifact (root out : FilePath) (g : Generated) (tag : TagState)
     if p.endsWith ".html" then return Page.ofHtml p (← utf8 p bytes) else return Page.ofOther p
   let errors := linkErrors pages
   requireChecks [⟨s!"{errors.length} unresolved link(s): {errors.take 10}", errors.isEmpty⟩]
+  -- Every address of the site in the root `README.md` names a file of the artifact, and a
+  -- fragment an element of that file. The Markdown check requires each to be a stable address.
+  let readme := missingAnchors pages (siteAnchors (← IO.FS.readFile (root / "README.md")))
+  requireChecks [⟨s!"every address of the site in README.md is a file of the artifact, with its \
+    fragment; missing: {readme}", readme.isEmpty⟩]
   -- Every rule ID in the prose of the rendered edition links to its page in that edition; the
   -- release editions are that rendering or copies frozen when they were released.
   let mut bare : List String := []
@@ -302,7 +360,8 @@ def checkArtifact (root out : FilePath) (g : Generated) (tag : TagState)
   IO.FS.removeFile registry
   IO.FS.removeFile artifact
   let recorded ← IO.FS.readFile (out / "build.json")
-  requireChecks [⟨"build identity", recorded == (buildJson g tag sources).pretty ++ "\n"⟩]
+  requireChecks [⟨"build identity",
+    recorded == (buildJson g tag sources (stable.map (·.1))).pretty ++ "\n"⟩]
 
 /-- Where a release build writes its edition as the release asset (`releaseAsset`). -/
 def releasePackage (root : FilePath) (v : ReleaseVersion) : FilePath :=
@@ -332,8 +391,10 @@ def build (evidencePaths : List FilePath) (out : FilePath) : IO Unit := do
   generate root g
   let edition ← render root (root / "tmp/site-render") ident.revision.val
   let editions ← IO.ofExcept (publishedCopies (← releaseCopies root g edition sources))
+  -- `checkArtifact` refuses when the edition the site root opens is not among the editions.
+  let stable := stableFiles ((rootCopy edition editions).getD [])
   try
-    assemble out g tag sources edition editions
+    assemble out g tag sources edition editions stable
     checkArtifact root out g tag sources edition editions
   catch error =>
     -- An unchecked artifact never remains where it could be served or uploaded.
@@ -360,7 +421,8 @@ def build (evidencePaths : List FilePath) (out : FilePath) : IO Unit := do
         is not publishable: the deployment gate refuses it, and CI on main renders the edition \
         from the release commit and publishes it as the release asset"
   IO.println s!"site: PASS ({RuleId.all.length} rule pages, editions \
-    {published.map Edition.root}, {(← snapshotTree out).length} files, \
+    {published.map Edition.root}, {stable.length} stable routes to {rootEdition.root}, \
+    {(← snapshotTree out).length} files, \
     commit {ident.revision.val}{if ident.dirty then " with uncommitted changes" else ""}); \
     artifact {out}"
   IO.println "The artifact check observes local files only; publication is verified against the \

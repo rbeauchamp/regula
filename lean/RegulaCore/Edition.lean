@@ -33,8 +33,11 @@ pages, and `dev/` only for an unreleased build.
   every build takes the edition from it; an unreleased build previews only the latest listed
   release, and only while neither its asset nor its tag exists; and only an artifact whose every
   release edition is its asset is deployed.
-- `sitePath`, `sitePath_iff`: the route policy of the published artifact: its root files and
-  the files of the published editions, nothing else.
+- `stableRoots`, `stableUrl`: the directories of the stable routes, which name no edition, and
+  the stable address of a route.
+- `sitePath`, `sitePath_iff`: the route policy of the published artifact: its root files, the
+  files of the published editions and the files below the `stableRoots` directories, nothing
+  else.
 
 ## Boundaries
 
@@ -443,15 +446,29 @@ theorem helpUrl_dev_iff (id : RuleId) :
 /-- The files of the published artifact outside its editions. -/
 def rootFiles : List String := ["index.html", "404.html", "build.json"]
 
-/-- Whether `path` belongs to the published site: a root file or a file of a published
-edition. The site build refuses an artifact with any other path. -/
-def sitePath (path : String) : Bool :=
-  rootFiles.contains path || published.any fun e => path.startsWith e.root
+/-- The directories below the site root that hold the stable routes: the rule pages and the
+standard. A stable route names no edition. It opens the same page of the edition that the site
+root opens (`Regula.Site.rootEdition`, `Regula.Site.stableTarget`), so a release moves it with no
+other edit. -/
+def stableRoots : List String := ["rules/", "standard/"]
 
-/-- The route policy: a path is published exactly when it is a root file or lies in the
-development edition or a release's edition. -/
+/-- The stable address of `route`, a route relative to an edition root: the address with no
+edition. The site has a page there only for a page of the edition that the site root opens
+below a `stableRoots` directory (`Regula.Site.mem_stablePages`). -/
+def stableUrl (route : String) : String := siteBase ++ route
+
+/-- Whether `path` belongs to the published site: a root file, a file of a published edition or
+a file below a `stableRoots` directory. The site build refuses an artifact with any other
+path. -/
+def sitePath (path : String) : Bool :=
+  rootFiles.contains path || (published.any fun e => path.startsWith e.root) ||
+    stableRoots.any fun r => path.startsWith r
+
+/-- The route policy: a path is published exactly when it is a root file, lies in the
+development edition or a release's edition, or lies below a `stableRoots` directory. -/
 theorem sitePath_iff (path : String) :
-    sitePath path = true ↔ path ∈ rootFiles ∨ ∃ e ∈ published, path.startsWith e.root = true := by
-  simp [sitePath]
+    sitePath path = true ↔ path ∈ rootFiles ∨ (∃ e ∈ published, path.startsWith e.root = true) ∨
+      ∃ r ∈ stableRoots, path.startsWith r = true := by
+  simp [sitePath, or_assoc]
 
 end Regula

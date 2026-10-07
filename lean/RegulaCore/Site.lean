@@ -19,6 +19,12 @@ about that data is a function here. The editions and the route policy are
 - `rootEdition`, `rootEdition_eq_dev_iff`, `rootEdition_eq_release_iff`, `rootEdition_published`:
   the edition the project-site root opens is the greatest release's, or the development edition
   exactly while no release exists, and it is published.
+- `pageRoute`, `stablePage`, `stablePages`, `mem_stablePages`, `sitePath_of_mem_stablePages`,
+  `stableTarget`: the stable routes, which name no edition: one for each HTML page of
+  `rootEdition` below a `stableRoots` directory, and the address it opens, the same page of
+  that edition.
+- `siteAnchors`: the pages and fragments that a document names on the site, which the site
+  build checks against the artifact for the root `README.md`, by `missingAnchors`.
 - `bannerRelease`, `bannerRelease_eq_some`, `bannerTarget`, `bannerTarget_mem`, `outdatedBanner`,
   `bannerAnchor`, `insertBanner`, `insertBanner_ok`: the note at the top of every page of an
   earlier release's edition, which names the latest release and links the same page there, or
@@ -52,6 +58,9 @@ states that every link it extracted resolves; it does not prove that the tokeniz
 every link a browser would follow, that GitHub Pages serves the files, or that external
 links are live. `routesAfter` finds each literal occurrence of `standardUrl`; a link into the
 standard written any other way (relative, another edition, percent-encoded) is not found.
+`siteAnchors` finds each literal occurrence of `siteBase` the same way, and reads the route after
+it up to the first character that is not `isRouteChar`, so an address written any other way is
+not found and a route with such a character, a `.` for example, is read only up to it.
 `renderedRows` relies on the standard's `checklistRow` role being the only producer of
 `checklistRowClass` (by inspection of `website/RegulaExample.lean`). `insertBanner` relies on
 Verso writing each page's content column as `bannerAnchor`; the build refuses a page without
@@ -235,6 +244,40 @@ theorem rootEdition_published : rootEdition ∈ published := by
   | release l =>
     exact (mem_published _).mpr (Or.inr ⟨l, ((rootEdition_eq_release_iff l).mp h).1, rfl⟩)
 
+/-! ## Stable routes -/
+
+/-- The route of the artifact file `file`: its directory for an `index.html`, and the file itself
+otherwise. -/
+def pageRoute (file : String) : String :=
+  if file.endsWith "index.html" then (file.dropEnd 10).toString else file
+
+/-- Whether the file at `path` of an edition, relative to the edition root, has a stable route:
+it is an HTML page below a `stableRoots` directory. -/
+def stablePage (path : String) : Bool :=
+  path.endsWith ".html" && stableRoots.any fun r => path.startsWith r
+
+/-- The files of the stable routes, relative to the site root, given `files`, the paths of the
+files of `rootEdition` relative to its root: each stable route has the path of its page in that
+edition. -/
+def stablePages (files : List String) : List String := files.filter stablePage
+
+/-- The site has a stable route exactly for each HTML page of `rootEdition` below a `stableRoots`
+directory. A page that only another edition has, such as the page of a rule that is in no
+release while a release exists, has none. -/
+theorem mem_stablePages (files : List String) (path : String) :
+    path ∈ stablePages files ↔ path ∈ files ∧ path.endsWith ".html" = true ∧
+      ∃ r ∈ stableRoots, path.startsWith r = true := by
+  simp [stablePages, stablePage]
+
+/-- Every file of a stable route is a path of the published site. -/
+theorem sitePath_of_mem_stablePages {files : List String} {path : String}
+    (h : path ∈ stablePages files) : sitePath path = true :=
+  (sitePath_iff path).mpr (Or.inr (Or.inr ((mem_stablePages files path).mp h).2.2))
+
+/-- The address that the stable route with file `path` opens: the same page of `rootEdition`,
+below the project base path. -/
+def stableTarget (path : String) : String := basePath ++ rootEdition.root ++ pageRoute path
+
 /-! ## Release banners -/
 
 /-- The path, relative to the latest release's edition root, that the banner of the page at
@@ -273,11 +316,10 @@ theorem bannerTarget_mem {files : List String} (home : "index.html" ∈ files) (
 latest release: it names the latest release and links `target` in its edition, the same page
 when `target` is `path`. -/
 def outdatedBanner (v latest : ReleaseVersion) (path target : String) : String :=
-  let route := if target.endsWith "index.html" then (target.dropEnd 10).toString else target
   "<div class=\"regula-outdated\" role=\"note\"><p>This page documents Regula " ++
     escape v.spelling ++ ". The latest release is Regula " ++ escape latest.spelling ++
     ": <a href=\"" ++
-    escape (basePath ++ (Edition.release latest).root ++ route) ++ "\">" ++
+    escape (basePath ++ (Edition.release latest).root ++ pageRoute target) ++ "\">" ++
     (if target == path then "this page in Regula " else "the rule reference of Regula ") ++
     escape latest.spelling ++ "</a>.</p></div>"
 
@@ -828,6 +870,12 @@ route written after `standardUrl`. -/
 def documentAnchors (texts : List String) : List (String × String) :=
   texts.flatMap fun text => (routesAfter standardUrl text).map routeAnchor
 
+/-- Every page and fragment that the document `text` names on the site: the page and fragment of
+each route written after `siteBase`, relative to the site root. An address with no route names
+the `index.html` of the site root. -/
+def siteAnchors (text : String) : List (String × String) :=
+  (routesAfter siteBase text).map routeAnchor
+
 /-- The anchors that no page with their path defines. An empty fragment needs only the page. -/
 @[regula_decision]
 def missingAnchors (pages : List Page) (anchors : List (String × String)) : List
@@ -932,6 +980,19 @@ names its `index.html`, and only elements of the row class are rows. -/
 #guard documentAnchors ["[a](" ++ standardUrl ++ "8-compliance-audit/#DOC-04). <" ++ standardUrl ++
   ">; `" ++ standardUrl ++ "introduction/`."] ==
   [("8-compliance-audit/index.html", "DOC-04"), ("index.html", ""), ("introduction/index.html", "")]
+-- A document's addresses of the site: the site root, a stable route and a route with a fragment.
+-- A stable route has a file exactly for a page of the root edition below a stable root.
+-- Compiled-evaluation observation at build time, not a kernel-checked proof.
+#guard siteAnchors ("[a](" ++ siteBase ++ ") [b](" ++ stableUrl "rules/RG1001/" ++ ")\n\n[c]: " ++
+    stableUrl "standard/#top") ==
+  [("index.html", ""), ("rules/RG1001/index.html", ""), ("standard/index.html", "top")]
+-- Compiled-evaluation observation at build time, not a kernel-checked proof.
+#guard stablePages ["index.html", "regula.css", "rules/index.html", "rules/RG1001/index.html",
+    "standard/8-compliance-audit/index.html", "standard/x.css", "versions/index.html"] ==
+  ["rules/index.html", "rules/RG1001/index.html", "standard/8-compliance-audit/index.html"]
+-- Compiled-evaluation observation at build time, not a kernel-checked proof.
+#guard pageRoute "rules/RG1001/index.html" == "rules/RG1001/" && pageRoute "rules/a.html" ==
+  "rules/a.html"
 -- Compiled-evaluation observation at build time, not a kernel-checked proof.
 #guard renderedRows
     "<h2 id=\"audit-matrix\">x</h2><code id=\"A-1\" class=\"checklist-row\">A-1</code>" ==

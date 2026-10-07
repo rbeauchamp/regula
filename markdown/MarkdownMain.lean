@@ -11,6 +11,8 @@ documents are the files Git tracks below the repository root whose extension is 
 step of acceptance runs it (`lean/RegulaVerification.lean`).
 
 This program uses these registered decisions of `RegulaCore`: `documentErrors` for the rule IDs;
+`siteLinkErrors` for the links of the root `README.md` to the rule reference, each of which is a
+stable address that names no edition;
 `parse`, `adopt` and `untracked` for the vocabulary; the eight checks of a document through
 `tally` and `report`; `Baseline.parse`, `gate` and `ratchet` for the baseline; `baseOf` for the
 base revision, with the start that `Start.read` reads. `vocabularyOf`
@@ -384,6 +386,8 @@ def documentsOf (root : System.FilePath) (tracked : List String) : IO (List Docu
 structure Outcome where
   /-- The refusals of the rule IDs. -/
   ruleIds : List String
+  /-- The refusals of the links of the root `README.md` to the rule reference. -/
+  siteLinks : List String
   /-- The refusals of the vocabulary, of the prose and of the baseline. -/
   prose : List String
   /-- What the checks of the vocabulary, the prose and the baseline accepted, when they
@@ -392,7 +396,8 @@ structure Outcome where
   /-- The number of tracked Markdown documents. -/
   documents : Nat
 
-/-- The checks of the repository: the rule IDs of every tracked Markdown document, the
+/-- The checks of the repository: the rule IDs of every tracked Markdown document, the links of
+the root `README.md` to the rule reference, the
 vocabulary, the checks C1 to C8 of every document with the baseline, and the baseline in
 relation to the base revision. The reason, when Git does not list the files of the repository
 or lists no Markdown document. -/
@@ -404,6 +409,7 @@ def examine (options : Options) : IO (Except String Outcome) := do
   if documents.isEmpty then
     return .error s!"Git tracks no Markdown document below {options.root}"
   let ruleIds := documents.flatMap fun d => documentErrors d.path d.source d.reading
+  let siteLinks := documents.flatMap fun d => siteLinkErrors d.path d.reading
   let vocabulary ← loadVocabulary options tracked
   let baseline ← loadBaseline options.root (tracked.contains baselineFile)
   let mut prose : List String := []
@@ -424,7 +430,7 @@ def examine (options : Options) : IO (Except String Outcome) := do
   | vocabulary, baseline =>
     prose := (match vocabulary with | .error refusals => refusals | .ok _ => []) ++
       (match baseline with | .error refusals => refusals | .ok _ => [])
-  return .ok ⟨ruleIds, prose, summary, documents.length⟩
+  return .ok ⟨ruleIds, siteLinks, prose, summary, documents.length⟩
 
 /-- Check the repository (`examine`). Exit code 0 when there is at least one document and
 nothing is refused, and 1 otherwise, after printing each refusal. -/
@@ -438,13 +444,18 @@ def check (options : Options) : IO UInt32 := do
     IO.eprintln ("FAIL: tracked Markdown documents have a rule ID in prose that is not a link to \
       its rule page, or a construct the check does not read:\n" ++
       "\n".intercalate outcome.ruleIds)
+  unless outcome.siteLinks.isEmpty do
+    IO.eprintln ("FAIL: a document whose links to the rule reference name no edition has a link \
+      that is not a stable address:\n" ++ "\n".intercalate outcome.siteLinks)
   unless outcome.prose.isEmpty do
     IO.eprintln ("FAIL: the vocabulary, the prose of the tracked Markdown documents or the \
       baseline is refused (docs/guides/writing.md gives each check):\n" ++
       "\n".intercalate outcome.prose)
-  unless outcome.ruleIds.isEmpty && outcome.prose.isEmpty do return 1
+  unless outcome.ruleIds.isEmpty && outcome.siteLinks.isEmpty && outcome.prose.isEmpty do
+    return 1
   IO.println s!"Markdown documents: {outcome.documents} tracked documents read by md4c; every \
-    rule ID in their prose links to its rule page; {outcome.summary}"
+    rule ID in their prose links to its rule page; every link of {stableDocuments} to the rule \
+    reference is a stable address, which names no edition; {outcome.summary}"
   return 0
 
 /-- Print every finding of the checks C1 to C8 in one Markdown document of the repository. -/
@@ -1057,7 +1068,7 @@ def runRepositoryControls (judge : String → Expect → List String → List St
         {(control.start.map fun text => s!", {startVariable}={text}").getD ""}\
         {(control.origin.map fun branch => s!", origin/main at `{branch}`").getD ""}"
       let result ← match ← examine { root := directory, start := Start.read start } with
-        | .ok outcome => pure (outcome.ruleIds ++ outcome.prose)
+        | .ok outcome => pure (outcome.ruleIds ++ outcome.siteLinks ++ outcome.prose)
         | .error reason => pure [reason]
       failures := failures ++ judge subject control.expect result
     return failures
