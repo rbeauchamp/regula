@@ -2643,7 +2643,7 @@ not yet proved, and are labelled so at their definition; they are not correctnes
 | history | 10 project and file invocations | replacement history, unsupported evaluators, source changes; the written `execution` as a shared form with every root derived | External | observed |
 | history | 17 history, closure and source transport mutations | `Environment.validate` refusals | Proved | `ProducerReport.validate_sound` |
 | history | 7 oracle mutations | refusal of missing imported ownership or execution evidence | Proved | `History.validate_importedRootExecuted`, `validate_unsupported_unresolved` |
-| rule-examples | 46 Fixed/Violation productions | every published example yields exactly its documented findings | External | observed |
+| rule-examples | 48 Fixed/Violation productions | every published example yields exactly its documented findings | External | observed |
 | rule-examples | 3 refusal productions | the producer's own request and classification account | External | observed |
 | rule-examples | 7 record mutations, 7 admission subprocesses | `qualify` refusals | Proved | `RuleExampleQualification.qualify_sound` |
 | checkerSelftest fixtures | in-process and CLI fixture verdicts; fence corpus; diagnostic-setup controls | compiler, elaborator, CLI and fence workers | External | observed |
