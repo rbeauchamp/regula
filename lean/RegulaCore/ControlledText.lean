@@ -31,8 +31,10 @@ with the relations, and a check runs the functions.
 `Normal` is the form of a word for a comparison, with its function `normalize` (`normal_iff`),
 and `Paired` relates two lists position by position (`paired_iff`).
 
-A function uses no definition that a specification uses. The definitions that a function needs
-have a second definition in the namespace `Exec`, each with a theorem that the two are equal.
+A function of a check uses the definitions that its specification names: a role, a token, a
+part, and the statements about them, which the function decides. No second definition takes the
+place of one. The account of each decision registration names the functions that its two sides
+share, so a reader sees them with the kind.
 
 Two theorems say what a token of letters is. A token that has a letter, a digit, a hyphen or an
 apostrophe has only such characters (`Runs.wordy`), and each letter, each digit, each piece of
@@ -537,7 +539,7 @@ inductive Role where
   | digit
   /-- A hyphen (`-`) or an apostrophe (`'`). -/
   | joiner
-  /-- A space character (`spacing`). -/
+  /-- A space character (`Spacing`). -/
   | space
   /-- A period, a question mark or an exclamation mark. -/
   | stop
@@ -556,12 +558,17 @@ inductive Role where
   | mark
   deriving DecidableEq, Repr
 
-/-- Whether `c` is a space character: ASCII white space, or one of the space characters outside
-ASCII that are known here (U+00A0, U+1680, U+2000 to U+200A, U+2028, U+2029, U+202F, U+205F and
-U+3000). -/
-def spacing (c : Char) : Bool :=
-  c.isWhitespace || c.val = 0xA0 || c.val = 0x1680 || (0x2000 ≤ c.val && c.val ≤ 0x200A) ||
-    c.val = 0x2028 || c.val = 0x2029 || c.val = 0x202F || c.val = 0x205F || c.val = 0x3000
+/-- `c` is a space character: ASCII white space, or one of the space characters outside ASCII
+that are known here (U+00A0, U+1680, U+2000 to U+200A, U+2028, U+2029, U+202F, U+205F and
+U+3000). The class is a proposition, so a statement that uses it names no test of this module,
+and a function decides it with its `Decidable` instance. -/
+def Spacing (c : Char) : Prop :=
+  c.isWhitespace = true ∨ c.val = 0xA0 ∨ c.val = 0x1680 ∨ (0x2000 ≤ c.val ∧ c.val ≤ 0x200A) ∨
+    c.val = 0x2028 ∨ c.val = 0x2029 ∨ c.val = 0x202F ∨ c.val = 0x205F ∨ c.val = 0x3000
+
+instance (c : Char) : Decidable (Spacing c) := by
+  unfold Spacing
+  infer_instance
 
 /-- The role of a character. The known marks outside ASCII are `‘`, `’`, `–`, `—` and `…`. -/
 def roleOf (c : Char) : Role :=
@@ -569,7 +576,7 @@ def roleOf (c : Char) : Role :=
   else if c.isLower then .lower
   else if c.isDigit then .digit
   else if c = '-' ∨ c = '\'' then .joiner
-  else if spacing c then .space
+  else if Spacing c then .space
   else if c = '.' ∨ c = '?' ∨ c = '!' then .stop
   else if c = '"' ∨ c = '“' ∨ c = '”' then .quote
   else if c = '(' then .opening
@@ -814,135 +821,10 @@ theorem normal_iff (text letters : List Char) :
       rw [hc] at this
       exact (hnot c).mp this
 
-/-! ## The definitions that the functions use
-
-A function of a check does not use a definition that a specification uses. Each definition of
-the specification that a function needs has a second definition here, in the namespace `Exec`,
-with a theorem that the two are equal. Thus a change to one of the two definitions does not
-change the other, and it makes the theorem fail. The data types are the only shared
-declarations. -/
-
-namespace Exec
-
-/-- Whether `c` is a space character, for the functions: equal to `Regula.Controlled.spacing`
-(`spacing_eq`). -/
-def spacing (c : Char) : Bool :=
-  c.isWhitespace || c.val = 0xA0 || c.val = 0x1680 || (0x2000 ≤ c.val && c.val ≤ 0x200A) ||
-    c.val = 0x2028 || c.val = 0x2029 || c.val = 0x202F || c.val = 0x205F || c.val = 0x3000
-
-/-- The role of a character, for the functions: equal to `Regula.Controlled.roleOf`
-(`roleOf_eq`). -/
-def roleOf (c : Char) : Role :=
-  if c.isUpper then .upper
-  else if c.isLower then .lower
-  else if c.isDigit then .digit
-  else if c = '-' ∨ c = '\'' then .joiner
-  else if spacing c then .space
-  else if c = '.' ∨ c = '?' ∨ c = '!' then .stop
-  else if c = '"' ∨ c = '“' ∨ c = '”' then .quote
-  else if c = '(' then .opening
-  else if c = ')' then .closing
-  else if c.val < 128 ∨ c = '‘' ∨ c = '’' ∨ c = '–' ∨ c = '—' ∨ c = '…' then .mark
-  else .symbol
-
-/-- The role of an atom, for the functions: equal to `Regula.Controlled.Atom.role`
-(`role_eq`). -/
-def role (atom : Atom) : Role :=
-  match atom.char with
-  | none => .code
-  | some c => roleOf c
-
-/-- The atom of a character of a text that has no pieces, for the functions (`plain_eq`). -/
-def plain (c : Char) : Atom := ⟨0, some c⟩
-
-/-- A role of a character of a word, for the functions (`Wordy_eq`). -/
-abbrev Wordy (r : Role) : Prop := r = .upper ∨ r = .lower ∨ r = .digit ∨ r = .joiner
-
-/-- A role that makes its token a word, for the functions (`Counted_eq`). -/
-abbrev Counted (r : Role) : Prop :=
-  r = .upper ∨ r = .lower ∨ r = .digit ∨ r = .code ∨ r = .symbol
-
-/-- Two atoms next to each other are in one token, for the functions (`Joins_eq`). -/
-abbrev Joins (a b : Atom) : Prop :=
-  (Wordy (role a) ∧ Wordy (role b)) ∨ (role a = .space ∧ role b = .space) ∨
-    (role a = .code ∧ role b = .code) ∨ (role a = .stop ∧ role b = .space)
-
-/-- The token has an atom with the role, for the functions (`TokenHas_eq`). -/
-abbrev TokenHas (r : Role) (token : Token) : Prop := ∃ atom ∈ token, role atom = r
-
-/-- The token of an item that is no quotation, for the functions (`itemToken?_eq`). -/
-def itemToken? : Item → Option Token
-  | .one token => some token
-  | .many .. => none
-
-/-- The item is a token that has an atom with the role, for the functions (`ItemHas_eq`). -/
-abbrev ItemHas (r : Role) (item : Item) : Prop := ∃ token ∈ itemToken? item, TokenHas r token
-
-/-- The token of a part that is no quotation and no group, for the functions
-(`partToken?_eq`). -/
-def partToken? : Part → Option Token
-  | .one (.one token) => some token
-  | _ => none
-
-/-- The part is one word, for the functions (`PartWord_eq`). -/
-abbrev PartWord (part : Part) : Prop :=
-  ∀ token ∈ partToken? part, ∃ atom ∈ token, Counted (role atom)
-
-/-- The part can end a sentence, for the functions (`PartEnds_eq`). -/
-abbrev PartEnds (part : Part) : Prop :=
-  ∃ token ∈ partToken? part, TokenHas .stop token ∧ TokenHas .space token
-
-/-- The part can start a sentence, for the functions (`PartStarts_eq`). -/
-abbrev PartStarts (part : Part) : Prop :=
-  ∀ token ∈ partToken? part,
-    ∃ r ∈ [Role.upper, .digit, .code, .opening], token.head?.map role = some r
-
-/-- The regions in which sentences are read, for the functions (`spread_eq`). -/
-def spread (parts : List Part) : List (Option Part) :=
-  parts.map some ++ parts.flatMap fun
-    | .one _ => []
-    | .many _ inside _ => none :: inside.map fun item => some (.one item)
-
-/-- Two slots next to each other are in one sentence, for the functions (`Flows_eq`). -/
-abbrev Flows (a b : Option Part) : Prop := ∃ p ∈ a, ∃ q ∈ b, ¬(PartEnds p ∧ PartStarts q)
-
-instance : DecidableRel Flows := fun _ _ => inferInstance
-
-/-- The slot is a word, for the functions (`SlotWord_eq`). -/
-abbrev SlotWord (slot : Option Part) : Prop := ∃ part ∈ slot, PartWord part
-
-/-- The run has a word, for the functions (`Worded_eq`). -/
-abbrev Worded (run : List (Option Part)) : Prop := ∃ slot ∈ run, SlotWord slot
-
-/-- The number of words of a run, for the functions (`wordCount_eq`). -/
-def wordCount (run : List (Option Part)) : Nat := run.countP fun slot => decide (SlotWord slot)
-
-theorem spacing_eq : @spacing = @Controlled.spacing := rfl
-theorem roleOf_eq : @roleOf = @Controlled.roleOf := rfl
-theorem role_eq : @role = @Atom.role := rfl
-theorem plain_eq : @plain = @Atom.plain := rfl
-theorem Wordy_eq : @Wordy = @Role.Wordy := rfl
-theorem Counted_eq : @Counted = @Role.Counted := rfl
-theorem Joins_eq : @Joins = @Controlled.Joins := rfl
-theorem TokenHas_eq : @TokenHas = @Token.Has := rfl
-theorem itemToken?_eq : @itemToken? = @Item.token? := rfl
-theorem ItemHas_eq : @ItemHas = @Item.Has := rfl
-theorem partToken?_eq : @partToken? = @Part.token? := rfl
-theorem PartWord_eq : @PartWord = @Part.Word := rfl
-theorem PartEnds_eq : @PartEnds = @Part.Ends := rfl
-theorem PartStarts_eq : @PartStarts = @Part.Starts := rfl
-theorem spread_eq : @spread = @Controlled.spread := rfl
-theorem Flows_eq : @Flows = @Controlled.Flows := rfl
-theorem SlotWord_eq : @SlotWord = @Slot.Word := rfl
-theorem Worded_eq : @Worded = @Controlled.Worded := rfl
-theorem wordCount_eq : @wordCount = @Controlled.wordCount := rfl
-
-end Exec
-
 /-- The division of `atoms` into the runs that sentences are. -/
 def divide (atoms : List Atom) : List (List (Option Part)) :=
-  runs Exec.Flows (Exec.spread (fold (Exec.ItemHas .opening) (Exec.ItemHas .closing)
-    (fold (Exec.TokenHas .quote) (Exec.TokenHas .quote) (runs Exec.Joins atoms))))
+  runs Flows (spread (fold (Item.Has .opening) (Item.Has .closing)
+    (fold (Token.Has .quote) (Token.Has .quote) (runs Joins atoms))))
 
 /-- The division into sentences holds of one result only: the computed one. -/
 theorem divided_iff (atoms : List Atom) (cut : List (List (Option Part))) :

@@ -38,9 +38,10 @@ and the two decisions about it.
 ## Specifications
 
 `Observed.Admitted`, `Baseline.Documented` and `Shrinks` are statements about the entries, with
-no call of a recursive function of the project. A function of a decision uses no definition of
-its specification: where it needs one, it has a second definition in the namespace `Exec`, with
-a theorem that the two are equal, as in `RegulaCore.ControlledText`. A number of an entry is a
+no call of a recursive function of the project. A function of a decision uses the definitions
+that its specification names, such as the print of a ledger, and it decides the statements of
+the specification with their `Decidable` instances. No second definition takes the place of
+one. A number of an entry is a
 text of decimal digits: two numbers are compared as such texts (`NotMore`), and a number of
 findings is compared with the text that `Nat.repr` gives for it.
 
@@ -100,83 +101,6 @@ def Ledger.lines (l : Ledger) : List (List Char) := ledgerHead ++ entryLines l.e
 /-- The print of `l`: its lines, each ended by a line feed. -/
 def Ledger.render (l : Ledger) : List Char := terminated '\n' l.lines
 
-namespace Exec
-
-/-- The lines before the entries, for the functions (`ledgerHead_eq`). -/
-def ledgerHead : List (List Char) :=
-  ["{", "  \"version\": 1,",
-    "  \"checks\": [\"C1\", \"C2\", \"C3\", \"C4\", \"C5\", \"C6\", \"C7\", \"C8\"],",
-    "  \"documents\": ["].map String.toList
-
-/-- The lines after the entries, for the functions (`ledgerFoot_eq`). -/
-def ledgerFoot : List (List Char) := ["  ]", "}"].map String.toList
-
-/-- The parts of an entry's line, for the functions (`fieldParts_eq`). -/
-def fieldParts (first : List Char) : List (List Char) → List (List Char)
-  | [] => []
-  | field :: fields => first :: field :: fieldParts ", ".toList fields
-
-/-- The line of an entry, for the functions (`entryLine_eq`). -/
-def entryLine (last : Bool) (fields : List (List Char)) : List Char :=
-  terminated '"' (fieldParts "    [".toList fields) ++ (if last then "]" else "],").toList
-
-/-- The lines of entries, for the functions (`entryLines_eq`). -/
-def entryLines : List (List (List Char)) → List (List Char)
-  | [] => []
-  | [fields] => [entryLine true fields]
-  | fields :: more => entryLine false fields :: entryLines more
-
-/-- The lines of the print of a ledger, for the functions (`ledgerLines_eq`). -/
-def ledgerLines (l : Ledger) : List (List Char) := ledgerHead ++ entryLines l.entries ++ ledgerFoot
-
-/-- The print of a ledger, for the functions (`ledgerRender_eq`). -/
-def ledgerRender (l : Ledger) : List Char := terminated '\n' (ledgerLines l)
-
-theorem ledgerHead_eq : @ledgerHead = @Controlled.ledgerHead := rfl
-theorem ledgerFoot_eq : @ledgerFoot = @Controlled.ledgerFoot := rfl
-
-theorem fieldParts_eq : @fieldParts = @Controlled.fieldParts := by
-  funext first fields
-  induction fields generalizing first with
-  | nil => rfl
-  | cons field fields ih =>
-    show first :: field :: fieldParts ", ".toList fields =
-      first :: field :: Controlled.fieldParts ", ".toList fields
-    rw [ih]
-
-theorem entryLine_eq : @entryLine = @Controlled.entryLine := by
-  funext last fields
-  show terminated '"' (fieldParts "    [".toList fields) ++ _ =
-    Controlled.terminated '"' (Controlled.fieldParts "    [".toList fields) ++ _
-  rw [fieldParts_eq, terminated_eq]
-
-theorem entryLines_eq : @entryLines = @Controlled.entryLines := by
-  funext entries
-  induction entries with
-  | nil => rfl
-  | cons fields more ih =>
-    cases more with
-    | nil =>
-      show [entryLine true fields] = [Controlled.entryLine true fields]
-      rw [entryLine_eq]
-    | cons next more =>
-      show entryLine false fields :: entryLines (next :: more) =
-        Controlled.entryLine false fields :: Controlled.entryLines (next :: more)
-      rw [ih, entryLine_eq]
-
-theorem ledgerLines_eq : @ledgerLines = @Ledger.lines := by
-  funext l
-  show ledgerHead ++ entryLines l.entries ++ ledgerFoot =
-    Controlled.ledgerHead ++ Controlled.entryLines l.entries ++ Controlled.ledgerFoot
-  rw [entryLines_eq, ledgerHead_eq, ledgerFoot_eq]
-
-theorem ledgerRender_eq : @ledgerRender = @Ledger.render := by
-  funext l
-  show terminated '\n' (ledgerLines l) = Controlled.terminated '\n' l.lines
-  rw [ledgerLines_eq, terminated_eq]
-
-end Exec
-
 /-- Each second element of a list. -/
 def odds {α : Type} : List α → List α
   | _ :: second :: rest => second :: odds rest
@@ -187,7 +111,7 @@ def fieldsOf (line : List Char) : List (List Char) := odds (split '"' line)
 
 /-- The ledger whose print is `text`, if `text` starts with the lines before the entries. -/
 def scanLedger (text : List Char) : Option Ledger :=
-  (dropPrefix Exec.ledgerHead (linesOf text)).map fun rest =>
+  (dropPrefix Controlled.ledgerHead (linesOf text)).map fun rest =>
     ⟨rest.dropLast.dropLast.map fieldsOf⟩
 
 /-- Whether no field of `l` has a double quotation mark or a line feed, which would change the
@@ -297,7 +221,7 @@ theorem scanLedger_render (l : Ledger) (h : l.clean = true) : scanLedger l.rende
     have : lines ++ ledgerFoot = (lines ++ ["  ]".toList]) ++ ["}".toList] := by
       simp [ledgerFoot]
     rw [this, List.dropLast_concat, List.dropLast_concat]
-  rw [scanLedger, Exec.ledgerHead_eq, hsplit, Ledger.lines, List.append_assoc, dropPrefix_append]
+  rw [scanLedger, hsplit, Ledger.lines, List.append_assoc, dropPrefix_append]
   simp only [Option.map_some, hdrop,
     map_fieldsOf_entryLines (fun f hf x hx => (hclean f hf x hx).1)]
 
@@ -339,34 +263,12 @@ def Entry.fields (e : Entry) : List (List Char) :=
     | .frozen digest => [frozenMarker, digest]
     | .generated source => [generatedMarker, source]
 
-namespace Exec
-
-/-- The word that marks a frozen entry, for the functions (`frozenMarker_eq`). -/
-def frozenMarker : List Char := "frozen".toList
-
-/-- The word that marks a generated entry, for the functions (`generatedMarker_eq`). -/
-def generatedMarker : List Char := "generated".toList
-
-/-- The fields of an entry in the print, for the functions (`entryFields_eq`). -/
-def entryFields (e : Entry) : List (List Char) :=
-  e.path ::
-    match e.allowance with
-    | .counts numbers => numbers
-    | .frozen digest => [frozenMarker, digest]
-    | .generated source => [generatedMarker, source]
-
-theorem frozenMarker_eq : @frozenMarker = @Controlled.frozenMarker := rfl
-theorem generatedMarker_eq : @generatedMarker = @Controlled.generatedMarker := rfl
-theorem entryFields_eq : @entryFields = @Entry.fields := rfl
-
-end Exec
-
 /-- The entry with these fields. -/
 def Entry.ofFields : List (List Char) → Entry
   | [] => ⟨[], .counts []⟩
   | [path, marker, text] =>
-    if marker = Exec.frozenMarker then ⟨path, .frozen text⟩
-    else if marker = Exec.generatedMarker then ⟨path, .generated text⟩
+    if marker = Controlled.frozenMarker then ⟨path, .frozen text⟩
+    else if marker = Controlled.generatedMarker then ⟨path, .generated text⟩
     else ⟨path, .counts [marker, text]⟩
   | path :: numbers => ⟨path, .counts numbers⟩
 
@@ -406,65 +308,33 @@ structure WellFormed (entries : List Entry) : Prop where
 /-- The ledger of `entries`: the fields of each entry. -/
 def ledgerOf (entries : List Entry) : Ledger := ⟨entries.map Entry.fields⟩
 
-namespace Exec
-
-/-- A SHA-256 digest, for the functions (`Digest_eq`). -/
-def Digest (text : List Char) : Prop :=
-  text.length = 64 ∧ ∀ c ∈ text, c.isDigit = true ∨ ('a' ≤ c ∧ c ≤ 'f')
-
 instance : DecidablePred Digest := fun text => by
   unfold Digest
   infer_instance
-
-/-- A text that a JSON string writes as it is, for the functions (`Bare_eq`). -/
-def Bare (text : List Char) : Prop := ∀ c ∈ text, 32 ≤ c.val ∧ c ≠ '"' ∧ c ≠ '\\'
 
 instance : DecidablePred Bare := fun text => by
   unfold Bare
   infer_instance
 
-/-- What an entry permits has no defect, for the functions (`AllowanceSound_eq`). The number 8
-is the number of the checks. -/
-def AllowanceSound : Allowance → Prop
-  | .counts numbers =>
-    numbers.length = 8 ∧ (∀ number ∈ numbers, Numeral number) ∧
-      ∃ number ∈ numbers, number ≠ ['0']
-  | .frozen digest => Digest digest
-  | .generated source => source ≠ [] ∧ Bare source
-
-instance : DecidablePred AllowanceSound := fun allowance => by
-  cases allowance <;> simp only [AllowanceSound] <;> infer_instance
-
-/-- The ledger of entries, for the functions (`ledgerOf_eq`). -/
-def ledgerOf (entries : List Entry) : Ledger := ⟨entries.map entryFields⟩
-
-theorem Digest_eq : @Digest = @Controlled.Digest := rfl
-theorem Bare_eq : @Bare = @Controlled.Bare := rfl
-
-theorem AllowanceSound_eq : @AllowanceSound = @Allowance.Sound := by
-  funext allowance
-  cases allowance <;> rfl
-
-theorem ledgerOf_eq : @ledgerOf = @Controlled.ledgerOf := rfl
-
-end Exec
+instance : DecidablePred Allowance.Sound := fun allowance => by
+  cases allowance <;> simp only [Allowance.Sound] <;> infer_instance
 
 /-- The entries of a ledger. -/
 def entriesOf (l : Ledger) : List Entry := l.entries.map Entry.ofFields
 
 /-- The lines of the print of `entries`. -/
 def linesOfEntries (entries : List Entry) : List (List Char) :=
-  Exec.ledgerLines (Exec.ledgerOf entries)
+  Ledger.lines (Controlled.ledgerOf entries)
 
 /-- The number of the line of the print of `entries` that has the entry of `path`, counting
 from 1: the line of the first entry with that path. -/
 def lineOf (entries : List Entry) (path : List Char) : Nat :=
-  Exec.ledgerHead.length + (entries.map Entry.path).idxOf path + 1
+  Controlled.ledgerHead.length + (entries.map Entry.path).idxOf path + 1
 
 /-- The number of the line of the print of `entries` where an entry of `path` would be: the
 line after the entries whose paths are before `path`. -/
 def lineFor (entries : List Entry) (path : List Char) : Nat :=
-  Exec.ledgerHead.length + (entries.takeWhile fun e => e.path < path).length + 1
+  Controlled.ledgerHead.length + (entries.takeWhile fun e => e.path < path).length + 1
 
 theorem entryLines_getElem? :
     ∀ (rows : List (List (List Char))) (i : Nat), i < rows.length →
@@ -491,7 +361,7 @@ theorem lineOf_spec (entries : List Entry) {path : List Char}
   refine ⟨entries[(entries.map Entry.path).idxOf path], List.getElem_mem hlt, hpath,
     decide ((entries.map Entry.path).idxOf path + 1 = (entries.map Entry.fields).length), ?_⟩
   have hrow := entryLines_getElem? (entries.map Entry.fields) _ (by simpa using hlt)
-  simp only [linesOfEntries, Exec.ledgerLines_eq, Exec.ledgerOf_eq, Exec.ledgerHead_eq, ledgerOf,
+  simp only [linesOfEntries, ledgerOf,
     Ledger.lines, lineOf, Nat.add_sub_cancel, List.append_assoc]
   rw [List.getElem?_append_right (Nat.le_add_right _ _), Nat.add_sub_cancel_left,
     List.getElem?_append_left (by
@@ -509,15 +379,14 @@ theorem lineOf_spec (entries : List Entry) {path : List Char}
 
 /-- What is wrong with one entry. -/
 def Entry.defects (e : Entry) : List String :=
-  (if e.path ≠ [] ∧ Exec.Bare e.path then []
+  (if e.path ≠ [] ∧ Controlled.Bare e.path then []
     else ["the path is empty or has a character that a JSON string writes with an escape"]) ++
-  (if Exec.AllowanceSound e.allowance then []
+  (if Allowance.Sound e.allowance then []
     else ["an entry has a path and then eight numbers of which one is not zero, or `frozen` \
       and a digest of 64 lowercase hexadecimal digits, or `generated` and a source"])
 
 theorem Entry.defects_nil_iff (e : Entry) : e.defects = [] ↔ e.Sound := by
   simp only [Entry.defects, List.append_eq_nil_iff, ite_nil_iff]
-  simp only [Exec.Bare_eq, Exec.AllowanceSound_eq]
   exact ⟨fun ⟨a, b⟩ => ⟨a, b⟩, fun ⟨a, b⟩ => ⟨a, b⟩⟩
 
 /-- The reason for an entry whose path is not after `before`, the path of the entry before it.
@@ -560,7 +429,7 @@ def Baseline.parse (text : String) : Option Baseline :=
   match scanLedger text.toList with
   | some l =>
     if h : defects (entriesOf l) = [] ∧
-        Exec.ledgerRender (Exec.ledgerOf (entriesOf l)) = text.toList then
+        Ledger.render (Controlled.ledgerOf (entriesOf l)) = text.toList then
       some ⟨entriesOf l, (defects_nil_iff _).mp h.1⟩
     else none
   | none => none
@@ -575,18 +444,17 @@ theorem Entry.ofFields_fields {e : Entry} (h : e.Sound) : Entry.ofFields e.field
     match numbers, hsound with
     | [marker, text], hsound =>
       have hmarker := hsound.2.1 marker (List.mem_cons_self ..)
-      have hfrozen : marker ≠ Exec.frozenMarker := fun heq =>
+      have hfrozen : marker ≠ Controlled.frozenMarker := fun heq =>
         absurd (heq ▸ hmarker) (by decide)
-      have hgenerated : marker ≠ Exec.generatedMarker := fun heq =>
+      have hgenerated : marker ≠ Controlled.generatedMarker := fun heq =>
         absurd (heq ▸ hmarker) (by decide)
       simp [Entry.fields, Entry.ofFields, hfrozen, hgenerated]
     | [], _ => rfl
     | [_], _ => rfl
     | _ :: _ :: _ :: _, _ => rfl
-  | frozen digest => simp [Entry.fields, Entry.ofFields, Exec.frozenMarker_eq]
+  | frozen digest => simp [Entry.fields, Entry.ofFields]
   | generated source =>
-    simp [Entry.fields, Entry.ofFields, Exec.frozenMarker_eq, Exec.generatedMarker_eq,
-      show generatedMarker ≠ frozenMarker by decide]
+    simp [Entry.fields, Entry.ofFields,       show generatedMarker ≠ frozenMarker by decide]
 
 /-- No field of a sound entry has a double quotation mark or a line feed. -/
 theorem Entry.Sound.clean {e : Entry} (h : e.Sound) :
@@ -630,7 +498,7 @@ theorem Baseline.parse_write (b : Baseline) : Baseline.parse b.write = some b :=
     conv => rhs; rw [← List.map_id b.entries]
     exact List.map_congr_left fun e he => Entry.ofFields_fields (b.wellFormed.sound e he)
   simp only [Baseline.parse, Baseline.write, String.toList_ofList, scanLedger_render _ hclean,
-    hback, Exec.ledgerRender_eq, Exec.ledgerOf_eq]
+    hback]
   split
   · rfl
   · rename_i hrefused
@@ -644,7 +512,6 @@ theorem Baseline.write_of_parse (text : String) (b : Baseline)
     · rename_i l _ hl
       cases h
       have hrender : (ledgerOf (entriesOf l)).render = text.toList := by
-        rw [← Exec.ledgerRender_eq, ← Exec.ledgerOf_eq]
         exact hl.2
       simp [Baseline.write, hrender, String.ofList_toList]
     · cases h
@@ -663,7 +530,7 @@ def Baseline.explain (text : String) : List (Nat × String) :=
   match scanLedger text.toList with
   | none => [(1, "the text does not start with the lines before the entries of a baseline")]
   | some l =>
-    if Exec.ledgerRender (Exec.ledgerOf (entriesOf l)) = text.toList then defects (entriesOf l)
+    if Ledger.render (Controlled.ledgerOf (entriesOf l)) = text.toList then defects (entriesOf l)
     else
       [(firstDifference 1 (linesOfEntries (entriesOf l)) (split '\n' text.toList),
         "the text is not the print of its baseline from this line on: a missing line feed at \
@@ -676,7 +543,7 @@ theorem Baseline.explain_nil_iff (text : String) :
   cases hscan : scanLedger text.toList with
   | none => simp
   | some l =>
-    by_cases hrender : Exec.ledgerRender (Exec.ledgerOf (entriesOf l)) = text.toList
+    by_cases hrender : Ledger.render (Controlled.ledgerOf (entriesOf l)) = text.toList
     · by_cases hdefects : defects (entriesOf l) = [] <;> simp [hrender, hdefects]
     · simp [hrender]
 
@@ -713,36 +580,12 @@ the entry. -/
 def Baseline.Documented (b : Baseline) (documents : List Observed) : Prop :=
   ∀ e ∈ b.entries, ∃ d ∈ documents, d.path.toList = e.path
 
-namespace Exec
+instance (d : Observed) : DecidablePred (Allowance.Permits d) := fun allowance => by
+  cases allowance <;> simp only [Allowance.Permits] <;> infer_instance
 
-/-- What an entry permits is what the run observes, for the functions (`Permits_eq`). -/
-def Permits (d : Observed) : Allowance → Prop
-  | .counts numbers => numbers = d.tally.map fun n => (Nat.repr n).toList
-  | .frozen digest => digest = d.digest.toList
-  | .generated _ => True
-
-instance (d : Observed) : DecidablePred (Permits d) := fun allowance => by
-  cases allowance <;> simp only [Permits] <;> infer_instance
-
-/-- The baseline admits a document, for the functions (`Admitted_eq`). -/
-def Admitted (b : Baseline) (d : Observed) : Prop :=
-  (∀ e ∈ b.entries, e.path = d.path.toList → Permits d e.allowance) ∧
-    ((∀ e ∈ b.entries, e.path ≠ d.path.toList) → ∀ n ∈ d.tally, n = 0)
-
-instance (b : Baseline) : DecidablePred (Admitted b) := fun d => by
-  unfold Admitted
+instance (b : Baseline) : DecidablePred (Observed.Admitted b) := fun d => by
+  unfold Observed.Admitted
   infer_instance
-
-theorem Permits_eq : @Permits = @Allowance.Permits := by
-  funext d allowance
-  cases allowance <;> rfl
-
-theorem Admitted_eq : @Admitted = @Observed.Admitted := by
-  funext b d
-  unfold Admitted Observed.Admitted
-  rw [Permits_eq]
-
-end Exec
 
 /-- Check B1: the documents that the baseline does not admit, each with the line of its entry in
 the print of the baseline, or the line where its entry would be, and with the reason. Then the
@@ -750,7 +593,7 @@ entries that have no document among `documents`, each with its line in the print
 baseline and with the reason. -/
 @[regula_decision]
 def gate (b : Baseline) (documents : List Observed) : List (Nat × String) :=
-  ((documents.filter fun d => !decide (Exec.Admitted b d)).map fun d =>
+  ((documents.filter fun d => !decide (Observed.Admitted b d)).map fun d =>
     if d.path.toList ∈ b.entries.map Entry.path then
       (lineOf b.entries d.path.toList,
         s!"{d.path} has other findings or another content than its entry permits: it has the \
@@ -766,11 +609,11 @@ def gate (b : Baseline) (documents : List Observed) : List (Nat × String) :=
 theorem gate_nil_iff (b : Baseline) (documents : List Observed) :
     gate b documents = [] ↔ (∀ d ∈ documents, d.Admitted b) ∧ b.Documented documents := by
   have h : gate b documents = [] ↔
-      (∀ d ∈ documents, Exec.Admitted b d) ∧
+      (∀ d ∈ documents, Observed.Admitted b d) ∧
         ∀ e ∈ b.entries, ∃ d ∈ documents, d.path.toList = e.path := by
     simp [gate, List.filter_eq_nil_iff]
   unfold Baseline.Documented
-  rw [h, Exec.Admitted_eq]
+  rw [h]
 
 /-- A digest for the witnesses of the contracts. -/
 def sampleDigest : List Char := List.replicate 64 'a'
@@ -860,52 +703,15 @@ def Shrinks (reference : Reference) (head : Option Baseline) (tracked : List Str
   | .measured documents =>
     ∀ h ∈ head, ∀ e ∈ h.entries, ∃ d ∈ documents, d.path.toList = e.path ∧ e.allowance.Within d
 
-namespace Exec
-
-/-- The number `after` is not more than the number `before`, for the functions
-(`NotMore_eq`). -/
-def NotMore (after before : List Char) : Prop :=
-  after.length < before.length ∨ (after.length = before.length ∧ ¬before < after)
-
 instance : DecidableRel NotMore := fun after before => by
   unfold NotMore
   infer_instance
 
-/-- What an entry permitted before covers what it permits after, for the functions
-(`Covers_eq`). -/
-def Covers : Allowance → Allowance → Prop
-  | .counts before, .counts after =>
-    before.length = after.length ∧ ∀ pair ∈ before.zip after, NotMore pair.2 pair.1
-  | .frozen before, .frozen after => before = after
-  | .generated before, .generated after => before = after
-  | _, _ => False
-
 instance : DecidableRel Covers := fun before after => by
   cases before <;> cases after <;> simp only [Covers] <;> infer_instance
 
-/-- What an entry permits is within what the checks observe, for the functions
-(`Within_eq`). -/
-def Within (d : Observed) : Allowance → Prop
-  | .counts numbers =>
-    numbers.length = d.tally.length ∧
-      ∀ pair ∈ numbers.zip (d.tally.map fun n => (Nat.repr n).toList), NotMore pair.1 pair.2
-  | .frozen digest => digest = d.digest.toList
-  | .generated _ => True
-
-instance (d : Observed) : DecidablePred (Within d) := fun allowance => by
-  cases allowance <;> simp only [Within] <;> infer_instance
-
-theorem NotMore_eq : @NotMore = @Controlled.NotMore := rfl
-
-theorem Covers_eq : @Covers = @Controlled.Covers := by
-  funext before after
-  cases before <;> cases after <;> rfl
-
-theorem Within_eq : @Within = @Allowance.Within := by
-  funext d allowance
-  cases allowance <;> rfl
-
-end Exec
+instance (d : Observed) : DecidablePred (Allowance.Within d) := fun allowance => by
+  cases allowance <;> simp only [Allowance.Within] <;> infer_instance
 
 /-- The digest of a frozen entry. -/
 def Allowance.digest? : Allowance → Option (List Char)
@@ -928,7 +734,7 @@ def ratchet (reference : Reference) (head : Option Baseline) (tracked : List Str
   | .baseline base, some head =>
     ((head.entries.filter fun e =>
         !decide (∃ f ∈ base.entries, f.path = e.path ∧
-          Exec.Covers f.allowance e.allowance)).map fun e =>
+          Controlled.Covers f.allowance e.allowance)).map fun e =>
       (lineOf head.entries e.path,
         s!"{String.ofList e.path}: the entry is new, or it permits more than the entry of the \
           base revision or has another class")) ++
@@ -946,7 +752,7 @@ def ratchet (reference : Reference) (head : Option Baseline) (tracked : List Str
   | .measured documents, some head =>
     (head.entries.filter fun e =>
         !decide (∃ d ∈ documents, d.path.toList = e.path ∧
-          Exec.Within d e.allowance)).map fun e =>
+          Allowance.Within d e.allowance)).map fun e =>
       (lineOf head.entries e.path,
         s!"{String.ofList e.path}: the base revision has no baseline, and it has no document \
           with this path, or the entry permits more than that document has in the base revision")
@@ -961,7 +767,7 @@ theorem ratchet_nil_iff (reference : Reference) (head : Option Baseline)
     | some head =>
       have h : ratchet (.baseline base) (some head) tracked = [] ↔
           (∀ e ∈ head.entries, ∃ f ∈ base.entries, f.path = e.path ∧
-            Exec.Covers f.allowance e.allowance) ∧
+            Controlled.Covers f.allowance e.allowance) ∧
           ∀ f ∈ base.entries, ∀ digest ∈ (match f.allowance with
               | .frozen digest => some digest
               | _ => none),
@@ -975,7 +781,7 @@ theorem ratchet_nil_iff (reference : Reference) (head : Option Baseline)
         | frozen digest => simp [Allowance.digest?]
         | counts numbers => simp [Allowance.digest?]
         | generated source => simp [Allowance.digest?]
-      rw [h, Exec.Covers_eq]
+      rw [h]
       simp only [Shrinks, Keeps, Option.mem_def, Option.some.injEq, exists_eq_left']
   | measured documents =>
     cases head with
@@ -983,9 +789,9 @@ theorem ratchet_nil_iff (reference : Reference) (head : Option Baseline)
     | some head =>
       have h : ratchet (.measured documents) (some head) tracked = [] ↔
           ∀ e ∈ head.entries, ∃ d ∈ documents, d.path.toList = e.path ∧
-            Exec.Within d e.allowance := by
+            Allowance.Within d e.allowance := by
         simp [ratchet, List.filter_eq_nil_iff]
-      rw [h, Exec.Within_eq]
+      rw [h]
       simp only [Shrinks, Option.mem_def, Option.some.injEq, forall_eq']
 
 /-- Registered contract of the ratchet (check B2), as a two-way decision over the reference of

@@ -90,6 +90,36 @@ carries the pair's type, so the elaborated statement grows by a large factor wit
 whichever way the pairs nest, and the linter does not read a field of a field as a field of the
 structure. A structure declared for the arguments has projections of constant size.
 
+## Functions that the two sides share
+
+A kind is a theorem about the present definitions. It compares `accepts (f x)` with `spec x`.
+When `spec` and `f` both call a function, a change of that function changes the two sides
+together. Each direction then holds or fails as its proof does, and a proof that goes through
+the shared function on the two sides can stay valid although the meaning changed. So the kind
+does not establish that the shared function is the intended one. The same holds of a function
+that `spec` and `accepts` both call. The linter refuses no registration for this. It reads the
+definitions outside Lean's own library that `spec` reaches and that `f` or `accepts` also
+reaches. It reads `accepts` as it reads `spec`: each is a statement, and the value of a
+definition of a proposition that it names is read. The report names each function that `spec`
+reaches first, in two classes:
+
+* **A function with a result of `Bool`, and a definition with a result of `BEq _`.** A
+  proposition can take its place in `spec`, with a theorem that connects the proposition to the
+  function, or with a function that decides the proposition with `decide`.
+* **Each other function**, such as an encoding, a measure or a state transition. No type tells
+  a function that the specification is about from one that only prepares the input.
+
+Data and statements are not named. They are an inductive type with its constructors, its
+recursor and its projection functions; a definition whose value is a type, a proposition or a
+record of propositions; a proof; a definition with a result of `Decidable p`; and a constant
+that is no function. A type `Decidable p` has at most one value, so a function that decides a
+proposition of `spec` with `decide` uses the statement itself.
+
+This is a search by name over definitions. A copy of a definition under a second name is a
+different constant, and the search does not find it. The search stops at each named function,
+so a function that only a named function calls is not named: a report with no function of the
+first class does not exclude such a function below a function of the second class.
+
 None of the kinds says that `spec` is the intended specification, that `accepts` is the intended
 reading of a result, that every caller acts on the verdict, or which value an accepting result
 carries. Those remain review. A constant function has no two-way kind

@@ -152,17 +152,27 @@ instance : FromJson RegulaPolicy.Ranges := ⟨fun j => do
   }⟩
 
 /-- The collector's record of a registered executable contract: its root, rendered
-requirement, any refusal and its decision kind, `null` for a requirement that states none
-(`RegulaPolicy.ExecutableContract`), with its exact-field JSON codec. -/
+requirement, any refusal, its decision kind, `null` for a requirement that states none, and the
+names of the functions that its specification shares with its implementation, by class
+(`RegulaPolicy.ExecutableContract`, `RegulaPolicy.SharedNames`), with its exact-field JSON
+codec. -/
 abbrev ExecutableContract := RegulaPolicy.ExecutableContract
+deriving instance ToJson for RegulaPolicy.SharedNames
+instance : FromJson RegulaPolicy.SharedNames := ⟨fun j => do
+  exactFields j ["booleans", "others"]
+  return {
+    booleans := ← j.getObjValAs? _ "booleans"
+    others := ← j.getObjValAs? _ "others"
+  }⟩
 deriving instance ToJson for RegulaPolicy.ExecutableContract
 instance : FromJson RegulaPolicy.ExecutableContract := ⟨fun j => do
-  exactFields j ["root", "requirement", "failure", "kind"]
+  exactFields j ["root", "requirement", "failure", "kind", "shared"]
   return {
     root := ← j.getObjValAs? _ "root"
     requirement := ← j.getObjValAs? _ "requirement"
     failure := ← j.getObjValAs? _ "failure"
     kind := ← j.getObjValAs? _ "kind"
+    shared := ← j.getObjValAs? _ "shared"
   }⟩
 
 /-- The Lean-semantic record of one owned constant (`RegulaPolicy.Declaration`), with its

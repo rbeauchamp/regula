@@ -638,7 +638,13 @@ def guide : RuleId → Guide
         "For a decision registration: Lean checked the directions its kind names about `f` \
           against the written specification, with an accepted input for a sound kind and a \
           refused input for a complete kind, and neither the acceptance predicate nor the \
-          specification mentions `f`."]
+          specification mentions `f`.",
+        "For a decision registration: the report names each function outside Lean's own library \
+          that the specification reaches first and that `f` or the acceptance predicate also \
+          reaches, by name. It names them in two classes: a function with a result of `Bool` or \
+          `BEq`, and each other function. No registration is refused for a named function. The \
+          search stops at each named function, so a function that only a named function calls \
+          is not named."]
       notEstablished := [
         "That `R` expresses the intended behavior (R-INTENT) and that every caller uses the \
           contracted implementation (R-INVARIANT). Every accepted account lists these as open for \
@@ -649,8 +655,18 @@ def guide : RuleId → Guide
           (R-INVARIANT).",
         "For a decision registration: that the specification is the intended one or is \
           independent of the implementation in substance (a copy of the implementation under \
-          another name passes), the direction a one-way kind leaves open, and which value an \
-          accepting result carries.",
+          another name passes, and so does a copy of a helper), the direction a one-way kind \
+          leaves open, and which value an accepting result carries.",
+        "For a decision registration: anything about a function that the report names as \
+          shared. When the specification and `f` both call a function, a change of that function \
+          changes the two together. Each direction then holds or fails as its proof does, and \
+          a proof that goes through the shared function on the two sides can stay valid \
+          although the meaning changed. The same holds of a function that the specification \
+          and the acceptance predicate both call. Whether the specification is about the function, \
+          as it is about an encoding or a state transition, or only uses it to prepare the \
+          input, remains review (R-INTENT). For a function with a result of `Bool` or `BEq`, a \
+          proposition can take its place in the specification, with a theorem that connects \
+          the two or with a function that decides the proposition.",
         "For a decision registration: that the acceptance predicate is the intended reading of a \
           result (R-INTENT). A constant function has no two-way kind \
           (`Regula.Decides.not_of_constant`). But when the result of `f` determines its input, \
@@ -695,7 +711,32 @@ def guide : RuleId → Guide
           implementation. A proof that Lean abstracts into an auxiliary theorem of a named \
           definition is not followed: that theorem's statement is searched and its proof is \
           not, so a mention that occurs only in such a proof is not reported. The specification \
-          does not depend on which proof of that statement it is."]
+          does not depend on which proof of that statement it is.",
+        "The search for shared functions compares names. The specification and the acceptance \
+          predicate are statements. For each of the two it follows the types of constants, the \
+          unfoldable values of definitions, a definition of a proposition among them, and the \
+          constructors of inductive types, and it reads no value of a `Decidable` instance. For \
+          `f` it follows the unfoldable values of definitions and the types of constants that \
+          are no inductive type, constructor or recursor. It reads the value of a `Decidable` \
+          instance, which a function runs. It does not read the value of a definition of a \
+          type, of a proposition or of a record of propositions, which a function does not run. \
+          It reads no proof and no module of Lean's own library, and it does not read below a \
+          named function: a report that names no function with a result of `Bool` does not \
+          exclude one below a named function of the other class. A second definition with the \
+          text of a helper is a different constant, and the search does not find it. A second \
+          definition with a theorem that the two are equal is not named either, and it is not \
+          a second statement of the meaning.",
+        "Data and statements are not named: an inductive type with its constructors, its \
+          recursor and its projection functions, a definition whose value is a type, a \
+          proposition or a record of propositions, a proof, a definition with a result of \
+          `Decidable p`, and a constant that is no function. Whether a definition is a function \
+          is read from its type alone: it takes an argument, or its result is a structure with \
+          a field that takes one, as `BEq` is. Which definitions Lean generated \
+          for a type or as a matcher is read from Lean's records, which a project can write. \
+          That reading only keeps a function out of the second class: a function with a result \
+          of `Bool` or `BEq` is named unless its kernel-checked value is a field's projection \
+          function. A field of a structure is read one level deep, at the arguments of the \
+          structure type."]
       residuals := [.intent, .invariant, .qualify]
       checklist :=
           ["BUILD-03", "THEOREM-07", "SCOPE-02", "SCOPE-03", "TYPE-01", "THEOREM-01",
@@ -714,10 +755,17 @@ def guide : RuleId → Guide
         leading binder is the type of a result that takes no argument, so no argument of the \
         implementation is left. A type with one constructor and no index has a value for every \
         tuple of fields, so the packing reaches every tuple of arguments, which is the \
-        hypothesis of `Regula.Decides.of_packing`."
+        hypothesis of `Regula.Decides.of_packing`. The names of the shared functions are proved \
+        over what the search reads of each first shared definition \
+        (`RegulaPolicy.SharedDefinition`: its kind, whether its value is a projection function, \
+        and the form of its result type). A name is in a class of the record exactly when a \
+        definition of that class has it (`RegulaPolicy.mem_sharedNames_booleans`, \
+        `RegulaPolicy.mem_sharedNames_others`), and each class is a stated condition on those \
+        readings (`RegulaPolicy.SharedDefinition.class_eq_boolean_iff`, `class_eq_other_iff`). \
+        The search that finds the shared definitions, and the reading of each, are operational."
       sources :=
           ["lean/Regula/Contract.lean", "lean/Regula/Collect.lean", "lean/Regula/Probe.lean",
-              "lean/RegulaCore/Policy.lean"] }
+              "lean/RegulaPolicy/Domain.lean", "lean/RegulaCore/Policy.lean"] }
   | .decisionContract => {
       problem := "A function registered as a decision with `@[regula_decision]` has no decision \
         contract in its inventory, and its result type is not `Decidable _`. Nothing then states \
