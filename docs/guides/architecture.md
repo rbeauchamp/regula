@@ -244,7 +244,7 @@ lake exe axiomGate --with-docs --json-out tmp/result.json
 ```
 
 Each export is versioned on its own: the surface manifest is schema 2, the registry schema 4, the
-result schema 10, the worker packet schema 1, the rule-example corpus export schema 1, the
+result schema 11, the worker packet schema 1, the rule-example corpus export schema 1, the
 acceptance link schema 1 and the site's `build.json` schema 2. Registry and result envelopes carry
 `schemaVersion`, `producerVersion`, `toolchain` and `sourceRevision` from
 `Regula.Checker.Producer.identity`: `producerVersion` is the installed release's spelling
@@ -259,7 +259,7 @@ metadata, not authenticated binary identity.
   re-encoding, refusing unknown or missing fields, changed routes and stale lifecycle data.
   Registry admission rejects duplicate external IDs, missing clauses, pages or examples, unknown
   JSON fields or versions, and invalid lifecycle references.
-- **Result, schema 10:** `scope`, `mode`, `status`, `stages` (the stages
+- **Result, schema 11:** `scope`, `mode`, `status`, `stages` (the stages
   `RegulaPolicy.requiredStages` requires for the mode, plus the documentation stages of a
   `--with-docs` run), `stagesCompleted`, `complete`, `stagesNotRun`, `diagnostics` (each with its
   `remedy`, in run order), `rules` (the guidance of every rule that fired, once each, in registry
@@ -463,6 +463,13 @@ metadata, not authenticated binary identity.
   `trusted` mechanisms and the run's `unresolvedReview` identifiers. A completed envelope's
   `mode` is the account's, and a listed identifier names an open obligation, not a completed
   review.
+- **Shared definitions:** since schema 11 each `contracts` entry of the account carries
+  `sharedDefinitions`. It is an object with the lists `booleans` and `others`. The lists name
+  the functions that the specification of a decision kind reaches first and that the
+  implementation or the acceptance predicate reaches too. The search does not read below a
+  named function. The kind does not establish that a named function is the intended one, and
+  no registration is refused for one. A declaration's `executableContract` carries the same
+  two lists as `shared`.
 - **Snapshot rendering:** `acceptance.snapshot` renders the audited sources in full, the
   configuration by URI and each dependency by package, pinned revision and input-scoped `dirty`
   bit (a dirty or path dependency as `{package, revision, dirty: true}`, with no content

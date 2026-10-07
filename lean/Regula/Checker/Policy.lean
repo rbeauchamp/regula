@@ -183,7 +183,11 @@ private def classifyWith (decl : Declaration) (foundation : String) : String :=
     s!" executable-contract={contract.root}" ++
       (contract.kind.map (s!" decision-kind={·.spelling}")).getD "" ++
       s!" requires={contract.requirement}" ++
-      (contract.failure.map (s!" failure={·}")).getD "") |>.getD ""
+      (contract.failure.map (s!" failure={·}")).getD "" ++
+      (if contract.kind.isSome && contract.failure.isNone then
+          s!" shared-booleans={repr (contract.shared.booleans.toList.map (·.toString))}" ++
+          s!" shared-others={repr (contract.shared.others.toList.map (·.toString))}"
+        else "")) |>.getD ""
   let decisionText := (decl.decisionResult.map (s!" decision-result={·.spelling}")).getD ""
   s!"{decl.name} ({decl.kind}){flagText}{roleText} type={decl.prettyType} " ++
     s!"axioms={repr (decl.axioms.toList.map (·.toString))} -> {foundation}{contractText}" ++

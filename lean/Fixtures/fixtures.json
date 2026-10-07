@@ -117,6 +117,25 @@
    "executable-contract=positive requires=(fun check"
   ]
  },
+ "Fixtures.Positive.SharedDefinitions": {
+  "expect": "pass",
+  "claim": "standard-logical",
+  "output": [
+   "executable-contract=apart decision-kind=sound-and-complete requires=Regula.Decides (fun x => x = true) (fun n => n < 4) apart shared-booleans=[] shared-others=[]",
+   "smallEven shared-booleans=[\"small\"] shared-others=[]",
+   "throughStatement shared-booleans=[\"tiny\"] shared-others=[]",
+   "sameItem shared-booleans=[\"instBEqItem\"] shared-others=[]",
+   "noEven shared-booleans=[] shared-others=[\"evens\"]",
+   "executable-contract=below decision-kind=sound-and-complete requires=Regula.Decides (fun x => x = true) Below below shared-booleans=[] shared-others=[]",
+   "knownSign shared-booleans=[] shared-others=[]",
+   "sameNat shared-booleans=[\"eqForNat\"] shared-others=[]",
+   "littleCheck shared-booleans=[\"little\"] shared-others=[]",
+   "same shared-booleans=[\"small\"] shared-others=[]",
+   "unchanged shared-booleans=[\"small\"] shared-others=[]",
+   "firstBefore shared-booleans=[] shared-others=[\"descending\"]",
+   "noOdd shared-booleans=[] shared-others=[\"odds\"]"
+  ]
+ },
  "Fixtures.Mutations.DecisionMissingWitness": {
   "expect": "fail",
   "reason": "compile-error",

@@ -238,14 +238,14 @@ To see each finding of one document, use the command `lake exe regula-markdown .
 Each check is a Lean function with a decision contract. The contract compares the function with a specification. These rules are for the specification of each check of these writing rules, and for each new check:
 
 - A specification is a statement about the data that the function reads. It uses logic, the core library of Lean, the data types of the check and definitions of the project.
-- The function of a check uses no definition that its specification uses. The data types are the only declarations that the two use: each type, its constructors and the parts that Lean makes for it. An equality test that `deriving DecidableEq` makes for a data type is such a part, because it is the structural equality of that type. An instance that a person wrote is not such a part.
+- The function of a check can use a definition that its specification names. The report of the first acceptance command names the first functions that the specification and the function use, with the contract of the check. It does not name a function that only a named function uses.
+- A definition with a result of `Bool` is not such a function. The specification names a proposition, and the function decides that proposition. The proposition `Spacing` is an example.
 - A step that changes the data before the decision is a relation in the specification. A theorem connects the function of that step with the relation. Examples are `Blocks`, `Divided`, `Marks` and `Normal`.
-- If the function must have a definition of the specification, it has a second definition in the namespace `Exec`. A theorem shows that the two definitions are equal. Thus after a change to one of the two definitions, Lean does not accept that theorem.
-- The function `write` is the definition of the grammar of a file. The function `parse` compares a text with a second definition of that grammar. A theorem shows that `parse` accepts only a text that `write` gives.
+- The function `write` is the definition of the grammar of a file. The function `parse` reads a text and compares it with the text that `write` gives for the result. A theorem shows that `parse` accepts only a text that `write` gives.
 
 For example, the specification of a term does not call the function `split`. It tells that the term is words with one space between two words. The theorem `separated_iff` connects `split` with that specification.
 
-A second definition in `Exec` has the same text as the definition of the specification. It is not a second statement of the meaning. The theorem shows only that the two definitions are equal.
+A function does not use a second definition that has the same text as a definition of the specification. Such a definition is not a second statement of the meaning. A theorem that the two definitions are equal shows only that the two texts agree.
 
 The types of characters are a part of each specification, for example the list of the space characters. No theorem shows that they are correct. A change to them is a change to the specification.
 

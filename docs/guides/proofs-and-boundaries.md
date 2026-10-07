@@ -112,7 +112,8 @@ some `AcceptedRun`; `Status.completed` takes one and the refusal statuses carry 
 run behind it.  `AccountContract` (`checked_account`) states its meaning: mode, scope, surfaces,
 toolchain and job count are the run's own; coverage is `coverageOf` the mode, whole-project exactly
 for a fresh project claim (`coverage_fresh_iff`); the listed contracts are exactly the accepted
-inventory's, each with the decision kind the collector recorded; execution counts are
+inventory's, each with the decision kind and the shared functions the collector recorded;
+execution counts are
 `executionSummary` of each environment; fence counts partition the
 accepted fences; the residual identifiers stay unresolved. That the run is the current request's is
 each caller's binding, checked by inspection, as is the use of `Account.pass` for project, file,

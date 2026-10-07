@@ -56,6 +56,24 @@ open RegulaPolicy.Erasure (fixpointArguments?)
 private initialize capabilityCache : IO.Ref (Option RegulaPolicy.Compiler.LegacyCompilerTrust) ←
   IO.mkRef none
 
+private initialize toolchainLibrary : IO.Ref (Option System.FilePath) ← IO.mkRef none
+
+/-- The library directory of the running Lean toolchain, found once for the process. -/
+private def toolchainLibraryDirectory : IO System.FilePath := do
+  if let some directory ← toolchainLibrary.get then return directory
+  let directory ← Lean.getLibDir (← Lean.findSysroot)
+  toolchainLibrary.set (some directory)
+  return directory
+
+/-- Whether Lean loaded the module `moduleName` from the toolchain library directory `library`:
+its `.olean` file is that module's file in `library`, by canonical path. A module's name does not
+establish this, since a project or a dependency can supply a module under `Init`, `Std` or
+`Lean`. That the path identifies the toolchain's own artifact is a filesystem observation. -/
+private def loadedFromLibrary (library : System.FilePath) (moduleName : Name) : IO Bool := do
+  let expected := Lean.modToFilePath library moduleName "olean"
+  unless ← expected.pathExists do return false
+  return (← IO.FS.realPath (← Lean.findOLean moduleName)) == (← IO.FS.realPath expected)
+
 /-- Memoize the Core capability after independently confirming the resolved compiler's
 identity. Installation contents and process execution remain trusted. -/
 def compilerCapability : IO RegulaPolicy.Compiler.LegacyCompilerTrust := do
@@ -591,19 +609,16 @@ private def observedRecursionArgument? (base : Name) (levelParams : List Name) (
     return some { ref := .missing, structural := true, fn := ← Meta.mkLambdaFVars params argument }
 
 /-- The `wf_preprocess` rules of the running Lean toolchain: the global entries of the modules Lean
-loaded from the toolchain's own library directory, recognized by canonical path, since a module's
-name does not establish toolchain ownership. Rules a project or dependency adds are left out. -/
+loaded from the toolchain's own library directory, recognized by canonical path
+(`loadedFromLibrary`). Rules a project or dependency adds are left out. -/
 private def toolchainPreprocessRules (env : Environment) : IO Meta.SimpTheorems := do
   let ext := Lean.Elab.WF.wfPreprocessSimpExtension
-  let libDir ← Lean.getLibDir (← Lean.findSysroot)
+  let library ← toolchainLibraryDirectory
   let mut rules ← ext.descr.mkInitial
   for (moduleName, index) in env.header.moduleNames.zipIdx do
     let entries := ext.ext.getModuleEntries env index
     if entries.isEmpty then continue
-    let expected := Lean.modToFilePath libDir moduleName "olean"
-    unless ← expected.pathExists do continue
-    unless (← IO.FS.realPath (← Lean.findOLean moduleName)) == (← IO.FS.realPath expected) do
-      continue
+    unless ← loadedFromLibrary library moduleName do continue
     for entry in entries do
       if let .global rule := entry then rules := ext.descr.addEntry rules rule
   return ext.descr.finalizeImport rules
@@ -2051,6 +2066,13 @@ structure ContractScope where
   /-- The toolchain's `wf_preprocess` rules once a recursion helper's regeneration has computed
   them (`Collect.unsafeRecRegeneration`), shared by every helper of the environment. -/
   preprocessRules : IO.Ref (Option Meta.SimpTheorems)
+  /-- For each imported module index that the search for shared definitions asked about: whether
+  Lean loaded the module from the toolchain's own library directory
+  (`ContractScope.fromToolchain`). -/
+  toolchain : IO.Ref (Std.HashMap Nat Bool)
+  /-- The result form of each constant that the search for shared definitions read
+  (`ContractScope.resultForm`). -/
+  forms : IO.Ref (NameMap RegulaPolicy.ResultForm)
 
 /-- The scope of `env`, with awareness as `importersOf` computes it for `Regula.Contract`. -/
 def ContractScope.new (env : Environment) : BaseIO ContractScope := do
@@ -2060,7 +2082,9 @@ def ContractScope.new (env : Environment) : BaseIO ContractScope := do
            free := ← IO.mkRef {}
            decisionFree := ← IO.mkRef {}
            decisions := decisionRegistrations env
-           preprocessRules := ← IO.mkRef none }
+           preprocessRules := ← IO.mkRef none
+           toolchain := ← IO.mkRef {}
+           forms := ← IO.mkRef {} }
 
 /-- Whether `name` belongs to an aware module; a constant whose module index is unknown counts as
 aware, so the search expands it. -/
@@ -2328,7 +2352,9 @@ reading of its acceptance predicate: one that reads the result at one fixed valu
 argument is the kind of one slice of the implementation (`Regula.Decides.iff_slice`), and one
 that quantifies over the argument is refused too, which is conservative. The search for a
 mention establishes only that the acceptance predicate and the specification are stated without
-the implementation's constant; whether the specification is the intended one remains review. -/
+the implementation's constant; whether the specification is the intended one remains review. A
+registration that this function does not refuse is then searched for the functions that its two
+sides share (`sharedReading`). That search names them in the record and refuses nothing. -/
 private def decisionFailure? (env : Environment) (implementation : Name)
     (result accepts spec decided : Expr) : MetaM (Option String) := do
   let mention (part : String) (chain : Array Name) : String :=
@@ -2363,6 +2389,17 @@ private def decisionFailure? (env : Environment) (implementation : Name)
   if let some chain := mentionChain? env implementation spec then
     return some (mention "specification" chain)
   return none
+
+/-- The statement of a decision registration that `decisionFailure?` did not refuse: the
+implementation's constant, the acceptance predicate and the specification of its kind. The
+registration is closed, so the two terms have no free variable. -/
+structure DecisionStatement where
+  /-- The registered implementation. -/
+  implementation : Name
+  /-- The acceptance predicate of the kind. -/
+  accepts : Expr
+  /-- The specification of the kind. -/
+  spec : Expr
 
 /-- Acquisition stage, independent of whether a subsequent policy check succeeds.
 Local snapshots deliberately omit replay and whole-environment parent searches. -/
@@ -2399,10 +2436,14 @@ function is a field application (`hiddenField?`): the record then has no failure
 and the constant that the environment has only as an axiom is returned with it, so that the
 caller can report the reading as unavailable. Every other stage reads every kind, and the second
 component is `none`.
+The third component is the statement of a decision registration that was read and not refused
+(`DecisionStatement`): the caller searches it for the functions that its two sides share
+(`sharedReading`), and the record names them.
 -/
 private def executableContract? (env : Environment) (scope : ContractScope) (stage : Stage)
     (info : ConstantInfo) :
-    CommandElabM (Option (RegulaPolicy.ExecutableContract × Option Name)) := do
+    CommandElabM (Option (RegulaPolicy.ExecutableContract × Option Name ×
+      Option DecisionStatement)) := do
   if !#[DeclarationKind.definition, .theorem, .opaque].contains (kindOf info) then return none
   if info.name == Lean.mkFlatCtorOfStructCtorName ``Regula.ExecutableContract.mk then return none
   unless (← scope.mayReach env info.type) do return none
@@ -2441,11 +2482,17 @@ private def executableContract? (env : Environment) (scope : ContractScope) (sta
       | none, none, some name, some (_, result, accepts, spec, decided) =>
           decisionFailure? env name result accepts spec decided
       | _, _, _, _ => pure failure
+    -- A registration with no failure is closed, so its acceptance predicate and its
+    -- specification have no free variable and can leave this telescope.
+    let statement := match hidden, failure, root, decision with
+      | none, none, some implementation, some (_, _, accepts, spec, _) =>
+          some { implementation, accepts, spec : DecisionStatement }
+      | _, _, _, _ => none
     return some ({
       root := root.getD .anonymous
       requirement := toString requirement
       failure
-      kind := decision.map (·.1) }, hidden)
+      kind := decision.map (·.1) }, hidden, statement)
 
 /-- Exact module attribution, including declarations added by the current document.
 A missing imported index is not by itself evidence of current-module ownership. -/
@@ -2903,8 +2950,254 @@ def generatedFrom? (name : Name) : MetaM (Option Name) := do
   GeneratedFamily.all.findSomeM? fun family =>
     return (← generatedBy? family name).filter env.contains
 
+/-- Whether Lean loaded the imported module of index `index` from the toolchain's own library
+directory: its `.olean` file is that module's file in the library directory of the running
+toolchain, by canonical path (`loadedFromLibrary`). The answer is kept in the scope. -/
+def ContractScope.fromToolchain (scope : ContractScope) (env : Environment) (index : Nat) :
+    IO Bool := do
+  if let some known := (← scope.toolchain.get)[index]? then return known
+  let answer ← match env.header.moduleNames[index]? with
+    | none => pure false
+    | some moduleName => loadedFromLibrary (← toolchainLibraryDirectory) moduleName
+  scope.toolchain.modify (·.insert index answer)
+  return answer
+
+/-- Whether `name` is declared outside Lean's own library: in the current module, or in an
+imported module that Lean did not load from the toolchain's library directory
+(`ContractScope.fromToolchain`). The search for shared definitions reads only such constants. A
+module of the toolchain imports no module of a project or of a dependency, so no constant of the
+toolchain mentions a constant of one, and the search loses nothing when it does not follow
+them. -/
+def ContractScope.outsideToolchain (scope : ContractScope) (env : Environment) (name : Name) :
+    IO Bool :=
+  match env.getModuleIdxFor? name with
+  | none => pure true
+  | some index => return !(← scope.fromToolchain env index.toNat)
+
+/-- What the fields of a structure type say of its values, read at the arguments of the type. -/
+private structure FieldReading where
+  /-- Every field is a proof or has a sort as its result, as the one field of `LT α` has: a
+  value is a record of statements. A structure with no field is read so too. -/
+  statements : Bool
+  /-- Some field that is no proof and has no sort as its result takes an argument: a value
+  carries a function, as a value of `BEq α` or of `Ord α` does. -/
+  function : Bool
+
+/-- The reading of the fields of `result`, when it is a structure type applied to its
+parameters: an inductive type with one constructor and no index. The fields are the binders of
+the constructor's type at the universe levels and the parameters of `result`. So a field whose
+type is a parameter is read at the actual argument: the field of `Box Prop` is a statement, and
+the field of `Box Nat` is not. The numbers of constructors, of indices, of parameters and of
+fields are read from the kernel-checked declarations. `none` for every other type. A field is
+read one level deep: a field whose type is itself a structure is no statement and no function
+here. -/
+private def readFields (env : Environment) (result : Expr) : MetaM (Option FieldReading) := do
+  let .const head levels := result.getAppFn | return none
+  let some (.inductInfo type) := env.find? head | return none
+  let [constructorName] := type.ctors | return none
+  unless type.numIndices == 0 do return none
+  let some (.ctorInfo constructor) := env.find? constructorName | return none
+  let parameters := result.getAppArgs
+  unless parameters.size == constructor.numParams do return none
+  unless levels.length == constructor.levelParams.length do return none
+  let fieldsType ← Meta.instantiateForall
+    (constructor.type.instantiateLevelParams constructor.levelParams levels) parameters
+  Meta.forallBoundedTelescope fieldsType (some constructor.numFields) fun fields _ => do
+    unless fields.size == constructor.numFields do return none
+    let mut statements := true
+    let mut function := false
+    for field in fields do
+      let fieldType ← Meta.inferType field
+      if ← Meta.isProp fieldType then continue
+      let (sort, takesArgument) ← Meta.forallTelescopeReducing fieldType (whnfType := true)
+        fun arguments fieldResult => pure (fieldResult.isSort, !arguments.isEmpty)
+      if sort then continue
+      statements := false
+      if takesArgument then function := true
+    return some { statements, function }
+
+/-- The result form of a constant of type `type` (`RegulaPolicy.ResultForm`): `proof` when
+`type` is a proposition, and otherwise the form of `type` with every leading binder opened and
+every definition unfolded. `Decidable`, `Bool` and `BEq` are read by name, at their own numbers
+of arguments. A structure type is a statement when each of its fields, at the arguments of that
+type, is a proof or has a sort as its result (`readFields`). -/
+private def readResultForm (env : Environment) (type : Expr) :
+    MetaM RegulaPolicy.ResultForm :=
+  Meta.withTransparency .all do
+    if ← Meta.isProp type then return .«proof»
+    Meta.forallTelescopeReducing type (whnfType := true) fun _ result => do
+      if result.isSort then return .«statement»
+      if result.isAppOfArity ``Decidable 1 then return .«decidable»
+      if result.isConstOf ``Bool then return .«bool»
+      if result.isAppOfArity ``BEq 1 then return .«beq»
+      if let some reading ← readFields env result then
+        if reading.statements then return .«statement»
+      return .«other»
+
+/-- The result form of the constant `info` (`readResultForm`), kept in the scope. -/
+def ContractScope.resultForm (scope : ContractScope) (env : Environment) (info : ConstantInfo) :
+    MetaM RegulaPolicy.ResultForm := do
+  if let some known := (← scope.forms.get).find? info.name then return known
+  let form ← readResultForm env info.type
+  scope.forms.modify (·.insert info.name form)
+  return form
+
+/-- What the search for shared definitions reads of the constant `info`
+(`RegulaPolicy.SharedDefinition`). Its kind is the kind of its `ConstantInfo`. Whether it is a
+projection function is read from its kernel-checked value (`projectionBody?`), as `boundField?`
+reads it: no type tells a field's projection function from a function that computes, and Lean's
+record of projection functions is environment state that a project can write.
+
+Whether it is a function is read from its type alone, with every definition unfolded: the type
+has a leading binder, or its result is a structure type with a field that takes an argument and
+is neither a proof nor a statement, at the arguments of that type (`readFields`), as `BEq α` and
+`Ord α` are. The form of its value has no part: a closed list whose value has a function
+abstraction is no function, and a record of functions is one whether its value is a constructor
+application or a name for one.
+
+Its result form is read from its type (`ContractScope.resultForm`). Whether Lean generated it
+for an inductive type or as a matcher is what `generatedBy?` says for the families of a
+projection, a recursor, a matcher, a constructor lemma and a type construction; those clauses
+read Lean's records, which a project can write, and the pure classification uses the answer
+only to take a definition out of the class `other`
+(`RegulaPolicy.SharedDefinition.class`). -/
+private def sharedDefinition (env : Environment) (scope : ContractScope) (info : ConstantInfo) :
+    MetaM RegulaPolicy.SharedDefinition := do
+  let projection := match info with
+    | .defnInfo definition => (projectionBody? definition.value 0).isSome
+    | _ => false
+  let generated ← match info with
+    | .defnInfo _ | .opaqueInfo _ =>
+      [GeneratedFamily.projection, .recursor, .matcher, .constructorLemma,
+        .typeConstruction].anyM fun family =>
+          return (← generatedBy? family info.name).isSome
+    | _ => pure false
+  let function ← Meta.withTransparency .all <|
+    Meta.forallTelescopeReducing info.type (whnfType := true) fun arguments result => do
+      if !arguments.isEmpty then return true
+      return ((← readFields env result).map (·.function)).getD false
+  return { name := info.name, kind := kindOf info, projection, function, generated
+           result := ← scope.resultForm env info }
+
+/-- The constants that the search for shared definitions follows from `info`, by the rule of a
+statement (`specification`) or by the rule of a function. The search reads the specification
+and the acceptance predicate by the rule of a statement, and the implementation by the rule of
+a function (`sharedReading`).
+
+Each rule follows the type of a definition, of a theorem, of an opaque constant and of an
+axiom. It follows the value of a definition when the pure decision says that the value is read
+(`RegulaPolicy.ResultForm.ValueRead`): not the value of a proof, by the rule of a statement not
+a `Decidable` value, and by the rule of a function not the value of a statement, which a
+function does not run. A function runs a `Decidable` value, so its value is read by the rule of
+a function. The constants of a value are all the constants that it mentions: in `decide p`,
+those of the proposition `p` and those of the instance term, which names the same functions.
+Neither rule follows the value of a theorem or of an opaque constant: Lean's kernel unfolds
+neither, so a statement about the constant does not depend on that value.
+
+From an inductive type, a constructor and a recursor, the rule of a statement follows the type,
+the constructors of the inductive type and the rules of the recursor (`unfoldReferences`): the
+fields of a structure, the proof fields among them, are a part of the meaning of a statement
+about it. The rule of a function follows nothing from those three, not their types either: a
+function depends on the declaration of its data, which is not a shared definition, and not on
+what a field's type mentions. -/
+private def searchReferences (env : Environment) (scope : ContractScope) (specification : Bool)
+    (info : ConstantInfo) : MetaM (Array Name) := do
+  match info with
+  | .defnInfo definition =>
+    let form ← scope.resultForm env info
+    return if decide (form.ValueRead specification) then
+      info.type.getUsedConstants ++ definition.value.getUsedConstants
+    else info.type.getUsedConstants
+  | .inductInfo _ | .ctorInfo _ | .recInfo _ =>
+    return if specification then unfoldReferences info else #[]
+  | _ => return info.type.getUsedConstants
+
+/-- The constants outside Lean's own library that `roots` reach by one rule of
+`searchReferences`, the rule of a statement (`specification`) or the rule of a function: the
+roots themselves and, closed under that rule, the constants that they mention. A constant of
+Lean's own library is not followed (`ContractScope.outsideToolchain`). -/
+private def sideReach (env : Environment) (scope : ContractScope) (specification : Bool)
+    (roots : Array Name) : MetaM NameSet := do
+  let mut reached : NameSet := {}
+  let mut seen : NameSet := {}
+  let mut pending := roots
+  while !pending.isEmpty do
+    let name := pending.back!
+    pending := pending.pop
+    if seen.contains name then continue
+    seen := seen.insert name
+    unless ← scope.outsideToolchain env name do continue
+    let some info := env.find? name | continue
+    reached := reached.insert name
+    pending := pending ++ (← searchReferences env scope specification info)
+  return reached
+
+/-- The first shared functions of a specification: each constant outside Lean's own library
+that `spec` reaches, that `other` also holds of, and that the pure classification counts
+(`RegulaPolicy.SharedDefinition.Counted`: its class is `boolean` or `other`).
+
+The search follows `searchReferences` from the constants that `spec` mentions. It does not
+follow a counted constant that `other` holds of, so a constant below one is found only when
+`spec` also reaches it on a path with no such constant. Which constants it finds does not
+depend on the order of the search: they are the counted constants of `other` that are reachable
+when the edges out of those constants are removed. -/
+private def sharedFrontier (env : Environment) (scope : ContractScope) (other : Name → Bool)
+    (spec : Expr) : MetaM (Array RegulaPolicy.SharedDefinition) := do
+  let mut seen : NameSet := {}
+  let mut pending : Array Name := #[]
+  for name in spec.getUsedConstants do
+    unless seen.contains name do
+      seen := seen.insert name
+      pending := pending.push name
+  let mut found : Array RegulaPolicy.SharedDefinition := #[]
+  while !pending.isEmpty do
+    let name := pending.back!
+    pending := pending.pop
+    unless ← scope.outsideToolchain env name do continue
+    let some info := env.find? name | continue
+    if other name then
+      let definition ← sharedDefinition env scope info
+      if decide definition.Counted then
+        found := found.push definition
+        continue
+    for next in ← searchReferences env scope true info do
+      unless seen.contains next do
+        seen := seen.insert next
+        pending := pending.push next
+  return found
+
+/-- The functions that the two sides of a decision registration share, as its record names
+them (`RegulaPolicy.SharedNames`).
+
+One side is the specification. The other side is the implementation with the acceptance
+predicate: a kind states `accepts (f x)` against `spec x`, so a definition that the acceptance
+predicate and the specification share enters both sides of that statement as one that the
+implementation and the specification share does. The acceptance predicate is a statement, so
+the search reads it by the rule of a statement, as it reads the specification, and it reads the
+implementation by the rule of a function (`searchReferences`): the value of a definition of a
+proposition that the acceptance predicate names is read, and the value of a `Decidable`
+instance that it names is not. The search reads kernel-checked values only. A
+runtime replacement (`implemented_by`, `extern`, `csimp`) is in no such value: a kind is a
+theorem about the definition that Lean's kernel reads, and the execution closure accounts for
+the code that runs in its place.
+
+`RegulaPolicy.sharedNames` gives the names by class over what the search read
+(`RegulaPolicy.mem_sharedNames_booleans`, `RegulaPolicy.mem_sharedNames_others`). The search
+itself is operational, and it refuses no registration. It names the functions that the two sides
+share by name. It does not establish that the specification is the intended one, and a copy of
+a definition under a second name is a different constant, which it does not find. -/
+private def sharedReading (env : Environment) (scope : ContractScope)
+    (statement : DecisionStatement) : MetaM RegulaPolicy.SharedNames := do
+  let implementation ← sideReach env scope false #[statement.implementation]
+  let acceptance ← sideReach env scope true statement.accepts.getUsedConstants
+  let frontier ← sharedFrontier env scope
+    (fun name => implementation.contains name || acceptance.contains name) statement.spec
+  return RegulaPolicy.sharedNames frontier.toList
+
 /-- The record of `declaration`, with the constant that keeps a snapshot from reading the kind
-of the declaration's decision registration, when there is one (`executableContract?`). -/
+of the declaration's decision registration, when there is one (`executableContract?`). The
+record of a decision registration that was read and not refused also holds the names of the
+functions that its two sides share (`sharedReading`). -/
 private def declarationReading (name : Name) (stage : Stage) (scope? : Option ContractScope) :
     CommandElabM (RegulaPolicy.Declaration × Option Name) := withoutSmartUnfolding do
   let env ← getEnv
@@ -2944,7 +3237,11 @@ private def declarationReading (name : Name) (stage : Stage) (scope? : Option Co
     | some value => value.getUsedConstants
     | none       => #[]
   let generatedFrom ← liftTermElabM (generatedFrom? name)
-  let contract? ← executableContract? env scope stage info
+  let contract? ← (← executableContract? env scope stage info).mapM
+    fun (record, hidden, statement) => do
+      let some statement := statement | return (record, hidden)
+      let shared ← liftTermElabM <| sharedReading env scope statement
+      return ({ record with shared }, hidden)
   return ({
     name := name
     «module» := moduleName
