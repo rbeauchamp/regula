@@ -116,8 +116,7 @@ jobs. None of those jobs was a module that the gate imports. The gate recorded t
 identity as the sequential run.
 
 That probe shows that the arrangement operates. It does not show the hosted gain. The hosted
-times of the new schedule are in the pull request that closed
-[issue 246](https://github.com/rbeauchamp/regula/issues/246).
+times of the new schedule are at the end of this section.
 Two items are not established. The first item is that two Lake processes in one build directory
 do not interfere (one of them builds nothing here). The second item is an upper bound of the
 time of the step.
@@ -168,6 +167,35 @@ the scheduler gives the gate the processors that it can use and that memory is n
 The third assumption is that the other commands end before the gate ends. If they end after the
 gate, their time after the gate adds to the estimate. These notes show that the other commands
 ended first only for the local pair, on 14 processors.
+
+Two hosted runs then measured the schedule with low priority
+([pull request 252](https://github.com/rbeauchamp/regula/pull/252), CI run 37556704230,
+attempts 1 and 2). The first step took 386 s and 351 s. The documentation step of the same jobs
+took 243 s and 222 s, and the change does not touch its work. Thus the ratio of the two steps
+compares the schedules on runners of different speeds. That ratio was 1.59 and 1.58.
+
+Two sequential runs of the same tree gave the ratios 1.71 and 1.74 (CI runs 37542593631 and
+37540594216, 295 s and 351 s for the first step). Thus the measured gain is approximately
+8 percent of the first step, which is approximately 30 s at those runner speeds. The estimate
+above is a gain of 65 s to 90 s on the reference run. The hosted runs refute that estimate.
+
+The sample is small: two runs for each schedule on that tree. Two earlier trees each had two
+sequential runs. Their ratios were 1.68 and 1.59 for one tree, and 1.68 and 1.58 for the other.
+Thus two runs of one tree can give ratios that are 0.10 apart. The lowest ratio of a sequential
+run is equal to the ratio of the schedule. The gain is a measurement on this sample, and it is
+not established.
+
+The gate took 251 s and 229 s at the same time as the low-priority commands. It took 139 s and
+164 s alone in the two sequential runs of that tree. Thus `nice -n 19` did not keep the gate at
+the speed that it has alone, and the first assumption was not correct on the hosted runner. A
+possible cause is that the four processors of the runner are hardware threads of two cores. No
+run measured the processor topology or the processor time. Thus that cause is a hypothesis.
+
+In the two hosted runs, the other commands ended approximately 25 s before the gate. Before
+that, the two chains operated at the same time.
+Thus a different sequence of the same commands can probably decrease the time only a small
+quantity more. More margin needs less work in the step or a second runner. In the slower of the
+two runs, the margin of the step was 34 s.
 
 An independent review of the first version found one path on which the driver did not wait for
 the gate. On that path, the line that reported the failure of a different command could raise an

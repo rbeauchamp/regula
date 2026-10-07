@@ -115,12 +115,22 @@ faster sample.
   machine that other work at normal priority fills, the other chain can get only a small quantity
   of processor time. The time can then be more than the time of the same commands in sequence. A
   hosted runner with no other load does not have that risk.
-- In one local pair with low priority, the step took less time than the sequential run
-  ([evidence notes](references/evidence.md)). But the consumer was slower than alone in that
-  pair. Thus the first assumption was not fully correct there.
+- In one local pair with low priority, the step took less time than the sequential run. In two
+  hosted runs, the relative time of the step was smaller
+  ([evidence notes](references/evidence.md)). But the consumer was slower than alone in each of
+  those runs. Thus the first assumption was not fully correct there.
+- Do not use logged job durations to make a prediction of the gain of such a schedule. On the
+  hosted runner, that prediction was more than two times the measured gain. An idle logical
+  processor is not always an idle core. If a core has two hardware threads, work on one thread
+  makes the other thread slower, and `nice` does not prevent that. For the hosted runner, that
+  cause is a hypothesis, because no run measured the processor topology.
 - The change removes no work. Thus it decreases the time only if processors were idle before
   the change. Do a measurement of the gain on the hosted runner. A different machine does not
   show the hosted gain.
+- The speed of a hosted runner changes from run to run. To compare two schedules, use a step of
+  the same job that did not change. Divide the time of the changed step by the time of that
+  step. Give the number of runs and the range of that ratio for one tree. A gain that is not
+  larger than that range is not established.
 - When the bound still exceeds the target, divide the checks into shards under an approved
   budget each, and size them on the slowest observed run. Let every check carry its one shard
   where it is listed and select by that tag, so cover and disjointness are a theorem about the

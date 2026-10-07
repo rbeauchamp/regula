@@ -282,23 +282,24 @@ low priority. Thus the second chain can get only a small quantity of processor t
 machine, also after the gate ended. The time of the step can then be more than in the sequential
 schedule. The hosted runner has no other load.
 
-These limits apply to that argument. No measurement shows the first two assumptions on the
-hosted runner. In one local pair with low priority, the step took less time than the sequential
-run, but the gate was slower than alone. Thus the first assumption was not fully correct on that
-machine ([evidence notes](../../.agents/skills/lean-ci/references/evidence.md)). The sequence of
+These limits apply to that argument. The first assumption was not fully correct in the runs that
+measured it. In one local pair and in two hosted runs with low priority, the gate was slower than
+alone ([evidence notes](../../.agents/skills/lean-ci/references/evidence.md)). The sequence of
 the argument has two builds, but the earlier schedule had one complete build. The time that this
 division of the build adds is not measured.
 
 The facts that follow are about one hosted run of the sequential schedule (CI run 37513374192,
 four processors). Lake logs the elapsed time of each job and not its processor time. By those
 logged durations, the isolated build of the gate ended with one or two jobs in progress. The
-declaration inspection of the gate has three worker slots, which is read from the code. Thus it
-is possible that the gate leaves processors idle on that runner.
+declaration inspection of the gate has three worker slots, which is read from the code. An
+estimate from those facts gave a gain of 65 s to 90 s for that run.
 
-The estimate of the time of the step on the hosted runner is a prediction. The
-[evidence notes](../../.agents/skills/lean-ci/references/evidence.md) give that estimate. The
-pull request that closed [issue 246](https://github.com/rbeauchamp/regula/issues/246) gives the
-measured hosted times.
+Two hosted runs of the schedule refute that estimate. They measured a gain of approximately
+8 percent of the first step, which is approximately 30 s. The sample is two runs for each
+schedule. One sequential run of an earlier tree had the same relative time of the first step as
+the schedule. Thus the gain is a measurement on that sample and is not established. The
+[evidence notes](../../.agents/skills/lean-ci/references/evidence.md) give the runs, the method
+and a possible cause.
 
 The driver writes each line that starts with `verification:`. It writes such a line at the start
 of each command. For a command that starts at low priority, that line has the words `at low
