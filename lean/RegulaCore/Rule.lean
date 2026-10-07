@@ -64,7 +64,7 @@ inductive RuleCategory where
   /-- The form of a declaration itself, such as `unsafe` or `partial` (RG1006). -/
   | declaration
   /-- Executable contracts, decision contracts and the execution closure of executable roots
-  (RG1007, RG1008, RG3001, RG3002). -/
+  (RG1007–RG1009, RG3001, RG3002). -/
   | execution
   /-- Availability of the declared Lean environment (RG2001). -/
   | environment

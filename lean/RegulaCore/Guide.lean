@@ -1181,7 +1181,12 @@ def guide : RuleId → Guide
           variable of that function, a constant that the environment has only as an axiom. Lean \
           gives such a file an imported theorem in that form, and the projection function of a \
           proof field is a theorem, so the editor cannot tell whether the argument is a field \
-          (limitations of RG1007). The message names `lake lint`, which reads the kind."]
+          (limitations of RG1007). The message names `lake lint`, which reads the kind.",
+        "In such a file the editor also reports its reading of the functions that the two \
+          sides of a decision registration share as incomplete, when a function with a result \
+          of `Bool` or `BEq` could be shared only below an imported function whose value the \
+          file does not have (limitations of RG1009). The message names `lake lint`, which has \
+          each value."]
       rationaleDetail := []
       proofShape := [
         "The replayed declaration must type-check in the kernel with exactly its stated type and \
@@ -1213,7 +1218,10 @@ def guide : RuleId → Guide
         kind that it does not read is operational collector code (`hiddenField?` in \
         `Regula.Collect`), which that theorem does not cover: the collector records the \
         registration with no failure of its kind, so the editor decision reports no RG1007 \
-        finding for that record, and the linter reports the reading as incomplete."
+        finding for that record, and the linter reports the reading as incomplete. Its deferral \
+        of the shared functions that it does not read is operational collector code too \
+        (`sharedReading` in `Regula.Collect`): that record names no shared function with a \
+        result of `Bool` or `BEq`, so the editor decision reports no RG1009 finding for it."
       sources :=
           ["lean/Regula/Checker/Admission.lean", "lean/Regula/Checker/SourceAudit.lean",
               "lean/Regula/Checker/SourceBinding.lean"] }
