@@ -1238,17 +1238,16 @@ theorem Replaced.defects_nil_iff (r : Replaced) : r.defects = [] ↔ r.Sound := 
   exact ⟨fun ⟨a, b⟩ => ⟨a, (separated_iff ' ' _ _).mpr b⟩,
     fun ⟨a, b⟩ => ⟨a, (separated_iff ' ' _ _).mp b⟩⟩
 
-/-- The rows whose key is not after the key of the row before them, each with its line. -/
-def unordered {α : Type} (line key : α → List Char) (rows : List α) :
-    List (List Char × String) :=
+/-- The rows whose key is not after the key of the row before them, each with its line and with
+the reason that `reason` gives for the key of the row before it. -/
+def unordered {α : Type} (reason : List Char → String) (line key : α → List Char)
+    (rows : List α) : List (List Char × String) :=
   (rows.zip rows.tail).filterMap fun pair =>
-    if key pair.1 < key pair.2 then none
-    else some (line pair.2, s!"this row is not after the row `{String.ofList (key pair.1)}` in \
-      the order of the lowercase terms")
+    if key pair.1 < key pair.2 then none else some (line pair.2, reason (key pair.1))
 
 /-- No row is reported exactly when the rows are in the sequence of their keys. -/
-theorem unordered_nil_iff {α : Type} (line key : α → List Char) (rows : List α) :
-    unordered line key rows = [] ↔ Ascending key rows := by
+theorem unordered_nil_iff {α : Type} (reason : List Char → String) (line key : α → List Char)
+    (rows : List α) : unordered reason line key rows = [] ↔ Ascending key rows := by
   simp [unordered, List.filterMap_eq_nil_iff]
 
 /-- The lines whose key is also the key of an earlier line or one of `seen`. -/
@@ -1334,13 +1333,18 @@ theorem Draft.rowDefects_nil_iff (d : Draft) :
     Exec.verbCategories_eq]
   exact and_assoc
 
+/-- The reason for a row of a table of the vocabulary whose key is not after `before`, the key
+of the row before it. -/
+def tableOrder (before : List Char) : String :=
+  s!"this row is not after the row `{String.ofList before}` in the order of the lowercase terms"
+
 /-- The rows of `d` that are not in the sequence of their table. -/
 def Draft.orderDefects (d : Draft) : List (List Char × String) :=
-  unordered Term.line Exec.termKey d.sharedNouns ++
-    unordered Term.line Exec.termKey d.sharedVerbs ++
-    unordered Term.line Exec.termKey d.projectNouns ++
-    unordered Term.line Exec.termKey d.projectVerbs ++
-    unordered Replaced.line Exec.replacedKey d.replaced
+  unordered tableOrder Term.line Exec.termKey d.sharedNouns ++
+    unordered tableOrder Term.line Exec.termKey d.sharedVerbs ++
+    unordered tableOrder Term.line Exec.termKey d.projectNouns ++
+    unordered tableOrder Term.line Exec.termKey d.projectVerbs ++
+    unordered tableOrder Replaced.line Exec.replacedKey d.replaced
 
 theorem Draft.orderDefects_nil_iff (d : Draft) :
     d.orderDefects = [] ↔

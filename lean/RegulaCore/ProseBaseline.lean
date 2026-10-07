@@ -520,10 +520,17 @@ theorem Entry.defects_nil_iff (e : Entry) : e.defects = [] ↔ e.Sound := by
   simp only [Exec.Bare_eq, Exec.AllowanceSound_eq]
   exact ⟨fun ⟨a, b⟩ => ⟨a, b⟩, fun ⟨a, b⟩ => ⟨a, b⟩⟩
 
+/-- The reason for an entry whose path is not after `before`, the path of the entry before it.
+The sequence of two paths is the sequence of the code points of their characters. -/
+def entryOrder (before : List Char) : String :=
+  s!"this entry is not after the entry `{String.ofList before}` in the sequence of the paths: \
+    the code points of the characters give that sequence, thus each of the letters `A` to `Z` \
+    is before each of the letters `a` to `z`"
+
 /-- The defects of `entries`, each with the line of the print it is about. -/
 def defects (entries : List Entry) : List (Nat × String) :=
   (entries.flatMap fun e => e.defects.map fun reason => (lineOf entries e.path, reason)) ++
-    (unordered Entry.path Entry.path entries).map fun (path, reason) =>
+    (unordered entryOrder Entry.path Entry.path entries).map fun (path, reason) =>
       (lineOf entries path, reason)
 
 /-- Entries have no defect exactly when they are well formed. -/
