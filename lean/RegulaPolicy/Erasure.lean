@@ -692,11 +692,14 @@ A constructor states when its rule applies and that every part is related. Which
 are, and which variables are new, is what the shared definitions compute. The two rules for a
 threaded `match` take their parts from `threadedParts`, which uses `alternative`, `openLambdas`,
 `standingFor`, `Side.orient`, `Side.pair` and `Threading.head`. `Threads` reads a decomposition
-with `Threading.head`. Every rule that pairs arguments position by position uses `paired`. Two
-tests of the comparison are not shared. `Threads` states the levels with the proposition
-`Threading.SameLevels`, and every rule that reads a body states its variables with the
-proposition `NewVariables`. The theorems `Threading.sameLevels_iff` and `newVariables_iff` tie
-the two propositions to the executed tests `Threading.sameLevels` and `newVariables`.
+with `Threading.head`. Every rule that pairs arguments position by position uses `paired`.
+Only the three binder rules (`lam`, `forallE`, `letE`) state their variables with the proposition
+`NewVariables`, which `newVariables_iff` ties to the executed test `newVariables`. `Threads`
+states the levels with the proposition `Threading.SameLevels`, which `Threading.sameLevels_iff`
+ties to the executed test `Threading.sameLevels`, so that test is no longer shared. The two rules
+for a threaded `match` (`threadedLeft`, `threadedRight`) take their parts from `threadedParts`,
+whose `alternative` reads each alternative body under the executed test `newVariables`. So
+`newVariables` stays shared with the comparison through `threadedParts`.
 
 Theorems state these of them exactly, so a change fails a theorem: when `threadedParts` and
 `alternative` yield parts and which (`threadedParts_eq_ok_iff`, `alternative_eq_ok_iff`), the
