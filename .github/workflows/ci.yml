@@ -388,8 +388,8 @@ jobs:
         uses: actions/deploy-pages@368f82528645a54fb793d4d04e342629a3f51346 # v5.0.1
 
   # Observe that the live site serves this run's artifact: build.json, the home page of every
-  # edition, every development rule page, the build.json of every release edition and the
-  # not-available page (the files Deployment.lean compares).
+  # edition, every development rule page, the build.json of every release edition, the page of
+  # every stable route and the not-available page (the files Deployment.lean compares).
   verify-deployment:
     needs: deploy
     if: ${{ !cancelled() && needs.deploy.result == 'success' }}

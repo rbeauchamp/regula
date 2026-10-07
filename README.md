@@ -48,7 +48,7 @@ Mathlib and Batteries linters, which it requires or recommends rather than repla
 | `partial` or `unsafe` declarations you write ([RG1006]); unresolved `extern`/`implemented_by` paths ([RG3001]) and, in `checked` mode, unproved boundaries ([RG3002]) | Lean's kernel, compiler and runtime; Lake; the operating system |
 | Build warnings ([RG2003]), modules outside the manifest ([RG2004]), automatic implicits or a missing `linter.missingDocs` ([RG2006]), modules without a module docstring ([RG5001]) | |
 
-The [rule reference](https://rbeauchamp.github.io/regula/dev/rules/) lists every rule, each
+The [rule reference](https://rbeauchamp.github.io/regula/rules/) lists every rule, each
 with a checked violating and corrected example.
 
 ## Try it
@@ -110,11 +110,11 @@ The [adoption guide](docs/guides/adoption.md) covers fresh runs, CI and editor d
 
 ## Learn more
 
-- [Why: precise claims and kernel-checked evidence](https://rbeauchamp.github.io/regula/dev/standard/0-precise-claims-and-kernel-checked-evidence/),
+- [Why: precise claims and kernel-checked evidence](https://rbeauchamp.github.io/regula/standard/0-precise-claims-and-kernel-checked-evidence/),
   including non-vacuity and the role of testing.
-- [The standard](https://rbeauchamp.github.io/regula/dev/standard/): the rulebook and review
+- [The standard](https://rbeauchamp.github.io/regula/standard/): the rulebook and review
   checklist behind the linter. Conformance means satisfying every applicable row of its
-  [compliance checklist](https://rbeauchamp.github.io/regula/dev/standard/8-compliance-audit/),
+  [compliance checklist](https://rbeauchamp.github.io/regula/standard/8-compliance-audit/),
   which includes semantic review.
 - [The roadmap](https://github.com/users/rbeauchamp/projects/8): where Regula is going, with no dates.
 - [Standalone examples](examples/README.md), the [documentation index](docs/README.md), the
@@ -136,7 +136,7 @@ violating project pass, privately instead, as the [security policy](SECURITY.md)
 | [lean/](lean/README.md) | The `regula` package adopters require, with no dependency beyond the Lean toolchain: the linter, its rule registry and proofs, and checked examples. |
 | [audit/](audit/lakefile.lean) | The package of the standard's example library (`Audit`), which imports only Lean's core libraries and requires `regula` by relative path as an adopter does. |
 | [integration/mathlib/](integration/mathlib/lakefile.lean) | The Mathlib integration package (`MathlibAudit`): a Mathlib adopter of `regula` that checks the Mathlib-specific behaviour Regula supports. Only `./scripts/verify.sh mathlib` and its CI job use it. |
-| [markdown/](markdown/lakefile.toml) | The package of the checks of the tracked Markdown documents. The checks are for the rule IDs in prose, for the writing rules with the baseline `prose-baseline.json`, and for the vocabulary [`CONTEXT.md`](CONTEXT.md). Only `./scripts/verify.sh docs` uses it. |
+| [markdown/](markdown/lakefile.toml) | The package of the checks of the tracked Markdown documents. The checks are for the rule IDs in prose, for the writing rules with the baseline `prose-baseline.json`, and for the vocabulary [`CONTEXT.md`](CONTEXT.md). One more check is for the links of this file to the rule reference. Only `./scripts/verify.sh docs` uses it. |
 | [examples/](examples/README.md) | Adopting projects and the rule-example sources. |
 | [website/](docs/guides/website.md) | The standard's Verso source and the rule-reference site builder. |
 
@@ -155,15 +155,15 @@ Each release supports only the Lean toolchain pinned in its `lean-toolchain`; th
 `lean/Regula/Checker/PolicyCodec.lean`, which keeps its upstream Apache 2.0 notice
 ([license text](LICENSES/Apache-2.0.txt); see [design influences](docs/guides/design-influences.md#adapted-code-and-licenses)).
 
-[RG1001]: https://rbeauchamp.github.io/regula/dev/rules/RG1001/
-[RG1002]: https://rbeauchamp.github.io/regula/dev/rules/RG1002/
-[RG1003]: https://rbeauchamp.github.io/regula/dev/rules/RG1003/
-[RG1004]: https://rbeauchamp.github.io/regula/dev/rules/RG1004/
-[RG1005]: https://rbeauchamp.github.io/regula/dev/rules/RG1005/
-[RG1006]: https://rbeauchamp.github.io/regula/dev/rules/RG1006/
-[RG2003]: https://rbeauchamp.github.io/regula/dev/rules/RG2003/
-[RG2004]: https://rbeauchamp.github.io/regula/dev/rules/RG2004/
-[RG2006]: https://rbeauchamp.github.io/regula/dev/rules/RG2006/
-[RG3001]: https://rbeauchamp.github.io/regula/dev/rules/RG3001/
-[RG3002]: https://rbeauchamp.github.io/regula/dev/rules/RG3002/
-[RG5001]: https://rbeauchamp.github.io/regula/dev/rules/RG5001/
+[RG1001]: https://rbeauchamp.github.io/regula/rules/RG1001/
+[RG1002]: https://rbeauchamp.github.io/regula/rules/RG1002/
+[RG1003]: https://rbeauchamp.github.io/regula/rules/RG1003/
+[RG1004]: https://rbeauchamp.github.io/regula/rules/RG1004/
+[RG1005]: https://rbeauchamp.github.io/regula/rules/RG1005/
+[RG1006]: https://rbeauchamp.github.io/regula/rules/RG1006/
+[RG2003]: https://rbeauchamp.github.io/regula/rules/RG2003/
+[RG2004]: https://rbeauchamp.github.io/regula/rules/RG2004/
+[RG2006]: https://rbeauchamp.github.io/regula/rules/RG2006/
+[RG3001]: https://rbeauchamp.github.io/regula/rules/RG3001/
+[RG3002]: https://rbeauchamp.github.io/regula/rules/RG3002/
+[RG5001]: https://rbeauchamp.github.io/regula/rules/RG5001/

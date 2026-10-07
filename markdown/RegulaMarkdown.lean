@@ -398,15 +398,25 @@ def read (source : String) : Reading :=
 (`Regula.Markdown.documentErrors` of md4c's reading). -/
 def check (file source : String) : List String := documentErrors file source (read source)
 
+/-- What the links of the Markdown document `file` with text `source` to the site are refused
+for (`Regula.Markdown.siteLinkErrors` of md4c's reading): in the root `README.md`, a link to the
+site that has no stable address. -/
+def checkSiteLinks (file source : String) : List String := siteLinkErrors file (read source)
+
 /-- Whether `path` names a Markdown document: its extension is `md` or `markdown`, in any
 case. -/
 def isMarkdown (path : String) : Bool :=
   path.toLower.endsWith ".md" || path.toLower.endsWith ".markdown"
 
-/-! Evaluated controls (observations of the compiled check on md4c's parse, not proofs). The
-link every control accepts is the development page of the rule. -/
+/-! Evaluated controls (observations of the compiled check on md4c's parse, not proofs). In the
+controls of the rule IDs (`check`), the link accepted as the page of a rule is its development
+page, and in `README.md` also its stable address. The controls of the site links of `README.md`
+(`checkSiteLinks`) accept the site root and the stable addresses, and refuse an address that
+names an edition. -/
 
 private def page (id : String) : String := s!"https://rbeauchamp.github.io/regula/dev/rules/{id}/"
+
+private def site (route : String) : String := s!"https://rbeauchamp.github.io/regula/{route}"
 
 private def bare (line : String) (id : String := "RG2003") : String :=
   s!"a.md:{line}: {id} is a bare rule ID in prose; make it a link to its rule page"
@@ -590,6 +600,23 @@ private def bodyless : String :=
   "<https://example.org/RG2003> and <https://example.org/>.\n") ==
   (["1", "2", "3"].map fun line => s!"a.md:{line}: RG2003 is in an autolink (a bare URL or \
     <URL>), whose end GitHub and md4c find by their own rules; write the link in brackets")
+-- The site links of `README.md`, as md4c reports them: an inline link, a reference to a link
+-- reference definition and an autolink are links, and a code span is not. A stable address is
+-- accepted; an address that names an edition is refused, in each of the three forms.
+-- Compiled-evaluation observation at build time, not a kernel-checked proof.
+#guard checkSiteLinks "README.md" (s!"See [the rules]({site "rules/"}), [RG2003] and " ++
+  s!"<{site ""}>, not `{page "RG2003"}`.\n\n[RG2003]: {site "rules/RG2003/"}\n") == [] &&
+  check "README.md" (s!"See [RG2003].\n\n[RG2003]: {site "rules/RG2003/"}\n") == []
+-- Compiled-evaluation observation at build time, not a kernel-checked proof.
+#guard checkSiteLinks "README.md" (s!"See [the rules]({site "dev/rules/"}), [RG2003] and " ++
+  s!"<{site "v/0.9.0/"}>.\n\n[RG2003]: {page "RG2003"}\n") ==
+  [site "dev/rules/", page "RG2003", site "v/0.9.0/"].map (unstableReason "README.md")
+-- The same link to the stable address of a rule, as md4c reports it: a link to its rule page in
+-- `README.md`, and in no document outside `stableDocuments`.
+-- Compiled-evaluation observation at build time, not a kernel-checked proof.
+#guard check "README.md" (s!"See [RG2003]({site "rules/RG2003/"}).\n") == [] &&
+  check "docs/README.md" (s!"See [RG2003]({site "rules/RG2003/"}).\n") ==
+    [s!"docs/README.md:1: RG2003 is linked to {site "rules/RG2003/"}, which is not its rule page"]
 
 /-! Evaluated controls of the reader boundary of the prose checks
 (`RegulaCore/ControlledProse.lean`): the kind of each block md4c reports. The controls of the

@@ -20,7 +20,9 @@ md4c's decision, and which piece each becomes is that module's (see Boundaries).
 - `Found.Accepted`, `rejected`, `rejected_nil_iff`: a finding is accepted only when it is a
   registered rule ID all of which lies in the text of one link to that rule's page
   (`Regula.Prose.Mention.Linked`).
-- `target`: the page a Markdown document links a rule to, its development page.
+- `stableDocuments`, `target`, `released`, `released_iff`: the pages a Markdown document links a
+  rule to: its development page, or, in a document of `stableDocuments` only, its stable address
+  when the rule is in a release.
 - `auditMarker`: the one form of raw HTML that is read, a fence marker of the documentation audit.
 - `Anchor`, `Placed`, `leftmost`, `rightmost`, `leftmost_le`, `le_rightmost`: the source lines of
   a finding. The parser reports text, not positions, so the lines are bracketed: every placement
@@ -29,6 +31,10 @@ md4c's decision, and which piece each becomes is that module's (see Boundaries).
 - `documentErrors`, `documentErrors_nil_iff`, `checked_documentErrors`: the executed check of one
   document, reporting the file, the line or lines and the ID or the refused construct; a
   document whose reading cannot be used is reported by file and reason alone, without its IDs.
+- `OnSite`, `Stable`, `Stable.not_edition`, `siteLinkErrors`, `siteLinkErrors_nil_iff`,
+  `checked_siteLinkErrors`: the executed check of the links of each document of
+  `stableDocuments` to the site. Each has a stable address, the site root or an address below a
+  `stableRoots` directory with no fragment, so it names no edition.
 
 ## What prose is
 
@@ -51,6 +57,13 @@ definition it calls in `markdown/RegulaMarkdown.lean`: `block`, `inline`, `flat`
 rest), which is project-owned Lean with no theorem. That translation
 decides which piece each element the parser reports becomes, and is observed only by that
 module's evaluated controls. Both parts are stated there and in the contributor guide.
+`siteLinkErrors_nil_iff` is about the link destinations among those pieces: a link that the
+parser does not report as a link, an image and a link reference definition that no link uses are
+not read. An address of the site is a destination that has `siteAddress`, in that spelling.
+That a stable address has a page is not decided here. `target` accepts the stable address of a
+rule only in a document of `stableDocuments`, and the site build requires in its artifact each
+address that `Regula.Site.siteAnchors` finds in the text of each document of that same list: an
+address written as a literal `siteBase`, as that module's boundaries state.
 `leftmost_le` and `le_rightmost` bound every placement that `Placed`
 admits; that the true lines of the reported text are such a placement rests on the parser
 reporting each piece of text as it stands on one source line, in source order, and on a line
@@ -306,11 +319,40 @@ theorem rejected_nil_iff (target : RuleId → String → Bool) (pieces : List Pi
   exact ⟨fun h f hf => (Found.accepted_iff target f).mp (h f hf),
     fun h f hf => (Found.accepted_iff target f).mpr (h f hf)⟩
 
-/-- Whether `destination` is rule `id`'s page in the development edition (`Edition.url`), with
-or without a fragment: the link every tracked Markdown document gives a rule. -/
-def target (id : RuleId) (destination : String) : Bool :=
+/-- The tracked documents whose links to the site name no edition, so that each link opens the
+latest release and a release changes no such document: the root `README.md`. Only in these
+documents is the stable address of a rule a link to its page (`target`), and the site build
+requires each address of the site in each of them in its artifact (`Regula.Site.siteAnchors`). -/
+def stableDocuments : List String := ["README.md"]
+
+/-- Whether rule `id` is in a release: its lifecycle records the release that introduced it. -/
+def released (id : RuleId) : Bool := (descriptor id).lifecycle.introduced != .unreleased
+
+/-- A rule is in a release exactly when a listed release introduced it. Each release's edition
+has a page for every rule of its build, and a rule is never removed, so the edition of every
+later release has the page too; that step is argued, and the site build observes it for the
+addresses of each document of `stableDocuments` (`Regula.Site.siteAnchors`), the only documents
+in which `target` accepts a stable address. -/
+theorem released_iff (id : RuleId) :
+    released id = true ↔ ∃ v ∈ versions, (descriptor id).lifecycle.introduced = .release v := by
+  have listed := lifecycle_listed id (descriptor id).lifecycle.introduced
+    (by cases (descriptor id).lifecycle <;> simp [Lifecycle.introduced, Lifecycle.builds])
+  unfold released
+  cases h : (descriptor id).lifecycle.introduced with
+  | unreleased => simp
+  | release v =>
+    rw [h] at listed
+    simpa [Build.listedIn] using listed
+
+/-- Whether `destination` is a page of rule `id` that the tracked Markdown document `file`
+links: the rule's page in the development edition (`Edition.url`), with or without a fragment,
+or, only in a document of `stableDocuments` and for a rule that is in a release (`released`), its
+stable address (`stableUrl`) with no fragment, which opens the page of the latest release. A
+stable route does not keep a fragment. -/
+def target (file : String) (id : RuleId) (destination : String) : Bool :=
   destination == Edition.dev.url id.route ||
-    destination.startsWith (Edition.dev.url id.route ++ "#")
+    destination.startsWith (Edition.dev.url id.route ++ "#") ||
+    (stableDocuments.contains file && released id && destination == stableUrl id.route)
 
 /-- Whether `text`, the text of a raw HTML block, is exactly one fence marker of the
 documentation audit, the two forms the standard defines (§7, `Regula.Checker.Documentation`):
@@ -608,11 +650,12 @@ def Found.describe (file : String) (first last : Nat) (f : Found) : String :=
       s!"{token} " ++ (⟨first, token, some destination⟩ : Mention).reason
 
 /-- What the document `file` with text `source` and pieces `pieces` is refused for: each
-construct the check refuses to read and each rule ID in its prose that is not a link to its rule
-page (`target`), with the line it lies on, or the first and last line it can lie on (`leftmost`,
-`rightmost`, `occursOn`; the whole document when the pieces have no placement). -/
+construct the check refuses to read and each rule ID in its prose that is not a link to a page
+of its rule that `target` accepts for `file`, with the line it lies on, or the first and last
+line it can lie on (`leftmost`, `rightmost`, `occursOn`; the whole document when the pieces have
+no placement). -/
 def errors (file source : String) (pieces : List Piece) : List String :=
-  match rejected target pieces with
+  match rejected (target file) pieces with
   | [] => []
   | found =>
     let lines := source.splitOn "\n"
@@ -623,8 +666,8 @@ def errors (file source : String) (pieces : List Piece) : List String :=
       f.describe file (first[f.anchor]?.getD 1) (last[f.anchor]?.getD lines.length)
 
 theorem errors_nil_iff (file source : String) (pieces : List Piece) :
-    errors file source pieces = [] ↔ rejected target pieces = [] := by
-  cases h : rejected target pieces <;> simp [errors, h]
+    errors file source pieces = [] ↔ rejected (target file) pieces = [] := by
+  cases h : rejected (target file) pieces <;> simp [errors, h]
 
 /-- What the document `file` with text `source` is refused for, given the parser's reading of
 it: that the reading cannot be used, or the `errors` of its pieces. -/
@@ -635,11 +678,12 @@ def documentErrors (file source : String) : Reading → List String
 
 /-- The document check reports nothing exactly when the parser's reading can be used and every
 finding of it is accepted: it has no construct the check refuses to read, and every rule-ID
-token of its runs that is not wholly code is a registered rule ID inside one link to that
-rule's development page. -/
+token of its runs that is not wholly code is a registered rule ID inside one link to a page of
+that rule that `target` accepts for the file: the stable address of a rule only when the file is
+one of `stableDocuments`. -/
 theorem documentErrors_nil_iff (file source : String) (reading : Reading) :
     documentErrors file source reading = [] ↔
-      ∃ pieces, reading = .read pieces ∧ ∀ f ∈ findings pieces, f.Accepted target := by
+      ∃ pieces, reading = .read pieces ∧ ∀ f ∈ findings pieces, f.Accepted (target file) := by
   cases reading with
   | unread reason => simp [documentErrors]
   | read pieces => simp [documentErrors, errors_nil_iff, rejected_nil_iff]
@@ -650,13 +694,186 @@ document read as no pieces, and an error for a document that was not read. -/
 theorem checked_documentErrors : Regula.ExecutableContract documentErrors (fun run =>
     Regula.Decides (· = [])
       (fun input : (String × String) × Reading =>
-        ∃ pieces, input.2 = .read pieces ∧ ∀ f ∈ findings pieces, f.Accepted target)
+        ∃ pieces, input.2 = .read pieces ∧
+          ∀ f ∈ findings pieces, f.Accepted (target input.1.1))
       (Function.uncurry (Function.uncurry run))) :=
   ⟨.of_iff (fun input => documentErrors_nil_iff input.1.1 input.1.2 input.2)
     ⟨(("", ""), .read []), (documentErrors_nil_iff "" "" (.read [])).mpr
       ⟨[], rfl, by simp [(by decide : findings [] = [])]⟩⟩
     ⟨(("", ""), .unread ""), fun accepted => by
       simpa using (documentErrors_nil_iff "" "" (.unread "")).mp accepted⟩⟩
+
+/-! ## Links to the site that name no edition -/
+
+/-- The site's address with no scheme and no final `/`. A link destination that has this text is
+read as an address of the site, whatever stands before and after it. -/
+def siteAddress : String := "rbeauchamp.github.io/regula"
+
+/-- `destination` is an address of the site: `siteAddress` occurs in it. -/
+def OnSite (destination : String) : Prop :=
+  ∃ before after, destination = before ++ siteAddress ++ after
+
+/-- `destination` is a stable address: the site root, or an address below a `stableRoots`
+directory with no fragment, which a stable route does not keep. -/
+def Stable (destination : String) : Prop :=
+  destination = siteBase ∨
+    ∃ r ∈ stableRoots, ∃ rest, destination = stableUrl r ++ rest ∧ '#' ∉ rest.toList
+
+/-- Whether `part` occurs in `text`. -/
+def occurs (part : List Char) : List Char → Bool
+  | [] => part.isPrefixOf []
+  | c :: rest => part.isPrefixOf (c :: rest) || occurs part rest
+
+theorem occurs_iff (part text : List Char) :
+    occurs part text = true ↔ ∃ before after, text = before ++ part ++ after := by
+  induction text with
+  | nil =>
+    simp only [occurs, List.isPrefixOf_iff_prefix, List.prefix_nil]
+    constructor
+    · rintro rfl; exact ⟨[], [], rfl⟩
+    · rintro ⟨before, after, h⟩
+      simp at h
+      exact h.2.1
+  | cons c rest ih =>
+    simp only [occurs, Bool.or_eq_true, List.isPrefixOf_iff_prefix, ih]
+    constructor
+    · rintro (⟨after, h⟩ | ⟨before, after, rfl⟩)
+      · exact ⟨[], after, by simpa using h.symm⟩
+      · exact ⟨c :: before, after, by simp⟩
+    · rintro ⟨before, after, h⟩
+      cases before with
+      | nil => exact Or.inl ⟨after, by simpa using h.symm⟩
+      | cons d before =>
+        simp only [List.cons_append, List.cons.injEq] at h
+        exact Or.inr ⟨before, after, by simpa using h.2⟩
+
+/-- `OnSite`, decided. -/
+def onSite (destination : String) : Bool := occurs siteAddress.toList destination.toList
+
+theorem onSite_iff (destination : String) : onSite destination = true ↔ OnSite destination := by
+  simp only [onSite, OnSite, occurs_iff]
+  constructor
+  · rintro ⟨before, after, h⟩
+    exact ⟨String.ofList before, String.ofList after, String.toList_inj.mp (by simpa using h)⟩
+  · rintro ⟨before, after, rfl⟩
+    exact ⟨before.toList, after.toList, by simp⟩
+
+/-- `Stable`, decided. -/
+def stable (destination : String) : Bool :=
+  destination == siteBase ||
+    (stableRoots.any (fun r => (stableUrl r).toList.isPrefixOf destination.toList) &&
+      !destination.toList.contains '#')
+
+/-- No stable address of a `stableRoots` directory has a `#`. -/
+theorem stableUrl_no_fragment : ∀ r ∈ stableRoots, '#' ∉ (stableUrl r).toList := by
+  decide
+
+theorem stable_iff (destination : String) : stable destination = true ↔ Stable destination := by
+  simp only [stable, Stable, Bool.or_eq_true, beq_iff_eq, Bool.and_eq_true, List.any_eq_true,
+    List.isPrefixOf_iff_prefix, Bool.not_eq_true']
+  refine or_congr Iff.rfl ?_
+  constructor
+  · rintro ⟨⟨r, hr, rest, h⟩, hash⟩
+    have hash : '#' ∉ destination.toList := by simpa using hash
+    refine ⟨r, hr, String.ofList rest, String.toList_inj.mp (by simpa using h.symm), ?_⟩
+    intro hm
+    exact hash (by rw [← h]; exact List.mem_append_right _ (by simpa using hm))
+  · rintro ⟨r, hr, rest, h, hash⟩
+    subst h
+    refine ⟨⟨r, hr, rest.toList, by simp⟩, ?_⟩
+    have := stableUrl_no_fragment r hr
+    simp [this, hash]
+
+theorem Stable.not_edition {destination : String} (h : Stable destination) (e : Edition)
+    (route : String) : destination ≠ e.url route := by
+  rintro rfl
+  rcases h with h | ⟨r, hr, rest, h, -⟩
+  · have := congrArg String.toList h
+    cases e <;> simp [Edition.url, Edition.root, String.toList_append] at this
+  · have := congrArg String.toList h
+    simp only [stableRoots, List.mem_cons, List.not_mem_nil, or_false] at hr
+    rcases hr with rfl | rfl <;> cases e <;>
+      simp [Edition.url, Edition.root, stableUrl, String.toList_append] at this
+
+/-- The destination of each link of `pieces`, in document order. -/
+def destinations (pieces : List Piece) : List String :=
+  pieces.filterMap fun
+    | .enter destination => some destination
+    | _ => none
+
+theorem mem_destinations (pieces : List Piece) (destination : String) :
+    destination ∈ destinations pieces ↔ Piece.enter destination ∈ pieces := by
+  simp only [destinations, List.mem_filterMap]
+  constructor
+  · rintro ⟨piece, member, h⟩
+    cases piece <;> simp at h
+    exact h ▸ member
+  · intro member
+    exact ⟨_, member, rfl⟩
+
+/-- The link destinations of `pieces` that are addresses of the site and are not stable, in
+document order. -/
+def unstableLinks (pieces : List Piece) : List String :=
+  (destinations pieces).filter fun destination => onSite destination && !stable destination
+
+/-- No link is unstable exactly when every link of the pieces to the site has a stable address. -/
+theorem unstableLinks_nil_iff (pieces : List Piece) :
+    unstableLinks pieces = [] ↔
+      ∀ destination, Piece.enter destination ∈ pieces → OnSite destination →
+        Stable destination := by
+  simp only [unstableLinks, List.filter_eq_nil_iff, mem_destinations, Bool.and_eq_true,
+    Bool.not_eq_true', not_and, Bool.not_eq_false, onSite_iff, stable_iff]
+
+/-- What a link of `file` to `destination` is refused for. -/
+def unstableReason (file destination : String) : String :=
+  s!"{file}: the link to {destination} is not a stable address of the rule reference. A link of \
+    this document to the site names no edition, so that it opens the latest release: write \
+    {siteBase}, or an address below {" or ".intercalate (stableRoots.map stableUrl)} with no \
+    fragment"
+
+/-- What the document `file` is refused for, given the parser's reading of it: each link of a
+document of `stableDocuments` to the site that has no stable address. A reading that cannot be
+used reports nothing here; `documentErrors` reports it. -/
+@[regula_decision]
+def siteLinkErrors (file : String) : Reading → List String
+  | .unread _ => []
+  | .read pieces =>
+    if file ∈ stableDocuments then (unstableLinks pieces).map (unstableReason file) else []
+
+/-- The check of the site links reports nothing exactly when, if the document is one of
+`stableDocuments` and its reading can be used, every link of it to the site has a stable
+address. By `Stable.not_edition`, such a link names no edition. -/
+theorem siteLinkErrors_nil_iff (file : String) (reading : Reading) :
+    siteLinkErrors file reading = [] ↔
+      ∀ pieces, reading = .read pieces → file ∈ stableDocuments →
+        ∀ destination, Piece.enter destination ∈ pieces → OnSite destination →
+          Stable destination := by
+  cases reading with
+  | unread reason => simp [siteLinkErrors]
+  | read pieces =>
+    by_cases member : file ∈ stableDocuments <;>
+      simp [siteLinkErrors, member, unstableLinks_nil_iff]
+
+/-- Registered contract of the executed check of the site links, as a two-way decision over the
+file name and the reading (`siteLinkErrors_nil_iff`): it reports nothing for a `README.md` whose
+one link is the site root, and an error for a `README.md` whose one link is the root of the
+development edition. -/
+theorem checked_siteLinkErrors : Regula.ExecutableContract siteLinkErrors (fun run =>
+    Regula.Decides (· = [])
+      (fun input : String × Reading =>
+        ∀ pieces, input.2 = .read pieces → input.1 ∈ stableDocuments →
+          ∀ destination, Piece.enter destination ∈ pieces → OnSite destination →
+            Stable destination)
+      (Function.uncurry run)) :=
+  ⟨.of_iff (fun input => siteLinkErrors_nil_iff input.1 input.2)
+    ⟨("README.md", .read [.enter siteBase]),
+      (siteLinkErrors_nil_iff _ _).mpr fun pieces read _ destination member _ => by
+        cases read
+        simp only [List.mem_singleton, Piece.enter.injEq] at member
+        exact Or.inl member⟩
+    ⟨("README.md", .read [.enter (Edition.dev.url "")]), fun accepted =>
+      ((siteLinkErrors_nil_iff _ _).mp accepted _ rfl (by decide) _ (List.mem_singleton.mpr rfl)
+        ⟨"https://", "/dev/", by decide⟩).not_edition .dev "" rfl⟩⟩
 
 /-! Evaluated controls (observations of the compiled definitions, not proofs), on pieces written
 out by hand; the controls on Markdown text, read by md4c, are in `markdown/RegulaMarkdown.lean`. -/
@@ -719,5 +936,44 @@ private def bare (line : String) : String :=
 #guard auditMarker "<!-- lean-trusted-compiler -->\n" && auditMarker "<!-- lean-fail: unknown -->" &&
   !auditMarker "<!-- lean-fail: a --> RG2003 -->" && !auditMarker "<!-- RG2003 -->" &&
   !auditMarker "<!-- lean-fail: a\nb -->" && !auditMarker "<!-->"
+-- The stable address of a rule that is in a release is a page of the rule in `README.md` and in
+-- no other document; with a fragment, or as the address of another rule, it is not one there
+-- either. The development page is a page of the rule in each document.
+-- Compiled-evaluation observation at build time, not a kernel-checked proof.
+#guard target "README.md" .sourceBuild (stableUrl RuleId.sourceBuild.route) &&
+  !target "docs/README.md" .sourceBuild (stableUrl RuleId.sourceBuild.route) &&
+  !target "README.md" .sourceBuild (stableUrl RuleId.sourceBuild.route ++ "#fix") &&
+  !target "README.md" .sourceBuild (stableUrl RuleId.proofHole.route) &&
+  target "README.md" .sourceBuild (page ++ "#fix") && target "docs/README.md" .sourceBuild page
+-- The same link to the stable address of the rule, in the pieces of two documents: accepted in
+-- `README.md`, refused in a document that is not one of `stableDocuments`.
+-- Compiled-evaluation observation at build time, not a kernel-checked proof.
+#guard documentErrors "README.md" "[RG2003]" (.read [.line,
+    .enter (stableUrl RuleId.sourceBuild.route), .text "RG2003" "RG2003", .leave]) == [] &&
+  documentErrors "docs/README.md" "[RG2003]" (.read [.line,
+    .enter (stableUrl RuleId.sourceBuild.route), .text "RG2003" "RG2003", .leave]) ==
+  [s!"docs/README.md:1: RG2003 is linked to {stableUrl RuleId.sourceBuild.route}, which is not \
+    its rule page"]
+-- The site links of `README.md`: the site root, a stable route below each stable root and a link
+-- to another site are accepted. An address that names the development edition or a release, a
+-- stable route with a fragment, an address with another scheme and an address of the site below
+-- no stable root are refused. Another document is not read.
+-- Compiled-evaluation observation at build time, not a kernel-checked proof.
+#guard siteLinkErrors "README.md" (.read [.line, .enter siteBase, .text "a" "a", .leave,
+    .enter (stableUrl "rules/"), .leave, .enter (stableUrl RuleId.sourceBuild.route), .leave,
+    .enter (stableUrl "standard/8-compliance-audit/"), .leave,
+    .enter "https://github.com/rbeauchamp/regula", .leave, .code page]) == []
+-- Compiled-evaluation observation at build time, not a kernel-checked proof.
+#guard siteLinkErrors "README.md" (.read [.enter page, .leave,
+    .enter (Edition.url (.release ⟨0, 9, 0⟩) "rules/"), .leave,
+    .enter (stableUrl "standard/8-compliance-audit/#DOC-04"), .leave,
+    .enter "http://rbeauchamp.github.io/regula/rules/", .leave,
+    .enter (stableUrl "versions/"), .leave]) ==
+  [page, Edition.url (.release ⟨0, 9, 0⟩) "rules/", stableUrl "standard/8-compliance-audit/#DOC-04",
+    "http://rbeauchamp.github.io/regula/rules/", stableUrl "versions/"].map
+      (unstableReason "README.md")
+-- Compiled-evaluation observation at build time, not a kernel-checked proof.
+#guard siteLinkErrors "docs/README.md" (.read [.enter page, .leave]) == [] &&
+  siteLinkErrors "README.md" (.unread "no reading") == []
 
 end Regula.Markdown

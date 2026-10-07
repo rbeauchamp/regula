@@ -19,7 +19,7 @@ Nothing on a rule page is a hand-maintained copy of the linter. Each part has on
 | What every rule shares: strict impact, local options, where rules run, the message form, open obligations, trusted mechanisms and example kinds | [`RegulaCore.SiteDocs`](../../lean/RegulaCore/SiteDocs.lean) `enforcementPage`; each obligation's text is `Residual.description` and each mechanism's `Trusted.detail` in [`RegulaCore.Account`](../../lean/RegulaCore/Account.lean) | Stated once on the *How rules are enforced* page, which every rule page links; each obligation is defined there under the element id of its identifier, which rule pages and the coverage page link (`residualRoute`). |
 | Checklist coverage: every module 8 row with the rules that list it and the review obligations it carries | `coveragePage`, from `Regula.checklistRows` ([`RegulaCore.Standard`](../../lean/RegulaCore/Standard.lean)), each rule's `checklist` and each obligation's `Residual.rows` | `rulesOfRow` and `residualsOfRow` invert them (`mem_rulesOfRow`, `mem_residualsOfRow`), so the page cannot disagree with the rule pages or the obligations ([architecture](architecture.md#coverage-of-the-standard)). |
 | Page construction, escaping, filters, diffs, banners, the site root's target, link checking, rule-ID links | [`RegulaCore.Site`](../../lean/RegulaCore/Site.lean), [`Prose`](../../lean/RegulaCore/Prose.lean), [`SitePage`](../../lean/RegulaCore/SitePage.lean), [`SiteDocs`](../../lean/RegulaCore/SiteDocs.lean) (claimed, proved) | Pure functions the builder executes. |
-| Releases, editions, help links and the route policy | [`RegulaCore.Edition`](../../lean/RegulaCore/Edition.lean) (claimed, proved) | `installed`, `releases`, `published`, `helpUrl` and `sitePath`. |
+| Releases, editions, help links and the route policy | [`RegulaCore.Edition`](../../lean/RegulaCore/Edition.lean) (claimed, proved) | `installed`, `releases`, `published`, `helpUrl`, `stableRoots` and `sitePath`. |
 | Evidence admission, generation, rendering, release copies, assembly, artifact check | [`Regula.Site`](../../lean/Regula/Site/) (`lake exe site`, operational) | Writes `website/Generated/`, runs Verso, writes `_site/`. |
 | The standard: normative text, checked Lean examples, section and checklist-row anchors | [`website/RegulaStandard.lean`](../../website/RegulaStandard.lean) and [`website/RegulaStandard/`](../../website/RegulaStandard/) (Verso, the only source), with the code blocks of [`RegulaExample`](../../website/RegulaExample.lean) | Included by the generated home page under `standard/`. Each `lean` block is elaborated where it is written, in a fresh [`regula-example`](../../website/RegulaExampleMain.lean) process with exactly its own imports. |
 | Colours and stylesheet | [`RegulaCore.SiteTheme`](../../lean/RegulaCore/SiteTheme.lean) (claimed; contrast proved) | Written by the builder as `website/Generated/regula.css`, copied to each edition's root and linked from every page. |
@@ -105,9 +105,9 @@ fails and removes `_site/`:
 - **Registry validation.** The registry's own `axiomGate --validate-site` accepts the page
   inventory, the pages whose example content the check verified, and every rule ID the
   examples emitted.
-- **Routes and editions.** Every artifact path is a root file or lies in a published edition
-  (`sitePath`, `sitePath_iff`): `dev/` and `v/<version>/` for each of `Regula.releases`, nothing
-  else. The root `index.html` opens `rootEdition`, a published edition (`rootEdition_published`);
+- **Routes and editions.** Each path is a root file, a file of `dev/` or of `v/<version>/`
+  for a release, or a file below `rules/` or `standard/` (`sitePath_iff`). The root `index.html`
+  opens `rootEdition`, a published edition (`rootEdition_published`);
   its link names the same route as its refresh, and the link check resolves it. `dev/` is the
   rendered edition, byte for byte. Each release edition is its copy
   ([versions](#versions-and-routes)) with the latest-release banner on every HTML page when a
@@ -116,6 +116,19 @@ fails and removes `_site/`:
   the published editions, how each release edition was obtained (its asset, rendered from
   source, or a preview) and whether the build's commit is the one the installed release's tag
   names.
+- **Stable routes.** The files below `rules/` and `standard/` of the site root are the stable
+  routes. The artifact has one such file for each HTML page of `rootEdition` below these two
+  directories, and no other file there. Each file is a page with a refresh and a link to the
+  same page of `rootEdition`. The link check resolves that link. The definitions are
+  `stableRoots`, `stablePages`, `mem_stablePages`, `stableTarget` and `stableRedirect`.
+- **Content of the stable routes.** The check compares the files of the stable routes, byte for
+  byte, with the pages that the build calculates from the files of `rootEdition`. The file
+  `build.json` lists these files.
+- **Addresses of the root README.** The build finds each occurrence of the text
+  `https://rbeauchamp.github.io/regula/` in the root `README.md`, and the route after it, with
+  `siteAnchors`. The function `missingAnchors` refuses an address that
+  is not a file of the artifact. The page of a stable route has no element for a fragment.
+  Thus the check refuses a stable address with a fragment.
 - **Size.** The artifact is at most `artifactBudget` (900 MB) of file bytes, below GitHub Pages'
   1 GB limit on a published site. Each release adds one edition of a few megabytes.
 
@@ -207,7 +220,8 @@ CI runs on every pull request and on `main`:
    query string until it equals the artifact's bytes, then requires the site root page, the home
    page of every edition, every development rule page and every release edition's `build.json` to
    be served with the artifact's exact bytes, and an unpublished route to return the artifact's
-   `404.html` with HTTP 404. It compares only those files.
+   `404.html` with HTTP 404. It also compares the page of each stable route that
+   `build.json` lists. It compares only those files.
 
 Each run on `main` cancels older runs of `main`, the deploy job refuses to publish a revision
 that is no longer the head of `main` (for example a manual re-run of an older run, which
@@ -226,6 +240,7 @@ while checks run or after they fail; each page states its commit. Repository Pag
 | `/regula/` | The stable address the repository links: it opens the latest release's `/regula/v/<version>/`, or `/regula/dev/` while no release exists. |
 | `/regula/dev/` | The development version: every deployment rebuilds it from `main`. An unreleased build's help links. |
 | `/regula/v/<version>/` | The permanent copy of a release, made when it is released. A released build's help links. |
+| `/regula/rules/…` and `/regula/standard/…` | The stable routes. Each opens the same page of the edition that `/regula/` opens. The root `README.md` links them. |
 | any other path | The not-available page (HTTP 404). It never redirects to other rules. |
 
 `Regula.installed` is the version of a build: a release, or unreleased; `Regula.releases` lists
@@ -247,6 +262,23 @@ Verso's content column tag (`bannerAnchor`, `insertBanner_ok`). The banner names
 release (`bannerRelease_eq_some`, `latest_greatest`) and links the same page in its edition, or
 that edition's home page when it has no such page (`bannerTarget_mem`). The development edition
 carries no banner.
+
+A stable route names no edition. The stable routes are below `/regula/rules/` and
+`/regula/standard/`. The site has a stable route for each HTML page of `rootEdition` below these
+directories, and for no other page. The page of a stable route opens the same page of
+`rootEdition` with a refresh and a link. Thus a release moves each stable route with no other
+edit, as it moves the site root. The definitions are `Regula.stableRoots`, `mem_stablePages` and
+`stableTarget`.
+
+A stable route does not keep a fragment. While a release exists, a rule that is in no release has
+no stable route, because the latest release has no page for it. An address that names an edition
+does not change: `/regula/dev/…` and `/regula/v/<version>/…` do not redirect. Use such an address
+to [cite a rule](adoption.md#cite-a-rule) as one release has it.
+
+Each link of the root `README.md` to the site is a stable address: the site root or a stable
+route. The command `./scripts/verify.sh docs` refuses a different link of that file to the site.
+The site build refuses an address of that file that is not a file of the artifact. The
+contributor guide gives the two checks: [links of the root README](contributing.md#links-of-the-root-readme).
 
 A release's copy is its GitHub release asset `regula-site-<version>.tar.gz`, attached to the
 release tagged `v<version>`: a gzip-compressed tar archive of that release's edition, paths
