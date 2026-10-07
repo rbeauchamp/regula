@@ -1185,8 +1185,12 @@ def guide : RuleId → Guide
         "In such a file the editor also reports its reading of the functions that the two \
           sides of a decision registration share as incomplete, when a function with a result \
           of `Bool` or `BEq` could be shared only below an imported function whose value the \
-          file does not have (limitations of RG1009). The message names `lake lint`, which has \
-          each value."]
+          file does not have (limitations of RG1009). A function with such a result is shared \
+          only where each side reaches it. So where one side is read completely and reaches \
+          none, nothing can be shared, and the editor gives no notice. It gives the notice \
+          where each side reaches a function with no value, or where one side reaches one and \
+          the other side reaches a function with such a result. The message names `lake lint`, \
+          which has each value."]
       rationaleDetail := []
       proofShape := [
         "The replayed declaration must type-check in the kernel with exactly its stated type and \
