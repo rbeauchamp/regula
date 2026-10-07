@@ -527,6 +527,7 @@ use that takes a narrower part. What takes which part:
 | `FoundationOK` | `Declaration.Inspected` | Kernel-checked data and toolchain observations (`kind`, `axioms`). |
 | `ContractOK` | `Declaration.ProjectWritten` | The recorded contract, whose refusals a project-written mark can decide. |
 | `Erasure.reproduces` ([below](#the-recursion-helper-comparison-decision-and-observing-pass)) | No record: two values, `Erasure.Observations` and whether the pass finished | Toolchain observations of the terms of the two values, and the pass's report of its own run. |
+| `NativeStatement.recognize?` ([below](#the-native-axiom-statement-decision-and-observing-pass)) | No record: a `NativeStatement.Candidate` | The tactic and the prefix that `nativeAxiomOrigin?` reads from the name, and the kernel-checked type. |
 | `declarationFailure`, `DeclarationOK`, `declarationRequirements` and their theorems | `Declaration` | Every part: they join the relations above, so through `ContractOK` they read the recorded contract. |
 | `decisionFailure`, `DecisionOK` | `Declaration` | `decisionResult`, the project's own registration, and `name`. |
 | `NativeTeachingOK`, `RecursiveHelperOK`, `ConstructorIndexHelperOK` and the `authorized…` validators | `Declaration` | Every part. Each also requires values of project-written fields. A native-proof axiom must have no replacement and no `extern` implementation. A recursion helper and a constructor-index helper must have no replacement, no `extern` implementation and no recorded range. A recursion base must have no replacement and no `extern` implementation. A constructor-index base must have the helper as its replacement and no `extern` implementation. These conditions narrow what is admitted and authenticate nothing. |
@@ -588,7 +589,7 @@ the call through each success owner.
 | Rules | Proved relation | Remaining boundary |
 | --- | --- | --- |
 | [RG1001]–[RG1003] | `declarationFailure_iff`, `policyFor_ordered`, `foundationFor_iff` | Ownership and transitive-axiom acquisition (`Lean.collectAxioms`). |
-| [RG1004] | The above plus `authorizedNativeAxioms_iff`, `native_generated`, `native_provenance`, `compilerTrustingAxiomName_iff` | Transcript and replay truth; authorization permits teaching only. |
+| [RG1004] | The above plus `authorizedNativeAxioms_iff`, `native_generated`, `native_provenance`, `compilerTrustingAxiomName_iff`. For the statement that the replay reads: `NativeStatement.asserted?_sound`, `NativeStatement.asserted?_complete` and the kind `NativeStatement.checked_recognize` ([below](#the-native-axiom-statement-decision-and-observing-pass)). | Transcript and replay truth; authorization permits teaching only. The replay evaluates compiled code, and its result is an observation. The recorded text of a statement is not proved to identify its expression. |
 | [RG1005] | `foundationFor_least`, `leastFoundation_ext`, `policyFor_conforming_iff` | The least containing profile of the observed axioms, not the least possible axioms for the proposition. |
 | [RG1006] | The helper authorization `_iff` theorems, `Roles.safetyHelpers_iff`, `policyFor_conforming_iff`, `subject_contract`, `partialParent_rule`; for the comparison that records a recursion helper's observation, `Erasure.equalWithin_iff`, `Erasure.reproduces_iff` and the kind `Erasure.checked_reproduces` ([below](#the-recursion-helper-comparison-decision-and-observing-pass)) | Exact helper metadata, the relevant recorded recursion-helper or constructor-index observation and the base's axioms are checked. A `partial def`'s helper always has a finding naming its opaque parent when that parent is in the inventory. A recursion helper's observation is recorded only where Lean's kernel checked, at that audit, the base's recursion equation for each helper of the group (`Collect.recursionEquationChecked`); that check is the collector's, not a theorem of the policy. The collector observations, the step from the recursion equation to the values the helper returns, compiled-code correspondence and execution coverage are not proved. A recursion helper's termination still trusts Lean's well-founded preprocessing (standard §7.4); a constructor wrapper's native object-tag correspondence remains trusted. |
 | [RG1007] | `ContractOK` through `ruleFor`; `DecisionKind.ofStructureName?_eq_some_iff` (a head constant is read as a decision kind exactly when it is that kind's structure); `DecidedFunction.covers_iff` with `FieldPacking.covers_iff` (a decided function of a form that is read is accepted exactly when the kind's result type has no leading binder and, for a field application, the type has one constructor and no index and the arguments are its fields, each once and in order), with `Regula.Decides.of_packing` and its one-way forms (a kind on a packing that reaches every tuple of arguments is the kind of the function) and `Regula.Decides.iff_slice` (a kind with an argument left whose acceptance predicate reads the result at one fixed value of that argument is the kind of one slice) | Recorded contract failures are enforced; Probe's extraction of the proposition and root, the reduction that exposes a requirement's head constant, the reading of the decided function as the implementation on its arguments, on every field of one structure or on a product (`Function.uncurry`), or with its result erased (`Regula.Dependent.isSome`, `isOk`), the reading of each field from the kernel-checked definition of its projection and of the constructor and index counts from the kernel-checked inductive type, and of the number of leading binders of the kind's result type, which give `DecidedFunction.covers` its input, the two steps from those numbers to "every tuple of arguments is the fields of a value" and "no argument is left", which are argued and not machine-checked ([below](#decision-kinds-of-regulas-own-decisions)), the reading of the universe levels, the search that finds a mention of the implementation in a decision's acceptance predicate or specification, proof admission and adequacy are not proved by this relation. |
@@ -788,6 +789,7 @@ Sound only, each a declared choice:
 | --- | --- | --- |
 | `Regula.SharedExecution.same` | The two values are equal (`same_eq`) | That it accepts every pair of equal values is not proved, and nothing depends on it. The equality is `=`: two objects with the same members whose trees are balanced differently are different values, which `same` refuses and Lean's runtime `Json` comparison identifies. |
 | `Regula.Checker.Admission.checkCopies` | Every copy is `CopyAdmitted` (`checkCopies_sound`) | It may refuse admissible copies: the search for a proof's axioms is bounded by fuel, and a refusal fails closed ([RG2005]). |
+| `RegulaPolicy.NativeStatement.recognize?` (accepts on `some`) | `NativeStatement.Stated`: the type is the statement of the tactic under the prefix (`asserted?_sound`) | Completeness for `bv_decide` has the hypothesis `RuntimeStringAppend` (`asserted?_complete`), and a kind has no hypothesis. A refusal fails closed ([RG1004]). The result holds the proof about the type of the candidate, so the kind is about `Regula.Dependent.isSome recognize?`. |
 | `Regula.Checker.ProducerReport.Environment.validate` | `Admissible` (`validate_sound`) | It may refuse an admissible report; `validate_eq_ok` is two-way against the guard Booleans, not against `Admissible`. |
 | `RegulaProvision.admits` | `Admitted`: the receipt records the requested revision and compiler, zero artifact policy and empty source, and holds no package at another revision than a pin (`admits_sound`) | It refuses an `Admitted` receipt of another schema version. |
 | `RegulaProvision.cloneStep` (accepts on `.replace`), `found` (accepts on a result other than `.foreign`), `prunes` | The path is a link or a clean Git checkout (`cloneStep_replace`); the directory's receipt names it (`found_identified`); the directory is not the current one and no registered copy links it (`prunes_sound`) | `cloneStep` keeps a clean checkout at the pinned revision; the program states no converse for the other two. |
@@ -816,7 +818,7 @@ Decisions with no kind, and what stands instead:
 ### Decisions not registered with `regula_decision`
 
 Every decision of the three tables with a kind is registered with `@[regula_decision]`, so
-[RG1008] requires its contract: 53 functions of `RegulaPolicy`, 28 of `RegulaCore`, 9 of
+[RG1008] requires its contract: 54 functions of `RegulaPolicy`, 28 of `RegulaCore`, 9 of
 `RegulaQualification`, 3 of `AuditApp`, 8 of `RegulaProvision`, 6 of `RegulaVerification` and 14 of the excluded `Regula` library, where the
 `self-audit` diagnostic decides the rule. Sixteen of them are registered from another module of
 their library, with
@@ -1017,10 +1019,81 @@ audit incomplete. Those fixtures test this external boundary. They are not tests
 rules: the theorem proves that the executed comparison accepts exactly the related terms, and the
 adequacy of the rules stays argued.
 
-The other producers of [#199](https://github.com/rbeauchamp/regula/issues/199) (native-axiom
-replay matching, contract recognition and reach, receipt validation, root and closure discovery,
-the fence scanner and the diagnostic and policy codecs) are not yet split and have no kind; the
-sections below state what is proved and what is observed for each.
+### The native-axiom statement: decision and observing pass
+
+The producer of [RG1004] reads a generated native-proof axiom in three steps. The second step is
+a pure decision with a kind.
+
+- **The name.** `RegulaPolicy.nativeAxiomOrigin?` reads the owning prefix and the tactic from the
+  name of the axiom. Its kind is in the table of the complete decisions above.
+- **The decision** is `RegulaPolicy.NativeStatement.recognize?`, a pure, total function of the
+  claimed policy library
+  ([`RegulaPolicy/NativeStatement.lean`](../../lean/RegulaPolicy/NativeStatement.lean)). Its one
+  argument, `NativeStatement.Candidate`, holds that tactic, that prefix and the kernel-checked
+  type of the axiom. It takes nothing else: no environment, attribute or reducibility status is
+  among its arguments. It is registered with `@[regula_decision]`, and
+  `NativeStatement.checked_recognize` registers the kind `Regula.DecidesSoundly`.
+  `Collect.nativeRecognition?` takes the verdict from `checked_recognize.run`.
+- **The observing pass** is `Collect.replayNative`. It evaluates the recognized expression with
+  compiled code (`Meta.nativeEqTrue`) and records if the result is `true`. Its argument is a
+  `NativeStatement.Recognition`. That record holds the expression and the proof that the type of
+  the axiom asserts it. Thus Lean rejects a call of the pass with a different expression.
+
+**Proved**, about `NativeStatement.asserted?` and `NativeStatement.recognize?`, the functions that
+the collector runs. Lean's kernel checked each theorem in the claimed library, with `propext`,
+`Classical.choice` and `Quot.sound` only.
+
+| Property | Declarations | Meaning and limit |
+| --- | --- | --- |
+| Sound, with no hypothesis | `NativeStatement.asserted?_sound`, `NativeStatement.checked_recognize` | An accepted type is the statement of the tactic under the prefix (`NativeStatement.Statement`). The returned expression is the one that the statement asserts. |
+| Complete | `NativeStatement.asserted?_complete`, `NativeStatement.asserted?_eq_some_iff` | A type that is such a statement is accepted, with its expression. For `bv_decide` the theorem has the hypothesis `RuntimeStringAppend`. For the two `decide` tactics it has no hypothesis. |
+| One constructor for each tactic | The constructors of `NativeStatement.Statement` | `nativeDecide` and `decideNative`: the type asserts `Decidable.decide p inst`. `bvDecide`: the type asserts `verifyBVExpr expr cert`, and the generator made the names of `expr` and `cert` under the same prefix (`GeneratedAux`). |
+| The statement `e = true` | `NativeStatement.AssertsTrue`, `NativeStatement.assertedBool?_eq_some_iff` | The type is the constant `Eq` applied to the constant `Bool`, to `e` and to the constant `Bool.true`. The theorem is about the functions `Expr.getAppFn` and `Expr.getAppArgs` of Lean, which the decision runs. |
+| One expression | `NativeStatement.Statement.unique` | A type is the statement of one expression at most, for all tactics and prefixes. |
+| The names of the auxiliary definitions | `generatedAuxParent?_sound`, `generatedAuxParent?_of_generatedAux` | A recognized name is a name of the generator under the recovered prefix. The converse has the hypothesis `RuntimeStringAppend`. |
+| The record of the pass | `NativeStatement.Recognition`, `NativeStatement.recognize?_eq_some` | A recognition holds the tactic and the prefix of the candidate, the expression that `asserted?` returns, and the proof of the statement. |
+
+**The kind is one-way.** The decision regenerates the names of the two auxiliary definitions of
+`bv_decide` with `String.Internal.append`. Lean's logic does not say what that function returns.
+Thus completeness for that tactic has the hypothesis `RuntimeStringAppend`, and a two-way kind has
+no hypothesis. A refusal fails closed: an axiom with no recognized statement is not
+authenticated (`NativeTeachingOK`).
+
+**Hypotheses and trusted boundary.** The theorems start from the tactic, the prefix and the type.
+They do not prove these items:
+
+- That the evaluation returns what the pass records, or that compiled code computes the meaning
+  of the expression. The field `nativeReplay` is a toolchain observation.
+- That the tactic and the prefix are those of the name of the axiom. `Collect.nativeRecognition?`
+  gives the result of `nativeAxiomOrigin?` to the decision, and that step is read from the code.
+- That the name and the type are those of the axiom. The collector reads them from the constant
+  map of the environment.
+- That `generatedName` is the name that the generator of Lean gives. That is read from the source
+  of Lean, as [`RegulaPolicy/NativeAxiom.lean`](../../lean/RegulaPolicy/NativeAxiom.lean) says.
+  The relation and the decision share that definition.
+- The universe levels of the constants of a statement. The decision does not compare them, and
+  the relation does not state them. Lean's kernel checked the type of the axiom.
+- The recorded text `nativeStatement`. It is the `repr` of the expression, with the unindexed
+  name of each auxiliary definition (`Collect.nativeStatementText`). No theorem says that two
+  different expressions have different texts, and the transcript match compares the texts.
+- The adequacy of the relation: that these shapes are the statements that the pinned tactics
+  make. That is read from the source of Lean.
+
+**The verdicts are the same.** The decision runs the expressions that the collector ran before
+this split, with the same arguments. Only the place of one `bind` changed: the collector reads the
+name, and the decision reads the type. The pull request of the split gives the evidence.
+
+**Observed.** `checkerSelftest fixtures` does the pass and the decision on the pinned toolchain.
+The seven native controls of `lean/Fixtures/Mutations` each get the reason that `fixtures.json`
+gives. Those fixtures are tests of the boundary to the compiler. They are not tests of the
+statement shapes, which the theorems decide.
+
+### The producers that are not split
+
+The other producers of [#199](https://github.com/rbeauchamp/regula/issues/199) are not split and
+have no kind. They are contract recognition and reach, receipt validation, root and closure
+discovery, the fence scanner, and the diagnostic and policy codecs. The sections below state what
+is proved and what is observed for each of them.
 
 ## Producers
 

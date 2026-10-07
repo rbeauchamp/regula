@@ -1194,7 +1194,8 @@ structure Declaration.KernelChecked where
   (`nativeAxiomOrigin?`) and whose type is `e = true` with `e` in that tactic's asserted shape
   (`decide p` for `native_decide` and `decide +native`, `verifyBVExpr expr cert` over the run's
   own auxiliary definitions for `bv_decide`): the `repr` of `e`, naming each of those auxiliary
-  definitions by its unindexed base. Otherwise `none`. A function of the name and the type. -/
+  definitions by its unindexed base. Otherwise `none`. A function of the name and the type: the
+  pure decision `NativeStatement.recognize?` decides the shape and returns `e`. -/
   nativeStatement : Option String
   deriving Repr, DecidableEq
 
@@ -1234,7 +1235,8 @@ structure Declaration.ToolchainObserved where
   unsafeRecRegenerated : Option RecursionOrigin
   /-- For a replay candidate with a statement: whether an independent native evaluation of
   `e` returned `true` (`false` also when the replay failed). The evaluation runs the compiled
-  code of the definitions `e` mentions. -/
+  code of the definitions `e` mentions. The observing pass takes `e` with the proof that the type
+  asserts it (`NativeStatement.Recognition`), so it evaluates no other expression. -/
   nativeReplay : Option Bool
   /-- The axioms the constant transitively depends on (`collectAxioms`), sorted and without
   duplicates. -/
