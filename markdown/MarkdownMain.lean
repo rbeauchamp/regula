@@ -64,8 +64,8 @@ structure Options where
   root : System.FilePath
   /-- The `CONTEXT.md` of the package that the vocabulary names as shared. -/
   shared : Option System.FilePath := none
-  /-- How the check was started, for the base revision of check B2: what the option `--target`
-  and the variable `REGULA_PROSE_START` give (`Start.read`). -/
+  /-- How the check was started, for the base revision of check B2: what the variable
+  `REGULA_PROSE_START` gives (`Start.read`). -/
   start : Start := .target defaultTarget
   /-- Write the baseline of the documents as they are instead of checking them. -/
   write : Bool := false
@@ -74,30 +74,25 @@ structure Options where
 
 /-- The options of the arguments `args`, if they are a root and known options. `environment` is
 the value of the environment variable `REGULA_PROSE_START`, if it is set. The start of the
-check is what the option `--target` and that value give together (`Start.read`). -/
+check is what that value gives (`Start.read`). -/
 def Options.parse (environment : Option String) : List String → Option Options
   | root :: rest =>
-    let rec go (options : Options) (target : Option String) : List String → Option Options
-      | [] => some { options with start := Start.read target environment }
-      | "--shared" :: path :: rest => go { options with shared := some path } target rest
-      | "--target" :: revision :: rest => go options (some revision) rest
-      | "--write-baseline" :: rest => go { options with write := true } target rest
-      | "--list" :: path :: rest => go { options with list := some path } target rest
+    let rec go (options : Options) : List String → Option Options
+      | [] => some options
+      | "--shared" :: path :: rest => go { options with shared := some path } rest
+      | "--write-baseline" :: rest => go { options with write := true } rest
+      | "--list" :: path :: rest => go { options with list := some path } rest
       | _ => none
-    if root.startsWith "--" then none else go { root } none rest
+    if root.startsWith "--" then none else go { root, start := Start.read environment } rest
   | [] => none
 
--- The arguments and the variable give the start through `Start.read`: a developer's run for
--- `origin/main` or for the revision of `--target`, the commit before the change, or the head of
--- a pull request. An empty variable, and the variable together with `--target`, give no base.
+-- The variable gives the start through `Start.read`: a developer's run for `origin/main`, the
+-- commit before the change, or the head of a pull request. An empty variable gives no base.
 -- Compiled-evaluation observations at build time, not kernel-checked proofs.
 #guard (Options.parse none ["r"]).map (·.start) == some (.target "origin/main")
-#guard (Options.parse none ["r", "--target", "t"]).map (·.start) == some (.target "t")
 #guard (Options.parse (some "before:c") ["r"]).map (·.start) == some (.before "c")
 #guard (Options.parse (some "pull:h") ["r"]).map (·.start) == some (.pull "h")
 #guard (Options.parse (some "") ["r"]).map (·.start) == some (.unknown "")
-#guard (Options.parse (some "before:c") ["r", "--target", "t"]).map (·.start) ==
-  some (.unknown "--target t together with `before:c`")
 
 /-- Run `git` with `args` in `directory`. -/
 def git (directory : System.FilePath) (args : Array String) : IO IO.Process.Output :=
@@ -281,11 +276,12 @@ def baselineOf (file text : String) : Except (List String) Baseline :=
   | none =>
     .error ((Baseline.explain text).map fun (line, reason) => refusal file line gateCheck reason)
 
-/-- The baseline of the repository: its `prose-baseline.json`, or `none` when Git tracks no such
-file. -/
-def loadBaseline (root : System.FilePath) (tracked : List String) :
+/-- The baseline of the repository: the `prose-baseline.json` of the working tree, or `none` when
+`present` is false. A check gives if Git tracks the file (`examine`). The option
+`--write-baseline` gives if the working tree has the file (`writeBaseline`). -/
+def loadBaseline (root : System.FilePath) (present : Bool) :
     IO (Except (List String) (Option Baseline)) := do
-  unless tracked.contains baselineFile do return .ok none
+  unless present do return .ok none
   return (baselineOf baselineFile (← IO.FS.readFile (root / baselineFile))).map some
 
 /-- What Git gives for `start`, of the checked commit `HEAD`. Git is asked only for the value
@@ -318,7 +314,8 @@ def unavailable (start : Start) (history : History) : String :=
     match start with
     | .target revision =>
       s!"Git gives no merge base of `HEAD` and `{revision}`; get the full history of the \
-        repository, or give the branch that the change is for with --target"
+        repository, or give `before:` and the commit before the change in the variable \
+        {startVariable}"
     | .before commit =>
       s!"the start of the check gave `{commit}` as the commit before the change, and Git has \
         no such commit; get the full history of the repository"
@@ -407,7 +404,7 @@ def examine (options : Options) : IO (Except String Outcome) := do
     return .error s!"Git tracks no Markdown document below {options.root}"
   let ruleIds := documents.flatMap fun d => documentErrors d.path d.source d.reading
   let vocabulary ← loadVocabulary options tracked
-  let baseline ← loadBaseline options.root tracked
+  let baseline ← loadBaseline options.root (tracked.contains baselineFile)
   let mut prose : List String := []
   let mut summary := ""
   match vocabulary, baseline with
@@ -468,8 +465,9 @@ def list (options : Options) (path : String) : IO UInt32 := do
   return 0
 
 /-- Write the baseline of the documents as they are: the frozen and generated entries of the
-baseline as it is, and one entry of numbers for each other document with a finding. Check B2 of
-the next run still refuses a new path and a larger number. -/
+baseline file of the working tree, also when Git does not track that file, and one entry of
+numbers for each other document with a finding. Check B2 of the next run still refuses a new
+path and a larger number. -/
 def writeBaseline (options : Options) : IO UInt32 := do
   let tracked ← match ← trackedFiles options.root with
     | .ok tracked => pure tracked
@@ -482,7 +480,8 @@ def writeBaseline (options : Options) : IO UInt32 := do
     | .error refusals =>
       IO.eprintln ("\n".intercalate refusals)
       return 1
-  let baseline ← match ← loadBaseline options.root tracked with
+  let present ← (options.root / baselineFile).pathExists
+  let baseline ← match ← loadBaseline options.root present with
     | .ok baseline => pure (baseline.getD Baseline.empty)
     | .error refusals =>
       IO.eprintln ("\n".intercalate refusals)
@@ -683,10 +682,10 @@ def controls : List Control := [
 /-! ## Controls of the base revision
 
 A control of the base revision is a repository that the run makes with Git in a temporary
-directory, a commit that the check reads, and the option `--target` and the variable
-`REGULA_PROSE_START` as a start of the check gives them. The control is the check of that
-repository (`examine`), as the documentation step does it. The values that GitHub gives for an
-event are not a part of a control: no local run has them.
+directory, a commit that the check reads, and the variable `REGULA_PROSE_START` as a start of
+the check gives it. The control is the check of that repository (`examine`), as the
+documentation step does it. The values that GitHub gives for an event are not a part of a
+control: no local run has them.
 
 What a control tells apart. A control that expects a refusal fails when the check takes a base
 that accepts. `origin/main` names the checked commit itself in each such control that does not
@@ -717,10 +716,8 @@ structure RepositoryControl where
   repository : String
   /-- The branch whose commit the check reads. -/
   head : String
-  /-- The option `--target`, if the start gives it. A branch name in braces is the full name of
-  the commit of that branch. -/
-  target : Option String := none
-  /-- The variable `REGULA_PROSE_START`, if the start sets it, with the same braces. -/
+  /-- The variable `REGULA_PROSE_START`, if the start sets it. A branch name in braces is the
+  full name of the commit of that branch. -/
   start : Option String := none
   /-- The branch whose commit `origin/main` names. The checked commit itself, when `none`. -/
   origin : Option String := none
@@ -872,10 +869,6 @@ def repositoryControls : List RepositoryControl := [
     expect := .refused baselineFile 1 ratchetCheck },
   { repository := "line", head := "c", start := some "{b}",
     expect := .refused baselineFile 1 ratchetCheck },
-  -- The variable and `--target` together are refused at line 1. The variable alone refuses at
-  -- line 6, and the target alone accepts.
-  { repository := "line", head := "c", target := some "{c}", start := some "before:{b}",
-    expect := .refused baselineFile 1 ratchetCheck },
   -- A pull request. The base is the first parent of the checked merge commit, when its second
   -- parent is the head that the start gives.
   -- The merge of `change` into `target` has the larger number of `main` again: refused. The
@@ -900,7 +893,7 @@ def repositoryControls : List RepositoryControl := [
   -- checked commit, accepts.
   { repository := "pulls", head := "merge", start := some "pull:{change}", shallow := true,
     expect := .refused baselineFile 1 ratchetCheck },
-  -- The run of a developer. The base is the merge base of the commit and the target.
+  -- The run of a developer. The base is the merge base of the commit and `origin/main`.
   -- Accepted: `work`, with `origin/main` at the later commit of `main`. Told apart: that later
   -- commit and the first parent of `work` have no entry for `a.md` and refuse. Not told apart:
   -- the checked commit.
@@ -911,10 +904,6 @@ def repositoryControls : List RepositoryControl := [
   -- Accepted: a commit that `origin/main` names, with no change. The merge base is the commit
   -- itself. Told apart: its first parent `target` permits less and refuses.
   { repository := "pulls", head := "change", origin := some "change", expect := .accepted },
-  -- `--target` gives the branch `work`, whose merge base with `worse` is the first commit of
-  -- `main`: refused. `origin/main`, the checked commit, accepts.
-  { repository := "local", head := "worse", target := some "work",
-    expect := .refused baselineFile 5 ratchetCheck },
   -- With the full history, the merge base of `side` and `main` has the frozen entry, and the
   -- change of the frozen document is refused. The later commit of `main` and the checked
   -- commit accept.
@@ -1002,22 +991,47 @@ def runRepositoryControls (judge : String → Expect → List String → List St
         else do
           discard <| gitControl made #["update-ref", "refs/remotes/origin/main", origin]
           pure made
-      let target ← control.target.mapM (expand made)
       let start ← control.start.mapM (expand made)
       let subject := s!"repository `{control.repository}`, commit `{control.head}`\
         {if control.shallow then " with no history" else ""}\
-        {(control.target.map fun text => s!", --target {text}").getD ""}\
         {(control.start.map fun text => s!", {startVariable}={text}").getD ""}\
         {(control.origin.map fun branch => s!", origin/main at `{branch}`").getD ""}"
-      let result ← match ← examine { root := directory, start := Start.read target start } with
+      let result ← match ← examine { root := directory, start := Start.read start } with
         | .ok outcome => pure (outcome.ruleIds ++ outcome.prose)
         | .error reason => pure [reason]
       failures := failures ++ judge subject control.expect result
     return failures
 
+/-- The result of the control of `--write-baseline`: what `writeBaseline` gave, when it is not
+the expected result. The repository of the control has a document with a semicolon, a generated
+document with a semicolon and a frozen document. Its `prose-baseline.json` has the entries of
+the generated document and of the frozen document, and Git does not track that file. The option
+must keep the two entries and add the entry of numbers of the first document. A run that reads
+the baseline only when Git tracks it writes an entry of numbers for the generated document and
+no entry for the frozen document. -/
+def runWriteControl : IO (List String) :=
+  IO.FS.withTempDir fun directory => do
+    makeRepository directory [⟨"main", none, [(vocabularyFile, some controlVocabulary),
+      ("a.md", some "# A\n\nOne; two three.\n"),
+      ("made.md", some "# Made\n\nMade text; more text.\n"),
+      ("record.md", some "# Record\n\nThe first text.\n")], none⟩]
+    let kept : List Entry := [
+      ⟨"made.md".toList, .generated "a program".toList⟩,
+      ⟨"record.md".toList, .frozen
+        "f181adc34424559724d267a81d4090eedd38a8864b55641b801d6b20a593551b".toList⟩]
+    IO.FS.writeFile (directory / baselineFile) (controlBaseline kept)
+    let (output, code) ← IO.FS.withIsolatedStreams (writeBaseline { root := directory })
+    let written ← IO.FS.readFile (directory / baselineFile)
+    let expected := controlBaseline (semicolonEntry "a.md" 1 :: kept)
+    if code == 0 && written == expected then return []
+    return [s!"--write-baseline with a {baselineFile} that Git does not track: expected the \
+      file {expected.quote}, got the exit code {code}, the output {output.quote} and the file \
+      {written.quote}"]
+
 /-- Run the controls of `directory`. Exit code 0 when each control gives what `controls` expects
-and the directory holds exactly the files of the controls, and when each control of the base
-revision gives what `repositoryControls` expects. Exit code 1 otherwise. -/
+and the directory holds exactly the files of the controls, when each control of the base
+revision gives what `repositoryControls` expects, and when the control of `--write-baseline`
+gives the baseline that it expects. Exit code 1 otherwise. -/
 def runControls (directory : System.FilePath) : IO UInt32 := do
   let names := (← directory.readDir).toList.map (·.fileName)
   let text (name : String) : IO String := IO.FS.readFile (directory / name)
@@ -1088,13 +1102,14 @@ def runControls (directory : System.FilePath) : IO UInt32 := do
     unless expected.contains name do
       failures := failures ++ [s!"{name}: the directory has a file that is no control"]
   failures := failures ++ (← runRepositoryControls judge)
+  failures := failures ++ (← runWriteControl)
   unless failures.isEmpty do
     IO.eprintln ("FAIL: controls of the checks of Markdown prose:\n" ++ "\n".intercalate failures)
     return 1
   IO.println s!"Controls of the checks of Markdown prose: {controls.length} controls in \
-    {directory} and {repositoryControls.length} controls of the base revision, in repositories \
-    that the run made with Git, gave the expected results (each refusal starts with its file, \
-    its line and its check)"
+    {directory}, and {repositoryControls.length} controls of the base revision and one control \
+    of --write-baseline, in repositories that the run made with Git, gave the expected results \
+    (each refusal starts with its file, its line and its check)"
   return 0
 
 end Regula.Controlled.Run
@@ -1108,9 +1123,9 @@ def main (args : List String) : IO UInt32 := do
   | ["--controls", directory] => runControls directory
   | _ =>
     let some options := Options.parse (← IO.getEnv startVariable) args
-      | IO.eprintln "usage: lake exe regula-markdown REPOSITORY [--shared CONTEXT.md] [--target \
-          REVISION] [--write-baseline | --list DOCUMENT]\n       lake exe regula-markdown \
-          --controls DIRECTORY"
+      | IO.eprintln "usage: lake exe regula-markdown REPOSITORY [--shared CONTEXT.md] \
+          [--write-baseline | --list DOCUMENT]\n       lake exe regula-markdown --controls \
+          DIRECTORY"
         return 1
     match options.list with
     | some path => list options path

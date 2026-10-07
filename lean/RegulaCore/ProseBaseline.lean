@@ -29,8 +29,8 @@ and the two decisions about it.
 - `lineOf`, `lineOf_spec`: the line of the entry of a path in the print.
 - `Start`, `History`, `Start.Base`, `baseOf`, `checked_baseOf`: the base revision of check B2
   for the start of a check, with what Git gives. Only the run of a developer takes a merge base
-  (`baseOf_before`). `Start.read` reads the start from the option and the environment variable
-  of the executable.
+  (`baseOf_before`). `Start.read` reads the start from the environment variable of the
+  executable.
 
 ## Specifications
 
@@ -1119,37 +1119,30 @@ with that ancestor. -/
 theorem baseOf_before (commit : String) (history : History) :
     baseOf (.before commit) history = history.named := rfl
 
-/-- The revision that a developer's run takes the merge base with, when the run names none. -/
+/-- The revision that a developer's run takes the merge base with. -/
 def defaultTarget : String := "origin/main"
 
-/-- The start that the option `--target` and the environment variable of the check give.
+/-- The start that the environment variable of the check gives.
 
-* Neither is given: the run of a developer for `origin/main`.
-* Only the option is given: the run of a developer for its revision.
-* Only the variable is given: `before:` and a commit, or `pull:` and the head of a pull
-  request. Each other text, also the empty text, gives no base revision.
-* The two are given: no base revision. -/
-def Start.read (target environment : Option String) : Start :=
-  match target, environment with
-  | none, none => .target defaultTarget
-  | some revision, none => .target revision
-  | none, some text =>
+* The variable is not set: the run of a developer for `origin/main`.
+* The variable is set: `before:` and a commit, or `pull:` and the head of a pull request. Each
+  other text, also the empty text, gives no base revision. -/
+def Start.read (environment : Option String) : Start :=
+  match environment with
+  | none => .target defaultTarget
+  | some text =>
     match dropPrefix "before:".toList text.toList with
     | some commit => .before (String.ofList commit)
     | none =>
       match dropPrefix "pull:".toList text.toList with
       | some head => .pull (String.ofList head)
       | none => .unknown text
-  | some revision, some text => .unknown s!"--target {revision} together with `{text}`"
 
-theorem Start.read_default : Start.read none none = .target defaultTarget := rfl
-
-theorem Start.read_target (revision : String) :
-    Start.read (some revision) none = .target revision := rfl
+theorem Start.read_default : Start.read none = .target defaultTarget := rfl
 
 /-- The variable `before:` with a commit gives that commit as the commit before the change. -/
 theorem Start.read_before (commit : String) :
-    Start.read none (some ("before:" ++ commit)) = .before commit := by
+    Start.read (some ("before:" ++ commit)) = .before commit := by
   have hbefore : dropPrefix "before:".toList ("before:" ++ commit).toList = some commit.toList := by
     rw [String.toList_append]
     exact dropPrefix_append _ _
@@ -1157,7 +1150,7 @@ theorem Start.read_before (commit : String) :
 
 /-- The variable `pull:` with a commit gives that commit as the head of a pull request. -/
 theorem Start.read_pull (head : String) :
-    Start.read none (some ("pull:" ++ head)) = .pull head := by
+    Start.read (some ("pull:" ++ head)) = .pull head := by
   have hbefore : dropPrefix "before:".toList ("pull:" ++ head).toList = none := by
     simp [dropPrefix]
   have hpull : dropPrefix "pull:".toList ("pull:" ++ head).toList = some head.toList := by
@@ -1166,10 +1159,6 @@ theorem Start.read_pull (head : String) :
   simp only [Start.read, hbefore, hpull, String.ofList_toList]
 
 /-- The empty variable gives no base revision: `origin/main` does not replace it. -/
-theorem Start.read_empty : Start.read none (some "") = .unknown "" := by decide
-
-/-- The option and the variable together give no base revision. -/
-theorem Start.read_both (revision text : String) :
-    ∃ reason, Start.read (some revision) (some text) = .unknown reason := ⟨_, rfl⟩
+theorem Start.read_empty : Start.read (some "") = .unknown "" := by decide
 
 end Regula.Controlled

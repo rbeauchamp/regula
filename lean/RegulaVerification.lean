@@ -14,9 +14,11 @@ inductive Mode where
   /-- No argument: the first acceptance step, which builds the acceptance executables, runs the
   registry checks and combined qualification, and audits the root package's claimed surfaces. -/
   | ordinary
-  /-- `docs`: the second acceptance step: the rule-ID check of every tracked Markdown document
-  and the check of the vocabulary `CONTEXT.md` with its controls, the fresh acceptance of the
-  `audit/` package whose modules the standard's examples import, then
+  /-- `docs`: the second acceptance step: the rule-ID check of every tracked Markdown document,
+  the checks C1 to C8 of their prose with the baseline (checks B1 and B2, of which B2 reads the
+  Git history) and the check of the vocabulary `CONTEXT.md` (check C9), with the controls of
+  these checks, the fresh acceptance of the `audit/` package whose modules the standard's
+  examples import, then
   the documentation audit and the Verso standard's build and render, refused unless its inputs
   have the content identity the first step recorded. -/
   | docs
@@ -169,7 +171,8 @@ def shardEvidence (index : Nat) : String := s!"tmp/rule-examples-{index}of2.json
 requires only the md4c binding and the root package. -/
 def markdownPackage : String := "markdown"
 
-/-- The controls of the check of the vocabulary, relative to the Markdown package. -/
+/-- The controls of the checks of Markdown prose (C1 to C8), of the vocabulary (C9) and of the
+baseline (B1 and B2), relative to the Markdown package. -/
 def proseControls : String := "../lean/Fixtures/ControlledProse"
 
 /-- Rule-reference site artifact directory (the GitHub Pages upload). -/
@@ -208,14 +211,21 @@ def commands : Mode → List Command
       lake #["exe", "axiomGate", "--acceptance-link", linkPath, "--verso", versoStandard]]
   | .docs => [
       lake #["build", "docFenceAudit"],
-      -- The controls of the check of the vocabulary: the check accepts its positive controls
+      -- The controls of the checks C1 to C9, B1 and B2: each check accepts its positive controls
       -- and refuses the others, with the exact file, line and check at the start of each
-      -- refusal (`markdown/MarkdownMain.lean`).
+      -- refusal. The controls of the base revision of check B2 and the control of
+      -- `--write-baseline` are repositories that the run makes with Git in a temporary
+      -- directory (`markdown/MarkdownMain.lean`).
       lakeIn markdownPackage #["exe", "regula-markdown", "--controls", proseControls],
       -- Every Markdown document Git tracks, read by md4c: a rule ID in prose that is not a link
       -- to its rule page is refused, and so is a `CONTEXT.md` that is not the print of a
-      -- vocabulary or that has a source path Git does not track (check C9). The argument is the
-      -- repository root, relative to the Markdown package.
+      -- vocabulary or that has a source path Git does not track (check C9). A finding of the
+      -- checks C1 to C8 that the baseline `prose-baseline.json` does not permit is refused
+      -- (check B1). A baseline with a new path, a larger number or a different class in
+      -- relation to the base revision is refused, and so is the removal of the baseline (check
+      -- B2). Check B2 reads the Git history: the base revision is the commit that the start of
+      -- the run gives, in the variable `REGULA_PROSE_START` or as the merge base of `HEAD` and
+      -- `origin/main`. The argument is the repository root, relative to the Markdown package.
       lakeIn markdownPackage #["exe", "regula-markdown", ".."],
       -- The `audit/` package's own fresh acceptance, as an adopter of `regula` runs it: the
       -- standard's `lean` blocks import its modules, and the linked identity below brackets the

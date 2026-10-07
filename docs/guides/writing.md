@@ -160,14 +160,15 @@ A document with no entry must have no finding (check B1). Check B2 compares the 
 
 | Start of the check | Base revision |
 | --- | --- |
-| A developer, with no option | The merge base of `HEAD` and `origin/main`. |
-| A developer, with the option `--target` | The merge base of `HEAD` and the revision of the option. |
+| A developer, with no variable | The merge base of `HEAD` and `origin/main`. |
 | CI, a pull request | The first parent of the merge commit that CI examines. The second parent must be the head of the pull request. |
 | CI, a push | The commit before the push. |
 | CI, a manual start of the workflow | The first parent of the commit. |
 | CI, the release commit | The release commit. |
 
-Only a developer uses a merge base. CI gives the start in the variable `REGULA_PROSE_START`. With `before:` and a commit, B2 uses that commit. With `pull:` and the head of a pull request, B2 uses the first parent of the merge commit. For these two forms, the check does not ask Git for a merge base. Thus B2 compares a push that moves a branch back to an older commit with the commit before the push.
+Only a start with no variable uses a merge base. CI gives the start in the variable `REGULA_PROSE_START`. A developer can also set that variable. For a change to a branch that is not `main`, the developer gives `before:` and the merge base of `HEAD` and that branch.
+
+With `before:` and a commit, B2 uses that commit. With `pull:` and the head of a pull request, B2 uses the first parent of the merge commit. For these two forms, the check does not ask Git for a merge base. Thus B2 compares a push that moves a branch back to an older commit with the commit before the push.
 
 These cases have a result that is not a comparison with an older commit:
 
@@ -177,7 +178,6 @@ These cases have a result that is not a comparison with an older commit:
 If Git does not give the base revision, B2 does not accept the baseline, and no other revision replaces the base revision. These starts give that result:
 
 - A variable that is empty, that does not have one of the two forms, or that gives an empty commit.
-- The variable and the option `--target` together.
 - A commit that Git does not have. Examples are the 40 zeros of the first push of a branch, and the first parent of a commit with no parent.
 - A pull request where the commit that CI examines is not a merge commit with the head of the pull request as its second parent.
 - A checkout where Git does not have the commit or the parents that the start uses. For example, in a checkout with no history, Git gives no parent of the commit. There, Git gives a merge base only if the two revisions are the same commit. Thus the `verify` job of CI gets the full history.
@@ -187,6 +187,14 @@ If the base revision has a baseline, B2 compares the two baselines:
 - B2 does not accept an entry with a new path, a larger number or a different class.
 - B2 does not accept a baseline without a `frozen` entry of the base revision, if the document of that entry is a tracked file. Thus a change that removes such an entry does not let the document change (the theorem `frozen_unchanged`).
 - B2 does not accept a change that removes the file `prose-baseline.json` (the theorem `ratchet_removed`). A baseline with no entry is that file with no line of an entry.
+
+This comparison has a limit. The numbers of the base revision are the counts that the vocabulary and the checks of that revision gave. For check B1, the numbers of the change must be the counts that the vocabulary and the checks of the change give. Thus a count can become larger with no change to the text of its document. B2 compares the numbers of the two baselines as they are, and a number cannot become larger. Thus B2 has these conditions for a change:
+
+- A change that adds a replaced word or a replaced name to `CONTEXT.md` must correct each document in which the checks then find it.
+- A change that corrects a check must correct each document for which a count of that check becomes larger.
+- A change of the list of checks or of the format of the baseline must read the baseline of the base revision. If the function `Baseline.parse` of the change does not accept that file, B2 does not accept the change.
+
+[Issue 251](https://github.com/rbeauchamp/regula/issues/251) is about a design that removes this limit.
 
 If the base revision has no baseline, B2 compares the baseline with the Markdown documents of the base revision. The checks count the findings of each of those documents, with the vocabulary of the change:
 
@@ -214,6 +222,8 @@ Do these steps after you correct findings in a document that has an entry:
 1. Go to the directory `markdown`.
 2. Use the command `lake exe regula-markdown .. --write-baseline`.
 3. Make sure that the baseline has only smaller numbers and no new entry.
+
+The command reads the file `prose-baseline.json` of the working tree, also if Git does not track that file. It keeps each `frozen` entry and each `generated` entry of that file.
 
 To see each finding of one document, use the command `lake exe regula-markdown .. --list PATH` in the directory `markdown`.
 
@@ -271,6 +281,8 @@ Add a row to `CONTEXT.md` in the same pull request as the text that uses the ter
 - The tracked file that gives the definition of the term, and the Lean name if there is one.
 
 The record of the review in the pull request gives the result of the dictionary check of the term. For a verb, the record also gives the approved verb that the writer tried first.
+
+A new replaced name or a new replaced word changes the result of check C6 or C7 for each document. The same pull request must correct each document in which the checks then find that name or that word. If it does not, the checks B1 and B2 do not accept the change (see "The baseline").
 
 ## Text that these writing rules do not change
 
