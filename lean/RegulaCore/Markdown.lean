@@ -406,7 +406,8 @@ def RunLinked (page : RuleId → String → Prop) (run : List (Place × Char)) :
 /-- The document with the pieces `pieces` is accepted: it has no construct that the check
 refuses to read, and the rule IDs of the text of each of its runs are linked (`IsRun`,
 `RunText`, `RunLinked`). The statement is over the list of pieces and the characters of the
-text. It names no state of the scan and no function that the check calls. -/
+text. It names no state of the scan and no function of the scan (`findings`, `Scan.step`,
+`runTokens`, `standing`, `Regula.Prose.splitTokens`). -/
 def PiecesAccepted (page : RuleId → String → Prop) (pieces : List Piece) : Prop :=
   (∀ reason, Piece.refused reason ∉ pieces) ∧
     ∀ before run after text, pieces = before ++ run ++ after → IsRun before run after →
@@ -414,8 +415,9 @@ def PiecesAccepted (page : RuleId → String → Prop) (pieces : List Piece) : P
 
 /-! ### The scan reads this statement
 
-The definitions and theorems of this part are steps of the proof of `findings_accepted_iff`. No
-specification names them. -/
+The definitions and theorems of this part are steps of the proof of `findings_accepted_iff`,
+and then `piecesAccepted_nil`, which the contract `checked_documentErrors` uses for the input
+that it accepts. No specification names them. -/
 
 /-- The texts of the runs that the scan reads, as one function: a step of the proof of
 `findings_accepted_iff`, which no specification names. `links` is the number of links entered
@@ -1206,6 +1208,8 @@ theorem piecesAccepted_nil (page : RuleId → String → Prop) : PiecesAccepted 
   simp only [List.nil_eq, List.append_eq_nil_iff] at split
   rw [split.1.2] at six
   simp at six
+
+/-! ## The pages of a rule and the audit marker -/
 
 /-- The tracked documents whose links to the site name no edition, so that each link opens the
 latest release and a release changes no such document: the root `README.md`. Only in these
