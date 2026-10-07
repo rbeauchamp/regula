@@ -53,7 +53,7 @@ registry and native qualification controls (`qualify combined`, which runs those
 `qualify registry` and then `qualify native`). It refuses a root
 lock manifest that records any dependency. It records the content
 identity of the inputs it accepted in `tmp/acceptance-link.json`. `./scripts/verify.sh docs`
-then refuses a rule ID in the prose of a tracked Markdown document that is not a link to its rule page ([rule IDs in documentation](#rule-ids-in-documentation)), audits the `audit/` package's claimed surface from fresh output, checks every Lean example
+then refuses a rule ID in the prose of a tracked Markdown document that is not a link to its rule page ([rule IDs in documentation](#rule-ids-in-documentation)), refuses a link of the root `README.md` to the rule-reference site that is not a stable address ([links of the root README](#links-of-the-root-readme)), audits the `audit/` package's claimed surface from fresh output, checks every Lean example
 under `docs/` and in the Verso standard (each elaborated in the Verso package's workspace, which
 requires both packages), builds and renders the standard fresh, refuses such a rule ID in the prose of the rendered standard, and refuses unless its own freshly captured inputs have the same identity. That command also operates the controls of the [checks of the prose](#the-prose-of-markdown-documents) and of the [check of the vocabulary](#the-vocabulary-of-the-project), and then does those checks. `DOC-*` rows need both commands. The
 declaration gate performs Lake-semantic discovery and a clean, warning-free build before

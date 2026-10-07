@@ -218,7 +218,8 @@ def commands : Mode → List Command
       -- temporary directory (`markdown/MarkdownMain.lean`).
       lakeIn markdownPackage #["exe", "regula-markdown", "--controls", proseControls],
       -- Every Markdown document Git tracks, read by md4c: a rule ID in prose that is not a link
-      -- to its rule page is refused, and so is a `CONTEXT.md` that is not the print of a
+      -- to its rule page is refused. A link of the root `README.md` to the rule-reference site
+      -- that is not a stable address is refused. So is a `CONTEXT.md` that is not the print of a
       -- vocabulary or that has a source path Git does not track (check C9). A finding of the
       -- checks C1 to C8 that the baseline `prose-baseline.json` does not permit is refused, and
       -- so is an entry of the baseline with no tracked Markdown document (check B1). A baseline

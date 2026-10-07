@@ -136,7 +136,7 @@ violating project pass, privately instead, as the [security policy](SECURITY.md)
 | [lean/](lean/README.md) | The `regula` package adopters require, with no dependency beyond the Lean toolchain: the linter, its rule registry and proofs, and checked examples. |
 | [audit/](audit/lakefile.lean) | The package of the standard's example library (`Audit`), which imports only Lean's core libraries and requires `regula` by relative path as an adopter does. |
 | [integration/mathlib/](integration/mathlib/lakefile.lean) | The Mathlib integration package (`MathlibAudit`): a Mathlib adopter of `regula` that checks the Mathlib-specific behaviour Regula supports. Only `./scripts/verify.sh mathlib` and its CI job use it. |
-| [markdown/](markdown/lakefile.toml) | The package of the checks of the tracked Markdown documents. The checks are for the rule IDs in prose, for the writing rules with the baseline `prose-baseline.json`, and for the vocabulary [`CONTEXT.md`](CONTEXT.md). Only `./scripts/verify.sh docs` uses it. |
+| [markdown/](markdown/lakefile.toml) | The package of the checks of the tracked Markdown documents. The checks are for the rule IDs in prose, for the writing rules with the baseline `prose-baseline.json`, and for the vocabulary [`CONTEXT.md`](CONTEXT.md). One more check is for the links of this file to the rule reference. Only `./scripts/verify.sh docs` uses it. |
 | [examples/](examples/README.md) | Adopting projects and the rule-example sources. |
 | [website/](docs/guides/website.md) | The standard's Verso source and the rule-reference site builder. |
 
