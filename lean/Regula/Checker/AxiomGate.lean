@@ -7,6 +7,7 @@ import Regula.Checker.SourceAudit
 import Regula.Checker.Diagnostics
 import Regula.Checker.Documentation
 import Regula.Checker.ResultProtocol
+import RegulaCore.ScratchCopy
 import Regula.Checker.RunFeedback
 import Regula.DiagnosticCodec
 import RegulaCore.Lint
@@ -58,6 +59,10 @@ structure Options where
   incremental : Bool := false
   /-- `--build-lint`: run as the enforcing build linter, which also sets `incremental`. -/
   buildLint : Bool := false
+  /-- `--driver-copy PATH`: an internal option of `scripts/verify.sh`. The audit makes no copy of
+  its own and audits the copy of the project that the verification driver made at `PATH`
+  (`driverCopy`). -/
+  driverCopy : Option FilePath := none
   /-- `--verbose`: also print every classified declaration, timing spans and, for a project
   audit, every execution root with a boundary the toolchain does not own or an unresolved path
   and every entry of the toolchain trusted base, which the file audit always lists. -/
@@ -120,6 +125,8 @@ private def parseArgs : List String → Options → IO Options
       parseArgs rest { options with incremental := true }
   | "--build-lint" :: rest, options =>
       parseArgs rest { options with buildLint := true, incremental := true }
+  | "--driver-copy" :: value :: rest, options =>
+      parseArgs rest { options with driverCopy := some (FilePath.mk value) }
   | "--verbose" :: rest, options =>
       parseArgs rest { options with verbose := true }
   | "--kernel-types" :: rest, options =>
@@ -358,6 +365,111 @@ private def mergeUnowned (known incoming : Array ProducerReport.UnownedModule) :
     | none => result := result.push unowned
   return result
 
+/-- A private copy of a project in a scratch directory, with no build output of an earlier run:
+one that this process made with `copyProject` in a scratch directory it created (`isolatedCopy`),
+or one that the verification driver made and that passed what this process can observe of it
+(`driverCopy`). The constructor is private to this module, and those two functions are the only
+ones that give a value. -/
+structure Copied where
+  private mk ::
+  /-- The root of the copy. -/
+  project : FilePath
+
+/-- Copy the project at `repo` into the new scratch directory `scratch`, which holds no build
+output. -/
+private def isolatedCopy (repo scratch : FilePath) : IO Copied := do
+  let copy := scratch / "project"
+  timedPhase "isolated source copy" <| copyProject repo copy scratch
+  return ⟨copy⟩
+
+/-- The copy of the project at `repo` that the verification driver made at `path`
+(`RegulaVerification.makeCopy`), admitted by what this process can observe of it:
+
+* `path` is the directory `project` of a directory of this project's scratch area
+  (`ScratchCopy.name?`), and that directory has its ownership marker, so it was made by the
+  scratch protocol (`Regula.Scratch`);
+* this process's own executable is below the build directory that Lake gives for the copy
+  (`ScratchCopy.inside`), so the build output it audits is the one that made this gate.
+
+**Not observed, and trusted:** that the driver made the copy new in this run, so that its build
+output held nothing before the driver's build. No file of the directory shows that. A caller that
+puts earlier build output into a directory of this shape, with a gate built there, gets a value.
+So a result of this origin says that it rests on the driver (`Origin.qualification`), and
+`--driver-copy` is an internal option of `scripts/verify.sh`. -/
+private def driverCopy (repo path : FilePath) : IO Copied := do
+  let refuse {α : Type} (reason : String) : IO α :=
+    throw <| IO.userError s!"driver copy refused: {path} {reason}"
+  let area ← match ← (IO.FS.realPath (Regula.Scratch.directory repo)).toBaseIO with
+    | .ok area => pure area
+    | .error _ => refuse s!"is not in the scratch area of {repo}, which has none"
+  let copy ← match ← (IO.FS.realPath path).toBaseIO with
+    | .ok copy => pure copy
+    | .error _ => refuse "is not there"
+  let some name := ScratchCopy.name? area.normalize.components copy.normalize.components
+    | refuse s!"is not the directory `project` of a scratch directory of {area}"
+  let marker := area / s!"{name}.{Regula.Scratch.markerExtension}"
+  let marked ← match ← marker.symlinkMetadata.toBaseIO with
+    | .ok metadata => pure (metadata.type == .file)
+    | .error _ => pure false
+  unless marked do refuse s!"has no ownership marker {marker}"
+  let build ← match ← (Workspace.withRootWorkspace copy fun workspace =>
+      IO.FS.realPath workspace.root.buildDir).toBaseIO with
+    | .ok build => pure build
+    | .error error => refuse s!"has no build directory that Lake gives ({error})"
+  let own ← IO.FS.realPath (← IO.appPath)
+  unless ScratchCopy.inside build.normalize.components own.normalize.components do
+    refuse s!"did not build this gate: {own} is not below {build}"
+  return ⟨copy⟩
+
+/-- Where the root-package build output that a project audit inspects comes from. A project audit
+reports the fresh mode only for the first two (`Origin.mode_fresh_iff`), and each of those two
+holds a `Copied` value. -/
+inductive Origin where
+  /-- The audit made an isolated copy of the project and builds in it. -/
+  | copied (copy : Copied)
+  /-- The verification driver made the copy and built in it, and the audit admitted the copy by
+  what it can observe (`driverCopy`). -/
+  | driverCopy (copy : Copied)
+  /-- The checkout's existing build output, brought up to date by an incremental build. -/
+  | incremental
+
+/-- The evidence mode an audit of that origin reports. -/
+def Origin.mode : Origin → Regula.EvidenceMode
+  | .copied _ | .driverCopy _ => .freshProject
+  | .incremental => .incrementalProject
+
+/-- How a build-failure line names the build of that origin. -/
+def Origin.label : Origin → String
+  | .copied _ | .driverCopy _ => "fresh"
+  | .incremental => "incrementally"
+
+/-- The name of the origin in a result document (`scope.buildOrigin`) and in the acceptance
+link. -/
+def Origin.spelling : Origin → String
+  | .copied _ => "isolatedCopy"
+  | .driverCopy _ => "driverCopy"
+  | .incremental => "incrementalBuild"
+
+/-- What the success line of an audit adds for its origin. An audit of a copy that the
+verification driver made says what its fresh mode rests on: the audit did not make the copy, and
+it has no observation of its own that the copy was new. -/
+def Origin.qualification : Origin → String
+  | .driverCopy _ => " (in a copy of this checkout that the verification driver made: that the \
+      copy was new and held no earlier build output rests on the driver)"
+  | .copied _ | .incremental => ""
+
+/-- An audit reports the fresh mode only for a `Copied` value: a copy it made, or a copy of the
+verification driver that it admitted. So an audit of a checkout in place cannot report it. That a
+`Copied` value comes from one of those two functions rests on its private constructor, which is
+an ergonomic boundary. -/
+theorem Origin.mode_fresh_iff (origin : Origin) :
+    origin.mode = .freshProject ↔
+      ∃ copy, origin = .copied copy ∨ origin = .driverCopy copy := by
+  cases origin with
+  | copied copy => exact ⟨fun _ => ⟨copy, .inl rfl⟩, fun _ => rfl⟩
+  | driverCopy copy => exact ⟨fun _ => ⟨copy, .inr rfl⟩, fun _ => rfl⟩
+  | incremental => simp [Origin.mode]
+
 /-- Accepted project evidence handed, in the same process, to the same-snapshot
 documentation stage and to the ordinary acceptance link. Nothing is serialized. -/
 private structure ProjectEvidence where
@@ -374,7 +486,7 @@ private structure ProjectEvidence where
 rechecked once at the end. With `documentationPending`, the documentation stage that
 follows in this process owns that terminal recheck and the final success. -/
 private unsafe def auditSurfaceAt (repo manifestPath : FilePath)
-    (fresh verbose : Bool) (reportRoot : FilePath)
+    (origin : Origin) (verbose : Bool) (reportRoot : FilePath)
     (composed : IO.Ref (Option Json)) (resultOut : Option FilePath := none)
     (observeSources : Array ProducerReport.SourceBinding → IO Unit := fun _ => pure ())
     (documents : Array RegulaPolicy.SourceSnapshot := #[])
@@ -382,7 +494,7 @@ private unsafe def auditSurfaceAt (repo manifestPath : FilePath)
     (documentationPending : Bool := false) (buildLint : Bool := false) : IO UInt32 := do
   let configuration ← SourceBinding.configuration repo manifestPath
   withSourceEvidence #[] configuration reportRoot.toString
-      (if fresh then .freshProject else .incrementalProject) composed resultOut do
+      origin.mode composed resultOut do
     let inventory ← Lake.surfaceInventory repo
     let sourceBindings ← SourceBinding.capture inventory.moduleSources observeSources
     let manifest ← Manifest.loadFor manifestPath inventory
@@ -398,19 +510,19 @@ private unsafe def auditSurfaceAt (repo manifestPath : FilePath)
     -- so each root is inspected alone (`RegulaPolicy.census_executable_alone`).
     let environments ← surfaceEnvironments manifest inventory assignments libraries
     withSourceEvidence sourceBindings configuration reportRoot.toString
-        (if fresh then .freshProject else .incrementalProject) composed resultOut do
+        origin.mode composed resultOut do
       let snapshotFor (name : Name) : Option Regula.SourceSnapshot :=
         (sourceBindings.find? (·.moduleName == name)).map fun s => ⟨s.path, s.content⟩
       SourceBinding.configurationUnchanged configuration
       let buildPlan := Lake.claimedBuildPlan manifest inventory
       let (initialBuild, buildResult) ← timedPhase "claimed-source build" <|
           Lake.buildCheckedObservation repo buildPlan.initialTargets
-              (if fresh then "fresh" else "incrementally") (← claimedBuild.get)
+              origin.label (← claimedBuild.get)
       SourceBinding.unchanged sourceBindings
       SourceBinding.configurationUnchanged configuration
       if let some lines := buildResult then
         reportContextFailure .sourceBuild reportRoot.toString
-          (if fresh then .freshProject else .incrementalProject) .incomplete
+          origin.mode .incomplete
               [.configuration, .discovery]
           ("\n".intercalate lines.toList) composed resultOut sourceBindings
         return 1
@@ -427,7 +539,7 @@ private unsafe def auditSurfaceAt (repo manifestPath : FilePath)
         result
       let configuredModules := libraries.foldl (fun result info => result ++ info.modules) #[]
         ++ inventory.executables.map (·.root)
-      let mode : Regula.EvidenceMode := if fresh then .freshProject else .incrementalProject
+      let mode : Regula.EvidenceMode := origin.mode
       let gather (found : Array Regula.Finding) (finding : Regula.Finding) :=
         if found.any (·.entry == finding.entry) then found else found.push finding
       -- Complete this refusal-only phase before starting any declaration workers. A clear
@@ -497,7 +609,7 @@ private unsafe def auditSurfaceAt (repo manifestPath : FilePath)
         | some targets => do
             let build ← claimedBuild.get
             timedPhase "deferred claimed-source build" (Lake.buildCheckedObservation repo targets
-              (if fresh then "fresh" else "incrementally") build)
+              origin.label build)
       SourceBinding.unchanged sourceBindings
       SourceBinding.configurationUnchanged configuration
       if let some lines := buildResult then
@@ -519,7 +631,7 @@ private unsafe def auditSurfaceAt (repo manifestPath : FilePath)
       SourceBinding.configurationUnchanged configuration
       if let some name ← changedArtifact? frozenArtifacts then
         reportContextFailure .admission reportRoot.toString
-          (if fresh then .freshProject else .incrementalProject) .incomplete
+          origin.mode .incomplete
               [.configuration, .discovery, .build]
           s!"producer-artifact: the .olean files of {name} changed during the audit" composed
           resultOut sourceBindings
@@ -567,7 +679,7 @@ private unsafe def auditSurfaceAt (repo manifestPath : FilePath)
         let snapshotSources ← Acceptance.sourceSnapshots sourceBindings histories documents
         let snapshot ← IO.ofExcept <| Snapshot.make repo configuration snapshotSources dependencies
         let request ← IO.ofExcept <| RegulaPolicy.admitClaim {
-          scope := .project, mode := if fresh then .freshProject else .incrementalProject,
+          scope := .project, mode := origin.mode,
           snapshot := snapshot.val, surfaces := assignments }
         let frozen ← Acceptance.freeze request (environments.map (·.info.modules))
           (Acceptance.configuredTargets manifest) (Acceptance.discoveredTargets inventory)
@@ -618,24 +730,24 @@ private unsafe def auditSurfaceAt (repo manifestPath : FilePath)
             reportedImports := reportedImports.insert (surface.library, detail)
             failures := failures.push detail
             findings := findings.push (← IO.ofExcept <| RuleDiagnostics.contextFinding .coverage
-              reportRoot.toString detail (if fresh then .freshProject else .incrementalProject)
+              reportRoot.toString detail origin.mode
                 .violation)
         if report.declarations.any fun decl => !info.modules.contains decl.«module» then
           failures := failures.push s!"declaration-attribution-mismatch: {environment.label}"
           findings := findings.push (← IO.ofExcept <| RuleDiagnostics.contextFinding .coverage
             reportRoot.toString (s!"declaration-attribution-mismatch: {environment.label}")
-                (if fresh then .freshProject else .incrementalProject) .incomplete)
+                origin.mode .incomplete)
         failures := failures ++ frontendFailures
         for failure in frontendFailures do
           findings := findings.push (← IO.ofExcept <| RuleDiagnostics.contextFinding .admission
-            reportRoot.toString failure (if fresh then .freshProject else .incrementalProject)
+            reportRoot.toString failure origin.mode
                 .incomplete)
         let scope ← IO.ofExcept <|
           Policy.admitScope report.compilerCapability report.declarations transcripts
         let native := scope.native
         let unsafeHelpers := scope.helpers
         totalDeclarations := totalDeclarations + report.declarations.size
-        let mode : Regula.EvidenceMode := if fresh then .freshProject else .incrementalProject
+        let mode : Regula.EvidenceMode := origin.mode
         let some documentation := report.documentation
           | throw <| IO.userError "producer-documentation: project observations unavailable"
         -- RG5001: the proved `RegulaPolicy.ModuleHeader.failures` decides each module's header
@@ -702,7 +814,7 @@ private unsafe def auditSurfaceAt (repo manifestPath : FilePath)
             let finding ← IO.ofExcept <| RuleDiagnostics.declarationFinding id
                 (← IO.ofExcept (RuleDiagnostics.declarationName named))
               classification location
-              (if fresh then .freshProject else .incrementalProject) (some surface.claim.toString)
+              origin.mode (some surface.claim.toString)
               sourceDeclaration related
             findings := findings.push finding
         -- Equal to `Policy.admitExecution report.execution` (`Admitted.admitExecution_eq`).
@@ -716,7 +828,7 @@ private unsafe def auditSurfaceAt (repo manifestPath : FilePath)
             | none => pure (Regula.Location.module failure.root.module)
           findings := findings.push
               (← IO.ofExcept <| RuleDiagnostics.executionFinding failure location
-            (if fresh then .freshProject else .incrementalProject) surface.execution)
+            origin.mode surface.execution)
         if verbose then
           for moduleName in info.modules do
             IO.println s!"module {moduleName} [claimed: {surface.claim}]"
@@ -822,11 +934,12 @@ private unsafe def auditSurfaceAt (repo manifestPath : FilePath)
             ("sources", toJson sources), ("surfaces", toJson surfaceEntries),
             ("toolchainBase", Policy.toolchainBaseJson toolchainBase),
             ("configuration", toJson configuration), ("configurationRoot", toJson repo.toString),
+            ("buildOrigin", toJson origin.spelling),
             ("libraries", toJson (libraries.map libraryInfoJson)),
             ("completedStages", toJson
                 #["claimedSourceBuild", "ownedAdmission", "declarationPolicy",
                     "executionInspection"])]
-        let mode : Regula.EvidenceMode := if fresh then .freshProject else .incrementalProject
+        let mode : Regula.EvidenceMode := origin.mode
         let expected ← expectedStages.get
         if let some (_, ⟨_, accepted⟩) := accepted then
           if documentationPending then
@@ -858,14 +971,15 @@ private unsafe def auditSurfaceAt (repo manifestPath : FilePath)
       let account := Account.account accepted
       IO.println s!"accepted {account.val.jobs} policy jobs for {account.val.mode.spelling}"
       for line in account.lines do IO.println line
-      IO.println s!"\n{account.pass "axiom gate"}"
+      IO.println s!"\n{account.pass "axiom gate"}{origin.qualification}"
       if buildLint then
         IO.println
             s!"{account.pass "build policy linter"} ({account.val.jobs} accepted policy \
               jobs; {account.val.mode.spelling})"
       return 0
 
-/-- Fresh audits copy the project into an owned isolated workspace. With `--with-docs`,
+/-- Fresh audits copy the project into an owned isolated workspace, or, with `driverCopy`, audit
+the copy that the verification driver made (`AxiomGate.driverCopy`). With `--with-docs`,
 the documentation stage runs afterwards in this same process against the same frozen
 snapshot and build; project and documentation acceptance are then combined. A change of a frozen
 source or configuration file during that stage is reported as the project's admission refusal,
@@ -879,18 +993,24 @@ private unsafe def auditSurface (repo : FilePath) (manifest : Option FilePath)
         fun _ _ => pure ())
     (observeSources : Array ProducerReport.SourceBinding → IO Unit := fun _ => pure ())
     (buildLint : Bool := false) (acceptanceLink : Bool := false)
-    (verso : Option Documentation.VersoPackage := none) :
+    (verso : Option Documentation.VersoPackage := none) (driverCopy : Option FilePath := none) :
     IO (UInt32 × Option AcceptanceLink.Pending) :=
   if incremental then do
     let configuration ← SourceBinding.configuration repo (manifest.getD (Manifest.defaultPath repo))
     observeConfiguration repo configuration
     (·, none) <$> withSourceEvidence #[] configuration repo.toString .incrementalProject
         composed resultOut
-      (auditSurfaceAt repo (manifest.getD (Manifest.defaultPath repo)) false verbose repo composed
-          resultOut observeSources (buildLint := buildLint))
+      (auditSurfaceAt repo (manifest.getD (Manifest.defaultPath repo)) .incremental verbose repo
+          composed resultOut observeSources (buildLint := buildLint))
   else withScratch repo "axiom-gate" fun scratch => do
-    let copy := scratch / "project"
-    timedPhase "isolated source copy" <| copyProject repo copy scratch
+    -- The copy to audit: the one the verification driver made, when the caller gives it and it
+    -- passes what this process can observe, or else a copy this process makes now.
+    let origin ← match driverCopy with
+      | some path => Origin.driverCopy <$> AxiomGate.driverCopy repo path
+      | none => Origin.copied <$> isolatedCopy repo scratch
+    let copy := match origin with
+      | .copied copied | .driverCopy copied => copied.project
+      | .incremental => repo
     let manifestPath := manifest.getD (Manifest.defaultPath copy)
     observeConfiguration copy (← SourceBinding.configuration copy manifestPath)
     if withDocs then Documentation.snapshotMarkdown (repo / "docs") (copy / "docs")
@@ -908,9 +1028,10 @@ private unsafe def auditSurface (repo : FilePath) (manifest : Option FilePath)
         linkedSources.checkLinked repo linkedDocuments
         let digest ← AcceptanceLink.identity scratch copy (repo / "docs") evidence.sources
           evidence.configuration evidence.dependencies linkedDocuments
-        linked.set (some { digest, account := Account.account evidence.accepted })
+        linked.set (some {
+          digest, account := Account.account evidence.accepted, origin := origin.spelling })
     let result ← timedPhase "complete declaration audit" <|
-      auditSurfaceAt copy manifestPath true verbose repo composed resultOut observeSources
+      auditSurfaceAt copy manifestPath origin verbose repo composed resultOut observeSources
         documents observe withDocs
     if result != 0 then return (result, none)
     let some evidence ← project.get
@@ -1271,10 +1392,12 @@ def invalidateResults (kinds : List Destination) (args : List String) : IO Unit 
     for (path, link) in relative do invalidate (resolve root path) link
 
 /-- The options of an audit invocation: parsed, without a duplicated option, and in a
-combination the usage text allows; otherwise an error naming the problem. -/
+combination the usage text allows; otherwise an error naming the problem. The usage text does
+not list the internal `--driver-copy`, which is admitted only in the fresh surface mode of the
+current project, without `--with-docs` and `--project`. -/
 private def admitOptions (args : List String) : IO Options := do
   for flag in #["--json-out", "--acceptance-link", "--project", "--file",
-      "--manifest", "--claim", "--execution"] do
+      "--manifest", "--claim", "--execution", "--driver-copy"] do
     if (optionValues flag args).length > 1 then
       throw <| IO.userError s!"duplicate {flag} option"
   let options ← parseArgs args {}
@@ -1290,6 +1413,10 @@ private def admitOptions (args : List String) : IO Options := do
   if options.acceptanceLink.isSome &&
       (options.file.isSome || options.incremental || options.withDocs) then
     throw <| IO.userError "--acceptance-link requires fresh surface mode without --with-docs"
+  if options.driverCopy.isSome &&
+      (options.file.isSome || options.incremental || options.withDocs || options.project.isSome) then
+    throw <| IO.userError "--driver-copy applies only to the fresh surface mode of the current \
+      project, without --with-docs and --project"
   if options.verso.isSome && options.acceptanceLink.isNone then
     throw <| IO.userError "--verso applies only to --acceptance-link"
   if options.kernelTypes && options.resultOut.isNone then
@@ -1461,6 +1588,7 @@ unsafe def run (args : List String) : IO UInt32 := do
             (buildLint := options.buildLint) (acceptanceLink := acceptanceLink.isSome)
             (verso := options.verso.map fun verso =>
                 { verso with dir := repo / verso.dir.toString })
+            (driverCopy := options.driverCopy)
           return result
     catch error => return (← reportFailure error, none)
   -- A configuration-read failure still records the request, with no configuration read.
