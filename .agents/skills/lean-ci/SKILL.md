@@ -101,7 +101,8 @@ faster sample.
 - The sequence ends when the longer of the two chains ends. With equal priority, the operating
   system divides the processors between the chains, and the longer chain becomes slower. On a
   local machine that other work also used, four pairs of runs with equal priority showed no
-  gain. The consumer started 32 s to 37 s earlier and took 32 s to 39 s longer.
+  gain. The consumer started earlier, and it took longer by approximately the same time
+  ([evidence notes](references/evidence.md)).
 - If the consumer is the longer chain, start each command of the other chain with `nice`. Do
   not change the program or the arguments of a command. The other chain then uses the
   processors that the consumer leaves idle.
@@ -114,9 +115,9 @@ faster sample.
   machine that other work at normal priority fills, the other chain can get only a small quantity
   of processor time. The time can then be more than the time of the same commands in sequence. A
   hosted runner with no other load does not have that risk.
-- In one local pair with low priority, the step took 121.6 s and the sequential run took
-  134.3 s. The consumer was approximately 11 s slower than alone in that pair. Thus the first
-  assumption was not fully correct there.
+- In one local pair with low priority, the step took less time than the sequential run
+  ([evidence notes](references/evidence.md)). But the consumer was slower than alone in that
+  pair. Thus the first assumption was not fully correct there.
 - The change removes no work. Thus it decreases the time only if processors were idle before
   the change. Do a measurement of the gain on the hosted runner. A different machine does not
   show the hosted gain.

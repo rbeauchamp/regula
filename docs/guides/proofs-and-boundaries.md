@@ -257,9 +257,9 @@ time of the step only if a processor was idle in the sequential schedule.
 
 With equal priority, the operating system divides the processors between the two chains. Four
 pairs of local runs showed the result of that division
-([evidence notes](../../.agents/skills/lean-ci/references/evidence.md)). The gate started 32 s to
-37 s earlier, and it took 32 s to 39 s longer. Thus the time of the step did not decrease on that
-machine.
+([evidence notes](../../.agents/skills/lean-ci/references/evidence.md)). The gate started
+earlier, and it took longer by approximately the same time. Thus the time of the step did not
+decrease on that machine.
 
 The low priority of the second chain has this purpose: the gate must not become slower. The
 statement that follows is an argument and not a measurement. It uses three assumptions. The
@@ -283,17 +283,22 @@ machine, also after the gate ended. The time of the step can then be more than i
 schedule. The hosted runner has no other load.
 
 These limits apply to that argument. No measurement shows the first two assumptions on the
-hosted runner. In one local pair of runs, the gate was approximately 11 s slower than alone. Thus
-the first assumption was not fully correct on that machine. The sequence of the argument has two
-builds, but the earlier schedule had one complete build. The time that this division of the
-build adds is not measured.
+hosted runner. In one local pair with low priority, the step took less time than the sequential
+run, but the gate was slower than alone. Thus the first assumption was not fully correct on that
+machine ([evidence notes](../../.agents/skills/lean-ci/references/evidence.md)). The sequence of
+the argument has two builds, but the earlier schedule had one complete build. The time that this
+division of the build adds is not measured.
 
 The facts that follow are about one hosted run of the sequential schedule (CI run 37513374192,
 four processors). Lake logs the elapsed time of each job and not its processor time. By those
 logged durations, the isolated build of the gate ended with one or two jobs in progress. The
 declaration inspection of the gate has three worker slots, which is read from the code. Thus it
-is possible that the gate leaves processors idle on that runner. The gain is a prediction until
-hosted runs of the schedule show it.
+is possible that the gate leaves processors idle on that runner.
+
+The estimate of the time of the step on the hosted runner is a prediction. The
+[evidence notes](../../.agents/skills/lean-ci/references/evidence.md) give that estimate. The
+pull request that closed [issue 246](https://github.com/rbeauchamp/regula/issues/246) gives the
+measured hosted times.
 
 The driver writes each line that starts with `verification:`. It writes such a line at the start
 of each command. For a command that starts at low priority, that line has the words `at low
