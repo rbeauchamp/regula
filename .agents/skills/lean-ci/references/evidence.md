@@ -143,13 +143,13 @@ other processes used approximately three to four processors, and the unused memo
 machine decreased to approximately 100 MB. The hosted runner is a different machine with four
 processors. Thus these runs do not show the hosted result.
 
-After those runs, the driver starts each command that operates at the same time as the gate with
-`nice -n 19` (`RegulaVerification.Priority`). The gate keeps the priority of the driver. The
-purpose is that the other commands do not make the gate slower. The program and the arguments of
-each command did not change.
+After those runs, the driver started each command that operated at the same time as the gate
+with `nice -n 19`. The gate kept the priority of the driver. The purpose was that the other
+commands did not make the gate slower. The program and the arguments of each command did not
+change.
 
-The step ends when the gate and the other commands are complete. It ends when the gate ends only
-if the other commands end first.
+The step ended when the gate and the other commands were complete. It ended when the gate ended
+only if the other commands ended first.
 
 One local pair of cold runs compared that schedule with the sequential run on the same machine.
 A sampler looked for builds of a different directory each 10 s, and it found none during the two

@@ -159,8 +159,9 @@ def mathlibPackage : String := "integration/mathlib"
 private def lakeIn (dir : String) (args : Array String) : Command := ⟨"lake", args, dir⟩
 
 /-- Ordinary acceptance records its accepted input identity here; the separately timed
-documentation step refuses unless its own identity is equal. The driver puts the record here as
-its last action before the success line (`run`), so an accepted record here means
+documentation step refuses unless its own identity is equal. The driver puts the record here
+only after `passed` accepted every command, before it removes its copy and before the success
+line (`run`), so an accepted record here means
 that every command of the step exited 0. The gate of a run records the identity in the pending
 record of that run (`Copy.pending`), and that record becomes this one only by that promotion, so
 a run that fails or is killed before then leaves this record incomplete. -/
@@ -227,7 +228,7 @@ def commands (copy pending : String) : Mode → List Command
       lakeIn copy #["env", "lean", "--run", "lean/Regula/RegistryChecks.lean"],
       lakeIn copy #["exe", "qualify", "--under-deadline", "combined"],
       -- Last, and from the repository root: the gate of the copy audits the copy, reads the
-      -- linked documents of the checkout and writes the pending link there.
+      -- linked documents of the checkout and writes the pending record of the run (`pending`).
       lake #["-d", copy, "exe", "axiomGate", "--acceptance-link", pending, "--verso",
           versoStandard, "--driver-copy", copy]]
   | .docs => [

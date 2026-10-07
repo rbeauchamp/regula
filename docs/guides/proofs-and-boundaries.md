@@ -360,7 +360,11 @@ events:
 
 - The driver could not start a command.
 - The driver could not wait for a command.
+- The driver removed the scratch directory of a run that died, or it could not remove that
+  directory.
+- The driver could not read the scratch area for its reclamation.
 - The driver moved the build output of the copy, or it left the build output of the checkout.
+- The driver could not move the build output of the copy.
 - The driver could not remove the copy.
 - The driver moved the pending record.
 
