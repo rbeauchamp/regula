@@ -188,17 +188,21 @@ never a mixture of bare and linked IDs. IDs in code blocks and code spans, in pa
 in a rule table that is itself the index of rule pages, and in Lean identifiers stay as they are.
 The briefing tells an agent the same, with the link for your installed build.
 
-Regula's own documentation follows this. Every Markdown document tracked on `main`, the generated
-agent skill among them, links to the development pages, as [RG3002] does here; each page of the
-rule-reference site links within its own edition, where only a rule page's own title and top
-heading name its rule without a link. The documentation step of acceptance refuses a rule ID in
-the prose of a tracked Markdown document or of the rendered standard that is not such a link,
-headings included, and the site check refuses one in a page of the site
-([how to write one, and what the checks rely on](contributing.md#rule-ids-in-documentation)).
+Regula's own documentation follows this. Each Markdown document tracked on `main`, other than
+the root `README.md`, links to the development pages, as [RG3002] does here. The generated agent
+skill is one of these documents. Each page of the rule-reference site links in its own edition.
+There, only the title and the top heading of a rule page name its rule without a link.
 
-The root `README.md` does not link the development pages. It links the stable address of each
-rule, `https://rbeauchamp.github.io/regula/rules/<ID>/`, which names no edition and opens the
+The root `README.md` links the stable address of each rule,
+`https://rbeauchamp.github.io/regula/rules/<ID>/`. That address names no edition and opens the
 page of the latest release ([links of the root README](contributing.md#links-of-the-root-readme)).
+
+The documentation step of acceptance reads the prose of each tracked Markdown document and of
+the rendered standard, headings included. In a Markdown document, it refuses a rule ID that is
+not a link the check accepts for that document. In the rendered standard, it refuses a rule ID
+that is not a link to the page of that rule in the same edition. The site check refuses such an
+ID in a page of the site
+([how to write one, and what the checks rely on](contributing.md#rule-ids-in-documentation)).
 
 ## 3. Review the claimed surface
 
