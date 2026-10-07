@@ -29,6 +29,9 @@ that its implementation reaches too, by class (`RegulaPolicy.SharedNames`):
   specification do, and the helper is named in the class `boolean`.
 * `firstBefore_decides`: the two sides share a record of one function, with no argument. Its
   type has a field that takes an argument, so it is a function, named in the class `other`.
+* `noOdd_decides`: the two sides share a helper of the class `other` that calls a helper of
+  this file with a result of `Bool`. The search stops at the first helper: it is named, and the
+  helper below it is not, so the list of the class `boolean` is empty.
 -/
 import Regula.Contract
 
@@ -181,3 +184,17 @@ theorem firstBefore_decides :
         (fun input : Nat × Nat => descending.before input.1 input.2 = true)
         (Function.uncurry run)) :=
   ⟨.of_iff (fun _ => Iff.rfl) ⟨(1, 0), by decide⟩ ⟨(0, 1), by decide⟩⟩
+
+/-- A fourth helper with a result of `Bool`. -/
+def odd (n : Nat) : Bool := decide (n % 2 = 1)
+
+/-- A step that prepares the input with the helper `odd`: the odd numbers of a list. -/
+def odds (numbers : List Nat) : List Nat := numbers.filter odd
+
+/-- Whether a list has no odd number: it calls `odds`. -/
+def noOdd (numbers : List Nat) : Bool := (odds numbers).isEmpty
+
+theorem noOdd_decides :
+    Regula.ExecutableContract noOdd
+      (Regula.Decides (· = true) fun numbers => odds numbers = []) :=
+  ⟨.of_iff (fun numbers => by simp [noOdd]) ⟨[2], by decide⟩ ⟨[1], by decide⟩⟩

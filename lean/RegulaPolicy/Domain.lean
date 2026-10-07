@@ -902,12 +902,12 @@ inductive SharedClass where
 /-- The class of a shared constant, from what the collector read of it.
 
 When the two sides of a decision kind share a function, a change of that function changes the
-two sides together, so the directions of the kind do not depend on what the function computes.
-The kind then does not establish that the function is the intended one. The classes `boolean`
-and `other` are those functions. A constant of the class `statement` is no function that runs.
-A type `Decidable p`
-has at most one value, so a statement does not depend on which value of it a term names. A
-constant of the class `data` computes nothing from an input.
+two sides together, and a proof of the kind that goes through the function on the two sides can
+stay valid although the meaning changed. So the kind does not establish that the function is
+the intended one. The classes `boolean` and `other` are those functions. A constant of the
+class `statement` is no function that runs. A type `Decidable p` has at most one value, so a
+statement does not depend on which value of it a term names. A constant of the class `data`
+computes nothing from an input.
 
 The result of a function of the class `boolean` is a truth value, or a test that gives one. A
 proposition can take its place in a specification. No type tells a function of the class

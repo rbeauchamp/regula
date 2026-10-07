@@ -92,14 +92,14 @@ structure. A structure declared for the arguments has projections of constant si
 
 ## Functions that the two sides share
 
-A kind compares `accepts (f x)` with `spec x`. When `spec` and `f` both call a function, a
-change of that function changes the two sides together, so the two directions of the kind do
-not depend on what that function computes. Only the witnesses do: a two-way kind still needs an
-input that is accepted and an input that is refused. The kind then does not establish that the
-shared function is the intended one. The same holds of a function that `spec` and `accepts`
-both call. The linter refuses no registration for this. It reads the definitions outside Lean's
-own library that `spec` reaches and that `f` or `accepts` also reaches, and the report names
-each function that `spec` reaches first, in two classes:
+A kind is a theorem about the present definitions. It compares `accepts (f x)` with `spec x`.
+When `spec` and `f` both call a function, a change of that function changes the two sides
+together. Each direction then holds or fails as its proof does, and a proof that goes through
+the shared function on the two sides can stay valid although the meaning changed. So the kind
+does not establish that the shared function is the intended one. The same holds of a function
+that `spec` and `accepts` both call. The linter refuses no registration for this. It reads the
+definitions outside Lean's own library that `spec` reaches and that `f` or `accepts` also
+reaches, and the report names each function that `spec` reaches first, in two classes:
 
 * **A function with a result of `Bool`, and a definition with a result of `BEq _`.** A
   proposition can take its place in `spec`, with a theorem that connects the proposition to the

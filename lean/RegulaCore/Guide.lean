@@ -659,10 +659,10 @@ def guide : RuleId → Guide
           leaves open, and which value an accepting result carries.",
         "For a decision registration: anything about a function that the report names as \
           shared. When the specification and `f` both call a function, a change of that function \
-          changes the two together, so the directions of the kind do not depend on what the \
-          function computes. Only the witnesses do: a two-way kind still needs an accepted and a \
-          refused input. The same holds of a function that the specification and the \
-          acceptance predicate both call. Whether the specification is about the function, \
+          changes the two together. Each direction then holds or fails as its proof does, and \
+          a proof that goes through the shared function on the two sides can stay valid \
+          although the meaning changed. The same holds of a function that the specification \
+          and the acceptance predicate both call. Whether the specification is about the function, \
           as it is about an encoding or a state transition, or only uses it to prepare the \
           input, remains review (R-INTENT). For a function with a result of `Bool` or `BEq`, a \
           proposition can take its place in the specification, with a theorem that connects \

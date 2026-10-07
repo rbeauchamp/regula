@@ -252,10 +252,10 @@ other side of its kind, which is the implementation with the acceptance predicat
 definitions by name, those with a result of `Bool` or `BEq` first and marked as such. A kind
 compares `accepts (f x)` with `spec x`, so a function that `spec` and `accepts` both use is on
 the two sides of that statement as one that `spec` and `f` both use is, and the line says
-"the implementation or the acceptance predicate". The directions of the kind do not depend on
-what a named function computes, so the line says that the kind does not establish that these
-definitions are the intended ones. Empty for a contract whose record names none. The account
-refuses no contract for a shared function. -/
+"the implementation or the acceptance predicate". A proof of the kind that goes through a named
+function on the two sides can stay valid when that function changes, so the line says that the
+kind does not establish that these definitions are the intended ones. Empty for a contract
+whose record names none. The account refuses no contract for a shared function. -/
 def ContractAccount.sharing (k : ContractAccount) : String :=
   if k.shared.isEmpty then "" else
     let names (list : Array Lean.Name) := ", ".intercalate (list.toList.map (s!"{·}"))
@@ -265,6 +265,23 @@ def ContractAccount.sharing (k : ContractAccount) : String :=
     s!"; the specification, and the implementation or the acceptance predicate, both use \
       {" and ".intercalate (booleans ++ others)}: the kind does not establish that these \
       definitions are the intended ones"
+
+-- Controls of the account line of the shared functions. The line names the side that shares
+-- them as "the implementation or the acceptance predicate", marks the functions with a result
+-- of `Bool` or `BEq`, and does not say that the kind establishes them. A contract whose record
+-- names no function has no such line.
+-- Compiled-evaluation observation at build time, not a kernel-checked proof.
+#guard
+  (⟨`c, `M, `f, "R", some .«sound», ⟨#[`small], #[`evens, `odds]⟩⟩ : ContractAccount).sharing ==
+  "; the specification, and the implementation or the acceptance predicate, both use small \
+    (each with a result of Bool or BEq) and evens, odds: the kind does not establish that these \
+    definitions are the intended ones"
+-- Compiled-evaluation observation at build time, not a kernel-checked proof.
+#guard (⟨`c, `M, `f, "R", some .«sound», ⟨#[], #[`evens]⟩⟩ : ContractAccount).sharing ==
+  "; the specification, and the implementation or the acceptance predicate, both use evens: \
+    the kind does not establish that these definitions are the intended ones"
+-- Compiled-evaluation observation at build time, not a kernel-checked proof.
+#guard (⟨`c, `M, `f, "R", some .«sound», {}⟩ : ContractAccount).sharing == ""
 
 /-- Fence expectations of an accepted documentation claim, by kind. Only positive fences are
 conforming evidence; expected rejections and trusted teaching are not interchangeable with it. -/
