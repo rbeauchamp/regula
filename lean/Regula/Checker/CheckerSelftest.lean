@@ -931,8 +931,11 @@ private def shapeCases : Array (String × String × String) :=
     ("vertical-tab-before-word", s!"```\x0blean\n{body}\n```\n", column),
     ("no-break-space-before-word", s!"``` lean\n{body}\n```\n", column),
     ("reference-after-word", "```text a&b\nprose\n```\n", column),
+    -- The scanner accepts line endings of a carriage return and a line feed. The body of the
+    -- fence keeps the carriage return of its last line, and Lean refuses a carriage return that
+    -- no line feed follows, so the audit fails the fence when it compiles it.
     ("return-line-feed", "```lean\r\ntheorem with_return : True := trivial\r\n```\r\n",
-      "return-line-feed.md:1 PASS"),
+      "return-line-feed.md:1 FAIL"),
     ("second-word-lean",
       "```text lean\nprose\n```\n\n```lean\ntheorem second_word : True := trivial\n```\n",
       "second-word-lean.md:5 PASS"),
@@ -956,7 +959,7 @@ private def versoShapeCases : Array (String × String × String) :=
   let column := "does not open a `lean` block in the first column"
   let body := "theorem t : True := trivial"
   #[("verso-tab", s!"\t```lean\n{body}\n```\n", column),
-    ("verso-carriage-return", s!"\r```lean\n{body}\n```\n", column),
+    ("verso-carriage-return", s!"\r```lean\n{body}\n```\n", "a carriage return"),
     ("verso-space", s!" ```lean\n{body}\n```\n", column),
     ("verso-quoted", s!"> ```lean\n> {body}\n> ```\n", column),
     ("verso-list-item", s!"* item\n\n  ```lean\n  {body}\n  ```\n", column),
@@ -1007,12 +1010,13 @@ private def scannerQualification : Array String := Id.run do
       failures :=
           failures.push s!"scanner/{name}: missing problem containing {repr expectedProblem}"
   -- The shape rule: each refused form has its violation, and each accepted text has one fence
-  -- and no violation.
+  -- and no violation. An expectation that ends with ` PASS` or ` FAIL` is the result of the
+  -- audit for the fence of a text that the scanner accepts.
   for (verso, shape) in [(false, shapeCases), (true, versoShapeCases)] do
     for (name, text, expected) in shape do
       let result :=
         if verso then Documentation.scanVerso text name else Documentation.scan text name
-      if expected.endsWith " PASS" then
+      if expected.endsWith " PASS" || expected.endsWith " FAIL" then
         if result.fences.size != 1 || !result.problems.isEmpty then
           failures := failures.push
             s!"scanner/shape/{name}: expected one clean fence, got {result.problems}"

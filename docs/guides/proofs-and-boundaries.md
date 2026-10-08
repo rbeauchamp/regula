@@ -1311,6 +1311,11 @@ the reader, with one carriage return after it when the line ending has one.
 that carriage return have no carriage return and are clean. Thus the verdict of the scanner is
 the verdict on the lines of a reader.
 
+The body of a returned fence keeps the carriage returns of its lines. Lean refuses a carriage
+return that no line feed follows, and the last line of a body has no line feed after it. Thus
+the audit fails a Lean fence of a document with such line endings when it compiles the fence.
+A control pins this result.
+
 A reader replaces the character U+0000 with U+FFFD. The two characters are not white space and
 not letters, and no statement about a line names one of them. Thus that replacement changes no
 statement about a line.
