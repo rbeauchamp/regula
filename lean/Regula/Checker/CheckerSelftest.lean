@@ -871,6 +871,81 @@ private def smokeFixtureNames : Array String :=
     "Fixtures.Positive.ExternBoundary", "Fixtures.Positive.DependentCorrespondence",
     "Fixtures.Mutations.ConditionalCorrespondence"]
 
+/-- The controls of the shape rule of the Markdown scanner (standard §7.7): one text for each
+form that the rule refuses, with words of the violation, and texts that the rule accepts, with
+the fence that passes. The forms are a Lean fence in a container or after indentation, a line of
+Lean shape inside a fence that the scanner thinks is open, a closing run of a Lean fence after
+indentation, a different spelling of the language, and the start tag of a code element of raw
+HTML: each of the five names, in upper and in mixed case, before each of the four characters
+that end a name and at the end of a line, and inside a fence of a different language. -/
+private def shapeCases : Array (String × String × String) :=
+  let column := "does not open a `lean` fence in the first column"
+  let inside := "is inside a fence"
+  let closing := "closing line of a Lean fence does not start in the first column"
+  let raw := "raw HTML opens a code element"
+  let body := "theorem t : True := trivial"
+  #[("quoted-fence", s!"> ```lean\n> {body}\n> ```\n", column),
+    ("quoted-list-fence", s!"> - ```lean\n>   {body}\n>   ```\n", column),
+    ("list-marker-fence", s!"- ```lean\n  {body}\n  ```\n", column),
+    ("ordered-marker-fence", s!"1. ```lean\n   {body}\n   ```\n", column),
+    ("task-marker-fence", s!"- [ ] ```lean\n      {body}\n      ```\n", column),
+    ("footnote-fence", s!"[^1]: ```lean\n    {body}\n    ```\n", column),
+    ("list-item-fence", s!"- item\n\n  ```lean\n  {body}\n  ```\n", column),
+    ("indented-fence", s!" ```lean\n{body}\n```\n", column),
+    ("four-space-fence", s!"    ```lean\n    {body}\n    ```\n", column),
+    ("prose-fence-run", "see ```lean in the text\n", column),
+    ("run-in-indented-code", s!"prose\n\n    ```\n```lean\n{body}\n```\n", inside),
+    ("backtick-info", s!"```text`x\nprose\n```lean\n{body}\n```\n", inside),
+    ("run-in-comment", s!"<!--\n```\n-->\n```lean\n{body}\n```\n", inside),
+    ("run-in-html-block", s!"<details>\n```\n</details>\n\n```lean\n{body}\n```\n", inside),
+    ("indented-close-other", s!"```text\n    ```\n```\n```lean\n{body}\n```\n```\n```\n", inside),
+    ("sample-in-longer", s!"````markdown\n```lean\n{body}\n```\n````\n", inside),
+    ("indented-close-lean",
+      "```lean\ntheorem early : True := trivial\n    ```\ntheorem late : True := trivial\n\
+        ```\n```\n", closing),
+    ("spelling-capital", s!"```Lean\n{body}\n```\n", column),
+    ("spelling-lean4", s!"```lean4\n{body}\n```\n", column),
+    ("spelling-braces", "```{.lean}\n" ++ body ++ "\n```\n", column),
+    ("spelling-reference", s!"```l&#101;an\n{body}\n```\n", column),
+    ("spelling-backslash", s!"```le\\an\n{body}\n```\n", column),
+    ("raw-pre", s!"<pre>\n{body}\n</pre>\n", raw),
+    ("raw-code-space", "text <code class=\"x\">y</code>\n", raw),
+    ("raw-xmp-tab", "<xmp\tclass=\"x\">\n", raw),
+    ("raw-listing-slash", "<listing/>\n", raw),
+    ("raw-plaintext-end", "text <plaintext\n", raw),
+    ("raw-upper", "<PRE>\n", raw),
+    ("raw-mixed", "<CoDe>x\n", raw),
+    ("raw-in-fence", "```html\n<pre>\n```\n", raw),
+    ("raw-near", "a <prefix> b and <codec x\n```lean\ntheorem raw_near : True := trivial\n```\n",
+      "raw-near.md:2 PASS"),
+    ("fence-in-comment", "<!--\n```lean\ntheorem in_comment : True := trivial\n```\n-->\n",
+      "fence-in-comment.md:2 PASS"),
+    ("other-indented",
+      "- item\n\n  ```sh\n  ls\n  ```\n\n```lean\ntheorem after_item : True := trivial\n```\n",
+      "other-indented.md:7 PASS"),
+    ("sketch-name",
+      "```leanSketch\nx\n```\n\n```lean\ntheorem after_sketch : True := trivial\n```\n",
+      "sketch-name.md:5 PASS"),
+    ("tilde-fence", "~~~lean\ntheorem tilde : True := trivial\n~~~\n", "tilde-fence.md:1 PASS")]
+
+/-- The controls of the shape rule of the Verso scanner: a `lean` block after a tab, after a
+carriage return and after a space, in a quotation and in a list item, a line of Lean shape
+inside a block, a closing run of a Lean example after indentation, and two sources that the
+rule accepts. -/
+private def versoShapeCases : Array (String × String × String) :=
+  let column := "does not open a `lean` block in the first column"
+  let body := "theorem t : True := trivial"
+  #[("verso-tab", s!"\t```lean\n{body}\n```\n", column),
+    ("verso-carriage-return", s!"\r```lean\n{body}\n```\n", column),
+    ("verso-space", s!" ```lean\n{body}\n```\n", column),
+    ("verso-quoted", s!"> ```lean\n> {body}\n> ```\n", column),
+    ("verso-list-item", s!"* item\n\n  ```lean\n  {body}\n  ```\n", column),
+    ("verso-inside-block", "```text\n```lean\n```\n", "is inside a code block"),
+    ("verso-indented-close", s!"```lean\n{body}\n  ```\n",
+      "closing line of a Lean example does not start in the first column"),
+    ("verso-first-column", s!"```lean\n{body}\n```\n", "verso-first-column:1 PASS"),
+    ("verso-sketch", s!"```leanSketch\nx\n```\n```lean\n{body}\n```\n", "verso-sketch:4 PASS")]
+
 /-- Counterexample aid, not correctness evidence (standard §0 "The Role of Testing"):
 concrete `Documentation.scan` inputs for each marker/fence problem class. The universal
 statement is `Documentation.checked_scanLines`: the scanner reports no violation exactly for a
@@ -910,6 +985,19 @@ private def scannerQualification : Array String := Id.run do
     else if !result.problems.any (·.contains expectedProblem) then
       failures :=
           failures.push s!"scanner/{name}: missing problem containing {repr expectedProblem}"
+  -- The shape rule: each refused form has its violation, and each accepted text has one fence
+  -- and no violation.
+  for (verso, shape) in [(false, shapeCases), (true, versoShapeCases)] do
+    for (name, text, expected) in shape do
+      let result :=
+        if verso then Documentation.scanVerso text name else Documentation.scan text name
+      if expected.endsWith " PASS" then
+        if result.fences.size != 1 || !result.problems.isEmpty then
+          failures := failures.push
+            s!"scanner/shape/{name}: expected one clean fence, got {result.problems}"
+      else if !result.problems.any (·.contains expected) then
+        failures := failures.push
+          s!"scanner/shape/{name}: missing problem containing {repr expected}"
   if !Documentation.matchesPattern "(?s)failed.*law|Fields missing"
       "prefix failed\nfor a law suffix" then
     failures := failures.push "scanner/pattern: ordered/alternative matching failed"
@@ -939,7 +1027,8 @@ private def bvCheckCertificates (repo scratch : FilePath) : IO (FilePath × File
     ← generate "grind" "grind => bv_decide? -binaryProofs")
 
 /-- The adversarial fence corpus shared by the in-process default-tier audit
-and the end-to-end public `docFenceAudit` control in the conditional tier. -/
+and the end-to-end public `docFenceAudit` control in the conditional tier. The controls of the
+shape rule (`shapeCases`) are part of it. -/
 private def fenceCorpusCases (certificate grindCertificate : FilePath) : Array (String × String × String) := #[
   ("unclosed", "```lean\ntheorem x : True := trivial\n", "never closed"),
   ("empty-pattern", "<!-- lean-fail: -->\n```lean\ndef n : Nat := \"x\"\n```\n",
@@ -1082,7 +1171,7 @@ private def fenceCorpusCases (certificate grindCertificate : FilePath) : Array (
   ("named-warning", "```lean\nimport Lean\nopen Lean\nset_option warningAsError false in\nrun_cmd \
     Lean.logNamedWarningAt (← getRef) `lean.selftestNamedWarning m!\"named\"\n```\n",
         "emitted warning")
-]
+] ++ shapeCases
 
 /-- Corpus cases that only the public `docFenceAudit` control can exercise:
 they depend on the process environment the public command runs its fence

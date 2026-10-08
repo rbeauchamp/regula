@@ -64,7 +64,8 @@ inductive RuleId where
   /-- RG3002: under checked execution, a reachable replacement or `extern` boundary has no
   admitted kernel-checked correspondence with its reference. -/
   | executionBoundary
-  /-- RG4001: a documentation fence marker is misplaced or invalid, or a fence is not closed. -/
+  /-- RG4001: a documentation fence marker is misplaced or invalid, a fence is not closed, or a
+  line can open a Lean block at a place that the audit does not check. -/
   | fenceStructure
   /-- RG4002: an unmarked `lean` documentation fence fails to elaborate warning-free or fails
   the declaration and axiom rules. -/

@@ -562,7 +562,7 @@ the rest of [#199](https://github.com/rbeauchamp/regula/issues/199).
 | `executionFindings`, `executionFailures`, `executionSummary`, `toolchainBase` | `checked_executionFailures` (line `k` renders finding `k`, none added or dropped, so the lines are empty iff `ExecutionOK`), `executionRule_injective`, `checked_summary` (the boundary counts range over the boundaries reported on their own: a later record of one trusted boundary of a root, and a `partial` implementation reported with the boundary that runs it, are counted with that boundary, not again), `checked_toolchainBase` | Root and closure collection, retained compiler edges, correspondence admission, source history, module origins and the text and JSON rendering of the toolchain trusted base. |
 | `Probe.replacementCorrespondence` | `DefeqComparison.classify` (a comparison that did not complete is unresolved, never trusted) | Mapping the kernel result to the outcome, the kernel decision itself and the incomplete theorem-candidate search. |
 | `Checker/Common.admitIndexedWorkerResults`, `mapWorkQueue`, `Documentation.auditTasks` | `checked_indexedResults` over `ResultState.collect` | Child completion, strict packet decoding, task scheduling and exact request and source binding. |
-| `Checker/FenceScan.scanLines`, `scanVersoLines`, `matchesPattern` | `checked_scanLines`, `checked_scanVersoLines` (no violation exactly for a clean document), `toList_linesOf` (the lines of a text), `matchesPattern` | The fences of a result, pattern diagnostic text and effective-error extraction. |
+| `Checker/FenceScan.scanLines`, `scanVersoLines`, `matchesPattern` | `checked_scanLines`, `checked_scanVersoLines` (no violation exactly for a clean document), `fence_of_leanShaped`, `example_of_leanShaped` (a returned fence for each line of Lean shape), `toList_linesOf` (the lines of a text), `matchesPattern` | The body and the byte ranges of a returned fence, pattern diagnostic text and effective-error extraction. |
 | `AxiomGate.auditSurfaceAt`, `FreshChecker`, the file gate | `checked_surfaceAssignments` (with `surfaceAssignments_covers`), `checked_conformingProfile`, `checked_histories`, `checked_environmentJob`, `checked_environmentEvidence` (claimed `RegulaCore.Assembly`) | Manifest parsing, Lake loading and producer history; the contracts concern the decoded records. |
 | `Checker/Acceptance.finish`, `Documentation.finishDocuments`, `FreshChecker.finishGraph` | `finalize`, `finalize_iff`, `accepted_report_identity`, `accepted_covers_slot` | The independently supplied census and the truth of the observations; each finalizer supplies all derived jobs and returns `AcceptedRun`. |
 | `AxiomGate.auditSurface` combined success | `combineAccepted`, `combined_policy`, `combined_reports_same_snapshot` | Child completion and raw decoding, terminal source stability and environment extraction. |
@@ -597,7 +597,7 @@ the call through each success owner.
 | [RG1009] | `sharedTestFailure_none_iff` with the kind `checked_sharedTestFailure`, `declarationFailure_ordered` through `ruleFor`, and `mem_sharedNames_booleans` with `SharedDefinition.class_eq_boolean_iff` for the recorded names | A decision registration is reported when its record names a shared function with a result of `Bool` or `BEq`. Its place is after the recorded refusals of its contract. The search that finds the shared functions and the reading of each one (`Collect.sharedReading`, `Collect.sharedDefinition`) are the collector's and are not proved. The search compares names. A copy of a test under a second name passes. A shared function with a different result type is named in the account and is not refused. A file with a `module` header gives the editor an imported function with no exported value as an axiom. The editor reads its class from its type. It reports a reading that could miss a test below such a function as incomplete ([RG2005]). |
 | [RG2004] | `policyFor_ordered` (membership first), `CensusOK`, `PlanOK` | Complete Lake and environment ownership acquisition. |
 | [RG3001], [RG3002] | `executionFailureRecords_empty_iff`, `boundaryFailures_empty_iff`, `boundaryFailures_toolchain`, `project_boundary_reported`, `executionFindings_empty_iff`, `failure_reported`, `executionFindings_sound`, `checked_toolchainBase` | The theorems cover the supplied unresolved paths and boundaries and their supplied origins, not complete root and closure discovery, the truth of the origin observation, the collector's record of which constant is compiled to which `partial` definition, or the correctness of the toolchain's or external runtime code. |
-| [RG4001] | `checked_scanLines`, `checked_scanVersoLines`, `toList_linesOf` | A document has no violation of the fence protocol exactly when the protocol relation admits its lines ([the fence scanners](#the-fence-scanners-decisions-and-observing-pass)). The fences of a result, the text of a violation and the adequacy of the relation are not proved. |
+| [RG4001] | `checked_scanLines`, `checked_scanVersoLines`, `fence_of_leanShaped`, `example_of_leanShaped`, `toList_linesOf` | A document has no violation exactly when each of its lines is a permitted transition of the fence protocol and keeps the shape rule ([the fence scanners](#the-fence-scanners-decisions-and-observing-pass)). A clean document has a returned fence for each line of Lean shape. The body and the byte ranges of a returned fence, the text of a violation and the adequacy of the relation are not proved. That a Markdown reader opens a Lean block only at a line of Lean shape is by reading CommonMark. |
 | [RG4003] | `matchesPattern_iff`, `orderedLiterals_iff` | One effective error under the restricted grammar; producer completion and effective-error extraction are operational. Policy-negative source fixtures keep their separate registry-bound expectation qualifier, and a rejection is not positive conformance. |
 | [RG5002], [RG5003] | `materialDocumentationFailure_eq_none_iff`, `_eq_missingDocstring_iff`, `_eq_missingIntent_iff` (which docstrings each rule reports; the two never both fire), `hasIntentSection_iff`, `ruleForMaterialDocumentation_injective`; the native linter and the project gate both execute `RegulaPolicy.materialDocumentationFailure`, which `materialDocumentationFailure_eq_none_iff` ties to `MaterialDocumentationOK` | The ATX line grammar (`heading?`) is a definition with checked instances, not a theorem about Markdown (`intentHeading_examples`); `findDocString?` lookup is Lean's. Intent adequacy is R-INTENT. |
 | [RG2001]–[RG2005], [RG4001]–[RG4004], [RG5001]–[RG5003] | The stage relations above, composed by `accept_iff` and `accepted_report_identity` | The adapters that populate them. |
@@ -765,7 +765,7 @@ Two-way decisions (`Regula.Decides`), each with an accepted and a refused input:
 | `Regula.JsonAgreement.agrees` | `JsonAgreement.Agree` (`agrees_iff`). The two values have one constructor and equal scalars. The elements of two arrays agree in order. Two objects have the same number of members. Each member of the first is found by its name in the second, with a value that it agrees with. | The comparison of an input with the encoding of the decoded value ([below](#the-diagnostic-and-policy-codecs-decisions-and-observing-pass)). |
 | `Regula.JsonAgreement.canonical` (accepts on `.ok`) | The reader returns a value, and the input agrees with the encoding of that value (`canonical_eq_ok_iff`). | The decoders `DiagnosticCodec.parseLocation` and `parseDiagnostic`. The reader and the encoder are arguments, so the kind is about each reader and each encoder. |
 | `Regula.Checker.PolicyCodec.exactFields` (accepts on `.ok`) | `ExactFields` (`exactFields_iff`). The value is an object, and its member names are the expected names in some order. | The decoders of the worker protocol and of the producer reports. The proof that the expected names are distinct is an argument of the function. |
-| `Regula.Checker.Documentation.scanLines`, `scanVersoLines` (accept on a result with no violation) | `Clean`, `VersoClean`: the lines are a run of transitions that the fence protocol permits, from the first line to the end of the document (`scanLines_problems_eq_empty_iff`, `scanVersoLines_problems_eq_empty_iff`). | The fence protocol of [RG4001] ([below](#the-fence-scanners-decisions-and-observing-pass)). The input is a `Source`: a document with the lines of its text. The kinds say nothing about the fences of a result. |
+| `Regula.Checker.Documentation.scanLines`, `scanVersoLines` (accept on a result with no violation) | `Clean`, `VersoClean`: the lines are a run of transitions from the first line to the end of the document. The fence protocol permits each transition, and each keeps the shape rule (`scanLines_problems_eq_empty_iff`, `scanVersoLines_problems_eq_empty_iff`). | The fence protocol and the shape rule of [RG4001] ([below](#the-fence-scanners-decisions-and-observing-pass)). The input is a `Source`: a document with the lines of its text. The kinds say nothing about the fences of a result. |
 | `Regula.SourceTexts.intern` | One `sourceTexts` member, `null`, and string `sourceText` members (`intern_isOk_iff`) | Writing a result document. |
 | `Regula.Markdown.documentErrors`, `Regula.Markdown.siteLinkErrors`, `Regula.Prose.bareMentions`, `Regula.Site.linkErrors`, `Regula.Site.missingAnchors`, `Regula.Site.rowsMismatch` | Their `_nil_iff` and `_eq_none_iff` relations | The rule-ID checks of Markdown and of the rendered standard, and the site's link, anchor and checklist checks. `siteLinkErrors` is the check of the links of the root `README.md` to the rule-reference site. |
 | `Regula.Controlled.parse` | The text is the text that `write` gives for a vocabulary (`parse_write`, `write_of_parse`). A vocabulary is a draft with `Draft.WellFormed` (`Draft.defects_nil_iff`). | The vocabulary `CONTEXT.md` (check C9) of the [writing rules](writing.md). The file system gives the text. |
@@ -1216,8 +1216,8 @@ boundary to the encoders, and they are not tests of the comparison, which the th
 ### The fence scanners: decisions and observing pass
 
 The documentation audit finds the Lean examples of a Markdown document and of a Verso source. A
-violation of the fence protocol is a finding of [RG4001]. The reader has two steps, and the
-second step is a pure decision with a kind.
+violation of the fence protocol or of the shape rule is a finding of [RG4001]. The reader has
+two steps, and the second step is a pure decision with a kind.
 
 - **The observing pass** reads the bytes of each document. `Documentation.auditBuiltProject`
   gives each text to `scan` or to `scanVerso`. No theorem says what a file contains.
@@ -1227,7 +1227,10 @@ second step is a pure decision with a kind.
 
 The two decisions are in
 [`Regula/Checker/FenceScan.lean`](../../lean/Regula/Checker/FenceScan.lean). Each is a machine
-with one state. A step function reads one line (`step`, `versoStep`). A last function reads the
+with one state.
+
+A step function reads one line by the fence protocol (`step`, `versoStep`). A second function
+adds the shape rule to that step (`shapedStep`, `shapedVersoStep`). A last function reads the
 end of the document (`finish`, `versoFinish`).
 
 **The input and the result are bound by their types.** The input of a decision is a `Source`: a
@@ -1245,9 +1248,9 @@ the scanner. `Mode` is what the protocol knows between two lines: outside a fenc
 without a marker that waits, or inside a fence. `Permitted` gives the transitions that the
 protocol permits for one line.
 
-`Clean` is a run of permitted transitions from the first line. The run ends outside a fence,
+`Follows` is a run of permitted transitions from the first line. The run ends outside a fence,
 with no marker that waits. The Verso protocol has the same parts, which are `VersoMode`,
-`VersoPermitted` and `VersoClean`.
+`VersoPermitted` and `VersoFollows`.
 
 The statements about one line are about its characters. They are `FenceLine`, `ClosingLine`,
 `TrustedMarker`, `FailMarker`, `MarkerLike` and `FirstWord`. Each gives the line as parts, one
@@ -1264,6 +1267,40 @@ of Lean that trims a text or that takes a part of a text.
 valid pattern. `Permitted` takes the valid patterns as a parameter, and the kind of `scanLines`
 gives it that relation. That relation divides a pattern with `String.splitOn`.
 
+**The shape rule.** The scanner reads lines, and a Markdown reader reads blocks. Thus a block
+of the reader can be at a place where the protocol sees no fence. Such a place is a quotation,
+a list item, or the lines after a line that only the scanner reads as a fence line. The shape
+rule does not make the two agree. It refuses each line that can open a Lean block at such a
+place.
+
+Three statements are about one line, with no state. `LeanShaped` is a line with a run of three
+or more back-ticks or tildes at some place. The first word after that run names Lean
+(`LeanWord`), or it has `&` or a backslash, which Markdown decodes.
+
+`LeanOpening` is a line that opens a Lean fence in the first column. `RawCodeTag` is a line
+with the start tag of `pre`, `code`, `xmp`, `listing` or `plaintext`.
+
+`ShapeRule` gives the rule for one line of a Markdown document. No line is a `RawCodeTag`.
+Outside a fence, a line of Lean shape is a `LeanOpening`. Inside a fence, no line has Lean
+shape, and a line that closes a Lean fence starts with the run. `VersoShapeRule` is the rule
+for a Verso source, with no part about raw HTML.
+
+`Clean` is the relation of the kind: a run of lines, each a permitted transition that keeps the
+shape rule. `LeanAfter` says after each line if the open fence is a Lean fence. `VersoClean` and
+`VersoLeanAfter` are the same for a Verso source.
+
+**From the shape rule to a Markdown reader.** This part is an argument, and it is not a
+theorem. By the syntax of CommonMark, a fenced block opens with a line of four parts. The parts
+are a container prefix, at most three spaces, a fence run and an info string. The language of
+the block is the first word of the info string. Thus each Lean block of a reader opens at a
+line of Lean shape.
+
+In a clean document that line is a `LeanOpening` outside a fence. A fence line in the first
+column is not in a container, and a reader removes no indentation from its body. A reader
+closes the block at the first run of the same character, of that length or more, with at most
+three spaces before it. In a clean document that run is in the first column, where the scanner
+closes the fence too.
+
 **Proved**, about the functions that the checker runs. Lean's kernel checked each theorem in the
 build of the excluded `Regula` library, with `propext`, `Classical.choice` and `Quot.sound` only.
 
@@ -1271,13 +1308,19 @@ build of the excluded `Regula` library, with `propext`, `Classical.choice` and `
 | --- | --- | --- |
 | The Markdown scanner is exact | `scanLines_problems_eq_empty_iff`, `checked_scanLines` | `scanLines` reports no violation exactly for a document with lines that `Clean` admits. The line numbers start at 1, and the valid patterns are those of the policy library. The theorem is for each `Source`. |
 | The Verso scanner is exact | `scanVersoLines_problems_eq_empty_iff`, `checked_scanVersoLines` | `scanVersoLines` reports no violation exactly for a source with lines that `VersoClean` admits. The theorem is for each `Source`. |
-| A scan with its input | `Scanned.problems_eq_empty_iff`, `Scanned.versoProblems_eq_empty_iff` | The two theorems above, for the result and the document that a `Scanned` carries. |
+| A line of Lean shape is a returned fence | `fence_of_leanShaped`, `example_of_leanShaped` | In a clean document, each line of Lean shape is the opening line of a returned fence. The fence has the number of that line. The theorems say nothing about the body or the byte ranges of that fence. |
+| A scan with its input | `Scanned.problems_eq_empty_iff`, `Scanned.versoProblems_eq_empty_iff` | The first two theorems, for the result and the document that a `Scanned` carries. |
 | The lines of a text | `toList_linesOf` | The lines that `linesOf` gives are the characters of the text, divided at each line break by `List.splitOn` of Lean. |
 | The layout of the lines | `layoutLoop_toList`, `layout_eq` | The scanner numbers the lines in a loop that keeps no stack frame for a line. The loop gives the lines of `layoutFrom`, the definition that the theorems read. |
+| The protocol alone | `problems_eq_iff_follows`, `versoProblems_eq_iff_follows` | The steps of the protocol, without the shape rule, keep the violations exactly on a run of permitted transitions (`Follows`, `VersoFollows`). |
 | One step follows the protocol | `step_quiet_or_loud`, `permitted_of_quiet`, `quiet_of_permitted`, `coherent_step` | A step keeps the list of violations, or it makes that list longer. A step that keeps the list is a permitted transition. From a state with `Scan.Coherent`, a permitted transition keeps the list. A step keeps `Scan.Coherent`. The Verso scanner has the same three theorems with no such condition. |
 | The class of a line | `lineIs_classify`, `lineIs_unique`, `classify_eq_of_lineIs` | `classify` returns the class that the line has, and a line has one class only. The proof includes that the trimming and the extraction of the scanner give the parts that the statements name. |
 | The pattern of a marker | `validatePattern_eq_ok_iff` | The validator of the scanner accepts exactly the patterns that `RegulaPolicy.PatternValid` admits. The matcher of [RG4003] uses the same relation (`matchesPattern_iff`). The validator and the relation divide a pattern with the same `String.splitOn`, and Lean's library has no theorem about that function. Thus the theorem does not say what a division gives. |
 | The info string of a Verso block | `versoBlockKind_eq_ok_iff` | `versoBlockKind` returns a kind exactly for an info string that `BlockKind` relates to that kind. |
+
+The tests of the shape rule are private functions, and each has a private theorem that it
+accepts exactly the lines of its statement. Those theorems are part of the proof of the two
+kinds.
 
 **The kinds.** `scanLines` and `scanVersoLines` are two-way decisions. A result is accepted when
 it has no violation. The accepted input is the document with no character, which has one line.
@@ -1287,46 +1330,56 @@ The refused input is the document of one line that opens a fence.
 items:
 
 - What a file contains.
-- The fences of a result, which is the open proof obligation below.
+- The body, the marker and the byte ranges of a returned fence, which is the open proof
+  obligation below.
 - The text of a violation, and the number of violations of a document that is not clean.
 - That the protocol is the intended one. A reviewer examines `Permitted`, `VersoPermitted`,
-  `BlockKind` and the statements about one line.
+  `BlockKind`, `ShapeRule` and the statements about one line.
+- That a Markdown reader follows CommonMark for the opening line and the closing line of a
+  fenced block. The argument above is by reading its sections on fenced code blocks and on
+  container blocks.
+- That the five names are the elements of raw HTML that a browser shows as preformatted text or
+  as code. This is by reading the HTML standard.
 
-Two known limits of the protocol are open issues. The relations state what the scanners test,
-and they do not correct these limits:
+The protocol alone has two defects, which the shape rule closes. It does not see a fence in a
+Markdown block quote ([#273](https://github.com/rbeauchamp/regula/issues/273)). It permits a
+Lean block of a Verso source after a tab
+([#274](https://github.com/rbeauchamp/regula/issues/274)).
 
-- A fence in a Markdown block quote is not a fence line, so the audit does not see it
-  ([#273](https://github.com/rbeauchamp/regula/issues/273)).
-- The line of a Lean example of a Verso source does not start with a space. A line that starts
-  with a tab is permitted, so the first column is not a guarantee
-  ([#274](https://github.com/rbeauchamp/regula/issues/274)).
+**The open proof obligation: the body and the place of a returned fence.** The audit compiles
+the fences that a scanner returns. The verdicts of [RG4002], [RG4003] and [RG4004] are about
+those fences. One part is proved: a clean document has a returned fence for each line of Lean
+shape. No theorem is about the body, the marker or the byte ranges of a fence. A scanner that
+returned a fence with a changed body satisfies the same theorems.
 
-**The open proof obligation: the fences of a result.** The audit compiles the fences that a
-scanner returns, and no theorem is about them. The verdicts of [RG4002], [RG4003] and [RG4004]
-are about those fences. The kinds are about the violations only. A scanner that returned a fence
-with a changed body satisfies the same kinds.
-
-A statement of that obligation says these things for a clean document. The fences of the result
-are the Lean fences of the run, in the order of the document. The body of a fence is the lines
-between its opening line and its closing line. The marker of a fence is the marker on the line
-before its opening line. The byte ranges of a fence are the ranges of those lines in the text.
-`layout` counts one byte for the line break after each line but the last, and no theorem relates
-those offsets to the text.
+A statement of the rest of that obligation says these things for a clean document. Each
+returned fence opens at a line of Lean shape. The body of a fence is the lines between its
+opening line and its closing line. The marker of a fence is the marker on the line before its
+opening line. The byte ranges of a fence are the ranges of those lines in the text. `layout`
+counts one byte for the line break after each line but the last, and no theorem relates those
+offsets to the text.
 
 **The scanners before the split.** The audit ran two loops over the lines, with local variables,
-and it divided a text with `String.splitOn "\n"`. No theorem relates those loops to the scanners
-of this section, and Lean's library has no theorem about that `String.splitOn`.
+and it divided a text with `String.splitOn "\n"`. No theorem relates those loops to the steps of
+the protocol (`step`, `versoStep`), and Lean's library has no theorem about that
+`String.splitOn`.
 
 The agreement of the two is by reading. Each step function has the cases of its loop, with the
 same tests of a line in the same order. A comparison of the results of the two on a set of texts
-is evidence for those texts only.
+is evidence for those texts only. The shape rule is a later change: it refuses documents that
+those loops accepted.
 
-**Observed.** The scanner cases of `checkerSelftest fixtures` run `scan` on 12 texts. For one
-clean text they read that the result has one fence and no violation. For 11 texts they read that
-a violation contains the expected words.
+**Observed.** The scanner cases of `checkerSelftest fixtures` run the scanners on 56 texts.
+Twelve texts are about the protocol. For one clean text the cases read that the result has one
+fence and no violation. For 11 texts they read that a violation contains the expected words.
+
+The other 44 texts are about the shape rule: 35 for a Markdown document and 9 for a Verso
+source. For each form that the rule refuses, the cases read words of the violation. For 7 texts
+that the rule accepts, they read one fence and no violation. The 35 texts are also part of the
+fence corpus, which the audit reads in that diagnostic.
 
 The theorems say when a result has no violation. They do not say which text a violation has,
-and they do not say which fences a result has. The controls read a part of those two things for
+and they do not say which body a fence has. The controls read a part of those two things for
 their texts: words of a violation, and the number of fences.
 
 The fence audit of `./scripts/verify.sh docs` runs the two scanners on each Markdown document
@@ -1338,8 +1391,8 @@ The other producers of [#199](https://github.com/rbeauchamp/regula/issues/199) a
 have no kind. They are contract recognition and reach, receipt validation, and root and closure
 discovery. The sections below state what is proved and what is observed for each of them.
 
-One proof obligation of a producer that is split is open: the fences that a fence scanner
-returns ([above](#the-fence-scanners-decisions-and-observing-pass)).
+One proof obligation of a producer that is split is open: the body and the place of the fences
+that a fence scanner returns ([above](#the-fence-scanners-decisions-and-observing-pass)).
 
 ## Producers
 
@@ -2967,7 +3020,7 @@ not yet proved, and are labelled so at their definition; they are not correctnes
 | rule-examples | 7 record mutations, 7 admission subprocesses | `qualify` refusals | Proved | `RuleExampleQualification.qualify_sound` |
 | checkerSelftest fixtures | in-process and CLI fixture verdicts; fence corpus; diagnostic-setup controls | compiler, elaborator, CLI and fence workers | External | observed |
 | checkerSelftest fixtures | 11 execution-policy cases | failure kind per boundary and claim | Proved | `boundaryFailures_ids`, `rootFailures_ids`, `executionFailureRecords_empty_iff` |
-| checkerSelftest fixtures | 12 scanner cases | `Documentation.scan` marker and fence problems | Counterexample aid | `checked_scanLines` proves that a result has no violation exactly for a clean document. The cases observe words of a violation and the number of fences of one clean text. |
+| checkerSelftest fixtures | 56 scanner cases: 12 of the protocol, 35 of the shape rule for Markdown and 9 for Verso | `Documentation.scan` and `scanVerso` marker, fence and shape problems | Counterexample aid | `checked_scanLines` and `checked_scanVersoLines` prove that a result has no violation exactly for a clean document. The cases observe words of a violation and the number of fences of the clean texts. |
 | checkerSelftest structural | in-process manifest cases | `Manifest.parse` acceptance, decoding and the classified refusal classes | Proved in part | `Manifest.parse_sound`, `parse_input`, `parse_emptyExclusions`, refusal-class theorems; other refusals (a missing required field, an unknown exclusion key) are unclassified |
 | checkerSelftest structural | real manifests, missing file, unlisted modules, fresh-checker coverage, CLI refusal rendering, Lake discovery, executable classification | file IO, CLI rendering, Lake inventory | External | observed |
 | checkerSelftest structural | a lemma realized in a claimed module and the toolchain, in both import orders; unchecked, circular, `sorry` and kept-cycle copies of one name | Lean's realization, import, kept copy and kernel check of several copies of one name | External | observed; the admission decision is `Admission.replayMap_sound`, `replayMap_complete` and `checkCopies_sound` |

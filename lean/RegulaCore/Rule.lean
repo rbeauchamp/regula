@@ -968,16 +968,24 @@ def descriptor : (id : RuleId) → RuleDescriptor id
       applicability := "fence-structure"
       evidenceModes := [.documentationExample]
       requirement := "Each `lean-fail` or `lean-trusted-compiler` marker sits immediately before \
-        the `lean` fence it classifies, and every fence is closed."
+        its `lean` fence, every fence is closed, and Lean code is shown only as a `lean` fence in \
+        the first column."
       rationale := "A misspelled or misplaced marker must not silently turn a negative example \
-        into a positive one or hide a fence from checking. Fail-closed structure keeps every \
-        documented Lean claim checked as intended."
-      remedy := "Put each `lean-fail` or `lean-trusted-compiler` marker immediately before the \
-        `lean` fence it classifies, with a valid pattern, and close every fence."
+        into a positive one or hide a fence from checking. The scanner reads lines and a Markdown \
+        reader reads blocks, so a Lean block in a quotation, in a list item, behind a different \
+        spelling of the language or in raw HTML is rendered and not checked. Fail-closed \
+        structure keeps every documented Lean claim checked as intended."
+      remedy := "Put each marker immediately before the `lean` fence it classifies, with a valid \
+        pattern, and close every fence. Write each Lean example as a `lean` fence that opens and \
+        closes in the first column, outside quotations, list items and other fences."
       rewrites := [
-        "Move the marker so no blank line or other content separates it from its fence.",
-        "Delete orphan markers, or add the fence they were meant to classify.",
-        "Use the exact marker spelling; write non-Lean sketches with another fence language."]
+        "Move the marker so no blank line or other content separates it from its fence; delete \
+          an orphan marker, or add the fence it was meant to classify.",
+        "Use the exact marker spelling; write non-Lean sketches with another fence language.",
+        "Move a Lean fence out of a quotation, a list item or another fence, remove the \
+          indentation before its opening run and its closing run, and write the language as \
+          `lean`, not `Lean`, `lean4` or `{.lean}`.",
+        "Show a raw HTML code tag with a character reference (`&lt;pre>`) or name it in prose."]
       examples := {
         language := .markdown
         audience := .adopter
