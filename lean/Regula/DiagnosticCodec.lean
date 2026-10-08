@@ -63,9 +63,10 @@ def parseLocation (j : Json) : Except String Location :=
 /-- **An accepted location agrees with its encoding.** The input has as many members as the
 encoding of the location that the decoder returns, and each member of the input is found by its
 name in that encoding, with a value that it agrees with. So the input has no member with a name
-or a value that `locationJson` does not write. The theorem does not say that each member of the
-encoding is a member of the input: an object tree that is not a search tree can give one name
-twice and not give a second name. For an input whose object trees are search trees,
+that `locationJson` does not write, and the value of each member agrees with the written value,
+which is equality for a string, a number, a Boolean and null. The theorem does not say that each
+member of the encoding is a member of the input: an object tree that is not a search tree can
+give one name twice and not give a second name. For an input whose object trees are search trees,
 `parseLocation_wire` gives the members. -/
 theorem parseLocation_canonical {j : Json} {location : Location}
     (accepted : parseLocation j = .ok location) : Agree j (locationJson location) :=
@@ -124,8 +125,10 @@ def parseDiagnostic (j : Json) : Except String Finding :=
 /-- **An accepted finding agrees with its encoding.** The input has as many members as the
 encoding of the finding that the decoder returns, and each member of the input is found by its
 name in that encoding, with a value that it agrees with. So the input has no member with a name
-or a value that `diagnosticJson` does not write: a member `text`, `remedy` or `helpUrl` with a
-value that the registry of this checker does not give is refused. The theorem does not say that
+that `diagnosticJson` does not write, and the value of each member agrees with the written value,
+which is equality for a string, a number, a Boolean and null: a member `text`, `remedy` or
+`helpUrl` with a value that the registry of this checker does not give is refused. The theorem
+does not say that
 each member of the encoding is a member of the input: an object tree that is not a search tree
 can give one name twice and have no member `remedy`
 (https://github.com/rbeauchamp/regula/issues/269). For an input whose object trees are search
@@ -431,6 +434,13 @@ private theorem aligned_related (related : List RelatedLocation) :
   | nil => exact .nil
   | cons head rest step => exact .cons (related_wire head) step
 
+/-- The value that the encoder of a finding writes for the related locations is the array of
+their objects. -/
+private theorem toJson_relatedJson (related : Array RelatedLocation) :
+    toJson (related.map relatedJson) = .arr ⟨related.toList.map relatedJson⟩ := by
+  simp only [toJson, Array.toJson, Array.map_map]
+  exact congrArg Json.arr (Array.ext' (by simp))
+
 /-- **The encoder of a finding writes the form of that finding.** -/
 theorem diagnosticJson_wire (finding : Finding) : FindingWire finding (diagnosticJson finding) := by
   obtain ⟨id, d⟩ := finding
@@ -587,12 +597,7 @@ theorem agree_of_findingWire {finding : Finding} {j : Json} (wire : FindingWire 
               (.cons ⟨rfl, fun _ wire => agree_of_locationWire wire⟩
                 (.cons ⟨rfl, fun value same => by rw [same]; exact .str _⟩
                   (.cons ⟨rfl, fun value ⟨items, same, aligned⟩ => by
-                      rw [same]
-                      have written : toJson (d.related.map relatedJson) =
-                          .arr ⟨d.related.toList.map relatedJson⟩ := by
-                        simp only [toJson, Array.toJson, Array.map_map]
-                        exact congrArg Json.arr (Array.ext' (by simp))
-                      rw [written]
+                      rw [same, toJson_relatedJson d.related]
                       exact .arr (agreeAll_of_aligned aligned)⟩
                     (.cons ⟨rfl, fun value same => by rw [same]; exact .str _⟩
                       (.cons ⟨rfl, fun value same => by rw [same]; exact .str _⟩
@@ -883,11 +888,7 @@ theorem findingWire_of_agree {finding : Finding} {j : Json} (regular : Regular j
               (.cons ⟨rfl, fun _ regular agree => locationWire_of_agree regular agree⟩
                 (.cons ⟨rfl, fun _ _ agree => agree.eq_str⟩
                   (.cons ⟨rfl, fun value regular agree => by
-                      have written : toJson (d.related.map relatedJson) =
-                          .arr ⟨d.related.toList.map relatedJson⟩ := by
-                        simp only [toJson, Array.toJson, Array.map_map]
-                        exact congrArg Json.arr (Array.ext' (by simp))
-                      rw [written] at agree
+                      rw [toJson_relatedJson d.related] at agree
                       cases agree with
                       | arr all =>
                         rename_i items

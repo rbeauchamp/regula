@@ -1104,10 +1104,16 @@ statement shapes, which the theorems decide.
 The reader of a result file, and the reader of the reply of a worker, each have two steps. The
 second step is pure decisions with a kind.
 
-- **The observing pass** is `Checker.PolicyCodec.parse`. It turns a text into a `Json` value. Its
-  scalar parsers are functions of Lean that are `partial`, so no theorem says what it returns. It
-  refuses an object that gives one name twice.
-- **The decisions** read the `Json` value that the pass returned, and they read nothing else.
+- **The observing pass** turns a text into a `Json` value. The callers use two parsers, and no
+  theorem says what a parser returns. `Checker.PolicyCodec.parse` uses the scalar parsers of Lean,
+  which are `partial`. It refuses an object that gives one name twice, and it builds each object
+  with `Json.mkObj`. `Json.parse` of Lean runs parsers that are `partial`, and it does not refuse
+  a repeated name. It starts each object from the empty tree and adds each member with `insert`.
+- **Between the two steps**, a reader of a result file gives the value to `SharedExecution.read`.
+  That function puts the source texts and the execution accounts back in the document. It
+  rebuilds the objects of the document with maps that keep each name and the shape of each tree.
+  The maps replace only the value of a member `sourceText`, `sourceTexts` or `execution`.
+- **The decisions** read the `Json` value that a caller gives, and they read nothing else.
   `PolicyCodec.exactFields` decides if a value is an object with the expected members and no
   other. `JsonAgreement.agrees` decides if a value agrees with an encoding.
   `JsonAgreement.canonical` accepts what a reader returns only when the input agrees with the
@@ -1157,20 +1163,37 @@ and it states the decision that is open.
 **Hypotheses and trusted boundary.** The theorems start from a `Json` value. They do not prove
 these items:
 
-- What `PolicyCodec.parse` returns for a text, and what a file contains. That the parser returns
-  search trees is read from its code: it builds each object with `Json.mkObj`, by insertion.
+- What a parser returns for a text, and what a file contains.
+- That each object tree of a value that a caller gives is a search tree. That is read from the
+  code. `PolicyCodec.parse` builds each object with `Json.mkObj`, and `Json.parse` builds each
+  object by insertion from the empty tree. The maps of `SharedExecution.read` keep each name and
+  the shape of each tree. No theorem says that a value of these functions has search trees.
 - That the form is the intended one. A reviewer examines `LocationWire` and `FindingWire`.
 - That `agrees` returns what the runtime equality of `Json` returns. The two definitions have the
   same cases, which a reader can compare. The pull request of the split compared the two functions
   on pairs of values, which is evidence for those pairs only.
-- Three other comparisons of a value with a canonical value. `RegistryCodec.parseDescriptor`,
+- What the other comparisons of `Json` values accept. `RegistryCodec.parseDescriptor`,
   `RegistryCodec.validateRegistry` and the guidance members of `ResultProtocol` use the runtime
-  equality, and no theorem says what they accept.
+  equality. These named comparisons are those of the registry codec and of the result protocol.
+  Other modules of the library also compare `Json` values with the runtime equality. This item
+  is not a complete list, and no theorem says what one of these comparisons accepts.
 
-**The callers.** `AxiomGate`, `ResultProtocol.admitGuidance` and the rule-example qualification
-give the decoder a value of a document that `PolicyCodec.parse` read from a file.
-`RegistryChecks` gives values that it builds with the encoders, `Json.mkObj` and
-`Json.setObjVal!`. No caller builds an object tree node by node. That is read from the callers.
+**The callers.** These paths give a value to the diagnostic decoder. They are read from the code
+of the callers.
+
+- `AxiomGate` reads a result file with `ResultProtocol.readDocument`. That function runs
+  `PolicyCodec.parse` and then `SharedExecution.read`.
+- The runner of the rule examples (`Regula.Qualification.RuleExamples`) reads a result file with
+  `Qualification.readResult`. That function runs `Json.parse` of Lean and then
+  `SharedExecution.read`. The runner gives the document to `ResultProtocol.admitGuidance`.
+- The executable `ruleExampleQualification` reads an evidence file with `PolicyCodec.parse`. A
+  record of that file contains a result document. The executable does not run
+  `SharedExecution.read`.
+- `RegistryChecks` gives values that it builds with the encoders, `Json.mkObj` and
+  `Json.setObjVal!`.
+
+`SharedExecution.read` builds each object tree node by node, with the names and the shape of the
+tree that it reads.
 
 **The verdicts are the same.** No theorem compares the decoders before this split with the
 decoders after it: the old comparison is the runtime equality. The readers of the members have
