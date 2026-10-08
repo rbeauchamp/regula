@@ -10,9 +10,10 @@ Payloads are indexed by the registry's closed `RuleId` (design credit in Regula.
 Each decoder is `JsonAgreement.canonical` of a reader of the members and of an encoder of
 `Regula.RegistryCodec`. The comparison is the registered decision `JsonAgreement.agrees`.
 
-The form of an encoded location and of an encoded finding is stated here without an encoder:
-`LocationWire` and `FindingWire` say which members the object has and what the value of each is
-(`JsonAgreement.Shaped`). The encoders write that form (`locationJson_wire`,
+The form of an encoded location and of an encoded finding is stated here with no encoder of a
+location, of a payload or of a finding: `LocationWire` and `FindingWire` say which members the
+object has and what the value of each is (`JsonAgreement.Shaped`). The form of a name is the one
+that `printedNameJson` writes (`printedNameJson_roundtrip`). The encoders write that form (`locationJson_wire`,
 `diagnosticJson_wire`), and the decoders accept each value of that form and return the location
 or the finding of it (`parseLocation_of_wire`, `parseDiagnostic_of_wire`). So each decoder reads
 the encoding of each value back to that value (`parseLocation_roundtrip`,
@@ -140,9 +141,10 @@ theorem parseDiagnostic_canonical {j : Json} {finding : Finding}
 /-! ## The form of an encoded value
 
 Each relation says which members an object has, and what the value of each is. No relation of
-this section mentions an encoder of this library. Three meanings name a written form that another
-codec states: the form of a name (`printedNameJson`, with `printedNameJson_roundtrip`), the form
-that Lean writes for a natural number, and the form that Lean writes for an LSP range. -/
+this section mentions an encoder of a location, of a payload or of a finding. Three meanings name
+a written form that another codec states: the form of a name, which is the one that
+`printedNameJson` writes (`printedNameJson_roundtrip`), the form that Lean writes for a natural
+number, and the form that Lean writes for an LSP range. -/
 
 /-- The form of a byte range: an object with two members. `endByte` is the offset one past the
 last byte, and `startByte` is the offset of the first byte, each as a number. -/
@@ -661,10 +663,11 @@ theorem parseDiagnostic_roundtrip (finding : Finding) :
 
 /-- `parseLocation` is a complete decision of the form of a location
 (`parseLocation_of_wire`): it accepts each value of that form, and it refuses `null`. The
-specification says which members the object has and what each is, and it names no encoder of
-this library. The kind is one-way: `parseLocation_wire` proves the other direction for an input
-whose object trees are search trees, and the decoder also accepts object trees that are not
-(https://github.com/rbeauchamp/regula/issues/269). -/
+specification says which members the object has and what each is. It names no encoder of a
+location, of a payload or of a finding, and the form of a name is the one that `printedNameJson`
+writes (`printedNameJson_roundtrip`). The kind is one-way: `parseLocation_wire` proves the other
+direction for an input whose object trees are search trees, and the decoder also accepts object
+trees that are not (https://github.com/rbeauchamp/regula/issues/269). -/
 theorem checked_parseLocation : Regula.ExecutableContract parseLocation
     (Regula.DecidesCompletely (·.isOk = true) fun j => ∃ location, LocationWire location j) :=
   ⟨{ complete := fun _ ⟨_, wire⟩ => by
@@ -674,10 +677,12 @@ theorem checked_parseLocation : Regula.ExecutableContract parseLocation
 
 /-- `parseDiagnostic` is a complete decision of the form of a finding
 (`parseDiagnostic_of_wire`): it accepts each value of that form, and it refuses `null`. The
-specification says which members the object has and what each is, and it names no encoder of
-this library. The kind is one-way: `parseDiagnostic_wire` proves the other direction for an input
-whose object trees are search trees, and the decoder also accepts object trees that are not,
-one of them with no member `remedy` (https://github.com/rbeauchamp/regula/issues/269). -/
+specification says which members the object has and what each is. It names no encoder of a
+location, of a payload or of a finding, and the form of a name is the one that `printedNameJson`
+writes (`printedNameJson_roundtrip`). The kind is one-way: `parseDiagnostic_wire` proves the other
+direction for an input whose object trees are search trees, and the decoder also accepts object
+trees that are not, one of them with no member `remedy`
+(https://github.com/rbeauchamp/regula/issues/269). -/
 theorem checked_parseDiagnostic : Regula.ExecutableContract parseDiagnostic
     (Regula.DecidesCompletely (·.isOk = true) fun j => ∃ finding, FindingWire finding j) :=
   ⟨{ complete := fun _ ⟨_, wire⟩ => by

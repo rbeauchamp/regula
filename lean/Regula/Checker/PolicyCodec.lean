@@ -113,8 +113,9 @@ def exactFields (j : Json) (expected : List String) (_distinct : expected.Nodup 
     throw "unknown or missing JSON object fields"
 
 /-- The value is an object, and the names of its members, in the order of its tree, are the
-expected names in some order: no member is unknown, no expected member is missing, and no name
-occurs twice. -/
+expected names in some order: no member is unknown and no expected member is missing. No name
+occurs twice when the expected names are distinct, which `exactFields_iff` and
+`Expectation.distinct` supply. -/
 def ExactFields (j : Json) (expected : List String) : Prop :=
   ∃ fields, j = .obj fields ∧ (fields.toList.map (·.1)).Perm expected
 

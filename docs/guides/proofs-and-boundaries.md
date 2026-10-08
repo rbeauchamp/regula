@@ -1129,8 +1129,11 @@ members, then it reads each member of the first and looks the name up in the sec
 
 **The form of an encoded value.** `LocationWire` and `FindingWire` say which members an object
 has and what the value of each member is (`JsonAgreement.Shaped`). They do not mention an
-encoder of this library. Three meanings name a written form that a different codec states. They
-are the form of a name, of a natural number and of an LSP range.
+encoder of a location, of a payload or of a finding.
+
+Three meanings name a written form that a different codec states. They are the form of a name,
+of a natural number and of an LSP range. The form of a name is the form that `printedNameJson`
+writes (`printedNameJson_roundtrip`).
 
 A finding is an object with eleven members. Eight members carry the finding: `id`, `arguments`,
 `location`, `related`, `mode`, `claim`, `impact` and `severity`. Three members are redundant:
