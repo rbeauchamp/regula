@@ -46,7 +46,8 @@ Mathlib and Batteries linters, which it requires or recommends rather than repla
 | Compiler-trusting proofs: `native_decide`, `decide +native`, `bv_decide` ([RG1004]) | Whether your invariants cover every write path |
 | Axioms beyond the foundation each library claims: kernel-only (none), choice-free (`propext`, `Quot.sound`) or standard-logical (adds `Classical.choice`) ([RG1005]) | Whether your documentation describes the formal claim faithfully |
 | `partial` or `unsafe` declarations you write ([RG1006]); unresolved `extern`/`implemented_by` paths ([RG3001]) and, in `checked` mode, unproved boundaries ([RG3002]) | Lean's kernel, compiler and runtime; Lake; the operating system |
-| Build warnings ([RG2003]), modules outside the manifest ([RG2004]), automatic implicits or a missing `linter.missingDocs` ([RG2006]), modules without a module docstring ([RG5001]) | |
+| Build warnings ([RG2003]), modules outside the manifest ([RG2004]), automatic implicits or a missing `linter.missingDocs` ([RG2006]), modules without a module docstring ([RG5001]) | The packages you require, including a path dependency in your own repository: Regula does not replay their declarations through Lean's kernel |
+| | Code that changes Lean's environment, compiler or build to make a check pass (see the [scope](SECURITY.md#scope) of the security policy) |
 
 The [rule reference](https://rbeauchamp.github.io/regula/rules/) lists every rule, each
 with a checked violating and corrected example.
@@ -125,8 +126,8 @@ The [adoption guide](docs/guides/adoption.md) covers fresh runs, CI and editor d
 [Open an issue](https://github.com/rbeauchamp/regula/issues) for checker false positives or
 omissions, unclear or unnecessarily restrictive requirements, incorrect Lean claims or
 adoption difficulties. Cite the rule or section, and include a small Lean example and your
-toolchain version where useful. Report a security vulnerability, such as a way to make a
-violating project pass, privately instead, as the [security policy](SECURITY.md) describes.
+toolchain version where useful. Report a security vulnerability privately instead, for example
+honest code that makes a violating project pass, as the [security policy](SECURITY.md) tells.
 
 ## Repository map
 

@@ -588,7 +588,7 @@ the call through each success owner.
 
 | Rules | Proved relation | Remaining boundary |
 | --- | --- | --- |
-| [RG1001]–[RG1003] | `declarationFailure_iff`, `policyFor_ordered`, `foundationFor_iff` | Ownership and transitive-axiom acquisition (`Lean.collectAxioms`). |
+| [RG1001]–[RG1003] | `declarationFailure_iff`, `policyFor_ordered`, `foundationFor_iff` | Ownership and transitive-axiom acquisition (`Lean.collectAxioms`). The [changes](#changes-to-leans-environment-compiler-or-build) to Lean's environment, compiler or build that make a check pass are trusted boundaries. |
 | [RG1004] | The above plus `authorizedNativeAxioms_iff`, `native_generated`, `native_provenance`, `compilerTrustingAxiomName_iff`. For the statement that the replay reads: `NativeStatement.asserted?_sound`, `NativeStatement.asserted?_complete` and the kind `NativeStatement.checked_recognize` ([below](#the-native-axiom-statement-decision-and-observing-pass)). | Transcript and replay truth; authorization permits teaching only. The replay evaluates compiled code, and its result is an observation. The recorded text of a statement is not proved to identify its expression. |
 | [RG1005] | `foundationFor_least`, `leastFoundation_ext`, `policyFor_conforming_iff` | The least containing profile of the observed axioms, not the least possible axioms for the proposition. |
 | [RG1006] | The helper authorization `_iff` theorems, `Roles.safetyHelpers_iff`, `policyFor_conforming_iff`, `subject_contract`, `partialParent_rule`; for the comparison that records a recursion helper's observation, `Erasure.equalWithin_iff`, `Erasure.reproduces_iff` and the kind `Erasure.checked_reproduces` ([below](#the-recursion-helper-comparison-decision-and-observing-pass)) | Exact helper metadata, the relevant recorded recursion-helper or constructor-index observation and the base's axioms are checked. A `partial def`'s helper always has a finding naming its opaque parent when that parent is in the inventory. A recursion helper's observation is recorded only where Lean's kernel checked, at that audit, the base's recursion equation for each helper of the group (`Collect.recursionEquationChecked`); that check is the collector's, not a theorem of the policy. The collector observations, the step from the recursion equation to the values the helper returns, compiled-code correspondence and execution coverage are not proved. A recursion helper's termination still trusts Lean's well-founded preprocessing (standard §7.4); a constructor wrapper's native object-tag correspondence remains trusted. |
@@ -596,7 +596,7 @@ the call through each success owner.
 | [RG1008] | `policyFor_decisionContract_iff`, `Roles.decided_iff`, `policyFor_ordered` through `ruleFor`; `decisionFailure_none_iff` for the self-audit's direct use; `editor_decision_ne_decisionContract` (the editor never renders it) | A registered decision without a `Decidable` result or an accepted decision contract in its inventory is reported, among the declarations that meet their other requirements. Reading the registrations of every loaded module and the result type by reduction (`Regula.decisionRegistrations`, `Collect.decisionResult?`, `returnsDecidable`) is the collector's, and so are each recorded contract and the refusal of a registration that names a declaration outside the inventory (`Collect.ownedDecisionRegistrations`). A result type the reduction does not unfold to `Decidable _` counts as another form, which fails closed. Which functions are registered, and each specification's adequacy, are review. |
 | [RG1009] | `sharedTestFailure_none_iff` with the kind `checked_sharedTestFailure`, `declarationFailure_ordered` through `ruleFor`, and `mem_sharedNames_booleans` with `SharedDefinition.class_eq_boolean_iff` for the recorded names | A decision registration is reported when its record names a shared function with a result of `Bool` or `BEq`. Its place is after the recorded refusals of its contract. The search that finds the shared functions and the reading of each one (`Collect.sharedReading`, `Collect.sharedDefinition`) are the collector's and are not proved. The search compares names. A copy of a test under a second name passes. A shared function with a different result type is named in the account and is not refused. A file with a `module` header gives the editor an imported function with no exported value as an axiom. The editor reads its class from its type. It reports a reading that could miss a test below such a function as incomplete ([RG2005]). |
 | [RG2004] | `policyFor_ordered` (membership first), `CensusOK`, `PlanOK` | Complete Lake and environment ownership acquisition. |
-| [RG3001], [RG3002] | `executionFailureRecords_empty_iff`, `boundaryFailures_empty_iff`, `boundaryFailures_toolchain`, `project_boundary_reported`, `executionFindings_empty_iff`, `failure_reported`, `executionFindings_sound`, `checked_toolchainBase` | The theorems cover the supplied unresolved paths and boundaries and their supplied origins, not complete root and closure discovery, the truth of the origin observation, the collector's record of which constant is compiled to which `partial` definition, or the correctness of the toolchain's or external runtime code. |
+| [RG3001], [RG3002] | `executionFailureRecords_empty_iff`, `boundaryFailures_empty_iff`, `boundaryFailures_toolchain`, `project_boundary_reported`, `executionFindings_empty_iff`, `failure_reported`, `executionFindings_sound`, `checked_toolchainBase` | The theorems cover the supplied unresolved paths and boundaries and their supplied origins, not complete root and closure discovery, the truth of the origin observation, the collector's record of which constant is compiled to which `partial` definition, or the correctness of the toolchain's or external runtime code. The [changes](#changes-to-leans-environment-compiler-or-build) to Lean's environment, compiler or build that make a check pass are trusted boundaries. |
 | [RG4001] | `checked_scanLines`, `checked_scanVersoLines`, `fence_of_leanShaped`, `example_of_leanShaped`, `toList_linesOf` | A document has no violation exactly when each of its lines is a permitted transition of the fence protocol and keeps the shape rule ([the fence scanners](#the-fence-scanners-decisions-and-observing-pass)). A clean document has a returned fence for each line of Lean shape. The body and the byte ranges of a returned fence, the text of a violation and the adequacy of the relation are not proved. That a Markdown reader opens a Lean block only at a line of Lean shape is by reading CommonMark. |
 | [RG4003] | `matchesPattern_iff`, `orderedLiterals_iff` | One effective error under the restricted grammar; producer completion and effective-error extraction are operational. Policy-negative source fixtures keep their separate registry-bound expectation qualifier, and a rejection is not positive conformance. |
 | [RG5002], [RG5003] | `materialDocumentationFailure_eq_none_iff`, `_eq_missingDocstring_iff`, `_eq_missingIntent_iff` (which docstrings each rule reports; the two never both fire), `hasIntentSection_iff`, `ruleForMaterialDocumentation_injective`; the native linter and the project gate both execute `RegulaPolicy.materialDocumentationFailure`, which `materialDocumentationFailure_eq_none_iff` ties to `MaterialDocumentationOK` | The ATX line grammar (`heading?`) is a definition with checked instances, not a theorem about Markdown (`intentHeading_examples`); `findDocString?` lookup is Lean's. Intent adequacy is R-INTENT. |
@@ -3513,6 +3513,48 @@ execution, and calling a proved oracle does not prove the driver or its IO effec
   `passed`. If `passed` accepts the entries of the commands of a step, each command has an entry
   with exit status 0. The driver reports success only after `passed` accepts. That
   caller is read from the code and is not proved.
+
+## Changes to Lean's environment, compiler or build
+
+Regula's guarantees are for honest code, as the [scope](../../SECURITY.md#scope) of the security
+policy tells. Honest code does not change Lean's environment, compiler or build to make a check
+pass. The axiom collection and the execution account ([RG3001], [RG3002]) trust that the project
+makes no such change. Thus each change below is a trusted boundary of one of the two or of the
+two:
+
+- **A write to an environment extension.** The axiom collection uses `Lean.collectAxioms`. For a
+  declaration that an imported module exports, that function reads the axiom table
+  `exportedAxiomsExt` that Lean calculated when it wrote the module. The audit imports each module
+  that it inspects. A write to that table changes the axiom sets that the collection gives to the
+  rules [RG1001]–[RG1005].
+- **A declaration that a metaprogram adds with `debug.skipKernelTC`.** [Admission](#producers)
+  replays the owned declarations that are not `unsafe` or `partial` through the kernel. It refuses
+  such a declaration that the kernel does not accept ([RG2005]), and the control
+  `Fixtures.Mutations.LocalUncheckedAdmission` is an observation of one refusal. Admission does
+  not replay an `unsafe` or `partial` declaration or a declaration of a dependency. The axiom
+  collection trusts each declaration that admission does not replay.
+- **A user compiler pass, or a direct write to the IR or LCNF extensions.** A declaration with the
+  attribute `@[cpass]` can add, remove or replace a pass of Lean's compiler. The execution
+  account reads the compiled code that the compiler stored. It trusts that the passes of the
+  pinned compiler made that code.
+- **An `f._unsafe_rec` companion that a metaprogram adds for a definition `f`.** Lean's compiler
+  compiles `f` from the value of `f._unsafe_rec` if that constant exists, in
+  `Lean.Compiler.LCNF.toDecl`. [RG1006] admits an owned recursion helper only where Lean's
+  recursion compiler regenerates its base from it, as
+  [the recursion-helper comparison](#the-recursion-helper-comparison-decision-and-observing-pass)
+  tells. Controls such as `Fixtures.Mutations.ByElabUnsafeRecForge` are observations of refusals.
+  The execution account trusts that each other `_unsafe_rec` constant, for example one of a
+  dependency, is the helper that Lean's recursion compiler made.
+- **A native build setting: `extern_lib`, `moreLinkArgs` or `moreLeancArgs`.** These give native
+  code or options to the C compiler and to the linker. The execution account reads the compiled
+  Lean code, not the native objects that the build links. It trusts that the linked program runs
+  that code.
+
+Regula finds some of these changes, but an accepted result makes no claim that the project has
+none of them. The [README](../../README.md) puts Regula at the `#print axioms` step of
+[Validating a Lean Proof](https://lean-lang.org/doc/reference/latest/ValidatingProofs/). That page
+gives the later steps, `lean4checker` and comparator, for code that is not honest code. To check a
+proof from a source that you do not trust, use [comparator](https://github.com/leanprover/comparator).
 
 ## Operational assumptions
 
