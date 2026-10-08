@@ -473,7 +473,7 @@ pieces (prose, code, the edges of links, refusals, and the boundaries between ru
 for `Regula.Markdown`, which decides on the pieces (`documentErrors_nil_iff`). The theorem is
 about the pieces it is given; the translation has no theorem. Hand-written readers of
 Markdown remain elsewhere in the repository and are no part of this check: the fence scanner of
-the documentation audit (`Regula.Checker.Documentation`, which finds the `lean` fences and their
+the documentation audit (`Regula.Checker.FenceScan`, which finds the `lean` fences and their
 markers), `Regula.Prose.scanGenerated`, which finds the code spans and links of generated
 prose, and `RegulaPolicy.Intent`, which finds the heading lines of a docstring.
 

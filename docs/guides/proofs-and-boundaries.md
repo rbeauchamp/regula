@@ -1315,13 +1315,13 @@ The agreement of the two is by reading. Each step function has the cases of its 
 same tests of a line in the same order. A comparison of the results of the two on a set of texts
 is evidence for those texts only.
 
-**Observed.** `checkerSelftest fixtures` runs `scan` on 12 texts. For one clean text it reads
-that the result has one fence and no violation. For 11 texts it reads that a violation has the
-expected text.
+**Observed.** The scanner cases of `checkerSelftest fixtures` run `scan` on 12 texts. For one
+clean text they read that the result has one fence and no violation. For 11 texts they read that
+a violation contains the expected words.
 
 The theorems say when a result has no violation. They do not say which text a violation has,
-and they do not say which fences a result has. The controls exercise those two things for their
-texts.
+and they do not say which fences a result has. The controls read a part of those two things for
+their texts: words of a violation, and the number of fences.
 
 The fence audit of `./scripts/verify.sh docs` runs the two scanners on each Markdown document
 of `docs/` and on the Verso sources of the standard. It compiles each fence that they return.
@@ -2961,7 +2961,7 @@ not yet proved, and are labelled so at their definition; they are not correctnes
 | rule-examples | 7 record mutations, 7 admission subprocesses | `qualify` refusals | Proved | `RuleExampleQualification.qualify_sound` |
 | checkerSelftest fixtures | in-process and CLI fixture verdicts; fence corpus; diagnostic-setup controls | compiler, elaborator, CLI and fence workers | External | observed |
 | checkerSelftest fixtures | 11 execution-policy cases | failure kind per boundary and claim | Proved | `boundaryFailures_ids`, `rootFailures_ids`, `executionFailureRecords_empty_iff` |
-| checkerSelftest fixtures | 12 scanner cases | `Documentation.scan` marker and fence problems | Counterexample aid | the violations are proved for each document (`checked_scanLines`, `checked_scanVersoLines`), and the text of a violation and the fences of a result are observed |
+| checkerSelftest fixtures | 12 scanner cases | `Documentation.scan` marker and fence problems | Counterexample aid | `checked_scanLines` proves that a result has no violation exactly for a clean document. The cases observe words of a violation and the number of fences of one clean text. |
 | checkerSelftest structural | in-process manifest cases | `Manifest.parse` acceptance, decoding and the classified refusal classes | Proved in part | `Manifest.parse_sound`, `parse_input`, `parse_emptyExclusions`, refusal-class theorems; other refusals (a missing required field, an unknown exclusion key) are unclassified |
 | checkerSelftest structural | real manifests, missing file, unlisted modules, fresh-checker coverage, CLI refusal rendering, Lake discovery, executable classification | file IO, CLI rendering, Lake inventory | External | observed |
 | checkerSelftest structural | a lemma realized in a claimed module and the toolchain, in both import orders; unchecked, circular, `sorry` and kept-cycle copies of one name | Lean's realization, import, kept copy and kernel check of several copies of one name | External | observed; the admission decision is `Admission.replayMap_sound`, `replayMap_complete` and `checkCopies_sound` |
