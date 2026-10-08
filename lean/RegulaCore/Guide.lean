@@ -1234,7 +1234,14 @@ def guide : RuleId → Guide
           ["DECL-01", "DECL-02", "FOUND-05", "SCOPE-02", "TYPE-01", "THEOREM-01", "THEOREM-03",
               "THEOREM-07", "DECL-03", "DECL-04", "COMP-02", "COMP-04", "BUILD-01", "BUILD-04"]
       linkage := "Acceptance side only: an accepted run satisfies `RegulaPolicy.AdmissionOK`. \
-        The editor's deferral to the project audit of a result that needs generated-role \
+        Admission runs two registered decisions. `Admission.checkHeader` accepts exactly a \
+        header whose replayed and reported modules list their constants under their own names \
+        and whose base imports no replayed module (`checked_checkHeader`, two-way). \
+        `Admission.admitReplay` returns a receipt only when every copy is admitted and the \
+        replayed kernel holds each required key (`admitReplay_eq_ok`, `checked_admitReplay`, \
+        one-way), and the required keys are the constants of the replayed and reported modules \
+        that are neither unsafe nor partial (`mem_required`). That the kernel is the replay of \
+        the copies is observed. The editor's deferral to the project audit of a result that needs generated-role \
         evidence is `Regula.Checker.Policy.editor_decision_pending`. Its deferral of a decision \
         kind that it does not read is operational collector code (`hiddenField?` in \
         `Regula.Collect`), which that theorem does not cover: the collector records the \

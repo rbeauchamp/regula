@@ -1441,11 +1441,80 @@ their texts: words of a violation, and the number of fences.
 The fence audit of `./scripts/verify.sh docs` runs the two scanners on each Markdown document
 of `docs/` and on the Verso sources of the standard. It compiles each fence that they return.
 
+### Receipt validation: decisions and observing pass
+
+[RG2005] reports an environment as incomplete when `Admission.validate` does not admit it.
+`validate` is an observing pass around two pure decisions with a kind.
+
+- **The decision on the header** is `Admission.checkHeader`. Its argument,
+  `Admission.ReplayRequest`, holds the modules of the header of the audited environment with
+  their data, the replay set and the reported modules. Each module that is replayed or reported
+  must list its constants under their own names (`Admission.ListsOwnNames`). No module of the
+  replay base may import a replayed module. `checked_checkHeader` registers the kind
+  `Regula.Decides` against `Admission.HeaderOK`.
+- **The decision on the replay** is `Admission.admitReplay`. Its argument,
+  `Admission.AdmitRequest`, holds a request, the proof that `checkHeader` accepted it, and the
+  kernel that the replay gave. The decision runs `checkCopies` on the copies of the request. It
+  then requires that the kernel holds a constant under the name of each required key, and it
+  returns the receipt of the request. `checked_admitReplay` registers the kind
+  `Regula.DecidesSoundly` against `Admission.AdmitOK`.
+- **The observing pass** is the rest of `validate`. It computes the replay set (`replaySet`) and
+  the reported modules, imports the replay base and replays the copies (`replayMap`). It gives a
+  failure of a decision its text, and it catches the exceptions of the import and of the replay.
+
+The copies, the required keys and the modules of the replay base are definitions of the request
+(`ReplayRequest.copies`, `ReplayRequest.required`, `ReplayRequest.imports`). The receipt of an
+`AdmitRequest` is a definition of its fields too (`AdmitRequest.receipt`). Thus a receipt has the
+keys of a header that `checkHeader` accepted, by the type of the argument of `admitReplay`.
+
+**Proved**, about the functions that `validate` runs. Lean's kernel checked each theorem in the
+build of the excluded `Regula` library, with `propext`, `Classical.choice` and `Quot.sound` only.
+
+| Property | Declarations | Meaning and limit |
+| --- | --- | --- |
+| The decision on the header is exact | `Admission.checkHeader_eq_ok_iff`, `Admission.checked_checkHeader` | `checkHeader` accepts exactly a request that `HeaderOK` admits. The theorem is for each list of modules, replay set and list of reported modules. |
+| One condition for each module | `Admission.checkModule_eq_ok_iff`, `Admission.checkListing_eq_ok_iff`, `Admission.checkBase_eq_ok_iff` | A module lists its constants under their own names exactly when its list of names is the names of its constants. A module of the base passes exactly when it imports no module of the replay set. |
+| The required keys | `Admission.mem_required` | A key is required exactly when it names a replayed or reported module and a constant of that module that is neither `unsafe` nor `partial`. |
+| A receipt is admitted | `Admission.admitReplay_eq_ok`, `Admission.checked_admitReplay` | A receipt of `admitReplay` is the receipt of its request. Each copy has the conditions of `CopyAdmitted`, and the kernel holds a constant under the name of each required key. |
+
+**The kind of `admitReplay` is one-way.** The decision runs `checkCopies`, which bounds the
+search of the axioms of a proof by `fuel`. Thus a refusal fails closed, as for `checkCopies`.
+
+**Hypotheses and trusted boundary.** The theorems start from the request. They do not prove these
+items:
+
+- That the kernel of an `AdmitRequest` is the kernel that `Kernel.Environment.replay` of Lean gave
+  for the copies, and that the replay checked each declaration. The pass gives the result of the
+  replay to the decision, and that step is read from the code.
+- That the modules of a request are those of the header of the audited environment, and that
+  `kept` is the lookup of that environment. The pass reads them, and that step is read from the
+  code.
+- That the replay base is what the pass imports. `importModules` of Lean reads the `.olean` files.
+- That `shared` names the copies of a name that the base or a different replayed module also
+  declares. The pass computes it from the base and from `nameCounts`, and that step is read from
+  the code.
+- The text of a failure.
+
+**The verdicts are the same.** No theorem compares the producer before this split with the
+producer after it. The old producer was one loop in `IO`. The decisions have the tests of that
+loop, in the same order and with the same texts, and a reader can compare the two texts.
+
+One test has a different form. Membership in the replay set is now `Array.contains`, in the place
+of `NameSet.contains`. By reading, the two give the same answer for each name. The controls show
+the same results for those controls only.
+
+**Observed.** The structural diagnostic runs the gate on projects with a declaration that the
+kernel refuses and with two copies of one name that admission refuses. Each control gets the
+reason that it expects. The `fixtures` diagnostic does the same for the fixtures of
+`lean/Fixtures/fixtures.json` that expect `kernel-admission`. Those controls are tests of the
+boundary to the kernel and to the import of Lean. They are not tests of the decisions, which the
+theorems decide.
+
 ### The producers that are not split
 
 The other producers of [#199](https://github.com/rbeauchamp/regula/issues/199) are not split and
-have no kind. They are contract recognition and reach, receipt validation, and root and closure
-discovery. The sections below state what is proved and what is observed for each of them.
+have no kind. They are contract recognition and reach, and root and closure discovery. The
+sections below state what is proved and what is observed for each of them.
 
 One proof obligation of a producer that is split is open: the body and the place of the fences
 that a fence scanner returns ([above](#the-fence-scanners-decisions-and-observing-pass)).
@@ -1517,11 +1586,13 @@ inferred from any pure proof.
   `Admission.reachSet_some` (a completed search holds exactly the names reachable from the
   constants the start uses, along `Admission.successors`); `Admission.checkProof_ok`; and
   `Admission.checkCopies_sound` (a success gives every copy the `Admission.CopyAdmitted`
-  conditions above, stated with the reachability relation `Admission.Reach`). **Argued, not
-  machine-checked:** `validate` passes these checks the replayed module data, the base's and the
-  audited environment's `find?` and the replayed kernel, and admits no key when one fails, all
-  read from the code (`Admission.mem_offers` proves that no offered admission lists a `shared`
-  module). Every cycle among the audited environment's non-inductive constants that involves an
+  conditions above, stated with the reachability relation `Admission.Reach`), and
+  `Admission.admitReplay_eq_ok` (a receipt has each copy admitted and each required key in the
+  replayed kernel, [above](#receipt-validation-decisions-and-observing-pass)). **Argued, not
+  machine-checked:** `validate` gives these checks the replayed module data, the base's and the
+  audited environment's `find?` and the replayed kernel, read from the code
+  (`Admission.mem_offers` proves that no offered admission lists a `shared` module). Every cycle
+  among the audited environment's non-inductive constants that involves an
   owned name passes through a name whose kept constant differs from the replayed one (or through
   the trusted base), because replay admits each declaration only after the constants its type and
   value use, and the replayed kernel agrees with the audited environment on the other owned names;
