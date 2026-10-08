@@ -1235,8 +1235,9 @@ structure Declaration.ToolchainObserved where
   unsafeRecRegenerated : Option RecursionOrigin
   /-- For a replay candidate with a statement: whether an independent native evaluation of
   `e` returned `true` (`false` also when the replay failed). The evaluation runs the compiled
-  code of the definitions `e` mentions. The observing pass takes `e` with the proof that the type
-  asserts it (`NativeStatement.Recognition`), so it evaluates no other expression. -/
+  code of the definitions `e` mentions. The observing pass takes the recognition of the
+  candidate (`NativeStatement.Recognition`): `e` with the proof that the decision returns it for
+  that tactic, prefix and type. So it evaluates no other expression. -/
   nativeReplay : Option Bool
   /-- The axioms the constant transitively depends on (`collectAxioms`), sorted and without
   duplicates. -/

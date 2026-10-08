@@ -1918,27 +1918,31 @@ private def unsafeRecRegeneration (env : Environment) (name : Name) (info : Cons
         function it calls its reducibility where the function is declared."
     return none
 
-/-- The recognized statement of a generated native-proof axiom: its owning prefix and tactic,
-which `RegulaPolicy.nativeAxiomOrigin?` reads from its name, and the Boolean expression that its
-type asserts in the exact shape its tactic produces. The pure decision
-`RegulaPolicy.NativeStatement.recognize?` decides the shape, through its registered contract
-(`RegulaPolicy.NativeStatement.checked_recognize`). It reads the tactic, the prefix and the
-kernel-checked type, and nothing else. A recognition holds the proof that `type` is the statement
-of its expression (`RegulaPolicy.NativeStatement.Statement`). -/
+/-- The candidate of a generated native-proof axiom with its recognition: the owning prefix and
+the tactic, which `RegulaPolicy.nativeAxiomOrigin?` reads from the name, with the kernel-checked
+type, and the Boolean expression that the type asserts in the exact shape its tactic produces.
+The pure decision `RegulaPolicy.NativeStatement.recognize?` decides the shape, through its
+registered contract (`RegulaPolicy.NativeStatement.checked_recognize`). It reads the tactic, the
+prefix and the type, and nothing else. A recognition is indexed by its candidate and holds the
+proof that the decision returns its expression for that candidate
+(`RegulaPolicy.NativeStatement.Recognition`). -/
 def nativeRecognition? (name : Name) (type : Expr) :
-    Option (RegulaPolicy.NativeStatement.Recognition type) := do
+    Option ((candidate : RegulaPolicy.NativeStatement.Candidate) ×
+      RegulaPolicy.NativeStatement.Recognition candidate) := do
   let (parent, tactic) ← RegulaPolicy.nativeAxiomOrigin? name
-  RegulaPolicy.NativeStatement.checked_recognize.run { tactic, parent, type }
+  let candidate : RegulaPolicy.NativeStatement.Candidate := { tactic, parent, type }
+  let recognition ← RegulaPolicy.NativeStatement.checked_recognize.run candidate
+  return ⟨candidate, recognition⟩
 
 /-- The `repr` of the asserted expression of a recognition, naming each auxiliary definition of
 the same tactic run by its unindexed base, so a fresh transcript and a build that index generated
 names differently agree. -/
-def nativeStatementText {type : Expr}
-    (recognition : RegulaPolicy.NativeStatement.Recognition type) : String :=
+def nativeStatementText {candidate : RegulaPolicy.NativeStatement.Candidate}
+    (recognition : RegulaPolicy.NativeStatement.Recognition candidate) : String :=
   let unindexed := recognition.asserted.replace fun
-    | .const constant levels => recognition.tactic.auxiliaryInfixes.findSome? fun kind =>
-        if RegulaPolicy.generatedAuxParent? kind constant == some recognition.parent then
-          some (mkConst (Name.mkStr recognition.parent kind) levels)
+    | .const constant levels => candidate.tactic.auxiliaryInfixes.findSome? fun kind =>
+        if RegulaPolicy.generatedAuxParent? kind constant == some candidate.parent then
+          some (mkConst (Name.mkStr candidate.parent kind) levels)
         else none
     | _ => none
   toString (repr unindexed)
@@ -1947,15 +1951,17 @@ def nativeStatementText {type : Expr}
 recognized statement of the axiom (`nativeRecognition?`, `nativeStatementText`), and `none` for a
 constant with no recognized statement. -/
 def nativeStatement? (name : Name) (type : Expr) : Option String :=
-  (nativeRecognition? name type).map nativeStatementText
+  (nativeRecognition? name type).map fun found => nativeStatementText found.2
 
 /-- The observing pass of the native-axiom replay: independently replay the Boolean native
 evaluation of the expression of a recognition, without retaining any declaration it creates. The
-pass takes a recognition, so the expression it evaluates is the one that the pure decision
-returned for the axiom's type, and no other. This remains compiler evidence, never a kernel
-proof. A failed replay is `false`; a `checkerLimit?` reached during it is rethrown. -/
-private def replayNative {type : Expr}
-    (recognition : RegulaPolicy.NativeStatement.Recognition type) : CommandElabM Bool :=
+pass takes a recognition of a candidate. Each value of that type is the result of the pure
+decision for that candidate (`RegulaPolicy.NativeStatement.recognize?_eq_some`), so the expression
+it evaluates is the one that the decision returned for that tactic, prefix and type, and no
+other. This remains compiler evidence, never a kernel proof. A failed replay is `false`; a
+`checkerLimit?` reached during it is rethrown. -/
+private def replayNative {candidate : RegulaPolicy.NativeStatement.Candidate}
+    (recognition : RegulaPolicy.NativeStatement.Recognition candidate) : CommandElabM Bool :=
   liftTermElabM <| withoutModifyingEnv do
     try
       return match ← Meta.nativeEqTrue `audit_native_replay recognition.asserted with
@@ -3303,7 +3309,9 @@ private def declarationReading (name : Name) (stage : Stage) (scope? : Option Co
   -- One recognition gives the recorded statement and the replayed expression: a replay is
   -- recorded only for an axiom with a recognized statement.
   let native? := nativeRecognition? name info.type
-  let nativeReplay? ← if stage == .replayCandidate then native?.mapM replayNative else pure none
+  let nativeReplay? ← if stage == .replayCandidate then
+      native?.mapM fun found => replayNative found.2
+    else pure none
   let levelParams : List Name := info.levelParams
   let all : List Name :=
     match info with
@@ -3352,7 +3360,7 @@ private def declarationReading (name : Name) (stage : Stage) (scope? : Option Co
     valueConstants := RegulaPolicy.canonicalNames valueConstants
     unsafeRecRegenerated
     constructorIndex
-    nativeStatement := native?.map nativeStatementText
+    nativeStatement := native?.map fun found => nativeStatementText found.2
     nativeReplay := nativeReplay?
     recordedRanges := ranges?.map rangesReport
     generatedFrom

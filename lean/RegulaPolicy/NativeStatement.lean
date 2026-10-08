@@ -18,9 +18,10 @@ the axiom's name. `recognize?` is the decision of this module. It is a pure, tot
 that origin and of the axiom's kernel-checked type, and of nothing else: no environment, no
 attribute and no name that the audited project can write beside the declaration itself is among
 its arguments. The observing pass (`Regula.Collect.replayNative`) then evaluates the expression
-that the decision returned with compiled code. The pass takes a `Recognition`, which holds the
-expression with the proof that the type asserts it, so the pass cannot be given a different
-expression.
+that the decision returned with compiled code. The pass takes a `Recognition` of the candidate,
+which holds the expression with the proof that the decision returns it for that candidate. Each
+value of that type is the result of the decision (`recognize?_eq_some`), so the pass cannot be
+given the expression of a different candidate or a different expression.
 
 `Statement` is the relation the decision is proved against: one constructor for each tactic.
 `asserted?_sound` proves, with no hypothesis, that an accepted type is related, and
@@ -291,43 +292,51 @@ theorem asserted?_eq_some_iff (hAppend : RuntimeStringAppend) (candidate : Candi
 
 /-! ## The registered decision -/
 
-/-- The recognized statement of an axiom of the type `type`: the tactic, the prefix, the
-expression that the type asserts to be `true`, and the proof that `type` is that statement. The
-observing pass evaluates `asserted` and no other expression, because it takes this record. -/
-structure Recognition (type : Expr) where
-  /-- The native tactic of the statement. -/
-  tactic : NativeTactic
-  /-- The prefix of the statement's auxiliary definitions. -/
-  parent : Name
-  /-- The Boolean expression that the type asserts to be `true`. -/
+/-- The recognition of a candidate: the Boolean expression that the decision returns for it, with
+the proof that `asserted?` returns that expression for that candidate. So a value of this type
+exists only for a candidate that the decision accepts, and it holds the expression of the
+decision (`recognize?_eq_some`): a caller cannot build one for a different tactic, prefix, type
+or expression. The observing pass takes this record. -/
+structure Recognition (candidate : Candidate) where
+  /-- The Boolean expression that the candidate's type asserts to be `true`. -/
   asserted : Expr
-  /-- `type` is the statement of `asserted` for that tactic and prefix. -/
-  statement : Statement parent tactic type asserted
+  /-- The decision returns that expression for the candidate. -/
+  accepted : asserted? candidate = some asserted
 
-/-- The recognized statement of a candidate, when its type is the statement of its tactic under
-its prefix (`asserted?`), with the proof (`asserted?_sound`). The function reads the tactic, the
-prefix and the type, and nothing else. -/
+/-- The candidate's type is the statement of the recognized expression, for the candidate's
+tactic and prefix. -/
+theorem Recognition.statement {candidate : Candidate} (recognition : Recognition candidate) :
+    Statement candidate.parent candidate.tactic candidate.type recognition.asserted :=
+  asserted?_sound recognition.accepted
+
+/-- The recognition of a candidate, when its type is the statement of its tactic under its prefix
+(`asserted?`). The function reads the tactic, the prefix and the type, and nothing else. -/
 @[regula_decision]
-def recognize? (candidate : Candidate) : Option (Recognition candidate.type) :=
+def recognize? (candidate : Candidate) : Option (Recognition candidate) :=
   match accepted : asserted? candidate with
-  | some asserted =>
-      some { tactic := candidate.tactic, parent := candidate.parent, asserted,
-             statement := asserted?_sound accepted }
+  | some asserted => some ⟨asserted, accepted⟩
   | none => none
 
-/-- A recognition holds the candidate's tactic and prefix and the expression `asserted?`
-returns. -/
-theorem recognize?_eq_some {candidate : Candidate} {recognition : Recognition candidate.type}
-    (recognized : recognize? candidate = some recognition) :
-    recognition.tactic = candidate.tactic ∧ recognition.parent = candidate.parent ∧
-      asserted? candidate = some recognition.asserted := by
-  unfold recognize? at recognized
-  split at recognized
-  · rename_i asserted accepted
-    simp only [Option.some.injEq] at recognized
-    subst recognized
-    exact ⟨rfl, rfl, accepted⟩
-  · simp at recognized
+/-- Each recognition of a candidate is the one that the decision gives for that candidate. So
+the type of the result links what the pass evaluates to the candidate: no value of
+`Recognition candidate` is anything but the result of `recognize? candidate`. -/
+theorem recognize?_eq_some {candidate : Candidate} (recognition : Recognition candidate) :
+    recognize? candidate = some recognition := by
+  obtain ⟨asserted, accepted⟩ := recognition
+  unfold recognize?
+  split
+  · rename_i found returned
+    obtain rfl : found = asserted := Option.some.inj (returned.symm.trans accepted)
+    rfl
+  · rename_i refused
+    rw [refused] at accepted
+    cases accepted
+
+/-- A candidate that the decision refuses has no recognition. -/
+theorem Recognition.not_refused {candidate : Candidate} (recognition : Recognition candidate) :
+    recognize? candidate ≠ none := by
+  rw [recognize?_eq_some recognition]
+  exact Option.some_ne_none recognition
 
 /-- `recognize?` gives a recognition exactly where `asserted?` gives an expression. -/
 theorem isSome_recognize? (candidate : Candidate) :
@@ -351,8 +360,8 @@ def decideTrue : Expr :=
 recognition only for a type that is the statement of the candidate's tactic under the
 candidate's prefix (`asserted?_sound`, with no hypothesis), and it accepts the statement
 `decide True = true` of `native_decide`. Its result type depends on the candidate, since a
-recognition holds the proof about the candidate's type, so the decision is of whether a
-recognition is given (`Regula.Dependent.isSome`).
+recognition holds the proof about that candidate, so the decision is of whether a recognition is
+given (`Regula.Dependent.isSome`).
 
 The kind is one-way for a reason the logic gives. A related type is accepted where the names of
 the auxiliary definitions of `bv_decide` are regenerated by concatenation
@@ -371,8 +380,7 @@ theorem checked_recognize : Regula.ExecutableContract recognize? (fun decision =
            (fun bv => by cases bv) (.nativeDecide _ _ _ (.intro _ _ _ _))]
        rfl⟩ }⟩
 
-/-- A type that asserts no expression is refused, whatever the tactic and the prefix: the sort
-`Prop` is an example. -/
+/-- A type that asserts no expression is refused, whatever the tactic and the prefix. -/
 theorem asserted?_eq_none_of_not_asserts {candidate : Candidate}
     (refuted : ∀ asserted, ¬ AssertsTrue candidate.type asserted) :
     asserted? candidate = none := by

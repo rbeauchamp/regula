@@ -789,7 +789,7 @@ Sound only, each a declared choice:
 | --- | --- | --- |
 | `Regula.SharedExecution.same` | The two values are equal (`same_eq`) | That it accepts every pair of equal values is not proved, and nothing depends on it. The equality is `=`: two objects with the same members whose trees are balanced differently are different values, which `same` refuses and Lean's runtime `Json` comparison identifies. |
 | `Regula.Checker.Admission.checkCopies` | Every copy is `CopyAdmitted` (`checkCopies_sound`) | It may refuse admissible copies: the search for a proof's axioms is bounded by fuel, and a refusal fails closed ([RG2005]). |
-| `RegulaPolicy.NativeStatement.recognize?` (accepts on `some`) | `NativeStatement.Stated`: the type is the statement of the tactic under the prefix (`asserted?_sound`) | Completeness for `bv_decide` has the hypothesis `RuntimeStringAppend` (`asserted?_complete`), and a kind has no hypothesis. A refusal fails closed ([RG1004]). The result holds the proof about the type of the candidate, so the kind is about `Regula.Dependent.isSome recognize?`. |
+| `RegulaPolicy.NativeStatement.recognize?` (accepts on `some`) | `NativeStatement.Stated`: the type is the statement of the tactic under the prefix (`asserted?_sound`) | Completeness for `bv_decide` has the hypothesis `RuntimeStringAppend` (`asserted?_complete`), and a kind has no hypothesis. A refusal fails closed ([RG1004]). The result holds the proof about the candidate, so the kind is about `Regula.Dependent.isSome recognize?`. |
 | `Regula.Checker.ProducerReport.Environment.validate` | `Admissible` (`validate_sound`) | It may refuse an admissible report; `validate_eq_ok` is two-way against the guard Booleans, not against `Admissible`. |
 | `RegulaProvision.admits` | `Admitted`: the receipt records the requested revision and compiler, zero artifact policy and empty source, and holds no package at another revision than a pin (`admits_sound`) | It refuses an `Admitted` receipt of another schema version. |
 | `RegulaProvision.cloneStep` (accepts on `.replace`), `found` (accepts on a result other than `.foreign`), `prunes` | The path is a link or a clean Git checkout (`cloneStep_replace`); the directory's receipt names it (`found_identified`); the directory is not the current one and no registered copy links it (`prunes_sound`) | `cloneStep` keeps a clean checkout at the pinned revision; the program states no converse for the other two. |
@@ -1035,9 +1035,11 @@ a pure decision with a kind.
   `NativeStatement.checked_recognize` registers the kind `Regula.DecidesSoundly`.
   `Collect.nativeRecognition?` takes the verdict from `checked_recognize.run`.
 - **The observing pass** is `Collect.replayNative`. It evaluates the recognized expression with
-  compiled code (`Meta.nativeEqTrue`) and records if the result is `true`. Its argument is a
-  `NativeStatement.Recognition`. That record holds the expression and the proof that the type of
-  the axiom asserts it. Thus Lean rejects a call of the pass with a different expression.
+  compiled code, through `Meta.nativeEqTrue`, and records if the result is `true`. Its argument
+  is a `NativeStatement.Recognition` of the candidate: the expression and the proof that
+  `asserted?` returns it for that candidate. Thus the link from the candidate to the expression
+  that the pass evaluates follows from the type of the result. Each value of that type is the
+  result of the decision for that candidate, by the theorem `recognize?_eq_some`.
 
 **Proved**, about `NativeStatement.asserted?` and `NativeStatement.recognize?`, the functions that
 the collector runs. Lean's kernel checked each theorem in the claimed library, with `propext`,
@@ -1051,7 +1053,7 @@ the collector runs. Lean's kernel checked each theorem in the claimed library, w
 | The statement `e = true` | `NativeStatement.AssertsTrue`, `NativeStatement.assertedBool?_eq_some_iff` | The type is the constant `Eq` applied to the constant `Bool`, to `e` and to the constant `Bool.true`. The theorem is about the functions `Expr.getAppFn` and `Expr.getAppArgs` of Lean, which the decision runs. |
 | One expression | `NativeStatement.Statement.unique` | A type is the statement of one expression at most, for all tactics and prefixes. |
 | The names of the auxiliary definitions | `generatedAuxParent?_sound`, `generatedAuxParent?_of_generatedAux` | A recognized name is a name of the generator under the recovered prefix. The converse has the hypothesis `RuntimeStringAppend`. |
-| The record of the pass | `NativeStatement.Recognition`, `NativeStatement.recognize?_eq_some` | A recognition holds the tactic and the prefix of the candidate, the expression that `asserted?` returns, and the proof of the statement. |
+| The record of the pass | `NativeStatement.Recognition`, `NativeStatement.recognize?_eq_some`, `NativeStatement.Recognition.statement`, `NativeStatement.Recognition.not_refused` | A recognition has its candidate as an index. It holds the expression and the proof that `asserted?` returns it for that candidate. Each recognition of a candidate is the result of `recognize?` for that candidate. Thus a candidate that the decision refuses has no recognition, and the statement of a recognition is a theorem. |
 
 **The kind is one-way.** The decision regenerates the names of the two auxiliary definitions of
 `bv_decide` with `String.Internal.append`. Lean's logic does not say what that function returns.
@@ -1066,6 +1068,7 @@ They do not prove these items:
   of the expression. The field `nativeReplay` is a toolchain observation.
 - That the tactic and the prefix are those of the name of the axiom. `Collect.nativeRecognition?`
   gives the result of `nativeAxiomOrigin?` to the decision, and that step is read from the code.
+  The type of a recognition states the candidate, and it does not state the name of the axiom.
 - That the name and the type are those of the axiom. The collector reads them from the constant
   map of the environment.
 - That `generatedName` is the name that the generator of Lean gives. That is read from the source
@@ -1079,9 +1082,12 @@ They do not prove these items:
 - The adequacy of the relation: that these shapes are the statements that the pinned tactics
   make. That is read from the source of Lean.
 
-**The verdicts are the same.** The decision runs the expressions that the collector ran before
-this split, with the same arguments. Only the place of one `bind` changed: the collector reads the
-name, and the decision reads the type. The pull request of the split gives the evidence.
+**The verdicts are the same.** No theorem of the repository compares the producer before this
+split with the producer after it. The decision has the guards of the old collector, with the same
+arguments, and a reader can compare the two texts. Only the place of one `bind` changed: the
+collector reads the name, and the decision reads the type. The controls show the same results for
+those controls only. The pull request of the split describes one more check, which is not in the
+repository.
 
 **Observed.** `checkerSelftest fixtures` does the pass and the decision on the pinned toolchain.
 The seven native controls of `lean/Fixtures/Mutations` each get the reason that `fixtures.json`
