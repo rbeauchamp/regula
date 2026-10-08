@@ -20,8 +20,8 @@ The pure wire laws do not prove this text parser or external producer authentici
 
 The reading of a document has two parts. `parse` is the observing pass: it turns a text into a
 `Json` value with Lean's own scalar parsers, which are `partial`, so no theorem says what it
-returns. `exactFields` is a pure decision about the value that the pass returned: whether it is
-an object with exactly the expected members. `checked_exactFields` registers its kind, sound and
+returns. `exactFields` is a pure decision about the `Json` value that a caller gives: whether it
+is an object with exactly the expected members. `checked_exactFields` registers its kind, sound and
 complete against `ExactFields`. -/
 namespace Regula.Checker.PolicyCodec
 open Lean Std.Internal.Parsec Std.Internal.Parsec.String

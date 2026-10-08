@@ -1173,8 +1173,8 @@ these items:
   the shape of each tree. No theorem says that a value of these functions has search trees.
 - That the form is the intended one. A reviewer examines `LocationWire` and `FindingWire`.
 - That `agrees` returns what the runtime equality of `Json` returns. The two definitions have the
-  same cases, which a reader can compare. The pull request of the split compared the two functions
-  on pairs of values, which is evidence for those pairs only.
+  same cases, which a reader can compare. The agreement of the two is by reading, and a
+  comparison of the two over pairs of values is evidence for those pairs only.
 - What the other comparisons of `Json` values accept. `RegistryCodec.parseDescriptor`,
   `RegistryCodec.validateRegistry` and the guidance members of `ResultProtocol` use the runtime
   equality. These named comparisons are those of the registry codec and of the result protocol.

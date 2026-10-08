@@ -693,9 +693,11 @@ theorem checked_parseDiagnostic : Regula.ExecutableContract parseDiagnostic
 /-! ## An accepted value has the form, for search trees
 
 The converse of the two decoder theorems above holds for an input whose object trees are search
-trees (`JsonAgreement.Regular`), as the text parser and `Json.mkObj` build them. It does not hold
-for each `Json` value: the comparison reads each member of the input and looks its name up in the
-encoding, so it accepts an object tree that gives one name twice in the place of another name.
+trees (`JsonAgreement.Regular`). That the object trees of an input are search trees is read from
+the code of the two text parsers (`Checker.PolicyCodec.parse` and Lean's `Json.parse`) and of
+`Json.mkObj`, and no theorem states it. The converse does not hold for each `Json` value: the
+comparison reads each member of the input and looks its name up in the encoding, so it accepts an
+object tree that gives one name twice in the place of another name.
 `parseLocation_iff` and `parseDiagnostic_iff` state the two directions together. -/
 
 /-- A value that agrees with the written form of a name is that written form. -/
