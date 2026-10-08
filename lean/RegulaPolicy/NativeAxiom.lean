@@ -49,7 +49,9 @@ whichever tactic, wrapper or command reached the call.
 second assumes `RuntimeStringAppend`, because `Name.appendIndexAfter` appends with the logically
 opaque `String.Internal.append`. `generatedAuxParent?_sound` and
 `generatedAuxParent?_of_generatedAux` prove the same two inclusions for the names of the auxiliary
-definitions of a tactic run (`GeneratedAux`), the second under the same hypothesis.
+definitions of a tactic run (`GeneratedAux`), the second under the same hypothesis and for an
+infix such that no text that starts with it is the macro-scope marker `_hyg`. The two infixes of
+`bv_decide`, `_expr_def` and `_cert_def`, are such infixes.
 `generatedPrefix_iff` proves that the names recognized under a
 prefix related to a declaration by `GeneratedPrefix` are exactly those the generator gives that
 declaration's native axioms in its own module, in either privacy mode. A recognized name is not
@@ -357,7 +359,8 @@ theorem generatedAuxParent?_sound {kind : String} {n parent : Name}
     · simp at h
   · simp at h
 
-/-- Under `RuntimeStringAppend`, the generator's name for the one-component infix `kind` is the
+/-- Under `RuntimeStringAppend`, for a prefix without macro scopes
+(`parent.hasMacroScopes = false`), the generator's name for the one-component infix `kind` is the
 prefix with one more component, `kind` and the index suffix, when no text that starts with
 `kind` is the macro-scope marker `_hyg`. -/
 theorem generatedName_str (hAppend : RuntimeStringAppend) (parent : Name) (kind : String)
@@ -378,7 +381,9 @@ theorem generatedName_str (hAppend : RuntimeStringAppend) (parent : Name) (kind 
     rfl
 
 /-- Under `RuntimeStringAppend`, every name the generator gives to an auxiliary declaration of
-the infix `kind` is recognized, with its own prefix. -/
+the infix `kind` is recognized, with its own prefix, when no text that starts with `kind` is the
+macro-scope marker `_hyg` (`differs`). The two infixes of `bv_decide`, `_expr_def` and
+`_cert_def`, satisfy that hypothesis. -/
 theorem generatedAuxParent?_of_generatedAux (hAppend : RuntimeStringAppend) {kind : String}
     (differs : ∀ rest, kind.toList ++ rest ≠ "_hyg".toList) {parent n : Name}
     (h : GeneratedAux kind parent n) : generatedAuxParent? kind n = some parent := by

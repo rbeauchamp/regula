@@ -8,8 +8,7 @@ meta import Regula.Decision
 
 /-! # The statement of a generated native-proof axiom
 
-The pure decision of the native-axiom replay (RG1004,
-https://rbeauchamp.github.io/regula/v/0.10.0/rules/RG1004/): whether the type of an axiom is the
+The pure decision of the native-axiom replay (RG1004): whether the type of an axiom is the
 statement that its native tactic asserts, and which Boolean expression that statement asserts to
 be `true`.
 

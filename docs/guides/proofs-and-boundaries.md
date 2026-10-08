@@ -1052,7 +1052,7 @@ the collector runs. Lean's kernel checked each theorem in the claimed library, w
 | One constructor for each tactic | The constructors of `NativeStatement.Statement` | `nativeDecide` and `decideNative`: the type asserts `Decidable.decide p inst`. `bvDecide`: the type asserts `verifyBVExpr expr cert`, and the generator made the names of `expr` and `cert` under the same prefix (`GeneratedAux`). |
 | The statement `e = true` | `NativeStatement.AssertsTrue`, `NativeStatement.assertedBool?_eq_some_iff` | The type is the constant `Eq` applied to the constant `Bool`, to `e` and to the constant `Bool.true`. The theorem is about the functions `Expr.getAppFn` and `Expr.getAppArgs` of Lean, which the decision runs. |
 | One expression | `NativeStatement.Statement.unique` | A type is the statement of one expression at most, for all tactics and prefixes. |
-| The names of the auxiliary definitions | `generatedAuxParent?_sound`, `generatedAuxParent?_of_generatedAux` | A recognized name is a name of the generator under the recovered prefix. The converse has the hypothesis `RuntimeStringAppend`. |
+| The names of the auxiliary definitions | `generatedAuxParent?_sound`, `generatedAuxParent?_of_generatedAux` | A recognized name is a name of the generator under the recovered prefix. The converse has two hypotheses. The first is `RuntimeStringAppend`. The second is that no text that starts with the infix is the macro-scope marker `_hyg`. The two infixes of `bv_decide`, `_expr_def` and `_cert_def`, satisfy the second hypothesis. |
 | The record of the pass | `NativeStatement.Recognition`, `NativeStatement.recognize?_eq_some`, `NativeStatement.Recognition.statement`, `NativeStatement.Recognition.not_refused` | A recognition has its candidate as an index. It holds the expression and the proof that `asserted?` returns it for that candidate. Each recognition of a candidate is the result of `recognize?` for that candidate. Thus a candidate that the decision refuses has no recognition, and the statement of a recognition is a theorem. |
 
 **The kind is one-way.** The decision regenerates the names of the two auxiliary definitions of
@@ -1086,8 +1086,7 @@ They do not prove these items:
 split with the producer after it. The decision has the guards of the old collector, with the same
 arguments, and a reader can compare the two texts. Only the place of one `bind` changed: the
 collector reads the name, and the decision reads the type. The controls show the same results for
-those controls only. The pull request of the split describes one more check, which is not in the
-repository.
+those controls only.
 
 **Observed.** `checkerSelftest fixtures` does the pass and the decision on the pinned toolchain.
 The seven native controls of `lean/Fixtures/Mutations` each get the reason that `fixtures.json`
