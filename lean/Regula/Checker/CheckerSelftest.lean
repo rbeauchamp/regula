@@ -872,9 +872,10 @@ private def smokeFixtureNames : Array String :=
     "Fixtures.Mutations.ConditionalCorrespondence"]
 
 /-- Counterexample aid, not correctness evidence (standard §0 "The Role of Testing"):
-concrete `Documentation.scan` inputs for each marker/fence problem class. A universal
-statement of the scanner's problem coverage is not yet proved; until it is, these cases
-only search for counterexamples. -/
+concrete `Documentation.scan` inputs for each marker/fence problem class. The universal
+statement is `Documentation.checked_scanLines`: the scanner reports no violation exactly for a
+document with lines that the protocol admits. These cases also read the text of a violation and
+the number of fences of a clean text, which that statement does not cover. -/
 private def scannerQualification : Array String := Id.run do
   let cases : Array (String × String × String) := #[
     ("positive", "```lean\ntheorem ok : True := trivial\n```\n", ""),

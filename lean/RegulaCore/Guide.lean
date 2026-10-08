@@ -1485,10 +1485,13 @@ def guide : RuleId → Guide
         "Only Markdown structure is checked here; elaboration results belong to RG4002–RG4004."]
       residuals := [.qualify, .doc]
       checklist := ["DOC-03"]
-      linkage := "Acceptance side only: an accepted run satisfies `RegulaPolicy.DocumentOK`. The \
-        fence scanner is not proved."
-      sources := ["lean/Regula/Checker/Documentation.lean", "lean/Regula/Checker/Diagnostics.lean",
-          "lean/RegulaPolicy/Pattern.lean"] }
+      linkage := "An accepted run satisfies `RegulaPolicy.DocumentOK`. The scanners report no \
+        violation exactly for a document with lines that the fence protocol admits \
+        (`Regula.Checker.Documentation.checked_scanLines`, `checked_scanVersoLines`), and the \
+        lines are those of the text of the document (`toList_linesOf`). The fences of a result \
+        are not proved."
+      sources := ["lean/Regula/Checker/FenceScan.lean", "lean/Regula/Checker/Documentation.lean",
+          "lean/Regula/Checker/Diagnostics.lean", "lean/RegulaPolicy/Pattern.lean"] }
   | .positiveExample => {
       problem := "A positive Lean fence in the documentation did not elaborate verbatim and \
         warning-free, or it did and then failed admission or the declaration and axiom rules."

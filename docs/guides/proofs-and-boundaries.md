@@ -562,7 +562,7 @@ the rest of [#199](https://github.com/rbeauchamp/regula/issues/199).
 | `executionFindings`, `executionFailures`, `executionSummary`, `toolchainBase` | `checked_executionFailures` (line `k` renders finding `k`, none added or dropped, so the lines are empty iff `ExecutionOK`), `executionRule_injective`, `checked_summary` (the boundary counts range over the boundaries reported on their own: a later record of one trusted boundary of a root, and a `partial` implementation reported with the boundary that runs it, are counted with that boundary, not again), `checked_toolchainBase` | Root and closure collection, retained compiler edges, correspondence admission, source history, module origins and the text and JSON rendering of the toolchain trusted base. |
 | `Probe.replacementCorrespondence` | `DefeqComparison.classify` (a comparison that did not complete is unresolved, never trusted) | Mapping the kernel result to the outcome, the kernel decision itself and the incomplete theorem-candidate search. |
 | `Checker/Common.admitIndexedWorkerResults`, `mapWorkQueue`, `Documentation.auditTasks` | `checked_indexedResults` over `ResultState.collect` | Child completion, strict packet decoding, task scheduling and exact request and source binding. |
-| `Checker/Documentation.matchesPattern` | `matchesPattern` | Structural fence scanning, pattern diagnostic text and effective-error extraction. |
+| `Checker/FenceScan.scanLines`, `scanVersoLines`, `matchesPattern` | `checked_scanLines`, `checked_scanVersoLines` (no violation exactly for a clean document), `toList_linesOf` (the lines of a text), `matchesPattern` | The fences of a result, pattern diagnostic text and effective-error extraction. |
 | `AxiomGate.auditSurfaceAt`, `FreshChecker`, the file gate | `checked_surfaceAssignments` (with `surfaceAssignments_covers`), `checked_conformingProfile`, `checked_histories`, `checked_environmentJob`, `checked_environmentEvidence` (claimed `RegulaCore.Assembly`) | Manifest parsing, Lake loading and producer history; the contracts concern the decoded records. |
 | `Checker/Acceptance.finish`, `Documentation.finishDocuments`, `FreshChecker.finishGraph` | `finalize`, `finalize_iff`, `accepted_report_identity`, `accepted_covers_slot` | The independently supplied census and the truth of the observations; each finalizer supplies all derived jobs and returns `AcceptedRun`. |
 | `AxiomGate.auditSurface` combined success | `combineAccepted`, `combined_policy`, `combined_reports_same_snapshot` | Child completion and raw decoding, terminal source stability and environment extraction. |
@@ -597,6 +597,7 @@ the call through each success owner.
 | [RG1009] | `sharedTestFailure_none_iff` with the kind `checked_sharedTestFailure`, `declarationFailure_ordered` through `ruleFor`, and `mem_sharedNames_booleans` with `SharedDefinition.class_eq_boolean_iff` for the recorded names | A decision registration is reported when its record names a shared function with a result of `Bool` or `BEq`. Its place is after the recorded refusals of its contract. The search that finds the shared functions and the reading of each one (`Collect.sharedReading`, `Collect.sharedDefinition`) are the collector's and are not proved. The search compares names. A copy of a test under a second name passes. A shared function with a different result type is named in the account and is not refused. A file with a `module` header gives the editor an imported function with no exported value as an axiom. The editor reads its class from its type. It reports a reading that could miss a test below such a function as incomplete ([RG2005]). |
 | [RG2004] | `policyFor_ordered` (membership first), `CensusOK`, `PlanOK` | Complete Lake and environment ownership acquisition. |
 | [RG3001], [RG3002] | `executionFailureRecords_empty_iff`, `boundaryFailures_empty_iff`, `boundaryFailures_toolchain`, `project_boundary_reported`, `executionFindings_empty_iff`, `failure_reported`, `executionFindings_sound`, `checked_toolchainBase` | The theorems cover the supplied unresolved paths and boundaries and their supplied origins, not complete root and closure discovery, the truth of the origin observation, the collector's record of which constant is compiled to which `partial` definition, or the correctness of the toolchain's or external runtime code. |
+| [RG4001] | `checked_scanLines`, `checked_scanVersoLines`, `toList_linesOf` | A document has no violation of the fence protocol exactly when the protocol relation admits its lines ([the fence scanners](#the-fence-scanners-decisions-and-observing-pass)). The fences of a result, the text of a violation and the adequacy of the relation are not proved. |
 | [RG4003] | `matchesPattern_iff`, `orderedLiterals_iff` | One effective error under the restricted grammar; producer completion and effective-error extraction are operational. Policy-negative source fixtures keep their separate registry-bound expectation qualifier, and a rejection is not positive conformance. |
 | [RG5002], [RG5003] | `materialDocumentationFailure_eq_none_iff`, `_eq_missingDocstring_iff`, `_eq_missingIntent_iff` (which docstrings each rule reports; the two never both fire), `hasIntentSection_iff`, `ruleForMaterialDocumentation_injective`; the native linter and the project gate both execute `RegulaPolicy.materialDocumentationFailure`, which `materialDocumentationFailure_eq_none_iff` ties to `MaterialDocumentationOK` | The ATX line grammar (`heading?`) is a definition with checked instances, not a theorem about Markdown (`intentHeading_examples`); `findDocString?` lookup is Lean's. Intent adequacy is R-INTENT. |
 | [RG2001]–[RG2005], [RG4001]–[RG4004], [RG5001]–[RG5003] | The stage relations above, composed by `accept_iff` and `accepted_report_identity` | The adapters that populate them. |
@@ -716,11 +717,12 @@ Which report states a kind depends on the library that holds the registration:
   registrations are contracts of the accepted inventory, so an accepted account of Regula states
   the kind of each and, for a one-way kind, the direction it leaves open.
 - **The excluded `Regula` library.** Acceptance does not report its declarations, so no report
-  states the kind of its nineteen registrations, named here with their modules: `checked_same` and
+  states the kind of its twenty-one registrations, named here with their modules: `checked_same` and
   `checked_read` (`Regula.SharedExecution`), `checked_intern` and `checked_expand`
   (`Regula.SourceTexts`), `checked_agrees` and `checked_canonical` (`Regula.JsonAgreement`),
   `checked_parseLocation` and `checked_parseDiagnostic` (`Regula.DiagnosticCodec`),
-  `checked_exactFields` (`Regula.Checker.PolicyCodec`), `checked_parseMode` and `checked_parseRule`
+  `checked_exactFields` (`Regula.Checker.PolicyCodec`), `checked_scanLines` and
+  `checked_scanVersoLines` (`Regula.Checker.FenceScan`), `checked_parseMode` and `checked_parseRule`
   (`Regula.RegistryCodec`), `checked_parseName` and `checked_parsePrintedNameJson`
   (`Regula.StructuralName`), `checked_checkCopies` (`Regula.Checker.Admission`),
   `checked_parseValue` (`Regula.Checker.Manifest`), `checked_validate`
@@ -763,6 +765,7 @@ Two-way decisions (`Regula.Decides`), each with an accepted and a refused input:
 | `Regula.JsonAgreement.agrees` | `JsonAgreement.Agree` (`agrees_iff`). The two values have one constructor and equal scalars. The elements of two arrays agree in order. Two objects have the same number of members. Each member of the first is found by its name in the second, with a value that it agrees with. | The comparison of an input with the encoding of the decoded value ([below](#the-diagnostic-and-policy-codecs-decisions-and-observing-pass)). |
 | `Regula.JsonAgreement.canonical` (accepts on `.ok`) | The reader returns a value, and the input agrees with the encoding of that value (`canonical_eq_ok_iff`). | The decoders `DiagnosticCodec.parseLocation` and `parseDiagnostic`. The reader and the encoder are arguments, so the kind is about each reader and each encoder. |
 | `Regula.Checker.PolicyCodec.exactFields` (accepts on `.ok`) | `ExactFields` (`exactFields_iff`). The value is an object, and its member names are the expected names in some order. | The decoders of the worker protocol and of the producer reports. The proof that the expected names are distinct is an argument of the function. |
+| `Regula.Checker.Documentation.scanLines`, `scanVersoLines` (accept on a result with no violation) | `Clean`, `VersoClean`: the lines are a run of transitions that the fence protocol permits, from the first line to the end of the document (`scanLines_problems_eq_empty_iff`, `scanVersoLines_problems_eq_empty_iff`). | The fence protocol of [RG4001] ([below](#the-fence-scanners-decisions-and-observing-pass)). The input is a `Source`: a document with the lines of its text. The kinds say nothing about the fences of a result. |
 | `Regula.SourceTexts.intern` | One `sourceTexts` member, `null`, and string `sourceText` members (`intern_isOk_iff`) | Writing a result document. |
 | `Regula.Markdown.documentErrors`, `Regula.Markdown.siteLinkErrors`, `Regula.Prose.bareMentions`, `Regula.Site.linkErrors`, `Regula.Site.missingAnchors`, `Regula.Site.rowsMismatch` | Their `_nil_iff` and `_eq_none_iff` relations | The rule-ID checks of Markdown and of the rendered standard, and the site's link, anchor and checklist checks. `siteLinkErrors` is the check of the links of the root `README.md` to the rule-reference site. |
 | `Regula.Controlled.parse` | The text is the text that `write` gives for a vocabulary (`parse_write`, `write_of_parse`). A vocabulary is a draft with `Draft.WellFormed` (`Draft.defects_nil_iff`). | The vocabulary `CONTEXT.md` (check C9) of the [writing rules](writing.md). The file system gives the text. |
@@ -825,7 +828,7 @@ Decisions with no kind, and what stands instead:
 
 Every decision of the three tables with a kind is registered with `@[regula_decision]`, so
 [RG1008] requires its contract: 54 functions of `RegulaPolicy`, 28 of `RegulaCore`, 9 of
-`RegulaQualification`, 3 of `AuditApp`, 8 of `RegulaProvision`, 6 of `RegulaVerification` and 19 of the excluded `Regula` library, where the
+`RegulaQualification`, 3 of `AuditApp`, 8 of `RegulaProvision`, 6 of `RegulaVerification` and 21 of the excluded `Regula` library, where the
 `self-audit` diagnostic decides the rule. Sixteen of them are registered from another module of
 their library, with
 `attribute [regula_decision]` beside their contracts, because the module that declares them
@@ -1210,12 +1213,133 @@ with an unsupported mode, with an unknown impact or with an unknown severity. It
 name in a form that the encoder does not write for that name. Those cases are tests of the
 boundary to the encoders, and they are not tests of the comparison, which the theorems decide.
 
+### The fence scanners: decisions and observing pass
+
+The documentation audit finds the Lean examples of a Markdown document and of a Verso source. A
+violation of the fence protocol is a finding of [RG4001]. The reader has two steps, and the
+second step is a pure decision with a kind.
+
+- **The observing pass** reads the bytes of each document. `Documentation.auditBuiltProject`
+  gives each text to `scan` or to `scanVerso`. No theorem says what a file contains.
+- **The decisions** read a document with its lines, and they read nothing else. `scanLines` is
+  the scanner of a Markdown document, and `scanVersoLines` is the scanner of a Verso source.
+  Each is registered with `@[regula_decision]`.
+
+The two decisions are in
+[`Regula/Checker/FenceScan.lean`](../../lean/Regula/Checker/FenceScan.lean). Each is a machine
+with one state. A step function reads one line (`step`, `versoStep`). A last function reads the
+end of the document (`finish`, `versoFinish`).
+
+**The input and the result are bound by their types.** The input of a decision is a `Source`: a
+document, its name in a violation, and its lines. The field `divided` is the proof that the
+lines are the characters of the text of the document, divided at each line break. Thus no value
+of the type has the lines of a different text. `Source.of` makes the lines with `linesOf`, and
+`toList_linesOf` is the proof for that function.
+
+`scan` and `scanVerso` return a `Scanned`: the form of the document, the `Source` and the result.
+The field `executed` is the proof that the result is what the scanner of that form returns for
+that `Source`. The audit takes its fences and its violations from a `Scanned`.
+
+**The protocol.** The specification of each scanner is a relation, and it names no function of
+the scanner. `Mode` is what the protocol knows between two lines: outside a fence, with or
+without a marker that waits, or inside a fence. `Permitted` gives the transitions that the
+protocol permits for one line.
+
+`Clean` is a run of permitted transitions from the first line. The run ends outside a fence,
+with no marker that waits. The Verso protocol has the same parts, which are `VersoMode`,
+`VersoPermitted` and `VersoClean`.
+
+The statements about one line are about its characters. They are `FenceLine`, `ClosingLine`,
+`TrustedMarker`, `FailMarker`, `MarkerLike` and `FirstWord`. Each gives the line as parts, one
+after the other: whitespace, the characters of a delimiter, and the characters between two
+delimiters. `Trimmed` states what a text is without the whitespace at its two ends, and a text
+has one such form only (`Trimmed.unique`).
+
+`LineIs` gives the class of a line outside a fence: the first class of five that the line has.
+`BlockKind` gives the supported info strings of a Verso block, each with its kind. The
+statements about the characters of a line use `Char.isWhitespace` of Lean. They use no function
+of Lean that trims a text or that takes a part of a text.
+
+`BlockKind` also names `RegulaPolicy.PatternValid`, the relation of the policy library for a
+valid pattern. `Permitted` takes the valid patterns as a parameter, and the kind of `scanLines`
+gives it that relation. That relation divides a pattern with `String.splitOn`.
+
+**Proved**, about the functions that the checker runs. Lean's kernel checked each theorem in the
+build of the excluded `Regula` library, with `propext`, `Classical.choice` and `Quot.sound` only.
+
+| Property | Declarations | Meaning and limit |
+| --- | --- | --- |
+| The Markdown scanner is exact | `scanLines_problems_eq_empty_iff`, `checked_scanLines` | `scanLines` reports no violation exactly for a document with lines that `Clean` admits. The line numbers start at 1, and the valid patterns are those of the policy library. The theorem is for each `Source`. |
+| The Verso scanner is exact | `scanVersoLines_problems_eq_empty_iff`, `checked_scanVersoLines` | `scanVersoLines` reports no violation exactly for a source with lines that `VersoClean` admits. The theorem is for each `Source`. |
+| A scan with its input | `Scanned.problems_eq_empty_iff`, `Scanned.versoProblems_eq_empty_iff` | The two theorems above, for the result and the document that a `Scanned` carries. |
+| The lines of a text | `toList_linesOf` | The lines that `linesOf` gives are the characters of the text, divided at each line break by `List.splitOn` of Lean. |
+| The layout of the lines | `layoutLoop_toList`, `layout_eq` | The scanner numbers the lines in a loop that keeps no stack frame for a line. The loop gives the lines of `layoutFrom`, the definition that the theorems read. |
+| One step follows the protocol | `step_quiet_or_loud`, `permitted_of_quiet`, `quiet_of_permitted`, `coherent_step` | A step keeps the list of violations, or it makes that list longer. A step that keeps the list is a permitted transition. From a state with `Scan.Coherent`, a permitted transition keeps the list. A step keeps `Scan.Coherent`. The Verso scanner has the same three theorems with no such condition. |
+| The class of a line | `lineIs_classify`, `lineIs_unique`, `classify_eq_of_lineIs` | `classify` returns the class that the line has, and a line has one class only. The proof includes that the trimming and the extraction of the scanner give the parts that the statements name. |
+| The pattern of a marker | `validatePattern_eq_ok_iff` | The validator of the scanner accepts exactly the patterns that `RegulaPolicy.PatternValid` admits. The matcher of [RG4003] uses the same relation (`matchesPattern_iff`). The validator and the relation divide a pattern with the same `String.splitOn`, and Lean's library has no theorem about that function. Thus the theorem does not say what a division gives. |
+| The info string of a Verso block | `versoBlockKind_eq_ok_iff` | `versoBlockKind` returns a kind exactly for an info string that `BlockKind` relates to that kind. |
+
+**The kinds.** `scanLines` and `scanVersoLines` are two-way decisions. A result is accepted when
+it has no violation. The accepted input is the document with no character, which has one line.
+The refused input is the document of one line that opens a fence.
+
+**Hypotheses and trusted boundary.** The theorems start from a `Source`. They do not prove these
+items:
+
+- What a file contains.
+- The fences of a result, which is the open proof obligation below.
+- The text of a violation, and the number of violations of a document that is not clean.
+- That the protocol is the intended one. A reviewer examines `Permitted`, `VersoPermitted`,
+  `BlockKind` and the statements about one line.
+
+Two known limits of the protocol are open issues. The relations state what the scanners test,
+and they do not correct these limits:
+
+- A fence in a Markdown block quote is not a fence line, so the audit does not see it
+  ([#273](https://github.com/rbeauchamp/regula/issues/273)).
+- The line of a Lean example of a Verso source does not start with a space. A line that starts
+  with a tab is permitted, so the first column is not a guarantee
+  ([#274](https://github.com/rbeauchamp/regula/issues/274)).
+
+**The open proof obligation: the fences of a result.** The audit compiles the fences that a
+scanner returns, and no theorem is about them. The verdicts of [RG4002], [RG4003] and [RG4004]
+are about those fences. The kinds are about the violations only. A scanner that returned a fence
+with a changed body satisfies the same kinds.
+
+A statement of that obligation says these things for a clean document. The fences of the result
+are the Lean fences of the run, in the order of the document. The body of a fence is the lines
+between its opening line and its closing line. The marker of a fence is the marker on the line
+before its opening line. The byte ranges of a fence are the ranges of those lines in the text.
+`layout` counts one byte for the line break after each line but the last, and no theorem relates
+those offsets to the text.
+
+**The scanners before the split.** The audit ran two loops over the lines, with local variables,
+and it divided a text with `String.splitOn "\n"`. No theorem relates those loops to the scanners
+of this section, and Lean's library has no theorem about that `String.splitOn`.
+
+The agreement of the two is by reading. Each step function has the cases of its loop, with the
+same tests of a line in the same order. A comparison of the results of the two on a set of texts
+is evidence for those texts only.
+
+**Observed.** The scanner cases of `checkerSelftest fixtures` run `scan` on 12 texts. For one
+clean text they read that the result has one fence and no violation. For 11 texts they read that
+a violation contains the expected words.
+
+The theorems say when a result has no violation. They do not say which text a violation has,
+and they do not say which fences a result has. The controls read a part of those two things for
+their texts: words of a violation, and the number of fences.
+
+The fence audit of `./scripts/verify.sh docs` runs the two scanners on each Markdown document
+of `docs/` and on the Verso sources of the standard. It compiles each fence that they return.
+
 ### The producers that are not split
 
 The other producers of [#199](https://github.com/rbeauchamp/regula/issues/199) are not split and
-have no kind. They are contract recognition and reach, receipt validation, root and closure
-discovery, and the fence scanner. The sections below state what is proved and what is observed
-for each of them.
+have no kind. They are contract recognition and reach, receipt validation, and root and closure
+discovery. The sections below state what is proved and what is observed for each of them.
+
+One proof obligation of a producer that is split is open: the fences that a fence scanner
+returns ([above](#the-fence-scanners-decisions-and-observing-pass)).
 
 ## Producers
 
@@ -2843,7 +2967,7 @@ not yet proved, and are labelled so at their definition; they are not correctnes
 | rule-examples | 7 record mutations, 7 admission subprocesses | `qualify` refusals | Proved | `RuleExampleQualification.qualify_sound` |
 | checkerSelftest fixtures | in-process and CLI fixture verdicts; fence corpus; diagnostic-setup controls | compiler, elaborator, CLI and fence workers | External | observed |
 | checkerSelftest fixtures | 11 execution-policy cases | failure kind per boundary and claim | Proved | `boundaryFailures_ids`, `rootFailures_ids`, `executionFailureRecords_empty_iff` |
-| checkerSelftest fixtures | 12 scanner cases | `Documentation.scan` marker and fence problems | Counterexample aid | open: a step-function scanner with proved problem coverage |
+| checkerSelftest fixtures | 12 scanner cases | `Documentation.scan` marker and fence problems | Counterexample aid | `checked_scanLines` proves that a result has no violation exactly for a clean document. The cases observe words of a violation and the number of fences of one clean text. |
 | checkerSelftest structural | in-process manifest cases | `Manifest.parse` acceptance, decoding and the classified refusal classes | Proved in part | `Manifest.parse_sound`, `parse_input`, `parse_emptyExclusions`, refusal-class theorems; other refusals (a missing required field, an unknown exclusion key) are unclassified |
 | checkerSelftest structural | real manifests, missing file, unlisted modules, fresh-checker coverage, CLI refusal rendering, Lake discovery, executable classification | file IO, CLI rendering, Lake inventory | External | observed |
 | checkerSelftest structural | a lemma realized in a claimed module and the toolchain, in both import orders; unchecked, circular, `sorry` and kept-cycle copies of one name | Lean's realization, import, kept copy and kernel check of several copies of one name | External | observed; the admission decision is `Admission.replayMap_sound`, `replayMap_complete` and `checkCopies_sound` |
@@ -3241,6 +3365,7 @@ operator's narrow shell exceptions are recorded in [`AGENTS.md`](../../AGENTS.md
 [RG3001]: https://rbeauchamp.github.io/regula/dev/rules/RG3001/
 [RG3002]: https://rbeauchamp.github.io/regula/dev/rules/RG3002/
 [RG4001]: https://rbeauchamp.github.io/regula/dev/rules/RG4001/
+[RG4002]: https://rbeauchamp.github.io/regula/dev/rules/RG4002/
 [RG4003]: https://rbeauchamp.github.io/regula/dev/rules/RG4003/
 [RG4004]: https://rbeauchamp.github.io/regula/dev/rules/RG4004/
 [RG5001]: https://rbeauchamp.github.io/regula/dev/rules/RG5001/
