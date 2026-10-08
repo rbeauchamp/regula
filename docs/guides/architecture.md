@@ -358,7 +358,7 @@ metadata, not authenticated binary identity.
   text back, and `parsePrintedNameJson_str` that the reader admits a string only as that text.
   Admission reads names back with that reader: producer reports through `Regula.Report`'s
   instances and diagnostics through `DiagnosticCodec.parseDiagnostic`, which also refuses a
-  diagnostic unequal to its canonical re-encoding.
+  diagnostic that does not agree with its canonical re-encoding (`JsonAgreement.agrees`).
 - **Attribution:** the collector records, for each declaration, the declaration Lean generated it
   from, one step (`Collect.generatedFrom?`), by trying the closed families of
   `RegulaPolicy.GeneratedFamily` in the order of `GeneratedFamily.all`, each with its own clause of
