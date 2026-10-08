@@ -1486,9 +1486,10 @@ def guide : RuleId → Guide
       residuals := [.qualify, .doc]
       checklist := ["DOC-03"]
       linkage := "An accepted run satisfies `RegulaPolicy.DocumentOK`. The scanners report no \
-        violation exactly for a list of lines that the fence protocol admits \
-        (`Regula.Checker.Documentation.checked_scanLines`, `checked_scanVersoLines`). The \
-        division of a text into lines and the fences of a result are not proved."
+        violation exactly for a document with lines that the fence protocol admits \
+        (`Regula.Checker.Documentation.checked_scanLines`, `checked_scanVersoLines`), and the \
+        lines are those of the text of the document (`toList_linesOf`). The fences of a result \
+        are not proved."
       sources := ["lean/Regula/Checker/FenceScan.lean", "lean/Regula/Checker/Documentation.lean",
           "lean/Regula/Checker/Diagnostics.lean", "lean/RegulaPolicy/Pattern.lean"] }
   | .positiveExample => {

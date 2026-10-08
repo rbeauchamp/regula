@@ -874,8 +874,8 @@ private def smokeFixtureNames : Array String :=
 /-- Counterexample aid, not correctness evidence (standard §0 "The Role of Testing"):
 concrete `Documentation.scan` inputs for each marker/fence problem class. The universal
 statement is `Documentation.checked_scanLines`: the scanner reports no violation exactly for a
-list of lines that the protocol admits. These cases also go through the division of a text into
-lines and read the text of a violation, which that statement does not cover. -/
+document with lines that the protocol admits. These cases also read the text of a violation and
+the number of fences of a clean text, which that statement does not cover. -/
 private def scannerQualification : Array String := Id.run do
   let cases : Array (String × String × String) := #[
     ("positive", "```lean\ntheorem ok : True := trivial\n```\n", ""),

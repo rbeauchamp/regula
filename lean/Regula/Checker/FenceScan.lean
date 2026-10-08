@@ -15,9 +15,11 @@ Each scanner is a machine with one state (`Scan`, `VersoScan`): `step` reads one
 `finish` reads the end of the document. No function of this module reads a file.
 
 `scanLines` and `scanVersoLines` are the registered decisions. `checked_scanLines` and
-`checked_scanVersoLines` state that each reports no violation exactly for a list of lines that
-the protocol relation admits (`Clean`, `VersoClean`). No theorem is about the fences of a
-result, and none is about the division of a text into lines, which `scan` and `scanVerso` do.
+`checked_scanVersoLines` state that each reports no violation exactly for a document with lines
+that the protocol relation admits (`Clean`, `VersoClean`). The input of a decision is a `Source`:
+a document with its lines, bound to its text (`toList_linesOf`). The audit takes a `Scanned`: a
+result that is bound to its input and to the scanner. No theorem is about the fences of a
+result.
 
 Expected-failure markers use a deliberately small diagnostic pattern language:
 `|` separates alternatives and `.*` separates ordered literal substrings. This
@@ -158,7 +160,8 @@ structure Line where
   deriving Repr
 
 /-- The lines of a document from the line `number` at the byte offset `offset`: each line but the
-last has one byte of line break after it. -/
+last has one byte of line break after it. The theorems read this definition. The scanner runs
+`layout`, which gives the same lines (`layout_eq`). -/
 def layoutFrom (number offset : Nat) : List String → List Line
   | [] => []
   | [last] => [{ number, text := last, start := offset, next := offset + last.utf8ByteSize }]
@@ -166,8 +169,54 @@ def layoutFrom (number offset : Nat) : List String → List Line
       { number, text := line, start := offset, next := offset + line.utf8ByteSize + 1 } ::
         layoutFrom (number + 1) (offset + line.utf8ByteSize + 1) rest
 
+/-- `layoutFrom` as a loop. The lines that are done are in `done`, and the call of the function
+in its own body is the last step of that body. Thus the compiled function keeps no stack frame
+for a line, where `layoutFrom` keeps one. -/
+def layoutLoop (number offset : Nat) (done : Array Line) : List String → Array Line
+  | [] => done
+  | [last] =>
+      done.push { number, text := last, start := offset, next := offset + last.utf8ByteSize }
+  | line :: rest =>
+      layoutLoop (number + 1) (offset + line.utf8ByteSize + 1)
+        (done.push
+          { number, text := line, start := offset, next := offset + line.utf8ByteSize + 1 }) rest
+
+/-- **The loop gives the lines of `layoutFrom`**, after the lines that it starts with. -/
+theorem layoutLoop_toList (lines : List String) : ∀ (number offset : Nat) (done : Array Line),
+    (layoutLoop number offset done lines).toList =
+      done.toList ++ layoutFrom number offset lines := by
+  induction lines with
+  | nil =>
+    intro number offset done
+    simp [layoutLoop, layoutFrom]
+  | cons line rest step =>
+    intro number offset done
+    cases rest with
+    | nil => simp [layoutLoop, layoutFrom]
+    | cons second later =>
+      have loop : layoutLoop number offset done (line :: second :: later) =
+          layoutLoop (number + 1) (offset + line.utf8ByteSize + 1)
+            (done.push ⟨number, line, offset, offset + line.utf8ByteSize + 1⟩)
+            (second :: later) := by
+        rw [layoutLoop]
+        intro empty
+        cases empty
+      have lines : layoutFrom number offset (line :: second :: later) =
+          ⟨number, line, offset, offset + line.utf8ByteSize + 1⟩ ::
+            layoutFrom (number + 1) (offset + line.utf8ByteSize + 1) (second :: later) := by
+        rw [layoutFrom]
+        intro empty
+        cases empty
+      rw [loop, step, lines]
+      simp
+
 /-- The lines of a document, numbered from 1, with their byte offsets from 0. -/
-def layout (lines : List String) : List Line := layoutFrom 1 0 lines
+def layout (lines : List String) : List Line := (layoutLoop 1 0 #[] lines).toList
+
+/-- **`layout` gives the lines of `layoutFrom`** from the first line of the document. -/
+theorem layout_eq (lines : List String) : layout lines = layoutFrom 1 0 lines := by
+  rw [layout, layoutLoop_toList]
+  rfl
 
 /-- The byte range of a line, without its line break. -/
 def Line.range (line : Line) : RegulaPolicy.ByteRange :=
@@ -367,16 +416,44 @@ def finish (origin : String) (state : Scan) : ScanResult :=
     | none => problems
   { fences := state.fences, problems }
 
-/-- The scanner of the lines of a Markdown document: each line in order from the empty state,
-then the end of the document. -/
-@[regula_decision]
-def scanLines (document : RegulaPolicy.SourceSnapshot) (origin : String) (lines : List String) :
-    ScanResult :=
-  finish origin ((layout lines).foldl (step document origin) {})
+/-! ## A document with its lines -/
 
-/-- Fail-closed, balanced scanner for the documented Lean fence protocol. -/
-def scan (text origin : String) (sourceURI : Option String := none) : ScanResult :=
-  scanLines ⟨sourceURI.getD origin, text⟩ origin (text.splitOn "\n")
+/-- The lines of a text: the parts of the text between its line breaks. -/
+def linesOf (text : String) : List String :=
+  (text.split '\n').toList.map String.Slice.copy
+
+/-- **The lines of a text are its characters, divided at each line break.** `List.splitOn` is
+the function of Lean's library for lists. -/
+theorem toList_linesOf (text : String) :
+    (linesOf text).map String.toList = text.toList.splitOn '\n' := by
+  unfold linesOf
+  rw [String.toList_split_char, List.map_map]
+  simp
+
+/-- A document with its lines. The field `divided` binds the lines to the text of the document,
+so no value of this type has the lines of a different text. -/
+structure Source where
+  /-- The document: its URI and its full text. Each fence records it. -/
+  document : RegulaPolicy.SourceSnapshot
+  /-- The name of the document in the text of a violation. -/
+  origin : String
+  /-- The lines of the document. -/
+  lines : List String
+  /-- The lines are the characters of the text of the document, divided at each line break. -/
+  divided : lines.map String.toList = document.source.toList.splitOn '\n'
+
+/-- The document of a text, with the lines of that text. -/
+def Source.of (text origin : String) (sourceURI : Option String := none) : Source where
+  document := ⟨sourceURI.getD origin, text⟩
+  origin := origin
+  lines := linesOf text
+  divided := toList_linesOf text
+
+/-- The scanner of a Markdown document: each line in order from the empty state, then the end of
+the document. -/
+@[regula_decision]
+def scanLines (source : Source) : ScanResult :=
+  finish source.origin ((layout source.lines).foldl (step source.document source.origin) {})
 
 /-- The code-block spellings a Verso documentation source may use, with the meaning the
 standard's `lean` block (`website/RegulaExample.lean`) gives each: `lean` is a positive
@@ -469,8 +546,9 @@ structure VersoScan where
 
 /-- One line of a Verso source. Inside a block, a closing line of back-ticks ends the block, and
 a Lean example is recorded. Outside a block, a line that opens a fence opens a block: an info
-string that `versoBlockKind` refuses, a run of tildes, and an indented Lean example are
-violations. Each other line outside a block is read past. -/
+string that `versoBlockKind` refuses, a run of tildes, and a Lean example on a line that starts
+with a space are violations. A Lean example on a line that starts with a tab or with a carriage
+return is not a violation. Each other line outside a block is read past. -/
 def versoStep (document : RegulaPolicy.SourceSnapshot) (origin : String) (state : VersoScan)
     (line : Line) : VersoScan :=
   match state.opened with
@@ -526,24 +604,75 @@ def versoFinish (origin : String) (state : VersoScan) : ScanResult :=
         state.problems.push s!"{origin}:{block.line}: code block opened but never closed"
       | none => state.problems }
 
-/-- The scanner of the lines of a Verso source: each line in order from the empty state, then the
-end of the source. -/
+/-- The scanner of a Verso source: each line in order from the empty state, then the end of the
+source. -/
 @[regula_decision]
-def scanVersoLines (document : RegulaPolicy.SourceSnapshot) (origin : String)
-    (lines : List String) : ScanResult :=
-  versoFinish origin ((layout lines).foldl (versoStep document origin) {})
+def scanVersoLines (source : Source) : ScanResult :=
+  versoFinish source.origin
+    ((layout source.lines).foldl (versoStep source.document source.origin) {})
 
-/-- Fail-closed, balanced scanner of the code blocks of a Verso source (`versoBlockKind`). Lean
-examples must open in the first column, so the scanned body is exactly the string Verso
-elaborates; the block's info string is its whole classification. -/
-def scanVerso (text origin : String) (sourceURI : Option String := none) : ScanResult :=
-  scanVersoLines ⟨sourceURI.getD origin, text⟩ origin (text.splitOn "\n")
+/-! ## A scan with its input -/
+
+/-- The two forms of a documentation source. -/
+inductive Format where
+  /-- A Markdown document. -/
+  | markdown
+  /-- A Verso source. -/
+  | verso
+  deriving Repr, DecidableEq
+
+/-- The scanner of a form, on a document. -/
+def Source.scanned (source : Source) : Format → ScanResult
+  | .markdown => scanLines source
+  | .verso => scanVersoLines source
+
+/-- The result of a scan, with its input. The field `executed` binds the result to the scanner:
+no value of this type has the result of a different document, or a result that the scanner of
+its form did not return. The documentation audit takes its fences and its violations from a
+value of this type. -/
+structure Scanned where
+  /-- The form of the document. -/
+  format : Format
+  /-- The document with its lines. -/
+  source : Source
+  /-- The fences and the violations. -/
+  result : ScanResult
+  /-- The result is what the scanner of the form returns for the document. -/
+  executed : result = source.scanned format
+
+/-- The Lean fences of a scan, in document order. -/
+def Scanned.fences (scan : Scanned) : Array Fence := scan.result.fences
+
+/-- The protocol violations of a scan. -/
+def Scanned.problems (scan : Scanned) : Array String := scan.result.problems
+
+/-- Fail-closed, balanced scanner for the documented Lean fence protocol: the scan of a Markdown
+text, with the lines of that text. -/
+def scan (text origin : String) (sourceURI : Option String := none) : Scanned where
+  format := .markdown
+  source := .of text origin sourceURI
+  result := scanLines (.of text origin sourceURI)
+  executed := rfl
+
+/-- Fail-closed, balanced scanner of the code blocks of a Verso source (`versoBlockKind`): the
+scan of a Verso text, with the lines of that text. The block's info string is its whole
+classification. The opening line of a Lean example does not start with a space. The scanner
+does not refuse an opening line that starts with a tab or with a carriage return, so the first
+column is not a guarantee. -/
+def scanVerso (text origin : String) (sourceURI : Option String := none) : Scanned where
+  format := .verso
+  source := .of text origin sourceURI
+  result := scanVersoLines (.of text origin sourceURI)
+  executed := rfl
 
 /-! ## The classes of a line, as propositions
 
 Each test of the scanner on a line is stated here as a proposition about the characters of the
-line, with the theorem that the test decides it. The propositions use the functions of Lean that
-trim a text and that take a part of it, and no test of this module. -/
+line, with the theorem that the test decides it. A proposition gives the line as parts, one after
+the other: whitespace, the characters of a delimiter, and the characters between two delimiters.
+`Trimmed` states what a text is without the whitespace at its two ends. The propositions use
+`Char.isWhitespace` of Lean. They use no function of Lean that trims a text or takes a part of
+it, and no test of this module. -/
 
 private theorem takeWhile_beq_eq_replicate (character : Char) (chars : List Char) :
     chars.takeWhile (· == character) =
@@ -602,16 +731,150 @@ private theorem takeWhile_replicate_append (character : Char) (count : Nat) {res
       simp [differs]
   | succ count step => simp [List.replicate_succ, step]
 
+/-- `inner` is `text` without the whitespace at its two ends: `text` is whitespace, then `inner`,
+then whitespace, and `inner` does not start and does not end with a whitespace character. -/
+def Trimmed (text inner : List Char) : Prop :=
+  ∃ lead trail : List Char, text = lead ++ inner ++ trail ∧
+    (∀ c ∈ lead, c.isWhitespace = true) ∧ (∀ c ∈ trail, c.isWhitespace = true) ∧
+    (∀ c, inner.head? = some c → c.isWhitespace = false) ∧
+    (∀ c, inner.getLast? = some c → c.isWhitespace = false)
+
+/-- The start of a trimmed text: the text without its leading whitespace starts with `inner`,
+and whitespace follows. -/
+private theorem Trimmed.dropWhile {text inner : List Char} (trimmed : Trimmed text inner) :
+    ∃ trail, text.dropWhile Char.isWhitespace = inner ++ trail ∧
+      (∀ c ∈ trail, c.isWhitespace = true) := by
+  obtain ⟨lead, trail, rfl, leading, trailing, first, _⟩ := trimmed
+  rw [List.append_assoc, dropWhile_append_of_all _ leading]
+  cases inner with
+  | nil =>
+    have empty : trail.dropWhile Char.isWhitespace = [] := by
+      have all := List.dropWhile_append_of_pos (l₂ := []) trailing
+      rwa [List.append_nil] at all
+    exact ⟨[], empty, fun _ member => nomatch member⟩
+  | cons head tail => exact ⟨trail, by simp [first head rfl], trailing⟩
+
+/-- **A text has one trimmed form only.** -/
+theorem Trimmed.unique {text first second : List Char} (one : Trimmed text first)
+    (two : Trimmed text second) : first = second := by
+  obtain ⟨trailOne, startOne, endOne⟩ := one.dropWhile
+  obtain ⟨trailTwo, startTwo, endTwo⟩ := two.dropWhile
+  obtain ⟨_, _, _, _, _, _, lastOne⟩ := one
+  obtain ⟨_, _, _, _, _, _, lastTwo⟩ := two
+  have same : first ++ trailOne = second ++ trailTwo := startOne.symm.trans startTwo
+  -- a form that ends with a character that is not whitespace is not longer than a second form
+  -- that whitespace follows
+  have shorter : ∀ {a b ta tb : List Char}, a ++ ta = b ++ tb →
+      (∀ c ∈ ta, c.isWhitespace = true) →
+      (∀ c, b.getLast? = some c → c.isWhitespace = false) → b.length ≤ a.length := by
+    intro a b ta tb equal white solid
+    rcases List.append_eq_append_iff.mp equal with ⟨middle, rfl, rfl⟩ | ⟨middle, rfl, rfl⟩
+    case inr => simp
+    case inl =>
+      cases final : middle.getLast? with
+      | none =>
+        have empty : middle = [] := List.getLast?_eq_none_iff.mp final
+        simp [empty]
+      | some c =>
+        have isWhite := white c (List.mem_append_left _ (List.mem_of_getLast? final))
+        have last : (a ++ middle).getLast? = some c := by
+          rw [List.getLast?_append, final]; rfl
+        exact absurd isWhite (by rw [solid c last]; exact Bool.false_ne_true)
+  have lengths : first.length = second.length :=
+    Nat.le_antisymm (shorter same.symm endTwo lastOne) (shorter same endOne lastTwo)
+  exact (List.append_inj same lengths).1
+
+/-- The text with no character has one trimmed form, with no character. -/
+private theorem Trimmed.of_nil {inner : List Char} (trimmed : Trimmed [] inner) : inner = [] := by
+  obtain ⟨lead, trail, split, _⟩ := trimmed
+  have parts := List.append_eq_nil_iff.mp split.symm
+  exact (List.append_eq_nil_iff.mp parts.1).2
+
+/-- The text with no character is its own trimmed form. -/
+private theorem trimmed_empty : Trimmed [] "".toList :=
+  ⟨[], [], rfl, fun _ member => (nomatch member), fun _ member => (nomatch member),
+    fun _ head => (nomatch head), fun _ last => (nomatch last)⟩
+
+/-- **What Lean's trimming of a slice gives**: the characters of the slice without the
+whitespace at its two ends. The proof is from the theorems of Lean's library about the two
+functions that `String.Slice.trimAscii` runs. -/
+private theorem trimmed_slice (s : String.Slice) :
+    Trimmed s.copy.toList s.trimAscii.toString.toList := by
+  have startSplit := String.Slice.takeWhile_append_dropWhile (pat := Char.isWhitespace) (s := s)
+  have endSplit := String.Slice.dropEndWhile_append_takeEndWhile (pat := Char.isWhitespace)
+    (s := s.dropWhile Char.isWhitespace)
+  have leading : (s.takeWhile Char.isWhitespace).copy.toList.all Char.isWhitespace = true := by
+    rw [← String.Slice.all_bool_eq, ← String.Slice.takeWhile_eq_self_iff,
+      String.Slice.takeWhile_takeWhile]
+  have trailing : ((s.dropWhile Char.isWhitespace).takeEndWhile
+      Char.isWhitespace).copy.toList.all Char.isWhitespace = true := by
+    rw [← String.Slice.revAll_bool_eq, ← String.Slice.takeEndWhile_eq_self_iff,
+      String.Slice.takeEndWhile_takeEndWhile]
+  have first : (s.dropWhile Char.isWhitespace).copy.toList.head?.any Char.isWhitespace =
+      false := by
+    rw [← String.Slice.startsWith_bool_eq_head?, String.Slice.startsWith_dropWhile]
+  have last : ((s.dropWhile Char.isWhitespace).dropEndWhile
+      Char.isWhitespace).copy.toList.getLast?.any Char.isWhitespace = false := by
+    rw [← String.Slice.endsWith_bool_eq_getLast?, String.Slice.endsWith_dropEndWhile]
+  show Trimmed s.copy.toList
+    ((s.dropWhile Char.isWhitespace).dropEndWhile Char.isWhitespace).copy.toList
+  refine ⟨_, _, ?_, List.all_eq_true.mp leading, List.all_eq_true.mp trailing, ?_, ?_⟩
+  · rw [List.append_assoc, ← String.toList_append, ← String.toList_append, endSplit, startSplit]
+  · intro c head
+    have whole := congrArg String.toList endSplit
+    rw [String.toList_append] at whole
+    rw [← whole, List.head?_append, head] at first
+    simpa using first
+  · intro c final
+    rw [final] at last
+    simpa using last
+
+/-- What Lean's trimming of a text gives: `trimmed_slice` for a text. -/
+private theorem trimmed_string (text : String) :
+    Trimmed text.toList text.trimAscii.toString.toList := by
+  have slice := trimmed_slice text.toSlice
+  rwa [String.copy_toSlice] at slice
+
+/-- A text is the trimmed form of a text exactly when its characters are. -/
+private theorem trimAscii_eq_iff (text inner : String) :
+    text.trimAscii.toString = inner ↔ Trimmed text.toList inner.toList :=
+  ⟨fun same => same ▸ trimmed_string text,
+    fun trimmed => String.toList_inj.mp ((trimmed_string text).unique trimmed)⟩
+
+/-- A text with a first part and a last part that do not overlap has a middle part. -/
+private theorem middle_of_prefix_suffix {first last text : List Char} (starts : first <+: text)
+    (ends : last <:+ text) (long : first.length + last.length ≤ text.length) :
+    ∃ middle, text = first ++ middle ++ last := by
+  obtain ⟨rest, rfl⟩ := starts
+  obtain ⟨before, same⟩ := ends
+  rcases List.append_eq_append_iff.mp same with ⟨extra, rfl, split⟩ | ⟨middle, rfl, rfl⟩
+  · have empty : extra = [] := by
+      have lengths := congrArg List.length split
+      simp only [List.length_append] at lengths long
+      exact List.eq_nil_of_length_eq_zero (by omega)
+    subst empty
+    exact ⟨[], by simp [split]⟩
+  · exact ⟨middle, by simp⟩
+
+/-- The characters between a first part and a last part of a text: what the scanner takes when
+it drops the first part by its length from the start and the last part by its length from the
+end. -/
+private theorem toList_between (text : String) {first inner last : List Char}
+    (shape : text.toList = first ++ inner ++ last) :
+    ((text.drop first.length).dropEnd last.length).copy.toList = inner := by
+  rw [String.Slice.toList_copy_dropEnd, String.toList_copy_drop, shape, List.append_assoc,
+    List.drop_left' rfl, List.length_append, Nat.add_sub_cancel, List.take_left' rfl]
+
 /-- The line has a fence run: after its leading whitespace come exactly `count` characters
 `character`, a back-tick or a tilde, with `count` three or more, and `info` is the rest of the
-line without the ASCII whitespace at its two ends. -/
+line without the whitespace at its two ends. -/
 def FenceLine (line : String) (character : Char) (count : Nat) (info : String) : Prop :=
   ∃ indent rest : List Char,
     line.toList = indent ++ List.replicate count character ++ rest ∧
     (∀ c ∈ indent, c.isWhitespace = true) ∧
     (character = '`' ∨ character = '~') ∧ 3 ≤ count ∧
     rest.head? ≠ some character ∧
-    info = (String.ofList rest).trimAscii.toString
+    Trimmed rest info.toList
 
 /-- `fenceRun?` returns a run exactly for a line with that fence run. -/
 private theorem fenceRun?_eq_some_iff (line : String) (character : Char) (count : Nat)
@@ -652,6 +915,9 @@ private theorem fenceRun?_eq_some_iff (line : String) (character : Char) (count 
             rw [head] at fails
             simp at fails
           · rw [drop_length_takeWhile]
+            have trim := trimmed_string
+              (String.ofList ((first :: others).dropWhile (· == first)))
+            rwa [String.toList_ofList] at trim
         · have none : fenceRun? line = none := by
             unfold fenceRun?
             rw [chars]
@@ -673,7 +939,9 @@ private theorem fenceRun?_eq_some_iff (line : String) (character : Char) (count 
           rfl
         rw [none] at found
         cases found
-  · rintro ⟨indent, rest, split, blanks, mark, long, other, rfl⟩
+  · rintro ⟨indent, rest, split, blanks, mark, long, other, trim⟩
+    obtain rfl : info = (String.ofList rest).trimAscii.toString :=
+      ((trimAscii_eq_iff _ _).mpr (by rwa [String.toList_ofList])).symm
     have solid : character.isWhitespace = false := by
       rcases mark with rfl | rfl <;> decide
     have positive : 0 < count := by omega
@@ -721,15 +989,16 @@ private theorem closingFence_iff (line : String) (character : Char) (minimum : N
         simpa using run
       exact ⟨⟨rfl, long⟩, rfl⟩
 
-/-- The line is the trusted marker: without the ASCII whitespace at its two ends it is the text
+/-- The line is the trusted marker: without the whitespace at its two ends it is the text
 `<!-- lean-trusted-compiler -->`. -/
 def TrustedMarker (line : String) : Prop :=
-  line.trimAscii.toString = "<!-- lean-trusted-compiler -->"
+  Trimmed line.toList "<!-- lean-trusted-compiler -->".toList
 
 private theorem exactTrustedMarker_iff (line : String) :
     exactTrustedMarker line = true ↔ TrustedMarker line := by
   unfold exactTrustedMarker TrustedMarker
-  exact beq_iff_eq
+  rw [beq_iff_eq]
+  exact trimAscii_eq_iff line _
 
 /-- The test of Lean for the end of a text accepts exactly a text with the characters of `ending`
 as its last characters. -/
@@ -737,41 +1006,114 @@ private theorem endsWith_iff_suffix (text ending : String) :
     text.endsWith ending = true ↔ ending.toList <:+ text.toList := by
   rw [String.endsWith_eq_endsWith_toSlice, String.Slice.endsWith_string_iff, String.copy_toSlice]
 
-/-- The line is a `lean-fail` marker with the pattern `pattern`. Without the ASCII whitespace at
-its two ends the line starts with `<!-- lean-fail:` and ends with `-->`, and `pattern` is the
-text between the two, without the ASCII whitespace at its two ends. -/
+/-- The line is a `lean-fail` marker with the pattern `pattern`. Without the whitespace at its
+two ends the line is the characters `<!-- lean-fail:`, then the characters `inner`, then the
+characters `-->`, and `pattern` is `inner` without the whitespace at its two ends. -/
 def FailMarker (line pattern : String) : Prop :=
-  "<!-- lean-fail:".toList <+: line.trimAscii.toString.toList ∧
-    "-->".toList <:+ line.trimAscii.toString.toList ∧
-    pattern = ((line.trimAscii.toString.drop "<!-- lean-fail:".length).dropEnd
-      "-->".length).trimAscii.toString
+  ∃ inner : List Char,
+    Trimmed line.toList ("<!-- lean-fail:".toList ++ inner ++ "-->".toList) ∧
+    Trimmed inner pattern.toList
 
+/-- A text that starts with `<!-- lean-fail:` and ends with `-->` has those two parts with
+characters between them: the two parts do not overlap, because the first part ends with a colon
+and the last part has no colon. -/
+private theorem failMarker_middle {text : List Char}
+    (starts : "<!-- lean-fail:".toList <+: text) (ends : "-->".toList <:+ text) :
+    ∃ inner, text = "<!-- lean-fail:".toList ++ inner ++ "-->".toList := by
+  obtain ⟨rest, rfl⟩ := starts
+  obtain ⟨before, same⟩ := ends
+  rcases List.append_eq_append_iff.mp same with ⟨shared, first, last⟩ | ⟨inner, rfl, rfl⟩
+  · have empty : shared = [] := by
+      cases final : shared.getLast? with
+      | none => exact List.getLast?_eq_none_iff.mp final
+      | some c =>
+        have inLast : c ∈ "-->".toList := by
+          rw [last]
+          exact List.mem_append_left _ (List.mem_of_getLast? final)
+        have colon : "<!-- lean-fail:".toList.getLast? = some c := by
+          rw [first, List.getLast?_append, final]; rfl
+        obtain rfl : ':' = c := Option.some.inj ((by decide :
+          "<!-- lean-fail:".toList.getLast? = some ':').symm.trans colon)
+        exact absurd inLast (by decide)
+    subst empty
+    rw [List.append_nil] at first
+    rw [List.nil_append] at last
+    exact ⟨[], by rw [← last, List.append_nil]⟩
+  · exact ⟨inner, by simp⟩
+
+/-- `failMarker?` returns a pattern exactly for a `lean-fail` marker with that pattern. -/
 private theorem failMarker?_eq_some_iff (line pattern : String) :
     failMarker? line = some pattern ↔ FailMarker line pattern := by
+  have value := trimmed_string line
   unfold failMarker? FailMarker
-  rw [← String.startsWith_string_iff, ← endsWith_iff_suffix]
   by_cases starts : line.trimAscii.toString.startsWith "<!-- lean-fail:" = true
   · by_cases ends : line.trimAscii.toString.endsWith "-->" = true
-    · simp only [Option.bind_eq_bind, guard, starts, ends, Bool.and_self, ↓reduceIte,
-        Option.bind_some, Option.pure_def, Option.some.injEq, true_and]
-      exact eq_comm
+    · obtain ⟨inner, shape⟩ := failMarker_middle (String.startsWith_string_iff.mp starts)
+        ((endsWith_iff_suffix _ _).mp ends)
+      have between := toList_between line.trimAscii.toString shape
+      rw [String.length_toList, String.length_toList] at between
+      have extracted := trimmed_slice
+        ((line.trimAscii.toString.drop "<!-- lean-fail:".length).dropEnd "-->".length)
+      rw [between] at extracted
+      simp only [Option.bind_eq_bind, guard, starts, ends, Bool.and_self, ↓reduceIte,
+        Option.bind_some, Option.pure_def, Option.some.injEq]
+      constructor
+      · rintro rfl
+        exact ⟨inner, by rw [← shape]; exact value, extracted⟩
+      · rintro ⟨other, whole, trimmed⟩
+        have equal := shape.symm.trans (value.unique whole)
+        obtain rfl : inner = other :=
+          List.append_cancel_left (List.append_cancel_right equal)
+        exact String.toList_inj.mp (extracted.unique trimmed)
     · simp only [Option.bind_eq_bind, guard, starts, ends, Bool.and_false, Bool.false_eq_true,
-        ↓reduceIte, false_and, and_false, iff_false]
-      exact fun found => nomatch found
+        ↓reduceIte]
+      constructor
+      · exact fun found => nomatch found
+      · rintro ⟨other, whole, _⟩
+        exact absurd ((endsWith_iff_suffix _ _).mpr (by
+          rw [value.unique whole]; exact List.suffix_append _ _)) ends
   · simp only [Option.bind_eq_bind, guard, starts, Bool.false_and, Bool.false_eq_true,
-      ↓reduceIte, false_and, iff_false]
-    exact fun found => nomatch found
+      ↓reduceIte]
+    constructor
+    · exact fun found => nomatch found
+    · rintro ⟨other, whole, _⟩
+      exact absurd (String.startsWith_string_iff.mpr (by
+        rw [value.unique whole, List.append_assoc]; exact List.prefix_append _ _)) starts
 
-/-- The line looks like a marker: without the ASCII whitespace at its two ends it starts with
-`<!--`, and the text after those four characters, without the ASCII whitespace at its two ends,
-starts with `lean`. -/
+/-- A line has one pattern as a `lean-fail` marker. -/
+private theorem FailMarker.unique {line first second : String} (one : FailMarker line first)
+    (two : FailMarker line second) : first = second := by
+  have found := (failMarker?_eq_some_iff line first).mpr one
+  rw [(failMarker?_eq_some_iff line second).mpr two] at found
+  exact (Option.some.inj found).symm
+
+/-- The line looks like a marker: without the whitespace at its two ends it is the characters
+`<!--` and then the characters `rest`, and `rest` without the whitespace at its two ends starts
+with `lean`. -/
 def MarkerLike (line : String) : Prop :=
-  "<!--".toList <+: line.trimAscii.toString.toList ∧
-    "lean".toList <+: (line.trimAscii.toString.drop 4).toString.trimAscii.toString.toList
+  ∃ rest inner : List Char,
+    Trimmed line.toList ("<!--".toList ++ rest) ∧ Trimmed rest inner ∧ "lean".toList <+: inner
 
 private theorem markerLike_iff (line : String) : markerLike line = true ↔ MarkerLike line := by
+  have value := trimmed_string line
+  have dropped : ∀ rest, line.trimAscii.toString.toList = "<!--".toList ++ rest →
+      (line.trimAscii.toString.drop 4).toString.toList = rest := by
+    intro rest shape
+    show (line.trimAscii.toString.drop 4).copy.toList = rest
+    rw [String.toList_copy_drop, shape]
+    exact List.drop_left' (by decide)
   unfold markerLike MarkerLike
   simp only [Bool.and_eq_true, String.startsWith_string_iff]
+  constructor
+  · rintro ⟨⟨rest, shape⟩, word⟩
+    have inner := trimmed_string (line.trimAscii.toString.drop 4).toString
+    rw [dropped rest shape.symm] at inner
+    exact ⟨rest, _, by rw [shape]; exact value, inner, word⟩
+  · rintro ⟨rest, inner, whole, trimmed, word⟩
+    have shape := value.unique whole
+    have own := trimmed_string (line.trimAscii.toString.drop 4).toString
+    rw [dropped rest shape] at own
+    exact ⟨⟨rest, shape.symm⟩, by rw [own.unique trimmed]; exact word⟩
 
 /-- The class of a line outside a fence, as a relation: the first class of the list of
 `LineClass` that the line has. -/
@@ -879,7 +1221,7 @@ theorem lineIs_unique {line : String} {first second : LineClass} (one : LineIs l
   cases first <;> cases second <;> simp only [LineIs] at one two <;>
     first
       | rfl
-      | exact congrArg LineClass.fail (one.2.2.trans two.2.2.symm)
+      | exact congrArg LineClass.fail (FailMarker.unique one two)
       | exact absurd one (two.1 _)
       | exact absurd two (one.1 _)
       | exact absurd one.2 two.2.1
@@ -1513,13 +1855,43 @@ theorem validatePattern_eq_ok_iff (pattern : String) :
 /-- **The Markdown scanner reports no violation exactly for a clean document**: the lines, with
 numbers from 1, are a run of permitted transitions from outside a fence, with the valid patterns
 of the policy library, that ends outside a fence with no marker that waits. -/
-theorem scanLines_problems_eq_empty_iff (document : RegulaPolicy.SourceSnapshot)
-    (origin : String) (lines : List String) :
-    (scanLines document origin lines).problems = #[] ↔
-      Clean RegulaPolicy.PatternValid (.outside none) 1 lines :=
-  problems_eq_iff_clean (valid := RegulaPolicy.PatternValid)
-    (fun pattern => (validatePattern_eq_ok_iff pattern).symm) document origin lines 1 0 {}
-    (fun _ opened => nomatch opened)
+theorem scanLines_problems_eq_empty_iff (source : Source) :
+    (scanLines source).problems = #[] ↔
+      Clean RegulaPolicy.PatternValid (.outside none) 1 source.lines := by
+  unfold scanLines
+  rw [layout_eq]
+  exact problems_eq_iff_clean (valid := RegulaPolicy.PatternValid)
+    (fun pattern => (validatePattern_eq_ok_iff pattern).symm) source.document source.origin
+    source.lines 1 0 {} (fun _ opened => nomatch opened)
+
+/-- **A scan of a Markdown document has no violation exactly for a clean document.** The
+document is the one that the scan carries. -/
+theorem Scanned.problems_eq_empty_iff (scan : Scanned) (markdown : scan.format = .markdown) :
+    scan.result.problems = #[] ↔
+      Clean RegulaPolicy.PatternValid (.outside none) 1 scan.source.lines := by
+  rw [scan.executed, markdown]
+  exact scanLines_problems_eq_empty_iff scan.source
+
+/-- The line with no character has no fence run. -/
+private theorem no_fence_empty (character : Char) (count : Nat) (info : String) :
+    ¬ FenceLine "" character count info := by
+  rintro ⟨indent, rest, split, _, _, long, _⟩
+  have split : ([] : List Char) = indent ++ List.replicate count character ++ rest := split
+  have run := (List.append_eq_nil_iff.mp (List.append_eq_nil_iff.mp split.symm).1).2
+  have zero : count = 0 := by simpa using congrArg List.length run
+  omega
+
+/-- The line with no character is a plain line. -/
+private theorem plain_empty : LineIs "" .plain := by
+  refine ⟨?_, ?_, ?_, no_fence_empty⟩
+  · rintro pattern ⟨inner, whole, _⟩
+    exact absurd (List.append_eq_nil_iff.mp (show Trimmed [] _ from whole).of_nil).2
+      (by decide)
+  · intro marker
+    exact absurd (show Trimmed [] _ from marker).of_nil (by decide)
+  · rintro ⟨rest, inner, whole, _⟩
+    exact absurd (List.append_eq_nil_iff.mp (show Trimmed [] _ from whole).of_nil).1
+      (by decide)
 
 /-- A document of one line that opens a fence is not clean: the fence is not closed. -/
 private theorem not_clean_open (valid : String → Prop) :
@@ -1530,41 +1902,33 @@ private theorem not_clean_open (valid : String → Prop) :
     cases rest
     cases permitted with
     | plain is =>
-      exact is.2.2.2 '`' 3 _ ⟨[], [], by decide, fun _ member => (nomatch member), .inl rfl,
-        Nat.le_refl 3, fun head => (nomatch head), rfl⟩
-
-/-- What a call of `scanLines` gives: the document of the fences, the name of the document in a
-violation, and the lines. -/
-structure Lines where
-  /-- The document that each fence records. -/
-  document : RegulaPolicy.SourceSnapshot
-  /-- The name of the document in the text of a violation. -/
-  origin : String
-  /-- The lines of the document. -/
-  lines : List String
+      exact is.2.2.2 '`' 3 "" ⟨[], [], by decide, fun _ member => (nomatch member), .inl rfl,
+        Nat.le_refl 3, fun head => (nomatch head), trimmed_empty⟩
 
 /-- `scanLines` is a sound and complete decision of the clean documents
-(`scanLines_problems_eq_empty_iff`): it reports no violation exactly for a run of permitted
-transitions, it accepts the document with no line, and it refuses the document of one line that
-opens a fence. The specification is the relation `Clean` over propositions about the characters
-of each line. It names no test of the scanner. It says nothing about the fences that an accepted
-result carries, and nothing about the text of a violation. -/
-theorem checked_scanLines : Regula.ExecutableContract scanLines (fun scanner =>
-    Regula.Decides (fun result : ScanResult => result.problems = #[])
-      (fun input : Lines => Clean RegulaPolicy.PatternValid (.outside none) 1 input.lines)
-      (fun input : Lines => scanner input.document input.origin input.lines)) :=
-  ⟨Regula.Decides.of_iff
-    (fun input => scanLines_problems_eq_empty_iff input.document input.origin input.lines)
-    ⟨⟨⟨"", ""⟩, "", []⟩, rfl⟩
-    ⟨⟨⟨"", ""⟩, "", ["```"]⟩, fun accepted =>
-      not_clean_open _ ((scanLines_problems_eq_empty_iff _ _ _).mp accepted)⟩⟩
+(`scanLines_problems_eq_empty_iff`): it reports no violation exactly for a document with lines
+that are a run of permitted transitions. It accepts the document with no character, which has
+one line, and it refuses the document of one line that opens a fence. The input is a `Source`,
+so the lines are those of the text of the document. The specification is the relation `Clean`
+over propositions about the characters of each line. It names no test of the scanner. It says
+nothing about the fences that an accepted result carries, and nothing about the text of a
+violation. -/
+theorem checked_scanLines : Regula.ExecutableContract scanLines
+    (Regula.Decides (fun result : ScanResult => result.problems = #[])
+      (fun source : Source => Clean RegulaPolicy.PatternValid (.outside none) 1 source.lines)) :=
+  ⟨Regula.Decides.of_iff scanLines_problems_eq_empty_iff
+    ⟨⟨⟨"", ""⟩, "", [""], by decide⟩,
+      (scanLines_problems_eq_empty_iff _).mpr (.line (.plain plain_empty) .done)⟩
+    ⟨⟨⟨"", "```"⟩, "", ["```"], by decide⟩, fun accepted =>
+      not_clean_open _ ((scanLines_problems_eq_empty_iff _).mp accepted)⟩⟩
 
 /-! ## The protocol of a Verso source -/
 
 /-- The info string of a supported code block of a Verso source, with what it says about the
 block: `lean` is a positive example, `lean +trustedCompiler` a trusted example, one of four
-names a block that is not Lean, and `lean (fails := "PATTERN")` a negative example with a valid
-pattern that has no quote and no backslash. -/
+names a block that is not Lean, and `lean (fails := "PATTERN")` a negative example. The info
+string of a negative example is the characters `lean (fails := "`, then the characters of the
+pattern, then the characters `")`, and the pattern is valid and has no quote and no backslash. -/
 inductive BlockKind : String → Option (Option MarkerKind) → Prop
   /-- `lean`: a positive example. -/
   | positive : BlockKind "lean" (some none)
@@ -1574,9 +1938,7 @@ inductive BlockKind : String → Option (Option MarkerKind) → Prop
   | other {info : String} : info ∈ ["leanSketch", "sh", "text", "toml"] → BlockKind info none
   /-- `lean (fails := "PATTERN")`: a negative example. -/
   | fails {info pattern : String} :
-      "lean (fails := \"".toList <+: info.toList → "\")".toList <:+ info.toList →
-      "lean (fails := \"".length + "\")".length ≤ info.length →
-      pattern = ((info.drop "lean (fails := \"".length).dropEnd "\")".length).toString →
+      info.toList = "lean (fails := \"".toList ++ pattern.toList ++ "\")".toList →
       '"' ∉ pattern.toList → '\\' ∉ pattern.toList →
       RegulaPolicy.PatternValid pattern → BlockKind info (some (some (.fail pattern)))
 
@@ -1601,8 +1963,14 @@ theorem versoBlockKind_eq_ok_iff (info : String) (kind : Option (Option MarkerKi
         dsimp only at accepted
         repeat' split at accepted
         all_goals simp_all
-      exact .fails (String.startsWith_string_iff.mp starts) ((endsWith_iff_suffix _ _).mp ends)
-        long.1 text (by simpa [String.contains_char_eq] using long.2.1)
+      obtain ⟨middle, shape⟩ := middle_of_prefix_suffix (String.startsWith_string_iff.mp starts)
+        ((endsWith_iff_suffix _ _).mp ends) (by
+          rw [String.length_toList, String.length_toList, String.length_toList]; exact long.1)
+      have between := toList_between info shape
+      rw [String.length_toList, String.length_toList] at between
+      have own : pattern.toList = middle := by rw [text]; exact between
+      exact .fails (by rw [own]; exact shape)
+        (by simpa [String.contains_char_eq] using long.2.1)
         (by simpa [String.contains_char_eq] using long.2.2)
         ((validatePattern_eq_ok_iff pattern).mp valid)
   · intro block
@@ -1612,7 +1980,20 @@ theorem versoBlockKind_eq_ok_iff (info : String) (kind : Option (Option MarkerKi
     | other listed =>
       simp only [List.mem_cons, List.not_mem_nil, or_false] at listed
       rcases listed with rfl | rfl | rfl | rfl <;> rfl
-    | @fails _ pattern starts ends long text quote slash valid =>
+    | @fails _ pattern shape quote slash valid =>
+      have starts : "lean (fails := \"".toList <+: info.toList := by
+        rw [shape, List.append_assoc]; exact List.prefix_append _ _
+      have ends : "\")".toList <:+ info.toList := by
+        rw [shape]; exact List.suffix_append _ _
+      have long : "lean (fails := \"".length + "\")".length ≤ info.length := by
+        rw [← String.length_toList, ← String.length_toList, ← String.length_toList (s := info),
+          shape, List.length_append, List.length_append]
+        omega
+      have text : pattern = ((info.drop "lean (fails := \"".length).dropEnd
+          "\")".length).toString := by
+        have between := toList_between info shape
+        rw [String.length_toList, String.length_toList] at between
+        exact String.toList_inj.mp between.symm
       have differs : ∀ other : String, ¬ "lean (fails := \"".toList <+: other.toList →
           (info == other) = false := fun other short => by
         rw [beq_eq_false_iff_ne]
@@ -1643,14 +2024,16 @@ inductive VersoMode where
 
 /-- The transitions that the protocol of a Verso source permits. Each other line is a
 violation: an info string that is not supported, a block that opens with tildes, and a Lean
-example that does not open in the first column. -/
+example on a line that starts with a space. The relation states what the scanner tests. It does
+not state that a Lean example opens in the first column: a line that starts with a tab or with a
+carriage return is permitted. -/
 inductive VersoPermitted : VersoMode → String → VersoMode → Prop
   /-- A line with no fence run, outside a block. -/
   | text {line : String} :
       (∀ character count info, ¬ FenceLine line character count info) →
         VersoPermitted .outside line .outside
-  /-- A line that opens a supported block with back-ticks, and a Lean example in the first
-  column. -/
+  /-- A line that opens a supported block with back-ticks. The line of a Lean example does not
+  start with a space. -/
   | opening {line : String} {count : Nat} {info : String} {kind : Option (Option MarkerKind)} :
       FenceLine line '`' count info → BlockKind info kind →
       (∀ marker, kind = some marker → ¬ " ".toList <+: line.toList) →
@@ -1880,10 +2263,18 @@ theorem versoProblems_eq_iff_clean (document : RegulaPolicy.SourceSnapshot) (ori
 
 /-- **The Verso scanner reports no violation exactly for a clean source**: the lines are a run
 of permitted transitions from outside a block that ends outside a block. -/
-theorem scanVersoLines_problems_eq_empty_iff (document : RegulaPolicy.SourceSnapshot)
-    (origin : String) (lines : List String) :
-    (scanVersoLines document origin lines).problems = #[] ↔ VersoClean .outside lines :=
-  versoProblems_eq_iff_clean document origin lines 1 0 {}
+theorem scanVersoLines_problems_eq_empty_iff (source : Source) :
+    (scanVersoLines source).problems = #[] ↔ VersoClean .outside source.lines := by
+  unfold scanVersoLines
+  rw [layout_eq]
+  exact versoProblems_eq_iff_clean source.document source.origin source.lines 1 0 {}
+
+/-- **A scan of a Verso source has no violation exactly for a clean source.** The source is the
+one that the scan carries. -/
+theorem Scanned.versoProblems_eq_empty_iff (scan : Scanned) (verso : scan.format = .verso) :
+    scan.result.problems = #[] ↔ VersoClean .outside scan.source.lines := by
+  rw [scan.executed, verso]
+  exact scanVersoLines_problems_eq_empty_iff scan.source
 
 /-- A source of one line that opens a block is not clean: the block is not closed. -/
 private theorem not_versoClean_open : ¬ VersoClean .outside ["```"] := by
@@ -1893,24 +2284,24 @@ private theorem not_versoClean_open : ¬ VersoClean .outside ["```"] := by
     cases rest
     cases permitted with
     | text none =>
-      exact none '`' 3 _ ⟨[], [], by decide, fun _ member => (nomatch member), .inl rfl,
-        Nat.le_refl 3, fun head => (nomatch head), rfl⟩
+      exact none '`' 3 "" ⟨[], [], by decide, fun _ member => (nomatch member), .inl rfl,
+        Nat.le_refl 3, fun head => (nomatch head), trimmed_empty⟩
 
 /-- `scanVersoLines` is a sound and complete decision of the clean Verso sources
-(`scanVersoLines_problems_eq_empty_iff`): it reports no violation exactly for a run of permitted
-transitions, it accepts the source with no line, and it refuses the source of one line that
-opens a block. The specification is the relation `VersoClean` over propositions about the
-characters of each line and about the info string of each block (`BlockKind`). It names no test
-of the scanner. It says nothing about the examples that an accepted result carries, and nothing
-about the text of a violation. -/
-theorem checked_scanVersoLines : Regula.ExecutableContract scanVersoLines (fun scanner =>
-    Regula.Decides (fun result : ScanResult => result.problems = #[])
-      (fun input : Lines => VersoClean .outside input.lines)
-      (fun input : Lines => scanner input.document input.origin input.lines)) :=
-  ⟨Regula.Decides.of_iff
-    (fun input => scanVersoLines_problems_eq_empty_iff input.document input.origin input.lines)
-    ⟨⟨⟨"", ""⟩, "", []⟩, rfl⟩
-    ⟨⟨⟨"", ""⟩, "", ["```"]⟩, fun accepted =>
-      not_versoClean_open ((scanVersoLines_problems_eq_empty_iff _ _ _).mp accepted)⟩⟩
+(`scanVersoLines_problems_eq_empty_iff`): it reports no violation exactly for a source with lines
+that are a run of permitted transitions. It accepts the source with no character, which has one
+line, and it refuses the source of one line that opens a block. The input is a `Source`, so the
+lines are those of the text of the source. The specification is the relation `VersoClean` over
+propositions about the characters of each line and about the info string of each block
+(`BlockKind`). It names no test of the scanner. It says nothing about the examples that an
+accepted result carries, and nothing about the text of a violation. -/
+theorem checked_scanVersoLines : Regula.ExecutableContract scanVersoLines
+    (Regula.Decides (fun result : ScanResult => result.problems = #[])
+      (fun source : Source => VersoClean .outside source.lines)) :=
+  ⟨Regula.Decides.of_iff scanVersoLines_problems_eq_empty_iff
+    ⟨⟨⟨"", ""⟩, "", [""], by decide⟩,
+      (scanVersoLines_problems_eq_empty_iff _).mpr (.line (.text no_fence_empty) .done)⟩
+    ⟨⟨⟨"", "```"⟩, "", ["```"], by decide⟩, fun accepted =>
+      not_versoClean_open ((scanVersoLines_problems_eq_empty_iff _).mp accepted)⟩⟩
 
 end Regula.Checker.Documentation
