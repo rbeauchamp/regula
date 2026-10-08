@@ -1273,21 +1273,47 @@ a list item, or the lines after a line that only the scanner reads as a fence li
 rule does not make the two agree. It refuses each line that can open a Lean block at such a
 place.
 
-Three statements are about one line, with no state. `LeanShaped` is a line with a run of three
-or more back-ticks or tildes at some place. The first word after that run names Lean
-(`LeanWord`), or it has `&` or a backslash, which Markdown decodes.
+Four statements are about one line, with no state. `LeanShaped` is a line with a run of three
+or more back-ticks or tildes at some place. The characters after that run name Lean
+(`NamesLean`), or they have `&` or a backslash, which Markdown decodes.
+
+`NamesLean` says that the first run of letters is `lean`, without regard to case. It has no
+notion of white space. Markdown readers differ in the characters that they remove before the
+language of a fence. One reader removes a form feed, and a different reader removes a no-break
+space.
 
 `LeanOpening` is a line that opens a Lean fence in the first column. `RawCodeTag` is a line
-with the start tag of `pre`, `code`, `xmp`, `listing` or `plaintext`.
+with the start tag of `pre`, `code`, `xmp`, `listing` or `plaintext`. `LoneReturn` is a line
+with a carriage return before its last character.
 
-`ShapeRule` gives the rule for one line of a Markdown document. No line is a `RawCodeTag`.
-Outside a fence, a line of Lean shape is a `LeanOpening`. Inside a fence, no line has Lean
-shape, and a line that closes a Lean fence starts with the run. `VersoShapeRule` is the rule
-for a Verso source, with no part about raw HTML.
+`ShapeRule` gives the rule for one line of a Markdown document. No line is a `LoneReturn` or a
+`RawCodeTag`. Outside a fence, a line of Lean shape is a `LeanOpening`. Inside a fence, no line
+has Lean shape, and a line that closes a Lean fence starts with the run.
+
+`VersoShapeRule` is the rule for a Verso source. It has no part about raw HTML, and it permits
+no carriage return, because no theorem says what a Verso reader does with one.
 
 `Clean` is the relation of the kind: a run of lines, each a permitted transition that keeps the
 shape rule. `LeanAfter` says after each line if the open fence is a Lean fence. `VersoClean` and
 `VersoLeanAfter` are the same for a Verso source.
+
+**The shape is conservative.** `LeanShaped` does not read the inline structure of Markdown.
+Thus the rule refuses a line of text where an inline span of three back-ticks comes before the
+word `lean`. An author writes that span with fewer back-ticks, or uses different words. Two
+controls pin this result.
+
+**What a line is.** A line of the scanner is the text between two line feeds. For a Markdown
+reader a line ends at a line feed, at a carriage return before a line feed, and at a carriage
+return alone. A clean document has no `LoneReturn`. Thus each line of the scanner is a line of
+the reader, with one carriage return after it when the line ending has one.
+
+`clean_iff_withoutReturn` connects the two. A document is clean exactly when its lines without
+that carriage return have no carriage return and are clean. Thus the verdict of the scanner is
+the verdict on the lines of a reader.
+
+A reader replaces the character U+0000 with U+FFFD. The two characters are not white space and
+not letters, and no statement about a line names one of them. Thus that replacement changes no
+statement about a line.
 
 **From the shape rule to a Markdown reader.** This part is an argument, and it is not a
 theorem. By the syntax of CommonMark, a fenced block opens with a line of four parts. The parts
@@ -1309,6 +1335,7 @@ build of the excluded `Regula` library, with `propext`, `Classical.choice` and `
 | The Markdown scanner is exact | `scanLines_problems_eq_empty_iff`, `checked_scanLines` | `scanLines` reports no violation exactly for a document with lines that `Clean` admits. The line numbers start at 1, and the valid patterns are those of the policy library. The theorem is for each `Source`. |
 | The Verso scanner is exact | `scanVersoLines_problems_eq_empty_iff`, `checked_scanVersoLines` | `scanVersoLines` reports no violation exactly for a source with lines that `VersoClean` admits. The theorem is for each `Source`. |
 | A line of Lean shape is a returned fence | `fence_of_leanShaped`, `example_of_leanShaped` | In a clean document, each line of Lean shape is the opening line of a returned fence. The fence has the number of that line. The theorems say nothing about the body or the byte ranges of that fence. |
+| The lines of a Markdown reader | `clean_iff_withoutReturn`, `permitted_withoutReturn`, `shapeRule_withoutReturn`, `leanAfter_withoutReturn` | A Markdown document is clean exactly when its lines without the carriage return of a line ending have no carriage return and are clean. Each statement about a line is the same with and without that carriage return. |
 | A scan with its input | `Scanned.problems_eq_empty_iff`, `Scanned.versoProblems_eq_empty_iff` | The first two theorems, for the result and the document that a `Scanned` carries. |
 | The lines of a text | `toList_linesOf` | The lines that `linesOf` gives are the characters of the text, divided at each line break by `List.splitOn` of Lean. |
 | The layout of the lines | `layoutLoop_toList`, `layout_eq` | The scanner numbers the lines in a loop that keeps no stack frame for a line. The loop gives the lines of `layoutFrom`, the definition that the theorems read. |
@@ -1335,9 +1362,9 @@ items:
 - The text of a violation, and the number of violations of a document that is not clean.
 - That the protocol is the intended one. A reviewer examines `Permitted`, `VersoPermitted`,
   `BlockKind`, `ShapeRule` and the statements about one line.
-- That a Markdown reader follows CommonMark for the opening line and the closing line of a
-  fenced block. The argument above is by reading its sections on fenced code blocks and on
-  container blocks.
+- That a Markdown reader follows CommonMark for the end of a line and for the opening line and
+  the closing line of a fenced block. The argument above is by reading its sections on line
+  endings, on fenced code blocks and on container blocks.
 - That the five names are the elements of raw HTML that a browser shows as preformatted text or
   as code. This is by reading the HTML standard.
 
@@ -1369,13 +1396,13 @@ same tests of a line in the same order. A comparison of the results of the two o
 is evidence for those texts only. The shape rule is a later change: it refuses documents that
 those loops accepted.
 
-**Observed.** The scanner cases of `checkerSelftest fixtures` run the scanners on 56 texts.
+**Observed.** The scanner cases of `checkerSelftest fixtures` run the scanners on 69 texts.
 Twelve texts are about the protocol. For one clean text the cases read that the result has one
 fence and no violation. For 11 texts they read that a violation contains the expected words.
 
-The other 44 texts are about the shape rule: 35 for a Markdown document and 9 for a Verso
-source. For each form that the rule refuses, the cases read words of the violation. For 7 texts
-that the rule accepts, they read one fence and no violation. The 35 texts are also part of the
+The other 57 texts are about the shape rule: 47 for a Markdown document and 10 for a Verso
+source. For each form that the rule refuses, the cases read words of the violation. For 9 texts
+that the rule accepts, they read one fence and no violation. The 47 texts are also part of the
 fence corpus, which the audit reads in that diagnostic.
 
 The theorems say when a result has no violation. They do not say which text a violation has,
@@ -3020,7 +3047,7 @@ not yet proved, and are labelled so at their definition; they are not correctnes
 | rule-examples | 7 record mutations, 7 admission subprocesses | `qualify` refusals | Proved | `RuleExampleQualification.qualify_sound` |
 | checkerSelftest fixtures | in-process and CLI fixture verdicts; fence corpus; diagnostic-setup controls | compiler, elaborator, CLI and fence workers | External | observed |
 | checkerSelftest fixtures | 11 execution-policy cases | failure kind per boundary and claim | Proved | `boundaryFailures_ids`, `rootFailures_ids`, `executionFailureRecords_empty_iff` |
-| checkerSelftest fixtures | 56 scanner cases: 12 of the protocol, 35 of the shape rule for Markdown and 9 for Verso | `Documentation.scan` and `scanVerso` marker, fence and shape problems | Counterexample aid | `checked_scanLines` and `checked_scanVersoLines` prove that a result has no violation exactly for a clean document. The cases observe words of a violation and the number of fences of the clean texts. |
+| checkerSelftest fixtures | 69 scanner cases: 12 of the protocol, 47 of the shape rule for Markdown and 10 for Verso | `Documentation.scan` and `scanVerso` marker, fence and shape problems | Counterexample aid | `checked_scanLines` and `checked_scanVersoLines` prove that a result has no violation exactly for a clean document. The cases observe words of a violation and the number of fences of the clean texts. |
 | checkerSelftest structural | in-process manifest cases | `Manifest.parse` acceptance, decoding and the classified refusal classes | Proved in part | `Manifest.parse_sound`, `parse_input`, `parse_emptyExclusions`, refusal-class theorems; other refusals (a missing required field, an unknown exclusion key) are unclassified |
 | checkerSelftest structural | real manifests, missing file, unlisted modules, fresh-checker coverage, CLI refusal rendering, Lake discovery, executable classification | file IO, CLI rendering, Lake inventory | External | observed |
 | checkerSelftest structural | a lemma realized in a claimed module and the toolchain, in both import orders; unchecked, circular, `sorry` and kept-cycle copies of one name | Lean's realization, import, kept copy and kernel check of several copies of one name | External | observed; the admission decision is `Admission.replayMap_sound`, `replayMap_complete` and `checkCopies_sound` |

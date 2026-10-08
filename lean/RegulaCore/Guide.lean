@@ -1476,13 +1476,24 @@ def guide : RuleId → Guide
         "The shape rule: a line that has, at any place, a run of three or more back-ticks or \
           tildes that the language of Lean follows must open a `lean` fence in the first column, \
           outside any fence, and a Lean fence must close with a run in the first column. The \
-          language of Lean is, without regard to case and after `{` and `.` at its start, a \
-          word that is `lean` or that starts with `lean` and then a character that is not a \
-          letter (`Lean`, `lean4`, `{.lean}`). A word with `&` or a backslash is refused too, \
-          because Markdown decodes it. Only the word `lean` opens a Lean fence.",
+          characters after the run name Lean when their first run of letters is `lean`, \
+          without regard to case (`Lean`, `lean4`, `{.lean}`, and `lean` after a form feed or a \
+          no-break space, which some Markdown readers remove). A `&` or a backslash after the \
+          run gives the line that shape too, because Markdown decodes them. Only the word \
+          `lean` opens a Lean fence.",
+        "The shape is conservative. It does not read the inline structure of Markdown, so it \
+          refuses a line of text with an inline span of three back-ticks that the word `lean` \
+          follows. Two refused lines are `See`, then the span, then `lean examples.`, and \
+          `See`, then the span, then `lean/Regula.`, where the span is the letter `x` between \
+          two runs of three back-ticks. Use an inline span with fewer back-ticks, or different \
+          words.",
         "A line of a Markdown document with the start tag of `pre`, `code`, `xmp`, `listing` or \
           `plaintext` is rejected at each place, also inside a fence: the character `<`, the \
-          name without regard to case, then a space, a tab, `>`, `/` or the end of the line."]
+          name without regard to case, then the end of the line, `>`, `/` or a character that \
+          HTML takes as white space (a space, a tab, a form feed, a carriage return).",
+        "A line ends at a line feed, with or without a carriage return before it. A carriage \
+          return that no line feed follows is rejected in a Markdown document, because a \
+          Markdown reader takes it as the end of a line. A Verso source has no carriage return."]
       rationaleDetail := []
       proofShape := []
       established := [
@@ -1494,9 +1505,9 @@ def guide : RuleId → Guide
           preformatted text or code: `pre`, `code`, `xmp`, `listing`, `plaintext`."]
       notEstablished := [
         "That the prose around a fence describes it faithfully (R-DOC).",
-        "That a Markdown reader follows CommonMark for the opening line and the closing line of \
-          a fenced block: the second item above rests on reading its sections on fenced code \
-          blocks and container blocks."]
+        "That a Markdown reader follows CommonMark for the end of a line and for the opening \
+          line and the closing line of a fenced block: the second item above rests on reading \
+          its sections on line endings, fenced code blocks and container blocks."]
       configuration := [
         "The checked tree is the documentation tree the audit selects (`docs/` for `lake exe \
           docFenceAudit`). There is no per-fence opt-out.",
@@ -1516,8 +1527,9 @@ def guide : RuleId → Guide
         (`Regula.Checker.Documentation.checked_scanLines`, `checked_scanVersoLines`), and the \
         lines are those of the text of the document (`toList_linesOf`). A clean document has a \
         returned fence for each line of Lean shape (`fence_of_leanShaped`, \
-        `example_of_leanShaped`). The body and the byte ranges of a returned fence are not \
-        proved."
+        `example_of_leanShaped`), and a Markdown document is clean exactly when its lines \
+        without the carriage return of a line ending are clean (`clean_iff_withoutReturn`). \
+        The body and the byte ranges of a returned fence are not proved."
       sources := ["lean/Regula/Checker/FenceScan.lean", "lean/Regula/Checker/Documentation.lean",
           "lean/Regula/Checker/Diagnostics.lean", "lean/RegulaPolicy/Pattern.lean"] }
   | .positiveExample => {

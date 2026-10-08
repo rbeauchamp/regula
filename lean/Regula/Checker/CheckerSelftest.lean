@@ -875,9 +875,12 @@ private def smokeFixtureNames : Array String :=
 form that the rule refuses, with words of the violation, and texts that the rule accepts, with
 the fence that passes. The forms are a Lean fence in a container or after indentation, a line of
 Lean shape inside a fence that the scanner thinks is open, a closing run of a Lean fence after
-indentation, a different spelling of the language, and the start tag of a code element of raw
-HTML: each of the five names, in upper and in mixed case, before each of the four characters
-that end a name and at the end of a line, and inside a fence of a different language. -/
+indentation, a different spelling of the language, a character before the language that a
+reader can remove, a carriage return that no line feed follows, and the start tag of a code
+element of raw HTML: each of the five names, in upper and in mixed case, before characters that
+end a name and at the end of a line, and inside a fence of a different language. Two lines of
+text with an inline span of three back-ticks are refused on purpose: the shape is conservative,
+and these controls pin that. -/
 private def shapeCases : Array (String × String × String) :=
   let column := "does not open a `lean` fence in the first column"
   let inside := "is inside a fence"
@@ -916,6 +919,23 @@ private def shapeCases : Array (String × String × String) :=
     ("raw-upper", "<PRE>\n", raw),
     ("raw-mixed", "<CoDe>x\n", raw),
     ("raw-in-fence", "```html\n<pre>\n```\n", raw),
+    ("lone-return",
+      "```lean\raxiom hidden : False\r```\ntheorem ok : True := trivial\n```\n",
+      "carriage return that no line feed follows"),
+    ("return-return-line-feed", "prose\r\r\n", "carriage return that no line feed follows"),
+    ("raw-return", "<pre\r\nclass=\"language-lean\">\naxiom hidden : False\n</pre>\n", raw),
+    ("raw-form-feed", "<pre\x0c>\n", raw),
+    ("inline-span-lean", "See ```x``` lean examples.\n", column),
+    ("inline-span-path", "See ```x``` lean/Regula.\n", column),
+    ("form-feed-before-word", s!"```\x0clean\n{body}\n```\n", column),
+    ("vertical-tab-before-word", s!"```\x0blean\n{body}\n```\n", column),
+    ("no-break-space-before-word", s!"``` lean\n{body}\n```\n", column),
+    ("reference-after-word", "```text a&b\nprose\n```\n", column),
+    ("return-line-feed", "```lean\r\ntheorem with_return : True := trivial\r\n```\r\n",
+      "return-line-feed.md:1 PASS"),
+    ("second-word-lean",
+      "```text lean\nprose\n```\n\n```lean\ntheorem second_word : True := trivial\n```\n",
+      "second-word-lean.md:5 PASS"),
     ("raw-near", "a <prefix> b and <codec x\n```lean\ntheorem raw_near : True := trivial\n```\n",
       "raw-near.md:2 PASS"),
     ("fence-in-comment", "<!--\n```lean\ntheorem in_comment : True := trivial\n```\n-->\n",
@@ -930,8 +950,8 @@ private def shapeCases : Array (String × String × String) :=
 
 /-- The controls of the shape rule of the Verso scanner: a `lean` block after a tab, after a
 carriage return and after a space, in a quotation and in a list item, a line of Lean shape
-inside a block, a closing run of a Lean example after indentation, and two sources that the
-rule accepts. -/
+inside a block, a closing run of a Lean example after indentation, a source with carriage
+returns, and two sources that the rule accepts. -/
 private def versoShapeCases : Array (String × String × String) :=
   let column := "does not open a `lean` block in the first column"
   let body := "theorem t : True := trivial"
@@ -943,6 +963,7 @@ private def versoShapeCases : Array (String × String × String) :=
     ("verso-inside-block", "```text\n```lean\n```\n", "is inside a code block"),
     ("verso-indented-close", s!"```lean\n{body}\n  ```\n",
       "closing line of a Lean example does not start in the first column"),
+    ("verso-return", s!"```lean\r\n{body}\r\n```\r\n", "a carriage return"),
     ("verso-first-column", s!"```lean\n{body}\n```\n", "verso-first-column:1 PASS"),
     ("verso-sketch", s!"```leanSketch\nx\n```\n```lean\n{body}\n```\n", "verso-sketch:4 PASS")]
 
