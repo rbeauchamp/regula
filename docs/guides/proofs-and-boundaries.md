@@ -1273,25 +1273,39 @@ a list item, or the lines after a line that only the scanner reads as a fence li
 rule does not make the two agree. It refuses each line that can open a Lean block at such a
 place.
 
-Four statements are about one line, with no state. `LeanShaped` is a line with a run of three
-or more back-ticks or tildes at some place. The characters after that run name Lean
-(`NamesLean`), or they have `&` or a backslash, which Markdown decodes.
+Four statements are about one line, with no state. `LeanShaped` is a line with three back-ticks
+or three tildes at some place. The characters after them name Lean (`NamesLean`), or they have
+`&` or a backslash in their first word (`EscapeInWord`). The three can be any three of a longer
+run, because back-ticks and tildes change neither statement.
 
 `NamesLean` says that the first run of letters is `lean`, without regard to case. It has no
 notion of white space. Markdown readers differ in the characters that they remove before the
 language of a fence. One reader removes a form feed, and a different reader removes a no-break
 space.
 
+`EscapeInWord` reads the first word after the run. That word starts at the first letter, `&` or
+backslash after the run, and it ends at a space. The statement says that the word has a `&` or a
+backslash.
+
+A reader decodes a character reference and a backslash escape in an info string, and it takes
+the first word as the language. No reader removes a letter, a `&` or a backslash before that
+word, and each reader ends the word at a space. Thus a reader reads a first word without `&` and
+backslash as it is written. Its first run of letters is then the one that `NamesLean` reads. A
+`&` in a later word, as in the info string `sh title="a&b"`, does not change the language. A tab
+does not end the word for each reader, so a `&` after a tab still gives the line Lean shape.
+
 `LeanOpening` is a line that opens a Lean fence in the first column. `RawCodeTag` is a line
 with the start tag of `pre`, `code`, `xmp`, `listing` or `plaintext`. `LoneReturn` is a line
 with a carriage return before its last character.
 
-`ShapeRule` gives the rule for one line of a Markdown document. No line is a `LoneReturn` or a
-`RawCodeTag`. Outside a fence, a line of Lean shape is a `LeanOpening`. Inside a fence, no line
-has Lean shape, and a line that closes a Lean fence starts with the run.
+`ShapeRule` gives the rule for one line of a Markdown document. No line is a `LoneReturn`, has
+the character U+0000 or is a `RawCodeTag`. Outside a fence, a line of Lean shape is a
+`LeanOpening`. Inside a fence, no line has Lean shape, and a line that closes a Lean fence
+starts with the run.
 
-`VersoShapeRule` is the rule for a Verso source. It has no part about raw HTML, and it permits
-no carriage return, because no theorem says what a Verso reader does with one.
+`VersoShapeRule` is the rule for a Verso source. It has no part about raw HTML. It permits no
+carriage return and no U+0000, because no theorem says what a Verso reader or its page does with
+them.
 
 `Clean` is the relation of the kind: a run of lines, each a permitted transition that keeps the
 shape rule. `LeanAfter` says after each line if the open fence is a Lean fence. `VersoClean` and
@@ -1308,17 +1322,25 @@ return alone. A clean document has no `LoneReturn`. Thus each line of the scanne
 the reader, with one carriage return after it when the line ending has one.
 
 `clean_iff_withoutReturn` connects the two. A document is clean exactly when its lines without
-that carriage return have no carriage return and are clean. Thus the verdict of the scanner is
-the verdict on the lines of a reader.
+that carriage return have no carriage return left and are clean. The condition on the carriage
+return left is needed. The line `prose` with two carriage returns after it is not clean. Without
+its last carriage return, it is `prose` with one carriage return, and that line keeps each other
+statement about a line. Thus the verdict of the scanner is the verdict on the lines of a reader.
 
-The body of a returned fence keeps the carriage returns of its lines. Lean refuses a carriage
-return that no line feed follows, and the last line of a body has no line feed after it. Thus
-the audit fails a Lean fence of a document with such line endings when it compiles the fence.
-A control pins this result.
+The body of a returned fence ends before the line ending of its last line. Its other lines keep
+the carriage returns of their line endings, and a clean document has no other carriage return.
+Lean reads a carriage return before a line feed as a line feed (`Lean.Parser.mkInputContext`).
+Thus Lean reads the lines of the body as a reader divides them.
 
-A reader replaces the character U+0000 with U+FFFD. The two characters are not white space and
-not letters, and no statement about a line names one of them. Thus that replacement changes no
-statement about a line.
+This rests on the front end of the compiler, which the audit trusts, and no theorem of Regula
+states it. Three controls pin it. A body with these line endings passes, also with a string over
+two lines. A negative example fails when its pattern names a carriage return that no line feed
+follows.
+
+A reader shows U+FFFD in place of the character U+0000, and the audit compiles the text of the
+document. Thus at that character the example that a reader shows is not the example that the
+audit checks. The shape rule refuses U+0000 at each place. An author writes `\x00` in a Lean
+string or character literal.
 
 **From the shape rule to a Markdown reader.** This part is an argument, and it is not a
 theorem. By the syntax of CommonMark, a fenced block opens with a line of four parts. The parts
@@ -1385,9 +1407,9 @@ shape. No theorem is about the body, the marker or the byte ranges of a fence. A
 returned a fence with a changed body satisfies the same theorems.
 
 A statement of the rest of that obligation says these things for a clean document. Each
-returned fence opens at a line of Lean shape. The body of a fence is the lines between its
-opening line and its closing line. The marker of a fence is the marker on the line before its
-opening line. The byte ranges of a fence are the ranges of those lines in the text. `layout`
+returned fence opens at a line of Lean shape. The body of a fence is the text of its lines,
+without the line ending of the last line. The marker of a fence is the marker on the line before
+its opening line. The byte ranges of a fence are the ranges of those lines in the text. `layout`
 counts one byte for the line break after each line but the last, and no theorem relates those
 offsets to the text.
 

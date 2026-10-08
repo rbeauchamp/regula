@@ -876,11 +876,15 @@ form that the rule refuses, with words of the violation, and texts that the rule
 the fence that passes. The forms are a Lean fence in a container or after indentation, a line of
 Lean shape inside a fence that the scanner thinks is open, a closing run of a Lean fence after
 indentation, a different spelling of the language, a character before the language that a
-reader can remove, a carriage return that no line feed follows, and the start tag of a code
-element of raw HTML: each of the five names, in upper and in mixed case, before characters that
-end a name and at the end of a line, and inside a fence of a different language. Two lines of
-text with an inline span of three back-ticks are refused on purpose: the shape is conservative,
-and these controls pin that. -/
+reader can remove, a `&` or a backslash in the first word after a run, a carriage return that no
+line feed follows, the character U+0000, and the start tag of a code element of raw HTML: each
+of the five names, in upper and in mixed case, before characters that end a name and at the end
+of a line, and inside a fence of a different language. Two lines of text with an inline span of
+three back-ticks are refused on purpose: the shape is conservative, and these controls pin that.
+A `&` after a tab is refused on purpose too: a word ends at a space for each reader, and not at a
+tab for each reader. The texts with line endings of a carriage return and a line feed are
+controls of a boundary outside the proofs: Lean reads a carriage return before a line feed as a
+line feed. -/
 private def shapeCases : Array (String × String × String) :=
   let column := "does not open a `lean` fence in the first column"
   let inside := "is inside a fence"
@@ -930,12 +934,26 @@ private def shapeCases : Array (String × String × String) :=
     ("form-feed-before-word", s!"```\x0clean\n{body}\n```\n", column),
     ("vertical-tab-before-word", s!"```\x0blean\n{body}\n```\n", column),
     ("no-break-space-before-word", s!"``` lean\n{body}\n```\n", column),
-    ("reference-after-word", "```text a&b\nprose\n```\n", column),
-    -- The scanner accepts line endings of a carriage return and a line feed. The body of the
-    -- fence keeps the carriage return of its last line, and Lean refuses a carriage return that
-    -- no line feed follows, so the audit fails the fence when it compiles it.
+    ("reference-before-word", s!"```&#32;lean\n{body}\n```\n", column),
+    ("reference-after-tab", "```sh\ta&b\nprose\n```\n", column),
+    ("null-in-body", "```lean\nexample : \"\x00\" = \"\\x00\" := rfl\n```\n", "U+0000"),
+    ("null-in-prose", "a\x00b\n", "U+0000"),
+    ("reference-after-word",
+      "```sh title=\"a&b\"\necho\n```\n\n```lean\ntheorem after_reference : True := trivial\n```\n",
+      "reference-after-word.md:5 PASS"),
+    ("backslash-after-word",
+      "```toml path=\"C:\\work\"\nx = 1\n```\n\n```lean\n\
+        theorem after_backslash : True := trivial\n```\n",
+      "backslash-after-word.md:5 PASS"),
     ("return-line-feed", "```lean\r\ntheorem with_return : True := trivial\r\n```\r\n",
-      "return-line-feed.md:1 FAIL"),
+      "return-line-feed.md:1 PASS"),
+    ("return-line-feed-string",
+      "```lean\r\nexample : \"a\r\nb\" = \"a\\nb\" := rfl\r\n```\r\n",
+      "return-line-feed-string.md:1 PASS"),
+    ("return-line-feed-marker",
+      "<!-- lean-fail: isolated carriage returns -->\r\n```lean\r\n\
+        theorem marked_return : True := trivial\r\n```\r\n",
+      "return-line-feed-marker.md:2 FAIL"),
     ("second-word-lean",
       "```text lean\nprose\n```\n\n```lean\ntheorem second_word : True := trivial\n```\n",
       "second-word-lean.md:5 PASS"),
@@ -954,7 +972,7 @@ private def shapeCases : Array (String × String × String) :=
 /-- The controls of the shape rule of the Verso scanner: a `lean` block after a tab, after a
 carriage return and after a space, in a quotation and in a list item, a line of Lean shape
 inside a block, a closing run of a Lean example after indentation, a source with carriage
-returns, and two sources that the rule accepts. -/
+returns, a source with the character U+0000, and two sources that the rule accepts. -/
 private def versoShapeCases : Array (String × String × String) :=
   let column := "does not open a `lean` block in the first column"
   let body := "theorem t : True := trivial"
@@ -967,6 +985,7 @@ private def versoShapeCases : Array (String × String × String) :=
     ("verso-indented-close", s!"```lean\n{body}\n  ```\n",
       "closing line of a Lean example does not start in the first column"),
     ("verso-return", s!"```lean\r\n{body}\r\n```\r\n", "a carriage return"),
+    ("verso-null", "```lean\nexample : \"\x00\" = \"\\x00\" := rfl\n```\n", "U+0000"),
     ("verso-first-column", s!"```lean\n{body}\n```\n", "verso-first-column:1 PASS"),
     ("verso-sketch", s!"```leanSketch\nx\n```\n```lean\n{body}\n```\n", "verso-sketch:4 PASS")]
 

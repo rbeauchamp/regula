@@ -1478,8 +1478,10 @@ def guide : RuleId → Guide
           outside any fence, and a Lean fence must close with a run in the first column. The \
           characters after the run name Lean when their first run of letters is `lean`, \
           without regard to case (`Lean`, `lean4`, `{.lean}`, and `lean` after a form feed or a \
-          no-break space, which some Markdown readers remove). A `&` or a backslash after the \
-          run gives the line that shape too, because Markdown decodes them. Only the word \
+          no-break space, which some Markdown readers remove). A `&` or a backslash in the first \
+          word after the run gives the line that shape too: Markdown decodes them in an info \
+          string, and a reader takes the first word as the language. That word starts at the \
+          first letter, `&` or backslash after the run and ends at a space. Only the word \
           `lean` opens a Lean fence.",
         "The shape is conservative. It does not read the inline structure of Markdown, so it \
           refuses a line of text with an inline span of three back-ticks that the word `lean` \
@@ -1493,7 +1495,9 @@ def guide : RuleId → Guide
           HTML takes as white space (a space, a tab, a form feed, a carriage return).",
         "A line ends at a line feed, with or without a carriage return before it. A carriage \
           return that no line feed follows is rejected in a Markdown document, because a \
-          Markdown reader takes it as the end of a line. A Verso source has no carriage return."]
+          Markdown reader takes it as the end of a line. The character U+0000 is rejected, \
+          because a Markdown reader shows U+FFFD in its place; write `\\x00` in a Lean literal. \
+          A Verso source has neither character."]
       rationaleDetail := []
       proofShape := []
       established := [
@@ -1507,7 +1511,11 @@ def guide : RuleId → Guide
         "That the prose around a fence describes it faithfully (R-DOC).",
         "That a Markdown reader follows CommonMark for the end of a line and for the opening \
           line and the closing line of a fenced block: the second item above rests on reading \
-          its sections on line endings, fenced code blocks and container blocks."]
+          its sections on line endings, fenced code blocks and container blocks.",
+        "That Lean reads a carriage return before a line feed as a line feed. The body that \
+          the audit compiles keeps the carriage returns of its line endings, without the line \
+          ending of its last line, and the front end of the compiler \
+          (`Lean.Parser.mkInputContext`) is trusted for them."]
       configuration := [
         "The checked tree is the documentation tree the audit selects (`docs/` for `lake exe \
           docFenceAudit`). There is no per-fence opt-out.",
@@ -1528,7 +1536,8 @@ def guide : RuleId → Guide
         lines are those of the text of the document (`toList_linesOf`). A clean document has a \
         returned fence for each line of Lean shape (`fence_of_leanShaped`, \
         `example_of_leanShaped`), and a Markdown document is clean exactly when its lines \
-        without the carriage return of a line ending are clean (`clean_iff_withoutReturn`). \
+        without the carriage return of a line ending have no carriage return left and are \
+        clean (`clean_iff_withoutReturn`). \
         The body and the byte ranges of a returned fence are not proved."
       sources := ["lean/Regula/Checker/FenceScan.lean", "lean/Regula/Checker/Documentation.lean",
           "lean/Regula/Checker/Diagnostics.lean", "lean/RegulaPolicy/Pattern.lean"] }
