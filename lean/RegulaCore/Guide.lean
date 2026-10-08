@@ -1234,9 +1234,17 @@ def guide : RuleId → Guide
           ["DECL-01", "DECL-02", "FOUND-05", "SCOPE-02", "TYPE-01", "THEOREM-01", "THEOREM-03",
               "THEOREM-07", "DECL-03", "DECL-04", "COMP-02", "COMP-04", "BUILD-01", "BUILD-04"]
       linkage := "Acceptance side only: an accepted run satisfies `RegulaPolicy.AdmissionOK`. \
+        Admission runs two registered decisions: `Admission.checkHeader` \
+        (`checked_checkHeader`, two-way) and `Admission.admitReplay` (`admitReplay_eq_ok`, \
+        `checked_admitReplay`, one-way), and `mem_required` states the required keys. These \
+        theorems are about the request that the decisions take. The module data, the replay \
+        set, the reported and reused modules, the lookup `kept`, the import of the replay base, \
+        `shared` and the replayed kernel are observed or trusted, as the section \"Receipt \
+        validation: decisions and observing pass\" of the guide of proofs and boundaries says. \
         The editor's deferral to the project audit of a result that needs generated-role \
-        evidence is `Regula.Checker.Policy.editor_decision_pending`. Its deferral of a decision \
-        kind that it does not read is operational collector code (`hiddenField?` in \
+        evidence is \
+        `Regula.Checker.Policy.editor_decision_pending`. Its deferral of a decision kind that it \
+        does not read is operational collector code (`hiddenField?` in \
         `Regula.Collect`), which that theorem does not cover: the collector records the \
         registration with no failure of its kind, so the editor decision reports no RG1007 \
         finding for that record, and the linter reports the reading as incomplete. Its deferral \

@@ -19,6 +19,9 @@ which candidates have every owned module of their closure reused too.
 Replay reads each replayed module's own constants (`Copy`), so a name that several
 modules contain, such as an equation lemma Lean realizes in each module that needs it,
 has every owned copy checked (`replayMap_sound`, `checkCopies_sound`).
+`validate` is an observing pass around two registered decisions: `checkHeader` on the module data
+of the header (`checked_checkHeader`) and `admitReplay` on the replayed kernel
+(`checked_admitReplay`), which returns the receipt.
 -/
 
 namespace Regula.Checker.Admission
@@ -1781,21 +1784,349 @@ theorem replayed_of_changed_import {env : Environment}
     obtain ⟨artifact, hartifact, hname, _⟩ := frozenIndex_unchanged (hall origin horigin howned)
     exact hchanged (artifact, some artifact.parts) hartifact hname rfl
 
+/-! ## The decisions of admission
+
+`validate` is an observing pass around two pure decisions. `checkHeader` reads the module data of
+the audited environment's header: each module that is replayed or reported lists its constants
+under their own names, and no module of the replay base imports a replayed one. `admitReplay`
+takes a header that `checkHeader` accepted and the kernel that the replay gave: it checks every
+copy (`checkCopies`) and that the kernel holds every required key, and it returns the receipt.
+The copies, the required keys and the modules of the replay base are definitions of the header
+(`ReplayRequest.copies`, `ReplayRequest.required`, `ReplayRequest.imports`). The import of the
+replay base, the replay and the text of a failure are the pass. -/
+
+/-- What admission reads from an audited environment: the modules of its header, the modules that `validate`
+replays (`replaySet`), and the reused modules among the environment's requested modules that it
+does not replay, whose keys the receipt requires. -/
+structure ReplayRequest where
+  /-- The modules of the audited environment's header with their data, in the order of the header
+  (`EnvironmentHeader.moduleNames` beside `EnvironmentHeader.moduleData`). -/
+  modules : Array (Name × ModuleData)
+  /-- The modules that `validate` replays. -/
+  replay : Array Name
+  /-- The reused modules among the requested ones that are not replayed. -/
+  reported : Array Name
+
+/-- The copies that the replay checks: each constant of each replayed module's own data, with
+that module. -/
+def ReplayRequest.copies (request : ReplayRequest) : Array Copy :=
+  request.modules.flatMap fun entry =>
+    if request.replay.contains entry.1 then
+      entry.2.constants.map fun info => { «module» := entry.1, info }
+    else #[]
+
+/-- The key of a copy that the receipt requires: a copy that is neither `unsafe` nor `partial`,
+which `Kernel.Environment.replay` checks. -/
+def requiredKey? (copy : Copy) : Option (Name × Name) :=
+  if copy.info.isUnsafe || copy.info.isPartial then none else some (copy.module, copy.name)
+
+/-- The keys of the reported modules: each constant of a reported module's own data that is
+neither `unsafe` nor `partial`. -/
+def ReplayRequest.referenced (request : ReplayRequest) : Array (Name × Name) :=
+  request.modules.flatMap fun entry =>
+    if !request.replay.contains entry.1 && request.reported.contains entry.1 then
+      (entry.2.constants.filter fun info => !(info.isUnsafe || info.isPartial)).map
+        fun info => (entry.1, info.name)
+    else #[]
+
+/-- The keys that the receipt requires: those of the copies, then those of the reported modules. -/
+def ReplayRequest.required (request : ReplayRequest) : Array (Name × Name) :=
+  request.copies.filterMap requiredKey? ++ request.referenced
+
+/-- The modules of the replay base: each module that is not replayed, imported with all its data. -/
+def ReplayRequest.imports (request : ReplayRequest) : Array Import :=
+  request.modules.filterMap fun entry =>
+    if request.replay.contains entry.1 then none else some { module := entry.1, importAll := true }
+
+/-- The first place where the names listed for a module's constants and the constants differ:
+the listed name and the constant. -/
+def firstMislisted? : List Name → List ConstantInfo → Option (Name × ConstantInfo)
+  | constName :: names, info :: infos =>
+    if info.name == constName then firstMislisted? names infos else some (constName, info)
+  | _, _ => none
+
+/-- The listing of a module that admission reads: Lean's import keys each constant of the module
+by the name listed beside it. -/
+def checkListing (name : Name) (data : ModuleData) : Except String Unit := do
+  unless data.constNames.size == data.constants.size do
+    throw s!"{failureTag} module {name} lists {data.constNames.size} constant names for \
+      {data.constants.size} constants"
+  if let some (constName, info) := firstMislisted? data.constNames.toList data.constants.toList then
+    throw s!"{failureTag} module {name} lists constant {info.name} under the name {constName}"
+
+/-- A module of the replay base must not import a replayed module: importing it would put
+unchecked owned declarations back in the trusted base. Ownership must be expanded or the claim
+rejected. -/
+def checkBase (replay : Array Name) (name : Name) (data : ModuleData) : Except String Unit :=
+  if data.imports.any (fun imp => replay.contains imp.module) then
+    throw s!"{failureTag} unreplayed module {name} imports a replayed module"
+  else pure ()
+
+/-- One module of the header: a replayed module has its listing checked; any other module has its
+listing checked when it is reported, and then its imports. -/
+def checkModule (replay reported : Array Name) (entry : Name × ModuleData) : Except String Unit :=
+  if replay.contains entry.1 then checkListing entry.1 entry.2
+  else do
+    if reported.contains entry.1 then checkListing entry.1 entry.2
+    checkBase replay entry.1 entry.2
+
+/-- The decision on the header: each module in the order of the header (`checkModule`), stopping
+at the first refusal. -/
+@[regula_decision]
+def checkHeader (request : ReplayRequest) : Except String Unit :=
+  forM request.modules (checkModule request.replay request.reported)
+
+/-- A module lists each of its constants under the constant's own name, as Lean's import keys
+it. -/
+def ListsOwnNames (data : ModuleData) : Prop :=
+  data.constNames = data.constants.map ConstantInfo.name
+
+/-- The header can be read for replay: each module that is replayed or reported lists its
+constants under their own names, and no module that is not replayed imports a replayed one. -/
+def HeaderOK (request : ReplayRequest) : Prop :=
+  ∀ entry ∈ request.modules,
+    (entry.1 ∈ request.replay ∨ entry.1 ∈ request.reported → ListsOwnNames entry.2) ∧
+      (entry.1 ∉ request.replay → ∀ imp ∈ entry.2.imports, imp.module ∉ request.replay)
+
+/-- `firstMislisted?` finds no difference exactly when the names are those of the constants, for
+two lists of one length. -/
+private theorem firstMislisted?_eq_none_iff :
+    ∀ (names : List Name) (infos : List ConstantInfo), names.length = infos.length →
+      (firstMislisted? names infos = none ↔ names = infos.map ConstantInfo.name)
+  | [], [], _ => by simp [firstMislisted?]
+  | [], _ :: _, same => by simp at same
+  | _ :: _, [], same => by simp at same
+  | constName :: names, info :: infos, same => by
+    have rest := firstMislisted?_eq_none_iff names infos (by simpa using same)
+    by_cases equal : info.name = constName
+    · subst equal
+      simp [firstMislisted?, rest]
+    · have differs : (info.name == constName) = false := by simpa using equal
+      simp only [firstMislisted?, differs, Bool.false_eq_true, ↓reduceIte, reduceCtorEq,
+        false_iff, List.map_cons, List.cons.injEq, not_and]
+      exact fun same => absurd same.symm equal
+
+/-- `checkListing` accepts exactly a module that lists its constants under their own names. -/
+theorem checkListing_eq_ok_iff (name : Name) (data : ModuleData) :
+    checkListing name data = .ok () ↔ ListsOwnNames data := by
+  unfold checkListing ListsOwnNames
+  by_cases sized : data.constNames.size = data.constants.size
+  · have none_iff := firstMislisted?_eq_none_iff data.constNames.toList data.constants.toList
+      (by simpa using sized)
+    have arrays : data.constNames = data.constants.map ConstantInfo.name ↔
+        data.constNames.toList = data.constants.toList.map ConstantInfo.name := by
+      rw [← Array.toList_map]
+      exact ⟨fun h => by rw [h], fun h => Array.ext' h⟩
+    rw [arrays, ← none_iff]
+    cases found : firstMislisted? data.constNames.toList data.constants.toList with
+    | none => simp [sized]
+    | some pair => simp [sized]
+  · have differ : ¬ data.constNames = data.constants.map ConstantInfo.name := fun same => by
+      rw [same, Array.size_map] at sized
+      exact sized rfl
+    simp [sized, differ]
+
+/-- `checkBase` accepts exactly a module that imports no replayed module. -/
+theorem checkBase_eq_ok_iff (replay : Array Name) (name : Name) (data : ModuleData) :
+    checkBase replay name data = .ok () ↔ ∀ imp ∈ data.imports, imp.module ∉ replay := by
+  unfold checkBase
+  by_cases found : data.imports.any (fun imp => replay.contains imp.module) = true
+  · obtain ⟨imp, member, contained⟩ := Array.any_eq_true'.mp found
+    simp only [found, ↓reduceIte]
+    constructor
+    · intro refused
+      cases refused
+    · intro none
+      exact absurd (Array.contains_iff_mem.mp contained) (none imp member)
+  · simp only [found, Bool.false_eq_true, ↓reduceIte]
+    constructor
+    · intro _ imp member replayed
+      exact found (Array.any_eq_true'.mpr ⟨imp, member, Array.contains_iff_mem.mpr replayed⟩)
+    · intro _
+      rfl
+
+/-- `checkModule` accepts exactly a module that keeps the two conditions of `HeaderOK`. -/
+theorem checkModule_eq_ok_iff (replay reported : Array Name) (entry : Name × ModuleData) :
+    checkModule replay reported entry = .ok () ↔
+      (entry.1 ∈ replay ∨ entry.1 ∈ reported → ListsOwnNames entry.2) ∧
+        (entry.1 ∉ replay → ∀ imp ∈ entry.2.imports, imp.module ∉ replay) := by
+  unfold checkModule
+  by_cases replayed : entry.1 ∈ replay
+  · simp [replayed, checkListing_eq_ok_iff]
+  · have notContained : replay.contains entry.1 = false := by
+      simpa [Array.contains_iff_mem] using replayed
+    simp only [notContained, Bool.false_eq_true, ↓reduceIte, replayed, false_or, not_false_eq_true,
+      forall_const]
+    by_cases isReported : entry.1 ∈ reported
+    · simp [isReported, checkListing_eq_ok_iff, checkBase_eq_ok_iff]
+    · simp [isReported, checkBase_eq_ok_iff]
+
+/-- **`checkHeader` accepts exactly a header that `HeaderOK` admits.** -/
+theorem checkHeader_eq_ok_iff (request : ReplayRequest) :
+    checkHeader request = .ok () ↔ HeaderOK request := by
+  unfold checkHeader HeaderOK
+  rw [RegulaPolicy.Guards.forM_eq_ok]
+  exact forall₂_congr fun entry _ => checkModule_eq_ok_iff _ _ entry
+
+/-- A module that lists the name `A` for no constant. -/
+private def mislisted : ModuleData :=
+  { isModule := false, imports := #[], constNames := #[`A], constants := #[],
+    extraConstNames := #[], entries := #[] }
+
+/-- `checkHeader` is a sound and complete decision of `HeaderOK` (`checkHeader_eq_ok_iff`). It
+accepts the header of no module, and it refuses a header with a replayed module that lists a name
+for no constant. -/
+theorem checked_checkHeader : Regula.ExecutableContract checkHeader
+    (Regula.Decides (· = .ok ()) HeaderOK) :=
+  ⟨Regula.Decides.of_iff checkHeader_eq_ok_iff
+    ⟨{ modules := #[], replay := #[], reported := #[] }, rfl⟩
+    ⟨{ modules := #[(`A, mislisted)], replay := #[`A], reported := #[] }, fun accepted => by
+      have listed := ((checkHeader_eq_ok_iff _).mp accepted (`A, mislisted) (by simp)).1
+        (.inl (by simp))
+      simp [ListsOwnNames, mislisted] at listed⟩⟩
+
+/-- The keys that the receipt requires are the constants of the replayed and the reported modules
+that are neither `unsafe` nor `partial`, one key for each module and constant. -/
+theorem mem_required {request : ReplayRequest} {key : Name × Name} :
+    key ∈ request.required ↔
+      ∃ entry ∈ request.modules, (entry.1 ∈ request.replay ∨ entry.1 ∈ request.reported) ∧
+        ∃ info ∈ entry.2.constants, info.isUnsafe = false ∧ info.isPartial = false ∧
+          key = (entry.1, info.name) := by
+  unfold ReplayRequest.required ReplayRequest.copies ReplayRequest.referenced
+  simp only [Array.mem_append, Array.mem_filterMap, Array.mem_flatMap]
+  constructor
+  · rintro (⟨copy, ⟨entry, hentry, hcopy⟩, hkey⟩ | ⟨entry, hentry, hkey⟩)
+    · by_cases replayed : request.replay.contains entry.1 = true
+      · simp only [replayed, ↓reduceIte, Array.mem_map] at hcopy
+        obtain ⟨info, hinfo, rfl⟩ := hcopy
+        unfold requiredKey? at hkey
+        by_cases unsafeOrPartial : (info.isUnsafe || info.isPartial) = true
+        · simp [unsafeOrPartial] at hkey
+        · simp only [unsafeOrPartial, Bool.false_eq_true, ↓reduceIte, Option.some.injEq] at hkey
+          simp only [Bool.or_eq_true, not_or, Bool.not_eq_true] at unsafeOrPartial
+          exact ⟨entry, hentry, .inl (Array.contains_iff_mem.mp replayed), info, hinfo,
+            unsafeOrPartial.1, unsafeOrPartial.2, hkey.symm⟩
+      · simp only [replayed, Bool.false_eq_true, ↓reduceIte, Array.not_mem_empty] at hcopy
+    · by_cases reported :
+          (!request.replay.contains entry.1 && request.reported.contains entry.1) = true
+      · simp only [reported, ↓reduceIte, Array.mem_map, Array.mem_filter] at hkey
+        obtain ⟨info, ⟨hinfo, safe⟩, rfl⟩ := hkey
+        simp only [Bool.not_or, Bool.and_eq_true, Bool.not_eq_true'] at safe
+        simp only [Bool.and_eq_true, Bool.not_eq_true'] at reported
+        exact ⟨entry, hentry, .inr (Array.contains_iff_mem.mp reported.2), info, hinfo, safe.1,
+          safe.2, rfl⟩
+      · simp only [reported, Bool.false_eq_true, ↓reduceIte, Array.not_mem_empty] at hkey
+  · rintro ⟨entry, hentry, which, info, hinfo, safe, total, rfl⟩
+    by_cases replayed : entry.1 ∈ request.replay
+    · refine .inl ⟨{ «module» := entry.1, info }, ⟨entry, hentry, ?_⟩, ?_⟩
+      · simp [replayed, hinfo]
+      · simp [requiredKey?, safe, total]
+    · have reported : entry.1 ∈ request.reported := which.resolve_left replayed
+      refine .inr ⟨entry, hentry, ?_⟩
+      simp [replayed, reported]
+      exact ⟨info, ⟨hinfo, safe, total⟩, rfl⟩
+
+/-- Why `admitReplay` refuses. -/
+inductive AdmitFailure where
+  /-- A copy is not admitted. -/
+  | copy (failure : CopyFailure)
+  /-- The replayed kernel holds no constant of a required key's name. -/
+  | missing (name : Name)
+
+/-- What `admitReplay` reads: a header that `checkHeader` accepted, and the kernel that the replay
+of its copies gave, with the audited environment's constants. The field `read` binds the request
+to that acceptance, so no value of this type has a header that `checkHeader` refuses. -/
+structure AdmitRequest where
+  /-- The header and the modules that admission reads. -/
+  request : ReplayRequest
+  /-- `checkHeader` accepted the header. -/
+  read : checkHeader request = .ok ()
+  /-- The owned modules not replayed because an earlier environment admitted them. -/
+  reused : Array Name
+  /-- The kernel that the replay gave. -/
+  checked : Kernel.Environment
+  /-- The constants of the audited environment, by name. -/
+  kept : Name → Option ConstantInfo
+  /-- The bound of each search of the names that a proof reaches. -/
+  fuel : Nat
+  /-- The copies of a name that the replay base or another replayed module also declares. -/
+  shared : Copy → Bool
+
+/-- The receipt of an admission: the replayed modules, the required keys, admitted in the same
+order, the reused modules and the replayed modules that contain a shared copy. -/
+def AdmitRequest.receipt (admit : AdmitRequest) : ProducerReport.AdmissionReceipt :=
+  { modules := RegulaPolicy.canonicalNames admit.request.replay
+    required := admit.request.required
+    admitted := admit.request.required
+    reused := RegulaPolicy.canonicalNames admit.reused
+    shared := RegulaPolicy.canonicalNames ((admit.request.copies.filter admit.shared).map (·.module)) }
+
+/-- The decision of admission: every copy is checked (`checkCopies`), then every required key
+must name a constant of the replayed kernel, and the receipt is returned. -/
+@[regula_decision]
+def admitReplay (admit : AdmitRequest) : Except AdmitFailure ProducerReport.AdmissionReceipt := do
+  if let .error failure :=
+      checkCopies admit.checked admit.kept admit.fuel admit.shared admit.request.copies then
+    throw (.copy failure)
+  forM admit.request.required fun key =>
+    if (admit.checked.find? key.2).isNone then throw (.missing key.2) else pure ()
+  return admit.receipt
+
+/-- What a receipt of `admitReplay` establishes: every copy is admitted (`CopyAdmitted`), and the
+replayed kernel holds a constant under the name of each required key. -/
+def AdmitOK (admit : AdmitRequest) : Prop :=
+  (∀ copy ∈ admit.request.copies, CopyAdmitted admit.checked admit.kept admit.shared copy) ∧
+    ∀ key ∈ admit.request.required, ∃ info, admit.checked.find? key.2 = some info
+
+/-- **A receipt of `admitReplay` is the receipt of its request, and the request keeps
+`AdmitOK`.** -/
+theorem admitReplay_eq_ok {admit : AdmitRequest} {receipt : ProducerReport.AdmissionReceipt}
+    (h : admitReplay admit = .ok receipt) : AdmitOK admit ∧ receipt = admit.receipt := by
+  unfold admitReplay at h
+  cases hc : checkCopies admit.checked admit.kept admit.fuel admit.shared
+      admit.request.copies with
+  | error failure => simp [hc] at h
+  | ok u =>
+    cases u
+    simp only [hc] at h
+    obtain ⟨⟨⟩, found, returned⟩ := RegulaPolicy.Guards.bind_eq_ok.mp h
+    refine ⟨⟨checkCopies_sound hc, fun key member => ?_⟩, ?_⟩
+    · have present := RegulaPolicy.Guards.forM_eq_ok.mp found key member
+      cases hfind : admit.checked.find? key.2 with
+      | none => simp [hfind] at present
+      | some info => exact ⟨info, rfl⟩
+    · cases returned
+      rfl
+
+/-- `admitReplay` is a sound decision of `AdmitOK` (`admitReplay_eq_ok`), and it accepts the
+request of a header with no module. The kind is one-way, as for `checkCopies`: the search of a
+proof's axioms is bounded by `fuel`, so a refusal fails closed. -/
+theorem checked_admitReplay : Regula.ExecutableContract admitReplay
+    (Regula.DecidesSoundly (fun result => result.isOk = true) AdmitOK) :=
+  ⟨{ sound := fun admit accepted => by
+       cases h : admitReplay admit with
+       | error e => simp [h, Except.isOk, Except.toBool] at accepted
+       | ok receipt => exact (admitReplay_eq_ok h).1
+     accepted := (inferInstance : Nonempty Kernel.Environment).elim fun checked =>
+       ⟨{ request := { modules := #[], replay := #[], reported := #[] }, read := rfl, reused := #[]
+          checked, kept := fun _ => none, fuel := 0, shared := fun _ => false }, rfl⟩ }⟩
+
 /-- Replay the completed owned logical declarations against trusted imports, except those of
-the `reused` modules, which stay in the replay base with the trusted imports (`replaySet`). The
-declarations
-are the constants of each replayed module's own data (`Copy`). Every name of a copy that the base
-lacks is replayed with the constant the audited environment `env` holds under it, the copy whose
-statement and value reports read (`replayMap_sound`, `replayMap_complete`); every copy is then
-checked against the replayed kernel and `env` (`checkCopies_sound`). The receipt's `shared`
+the `reused` modules, which stay in the replay base with the trusted imports (`replaySet`). This
+is the observing pass of admission: `checkHeader` decides on the module data of the header, the
+pass imports the replay base (`ReplayRequest.imports`) and replays every name of a copy that the
+base lacks with the constant the audited environment `env` holds under it, the copy whose
+statement and value reports read (`replayMap_sound`, `replayMap_complete`), and `admitReplay`
+decides on the replayed kernel and returns the receipt (`admitReplay_eq_ok`). The copies are the
+constants of each replayed module's own data (`ReplayRequest.copies`). The receipt's `shared`
 modules contain a copy of a name that the base or another replayed module also declares; their
 admission depends on which copy this environment keeps, so they are not offered for reuse. A
 reused module among `requested` is one whose declarations this environment reports: the receipt
 requires the key of each of its constants that is neither `unsafe` nor `partial`, read from the
-module's own data as for a replayed module, and the coordinator accepts those keys only when the
-earlier environment that replayed the module admitted them (`reuseJustified`). The
-original environment is retained for compiler metadata only after replay succeeds. This is not a
-fresh replay of the imported dependency graph. -/
+module's own data as for a replayed module (`mem_required`), and the coordinator accepts those
+keys only when the earlier environment that replayed the module admitted them
+(`reuseJustified`). The original environment is retained for compiler metadata only after replay
+succeeds. This is not a fresh replay of the imported dependency graph. -/
 unsafe def validate (env : Environment) (ownedModules : Array Name) (reused : Array Name := #[])
     (requested : Array Name := #[]) :
     IO (Except ProducerReport.AdmissionFailure ProducerReport.AdmissionReceipt) := do
@@ -1803,61 +2134,34 @@ unsafe def validate (env : Environment) (ownedModules : Array Name) (reused : Ar
   -- Replay these exact checker implementation modules too; importing them into
   -- the base would reintroduce unchecked owned policy declarations. They do not
   -- become claimed surfaces, and arbitrary reverse imports remain forbidden.
-  let replayModules :=
-    replaySet (env.header.moduleNames.zip env.header.moduleData) ownedModules reused
-  let owned := replayModules.foldl (fun names name => names.insert name) ({} : NameSet)
-  let mut copies : Array Copy := #[]
-  let mut imports : Array Import := #[]
-  -- The keys of the reused modules this environment reports, admitted by the environment that
-  -- replayed them.
-  let mut referenced : Array (Name × Name) := #[]
-  for (name, data) in env.header.moduleNames.zip env.header.moduleData do
-    let reports := !owned.contains name && reused.contains name && requested.contains name
-    if owned.contains name || reports then
-      -- Lean's import keys each constant of the module by the name listed beside it.
-      unless data.constNames.size == data.constants.size do
-        return .error ⟨s!"{failureTag} module {name} lists {data.constNames.size} constant \
-          names for {data.constants.size} constants"⟩
-      for constName in data.constNames, info in data.constants do
-        unless info.name == constName do
-          return .error ⟨s!"{failureTag} module {name} lists constant {info.name} under the \
-            name {constName}"⟩
-        if reports then
-          unless info.isUnsafe || info.isPartial do
-            referenced := referenced.push (name, info.name)
-        else copies := copies.push { «module» := name, info }
-      unless reports do continue
-    -- Importing such a module would put unchecked owned declarations back in
-    -- the trusted base. Ownership must be expanded or the claim rejected.
-    if data.imports.any (fun imp => owned.contains imp.module) then
-      return .error ⟨s!"{failureTag} unreplayed module {name} imports a replayed module"⟩
-    imports := imports.push { module := name, importAll := true }
-  let replayed := copies.filterMap fun copy =>
-    if copy.info.isUnsafe || copy.info.isPartial then none else some (copy.module, copy.name)
-  let required := replayed ++ referenced
-  let counts := nameCounts copies
-  -- Every search expands each name at most once; the audited environment declares no more names
-  -- than its modules list constants.
-  let fuel := env.header.moduleData.foldl (fun total data => total + data.constants.size) 0
-  let base ← importModules imports {} 0 (loadExts := false) (level := .private)
-  try
-    let find := base.toKernelEnv.find?
-    let shared (copy : Copy) : Bool := (find copy.name).isSome || 2 ≤ counts.getD copy.name 0
-    let checked ← Lean.Kernel.Environment.replay (replayMap find env.find? copies)
-      base.toKernelEnv
-    if let .error failure := checkCopies checked env.find? fuel shared copies then
-      throw <| IO.userError (← failure.describe)
-    for key in required do
-      if (checked.find? key.2).isNone then
-        throw <| IO.userError s!"missing replayed declaration {key.2}"
-    return .ok { modules := RegulaPolicy.canonicalNames replayModules, required,
-                 admitted := required, reused := RegulaPolicy.canonicalNames reused,
-                 shared := RegulaPolicy.canonicalNames ((copies.filter shared).map (·.module)) }
-  catch error =>
-    return .error ⟨s!"{failureTag} {error}"⟩
-  finally
-    -- No replay environment escapes this function. Release its separately
-    -- imported regions, as Lean's bundled replay checker does.
-    base.freeRegions
+  let modules := env.header.moduleNames.zip env.header.moduleData
+  let replay := replaySet modules ownedModules reused
+  let request : ReplayRequest :=
+    { modules, replay
+      reported := reused.filter fun name => requested.contains name && !replay.contains name }
+  match read : checked_checkHeader.run request with
+  | .error message => return .error ⟨message⟩
+  | .ok () =>
+    let counts := nameCounts request.copies
+    -- Every search expands each name at most once; the audited environment declares no more
+    -- names than its modules list constants.
+    let fuel := env.header.moduleData.foldl (fun total data => total + data.constants.size) 0
+    let base ← importModules request.imports {} 0 (loadExts := false) (level := .private)
+    try
+      let find := base.toKernelEnv.find?
+      let shared (copy : Copy) : Bool := (find copy.name).isSome || 2 ≤ counts.getD copy.name 0
+      let checked ← Lean.Kernel.Environment.replay (replayMap find env.find? request.copies)
+        base.toKernelEnv
+      match checked_admitReplay.run
+          { request, read, reused, checked, kept := env.find?, fuel, shared } with
+      | .ok receipt => return .ok receipt
+      | .error (.copy failure) => throw <| IO.userError (← failure.describe)
+      | .error (.missing name) => throw <| IO.userError s!"missing replayed declaration {name}"
+    catch error =>
+      return .error ⟨s!"{failureTag} {error}"⟩
+    finally
+      -- No replay environment escapes this function. Release its separately
+      -- imported regions, as Lean's bundled replay checker does.
+      base.freeRegions
 
 end Regula.Checker.Admission

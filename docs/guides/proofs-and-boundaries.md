@@ -717,14 +717,15 @@ Which report states a kind depends on the library that holds the registration:
   registrations are contracts of the accepted inventory, so an accepted account of Regula states
   the kind of each and, for a one-way kind, the direction it leaves open.
 - **The excluded `Regula` library.** Acceptance does not report its declarations, so no report
-  states the kind of its twenty-one registrations, named here with their modules: `checked_same` and
-  `checked_read` (`Regula.SharedExecution`), `checked_intern` and `checked_expand`
+  states the kind of its twenty-three registrations, named here with their modules: `checked_same`
+  and `checked_read` (`Regula.SharedExecution`), `checked_intern` and `checked_expand`
   (`Regula.SourceTexts`), `checked_agrees` and `checked_canonical` (`Regula.JsonAgreement`),
   `checked_parseLocation` and `checked_parseDiagnostic` (`Regula.DiagnosticCodec`),
   `checked_exactFields` (`Regula.Checker.PolicyCodec`), `checked_scanLines` and
   `checked_scanVersoLines` (`Regula.Checker.FenceScan`), `checked_parseMode` and `checked_parseRule`
   (`Regula.RegistryCodec`), `checked_parseName` and `checked_parsePrintedNameJson`
-  (`Regula.StructuralName`), `checked_checkCopies` (`Regula.Checker.Admission`),
+  (`Regula.StructuralName`), `checked_checkCopies`, `checked_checkHeader` and
+  `checked_admitReplay` (`Regula.Checker.Admission`),
   `checked_parseValue` (`Regula.Checker.Manifest`), `checked_validate`
   (`Regula.Checker.ProducerReport`), and `checked_admitExampleRequest`,
   `checked_admitExampleSources` and `checked_admitDemonstration` (`Regula.Website`). Lean's kernel checks each kind's proof in the library's
@@ -766,6 +767,7 @@ Two-way decisions (`Regula.Decides`), each with an accepted and a refused input:
 | `Regula.JsonAgreement.canonical` (accepts on `.ok`) | The reader returns a value, and the input agrees with the encoding of that value (`canonical_eq_ok_iff`). | The decoders `DiagnosticCodec.parseLocation` and `parseDiagnostic`. The reader and the encoder are arguments, so the kind is about each reader and each encoder. |
 | `Regula.Checker.PolicyCodec.exactFields` (accepts on `.ok`) | `ExactFields` (`exactFields_iff`). The value is an object, and its member names are the expected names in some order. | The decoders of the worker protocol and of the producer reports. The proof that the expected names are distinct is an argument of the function. |
 | `Regula.Checker.Documentation.scanLines`, `scanVersoLines` (accept on a result with no violation) | `Clean`, `VersoClean`: the lines are a run of transitions from the first line to the end of the document. The fence protocol permits each transition, and each keeps the shape rule (`scanLines_problems_eq_empty_iff`, `scanVersoLines_problems_eq_empty_iff`). | The fence protocol and the shape rule of [RG4001] ([below](#the-fence-scanners-decisions-and-observing-pass)). The input is a `Source`: a document with the lines of its text. The kinds say nothing about the fences of a result. |
+| `Regula.Checker.Admission.checkHeader` (accepts on `.ok ()`) | `HeaderOK` (`checkHeader_eq_ok_iff`). Each replayed or reported module lists its constants under their own names. No module of the replay base imports a replayed module. | The decision on the header of [RG2005] ([below](#receipt-validation-decisions-and-observing-pass)). |
 | `Regula.SourceTexts.intern` | One `sourceTexts` member, `null`, and string `sourceText` members (`intern_isOk_iff`) | Writing a result document. |
 | `Regula.Markdown.documentErrors`, `Regula.Markdown.siteLinkErrors`, `Regula.Prose.bareMentions`, `Regula.Site.linkErrors`, `Regula.Site.missingAnchors`, `Regula.Site.rowsMismatch` | Their `_nil_iff` and `_eq_none_iff` relations | The rule-ID checks of Markdown and of the rendered standard, and the site's link, anchor and checklist checks. `siteLinkErrors` is the check of the links of the root `README.md` to the rule-reference site. |
 | `Regula.Controlled.parse` | The text is the text that `write` gives for a vocabulary (`parse_write`, `write_of_parse`). A vocabulary is a draft with `Draft.WellFormed` (`Draft.defects_nil_iff`). | The vocabulary `CONTEXT.md` (check C9) of the [writing rules](writing.md). The file system gives the text. |
@@ -797,6 +799,7 @@ Sound only, each a declared choice:
 | --- | --- | --- |
 | `Regula.SharedExecution.same` | The two values are equal (`same_eq`) | That it accepts every pair of equal values is not proved, and nothing depends on it. The equality is `=`: two objects with the same members whose trees are balanced differently are different values, which `same` refuses and Lean's runtime `Json` comparison identifies. |
 | `Regula.Checker.Admission.checkCopies` | Every copy is `CopyAdmitted` (`checkCopies_sound`) | It may refuse admissible copies: the search for a proof's axioms is bounded by fuel, and a refusal fails closed ([RG2005]). |
+| `Regula.Checker.Admission.admitReplay` (accepts on `.ok`) | `AdmitOK` (`admitReplay_eq_ok`). Each copy is `CopyAdmitted`, and the replayed kernel holds a constant under the name of each required key. The receipt is the receipt of the request. | Completeness. It runs `checkCopies`, which bounds the search for a proof's axioms by fuel, so a refusal fails closed ([RG2005]). |
 | `RegulaPolicy.NativeStatement.recognize?` (accepts on `some`) | `NativeStatement.Stated`: the type is the statement of the tactic under the prefix (`asserted?_sound`) | Completeness for `bv_decide` has the hypothesis `RuntimeStringAppend` (`asserted?_complete`), and a kind has no hypothesis. A refusal fails closed ([RG1004]). The result holds the proof about the candidate, so the kind is about `Regula.Dependent.isSome recognize?`. |
 | `Regula.Checker.ProducerReport.Environment.validate` | `Admissible` (`validate_sound`) | It may refuse an admissible report; `validate_eq_ok` is two-way against the guard Booleans, not against `Admissible`. |
 | `RegulaProvision.admits` | `Admitted`: the receipt records the requested revision and compiler, zero artifact policy and empty source, and holds no package at another revision than a pin (`admits_sound`) | It refuses an `Admitted` receipt of another schema version. |
@@ -828,9 +831,9 @@ Decisions with no kind, and what stands instead:
 
 Every decision of the three tables with a kind is registered with `@[regula_decision]`, so
 [RG1008] requires its contract: 54 functions of `RegulaPolicy`, 28 of `RegulaCore`, 9 of
-`RegulaQualification`, 3 of `AuditApp`, 8 of `RegulaProvision`, 6 of `RegulaVerification` and 21 of the excluded `Regula` library, where the
-`self-audit` diagnostic decides the rule. Sixteen of them are registered from another module of
-their library, with
+`RegulaQualification`, 3 of `AuditApp`, 8 of `RegulaProvision`, 6 of `RegulaVerification` and
+23 of the excluded `Regula` library, where the `self-audit` diagnostic decides the rule. Sixteen
+of them are registered from another module of their library, with
 `attribute [regula_decision]` beside their contracts, because the module that declares them
 imports only the toolchain:
 
@@ -1441,11 +1444,88 @@ their texts: words of a violation, and the number of fences.
 The fence audit of `./scripts/verify.sh docs` runs the two scanners on each Markdown document
 of `docs/` and on the Verso sources of the standard. It compiles each fence that they return.
 
+### Receipt validation: decisions and observing pass
+
+[RG2005] reports an environment as incomplete when `Admission.validate` does not admit it.
+`validate` is an observing pass around two pure decisions with a kind.
+
+- **The decision on the header** is `Admission.checkHeader`. Its argument,
+  `Admission.ReplayRequest`, holds the modules of the header of the audited environment with
+  their data, the replay set and the reported modules. Each module that is replayed or reported
+  must list its constants under their own names (`Admission.ListsOwnNames`). No module of the
+  replay base may import a replayed module. `checked_checkHeader` registers the kind
+  `Regula.Decides` against `Admission.HeaderOK`.
+- **The decision on the replay** is `Admission.admitReplay`. Its argument,
+  `Admission.AdmitRequest`, holds a request, the proof that `checkHeader` accepted it, and the
+  kernel that the replay gave. The decision runs `checkCopies` on the copies of the request. It
+  then requires that the kernel holds a constant under the name of each required key, and it
+  returns the receipt of the request. `checked_admitReplay` registers the kind
+  `Regula.DecidesSoundly` against `Admission.AdmitOK`.
+- **The observing pass** is the rest of `validate`. It computes the replay set (`replaySet`) and
+  the reported modules, imports the replay base and replays the copies (`replayMap`). It gives a
+  failure of a decision its text, and it catches the exceptions of the replay.
+
+The import of the replay base runs before the handler of `validate`, as before this split. Thus an
+exception of the import goes to the caller of `validate`, without the tag of an admission failure.
+
+The copies, the required keys and the modules of the replay base are definitions of the request
+(`ReplayRequest.copies`, `ReplayRequest.required`, `ReplayRequest.imports`). The receipt of an
+`AdmitRequest` is a definition of its fields too (`AdmitRequest.receipt`). Thus a receipt has the
+keys of a header that `checkHeader` accepted, by the type of the argument of `admitReplay`.
+
+**Proved**, about the functions that `validate` runs. Lean's kernel checked each theorem in the
+build of the excluded `Regula` library, with `propext`, `Classical.choice` and `Quot.sound` only.
+
+| Property | Declarations | Meaning and limit |
+| --- | --- | --- |
+| The decision on the header is exact | `Admission.checkHeader_eq_ok_iff`, `Admission.checked_checkHeader` | `checkHeader` accepts exactly a request that `HeaderOK` admits. The theorem is for each list of modules, replay set and list of reported modules. |
+| One condition for each module | `Admission.checkModule_eq_ok_iff`, `Admission.checkListing_eq_ok_iff`, `Admission.checkBase_eq_ok_iff` | A module lists its constants under their own names exactly when its list of names is the names of its constants. A module of the base passes exactly when it imports no module of the replay set. |
+| The required keys | `Admission.mem_required` | A key is required exactly when it names a replayed or reported module and a constant of that module that is neither `unsafe` nor `partial`. |
+| A receipt is admitted | `Admission.admitReplay_eq_ok`, `Admission.checked_admitReplay` | A receipt of `admitReplay` is the receipt of its request. Each copy has the conditions of `CopyAdmitted`, and the kernel holds a constant under the name of each required key. |
+
+**The kind of `admitReplay` is one-way.** The decision runs `checkCopies`, which bounds the
+search of the axioms of a proof by `fuel`. Thus a refusal fails closed, as for `checkCopies`.
+
+**Hypotheses and trusted boundary.** The theorems start from the request. They do not prove these
+items:
+
+- That the kernel of an `AdmitRequest` is the kernel that `Kernel.Environment.replay` of Lean gave
+  for the copies, and that the replay checked each declaration. The pass gives the result of the
+  replay to the decision, and that step is read from the code.
+- That the modules of a request are those of the header of the audited environment, and that
+  `kept` is the lookup of that environment. The pass reads them, and that step is read from the
+  code.
+- That the replay set, the reported modules and the reused modules of a request are those that
+  the pass computes. The replay set is `replaySet` of the header, `ownedModules` and `reused`. The
+  reported modules are the modules of `reused` that are in `requested` and not in the replay set.
+  The reused modules are the argument `reused` of `validate`, and these steps are read from the
+  code. `mem_replaySet` proves only that each owned module that is not reused is in the replay set.
+- That the replay base is what the pass imports. `importModules` of Lean reads the `.olean` files.
+- That `shared` names the copies of a name that the base or a different replayed module also
+  declares. The pass computes it from the base and from `nameCounts`, and that step is read from
+  the code.
+- The text of a failure.
+
+**The verdicts are the same.** No theorem compares the producer before this split with the
+producer after it. The old producer was one loop in `IO`. The decisions have the tests of that
+loop, in the same order and with the same texts, and a reader can compare the two texts.
+
+One test has a different form. Membership in the replay set is now `Array.contains`, in the place
+of `NameSet.contains`. By reading, the two give the same answer for each name. The controls show
+the same results for those controls only.
+
+**Observed.** The structural diagnostic runs the gate on projects with a declaration that the
+kernel refuses and with two copies of one name that admission refuses. Each control gets the
+reason that it expects. The `fixtures` diagnostic does the same for the fixtures of
+`lean/Fixtures/fixtures.json` that expect `kernel-admission`. Those controls are tests of the
+boundary to the kernel and to the import of Lean. They are not tests of the decisions, which the
+theorems decide.
+
 ### The producers that are not split
 
 The other producers of [#199](https://github.com/rbeauchamp/regula/issues/199) are not split and
-have no kind. They are contract recognition and reach, receipt validation, and root and closure
-discovery. The sections below state what is proved and what is observed for each of them.
+have no kind. They are contract recognition and reach, and root and closure discovery. The
+sections below state what is proved and what is observed for each of them.
 
 One proof obligation of a producer that is split is open: the body and the place of the fences
 that a fence scanner returns ([above](#the-fence-scanners-decisions-and-observing-pass)).
@@ -1517,11 +1597,13 @@ inferred from any pure proof.
   `Admission.reachSet_some` (a completed search holds exactly the names reachable from the
   constants the start uses, along `Admission.successors`); `Admission.checkProof_ok`; and
   `Admission.checkCopies_sound` (a success gives every copy the `Admission.CopyAdmitted`
-  conditions above, stated with the reachability relation `Admission.Reach`). **Argued, not
-  machine-checked:** `validate` passes these checks the replayed module data, the base's and the
-  audited environment's `find?` and the replayed kernel, and admits no key when one fails, all
-  read from the code (`Admission.mem_offers` proves that no offered admission lists a `shared`
-  module). Every cycle among the audited environment's non-inductive constants that involves an
+  conditions above, stated with the reachability relation `Admission.Reach`), and
+  `Admission.admitReplay_eq_ok` (a receipt has each copy admitted and each required key in the
+  replayed kernel, [above](#receipt-validation-decisions-and-observing-pass)). **Argued, not
+  machine-checked:** `validate` gives these checks the replayed module data, the base's and the
+  audited environment's `find?` and the replayed kernel, read from the code
+  (`Admission.mem_offers` proves that no offered admission lists a `shared` module). Every cycle
+  among the audited environment's non-inductive constants that involves an
   owned name passes through a name whose kept constant differs from the replayed one (or through
   the trusted base), because replay admits each declaration only after the constants its type and
   value use, and the replayed kernel agrees with the audited environment on the other owned names;
@@ -3079,7 +3161,7 @@ not yet proved, and are labelled so at their definition; they are not correctnes
 | checkerSelftest fixtures | scanner cases of the protocol and of the shape rule, for Markdown and for Verso | `Documentation.scan` and `scanVerso` marker, fence and shape problems | Counterexample aid | `checked_scanLines` and `checked_scanVersoLines` prove that a result has no violation exactly for a clean document. The cases observe words of a violation and the number of fences of the clean texts. |
 | checkerSelftest structural | in-process manifest cases | `Manifest.parse` acceptance, decoding and the classified refusal classes | Proved in part | `Manifest.parse_sound`, `parse_input`, `parse_emptyExclusions`, refusal-class theorems; other refusals (a missing required field, an unknown exclusion key) are unclassified |
 | checkerSelftest structural | real manifests, missing file, unlisted modules, fresh-checker coverage, CLI refusal rendering, Lake discovery, executable classification | file IO, CLI rendering, Lake inventory | External | observed |
-| checkerSelftest structural | a lemma realized in a claimed module and the toolchain, in both import orders; unchecked, circular, `sorry` and kept-cycle copies of one name | Lean's realization, import, kept copy and kernel check of several copies of one name | External | observed; the admission decision is `Admission.replayMap_sound`, `replayMap_complete` and `checkCopies_sound` |
+| checkerSelftest structural | a lemma realized in a claimed module and the toolchain, in both import orders; unchecked, circular, `sorry` and kept-cycle copies of one name | Lean's realization, import, kept copy and kernel check of several copies of one name | External | observed; the copies are checked by `Admission.checkCopies` (`checkCopies_sound`) in the decision `admitReplay` (`admitReplay_eq_ok`), over the replayed constants of `replayMap` (`replayMap_sound`, `replayMap_complete`) |
 | checkerSelftest structural | a function declared in one claimed module and registered with `attribute [regula_decision]` in another, without and with its decision contract, as plain files and as `module`s | Lean's saving and loading of the registration, and the collector's reading of it | External | observed; the decision over the recorded declaration is `policyFor_decisionContract_iff` |
 | checkerSelftest execution | each compiler-path mutation and correspondence control, with its positive and fresh restoration | compiler-derived execution coverage and correspondence evidence through the public gate; the emitted-C check of reachable code on the pin | External | observed |
 | checkerSelftest cli, environments, build-policy, lint-driver | CLI sweep, adopters, clean checkout, ordinary build, `lake lint` exit classes, cold compiler guard refusal of a failing and of a successful unidentified child process with its restored load | packaging, Lake and build integration | External | observed |
