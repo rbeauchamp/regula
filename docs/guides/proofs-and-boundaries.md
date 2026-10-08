@@ -1423,14 +1423,16 @@ same tests of a line in the same order. A comparison of the results of the two o
 is evidence for those texts only. The shape rule is a later change: it refuses documents that
 those loops accepted.
 
-**Observed.** The scanner cases of `checkerSelftest fixtures` run the scanners on 69 texts.
-Twelve texts are about the protocol. For one clean text the cases read that the result has one
-fence and no violation. For 11 texts they read that a violation contains the expected words.
+**Observed.** The scanner cases of `checkerSelftest fixtures` run the scanners on texts about
+the protocol and on texts about the shape rule. For the clean text of the protocol, the cases
+read that the result has one fence and no violation. For each other text of the protocol, they
+read that a violation contains the expected words.
 
-The other 57 texts are about the shape rule: 47 for a Markdown document and 10 for a Verso
-source. For each form that the rule refuses, the cases read words of the violation. For 9 texts
-that the rule accepts, they read one fence and no violation. The 47 texts are also part of the
-fence corpus, which the audit reads in that diagnostic.
+The texts about the shape rule are for a Markdown document and for a Verso source. For each form
+that the rule refuses, the cases read words of the violation. For each text that the rule
+accepts, they read one fence and no violation. The Markdown texts are also part of the fence
+corpus, which the audit reads in that diagnostic. The diagnostic prints the number of corpus
+cases that it read.
 
 The theorems say when a result has no violation. They do not say which text a violation has,
 and they do not say which body a fence has. The controls read a part of those two things for
@@ -3074,7 +3076,7 @@ not yet proved, and are labelled so at their definition; they are not correctnes
 | rule-examples | 7 record mutations, 7 admission subprocesses | `qualify` refusals | Proved | `RuleExampleQualification.qualify_sound` |
 | checkerSelftest fixtures | in-process and CLI fixture verdicts; fence corpus; diagnostic-setup controls | compiler, elaborator, CLI and fence workers | External | observed |
 | checkerSelftest fixtures | 11 execution-policy cases | failure kind per boundary and claim | Proved | `boundaryFailures_ids`, `rootFailures_ids`, `executionFailureRecords_empty_iff` |
-| checkerSelftest fixtures | 69 scanner cases: 12 of the protocol, 47 of the shape rule for Markdown and 10 for Verso | `Documentation.scan` and `scanVerso` marker, fence and shape problems | Counterexample aid | `checked_scanLines` and `checked_scanVersoLines` prove that a result has no violation exactly for a clean document. The cases observe words of a violation and the number of fences of the clean texts. |
+| checkerSelftest fixtures | scanner cases of the protocol and of the shape rule, for Markdown and for Verso | `Documentation.scan` and `scanVerso` marker, fence and shape problems | Counterexample aid | `checked_scanLines` and `checked_scanVersoLines` prove that a result has no violation exactly for a clean document. The cases observe words of a violation and the number of fences of the clean texts. |
 | checkerSelftest structural | in-process manifest cases | `Manifest.parse` acceptance, decoding and the classified refusal classes | Proved in part | `Manifest.parse_sound`, `parse_input`, `parse_emptyExclusions`, refusal-class theorems; other refusals (a missing required field, an unknown exclusion key) are unclassified |
 | checkerSelftest structural | real manifests, missing file, unlisted modules, fresh-checker coverage, CLI refusal rendering, Lake discovery, executable classification | file IO, CLI rendering, Lake inventory | External | observed |
 | checkerSelftest structural | a lemma realized in a claimed module and the toolchain, in both import orders; unchecked, circular, `sorry` and kept-cycle copies of one name | Lean's realization, import, kept copy and kernel check of several copies of one name | External | observed; the admission decision is `Admission.replayMap_sound`, `replayMap_complete` and `checkCopies_sound` |
