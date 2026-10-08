@@ -1495,6 +1495,11 @@ items:
 - That the modules of a request are those of the header of the audited environment, and that
   `kept` is the lookup of that environment. The pass reads them, and that step is read from the
   code.
+- That the replay set, the reported modules and the reused modules of a request are those that
+  the pass computes. The replay set is `replaySet` of the header, `ownedModules` and `reused`. The
+  reported modules are the modules of `reused` that are in `requested` and not in the replay set.
+  The reused modules are the argument `reused` of `validate`, and these steps are read from the
+  code. `mem_replaySet` proves only that each owned module that is not reused is in the replay set.
 - That the replay base is what the pass imports. `importModules` of Lean reads the `.olean` files.
 - That `shared` names the copies of a name that the base or a different replayed module also
   declares. The pass computes it from the base and from `nameCounts`, and that step is read from

@@ -1237,11 +1237,12 @@ def guide : RuleId → Guide
         Admission runs two registered decisions: `Admission.checkHeader` \
         (`checked_checkHeader`, two-way) and `Admission.admitReplay` (`admitReplay_eq_ok`, \
         `checked_admitReplay`, one-way), and `mem_required` states the required keys. These \
-        theorems are about the request that the decisions take. The module data, the lookup \
-        `kept`, the import of the replay base, `shared` and the replayed kernel are observed or \
-        trusted, as the section \"Receipt validation: decisions and observing pass\" of the \
-        guide of proofs and boundaries says. The editor's deferral to the project audit \
-        of a result that needs generated-role evidence is \
+        theorems are about the request that the decisions take. The module data, the replay \
+        set, the reported and reused modules, the lookup `kept`, the import of the replay base, \
+        `shared` and the replayed kernel are observed or trusted, as the section \"Receipt \
+        validation: decisions and observing pass\" of the guide of proofs and boundaries says. \
+        The editor's deferral to the project audit of a result that needs generated-role \
+        evidence is \
         `Regula.Checker.Policy.editor_decision_pending`. Its deferral of a decision kind that it \
         does not read is operational collector code (`hiddenField?` in \
         `Regula.Collect`), which that theorem does not cover: the collector records the \
