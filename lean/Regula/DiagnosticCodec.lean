@@ -60,9 +60,13 @@ canonical `locationJson` of the result (`parseLocation_canonical`). -/
 def parseLocation (j : Json) : Except String Location :=
   canonical readLocation locationJson "noncanonical location or unknown fields" j
 
-/-- **An accepted location is canonical.** The input agrees with the encoding of the location
-that the decoder returns: it has the members that `locationJson` writes, with those values, and
-no other member. -/
+/-- **An accepted location agrees with its encoding.** The input has as many members as the
+encoding of the location that the decoder returns, and each member of the input is found by its
+name in that encoding, with a value that it agrees with. So the input has no member with a name
+or a value that `locationJson` does not write. The theorem does not say that each member of the
+encoding is a member of the input: an object tree that is not a search tree can give one name
+twice and not give a second name. For an input whose object trees are search trees,
+`parseLocation_wire` gives the members. -/
 theorem parseLocation_canonical {j : Json} {location : Location}
     (accepted : parseLocation j = .ok location) : Agree j (locationJson location) :=
   ((canonical_eq_ok_iff _ _ _ j location).mp accepted).2
@@ -117,10 +121,15 @@ private def readDiagnostic (j : Json) : Except String Finding := do
 def parseDiagnostic (j : Json) : Except String Finding :=
   canonical readDiagnostic diagnosticJson "noncanonical diagnostic or unknown fields" j
 
-/-- **An accepted finding is canonical.** The input agrees with the encoding of the finding that
-the decoder returns: it has the members that `diagnosticJson` writes, with those values, and no
-other member. The rendered text, the remedy and the help address are such members, so a value
-of one of them that the registry of this checker does not give is refused. -/
+/-- **An accepted finding agrees with its encoding.** The input has as many members as the
+encoding of the finding that the decoder returns, and each member of the input is found by its
+name in that encoding, with a value that it agrees with. So the input has no member with a name
+or a value that `diagnosticJson` does not write: a member `text`, `remedy` or `helpUrl` with a
+value that the registry of this checker does not give is refused. The theorem does not say that
+each member of the encoding is a member of the input: an object tree that is not a search tree
+can give one name twice and have no member `remedy`
+(https://github.com/rbeauchamp/regula/issues/269). For an input whose object trees are search
+trees, `parseDiagnostic_wire` gives the members. -/
 theorem parseDiagnostic_canonical {j : Json} {finding : Finding}
     (accepted : parseDiagnostic j = .ok finding) : Agree j (diagnosticJson finding) :=
   ((canonical_eq_ok_iff _ _ _ j finding).mp accepted).2
