@@ -154,13 +154,11 @@ expression (`--kernel-types`), set when its options are admitted. It changes onl
 file renders, never a decision. -/
 initialize kernelTypes : IO.Ref Bool ← IO.mkRef false
 
-/-- The claimed-source build of a project audit, given the project, the Lake targets and the
-claimed root modules (each claimed library's modules and each claimed executable's root): the
-ordinary `lake build` of the targets, showing Lake's progress line for each job as it runs
-(`Lake.buildTargetsShowing`), or `Lake.buildAuditTargets` when the `lint` driver selects it for
-its own audit. -/
-initialize claimedBuild : IO.Ref (FilePath → Array String → Array Name → IO ProcessResult) ←
-  IO.mkRef fun repo targets _ => Lake.buildTargetsShowing repo targets
+/-- The claimed-source build of a project audit: the ordinary `lake build`, showing Lake's
+progress line for each job as it runs (`Lake.buildTargetsShowing`), or `Lake.buildAuditTargets`
+when the `lint` driver selects it for its own audit. -/
+initialize claimedBuild : IO.Ref (FilePath → Array String → IO ProcessResult) ←
+  IO.mkRef Lake.buildTargetsShowing
 
 /-- Record the invocation's result and return the status it decides, for the result output. -/
 private def record (observation : Lint.Observation) : IO ResultProtocol.Status := do
@@ -517,11 +515,9 @@ private unsafe def auditSurfaceAt (repo manifestPath : FilePath)
         (sourceBindings.find? (·.moduleName == name)).map fun s => ⟨s.path, s.content⟩
       SourceBinding.configurationUnchanged configuration
       let buildPlan := Lake.claimedBuildPlan manifest inventory
-      let positiveModules := environments.flatMap (·.info.modules)
-      let claimed ← claimedBuild.get
-      let build (dir : FilePath) (targets : Array String) := claimed dir targets positiveModules
       let (initialBuild, buildResult) ← timedPhase "claimed-source build" <|
-          Lake.buildCheckedObservation repo buildPlan.initialTargets origin.label build
+          Lake.buildCheckedObservation repo buildPlan.initialTargets
+              origin.label (← claimedBuild.get)
       SourceBinding.unchanged sourceBindings
       SourceBinding.configurationUnchanged configuration
       if let some lines := buildResult then
@@ -550,6 +546,7 @@ private unsafe def auditSurfaceAt (repo manifestPath : FilePath)
       -- graph supplies no evidence to those workers or to acceptance finalization.
       let graphArtifacts ← (assignments.flatMap (·.library)).filterMapM fun identity =>
         freezeArtifact identity.name (Lean.modToFilePath inventory.leanLibDir identity.name "olean")
+      let positiveModules := environments.flatMap (·.info.modules)
       let mut scopeFindings : Array Regula.Finding := #[]
       let mut scopeUnowned : Array ProducerReport.UnownedModule := #[]
       for environment in environments do
@@ -609,7 +606,8 @@ private unsafe def auditSurfaceAt (repo manifestPath : FilePath)
         return 1
       let (buildProcess, buildResult) ← match buildPlan.completionTargets with
         | none => pure (initialBuild, none)
-        | some targets =>
+        | some targets => do
+            let build ← claimedBuild.get
             timedPhase "deferred claimed-source build" (Lake.buildCheckedObservation repo targets
               origin.label build)
       SourceBinding.unchanged sourceBindings

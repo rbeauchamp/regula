@@ -171,27 +171,34 @@ the working-directory workspace's library directories and that directory to begi
 (`Regula.Checker.Lint.dispatchedFrom_iff`) and otherwise refuses with exit 2, so a driver started
 outside Lake, by a Lake not collocated with the toolchain, or with `-d` from another project is
 refused. The driver builds the claimed targets with the audit-build marker
-`weak.regula.auditBuild` ([editor feedback](#editor-feedback)) if a claimed root module imports
-`Regula.Linter`, directly or transitively.
+`weak.regula.auditBuild` ([editor feedback](#editor-feedback)) unless no module of the root package
+can read it.
 
 Lake scopes the marker to the whole package in its module trace. Thus with the marker, the audit
 rebuilds the modules that an ordinary build made, and their replayed logs do not enter its
-warning check. If no claimed root module imports `Regula.Linter`, no claimed module loads the
-only reader of the marker. Then the marker can change no elaboration, and the driver builds
-without it. Thus the driver reuses the modules that an ordinary build made, for example the
-modules of the driver itself in this repository.
+warning check. Lake applies the options of a package only to its own modules: the buildable
+modules of its libraries and the roots of its executables. The driver reads all of them, whatever
+targets, `needs` or extra targets the build fetches.
 
-The decision is `Regula.Checker.Lake.auditMarkerNeeded`, two-way against "some root has
-`Regula.Linter` among its imports" (`checked_auditMarkerNeeded`). Its input is each claimed
-library module and executable root, with the imports that Lake's `transImports` facet gives for
-it (`rootImports`). If Lake does not resolve a root or cannot read its imports, the driver keeps
-the marker.
+If no such module imports `Regula.Linter`, directly or transitively, no module of the package
+loads the only reader of the marker. The driver also requires that the package, its libraries and
+its executables configure no plugin, no dynamic library and no extra `lean` argument. Such a
+configuration can load code without an import. Then the marker can change no elaboration of the
+build, and the driver builds without it. Thus the driver reuses the modules that an ordinary build
+made, for example the modules of the driver itself in this repository.
 
-A wrong decision cannot cause an acceptance. Without the marker, a module that loads the linter
-can only add local findings of Regula to the build log. The warning check refuses such a log as
-incomplete. That `Regula.Linter` is the only reader of the marker is by inspection, and Lake's computation of
-imports is trusted. A project that loads the linter without an import, as a Lake plugin, is
-outside the decision.
+The decision is `Regula.Checker.Lake.auditMarkerNeeded`, two-way against its specification
+(`checked_auditMarkerNeeded`). It asks for the marker if the configuration can load code or if a
+module of the package has `Regula.Linter` among its imports. Its input is each module of the
+package with the imports that Lake's `transImports` facet gives for it (`markerInputs`). If Lake
+cannot read the imports of a module, the driver keeps the marker.
+
+The decision covers all modules that the build can compile with the options of the package. Thus
+the build with the marker and the build without it elaborate those modules in the same way, and
+they give the same verdict. That `Regula.Linter` is the only reader of the marker is by
+inspection. That plugins, dynamic libraries and extra `lean` arguments are the only ways to load
+code without an import is read from the source of Lake. Lake's discovery of the modules and of
+their imports is trusted.
 
 The command `./scripts/verify.sh` makes one copy of the checkout, and its first step operates in
 that copy. The driver of that command, `lean/RegulaVerification.lean`, makes the copy before it
@@ -785,7 +792,7 @@ Two-way decisions (`Regula.Decides`), each with an accepted and a refused input:
 | `Regula.JsonAgreement.agrees` | `JsonAgreement.Agree` (`agrees_iff`). The two values have one constructor and equal scalars. The elements of two arrays agree in order. Two objects have the same number of members. Each member of the first is found by its name in the second, with a value that it agrees with. | The comparison of an input with the encoding of the decoded value ([below](#the-diagnostic-and-policy-codecs-decisions-and-observing-pass)). |
 | `Regula.JsonAgreement.canonical` (accepts on `.ok`) | The reader returns a value, and the input agrees with the encoding of that value (`canonical_eq_ok_iff`). | The decoders `DiagnosticCodec.parseLocation` and `parseDiagnostic`. The reader and the encoder are arguments, so the kind is about each reader and each encoder. |
 | `Regula.Checker.PolicyCodec.exactFields` (accepts on `.ok`) | `ExactFields` (`exactFields_iff`). The value is an object, and its member names are the expected names in some order. | The decoders of the worker protocol and of the producer reports. The proof that the expected names are distinct is an argument of the function. |
-| `Regula.Checker.Lake.auditMarkerNeeded` (accepts on `true`) | Some entry has `Regula.Linter` among its imports (`auditMarkerNeeded_iff`). | The choice of the `lake lint` driver's claimed build, with or without the audit-build marker ([acceptance boundary](#the-acceptance-boundary)). Each entry is a claimed root module with the modules that Lake's `transImports` facet reports it imports (`rootImports`). That `Regula.Linter` is the only reader of the marker is by inspection. |
+| `Regula.Checker.Lake.auditMarkerNeeded` (accepts on `true`) | The configuration loads code without an import, or some entry has `Regula.Linter` among its imports (`auditMarkerNeeded_iff`). | The choice of the `lake lint` driver's claimed build, with or without the audit-build marker ([acceptance boundary](#the-acceptance-boundary)). Each entry is a module of the root package with the modules that Lake's `transImports` facet reports it imports (`markerInputs`). That `Regula.Linter` is the only reader of the marker is by inspection. |
 | `Regula.Checker.Documentation.scanLines`, `scanVersoLines` (accept on a result with no violation) | `Clean`, `VersoClean`: the lines are a run of transitions from the first line to the end of the document. The fence protocol permits each transition, and each keeps the shape rule (`scanLines_problems_eq_empty_iff`, `scanVersoLines_problems_eq_empty_iff`). | The fence protocol and the shape rule of [RG4001] ([below](#the-fence-scanners-decisions-and-observing-pass)). The input is a `Source`: a document with the lines of its text. The kinds say nothing about the fences of a result. |
 | `Regula.Checker.Admission.checkHeader` (accepts on `.ok ()`) | `HeaderOK` (`checkHeader_eq_ok_iff`). Each replayed or reported module lists its constants under their own names. No module of the replay base imports a replayed module. | The decision on the header of [RG2005] ([below](#receipt-validation-decisions-and-observing-pass)). |
 | `Regula.SourceTexts.intern` | One `sourceTexts` member, `null`, and string `sourceText` members (`intern_isOk_iff`) | Writing a result document. |

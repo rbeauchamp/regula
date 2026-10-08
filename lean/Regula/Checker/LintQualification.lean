@@ -80,7 +80,8 @@ configuration explanation. Default output shows Lake's build progress and no tim
 file audit lists every classified declaration only with `--verbose`. No module of this adopter
 imports `Regula.Linter`, so the driver builds without the audit-build marker
 (`Lake.auditMarkerNeeded`), and an ordinary `lake build` and the driver reuse each other's build
-output. -/
+output; with an excluded library that imports it and that the claimed one needs, the driver keeps
+the marker. -/
 private def leanAdopter (repo adopter : FilePath) : IO (Array String) := do
   BuildLintQualification.setup repo adopter
   -- The first run builds every module, showing Lake's progress line for each.
@@ -116,6 +117,22 @@ private def leanAdopter (repo adopter : FilePath) : IO (Array String) := do
   let originals := #[(additional, ← IO.FS.readFile additional),
     (manifest, ← IO.FS.readFile manifest), (widget, ← IO.FS.readFile widget),
     (lakefile, ← IO.FS.readFile lakefile)]
+  -- A library outside the claim that the claimed library has built first (`needs`) and that
+  -- imports `Regula.Linter`: the driver decides over every module of the package, so it keeps the
+  -- marker, the library's live finding is not a build warning, and the claim is accepted.
+  let tooling := adopter / "Tooling.lean"
+  mutate lakefile "globs := #[.andSubmodules `Widget]"
+    "globs := #[.andSubmodules `Widget]\n  needs := #[`@/Tooling]\n\nlean_lib Tooling where\n  \
+      globs := #[.one `Tooling]"
+  mutate manifest "\"excluded-libraries\": []"
+    "\"excluded-libraries\": [{\"library\": \"Tooling\", \"rationale\": \"lint control\"}]"
+  IO.FS.writeFile tooling "import Regula.Linter\n\n/-! Tooling outside the claim. -/\n\n\
+    /-- A documented assumption. -/\naxiom toolingAssumption : True\n"
+  let needed := positive.contains.push "] Built Tooling"
+  failures := failures ++ (← expect adopter
+    { positive with label := "lean/needed-linter", contains := needed })
+  IO.FS.removeFile tooling
+  restore adopter originals
   -- An unimported glob module; the second run has every module cached.
   mutate additional "namespace Widget.Additional"
     "/-- A control assumption. -/\naxiom lintAssumption : True\nnamespace Widget.Additional"

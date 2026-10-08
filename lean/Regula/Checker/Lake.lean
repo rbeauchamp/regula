@@ -60,6 +60,21 @@ def libraryOptions (lib : _root_.Lake.LeanLib) : RegulaPolicy.Community.BuildOpt
 def executableOptions (exe : _root_.Lake.LeanExe) : RegulaPolicy.Community.BuildOptions :=
   buildOptions exe.root.leanOptions exe.root.weakLeanArgs exe.root.leanArgs
 
+/-- The modules Lake can build as part of `library`, found in its source directory with Lake's
+glob reader: those its globs match, and the submodules of each root that a glob matches, which
+is the set `LeanLibConfig.isBuildableModule` admits among the module files. A module may occur
+twice. -/
+def buildableModules (library : _root_.Lake.LeanLib) : IO (Array Name) := do
+  let names ← IO.mkRef (#[] : Array Name)
+  let mut globs := library.config.globs
+  for root in library.roots do
+    if library.config.globs.any (·.matches root) &&
+        (← (Lean.modToFilePath library.srcDir root "").isDir) then
+      globs := globs.push (.submodules root)
+  for glob in globs do
+    glob.forEachModuleIn library.srcDir fun name => names.modify (·.push name)
+  names.get
+
 /-- Obtain every root-package Lean library and executable, exact module, and
 exact source from Lake's own elaborated package model. This loads the checked
 project's workspace in-process, so `lakefile.lean` and `lakefile.toml`
@@ -108,14 +123,8 @@ def surfaceInventory (repo : FilePath) : IO SurfaceInventory :=
     let dependencies ← (ws.packages.extract 1 ws.packages.size).mapM fun package => do
       let names ← IO.mkRef ({} : NameSet)
       for library in package.leanLibs do
-        let mut globs := library.config.globs
-        for root in library.roots do
-          if library.config.globs.any (·.matches root) &&
-              (← (Lean.modToFilePath library.srcDir root "").isDir) then
-            globs := globs.push (.submodules root)
-        for glob in globs do
-          glob.forEachModuleIn library.srcDir fun name => do
-            names.modify (·.insert name)
+        for name in ← buildableModules library do
+          names.modify (·.insert name)
       let mut sources := #[]
       for name in (← names.get).toArray.qsort Name.quickLt do
         let some resolved := ws.findModule? name
@@ -163,52 +172,70 @@ warning-free check then measures only other warnings. The option enters Lake's m
 so with it a module built with local feedback, for example by an ordinary `lake build`, is
 rebuilt: its replayed log can neither add Regula warnings nor stand in for this configuration's
 warnings. Lake scopes Lean options by package and library, not by module, so the trace change
-reaches every root-package module that the claimed targets build. `buildAuditTargets`
-therefore passes it only when a claimed root module imports `linterModule`
-(`auditMarkerNeeded`); `axiomGate` and the build-lint target keep ordinary options
-(`AxiomGate.claimedBuild`). -/
+reaches every root-package module that the claimed build compiles. `buildAuditTargets`
+therefore omits it only when no module of the root package can read it (`auditMarkerNeeded`);
+`axiomGate` and the build-lint target keep ordinary options (`AxiomGate.claimedBuild`). -/
 def auditLeanOptions : LeanOptions := .ofArray #[⟨Regula.Linter.auditBuildOption, .ofBool true⟩]
 
 /-- The module whose import loads Regula's local feedback: it registers the linter and the module
 hook with `initialize`, and it is the only module that reads the marker of `auditLeanOptions`.
-A module whose imports do not include it, directly or transitively, elaborates the same with the
-marker and without it, since every command scope ignores the unregistered `weak.` option. That
-this module is the only reader, and that nothing else loads it, is checked by inspection: a
-project that loads it without importing it, as a Lake plugin, is not covered. -/
+A module elaborates the same with the marker and without it when its transitive imports do not
+include this module and its configuration loads no code without an import (`MarkerInputs`),
+since every command scope ignores the unregistered `weak.` option. That this module is the only
+reader is checked by inspection. -/
 def linterModule : Name := `Regula.Linter
 
-/-- Whether the `lint` driver's claimed build passes `auditLeanOptions`: some claimed root module
-imports `linterModule`, directly or transitively. Each entry is one root module with the modules
-it imports transitively, as `rootImports` reads them from Lake (`auditMarkerNeeded_iff`). -/
+/-- What the `lint` driver reads of the root package before its claimed build. Lake applies a
+package's Lean options to the modules that the package owns: the buildable modules of its
+libraries and the roots of its executables (`BuildConfig.leanOptOverrides`). These are all the
+modules that `auditLeanOptions` can reach, whatever targets, `needs` or extra targets the build
+fetches. -/
+structure MarkerInputs where
+  /-- Each buildable module of the root package's libraries (`buildableModules`) and each root of
+  its executables, with the modules that Lake reports it imports transitively
+  (`moduleImports`). -/
+  closure : Array (Name × Array Name)
+  /-- Whether the root package, one of its libraries or one of its executables configures a
+  plugin, a dynamic library or an extra `lean` argument, any of which can load code into an
+  elaboration without an import (`configLoadsCode`). -/
+  loadsCode : Bool
+
+/-- Whether the `lint` driver's claimed build passes `auditLeanOptions`: the root package's
+configuration can load code without an import, or one of its modules imports `linterModule`,
+directly or transitively (`auditMarkerNeeded_iff`). -/
 @[regula_decision]
-def auditMarkerNeeded (closure : Array (Name × Array Name)) : Bool :=
-  closure.any fun entry => entry.2.contains linterModule
+def auditMarkerNeeded (inputs : MarkerInputs) : Bool :=
+  inputs.loadsCode || inputs.closure.any fun entry => entry.2.contains linterModule
 
-/-- `auditMarkerNeeded` asks for the marker exactly when some entry's imports have the linter's
-module among them. -/
-theorem auditMarkerNeeded_iff (closure : Array (Name × Array Name)) :
-    auditMarkerNeeded closure = true ↔ ∃ entry ∈ closure, linterModule ∈ entry.2 := by
-  simp only [auditMarkerNeeded, Array.any_eq_true, Array.contains_iff_mem]
+/-- `auditMarkerNeeded` asks for the marker exactly when the configuration loads code without an
+import or some entry's imports have the linter's module among them. -/
+theorem auditMarkerNeeded_iff (inputs : MarkerInputs) :
+    auditMarkerNeeded inputs = true ↔
+      inputs.loadsCode = true ∨ ∃ entry ∈ inputs.closure, linterModule ∈ entry.2 := by
+  simp only [auditMarkerNeeded, Bool.or_eq_true, Array.any_eq_true, Array.contains_iff_mem]
   constructor
-  · rintro ⟨i, bound, member⟩
-    exact ⟨closure[i], Array.getElem_mem bound, member⟩
-  · rintro ⟨entry, entered, member⟩
-    obtain ⟨i, bound, rfl⟩ := Array.getElem_of_mem entered
-    exact ⟨i, bound, member⟩
+  · rintro (loads | ⟨i, bound, member⟩)
+    · exact .inl loads
+    · exact .inr ⟨inputs.closure[i], Array.getElem_mem bound, member⟩
+  · rintro (loads | ⟨entry, entered, member⟩)
+    · exact .inl loads
+    · obtain ⟨i, bound, rfl⟩ := Array.getElem_of_mem entered
+      exact .inr ⟨i, bound, member⟩
 
-/-- `auditMarkerNeeded` is a sound and complete decision of "some root imports the linter's
-module" (`auditMarkerNeeded_iff`): it asks for the marker for a root that imports it and not for
-the empty closure. The specification is a statement about membership; it names no test of the
-implementation. It does not establish that `linterModule` is the only reader of the marker, nor
-that the entries are the claimed roots with their transitive imports: the first is checked by
-inspection, and the second is Lake's `transImports` facet, which `rootImports` trusts. -/
+/-- `auditMarkerNeeded` is a sound and complete decision of "the root package's configuration
+loads code without an import, or one of its modules imports the linter's module"
+(`auditMarkerNeeded_iff`): it asks for the marker for a configuration that loads code and not
+for an empty package. The specification is a statement about a field and membership; it names
+no test of the implementation. It does not establish that `linterModule` is the only reader of
+the marker, nor that the inputs hold every module the root package owns with its transitive
+imports: the first is checked by inspection, and the second rests on `buildableModules`, Lake's
+`transImports` facet and the reading of the configuration (`markerInputs`). -/
 theorem checked_auditMarkerNeeded : Regula.ExecutableContract auditMarkerNeeded
-    (Regula.Decides (· = true) fun closure : Array (Name × Array Name) =>
-      ∃ entry ∈ closure, linterModule ∈ entry.2) :=
+    (Regula.Decides (· = true) fun inputs : MarkerInputs =>
+      inputs.loadsCode = true ∨ ∃ entry ∈ inputs.closure, linterModule ∈ entry.2) :=
   ⟨Regula.Decides.of_iff auditMarkerNeeded_iff
-    ⟨#[(`Main, #[linterModule])],
-      (auditMarkerNeeded_iff _).mpr ⟨(`Main, #[linterModule]), by simp, by simp⟩⟩
-    ⟨#[], fun accepted => by simpa using (auditMarkerNeeded_iff _).mp accepted⟩⟩
+    ⟨⟨#[], true⟩, (auditMarkerNeeded_iff _).mpr (.inl rfl)⟩
+    ⟨⟨#[], false⟩, fun accepted => by simpa using (auditMarkerNeeded_iff _).mp accepted⟩⟩
 
 /-- Lake reads an explicit `+module` with `String.toName` and splits facets at `:`.
 Use that spelling, with `facet`, only when it retains the exact discovered root name, as for
@@ -219,15 +246,15 @@ def moduleFacetTarget? (root : Name) (facet : String) : Option String :=
     some s!"+{spelling}:{facet}"
   else none
 
-/-- Each module of `roots`, in that order, with the modules that it imports transitively in
-`ws`, as Lake's `transImports` facet reports them through its query API (`Lake.querySpecs`, the
-form of `lake query --json`): the modules of the workspace's packages, not those of the
-toolchain. The facet reads module headers and builds nothing. `none` when a root has no query
-target, Lake does not resolve one, Lake cannot read the imports, or a result is not an array of
-module names; the caller then keeps the marker. -/
-def rootImports (ws : _root_.Lake.Workspace) (roots : Array Name) :
+/-- Each of `modules`, in that order, with the modules that it imports transitively in `ws`, as
+Lake's `transImports` facet reports them through its query API (`Lake.querySpecs`, the form of
+`lake query --json`): the modules of the workspace's packages, not those of the toolchain. The
+facet reads module headers and builds nothing. `none` when a module has no query target, Lake
+does not resolve one, Lake cannot read the imports, or a result is not an array of module
+names. -/
+def moduleImports (ws : _root_.Lake.Workspace) (modules : Array Name) :
     IO (Option (Array (Name × Array Name))) := do
-  let some targets := roots.mapM (moduleFacetTarget? · "transImports") | return none
+  let some targets := modules.mapM (moduleFacetTarget? · "transImports") | return none
   let .ok specs ← (_root_.Lake.parseTargetSpecs ws targets.toList).toBaseIO | return none
   -- Lake's own report of a header it cannot read is the build's to show: the build that follows
   -- reads the same headers.
@@ -236,22 +263,44 @@ def rootImports (ws : _root_.Lake.Workspace) (roots : Array Name) :
       ws.runBuild (_root_.Lake.querySpecs specs .json)
         { out := .stream (IO.FS.Stream.ofBuffer discarded), ansiMode := .noAnsi }
     catch _ => return none
-  unless answers.size == roots.size do return none
-  return (roots.zip answers).mapM fun (root, answer) => do
+  unless answers.size == modules.size do return none
+  return (modules.zip answers).mapM fun (name, answer) => do
     let imports ← (Json.parse answer >>= fromJson? (α := Array Name)).toOption
-    pure (root, imports)
+    pure (name, imports)
+
+/-- Whether `config` can load code into an elaboration without an import: it names a plugin or a
+dynamic library, or it has an extra `lean` argument, which can name either. Every extra argument
+counts, so the answer errs toward loading code. -/
+def configLoadsCode (config : _root_.Lake.LeanConfig) : Bool :=
+  !config.moreLeanArgs.isEmpty || !config.weakLeanArgs.isEmpty || !config.dynlibs.isEmpty ||
+    !config.plugins.isEmpty
+
+/-- The `MarkerInputs` of the root package of `ws`: every module it owns with its transitive
+imports, and whether its configuration, or that of one of its libraries or executables, loads
+code without an import. `none` when Lake cannot read the imports of one of its modules. -/
+def markerInputs (ws : _root_.Lake.Workspace) : IO (Option MarkerInputs) := do
+  let root := ws.root
+  let mut modules : Array Name := #[]
+  for library in root.leanLibs do
+    modules := modules ++ (← buildableModules library)
+  modules := modules ++ root.leanExes.map (·.root.name)
+  let some closure ← moduleImports ws modules | return none
+  let loadsCode := configLoadsCode root.config.toLeanConfig ||
+    root.leanLibs.any (configLoadsCode ·.config.toLeanConfig) ||
+    root.leanExes.any (configLoadsCode ·.config.toLeanConfig)
+  return some { closure, loadsCode }
 
 /-- `buildTargets`, run in-process through Lake's build API because the `lake build` command line
-sets no Lean options, with `auditLeanOptions` on the root package when `auditMarkerNeeded`
-decides that a claimed root module, of `roots`, imports `linterModule`, or when `rootImports`
-cannot read the imports. Without the marker every module of the root package elaborates as in
-an ordinary build, so the ordinary build output is reused as it is. A wrong answer cannot accept:
-without the marker, a module that loads the linter can only add Regula's local findings to the
-log, and the warning-free check refuses a log with a warning. The inherited search paths are
-ignored as in `buildTargets`; the build monitor's text is the output, and a failed build exits 1.
-Lake's progress line for each job is also shown as the build runs, as by `buildTargetsShowing`. -/
-def buildAuditTargets (repo : FilePath) (targets : Array String) (roots : Array Name) :
-    IO ProcessResult := do
+sets no Lean options, with `auditLeanOptions` on the root package unless `auditMarkerNeeded`
+establishes that no module the root package owns can read the marker. Lake applies the override
+only to those modules, and the decision reads each of them, so the answer does not depend on
+which targets, `needs` or extra targets the build fetches. Without the marker each module that
+the build compiles elaborates as in an ordinary build, so the ordinary build output is reused as
+it is. When `markerInputs` cannot read the imports, the marker is kept. The inherited search
+paths are ignored as in `buildTargets`; the build monitor's text is the output, and a failed
+build exits 1. Lake's progress line for each job is also shown as the build runs, as by
+`buildTargetsShowing`. -/
+def buildAuditTargets (repo : FilePath) (targets : Array String) : IO ProcessResult := do
   let buffer ← IO.mkRef ({} : IO.FS.Stream.Buffer)
   let out ← showingStream (IO.FS.Stream.ofBuffer buffer) isLakeProgressLine
   let exitCode ← try
@@ -259,8 +308,8 @@ def buildAuditTargets (repo : FilePath) (targets : Array String) (roots : Array 
         let specs ← match ← (_root_.Lake.parseTargetSpecs ws targets.toList).toBaseIO with
           | .ok specs => pure specs
           | .error error => throw <| IO.userError (toString error)
-        let marked := match ← rootImports ws roots with
-          | some closure => checked_auditMarkerNeeded.run closure
+        let marked := match ← markerInputs ws with
+          | some inputs => checked_auditMarkerNeeded.run inputs
           | none => true
         let overrides : NameMap LeanOptions :=
           if marked then ({} : NameMap LeanOptions).insert ws.root.baseName auditLeanOptions else {}
