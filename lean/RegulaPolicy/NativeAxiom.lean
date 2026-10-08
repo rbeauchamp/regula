@@ -246,7 +246,7 @@ theorem nativeAxiomOrigin?_shape {n parent : Name} {t : NativeTactic}
 def indexSuffix (idxs : List Nat) (base : String := "ax") : String :=
   idxs.foldr (fun i s => s ++ "_" ++ toString i) base
 
-/-- The `_d…` characters the indices append after `ax`, innermost index first. -/
+/-- The `_d…` characters the indices append after the base, innermost index first. -/
 def indexChars (idxs : List Nat) : List Char :=
   idxs.reverse.flatMap fun i => '_' :: Nat.toDigits 10 i
 
