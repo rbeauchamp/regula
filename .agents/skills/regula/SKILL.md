@@ -335,8 +335,8 @@ Compliant example: as [RG4002](https://rbeauchamp.github.io/regula/dev/rules/RG4
 
 ### [RG4001](https://rbeauchamp.github.io/regula/dev/rules/RG4001/) Documentation fences must have a valid classification
 
-Each `lean-fail` or `lean-trusted-compiler` marker sits immediately before the `lean` fence it classifies, and every fence is closed.
-Fix: Put each `lean-fail` or `lean-trusted-compiler` marker immediately before the `lean` fence it classifies, with a valid pattern, and close every fence.
+Each `lean-fail` or `lean-trusted-compiler` marker sits immediately before its `lean` fence, every fence is closed, and Lean code is shown only as a `lean` fence in the first column.
+Fix: Put each marker immediately before the `lean` fence it classifies, with a valid pattern, and close every fence. Write each Lean example as a `lean` fence that opens and closes in the first column, outside quotations, list items and other fences.
 
 Compliant example: as [RG4002](https://rbeauchamp.github.io/regula/dev/rules/RG4002/).
 

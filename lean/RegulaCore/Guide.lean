@@ -1460,7 +1460,10 @@ def guide : RuleId → Guide
   | .fenceStructure => {
       problem := "A Markdown file in the checked documentation tree has a malformed Lean fence \
         classification: an orphan, misplaced, duplicated or misspelled marker, an invalid \
-        expected-error pattern, or an unclosed fence."
+        expected-error pattern, or an unclosed fence. Or it has a line that can show Lean code \
+        at a place that the audit does not check: a Lean fence in a quotation or a list item, \
+        after indentation, inside another fence or with a different spelling of the language, \
+        or the start tag of a raw HTML code element."
       trigger := [
         "The documentation scanner classifies every Lean fence in every Markdown file of the \
           selected tree. An unmarked `lean` fence is positive; an immediately adjacent `<!-- \
@@ -1469,27 +1472,73 @@ def guide : RuleId → Guide
           is rejected with applicability `fence-structure`.",
         "The pattern grammar is small: `|` separates alternatives, `.*` separates ordered literal \
           fragments, and an optional leading `(?s)` is accepted for compatibility; other regex \
-          syntax is rejected."]
+          syntax is rejected.",
+        "The shape rule: a line that has, at any place, a run of three or more back-ticks or \
+          tildes that the language of Lean follows must open a `lean` fence in the first column, \
+          outside any fence, and a Lean fence must close with a run in the first column. The \
+          characters after the run name Lean when their first run of letters is `lean`, \
+          without regard to case (`Lean`, `lean4`, `{.lean}`, and `lean` after a form feed or a \
+          no-break space, which some Markdown readers remove). A `&` or a backslash in the first \
+          word after the run gives the line that shape too: Markdown decodes them in an info \
+          string, and a reader takes the first word as the language. That word starts at the \
+          first letter, `&` or backslash after the run and ends at a space. Only the word \
+          `lean` opens a Lean fence.",
+        "The shape is conservative. It does not read the inline structure of Markdown, so it \
+          refuses a line of text with an inline span of three back-ticks that the word `lean` \
+          follows. Two refused lines are `See`, then the span, then `lean examples.`, and \
+          `See`, then the span, then `lean/Regula.`, where the span is the letter `x` between \
+          two runs of three back-ticks. Use an inline span with fewer back-ticks, or different \
+          words.",
+        "A line of a Markdown document with the start tag of `pre`, `code`, `xmp`, `listing` or \
+          `plaintext` is rejected at each place, also inside a fence: the character `<`, the \
+          name without regard to case, then the end of the line, `>`, `/` or a character that \
+          HTML takes as white space (a space, a tab, a form feed, a carriage return).",
+        "A line ends at a line feed, with or without a carriage return before it. A carriage \
+          return that no line feed follows is rejected in a Markdown document, because a \
+          Markdown reader takes it as the end of a line. The character U+0000 is rejected, \
+          because a Markdown reader shows U+FFFD in its place; write `\\x00` in a Lean literal. \
+          A Verso source has neither character."]
       rationaleDetail := []
       proofShape := []
       established := [
-        "Every Lean fence in the checked tree has exactly one valid classification."]
+        "Every Lean fence in the checked tree has exactly one valid classification.",
+        "Each line that a Markdown reader can take as the opening line of a Lean block is the \
+          opening line of a fence that the audit checks, and that fence closes where the reader \
+          closes it.",
+        "An accepted Markdown document has no start tag of an element that a browser shows as \
+          preformatted text or code: `pre`, `code`, `xmp`, `listing`, `plaintext`."]
       notEstablished := [
-        "That the prose around a fence describes it faithfully (R-DOC)."]
+        "That the prose around a fence describes it faithfully (R-DOC).",
+        "That a Markdown reader follows CommonMark for the end of a line and for the opening \
+          line and the closing line of a fenced block: the second item above rests on reading \
+          its sections on line endings, fenced code blocks and container blocks.",
+        "That Lean reads a carriage return before a line feed as a line feed. The body that \
+          the audit compiles keeps the carriage returns of its line endings, without the line \
+          ending of its last line, and the front end of the compiler \
+          (`Lean.Parser.mkInputContext`) is trusted for them."]
       configuration := [
         "The checked tree is the documentation tree the audit selects (`docs/` for `lake exe \
           docFenceAudit`). There is no per-fence opt-out.",
         "This rule is a documentation-mode rule; it is not reported by the per-declaration editor \
           linter."]
       limitations := [
-        "Only Markdown structure is checked here; elaboration results belong to RG4002–RG4004."]
+        "Only Markdown structure is checked here; elaboration results belong to RG4002–RG4004.",
+        "A sample of a Lean fence inside a longer fence is refused, with no exception: show the \
+          fence as a real example, and describe a marker in prose.",
+        "A sample of a raw HTML code tag is written with a character reference (`&lt;pre>`) or \
+          in prose, also inside a fence."]
       residuals := [.qualify, .doc]
       checklist := ["DOC-03"]
       linkage := "An accepted run satisfies `RegulaPolicy.DocumentOK`. The scanners report no \
-        violation exactly for a document with lines that the fence protocol admits \
+        violation exactly for a document with lines that are permitted transitions of the fence \
+        protocol and keep the shape rule \
         (`Regula.Checker.Documentation.checked_scanLines`, `checked_scanVersoLines`), and the \
-        lines are those of the text of the document (`toList_linesOf`). The fences of a result \
-        are not proved."
+        lines are those of the text of the document (`toList_linesOf`). A clean document has a \
+        returned fence for each line of Lean shape (`fence_of_leanShaped`, \
+        `example_of_leanShaped`), and a Markdown document is clean exactly when its lines \
+        without the carriage return of a line ending have no carriage return left and are \
+        clean (`clean_iff_withoutReturn`). \
+        The body and the byte ranges of a returned fence are not proved."
       sources := ["lean/Regula/Checker/FenceScan.lean", "lean/Regula/Checker/Documentation.lean",
           "lean/Regula/Checker/Diagnostics.lean", "lean/RegulaPolicy/Pattern.lean"] }
   | .positiveExample => {

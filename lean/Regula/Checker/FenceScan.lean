@@ -11,15 +11,34 @@ document (`scan`) and the code blocks of a Verso source (`scanVerso`), with the 
 violations of each. `Regula.Checker.Documentation` reads the documents and gives each text to a
 scanner.
 
-Each scanner is a machine with one state (`Scan`, `VersoScan`): `step` reads one line, and
-`finish` reads the end of the document. No function of this module reads a file.
+Each scanner is a machine with one state (`Scan`, `VersoScan`): `step` reads one line by the
+fence protocol, `shapedStep` adds the shape rule, and `finish` reads the end of the document. No
+function of this module reads a file.
+
+The shape rule closes the difference between lines and blocks. The scanner reads lines, and a
+Markdown reader reads blocks, so a block of the reader can be at a place where the scanner sees
+no fence. The rule refuses each line that can open a Lean block at such a place: a line with a
+fence run and the language of Lean opens a `lean` fence in the first column, outside a fence,
+and a Lean fence closes with a run in the first column. In a Markdown document it also refuses
+the start tag of a code element of raw HTML.
+
+A line of the scanner ends at a line feed. A Markdown reader also ends a line at a carriage
+return, so the rule refuses a carriage return before the last character of a line. A carriage
+return at the end of a line is the line ending of the reader, and `clean_iff_withoutReturn`
+says that a document is clean exactly when its lines without that carriage return have no
+carriage return left and are clean. The body of a fence ends before the line ending of its last
+line, and Lean reads a carriage return before a line feed as a line feed. A Markdown reader shows
+U+FFFD in place of the character U+0000, so the rule refuses U+0000. A Verso source has neither
+character.
 
 `scanLines` and `scanVersoLines` are the registered decisions. `checked_scanLines` and
 `checked_scanVersoLines` state that each reports no violation exactly for a document with lines
-that the protocol relation admits (`Clean`, `VersoClean`). The input of a decision is a `Source`:
-a document with its lines, bound to its text (`toList_linesOf`). The audit takes a `Scanned`: a
-result that is bound to its input and to the scanner. No theorem is about the fences of a
-result.
+that the relation admits (`Clean`, `VersoClean`): each line is a permitted transition of the
+protocol and keeps the shape rule. `fence_of_leanShaped` and `example_of_leanShaped` state that
+a clean document has a returned fence for each line of Lean shape. The input of a decision is a
+`Source`: a document with its lines, bound to its text (`toList_linesOf`). The audit takes a
+`Scanned`: a result that is bound to its input and to the scanner. No theorem is about the body
+or the byte ranges of a returned fence.
 
 Expected-failure markers use a deliberately small diagnostic pattern language:
 `|` separates alternatives and `.*` separates ordered literal substrings. This
@@ -52,12 +71,12 @@ structure Fence where
   document : RegulaPolicy.SourceSnapshot
   /-- The byte range of the opening fence line. -/
   opening : RegulaPolicy.ByteRange
-  /-- The byte range of the body, without the newline before the closing line; empty at the
-  body's start when the body has no lines. -/
+  /-- The byte range of the body, without the line ending of its last line (a line feed, or a
+  carriage return and a line feed); empty at the body's start when the body has no lines. -/
   bodyRange : RegulaPolicy.ByteRange
   /-- The byte range of the closing fence line. -/
   closing : RegulaPolicy.ByteRange
-  /-- The body lines joined with newlines: the source compiled verbatim. -/
+  /-- The text of the body range: the source compiled verbatim. -/
   body : String
   /-- The 1-based line number of the opening fence line. -/
   line : Nat
@@ -112,6 +131,98 @@ private def markerLike (line : String) : Bool :=
   let value := line.trimAscii.toString
   value.startsWith "<!--" &&
     (value.drop 4 |>.toString.trimAscii.toString.startsWith "lean")
+
+/-- What the shape rule reads of the characters from one place of a line to the end of the line.
+`Suffix.cons` gives it for one more character at the front, so one pass from the end of a line
+to its start reads each character one time. -/
+private structure Suffix where
+  /-- The first character. -/
+  first : Option Char := none
+  /-- The second character. -/
+  second : Option Char := none
+  /-- The first letters in lower case, up to five of them; none when the first character in
+  lower case is not a letter. -/
+  letters : List Char := []
+  /-- The first run of letters, in lower case, is `lean`, after characters that are not letters.
+  So `lean`, `Lean`, `lean4` and `{.lean}` name Lean, and `leanSketch` and `text lean` do not.
+  The test does not use a notion of white space, because Markdown readers differ in the
+  characters that they remove around the language of a fence. -/
+  names : Bool := false
+  /-- A `&` or a backslash comes before the first space. -/
+  marked : Bool := false
+  /-- A `&` or a backslash is in the first word: after the characters that are not a letter, a
+  `&` or a backslash, and before the next space. Markdown decodes the two characters in an info
+  string, and a reader takes its first word as the language. -/
+  escaped : Bool := false
+  /-- At some place are three back-ticks or three tildes, and the characters after them name
+  Lean, or they have a `&` or a backslash in their first word. -/
+  shaped : Bool := false
+
+/-- What the shape rule reads of the character `c` and then the characters of `after`. -/
+private def Suffix.cons (c : Char) (after : Suffix) : Suffix :=
+  let lower := c.toLower
+  let letters := if lower.isAlpha then (lower :: after.letters).take 5 else []
+  let marked := c != ' ' && (c == '&' || c == '\\' || after.marked)
+  { first := some c
+    second := after.first
+    letters
+    names := if lower.isAlpha then letters == ['l', 'e', 'a', 'n'] else after.names
+    marked
+    escaped := if c.isAlpha || c == '&' || c == '\\' then marked else after.escaped
+    shaped := ((c == '`' || c == '~') && after.first == some c && after.second == some c &&
+      (after.names || after.escaped)) || after.shaped }
+
+/-- The line has Lean shape: at some place of the line, three back-ticks or three tildes, and
+the characters after them name Lean or have a `&` or a backslash in their first word. A
+Markdown reader can take such a line as the opening line of a Lean block, in a quotation, in a
+list item or at a place where the scanner reads a different block structure. The pass reads
+each character of the line one time (`List.foldr` runs as `List.foldrTR`). -/
+private def leanShaped (line : String) : Bool :=
+  (line.toList.foldr Suffix.cons {}).shaped
+
+/-- The line has a carriage return before its last character. Markdown takes a carriage return
+that no line feed follows as the end of a line, and the scanner divides a text at line feeds
+only. -/
+private def loneReturn (line : String) : Bool :=
+  line.toList.dropLast.contains '\r'
+
+/-- The line without its last character, when that character is a carriage return. -/
+def withoutReturn (line : String) : String :=
+  if line.toList.getLast? = some '\r' then String.ofList line.toList.dropLast else line
+
+/-- The line opens a Lean fence in the first column: it starts with the fence run, and the first
+word of its info string is `lean`. -/
+private def leanOpening (line : String) : Bool :=
+  match fenceRun? line with
+  | some (character, _, info) => line.toList.head? == some character && firstWord info == "lean"
+  | none => false
+
+/-- The names of the elements of HTML that a browser shows as preformatted text or as code, in
+lower case. -/
+def codeElements : List (List Char) :=
+  [['p', 'r', 'e'], ['c', 'o', 'd', 'e'], ['x', 'm', 'p'], ['l', 'i', 's', 't', 'i', 'n', 'g'],
+    ['p', 'l', 'a', 'i', 'n', 't', 'e', 'x', 't']]
+
+/-- The character ends the name of an element in a start tag of HTML: a character that HTML
+takes as white space (a space, a tab, a line feed, a form feed, a carriage return), `>` or `/`. -/
+private def endsTagName (c : Char) : Bool :=
+  c == ' ' || c == '\t' || c == '\n' || c == '\x0c' || c == '\r' || c == '>' || c == '/'
+
+/-- The characters after a `<` are the name of a code element, without regard to case, and then
+the end of the line or a character that ends the name. -/
+private def codeTagAfter (rest : List Char) : Bool :=
+  codeElements.any fun name =>
+    (rest.take name.length).map Char.toLower == name &&
+      (rest.drop name.length).head?.all endsTagName
+
+/-- The line has the start tag of a code element of raw HTML, at some place of the line. -/
+private def rawCodeTag (line : String) : Bool :=
+  tagIn line.toList
+where
+  /-- A `<` with the name of a code element after it, at some place of the characters. -/
+  tagIn : List Char → Bool
+    | [] => false
+    | first :: rest => (first == '<' && codeTagAfter rest) || tagIn rest
 
 private def unsupportedPatternChar (character : Char) : Bool :=
   #['[', ']', '(', ')', '{', '}', '?', '+', '^', '$', '\\'].contains character
@@ -284,14 +395,22 @@ def classify (line : String) : LineClass :=
       | some (character, count, info) => .opener character count info
       | none => .plain
 
+/-- The body of a fence: the text from the first byte of its first line to the end of its last
+line, without the line ending of the last line. The lines keep the carriage returns of their
+line endings, and Lean reads a carriage return before a line feed as a line feed
+(`Lean.Parser.mkInputContext`). So, in a clean document, Lean reads the lines of the body as a
+Markdown reader divides them, with a line feed between two of them. -/
+def OpenFence.text (fence : OpenFence) : String :=
+  withoutReturn ("\n".intercalate fence.body.toList)
+
 /-- The fence of a closing line: its location, its body and what its marker says. -/
 def closedFence (document : RegulaPolicy.SourceSnapshot) (fence : OpenFence)
     (pending : Option PendingMarker) (line : Line) : Fence :=
   { document
     opening := fence.opening
-    bodyRange := ⟨fence.bodyStart, if fence.body.isEmpty then fence.bodyStart else line.start - 1⟩
+    bodyRange := ⟨fence.bodyStart, fence.bodyStart + fence.text.utf8ByteSize⟩
     closing := line.range
-    body := "\n".intercalate fence.body.toList
+    body := fence.text
     line := fence.line
     failPattern := pending.bind fun marker =>
       match marker.kind with
@@ -405,6 +524,52 @@ def step (document : RegulaPolicy.SourceSnapshot) (origin : String) (state : Sca
   | some fence => stepInside document origin state fence line
   | none => stepOutside origin state line
 
+/-- What the shape rule refuses for a line, with the fence that is open: the reason, when the
+rule refuses the line. A line with a carriage return before its last character, a line with the
+character U+0000 and a line with the start tag of a code element of raw HTML are refused at each
+place. Outside a fence, a line of Lean shape is refused when it does not open a Lean fence in the
+first column. Inside a fence, a line of Lean shape is refused, and so is a line that closes a
+Lean fence and does not start with the run. -/
+def shapeRefusal (opened : Option OpenFence) (line : String) : Option String :=
+  if loneReturn line then
+    some "a carriage return that no line feed follows; Markdown takes it as the end of a line, \
+      and the audit divides a text at line feeds"
+  else if line.toList.contains '\x00' then
+    some "the character U+0000; Markdown shows U+FFFD in its place, and the audit compiles the \
+      text of the document; write `\\x00` in a Lean string or character literal"
+  else if rawCodeTag line then
+    some "raw HTML opens a code element (pre, code, xmp, listing or plaintext), which the \
+      audit does not read; write the tag with a character reference or in prose"
+  else match opened with
+    | none =>
+      if leanShaped line && !leanOpening line then
+        some "a line with a fence run that names Lean, or that has & or a backslash in the \
+          first word after the run, does not open a `lean` fence in the first column; the audit \
+          does not check a Lean fence in a quotation, in a list item, after indentation or with \
+          a different spelling of the language, and it reads a run in a line of text as a fence \
+          run"
+      else none
+    | some fence =>
+      if leanShaped line then
+        some "a line with a fence run that names Lean, or that has & or a backslash in the \
+          first word after the run, is inside a fence; the audit does not check it"
+      else if firstWord fence.info == "lean" &&
+          closingFence line fence.character fence.length &&
+          line.toList.head? != some fence.character then
+        some "the closing line of a Lean fence does not start in the first column"
+      else none
+
+/-- One line of a Markdown document with the shape rule: the line of the fence protocol
+(`step`), and one more violation when the shape rule refuses the line. -/
+def shapedStep (document : RegulaPolicy.SourceSnapshot) (origin : String) (state : Scan)
+    (line : Line) : Scan :=
+  match shapeRefusal state.opened line.text with
+  | some reason =>
+    { step document origin state line with
+      problems := (step document origin state line).problems.push
+        s!"{origin}:{line.number}: {reason}" }
+  | none => step document origin state line
+
 /-- The end of a Markdown document: a fence that is open and a marker that waits are
 violations. -/
 def finish (origin : String) (state : Scan) : ScanResult :=
@@ -453,7 +618,8 @@ def Source.of (text origin : String) (sourceURI : Option String := none) : Sourc
 the document. -/
 @[regula_decision]
 def scanLines (source : Source) : ScanResult :=
-  finish source.origin ((layout source.lines).foldl (step source.document source.origin) {})
+  finish source.origin
+    ((layout source.lines).foldl (shapedStep source.document source.origin) {})
 
 /-- The code-block spellings a Verso documentation source may use, with the meaning the
 standard's `lean` block (`website/RegulaExample.lean`) gives each: `lean` is a positive
@@ -547,8 +713,9 @@ structure VersoScan where
 /-- One line of a Verso source. Inside a block, a closing line of back-ticks ends the block, and
 a Lean example is recorded. Outside a block, a line that opens a fence opens a block: an info
 string that `versoBlockKind` refuses, a run of tildes, and a Lean example on a line that starts
-with a space are violations. A Lean example on a line that starts with a tab or with a carriage
-return is not a violation. Each other line outside a block is read past. -/
+with a space are violations. This step does not refuse a Lean example on a line that starts
+with a tab or with a carriage return: the shape rule does (`shapedVersoStep`). Each other line
+outside a block is read past. -/
 def versoStep (document : RegulaPolicy.SourceSnapshot) (origin : String) (state : VersoScan)
     (line : Line) : VersoScan :=
   match state.opened with
@@ -596,6 +763,45 @@ def versoStep (document : RegulaPolicy.SourceSnapshot) (origin : String) (state 
                          bodyStart := line.next, body := #[] } }
     | none => state
 
+/-- What the shape rule refuses for a line of a Verso source, with the block that is open: the
+reason, when the rule refuses the line. A line with a carriage return or with the character
+U+0000 is refused: the audit shows nothing about what a Verso page shows for either character,
+so it reads sources without them. Outside a block, a line of Lean shape is refused when it does
+not open a `lean` block in the first column. Inside a block, a line of Lean shape is refused,
+and so is a line that closes a Lean example and does not start with the run. -/
+def versoShapeRefusal (opened : Option OpenBlock) (line : String) : Option String :=
+  if line.toList.contains '\r' then
+    some "a carriage return; a Verso source that the audit reads has line feeds only"
+  else if line.toList.contains '\x00' then
+    some "the character U+0000; a Verso source that the audit reads has none; write `\\x00` in \
+      a Lean string or character literal"
+  else match opened with
+  | none =>
+    if leanShaped line && !leanOpening line then
+      some "a line with a fence run that names Lean, or that has & or a backslash in the first \
+        word after the run, does not open a `lean` block in the first column; the audit does \
+        not check a Lean example in a quotation, in a list item or after indentation"
+    else none
+  | some block =>
+    if leanShaped line then
+      some "a line with a fence run that names Lean, or that has & or a backslash in the first \
+        word after the run, is inside a code block; the audit does not check it"
+    else if block.kind.isSome && closingFence line '`' block.length &&
+        line.toList.head? != some '`' then
+      some "the closing line of a Lean example does not start in the first column"
+    else none
+
+/-- One line of a Verso source with the shape rule: the line of the block protocol
+(`versoStep`), and one more violation when the shape rule refuses the line. -/
+def shapedVersoStep (document : RegulaPolicy.SourceSnapshot) (origin : String)
+    (state : VersoScan) (line : Line) : VersoScan :=
+  match versoShapeRefusal state.opened line.text with
+  | some reason =>
+    { versoStep document origin state line with
+      problems := (versoStep document origin state line).problems.push
+        s!"{origin}:{line.number}: {reason}" }
+  | none => versoStep document origin state line
+
 /-- The end of a Verso source: a block that is open is a violation. -/
 def versoFinish (origin : String) (state : VersoScan) : ScanResult :=
   { fences := state.fences
@@ -609,7 +815,7 @@ source. -/
 @[regula_decision]
 def scanVersoLines (source : Source) : ScanResult :=
   versoFinish source.origin
-    ((layout source.lines).foldl (versoStep source.document source.origin) {})
+    ((layout source.lines).foldl (shapedVersoStep source.document source.origin) {})
 
 /-! ## A scan with its input -/
 
@@ -656,9 +862,8 @@ def scan (text origin : String) (sourceURI : Option String := none) : Scanned wh
 
 /-- Fail-closed, balanced scanner of the code blocks of a Verso source (`versoBlockKind`): the
 scan of a Verso text, with the lines of that text. The block's info string is its whole
-classification. The opening line of a Lean example does not start with a space. The scanner
-does not refuse an opening line that starts with a tab or with a carriage return, so the first
-column is not a guarantee. -/
+classification. A Lean example opens in the first column and closes in the first column, by the
+shape rule. -/
 def scanVerso (text origin : String) (sourceURI : Option String := none) : Scanned where
   format := .verso
   source := .of text origin sourceURI
@@ -751,7 +956,7 @@ private theorem Trimmed.dropWhile {text inner : List Char} (trimmed : Trimmed te
     have empty : trail.dropWhile Char.isWhitespace = [] := by
       have all := List.dropWhile_append_of_pos (l₂ := []) trailing
       rwa [List.append_nil] at all
-    exact ⟨[], empty, fun _ member => nomatch member⟩
+    exact ⟨[], empty, by simp⟩
   | cons head tail => exact ⟨trail, by simp [first head rfl], trailing⟩
 
 /-- **A text has one trimmed form only.** -/
@@ -1241,6 +1446,466 @@ theorem classify_eq_of_lineIs {line : String} {kind : LineClass} (is : LineIs li
     classify line = kind :=
   lineIs_unique (lineIs_classify line) is
 
+/-! ## The shape of a line
+
+The scanner reads lines, and a Markdown reader reads blocks, so the two can take a different
+block structure at a line. The statements of this section are about one line alone, with no
+state: a line that a Markdown reader can take as the opening line of a Lean block, a line that
+opens a Lean fence in the first column, and a line with the start tag of a code element of raw
+HTML. -/
+
+/-- The characters name Lean: without regard to case, they are characters that are not letters,
+then `lean`, then the end or a character that is not a letter. So the first run of letters is
+`lean`. The statement has no notion of white space: a Markdown reader can remove a form feed or
+a no-break space before the language of a fence, and a different reader does not. -/
+def NamesLean (rest : List Char) : Prop :=
+  ∃ lead tail : List Char,
+    rest.map Char.toLower = lead ++ ['l', 'e', 'a', 'n'] ++ tail ∧
+    (∀ c ∈ lead, c.isAlpha = false) ∧ (∀ c, tail.head? = some c → c.isAlpha = false)
+
+/-- A character that is not a letter in lower case does not change what the characters after
+it name. -/
+private theorem namesLean_cons {c : Char} (rest : List Char) (other : c.toLower.isAlpha = false) :
+    NamesLean (c :: rest) ↔ NamesLean rest := by
+  unfold NamesLean
+  rw [List.map_cons]
+  constructor
+  · rintro ⟨lead, tail, split, leading, stops⟩
+    cases lead with
+    | nil =>
+      simp only [List.nil_append, List.cons_append] at split
+      rw [(List.cons.inj split).1] at other
+      exact absurd other (by decide)
+    | cons first others =>
+      simp only [List.cons_append] at split
+      obtain ⟨-, same⟩ := List.cons.inj split
+      exact ⟨others, tail, same, fun x member => leading x (List.mem_cons_of_mem _ member), stops⟩
+  · rintro ⟨lead, tail, split, leading, stops⟩
+    refine ⟨c.toLower :: lead, tail, by rw [split]; rfl, ?_, stops⟩
+    intro x member
+    rcases List.mem_cons.mp member with rfl | later
+    · exact other
+    · exact leading x later
+
+/-- Characters that start with a letter in lower case name Lean exactly when their first letters
+in lower case, up to five of them, are `lean`. -/
+private theorem namesLean_of_alpha {c : Char} (rest : List Char)
+    (letter : c.toLower.isAlpha = true) :
+    NamesLean (c :: rest) ↔
+      (((c :: rest).map Char.toLower).takeWhile Char.isAlpha).take 5 = ['l', 'e', 'a', 'n'] := by
+  unfold NamesLean
+  generalize lowered : (c :: rest).map Char.toLower = chars
+  have head : chars.head? = some c.toLower := by rw [← lowered]; rfl
+  constructor
+  · rintro ⟨lead, tail, rfl, leading, stops⟩
+    cases lead with
+    | nil =>
+      rw [List.nil_append, takeWhile_append_of_all _ (by decide) stops]
+      rfl
+    | cons first others =>
+      simp only [List.cons_append, List.head?_cons, Option.some.injEq] at head
+      have := leading first List.mem_cons_self
+      rw [head, letter] at this
+      exact absurd this (by decide)
+  · intro taken
+    have length : (chars.takeWhile Char.isAlpha).length = 4 := by
+      have counted := congrArg List.length taken
+      simp only [List.length_take, List.length_cons, List.length_nil] at counted
+      omega
+    have whole : chars.takeWhile Char.isAlpha = ['l', 'e', 'a', 'n'] := by
+      rw [← taken, List.take_of_length_le (by omega)]
+    refine ⟨[], chars.dropWhile Char.isAlpha, ?_, by simp, ?_⟩
+    · rw [List.nil_append, ← whole, List.takeWhile_append_dropWhile]
+    · intro x first
+      have fails := List.head?_dropWhile_not Char.isAlpha chars
+      rw [first] at fails
+      simpa using fails
+
+/-- A `&` or a backslash comes before the first space of the characters: they are characters
+with no space, then the `&` or the backslash. -/
+def Marked (chars : List Char) : Prop :=
+  ∃ (word after : List Char) (c : Char),
+    chars = word ++ c :: after ∧ ' ' ∉ word ∧ (c = '&' ∨ c = '\\')
+
+/-- The characters have a `&` or a backslash in their first word: they are characters that are
+not a letter, a `&` or a backslash, and then characters with a `&` or a backslash before their
+first space (`Marked`).
+
+A Markdown reader decodes a character reference and a backslash escape in an info string, and it
+takes the first word of the info string as the language of the fence. Readers differ in the
+characters that they remove before the word and in the characters that end it, but no reader
+removes a letter, a `&` or a backslash, and each reader ends the word at a space. So when the
+characters after a fence run have no `&` and no backslash in their first word, a reader reads the
+first word with no decoding, and its first run of letters is the one that `NamesLean` reads. -/
+def EscapeInWord (rest : List Char) : Prop :=
+  ∃ skip tail : List Char, rest = skip ++ tail ∧
+    (∀ x ∈ skip, x.isAlpha = false ∧ x ≠ '&' ∧ x ≠ '\\') ∧ Marked tail
+
+/-- Characters that start with a letter, a `&` or a backslash have a `&` or a backslash in their
+first word exactly when one comes before their first space. -/
+private theorem escapeInWord_cons_word {x : Char} (rest : List Char)
+    (word : x.isAlpha = true ∨ x = '&' ∨ x = '\\') :
+    EscapeInWord (x :: rest) ↔ Marked (x :: rest) := by
+  constructor
+  · rintro ⟨skip, tail, split, skipped, marked⟩
+    cases skip with
+    | nil =>
+      rw [List.nil_append] at split
+      rw [split]
+      exact marked
+    | cons first others =>
+      obtain ⟨same, -⟩ := List.cons.inj split
+      obtain ⟨letter, amp, slash⟩ := skipped first List.mem_cons_self
+      rw [← same] at letter amp slash
+      rcases word with alpha | rfl | rfl
+      · rw [alpha] at letter
+        exact absurd letter (by decide)
+      · exact absurd rfl amp
+      · exact absurd rfl slash
+  · intro marked
+    exact ⟨[], x :: rest, rfl, by simp, marked⟩
+
+/-- A character that is not a letter, a `&` or a backslash does not change what the first word
+of the characters after it has. -/
+private theorem escapeInWord_cons_other {x : Char} (rest : List Char)
+    (other : x.isAlpha = false ∧ x ≠ '&' ∧ x ≠ '\\') :
+    EscapeInWord (x :: rest) ↔ EscapeInWord rest := by
+  constructor
+  · rintro ⟨skip, tail, split, skipped, word, after, c, rfl, noSpace, escape⟩
+    cases skip with
+    | nil =>
+      cases word with
+      | nil =>
+        obtain ⟨rfl, -⟩ := List.cons.inj split
+        rcases escape with rfl | rfl
+        · exact absurd rfl other.2.1
+        · exact absurd rfl other.2.2
+      | cons first others =>
+        obtain ⟨-, rfl⟩ := List.cons.inj split
+        exact ⟨[], others ++ c :: after, rfl, by simp,
+          others, after, c, rfl, fun member => noSpace (List.mem_cons_of_mem _ member), escape⟩
+    | cons first others =>
+      obtain ⟨-, rfl⟩ := List.cons.inj split
+      exact ⟨others, word ++ c :: after, rfl,
+        fun y member => skipped y (List.mem_cons_of_mem _ member),
+        word, after, c, rfl, noSpace, escape⟩
+  · rintro ⟨skip, tail, rfl, skipped, marked⟩
+    refine ⟨x :: skip, tail, rfl, ?_, marked⟩
+    intro y member
+    rcases List.mem_cons.mp member with rfl | later
+    · exact other
+    · exact skipped y later
+
+/-- The characters after a fence run give the line Lean shape: they name Lean, or they have a
+`&` or a backslash in their first word. -/
+def ShapedAfter (rest : List Char) : Prop :=
+  NamesLean rest ∨ EscapeInWord rest
+
+/-- A back-tick or a tilde does not change what the characters after it give: neither is a
+letter, a `&` or a backslash. -/
+private theorem shapedAfter_cons_fence {x : Char} (rest : List Char)
+    (fence : x = '`' ∨ x = '~') : ShapedAfter (x :: rest) ↔ ShapedAfter rest := by
+  have lower : x.toLower.isAlpha = false := by rcases fence with rfl | rfl <;> decide
+  have other : x.isAlpha = false ∧ x ≠ '&' ∧ x ≠ '\\' := by
+    rcases fence with rfl | rfl <;> decide
+  unfold ShapedAfter
+  rw [namesLean_cons rest lower, escapeInWord_cons_other rest other]
+
+/-- The line has Lean shape: at some place of the line are three back-ticks or three tildes, and
+the characters after them name Lean or have a `&` or a backslash in their first word
+(`ShapedAfter`). The three can be any three of a longer run: back-ticks and tildes do not change
+what the characters after them give (`shapedAfter_cons_fence`).
+
+A Markdown reader can take such a line as the opening line of a Lean block: in a quotation, in a
+list item, or at a place where the scanner reads a different block structure. The statement is
+conservative. It does not read the inline structure of Markdown, so it also holds for a line of
+prose such as "See ```x``` lean examples." and "See ```x``` lean/Regula.", where the run closes
+an inline span. The remedy is an inline span with fewer back-ticks, or different words. -/
+def LeanShaped (line : String) : Prop :=
+  ∃ (before : List Char) (character : Char) (rest : List Char),
+    (character = '`' ∨ character = '~') ∧
+      line.toList = before ++ [character, character, character] ++ rest ∧ ShapedAfter rest
+
+/-- The pass of `leanShaped` over characters. -/
+private def suffixOf (chars : List Char) : Suffix :=
+  chars.foldr Suffix.cons {}
+
+private theorem suffixOf_cons (c : Char) (chars : List Char) :
+    suffixOf (c :: chars) = Suffix.cons c (suffixOf chars) := rfl
+
+private theorem suffixOf_first (chars : List Char) : (suffixOf chars).first = chars.head? := by
+  cases chars <;> rfl
+
+private theorem suffixOf_second (chars : List Char) :
+    (suffixOf chars).second = chars.tail.head? := by
+  cases chars with
+  | nil => rfl
+  | cons c rest => exact suffixOf_first rest
+
+private theorem suffixOf_letters (chars : List Char) :
+    (suffixOf chars).letters = ((chars.map Char.toLower).takeWhile Char.isAlpha).take 5 := by
+  induction chars with
+  | nil => rfl
+  | cons c rest step =>
+    rw [suffixOf_cons]
+    by_cases letter : c.toLower.isAlpha = true
+    · simp only [Suffix.cons, letter, ↓reduceIte, step, List.map_cons, List.takeWhile_cons]
+      simp [List.take_take]
+    · simp [Suffix.cons, letter]
+
+private theorem suffixOf_names (chars : List Char) :
+    (suffixOf chars).names = true ↔ NamesLean chars := by
+  induction chars with
+  | nil =>
+    simp only [suffixOf, List.foldr_nil, Bool.false_eq_true, false_iff]
+    rintro ⟨lead, tail, split, -⟩
+    have counted := congrArg List.length split
+    simp at counted
+  | cons c rest step =>
+    by_cases letter : c.toLower.isAlpha = true
+    · have field : (suffixOf (c :: rest)).names =
+          ((suffixOf (c :: rest)).letters == ['l', 'e', 'a', 'n']) := by
+        simp [suffixOf_cons, Suffix.cons, letter]
+      rw [field, beq_iff_eq, suffixOf_letters, namesLean_of_alpha rest letter]
+    · have field : (suffixOf (c :: rest)).names = (suffixOf rest).names := by
+        simp [suffixOf_cons, Suffix.cons, letter]
+      rw [field, step, namesLean_cons rest (by simpa using letter)]
+
+private theorem suffixOf_marked (chars : List Char) :
+    (suffixOf chars).marked = true ↔ Marked chars := by
+  induction chars with
+  | nil =>
+    simp only [suffixOf, List.foldr_nil, Bool.false_eq_true, false_iff]
+    rintro ⟨word, after, c, split, -⟩
+    have counted := congrArg List.length split
+    simp at counted
+  | cons x rest step =>
+    have field : (suffixOf (x :: rest)).marked =
+        (x != ' ' && (x == '&' || x == '\\' || (suffixOf rest).marked)) := rfl
+    rw [field]
+    simp only [Bool.and_eq_true, bne_iff_ne, ne_eq, Bool.or_eq_true, beq_iff_eq, step]
+    constructor
+    · rintro ⟨space, (amp | slash) | ⟨word, after, c, rfl, noSpace, escape⟩⟩
+      · exact ⟨[], rest, x, rfl, by simp, .inl amp⟩
+      · exact ⟨[], rest, x, rfl, by simp, .inr slash⟩
+      · refine ⟨x :: word, after, c, rfl, ?_, escape⟩
+        intro member
+        rcases List.mem_cons.mp member with same | later
+        · exact space same.symm
+        · exact noSpace later
+    · rintro ⟨word, after, c, split, noSpace, escape⟩
+      cases word with
+      | nil =>
+        obtain ⟨rfl, -⟩ := List.cons.inj split
+        refine ⟨by rcases escape with rfl | rfl <;> decide, .inl escape⟩
+      | cons first others =>
+        obtain ⟨rfl, rfl⟩ := List.cons.inj split
+        exact ⟨fun same => noSpace (same ▸ List.mem_cons_self),
+          .inr ⟨others, after, c, rfl, fun member => noSpace (List.mem_cons_of_mem _ member),
+            escape⟩⟩
+
+private theorem suffixOf_escaped (chars : List Char) :
+    (suffixOf chars).escaped = true ↔ EscapeInWord chars := by
+  induction chars with
+  | nil =>
+    simp only [suffixOf, List.foldr_nil, Bool.false_eq_true, false_iff]
+    rintro ⟨skip, tail, split, -, word, after, c, rfl, -⟩
+    have counted := congrArg List.length split
+    simp at counted
+  | cons x rest step =>
+    by_cases word : x.isAlpha = true ∨ x = '&' ∨ x = '\\'
+    · have field : (suffixOf (x :: rest)).escaped = (suffixOf (x :: rest)).marked := by
+        have test : (x.isAlpha || x == '&' || x == '\\') = true := by
+          simpa [Bool.or_eq_true, beq_iff_eq, or_assoc] using word
+        simp only [suffixOf_cons, Suffix.cons, test, ↓reduceIte]
+      rw [field, suffixOf_marked, escapeInWord_cons_word rest word]
+    · have other : x.isAlpha = false ∧ x ≠ '&' ∧ x ≠ '\\' := by
+        simp only [not_or] at word
+        exact ⟨by simpa using word.1, word.2.1, word.2.2⟩
+      have field : (suffixOf (x :: rest)).escaped = (suffixOf rest).escaped := by
+        have test : (x.isAlpha || x == '&' || x == '\\') = false := by
+          simp [other.1, other.2.1, other.2.2]
+        simp only [suffixOf_cons, Suffix.cons, test, Bool.false_eq_true, ↓reduceIte]
+      rw [field, step, escapeInWord_cons_other rest other]
+
+private theorem suffixOf_shaped (chars : List Char) :
+    (suffixOf chars).shaped = true ↔
+      ∃ (before : List Char) (character : Char) (rest : List Char),
+        (character = '`' ∨ character = '~') ∧
+          chars = before ++ [character, character, character] ++ rest ∧ ShapedAfter rest := by
+  induction chars with
+  | nil =>
+    simp only [suffixOf, List.foldr_nil, Bool.false_eq_true, false_iff]
+    rintro ⟨before, character, rest, -, split, -⟩
+    have counted := congrArg List.length split
+    simp at counted
+  | cons x tail step =>
+    have field : (suffixOf (x :: tail)).shaped =
+        (((x == '`' || x == '~') && (suffixOf tail).first == some x &&
+          (suffixOf tail).second == some x &&
+          ((suffixOf tail).names || (suffixOf tail).escaped)) || (suffixOf tail).shaped) := rfl
+    rw [field]
+    simp only [Bool.or_eq_true, Bool.and_eq_true, beq_iff_eq, suffixOf_first, suffixOf_second,
+      suffixOf_names, suffixOf_escaped, step]
+    constructor
+    · rintro (⟨⟨⟨fence, first⟩, second⟩, after⟩ | ⟨before, character, rest, fence, rfl, after⟩)
+      · obtain ⟨more, rfl⟩ : ∃ more, tail = x :: more := by
+          cases tail with
+          | nil => exact nomatch first
+          | cons y more => exact ⟨more, by rw [Option.some.inj first]⟩
+        obtain ⟨rest, rfl⟩ : ∃ rest, more = x :: rest := by
+          cases more with
+          | nil => exact nomatch second
+          | cons y rest => exact ⟨rest, by rw [Option.some.inj second]⟩
+        refine ⟨[], x, rest, fence, rfl, ?_⟩
+        exact (shapedAfter_cons_fence rest fence).mp
+          ((shapedAfter_cons_fence (x :: rest) fence).mp after)
+      · exact ⟨x :: before, character, rest, fence, rfl, after⟩
+    · rintro ⟨before, character, rest, fence, split, after⟩
+      cases before with
+      | nil =>
+        simp only [List.nil_append, List.cons_append, List.cons.injEq] at split
+        obtain ⟨rfl, rfl⟩ := split
+        refine .inl ⟨⟨⟨fence, rfl⟩, rfl⟩, ?_⟩
+        exact (shapedAfter_cons_fence (x :: rest) fence).mpr
+          ((shapedAfter_cons_fence rest fence).mpr after)
+      | cons first others =>
+        simp only [List.cons_append, List.cons.injEq] at split
+        obtain ⟨-, rfl⟩ := split
+        exact .inr ⟨others, character, rest, fence, by simp, after⟩
+
+/-- `leanShaped` accepts exactly a line of Lean shape. -/
+private theorem leanShaped_iff (line : String) : leanShaped line = true ↔ LeanShaped line :=
+  suffixOf_shaped line.toList
+
+/-- The line has a carriage return before its last character: a carriage return that no line
+feed follows. Markdown takes it as the end of a line. -/
+def LoneReturn (line : String) : Prop :=
+  ∃ before after : List Char, line.toList = before ++ '\r' :: after ∧ after ≠ []
+
+private theorem loneReturn_iff (line : String) : loneReturn line = true ↔ LoneReturn line := by
+  unfold loneReturn LoneReturn
+  rw [List.contains_iff_mem]
+  constructor
+  · intro member
+    obtain ⟨before, middle, split⟩ := List.append_of_mem member
+    have nonempty : line.toList ≠ [] := by
+      intro empty
+      rw [empty] at member
+      cases member
+    refine ⟨before, middle ++ [line.toList.getLast nonempty], ?_, by simp⟩
+    rw [← List.cons_append, ← List.append_assoc, ← split, List.dropLast_concat_getLast]
+  · rintro ⟨before, after, split, nonempty⟩
+    rw [split, List.dropLast_append_of_ne_nil (by simp), List.dropLast_cons_of_ne_nil nonempty]
+    simp
+
+/-- The line opens a Lean fence in the first column: it starts with a fence run, and the first
+word of its info string is `lean`. -/
+def LeanOpening (line : String) : Prop :=
+  ∃ (character : Char) (count : Nat) (info : String),
+    FenceLine line character count info ∧ line.toList.head? = some character ∧
+    FirstWord info "lean"
+
+private theorem leanOpening_iff (line : String) : leanOpening line = true ↔ LeanOpening line := by
+  unfold leanOpening LeanOpening
+  cases run : fenceRun? line with
+  | none =>
+    simp only [Bool.false_eq_true, false_iff, not_exists, not_and]
+    intro character count info fence
+    rw [(fenceRun?_eq_some_iff line character count info).mpr fence] at run
+    cases run
+  | some found =>
+    obtain ⟨symbol, length, text⟩ := found
+    simp only [Bool.and_eq_true, beq_iff_eq]
+    rw [firstWord_eq_iff text (by decide)]
+    constructor
+    · rintro ⟨head, word⟩
+      exact ⟨symbol, length, text, (fenceRun?_eq_some_iff line symbol length text).mp run, head,
+        word⟩
+    · rintro ⟨character, count, info, fence, head, word⟩
+      rw [(fenceRun?_eq_some_iff line character count info).mpr fence] at run
+      obtain ⟨rfl, rfl, rfl⟩ : character = symbol ∧ count = length ∧ info = text := by
+        simpa using run
+      exact ⟨head, word⟩
+
+/-- The character ends the name of an element in a start tag of HTML: a character that HTML
+takes as white space there (a space, a tab, a line feed, a form feed, a carriage return), `>` or
+`/`. -/
+def EndsTagName (c : Char) : Prop :=
+  c = ' ' ∨ c = '\t' ∨ c = '\n' ∨ c = '\x0c' ∨ c = '\r' ∨ c = '>' ∨ c = '/'
+
+private theorem endsTagName_iff (c : Char) : endsTagName c = true ↔ EndsTagName c := by
+  unfold endsTagName EndsTagName
+  simp only [Bool.or_eq_true, beq_iff_eq, or_assoc]
+
+/-- The line has the start tag of a code element of raw HTML: at some place of the line come the
+character `<`, then the name of an element of `codeElements` without regard to case, and then
+the end of the line or a character that ends the name (`EndsTagName`). The statement names no
+attribute. -/
+def RawCodeTag (line : String) : Prop :=
+  ∃ before name rest : List Char,
+    line.toList = before ++ '<' :: name ++ rest ∧ name.map Char.toLower ∈ codeElements ∧
+    (∀ c, rest.head? = some c → EndsTagName c)
+
+private theorem codeTagAfter_iff (tail : List Char) :
+    codeTagAfter tail = true ↔
+      ∃ name rest : List Char, tail = name ++ rest ∧ name.map Char.toLower ∈ codeElements ∧
+        (∀ c, rest.head? = some c → EndsTagName c) := by
+  unfold codeTagAfter
+  simp only [List.any_eq_true, Bool.and_eq_true, beq_iff_eq]
+  constructor
+  · rintro ⟨element, listed, named, stops⟩
+    refine ⟨tail.take element.length, tail.drop element.length,
+      (List.take_append_drop _ _).symm, by rw [named]; exact listed, ?_⟩
+    intro c head
+    rw [head] at stops
+    exact (endsTagName_iff c).mp stops
+  · rintro ⟨name, rest, rfl, listed, stops⟩
+    have length : (name.map Char.toLower).length = name.length := List.length_map _
+    refine ⟨name.map Char.toLower, listed, ?_, ?_⟩
+    · rw [length, List.take_left' rfl]
+    · rw [length, List.drop_left' rfl]
+      cases head : rest.head? with
+      | none => rfl
+      | some c => exact (endsTagName_iff c).mpr (stops c head)
+
+private theorem tagIn_iff (chars : List Char) :
+    rawCodeTag.tagIn chars = true ↔
+      ∃ before tail, chars = before ++ '<' :: tail ∧ codeTagAfter tail = true := by
+  induction chars with
+  | nil =>
+    constructor
+    · intro found
+      cases found
+    · rintro ⟨before, tail, split, _⟩
+      exact absurd (congrArg List.length split) (by simp)
+  | cons first rest step =>
+    simp only [rawCodeTag.tagIn, Bool.or_eq_true, Bool.and_eq_true, beq_iff_eq, step]
+    constructor
+    · rintro (⟨rfl, here⟩ | ⟨before, tail, rfl, found⟩)
+      · exact ⟨[], rest, rfl, here⟩
+      · exact ⟨first :: before, tail, rfl, found⟩
+    · rintro ⟨before, tail, split, found⟩
+      cases before with
+      | nil =>
+        obtain ⟨rfl, rfl⟩ := List.cons.inj split
+        exact .inl ⟨rfl, found⟩
+      | cons head others =>
+        obtain ⟨-, rfl⟩ := List.cons.inj split
+        exact .inr ⟨others, tail, rfl, found⟩
+
+/-- `rawCodeTag` accepts exactly a line with the start tag of a code element. -/
+private theorem rawCodeTag_iff (line : String) : rawCodeTag line = true ↔ RawCodeTag line := by
+  unfold rawCodeTag RawCodeTag
+  rw [tagIn_iff]
+  constructor
+  · rintro ⟨before, tail, split, found⟩
+    obtain ⟨name, rest, rfl, facts⟩ := (codeTagAfter_iff tail).mp found
+    exact ⟨before, name, rest, by rw [split]; simp, facts⟩
+  · rintro ⟨before, name, rest, split, facts⟩
+    exact ⟨before, name ++ rest, by rw [split]; simp,
+      (codeTagAfter_iff _).mpr ⟨name, rest, rfl, facts⟩⟩
+
 /-! ## The protocol of a Markdown document
 
 The protocol is stated here with no function of the scanner: a mode between two lines, the
@@ -1288,13 +1953,13 @@ inductive Permitted (valid : String → Prop) : Mode → Nat → String → Mode
 
 /-- The lines, the first of them with the number `number`, are a run of permitted transitions
 from `mode` that ends outside a fence with no marker that waits. -/
-inductive Clean (valid : String → Prop) : Mode → Nat → List String → Prop
+inductive Follows (valid : String → Prop) : Mode → Nat → List String → Prop
   /-- The end of the document, outside a fence and with no marker that waits. -/
-  | done {number : Nat} : Clean valid (.outside none) number []
+  | done {number : Nat} : Follows valid (.outside none) number []
   /-- A permitted line before a clean rest. -/
   | line {mode next : Mode} {number : Nat} {text : String} {rest : List String} :
-      Permitted valid mode number text next → Clean valid next (number + 1) rest →
-        Clean valid mode number (text :: rest)
+      Permitted valid mode number text next → Follows valid next (number + 1) rest →
+        Follows valid mode number (text :: rest)
 
 /-! ## The scanner follows the protocol -/
 
@@ -1667,12 +2332,12 @@ private theorem layoutFrom_cons (number offset : Nat) (text : String) (rest : Li
 /-- **The scanner keeps the violations of a coherent state exactly on a clean run.** The lines
 from the number `number` add no violation, and the end of the document adds none, exactly when
 the texts of the lines are a run of permitted transitions from the mode of the state. -/
-theorem problems_eq_iff_clean {valid : String → Prop}
+theorem problems_eq_iff_follows {valid : String → Prop}
     (exact : ∀ pattern, valid pattern ↔ validatePattern pattern = .ok ())
     (document : RegulaPolicy.SourceSnapshot) (origin : String) :
     ∀ (texts : List String) (number offset : Nat) (state : Scan), state.Coherent →
       ((finish origin ((layoutFrom number offset texts).foldl (step document origin)
-        state)).problems = state.problems ↔ Clean valid state.mode number texts) := by
+        state)).problems = state.problems ↔ Follows valid state.mode number texts) := by
   intro texts
   induction texts with
   | nil =>
@@ -1714,6 +2379,715 @@ theorem problems_eq_iff_clean {valid : String → Prop}
           document origin coherent line permitted
         rw [← mode] at others
         rw [after.mpr others, quiet]
+
+/-! ## The shape rule
+
+The fence protocol above reads lines, and a Markdown reader reads blocks. Where the two read a
+different block structure, a Lean block of the reader is not a fence of the scanner. The shape
+rule does not make the two agree. It refuses each line that can open a Lean block at such a
+place: a line of Lean shape opens a Lean fence in the first column, outside a fence, and a Lean
+fence closes with a run in the first column. It also refuses the start tag of a code element of
+raw HTML, at each place. -/
+
+/-- The open fence of the state is a Lean fence. -/
+def Scan.lean (state : Scan) : Bool :=
+  state.opened.any fun fence => firstWord fence.info == "lean"
+
+/-- **The shape rule for one line**, with the mode of the protocol before the line. `lean` says
+that the open fence is a Lean fence. No line has a carriage return before its last character,
+the character U+0000 or the start tag of a code element of raw HTML. Outside a fence, a line of
+Lean shape opens a Lean fence in the first column. Inside a fence, no line has Lean shape, and a
+line that closes a Lean fence starts with the run. -/
+def ShapeRule (mode : Mode) (lean : Bool) (line : String) : Prop :=
+  ¬ LoneReturn line ∧ '\x00' ∉ line.toList ∧ ¬ RawCodeTag line ∧
+    match mode with
+    | .outside _ => LeanShaped line → LeanOpening line
+    | .inside character length =>
+        ¬ LeanShaped line ∧
+          (lean = true → ClosingLine line character length →
+            line.toList.head? = some character)
+
+/-- `shapeRefusal` refuses no line exactly when the line keeps the shape rule. -/
+private theorem shapeRefusal_eq_none_iff (state : Scan) (line : String) :
+    shapeRefusal state.opened line = none ↔ ShapeRule state.mode state.lean line := by
+  unfold shapeRefusal ShapeRule Scan.mode Scan.lean
+  by_cases lone : loneReturn line = true
+  · simp [lone, (loneReturn_iff line).mp lone]
+  have noLone : ¬ LoneReturn line := fun found => lone ((loneReturn_iff line).mpr found)
+  simp only [lone, Bool.false_eq_true, ↓reduceIte, noLone, not_false_eq_true, true_and]
+  by_cases null : line.toList.contains '\x00' = true
+  · simp [List.contains_iff_mem.mp null]
+  have noNull : '\x00' ∉ line.toList := fun found => null (List.contains_iff_mem.mpr found)
+  simp only [null, Bool.false_eq_true, ↓reduceIte, noNull, not_false_eq_true, true_and]
+  by_cases raw : rawCodeTag line = true
+  · simp [raw, (rawCodeTag_iff line).mp raw]
+  · have noTag : ¬ RawCodeTag line := fun tag => raw ((rawCodeTag_iff line).mpr tag)
+    simp only [raw, Bool.false_eq_true, ↓reduceIte, noTag, not_false_eq_true, true_and]
+    cases state.opened with
+    | none =>
+      by_cases shaped : leanShaped line = true <;> by_cases opening : leanOpening line = true <;>
+        simp [shaped, opening, ← leanShaped_iff, ← leanOpening_iff]
+    | some fence =>
+      by_cases shaped : leanShaped line = true
+      · simp [shaped, ← leanShaped_iff]
+      · by_cases lean : (firstWord fence.info == "lean") = true <;>
+          by_cases closes : closingFence line fence.character fence.length = true <;>
+          by_cases starts : line.toList.head? = some fence.character <;>
+          simp [shaped, lean, closes, starts, ← leanShaped_iff, ← closingFence_iff]
+
+/-- The open fence after a line is a Lean fence. A line that opens a fence gives a Lean fence
+exactly when the first word of its info string is `lean`. A body line keeps what the fence is.
+After a line that ends outside a fence there is no open fence. -/
+def LeanAfter (mode : Mode) (lean : Bool) (line : String) (next : Mode) (after : Bool) : Prop :=
+  match mode, next with
+  | .outside _, .inside _ _ =>
+      (after = true ↔
+        ∃ (character : Char) (count : Nat) (info : String),
+          FenceLine line character count info ∧ FirstWord info "lean")
+  | .inside _ _, .inside _ _ => after = lean
+  | _, .outside _ => after = false
+
+/-- One line gives one answer to "the open fence is a Lean fence". -/
+private theorem LeanAfter.unique {mode next : Mode} {lean first second : Bool} {line : String}
+    (one : LeanAfter mode lean line next first) (two : LeanAfter mode lean line next second) :
+    first = second := by
+  cases mode <;> cases next <;> simp only [LeanAfter] at one two
+  · rw [one, two]
+  · exact Bool.eq_iff_iff.mpr (one.trans two.symm)
+  · rw [one, two]
+  · rw [one, two]
+
+/-- The fence that a line outside a fence opens: the fence of a line that opens one, and none
+for each other line. -/
+private theorem stepOutside_opened (origin : String) (state : Scan) (line : Line)
+    (opened : state.opened = none) :
+    (stepOutside origin state line).opened =
+      match classify line.text with
+      | .opener character count info =>
+        some { character, length := count, info, line := line.number, opening := line.range,
+               bodyStart := line.next, body := #[] }
+      | _ => none := by
+  unfold stepOutside
+  generalize classify line.text = kind
+  generalize (adjacent origin state line).1 = problems
+  generalize (adjacent origin state line).2 = pending
+  cases kind <;> cases pending <;> simp only [onClass, opened]
+  split <;> rfl
+
+/-- **Each step of the fence protocol gives the answer of `LeanAfter`.** -/
+private theorem leanAfter_step (document : RegulaPolicy.SourceSnapshot) (origin : String)
+    (state : Scan) (line : Line) :
+    LeanAfter state.mode state.lean line.text (step document origin state line).mode
+      (step document origin state line).lean := by
+  unfold step
+  cases opened : state.opened with
+  | none =>
+    have before : state.mode = .outside (state.pending.map (·.line)) := by
+      simp [Scan.mode, opened]
+    have result := stepOutside_opened origin state line opened
+    have is := lineIs_classify line.text
+    rw [before]
+    cases kind : classify line.text with
+    | opener character count info =>
+      rw [kind] at result is
+      have fence : FenceLine line.text character count info := is.2.2.2
+      simp only [Scan.mode, Scan.lean, result, LeanAfter, Option.any_some]
+      rw [beq_iff_eq, firstWord_eq_iff info (by decide)]
+      constructor
+      · intro word
+        exact ⟨character, count, info, fence, word⟩
+      · rintro ⟨symbol, length, text, other, word⟩
+        have run := (fenceRun?_eq_some_iff _ _ _ _).mpr other
+        rw [(fenceRun?_eq_some_iff _ _ _ _).mpr fence] at run
+        obtain ⟨-, -, rfl⟩ : character = symbol ∧ count = length ∧ info = text := by
+          simpa using run
+        exact word
+    | _ =>
+      rw [kind] at result
+      simp [Scan.mode, Scan.lean, result, LeanAfter]
+  | some fence =>
+    have before : state.mode = .inside fence.character fence.length := by
+      simp [Scan.mode, opened]
+    rw [before]
+    simp only [stepInside]
+    by_cases closes : closingFence line.text fence.character fence.length = true
+    · simp only [closes, ↓reduceIte]
+      repeat' split
+      all_goals simp [Scan.mode, Scan.lean, LeanAfter]
+    · simp [closes, Scan.mode, Scan.lean, LeanAfter, opened]
+
+private theorem shapedStep_opened (document : RegulaPolicy.SourceSnapshot) (origin : String)
+    (state : Scan) (line : Line) :
+    (shapedStep document origin state line).opened = (step document origin state line).opened ∧
+      (shapedStep document origin state line).pending =
+        (step document origin state line).pending ∧
+      (shapedStep document origin state line).fences =
+        (step document origin state line).fences := by
+  unfold shapedStep
+  split <;> exact ⟨rfl, rfl, rfl⟩
+
+private theorem shapedStep_mode (document : RegulaPolicy.SourceSnapshot) (origin : String)
+    (state : Scan) (line : Line) :
+    (shapedStep document origin state line).mode = (step document origin state line).mode ∧
+      (shapedStep document origin state line).lean = (step document origin state line).lean := by
+  obtain ⟨opened, pending, -⟩ := shapedStep_opened document origin state line
+  simp [Scan.mode, Scan.lean, opened, pending]
+
+/-- A step with the shape rule keeps the violations exactly when the step of the protocol keeps
+them and the shape rule refuses nothing. -/
+private theorem shapedStep_quiet_iff (document : RegulaPolicy.SourceSnapshot) (origin : String)
+    (state : Scan) (line : Line) :
+    (shapedStep document origin state line).problems = state.problems ↔
+      (step document origin state line).problems = state.problems ∧
+        shapeRefusal state.opened line.text = none := by
+  unfold shapedStep
+  cases refusal : shapeRefusal state.opened line.text with
+  | none => simp
+  | some reason =>
+    simp only [reduceCtorEq, and_false, iff_false]
+    refine ne_of_size_lt ?_
+    rcases step_quiet_or_loud document origin state line with same | longer
+    · simp [Array.size_push, same]
+    · simp only [Array.size_push]
+      omega
+
+/-- A step with the shape rule keeps the violations, or it makes their list longer. -/
+private theorem shapedStep_quiet_or_loud (document : RegulaPolicy.SourceSnapshot)
+    (origin : String) (state : Scan) (line : Line) :
+    (shapedStep document origin state line).problems = state.problems ∨
+      state.problems.size < (shapedStep document origin state line).problems.size := by
+  unfold shapedStep
+  cases shapeRefusal state.opened line.text with
+  | none => exact step_quiet_or_loud document origin state line
+  | some reason =>
+    refine .inr ?_
+    rcases step_quiet_or_loud document origin state line with same | longer
+    · simp [Array.size_push, same]
+    · simp only [Array.size_push]
+      omega
+
+private theorem size_le_shapedRun (document : RegulaPolicy.SourceSnapshot) (origin : String) :
+    ∀ (lines : List Line) (state : Scan),
+      state.problems.size ≤
+        (finish origin (lines.foldl (shapedStep document origin) state)).problems.size := by
+  intro lines
+  induction lines with
+  | nil => exact size_le_finish origin
+  | cons line rest tail =>
+    intro state
+    refine Nat.le_trans ?_ (tail (shapedStep document origin state line))
+    rcases shapedStep_quiet_or_loud document origin state line with same | longer
+    · rw [same]
+      exact Nat.le_refl _
+    · exact Nat.le_of_lt longer
+
+/-- The lines, the first of them with the number `number`, are clean: each line is a permitted
+transition of the fence protocol and keeps the shape rule, and the run ends outside a fence with
+no marker that waits. `lean` says that the open fence is a Lean fence. -/
+inductive Clean (valid : String → Prop) : Mode → Bool → Nat → List String → Prop
+  /-- The end of the document, outside a fence and with no marker that waits. -/
+  | done {lean : Bool} {number : Nat} : Clean valid (.outside none) lean number []
+  /-- A line that the protocol permits and that keeps the shape rule, before a clean rest. -/
+  | line {mode next : Mode} {lean after : Bool} {number : Nat} {text : String}
+      {rest : List String} :
+      Permitted valid mode number text next → ShapeRule mode lean text →
+      LeanAfter mode lean text next after → Clean valid next after (number + 1) rest →
+        Clean valid mode lean number (text :: rest)
+
+/-- **The scanner keeps the violations of a coherent state exactly on a clean run.** The lines
+from the number `number` add no violation, and the end of the document adds none, exactly when
+each line is a permitted transition of the protocol that keeps the shape rule. -/
+theorem problems_eq_iff_clean {valid : String → Prop}
+    (exact : ∀ pattern, valid pattern ↔ validatePattern pattern = .ok ())
+    (document : RegulaPolicy.SourceSnapshot) (origin : String) :
+    ∀ (texts : List String) (number offset : Nat) (state : Scan), state.Coherent →
+      ((finish origin ((layoutFrom number offset texts).foldl (shapedStep document origin)
+        state)).problems = state.problems ↔
+          Clean valid state.mode state.lean number texts) := by
+  intro texts
+  induction texts with
+  | nil =>
+    intro number offset state _
+    rw [show layoutFrom number offset [] = [] from rfl, List.foldl_nil, finish_problems_eq_iff]
+    constructor
+    · intro mode
+      rw [mode]
+      exact .done
+    · intro clean
+      generalize state.mode = mode at clean
+      cases clean
+      rfl
+  | cons text rest tail =>
+    intro number offset state coherent
+    obtain ⟨next, later, lines⟩ := layoutFrom_cons number offset text rest
+    rw [lines, List.foldl_cons]
+    generalize first : ({ number, text, start := offset, next } : Line) = line
+    have numbered : line.number = number := by rw [← first]
+    have worded : line.text = text := by rw [← first]
+    obtain ⟨sameMode, sameLean⟩ := shapedStep_mode document origin state line
+    have stays : (shapedStep document origin state line).Coherent := by
+      obtain ⟨opened, pending, -⟩ := shapedStep_opened document origin state line
+      intro fence open' other
+      rw [opened] at open'
+      rw [pending]
+      exact coherent_step document origin coherent line fence open' other
+    have after := tail (number + 1) later (shapedStep document origin state line) stays
+    rw [sameMode, sameLean] at after
+    have answer := leanAfter_step document origin state line
+    constructor
+    · intro same
+      rcases shapedStep_quiet_or_loud document origin state line with quiet | loud
+      · obtain ⟨base, kept⟩ := (shapedStep_quiet_iff document origin state line).mp quiet
+        have permitted := permitted_of_quiet (fun pattern ok => (exact pattern).mpr ok)
+          document origin line base
+        have rule := (shapeRefusal_eq_none_iff state line.text).mp kept
+        rw [numbered, worded] at permitted
+        rw [worded] at rule answer
+        rw [← quiet] at same
+        exact .line permitted rule answer (after.mp same)
+      · exact absurd same (ne_of_size_lt (Nat.lt_of_lt_of_le loud
+          (size_le_shapedRun document origin _ _)))
+    · intro clean
+      generalize current : state.mode = mode at clean
+      generalize flag : state.lean = lean at clean
+      cases clean with
+      | line permitted rule answered others =>
+        rw [← current, ← numbered, ← worded] at permitted
+        rw [← current, ← flag, ← worded] at rule answered
+        obtain ⟨base, mode⟩ := quiet_of_permitted (fun pattern ok => (exact pattern).mp ok)
+          document origin coherent line permitted
+        have kept := (shapeRefusal_eq_none_iff state line.text).mpr rule
+        have quiet := (shapedStep_quiet_iff document origin state line).mpr ⟨base, kept⟩
+        rw [← mode] at others answered
+        rw [answer.unique answered] at after
+        rw [after.mpr others, quiet]
+
+/-! ## The lines of a Markdown reader
+
+For a Markdown reader a line ends at a line feed, at a carriage return with a line feed after
+it, and at a carriage return alone. The scanner divides a text at line feeds only. In a clean
+document no line has a carriage return before its last character (`LoneReturn`), so each line
+of the scanner is a line of the reader, with one carriage return after it when the line ending
+has one. The theorems of this section say that each statement about a line holds for the line
+with that carriage return exactly when it holds for the line without it. So a clean document is
+clean line by line as a Markdown reader divides it. -/
+
+/-- A line is its form without the carriage return and then one carriage return, or it does not
+end with a carriage return. -/
+private theorem withoutReturn_cases (line : String) :
+    line.toList = (withoutReturn line).toList ++ ['\r'] ∨
+      (withoutReturn line = line ∧ line.toList.getLast? ≠ some '\r') := by
+  unfold withoutReturn
+  by_cases last : line.toList.getLast? = some '\r'
+  · refine .inl ?_
+    obtain ⟨core, split⟩ := List.getLast?_eq_some_iff.mp last
+    simp only [last, ↓reduceIte, String.toList_ofList]
+    rw [split, List.dropLast_concat]
+  · simp only [last, ↓reduceIte]
+    exact .inr ⟨trivial, last⟩
+
+/-- The parts of a text with one more character at its end: the last part has that character
+at its end, when it has a character. -/
+private theorem append_singleton_split {text first last : List Char} {extra : Char}
+    (split : text ++ [extra] = first ++ last) (nonempty : last ≠ []) :
+    ∃ rest, last = rest ++ [extra] ∧ text = first ++ rest := by
+  rcases List.eq_nil_or_concat last with empty | ⟨rest, final, rfl⟩
+  · exact absurd empty nonempty
+  · rw [List.concat_eq_append, ← List.append_assoc] at split
+    obtain ⟨same, single⟩ := List.append_inj' split rfl
+    obtain rfl : extra = final := List.head_eq_of_cons_eq single
+    exact ⟨rest, List.concat_eq_append, same⟩
+
+/-- One more whitespace character at the end of a text does not change its trimmed form. -/
+private theorem trimmed_append_white {text inner : List Char} {white : Char}
+    (isWhite : white.isWhitespace = true) :
+    Trimmed (text ++ [white]) inner ↔ Trimmed text inner := by
+  constructor
+  · rintro ⟨lead, trail, split, leading, trailing, first, final⟩
+    by_cases empty : trail = []
+    · subst empty
+      rw [List.append_nil] at split
+      by_cases none : inner = []
+      · subst none
+        rw [List.append_nil] at split
+        refine ⟨text, [], by simp, ?_, fun _ member => (nomatch member), first, final⟩
+        intro c member
+        exact leading c (by rw [← split]; exact List.mem_append_left _ member)
+      · obtain ⟨rest, rfl, -⟩ := append_singleton_split split none
+        exact absurd isWhite (by rw [final white List.getLast?_concat]; exact Bool.false_ne_true)
+    · obtain ⟨rest, rfl, same⟩ := append_singleton_split split empty
+      exact ⟨lead, rest, same, leading,
+        fun c member => trailing c (List.mem_append_left _ member), first, final⟩
+  · rintro ⟨lead, trail, rfl, leading, trailing, first, final⟩
+    refine ⟨lead, trail ++ [white], by simp, leading, ?_, first, final⟩
+    intro c member
+    rcases List.mem_append.mp member with old | new
+    · exact trailing c old
+    · obtain rfl : c = white := by simpa using new
+      exact isWhite
+
+/-- A fence run of a line with a carriage return at its end is the fence run of the line
+without it. -/
+private theorem fenceLine_return {line core : String} (ends : line.toList = core.toList ++ ['\r'])
+    (character : Char) (count : Nat) (info : String) :
+    FenceLine line character count info ↔ FenceLine core character count info := by
+  unfold FenceLine
+  rw [ends]
+  constructor
+  · rintro ⟨indent, rest, split, blanks, mark, long, other, trimmed⟩
+    have nonempty : rest ≠ [] := by
+      rintro rfl
+      rw [List.append_nil] at split
+      have last := congrArg List.getLast? split
+      rw [List.getLast?_concat, List.getLast?_append, List.getLast?_replicate] at last
+      have positive : ¬ count = 0 := by omega
+      simp only [positive, ↓reduceIte, Option.some_or] at last
+      rcases mark with rfl | rfl <;> exact absurd (Option.some.inj last) (by decide)
+    obtain ⟨shorter, rfl, same⟩ := append_singleton_split split nonempty
+    refine ⟨indent, shorter, same, blanks, mark, long, ?_, (trimmed_append_white rfl).mp trimmed⟩
+    intro head
+    exact other (by rw [List.head?_append, head]; rfl)
+  · rintro ⟨indent, rest, split, blanks, mark, long, other, trimmed⟩
+    refine ⟨indent, rest ++ ['\r'], by rw [split]; simp, blanks, mark, long, ?_,
+      (trimmed_append_white rfl).mpr trimmed⟩
+    intro head
+    cases rest with
+    | nil =>
+      rcases mark with rfl | rfl <;> exact absurd (Option.some.inj head) (by decide)
+    | cons first others => exact other head
+
+/-- The class of a line with a carriage return at its end is the class of the line without
+it. -/
+private theorem lineIs_return {line core : String} (ends : line.toList = core.toList ++ ['\r'])
+    (kind : LineClass) : LineIs line kind ↔ LineIs core kind := by
+  have fail : ∀ pattern, FailMarker line pattern ↔ FailMarker core pattern := fun pattern => by
+    unfold FailMarker
+    simp only [ends, trimmed_append_white (white := '\r') rfl]
+  have trusted : TrustedMarker line ↔ TrustedMarker core := by
+    unfold TrustedMarker
+    simp only [ends, trimmed_append_white (white := '\r') rfl]
+  have like : MarkerLike line ↔ MarkerLike core := by
+    unfold MarkerLike
+    simp only [ends, trimmed_append_white (white := '\r') rfl]
+  cases kind <;>
+    simp only [LineIs, fail, trusted, like, fenceLine_return ends]
+
+/-- A line with a carriage return at its end closes a fence exactly when the line without it
+closes the fence. -/
+private theorem closingLine_return {line core : String}
+    (ends : line.toList = core.toList ++ ['\r']) (character : Char) (minimum : Nat) :
+    ClosingLine line character minimum ↔ ClosingLine core character minimum := by
+  unfold ClosingLine
+  simp only [fenceLine_return ends]
+
+/-- A line with a carriage return at its end is a permitted transition exactly when the line
+without it is. -/
+private theorem permitted_return {valid : String → Prop} {line core : String}
+    (ends : line.toList = core.toList ++ ['\r']) (mode : Mode) (number : Nat) (next : Mode) :
+    Permitted valid mode number line next ↔ Permitted valid mode number core next := by
+  have is := lineIs_return ends
+  have closes := closingLine_return ends
+  constructor
+  · intro permitted
+    cases permitted with
+    | failMarker class' ok => exact .failMarker ((is _).mp class') ok
+    | trustedMarker class' => exact .trustedMarker ((is _).mp class')
+    | opening class' => exact .opening ((is _).mp class')
+    | marked class' adjacent word => exact .marked ((is _).mp class') adjacent word
+    | plain class' => exact .plain ((is _).mp class')
+    | closing closed => exact .closing ((closes _ _).mp closed)
+    | body open' => exact .body fun closed => open' ((closes _ _).mpr closed)
+  · intro permitted
+    cases permitted with
+    | failMarker class' ok => exact .failMarker ((is _).mpr class') ok
+    | trustedMarker class' => exact .trustedMarker ((is _).mpr class')
+    | opening class' => exact .opening ((is _).mpr class')
+    | marked class' adjacent word => exact .marked ((is _).mpr class') adjacent word
+    | plain class' => exact .plain ((is _).mpr class')
+    | closing closed => exact .closing ((closes _ _).mpr closed)
+    | body open' => exact .body fun closed => open' ((closes _ _).mp closed)
+
+/-- Characters with a carriage return at their end name Lean exactly when the characters
+without it name Lean. -/
+private theorem namesLean_return (rest : List Char) :
+    NamesLean (rest ++ ['\r']) ↔ NamesLean rest := by
+  unfold NamesLean
+  rw [List.map_append]
+  constructor
+  · rintro ⟨lead, tail, split, leading, stops⟩
+    have nonempty : tail ≠ [] := by
+      rintro rfl
+      have last := congrArg List.getLast? split
+      simp at last
+    obtain ⟨shorter, rfl, same⟩ := append_singleton_split split nonempty
+    refine ⟨lead, shorter, same, leading, ?_⟩
+    intro c head
+    exact stops c (by rw [List.head?_append, head]; rfl)
+  · rintro ⟨lead, tail, split, leading, stops⟩
+    refine ⟨lead, tail ++ ['\r'], by rw [split]; simp, leading, ?_⟩
+    intro c head
+    cases tail with
+    | nil =>
+      obtain rfl : '\r' = c := Option.some.inj head
+      decide
+    | cons first others => exact stops c head
+
+/-- Characters with a carriage return at their end have a `&` or a backslash before their first
+space exactly when the characters without it have. -/
+private theorem marked_return (chars : List Char) : Marked (chars ++ ['\r']) ↔ Marked chars := by
+  constructor
+  · rintro ⟨word, after, c, split, noSpace, escape⟩
+    have nonempty : after ≠ [] := by
+      rintro rfl
+      have last := congrArg List.getLast? split
+      rw [List.getLast?_concat, List.getLast?_append, List.getLast?_singleton] at last
+      rcases escape with rfl | rfl <;> exact absurd (Option.some.inj last) (by decide)
+    have grouped : chars ++ ['\r'] = (word ++ [c]) ++ after := by rw [split]; simp
+    obtain ⟨shorter, rfl, same⟩ := append_singleton_split grouped nonempty
+    exact ⟨word, shorter, c, by rw [same]; simp, noSpace, escape⟩
+  · rintro ⟨word, after, c, rfl, noSpace, escape⟩
+    exact ⟨word, after ++ ['\r'], c, by simp, noSpace, escape⟩
+
+/-- Characters with a carriage return at their end have a `&` or a backslash in their first word
+exactly when the characters without it have. -/
+private theorem escapeInWord_return (rest : List Char) :
+    EscapeInWord (rest ++ ['\r']) ↔ EscapeInWord rest := by
+  constructor
+  · rintro ⟨skip, tail, split, skipped, marked⟩
+    have nonempty : tail ≠ [] := by
+      rintro rfl
+      obtain ⟨word, after, c, split, -⟩ := marked
+      have counted := congrArg List.length split
+      simp at counted
+    obtain ⟨shorter, rfl, same⟩ := append_singleton_split split nonempty
+    exact ⟨skip, shorter, same, skipped, (marked_return shorter).mp marked⟩
+  · rintro ⟨skip, tail, rfl, skipped, marked⟩
+    exact ⟨skip, tail ++ ['\r'], by simp, skipped, (marked_return tail).mpr marked⟩
+
+/-- A line with a carriage return at its end has Lean shape exactly when the line without it
+has. -/
+private theorem leanShaped_return {line core : String}
+    (ends : line.toList = core.toList ++ ['\r']) : LeanShaped line ↔ LeanShaped core := by
+  unfold LeanShaped ShapedAfter
+  rw [ends]
+  constructor
+  · rintro ⟨before, character, rest, mark, split, named⟩
+    have nonempty : rest ≠ [] := by
+      rintro rfl
+      rw [List.append_nil] at split
+      have last := congrArg List.getLast? split
+      simp only [List.getLast?_append, List.getLast?_cons_cons, List.getLast?_singleton] at last
+      rcases mark with rfl | rfl <;> simp at last
+    obtain ⟨shorter, rfl, same⟩ := append_singleton_split split nonempty
+    refine ⟨before, character, shorter, mark, same, ?_⟩
+    rcases named with lean | escape
+    · exact .inl ((namesLean_return shorter).mp lean)
+    · exact .inr ((escapeInWord_return shorter).mp escape)
+  · rintro ⟨before, character, rest, mark, split, named⟩
+    refine ⟨before, character, rest ++ ['\r'], mark, by rw [split]; simp, ?_⟩
+    rcases named with lean | escape
+    · exact .inl ((namesLean_return rest).mpr lean)
+    · exact .inr ((escapeInWord_return rest).mpr escape)
+
+/-- No name of a code element has a carriage return. -/
+private theorem return_notMem_codeElement {name : List Char}
+    (listed : name.map Char.toLower ∈ codeElements) : '\r' ∉ name := by
+  intro member
+  have lowered : '\r' ∈ name.map Char.toLower := List.mem_map.mpr ⟨'\r', member, rfl⟩
+  revert lowered
+  generalize name.map Char.toLower = element at listed
+  revert element
+  decide
+
+/-- A line with a carriage return at its end has the start tag of a code element exactly when
+the line without it has. -/
+private theorem rawCodeTag_return {line core : String}
+    (ends : line.toList = core.toList ++ ['\r']) : RawCodeTag line ↔ RawCodeTag core := by
+  unfold RawCodeTag
+  rw [ends]
+  constructor
+  · rintro ⟨before, name, rest, split, listed, stops⟩
+    have nonempty : rest ≠ [] := by
+      rintro rfl
+      rw [List.append_nil] at split
+      have last := congrArg List.getLast? split
+      rw [List.getLast?_concat] at last
+      have member : '\r' ∈ before ++ '<' :: name := List.mem_of_getLast? last.symm
+      rcases List.mem_append.mp member with _ | tag
+      · have final : (before ++ '<' :: name).getLast? = ('<' :: name).getLast? := by
+          rw [List.getLast?_append]
+          cases shape : ('<' :: name).getLast? with
+          | none => exact absurd (List.getLast?_eq_none_iff.mp shape) (by simp)
+          | some c => rfl
+        rw [final] at last
+        have inTag : '\r' ∈ '<' :: name := List.mem_of_getLast? last.symm
+        rcases List.mem_cons.mp inTag with bad | inName
+        · exact absurd bad (by decide)
+        · exact return_notMem_codeElement listed inName
+      · rcases List.mem_cons.mp tag with bad | inName
+        · exact absurd bad (by decide)
+        · exact return_notMem_codeElement listed inName
+    obtain ⟨shorter, rfl, same⟩ := append_singleton_split (text := core.toList)
+      (extra := '\r') (first := before ++ '<' :: name) (last := rest)
+      (by simpa using split) nonempty
+    refine ⟨before, name, shorter, by simp [same], listed, ?_⟩
+    intro c head
+    exact stops c (by rw [List.head?_append, head]; rfl)
+  · rintro ⟨before, name, rest, split, listed, stops⟩
+    refine ⟨before, name, rest ++ ['\r'], by rw [split]; simp, listed, ?_⟩
+    intro c head
+    cases rest with
+    | nil =>
+      obtain rfl : '\r' = c := Option.some.inj head
+      exact .inr (.inr (.inr (.inr (.inl rfl))))
+    | cons first others => exact stops c head
+
+/-- A line with a carriage return at its end has a carriage return before its last character
+exactly when the line without it has a carriage return. -/
+private theorem loneReturn_return {line core : String}
+    (ends : line.toList = core.toList ++ ['\r']) : LoneReturn line ↔ '\r' ∈ core.toList := by
+  rw [← loneReturn_iff]
+  unfold loneReturn
+  rw [ends, List.dropLast_concat, List.contains_iff_mem]
+
+/-- A line with a fence run has a character. -/
+private theorem ne_nil_of_fenceLine {line : String} {character : Char} {count : Nat}
+    {info : String} (fence : FenceLine line character count info) : line.toList ≠ [] := by
+  obtain ⟨indent, rest, split, -, -, long, -⟩ := fence
+  intro empty
+  have length := congrArg List.length split
+  rw [empty] at length
+  simp only [List.length_nil, List.length_append, List.length_replicate] at length
+  omega
+
+/-- A line with a carriage return at its end starts as the line without it, when that line has
+a character. -/
+private theorem head?_return {line core : String} (ends : line.toList = core.toList ++ ['\r'])
+    (nonempty : core.toList ≠ []) : line.toList.head? = core.toList.head? := by
+  rw [ends, List.head?_append]
+  cases first : core.toList.head? with
+  | none => exact absurd (List.head?_eq_none_iff.mp first) nonempty
+  | some c => rfl
+
+/-- A line with a carriage return at its end opens a Lean fence in the first column exactly when
+the line without it does. -/
+private theorem leanOpening_return {line core : String}
+    (ends : line.toList = core.toList ++ ['\r']) : LeanOpening line ↔ LeanOpening core := by
+  unfold LeanOpening
+  simp only [fenceLine_return ends]
+  constructor
+  · rintro ⟨character, count, info, fence, head, word⟩
+    exact ⟨character, count, info, fence,
+      by rw [← head?_return ends (ne_nil_of_fenceLine fence)]; exact head, word⟩
+  · rintro ⟨character, count, info, fence, head, word⟩
+    exact ⟨character, count, info, fence,
+      by rw [head?_return ends (ne_nil_of_fenceLine fence)]; exact head, word⟩
+
+/-- A line with no carriage return before its last character and none at its end has no
+carriage return. -/
+private theorem return_notMem {line : String} (noLone : ¬ LoneReturn line)
+    (last : line.toList.getLast? ≠ some '\r') : '\r' ∉ line.toList := by
+  intro member
+  obtain ⟨before, after, split⟩ := List.append_of_mem member
+  by_cases empty : after = []
+  · subst empty
+    exact last (by rw [split, List.getLast?_concat])
+  · exact noLone ⟨before, after, split, empty⟩
+
+/-- A line with no carriage return has none before its last character. -/
+private theorem not_loneReturn {line : String} (noReturn : '\r' ∉ line.toList) :
+    ¬ LoneReturn line := by
+  rintro ⟨before, after, split, -⟩
+  exact noReturn (by rw [split]; simp)
+
+/-- **A line is a permitted transition exactly when the line without its carriage return
+is.** -/
+theorem permitted_withoutReturn {valid : String → Prop} (line : String) (mode : Mode)
+    (number : Nat) (next : Mode) :
+    Permitted valid mode number line next ↔
+      Permitted valid mode number (withoutReturn line) next := by
+  rcases withoutReturn_cases line with ends | ⟨same, -⟩
+  · exact permitted_return ends mode number next
+  · rw [same]
+
+/-- **A line keeps the shape rule exactly when the line without its carriage return has no
+carriage return and keeps the shape rule.** -/
+theorem shapeRule_withoutReturn (line : String) (mode : Mode) (lean : Bool) :
+    ShapeRule mode lean line ↔
+      '\r' ∉ (withoutReturn line).toList ∧ ShapeRule mode lean (withoutReturn line) := by
+  rcases withoutReturn_cases line with ends | ⟨same, last⟩
+  · have null : '\x00' ∈ line.toList ↔ '\x00' ∈ (withoutReturn line).toList := by
+      rw [ends, List.mem_append, List.mem_singleton]
+      exact ⟨fun found => found.elim id (fun same => absurd same (by decide)), .inl⟩
+    unfold ShapeRule
+    rw [loneReturn_return ends, rawCodeTag_return ends, null]
+    cases mode with
+    | outside marker =>
+      simp only [leanShaped_return ends, leanOpening_return ends]
+      exact ⟨fun ⟨noReturn, noNull, tag, opens⟩ =>
+          ⟨noReturn, not_loneReturn noReturn, noNull, tag, opens⟩,
+        fun ⟨noReturn, _, noNull, tag, opens⟩ => ⟨noReturn, noNull, tag, opens⟩⟩
+    | inside character length =>
+      simp only [leanShaped_return ends, closingLine_return ends]
+      have heads : ClosingLine (withoutReturn line) character length →
+          line.toList.head? = (withoutReturn line).toList.head? := fun ⟨_, fence, _⟩ =>
+        head?_return ends (ne_nil_of_fenceLine fence)
+      constructor
+      · rintro ⟨noReturn, noNull, tag, shaped, closes⟩
+        exact ⟨noReturn, not_loneReturn noReturn, noNull, tag, shaped,
+          fun isLean closed => by rw [← heads closed]; exact closes isLean closed⟩
+      · rintro ⟨noReturn, -, noNull, tag, shaped, closes⟩
+        exact ⟨noReturn, noNull, tag, shaped,
+          fun isLean closed => by rw [heads closed]; exact closes isLean closed⟩
+  · rw [same]
+    exact ⟨fun rule => ⟨return_notMem rule.1 last, rule⟩, fun rule => rule.2⟩
+
+/-- **The answer of `LeanAfter` for a line is its answer for the line without its carriage
+return.** -/
+theorem leanAfter_withoutReturn (line : String) (mode : Mode) (lean : Bool) (next : Mode)
+    (after : Bool) :
+    LeanAfter mode lean line next after ↔ LeanAfter mode lean (withoutReturn line) next after := by
+  rcases withoutReturn_cases line with ends | ⟨same, -⟩
+  · cases mode <;> cases next <;> simp only [LeanAfter, fenceLine_return ends]
+  · rw [same]
+
+/-- **A document is clean exactly when its lines, as a Markdown reader divides the text, are
+clean.** The lines of the scanner end at line feeds. Without the carriage return at its end,
+each of them has no carriage return, so it is a line of a Markdown reader, and those lines are
+clean. -/
+theorem clean_iff_withoutReturn {valid : String → Prop} :
+    ∀ (lines : List String) (mode : Mode) (lean : Bool) (number : Nat),
+      Clean valid mode lean number lines ↔
+        (∀ line ∈ lines, '\r' ∉ (withoutReturn line).toList) ∧
+          Clean valid mode lean number (lines.map withoutReturn) := by
+  intro lines
+  induction lines with
+  | nil =>
+    intro mode lean number
+    exact ⟨fun clean => ⟨fun _ member => (nomatch member), clean⟩, fun clean => clean.2⟩
+  | cons text rest tail =>
+    intro mode lean number
+    constructor
+    · intro clean
+      cases clean with
+      | line permitted rule answered others =>
+        obtain ⟨noReturn, kept⟩ := (shapeRule_withoutReturn text _ _).mp rule
+        obtain ⟨noReturnRest, cleanRest⟩ := (tail _ _ _).mp others
+        refine ⟨?_, .line ((permitted_withoutReturn text _ _ _).mp permitted) kept
+          ((leanAfter_withoutReturn text _ _ _ _).mp answered) cleanRest⟩
+        intro line member
+        rcases List.mem_cons.mp member with rfl | later
+        · exact noReturn
+        · exact noReturnRest line later
+    · rintro ⟨noReturn, clean⟩
+      rw [List.map_cons] at clean
+      cases clean with
+      | line permitted rule answered others =>
+        exact .line ((permitted_withoutReturn text _ _ _).mpr permitted)
+          ((shapeRule_withoutReturn text _ _).mpr ⟨noReturn text List.mem_cons_self, rule⟩)
+          ((leanAfter_withoutReturn text _ _ _ _).mpr answered)
+          ((tail _ _ _).mpr ⟨fun line member => noReturn line (List.mem_cons_of_mem _ member),
+            others⟩)
 
 /-! ## The valid patterns -/
 
@@ -1853,11 +3227,12 @@ theorem validatePattern_eq_ok_iff (pattern : String) :
 /-! ## The decision of the Markdown scanner -/
 
 /-- **The Markdown scanner reports no violation exactly for a clean document**: the lines, with
-numbers from 1, are a run of permitted transitions from outside a fence, with the valid patterns
-of the policy library, that ends outside a fence with no marker that waits. -/
+numbers from 1, are a run from outside a fence of transitions that the protocol permits, with the
+valid patterns of the policy library, and that keep the shape rule. The run ends outside a fence
+with no marker that waits. -/
 theorem scanLines_problems_eq_empty_iff (source : Source) :
     (scanLines source).problems = #[] ↔
-      Clean RegulaPolicy.PatternValid (.outside none) 1 source.lines := by
+      Clean RegulaPolicy.PatternValid (.outside none) false 1 source.lines := by
   unfold scanLines
   rw [layout_eq]
   exact problems_eq_iff_clean (valid := RegulaPolicy.PatternValid)
@@ -1868,7 +3243,7 @@ theorem scanLines_problems_eq_empty_iff (source : Source) :
 document is the one that the scan carries. -/
 theorem Scanned.problems_eq_empty_iff (scan : Scanned) (markdown : scan.format = .markdown) :
     scan.result.problems = #[] ↔
-      Clean RegulaPolicy.PatternValid (.outside none) 1 scan.source.lines := by
+      Clean RegulaPolicy.PatternValid (.outside none) false 1 scan.source.lines := by
   rw [scan.executed, markdown]
   exact scanLines_problems_eq_empty_iff scan.source
 
@@ -1893,12 +3268,19 @@ private theorem plain_empty : LineIs "" .plain := by
     exact absurd (List.append_eq_nil_iff.mp (show Trimmed [] _ from whole).of_nil).1
       (by decide)
 
+/-- The line with no character keeps the shape rule outside a fence. -/
+private theorem shapeRule_empty (marker : Option Nat) (lean : Bool) :
+    ShapeRule (.outside marker) lean "" :=
+  ⟨fun lone => absurd ((loneReturn_iff "").mpr lone) (by decide), by decide,
+    fun tag => absurd ((rawCodeTag_iff "").mpr tag) (by decide),
+    fun shaped => absurd ((leanShaped_iff "").mpr shaped) (by decide)⟩
+
 /-- A document of one line that opens a fence is not clean: the fence is not closed. -/
 private theorem not_clean_open (valid : String → Prop) :
-    ¬ Clean valid (.outside none) 1 ["```"] := by
+    ¬ Clean valid (.outside none) false 1 ["```"] := by
   intro clean
   cases clean with
-  | line permitted rest =>
+  | line permitted _ _ rest =>
     cases rest
     cases permitted with
     | plain is =>
@@ -1907,20 +3289,234 @@ private theorem not_clean_open (valid : String → Prop) :
 
 /-- `scanLines` is a sound and complete decision of the clean documents
 (`scanLines_problems_eq_empty_iff`): it reports no violation exactly for a document with lines
-that are a run of permitted transitions. It accepts the document with no character, which has
-one line, and it refuses the document of one line that opens a fence. The input is a `Source`,
-so the lines are those of the text of the document. The specification is the relation `Clean`
-over propositions about the characters of each line. It names no test of the scanner. It says
-nothing about the fences that an accepted result carries, and nothing about the text of a
-violation. -/
+that are a run of transitions that the protocol permits and that keep the shape rule. It accepts
+the document with no character, which has one line, and it refuses the document of one line
+that opens a fence. The input is a `Source`, so the lines are those of the text of the document.
+The specification is the relation `Clean` over propositions about the characters of each line.
+It names no test of the scanner. It says nothing about the text of a violation. About the
+fences of an accepted result, `fence_of_leanShaped` says that each line of Lean shape has one. -/
 theorem checked_scanLines : Regula.ExecutableContract scanLines
     (Regula.Decides (fun result : ScanResult => result.problems = #[])
-      (fun source : Source => Clean RegulaPolicy.PatternValid (.outside none) 1 source.lines)) :=
+      (fun source : Source =>
+        Clean RegulaPolicy.PatternValid (.outside none) false 1 source.lines)) :=
   ⟨Regula.Decides.of_iff scanLines_problems_eq_empty_iff
     ⟨⟨⟨"", ""⟩, "", [""], by decide⟩,
-      (scanLines_problems_eq_empty_iff _).mpr (.line (.plain plain_empty) .done)⟩
+      (scanLines_problems_eq_empty_iff _).mpr
+        (.line (.plain plain_empty) (shapeRule_empty none false) rfl .done)⟩
     ⟨⟨⟨"", "```"⟩, "", ["```"], by decide⟩, fun accepted =>
       not_clean_open _ ((scanLines_problems_eq_empty_iff _).mp accepted)⟩⟩
+
+/-! ## Each line of Lean shape is a returned fence
+
+In a clean document a line of Lean shape opens a Lean fence in the first column, and the fence
+closes. The theorem of this section says that the result has a fence for that line. So a block
+that a Markdown reader opens at a line of Lean shape is a fence that the audit takes. -/
+
+/-- The scanner has the Lean fence that opens at the line `number`: among the fences that it
+found, or as the fence that is open. -/
+private def Covered (state : Scan) (number : Nat) : Prop :=
+  (∃ fence ∈ state.fences, fence.line = number) ∨
+    ∃ fence, state.opened = some fence ∧ fence.line = number ∧ firstWord fence.info = "lean"
+
+/-- A trimmed form that starts with `first`: the text starts with whitespace or with `first`. -/
+private theorem Trimmed.head {text rest : List Char} {first c : Char}
+    (trimmed : Trimmed text (first :: rest)) (head : text.head? = some c) :
+    c.isWhitespace = true ∨ c = first := by
+  obtain ⟨lead, trail, rfl, leading, -⟩ := trimmed
+  cases lead with
+  | nil => exact .inr (Option.some.inj (by simpa using head.symm))
+  | cons space others =>
+    obtain rfl : space = c := Option.some.inj (by simpa using head)
+    exact .inl (leading space List.mem_cons_self)
+
+/-- A line that opens a Lean fence in the first column has the class of a line that opens a
+fence, with an info string that has the first word `lean`: it is no marker, because it starts
+with a back-tick or a tilde. -/
+private theorem classify_of_leanOpening {line : String} (opening : LeanOpening line) :
+    ∃ (character : Char) (count : Nat) (info : String),
+      classify line = .opener character count info ∧ firstWord info = "lean" := by
+  obtain ⟨character, count, info, fence, head, word⟩ := opening
+  have mark : character = '`' ∨ character = '~' := by
+    obtain ⟨_, _, _, _, mark, _⟩ := fence
+    exact mark
+  have notMarker : ∀ {rest : List Char}, ¬ Trimmed line.toList ('<' :: rest) := by
+    intro rest trimmed
+    rcases trimmed.head head with white | same
+    · rcases mark with rfl | rfl <;> exact absurd white (by decide)
+    · rcases mark with rfl | rfl <;> exact absurd same (by decide)
+  have is := lineIs_classify line
+  cases kind : classify line with
+  | fail pattern =>
+    rw [kind] at is
+    obtain ⟨inner, whole, -⟩ := is
+    exact absurd whole notMarker
+  | trusted =>
+    rw [kind] at is
+    exact absurd is.2 notMarker
+  | malformed =>
+    rw [kind] at is
+    obtain ⟨rest, inner, whole, -⟩ := is.2.2
+    exact absurd whole notMarker
+  | plain =>
+    rw [kind] at is
+    exact absurd fence (is.2.2.2 character count info)
+  | opener symbol length text =>
+    rw [kind] at is
+    have run := (fenceRun?_eq_some_iff _ _ _ _).mpr is.2.2.2
+    rw [(fenceRun?_eq_some_iff _ _ _ _).mpr fence] at run
+    obtain ⟨rfl, rfl, rfl⟩ : character = symbol ∧ count = length ∧ info = text := by
+      simpa using run
+    exact ⟨character, count, info, rfl, (firstWord_eq_iff info (by decide)).mpr word⟩
+
+/-- A line outside a fence keeps the fences that the scanner found. -/
+private theorem stepOutside_fences (origin : String) (state : Scan) (line : Line) :
+    (stepOutside origin state line).fences = state.fences := by
+  unfold stepOutside
+  generalize classify line.text = kind
+  generalize (adjacent origin state line).1 = problems
+  generalize (adjacent origin state line).2 = pending
+  cases kind <;> cases pending <;> simp only [onClass]
+  split <;> rfl
+
+/-- A step keeps the Lean fence of a line that the scanner has. -/
+private theorem covered_step (document : RegulaPolicy.SourceSnapshot) (origin : String)
+    (state : Scan) (line : Line) {number : Nat} (covered : Covered state number) :
+    Covered (shapedStep document origin state line) number := by
+  obtain ⟨opened, -, fences⟩ := shapedStep_opened document origin state line
+  unfold Covered
+  rw [opened, fences]
+  unfold step
+  cases open' : state.opened with
+  | none =>
+    rcases covered with found | ⟨fence, isOpen, -⟩
+    · exact .inl (by rw [stepOutside_fences]; exact found)
+    · rw [open'] at isOpen
+      cases isOpen
+  | some fence =>
+    simp only [stepInside]
+    by_cases closes : closingFence line.text fence.character fence.length = true
+    · by_cases lean : (firstWord fence.info == "lean") = true
+      · simp only [closes, lean, ↓reduceIte]
+        refine .inl ?_
+        rcases covered with ⟨found, member, numbered⟩ | ⟨other, isOpen, numbered, -⟩
+        · exact ⟨found, Array.mem_push_of_mem _ member, numbered⟩
+        · rw [open'] at isOpen
+          obtain rfl := Option.some.inj isOpen
+          exact ⟨_, Array.mem_push_self, numbered⟩
+      · have other : (firstWord fence.info == "lean") = false := by simpa using lean
+        simp only [closes, other, Bool.false_eq_true, ↓reduceIte]
+        rcases covered with found | ⟨other, isOpen, -, word⟩
+        · split <;> exact .inl found
+        · rw [open'] at isOpen
+          obtain rfl := Option.some.inj isOpen
+          exact absurd (beq_iff_eq.mpr word) lean
+    · simp only [closes, Bool.false_eq_true, ↓reduceIte]
+      rcases covered with found | ⟨other, isOpen, numbered, word⟩
+      · exact .inl found
+      · rw [open'] at isOpen
+        obtain rfl := Option.some.inj isOpen
+        exact .inr ⟨_, rfl, numbered, word⟩
+
+/-- After a line that opens a Lean fence in the first column, outside a fence, the scanner has
+the Lean fence of that line. -/
+private theorem covered_opening (document : RegulaPolicy.SourceSnapshot) (origin : String)
+    (state : Scan) (line : Line) (outside : state.opened = none)
+    (opening : LeanOpening line.text) :
+    Covered (shapedStep document origin state line) line.number := by
+  obtain ⟨opened, -, -⟩ := shapedStep_opened document origin state line
+  obtain ⟨character, count, info, kind, word⟩ := classify_of_leanOpening opening
+  have result := stepOutside_opened origin state line outside
+  simp only [kind] at result
+  have opens : (shapedStep document origin state line).opened =
+      some { character, length := count, info, line := line.number, opening := line.range,
+             bodyStart := line.next, body := #[] } := by
+    rw [opened]
+    unfold step
+    rw [outside]
+    exact result
+  exact .inr ⟨_, opens, rfl, word⟩
+
+/-- On a run that adds no violation, the scanner keeps each Lean fence that it has, and it has
+the Lean fence of each line of Lean shape of the run. -/
+private theorem covered_run (document : RegulaPolicy.SourceSnapshot) (origin : String) :
+    ∀ (texts : List String) (number offset : Nat) (state : Scan),
+      (finish origin ((layoutFrom number offset texts).foldl (shapedStep document origin)
+        state)).problems = state.problems →
+      (∀ covered, Covered state covered →
+        Covered ((layoutFrom number offset texts).foldl (shapedStep document origin) state)
+          covered) ∧
+      ∀ (index : Nat) (line : String), texts[index]? = some line → LeanShaped line →
+        Covered ((layoutFrom number offset texts).foldl (shapedStep document origin) state)
+          (number + index) := by
+  intro texts
+  induction texts with
+  | nil =>
+    intro number offset state _
+    exact ⟨fun _ covered => covered, fun index line found => nomatch found⟩
+  | cons text rest tail =>
+    intro number offset state same
+    obtain ⟨next, later, lines⟩ := layoutFrom_cons number offset text rest
+    rw [lines, List.foldl_cons] at same ⊢
+    generalize first : ({ number, text, start := offset, next } : Line) = line at same ⊢
+    have numbered : line.number = number := by rw [← first]
+    have worded : line.text = text := by rw [← first]
+    have quiet : (shapedStep document origin state line).problems = state.problems := by
+      rcases shapedStep_quiet_or_loud document origin state line with quiet | loud
+      · exact quiet
+      · exact absurd same (ne_of_size_lt (Nat.lt_of_lt_of_le loud
+          (size_le_shapedRun document origin _ _)))
+    rw [← quiet] at same
+    obtain ⟨keeps, finds⟩ := tail (number + 1) later (shapedStep document origin state line) same
+    refine ⟨fun covered has => keeps covered (covered_step document origin state line has), ?_⟩
+    intro index found at' shaped
+    cases index with
+    | zero =>
+      obtain rfl : text = found := Option.some.inj at'
+      obtain ⟨-, kept⟩ := (shapedStep_quiet_iff document origin state line).mp quiet
+      have rule := (shapeRefusal_eq_none_iff state line.text).mp kept
+      rw [worded] at rule
+      cases open' : state.opened with
+      | some fence =>
+        have mode : state.mode = .inside fence.character fence.length := by
+          simp [Scan.mode, open']
+        rw [mode] at rule
+        exact absurd shaped rule.2.2.2.1
+      | none =>
+        have mode : state.mode = .outside (state.pending.map (·.line)) := by
+          simp [Scan.mode, open']
+        rw [mode] at rule
+        have opening := rule.2.2.2 shaped
+        rw [← worded] at opening
+        have here := covered_opening document origin state line open' opening
+        rw [numbered] at here
+        exact keeps _ here
+    | succ before =>
+      have := finds before found at' shaped
+      rwa [Nat.add_assoc, Nat.add_comm 1 before] at this
+
+/-- **In a clean document, each line of Lean shape is the opening line of a returned fence.**
+The fence has the number of that line. With the argument of the shape rule, each block that a
+Markdown reader opens as Lean is thus a fence that the audit takes. The theorem says nothing
+about the body or the byte ranges of that fence. -/
+theorem fence_of_leanShaped (source : Source) (clean : (scanLines source).problems = #[])
+    {index : Nat} {line : String} (at' : source.lines[index]? = some line)
+    (shaped : LeanShaped line) :
+    ∃ fence ∈ (scanLines source).fences, fence.line = index + 1 := by
+  unfold scanLines at clean ⊢
+  rw [layout_eq] at clean ⊢
+  obtain ⟨-, finds⟩ := covered_run source.document source.origin source.lines 1 0 {} clean
+  have covered := finds index line at' shaped
+  rw [Nat.add_comm] at covered
+  rcases covered with found | ⟨fence, isOpen, -⟩
+  · exact found
+  · -- a clean document ends outside a fence
+    have size := size_le_finish source.origin
+      ((layoutFrom 1 0 source.lines).foldl (shapedStep source.document source.origin) {})
+    rw [clean] at size
+    have empty := Array.eq_empty_of_size_eq_zero (Nat.le_zero.mp size)
+    have ended := (finish_problems_eq_iff source.origin _).mp (clean.trans empty.symm)
+    simp only [Scan.mode, isOpen] at ended
+    cases ended
 
 /-! ## The protocol of a Verso source -/
 
@@ -2024,9 +3620,9 @@ inductive VersoMode where
 
 /-- The transitions that the protocol of a Verso source permits. Each other line is a
 violation: an info string that is not supported, a block that opens with tildes, and a Lean
-example on a line that starts with a space. The relation states what the scanner tests. It does
-not state that a Lean example opens in the first column: a line that starts with a tab or with a
-carriage return is permitted. -/
+example on a line that starts with a space. This relation alone permits a Lean example on a line
+that starts with a tab or with a carriage return. The shape rule (`VersoShapeRule`) refuses that
+line: with it, a Lean example opens in the first column. -/
 inductive VersoPermitted : VersoMode → String → VersoMode → Prop
   /-- A line with no fence run, outside a block. -/
   | text {line : String} :
@@ -2046,12 +3642,13 @@ inductive VersoPermitted : VersoMode → String → VersoMode → Prop
       ¬ ClosingLine line '`' length → VersoPermitted (.inside length) line (.inside length)
 
 /-- The lines are a run of permitted transitions from `mode` that ends outside a block. -/
-inductive VersoClean : VersoMode → List String → Prop
+inductive VersoFollows : VersoMode → List String → Prop
   /-- The end of the source, outside a block. -/
-  | done : VersoClean .outside []
-  /-- A permitted line before a clean rest. -/
+  | done : VersoFollows .outside []
+  /-- A permitted line before a rest that follows the protocol. -/
   | line {mode next : VersoMode} {text : String} {rest : List String} :
-      VersoPermitted mode text next → VersoClean next rest → VersoClean mode (text :: rest)
+      VersoPermitted mode text next → VersoFollows next rest →
+        VersoFollows mode (text :: rest)
 
 /-- The mode of a state of the Verso scanner. -/
 def VersoScan.mode (state : VersoScan) : VersoMode :=
@@ -2217,11 +3814,13 @@ private theorem size_le_versoRun (document : RegulaPolicy.SourceSnapshot) (origi
       exact Nat.le_refl _
     · exact Nat.le_of_lt longer
 
-/-- **The Verso scanner keeps the violations of a state exactly on a clean run.** -/
-theorem versoProblems_eq_iff_clean (document : RegulaPolicy.SourceSnapshot) (origin : String) :
+/-- **The block protocol alone keeps the violations of a state exactly on a run of permitted
+transitions.** -/
+theorem versoProblems_eq_iff_follows (document : RegulaPolicy.SourceSnapshot)
+    (origin : String) :
     ∀ (texts : List String) (number offset : Nat) (state : VersoScan),
       ((versoFinish origin ((layoutFrom number offset texts).foldl (versoStep document origin)
-        state)).problems = state.problems ↔ VersoClean state.mode texts) := by
+        state)).problems = state.problems ↔ VersoFollows state.mode texts) := by
   intro texts
   induction texts with
   | nil =>
@@ -2261,10 +3860,450 @@ theorem versoProblems_eq_iff_clean (document : RegulaPolicy.SourceSnapshot) (ori
         rw [← mode] at others
         rw [after.mpr others, quiet]
 
+/-! ## The shape rule of a Verso source
+
+The same rule as for a Markdown document, with the block that is open: a line of Lean shape
+opens a `lean` block in the first column, outside a block, and a Lean example closes with a run
+in the first column. A Verso source has no raw HTML, so the rule has no part about it. -/
+
+/-- The open block of the state is a Lean example. -/
+def VersoScan.lean (state : VersoScan) : Bool :=
+  state.opened.any fun block => block.kind.isSome
+
+/-- **The shape rule for one line of a Verso source**, with the mode of the protocol before the
+line. `lean` says that the open block is a Lean example. Outside a block, a line of Lean shape
+opens a Lean block in the first column. Inside a block, no line has Lean shape, and a line that
+closes a Lean example starts with the run. No line has a carriage return or the character
+U+0000. -/
+def VersoShapeRule (mode : VersoMode) (lean : Bool) (line : String) : Prop :=
+  '\r' ∉ line.toList ∧ '\x00' ∉ line.toList ∧
+    match mode with
+    | .outside => LeanShaped line → LeanOpening line
+    | .inside length =>
+        ¬ LeanShaped line ∧
+          (lean = true → ClosingLine line '`' length → line.toList.head? = some '`')
+
+private theorem versoShapeRefusal_eq_none_iff (state : VersoScan) (line : String) :
+    versoShapeRefusal state.opened line = none ↔
+      VersoShapeRule state.mode state.lean line := by
+  unfold versoShapeRefusal VersoShapeRule VersoScan.mode VersoScan.lean
+  by_cases lone : line.toList.contains '\r' = true
+  · simp [List.contains_iff_mem.mp lone]
+  have noLone : '\r' ∉ line.toList := fun found => lone (List.contains_iff_mem.mpr found)
+  simp only [lone, Bool.false_eq_true, ↓reduceIte, noLone, not_false_eq_true, true_and]
+  by_cases null : line.toList.contains '\x00' = true
+  · simp [List.contains_iff_mem.mp null]
+  have noNull : '\x00' ∉ line.toList := fun found => null (List.contains_iff_mem.mpr found)
+  simp only [null, Bool.false_eq_true, ↓reduceIte, noNull, not_false_eq_true, true_and]
+  cases state.opened with
+  | none =>
+    by_cases shaped : leanShaped line = true <;> by_cases opening : leanOpening line = true <;>
+      simp [shaped, opening, ← leanShaped_iff, ← leanOpening_iff]
+  | some block =>
+    by_cases shaped : leanShaped line = true
+    · simp [shaped, ← leanShaped_iff]
+    · by_cases lean : block.kind.isSome = true <;>
+        by_cases closes : closingFence line '`' block.length = true <;>
+        by_cases starts : line.toList.head? = some '`' <;>
+        simp [shaped, lean, closes, starts, ← leanShaped_iff, ← closingFence_iff]
+
+/-- The open block after a line is a Lean example. A line that opens a block gives a Lean
+example exactly when its info string is one of a Lean example (`BlockKind`). A body line keeps
+what the block is. After a line that ends outside a block there is no open block. -/
+def VersoLeanAfter (mode : VersoMode) (lean : Bool) (line : String) (next : VersoMode)
+    (after : Bool) : Prop :=
+  match mode, next with
+  | .outside, .inside _ =>
+      (after = true ↔
+        ∃ (character : Char) (count : Nat) (info : String) (marker : Option MarkerKind),
+          FenceLine line character count info ∧ BlockKind info (some marker))
+  | .inside _, .inside _ => after = lean
+  | _, .outside => after = false
+
+private theorem VersoLeanAfter.unique {mode next : VersoMode} {lean first second : Bool}
+    {line : String} (one : VersoLeanAfter mode lean line next first)
+    (two : VersoLeanAfter mode lean line next second) : first = second := by
+  cases mode <;> cases next <;> simp only [VersoLeanAfter] at one two
+  · rw [one, two]
+  · exact Bool.eq_iff_iff.mpr (one.trans two.symm)
+  · rw [one, two]
+  · rw [one, two]
+
+/-- **Each step of the block protocol gives the answer of `VersoLeanAfter`.** -/
+private theorem versoLeanAfter_step (document : RegulaPolicy.SourceSnapshot) (origin : String)
+    (state : VersoScan) (line : Line) :
+    VersoLeanAfter state.mode state.lean line.text (versoStep document origin state line).mode
+      (versoStep document origin state line).lean := by
+  unfold versoStep
+  cases opened : state.opened with
+  | none =>
+    have before : state.mode = .outside := by simp [VersoScan.mode, opened]
+    rw [before]
+    cases run : fenceRun? line.text with
+    | none => simp [VersoScan.mode, VersoScan.lean, VersoLeanAfter, opened]
+    | some found =>
+      obtain ⟨character, count, info⟩ := found
+      have fence := (fenceRun?_eq_some_iff _ _ _ _).mp run
+      have same : ∀ {symbol : Char} {length : Nat} {text : String},
+          FenceLine line.text symbol length text → text = info := by
+        intro symbol length text other
+        have again := (fenceRun?_eq_some_iff _ _ _ _).mpr other
+        rw [run] at again
+        simp only [Option.some.injEq, Prod.mk.injEq] at again
+        exact again.2.2.symm
+      cases kinds : versoBlockKind info with
+      | error reason =>
+        simp only [VersoScan.mode, VersoScan.lean, VersoLeanAfter, Option.any_some, kinds,
+          Option.isSome_none, Bool.false_eq_true, false_iff, not_exists, not_and]
+        intro symbol length text marker other block
+        rw [same other] at block
+        rw [(versoBlockKind_eq_ok_iff info _).mpr block] at kinds
+        cases kinds
+      | ok kind =>
+        simp only [VersoScan.mode, VersoScan.lean, VersoLeanAfter, Option.any_some, kinds]
+        constructor
+        · intro some'
+          obtain ⟨marker, rfl⟩ := Option.isSome_iff_exists.mp some'
+          exact ⟨character, count, info, marker, fence,
+            (versoBlockKind_eq_ok_iff info _).mp kinds⟩
+        · rintro ⟨symbol, length, text, marker, other, block⟩
+          rw [same other] at block
+          rw [(versoBlockKind_eq_ok_iff info _).mpr block] at kinds
+          obtain rfl : some marker = kind := Except.ok.inj kinds
+          rfl
+  | some block =>
+    have before : state.mode = .inside block.length := by simp [VersoScan.mode, opened]
+    rw [before]
+    by_cases closes : closingFence line.text '`' block.length = true
+    · simp only [closes, ↓reduceIte]
+      split <;> simp [VersoScan.mode, VersoScan.lean, VersoLeanAfter]
+    · simp [closes, VersoScan.mode, VersoScan.lean, VersoLeanAfter, opened]
+
+private theorem shapedVersoStep_opened (document : RegulaPolicy.SourceSnapshot)
+    (origin : String) (state : VersoScan) (line : Line) :
+    (shapedVersoStep document origin state line).opened =
+        (versoStep document origin state line).opened ∧
+      (shapedVersoStep document origin state line).fences =
+        (versoStep document origin state line).fences := by
+  unfold shapedVersoStep
+  split <;> exact ⟨rfl, rfl⟩
+
+private theorem shapedVersoStep_mode (document : RegulaPolicy.SourceSnapshot) (origin : String)
+    (state : VersoScan) (line : Line) :
+    (shapedVersoStep document origin state line).mode =
+        (versoStep document origin state line).mode ∧
+      (shapedVersoStep document origin state line).lean =
+        (versoStep document origin state line).lean := by
+  obtain ⟨opened, -⟩ := shapedVersoStep_opened document origin state line
+  simp [VersoScan.mode, VersoScan.lean, opened]
+
+private theorem shapedVersoStep_quiet_iff (document : RegulaPolicy.SourceSnapshot)
+    (origin : String) (state : VersoScan) (line : Line) :
+    (shapedVersoStep document origin state line).problems = state.problems ↔
+      (versoStep document origin state line).problems = state.problems ∧
+        versoShapeRefusal state.opened line.text = none := by
+  unfold shapedVersoStep
+  cases refusal : versoShapeRefusal state.opened line.text with
+  | none => simp
+  | some reason =>
+    simp only [reduceCtorEq, and_false, iff_false]
+    refine ne_of_size_lt ?_
+    rcases versoStep_quiet_or_loud document origin state line with same | longer
+    · simp [Array.size_push, same]
+    · simp only [Array.size_push]
+      omega
+
+private theorem shapedVersoStep_quiet_or_loud (document : RegulaPolicy.SourceSnapshot)
+    (origin : String) (state : VersoScan) (line : Line) :
+    (shapedVersoStep document origin state line).problems = state.problems ∨
+      state.problems.size < (shapedVersoStep document origin state line).problems.size := by
+  unfold shapedVersoStep
+  cases versoShapeRefusal state.opened line.text with
+  | none => exact versoStep_quiet_or_loud document origin state line
+  | some reason =>
+    refine .inr ?_
+    rcases versoStep_quiet_or_loud document origin state line with same | longer
+    · simp [Array.size_push, same]
+    · simp only [Array.size_push]
+      omega
+
+private theorem size_le_shapedVersoRun (document : RegulaPolicy.SourceSnapshot)
+    (origin : String) :
+    ∀ (lines : List Line) (state : VersoScan), state.problems.size ≤
+      (versoFinish origin
+        (lines.foldl (shapedVersoStep document origin) state)).problems.size := by
+  intro lines
+  induction lines with
+  | nil =>
+    intro state
+    unfold versoFinish
+    cases opened : state.opened <;> simp only [List.foldl_nil, opened] <;> simp [Array.size_push]
+  | cons line rest tail =>
+    intro state
+    refine Nat.le_trans ?_ (tail (shapedVersoStep document origin state line))
+    rcases shapedVersoStep_quiet_or_loud document origin state line with same | longer
+    · rw [same]
+      exact Nat.le_refl _
+    · exact Nat.le_of_lt longer
+
+/-- The lines are clean: each line is a permitted transition of the block protocol and keeps the
+shape rule, and the run ends outside a block. `lean` says that the open block is a Lean
+example. -/
+inductive VersoClean : VersoMode → Bool → List String → Prop
+  /-- The end of the source, outside a block. -/
+  | done {lean : Bool} : VersoClean .outside lean []
+  /-- A line that the protocol permits and that keeps the shape rule, before a clean rest. -/
+  | line {mode next : VersoMode} {lean after : Bool} {text : String} {rest : List String} :
+      VersoPermitted mode text next → VersoShapeRule mode lean text →
+      VersoLeanAfter mode lean text next after → VersoClean next after rest →
+        VersoClean mode lean (text :: rest)
+
+/-- **The Verso scanner keeps the violations of a state exactly on a clean run.** -/
+theorem versoProblems_eq_iff_clean (document : RegulaPolicy.SourceSnapshot) (origin : String) :
+    ∀ (texts : List String) (number offset : Nat) (state : VersoScan),
+      ((versoFinish origin ((layoutFrom number offset texts).foldl
+        (shapedVersoStep document origin) state)).problems = state.problems ↔
+          VersoClean state.mode state.lean texts) := by
+  intro texts
+  induction texts with
+  | nil =>
+    intro number offset state
+    rw [show layoutFrom number offset [] = [] from rfl, List.foldl_nil,
+      versoFinish_problems_eq_iff]
+    constructor
+    · intro mode
+      rw [mode]
+      exact .done
+    · intro clean
+      generalize state.mode = mode at clean
+      cases clean
+      rfl
+  | cons text rest tail =>
+    intro number offset state
+    obtain ⟨next, later, lines⟩ := layoutFrom_cons number offset text rest
+    rw [lines, List.foldl_cons]
+    generalize first : ({ number, text, start := offset, next } : Line) = line
+    have worded : line.text = text := by rw [← first]
+    obtain ⟨sameMode, sameLean⟩ := shapedVersoStep_mode document origin state line
+    have after := tail (number + 1) later (shapedVersoStep document origin state line)
+    rw [sameMode, sameLean] at after
+    have answer := versoLeanAfter_step document origin state line
+    constructor
+    · intro same
+      rcases shapedVersoStep_quiet_or_loud document origin state line with quiet | loud
+      · obtain ⟨base, kept⟩ := (shapedVersoStep_quiet_iff document origin state line).mp quiet
+        have permitted := versoPermitted_of_quiet document origin state line base
+        have rule := (versoShapeRefusal_eq_none_iff state line.text).mp kept
+        rw [worded] at permitted rule answer
+        rw [← quiet] at same
+        exact .line permitted rule answer (after.mp same)
+      · exact absurd same (ne_of_size_lt (Nat.lt_of_lt_of_le loud
+          (size_le_shapedVersoRun document origin _ _)))
+    · intro clean
+      generalize current : state.mode = mode at clean
+      generalize flag : state.lean = lean at clean
+      cases clean with
+      | line permitted rule answered others =>
+        rw [← current, ← worded] at permitted
+        rw [← current, ← flag, ← worded] at rule answered
+        obtain ⟨base, mode⟩ := quiet_of_versoPermitted document origin state line permitted
+        have kept := (versoShapeRefusal_eq_none_iff state line.text).mpr rule
+        have quiet := (shapedVersoStep_quiet_iff document origin state line).mpr ⟨base, kept⟩
+        rw [← mode] at others answered
+        rw [answer.unique answered] at after
+        rw [after.mpr others, quiet]
+
+/-! ## Each line of Lean shape of a Verso source is a returned example -/
+
+/-- The Verso scanner has the Lean example that opens at the line `number`: among the examples
+that it found, or as the block that is open. -/
+private def VersoCovered (state : VersoScan) (number : Nat) : Prop :=
+  (∃ fence ∈ state.fences, fence.line = number) ∨
+    ∃ block, state.opened = some block ∧ block.line = number ∧ block.kind.isSome = true
+
+/-- A step keeps the Lean example of a line that the Verso scanner has. -/
+private theorem versoCovered_step (document : RegulaPolicy.SourceSnapshot) (origin : String)
+    (state : VersoScan) (line : Line) {number : Nat} (covered : VersoCovered state number) :
+    VersoCovered (shapedVersoStep document origin state line) number := by
+  obtain ⟨opened, fences⟩ := shapedVersoStep_opened document origin state line
+  unfold VersoCovered
+  rw [opened, fences]
+  unfold versoStep
+  cases open' : state.opened with
+  | none =>
+    rcases covered with found | ⟨block, isOpen, -⟩
+    · cases fenceRun? line.text with
+      | none => exact .inl found
+      | some run => exact .inl found
+    · rw [open'] at isOpen
+      cases isOpen
+  | some block =>
+    by_cases closes : closingFence line.text '`' block.length = true
+    · simp only [closes, ↓reduceIte]
+      cases kind : block.kind with
+      | none =>
+        rcases covered with found | ⟨other, isOpen, -, lean⟩
+        · exact .inl found
+        · rw [open'] at isOpen
+          obtain rfl := Option.some.inj isOpen
+          rw [kind] at lean
+          cases lean
+      | some marker =>
+        refine .inl ?_
+        rcases covered with ⟨found, member, numbered⟩ | ⟨other, isOpen, numbered, -⟩
+        · exact ⟨found, Array.mem_push_of_mem _ member, numbered⟩
+        · rw [open'] at isOpen
+          obtain rfl := Option.some.inj isOpen
+          exact ⟨_, Array.mem_push_self, numbered⟩
+    · simp only [closes, Bool.false_eq_true, ↓reduceIte]
+      rcases covered with found | ⟨other, isOpen, numbered, lean⟩
+      · exact .inl found
+      · rw [open'] at isOpen
+        obtain rfl := Option.some.inj isOpen
+        exact .inr ⟨_, rfl, numbered, lean⟩
+
+/-- The block that a line outside a block opens has the number of that line. -/
+private theorem versoStep_opened_line (document : RegulaPolicy.SourceSnapshot) (origin : String)
+    (state : VersoScan) (line : Line) (outside : state.opened = none) {block : OpenBlock}
+    (opens : (versoStep document origin state line).opened = some block) :
+    block.line = line.number := by
+  unfold versoStep at opens
+  rw [outside] at opens
+  cases run : fenceRun? line.text with
+  | none =>
+    rw [run] at opens
+    rw [outside] at opens
+    cases opens
+  | some found =>
+    obtain ⟨character, count, info⟩ := found
+    rw [run] at opens
+    obtain rfl := Option.some.inj opens
+    rfl
+
+/-- After a line that opens a `lean` block in the first column, outside a block, and that adds
+no violation, the Verso scanner has the Lean example of that line. -/
+private theorem versoCovered_opening (document : RegulaPolicy.SourceSnapshot) (origin : String)
+    (state : VersoScan) (line : Line) (outside : state.opened = none)
+    (quiet : (versoStep document origin state line).problems = state.problems)
+    (opening : LeanOpening line.text) :
+    VersoCovered (shapedVersoStep document origin state line) line.number := by
+  obtain ⟨opened, -⟩ := shapedVersoStep_opened document origin state line
+  have mode : state.mode = .outside := by simp [VersoScan.mode, outside]
+  have permitted := versoPermitted_of_quiet document origin state line quiet
+  have answer := versoLeanAfter_step document origin state line
+  rw [mode] at permitted answer
+  obtain ⟨character, count, info, fence, -, word⟩ := opening
+  generalize (versoStep document origin state line).mode = after at permitted answer
+  cases permitted with
+  | text none => exact absurd fence (none character count info)
+  | @opening _ length text kind other block _ =>
+    have run := (fenceRun?_eq_some_iff _ _ _ _).mpr other
+    rw [(fenceRun?_eq_some_iff _ _ _ _).mpr fence] at run
+    obtain ⟨-, -, rfl⟩ : character = '`' ∧ count = length ∧ info = text := by simpa using run
+    have lean : ∃ marker, kind = some marker := by
+      cases block with
+      | positive => exact ⟨_, rfl⟩
+      | trusted => exact ⟨_, rfl⟩
+      | fails => exact ⟨_, rfl⟩
+      | other listed =>
+        simp only [List.mem_cons, List.not_mem_nil, or_false] at listed
+        rcases listed with rfl | rfl | rfl | rfl <;>
+          exact absurd ((firstWord_eq_iff _ (by decide)).mpr word) (by decide)
+    obtain ⟨marker, rfl⟩ := lean
+    simp only [VersoLeanAfter] at answer
+    have flag := answer.mpr ⟨'`', length, info, marker, other, block⟩
+    cases opens : (versoStep document origin state line).opened with
+    | none => simp [VersoScan.lean, opens] at flag
+    | some open' =>
+      refine .inr ⟨open', by rw [opened, opens], ?_, ?_⟩
+      · exact versoStep_opened_line document origin state line outside opens
+      · simpa [VersoScan.lean, opens] using flag
+
+/-- On a run that adds no violation, the Verso scanner keeps each Lean example that it has, and
+it has the Lean example of each line of Lean shape of the run. -/
+private theorem versoCovered_run (document : RegulaPolicy.SourceSnapshot) (origin : String) :
+    ∀ (texts : List String) (number offset : Nat) (state : VersoScan),
+      (versoFinish origin ((layoutFrom number offset texts).foldl
+        (shapedVersoStep document origin) state)).problems = state.problems →
+      (∀ covered, VersoCovered state covered →
+        VersoCovered ((layoutFrom number offset texts).foldl (shapedVersoStep document origin)
+          state) covered) ∧
+      ∀ (index : Nat) (line : String), texts[index]? = some line → LeanShaped line →
+        VersoCovered ((layoutFrom number offset texts).foldl (shapedVersoStep document origin)
+          state) (number + index) := by
+  intro texts
+  induction texts with
+  | nil =>
+    intro number offset state _
+    exact ⟨fun _ covered => covered, fun index line found => nomatch found⟩
+  | cons text rest tail =>
+    intro number offset state same
+    obtain ⟨next, later, lines⟩ := layoutFrom_cons number offset text rest
+    rw [lines, List.foldl_cons] at same ⊢
+    generalize first : ({ number, text, start := offset, next } : Line) = line at same ⊢
+    have numbered : line.number = number := by rw [← first]
+    have worded : line.text = text := by rw [← first]
+    have quiet : (shapedVersoStep document origin state line).problems = state.problems := by
+      rcases shapedVersoStep_quiet_or_loud document origin state line with quiet | loud
+      · exact quiet
+      · exact absurd same (ne_of_size_lt (Nat.lt_of_lt_of_le loud
+          (size_le_shapedVersoRun document origin _ _)))
+    rw [← quiet] at same
+    obtain ⟨keeps, finds⟩ :=
+      tail (number + 1) later (shapedVersoStep document origin state line) same
+    refine ⟨fun covered has => keeps covered (versoCovered_step document origin state line has),
+      ?_⟩
+    intro index found at' shaped
+    cases index with
+    | zero =>
+      obtain rfl : text = found := Option.some.inj at'
+      obtain ⟨base, kept⟩ := (shapedVersoStep_quiet_iff document origin state line).mp quiet
+      have rule := (versoShapeRefusal_eq_none_iff state line.text).mp kept
+      rw [worded] at rule
+      cases open' : state.opened with
+      | some block =>
+        have mode : state.mode = .inside block.length := by simp [VersoScan.mode, open']
+        rw [mode] at rule
+        exact absurd shaped rule.2.2.1
+      | none =>
+        have mode : state.mode = .outside := by simp [VersoScan.mode, open']
+        rw [mode] at rule
+        have opening := rule.2.2 shaped
+        rw [← worded] at opening
+        have here := versoCovered_opening document origin state line open' base opening
+        rw [numbered] at here
+        exact keeps _ here
+    | succ before =>
+      have := finds before found at' shaped
+      rwa [Nat.add_assoc, Nat.add_comm 1 before] at this
+
+/-- **In a clean Verso source, each line of Lean shape is the opening line of a returned
+example.** The example has the number of that line. The theorem says nothing about the body or
+the byte ranges of that example. -/
+theorem example_of_leanShaped (source : Source) (clean : (scanVersoLines source).problems = #[])
+    {index : Nat} {line : String} (at' : source.lines[index]? = some line)
+    (shaped : LeanShaped line) :
+    ∃ fence ∈ (scanVersoLines source).fences, fence.line = index + 1 := by
+  unfold scanVersoLines at clean ⊢
+  rw [layout_eq] at clean ⊢
+  obtain ⟨-, finds⟩ := versoCovered_run source.document source.origin source.lines 1 0 {} clean
+  have covered := finds index line at' shaped
+  rw [Nat.add_comm] at covered
+  rcases covered with found | ⟨block, isOpen, -⟩
+  · exact found
+  · have size := size_le_shapedVersoRun source.document source.origin [] ((layoutFrom 1 0
+      source.lines).foldl (shapedVersoStep source.document source.origin) {})
+    rw [List.foldl_nil, clean] at size
+    have empty := Array.eq_empty_of_size_eq_zero (Nat.le_zero.mp size)
+    have ended := (versoFinish_problems_eq_iff source.origin _).mp (clean.trans empty.symm)
+    simp only [VersoScan.mode, isOpen] at ended
+    cases ended
+
 /-- **The Verso scanner reports no violation exactly for a clean source**: the lines are a run
-of permitted transitions from outside a block that ends outside a block. -/
+from outside a block of transitions that the protocol permits and that keep the shape rule, and
+the run ends outside a block. -/
 theorem scanVersoLines_problems_eq_empty_iff (source : Source) :
-    (scanVersoLines source).problems = #[] ↔ VersoClean .outside source.lines := by
+    (scanVersoLines source).problems = #[] ↔ VersoClean .outside false source.lines := by
   unfold scanVersoLines
   rw [layout_eq]
   exact versoProblems_eq_iff_clean source.document source.origin source.lines 1 0 {}
@@ -2272,15 +4311,15 @@ theorem scanVersoLines_problems_eq_empty_iff (source : Source) :
 /-- **A scan of a Verso source has no violation exactly for a clean source.** The source is the
 one that the scan carries. -/
 theorem Scanned.versoProblems_eq_empty_iff (scan : Scanned) (verso : scan.format = .verso) :
-    scan.result.problems = #[] ↔ VersoClean .outside scan.source.lines := by
+    scan.result.problems = #[] ↔ VersoClean .outside false scan.source.lines := by
   rw [scan.executed, verso]
   exact scanVersoLines_problems_eq_empty_iff scan.source
 
 /-- A source of one line that opens a block is not clean: the block is not closed. -/
-private theorem not_versoClean_open : ¬ VersoClean .outside ["```"] := by
+private theorem not_versoClean_open : ¬ VersoClean .outside false ["```"] := by
   intro clean
   cases clean with
-  | line permitted rest =>
+  | line permitted _ _ rest =>
     cases rest
     cases permitted with
     | text none =>
@@ -2289,18 +4328,21 @@ private theorem not_versoClean_open : ¬ VersoClean .outside ["```"] := by
 
 /-- `scanVersoLines` is a sound and complete decision of the clean Verso sources
 (`scanVersoLines_problems_eq_empty_iff`): it reports no violation exactly for a source with lines
-that are a run of permitted transitions. It accepts the source with no character, which has one
-line, and it refuses the source of one line that opens a block. The input is a `Source`, so the
-lines are those of the text of the source. The specification is the relation `VersoClean` over
-propositions about the characters of each line and about the info string of each block
-(`BlockKind`). It names no test of the scanner. It says nothing about the examples that an
-accepted result carries, and nothing about the text of a violation. -/
+that are a run of transitions that the protocol permits and that keep the shape rule. It accepts
+the source with no character, which has one line, and it refuses the source of one line that
+opens a block. The input is a `Source`, so the lines are those of the text of the source. The
+specification is the relation `VersoClean` over propositions about the characters of each line
+and about the info string of each block (`BlockKind`). It names no test of the scanner. It says
+nothing about the text of a violation. About the examples of an accepted result,
+`example_of_leanShaped` says that each line of Lean shape has one. -/
 theorem checked_scanVersoLines : Regula.ExecutableContract scanVersoLines
     (Regula.Decides (fun result : ScanResult => result.problems = #[])
-      (fun source : Source => VersoClean .outside source.lines)) :=
+      (fun source : Source => VersoClean .outside false source.lines)) :=
   ⟨Regula.Decides.of_iff scanVersoLines_problems_eq_empty_iff
     ⟨⟨⟨"", ""⟩, "", [""], by decide⟩,
-      (scanVersoLines_problems_eq_empty_iff _).mpr (.line (.text no_fence_empty) .done)⟩
+      (scanVersoLines_problems_eq_empty_iff _).mpr
+        (.line (.text no_fence_empty)
+          ⟨by decide, by decide, (shapeRule_empty none false).2.2.2⟩ rfl .done)⟩
     ⟨⟨⟨"", "```"⟩, "", ["```"], by decide⟩, fun accepted =>
       not_versoClean_open ((scanVersoLines_problems_eq_empty_iff _).mp accepted)⟩⟩
 

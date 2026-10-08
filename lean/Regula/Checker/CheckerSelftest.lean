@@ -871,6 +871,124 @@ private def smokeFixtureNames : Array String :=
     "Fixtures.Positive.ExternBoundary", "Fixtures.Positive.DependentCorrespondence",
     "Fixtures.Mutations.ConditionalCorrespondence"]
 
+/-- The controls of the shape rule of the Markdown scanner (standard §7.7): one text for each
+form that the rule refuses, with words of the violation, and texts that the rule accepts, with
+the fence that passes. The forms are a Lean fence in a container or after indentation, a line of
+Lean shape inside a fence that the scanner thinks is open, a closing run of a Lean fence after
+indentation, a different spelling of the language, a character before the language that a
+reader can remove, a `&` or a backslash in the first word after a run, a carriage return that no
+line feed follows, the character U+0000, and the start tag of a code element of raw HTML: each
+of the five names, in upper and in mixed case, before characters that end a name and at the end
+of a line, and inside a fence of a different language. Two lines of text with an inline span of
+three back-ticks are refused on purpose: the shape is conservative, and these controls pin that.
+A `&` after a tab is refused on purpose too: a word ends at a space for each reader, and not at a
+tab for each reader. The texts with line endings of a carriage return and a line feed are
+controls of a boundary outside the proofs: Lean reads a carriage return before a line feed as a
+line feed. -/
+private def shapeCases : Array (String × String × String) :=
+  let column := "does not open a `lean` fence in the first column"
+  let inside := "is inside a fence"
+  let closing := "closing line of a Lean fence does not start in the first column"
+  let raw := "raw HTML opens a code element"
+  let body := "theorem t : True := trivial"
+  #[("quoted-fence", s!"> ```lean\n> {body}\n> ```\n", column),
+    ("quoted-list-fence", s!"> - ```lean\n>   {body}\n>   ```\n", column),
+    ("list-marker-fence", s!"- ```lean\n  {body}\n  ```\n", column),
+    ("ordered-marker-fence", s!"1. ```lean\n   {body}\n   ```\n", column),
+    ("task-marker-fence", s!"- [ ] ```lean\n      {body}\n      ```\n", column),
+    ("footnote-fence", s!"[^1]: ```lean\n    {body}\n    ```\n", column),
+    ("list-item-fence", s!"- item\n\n  ```lean\n  {body}\n  ```\n", column),
+    ("indented-fence", s!" ```lean\n{body}\n```\n", column),
+    ("four-space-fence", s!"    ```lean\n    {body}\n    ```\n", column),
+    ("prose-fence-run", "see ```lean in the text\n", column),
+    ("run-in-indented-code", s!"prose\n\n    ```\n```lean\n{body}\n```\n", inside),
+    ("backtick-info", s!"```text`x\nprose\n```lean\n{body}\n```\n", inside),
+    ("run-in-comment", s!"<!--\n```\n-->\n```lean\n{body}\n```\n", inside),
+    ("run-in-html-block", s!"<details>\n```\n</details>\n\n```lean\n{body}\n```\n", inside),
+    ("indented-close-other", s!"```text\n    ```\n```\n```lean\n{body}\n```\n```\n```\n", inside),
+    ("sample-in-longer", s!"````markdown\n```lean\n{body}\n```\n````\n", inside),
+    ("indented-close-lean",
+      "```lean\ntheorem early : True := trivial\n    ```\ntheorem late : True := trivial\n\
+        ```\n```\n", closing),
+    ("spelling-capital", s!"```Lean\n{body}\n```\n", column),
+    ("spelling-lean4", s!"```lean4\n{body}\n```\n", column),
+    ("spelling-braces", "```{.lean}\n" ++ body ++ "\n```\n", column),
+    ("spelling-reference", s!"```l&#101;an\n{body}\n```\n", column),
+    ("spelling-backslash", s!"```le\\an\n{body}\n```\n", column),
+    ("raw-pre", s!"<pre>\n{body}\n</pre>\n", raw),
+    ("raw-code-space", "text <code class=\"x\">y</code>\n", raw),
+    ("raw-xmp-tab", "<xmp\tclass=\"x\">\n", raw),
+    ("raw-listing-slash", "<listing/>\n", raw),
+    ("raw-plaintext-end", "text <plaintext\n", raw),
+    ("raw-upper", "<PRE>\n", raw),
+    ("raw-mixed", "<CoDe>x\n", raw),
+    ("raw-in-fence", "```html\n<pre>\n```\n", raw),
+    ("lone-return",
+      "```lean\raxiom hidden : False\r```\ntheorem ok : True := trivial\n```\n",
+      "carriage return that no line feed follows"),
+    ("return-return-line-feed", "prose\r\r\n", "carriage return that no line feed follows"),
+    ("raw-return", "<pre\r\nclass=\"language-lean\">\naxiom hidden : False\n</pre>\n", raw),
+    ("raw-form-feed", "<pre\x0c>\n", raw),
+    ("inline-span-lean", "See ```x``` lean examples.\n", column),
+    ("inline-span-path", "See ```x``` lean/Regula.\n", column),
+    ("form-feed-before-word", s!"```\x0clean\n{body}\n```\n", column),
+    ("vertical-tab-before-word", s!"```\x0blean\n{body}\n```\n", column),
+    ("no-break-space-before-word", s!"``` lean\n{body}\n```\n", column),
+    ("reference-before-word", s!"```&#32;lean\n{body}\n```\n", column),
+    ("reference-after-tab", "```sh\ta&b\nprose\n```\n", column),
+    ("null-in-body", "```lean\nexample : \"\x00\" = \"\\x00\" := rfl\n```\n", "U+0000"),
+    ("null-in-prose", "a\x00b\n", "U+0000"),
+    ("reference-after-word",
+      "```sh title=\"a&b\"\necho\n```\n\n```lean\ntheorem after_reference : True := trivial\n```\n",
+      "reference-after-word.md:5 PASS"),
+    ("backslash-after-word",
+      "```toml path=\"C:\\work\"\nx = 1\n```\n\n```lean\n\
+        theorem after_backslash : True := trivial\n```\n",
+      "backslash-after-word.md:5 PASS"),
+    ("return-line-feed", "```lean\r\ntheorem with_return : True := trivial\r\n```\r\n",
+      "return-line-feed.md:1 PASS"),
+    ("return-line-feed-string",
+      "```lean\r\nexample : \"a\r\nb\" = \"a\\nb\" := rfl\r\n```\r\n",
+      "return-line-feed-string.md:1 PASS"),
+    ("return-line-feed-marker",
+      "<!-- lean-fail: isolated carriage returns -->\r\n```lean\r\n\
+        theorem marked_return : True := trivial\r\n```\r\n",
+      "return-line-feed-marker.md:2 FAIL"),
+    ("second-word-lean",
+      "```text lean\nprose\n```\n\n```lean\ntheorem second_word : True := trivial\n```\n",
+      "second-word-lean.md:5 PASS"),
+    ("raw-near", "a <prefix> b and <codec x\n```lean\ntheorem raw_near : True := trivial\n```\n",
+      "raw-near.md:2 PASS"),
+    ("fence-in-comment", "<!--\n```lean\ntheorem in_comment : True := trivial\n```\n-->\n",
+      "fence-in-comment.md:2 PASS"),
+    ("other-indented",
+      "- item\n\n  ```sh\n  ls\n  ```\n\n```lean\ntheorem after_item : True := trivial\n```\n",
+      "other-indented.md:7 PASS"),
+    ("sketch-name",
+      "```leanSketch\nx\n```\n\n```lean\ntheorem after_sketch : True := trivial\n```\n",
+      "sketch-name.md:5 PASS"),
+    ("tilde-fence", "~~~lean\ntheorem tilde : True := trivial\n~~~\n", "tilde-fence.md:1 PASS")]
+
+/-- The controls of the shape rule of the Verso scanner: a `lean` block after a tab, after a
+carriage return and after a space, in a quotation and in a list item, a line of Lean shape
+inside a block, a closing run of a Lean example after indentation, a source with carriage
+returns, a source with the character U+0000, and two sources that the rule accepts. -/
+private def versoShapeCases : Array (String × String × String) :=
+  let column := "does not open a `lean` block in the first column"
+  let body := "theorem t : True := trivial"
+  #[("verso-tab", s!"\t```lean\n{body}\n```\n", column),
+    ("verso-carriage-return", s!"\r```lean\n{body}\n```\n", "a carriage return"),
+    ("verso-space", s!" ```lean\n{body}\n```\n", column),
+    ("verso-quoted", s!"> ```lean\n> {body}\n> ```\n", column),
+    ("verso-list-item", s!"* item\n\n  ```lean\n  {body}\n  ```\n", column),
+    ("verso-inside-block", "```text\n```lean\n```\n", "is inside a code block"),
+    ("verso-indented-close", s!"```lean\n{body}\n  ```\n",
+      "closing line of a Lean example does not start in the first column"),
+    ("verso-return", s!"```lean\r\n{body}\r\n```\r\n", "a carriage return"),
+    ("verso-null", "```lean\nexample : \"\x00\" = \"\\x00\" := rfl\n```\n", "U+0000"),
+    ("verso-first-column", s!"```lean\n{body}\n```\n", "verso-first-column:1 PASS"),
+    ("verso-sketch", s!"```leanSketch\nx\n```\n```lean\n{body}\n```\n", "verso-sketch:4 PASS")]
+
 /-- Counterexample aid, not correctness evidence (standard §0 "The Role of Testing"):
 concrete `Documentation.scan` inputs for each marker/fence problem class. The universal
 statement is `Documentation.checked_scanLines`: the scanner reports no violation exactly for a
@@ -910,6 +1028,20 @@ private def scannerQualification : Array String := Id.run do
     else if !result.problems.any (·.contains expectedProblem) then
       failures :=
           failures.push s!"scanner/{name}: missing problem containing {repr expectedProblem}"
+  -- The shape rule: each refused form has its violation, and each accepted text has one fence
+  -- and no violation. An expectation that ends with ` PASS` or ` FAIL` is the result of the
+  -- audit for the fence of a text that the scanner accepts.
+  for (verso, shape) in [(false, shapeCases), (true, versoShapeCases)] do
+    for (name, text, expected) in shape do
+      let result :=
+        if verso then Documentation.scanVerso text name else Documentation.scan text name
+      if expected.endsWith " PASS" || expected.endsWith " FAIL" then
+        if result.fences.size != 1 || !result.problems.isEmpty then
+          failures := failures.push
+            s!"scanner/shape/{name}: expected one clean fence, got {result.problems}"
+      else if !result.problems.any (·.contains expected) then
+        failures := failures.push
+          s!"scanner/shape/{name}: missing problem containing {repr expected}"
   if !Documentation.matchesPattern "(?s)failed.*law|Fields missing"
       "prefix failed\nfor a law suffix" then
     failures := failures.push "scanner/pattern: ordered/alternative matching failed"
@@ -939,7 +1071,8 @@ private def bvCheckCertificates (repo scratch : FilePath) : IO (FilePath × File
     ← generate "grind" "grind => bv_decide? -binaryProofs")
 
 /-- The adversarial fence corpus shared by the in-process default-tier audit
-and the end-to-end public `docFenceAudit` control in the conditional tier. -/
+and the end-to-end public `docFenceAudit` control in the conditional tier. The controls of the
+shape rule (`shapeCases`) are part of it. -/
 private def fenceCorpusCases (certificate grindCertificate : FilePath) : Array (String × String × String) := #[
   ("unclosed", "```lean\ntheorem x : True := trivial\n", "never closed"),
   ("empty-pattern", "<!-- lean-fail: -->\n```lean\ndef n : Nat := \"x\"\n```\n",
@@ -1082,7 +1215,7 @@ private def fenceCorpusCases (certificate grindCertificate : FilePath) : Array (
   ("named-warning", "```lean\nimport Lean\nopen Lean\nset_option warningAsError false in\nrun_cmd \
     Lean.logNamedWarningAt (← getRef) `lean.selftestNamedWarning m!\"named\"\n```\n",
         "emitted warning")
-]
+] ++ shapeCases
 
 /-- Corpus cases that only the public `docFenceAudit` control can exercise:
 they depend on the process environment the public command runs its fence
