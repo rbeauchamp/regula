@@ -77,11 +77,12 @@ private def restore (adopter : FilePath) (files : Array (FilePath × String)) : 
 a claimed import outside every library (RG2004) in the driver and the file audit, a failed audit
 worker reported with its own error, Lake's builtin-only and combined dispatch, and the read-only
 configuration explanation. Default output shows Lake's build progress and no timing span; the
-file audit lists every classified declaration only with `--verbose`. No module of this adopter
-imports `Regula.Linter`, so the driver builds without the audit-build marker
-(`Lake.auditMarkerNeeded`), and an ordinary `lake build` and the driver reuse each other's build
-output; with an excluded library that imports it and that the claimed one needs, the driver keeps
-the marker. -/
+file audit lists every classified declaration only with `--verbose`. The adopter declares the
+custom `policy` target, so the driver keeps the audit-build marker (`Lake.auditMarkerNeeded`) and
+an ordinary build after it rebuilds; without that target, also with an `input_file` in `needs`,
+the workspace has the plain shape and an ordinary `lake build` and the driver reuse each other's
+build output; with Lake's `ilean` facet declared again, or with an excluded library in `needs`
+that imports `Regula.Linter`, the driver keeps the marker and accepts the claim. -/
 private def leanAdopter (repo adopter : FilePath) : IO (Array String) := do
   BuildLintQualification.setup repo adopter
   -- The first run builds every module, showing Lake's progress line for each.
@@ -89,14 +90,11 @@ private def leanAdopter (repo adopter : FilePath) : IO (Array String) := do
   let mut failures ← expect adopter
     { positive with contains := positive.contains.push "] Built Widget" }
   if !failures.isEmpty then return failures
-  -- Without the marker the driver's build has the options of an ordinary build: an ordinary
-  -- build after it rebuilds no module, and the driver after that rebuilds none either. With the
-  -- marker each would rebuild every module of the library.
+  -- The adopter declares the custom `policy` target, so its workspace is not of the plain shape
+  -- and the driver keeps the marker: an ordinary build after it rebuilds the library's modules.
   let ordinary ← runProcess adopter "lake" #["build", "Widget"] scrubbedLeanPathEnv
-  unless ordinary.succeeded && !ordinary.output.contains "] Built Widget" do
-    failures := failures.push s!"lake-lint/lean/ordinary-reused: {ordinary.output}"
-  failures := failures ++ (← expect adopter
-    { positive with label := "lean/driver-reused", excludes := positive.excludes.push "] Built" })
+  unless ordinary.succeeded && ordinary.output.contains "] Built Widget" do
+    failures := failures.push s!"lake-lint/lean/custom-target-marked: {ordinary.output}"
   failures := failures ++ (← expect adopter {
       label := "lean/explain-config", exitCode := 2,
       contains := #["no audit was run", "Widget.Additional", "kernel-only"],
@@ -118,8 +116,8 @@ private def leanAdopter (repo adopter : FilePath) : IO (Array String) := do
     (manifest, ← IO.FS.readFile manifest), (widget, ← IO.FS.readFile widget),
     (lakefile, ← IO.FS.readFile lakefile)]
   -- A library outside the claim that the claimed library has built first (`needs`) and that
-  -- imports `Regula.Linter`: the driver decides over every module of the package, so it keeps the
-  -- marker, the library's live finding is not a build warning, and the claim is accepted.
+  -- imports `Regula.Linter`: a library in `needs` is outside the plain shape, so the driver keeps
+  -- the marker, the library's live finding is not a build warning, and the claim is accepted.
   let tooling := adopter / "Tooling.lean"
   mutate lakefile "globs := #[.andSubmodules `Widget]"
     "globs := #[.andSubmodules `Widget]\n  needs := #[`@/Tooling]\n\nlean_lib Tooling where\n  \
@@ -132,6 +130,42 @@ private def leanAdopter (repo adopter : FilePath) : IO (Array String) := do
   failures := failures ++ (← expect adopter
     { positive with label := "lean/needed-linter", contains := needed })
   IO.FS.removeFile tooling
+  restore adopter originals
+  -- The plain shape: without the `policy` target the workspace declares only `lean_lib` and
+  -- `lean_exe` targets and Regula's input targets, and no module of the package imports
+  -- `Regula.Linter`, so the driver builds without the marker. Its first run rebuilds the modules
+  -- built with the marker; then an ordinary build and the driver reuse each other's output.
+  let plain ← match (← IO.FS.readFile lakefile).splitOn "\n/-- The sole default target" with
+    | [declarations, _] => pure declarations
+    | _ => throw <| IO.userError "lake-lint: expected one policy target in the adopter's lakefile"
+  IO.FS.writeFile lakefile plain
+  let reused (label : String) : IO (Array String) := do
+    let first ← expect adopter { positive with label }
+    let ordinary ← runProcess adopter "lake" #["build", "Widget"] scrubbedLeanPathEnv
+    let rebuilt := if ordinary.succeeded && !ordinary.output.contains "] Built Widget" then #[]
+      else #[s!"lake-lint/{label}: the ordinary build rebuilt a module: {ordinary.output}"]
+    let again ← expect adopter
+      { positive with label := s!"{label}-again", excludes := positive.excludes.push "] Built" }
+    return first ++ rebuilt ++ again
+  failures := failures ++ (← reused "lean/plain-reused")
+  -- An `input_file` in `needs` keeps the plain shape.
+  let notes := adopter / "notes.txt"
+  IO.FS.writeFile notes "Widget notes.\n"
+  mutate lakefile "globs := #[.andSubmodules `Widget]"
+    "globs := #[.andSubmodules `Widget]\n  needs := #[`@/widgetNotes]\n\ninput_file widgetNotes \
+      where\n  path := \"notes.txt\""
+  failures := failures ++ (← reused "lean/input-needs-reused")
+  IO.FS.removeFile notes
+  -- A facet declared in place of one of Lake's, with Lake's fetch: Lake keeps no record of the
+  -- declaration, so the driver tells it apart by its configuration object and keeps the marker,
+  -- and an ordinary build after it rebuilds the library's modules.
+  IO.FS.writeFile lakefile (plain ++ "\n/-- Lake's `ilean` facet, declared again. -/\n\
+    @[«module_facet»] def ileanAgain : ModuleFacetDecl :=\n  \
+    ⟨Module.ileanFacet, { Module.ileanFacetConfig with buildable := false }⟩\n")
+  failures := failures ++ (← expect adopter { positive with label := "lean/lake-facet-marked" })
+  let ordinary ← runProcess adopter "lake" #["build", "Widget"] scrubbedLeanPathEnv
+  unless ordinary.succeeded && ordinary.output.contains "] Built Widget" do
+    failures := failures.push s!"lake-lint/lean/lake-facet-marked: {ordinary.output}"
   restore adopter originals
   -- An unimported glob module; the second run has every module cached.
   mutate additional "namespace Widget.Additional"

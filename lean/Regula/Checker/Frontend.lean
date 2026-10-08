@@ -325,8 +325,8 @@ private unsafe def newConstants (before after : Environment) : Array Name :=
 /-- Elaborate one exact source from a fresh frontend state and return the
 first-introduction transcript. Any diagnostic error or concurrent source
 change fails the call. Regula's local feedback is always off here through the audit-build
-marker, as in the `lint` driver's claimed build when a module of the root package can read it
-(`Lake.auditLeanOptions`), whatever the source sets `linter.regula` to
+marker, as in the `lint` driver's claimed build outside the plain shape of
+`Lake.auditMarkerNeeded` (`Lake.auditLeanOptions`), whatever the source sets `linter.regula` to
 (`Regula.Linter.liveFeedback_auditBuild`); the marker is unregistered and `weak.`, so every
 command scope elaborates exactly as without it. -/
 private unsafe def buildCore (moduleName : Name) (sourcePath : System.FilePath)

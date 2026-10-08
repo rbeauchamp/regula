@@ -173,69 +173,149 @@ so with it a module built with local feedback, for example by an ordinary `lake 
 rebuilt: its replayed log can neither add Regula warnings nor stand in for this configuration's
 warnings. Lake scopes Lean options by package and library, not by module, so the trace change
 reaches every root-package module that the claimed build compiles. `buildAuditTargets`
-therefore omits it only when no module of the root package can read it (`auditMarkerNeeded`);
-`axiomGate` and the build-lint target keep ordinary options (`AxiomGate.claimedBuild`). -/
+therefore omits it only for a workspace of the plain shape in which no module of the root
+package imports the marker's reader (`auditMarkerNeeded`); `axiomGate` and the build-lint target
+keep ordinary options (`AxiomGate.claimedBuild`). -/
 def auditLeanOptions : LeanOptions := .ofArray #[⟨Regula.Linter.auditBuildOption, .ofBool true⟩]
 
 /-- The module whose import loads Regula's local feedback: it registers the linter and the module
 hook with `initialize`, and it is the only module that reads the marker of `auditLeanOptions`.
-A module elaborates the same with the marker and without it when its transitive imports do not
-include this module and its configuration loads no code without an import (`MarkerInputs`),
-since every command scope ignores the unregistered `weak.` option. That this module is the only
-reader is checked by inspection. -/
+That it is the only reader is checked by inspection. -/
 def linterModule : Name := `Regula.Linter
 
-/-- What the `lint` driver reads of the root package before its claimed build. Lake applies a
-package's Lean options to the modules that the package owns: the buildable modules of its
-libraries and the roots of its executables (`BuildConfig.leanOptOverrides`). These are all the
-modules that `auditLeanOptions` can reach, whatever targets, `needs` or extra targets the build
-fetches. -/
+/-- The kind of a target that a package declares, or of the target that a `needs` entry names,
+as the plain shape reads it. -/
+inductive TargetKind where
+  /-- A `lean_lib`. -/
+  | leanLib
+  /-- A `lean_exe`. -/
+  | leanExe
+  /-- An `input_file`, which Lake only reads and hashes. -/
+  | inputFile
+  /-- An `input_dir`, which Lake only reads and hashes. -/
+  | inputDir
+  /-- Any other declaration (a custom `target`, an `extern_lib`, an unknown kind), or a `needs`
+  entry that names no target of its own package. -/
+  | other
+  deriving DecidableEq, Repr
+
+/-- What the plain shape reads of one package of the workspace. -/
+structure PackageShape where
+  /-- The kind of each target the package declares. -/
+  targets : Array TargetKind
+  /-- The kind of the target that each `needs` entry of its libraries and executables names. -/
+  needs : Array TargetKind
+  /-- The number of `extraDepTargets` entries of the package, its libraries and its
+  executables. -/
+  extraDeps : Nat
+  /-- The number of plugins, dynamic libraries, and extra `lean`, `leanc` and link arguments,
+  objects and libraries that the package, its libraries and its executables configure. -/
+  extras : Nat
+
+/-- The plain shape of a package: it declares only `lean_lib`, `lean_exe`, `input_file` and
+`input_dir` targets, each `needs` entry names an `input_file` or an `input_dir` of the package,
+and it has no extra-dependency target and no plugin, dynamic library or extra argument, object or
+library. In a workspace of such packages that declares no facet, new or of Lake's name, a build
+of `lean_lib` and `lean_exe` targets runs no project code: it compiles modules and reads and
+hashes input files. -/
+def PackageShape.Plain (shape : PackageShape) : Prop :=
+  (∀ kind ∈ shape.targets,
+      kind = .leanLib ∨ kind = .leanExe ∨ kind = .inputFile ∨ kind = .inputDir) ∧
+    (∀ kind ∈ shape.needs, kind = .inputFile ∨ kind = .inputDir) ∧
+    shape.extraDeps = 0 ∧ shape.extras = 0
+
+/-- Whether `kind` is one of the four kinds the plain shape admits. -/
+def TargetKind.admitted : TargetKind → Bool
+  | .other => false
+  | _ => true
+
+/-- Whether `kind` is one of the two input kinds. -/
+def TargetKind.input : TargetKind → Bool
+  | .inputFile | .inputDir => true
+  | _ => false
+
+/-- The test of `PackageShape.Plain` (`plain_iff`). -/
+def PackageShape.plain (shape : PackageShape) : Bool :=
+  shape.targets.all TargetKind.admitted && shape.needs.all TargetKind.input &&
+    shape.extraDeps == 0 && shape.extras == 0
+
+/-- `TargetKind.admitted` holds exactly for the four admitted kinds. -/
+theorem TargetKind.admitted_iff (kind : TargetKind) :
+    kind.admitted = true ↔
+      kind = .leanLib ∨ kind = .leanExe ∨ kind = .inputFile ∨ kind = .inputDir := by
+  cases kind <;> simp [admitted]
+
+/-- `TargetKind.input` holds exactly for the two input kinds. -/
+theorem TargetKind.input_iff (kind : TargetKind) :
+    kind.input = true ↔ kind = .inputFile ∨ kind = .inputDir := by
+  cases kind <;> simp [input]
+
+/-- `PackageShape.plain` decides `PackageShape.Plain`. -/
+theorem PackageShape.plain_iff (shape : PackageShape) : shape.plain = true ↔ shape.Plain := by
+  simp only [plain, Plain, Bool.and_eq_true, Array.all_eq_true', beq_iff_eq,
+    TargetKind.admitted_iff, TargetKind.input_iff, and_assoc]
+
+/-- What the `lint` driver reads of the workspace before its claimed build: the shape of each
+package, the facets it declares, and each module that the root package owns with its
+transitive imports. Lake applies the root package's Lean options to the modules that package
+owns: the buildable modules of its libraries and the roots of its executables. -/
 structure MarkerInputs where
+  /-- The shape of each package of the workspace (`packageShape`). -/
+  packages : Array PackageShape
+  /-- The number of facets that the workspace declares, new or in place of Lake's own
+  (`customFacets`). -/
+  customFacets : Nat
   /-- Each buildable module of the root package's libraries (`buildableModules`) and each root of
   its executables, with the modules that Lake reports it imports transitively
   (`moduleImports`). -/
   closure : Array (Name × Array Name)
-  /-- Whether the root package, one of its libraries or one of its executables configures a
-  plugin, a dynamic library or an extra `lean` argument, any of which can load code into an
-  elaboration without an import (`configLoadsCode`). -/
-  loadsCode : Bool
 
-/-- Whether the `lint` driver's claimed build passes `auditLeanOptions`: the root package's
-configuration can load code without an import, or one of its modules imports `linterModule`,
-directly or transitively (`auditMarkerNeeded_iff`). -/
+/-- Whether the `lint` driver's claimed build passes `auditLeanOptions`: the workspace is not of
+the plain shape (a package that is not `PackageShape.Plain`, or a custom facet), or a module of
+the root package imports `linterModule`, directly or transitively (`auditMarkerNeeded_iff`). -/
 @[regula_decision]
 def auditMarkerNeeded (inputs : MarkerInputs) : Bool :=
-  inputs.loadsCode || inputs.closure.any fun entry => entry.2.contains linterModule
+  !(inputs.packages.all PackageShape.plain && inputs.customFacets == 0) ||
+    inputs.closure.any fun entry => entry.2.contains linterModule
 
-/-- `auditMarkerNeeded` asks for the marker exactly when the configuration loads code without an
-import or some entry's imports have the linter's module among them. -/
+/-- `auditMarkerNeeded` asks for the marker exactly when the workspace is not of the plain shape
+or some entry's imports have the linter's module among them. -/
 theorem auditMarkerNeeded_iff (inputs : MarkerInputs) :
     auditMarkerNeeded inputs = true ↔
-      inputs.loadsCode = true ∨ ∃ entry ∈ inputs.closure, linterModule ∈ entry.2 := by
-  simp only [auditMarkerNeeded, Bool.or_eq_true, Array.any_eq_true, Array.contains_iff_mem]
-  constructor
-  · rintro (loads | ⟨i, bound, member⟩)
-    · exact .inl loads
-    · exact .inr ⟨inputs.closure[i], Array.getElem_mem bound, member⟩
-  · rintro (loads | ⟨entry, entered, member⟩)
-    · exact .inl loads
-    · obtain ⟨i, bound, rfl⟩ := Array.getElem_of_mem entered
-      exact .inr ⟨i, bound, member⟩
+      ¬ ((∀ shape ∈ inputs.packages, shape.Plain) ∧ inputs.customFacets = 0) ∨
+        ∃ entry ∈ inputs.closure, linterModule ∈ entry.2 := by
+  have plain : (inputs.packages.all PackageShape.plain && inputs.customFacets == 0) = true ↔
+      (∀ shape ∈ inputs.packages, shape.Plain) ∧ inputs.customFacets = 0 := by
+    simp only [Bool.and_eq_true, Array.all_eq_true', PackageShape.plain_iff, beq_iff_eq]
+  have imports : (inputs.closure.any fun entry => entry.2.contains linterModule) = true ↔
+      ∃ entry ∈ inputs.closure, linterModule ∈ entry.2 := by
+    simp only [Array.any_eq_true, Array.contains_iff_mem]
+    constructor
+    · rintro ⟨i, bound, member⟩
+      exact ⟨inputs.closure[i], Array.getElem_mem bound, member⟩
+    · rintro ⟨entry, entered, member⟩
+      obtain ⟨i, bound, rfl⟩ := Array.getElem_of_mem entered
+      exact ⟨i, bound, member⟩
+  rw [auditMarkerNeeded, Bool.or_eq_true, Bool.not_eq_true', Bool.eq_false_iff, ne_eq, plain,
+    imports]
 
-/-- `auditMarkerNeeded` is a sound and complete decision of "the root package's configuration
-loads code without an import, or one of its modules imports the linter's module"
-(`auditMarkerNeeded_iff`): it asks for the marker for a configuration that loads code and not
-for an empty package. The specification is a statement about a field and membership; it names
-no test of the implementation. It does not establish that `linterModule` is the only reader of
-the marker, nor that the inputs hold every module the root package owns with its transitive
-imports: the first is checked by inspection, and the second rests on `buildableModules`, Lake's
-`transImports` facet and the reading of the configuration (`markerInputs`). -/
+/-- `auditMarkerNeeded` is a sound and complete decision of "the workspace is not of the plain
+shape, or a module of the root package imports the linter's module" (`auditMarkerNeeded_iff`):
+it asks for the marker for a workspace with a custom facet and not for an empty one. The
+specification is a statement about fields, kinds and membership; it names no test of the
+implementation. It does not establish that `linterModule` is the only reader of the marker, nor
+that the inputs describe the workspace: the first is checked by inspection, and the second rests
+on `markerInputs`, Lake's configuration and its `transImports` facet. -/
 theorem checked_auditMarkerNeeded : Regula.ExecutableContract auditMarkerNeeded
     (Regula.Decides (· = true) fun inputs : MarkerInputs =>
-      inputs.loadsCode = true ∨ ∃ entry ∈ inputs.closure, linterModule ∈ entry.2) :=
+      ¬ ((∀ shape ∈ inputs.packages, shape.Plain) ∧ inputs.customFacets = 0) ∨
+        ∃ entry ∈ inputs.closure, linterModule ∈ entry.2) :=
   ⟨Regula.Decides.of_iff auditMarkerNeeded_iff
-    ⟨⟨#[], true⟩, (auditMarkerNeeded_iff _).mpr (.inl rfl)⟩
-    ⟨⟨#[], false⟩, fun accepted => by simpa using (auditMarkerNeeded_iff _).mp accepted⟩⟩
+    ⟨⟨#[], 1, #[]⟩, (auditMarkerNeeded_iff _).mpr (.inl fun ⟨_, zero⟩ => absurd zero (by decide))⟩
+    ⟨⟨#[], 0, #[]⟩, fun accepted => by
+      rcases (auditMarkerNeeded_iff _).mp accepted with notPlain | ⟨_, member, _⟩
+      · exact notPlain ⟨(fun _ member => by simp at member), rfl⟩
+      · simp at member⟩⟩
 
 /-- Lake reads an explicit `+module` with `String.toName` and splits facets at `:`.
 Use that spelling, with `facet`, only when it retains the exact discovered root name, as for
@@ -268,39 +348,85 @@ def moduleImports (ws : _root_.Lake.Workspace) (modules : Array Name) :
     let imports ← (Json.parse answer >>= fromJson? (α := Array Name)).toOption
     pure (name, imports)
 
-/-- Whether `config` can load code into an elaboration without an import: it names a plugin or a
-dynamic library, or it has an extra `lean` argument, which can name either. Every extra argument
-counts, so the answer errs toward loading code. -/
-def configLoadsCode (config : _root_.Lake.LeanConfig) : Bool :=
-  !config.moreLeanArgs.isEmpty || !config.weakLeanArgs.isEmpty || !config.dynlibs.isEmpty ||
-    !config.plugins.isEmpty
+/-- The kind of a declaration from its Lake kind name. -/
+def declarationKind (kind : Name) : TargetKind :=
+  if kind == _root_.Lake.LeanLib.configKind then .leanLib
+  else if kind == _root_.Lake.LeanExe.configKind then .leanExe
+  else if kind == _root_.Lake.InputFile.configKind then .inputFile
+  else if kind == _root_.Lake.InputDir.configKind then .inputDir
+  else .other
 
-/-- The `MarkerInputs` of the root package of `ws`: every module it owns with its transitive
-imports, and whether its configuration, or that of one of its libraries or executables, loads
-code without an import. `none` when Lake cannot read the imports of one of its modules. -/
-def markerInputs (ws : _root_.Lake.Workspace) : IO (Option MarkerInputs) := do
+/-- The kind of the target that the `needs` entry `key` of a library or an executable of
+`package` names: a target of `package` written `@/NAME` or `@PACKAGE/NAME`, with no facet. Every
+other entry, such as a module, a facet or a target of another package, is `other`. -/
+def needKind (package : _root_.Lake.Package) (key : _root_.Lake.PartialBuildKey) : TargetKind :=
+  match key with
+  | .packageTarget owner target =>
+      if owner.isAnonymous || owner == package.baseName || owner == package.keyName then
+        match package.targetDecls.find? (·.name == target) with
+        | some declaration => declarationKind declaration.kind
+        | none => .other
+      else .other
+  | _ => .other
+
+/-- The number of plugins, dynamic libraries, and extra `lean`, `leanc` and link arguments,
+objects and libraries that `config` sets. -/
+def configExtras (config : _root_.Lake.LeanConfig) : Nat :=
+  config.moreLeanArgs.size + config.weakLeanArgs.size + config.moreLeancArgs.size +
+    config.weakLeancArgs.size + config.moreLinkArgs.size + config.weakLinkArgs.size +
+    config.moreLinkObjs.size + config.moreLinkLibs.size + config.dynlibs.size +
+    config.plugins.size
+
+/-- What the plain shape reads of `package`: Lake's configuration of the package, its libraries
+and its executables. -/
+def packageShape (package : _root_.Lake.Package) : PackageShape where
+  targets := package.targetDecls.map (declarationKind ·.kind)
+  needs := (package.leanLibs.flatMap (·.config.needs) ++
+      package.leanExes.flatMap (·.config.needs)).map (needKind package)
+  extraDeps := package.config.extraDepTargets.size +
+    (package.leanLibs.map (·.config.extraDepTargets.size)).sum +
+    (package.leanExes.map (·.config.extraDepTargets.size)).sum
+  extras := configExtras package.config.toLeanConfig +
+    (package.leanLibs.map (configExtras ·.config.toLeanConfig)).sum +
+    (package.leanExes.map (configExtras ·.config.toLeanConfig)).sum
+
+/-- The number of facets of `ws` that are not Lake's own: each name outside `initFacetConfigs`, and
+each name of Lake's that a configuration declares again. Lake puts a declared facet in place of
+its own facet of that name (`FacetConfigMap.insert`) and keeps no record of the declaration, so a
+facet counts as Lake's own only when its configuration is the very object of `initFacetConfigs`
+that the workspace was loaded from; a declared facet is a new object. Comparing addresses is
+`unsafe`. An object of Lake's that is not shared only counts as declared, which keeps the
+marker. -/
+unsafe def customFacets (ws : _root_.Lake.Workspace) : Nat :=
+  ws.facetConfigs.foldl (init := 0) fun count name config =>
+    match _root_.Lake.FacetConfigMap.get? name _root_.Lake.initFacetConfigs with
+    | some lake => if ptrEq config lake then count else count + 1
+    | none => count + 1
+
+/-- The `MarkerInputs` of `ws`. `none` when Lake cannot read the imports of a module of the root
+package; the caller also keeps the marker when this raises. -/
+unsafe def markerInputs (ws : _root_.Lake.Workspace) : IO (Option MarkerInputs) := do
   let root := ws.root
   let mut modules : Array Name := #[]
   for library in root.leanLibs do
     modules := modules ++ (← buildableModules library)
   modules := modules ++ root.leanExes.map (·.root.name)
   let some closure ← moduleImports ws modules | return none
-  let loadsCode := configLoadsCode root.config.toLeanConfig ||
-    root.leanLibs.any (configLoadsCode ·.config.toLeanConfig) ||
-    root.leanExes.any (configLoadsCode ·.config.toLeanConfig)
-  return some { closure, loadsCode }
+  return some
+    { packages := ws.packages.map packageShape, customFacets := customFacets ws, closure }
 
 /-- `buildTargets`, run in-process through Lake's build API because the `lake build` command line
 sets no Lean options, with `auditLeanOptions` on the root package unless `auditMarkerNeeded`
-establishes that no module the root package owns can read the marker. Lake applies the override
-only to those modules, and the decision reads each of them, so the answer does not depend on
-which targets, `needs` or extra targets the build fetches. Without the marker each module that
-the build compiles elaborates as in an ordinary build, so the ordinary build output is reused as
-it is. When `markerInputs` cannot read the imports, the marker is kept. The inherited search
-paths are ignored as in `buildTargets`; the build monitor's text is the output, and a failed
-build exits 1. Lake's progress line for each job is also shown as the build runs, as by
-`buildTargetsShowing`. -/
-def buildAuditTargets (repo : FilePath) (targets : Array String) : IO ProcessResult := do
+decides that the workspace is of the plain shape and that no module of the root package imports
+`linterModule`. Each failure to read the workspace, by an exception or by an unknown, keeps the
+marker. The marked build and the unmarked one give the same verdict for that shape only: a build
+of `lean_lib` and `lean_exe` targets in it runs no project code, so it compiles only modules that
+the root package owns, whose imports the decision read (or modules of other packages, which the
+root package's options do not reach), and the marker's only reader is loaded in none of them.
+Without the marker the ordinary build output is reused as it is. The inherited search paths are
+ignored as in `buildTargets`; the build monitor's text is the output, and a failed build exits 1.
+Lake's progress line for each job is also shown as the build runs, as by `buildTargetsShowing`. -/
+unsafe def buildAuditTargets (repo : FilePath) (targets : Array String) : IO ProcessResult := do
   let buffer ← IO.mkRef ({} : IO.FS.Stream.Buffer)
   let out ← showingStream (IO.FS.Stream.ofBuffer buffer) isLakeProgressLine
   let exitCode ← try
@@ -308,9 +434,11 @@ def buildAuditTargets (repo : FilePath) (targets : Array String) : IO ProcessRes
         let specs ← match ← (_root_.Lake.parseTargetSpecs ws targets.toList).toBaseIO with
           | .ok specs => pure specs
           | .error error => throw <| IO.userError (toString error)
-        let marked := match ← markerInputs ws with
-          | some inputs => checked_auditMarkerNeeded.run inputs
-          | none => true
+        let marked ← try
+            pure <| match ← markerInputs ws with
+              | some inputs => checked_auditMarkerNeeded.run inputs
+              | none => true
+          catch _ => pure true
         let overrides : NameMap LeanOptions :=
           if marked then ({} : NameMap LeanOptions).insert ws.root.baseName auditLeanOptions else {}
         ws.runBuild (_root_.Lake.buildSpecs specs) {
