@@ -1106,7 +1106,8 @@ def guide : RuleId → Guide
           (standard §6.2). The detector sees only emitted warnings, so it cannot tell such a \
           disable from a forbidden one; review checks them."]
       limitations := [
-        "`lake lint` builds with Regula's audit-build marker, which turns the local linter off \
+        "When a claimed module imports `Regula.Linter`, `lake lint` builds with Regula's \
+          audit-build marker, which turns the local linter off \
           whatever the source sets `linter.regula` to, so Regula's own local findings are not \
           build warnings there and its policy stages report those rules. `axiomGate` and the \
           build-lint `policy` target keep ordinary options, so in a module that imports \

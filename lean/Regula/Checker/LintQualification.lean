@@ -77,7 +77,10 @@ private def restore (adopter : FilePath) (files : Array (FilePath × String)) : 
 a claimed import outside every library (RG2004) in the driver and the file audit, a failed audit
 worker reported with its own error, Lake's builtin-only and combined dispatch, and the read-only
 configuration explanation. Default output shows Lake's build progress and no timing span; the
-file audit lists every classified declaration only with `--verbose`. -/
+file audit lists every classified declaration only with `--verbose`. No module of this adopter
+imports `Regula.Linter`, so the driver builds without the audit-build marker
+(`Lake.auditMarkerNeeded`), and an ordinary `lake build` and the driver reuse each other's build
+output. -/
 private def leanAdopter (repo adopter : FilePath) : IO (Array String) := do
   BuildLintQualification.setup repo adopter
   -- The first run builds every module, showing Lake's progress line for each.
@@ -85,6 +88,14 @@ private def leanAdopter (repo adopter : FilePath) : IO (Array String) := do
   let mut failures ← expect adopter
     { positive with contains := positive.contains.push "] Built Widget" }
   if !failures.isEmpty then return failures
+  -- Without the marker the driver's build has the options of an ordinary build: an ordinary
+  -- build after it rebuilds no module, and the driver after that rebuilds none either. With the
+  -- marker each would rebuild every module of the library.
+  let ordinary ← runProcess adopter "lake" #["build", "Widget"] scrubbedLeanPathEnv
+  unless ordinary.succeeded && !ordinary.output.contains "] Built Widget" do
+    failures := failures.push s!"lake-lint/lean/ordinary-reused: {ordinary.output}"
+  failures := failures ++ (← expect adopter
+    { positive with label := "lean/driver-reused", excludes := positive.excludes.push "] Built" })
   failures := failures ++ (← expect adopter {
       label := "lean/explain-config", exitCode := 2,
       contains := #["no audit was run", "Widget.Additional", "kernel-only"],
@@ -222,9 +233,12 @@ private def tomlAdopter (repo adopter : FilePath) : IO (Array String) := do
   let ordinary ← runProcess adopter "lake" #["build"] scrubbedLeanPathEnv
   unless ordinary.succeeded && ordinary.output.contains "RG1001 [violation; editorSnapshot" do
     failures := failures.push s!"lake-lint/toml/live-build: {ordinary.output}"
+  -- `Gadget.Double` imports `Regula.Linter`, so the driver builds with the audit-build marker
+  -- (`Lake.auditMarkerNeeded`) and rebuilds the module that the ordinary build made.
   failures := failures ++ (← expect adopter {
       label := "toml/live-finding", exitCode := 1,
-      contains := #["RG1001", "liveFinding", "regula lint: VIOLATION (exit 1)"],
+      contains := #["RG1001", "liveFinding", "regula lint: VIOLATION (exit 1)",
+        "] Built Gadget.Double"],
       excludes := #["build-failed", "editorSnapshot"] })
   restore adopter originals
   -- A `lean_lib` and a `lean_exe` whose Lake target names are not Lean identifiers (#163, #166).
