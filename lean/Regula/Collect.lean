@@ -33,6 +33,7 @@ public import Lean.ProjFns
 public import Lean.Util.FoldConsts
 public import RegulaPolicy.Domain
 public import RegulaPolicy.Erasure
+public import RegulaPolicy.NativeStatement
 public import Regula.Contract
 public import Regula.Decision
 
@@ -1917,54 +1918,53 @@ private def unsafeRecRegeneration (env : Environment) (name : Name) (info : Cons
         function it calls its reducibility where the function is declared."
     return none
 
-/-- The Boolean expression `e` of a type `e = true`. -/
-private def assertedBool? (type : Expr) : Option Expr := do
-  let args := type.getAppArgs
-  guard <| type.getAppFn.isConstOf ``Eq
-  guard <| args.size == 3
-  guard <| args[0]!.isConstOf ``Bool
-  guard <| args[2]!.isConstOf ``Bool.true
-  return args[1]!
-
-/-- `Std.Tactic.BVDecide.Reflect.verifyBVExpr`, the check `bv_decide` evaluates natively. -/
-private def verifyBVExprName : Name := `Std.Tactic.BVDecide.Reflect.verifyBVExpr
-
-/-- The asserted Boolean expression of a generated native-proof axiom, when it has the exact
-shape its tactic produces: `Decidable.decide p inst` (`elabNativeDecideCore`), or
-`verifyBVExpr expr cert` over the same run's `_expr_def` and `_cert_def` definitions
-(`LratCert.toReflectionProof`). The tactic comes from the name (`nativeAxiomOrigin?`). -/
-def nativeAsserted? (name : Name) (type : Expr) : Option (Name × NativeTactic × Expr) := do
+/-- The candidate of a generated native-proof axiom with its recognition: the owning prefix and
+the tactic, which `RegulaPolicy.nativeAxiomOrigin?` reads from the name, with the kernel-checked
+type, and the Boolean expression that the type asserts in the exact shape its tactic produces.
+The pure decision `RegulaPolicy.NativeStatement.recognize?` decides the shape, through its
+registered contract (`RegulaPolicy.NativeStatement.checked_recognize`). It reads the tactic, the
+prefix and the type, and nothing else. A recognition is indexed by its candidate and holds the
+proof that the decision returns its expression for that candidate
+(`RegulaPolicy.NativeStatement.Recognition`). -/
+def nativeRecognition? (name : Name) (type : Expr) :
+    Option ((candidate : RegulaPolicy.NativeStatement.Candidate) ×
+      RegulaPolicy.NativeStatement.Recognition candidate) := do
   let (parent, tactic) ← RegulaPolicy.nativeAxiomOrigin? name
-  let asserted ← assertedBool? type
-  match tactic with
-  | .nativeDecide | .decideNative => guard <| asserted.isAppOfArity ``Decidable.decide 2
-  | .bvDecide =>
-      guard <| asserted.isAppOfArity verifyBVExprName 2
-      guard <| ([asserted.appFn!.appArg!, asserted.appArg!].zip tactic.auxiliaryInfixes).all
-        fun (argument, kind) => argument.isConst &&
-          RegulaPolicy.generatedAuxParent? kind argument.constName! == some parent
-  return (parent, tactic, asserted)
+  let candidate : RegulaPolicy.NativeStatement.Candidate := { tactic, parent, type }
+  let recognition ← RegulaPolicy.NativeStatement.checked_recognize.run candidate
+  return ⟨candidate, recognition⟩
 
-/-- `Declaration.nativeStatement` and `AddedDeclaration.nativeStatement`: the `repr` of the
-asserted expression, naming each auxiliary definition of the same tactic run by its unindexed
-base, so a fresh transcript and a build that index generated names differently agree. -/
-def nativeStatement? (name : Name) (type : Expr) : Option String := do
-  let (parent, tactic, asserted) ← nativeAsserted? name type
-  let unindexed := asserted.replace fun
-    | .const constant levels => tactic.auxiliaryInfixes.findSome? fun kind =>
-        if RegulaPolicy.generatedAuxParent? kind constant == some parent then
-          some (mkConst (Name.mkStr parent kind) levels)
+/-- The `repr` of the asserted expression of a recognition, naming each auxiliary definition of
+the same tactic run by its unindexed base, so a fresh transcript and a build that index generated
+names differently agree. -/
+def nativeStatementText {candidate : RegulaPolicy.NativeStatement.Candidate}
+    (recognition : RegulaPolicy.NativeStatement.Recognition candidate) : String :=
+  let unindexed := recognition.asserted.replace fun
+    | .const constant levels => candidate.tactic.auxiliaryInfixes.findSome? fun kind =>
+        if RegulaPolicy.generatedAuxParent? kind constant == some candidate.parent then
+          some (mkConst (Name.mkStr candidate.parent kind) levels)
         else none
     | _ => none
-  return toString (repr unindexed)
+  toString (repr unindexed)
 
-/-- Independently replay the Boolean native evaluation without retaining any
-declaration it creates. This remains compiler evidence, never a kernel proof. A failed replay
-is `false`; a `checkerLimit?` reached during it is rethrown. -/
-private def replayNative (asserted : Expr) : CommandElabM Bool :=
+/-- `Declaration.nativeStatement` and `AddedDeclaration.nativeStatement`: the text of the
+recognized statement of the axiom (`nativeRecognition?`, `nativeStatementText`), and `none` for a
+constant with no recognized statement. -/
+def nativeStatement? (name : Name) (type : Expr) : Option String :=
+  (nativeRecognition? name type).map fun found => nativeStatementText found.2
+
+/-- The observing pass of the native-axiom replay: independently replay the Boolean native
+evaluation of the expression of a recognition, without retaining any declaration it creates. The
+pass takes a recognition of a candidate. Each value of that type is the result of the pure
+decision for that candidate (`RegulaPolicy.NativeStatement.recognize?_eq_some`), so the expression
+it evaluates is the one that the decision returned for that tactic, prefix and type, and no
+other. This remains compiler evidence, never a kernel proof. A failed replay is `false`; a
+`checkerLimit?` reached during it is rethrown. -/
+private def replayNative {candidate : RegulaPolicy.NativeStatement.Candidate}
+    (recognition : RegulaPolicy.NativeStatement.Recognition candidate) : CommandElabM Bool :=
   liftTermElabM <| withoutModifyingEnv do
     try
-      return match ← Meta.nativeEqTrue `audit_native_replay asserted with
+      return match ← Meta.nativeEqTrue `audit_native_replay recognition.asserted with
         | .success _ => true
         | .notTrue   => false
     catch ex =>
@@ -3306,8 +3306,12 @@ private def declarationReading (name : Name) (stage : Stage) (scope? : Option Co
         try constructorIndexObservation env name
         catch ex => if (← checkerLimit? ex).isSome then throw ex else pure none
     else pure none
-  let native? := if stage == .replayCandidate then nativeAsserted? name info.type else none
-  let nativeReplay? ← native?.mapM fun (_, _, asserted) => replayNative asserted
+  -- One recognition gives the recorded statement and the replayed expression: a replay is
+  -- recorded only for an axiom with a recognized statement.
+  let native? := nativeRecognition? name info.type
+  let nativeReplay? ← if stage == .replayCandidate then
+      native?.mapM fun found => replayNative found.2
+    else pure none
   let levelParams : List Name := info.levelParams
   let all : List Name :=
     match info with
@@ -3356,7 +3360,7 @@ private def declarationReading (name : Name) (stage : Stage) (scope? : Option Co
     valueConstants := RegulaPolicy.canonicalNames valueConstants
     unsafeRecRegenerated
     constructorIndex
-    nativeStatement := nativeStatement? name info.type
+    nativeStatement := native?.map fun found => nativeStatementText found.2
     nativeReplay := nativeReplay?
     recordedRanges := ranges?.map rangesReport
     generatedFrom

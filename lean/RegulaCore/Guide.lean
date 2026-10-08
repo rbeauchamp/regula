@@ -306,9 +306,21 @@ def guide : RuleId → Guide
         declaration in its own module in either privacy mode. The execution probe classifies by \
         `RegulaPolicy.compilerTrustingAxiomName`, which `compilerTrustingAxiomName_iff` \
         characterizes as exactly those generated names and the enabled legacy compiler axioms. Both \
-        characterizations assume the runtime string append `RuntimeStringAppend`."
+        characterizations assume the runtime string append `RuntimeStringAppend`. The pure \
+        decision `RegulaPolicy.NativeStatement.recognize?` decides the shape of the statement \
+        that the replay reads, from a tactic, a prefix and a type. \
+        `NativeStatement.asserted?_sound` proves, with no hypothesis, that an accepted type is \
+        the statement of that tactic under that prefix (`NativeStatement.Statement`); \
+        `NativeStatement.asserted?_complete` proves that such a statement is accepted, with the \
+        hypothesis `RuntimeStringAppend` for `bv_decide` only; and \
+        `NativeStatement.checked_recognize` registers the sound kind only. That the tactic and \
+        the prefix given to the decision are those of the axiom's name is read from \
+        `Regula.Collect.nativeRecognition?`, not proved, and no theorem states that the type is \
+        the axiom's. The native replay of the accepted expression (`Regula.Collect`) is an \
+        operational observation, not a proof."
       sources :=
           ["lean/RegulaPolicy/Decision.lean", "lean/RegulaPolicy/NativeAxiom.lean",
+              "lean/RegulaPolicy/NativeStatement.lean", "lean/Regula/Collect.lean",
               "lean/Regula/Checker/Frontend.lean", "lean/RegulaCore/Policy.lean"] }
   | .profileExceeded => {
       problem := "A declaration's exact transitive axiom set is admissible, but its least \

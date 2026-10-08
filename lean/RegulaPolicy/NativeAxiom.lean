@@ -47,7 +47,12 @@ whichever tactic, wrapper or command reached the call.
 `compilerTrustingAxiomName` is the single name-level compiler-trust classification.
 `nativeAxiomOrigin?_sound` and `nativeAxiomOrigin?_nativeAxiomName` prove the two inclusions; the
 second assumes `RuntimeStringAppend`, because `Name.appendIndexAfter` appends with the logically
-opaque `String.Internal.append`. `generatedPrefix_iff` proves that the names recognized under a
+opaque `String.Internal.append`. `generatedAuxParent?_sound` and
+`generatedAuxParent?_of_generatedAux` prove the same two inclusions for the names of the auxiliary
+definitions of a tactic run (`GeneratedAux`), the second under the same hypothesis and for an
+infix such that no text that starts with it is the macro-scope marker `_hyg`. The two infixes of
+`bv_decide`, `_expr_def` and `_cert_def`, are such infixes.
+`generatedPrefix_iff` proves that the names recognized under a
 prefix related to a declaration by `GeneratedPrefix` are exactly those the generator gives that
 declaration's native axioms in its own module, in either privacy mode. A recognized name is not
 an authorization: the generated-role relation in `RoleSpecification` authenticates the actual
@@ -237,11 +242,11 @@ theorem nativeAxiomOrigin?_shape {n parent : Name} {t : NativeTactic}
 
 /-! ## Completeness: every generated name is recognized -/
 
-/-- The suffix string the indices produce after `ax`. -/
-def indexSuffix (idxs : List Nat) : String :=
-  idxs.foldr (fun i s => s ++ "_" ++ toString i) "ax"
+/-- The suffix string the indices produce after `base`: after `ax` for a native axiom. -/
+def indexSuffix (idxs : List Nat) (base : String := "ax") : String :=
+  idxs.foldr (fun i s => s ++ "_" ++ toString i) base
 
-/-- The `_d…` characters the indices append after `ax`, innermost index first. -/
+/-- The `_d…` characters the indices append after the base, innermost index first. -/
 def indexChars (idxs : List Nat) : List Char :=
   idxs.reverse.flatMap fun i => '_' :: Nat.toDigits 10 i
 
@@ -278,34 +283,41 @@ theorem scanGroups_flatMap (l : List Nat) (rest : List Char) (groups : List (Lis
     simp
 
 /-- The characters of `indexSuffix`. -/
-theorem toList_indexSuffix (idxs : List Nat) :
-    (indexSuffix idxs).toList = 'a' :: 'x' :: indexChars idxs := by
+theorem toList_indexSuffix (idxs : List Nat) (base : String) :
+    (indexSuffix idxs base).toList = base.toList ++ indexChars idxs := by
   induction idxs with
-  | nil => rfl
+  | nil => simp [indexSuffix, indexChars]
   | cons i idxs ih =>
     simp only [indexSuffix, List.foldr_cons] at ih ⊢
     rw [String.toList_append, String.toList_append, ih]
     simp [indexChars, Nat.toString_eq_repr, Nat.toList_repr]
 
 /-- The indices are recovered from the suffix they generate. -/
-theorem generatedIndices?_indexSuffix (idxs : List Nat) :
-    generatedIndices? "ax" (indexSuffix idxs) = some idxs := by
-  have hs : stripPrefix "ax".toList (indexSuffix idxs).toList = some (indexChars idxs) := by
-    rw [toList_indexSuffix]
-    exact stripPrefix_append ['a', 'x'] _
+theorem generatedIndices?_indexSuffix (idxs : List Nat) (base : String) :
+    generatedIndices? base (indexSuffix idxs base) = some idxs := by
+  have hs : stripPrefix base.toList (indexSuffix idxs base).toList = some (indexChars idxs) := by
+    rw [toList_indexSuffix idxs base]
+    exact stripPrefix_append base.toList _
   have := scanGroups_flatMap idxs.reverse [] []
   simp only [List.append_nil, List.reverse_reverse] at this
   simp only [generatedIndices?, hs, Option.bind_eq_bind, Option.bind_some, indexChars, this,
     scanGroups.eq_1, Option.map_some, List.map_map]
   simp [Function.comp_def, Nat.ofDigitChars_ten_toDigits]
 
-/-- A generated suffix is never the macro-scope marker `_hyg`. -/
-theorem indexSuffix_ne_hyg (idxs : List Nat) : (indexSuffix idxs == "_hyg") = false := by
+/-- A suffix generated after `base` is never the macro-scope marker `_hyg`, when no text that
+starts with `base` is that marker. -/
+theorem indexSuffix_ne_hyg_of {base : String}
+    (differs : ∀ rest, base.toList ++ rest ≠ "_hyg".toList) (idxs : List Nat) :
+    (indexSuffix idxs base == "_hyg") = false := by
   rw [beq_eq_false_iff_ne]
   intro h
   have := congrArg String.toList h
-  rw [toList_indexSuffix] at this
-  simp at this
+  rw [toList_indexSuffix idxs base] at this
+  exact differs _ this
+
+/-- A generated suffix is never the macro-scope marker `_hyg`. -/
+theorem indexSuffix_ne_hyg (idxs : List Nat) : (indexSuffix idxs == "_hyg") = false :=
+  indexSuffix_ne_hyg_of (by simp) idxs
 
 /-- Under `RuntimeStringAppend`, the scheme's name has the three-component native tail with the
 index suffix `ax_…`. -/
@@ -325,6 +337,64 @@ theorem nativeAxiomName_eq (hAppend : RuntimeStringAppend) (parent : Name) (t : 
     simp only [Name.appendIndexAfter, Name.modifyBase, Name.hasMacroScopes, indexSuffix_ne_hyg,
       Bool.false_eq_true, ↓reduceIte, Name.mkStr, append]
     rfl
+
+/-- `name` is a name Lean's generator gives, under the prefix `parent`, to an auxiliary
+declaration of the one-component infix `kind`: `generatedName` at generator indices that
+`NativeGenerated` admits. -/
+def GeneratedAux (kind : String) (parent name : Name) : Prop :=
+  ∃ idxs, NativeGenerated parent idxs ∧ name = generatedName parent (.str .anonymous kind) idxs
+
+/-- A recognized auxiliary name is the generator's name under the recovered prefix. -/
+theorem generatedAuxParent?_sound {kind : String} {n parent : Name}
+    (h : generatedAuxParent? kind n = some parent) : GeneratedAux kind parent n := by
+  unfold generatedAuxParent? at h
+  split at h
+  · simp only [Option.bind_eq_bind, Option.bind_eq_some_iff] at h
+    obtain ⟨idxs, _, h⟩ := h
+    split at h
+    · rename_i hg
+      simp only [Option.some.injEq] at h
+      subst h
+      exact ⟨idxs, hg.1, hg.2.symm⟩
+    · simp at h
+  · simp at h
+
+/-- Under `RuntimeStringAppend`, for a prefix without macro scopes
+(`parent.hasMacroScopes = false`), the generator's name for the one-component infix `kind` is the
+prefix with one more component, `kind` and the index suffix, when no text that starts with
+`kind` is the macro-scope marker `_hyg`. -/
+theorem generatedName_str (hAppend : RuntimeStringAppend) (parent : Name) (kind : String)
+    (idxs : List Nat) (hp : parent.hasMacroScopes = false)
+    (differs : ∀ rest, kind.toList ++ rest ≠ "_hyg".toList) :
+    generatedName parent (.str .anonymous kind) idxs = .str parent (indexSuffix idxs kind) := by
+  induction idxs with
+  | nil =>
+    have hk : (kind == "_hyg") = false := indexSuffix_ne_hyg_of differs []
+    simp [generatedName, indexSuffix, HAppend.hAppend, Append.append, Name.append, hp,
+      Name.hasMacroScopes, hk, Name.appendCore]
+  | cons i idxs ih =>
+    have append : ∀ a b : String, String.Internal.append a b = a ++ b := hAppend
+    simp only [generatedName, List.foldr_cons] at ih ⊢
+    rw [ih]
+    simp only [Name.appendIndexAfter, Name.modifyBase, Name.hasMacroScopes,
+      indexSuffix_ne_hyg_of differs, Bool.false_eq_true, ↓reduceIte, Name.mkStr, append]
+    rfl
+
+/-- Under `RuntimeStringAppend`, every name the generator gives to an auxiliary declaration of
+the infix `kind` is recognized, with its own prefix, when no text that starts with `kind` is the
+macro-scope marker `_hyg` (`differs`). The two infixes of `bv_decide`, `_expr_def` and
+`_cert_def`, satisfy that hypothesis. -/
+theorem generatedAuxParent?_of_generatedAux (hAppend : RuntimeStringAppend) {kind : String}
+    (differs : ∀ rest, kind.toList ++ rest ≠ "_hyg".toList) {parent n : Name}
+    (h : GeneratedAux kind parent n) : generatedAuxParent? kind n = some parent := by
+  obtain ⟨idxs, hg, rfl⟩ := h
+  have hn := generatedName_str hAppend parent kind idxs hg.2.1 differs
+  unfold generatedAuxParent?
+  generalize hN : generatedName parent (.str .anonymous kind) idxs = N
+  rw [hn] at hN
+  subst hN
+  simp only [generatedIndices?_indexSuffix, Option.bind_eq_bind, Option.bind_some, hn, hg,
+    and_self, ↓reduceIte]
 
 /-- Every name the scheme generates for a native tactic is recognized, with its own prefix and
 tactic. -/
