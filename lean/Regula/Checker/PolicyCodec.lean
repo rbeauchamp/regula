@@ -119,8 +119,9 @@ def ExactFields (j : Json) (expected : List String) : Prop :=
   ∃ fields, j = .obj fields ∧ (fields.toList.map (·.1)).Perm expected
 
 /-- A list with the length of a list of distinct names, and with each of those names, is those
-names in some order. -/
-private theorem perm_of_length_of_mem {expected : List String} (distinct : expected.Nodup) :
+names in some order. `Regula.JsonAgreement` uses this lemma too: this module is in the import
+closure of the probe, so it does not import that one. -/
+theorem perm_of_length_of_mem {expected : List String} (distinct : expected.Nodup) :
     ∀ {actual : List String}, actual.length = expected.length →
       (∀ name ∈ expected, name ∈ actual) → actual.Perm expected := by
   induction expected with

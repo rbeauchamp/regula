@@ -760,7 +760,7 @@ Two-way decisions (`Regula.Decides`), each with an accepted and a refused input:
 | The spelling parsers `DeclarationKind.parse?`, `BoundaryKind.parse?`, `Correspondence.parse?`, `FoundationClass.parse?`, `ConformingProfile.parse?`, `ExecutionClaim.parse?`, `EvidenceMode.parse?`, `Safety.parse?`, `Reducibility.parse?`, `RecursionOrigin.parse?`, `DecisionKind.parse?`, `DecisionResult.parse?`, `EvaluatorRole.parse?`, `Profile.parse?` and `RuleId.parse?` | The text is the spelling of a value (`roundtrip`, `canonical`) | Transport of closed vocabularies. |
 | `RegulaPolicy.DecisionKind.ofStructureName?` | The name is a kind's structure | Reading a registration's kind ([RG1007]). |
 | `RegulaPolicy.Erasure.reproduces` | `Erasure.Reproduction`: the observing pass finished, the regeneration added a definition, and each value is related by `Erasure.EqualWithin` to the observed value of its name | The recursion-helper comparison of [RG1006], over the two values and the recorded observations of their terms ([below](#the-recursion-helper-comparison-decision-and-observing-pass)). |
-| `Regula.JsonAgreement.agrees` | `JsonAgreement.Agree` (`agrees_iff`). The two values have one constructor and equal scalars. The elements of two arrays agree in order. The members of two objects agree in the order of each tree. | The comparison of an input with the encoding of the decoded value ([below](#the-diagnostic-and-policy-codecs-decisions-and-observing-pass)). |
+| `Regula.JsonAgreement.agrees` | `JsonAgreement.Agree` (`agrees_iff`). The two values have one constructor and equal scalars. The elements of two arrays agree in order. Two objects have the same number of members. Each member of the first is found by its name in the second, with a value that it agrees with. | The comparison of an input with the encoding of the decoded value ([below](#the-diagnostic-and-policy-codecs-decisions-and-observing-pass)). |
 | `Regula.JsonAgreement.canonical` (accepts on `.ok`) | The reader returns a value, and the input agrees with the encoding of that value (`canonical_eq_ok_iff`). | The decoders `DiagnosticCodec.parseLocation` and `parseDiagnostic`. The reader and the encoder are arguments, so the kind is about each reader and each encoder. |
 | `Regula.Checker.PolicyCodec.exactFields` (accepts on `.ok`) | `ExactFields` (`exactFields_iff`). The value is an object, and its member names are the expected names in some order. | The decoders of the worker protocol and of the producer reports. The proof that the expected names are distinct is an argument of the function. |
 | `Regula.SourceTexts.intern` | One `sourceTexts` member, `null`, and string `sourceText` members (`intern_isOk_iff`) | Writing a result document. |
@@ -795,7 +795,6 @@ Sound only, each a declared choice:
 | `Regula.SharedExecution.same` | The two values are equal (`same_eq`) | That it accepts every pair of equal values is not proved, and nothing depends on it. The equality is `=`: two objects with the same members whose trees are balanced differently are different values, which `same` refuses and Lean's runtime `Json` comparison identifies. |
 | `Regula.Checker.Admission.checkCopies` | Every copy is `CopyAdmitted` (`checkCopies_sound`) | It may refuse admissible copies: the search for a proof's axioms is bounded by fuel, and a refusal fails closed ([RG2005]). |
 | `RegulaPolicy.NativeStatement.recognize?` (accepts on `some`) | `NativeStatement.Stated`: the type is the statement of the tactic under the prefix (`asserted?_sound`) | Completeness for `bv_decide` has the hypothesis `RuntimeStringAppend` (`asserted?_complete`), and a kind has no hypothesis. A refusal fails closed ([RG1004]). The result holds the proof about the candidate, so the kind is about `Regula.Dependent.isSome recognize?`. |
-| `Regula.DiagnosticCodec.parseLocation`, `parseDiagnostic` (accept on `.ok`) | The input agrees with the encoding of a location, or of a finding (`parseLocation_canonical`, `parseDiagnostic_canonical`) | That each encoding is accepted is proved for a project location and for one finding only (`parseLocation_project`, `parseDiagnostic_accepts`). The specification names the encoder that the decoder runs, so the kind does not say that the encoder writes the intended form. A refusal fails closed. |
 | `Regula.Checker.ProducerReport.Environment.validate` | `Admissible` (`validate_sound`) | It may refuse an admissible report; `validate_eq_ok` is two-way against the guard Booleans, not against `Admissible`. |
 | `RegulaProvision.admits` | `Admitted`: the receipt records the requested revision and compiler, zero artifact policy and empty source, and holds no package at another revision than a pin (`admits_sound`) | It refuses an `Admitted` receipt of another schema version. |
 | `RegulaProvision.cloneStep` (accepts on `.replace`), `found` (accepts on a result other than `.foreign`), `prunes` | The path is a link or a clean Git checkout (`cloneStep_replace`); the directory's receipt names it (`found_identified`); the directory is not the current one and no registered copy links it (`prunes_sound`) | `cloneStep` keeps a clean checkout at the pinned revision; the program states no converse for the other two. |
@@ -807,6 +806,7 @@ Complete only. A sound kind requires an input the function accepts, with a proof
 | --- | --- | --- |
 | `Regula.RegistryCodec.parseMode`, `parseRule`, `parseName`, `parsePrintedNameJson`, `RegulaPolicy.Codec.parseName`, `parseIdentity`, `Regula.SourceTexts.expand`, `Regula.SharedExecution.read` | The input is a form its writer writes (their `_roundtrip` theorems, `expand_intern`, `read_write`) | No theorem says a reader accepts only written forms, so each may accept a value its writer does not write. |
 | `nativeAxiomOrigin?`, `compilerTrustingAxiomName` | A generated native-axiom name, where `RuntimeStringAppend` holds (and, for the second, an enabled legacy compiler axiom) | Soundness holds with no hypothesis (`nativeAxiomOrigin?_sound`, `compilerTrustingAxiomName_sound`), but accepting a generated name evaluates `String.Internal.append`, an `extern` that no kernel proof evaluates. The hypothesis is part of the specification; that the runtime satisfies it is trusted. |
+| `Regula.DiagnosticCodec.parseLocation`, `parseDiagnostic` (accept on `.ok`) | `LocationWire`, `FindingWire`: the object has the members of a location, or of a finding, and each member has its meaning (`parseLocation_of_wire`, `parseDiagnostic_of_wire`) | The converse is proved for an input with search trees as its object trees (`parseLocation_wire`, `parseDiagnostic_wire`). It is false for some other `Json` values: the decoder accepts the object tree of [#269](https://github.com/rbeauchamp/regula/issues/269), which has no member `remedy`. |
 | `matchesPattern`, `Regula.Checker.Manifest.parseValue`, `RegulaQualification.Evidence.validate`, `Evidence.validateDocumentation` | `PatternMatch`; the value encodes a valid manifest; the decoded requirements hold | Soundness is proved (`matchesPattern_iff`, `parseValue_ok`, the registered equivalences `checked_validation` and `checked_documentation`), but every acceptance evaluates `String.splitOn`, `String.contains` or a JSON object lookup that the kernel does not reduce. Accepted inputs are observed by the fence corpus, this repository's manifest and the qualification campaigns. |
 | `RegulaQualification.History.validate`, `Producer.validate` | The decoded requirements hold | Soundness is proved (the registered equivalences `checked_validation`), but an accepted report is a result document that only an audit produces. Accepted reports are observed by the `history` and `producers` diagnostics. |
 
@@ -1109,52 +1109,74 @@ second step is pure decisions with a kind.
   refuses an object that gives one name twice.
 - **The decisions** read the `Json` value that the pass returned, and they read nothing else.
   `PolicyCodec.exactFields` decides if a value is an object with the expected members and no
-  other. `JsonAgreement.agrees` decides if two values agree. `JsonAgreement.canonical` accepts
-  what a reader returns only when the input agrees with the encoding of that value.
-  `DiagnosticCodec.parseLocation` and `parseDiagnostic` are `canonical` of a reader of the members
-  and of an encoder of `Regula.RegistryCodec`. Each of the five is registered with
-  `@[regula_decision]`.
+  other. `JsonAgreement.agrees` decides if a value agrees with an encoding.
+  `JsonAgreement.canonical` accepts what a reader returns only when the input agrees with the
+  encoding of that value. `DiagnosticCodec.parseLocation` and `parseDiagnostic` are `canonical`
+  of a reader of the members and of an encoder of `Regula.RegistryCodec`. Each of the five is
+  registered with `@[regula_decision]`.
+
+**The comparison.** The decoders compared with the runtime equality of `Json` before this split.
+Lean has that equality as a `partial` function, so no theorem is about it. `agrees` is its
+procedure as a total function by structural recursion. For two objects it compares the numbers of
+members, then it reads each member of the first and looks the name up in the second. The relation
+`JsonAgreement.Agree` states that procedure, with one constructor for each case.
+
+**The form of an encoded value.** `LocationWire` and `FindingWire` say which members an object
+has and what the value of each member is (`JsonAgreement.Shaped`). They do not mention an
+encoder of this library. Three meanings name a written form that a different codec states. They
+are the form of a name, of a natural number and of an LSP range.
+
+A finding is an object with eleven members. Eight members carry the finding: `id`, `arguments`,
+`location`, `related`, `mode`, `claim`, `impact` and `severity`. Three members are redundant:
+`text`, `remedy` and `helpUrl`.
 
 **Proved**, about the functions that the checker runs. Lean's kernel checked each theorem in the
 build of the excluded `Regula` library, with `propext`, `Classical.choice` and `Quot.sound` only.
 
 | Property | Declarations | Meaning and limit |
 | --- | --- | --- |
-| The comparison is exact | `JsonAgreement.agrees_iff`, `checked_agrees` | `agrees` returns `true` exactly for two values that `JsonAgreement.Agree` relates. The relation has one constructor for each constructor of `Json`. Two objects agree when their members, in the order of each tree, have the same names and values that agree. |
+| The comparison is exact | `JsonAgreement.agrees_iff`, `checked_agrees` | `agrees` returns `true` exactly for two values that `JsonAgreement.Agree` relates. |
 | A canonical decoder fails closed | `JsonAgreement.canonical_eq_ok_iff`, `checked_canonical` | The decoder returns a value exactly when the reader returns it and the input agrees with the encoding of that value. The theorem is for each reader and each encoder. |
-| An accepted location or finding is canonical | `parseLocation_canonical`, `parseDiagnostic_canonical`, `checked_parseLocation`, `checked_parseDiagnostic` | The input has the members that the encoder writes for the returned value, with those values, and no other member. For a finding, the rendered text, the remedy and the help address are such members. |
-| The decoders accept an input | `parseLocation_project`, `parseDiagnostic_accepts` | The decoder reads the encoding of each project location back to that location. It reads the encoding of one finding back to that finding. |
+| The encoders write the form | `locationJson_wire`, `diagnosticJson_wire` | The encoding of each location has the form of that location, and the encoding of each finding has the form of that finding. A change that removes a member from an encoder makes the theorem fail. |
+| The decoders accept the form | `parseLocation_of_wire`, `parseDiagnostic_of_wire`, `checked_parseLocation`, `checked_parseDiagnostic` | A decoder accepts each value of the form, and it returns the location or the finding of that form. The theorem is for each `Json` value. |
+| Each value is read back | `parseLocation_roundtrip`, `parseDiagnostic_roundtrip` | The decoder reads the encoding of each location back to that location. It reads the encoding of each finding back to that finding, for each number of related locations. |
+| An accepted value has the form, for search trees | `parseLocation_wire`, `parseDiagnostic_wire`, `parseLocation_iff`, `parseDiagnostic_iff` | The input has the form of the value that the decoder returns, when each object tree of the input is a search tree (`JsonAgreement.Regular`). |
+| An accepted value agrees with its encoding | `parseLocation_canonical`, `parseDiagnostic_canonical` | The theorem is for each `Json` value. It names the encoder that the decoder runs. |
+| In a search tree, each member is found by its name | `JsonAgreement.get?_of_mem`, `mem_of_get?` | The first theorem is about `Std.TreeMap.Raw.get?`, the lookup that `Json.getObjVal?` runs. The second is for each tree: a name that is found is the name of a member. |
 | Exact members | `PolicyCodec.exactFields_iff`, `checked_exactFields` | `exactFields` accepts exactly an object that has the expected names as its member names, in some order (`ExactFields`). The proof that the expected names are distinct is an argument. Thus Lean rejects a call with a list that gives one name twice. |
-| Each value agrees with itself | `JsonAgreement.Agree.refl`, `agrees_self` | The theorem is for each shape of the object trees. |
 
 **The kinds.** `agrees`, `canonical` and `exactFields` are two-way decisions. `parseLocation` and
-`parseDiagnostic` are sound only. An input that agrees with an encoding can have an object tree
-that is not a search tree. The reader does not find each member of such a tree. Also, no theorem
-says that the readers of the members read each encoding back.
+`parseDiagnostic` are complete decisions of the form. The converse holds for an input with search
+trees, and it is false for some other `Json` values.
+
+The comparison does not look a name up in the input. Thus the decoders accept an object tree
+that gives one name twice and does not give a second name. The issue
+[#269](https://github.com/rbeauchamp/regula/issues/269) has such a tree, with no member `remedy`,
+and it states the decision that is open.
 
 **Hypotheses and trusted boundary.** The theorems start from a `Json` value. They do not prove
 these items:
 
-- What `PolicyCodec.parse` returns for a text, and what a file contains.
-- That the encoders `locationJson` and `diagnosticJson` write the intended form. The
-  specifications of the two sound kinds name those encoders, and the decoders run them. Thus a
-  change of an encoder changes the specification and the decoder together. A reviewer examines
-  the encoders.
-- That a decoder accepts the encoding of each value. That is proved for a project location and
-  for one finding.
-- That `agrees` returns what the runtime equality of `Json` returns. Lean has that equality as a
-  `partial` function, so no theorem is about it. For two objects with search trees the two
-  functions give the same answer. Such a tree has its members in the order of the names.
-  `PolicyCodec.parse` and `Json.mkObj` build an object by insertion, which gives a search tree.
-  These three statements are read from the definitions and from the library of Lean.
+- What `PolicyCodec.parse` returns for a text, and what a file contains. That the parser returns
+  search trees is read from its code: it builds each object with `Json.mkObj`, by insertion.
+- That the form is the intended one. A reviewer examines `LocationWire` and `FindingWire`.
+- That `agrees` returns what the runtime equality of `Json` returns. The two definitions have the
+  same cases, which a reader can compare. The pull request of the split compared the two functions
+  on pairs of values, which is evidence for those pairs only.
 - Three other comparisons of a value with a canonical value. `RegistryCodec.parseDescriptor`,
   `RegistryCodec.validateRegistry` and the guidance members of `ResultProtocol` use the runtime
   equality, and no theorem says what they accept.
 
+**The callers.** `AxiomGate`, `ResultProtocol.admitGuidance` and the rule-example qualification
+give the decoder a value of a document that `PolicyCodec.parse` read from a file.
+`RegistryChecks` gives values that it builds with the encoders, `Json.mkObj` and
+`Json.setObjVal!`. No caller builds an object tree node by node. That is read from the callers.
+
 **The verdicts are the same.** No theorem compares the decoders before this split with the
-decoders after it: the comparison of the old decoders is the runtime equality. The readers of the
-members have the text of the old decoders, and `exactFields` has its old text with one more
-argument. The controls show the same results for those controls only.
+decoders after it: the old comparison is the runtime equality. The readers of the members have
+the text of the old decoders, and `exactFields` has its old text with one more argument.
+`agrees` has the cases of the runtime equality. The controls show the same results for those
+controls only.
 
 **Observed.** `RegistryChecks` runs in the first acceptance step. The diagnostic decoder accepts
 two written findings there. It refuses a finding with an unknown member, with a changed remedy,
@@ -2803,7 +2825,7 @@ not yet proved, and are labelled so at their definition; they are not correctnes
 | checkerSelftest execution | each compiler-path mutation and correspondence control, with its positive and fresh restoration | compiler-derived execution coverage and correspondence evidence through the public gate; the emitted-C check of reachable code on the pin | External | observed |
 | checkerSelftest cli, environments, build-policy, lint-driver | CLI sweep, adopters, clean checkout, ordinary build, `lake lint` exit classes, cold compiler guard refusal of a failing and of a successful unidentified child process with its restored load | packaging, Lake and build integration | External | observed |
 | ordinary | `qualify registry`, `qualify native` | CLI output invalidation, registry and site validators; compiler messages and ranges | External | observed |
-| ordinary | `RegistryChecks` codec, source and execution-account cases | registry, diagnostic and source codecs; the result file's shared execution form | Proved in part | round-trip theorems of `Json` values, and that an accepted finding or location agrees with its encoding (`parseDiagnostic_canonical`, `parseLocation_canonical`); that the shared form is kept, and that a parsed shared form reads back to the built account, are observed; open: state the remaining refusals as theorems |
+| ordinary | `RegistryChecks` codec, source and execution-account cases | registry, diagnostic and source codecs; the result file's shared execution form | Proved in part | round-trip theorems of `Json` values, with those of each finding and each location (`parseDiagnostic_roundtrip`, `parseLocation_roundtrip`); that the shared form is kept, and that a parsed shared form reads back to the built account, are observed; open: state the remaining refusals as theorems |
 | standalone | `qualify environments` finalize mutations | `finalize` refusals | Proved relation | `finalize_iff`; instance membership sampled; no transcript substitution: an accepted run has no transcript job (`accepted_no_transcript_subjects`) |
 | standalone | `qualify acceptance fences` packet mutations | worker-packet admission through a real proxy | External transport | admission proved (`checked_indexedResults`) |
 | standalone | snapshots, input inventory, receipts, frozen exits, documentation source, closure, configuration and fence evidence | Git, Lake, filesystem, elaboration-time IO, signals | External | observed |

@@ -168,7 +168,8 @@ Array ordering is canonical; duplicate, omitted, extra and stale records all fai
 def validateRegistry (p : ProducerIdentity) (j : Json) : Except String Unit :=
   if j == registryJson p then .ok () else .error "registry or producer identity mismatch"
 
-private def rangeJson (r : ByteRange) : Json :=
+/-- A byte range as JSON: its start offset and its stop offset. -/
+def rangeJson (r : ByteRange) : Json :=
   Json.mkObj [("startByte", toJson r.start), ("endByte", toJson r.stop)]
 
 /-- A location's JSON: its kind with the module name (`printedNameJson`), the project identity,
@@ -183,7 +184,9 @@ def locationJson : Location → Json
       ("selectionRange", rangeJson s.val.selection),
       ("lspRange", toJson s.fullLsp), ("lspSelectionRange", toJson s.selectionLsp)]
 
-private def argumentsJson : (id : RuleId) → Payload id → Json
+/-- The payload of a finding as JSON, in the argument domain of its rule: a declaration with its
+source declaration and detail, an execution root with its detail, or a subject with its detail. -/
+def argumentsJson : (id : RuleId) → Payload id → Json
   | .projectAxiom, a | .proofHole, a | .unknownAxiom, a | .compilerTrusting, a
   | .profileExceeded, a | .escapeHatch, a | .executableContract, a | .decisionContract, a
   | .sharedTest, a | .materialDocumentation, a | .materialIntent, a =>
