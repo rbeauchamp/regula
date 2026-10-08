@@ -22,6 +22,7 @@ import Regula.Report
 import Regula.Contract
 import Regula.MaterialClaim
 import Regula.Decision
+import RegulaPolicy.ExecutionWalk
 
 /-!
 # Machine-audit environment probe
@@ -385,18 +386,6 @@ private def simplificationCandidates (env : Environment) :
     let entry : Lean.Compiler.CSimp.Entry := ⟨reference, target, theoremName⟩
     return candidates.insert reference ((candidates.find? reference).getD #[] |>.push entry)
 
-/-- Remove sinks from the finite replacement-only graph. The remaining names
-are precisely those that can reach a directed cycle. Ordinary body recursion
-is not a replacement-only cycle and does not enter this graph. -/
-private def cyclicReplacementPaths (edges : Array (Name × Name)) : Array Name := Id.run do
-  let mut remaining := edges.foldl (fun names (source, target) =>
-    let names := if names.contains source then names else names.push source
-    if names.contains target then names else names.push target) #[]
-  for _ in [:remaining.size] do
-    remaining := remaining.filter fun source =>
-      edges.any fun (left, right) => left == source && remaining.contains right
-  return remaining
-
 /-- Identify the uncompiled helper produced for an actual kernel inductive by
 Lean's pinned `mkBRecOnFromRec`. Names come from the inductive/recursor records,
 then must agree with the tagged parent's actual projection and helper body.
@@ -493,48 +482,22 @@ private theorem compilerDependenciesLookup_frame (env : Environment) (name other
   cases h : cache.get? name <;>
     simp [compilerDependenciesLookup, h, Std.DHashMap.get?_insert, different]
 
-/-- Finite conservative execution closure: source values, retained compiler IR,
-all supported equality candidates, and observed implementation choices.
-Compiler metadata supplements source dependencies; neither alone retains all
-earlier replacements after inlining. Equality candidates are not a claim that
-the compiler selected them. Extern reference bodies remain boundary leaves. -/
-private def executionWalk (env : Environment) (ownedModules : List Name)
+/-- What the walk of `root` observes of one name `name`: the targets of the edges from the name,
+its boundaries and unresolved paths, and its retained compiler body
+(`RegulaPolicy.ExecutionWalk.NodeRecord`). The names that the walk queues after it are a definition of
+the targets (`NodeRecord.successors`). The record reads source values, retained compiler IR, all
+supported equality candidates, and observed implementation choices. Compiler metadata supplements
+source dependencies; neither alone retains all earlier replacements after inlining. Equality
+candidates are not a claim that the compiler selected them. Extern reference bodies remain
+boundary leaves. -/
+private def observeNode (env : Environment) (ownedModules : List Name)
     (toolchainModules : NameMap RegulaPolicy.ToolchainOrigin)
     (loadReplacementHistory : Name → IO (Except String (Array (Name × Name))))
     (candidates : NameMap (Array Lean.Compiler.CSimp.Entry))
     (proofCache : IO.Ref (Std.HashMap (Name × Name) (Correspondence × Option String)))
     (dependencyCache : IO.Ref (CompilerDependenciesCache env))
-    (preparedTheorems : Thunk (PreparedTheorems env))
-    (recursorHelpers : Array Name) (root : Name) (timing : Bool) : CommandElabM
-    (Array Regula.Report.ExecutionBoundary ×
-      Array String × Array (Name × Name) × RegulaPolicy.ExecutionClosure) := do
-  let mut visited : Std.HashSet Name := {}
-  let mut queue : Array (Name × Option Nat) := #[(root, none)]
-  let mut visits : Array RegulaPolicy.ExecutionVisit := #[]
-  let mut boundaries : Array Regula.Report.ExecutionBoundary := #[]
-  let mut unresolved : Array String := #[]
-  let mut replacementEdges : Array (Name × Name) := #[]
-  let mut compilerEdges : Array (Name × Name) := #[]
-  let mut logicalEdges : Array (Name × Name) := #[]
-  let mut candidateEdges : Array (Name × Name) := #[]
-  let mut historyEdges : Array (Name × Name) := #[]
-  let mut currentReplacementEdges : Array (Name × Name) := #[]
-  let mut activeSimplificationEdges : Array (Name × Name) := #[]
-  let mut helperEdges : Array (Name × Name) := #[]
-  let mut compiledNames : Std.HashSet Name := {}
-  -- Logical recursor machinery may be installed without standalone IR;
-  -- matcher/noConfusion/projection uses are handled directly by the compiler.
-  -- These tags relax only this initial IR obligation, never root membership,
-  -- body/boundary traversal, or the obligation for a retained compiler call.
-  -- This conservative account does not attest independent compilation of
-  -- every logical machinery root or authenticate its generation.
-  if (Lean.Compiler.getImplementedBy? env root).isNone &&
-      !Lean.Compiler.hasMacroInlineAttribute env root && !env.isProjectionFn root &&
-      !((Lean.IR.findEnvDecl env root).isNone &&
-        (Lean.isAuxRecursor env root || Lean.isNoConfusion env root ||
-          Lean.Meta.isMatcherCore env root)) &&
-      !(recursorHelpers.contains root && (Lean.IR.findEnvDecl env root).isNone) then
-    compiledNames := compiledNames.insert root
+    (preparedTheorems : Thunk (PreparedTheorems env)) (root : Name) (timing : Bool)
+    (name : Name) : CommandElabM RegulaPolicy.ExecutionWalk.NodeRecord := do
   let moduleOf (name : Name) : Option Name :=
     (env.getModuleIdxFor? name).map fun idx => env.header.modules[(idx : Nat)]!.module
   let correspondence (reference target : Name) := do
@@ -545,188 +508,193 @@ private def executionWalk (env : Environment) (ownedModules : List Name)
       replacementCorrespondence env preparedTheorems reference target proofs
     liftIO <| proofCache.modify (·.insert (reference, target) result)
     return result
-  while !queue.isEmpty do
-    let (name, parent) := queue.back!
-    queue := queue.pop
-    if visited.contains name then continue
-    visited := visited.insert name
-    let visitIndex := visits.size
-    visits := visits.push { name, moduleName := moduleOf name, parent }
-    -- Queued names are in the order of `canonicalNames`, so the visit order and each visit's
-    -- parent are a function of the closure's edge sets: a reader of the result file's shared
-    -- execution account derives them (`SharedExecution.walkLoop`) instead of reading them.
-    let enqueue (names : Array Name) :=
-      (RegulaPolicy.canonicalNames names).map (·, some visitIndex)
-    -- Persisted compiler IR records replacements at the time each imported
-    -- declaration was compiled, including scoped simplification and inlining.
-    -- Keep source edges too: optimization may erase an unsafe/replacement step.
-    let dependencies ← liftIO <| dependencyCache.modifyGet (compilerDependenciesLookup env name)
-    if let some dependencies := dependencies.val then
-      for dependency in dependencies do
-        compilerEdges := compilerEdges.push (name, dependency)
-        compiledNames := compiledNames.insert dependency
-      queue := queue ++ enqueue dependencies
-    let some info := env.find? name
-    | if (Lean.IR.findEnvDecl env name).isNone then
-        unresolved := unresolved.push s!"{name}: constant used by {root} is not in the environment"
-      continue
-    let some moduleName := moduleOf name
-    | unresolved := unresolved.push s!"{name}: module attribution is unavailable"
-      continue
-    let owned := ownedModules.contains moduleName
-    -- The admitted origin of the constant's module when it is the toolchain's own compiled
-    -- `Init`, `Std` or `Lean` module. A trusted boundary of an ownable kind there belongs to
-    -- the toolchain's trusted base; `implemented_by` and `extern` data can only be set in the
-    -- declaring module, so the declaration's module decides who owns the boundary.
-    let toolchain := toolchainModules.find? moduleName
-    let entry (boundary : BoundaryKind) (correspondence : Correspondence)
-        (replacement : Option Name) (evidence : Option String) :
-        CommandElabM Regula.Report.ExecutionBoundary := do
-      let account ← match RegulaPolicy.admitBoundaryEvidence boundary correspondence evidence
-          (if boundary.toolchainOwnable && correspondence == .trusted then toolchain
-            else none) with
-        | .ok account => pure account
-        | .error error => throwError "{error}"
-      return {
-        occurrence := boundaries.size
-        name := name
-        «module» := moduleName
-        boundary := boundary
-        account := account
-        owned := owned
-        replacement := replacement }
-    if let some active := (Lean.Compiler.CSimp.ext.getState env).map.find? name then
-      replacementEdges := replacementEdges.push (name, active.toDeclName)
-      activeSimplificationEdges := activeSimplificationEdges.push (name, active.toDeclName)
-    for simplification in (candidates.find? name).getD #[] do
-      let target := simplification.toDeclName
-      candidateEdges := candidateEdges.push (name, target)
+  let code : RegulaPolicy.ExecutionWalk.CodeStatus := match Lean.IR.findEnvDecl env name with
+    | some (.fdecl ..) => .function
+    | some (.extern ..) => if Lean.isExtern env name then .externBody else .placeholder
+    | none => .missing
+  let mut record : RegulaPolicy.ExecutionWalk.NodeRecord := { moduleName := moduleOf name, code }
+  let note (record : RegulaPolicy.ExecutionWalk.NodeRecord) (message : String) :
+      RegulaPolicy.ExecutionWalk.NodeRecord :=
+    { record with unresolved := record.unresolved.push message }
+  -- Persisted compiler IR records replacements at the time each imported
+  -- declaration was compiled, including scoped simplification and inlining.
+  -- Keep source edges too: optimization may erase an unsafe/replacement step.
+  let dependencies ← liftIO <| dependencyCache.modifyGet (compilerDependenciesLookup env name)
+  if let some dependencies := dependencies.val then
+    record := { record with compilerDependencies := dependencies }
+  let some info := env.find? name
+  | do
+      if (Lean.IR.findEnvDecl env name).isNone then
+        record := note record s!"{name}: constant used by {root} is not in the environment"
+      return record
+  let some moduleName := moduleOf name
+  | return note record s!"{name}: module attribution is unavailable"
+  let owned := ownedModules.contains moduleName
+  -- The admitted origin of the constant's module when it is the toolchain's own compiled
+  -- `Init`, `Std` or `Lean` module. A trusted boundary of an ownable kind there belongs to
+  -- the toolchain's trusted base; `implemented_by` and `extern` data can only be set in the
+  -- declaring module, so the declaration's module decides who owns the boundary.
+  let toolchain := toolchainModules.find? moduleName
+  -- The occurrence of a boundary is its position in the root's list, which `assemble` gives.
+  let entry (boundary : BoundaryKind) (correspondence : Correspondence)
+      (replacement : Option Name) (evidence : Option String) :
+      CommandElabM Regula.Report.ExecutionBoundary := do
+    let account ← match RegulaPolicy.admitBoundaryEvidence boundary correspondence evidence
+        (if boundary.toolchainOwnable && correspondence == .trusted then toolchain
+          else none) with
+      | .ok account => pure account
+      | .error error => throwError "{error}"
+    return {
+      occurrence := 0
+      name := name
+      «module» := moduleName
+      boundary := boundary
+      account := account
+      owned := owned
+      replacement := replacement }
+  if let some active := (Lean.Compiler.CSimp.ext.getState env).map.find? name then
+    record := { record with
+      replacementTargets := record.replacementTargets.push active.toDeclName
+      activeSimplificationTargets := record.activeSimplificationTargets.push active.toDeclName }
+  for simplification in (candidates.find? name).getD #[] do
+    let target := simplification.toDeclName
+    record := { record with candidateTargets := record.candidateTargets.push target }
+    let (correspondence, evidence) ← correspondence name target
+    let boundary ← entry .compilerSimplification correspondence (some target)
+      (some s!"conservative constant-equality candidate={simplification.thmName}; \
+        {evidence.getD ""}")
+    record := { record with boundaries := record.boundaries.push boundary }
+  if Lean.isExtern env name then
+    let boundary ←
+      entry (if toolchain.isSome then .nativeRuntime else .external) .trusted none none
+    return { record with boundaries := record.boundaries.push boundary }
+  if let some target := Lean.Compiler.getImplementedBy? env name then
+    record := { record with
+      currentReplacementTargets := record.currentReplacementTargets.push target }
+    -- Which implementation a toolchain replacement runs is part of the toolchain's trusted
+    -- base: it needs neither source history nor correspondence. Its current target is still
+    -- followed, so every boundary it reaches is classified in its own module.
+    if toolchain.isSome then
+      let boundary ← entry .runtimeReplacement .trusted (some target) none
+      return { record with
+        replacementTargets := record.replacementTargets.push target
+        boundaries := record.boundaries.push boundary }
+    let history ← liftIO <| loadReplacementHistory moduleName
+    let targets ← match history with
+      | .error error =>
+          record := note record s!"{name}: replacement history unavailable: {error}"
+          pure #[target]
+      | .ok edges =>
+          let targets := edges.filterMap fun (reference, target) =>
+            if reference == name then some target else none
+          record := { record with historyTargets := record.historyTargets ++ targets }
+          if !targets.contains target then
+            record := note record
+              s!"{name}: fresh replacement history omits current target {target}"
+          pure (if targets.contains target then targets else targets.push target)
+    for target in targets do
+      record := { record with replacementTargets := record.replacementTargets.push target }
       let (correspondence, evidence) ← correspondence name target
-      boundaries := boundaries.push <|
-        (← entry .compilerSimplification correspondence (some target)
-          (some
-              s!"conservative constant-equality \
-                candidate={simplification.thmName}; {evidence.getD ""}"))
-    queue := queue ++ enqueue (((candidates.find? name).getD #[]).map (·.toDeclName))
-    if Lean.isExtern env name then
-      boundaries := boundaries.push <|
-        (← entry (if toolchain.isSome then .nativeRuntime else .external) .trusted none none)
-      continue
-    if let some target := Lean.Compiler.getImplementedBy? env name then
-      currentReplacementEdges := currentReplacementEdges.push (name, target)
-      -- Which implementation a toolchain replacement runs is part of the toolchain's trusted
-      -- base: it needs neither source history nor correspondence. Its current target is still
-      -- followed, so every boundary it reaches is classified in its own module.
-      if toolchain.isSome then
-        replacementEdges := replacementEdges.push (name, target)
-        boundaries := boundaries.push <|
-          (← entry .runtimeReplacement .trusted (some target) none)
-        queue := queue ++ enqueue #[target]
-        continue
-      let history ← liftIO <| loadReplacementHistory moduleName
-      let (recorded, targets) ← match history with
-        | .error error =>
-            unresolved := unresolved.push s!"{name}: replacement history unavailable: {error}"
-            pure (#[], #[target])
-        | .ok edges =>
-            let targets := edges.filterMap fun (reference, target) =>
-              if reference == name then some target else none
-            historyEdges := historyEdges ++ targets.map (name, ·)
-            if !targets.contains target then
-              unresolved :=
-                  unresolved.push
-                      s!"{name}: fresh replacement history omits current target {target}"
-            pure (targets, if targets.contains target then targets else targets.push target)
-      for target in targets do
-        replacementEdges := replacementEdges.push (name, target)
-        let (correspondence, evidence) ← correspondence name target
-        boundaries := boundaries.push <|
-          (← entry .runtimeReplacement correspondence (some target) evidence)
-      -- The recorded targets, then the current one: the order of the closure's history edges
-      -- and its current replacement edge.
-      queue := queue ++ enqueue recorded ++ enqueue #[target]
-      continue
-    if info.isPartial then
-      boundaries := boundaries.push <| (← entry .partialComputation .trusted none none)
-      if let some value := info.value? then
-        let dependencies := value.getUsedConstants
-        logicalEdges := logicalEdges ++ dependencies.map (name, ·)
-        queue := queue ++ enqueue dependencies
-      continue
-    if info.isUnsafe then
-      -- A constant whose type is a proposition is a proof: the compiler erases it, so it never
-      -- runs. `lcProof`, the placeholder for erased proofs in unsafe code, is such an axiom.
-      if ← observing env name "proposition test" <| liftTermElabM <| Meta.isProp info.type then
-        continue
-      boundaries := boundaries.push <| (← entry .unsafeComputation .trusted none none)
-      if let some value := info.value? then
-        let dependencies := value.getUsedConstants
-        logicalEdges := logicalEdges ++ dependencies.map (name, ·)
-        queue := queue ++ enqueue dependencies
-      continue
-    match info with
-    | .defnInfo _ =>
-        if !(← observing env name "proposition test" <|
-            liftTermElabM <| Meta.isProp info.type) then
-          if let some value := info.value? then
-            let dependencies := value.getUsedConstants
-            logicalEdges := logicalEdges ++ dependencies.map (name, ·)
-            queue := queue ++ enqueue dependencies
-    | .opaqueInfo _ =>
-        let recName := Lean.Compiler.mkUnsafeRecName name
-        match env.find? recName with
-        | some recInfo =>
-            if recInfo.isPartial then
-              boundaries := boundaries.push <|
-                (← entry .partialComputation .trusted none (some recName.toString))
-              helperEdges := helperEdges.push (name, recName)
-              queue := queue ++ enqueue #[recName]
-            else
-              boundaries := boundaries.push <| (← entry .opaqueComputation .unresolved none
-                (some s!"compiled helper {recName} is not partial"))
-        | none =>
-            boundaries := boundaries.push <|
-              (← entry .opaqueComputation .checked none (some "kernel-checked-body"))
-            if !(← observing env name "proposition test" <|
-                liftTermElabM <| Meta.isProp info.type) then
-              if let some value := info.value? (allowOpaque := true) then
-                let dependencies := value.getUsedConstants
-                logicalEdges := logicalEdges ++ dependencies.map (name, ·)
-                queue := queue ++ enqueue dependencies
-    | .axiomInfo _ =>
-        if RegulaPolicy.compilerTrustingAxiomName name then
-          boundaries := boundaries.push <| (← entry .compilerTrustedProof .trusted none none)
-    | .thmInfo _ | .ctorInfo _ | .inductInfo _ | .recInfo _ | .quotInfo _ => pure ()
-  let cycles := cyclicReplacementPaths replacementEdges
-  if !cycles.isEmpty then
-    unresolved := unresolved.push s!"replacement-only cycle reachable from {cycles}"
-  let mut unavailableCode : Array Name := #[]
-  for name in compiledNames do
-    match Lean.IR.findEnvDecl env name with
-    | some (.fdecl ..) => pure ()
-    | some (.extern ..) =>
-        if !Lean.isExtern env name then
-          unavailableCode := unavailableCode.push name
-          unresolved := unresolved.push s!"{name}: compiler body is an opaque export placeholder"
-    | none =>
-        unavailableCode := unavailableCode.push name
-        unresolved := unresolved.push s!"{name}: compiled dependency body is unavailable"
-  boundaries := boundaries.mapIdx fun occurrence boundary =>
-    { boundary with occurrence, compilerCallers := compilerEdges.filterMap fun (caller, callee) =>
-        if callee == boundary.name then some caller else none }
-  let closure : RegulaPolicy.ExecutionClosure := {
-    nodes := RegulaPolicy.canonicalNames visited.toArray
-    visits
-    logicalEdges := RegulaPolicy.canonicalEdges logicalEdges
-    candidateEdges := RegulaPolicy.canonicalEdges candidateEdges
-    historyEdges := RegulaPolicy.canonicalEdges historyEdges
-    currentReplacementEdges := RegulaPolicy.canonicalEdges currentReplacementEdges
-    activeSimplificationEdges := RegulaPolicy.canonicalEdges activeSimplificationEdges
-    helperEdges := RegulaPolicy.canonicalEdges helperEdges
-    requiredCode := RegulaPolicy.canonicalNames compiledNames.toArray
-    unavailableCode := RegulaPolicy.canonicalNames unavailableCode
-  }
-  return (boundaries, unresolved, RegulaPolicy.canonicalEdges compilerEdges, closure)
+      let boundary ← entry .runtimeReplacement correspondence (some target) evidence
+      record := { record with boundaries := record.boundaries.push boundary }
+    return record
+  -- The value of the name, followed as logical edges.
+  let follow (record : RegulaPolicy.ExecutionWalk.NodeRecord) (dependencies : Array Name) :
+      RegulaPolicy.ExecutionWalk.NodeRecord :=
+    { record with logicalTargets := record.logicalTargets ++ dependencies }
+  if info.isPartial then
+    let boundary ← entry .partialComputation .trusted none none
+    record := { record with boundaries := record.boundaries.push boundary }
+    if let some value := info.value? then
+      record := follow record value.getUsedConstants
+    return record
+  if info.isUnsafe then
+    -- A constant whose type is a proposition is a proof: the compiler erases it, so it never
+    -- runs. `lcProof`, the placeholder for erased proofs in unsafe code, is such an axiom.
+    if ← observing env name "proposition test" <| liftTermElabM <| Meta.isProp info.type then
+      return record
+    let boundary ← entry .unsafeComputation .trusted none none
+    record := { record with boundaries := record.boundaries.push boundary }
+    if let some value := info.value? then
+      record := follow record value.getUsedConstants
+    return record
+  match info with
+  | .defnInfo _ =>
+      if !(← observing env name "proposition test" <|
+          liftTermElabM <| Meta.isProp info.type) then
+        if let some value := info.value? then
+          record := follow record value.getUsedConstants
+      return record
+  | .opaqueInfo _ =>
+      let recName := Lean.Compiler.mkUnsafeRecName name
+      match env.find? recName with
+      | some recInfo =>
+          if recInfo.isPartial then
+            let boundary ← entry .partialComputation .trusted none (some recName.toString)
+            return { record with
+              boundaries := record.boundaries.push boundary
+              helperTargets := record.helperTargets.push recName }
+          else
+            let boundary ← entry .opaqueComputation .unresolved none
+              (some s!"compiled helper {recName} is not partial")
+            return { record with boundaries := record.boundaries.push boundary }
+      | none =>
+          let boundary ← entry .opaqueComputation .checked none (some "kernel-checked-body")
+          record := { record with boundaries := record.boundaries.push boundary }
+          if !(← observing env name "proposition test" <|
+              liftTermElabM <| Meta.isProp info.type) then
+            if let some value := info.value? (allowOpaque := true) then
+              record := follow record value.getUsedConstants
+          return record
+  | .axiomInfo _ =>
+      if RegulaPolicy.compilerTrustingAxiomName name then
+        let boundary ← entry .compilerTrustedProof .trusted none none
+        return { record with boundaries := record.boundaries.push boundary }
+      return record
+  | .thmInfo _ | .ctorInfo _ | .inductInfo _ | .recInfo _ | .quotInfo _ => return record
+
+/-- The account of one executable root: the observing pass reads each name that the walk reaches
+(`observeNode`), in the order of the walk, and the decision `RegulaPolicy.ExecutionWalk.walk` gives the
+visits from those records (`walk_sound`, `walk_complete`). `RegulaPolicy.ExecutionWalk.assemble`
+builds the boundaries, the unresolved paths, the compiler edges and the closure from the records
+and the visits. -/
+private def executionWalk (env : Environment) (ownedModules : List Name)
+    (toolchainModules : NameMap RegulaPolicy.ToolchainOrigin)
+    (loadReplacementHistory : Name → IO (Except String (Array (Name × Name))))
+    (candidates : NameMap (Array Lean.Compiler.CSimp.Entry))
+    (proofCache : IO.Ref (Std.HashMap (Name × Name) (Correspondence × Option String)))
+    (dependencyCache : IO.Ref (CompilerDependenciesCache env))
+    (preparedTheorems : Thunk (PreparedTheorems env))
+    (recursorHelpers : Array Name) (root : Name) (timing : Bool) : CommandElabM
+    (Array Regula.Report.ExecutionBoundary ×
+      Array String × Array (Name × Name) × RegulaPolicy.ExecutionClosure) := do
+  -- Logical recursor machinery may be installed without standalone IR;
+  -- matcher/noConfusion/projection uses are handled directly by the compiler.
+  -- These tags relax only this initial IR obligation, never root membership,
+  -- body/boundary traversal, or the obligation for a retained compiler call.
+  -- This conservative account does not attest independent compilation of
+  -- every logical machinery root or authenticate its generation.
+  let rootCompiled := (Lean.Compiler.getImplementedBy? env root).isNone &&
+      !Lean.Compiler.hasMacroInlineAttribute env root && !env.isProjectionFn root &&
+      !((Lean.IR.findEnvDecl env root).isNone &&
+        (Lean.isAuxRecursor env root || Lean.isNoConfusion env root ||
+          Lean.Meta.isMatcherCore env root)) &&
+      !(recursorHelpers.contains root && (Lean.IR.findEnvDecl env root).isNone)
+  -- The pass: each name that the walk reaches is observed one time, in the order of the walk:
+  -- a stack of queued names, the name queued last first.
+  let mut records : RegulaPolicy.ExecutionWalk.Records := {}
+  let mut queue : Array Name := #[root]
+  while !queue.isEmpty do
+    let name := queue.back!
+    queue := queue.pop
+    if records.contains name then continue
+    let record ← observeNode env ownedModules toolchainModules loadReplacementHistory candidates
+      proofCache dependencyCache preparedTheorems root timing name
+    records := records.insert name record
+    queue := queue ++ record.successors
+  match RegulaPolicy.ExecutionWalk.checked_walk.run { records, root } with
+  | .ok visits => return RegulaPolicy.ExecutionWalk.assemble root rootCompiled records visits
+  | .error failure => throwError "the walk of {root} over its records failed: {repr failure}"
 
 /-- Owned executable roots: computable, non-proposition, safe, non-partial,
 non-internal definitions and opaque constants whose result is not a `Sort`

@@ -1375,10 +1375,12 @@ def guide : RuleId → Guide
       linkage := "`RegulaPolicy.executionFailureRecords_empty_iff`, \
         `RegulaPolicy.executionFindings_empty_iff`, `RegulaPolicy.unresolved_reported`, \
         `Regula.Checker.Policy.checked_executionFailures` and `executionRule_injective`. \
-        Extracting the execution closure from compiler IR is operational."
+        `RegulaPolicy.ExecutionWalk.checked_walk` decides the walk over the records of the probe: \
+        `walk_sound` and `walk_complete`. Root discovery and reading each record from the \
+        environment and compiler IR are operational."
       sources :=
-          ["lean/Regula/Probe.lean", "lean/RegulaCore/Policy.lean",
-              "lean/Regula/Checker/RuleDiagnostics.lean"] }
+          ["lean/Regula/Probe.lean", "lean/RegulaPolicy/ExecutionWalk.lean",
+              "lean/RegulaCore/Policy.lean", "lean/Regula/Checker/RuleDiagnostics.lean"] }
   | .executionBoundary => {
       problem := "On a surface claiming `\"execution\": \"checked\"`, a reachable boundary the \
         project or a dependency owns lacks kernel-checked correspondence: for example an \
@@ -1460,11 +1462,12 @@ def guide : RuleId → Guide
         `RegulaPolicy.boundaryFailures_toolchain`, `RegulaPolicy.project_boundary_reported`, \
         `RegulaPolicy.failure_reported`, `RegulaPolicy.executionFindings_sound` and \
         `RegulaPolicy.checked_toolchainBase`; an accepted run satisfies `RegulaPolicy.BoundaryOK`. \
-        Extracting the execution closure from compiler IR and observing module origins are \
+        `RegulaPolicy.ExecutionWalk.checked_walk` decides the walk over the records of the probe. Root \
+        discovery, reading each record from compiler IR and observing module origins are \
         operational."
       sources :=
-          ["lean/Regula/Probe.lean", "lean/RegulaCore/Policy.lean",
-              "website/RegulaStandard/ToolingAndMachineAudit.lean"] }
+          ["lean/Regula/Probe.lean", "lean/RegulaPolicy/ExecutionWalk.lean",
+              "lean/RegulaCore/Policy.lean", "website/RegulaStandard/ToolingAndMachineAudit.lean"] }
   | .fenceStructure => {
       problem := "A Markdown file in the checked documentation tree has a malformed Lean fence \
         classification: an orphan, misplaced, duplicated or misspelled marker, an invalid \
