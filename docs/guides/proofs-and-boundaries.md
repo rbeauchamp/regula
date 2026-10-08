@@ -597,6 +597,7 @@ the call through each success owner.
 | [RG1009] | `sharedTestFailure_none_iff` with the kind `checked_sharedTestFailure`, `declarationFailure_ordered` through `ruleFor`, and `mem_sharedNames_booleans` with `SharedDefinition.class_eq_boolean_iff` for the recorded names | A decision registration is reported when its record names a shared function with a result of `Bool` or `BEq`. Its place is after the recorded refusals of its contract. The search that finds the shared functions and the reading of each one (`Collect.sharedReading`, `Collect.sharedDefinition`) are the collector's and are not proved. The search compares names. A copy of a test under a second name passes. A shared function with a different result type is named in the account and is not refused. A file with a `module` header gives the editor an imported function with no exported value as an axiom. The editor reads its class from its type. It reports a reading that could miss a test below such a function as incomplete ([RG2005]). |
 | [RG2004] | `policyFor_ordered` (membership first), `CensusOK`, `PlanOK` | Complete Lake and environment ownership acquisition. |
 | [RG3001], [RG3002] | `executionFailureRecords_empty_iff`, `boundaryFailures_empty_iff`, `boundaryFailures_toolchain`, `project_boundary_reported`, `executionFindings_empty_iff`, `failure_reported`, `executionFindings_sound`, `checked_toolchainBase` | The theorems cover the supplied unresolved paths and boundaries and their supplied origins, not complete root and closure discovery, the truth of the origin observation, the collector's record of which constant is compiled to which `partial` definition, or the correctness of the toolchain's or external runtime code. |
+| [RG4001] | `checked_scanLines`, `checked_scanVersoLines`, `toList_linesOf` | A document has no violation of the fence protocol exactly when the protocol relation admits its lines ([the fence scanners](#the-fence-scanners-decisions-and-observing-pass)). The fences of a result, the text of a violation and the adequacy of the relation are not proved. |
 | [RG4003] | `matchesPattern_iff`, `orderedLiterals_iff` | One effective error under the restricted grammar; producer completion and effective-error extraction are operational. Policy-negative source fixtures keep their separate registry-bound expectation qualifier, and a rejection is not positive conformance. |
 | [RG5002], [RG5003] | `materialDocumentationFailure_eq_none_iff`, `_eq_missingDocstring_iff`, `_eq_missingIntent_iff` (which docstrings each rule reports; the two never both fire), `hasIntentSection_iff`, `ruleForMaterialDocumentation_injective`; the native linter and the project gate both execute `RegulaPolicy.materialDocumentationFailure`, which `materialDocumentationFailure_eq_none_iff` ties to `MaterialDocumentationOK` | The ATX line grammar (`heading?`) is a definition with checked instances, not a theorem about Markdown (`intentHeading_examples`); `findDocString?` lookup is Lean's. Intent adequacy is R-INTENT. |
 | [RG2001]–[RG2005], [RG4001]–[RG4004], [RG5001]–[RG5003] | The stage relations above, composed by `accept_iff` and `accepted_report_identity` | The adapters that populate them. |
@@ -1255,9 +1256,13 @@ delimiters. `Trimmed` states what a text is without the whitespace at its two en
 has one such form only (`Trimmed.unique`).
 
 `LineIs` gives the class of a line outside a fence: the first class of five that the line has.
-`BlockKind` gives the supported info strings of a Verso block, each with its kind. These
-statements use `Char.isWhitespace` of Lean. They use no function of Lean that trims a text or
-that takes a part of a text.
+`BlockKind` gives the supported info strings of a Verso block, each with its kind. The
+statements about the characters of a line use `Char.isWhitespace` of Lean. They use no function
+of Lean that trims a text or that takes a part of a text.
+
+`BlockKind` also names `RegulaPolicy.PatternValid`, the relation of the policy library for a
+valid pattern. `Permitted` takes the valid patterns as a parameter, and the kind of `scanLines`
+gives it that relation. That relation divides a pattern with `String.splitOn`.
 
 **Proved**, about the functions that the checker runs. Lean's kernel checked each theorem in the
 build of the excluded `Regula` library, with `propext`, `Classical.choice` and `Quot.sound` only.
@@ -1271,7 +1276,7 @@ build of the excluded `Regula` library, with `propext`, `Classical.choice` and `
 | The layout of the lines | `layoutLoop_toList`, `layout_eq` | The scanner numbers the lines in a loop that keeps no stack frame for a line. The loop gives the lines of `layoutFrom`, the definition that the theorems read. |
 | One step follows the protocol | `step_quiet_or_loud`, `permitted_of_quiet`, `quiet_of_permitted`, `coherent_step` | A step keeps the list of violations, or it makes that list longer. A step that keeps the list is a permitted transition. From a state with `Scan.Coherent`, a permitted transition keeps the list. A step keeps `Scan.Coherent`. The Verso scanner has the same three theorems with no such condition. |
 | The class of a line | `lineIs_classify`, `lineIs_unique`, `classify_eq_of_lineIs` | `classify` returns the class that the line has, and a line has one class only. The proof includes that the trimming and the extraction of the scanner give the parts that the statements name. |
-| The pattern of a marker | `validatePattern_eq_ok_iff` | The validator of the scanner accepts exactly the patterns that `RegulaPolicy.PatternValid` admits. The matcher of [RG4003] uses the same relation (`matchesPattern_iff`). |
+| The pattern of a marker | `validatePattern_eq_ok_iff` | The validator of the scanner accepts exactly the patterns that `RegulaPolicy.PatternValid` admits. The matcher of [RG4003] uses the same relation (`matchesPattern_iff`). The validator and the relation divide a pattern with the same `String.splitOn`, and Lean's library has no theorem about that function. Thus the theorem does not say what a division gives. |
 | The info string of a Verso block | `versoBlockKind_eq_ok_iff` | `versoBlockKind` returns a kind exactly for an info string that `BlockKind` relates to that kind. |
 
 **The kinds.** `scanLines` and `scanVersoLines` are two-way decisions. A result is accepted when
@@ -1297,8 +1302,9 @@ and they do not correct these limits:
   ([#274](https://github.com/rbeauchamp/regula/issues/274)).
 
 **The open proof obligation: the fences of a result.** The audit compiles the fences that a
-scanner returns, and no theorem is about them. The kinds are about the violations only. A
-scanner that returned a fence with a changed body satisfies the same kinds.
+scanner returns, and no theorem is about them. The verdicts of [RG4002], [RG4003] and [RG4004]
+are about those fences. The kinds are about the violations only. A scanner that returned a fence
+with a changed body satisfies the same kinds.
 
 A statement of that obligation says these things for a clean document. The fences of the result
 are the Lean fences of the run, in the order of the document. The body of a fence is the lines
@@ -3359,6 +3365,7 @@ operator's narrow shell exceptions are recorded in [`AGENTS.md`](../../AGENTS.md
 [RG3001]: https://rbeauchamp.github.io/regula/dev/rules/RG3001/
 [RG3002]: https://rbeauchamp.github.io/regula/dev/rules/RG3002/
 [RG4001]: https://rbeauchamp.github.io/regula/dev/rules/RG4001/
+[RG4002]: https://rbeauchamp.github.io/regula/dev/rules/RG4002/
 [RG4003]: https://rbeauchamp.github.io/regula/dev/rules/RG4003/
 [RG4004]: https://rbeauchamp.github.io/regula/dev/rules/RG4004/
 [RG5001]: https://rbeauchamp.github.io/regula/dev/rules/RG5001/
