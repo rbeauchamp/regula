@@ -1460,7 +1460,10 @@ of `docs/` and on the Verso sources of the standard. It compiles each fence that
   `Regula.DecidesSoundly` against `Admission.AdmitOK`.
 - **The observing pass** is the rest of `validate`. It computes the replay set (`replaySet`) and
   the reported modules, imports the replay base and replays the copies (`replayMap`). It gives a
-  failure of a decision its text, and it catches the exceptions of the import and of the replay.
+  failure of a decision its text, and it catches the exceptions of the replay.
+
+The import of the replay base runs before the handler of `validate`, as before this split. Thus an
+exception of the import goes to the caller of `validate`, without the tag of an admission failure.
 
 The copies, the required keys and the modules of the replay base are definitions of the request
 (`ReplayRequest.copies`, `ReplayRequest.required`, `ReplayRequest.imports`). The receipt of an
