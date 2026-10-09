@@ -484,12 +484,12 @@ private theorem compilerDependenciesLookup_frame (env : Environment) (name other
 
 /-- What the walk of `root` observes of one name `name`: the targets of the edges from the name,
 its boundaries and unresolved paths, and its retained compiler body
-(`RegulaPolicy.ExecutionWalk.NodeRecord`). The names that the walk queues after it are a definition of
-the targets (`NodeRecord.successors`). The record reads source values, retained compiler IR, all
-supported equality candidates, and observed implementation choices. Compiler metadata supplements
-source dependencies; neither alone retains all earlier replacements after inlining. Equality
-candidates are not a claim that the compiler selected them. Extern reference bodies remain
-boundary leaves. -/
+(`RegulaPolicy.ExecutionWalk.NodeRecord`). The names that the walk queues after it are a
+definition of the targets (`NodeRecord.successors`). The record reads source values, retained
+compiler IR, all supported equality candidates, and observed implementation choices. Compiler
+metadata supplements source dependencies; neither alone retains all earlier replacements after
+inlining. Equality candidates are not a claim that the compiler selected them. Extern reference
+bodies remain boundary leaves. -/
 private def observeNode (env : Environment) (ownedModules : List Name)
     (toolchainModules : NameMap RegulaPolicy.ToolchainOrigin)
     (loadReplacementHistory : Name → IO (Except String (Array (Name × Name))))
@@ -497,7 +497,7 @@ private def observeNode (env : Environment) (ownedModules : List Name)
     (proofCache : IO.Ref (Std.HashMap (Name × Name) (Correspondence × Option String)))
     (dependencyCache : IO.Ref (CompilerDependenciesCache env))
     (preparedTheorems : Thunk (PreparedTheorems env)) (root : Name) (timing : Bool)
-    (name : Name) : CommandElabM RegulaPolicy.ExecutionWalk.NodeRecord := do
+    (name : Name) : CommandElabM (RegulaPolicy.ExecutionWalk.NodeRecord name) := do
   let moduleOf (name : Name) : Option Name :=
     (env.getModuleIdxFor? name).map fun idx => env.header.modules[(idx : Nat)]!.module
   let correspondence (reference target : Name) := do
@@ -512,9 +512,10 @@ private def observeNode (env : Environment) (ownedModules : List Name)
     | some (.fdecl ..) => .function
     | some (.extern ..) => if Lean.isExtern env name then .externBody else .placeholder
     | none => .missing
-  let mut record : RegulaPolicy.ExecutionWalk.NodeRecord := { moduleName := moduleOf name, code }
-  let note (record : RegulaPolicy.ExecutionWalk.NodeRecord) (message : String) :
-      RegulaPolicy.ExecutionWalk.NodeRecord :=
+  let mut record : RegulaPolicy.ExecutionWalk.NodeRecord name :=
+    { moduleName := moduleOf name, code }
+  let note (record : RegulaPolicy.ExecutionWalk.NodeRecord name) (message : String) :
+      RegulaPolicy.ExecutionWalk.NodeRecord name :=
     { record with unresolved := record.unresolved.push message }
   -- Persisted compiler IR records replacements at the time each imported
   -- declaration was compiled, including scoped simplification and inlining.
@@ -599,8 +600,8 @@ private def observeNode (env : Environment) (ownedModules : List Name)
       record := { record with boundaries := record.boundaries.push boundary }
     return record
   -- The value of the name, followed as logical edges.
-  let follow (record : RegulaPolicy.ExecutionWalk.NodeRecord) (dependencies : Array Name) :
-      RegulaPolicy.ExecutionWalk.NodeRecord :=
+  let follow (record : RegulaPolicy.ExecutionWalk.NodeRecord name) (dependencies : Array Name) :
+      RegulaPolicy.ExecutionWalk.NodeRecord name :=
     { record with logicalTargets := record.logicalTargets ++ dependencies }
   if info.isPartial then
     let boundary ← entry .partialComputation .trusted none none
@@ -654,10 +655,11 @@ private def observeNode (env : Environment) (ownedModules : List Name)
   | .thmInfo _ | .ctorInfo _ | .inductInfo _ | .recInfo _ | .quotInfo _ => return record
 
 /-- The account of one executable root: the observing pass reads each name that the walk reaches
-(`observeNode`), in the order of the walk, and the decision `RegulaPolicy.ExecutionWalk.walk` gives the
-visits from those records (`walk_sound`, `walk_complete`). `RegulaPolicy.ExecutionWalk.assemble`
-builds the boundaries, the unresolved paths, the compiler edges and the closure from the records
-and the visits. -/
+(`observeNode`), in the order of the walk, and the decision `RegulaPolicy.ExecutionWalk.walk`
+gives the visits from those records (`walk_sound`, `walk_complete`).
+`RegulaPolicy.ExecutionWalk.assemble` takes the visits with the proof that the walk returned them
+(`Walked`) and builds the boundaries, the unresolved paths, the compiler edges and the closure from
+the record of each visit. -/
 private def executionWalk (env : Environment) (ownedModules : List Name)
     (toolchainModules : NameMap RegulaPolicy.ToolchainOrigin)
     (loadReplacementHistory : Name → IO (Except String (Array (Name × Name))))
@@ -692,8 +694,10 @@ private def executionWalk (env : Environment) (ownedModules : List Name)
       proofCache dependencyCache preparedTheorems root timing name
     records := records.insert name record
     queue := queue ++ record.successors
-  match RegulaPolicy.ExecutionWalk.checked_walk.run { records, root } with
-  | .ok visits => return RegulaPolicy.ExecutionWalk.assemble root rootCompiled records visits
+  let request : RegulaPolicy.ExecutionWalk.WalkRequest := { records, root }
+  match walked : RegulaPolicy.ExecutionWalk.checked_walk.run request with
+  | .ok visits =>
+      return RegulaPolicy.ExecutionWalk.assemble rootCompiled { request, visits, walked }
   | .error failure => throwError "the walk of {root} over its records failed: {repr failure}"
 
 /-- Owned executable roots: computable, non-proposition, safe, non-partial,

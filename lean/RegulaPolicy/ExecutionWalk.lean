@@ -1,4 +1,4 @@
-import Std.Data.HashMap.Lemmas
+import Std.Data.DHashMap.Lemmas
 import Std.Data.HashSet.Lemmas
 import RegulaPolicy.Domain
 import Regula.Contract
@@ -13,7 +13,9 @@ edges from it, its boundaries, its unresolved paths and its retained compiler bo
 The names that the walk queues after a name are a definition of the targets
 (`NodeRecord.successors`). The decision (`walk`) takes those records and the root and returns the
 visits: each name that the recorded edges reach from the root, one time, in the order of a stack
-of queued names. `assemble` builds the account of the root from the records and the visits.
+of queued names. `assemble` builds the account of the root from a walk that returned its visits
+(`Walked`), through the record of each visit (`Walked.record`). The type of a record is indexed by
+its name, so the map of records holds a record only under its own name.
 
 `walk_sound` and `walk_complete` state that the visits are exactly the names that the recorded
 edges reach from the root (`Reach`), and `walk_nodup` that each name is visited one time.
@@ -38,10 +40,11 @@ inductive CodeStatus where
   | missing
   deriving Repr, DecidableEq, Inhabited
 
-/-- What the observing pass records of one name that the walk reaches. The record holds the
-targets of the edges from the name and not the edges, so each edge that `assemble` builds from a
-record starts at the name of its visit. -/
-structure NodeRecord where
+/-- What the observing pass records of the name `name` that the walk reaches. The type is indexed by
+the name, so the map of records (`Records`) holds the record of a name only under that name. The
+record holds the targets of the edges from the name and not the edges, so each edge that
+`assemble` builds from a record starts at the name of its visit. -/
+structure NodeRecord (name : Name) where
   /-- The module that declares the name, when the environment attributes one. -/
   moduleName : Option Name := none
   /-- The names that the retained compiler body of this name calls. -/
@@ -75,7 +78,7 @@ recursion helper. Each group is in the order of `canonicalNames`, so the visit o
 parent of each visit are a function of the edge sets of the closure: a reader of the result
 file derives them (`SharedExecution.walkLoop`). Each queued name is the target of an edge of the
 record, by this definition (`mem_successors`). -/
-def NodeRecord.successors (record : NodeRecord) : Array Name :=
+def NodeRecord.successors {name : Name} (record : NodeRecord name) : Array Name :=
   RegulaPolicy.canonicalNames record.compilerDependencies ++
     RegulaPolicy.canonicalNames record.candidateTargets ++
     RegulaPolicy.canonicalNames record.historyTargets ++
@@ -87,25 +90,25 @@ def NodeRecord.successors (record : NodeRecord) : Array Name :=
 the retained compiler body calls, or a target of a simplification candidate, of the replacement
 history, of the current replacement, of the logical value or of the compiled recursion helper. The
 closure keeps each of these edges in its channel. -/
-def Follows (record : NodeRecord) (next : Name) : Prop :=
+def Follows {name : Name} (record : NodeRecord name) (next : Name) : Prop :=
   next ∈ record.compilerDependencies ∨ next ∈ record.candidateTargets ∨
     next ∈ record.historyTargets ∨ next ∈ record.currentReplacementTargets ∨
     next ∈ record.logicalTargets ∨ next ∈ record.helperTargets
 
 /-- The names that the walk queues after a record are the targets of the edges that it follows. -/
-theorem mem_successors {record : NodeRecord} {next : Name} :
+theorem mem_successors {name : Name} {record : NodeRecord name} {next : Name} :
     next ∈ record.successors ↔ Follows record next := by
   simp only [NodeRecord.successors, Follows, Array.mem_append, RegulaPolicy.mem_canonicalNames,
     or_assoc]
 
-/-- The records of the pass, by name. -/
-abbrev Records := Std.HashMap Name NodeRecord
+/-- The records of the pass: the record of each name, under that name. -/
+abbrev Records := Std.DHashMap Name NodeRecord
 
 /-! ## The decision -/
 
 /-- A recorded edge: `name` has a record, and the record follows an edge to `next`. -/
 def Edge (records : Records) (name next : Name) : Prop :=
-  ∃ record, records[name]? = some record ∧ Follows record next
+  ∃ record, records.get? name = some record ∧ Follows record next
 
 /-- The names that the recorded edges reach from `root`, `root` among them. -/
 inductive Reach (records : Records) (root : Name) : Name → Prop
@@ -134,7 +137,7 @@ def walkLoop (records : Records) :
   | 0, _ :: _, _, _ => .error .exhausted
   | fuel + 1, (name, parent) :: queued, visited, visits =>
     if visited.contains name then walkLoop records fuel queued visited visits
-    else match records[name]? with
+    else match records.get? name with
       | none => .error (.unrecorded name)
       | some record =>
         walkLoop records fuel
@@ -201,7 +204,7 @@ private structure Inv (records : Records) (root : Name) (queue : List (Name × O
   /-- Each visit is reached. -/
   reached : ∀ visit ∈ visits, Reach records root visit.1
   /-- Each visit has a record. -/
-  recorded : ∀ visit ∈ visits, ∃ record, records[visit.1]? = some record
+  recorded : ∀ visit ∈ visits, ∃ record, records.get? visit.1 = some record
   /-- Each queued name is reached. -/
   queued : ∀ entry ∈ queue, Reach records root entry.1
   /-- Each successor of a visit is visited or queued. -/
@@ -236,9 +239,9 @@ private theorem Inv.skip {records : Records} {root name : Name} {parent : Option
 /-- A step that visits a name with a record keeps the invariant. -/
 private theorem Inv.visit {records : Records} {root name : Name} {parent : Option Nat}
     {queued : List (Name × Option Nat)} {visited : Std.HashSet Name}
-    {visits : Array (Name × Option Nat)} {record : NodeRecord}
+    {visits : Array (Name × Option Nat)} {record : NodeRecord name}
     (inv : Inv records root ((name, parent) :: queued) visited visits)
-    (unseen : visited.contains name = false) (found : records[name]? = some record) :
+    (unseen : visited.contains name = false) (found : records.get? name = some record) :
     Inv records root
       (record.successors.foldl (fun queued next => (next, some visits.size) :: queued) queued)
       (visited.insert name) (visits.push (name, parent)) := by
@@ -323,7 +326,7 @@ private theorem walkLoop_inv {records : Records} {root : Name} :
       · simp only [walkLoop, seen, ↓reduceIte] at returned
         exact step queued visited visits result (Inv.skip inv seen) returned
       · have unseen : visited.contains name = false := by simpa using seen
-        cases found : records[name]? with
+        cases found : records.get? name with
         | none => simp [walkLoop, unseen, found] at returned
         | some record =>
           simp only [walkLoop, unseen, Bool.false_eq_true, ↓reduceIte, found] at returned
@@ -371,7 +374,7 @@ theorem walk_nodup {request : WalkRequest} {visits : Array (Name × Option Nat)}
 /-- Each visit of an accepted walk has a record. -/
 theorem walk_recorded {request : WalkRequest} {visits : Array (Name × Option Nat)}
     (accepted : walk request = .ok visits) :
-    ∀ visit ∈ visits, ∃ record, request.records[visit.1]? = some record := by
+    ∀ visit ∈ visits, ∃ record, request.records.get? visit.1 = some record := by
   obtain ⟨_, inv⟩ := walkLoop_inv _ _ _ _ _ (inv_start request.records request.root) accepted
   exact inv.recorded
 
@@ -379,14 +382,14 @@ theorem walk_recorded {request : WalkRequest} {visits : Array (Name × Option Na
 
 /-- The number of names that the records of `entries` list, for each entry whose name is not in
 `visited`. -/
-private def pendingIn (visited : Std.HashSet Name) : List (Name × NodeRecord) → Nat
+private def pendingIn (visited : Std.HashSet Name) : List ((n : Name) × NodeRecord n) → Nat
   | [] => 0
   | entry :: rest =>
     (if visited.contains entry.1 then 0 else entry.2.successors.size) + pendingIn visited rest
 
 /-- The visit of a name that no entry has leaves the count. -/
 private theorem pendingIn_insert_absent {visited : Std.HashSet Name} {name : Name} :
-    ∀ {entries : List (Name × NodeRecord)}, (∀ entry ∈ entries, entry.1 ≠ name) →
+    ∀ {entries : List ((n : Name) × NodeRecord n)}, (∀ entry ∈ entries, entry.1 ≠ name) →
       pendingIn (visited.insert name) entries = pendingIn visited entries
   | [], _ => rfl
   | entry :: rest, absent => by
@@ -397,9 +400,9 @@ private theorem pendingIn_insert_absent {visited : Std.HashSet Name} {name : Nam
 
 /-- The visit of a name that is not visited takes the successors of its entry from the count. -/
 private theorem pendingIn_insert_present {visited : Std.HashSet Name} {name : Name}
-    {record : NodeRecord} (unseen : visited.contains name = false) :
-    ∀ {entries : List (Name × NodeRecord)},
-      entries.Pairwise (fun a b => (a.1 == b.1) = false) → (name, record) ∈ entries →
+    {record : NodeRecord name} (unseen : visited.contains name = false) :
+    ∀ {entries : List ((n : Name) × NodeRecord n)},
+      entries.Pairwise (fun a b => (a.1 == b.1) = false) → ⟨name, record⟩ ∈ entries →
       pendingIn visited entries = pendingIn (visited.insert name) entries + record.successors.size
   | [], _, member => by simp at member
   | entry :: rest, distinct, member => by
@@ -415,7 +418,7 @@ private theorem pendingIn_insert_present {visited : Std.HashSet Name} {name : Na
       omega
     · have other : (name == entry.1) = false :=
         beq_false_of_ne fun same => by
-          have := apart _ later
+          have : (entry.1 == name) = false := apart _ later
           rw [same] at this
           simp at this
       simp only [pendingIn, Std.HashSet.contains_insert, other, Bool.false_or,
@@ -426,8 +429,8 @@ private theorem pendingIn_insert_present {visited : Std.HashSet Name} {name : Na
 private theorem fuelOf_eq (records : Records) :
     fuelOf records = 1 + pendingIn {} records.toList := by
   unfold fuelOf
-  rw [Std.HashMap.fold_eq_foldl_toList]
-  suffices sums : ∀ (start : Nat) (entries : List (Name × NodeRecord)),
+  rw [Std.DHashMap.fold_eq_foldl_toList]
+  suffices sums : ∀ (start : Nat) (entries : List ((n : Name) × NodeRecord n)),
       entries.foldl (fun total entry => total + entry.2.successors.size) start =
         start + pendingIn {} entries from sums 1 _
   intro start entries
@@ -441,7 +444,7 @@ private theorem fuelOf_eq (records : Records) :
 /-- A walk whose bound covers its queue and the count of the entries that are not visited
 returns visits when each name that the recorded edges reach has a record. -/
 private theorem walkLoop_ok {records : Records} {root : Name}
-    (recorded : ∀ name, Reach records root name → ∃ record, records[name]? = some record) :
+    (recorded : ∀ name, Reach records root name → ∃ record, records.get? name = some record) :
     ∀ (fuel : Nat) (queue : List (Name × Option Nat)) (visited : Std.HashSet Name)
       (visits : Array (Name × Option Nat)),
       Inv records root queue visited visits →
@@ -469,15 +472,15 @@ private theorem walkLoop_ok {records : Records} {root : Name}
         simp only [walkLoop, unseen, Bool.false_eq_true, ↓reduceIte, found]
         refine step _ _ _ (Inv.visit inv unseen found) ?_
         have present := pendingIn_insert_present unseen
-          (Std.HashMap.distinct_keys_toList (m := records))
-          (Std.HashMap.mem_toList_iff_getElem?_eq_some.mpr found)
+          (Std.DHashMap.distinct_keys_toList (m := records))
+          (Std.DHashMap.mem_toList_iff_get?_eq_some.mpr found)
         rw [length_foldl_queue]
         omega
 
 /-- The walk has a record for each name that the recorded edges reach from the root. -/
 def Recorded (request : WalkRequest) : Prop :=
   ∀ name, Reach request.records request.root name →
-    ∃ record, request.records[name]? = some record
+    ∃ record, request.records.get? name = some record
 
 /-- **A walk returns visits when each name that the recorded edges reach has a record.** The
 bound of the steps is enough. -/
@@ -503,15 +506,15 @@ theorem checked_walk : Regula.ExecutableContract walk
         | ok visits =>
           intro name reach
           obtain ⟨visit, member, same⟩ := walk_complete h name reach
-          obtain ⟨record, found⟩ := walk_recorded h visit member
-          exact ⟨record, same ▸ found⟩
+          subst same
+          exact walk_recorded h visit member
       · intro recorded
         obtain ⟨visits, h⟩ := walk_ok recorded
         simp [h, Except.isOk, Except.toBool])
     (by
       let records : Records := (∅ : Records).insert `root {}
       refine ⟨{ records, root := `root }, ?_⟩
-      have found : records[`root]? = some {} := by simp [records]
+      have found : records.get? `root = some {} := by simp [records]
       obtain ⟨more, fuel⟩ : ∃ more, fuelOf records = more + 1 :=
         ⟨pendingIn {} records.toList, by rw [fuelOf_eq]; omega⟩
       simp only [walk, fuel, walkLoop, Std.HashSet.contains_empty, Bool.false_eq_true,
@@ -519,10 +522,10 @@ theorem checked_walk : Regula.ExecutableContract walk
       cases more <;> rfl)
     ⟨{ records := ∅, root := `root }, by
       have fuel : fuelOf (∅ : Records) = 0 + 1 := by
-        rw [fuelOf_eq, Std.HashMap.toList_empty]
+        rw [fuelOf_eq, Std.DHashMap.toList_empty]
         rfl
       simp only [walk, fuel, walkLoop, Std.HashSet.contains_empty, Bool.false_eq_true,
-        ↓reduceIte, Std.HashMap.getElem?_empty]
+        ↓reduceIte, Std.DHashMap.get?_empty]
       decide⟩⟩
 
 /-! ## The account of a root -/
@@ -538,46 +541,68 @@ def cyclicReplacementPaths (edges : Array (Name × Name)) : Array Name := Id.run
       edges.any fun (left, right) => left == source && remaining.contains right
   return remaining
 
-/-- The account of a root from the records and the visits of the walk: the boundaries, the
-unresolved paths, the compiler edges and the closure. `rootCompiled` says that the root itself
-requires retained code. Each part is the parts of the visits' records in the order of the visits,
-then the search of replacement-only cycles and the required code that is not available. -/
-def assemble (root : Name) (rootCompiled : Bool) (records : Records)
-    (visits : Array (Name × Option Nat)) :
+/-- A walk that returned visits: the request, the visits, and the proof that `walk` returned
+those visits for the request. `assemble` takes a value of this type, so the account of a root is
+built only from the visits of a walk over the records that it reads. -/
+structure Walked where
+  /-- The records and the root that the walk read. -/
+  request : WalkRequest
+  /-- The visits that the walk returned. -/
+  visits : Array (Name × Option Nat)
+  /-- The walk returned these visits for the request. -/
+  walked : walk request = .ok visits
+
+/-- The record of a visit of a walk. A visit has a record (`walk_recorded`), so no default
+record stands in for one. -/
+def Walked.record (walked : Walked) (visit : Name × Option Nat)
+    (member : visit ∈ walked.visits) : NodeRecord visit.1 :=
+  walked.request.records.get visit.1 <| Std.DHashMap.mem_iff_isSome_get?.mpr <| by
+    obtain ⟨record, found⟩ := walk_recorded walked.walked visit member
+    rw [found]
+    rfl
+
+/-- The account of a root from a walk: the boundaries, the unresolved paths, the compiler edges
+and the closure. `rootCompiled` says that the root itself requires retained code. Each part is
+the parts of the records of the visits (`Walked.record`) in the order of the visits, then the
+search of replacement-only cycles and the required code that is not available. The status of
+the compiler body of a required name is read from its record. A required name with no record is
+reported as unavailable code, which fails closed. -/
+def assemble (rootCompiled : Bool) (walked : Walked) :
     Array RegulaPolicy.ExecutionBoundary × Array String × Array (Name × Name) ×
       RegulaPolicy.ExecutionClosure := Id.run do
-  let recordOf (name : Name) : NodeRecord := records.getD name {}
-  let reached := visits.map fun (name, _) => recordOf name
+  let root := walked.request.root
+  let reached : Array ((visit : Name × Option Nat) × NodeRecord visit.1) :=
+    walked.visits.attach.map fun ⟨visit, member⟩ => ⟨visit, walked.record visit member⟩
   -- The edges from each visit to the targets that its record lists, in the order of the visits.
-  let edgesOf (targets : NodeRecord → Array Name) : Array (Name × Name) :=
-    (visits.zip reached).flatMap fun ((name, _), record) => (targets record).map (name, ·)
+  let edgesOf (targets : {name : Name} → NodeRecord name → Array Name) : Array (Name × Name) :=
+    reached.flatMap fun entry => (targets entry.2).map (entry.1.1, ·)
   let compilerEdges := edgesOf (·.compilerDependencies)
   let mut compiledNames : Std.HashSet Name := {}
   if rootCompiled then compiledNames := compiledNames.insert root
-  for record in reached do
-    for dependency in record.compilerDependencies do
+  for entry in reached do
+    for dependency in entry.2.compilerDependencies do
       compiledNames := compiledNames.insert dependency
-  let mut unresolved := reached.flatMap (·.unresolved)
+  let mut unresolved := reached.flatMap (·.2.unresolved)
   let cycles := cyclicReplacementPaths (edgesOf (·.replacementTargets))
   if !cycles.isEmpty then
     unresolved := unresolved.push s!"replacement-only cycle reachable from {cycles}"
   let mut unavailableCode : Array Name := #[]
   for name in compiledNames do
-    match (recordOf name).code with
-    | .function | .externBody => pure ()
-    | .placeholder =>
+    match ((walked.request.records.get? name).map (·.code) : Option CodeStatus) with
+    | some .function | some .externBody => pure ()
+    | some .placeholder =>
         unavailableCode := unavailableCode.push name
         unresolved := unresolved.push s!"{name}: compiler body is an opaque export placeholder"
-    | .missing =>
+    | some .missing | none =>
         unavailableCode := unavailableCode.push name
         unresolved := unresolved.push s!"{name}: compiled dependency body is unavailable"
-  let boundaries := (reached.flatMap (·.boundaries)).mapIdx fun occurrence boundary =>
+  let boundaries := (reached.flatMap (·.2.boundaries)).mapIdx fun occurrence boundary =>
     { boundary with occurrence, compilerCallers := compilerEdges.filterMap fun (caller, callee) =>
         if callee == boundary.name then some caller else none }
   let closure : RegulaPolicy.ExecutionClosure := {
-    nodes := RegulaPolicy.canonicalNames (visits.map (·.1))
-    visits := (visits.zip reached).map fun ((name, parent), record) =>
-      { name, moduleName := record.moduleName, parent }
+    nodes := RegulaPolicy.canonicalNames (walked.visits.map (·.1))
+    visits := reached.map fun entry =>
+      { name := entry.1.1, moduleName := entry.2.moduleName, parent := entry.1.2 }
     logicalEdges := RegulaPolicy.canonicalEdges (edgesOf (·.logicalTargets))
     candidateEdges := RegulaPolicy.canonicalEdges (edgesOf (·.candidateTargets))
     historyEdges := RegulaPolicy.canonicalEdges (edgesOf (·.historyTargets))

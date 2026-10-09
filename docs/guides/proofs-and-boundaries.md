@@ -1538,11 +1538,17 @@ theorems decide.
   the position of the visit that queued it. `checked_walk` registers the kind `Regula.Decides`
   against `ExecutionWalk.Recorded`: each name that the edges of the records reach from the root has
   a record.
-- **The account** is `ExecutionWalk.assemble`. It builds the boundaries, the unresolved paths, the
-  compiler edges and the closure from the records, in the order of the visits.
+- **The account** is `ExecutionWalk.assemble`. Its argument, `ExecutionWalk.Walked`, holds the
+  request, the visits and the proof that `walk` returned those visits for the request. It reads the
+  record of each visit through that proof (`Walked.record`), with no default record. It builds the
+  boundaries, the unresolved paths, the compiler edges and the closure from those records, in the
+  order of the visits. A required name with no record is reported as unavailable code, which fails
+  closed.
 
-A record holds the targets of the edges from its name, and not the edges. Thus each edge that
-`assemble` builds starts at the name of a visit, by the type of the record.
+The type of a record is indexed by its name (`NodeRecord name`), so the map of records holds a
+record only under its own name. A record holds the targets of the edges from its name, and not the
+edges. Thus each edge that `assemble` builds starts at the name of a visit, by the type of the
+record.
 
 The successors of a record are a definition of its targets (`NodeRecord.successors`,
 `mem_successors`). They are the compiler calls, then the targets of the candidates, the history,
@@ -1567,12 +1573,17 @@ items:
 
 - That a record is what the environment holds for its name. This includes the compiler calls, the
   targets, the boundaries with their correspondence, the unresolved paths and the status of the
-  compiler body. The pass reads them, and that step is read from the code.
+  compiler body. The type binds a record to its name, but not to the pass: other code can make a
+  value of `NodeRecord name`. The pass reads the environment, and that step is read from the code.
 - That the pass gives a record for each name that the walk reaches. If a name has no record, the
   walk refuses, and the pass stops with an error. Thus a missing record fails closed.
-- That `assemble` builds the correct account. No theorem is about `assemble`. At the admission of a
-  report, `ExecutionClosure.Valid` and `ExecutionRoot.Valid` check the closure that it builds
-  (**Closure** in [Producers](#producers)).
+- That `assemble` builds the correct account from the records of the visits. No theorem is about
+  that account. At the admission of a report, `ExecutionClosure.Valid` and `ExecutionRoot.Valid`
+  check the closure that it builds (**Closure** in [Producers](#producers)).
+- That the reader of a result file gives the visits and the parents of the producer.
+  `SharedExecution.walkLoop` queues the same channels in the same order as `NodeRecord.successors`,
+  by the two definitions. No theorem relates the two walks. Their match is by reading, and the
+  `history` qualification and `RegistryChecks` observe it.
 - The text of an unresolved path.
 
 **Root discovery has no decision.** `Probe.executableRoots` selects the owned definitions and
