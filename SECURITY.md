@@ -50,10 +50,13 @@ For example, code that makes one of these changes to make a check pass is not ho
 Regula checks for some of these changes. For example, it replays the declarations of the project
 that are not `unsafe` or `partial` through Lean's kernel. But a pass makes no claim that the
 project has none of these changes. The [README](README.md) puts Regula at the `#print axioms` step
-of [Validating a Lean Proof](https://lean-lang.org/doc/reference/latest/ValidatingProofs/). The
-later steps of that page, `lean4checker` and comparator, replay declarations through Lean's
-kernel. These steps apply to the changes to proofs, for example a direct write to the axiom table
-or a declaration that `debug.skipKernelTC` adds.
+of [Validating a Lean Proof](https://lean-lang.org/doc/reference/latest/ValidatingProofs/).
+
+The later steps of that page, `lean4checker` and comparator, replay declarations through Lean's
+kernel. Thus the two refuse a declaration that `debug.skipKernelTC` adds and that the kernel does
+not accept. `lean4checker` does not calculate or compare axiom sets, thus it does not find a direct
+write to the axiom table. Comparator calculates the axioms from the declarations that it exports,
+not from that table. It refuses each axiom that is not one of its permitted axioms.
 
 No step of that page checks the changes to compiled code. These are a compiler pass, a direct
 write to the IR or LCNF extensions, an `_unsafe_rec` companion and a native build setting. The
