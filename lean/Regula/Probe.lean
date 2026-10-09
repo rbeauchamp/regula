@@ -779,7 +779,7 @@ module's frontend extension environment. Each declaration record has the axioms 
 for it, those it reaches in the kernel that replayed it (`Admission.validate`), with the axioms
 Lean's `collectAxioms` omits of them, or, with no `replayed`, those `collectAxioms` reports. The
 kernel walks of the correspondence proofs the execution account builds stop at the names
-`replayed` holds (`checkCorrespondenceProof`). -/
+`replayed` holds (`kernelAnswer`). -/
 def environmentReport (modules : List Name)
     (loadReplacementHistory : Name → IO (Except String (Array (Name × Name))) :=
       fun _ => pure (.error "trusted source-history loader was not supplied"))
