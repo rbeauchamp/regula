@@ -1143,8 +1143,8 @@ def guide : RuleId → Guide
       linkage := "Acceptance side only: an accepted run satisfies `RegulaPolicy.BuildOK`. Reading \
         Lake's build result is operational."
       sources :=
-          ["lean/Regula/Checker/Lake.lean", "lean/Regula/Checker/Diagnostics.lean",
-              "lean/Regula/Checker/ResultProtocol.lean"] }
+          ["lean/Regula/Checker/Lake.lean", "lean/Regula/Checker/LintBuild.lean",
+              "lean/Regula/Checker/Diagnostics.lean", "lean/Regula/Checker/ResultProtocol.lean"] }
   | .coverage => {
       problem := "The exact module and declaration inventory from Lake does not match the owned \
         coverage: a claimed library imports an excluded or checker-probe module, a module is \

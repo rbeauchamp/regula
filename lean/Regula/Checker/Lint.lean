@@ -1,4 +1,5 @@
 import Regula.Checker.AxiomGate
+import Regula.Checker.LintBuild
 
 /-!
 # Lake lint driver

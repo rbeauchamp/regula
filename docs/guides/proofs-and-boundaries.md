@@ -804,7 +804,7 @@ Which report states a kind depends on the library that holds the registration:
   (`Regula.StructuralName`), `checked_checkCopies`, `checked_checkHeader`,
   `checked_admitReplay` and `checked_checkTable` (`Regula.Checker.Admission`),
   `checked_parseValue` (`Regula.Checker.Manifest`), `checked_auditMarkerNeeded`
-  (`Regula.Checker.Lake`), `checked_validate`
+  (`Regula.Checker.LintBuild`), `checked_validate`
   (`Regula.Checker.ProducerReport`), and `checked_admitExampleRequest`,
   `checked_admitExampleSources` and `checked_admitDemonstration` (`Regula.Website`). Lean's kernel checks each kind's proof in the library's
   warning-free build, and the `self-audit` diagnostic holds each registration to [RG1007],

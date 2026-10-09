@@ -1,5 +1,5 @@
 import Regula.Checker.BuildLintQualification
-import Regula.Checker.Lake
+import Regula.Checker.LintBuild
 
 /-!
 # Lake lint driver qualification
