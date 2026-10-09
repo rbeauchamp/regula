@@ -15,9 +15,9 @@ Lake discovers it: completed kernel admission of every owned safe declaration (R
 executed `RegulaPolicy.checked_operationalFailure` decision (RG1001–RG1005, RG1007, RG1009) on the
 observations the live linter's shared collector (`Regula.Collect.declaration`) constructs, the
 executed `RegulaPolicy.checked_decisionFailure` decision (RG1008) against the decision contracts
-the same module registers (`RegulaPolicy.decidedImplementations` of its declarations), and
-the live linter's module-header (RG5001: docstring present and first, no repeated import) and
-material-documentation presence predicates
+the same module registers (`RegulaPolicy.decidedImplementations` of the recorded contracts of its
+declarations), and the live linter's module-header (RG5001: docstring present and first, no
+repeated import) and material-documentation presence predicates
 (`Regula.Linter.Documentation`, RG5001–RG5003). Authored `unsafe`/`partial` declarations and
 the pinned toolchain's Lake axioms that in-process Lake APIs reach are reported, never failed.
 
@@ -151,7 +151,7 @@ private def decide (o : ModuleObservation) : Except String ModuleResult := do
   let mut contracts := 0
   -- A registered decision is decided by a contract of its own module: each module is audited in
   -- its own environment, so a contract in another module of the library does not count.
-  let decided := decidedImplementations o.declarations
+  let decided := decidedImplementations (recordedContracts o.declarations)
   for d in o.declarations do
     if d.executableContract.isSome then contracts := contracts + 1
     match d.unsafeRecBase with
