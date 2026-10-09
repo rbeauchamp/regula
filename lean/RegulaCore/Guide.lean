@@ -1350,6 +1350,13 @@ def guide : RuleId → Guide
           helpers. Anything it cannot resolve or classify is reported with applicability \
           `execution-unresolved` and impact `incomplete`, in both `report` and `checked` execution \
           modes.",
+        "The executable roots include the action of each `initialize` block, named or anonymous, \
+          and of each `[init]` or `[builtin_init]` declaration of an owned module, as Lean's \
+          initializer attributes record it, whatever its name: Lean runs that action at startup \
+          or import, where no other root need reference it.",
+        "A comparison of a replacement with its reference is decided only by the kernel's \
+          answer. A comparison that the kernel stopped before it decided, or that raised an \
+          error before it recorded the kernel's answer, is unresolved.",
         "Replacement history is reconstructed by fresh re-elaboration; metaprogramming commands \
           such as `run_cmd`, `run_elab` or module-local elaborators make it unavailable.",
         "A path through the Lean toolchain's own origin-checked `Init`, `Std` or `Lean` modules \
@@ -1363,7 +1370,9 @@ def guide : RuleId → Guide
           classified; an unresolved path is incomplete and never accepted."]
       notEstablished := [
         "That the conservative closure is the program's actual runtime call graph: candidates and \
-          historical choices overapproximate it, and a safe program can be rejected."]
+          historical choices overapproximate it, and a safe program can be rejected.",
+        "That the executable roots are complete: the census of roots, the initializer actions \
+          among them, is read from Lean's records of each owned module, not proved."]
       configuration := [
         "No execution mode waives an unresolved path."]
       limitations := [
@@ -1378,10 +1387,16 @@ def guide : RuleId → Guide
       linkage := "`RegulaPolicy.executionFailureRecords_empty_iff`, \
         `RegulaPolicy.executionFindings_empty_iff`, `RegulaPolicy.unresolved_reported`, \
         `Regula.Checker.Policy.checked_executionFailures` and `executionRule_injective`. \
-        Extracting the execution closure from compiler IR is operational."
+        `RegulaPolicy.ExecutionWalk.checked_walk` decides the walk over the records of the probe: \
+        `walk_sound` and `walk_complete`. `RegulaPolicy.DefeqComparison.ofAttempt_incomplete_iff` \
+        and `ofAttempt_error`: a comparison is incomplete, and so unresolved, exactly when the \
+        kernel stopped before it decided or the attempt raised an error. Root discovery, the \
+        kernel's answer and reading each record from the environment and compiler IR are \
+        operational, and no theorem states that `RegulaPolicy.ExecutionWalk.assemble` builds the \
+        correct account from the visits."
       sources :=
-          ["lean/Regula/Probe.lean", "lean/RegulaCore/Policy.lean",
-              "lean/Regula/Checker/RuleDiagnostics.lean"] }
+          ["lean/Regula/Probe.lean", "lean/RegulaPolicy/ExecutionWalk.lean",
+              "lean/RegulaCore/Policy.lean", "lean/Regula/Checker/RuleDiagnostics.lean"] }
   | .executionBoundary => {
       problem := "On a surface claiming `\"execution\": \"checked\"`, a reachable boundary the \
         project or a dependency owns lacks kernel-checked correspondence: for example an \
@@ -1444,8 +1459,10 @@ def guide : RuleId → Guide
           it evaluates by name (`Lean.Environment.evalConst`, `Lean.Meta.reduceBoolNative`), a \
           dynamic library or plugin it loads, or a process it spawns. The account is the static \
           closure; such code is data to it, and the toolchain primitive that runs it is trusted \
-          base. The `initialize` and `[init]` actions of imported modules, static or at runtime, \
-          are likewise outside the account.",
+          base. The `initialize` and `[init]` actions of modules that the project imports but \
+          does not own, static or at runtime, are likewise not roots of their own: the account \
+          covers only those that an existing root reaches, through the constant that the action \
+          initializes. Those of owned modules are executable roots (RG3001).",
         "That the executable roots are the ones the project intends to cover (R-INVARIANT)."]
       configuration := [
         "`execution` in the surface manifest (`report` or `checked`), or `--execution checked` for \
@@ -1463,11 +1480,18 @@ def guide : RuleId → Guide
         `RegulaPolicy.boundaryFailures_toolchain`, `RegulaPolicy.project_boundary_reported`, \
         `RegulaPolicy.failure_reported`, `RegulaPolicy.executionFindings_sound` and \
         `RegulaPolicy.checked_toolchainBase`; an accepted run satisfies `RegulaPolicy.BoundaryOK`. \
-        Extracting the execution closure from compiler IR and observing module origins are \
-        operational."
+        `RegulaPolicy.DefeqComparison.ofAttempt_checked_iff` and `ofAttempt_negative_iff`: a \
+        definitional comparison is checked exactly when the attempt recorded the kernel's \
+        admission of the proof with Standard-Logical axioms, and trusted exactly when it recorded \
+        the kernel's refusal or an admission with a different axiom; an error while it records \
+        the answer, also after an admission, leaves it unresolved. \
+        `RegulaPolicy.ExecutionWalk.checked_walk` decides the walk over the records of the probe. \
+        Root discovery, the kernel's answer, reading each record from compiler IR and observing \
+        module origins are operational, and no theorem states that \
+        `RegulaPolicy.ExecutionWalk.assemble` builds the correct account from the visits."
       sources :=
-          ["lean/Regula/Probe.lean", "lean/RegulaCore/Policy.lean",
-              "website/RegulaStandard/ToolingAndMachineAudit.lean"] }
+          ["lean/Regula/Probe.lean", "lean/RegulaPolicy/ExecutionWalk.lean",
+              "lean/RegulaCore/Policy.lean", "website/RegulaStandard/ToolingAndMachineAudit.lean"] }
   | .fenceStructure => {
       problem := "A Markdown file in the checked documentation tree has a malformed Lean fence \
         classification: an orphan, misplaced, duplicated or misspelled marker, an invalid \

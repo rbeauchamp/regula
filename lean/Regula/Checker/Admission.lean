@@ -1790,7 +1790,8 @@ theorem replayed_of_changed_import {env : Environment}
 the audited environment's header: each module that is replayed or reported lists its constants
 under their own names, and no module of the replay base imports a replayed one. `admitReplay`
 takes a header that `checkHeader` accepted and the kernel that the replay gave: it checks every
-copy (`checkCopies`) and that the kernel holds every required key, and it returns the receipt.
+copy (`checkCopies`) and that the kernel holds a constant under the name of each required key,
+without reading the module of the key, and it returns the receipt.
 The copies, the required keys and the modules of the replay base are definitions of the header
 (`ReplayRequest.copies`, `ReplayRequest.required`, `ReplayRequest.imports`). The import of the
 replay base, the replay and the text of a failure are the pass. -/
@@ -2061,8 +2062,9 @@ def AdmitRequest.receipt (admit : AdmitRequest) : ProducerReport.AdmissionReceip
     reused := RegulaPolicy.canonicalNames admit.reused
     shared := RegulaPolicy.canonicalNames ((admit.request.copies.filter admit.shared).map (·.module)) }
 
-/-- The decision of admission: every copy is checked (`checkCopies`), then every required key
-must name a constant of the replayed kernel, and the receipt is returned. -/
+/-- The decision of admission: every copy is checked (`checkCopies`), then the replayed kernel must
+hold a constant under the name of each required key, without regard to the module of the key, and
+the receipt is returned. -/
 @[regula_decision]
 def admitReplay (admit : AdmitRequest) : Except AdmitFailure ProducerReport.AdmissionReceipt := do
   if let .error failure :=

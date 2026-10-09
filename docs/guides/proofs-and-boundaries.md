@@ -571,7 +571,7 @@ interfaces do not imply a library-wide exemption.
 | Native axiom names | `nativeAxiomOrigin?_sound`, `nativeAxiomOrigin?_nativeAxiomName`, `nativeAxiomOrigin?_isSome_iff`, `compilerTrustingAxiomName_sound`, `compilerTrustingAxiomName_iff`, `modulePrivacy_nativeAxiomName`, `generatedPrefix_iff`, `native_generated`, `native_compilerTrustingAxiomName`, `native_provenance` | A name is recognized exactly when it is `nativeAxiomName parent t idxs`, Lean's own `Name.append` and `appendIndexAfter` as `nativeEqTrue` and `DeclNameGenerator.mkUniqueName` apply them, for `native_decide`, `decide +native` or `bv_decide`, with or without module privacy. `compilerTrustingAxiomName`, the execution probe's classification, holds exactly for these names and the enabled legacy compiler axioms. The prefix is nonanonymous without macro scopes and the generator indices are a nonempty list of positive numbers. For a declaration name without macro scopes in a module without macro scopes, a recognized prefix related to it by `GeneratedPrefix` (the name itself, or its `mkPrivateNameCore` form when it is public) gives exactly the names `DeclNameGenerator.mkUniqueName.curr` gives its native axioms, whether or not the module elaborates the proof without exporting (`modulePrivacy`). The recognition direction and that characterization assume `RuntimeStringAppend`, because `appendIndexAfter` uses the logically opaque extern `String.Internal.append`. The three tactic names and the list of `nativeEqTrue` call sites are cited from the pinned sources, not derived; hygienic and anonymous prefixes are not recognized. |
 | Execution policy | `executionFailureRecords_empty_iff`, `boundaryFailures_empty_iff`, `boundaryFailures_ids`, `rootFailures_ids`, `boundaryFailures_toolchain`, `project_boundary_reported`, `checked_toolchainBase` | No failure exactly when there is no unresolved path and every boundary meets its mode's relation; the failure kind of every boundary and path for every claim. A toolchain-owned boundary never fails; every boundary without an admitted toolchain origin or checked evidence has its own failure record, in every root whose account contains it, under a checked claim; the audit's toolchain trusted base has each toolchain-owned boundary (constant and kind) of every labeled environment account in exactly one entry, which lists exactly the environments and roots that reach it. |
 | Execution findings | `executionFindings_empty_iff`, `failure_reported`, `unresolved_reported`, `executionFindings_sound`, `rootFindings_ids`, `executionFindings_unresolved`, `ExecutionRoot.boundary_reported`, `ExecutionRoot.first_record`, `ExecutionRoot.folded_trusted`, `ExecutionRoot.carries_spec`, `ExecutionBoundary.restates_spec`, `boundaryFailures_restates`, `ExecutionInventory.reported_or_folded` | The findings the gate reports are the failure records with each folded boundary's record reported in the finding of the boundary it is reported with. A boundary is folded in two cases only. It repeats an earlier record: a boundary of the same root with a smaller occurrence number is trusted like it and has the same constant, kind, replacement and toolchain origin, so the two have the same failures for every claim. Or it is a trusted partial-computation boundary without a toolchain origin whose constant is the source of no helper edge, and a boundary of the same root that is trusted, not toolchain-owned and not itself foldable names its constant, by its `replacement` or, as a partial-computation boundary, by a helper edge. Every folded boundary is trusted, and every boundary of a root is, or restates, one that is reported on its own or is an implementation of one reported on its own. So the findings are empty exactly when `ExecutionOK` holds; every failure record is its boundary's own finding, is named in the finding of a boundary whose implementations include it, or is a later record of a boundary that is; every unresolved path is a finding unchanged; every finding has the kind, root and detail of a record, followed by its implementations; a root has one finding per failing boundary reported on its own; the unresolved findings are as many as the unresolved records; and every boundary of the account is counted by the coverage counts or folded. These are statements about the supplied account: that the collector records a `partial` definition and the constant compiled to it, and two candidates of one equality, in this form is its observation of the environment, not proved. |
-| Correspondence | `DefeqComparison.classify_checked_iff`, `classify_trusted_iff`, `classify_unresolved_iff` | Checked exactly for a completed comparison with admitted evidence, trusted exactly for a completed one without, unresolved exactly for one that did not complete. |
+| Correspondence | `DefeqComparison.classify_checked_iff`, `classify_trusted_iff`, `classify_unresolved_iff`, `DefeqComparison.ofAttempt_checked_iff`, `ofAttempt_negative_iff`, `ofAttempt_incomplete_iff`, `ofAttempt_error` | Checked exactly for a completed comparison with admitted evidence, trusted exactly for a completed one without, unresolved exactly for one that did not complete. A comparison is completed exactly when the attempt recorded the answer of a kernel that decided. It has evidence when that answer is an admission with only Standard-Logical axioms. It has no evidence when the answer is a refusal, or an admission with a different axiom. An attempt that raised an error is incomplete, also after the kernel admitted the proof, for example when printing the proof failed. That `Probe.kernelAnswer` records the answer of the kernel is observed. |
 | Expected diagnostics | `matchesPattern_iff`, `orderedLiterals_iff` | The restricted pattern's ordered leftmost-split match within one effective-error message. |
 
 ### Where each field of a declaration's record comes from
@@ -632,8 +632,8 @@ the rest of [#199](https://github.com/rbeauchamp/regula/issues/199).
 | `Checker/Policy.admitScope`, with `Frontend.validateCoordinates` | `checked_scope` (first coordinate refusal in transcript order, then exactly `admitInventory` with `authorize`; success iff all coordinate checks and `InventoryValid` hold, retaining both input arrays); `checked_coordinates` (claimed `RegulaCore.Coordinates`: success iff `CoordinatesAgree`, refusal with the first unmet obligation in traversal order) | Lean's UTF-16 column function (`FileMap.leanPosToLspPos`) and `FileMap`; source and compiler observation acquisition. |
 | `request`, `ruleFor`/`reasonFor`, `ruleForMember` (claimed `RegulaCore.Policy`) | `checked_request`, `checked_rule`, `checked_memberRule` over `policyFor`; `ruleForFailure_injective`, `reasonFor_eq_some_iff` | Registry descriptor text; adequacy of the mapped rule set. |
 | `labelOf`, `labelOfMember`, `classify`, `classifyMember` | `foundationFor`; `checked_memberFoundation`, `labelOf_member`, `classifyMember_eq` | Transitive `Lean.collectAxioms` results and module ownership. |
-| `executionFindings`, `executionFailures`, `executionSummary`, `toolchainBase` | `checked_executionFailures` (line `k` renders finding `k`, none added or dropped, so the lines are empty iff `ExecutionOK`), `executionRule_injective`, `checked_summary` (the boundary counts range over the boundaries reported on their own: a later record of one trusted boundary of a root, and a `partial` implementation reported with the boundary that runs it, are counted with that boundary, not again), `checked_toolchainBase` | Root and closure collection, retained compiler edges, correspondence admission, source history, module origins and the text and JSON rendering of the toolchain trusted base. |
-| `Probe.replacementCorrespondence` | `DefeqComparison.classify` (a comparison that did not complete is unresolved, never trusted) | Mapping the kernel result to the outcome, the kernel decision itself and the incomplete theorem-candidate search. |
+| `executionFindings`, `executionFailures`, `executionSummary`, `toolchainBase` | `checked_executionFailures` (line `k` renders finding `k`, none added or dropped, so the lines are empty iff `ExecutionOK`), `executionRule_injective`, `checked_summary` (the boundary counts range over the boundaries reported on their own: a later record of one trusted boundary of a root, and a `partial` implementation reported with the boundary that runs it, are counted with that boundary, not again), `checked_toolchainBase` | Root collection, retained compiler edges, correspondence admission, source history, module origins and the text and JSON rendering of the toolchain trusted base. The records of the execution walk are observed, and the account that `ExecutionWalk.assemble` builds from them is not proved. |
+| `Probe.replacementCorrespondence` | `DefeqComparison.classify` of `DefeqComparison.ofAttempt` (an attempt that the kernel did not decide, or that raised an error, is unresolved and not trusted) | The kernel decision itself, the record of its answer (`Probe.kernelAnswer`), the capture of an error (`Probe.comparison`) and the incomplete theorem-candidate search. Lean's Core-based monads rethrow a runtime resource exception or an interruption. Such an exception records no comparison and stops the report. |
 | `Checker/Common.admitIndexedWorkerResults`, `mapWorkQueue`, `Documentation.auditTasks` | `checked_indexedResults` over `ResultState.collect` | Child completion, strict packet decoding, task scheduling and exact request and source binding. |
 | `Checker/FenceScan.scanLines`, `scanVersoLines`, `matchesPattern` | `checked_scanLines`, `checked_scanVersoLines` (no violation exactly for a clean document), `fence_of_leanShaped`, `example_of_leanShaped` (a returned fence for each line of Lean shape), `toList_linesOf` (the lines of a text), `matchesPattern` | The body and the byte ranges of a returned fence, pattern diagnostic text and effective-error extraction. |
 | `AxiomGate.auditSurfaceAt`, `FreshChecker`, the file gate | `checked_surfaceAssignments` (with `surfaceAssignments_covers`), `checked_conformingProfile`, `checked_histories`, `checked_environmentJob`, `checked_environmentEvidence` (claimed `RegulaCore.Assembly`) | Manifest parsing, Lake loading and producer history; the contracts concern the decoded records. |
@@ -661,15 +661,15 @@ the call through each success owner.
 
 | Rules | Proved relation | Remaining boundary |
 | --- | --- | --- |
-| [RG1001]–[RG1003] | `declarationFailure_iff`, `policyFor_ordered`, `foundationFor_iff` | Ownership and transitive-axiom acquisition (`Lean.collectAxioms`). |
-| [RG1004] | The above plus `authorizedNativeAxioms_iff`, `native_generated`, `native_provenance`, `compilerTrustingAxiomName_iff`. For the statement that the replay reads: `NativeStatement.asserted?_sound`, `NativeStatement.asserted?_complete` and the kind `NativeStatement.checked_recognize` ([below](#the-native-axiom-statement-decision-and-observing-pass)). | Transcript and replay truth; authorization permits teaching only. The replay evaluates compiled code, and its result is an observation. The recorded text of a statement is not proved to identify its expression. |
-| [RG1005] | `foundationFor_least`, `leastFoundation_ext`, `policyFor_conforming_iff` | The least containing profile of the observed axioms, not the least possible axioms for the proposition. |
+| [RG1001]–[RG1003] | `declarationFailure_iff`, `policyFor_ordered`, `foundationFor_iff` | Ownership and transitive-axiom acquisition (`Lean.collectAxioms`). The [deliberate changes](#changes-to-leans-environment-compiler-or-build) to Lean's environment, compiler or build are trusted boundaries. |
+| [RG1004] | The above plus `authorizedNativeAxioms_iff`, `native_generated`, `native_provenance`, `compilerTrustingAxiomName_iff`. For the statement that the replay reads: `NativeStatement.asserted?_sound`, `NativeStatement.asserted?_complete` and the kind `NativeStatement.checked_recognize` ([below](#the-native-axiom-statement-decision-and-observing-pass)). | Transcript and replay truth; authorization permits teaching only. The replay evaluates compiled code, and its result is an observation. The recorded text of a statement is not proved to identify its expression. The [deliberate changes](#changes-to-leans-environment-compiler-or-build) to Lean's environment, compiler or build are trusted boundaries. |
+| [RG1005] | `foundationFor_least`, `leastFoundation_ext`, `policyFor_conforming_iff` | The least containing profile of the observed axioms, not the least possible axioms for the proposition. The [deliberate changes](#changes-to-leans-environment-compiler-or-build) to Lean's environment, compiler or build are trusted boundaries. |
 | [RG1006] | The helper authorization `_iff` theorems, `Roles.safetyHelpers_iff`, `policyFor_conforming_iff`, `subject_contract`, `partialParent_rule`; for the comparison that records a recursion helper's observation, `Erasure.equalWithin_iff`, `Erasure.reproduces_iff` and the kind `Erasure.checked_reproduces` ([below](#the-recursion-helper-comparison-decision-and-observing-pass)) | Exact helper metadata, the relevant recorded recursion-helper or constructor-index observation and the base's axioms are checked. A `partial def`'s helper always has a finding naming its opaque parent when that parent is in the inventory. A recursion helper's observation is recorded only where Lean's kernel checked, at that audit, the base's recursion equation for each helper of the group (`Collect.recursionEquationChecked`); that check is the collector's, not a theorem of the policy. The collector observations, the step from the recursion equation to the values the helper returns, compiled-code correspondence and execution coverage are not proved. A recursion helper's termination still trusts Lean's well-founded preprocessing (standard §7.4); a constructor wrapper's native object-tag correspondence remains trusted. |
 | [RG1007] | `ContractOK` through `ruleFor`; `DecisionKind.ofStructureName?_eq_some_iff` (a head constant is read as a decision kind exactly when it is that kind's structure); `DecidedFunction.covers_iff` with `FieldPacking.covers_iff` (a decided function of a form that is read is accepted exactly when the kind's result type has no leading binder and, for a field application, the type has one constructor and no index and the arguments are its fields, each once and in order), with `Regula.Decides.of_packing` and its one-way forms (a kind on a packing that reaches every tuple of arguments is the kind of the function) and `Regula.Decides.iff_slice` (a kind with an argument left whose acceptance predicate reads the result at one fixed value of that argument is the kind of one slice) | Recorded contract failures are enforced; Probe's extraction of the proposition and root, the reduction that exposes a requirement's head constant, the reading of the decided function as the implementation on its arguments, on every field of one structure or on a product (`Function.uncurry`), or with its result erased (`Regula.Dependent.isSome`, `isOk`), the reading of each field from the kernel-checked definition of its projection and of the constructor and index counts from the kernel-checked inductive type, and of the number of leading binders of the kind's result type, which give `DecidedFunction.covers` its input, the two steps from those numbers to "every tuple of arguments is the fields of a value" and "no argument is left", which are argued and not machine-checked ([below](#decision-kinds-of-regulas-own-decisions)), the reading of the universe levels, the search that finds a mention of the implementation in a decision's acceptance predicate or specification, proof admission and adequacy are not proved by this relation. |
 | [RG1008] | `policyFor_decisionContract_iff`, `Roles.decided_iff`, `policyFor_ordered` through `ruleFor`; `decisionFailure_none_iff` for the self-audit's direct use; `editor_decision_ne_decisionContract` (the editor never renders it) | A registered decision without a `Decidable` result or an accepted decision contract in its inventory is reported, among the declarations that meet their other requirements. Reading the registrations of every loaded module and the result type by reduction (`Regula.decisionRegistrations`, `Collect.decisionResult?`, `returnsDecidable`) is the collector's, and so are each recorded contract and the refusal of a registration that names a declaration outside the inventory (`Collect.ownedDecisionRegistrations`). A result type the reduction does not unfold to `Decidable _` counts as another form, which fails closed. Which functions are registered, and each specification's adequacy, are review. |
 | [RG1009] | `sharedTestFailure_none_iff` with the kind `checked_sharedTestFailure`, `declarationFailure_ordered` through `ruleFor`, and `mem_sharedNames_booleans` with `SharedDefinition.class_eq_boolean_iff` for the recorded names | A decision registration is reported when its record names a shared function with a result of `Bool` or `BEq`. Its place is after the recorded refusals of its contract. The search that finds the shared functions and the reading of each one (`Collect.sharedReading`, `Collect.sharedDefinition`) are the collector's and are not proved. The search compares names. A copy of a test under a second name passes. A shared function with a different result type is named in the account and is not refused. A file with a `module` header gives the editor an imported function with no exported value as an axiom. The editor reads its class from its type. It reports a reading that could miss a test below such a function as incomplete ([RG2005]). |
 | [RG2004] | `policyFor_ordered` (membership first), `CensusOK`, `PlanOK` | Complete Lake and environment ownership acquisition. |
-| [RG3001], [RG3002] | `executionFailureRecords_empty_iff`, `boundaryFailures_empty_iff`, `boundaryFailures_toolchain`, `project_boundary_reported`, `executionFindings_empty_iff`, `failure_reported`, `executionFindings_sound`, `checked_toolchainBase` | The theorems cover the supplied unresolved paths and boundaries and their supplied origins, not complete root and closure discovery, the truth of the origin observation, the collector's record of which constant is compiled to which `partial` definition, or the correctness of the toolchain's or external runtime code. |
+| [RG3001], [RG3002] | `executionFailureRecords_empty_iff`, `boundaryFailures_empty_iff`, `boundaryFailures_toolchain`, `project_boundary_reported`, `executionFindings_empty_iff`, `failure_reported`, `executionFindings_sound`, `checked_toolchainBase`. For the walk of a root, `ExecutionWalk.walk_sound`, `walk_complete`, `walk_nodup` and the kind `ExecutionWalk.checked_walk` ([below](#root-and-closure-discovery-decision-and-observing-pass)) | The theorems cover the supplied unresolved paths and boundaries and their supplied origins, and the visits of the walk over the records of the pass. They do not cover root discovery, the truth of a record or of the origin observation, or the toolchain's or external runtime code. They also do not cover the account that `ExecutionWalk.assemble` builds from the visits, or that the reader's walk (`SharedExecution.walkLoop`) gives the same visits and parents. The collector's record of the `partial` definition to which a constant is compiled is also not proved. The [deliberate changes](#changes-to-leans-environment-compiler-or-build) to Lean's environment, compiler or build are trusted boundaries. |
 | [RG4001] | `checked_scanLines`, `checked_scanVersoLines`, `fence_of_leanShaped`, `example_of_leanShaped`, `toList_linesOf` | A document has no violation exactly when each of its lines is a permitted transition of the fence protocol and keeps the shape rule ([the fence scanners](#the-fence-scanners-decisions-and-observing-pass)). A clean document has a returned fence for each line of Lean shape. The body and the byte ranges of a returned fence, the text of a violation and the adequacy of the relation are not proved. That a Markdown reader opens a Lean block only at a line of Lean shape is by reading CommonMark. |
 | [RG4003] | `matchesPattern_iff`, `orderedLiterals_iff` | One effective error under the restricted grammar; producer completion and effective-error extraction are operational. Policy-negative source fixtures keep their separate registry-bound expectation qualifier, and a rejection is not positive conformance. |
 | [RG5002], [RG5003] | `materialDocumentationFailure_eq_none_iff`, `_eq_missingDocstring_iff`, `_eq_missingIntent_iff` (which docstrings each rule reports; the two never both fire), `hasIntentSection_iff`, `ruleForMaterialDocumentation_injective`; the native linter and the project gate both execute `RegulaPolicy.materialDocumentationFailure`, which `materialDocumentationFailure_eq_none_iff` ties to `MaterialDocumentationOK` | The ATX line grammar (`heading?`) is a definition with checked instances, not a theorem about Markdown (`intentHeading_examples`); `findDocString?` lookup is Lean's. Intent adequacy is R-INTENT. |
@@ -684,7 +684,7 @@ gives it (`licensed_iff`); a `-D` extra argument that gives it a value can only 
 fail. That the linter compares the header with that option is read from Mathlib's source and
 assumed.
 
-**Correspondence resource bound.** `checkCorrespondenceProof` gives the kernel Lean's
+**Correspondence resource bound.** `kernelAnswer` gives the kernel Lean's
 per-declaration default heartbeats (`Core.getMaxHeartbeats` of the default options), so a
 checker-added obligation costs no more than one the adopter could write, and runs under Lean's
 runtime memory limit. The limit is fixed once per process, at its first correspondence check, to the
@@ -843,6 +843,7 @@ Two-way decisions (`Regula.Decides`), each with an accepted and a refused input:
 | `Regula.Checker.Lake.auditMarkerNeeded` (accepts on `true`) | A package is not `PackageShape.Plain`, or some entry is not `ModuleEntry.Resolved` or has `Regula.Linter` among its imports (`auditMarkerNeeded_iff`). | The choice of the `lake lint` driver's claimed build, with or without the audit-build marker, when the owner passes `--ordinary-lakefiles` ([acceptance boundary](#the-acceptance-boundary)). The shape of each package is read from the configuration of Lake and from its compiled configuration file. Each entry is a module of the root package with its source files and the modules that Lake's `transImports` facet reports it imports (`markerInputs`). That `Regula.Linter` is the only reader of the marker in Regula is by inspection. That no module of the project reads the marker itself is an assumption. |
 | `Regula.Checker.Documentation.scanLines`, `scanVersoLines` (accept on a result with no violation) | `Clean`, `VersoClean`: the lines are a run of transitions from the first line to the end of the document. The fence protocol permits each transition, and each keeps the shape rule (`scanLines_problems_eq_empty_iff`, `scanVersoLines_problems_eq_empty_iff`). | The fence protocol and the shape rule of [RG4001] ([below](#the-fence-scanners-decisions-and-observing-pass)). The input is a `Source`: a document with the lines of its text. The kinds say nothing about the fences of a result. |
 | `Regula.Checker.Admission.checkHeader` (accepts on `.ok ()`) | `HeaderOK` (`checkHeader_eq_ok_iff`). Each replayed or reported module lists its constants under their own names. No module of the replay base imports a replayed module. | The decision on the header of [RG2005] ([below](#receipt-validation-decisions-and-observing-pass)). |
+| `RegulaPolicy.ExecutionWalk.walk` (accepts on `.ok`) | `Recorded` (`walk_ok`, `walk_complete`, `walk_recorded`). Each name that the edges of the records reach from the root has a record. | The walk of an execution root of [RG3001] and [RG3002] ([below](#root-and-closure-discovery-decision-and-observing-pass)). The visits are exactly the reached names (`walk_sound`, `walk_complete`). |
 | `Regula.SourceTexts.intern` | One `sourceTexts` member, `null`, and string `sourceText` members (`intern_isOk_iff`) | Writing a result document. |
 | `Regula.Markdown.documentErrors`, `Regula.Markdown.siteLinkErrors`, `Regula.Prose.bareMentions`, `Regula.Site.linkErrors`, `Regula.Site.missingAnchors`, `Regula.Site.rowsMismatch` | Their `_nil_iff` and `_eq_none_iff` relations | The rule-ID checks of Markdown and of the rendered standard, and the site's link, anchor and checklist checks. `siteLinkErrors` is the check of the links of the root `README.md` to the rule-reference site. |
 | `Regula.Controlled.parse` | The text is the text that `write` gives for a vocabulary (`parse_write`, `write_of_parse`). A vocabulary is a draft with `Draft.WellFormed` (`Draft.defects_nil_iff`). | The vocabulary `CONTEXT.md` (check C9) of the [writing rules](writing.md). The file system gives the text. |
@@ -898,14 +899,14 @@ Decisions with no kind, and what stands instead:
 | `Regula.Checker.Admission.checkProof` | Its theorem is soundness, and a sound kind requires an accepted input; it succeeds only after `checkRenamed`, which asks Lean's kernel to accept a declaration, and no proof evaluates that call. | `checkProof_ok`, and the kind of `checkCopies`, which calls it. |
 | `Regula.Checker.Manifest.parse` | It adds the JSON text parser, about which nothing is proved, so only soundness is stated, and an accepted input would evaluate that parser. | `parse_sound`, and the kind of `parseValue`, the stage it runs after parsing. |
 | `Regula.SharedExecution.restore?` | Its writer `internValue` chooses a written form by running the reader (`recovers`), so "a form the writer writes" is stated through `restore?` itself, and a kind's specification must not mention its implementation. | `restore?_internValue`, which holds for every value and proposal list, and the kind of `read`, the document reader that calls it. |
-| `labelOf`, `foundationFor`, `authorizedNativeAxioms`, `authorizedUnsafeRecHelpers`, `DefeqComparison.classify`, `Regula.Checker.Lint.classify` | These classify into several classes or select a set; they do not accept or refuse an input. | Their exact-value theorems (`labelOf_iff`, `foundationFor_iff`, the `authorized…_iff` theorems, `classify_checked_iff` and its companions, `ClassifyContract`). |
+| `labelOf`, `foundationFor`, `authorizedNativeAxioms`, `authorizedUnsafeRecHelpers`, `DefeqComparison.classify`, `DefeqComparison.ofAttempt`, `Regula.Checker.Lint.classify` | These classify into several classes or select a set; they do not accept or refuse an input. | Their exact-value theorems (`labelOf_iff`, `foundationFor_iff`, the `authorized…_iff` theorems, `classify_checked_iff` and its companions, `ofAttempt_checked_iff` and its companions, `ClassifyContract`). |
 | The other registered contracts (`checked_request`, `checked_rule`, `checked_subject`, `checked_account`, `checked_summary`, `checked_executionFailures` and the census assembly contracts) | Each fixes a computed value, such as a rendered line or an assembled record, not a verdict. `checked_executionFailures` renders `executionFindings`, which has a kind. | The registered requirement, reported with no kind. |
 | `RegulaProvision.isObjectName`, `isComponent` | `isObjectName` defines the written form that it admits, and no separate relation is stated for it. `IsComponent` states a path component over the text and its characters. The text is not empty. It does not start with a period. Each character is an ASCII letter, an ASCII digit, `-`, `_` or `.`. The theorem `isComponent_iff` connects it to the test `isComponent`. | `IsComponent` is the specification of the kind of `component?`. A reviewer examines if the written forms are the intended ones. |
 
 ### Decisions not registered with `regula_decision`
 
 Every decision of the three tables with a kind is registered with `@[regula_decision]`, so
-[RG1008] requires its contract: 54 functions of `RegulaPolicy`, 28 of `RegulaCore`, 9 of
+[RG1008] requires its contract: 55 functions of `RegulaPolicy`, 28 of `RegulaCore`, 9 of
 `RegulaQualification`, 3 of `AuditApp`, 8 of `RegulaProvision`, 6 of `RegulaVerification` and
 24 of the excluded `Regula` library, where the `self-audit` diagnostic decides the rule. Sixteen
 of them are registered from another module of their library, with
@@ -1596,14 +1597,105 @@ reason that it expects. The `fixtures` diagnostic does the same for the fixtures
 boundary to the kernel and to the import of Lean. They are not tests of the decisions, which the
 theorems decide.
 
+### Root and closure discovery: decision and observing pass
+
+[RG3001] and [RG3002] read the execution account of each executable root.
+`Probe.executionWalk` builds that account with an observing pass and a pure decision with a kind.
+
+- **The observing pass** is `Probe.observeNode` and the loop of `executionWalk`. For each name
+  that the walk reaches, the pass reads the environment one time and gives a record
+  (`ExecutionWalk.NodeRecord`). The record has the names that the retained compiler body calls and
+  the targets of the edge channels of the name. It also has the boundaries at the name, the paths
+  that the pass could not resolve and the status of the compiler body. The loop queues the
+  successors of each record and does not read a name two times.
+- **The decision** is `ExecutionWalk.walk`. Its argument, `ExecutionWalk.WalkRequest`, holds the
+  records and the root. It returns the visits in the order of a stack of queued names, each with
+  the position of the visit that queued it. `checked_walk` registers the kind `Regula.Decides`
+  against `ExecutionWalk.Recorded`: each name that the edges of the records reach from the root has
+  a record.
+- **The account** is `ExecutionWalk.assemble`. Its argument, `ExecutionWalk.Walked`, holds the
+  request, the visits and the proof that `walk` returned those visits for the request. It reads the
+  record of each visit through that proof (`Walked.record`), with no default record. It builds the
+  boundaries, the unresolved paths, the compiler edges and the closure from those records, in the
+  order of the visits. A required name with no record is reported as unavailable code, which fails
+  closed.
+
+The type of a record is indexed by its name (`NodeRecord name`), so the map of records holds a
+record only under its own name. A record holds the targets of the edges from its name, and not the
+edges. Thus each edge that `assemble` builds starts at the name of a visit, by the type of the
+record.
+
+The successors of a record are a definition of its targets (`NodeRecord.successors`,
+`mem_successors`). They are the compiler calls, then the targets of the candidates, the history,
+the current replacement, the logical value and the recursion helper. Thus each step of the walk is
+an edge of the account. The reader of a result file queues the same channels in the same order
+(`SharedExecution.walkLoop`).
+
+**Proved**, about the functions that `executionWalk` runs. They are in the claimed library
+`RegulaPolicy` (`RegulaPolicy.ExecutionWalk`), so acceptance admits each theorem with Lean's
+kernel and reports its axioms: `propext`, `Classical.choice` and `Quot.sound`.
+
+| Property | Declarations | Meaning and limit |
+| --- | --- | --- |
+| The visits are the reached names | `ExecutionWalk.walk_sound`, `ExecutionWalk.walk_complete` | Each visit of a walk that returns visits is a name that the edges of the records reach from the root (`Reach`, over `Follows`). Each such name is a visit. |
+| One visit for each name | `ExecutionWalk.walk_nodup` | A walk that returns visits has no name two times. |
+| Each step is an edge | `ExecutionWalk.mem_successors` | A name that the walk queues after a record is a target of one of the edge channels of the record. |
+| The bound is sufficient | `ExecutionWalk.walk_ok` | A walk returns visits when each reached name has a record. The bound of the steps is one more than the number of successors of all records. |
+| The decision is exact | `ExecutionWalk.checked_walk` | `walk` returns visits exactly when `Recorded` is true. It accepts a root with a record that has no successor, and it refuses a root with no record. |
+
+**Hypotheses and trusted boundary.** The theorems start from the records. They do not prove these
+items:
+
+- That a record is what the environment holds for its name. This includes the compiler calls, the
+  targets, the boundaries with their correspondence, the unresolved paths and the status of the
+  compiler body. The type binds a record to its name, but not to the pass: other code can make a
+  value of `NodeRecord name`. The pass reads the environment, and that step is read from the code.
+- That the pass gives a record for each name that the walk reaches. If a name has no record, the
+  walk refuses, and the pass stops with an error. Thus a missing record fails closed.
+- That `assemble` builds the correct account from the records of the visits. No theorem is about
+  that account. At the admission of a report, `ExecutionClosure.Valid` and `ExecutionRoot.Valid`
+  check the closure that it builds (**Closure** in [Producers](#producers)).
+- That the reader of a result file gives the visits and the parents of the producer.
+  `SharedExecution.walkLoop` queues the same channels in the same order as `NodeRecord.successors`,
+  by the two definitions. No theorem relates the two walks. Their match is by reading, and the
+  `history` qualification and `RegistryChecks` observe it.
+- The text of an unresolved path.
+
+**Root discovery has no decision.** `Probe.executableRoots` selects the owned definitions and
+opaque constants that are not internal, `unsafe`, `partial` or `noncomputable`. It also refuses a
+constant with a proposition as its type or a sort as its result. Lean gives each of these facts
+(`Name.isInternal`, the safety of the constant, `isNoncomputable`, `Meta.isProp`, and the reduction
+of the type in `Collect.returnsSort`).
+
+The census then adds the action of each initializer that an owned module records, whatever its
+name or safety (`Probe.initializerActions`). Lean records these actions in the entries of the
+attributes `[init]` and `[builtin_init]`.
+
+The selection of roots is the conjunction of these facts, together with these entries. A kind on
+it would state the expression of the function as its specification. Thus the census of roots
+is observed, and `environmentReport` adds the root of each valid registration to it.
+
+**The verdicts are the same.** No theorem compares the producer before this split with the
+producer after it. The pass reads each name with the tests and the texts of the old loop, in the
+same order. Each part of the account is the parts of the records in the order of the visits, as
+the old loop added them.
+
+A comparison read the reports of the fixtures and of the claimed libraries `RegulaPolicy` and
+`RegulaCore`, before and after the split. Only the list of modules was different. This is an
+observation for those environments only.
+
 ### The producers that are not split
 
-The other producers of [#199](https://github.com/rbeauchamp/regula/issues/199) are not split and
-have no kind. They are contract recognition and reach, and root and closure discovery. The
-sections below state what is proved and what is observed for each of them.
+The other producer of [#199](https://github.com/rbeauchamp/regula/issues/199) is not split and has
+no kind: contract recognition and reach. The sections below state what is proved and what is
+observed for it.
 
-One proof obligation of a producer that is split is open: the body and the place of the fences
-that a fence scanner returns ([above](#the-fence-scanners-decisions-and-observing-pass)).
+These proof obligations of the producers that are split are open:
+
+- The body and the place of the fences that a fence scanner returns
+  ([above](#the-fence-scanners-decisions-and-observing-pass)).
+- The account that `ExecutionWalk.assemble` builds from the visits, and the match of the reader's
+  walk with the producer's walk ([above](#root-and-closure-discovery-decision-and-observing-pass)).
 
 ## Producers
 
@@ -1616,7 +1708,13 @@ inferred from any pure proof.
   `Probe.ownedConstants` traverses imported module indices, so it is not a current-document
   inventory. An inspected empty root set is `some #[]`, an uninspected one `none`. Only valid
   registrations add executable roots, and all registrations remain in the declaration observations
-  even when several registrations share one root.
+  even when several registrations share one root. The ordinary roots include the action of each
+  initializer that an owned module records, named or anonymous (`Probe.initializerActions`). Lean
+  runs that action at startup or import, and no other root has to reference it. The census reads
+  the entries of the attributes `[init]` and `[builtin_init]` of each owned module, as Lean reads
+  them to run the initializers. It does not read the names of declarations. This census is
+  observed. No theorem states that these entries are all the code that an owned module runs at
+  import.
 - **Admission.** `Admission.validate` replays safe, nonpartial owned declarations and their owned
   dependencies with the pinned `Kernel.Environment.replay`, checks every required entry is in the
   resulting kernel and returns a typed receipt. It returns
@@ -1673,8 +1771,9 @@ inferred from any pure proof.
   constants the start uses, along `Admission.successors`); `Admission.checkProof_ok`; and
   `Admission.checkCopies_sound` (a success gives every copy the `Admission.CopyAdmitted`
   conditions above, stated with the reachability relation `Admission.Reach`), and
-  `Admission.admitReplay_eq_ok` (a receipt has each copy admitted and each required key in the
-  replayed kernel, [above](#receipt-validation-decisions-and-observing-pass)). **Argued, not
+  `Admission.admitReplay_eq_ok` (a receipt has each copy admitted and a constant of the replayed
+  kernel under the name of each required key,
+  [above](#receipt-validation-decisions-and-observing-pass)). **Argued, not
   machine-checked:** `validate` gives these checks the replayed module data, the base's and the
   audited environment's `find?` and the replayed kernel, read from the code
   (`Admission.mem_offers` proves that no offered admission lists a `shared` module). Every cycle
@@ -1870,8 +1969,9 @@ inferred from any pure proof.
   history: the walk follows its current target, and `historyReplacementEdges` leaves its edge out
   of the history account. Logical-only inspection has no execution roots, requests or history
   receipts.
-- **Closure.** `ExecutionRoot.closure` records the actual `Probe.executionWalk`: each first visit
-  with its owning module and the earlier visit that queued it, and separate edge channels
+- **Closure.** `ExecutionRoot.closure` records `Probe.executionWalk` (the decision
+  `ExecutionWalk.walk`, [above](#root-and-closure-discovery-decision-and-observing-pass)): each
+  first visit with its owning module and the earlier visit that queued it, and separate edge channels
   (`logicalEdges`, constants used by the logical bodies the walk follows; `candidateEdges`, every
   inspected constant-equality candidate; `historyEdges`, replacement choices from completed,
   source-bound module histories; `currentReplacementEdges`, current `implemented_by` choices
@@ -1881,7 +1981,8 @@ inferred from any pure proof.
   unavailable subset requires unresolved execution). `ExecutionRoot` itself carries
   `compilerEdges`, the retained IR calls, closures and initialization dependencies. Their union is
   a conservative traversal, not a selected or minimal call graph; a missing closure never yields an
-  empty boundary set. Every enqueue site records its edge and parent visit together, and
+  empty boundary set. Each queued name is the target of an edge of its record
+  (`NodeRecord.successors`). The walk gives each visit the earlier visit that queued it, and
   visited-name suppression stops recursion without deleting self edges. Retained IR edges use the
   declaration step of Lean's pinned `IR.CollectUsedDecls.collectDecl`, because `collectUsedDecls`
   also inserts the declaration itself and filtering its result would discard genuine recursive
@@ -3588,6 +3689,72 @@ execution, and calling a proved oracle does not prove the driver or its IO effec
   `passed`. If `passed` accepts the entries of the commands of a step, each command has an entry
   with exit status 0. The driver reports success only after `passed` accepts. That
   caller is read from the code and is not proved.
+
+## Changes to Lean's environment, compiler or build
+
+Regula's guarantees are for honest code, as the [scope](../../SECURITY.md#scope) of the security
+policy tells. Honest code does not deliberately change Lean's environment, compiler or build to
+make a check pass. Code that makes such a change through a mechanism for which the standard or a
+rule page states a check is also honest code. Ordinary declarations, attributes such as
+`implemented_by`, `extern` and `csimp`, and `initialize` are honest code. Standard §7.6 tells how
+the execution account treats each of them.
+
+The axiom collection and the execution account ([RG3001], [RG3002]) trust that the project makes
+no such change. Where the standard or a rule page states a check for a mechanism, that statement
+governs, and the mechanism is in scope. The examples below are out of scope only where no such
+statement covers them. Each one is a trusted boundary of the axiom collection, of the execution
+account or of the two:
+
+- **A direct write to the state of an environment extension that no rule or section of the standard
+  checks.** Such a write goes around the command or attribute that Lean gives for that extension.
+  An example is the axiom table `exportedAxiomsExt` that Lean calculates when it writes a module.
+  The audit imports each module that it inspects, and for a declaration that such a module exports
+  `Lean.collectAxioms` reads that table. Thus a direct write to that table changes the axiom sets
+  that the axiom collection gives to the rules [RG1001]–[RG1005].
+- **A declaration of a dependency that a metaprogram adds with `debug.skipKernelTC`.** [RG2005]
+  states the check for an owned declaration, thus an owned declaration is in scope.
+  [Admission](#producers) replays the owned declarations that are not `unsafe` or `partial`
+  through the kernel. It refuses such a declaration that the kernel does not accept, and the control
+  `Fixtures.Mutations.LocalUncheckedAdmission` is an observation of one refusal. Admission does
+  not replay an `unsafe` or `partial` declaration or a declaration of a dependency. The axiom
+  collection trusts each declaration that admission does not replay.
+- **A user compiler pass, or a direct write that stores a compiled body that Lean's compiler did
+  not make.** A declaration with the attribute `@[cpass]` can add, remove or replace a pass of
+  Lean's compiler. A direct write to the IR or LCNF extensions can store a body that the compiler
+  did not make, for example an `fdecl` body. The execution account reads the compiled code in those
+  extensions. It trusts that the passes of the pinned compiler made each body that it reads.
+  [RG3001] reports a write that leaves a retained compiled body missing, or that leaves an opaque
+  export placeholder, as unresolved.
+- **An `f._unsafe_rec` companion that [RG1006] does not inspect, for example one in a dependency.**
+  Lean's compiler compiles `f` from the value of `f._unsafe_rec` if that constant exists, in
+  `Lean.Compiler.LCNF.toDecl`. [RG1006] admits an owned recursion helper only where Lean's
+  recursion compiler regenerates its base from it, as
+  [the recursion-helper comparison](#the-recursion-helper-comparison-decision-and-observing-pass)
+  tells. Controls such as `Fixtures.Mutations.ByElabUnsafeRecForge` are observations of refusals.
+  The execution account trusts that each other `_unsafe_rec` constant, for example one of a
+  dependency, is the helper that Lean's recursion compiler made.
+- **A native build setting: `extern_lib`, `moreLinkArgs` or `moreLeancArgs`.** These give native
+  code or options to the C compiler and to the linker. The execution account reads the compiled
+  Lean code, not the native objects that the build links. It trusts that the linked program runs
+  that code.
+
+Regula finds some changes of this kind, where the standard or a rule page states the check. An
+accepted result makes no claim that the project has none of the changes in the list. The
+[README](../../README.md) puts Regula at the `#print axioms` step of
+[Validating a Lean Proof](https://lean-lang.org/doc/reference/latest/ValidatingProofs/).
+
+The later steps of that page, `lean4checker` and comparator, replay declarations through Lean's
+kernel. Thus the two refuse a declaration that `debug.skipKernelTC` adds and that the kernel does
+not accept. `lean4checker` does not calculate or compare axiom sets, thus it does not find a direct
+write to the axiom table. Comparator calculates the axioms from the declarations that it exports,
+not from that table. It refuses each axiom that is not one of its permitted axioms.
+
+No step of that page checks the changes to compiled code. These are a compiler pass, a direct
+write that stores a compiled body that Lean's compiler did not make and a native build setting. An
+`_unsafe_rec` companion that [RG1006] does not inspect is also such a change. Thus these changes
+stay trusted boundaries of the execution account of [RG3001] and [RG3002] and of the native replay
+of [RG1004]. To check a proof from a source that you do not trust, use
+[comparator](https://github.com/leanprover/comparator).
 
 ## Operational assumptions
 
