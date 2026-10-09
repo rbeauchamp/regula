@@ -15,8 +15,9 @@ where its inputs come from: `SafetyOK` takes `Declaration.KernelChecked`; `Known
 other field, because a mark a project writes decides one refusal of that contract, as does
 `SharedTestOK`, which reads the names that the collector recorded with it, and as does
 `DecisionRegistered`, which reads the recorded contracts of an inventory. `DeclarationOK` and
-`declarationRequirements` join them and take the whole record, as the decision requirement
-(`DecisionOK`) does, which reads the project's own registration. -/
+`declarationRequirements` join them and take the whole record. The decision requirement
+(`DecisionOK`) takes the registration part (`Declaration.Registration`): the name and the
+project's own registration. -/
 
 @[expose] public section
 
@@ -83,11 +84,12 @@ def DecisionRegistered (contracts : Array RecordedContract) (n : Name) : Prop :=
 result type is `Decidable _`, or it is among `decided`, the implementations the inventory's
 decision contracts decide. A declaration without the registration has no such requirement; every
 registered declaration has it, whatever else the record says of the declaration, so no other
-observation waives it. The registration and the result type are the collector's observation
-(`Declaration.decisionResult`). -/
-def DecisionOK (d : Declaration) (decided : Array Name) : Prop :=
+observation waives it. It takes the registration part of the record (`Declaration.Registration`):
+the name and the registration, which is the collector's observation, and no other field. -/
+def DecisionOK (d : Declaration.Registration) (decided : Array Name) : Prop :=
   d.decisionResult = some .«other» → d.name ∈ decided
-instance (d : Declaration) (decided : Array Name) : Decidable (DecisionOK d decided) := by
+instance (d : Declaration.Registration) (decided : Array Name) :
+    Decidable (DecisionOK d decided) := by
   unfold DecisionOK; infer_instance
 
 /-- Teaching may retain compiler trust; other inspections cannot. -/

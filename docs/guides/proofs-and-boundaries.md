@@ -530,10 +530,10 @@ use that takes a narrower part. What takes which part:
 | `Erasure.reproduces` ([below](#the-recursion-helper-comparison-decision-and-observing-pass)) | No record: two values, `Erasure.Observations` and whether the pass finished | Toolchain observations of the terms of the two values, and the pass's report of its own run. |
 | `NativeStatement.recognize?` ([below](#the-native-axiom-statement-decision-and-observing-pass)) | No record: a `NativeStatement.Candidate` | The tactic and the prefix that `nativeAxiomOrigin?` reads from the name, and the kernel-checked type. |
 | `declarationFailure`, `DeclarationOK`, `declarationRequirements` and their theorems | `Declaration` | Every part: they join the relations above, so through `ContractOK` and `SharedTestOK` they read the recorded contract. |
-| `decisionFailure`, `DecisionOK` | `Declaration` | `decisionResult`, the project's own registration, and `name`. |
+| `decisionFailure`, `DecisionOK` | `Declaration.Registration` | The name and `decisionResult`, the project's own registration, alone. |
 | `NativeTeachingOK`, `RecursiveHelperOK`, `ConstructorIndexHelperOK` and the `authorized…` validators | `Declaration` | Every part. Each also requires values of project-written fields. A native-proof axiom must have no replacement and no `extern` implementation. A recursion helper and a constructor-index helper must have no replacement, no `extern` implementation and no recorded range. A recursion base must have no replacement and no `extern` implementation. A constructor-index base must have the helper as its replacement and no `extern` implementation. These conditions narrow what is admitted and authenticate nothing. |
 | `policyFor`, `memberFailure`, the editor decision | `Declaration` | Every part, through the decisions above. |
-| `operationalFailure`, `OperationalOK`, `operationalView`, `operationalAxioms` | `Declaration` | `kind`, `isProp`, `axioms` and, through `ContractOK`, the recorded contract. The view also clears `isUnsafe` and `isPartial`. |
+| `operationalFailure`, `OperationalOK`, `operationalView`, `operationalAxioms` | `Declaration` | `kind`, `isProp`, `axioms` and, through `ContractOK` and `SharedTestOK`, the recorded contract. The view also clears `isUnsafe` and `isPartial`. |
 
 **Limits.** The parts classify the source of a value. They do not make an observation truthful,
 and that `Collect.declaration` fills each field from the source its part names is by inspection of
@@ -549,10 +549,11 @@ mark for one refusal, and `constructorIndex` requires that the base's replacemen
 range, that neither has an `extern` implementation, that the eliminator has no replacement and no
 `extern` implementation, and that `getObjTagNat` has no replacement. The decisions of [RG1007]
 and [RG1009] take the recorded contract and no other field, so they read the `noncomputable` mark
-only through it. The declaration decision, the decision requirement, the role validators and the
-other decisions that take the whole `Declaration` still read project-written fields. The rest of
-this part of [#199](https://github.com/rbeauchamp/regula/issues/199) is to give the decision
-requirement and the role validators those fields through typed records.
+only through it. The decision requirement of [RG1008] takes the name and the registration alone
+(`Declaration.Registration`). The declaration decision, the role validators and the other
+decisions that take the whole `Declaration` still read project-written fields. The rest of this
+part of [#199](https://github.com/rbeauchamp/regula/issues/199) is to give the role validators
+those fields through a typed record.
 
 **Consumers** (paths from `lean/Regula/`):
 

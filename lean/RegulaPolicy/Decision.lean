@@ -254,9 +254,10 @@ def declarationFailure (decl : Declaration) (claim : InspectionRequest)
 /-- Raw decision requirement over a supplied set of decided implementations: the failure of a
 declaration registered as a decision whose result type is not `Decidable _` and whose name is
 not in the set, and nothing otherwise. Callers can supply an arbitrary set here; production
-decisions use `policyFor`, whose `Roles` argument binds the set to the inventory. -/
+decisions use `policyFor`, whose `Roles` argument binds the set to the inventory. It takes the
+registration part of the record (`Declaration.Registration`) and no other field. -/
 @[regula_decision]
-def decisionFailure (decl : Declaration) (decided : Array Name) :
+def decisionFailure (decl : Declaration.Registration) (decided : Array Name) :
     Option DeclarationFailure :=
   if decl.decisionResult == some .«other» && !decided.contains decl.name then
     some .decisionContract
@@ -264,14 +265,14 @@ def decisionFailure (decl : Declaration) (decided : Array Name) :
 
 /-- Exact success relation of the executed decision requirement, for every observation and
 supplied set. -/
-theorem decisionFailure_none_iff (d : Declaration) (decided : Array Name) :
+theorem decisionFailure_none_iff (d : Declaration.Registration) (decided : Array Name) :
     decisionFailure d decided = none ↔ DecisionOK d decided := by
   unfold decisionFailure DecisionOK
   by_cases registered : d.decisionResult = some .«other» <;>
     by_cases member : d.name ∈ decided <;> simp [registered, member]
 
 /-- The decision requirement has one failure, reported exactly where the requirement is unmet. -/
-theorem decisionFailure_eq_some_iff (d : Declaration) (decided : Array Name)
+theorem decisionFailure_eq_some_iff (d : Declaration.Registration) (decided : Array Name)
     (failure : DeclarationFailure) :
     decisionFailure d decided = some failure ↔
       failure = .decisionContract ∧ ¬ DecisionOK d decided := by
@@ -470,29 +471,20 @@ theorem checked_declarationFailure : Regula.ExecutableContract @declarationFailu
     ⟨(((recorded .«axiom», .conforming .«kernelOnly»), #[]), #[]),
       by simp [Function.uncurry, declarationFailure, recorded]⟩⟩
 
-/-- `decisionFailure` reports nothing exactly when the recorded declaration meets `DecisionOK`
-for the supplied set (`decisionFailure_none_iff`): nothing for a declaration that is not
-registered as a decision, and a failure for a registered one whose result type is not
-`Decidable _` and that no supplied name decides. The decision is over the recorded declaration
-and the supplied set. That the record is what Lean holds is the collector's, and that the set is
-the inventory's decided implementations is `policyFor`'s `Roles` argument. -/
+/-- `decisionFailure` reports nothing exactly when the registration part of a record meets
+`DecisionOK` for the supplied set (`decisionFailure_none_iff`): nothing for a declaration that is
+not registered as a decision, and a failure for a registered one whose result type is not
+`Decidable _` and that no supplied name decides. The decision is over the name, the recorded
+registration and the supplied set. That the record is what Lean holds is the collector's, and
+that the set is the inventory's decided implementations is `policyFor`'s `Roles` argument. -/
 theorem checked_decisionFailure : Regula.ExecutableContract @decisionFailure
-    (fun (failure : Declaration → Array Name → Option DeclarationFailure) =>
+    (fun (failure : Declaration.Registration → Array Name → Option DeclarationFailure) =>
     Regula.Decides (· = none)
-      (fun input : Declaration × Array Name => DecisionOK input.1 input.2)
+      (fun input : Declaration.Registration × Array Name => DecisionOK input.1 input.2)
       (Function.uncurry failure)) :=
-  let recorded (decisionResult : Option DecisionResult) : Declaration :=
-    { name := `subject, «module» := `Module, kind := .«definition», «type» := "", prettyType := ""
-      isProp := false, isUnsafe := false, isPartial := false, safety := none, «instance» := false
-      «noncomputable» := false, implementedBy := none, «extern» := false, internal := false
-      «private» := false, projection := false, matcher := false, recursive := false
-      unsafeRecBase := none, levelParams := #[], all := #[], hints := none, valueConstants := #[]
-      unsafeRecRegenerated := none, constructorIndex := none, nativeStatement := none
-      nativeReplay := none, recordedRanges := none, generatedFrom := none, axioms := #[]
-      decisionResult }
   ⟨.of_iff (fun input => decisionFailure_none_iff input.1 input.2)
-    ⟨(recorded none, #[]), by simp [Function.uncurry, decisionFailure, recorded]⟩
-    ⟨(recorded (some .«other»), #[]), by simp [Function.uncurry, decisionFailure, recorded]⟩⟩
+    ⟨(⟨`subject, none⟩, #[]), by simp [Function.uncurry, decisionFailure]⟩
+    ⟨(⟨`subject, some .«other»⟩, #[]), by simp [Function.uncurry, decisionFailure]⟩⟩
 
 /-- The declaration's own requirements never report the decision failure: `decisionFailure` is
 its only source. -/
