@@ -62,7 +62,7 @@ def Declaration.Valid (d : Declaration) : Prop :=
   (∀ n ∈ d.implementedBy, Named n) ∧ (∀ n ∈ d.unsafeRecBase, Named n) ∧
   (∀ pair ∈ d.constructorIndex, Named pair.1 ∧ Named pair.2) ∧
   (∀ c ∈ d.executableContract, c.failure.isSome = true ∨ Named c.root) ∧
-  (∀ o ∈ d.tableOmissions, o.axiom ∈ d.axioms)
+  (∀ a ∈ d.tableOmissions, a ∈ d.axioms)
 instance instDecidableDeclarationValid (d : Declaration) : Decidable d.Valid := by
   unfold Declaration.Valid
   infer_instance

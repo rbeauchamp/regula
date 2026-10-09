@@ -1825,20 +1825,16 @@ inferred from any pure proof.
   `validate` releases the regions of the replay base.
 
   An axiom that the search found and that `collectAxioms` does not give is reported, not failed.
-  The record of the declaration has it in `tableOmissions`, with `via`, the constant that the
-  omission was passed on from. That constant is the first one, other than the declaration itself,
-  that the declaration uses, reaches the axiom and has it omitted too, as `Admission.passedOn`
-  finds it. Without such a constant, the table entry of the declaration itself omits the axiom. A project audit gives the number of these
-  declarations in the line `axiom tables:`, and the `--verbose` line of each declaration gives the
-  two sets. The self-audit lists each of them.
+  The record of the declaration has it in `tableOmissions`. A project audit gives the number of
+  these declarations in the line `axiom tables:`, and the `--verbose` line of each declaration
+  gives the two sets. The self-audit lists each of them.
 
   **Proved** about the executed definitions: `KernelAxioms.axiomTable_some` (each name of the
   closure has exactly the axioms that `KernelAxioms.ReachesAxiom` relates to it). Also proved:
   `KernelAxioms.searchEdges_some` and `KernelAxioms.search_some` (a completed search holds exactly
   the names reachable from its start), and `Admission.checkTable_eq_ok_iff` with the two-way kind
-  `Admission.checked_checkTable`. Also proved: `KernelAxioms.axiomsWith_some`,
-  `Admission.passedOn_some` and `Admission.passedOn_none`, and the omission part of
-  `Account.checked_account`.
+  `Admission.checked_checkTable`. Also proved: `KernelAxioms.axiomsWith_some` and the omission part
+  of `Account.checked_account`.
 
   **Argued, not machine-checked:** each step of `collectAxioms` is a step of
   `KernelAxioms.successors`, as read from `Lean.Util.CollectAxioms` of the pinned toolchain. Thus

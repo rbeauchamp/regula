@@ -852,7 +852,7 @@
   "reason": "label-exceeds-claim",
   "claim": "kernel-only",
   "output": [
-   "Classical.choice in its own table entry"
+   "collectAxioms [], replayed kernel [Classical.choice, propext, Quot.sound]; omitted: [Classical.choice, propext, Quot.sound]"
   ]
  },
  "Fixtures.Mutations.ForgedAxiomTableAddition": {

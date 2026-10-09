@@ -317,8 +317,8 @@ structure OmissionAccount where
   «module» : Lean.Name
   /-- The axioms it reaches in the replayed kernel. -/
   axioms : Array Lean.Name
-  /-- The axioms `collectAxioms` omits, with where each omission comes from. -/
-  omissions : Array RegulaPolicy.TableOmission
+  /-- The axioms `collectAxioms` omits. -/
+  omissions : Array Lean.Name
 
 /-- The report account's data. Construct it only through `account`. -/
 structure AccountData where
@@ -528,7 +528,8 @@ def pass (label : String) (a : Account) : String :=
 /-- Human account lines: the checked relation, each contract with its decision kind
 (`ContractAccount.decision`), its shared functions (`ContractAccount.sharing`) and its open
 review, the execution counts, fence kinds, the count of declarations whose axiom tables omit
-axioms (the `--verbose` line of each lists its omissions), trusted mechanisms, and the unresolved review identifiers. -/
+axioms (the `--verbose` line of each lists its omissions), trusted mechanisms, and the unresolved
+review identifiers. -/
 def lines (a : Account) : Array String :=
   let d := a.val
   let checked :=
@@ -557,12 +558,10 @@ def lines (a : Account) : Array String :=
   let unresolved :=
       s!"unresolved semantic review, where applicable: {residualList d.unresolved}. " ++
     "These identifiers name open obligations, not completed reviews."
-  let passed := (d.omissions.filter fun o => o.omissions.any (·.via.isSome)).size
   let omissions := if d.omissions.isEmpty then #[] else
     #[s!"axiom tables: {d.omissions.size} declaration(s) for which Lean's collectAxioms omits \
-      axioms they reach in the replayed kernel, {passed} with an omission passed on from a \
-      constant they use; reported, not failed (listed with --verbose and in --json-out)"]
+      axioms they reach in the replayed kernel; reported, not failed (listed with --verbose and \
+      in --json-out)"]
   #[checked] ++ contracts ++ execution ++ fences ++ omissions ++ #[trusted, unresolved]
-
 
 end Regula.Checker.Account

@@ -1915,8 +1915,7 @@ replayed development does not reach therefore was not computed from the constant
 checked, and admission refuses it (`checkTable`). A table may omit axioms that the replayed
 development reaches: Lean's own computation of the table can stop early on an inductive type and
 its constructors. The rules then decide on the replayed axioms, and the audit reports each axiom
-the table omits for an owned declaration, with the constant the omission was passed on from
-(`passedOn`). -/
+the table omits for an owned declaration. -/
 
 /-- The constants the search of each owned declaration's axioms reads: the replayed kernel's, and
 under each name that `Kernel.Environment.replay` does not check, the `unsafe` or `partial` constant
@@ -1988,36 +1987,6 @@ theorem checked_checkTable : Regula.ExecutableContract checkTable
       have := (checkTable_eq_ok_iff _).mp accepted (`d, #[`a], #[]) (by simp) `a (by simp)
       simp at this⟩⟩
 
-/-- The constant an omission of the axiom `a` was passed on from: the first constant of `after`,
-the constants the declaration `root` uses, other than `root` itself, that reaches `a`
-(`reaches c a`) and for which Lean's `collectAxioms` omits `a` too (`lean c`). `none` when `after`
-names no such constant: the table entry of the declaration itself omits `a`. -/
-def passedOn (root : Name) (after : Array Name) (reaches : Name → Name → Bool)
-    (lean : Name → Array Name) (a : Name) : Option Name :=
-  after.find? fun c => c != root && reaches c a && !(lean c).contains a
-
-/-- The constant `passedOn` names is one of `after` other than the declaration itself that
-reaches the axiom and for which `lean` omits it. -/
-theorem passedOn_some {root : Name} {after : Array Name} {reaches : Name → Name → Bool}
-    {lean : Name → Array Name} {a c : Name} (h : passedOn root after reaches lean a = some c) :
-    c ∈ after ∧ c ≠ root ∧ reaches c a = true ∧ a ∉ lean c := by
-  unfold passedOn at h
-  have hp := Array.find?_some h
-  simp only [Bool.and_eq_true, bne_iff_ne, Bool.not_eq_eq_eq_not, Bool.not_true] at hp
-  refine ⟨Array.mem_of_find?_eq_some h, hp.1.1, hp.1.2, fun hm => ?_⟩
-  have hc : (lean c).contains a = true := Array.contains_iff_mem.mpr hm
-  rw [hp.2] at hc
-  exact Bool.false_ne_true hc
-
-/-- `passedOn` names no constant only when `lean` reports the axiom for each constant of `after`
-other than the declaration itself that reaches it. -/
-theorem passedOn_none {root : Name} {after : Array Name} {reaches : Name → Name → Bool}
-    {lean : Name → Array Name} {a : Name} (h : passedOn root after reaches lean a = none) :
-    ∀ c ∈ after, c ≠ root → reaches c a = true → a ∈ lean c := by
-  unfold passedOn at h
-  intro c hc hne hr
-  simpa [bne_iff_ne.mpr hne, hr] using Array.find?_eq_none.mp h c hc
-
 /-- A completed kernel admission: its receipt, and what it computed in the replayed kernel, as the
 audited environment names it (`Collect.Replayed`): the axioms each name of the owned declarations'
 closure reaches there (`KernelAxioms.ReachesAxiom` over `walkFind`), which the foundation rules
@@ -2047,9 +2016,8 @@ keys only when the earlier environment that replayed the module admitted them
 the `ownedModules`' declarations (`Probe.ownedConstants`) reaches in the replayed kernel
 (`KernelAxioms.axiomTable` over `walkFind`, `KernelAxioms.axiomTable_some`), after `checkTable`
 admitted those of the owned declarations against the axioms Lean's `collectAxioms` reports, and,
-for each owned declaration, the axioms `collectAxioms` omits, each with the constant it uses that
-the omission was passed on from (`passedOn`). The original environment is retained for compiler
-metadata only after replay succeeds. This is not a fresh replay of the imported dependency graph. -/
+for each owned declaration, the axioms `collectAxioms` omits. The original environment is retained
+for compiler metadata only after replay succeeds. This is not a fresh replay of the imported dependency graph. -/
 unsafe def validate (env : Environment) (ownedModules : Array Name) (reused : Array Name := #[])
     (requested : Array Name := #[]) :
     IO (Except ProducerReport.AdmissionFailure Admitted) := do
@@ -2093,7 +2061,7 @@ unsafe def validate (env : Environment) (ownedModules : Array Name) (reused : Ar
         for (n, reached) in table.toList do
           axioms := axioms.insert (← own n) (← reached.mapM own)
         let mut entries : Array (Name × Array Name × Array Name) := #[]
-        let mut omissions : Std.HashMap Name (Array RegulaPolicy.TableOmission) := {}
+        let mut omissions : Std.HashMap Name (Array Name) := {}
         for root in roots do
           let some reached := axioms[root]?
             | throw <| IO.userError s!"no axioms were searched for {root} in the replayed kernel"
@@ -2101,16 +2069,7 @@ unsafe def validate (env : Environment) (ownedModules : Array Name) (reused : Ar
           entries := entries.push (root, lean, reached)
           let omitted := reached.filter fun a => !lean.contains a
           unless omitted.isEmpty do
-            let reaches (c a : Name) : Bool := (table[c]?).any (·.contains a)
-            let recorded ← omitted.mapM fun a => do
-              let via ← (passedOn root (successors walk root) reaches (leanAxioms env) a).mapM
-                fun c => do
-                  let c ← own c
-                  let some index := env.getModuleIdxFor? c
-                    | throw <| IO.userError s!"the constant {c} has no module"
-                  return (c, env.header.modules[(index : Nat)]!.module)
-              return ({ «axiom» := a, via } : RegulaPolicy.TableOmission)
-            omissions := omissions.insert root recorded
+            omissions := omissions.insert root omitted
         match checked_checkTable.run entries with
         | .ok () => return .ok { receipt, replayed := { axioms, omissions } }
         | .error excess => throw <| IO.userError excess.describe

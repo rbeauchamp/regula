@@ -3326,7 +3326,7 @@ structure Replayed where
   /-- The axioms each name of the closure reaches in the replayed kernel, by name. -/
   axioms : Std.HashMap Name (Array Name)
   /-- The axioms that `collectAxioms` omits for an owned declaration, by its name. -/
-  omissions : Std.HashMap Name (Array RegulaPolicy.TableOmission)
+  omissions : Std.HashMap Name (Array Name)
 
 /-- The record of `declaration`, with what a snapshot did not read of the declaration's decision
 registration, when there is such a part (`Unread`): its kind (`executableContract?`), or the

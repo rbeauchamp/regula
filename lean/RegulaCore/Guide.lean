@@ -1222,9 +1222,8 @@ def guide : RuleId → Guide
           since Lean's own computation of a table can omit axioms reached through an inductive \
           type's constructors (RG1005), and the rules decide on the replayed axioms. A project \
           audit counts such declarations in its summary (`axiom tables:`), and its `--verbose` \
-          line of each, the JSON report and the self-audit give the two sets and, for each \
-          omitted axiom, the first constant the declaration uses whose table omits it too, with \
-          that constant's module, or else the declaration's own table entry.",
+          line of each, the JSON report and the self-audit give the two sets and the omitted \
+          axioms.",
         "In the editor, this rule marks results that need fresh evidence only the project command \
           collects, and those messages name `lake lint`. The editor also reports it, as \
           incomplete, when its own analysis of a declaration fails or the module has elaboration \
@@ -1259,14 +1258,12 @@ def guide : RuleId → Guide
           incomplete and never accepted.",
         "The axioms the foundation rules read for each owned declaration are exactly those it \
           reaches in the replayed kernel, and no axiom that `collectAxioms` reports for it is \
-          outside them; each axiom it omits is reported with where the omission comes from. An \
-          `unsafe` or `partial` declaration, which replay does not check, is read as the audited \
-          environment keeps it.",
+          outside them; each axiom it omits is reported. An `unsafe` or `partial` declaration, \
+          which replay does not check, is read as the audited environment keeps it.",
         "Proved about the executed definitions: the axioms computed for a declaration are \
           exactly those it reaches among the constants the search reads \
-          (`KernelAxioms.axiomTable_some`, `KernelAxioms.ReachesAxiom`); `Admission.passedOn_some` \
-          and `passedOn_none` state which constant an omission is passed on from; and the \
-          account's count of omissions is exactly the inventory's declarations that record one \
+          (`KernelAxioms.axiomTable_some`, `KernelAxioms.ReachesAxiom`), and the account's count \
+          of omissions is exactly the inventory's declarations that record one \
           (`Account.checked_account`)."]
       notEstablished := [
         "Imported, unowned dependencies are not replayed; they remain the declared trusted base. \

@@ -20,10 +20,8 @@ open Lean
 abbrev producer := Regula.Checker.Producer.identity
 
 /-- Result schema 12 records the axioms that Lean's `collectAxioms` omits for each declaration: a
-declaration record carries `tableOmissions`, each entry an `axiom` that the declaration reaches in
-the replayed kernel and `collectAxioms` does not report, with `via`, the constant and module the
-omission was passed on from, or `null` (`RegulaPolicy.TableOmission`). Earlier schemas did not
-write the member.
+declaration record carries `tableOmissions`, the axioms that the declaration reaches in the
+replayed kernel and `collectAxioms` does not report. Earlier schemas did not write the member.
 Schema 11 records the functions that the specification of each decision registration
 shares with its implementation or its acceptance predicate: a declaration's `executableContract`
 carries `shared`, an object with the members `booleans` and `others`, each the names of the

@@ -112,16 +112,16 @@ private def declarationText (id : RuleId) (name : Name) (detail : String) (modul
   return finding.text
 
 /-- One declaration for which Lean's `collectAxioms` omits axioms that it reaches in the replayed
-kernel, by its module and name, with the two sets and where each omission comes from
+kernel, by its module and name, with the two sets and the omitted axioms
 (`RegulaPolicy.tableOmissionText`). -/
 structure OmissionReport where
   /-- The module that owns the declaration. -/
   «module» : String
   /-- The declaration. -/
   declaration : String
-  /-- The two axiom sets and the origin of each omission. -/
+  /-- The two axiom sets and the omitted axioms. -/
   detail : String
-  deriving ToJson, FromJson, DecidableEq, Repr
+  deriving ToJson, FromJson
 
 /-- The text of an omission report: the declaration, its module and the detail. -/
 def OmissionReport.text (r : OmissionReport) : String :=
@@ -155,7 +155,7 @@ structure ModuleResult where
   /-- Each declaration of the module for which Lean's `collectAxioms` omits axioms it reaches in
   the replayed kernel, reported rather than failed. -/
   tableOmissions : Array OmissionReport
-  deriving ToJson, FromJson, DecidableEq, Repr
+  deriving ToJson, FromJson
 
 /-- Decide one module's observations with the axioms its own environment attributes to the
 toolchain; every retained value is a freshly rendered string. -/

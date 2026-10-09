@@ -175,15 +175,6 @@ instance : FromJson RegulaPolicy.ExecutableContract := ⟨fun j => do
     shared := ← j.getObjValAs? _ "shared"
   }⟩
 
-/-- An axiom that Lean's `collectAxioms` omits for a declaration (`RegulaPolicy.TableOmission`),
-with its exact-field JSON codec: the axiom, and the constant and module the omission was passed
-on from, or `null`. -/
-instance : ToJson RegulaPolicy.TableOmission := ⟨fun o => Json.mkObj [
-  ("axiom", toJson o.axiom), ("via", toJson o.via)]⟩
-instance : FromJson RegulaPolicy.TableOmission := ⟨fun j => do
-  exactFields j ["axiom", "via"]
-  return { «axiom» := ← j.getObjValAs? _ "axiom", via := ← j.getObjValAs? _ "via" }⟩
-
 /-- The Lean-semantic record of one owned constant (`RegulaPolicy.Declaration`), with its
 exact-field JSON codec. The `ranges` member is the pair Lean recorded (`recordedRanges`); the
 admitted pair (`RegulaPolicy.Declaration.ranges`) is computed from it and is not transported. -/
