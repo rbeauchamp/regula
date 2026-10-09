@@ -1590,9 +1590,11 @@ items:
 opaque constants that are not internal, `unsafe`, `partial` or `noncomputable`. It also refuses a
 constant with a proposition as its type or a sort as its result. Lean gives each of these facts
 (`Name.isInternal`, the safety of the constant, `isNoncomputable`, `Meta.isProp`, and the reduction
-of the type in `Collect.returnsSort`). It then adds the action of each initializer that an owned
-module records, whatever its name or safety (`Probe.initializerActions`). Lean records these
-actions in the entries of the attributes `[init]` and `[builtin_init]`.
+of the type in `Collect.returnsSort`).
+
+The census then adds the action of each initializer that an owned module records, whatever its
+name or safety (`Probe.initializerActions`). Lean records these actions in the entries of the
+attributes `[init]` and `[builtin_init]`.
 
 The selection of roots is the conjunction of these facts, together with these entries. A kind on
 it would state the expression of the function as its specification. Thus the census of roots
