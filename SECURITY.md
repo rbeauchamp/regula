@@ -30,8 +30,9 @@ Regula's guarantees are those that its
 [standard](https://rbeauchamp.github.io/regula/dev/standard/) state, in the trust boundary that
 [proofs and boundaries](docs/guides/proofs-and-boundaries.md) records. These guarantees are for
 honest code: code that does not deliberately change Lean's environment, compiler or build to make
-a check pass. Ordinary declarations, attributes such as `implemented_by`, `extern` and `csimp`,
-and `initialize` are honest code.
+a check pass. Code that makes such a change through a mechanism for which the standard or a rule
+page states a check is also honest code. Ordinary declarations, attributes such as
+`implemented_by`, `extern` and `csimp`, and `initialize` are honest code.
 [Section 7.6 of the standard](https://rbeauchamp.github.io/regula/dev/standard/7-tooling-and-machine-audit/#76-classify-lean-computation-mechanisms-exactly)
 tells how Regula treats each of them. Honest code can also use macros, elaborators, tactics and
 evaluators in the usual way, and the guarantees include the declarations that such use makes.
@@ -43,8 +44,7 @@ them. Code that makes one of these changes to make a check pass is not honest co
 - A direct write to the state of an environment extension that no rule or section of the standard
   checks. Such a write goes around the command or attribute that Lean gives for that extension. An
   example is a direct write to the axiom table `exportedAxiomsExt` that Lean calculates for each
-  module. On a path that a program can run, Regula reports a metaprogram write to the
-  `implemented_by` mapping as unresolved.
+  module.
 - A declaration of a dependency that a metaprogram adds with `debug.skipKernelTC`.
 - A user compiler pass (`@[cpass]`), or a direct write that stores a compiled body that Lean's
   compiler did not make. An example is a forged `fdecl` body in the IR extension. Regula reports a

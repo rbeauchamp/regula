@@ -3518,9 +3518,10 @@ execution, and calling a proved oracle does not prove the driver or its IO effec
 
 Regula's guarantees are for honest code, as the [scope](../../SECURITY.md#scope) of the security
 policy tells. Honest code does not deliberately change Lean's environment, compiler or build to
-make a check pass. Ordinary declarations, attributes such as `implemented_by`, `extern` and
-`csimp`, and `initialize` are honest code. Standard §7.6 tells how the execution account treats
-each of them.
+make a check pass. Code that makes such a change through a mechanism for which the standard or a
+rule page states a check is also honest code. Ordinary declarations, attributes such as
+`implemented_by`, `extern` and `csimp`, and `initialize` are honest code. Standard §7.6 tells how
+the execution account treats each of them.
 
 The axiom collection and the execution account ([RG3001], [RG3002]) trust that the project makes
 no such change. Where the standard or a rule page states a check for a mechanism, that statement
@@ -3533,8 +3534,7 @@ account or of the two:
   An example is the axiom table `exportedAxiomsExt` that Lean calculates when it writes a module.
   The audit imports each module that it inspects, and for a declaration that such a module exports
   `Lean.collectAxioms` reads that table. Thus a direct write to that table changes the axiom sets
-  that the axiom collection gives to the rules [RG1001]–[RG1005]. On a path that a program can run,
-  [RG3001] reports a metaprogram write to the `implemented_by` mapping as unresolved.
+  that the axiom collection gives to the rules [RG1001]–[RG1005].
 - **A declaration of a dependency that a metaprogram adds with `debug.skipKernelTC`.** [RG2005]
   states the check for an owned declaration, thus an owned declaration is in scope.
   [Admission](#producers) replays the owned declarations that are not `unsafe` or `partial`
