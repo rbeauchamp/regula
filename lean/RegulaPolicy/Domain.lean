@@ -1448,10 +1448,6 @@ structure Declaration extends Declaration.Inspected, Declaration.ProjectWritten
 decision takes only that part. Nothing is computed: the other part is dropped. -/
 instance : Coe Declaration Declaration.Inspected := ⟨Declaration.toInspected⟩
 
-/-- A declaration's record is read as its project-written part wherever a decision takes only
-that part. -/
-instance : Coe Declaration Declaration.ProjectWritten := ⟨Declaration.toProjectWritten⟩
-
 /-- The inspected part is read as its kernel-checked data wherever a decision takes only that. -/
 instance : Coe Declaration.Inspected Declaration.KernelChecked :=
   ⟨Declaration.Inspected.toKernelChecked⟩
@@ -1460,6 +1456,32 @@ instance : Coe Declaration.Inspected Declaration.KernelChecked :=
 those. -/
 instance : Coe Declaration.Inspected Declaration.ToolchainObserved :=
   ⟨Declaration.Inspected.toToolchainObserved⟩
+
+/-- What the decision requirement of RG1008 reads of a declaration's record, and nothing else: the
+constant's name, kernel-checked declaration data, and the collector's observation of its
+`@[regula_decision]` registration, which the project writes. -/
+structure Declaration.Registration where
+  /-- The constant's name (`Declaration.KernelChecked.name`). -/
+  name : Lean.Name
+  /-- For a constant registered with `@[regula_decision]`: whether its result type is
+  `Decidable _`; `none` without the registration (`Declaration.ProjectWritten.decisionResult`). -/
+  decisionResult : Option DecisionResult
+  deriving Repr, DecidableEq
+
+/-- The registration part of a declaration's record: its name and its registration. -/
+def Declaration.registration (d : Declaration) : Declaration.Registration :=
+  ⟨d.name, d.decisionResult⟩
+
+/-- The name of the registration part is the name of the record. -/
+@[simp] theorem Declaration.registration_name (d : Declaration) :
+    d.registration.name = d.name := rfl
+
+/-- The registration of the registration part is the registration of the record. -/
+@[simp] theorem Declaration.registration_decisionResult (d : Declaration) :
+    d.registration.decisionResult = d.decisionResult := rfl
+
+/-- A declaration's record is read as its registration part wherever a decision takes only that. -/
+instance : Coe Declaration Declaration.Registration := ⟨Declaration.registration⟩
 
 /-- The declaration's admitted ranges: the pair Lean recorded (`recordedRanges`) when its
 selection range lies within its full range, and otherwise that full range as its own selection
