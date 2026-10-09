@@ -1637,8 +1637,8 @@ Each question gives the constants that a record lists, and the constants that ha
 
 | Question | A record lists | No record |
 | --- | --- | --- |
-| `mayReach`, `mayReachDecision` | The constants of the type, of the value and of the constructors or the recursor rules (`unfoldReferences`). | A constant of a module that does not import `Regula.Contract`. A constant of the memo of the same targets. |
-| `mentionChain?` | The constants of the type, and of the value of a definition. The constructors of an inductive type, and the constructors and the constants of the rules of a recursor (`statusReferences`). | A constant of a module that does not import the module of the implementation. |
+| `mayReach`, `mayReachDecision` | The constants of the type, of the value and of the constructors or the recursor rules (`unfoldReferences`). | A constant of a module that does not import `Regula.Contract`. A constant of the memo of the same targets. A constant that the environment does not have. |
+| `mentionChain?` | The constants of the type, and of the value of a definition. The constructors of an inductive type, and the constructors and the constants of the rules of a recursor (`statusReferences`). | A constant of a module that does not import the module of the implementation. A constant that the environment does not have. |
 
 The type of a record is indexed by its constant (`References name`), so the map of records holds a
 record only under its own constant. The pass takes the constants in the order of the decision.
@@ -1664,7 +1664,8 @@ items:
   code.
 - That a constant with no record leads to no target in the environment. For a constant of a
   module that does not import the module of a target, Lean's imports give this (`importersOf`). A
-  constant of the memo had no route in an earlier search of the same targets.
+  constant of the memo had no route in an earlier search of the same targets. A constant that the
+  environment does not have mentions no constant there.
 - That the reduction of a type adds only constants to which the constants of the type lead. This
   is the argument of `ContractScope.mayReach`, read from Lean's reduction.
 - That the route in a message is the shortest route. It is the first route that the search takes.
