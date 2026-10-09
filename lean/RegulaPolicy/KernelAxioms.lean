@@ -28,7 +28,7 @@ reports is reached here too. -/
 
 @[expose] public section
 
-namespace Regula.KernelAxioms
+namespace RegulaPolicy.KernelAxioms
 open Lean
 
 /-! ## Searching a graph of names -/
@@ -667,4 +667,4 @@ def fuelFor (env : Environment) (extra : Nat) : Nat :=
   env.header.moduleData.foldl (fun total data => total + data.constants.size) 0 +
     env.constants.map₂.foldl (fun total _ _ => total + 1) 0 + extra
 
-end Regula.KernelAxioms
+end RegulaPolicy.KernelAxioms

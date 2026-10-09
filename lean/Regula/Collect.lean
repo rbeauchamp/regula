@@ -37,7 +37,7 @@ public import RegulaPolicy.NativeStatement
 public import RegulaPolicy.MentionSearch
 public import Regula.Contract
 public import Regula.Decision
-public import Regula.KernelAxioms
+public import RegulaPolicy.KernelAxioms
 
 public import Lean.Linter.Util
 public import Lean.Linter.EnvLinter.Frontend
@@ -198,8 +198,8 @@ private def kernelChecked (cached : Std.HashMap Name (Array Name)) (type value :
   | .error rejected => throwKernelException rejected
   | .ok checked =>
     setEnv checked
-    let some axioms := KernelAxioms.axiomsWith checked.toKernelEnv.find? cached
-        (KernelAxioms.fuelFor checked 1) name | return false
+    let some axioms := RegulaPolicy.KernelAxioms.axiomsWith checked.toKernelEnv.find? cached
+        (RegulaPolicy.KernelAxioms.fuelFor checked 1) name | return false
     return axioms.all checkedAxioms.contains
 
 /-- Whether Lean's kernel checks the threading law of the application `threaded`, the fact the

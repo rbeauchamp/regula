@@ -199,7 +199,7 @@ def guide : RuleId → Guide
       linkage := declarationLinkage
       sources :=
           ["lean/RegulaCore/Policy.lean", "lean/RegulaPolicy/Decision.lean",
-              "lean/Regula/Findings.lean", "lean/Regula/KernelAxioms.lean"] }
+              "lean/Regula/Findings.lean", "lean/RegulaPolicy/KernelAxioms.lean"] }
   | .unknownAxiom => {
       problem := "A declaration's exact transitive axiom set contains an axiom outside Lean's \
         standard logical foundation (`propext`, `Quot.sound`, `Classical.choice`) that is neither \
@@ -368,7 +368,7 @@ def guide : RuleId → Guide
       linkage := declarationLinkage
       sources :=
           ["lean/RegulaPolicy/Foundation.lean", "lean/RegulaCore/Policy.lean",
-              "lean/Regula/KernelAxioms.lean",
+              "lean/RegulaPolicy/KernelAxioms.lean",
               "website/RegulaStandard/MathematicalFoundations.lean"] }
   | .escapeHatch => {
       problem := "An owned declaration is marked `unsafe` or `partial` and satisfies neither \
@@ -1261,7 +1261,13 @@ def guide : RuleId → Guide
           reaches in the replayed kernel, and no axiom that `collectAxioms` reports for it is \
           outside them; each axiom it omits is reported with where the omission comes from. An \
           `unsafe` or `partial` declaration, which replay does not check, is read as the audited \
-          environment keeps it."]
+          environment keeps it.",
+        "Proved about the executed definitions: the axioms computed for a declaration are \
+          exactly those it reaches among the constants the search reads \
+          (`KernelAxioms.axiomTable_some`, `KernelAxioms.ReachesAxiom`); `Admission.passedOn_some` \
+          and `passedOn_none` state which constant an omission is passed on from; and the \
+          account's count of omissions is exactly the inventory's declarations that record one \
+          (`Account.checked_account`)."]
       notEstablished := [
         "Imported, unowned dependencies are not replayed; they remain the declared trusted base. \
           The axioms a declaration reaches through them are read from their constants as \
@@ -1282,12 +1288,8 @@ def guide : RuleId → Guide
         Admission runs three registered decisions: `Admission.checkHeader` \
         (`checked_checkHeader`, two-way), `Admission.admitReplay` (`admitReplay_eq_ok`, \
         `checked_admitReplay`, one-way) and `Admission.checkTable` (`checked_checkTable`, \
-        two-way), and `mem_required` states the required keys. `KernelAxioms.axiomTable_some` \
-        states that the axioms computed for a declaration are exactly those it reaches \
-        (`KernelAxioms.ReachesAxiom`) among the constants the search reads, and \
-        `Admission.passedOn_some` and `passedOn_none` state which constant an omission is \
-        passed on from. The account's count of omissions is exactly the inventory's \
-        declarations that record one (`Account.checked_account`). These theorems are about the request that the decisions take. The module data, the replay \
+        two-way), and `mem_required` states the required keys. These \
+        theorems are about the request that the decisions take. The module data, the replay \
         set, the reported and reused modules, the lookup `kept`, the import of the replay base, \
         `shared` and the replayed kernel are observed or trusted, as the section \"Receipt \
         validation: decisions and observing pass\" of the guide of proofs and boundaries says. \
@@ -1302,7 +1304,7 @@ def guide : RuleId → Guide
         (`sharedReading` in `Regula.Collect`): that record names no shared function with a \
         result of `Bool` or `BEq`, so the editor decision reports no RG1009 finding for it."
       sources :=
-          ["lean/Regula/Checker/Admission.lean", "lean/Regula/KernelAxioms.lean",
+          ["lean/Regula/Checker/Admission.lean", "lean/RegulaPolicy/KernelAxioms.lean",
               "lean/Regula/Checker/SourceAudit.lean", "lean/Regula/Checker/SourceBinding.lean"] }
   | .communityConfiguration => {
       problem := "A claimed library or executable is built with automatic implicits on or \

@@ -4,7 +4,7 @@ import Regula.Probe
 import Regula.Checker.SharedName
 import Std.Data.HashMap.Lemmas
 import Regula.Decision
-import Regula.KernelAxioms
+import RegulaPolicy.KernelAxioms
 
 /-!
 # Checked logical admission
@@ -32,7 +32,7 @@ namespace Regula.Checker.Admission
 
 open Lean
 open RegulaPolicy.Guards (forM_eq_ok)
-open Regula.KernelAxioms
+open RegulaPolicy.KernelAxioms
 -- Names cross the worker boundary in the report's own encoding, which reads back every name,
 -- including the hygienic names Lean generates (`RegistryCodec.printedNameJson_roundtrip`).
 open scoped Regula.Report

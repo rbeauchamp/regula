@@ -1357,7 +1357,7 @@ structure Declaration.ToolchainObserved where
   that tactic, prefix and type. So it evaluates no other expression. -/
   nativeReplay : Option Bool
   /-- The axioms the constant transitively depends on, sorted and without duplicates: those it
-  reaches in the kernel that replayed it (`Regula.KernelAxioms.axiomTable`), or, for an editor
+  reaches in the kernel that replayed it (`KernelAxioms.axiomTable`), or, for an editor
   snapshot, which has no replayed kernel, those `collectAxioms` reports. -/
   axioms : Array Lean.Name
   deriving Repr, DecidableEq
