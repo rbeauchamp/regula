@@ -29,17 +29,23 @@ Regula's guarantees are those that its
 [rule reference](https://rbeauchamp.github.io/regula/dev/rules/) and
 [standard](https://rbeauchamp.github.io/regula/dev/standard/) state, in the trust boundary that
 [proofs and boundaries](docs/guides/proofs-and-boundaries.md) records. These guarantees are for
-honest code: code that does not change Lean's environment, compiler or build to make a check pass.
-Honest code can use macros, elaborators, tactics and evaluators in the usual way, and the
-guarantees include the declarations that such use makes.
+honest code: code that does not make one of the changes in the list below to make a check pass.
+Honest code can add declarations, use attributes such as `implemented_by`, `extern` and `csimp`,
+and use `initialize`. These change Lean's environment through the commands and attributes that
+Lean gives for them.
+[Section 7.6 of the standard](https://rbeauchamp.github.io/regula/dev/standard/7-tooling-and-machine-audit/#76-classify-lean-computation-mechanisms-exactly)
+tells how Regula treats each of them. Honest code can also use macros, elaborators, tactics and
+evaluators in the usual way, and the guarantees include the declarations that such use makes.
 
-Code that makes one of these changes to make a check pass is not honest code:
+Code that makes one of these changes to Lean's environment, compiler or build to make a check pass
+is not honest code:
 
-- A write to an environment extension, for example to the axiom table that Lean calculates for
-  each module.
+- A direct write to the state of an environment extension that goes around the command or
+  attribute that Lean gives for that extension. An example is a direct write to the axiom table
+  `exportedAxiomsExt` that Lean calculates for each module.
 - A declaration that a metaprogram adds with `debug.skipKernelTC`.
-- A user compiler pass (`@[cpass]`), or a direct write to the IR or LCNF extensions of the
-  compiler.
+- A user compiler pass (`@[cpass]`), or a direct write to the state of the IR or LCNF extensions
+  that goes around Lean's compiler.
 - An `f._unsafe_rec` companion that a metaprogram adds for a definition `f`.
 - A native build setting: `extern_lib`, `moreLinkArgs` or `moreLeancArgs`.
 
@@ -71,7 +77,7 @@ A vulnerability is a way to break one of these guarantees on purpose:
 
 ## What does not
 
-- **Changes to Lean's environment, compiler or build.** A way to make a check pass with code that
+- **The excluded changes to Lean's environment, compiler or build.** A way to make a check pass with code that
   is not honest code, as the [scope](#scope) tells, is not a vulnerability. To ask that Regula
   find more such changes, open a [public issue](https://github.com/rbeauchamp/regula/issues).
 - **Code the audit builds.** An audit runs the code of the project with your permissions. Lake runs
