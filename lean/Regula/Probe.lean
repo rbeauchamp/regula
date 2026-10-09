@@ -7,6 +7,7 @@ import Lean.Compiler.NoncomputableAttr
 import Lean.Compiler.ImplementedByAttr
 import Lean.Compiler.ExternAttr
 import Lean.Compiler.CSimpAttr
+import Lean.Compiler.InitAttr
 import Lean.Compiler.IR.EmitUtil
 import Lean.DeclarationRange
 import Lean.Elab.PreDefinition.Structural.Eqns
@@ -48,7 +49,8 @@ module index is requested, the report records:
 The report additionally carries an execution-coverage account, distinct from
 the logical axiom audit: for every owned executable root (computable,
 non-proposition, safe, non-partial, non-internal definitions and opaque
-constants, including claimed executable `main`s) it computes the transitive
+constants, including claimed executable `main`s, and the action of each
+initializer that an owned module records) it computes the transitive
 conservative closure over value-level dependencies, retained compiler IR,
 constant-equality simplification candidates, historical `@[implemented_by]`
 targets, and partial helpers. `@[extern]` constants are boundary leaves for
@@ -89,8 +91,8 @@ of this repository's audited positive surface.
 namespace Regula.Probe
 
 open Lean Elab Command
-open RegulaPolicy (DeclarationKind BoundaryKind Correspondence DefeqComparison Safety Reducibility
-  RecursionOrigin)
+open RegulaPolicy (DeclarationKind BoundaryKind Correspondence DefeqComparison KernelAnswer Safety
+  Reducibility RecursionOrigin)
 
 /-- Compatibility name for the shared closed constant-kind mapping. -/
 abbrev kindOf := Regula.Collect.kindOf
@@ -206,12 +208,14 @@ private def kernelExhausted : Kernel.Exception → Bool
   | .deterministicTimeout | .excessiveMemory | .deepRecursion | .interrupted => true
   | _ => false
 
-/-- Admission checks the constructed closed proof against the exact required
-proposition in a disposable kernel declaration. Neither metavariable unification
-nor a matching theorem statement alone authorizes `checked`. `none` means the
-kernel exhausted its resources before deciding; a kernel rejection throws. -/
-private def checkCorrespondenceProof (levels : List Name) (required proof : Expr) :
-    MetaM (Option String) := do
+/-- The kernel's answer to the constructed closed proof, checked against the exact required
+proposition in a disposable kernel declaration (`RegulaPolicy.KernelAnswer`). Neither
+metavariable unification nor a matching theorem statement alone authorizes `checked`. Only the
+kernel's result selects the answer: its admission, with the declaration's transitive axioms and
+the printed proof and proposition; its resource exhaustion or interruption (`kernelExhausted`);
+or any other refusal. A proof or proposition with an undischarged variable, and an error while the
+answer is read, raise an error and record no answer. -/
+private def kernelAnswer (levels : List Name) (required proof : Expr) : MetaM KernelAnswer := do
   let required ← instantiateMVars required
   let proof ← instantiateMVars proof
   if required.hasMVar || proof.hasMVar || required.hasFVar || proof.hasFVar then
@@ -225,18 +229,26 @@ private def checkCorrespondenceProof (levels : List Name) (required proof : Expr
   let env ← getEnv
   let result ← withCorrespondenceMemory (← getOptions) <|
     IO.lazyPure fun _ => env.addDeclCore correspondenceHeartbeats 1000 declaration none
-  let checked ← match result with
-    | .ok checked => pure checked
-    | .error e =>
-      if kernelExhausted e then return none
-      throwError "kernel rejected exact correspondence"
-  let axioms ← withEnv checked <| collectAxioms name
-  unless axioms.all (fun ax =>
-      ax == ``propext || ax == ``Quot.sound || ax == ``Classical.choice) do
-    throwError "correspondence exceeds standard-logical foundations"
-  withOptions (fun opts => opts.setBool `pp.all true |>.setBool `pp.deepTerms true
-      |>.set `pp.maxSteps (1000000 : Nat)) do
-    return some s!"proof={← Meta.ppExpr proof}; required={← Meta.ppExpr required}"
+  match result with
+  | .error e => return if kernelExhausted e then .exhausted else .refused
+  | .ok checked =>
+    let axioms ← withEnv checked <| collectAxioms name
+    withOptions (fun opts => opts.setBool `pp.all true |>.setBool `pp.deepTerms true
+        |>.set `pp.maxSteps (1000000 : Nat)) do
+      return .admitted axioms s!"proof={← Meta.ppExpr proof}; required={← Meta.ppExpr required}"
+
+/-- The comparison that one attempt at the kernel's answer records
+(`RegulaPolicy.DefeqComparison.ofAttempt`). `observing` keeps an error that the attempt raises as
+its result, so an attempt that raised an error records no answer and its comparison is
+incomplete, whatever the error (`DefeqComparison.ofAttempt_error`). Lean's Core-based monads
+rethrow a runtime resource exception (heartbeats, recursion depth) or an interruption instead of
+catching it, so such an exception records no comparison and ends the report
+(`Probe.observing` of the walk). -/
+private def comparison (attempt : MetaM KernelAnswer) : MetaM DefeqComparison := do
+  let attempt ← match ← _root_.observing attempt with
+    | .ok answer => pure (.ok answer)
+    | .error error => pure (.error (← error.toMessageData.toString))
+  return DefeqComparison.ofAttempt attempt
 
 /-- A theorem mentioning both endpoints is only a search candidate. For every
 prefix of the actual dependent domain, instantiate its universes and premises,
@@ -260,7 +272,8 @@ private def theoremCorrespondence? (levels : List Name) (reference replacement :
           for arg in domain.extract count domain.size do
             proof ← Meta.mkCongrFun proof arg
           proof ← Meta.mkLambdaFVars domain proof
-          let some detail ← checkCorrespondenceProof levels required proof | return none
+          let .completed (some detail) ← comparison (kernelAnswer levels required proof)
+            | return none
           return some s!"proved: {name}; {detail}"
         catch _ => return none
       if result.isSome then return result
@@ -329,9 +342,11 @@ levels. Both definitional and theorem-backed evidence pass the same kernel gate.
 Theorem candidates, supplied then discovered, are tried before definitional
 unfolding, so a kernel-exhausting unfolding cannot consume the memory limit a
 supplied proof needs. The definitional fallback returns
-`DefeqComparison.classify` of its outcome, so a comparison the kernel could not complete is
-unresolved, never trusted (standard §7.6). An elaborator resource limit reached while
-constructing the correspondence is rethrown rather than recorded as unresolved. -/
+`DefeqComparison.classify` of the comparison its attempt records (`comparison`): the kernel's
+answer completes it, and an attempt the kernel did not decide, or one that raised an error while
+it built the reflexivity proof or read the answer, is unresolved, never trusted (standard §7.6).
+An elaborator resource limit reached while constructing the correspondence is rethrown rather
+than recorded as unresolved. -/
 private def replacementCorrespondence (env : Environment)
     (prepared : Thunk (PreparedTheorems env)) (reference replacement : Name)
     (proofCandidates : Array Name := #[]) :
@@ -360,13 +375,9 @@ private def replacementCorrespondence (env : Environment)
             | continue
           if let some evidence ← theoremCorrespondence? levels ref impl domain required name then
             return (.checked, some evidence)
-        let comparison ← try
-            let proof ← Meta.mkLambdaFVars domain (← Meta.mkEqRefl lhs)
-            pure <| match ← checkCorrespondenceProof levels required proof with
-              | some detail => DefeqComparison.completed (some detail)
-              | none => .incomplete
-          catch _ => pure (.completed none)
-        return comparison.classify
+        let outcome ← comparison do
+          kernelAnswer levels required (← Meta.mkLambdaFVars domain (← Meta.mkEqRefl lhs))
+        return outcome.classify
     catch _ =>
       return (.unresolved,
           some s!"cannot construct exact correspondence for {reference} and {replacement}")
@@ -700,12 +711,38 @@ private def executionWalk (env : Environment) (ownedModules : List Name)
       return RegulaPolicy.ExecutionWalk.assemble rootCompiled { request, visits, walked }
   | .error failure => throwError "the walk of {root} over its records failed: {repr failure}"
 
+/-- The action Lean runs for each initializer that one of `modules` records, in the order of the
+module's entries: its `[init]` entries (`initialize`), then its `[builtin_init]` entries
+(`builtin_initialize`). An entry is a declaration and the name of its action. A named block
+`initialize x : T ← e` records its action `initFn` for `x`, and Lean runs that action. An
+anonymous block `initialize e`, and a declaration of type `IO Unit` that has the attribute
+itself, record the anonymous name for the declaration, and Lean runs the declaration
+(`Lean.runInitAttrForMod`, `Lean.Compiler.LCNF.emitDeclInit`). The entries are those of the module's
+imported data and of its IR data, as `runInitAttrForMod` reads them; the name of a declaration
+does not select it. An anonymous block elaborates to a private `initFn` with a hygienic name that
+no other declaration references, so its entry is the only record that it runs. -/
+private def initializerActions (env : Environment) (modules : List Name) : Array Name := Id.run do
+  let mut actions : Array Name := #[]
+  for (imported, idx) in env.header.modules.zipIdx do
+    unless modules.contains imported.module do continue
+    for initAttribute in [regularInitAttr, builtinInitAttr] do
+      let entries := initAttribute.ext.getModuleEntries env idx
+      let entries := entries ++
+        (initAttribute.ext.getModuleIREntries env idx).filter (!entries.contains ·)
+      for (declaration, action) in entries do
+        let action := if action.isAnonymous then declaration else action
+        unless actions.contains action do
+          actions := actions.push action
+  return actions
+
 /-- Owned executable roots: computable, non-proposition, safe, non-partial,
 non-internal definitions and opaque constants whose result is not a `Sort`
-(types are erased before execution, like propositions). Role metadata never
+(types are erased before execution, like propositions), and the action of each initializer that
+an owned module records (`initializerActions`), whatever its name, safety or computability: Lean
+runs that action at startup or import, where no other root need reference it. Role metadata never
 removes an otherwise eligible root, including unused tagged declarations. -/
-private def executableRoots (env : Environment) (own : Array (Name × ConstantInfo)) :
-    CommandElabM (Array Name) := do
+private def executableRoots (env : Environment) (modules : List Name)
+    (own : Array (Name × ConstantInfo)) : CommandElabM (Array Name) := do
   let mut roots : Array Name := #[]
   for (name, info) in own do
     match info with
@@ -718,6 +755,9 @@ private def executableRoots (env : Environment) (own : Array (Name × ConstantIn
         if !eligible then continue
         roots := roots.push name
     | _ => continue
+  for action in initializerActions env modules do
+    unless roots.contains action do
+      roots := roots.push action
   return roots
 
 /-- Build the complete report for exact requested module names. The trusted
@@ -752,7 +792,7 @@ def environmentReport (modules : List Name)
   let entries ← reportPhase timing s!"declaration records [{label}]" <| own.mapM fun (name, _) =>
     observing env name "declaration record" (Regula.Collect.declaration name .replayCandidate scope)
   let roots ← reportPhase timing s!"execution root census [{label}]" <| if includeExecution then do
-    let mut roots ← executableRoots env own
+    let mut roots ← executableRoots env modules own
     for entry in entries do
       if let some contract := entry.executableContract then
         if contract.failure.isNone && !roots.contains contract.root then
