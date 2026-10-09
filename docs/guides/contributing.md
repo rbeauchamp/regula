@@ -350,13 +350,15 @@ diagnostics self-audit` checks the excluded operational `Regula` library: `lake 
 builds every module warning-free ([RG2003], because the package sets `warningAsError`), then
 `qualify self-audit` inspects each module of the library as Lake discovers it, each in its own
 worker (several roots define `main`, so the modules cannot share one environment). For each
-module it kernel-replays every owned declaration that is not `unsafe` or `partial` ([RG2005],
-`Admission.validate`), decides every declaration record from the live linter's collector
+module it kernel-replays every owned declaration that is not `unsafe` or `partial` and calculates
+the axioms of each declaration in that kernel ([RG2005], `Admission.validate`), decides every
+declaration record from the live linter's collector
 (`Regula.Collect.declaration`) with the proved `RegulaPolicy.checked_operationalFailure`
 ([RG1001]–[RG1005], [RG1007], [RG1009]) and, where that passes, `RegulaPolicy.checked_decisionFailure`
 ([RG1008]) against the decision contracts of the same module, and checks module and
-material-claim docs with the linter's predicates ([RG5001]–[RG5003]). Operational code is held to Standard-Logical with two facts reported, not
-failed: authored `unsafe`/`partial` declarations ([RG1006]), and, in a definition whose type is not
+material-claim docs with the linter's predicates ([RG5001]–[RG5003]). Operational code is held to Standard-Logical with three facts reported, not
+failed: authored `unsafe`/`partial` declarations ([RG1006]), the axioms that Lean's `collectAxioms`
+omits for a declaration, and, in a definition whose type is not
 a proposition, the pinned toolchain's Lake axioms (those a `Lake` module in the toolchain's own
 library directory declares). `operationalFailure_none_iff` states the exact success relation,
 `operationalFailure_ne_escapeHatch` that an escape hatch never fails a declaration,

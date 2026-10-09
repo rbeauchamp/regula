@@ -560,7 +560,7 @@ requirement and the role validators those fields through typed records.
 | --- | --- | --- |
 | `Checker/Policy.admitScope`, with `Frontend.validateCoordinates` | `checked_scope` (first coordinate refusal in transcript order, then exactly `admitInventory` with `authorize`; success iff all coordinate checks and `InventoryValid` hold, retaining both input arrays); `checked_coordinates` (claimed `RegulaCore.Coordinates`: success iff `CoordinatesAgree`, refusal with the first unmet obligation in traversal order) | Lean's UTF-16 column function (`FileMap.leanPosToLspPos`) and `FileMap`; source and compiler observation acquisition. |
 | `request`, `ruleFor`/`reasonFor`, `ruleForMember` (claimed `RegulaCore.Policy`) | `checked_request`, `checked_rule`, `checked_memberRule` over `policyFor`; `ruleForFailure_injective`, `reasonFor_eq_some_iff` | Registry descriptor text; adequacy of the mapped rule set. |
-| `labelOf`, `labelOfMember`, `classify`, `classifyMember` | `foundationFor`; `checked_memberFoundation`, `labelOf_member`, `classifyMember_eq` | Transitive `Lean.collectAxioms` results and module ownership. |
+| `labelOf`, `labelOfMember`, `classify`, `classifyMember` | `foundationFor`; `checked_memberFoundation`, `labelOf_member`, `classifyMember_eq` | Transitive axiom sets from the replayed kernel (`KernelAxioms.axiomTable`) and module ownership. |
 | `executionFindings`, `executionFailures`, `executionSummary`, `toolchainBase` | `checked_executionFailures` (line `k` renders finding `k`, none added or dropped, so the lines are empty iff `ExecutionOK`), `executionRule_injective`, `checked_summary` (the boundary counts range over the boundaries reported on their own: a later record of one trusted boundary of a root, and a `partial` implementation reported with the boundary that runs it, are counted with that boundary, not again), `checked_toolchainBase` | Root collection, retained compiler edges, correspondence admission, source history, module origins and the text and JSON rendering of the toolchain trusted base. The records of the execution walk are observed, and the account that `ExecutionWalk.assemble` builds from them is not proved. |
 | `Probe.replacementCorrespondence` | `DefeqComparison.classify` of `DefeqComparison.ofAttempt` (an attempt that the kernel did not decide, or that raised an error, is unresolved and not trusted) | The kernel decision itself, the record of its answer (`Probe.kernelAnswer`), the capture of an error (`Probe.comparison`) and the incomplete theorem-candidate search. Lean's Core-based monads rethrow a runtime resource exception or an interruption. Such an exception records no comparison and stops the report. |
 | `Checker/Common.admitIndexedWorkerResults`, `mapWorkQueue`, `Documentation.auditTasks` | `checked_indexedResults` over `ResultState.collect` | Child completion, strict packet decoding, task scheduling and exact request and source binding. |
@@ -590,7 +590,7 @@ the call through each success owner.
 
 | Rules | Proved relation | Remaining boundary |
 | --- | --- | --- |
-| [RG1001]–[RG1003] | `declarationFailure_iff`, `policyFor_ordered`, `foundationFor_iff` | Ownership and transitive-axiom acquisition (`Lean.collectAxioms`). The [deliberate changes](#changes-to-leans-environment-compiler-or-build) to Lean's environment, compiler or build are trusted boundaries. |
+| [RG1001]–[RG1003] | `declarationFailure_iff`, `policyFor_ordered`, `foundationFor_iff` | Ownership and transitive-axiom acquisition in the replayed kernel (`KernelAxioms.axiomTable`). The [deliberate changes](#changes-to-leans-environment-compiler-or-build) to Lean's environment, compiler or build are trusted boundaries. |
 | [RG1004] | The above plus `authorizedNativeAxioms_iff`, `native_generated`, `native_provenance`, `compilerTrustingAxiomName_iff`. For the statement that the replay reads: `NativeStatement.asserted?_sound`, `NativeStatement.asserted?_complete` and the kind `NativeStatement.checked_recognize` ([below](#the-native-axiom-statement-decision-and-observing-pass)). | Transcript and replay truth; authorization permits teaching only. The replay evaluates compiled code, and its result is an observation. The recorded text of a statement is not proved to identify its expression. The [deliberate changes](#changes-to-leans-environment-compiler-or-build) to Lean's environment, compiler or build are trusted boundaries. |
 | [RG1005] | `foundationFor_least`, `leastFoundation_ext`, `policyFor_conforming_iff` | The least containing profile of the observed axioms, not the least possible axioms for the proposition. The [deliberate changes](#changes-to-leans-environment-compiler-or-build) to Lean's environment, compiler or build are trusted boundaries. |
 | [RG1006] | The helper authorization `_iff` theorems, `Roles.safetyHelpers_iff`, `policyFor_conforming_iff`, `subject_contract`, `partialParent_rule`; for the comparison that records a recursion helper's observation, `Erasure.equalWithin_iff`, `Erasure.reproduces_iff` and the kind `Erasure.checked_reproduces` ([below](#the-recursion-helper-comparison-decision-and-observing-pass)) | Exact helper metadata, the relevant recorded recursion-helper or constructor-index observation and the base's axioms are checked. A `partial def`'s helper always has a finding naming its opaque parent when that parent is in the inventory. A recursion helper's observation is recorded only where Lean's kernel checked, at that audit, the base's recursion equation for each helper of the group (`Collect.recursionEquationChecked`); that check is the collector's, not a theorem of the policy. The collector observations, the step from the recursion equation to the values the helper returns, compiled-code correspondence and execution coverage are not proved. A recursion helper's termination still trusts Lean's well-founded preprocessing (standard §7.4); a constructor wrapper's native object-tag correspondence remains trusted. |
@@ -770,6 +770,7 @@ Two-way decisions (`Regula.Decides`), each with an accepted and a refused input:
 | `Regula.Checker.PolicyCodec.exactFields` (accepts on `.ok`) | `ExactFields` (`exactFields_iff`). The value is an object, and its member names are the expected names in some order. | The decoders of the worker protocol and of the producer reports. The proof that the expected names are distinct is an argument of the function. |
 | `Regula.Checker.Documentation.scanLines`, `scanVersoLines` (accept on a result with no violation) | `Clean`, `VersoClean`: the lines are a run of transitions from the first line to the end of the document. The fence protocol permits each transition, and each keeps the shape rule (`scanLines_problems_eq_empty_iff`, `scanVersoLines_problems_eq_empty_iff`). | The fence protocol and the shape rule of [RG4001] ([below](#the-fence-scanners-decisions-and-observing-pass)). The input is a `Source`: a document with the lines of its text. The kinds say nothing about the fences of a result. |
 | `Regula.Checker.Admission.checkHeader` (accepts on `.ok ()`) | `HeaderOK` (`checkHeader_eq_ok_iff`). Each replayed or reported module lists its constants under their own names. No module of the replay base imports a replayed module. | The decision on the header of [RG2005] ([below](#receipt-validation-decisions-and-observing-pass)). |
+| `Regula.Checker.Admission.checkTable` (accepts on `.ok ()`) | `TableWithin` (`checkTable_eq_ok_iff`). Each axiom that `collectAxioms` gives for a declaration is an axiom that the declaration reaches in the replayed kernel. | The decision on the axiom tables of [RG2005] ([below](#receipt-validation-decisions-and-observing-pass)). |
 | `RegulaPolicy.ExecutionWalk.walk` (accepts on `.ok`) | `Recorded` (`walk_ok`, `walk_complete`, `walk_recorded`). Each name that the edges of the records reach from the root has a record. | The walk of an execution root of [RG3001] and [RG3002] ([below](#root-and-closure-discovery-decision-and-observing-pass)). The visits are exactly the reached names (`walk_sound`, `walk_complete`). |
 | `RegulaPolicy.MentionSearch.search` (accepts on a route) | `Found` (`found_of_search`, `search_complete`). A constant that the term mentions leads to a target through the records. | Contract recognition and reach of [RG1007] ([below](#contract-recognition-and-reach-decision-and-observing-pass)). A returned route follows the records (`search_sound`). |
 | `Regula.SourceTexts.intern` | One `sourceTexts` member, `null`, and string `sourceText` members (`intern_isOk_iff`) | Writing a result document. |
@@ -1451,7 +1452,7 @@ of `docs/` and on the Verso sources of the standard. It compiles each fence that
 ### Receipt validation: decisions and observing pass
 
 [RG2005] reports an environment as incomplete when `Admission.validate` does not admit it.
-`validate` is an observing pass around two pure decisions with a kind.
+`validate` is an observing pass around three pure decisions with a kind.
 
 - **The decision on the header** is `Admission.checkHeader`. Its argument,
   `Admission.ReplayRequest`, holds the modules of the header of the audited environment with
@@ -1465,9 +1466,15 @@ of `docs/` and on the Verso sources of the standard. It compiles each fence that
   then requires that the kernel holds a constant under the name of each required key, and it
   returns the receipt of the request. `checked_admitReplay` registers the kind
   `Regula.DecidesSoundly` against `Admission.AdmitOK`.
+- **The decision on the axiom tables** is `Admission.checkTable`. Its argument holds, for each
+  owned declaration, the axioms that `collectAxioms` gives and the axioms that the declaration
+  reaches in the replayed kernel. It refuses the first declaration with an axiom of the first set
+  that is not in the second. `checked_checkTable` registers the kind `Regula.Decides` against
+  `Admission.TableWithin`.
 - **The observing pass** is the rest of `validate`. It computes the replay set (`replaySet`) and
-  the reported modules, imports the replay base and replays the copies (`replayMap`). It gives a
-  failure of a decision its text, and it catches the exceptions of the replay.
+  the reported modules, imports the replay base and replays the copies (`replayMap`). It computes
+  the axioms of the owned declarations, gives a failure of a decision its text and catches the
+  exceptions of the replay.
 
 The import of the replay base runs before the handler of `validate`, as before this split. Thus an
 exception of the import goes to the caller of `validate`, without the tag of an admission failure.
@@ -1486,6 +1493,7 @@ build of the excluded `Regula` library, with `propext`, `Classical.choice` and `
 | One condition for each module | `Admission.checkModule_eq_ok_iff`, `Admission.checkListing_eq_ok_iff`, `Admission.checkBase_eq_ok_iff` | A module lists its constants under their own names exactly when its list of names is the names of its constants. A module of the base passes exactly when it imports no module of the replay set. |
 | The required keys | `Admission.mem_required` | A key is required exactly when it names a replayed or reported module and a constant of that module that is neither `unsafe` nor `partial`. |
 | A receipt is admitted | `Admission.admitReplay_eq_ok`, `Admission.checked_admitReplay` | A receipt of `admitReplay` is the receipt of its request. Each copy has the conditions of `CopyAdmitted`, and the kernel holds a constant under the name of each required key. |
+| The axiom tables are exact | `Admission.checkTable_eq_ok_iff`, `Admission.checked_checkTable` | `checkTable` accepts exactly the entries that `TableWithin` admits. The theorem does not tell that the entries come from the replayed kernel and from `collectAxioms`. |
 
 **The kind of `admitReplay` is one-way.** The decision runs `checkCopies`, which bounds the
 search of the axioms of a proof by `fuel`. Thus a refusal fails closed, as for `checkCopies`.
@@ -1719,9 +1727,9 @@ inferred from any pure proof.
   import.
 - **Admission.** `Admission.validate` replays safe, nonpartial owned declarations and their owned
   dependencies with the pinned `Kernel.Environment.replay`, checks every required entry is in the
-  resulting kernel and returns a typed receipt. It returns
-  `IO (Except ProducerReport.AdmissionFailure ProducerReport.AdmissionReceipt)`: a successful
-  receipt's required keys are the safe, nonpartial constants of the replayed modules' own
+  resulting kernel and returns a typed receipt with the axioms of the owned declarations
+  (**Axioms** below). It returns `IO (Except ProducerReport.AdmissionFailure Admission.Admitted)`: a
+  successful receipt's required keys are the safe, nonpartial constants of the replayed modules' own
   `.olean` data, one key per module and name, then those of each reused module among the
   environment's requested modules (**Admission reuse** below), and it records the admitted keys.
   Replay scope includes owned dependencies and the existing reporter closure where required; it
@@ -1753,7 +1761,7 @@ inferred from any pure proof.
   of the two records. It has the comparison of Lean only for an expression field. The theorem
   `identical_iff` connects it to the test `identical`. Any
   other copy must pass `Admission.checkProof` in the replayed kernel: the kernel accepts it under
-  `Admission.proofCheckName`, and the names its proof reaches (`Admission.reachSet`, through the
+  `Admission.proofCheckName`, and the names its proof reaches (`KernelAxioms.reachSet`, through the
   types and values of the constants used) exclude its own name and include exactly the axioms the
   held constant reaches. Equal axioms make the reported axioms right whichever copy a declaration
   or the attribution used. Where the audited environment keeps an owned copy over a different base
@@ -1769,10 +1777,10 @@ inferred from any pure proof.
   name, as read from its source; every other pair it accepts involves an axiom, which admission
   refuses); `Admission.replayMap_sound` and `Admission.replayMap_complete` (the replayed constants
   are exactly the audited environment's constants of the copies' names the base lacks);
-  `Admission.reachSet_some` (a completed search holds exactly the names reachable from the
-  constants the start uses, along `Admission.successors`); `Admission.checkProof_ok`; and
+  `KernelAxioms.reachSet_some` (a completed search holds exactly the names reachable from the
+  constants the start uses, along `KernelAxioms.successors`); `Admission.checkProof_ok`; and
   `Admission.checkCopies_sound` (a success gives every copy the `Admission.CopyAdmitted`
-  conditions above, stated with the reachability relation `Admission.Reach`), and
+  conditions above, stated with the reachability relation `KernelAxioms.Reach`), and
   `Admission.admitReplay_eq_ok` (a receipt has each copy admitted and a constant of the replayed
   kernel under the name of each required key,
   [above](#receipt-validation-decisions-and-observing-pass)). **Argued, not
@@ -1785,18 +1793,69 @@ inferred from any pure proof.
   value use, and the replayed kernel agrees with the audited environment on the other owned names;
   the checks exclude a cycle through such a name, so the audited environment's constants form a
   well-founded development. Every copy in a replayed module reaches the same axioms in the
-  replayed kernel as the constant held under its name, so, by induction over the modules, each
-  replayed module's precomputed axioms for a declaration equal those of its replayed kernel
-  development whichever copy of a shared name its own build used, given the trusted agreement
-  below for unreplayed modules. **Trusted:** Lean's import and module data, including the axioms
-  each module precomputed, and that an unreplayed module's precomputed axioms equal those of its
-  constants in the replay base (two unreplayed copies of one name are not compared); the kernel,
+  replayed kernel as the constant held under its name, so the axioms that the checker computes
+  for a declaration there ([**Axioms**](#producers) below) do not change with the copy of a shared
+  name that its own build used. **Trusted:** Lean's import and module data (two unreplayed copies
+  of one name are not compared); the kernel,
   and `replay` adding each map entry unchanged while leaving the base as imported; that the
   kernel's theorem check consults the declaration's name only to require it undeclared, so a
   renamed check is a check of the copy; and, as in Lean's own duplicate-theorem design, that the
   value of a theorem does not change what typechecks where copies of one statement are exchanged.
   Report attribution is unchanged: `Probe.ownedConstants` attributes a shared name to the first
   module Lean's import loaded it from, so the name's claim is that module's.
+- **Axioms.** The record of an owned declaration has the axioms that the declaration reaches in the
+  replayed kernel. It does not have the axioms of the table that Lean writes for each module, which
+  `collectAxioms` reads first for an imported name. After the replay, `Admission.validate` starts
+  the search `KernelAxioms.axiomTable` from the owned declarations of `Probe.ownedConstants`. A step
+  of the search `KernelAxioms.successors` goes from a constant to each constant of its type and its
+  value. A step also goes from an inductive type to its constructors, and from a recursor to its inductive
+  types.
+
+  The search reads the constants of the replayed kernel through `Admission.walkFind`. Replay does
+  not check an `unsafe` or `partial` constant, and under such a name the search reads the constant
+  that the audited environment keeps. The search goes forward one time from all the owned declarations.
+  Then it goes back one time from each axiom that it found, along the steps that it recorded. Thus
+  the search reads the type and the value of each constant only one time for each environment.
+
+  `Admission.checkTable` then refuses a declaration for which `collectAxioms` gives an axiom that
+  the search did not find. Such a module table was not calculated from the constants that the
+  kernel checked. The refusal names the declaration and the two axiom sets, and [RG2005] reports
+  it as incomplete. The records go to the report of `Probe.environmentReport` and to the self-audit
+  of `Qualification.SelfAudit`. The axiom names come from the audited environment, because
+  `validate` releases the regions of the replay base.
+
+  An axiom that the search found and that `collectAxioms` does not give is reported, not failed.
+  The record of the declaration has it in `tableOmissions`. A project audit gives the number of
+  these declarations in the line `axiom tables:`, and the `--verbose` line of each declaration
+  gives the two sets. The self-audit lists each of them.
+
+  **Proved** about the executed definitions: `KernelAxioms.axiomTable_some` (each name of the
+  closure has exactly the axioms that `KernelAxioms.ReachesAxiom` relates to it). Also proved:
+  `KernelAxioms.searchEdges_some` and `KernelAxioms.search_some` (a completed search holds exactly
+  the names reachable from its start), and `Admission.checkTable_eq_ok_iff` with the two-way kind
+  `Admission.checked_checkTable`. Also proved: `KernelAxioms.axiomsWith_some` and the omission part
+  of `Account.checked_account`.
+
+  **Argued, not machine-checked:** each step of `collectAxioms` is a step of
+  `KernelAxioms.successors`, as read from `Lean.Util.CollectAxioms` of the pinned toolchain. Thus
+  a table that Lean calculated from the replayed constants has no axiom that the search does not
+  find. `checkTable` refuses only a table from other constants. A table can have fewer axioms, for
+  example none for `Float`. **Observed:** of the 208,024 constants that `import Lean` loads, the
+  pinned `collectAxioms` gives fewer axioms than the search for 970, and more for none. The rules
+  then use the axioms that the search found.
+
+  A constant of the replayed kernel refers only to constants of that kernel, so the search from a
+  safe declaration reads only the replayed kernel. **Trusted:** the kernel and `replay` as above,
+  and the constants of the imported, unowned dependencies, which replay does not check. The editor
+  has no replayed kernel, thus it reads `collectAxioms`.
+
+  The checks of proofs that the checker makes use `KernelAxioms.axiomsWith`: the recursion equation
+  of a recursion helper and an execution correspondence. It starts at the new theorem, stops at
+  each name of the table that admission calculated and reads the entry of that name. With a correct
+  table, it gives exactly the axioms that the theorem reaches, as `axiomsWith_some` tells. **Argued,
+  not machine-checked:** the table is correct for the environment that holds the new theorem. The
+  replayed kernel and the audited environment give each name of the table the same axioms. No
+  constant of the audited environment uses the new theorem.
 - **Admission reuse.** One contract covers every environment of a project audit, a library's
   and an executable's alike. Each environment waits for the environments that replay the claimed
   library modules it loads. What a library's environment loads is read from the import headers
@@ -3710,10 +3769,12 @@ account or of the two:
 
 - **A direct write to the state of an environment extension that no rule or section of the standard
   checks.** Such a write goes around the command or attribute that Lean gives for that extension.
-  An example is the axiom table `exportedAxiomsExt` that Lean calculates when it writes a module.
-  The audit imports each module that it inspects, and for a declaration that such a module exports
-  `Lean.collectAxioms` reads that table. Thus a direct write to that table changes the axiom sets
-  that the axiom collection gives to the rules [RG1001]–[RG1005].
+  The axiom table `exportedAxiomsExt` that Lean calculates when it writes a module is not such an
+  extension, because [RG2005] states its check. The rules [RG1001]–[RG1005] use the axioms that
+  each owned declaration reaches in the replayed kernel, as [**Axioms**](#producers) tells. A write
+  to that table cannot remove an axiom from them, and admission refuses a table with an axiom that the
+  declaration does not reach. The controls `Fixtures.Mutations.ForgedAxiomTableOmission` and
+  `Fixtures.Mutations.ForgedAxiomTableAddition` are observations of the two cases.
 - **A declaration of a dependency that a metaprogram adds with `debug.skipKernelTC`.** [RG2005]
   states the check for an owned declaration, thus an owned declaration is in scope.
   [Admission](#producers) replays the owned declarations that are not `unsafe` or `partial`

@@ -75,8 +75,8 @@ recursion compiler regenerates its base from it, up to compilation erasure, what
 produced it, a native-proof axiom
 rests on its natively replayed statement and command provenance instead, and arbitrary process
 or trusted-plugin compromise is outside scope. Module 7 §7.5 also puts code that deliberately
-changes Lean's environment, compiler or build to make a check pass outside scope. An example is a
-direct write to the axiom table `exportedAxiomsExt`, which no rule or section checks. Where the
+changes Lean's environment, compiler or build to make a check pass outside scope. An example is the
+attribute `@[cpass]` of a user compiler pass, which no rule or section checks. Where the
 standard or a rule page states a check for a mechanism, that statement governs, and the mechanism
 is in scope. Ordinary declarations, attributes such as `implemented_by`, `extern` and `csimp`,
 and `initialize` stay in scope, as §7.6 states.

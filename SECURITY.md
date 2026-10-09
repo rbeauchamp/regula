@@ -42,9 +42,7 @@ mechanism is in scope. The examples below are out of scope only where no such st
 them. Code that makes one of these changes to make a check pass is not honest code:
 
 - A direct write to the state of an environment extension that no rule or section of the standard
-  checks. Such a write goes around the command or attribute that Lean gives for that extension. An
-  example is a direct write to the axiom table `exportedAxiomsExt` that Lean calculates for each
-  module.
+  checks. Such a write goes around the command or attribute that Lean gives for that extension.
 - A declaration of a dependency that a metaprogram adds with `debug.skipKernelTC`.
 - A user compiler pass (`@[cpass]`), or a direct write that stores a compiled body that Lean's
   compiler did not make. An example is a forged `fdecl` body in the IR extension. Regula reports a
@@ -55,7 +53,9 @@ them. Code that makes one of these changes to make a check pass is not honest co
 
 Regula checks for some changes of this kind, where the standard or a rule page states the check.
 For example, it replays the declarations of the project that are not `unsafe` or `partial` through
-Lean's kernel. But a pass makes no claim that the project has none of the changes in the list.
+Lean's kernel. It calculates the axioms of each declaration of the project from that kernel, not
+from the axiom table `exportedAxiomsExt` that Lean writes for each module. But a pass makes no claim
+that the project has none of the changes in the list.
 The [README](README.md) puts Regula at the `#print axioms` step of
 [Validating a Lean Proof](https://lean-lang.org/doc/reference/latest/ValidatingProofs/).
 

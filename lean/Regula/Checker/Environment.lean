@@ -438,8 +438,9 @@ private unsafe def loadReportCoreAtSearchPath (modules : Array Name)
     let admissionResult ← timedPhase "kernel admission" <|
       Admission.validate env ownedModules reused requested
     if let .error failure := admissionResult then return .error (.admission failure)
-    let .ok admission := admissionResult
+    let .ok admitted := admissionResult
       | throw <| IO.userError "unreachable admission outcome"
+    let admission := admitted.receipt
     -- Later environments of the audit may start from this admission while the report below is
     -- still being built; the coordinator compares it with the finished report
     -- (`Inspection.inspect`). The rename makes the file appear complete or not at all.
@@ -483,7 +484,7 @@ private unsafe def loadReportCoreAtSearchPath (modules : Array Name)
     let state := Elab.Command.mkState env
     match ← timedPhase "declaration report" <| EIO.toIO' <|
         (Regula.Probe.environmentReport requested.toList loadHistory includeExecution
-            includeModuleOrigins).run ctx |>.run state with
+            includeModuleOrigins (some admitted.replayed)).run ctx |>.run state with
     | .error ex => throw <| IO.userError (← ex.toMessageData.toString)
     | .ok (report, _) =>
       let historyTable ← histories.get

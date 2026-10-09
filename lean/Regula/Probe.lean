@@ -41,8 +41,9 @@ module index is requested, the report records:
 - the exact elaborated type, whether that type is a proposition, and
   `ConstantInfo.isUnsafe` / `ConstantInfo.isPartial` for every constant kind;
 - instance / `noncomputable` / `@[implemented_by]` / `@[extern]` flags;
-- the exact transitive axiom set (`Lean.collectAxioms`), which is what
-  `#print axioms` reports; and
+- the exact transitive axiom set: the axioms the declaration reaches in the kernel that replayed
+  it (`Admission.validate`, `KernelAxioms.axiomTable`), or, for a caller with no replayed kernel,
+  those `Lean.collectAxioms` reports, as `#print axioms` does; and
 - Lean-native reporting metadata (internal/private spelling, projection,
   matcher, recursor kind, unsafe-recursion relationship, and source range).
 
@@ -212,10 +213,14 @@ private def kernelExhausted : Kernel.Exception → Bool
 proposition in a disposable kernel declaration (`RegulaPolicy.KernelAnswer`). Neither
 metavariable unification nor a matching theorem statement alone authorizes `checked`. Only the
 kernel's result selects the answer: its admission, with the declaration's transitive axioms and
-the printed proof and proposition; its resource exhaustion or interruption (`kernelExhausted`);
+the printed proof and proposition; the axioms are those the declaration reaches in the kernel
+environment that holds it (`KernelAxioms.axiomsWith`), the search stopping at each name of
+`cached`, the table admission computed in the replayed kernel for the owned declarations' closure,
+and an exhausted search is the kernel's exhaustion; its resource exhaustion or interruption (`kernelExhausted`);
 or any other refusal. A proof or proposition with an undischarged variable, and an error while the
 answer is read, raise an error and record no answer. -/
-private def kernelAnswer (levels : List Name) (required proof : Expr) : MetaM KernelAnswer := do
+private def kernelAnswer (cached : Std.HashMap Name (Array Name)) (levels : List Name)
+    (required proof : Expr) : MetaM KernelAnswer := do
   let required ← instantiateMVars required
   let proof ← instantiateMVars proof
   if required.hasMVar || proof.hasMVar || required.hasFVar || proof.hasFVar then
@@ -232,7 +237,8 @@ private def kernelAnswer (levels : List Name) (required proof : Expr) : MetaM Ke
   match result with
   | .error e => return if kernelExhausted e then .exhausted else .refused
   | .ok checked =>
-    let axioms ← withEnv checked <| collectAxioms name
+    let some axioms := RegulaPolicy.KernelAxioms.axiomsWith checked.toKernelEnv.find? cached
+        (Regula.Collect.fuelFor checked 1) name | return .exhausted
     withOptions (fun opts => opts.setBool `pp.all true |>.setBool `pp.deepTerms true
         |>.set `pp.maxSteps (1000000 : Nat)) do
       return .admitted axioms s!"proof={← Meta.ppExpr proof}; required={← Meta.ppExpr required}"
@@ -255,8 +261,9 @@ prefix of the actual dependent domain, instantiate its universes and premises,
 match the equality, apply any remaining arguments by congruence, and close over
 exactly the actual domain. Unsolved theorem-only premises remain metavariables
 and cannot pass kernel admission. Search incompleteness never grants evidence. -/
-private def theoremCorrespondence? (levels : List Name) (reference replacement : Expr)
-    (domain : Array Expr) (required : Expr) (name : Name) : MetaM (Option String) := do
+private def theoremCorrespondence? (cached : Std.HashMap Name (Array Name)) (levels : List Name)
+    (reference replacement : Expr) (domain : Array Expr) (required : Expr) (name : Name) :
+    MetaM (Option String) := do
   for count in List.range (domain.size + 1) do
     for reverse in [false, true] do
       let result ← Meta.withoutModifyingMCtx do
@@ -272,7 +279,7 @@ private def theoremCorrespondence? (levels : List Name) (reference replacement :
           for arg in domain.extract count domain.size do
             proof ← Meta.mkCongrFun proof arg
           proof ← Meta.mkLambdaFVars domain proof
-          let .completed (some detail) ← comparison (kernelAnswer levels required proof)
+          let .completed (some detail) ← comparison (kernelAnswer cached levels required proof)
             | return none
           return some s!"proved: {name}; {detail}"
         catch _ => return none
@@ -347,7 +354,7 @@ answer completes it, and an attempt the kernel did not decide, or one that raise
 it built the reflexivity proof or read the answer, is unresolved, never trusted (standard §7.6).
 An elaborator resource limit reached while constructing the correspondence is rethrown rather
 than recorded as unresolved. -/
-private def replacementCorrespondence (env : Environment)
+private def replacementCorrespondence (env : Environment) (cached : Std.HashMap Name (Array Name))
     (prepared : Thunk (PreparedTheorems env)) (reference replacement : Name)
     (proofCandidates : Array Name := #[]) :
     CommandElabM (Correspondence × Option String) :=
@@ -368,15 +375,18 @@ private def replacementCorrespondence (env : Environment)
         let rhs := mkAppN impl domain
         let required ← Meta.mkForallFVars domain (← Meta.mkEq lhs rhs)
         for name in proofCandidates do
-          if let some evidence ← theoremCorrespondence? levels ref impl domain required name then
+          let evidence? ← theoremCorrespondence? cached levels ref impl domain required name
+          if let some evidence := evidence? then
             return (.checked, some evidence)
         for (name, used) in prepared.get.entries do
           let some name := correspondenceCandidate reference replacement (name, used.get)
             | continue
-          if let some evidence ← theoremCorrespondence? levels ref impl domain required name then
+          let evidence? ← theoremCorrespondence? cached levels ref impl domain required name
+          if let some evidence := evidence? then
             return (.checked, some evidence)
         let outcome ← comparison do
-          kernelAnswer levels required (← Meta.mkLambdaFVars domain (← Meta.mkEqRefl lhs))
+          kernelAnswer cached levels required
+            (← Meta.mkLambdaFVars domain (← Meta.mkEqRefl lhs))
         return outcome.classify
     catch _ =>
       return (.unresolved,
@@ -503,6 +513,7 @@ inlining. Equality candidates are not a claim that the compiler selected them. E
 bodies remain boundary leaves. -/
 private def observeNode (env : Environment) (ownedModules : List Name)
     (toolchainModules : NameMap RegulaPolicy.ToolchainOrigin)
+    (cached : Std.HashMap Name (Array Name))
     (loadReplacementHistory : Name → IO (Except String (Array (Name × Name))))
     (candidates : NameMap (Array Lean.Compiler.CSimp.Entry))
     (proofCache : IO.Ref (Std.HashMap (Name × Name) (Correspondence × Option String)))
@@ -516,7 +527,7 @@ private def observeNode (env : Environment) (ownedModules : List Name)
     let proofs := ((candidates.find? reference).getD #[]).filterMap fun candidate =>
       if candidate.toDeclName == target then some candidate.thmName else none
     let result ← reportPhase timing s!"correspondence {reference} -> {target}" <|
-      replacementCorrespondence env preparedTheorems reference target proofs
+      replacementCorrespondence env cached preparedTheorems reference target proofs
     liftIO <| proofCache.modify (·.insert (reference, target) result)
     return result
   let code : RegulaPolicy.ExecutionWalk.CodeStatus := match Lean.IR.findEnvDecl env name with
@@ -673,6 +684,7 @@ gives the visits from those records (`walk_sound`, `walk_complete`).
 the record of each visit. -/
 private def executionWalk (env : Environment) (ownedModules : List Name)
     (toolchainModules : NameMap RegulaPolicy.ToolchainOrigin)
+    (cached : Std.HashMap Name (Array Name))
     (loadReplacementHistory : Name → IO (Except String (Array (Name × Name))))
     (candidates : NameMap (Array Lean.Compiler.CSimp.Entry))
     (proofCache : IO.Ref (Std.HashMap (Name × Name) (Correspondence × Option String)))
@@ -701,7 +713,8 @@ private def executionWalk (env : Environment) (ownedModules : List Name)
     let name := queue.back!
     queue := queue.pop
     if records.contains name then continue
-    let record ← observeNode env ownedModules toolchainModules loadReplacementHistory candidates
+    let record ← observeNode env ownedModules toolchainModules cached loadReplacementHistory
+      candidates
       proofCache dependencyCache preparedTheorems root timing name
     records := records.insert name record
     queue := queue ++ record.successors
@@ -762,11 +775,16 @@ private def executableRoots (env : Environment) (modules : List Name)
 
 /-- Build the complete report for exact requested module names. The trusted
 runner calls this function directly, without parsing a command in the audited
-module's frontend extension environment. -/
+module's frontend extension environment. Each declaration record has the axioms `replayed` holds
+for it, those it reaches in the kernel that replayed it (`Admission.validate`), with the axioms
+Lean's `collectAxioms` omits of them, or, with no `replayed`, those `collectAxioms` reports. The
+kernel walks of the correspondence proofs the execution account builds stop at the names
+`replayed` holds (`kernelAnswer`). -/
 def environmentReport (modules : List Name)
     (loadReplacementHistory : Name → IO (Except String (Array (Name × Name))) :=
       fun _ => pure (.error "trusted source-history loader was not supplied"))
-    (includeExecution : Bool := true) (includeModuleOrigins : Bool := true) :
+    (includeExecution : Bool := true) (includeModuleOrigins : Bool := true)
+    (replayed : Option Regula.Collect.Replayed := none) :
     CommandElabM Regula.Report.Collected := do
   let timing := (← IO.getEnv "REGULA_TIMING") == some "1"
   let label := String.intercalate ", " (modules.map toString)
@@ -788,9 +806,11 @@ def environmentReport (modules : List Name)
     let some idx := env.getModuleIdxFor? name
       | throwError "declaration census has no owner for {name}"
     return (env.header.modules[(idx : Nat)]!.module, name)
-  let scope ← Regula.Collect.ContractScope.new env
+  let cached := (replayed.map (·.axioms)).getD {}
+  let scope ← Regula.Collect.ContractScope.new env cached
   let entries ← reportPhase timing s!"declaration records [{label}]" <| own.mapM fun (name, _) =>
-    observing env name "declaration record" (Regula.Collect.declaration name .replayCandidate scope)
+    observing env name "declaration record"
+      (Regula.Collect.declaration name .replayCandidate scope replayed)
   let roots ← reportPhase timing s!"execution root census [{label}]" <| if includeExecution then do
     let mut roots ← executableRoots env modules own
     for entry in entries do
@@ -833,7 +853,7 @@ def environmentReport (modules : List Name)
     roots.mapM fun (moduleName, root) => do
       let (boundaries, unresolved, compilerEdges, closure) ←
         reportPhase timing s!"execution walk {root}" <| observing env root "execution walk" <|
-          executionWalk env modules toolchainModules (fun name => do
+          executionWalk env modules toolchainModules cached (fun name => do
             historyRequests.modify fun requests =>
               if requests.contains (root, name) then requests else requests.push (root, name)
             loadReplacementHistory name) candidates proofCache dependencyCache preparedTheorems

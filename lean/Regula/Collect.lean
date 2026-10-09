@@ -37,6 +37,7 @@ public import RegulaPolicy.NativeStatement
 public import RegulaPolicy.MentionSearch
 public import Regula.Contract
 public import Regula.Decision
+public import RegulaPolicy.KernelAxioms
 
 public import Lean.Linter.Util
 public import Lean.Linter.EnvLinter.Frontend
@@ -175,13 +176,25 @@ private def erasedByCompilation (e : Expr) : MetaM Bool := do
 /-- The axioms a theorem the checker has Lean's kernel check may rest on: Standard-Logical. -/
 private def checkedAxioms : List Name := [``propext, ``Quot.sound, ``Classical.choice]
 
+/-- A bound on the names a search in `env` expands: one for each constant of its modules and of
+the current module, and `extra` more. Every name a constant of a kernel environment uses is a
+constant of it. -/
+def fuelFor (env : Environment) (extra : Nat) : Nat :=
+  env.header.moduleData.foldl (fun total data => total + data.constants.size) 0 +
+    env.constants.map₂.foldl (fun total _ _ => total + 1) 0 + extra
+
 /-- Whether Lean's kernel, in the current environment, accepts `value` as a proof of the closed
 statement `type` (`Environment.addDeclCore` on a theorem of a fresh name) and that theorem uses no
-axiom outside `checkedAxioms`. A statement or a proof with a free variable or a metavariable
-answers `false`. The theorem stays in the environment, which the caller restores. What the kernel
-refuses with is thrown, a rejected proof and a resource limit alike (its deterministic timeout,
-deep recursion or excessive memory), and the caller tells the two apart by `checkerLimit?`. -/
-private def kernelChecked (type value : Expr) : MetaM Bool := do
+axiom outside `checkedAxioms`. The theorem's axioms are those it reaches in the kernel environment
+that holds it (`KernelAxioms.axiomsWith`): the search stops at each name of `cached`, the table
+that admission computed in the replayed kernel for the owned declarations' closure, and reads its
+entry there. A statement or a proof with a free variable or a metavariable answers `false`, and so
+does a search that runs out of fuel. The theorem stays in the environment, which the caller
+restores. What the kernel refuses with is thrown, a rejected proof and a resource limit alike (its
+deterministic timeout, deep recursion or excessive memory), and the caller tells the two apart by
+`checkerLimit?`. -/
+private def kernelChecked (cached : Std.HashMap Name (Array Name)) (type value : Expr) :
+    MetaM Bool := do
   if type.hasMVar || value.hasMVar || type.hasFVar || value.hasFVar then return false
   let name ← mkFreshUserName `_regula_checked
   let levelParams := (collectLevelParams (collectLevelParams {} type) value).params.toList
@@ -192,7 +205,9 @@ private def kernelChecked (type value : Expr) : MetaM Bool := do
   | .error rejected => throwKernelException rejected
   | .ok checked =>
     setEnv checked
-    return (← collectAxioms name).all checkedAxioms.contains
+    let some axioms := RegulaPolicy.KernelAxioms.axiomsWith checked.toKernelEnv.find? cached
+        (fuelFor checked 1) name | return false
+    return axioms.all checkedAxioms.contains
 
 /-- Whether Lean's kernel checks the threading law of the application `threaded`, the fact the
 comparison needs before it takes a `match` that passes a variable through as the `match` that uses
@@ -213,7 +228,8 @@ irreducible. Nothing is kept: the theorem, and every constant the search realize
 search that fails, or a theorem the kernel rejects, answers `false`. A `checkerLimit?` reached is
 rethrown, in the search or in the kernel (its deterministic timeout, deep recursion or excessive
 memory): the helper is then undecided, not rejected. -/
-private def threadingLawChecked (threaded : Meta.MatcherApp) : MetaM Bool := do
+private def threadingLawChecked (cached : Std.HashMap Name (Array Name))
+    (threaded : Meta.MatcherApp) : MetaM Bool := do
   let ambient := (← getLCtx).getFVars
   let numDiscrs := threaded.discrs.size
   let search : MetaM Bool := Meta.withTransparency .all do
@@ -258,7 +274,7 @@ private def threadingLawChecked (threaded : Meta.MatcherApp) : MetaM Bool := do
         let value ← Meta.mkLambdaFVars binders (← instantiateMVars goal)
         -- A kernel refusal is thrown, not answered: a resource limit of the kernel is the
         -- checker's, and `catch` below tells it from a rejected proof by `checkerLimit?`.
-        kernelChecked type value
+        kernelChecked cached type value
   let saved ← Meta.saveState
   try
     search
@@ -298,6 +314,8 @@ private structure Observing where
   context : LocalContext
   /-- The local instances among those variables. -/
   instances : LocalInstances
+  /-- The axioms of the names the kernel walk of a threading law can stop at (`kernelChecked`). -/
+  cached : Std.HashMap Name (Array Name) := {}
 
 /-- The part of `context` that declares the variables `e` mentions and, in turn, the variables
 their declarations mention: the least context `e` is well typed in. A declaration mentions only
@@ -368,7 +386,7 @@ private def observe (need : RegulaPolicy.Erasure.Need) : StateRefT Observing Met
     let shape? ← Meta.withLCtx scope instances do
       let some matched ← Meta.matchMatcherApp? (alsoCasesOn := true) application | return none
       let some (Expr.fvar _) := matched.remaining[0]? | return none
-      unless ← threadingLawChecked matched do return none
+      unless ← threadingLawChecked (← get).cached matched do return none
       return some ({ params := matched.params.size, discriminants := matched.discrs.size,
                      alternatives := matched.altNumParams, motiveLevel := matched.uElimPos? } :
         RegulaPolicy.Erasure.Threading)
@@ -502,7 +520,8 @@ the observed values, those observations and whether the pass finished
 (`RegulaPolicy.Erasure.reproduces_iff`): nothing else of the environment, and nothing that selected
 the regeneration, is an argument of it. A pass that did not finish is refused by the decision
 itself (`RegulaPolicy.Erasure.reproduces_eq_false_of_unfinished`). -/
-private def regenerationMatches (regenerated : Array (Name × Expr)) : MetaM Bool := do
+private def regenerationMatches (cached : Std.HashMap Name (Array Name))
+    (regenerated : Array (Name × Expr)) : MetaM Bool := do
   let env ← getEnv
   let definitions := regenerated.toList.map fun (name, value) =>
     (value, match env.find? name with
@@ -512,7 +531,7 @@ private def regenerationMatches (regenerated : Array (Name × Expr)) : MetaM Boo
     | (value, some observed) => observeEqual RegulaPolicy.Erasure.depthLimit #[] value observed
     | (_, none) => pure false
   let (finished, seen) ← observing.run
-    { context := ← getLCtx, instances := ← Meta.getLocalInstances }
+    { context := ← getLCtx, instances := ← Meta.getLocalInstances, cached }
   return RegulaPolicy.Erasure.checked_reproduces.run
     { regenerated := seen.left.observations, observed := seen.right.observations, definitions,
       finished }
@@ -1616,8 +1635,9 @@ environment:
 A statement no candidate proves answers `false`, as does one the search cannot build. Nothing is
 kept: the theorem and every constant the search adds are discarded. A `checkerLimit?` reached is
 rethrown, in the search or in the kernel: the helper is then undecided, not rejected. -/
-private def recursionEquationChecked (base : Name) (levelParams : List Name) (value : Expr)
-    (regenerated? : Option (Environment × Name)) : MetaM Bool := do
+private def recursionEquationChecked (cached : Std.HashMap Name (Array Name)) (base : Name)
+    (levelParams : List Name) (value : Expr) (regenerated? : Option (Environment × Name)) :
+    MetaM Bool := do
   let inspected ← getEnv
   let levels := levelParams.map mkLevelParam
   let function := mkConst base levels
@@ -1627,7 +1647,7 @@ private def recursionEquationChecked (base : Name) (levelParams : List Name) (va
     try
       -- Whatever a search added is gone before the kernel is asked.
       saved.restore
-      kernelChecked statement proof
+      kernelChecked cached statement proof
     catch ex =>
       if (← checkerLimit? ex).isSome then throw ex
       return false
@@ -1769,7 +1789,8 @@ each with the theorems the regeneration abstracted from it put back (`regenerate
 the result does not depend on how Lean named or shared those theorems. A comparison that throws
 does not count either. A `checkerLimit?` reached is rethrown. -/
 private def unsafeRecRegeneration (env : Environment) (name : Name) (info : ConstantInfo)
-    (preprocessRules : IO.Ref (Option Meta.SimpTheorems)) :
+    (preprocessRules : IO.Ref (Option Meta.SimpTheorems))
+    (cached : Std.HashMap Name (Array Name)) :
     CommandElabM (Option RecursionOrigin) := do
   let some _ := Lean.Compiler.isUnsafeRecName? name | return none
   let .defnInfo helper := info | return none
@@ -1812,7 +1833,7 @@ private def unsafeRecRegeneration (env : Environment) (name : Name) (info : Cons
         Meta.resetCache
         if failed then return none
         let some regenerated := regeneratedDefinitions environment after | return none
-        return if ← regenerationMatches regenerated then some after else none
+        return if ← regenerationMatches cached regenerated then some after else none
       catch ex =>
         saved.restore
         Meta.resetCache
@@ -1848,8 +1869,8 @@ private def unsafeRecRegeneration (env : Environment) (name : Name) (info : Cons
         TermElabM (Option RecursionOrigin) := do
       for i in [:group.size] do
         let some (.defnInfo member) := env.find? group[i]! | return none
-        unless ← withCurrHeartbeats <| recursionEquationChecked bases[i]! member.levelParams
-            (toBases member.value) (some (after, regenerationRoot ++ bases[i]!)) do
+        unless ← withCurrHeartbeats <| recursionEquationChecked cached bases[i]!
+            member.levelParams (toBases member.value) (some (after, regenerationRoot ++ bases[i]!)) do
           return none
       return some origin
     if let some (origin, after) ← regenerate regenerating then return ← admitted origin after
@@ -2074,9 +2095,16 @@ structure ContractScope where
   /-- The result form of each constant that the search for shared definitions read
   (`ContractScope.resultForm`). -/
   forms : IO.Ref (NameMap RegulaPolicy.ResultForm)
+  /-- The axioms that each name of the owned declarations' closure reaches in the kernel that
+  replayed the owned modules (`Replayed.axioms`), where admission computed them; empty for an
+  environment no admission replayed. The kernel walks of the proofs that the checker builds stop at
+  these names (`kernelChecked`). -/
+  axioms : Std.HashMap Name (Array Name) := {}
 
-/-- The scope of `env`, with awareness as `importersOf` computes it for `Regula.Contract`. -/
-def ContractScope.new (env : Environment) : BaseIO ContractScope := do
+/-- The scope of `env`, with awareness as `importersOf` computes it for `Regula.Contract`, and the
+axioms admission computed for the owned declarations' closure (`axioms`). -/
+def ContractScope.new (env : Environment) (axioms : Std.HashMap Name (Array Name) := {}) :
+    BaseIO ContractScope := do
   return { aware := importersOf env `Regula.Contract
            mainAware := (env.getModuleIdx? `Regula.Contract).isSome ||
              env.mainModule == `Regula.Contract
@@ -2085,7 +2113,8 @@ def ContractScope.new (env : Environment) : BaseIO ContractScope := do
            decisions := decisionRegistrations env
            preprocessRules := ← IO.mkRef none
            toolchain := ← IO.mkRef {}
-           forms := ← IO.mkRef {} }
+           forms := ← IO.mkRef {}
+           axioms }
 
 /-- Whether `name` belongs to an aware module; a constant whose module index is unknown counts as
 aware, so the search expands it. -/
@@ -3297,11 +3326,24 @@ private def sharedReading (env : Environment) (scope : ContractScope) (stage : S
     let tested ← reachesTest env scope implementation <||> reachesTest env scope acceptance
     return (names, if tested then some constant else none)
 
+/-- What admission computed in the kernel that replayed the owned modules (`Admission.validate`): the
+axioms that each name of the owned declarations' closure reaches there, and for each owned
+declaration for which Lean's `collectAxioms` omits some of them, those omissions. -/
+structure Replayed where
+  /-- The axioms each name of the closure reaches in the replayed kernel, by name. -/
+  axioms : Std.HashMap Name (Array Name)
+  /-- The axioms that `collectAxioms` omits for an owned declaration, by its name. -/
+  omissions : Std.HashMap Name (Array Name)
+
 /-- The record of `declaration`, with what a snapshot did not read of the declaration's decision
 registration, when there is such a part (`Unread`): its kind (`executableContract?`), or the
 functions that its two sides share (`sharedReading`). The record of a decision registration that
-was read and not refused holds the names of the functions that its two sides share. -/
-private def declarationReading (name : Name) (stage : Stage) (scope? : Option ContractScope) :
+was read and not refused holds the names of the functions that its two sides share. Its axioms are
+those `replayed` holds for the declaration, the axioms it reaches in the kernel that replayed it
+(`Admission.validate`), with the axioms `collectAxioms` omits of them, or, with no `replayed`,
+those Lean's `collectAxioms` reports. -/
+private def declarationReading (name : Name) (stage : Stage) (scope? : Option ContractScope)
+    (replayed : Option Replayed) :
     CommandElabM (RegulaPolicy.Declaration × Option Unread) := withoutSmartUnfolding do
   let env ← getEnv
   let scope ← match scope? with
@@ -3309,14 +3351,19 @@ private def declarationReading (name : Name) (stage : Stage) (scope? : Option Co
     | none => ContractScope.new env
   let some info := env.find? name | throwError "declaration {name} is unavailable"
   let moduleName ← IO.ofExcept (moduleOf env name)
-  let axioms ← collectAxioms name
+  let axioms ← match replayed with
+    | some table => match table.axioms[name]? with
+      | some axioms => pure axioms
+      | none => throwError "declaration {name} has no axioms from the replayed kernel"
+    | none => collectAxioms name
+  let tableOmissions := (replayed.bind (·.omissions[name]?)).getD #[]
   let isProp ← liftTermElabM <| Meta.isProp info.type
   let prettyType ← liftTermElabM do
     return toString (← Meta.ppExpr info.type)
   let ranges? ← findDeclarationRangesCore? name
   let recursive ← liftTermElabM <| Meta.isRecursiveDefinition name
   let unsafeRecRegenerated ← if stage == .replayCandidate then
-      unsafeRecRegeneration env name info scope.preprocessRules else pure none
+      unsafeRecRegeneration env name info scope.preprocessRules scope.axioms else pure none
   let constructorIndex ← if stage == .replayCandidate then
       liftTermElabM do
         try constructorIndexObservation env name
@@ -3383,6 +3430,7 @@ private def declarationReading (name : Name) (stage : Stage) (scope? : Option Co
     axioms := RegulaPolicy.canonicalNames axioms
     executableContract := contract?.map (·.1)
     decisionResult := ← liftTermElabM (decisionResult? scope.decisions info)
+    tableOmissions
   }, contract?.bind (·.2))
 
 /-- Construct the canonical record from this command's actual environment.
@@ -3393,10 +3441,15 @@ fresh scope is built. Every observation runs with smart unfolding off (`withoutS
 At the `snapshot` stage, in the environment of a file with a `module` header, the record of a
 decision registration has no failure of its kind when that environment cannot read the kind, and
 it names no shared function below a constant that the environment has no value of;
-`commandDeclarations` returns those registrations. -/
-def declaration (name : Name) (stage : Stage) (scope? : Option ContractScope := none) :
+`commandDeclarations` returns those registrations. The record's axioms are those `replayed`
+holds for the declaration, the axioms it reaches in the kernel that replayed it
+(`Admission.validate`), and its `tableOmissions` are those `replayed` holds for it; a caller with
+no replayed kernel, such as the editor, passes none, and the record has the axioms Lean's
+`collectAxioms` reports. -/
+def declaration (name : Name) (stage : Stage) (scope? : Option ContractScope := none)
+    (replayed : Option Replayed := none) :
     CommandElabM RegulaPolicy.Declaration :=
-  (·.1) <$> declarationReading name stage scope?
+  (·.1) <$> declarationReading name stage scope? replayed
 
 /-- Complete current-module inventory, with no visibility or generated-name filter.
 Uses Lean's own local constant map through its environment-linter API. The caller
@@ -3424,7 +3477,7 @@ def commandDeclarations :
           !names.contains name then names := names.push name
   if names.isEmpty then return (#[], #[])
   let scope ← ContractScope.new env
-  let readings ← names.mapM (declarationReading · .snapshot scope)
+  let readings ← names.mapM (declarationReading · .snapshot scope none)
   return (readings.map (·.1), readings.filterMap fun (record, unread) =>
     unread.map (record.name, ·))
 

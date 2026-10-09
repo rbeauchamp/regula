@@ -19,7 +19,10 @@ open Lean
 /-- This checker build's producer identity, written into every result envelope. -/
 abbrev producer := Regula.Checker.Producer.identity
 
-/-- Result schema 11 records the functions that the specification of each decision registration
+/-- Result schema 12 records the axioms that Lean's `collectAxioms` omits for each declaration: a
+declaration record carries `tableOmissions`, the axioms that the declaration reaches in the
+replayed kernel and `collectAxioms` does not report. Earlier schemas did not write the member.
+Schema 11 records the functions that the specification of each decision registration
 shares with its implementation or its acceptance predicate: a declaration's `executableContract`
 carries `shared`, an object with the members `booleans` and `others`, each the names of the
 shared functions of that class, sorted and without duplicates
@@ -106,7 +109,7 @@ frozen configuration and dependency text from the snapshot (`snapshotJson`: a cl
 dependency is identified by its pinned revision, a dirty one only by package and `dirty`
 status) and imported-environment module lists (`acceptedJson`,
 `ProducerReport.Environment.resultJson`); schema 1 embedded them. -/
-def schemaVersion : Nat := 11
+def schemaVersion : Nat := 12
 
 /-- Envelope identity of every result file. -/
 def identityFields : List (String × Json) := RegistryCodec.identityFields producer schemaVersion
