@@ -267,6 +267,12 @@ Every declaration is labelled from its own exact transitive axiom set and must f
 neither an `IO` type nor recursion determines it. Compiler-trusting axioms (from `native_decide`,
 `decide +native` or `bv_decide`) fit no profile and are reported separately.
 
+Regula calculates this set from the declarations that Lean's kernel replayed. The set can be larger
+than the set that `#print axioms` shows. For an imported declaration, `#print axioms` reads the
+axiom table that Lean wrote for its module, and that table can omit axioms. For example, Lean
+4.34.1 writes no axiom for `Float`, but the constructor of `Float` reaches `propext` and
+`Quot.sound`.
+
 `execution` states what you claim about compiled code
 ([standard §7.6](https://rbeauchamp.github.io/regula/dev/standard/7-tooling-and-machine-audit/#76-classify-lean-computation-mechanisms-exactly)):
 

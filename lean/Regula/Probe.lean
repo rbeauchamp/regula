@@ -41,8 +41,9 @@ module index is requested, the report records:
 - the exact elaborated type, whether that type is a proposition, and
   `ConstantInfo.isUnsafe` / `ConstantInfo.isPartial` for every constant kind;
 - instance / `noncomputable` / `@[implemented_by]` / `@[extern]` flags;
-- the exact transitive axiom set (`Lean.collectAxioms`), which is what
-  `#print axioms` reports; and
+- the exact transitive axiom set: the axioms the declaration reaches in the kernel that replayed
+  it (`Admission.validate`, `KernelAxioms.axiomTable`), or, for a caller with no replayed kernel,
+  those `Lean.collectAxioms` reports, as `#print axioms` does; and
 - Lean-native reporting metadata (internal/private spelling, projection,
   matcher, recursor kind, unsafe-recursion relationship, and source range).
 
@@ -762,11 +763,14 @@ private def executableRoots (env : Environment) (modules : List Name)
 
 /-- Build the complete report for exact requested module names. The trusted
 runner calls this function directly, without parsing a command in the audited
-module's frontend extension environment. -/
+module's frontend extension environment. Each declaration record has the axioms `replayed` holds
+for it, those it reaches in the kernel that replayed it (`Admission.validate`), or, with no
+`replayed`, those Lean's `collectAxioms` reports. -/
 def environmentReport (modules : List Name)
-    (loadReplacementHistory : Name → IO (Except String (Array (Name × Name))) :=
+    (loadReplacementHistory : Name → IO (Except String (Array (Name × Name)))) :=
       fun _ => pure (.error "trusted source-history loader was not supplied"))
-    (includeExecution : Bool := true) (includeModuleOrigins : Bool := true) :
+    (includeExecution : Bool := true) (includeModuleOrigins : Bool := true)
+    (replayed : Option (Std.HashMap Name (Array Name)) := none) :
     CommandElabM Regula.Report.Collected := do
   let timing := (← IO.getEnv "REGULA_TIMING") == some "1"
   let label := String.intercalate ", " (modules.map toString)
@@ -790,7 +794,8 @@ def environmentReport (modules : List Name)
     return (env.header.modules[(idx : Nat)]!.module, name)
   let scope ← Regula.Collect.ContractScope.new env
   let entries ← reportPhase timing s!"declaration records [{label}]" <| own.mapM fun (name, _) =>
-    observing env name "declaration record" (Regula.Collect.declaration name .replayCandidate scope)
+    observing env name "declaration record"
+      (Regula.Collect.declaration name .replayCandidate scope replayed)
   let roots ← reportPhase timing s!"execution root census [{label}]" <| if includeExecution then do
     let mut roots ← executableRoots env modules own
     for entry in entries do

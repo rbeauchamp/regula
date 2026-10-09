@@ -839,6 +839,19 @@
   "reason": "kernel-admission",
   "claim": "kernel-only"
  },
+ "Fixtures.Mutations.ForgedAxiomTableOmission": {
+  "expect": "fail",
+  "reason": "label-exceeds-claim",
+  "claim": "kernel-only"
+ },
+ "Fixtures.Mutations.ForgedAxiomTableAddition": {
+  "expect": "fail",
+  "reason": "kernel-admission",
+  "claim": "kernel-only",
+  "output": [
+   "include one that its development in the replayed kernel does not reach"
+  ]
+ },
  "Fixtures.Positive.CheckedReplayAdmission": {
   "expect": "pass",
   "claim": "kernel-only"

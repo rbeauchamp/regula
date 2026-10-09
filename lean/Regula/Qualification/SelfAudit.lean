@@ -13,7 +13,8 @@ The library is not a conforming proof surface, so the project audit excludes it.
 campaign applies the rules that do hold for operational code, per module of the library as
 Lake discovers it: completed kernel admission of every owned safe declaration (RG2005), the
 executed `RegulaPolicy.checked_operationalFailure` decision (RG1001–RG1005, RG1007, RG1009) on the
-observations the live linter's shared collector (`Regula.Collect.declaration`) constructs, the
+observations the live linter's shared collector (`Regula.Collect.declaration`) constructs, with the
+axioms each declaration reaches in the kernel that admission replayed (`Admission.validate`), the
 executed `RegulaPolicy.checked_decisionFailure` decision (RG1008) against the decision contracts
 the same module registers (`RegulaPolicy.decidedImplementations` of the recorded contracts of its
 declarations), and the live linter's module-header (RG5001: docstring present and first, no
@@ -67,10 +68,10 @@ private unsafe def observe (toolchainLib : FilePath) (moduleName : Name) (source
   Lean.enableInitializersExecution
   let env ← importModules #[{ module := moduleName, importAll := true }] {} 0
     (loadExts := true) (level := .private)
-  let receipt ← match ← Checker.Admission.validate env #[moduleName] with
-    | .ok receipt => pure receipt
+  let admission ← match ← Checker.Admission.validate env #[moduleName] with
+    | .ok admission => pure admission
     | .error failure => return .error failure.detail
-  let admitted := (receipt.admitted.filter (·.1 == moduleName)).size
+  let admitted := (admission.receipt.admitted.filter (·.1 == moduleName)).size
   if let .error refusal := Regula.Collect.ownedDecisionRegistrations env [moduleName] then
     return .error refusal
   let own := Regula.Probe.ownedConstants env [moduleName]
@@ -80,7 +81,8 @@ private unsafe def observe (toolchainLib : FilePath) (moduleName : Name) (source
   let scope ← Regula.Collect.ContractScope.new env
   let collected ← EIO.toIO' <|
     (show Elab.Command.CommandElabM (Array RegulaPolicy.Declaration) from
-      own.mapM fun (name, _) => Regula.Collect.declaration name .snapshot scope).run ctx
+      own.mapM fun (name, _) =>
+        Regula.Collect.declaration name .snapshot scope (some admission.axioms)).run ctx
       |>.run (Elab.Command.mkState env)
   let declarations : Array RegulaPolicy.Declaration ← match collected with
     | .ok (declarations, _) => pure declarations

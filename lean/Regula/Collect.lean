@@ -3300,8 +3300,11 @@ private def sharedReading (env : Environment) (scope : ContractScope) (stage : S
 /-- The record of `declaration`, with what a snapshot did not read of the declaration's decision
 registration, when there is such a part (`Unread`): its kind (`executableContract?`), or the
 functions that its two sides share (`sharedReading`). The record of a decision registration that
-was read and not refused holds the names of the functions that its two sides share. -/
-private def declarationReading (name : Name) (stage : Stage) (scope? : Option ContractScope) :
+was read and not refused holds the names of the functions that its two sides share. Its axioms are
+those `replayed` holds for the declaration, the axioms it reaches in the kernel that replayed it
+(`Admission.validate`), or, with no `replayed`, those Lean's `collectAxioms` reports. -/
+private def declarationReading (name : Name) (stage : Stage) (scope? : Option ContractScope)
+    (replayed : Option (Std.HashMap Name (Array Name))) :
     CommandElabM (RegulaPolicy.Declaration × Option Unread) := withoutSmartUnfolding do
   let env ← getEnv
   let scope ← match scope? with
@@ -3309,7 +3312,11 @@ private def declarationReading (name : Name) (stage : Stage) (scope? : Option Co
     | none => ContractScope.new env
   let some info := env.find? name | throwError "declaration {name} is unavailable"
   let moduleName ← IO.ofExcept (moduleOf env name)
-  let axioms ← collectAxioms name
+  let axioms ← match replayed with
+    | some table => match table[name]? with
+      | some axioms => pure axioms
+      | none => throwError "declaration {name} has no axioms from the replayed kernel"
+    | none => collectAxioms name
   let isProp ← liftTermElabM <| Meta.isProp info.type
   let prettyType ← liftTermElabM do
     return toString (← Meta.ppExpr info.type)
@@ -3393,10 +3400,14 @@ fresh scope is built. Every observation runs with smart unfolding off (`withoutS
 At the `snapshot` stage, in the environment of a file with a `module` header, the record of a
 decision registration has no failure of its kind when that environment cannot read the kind, and
 it names no shared function below a constant that the environment has no value of;
-`commandDeclarations` returns those registrations. -/
-def declaration (name : Name) (stage : Stage) (scope? : Option ContractScope := none) :
+`commandDeclarations` returns those registrations. The record's axioms are those `replayed`
+holds for the declaration, the axioms it reaches in the kernel that replayed it
+(`Admission.validate`); a caller with no replayed kernel, such as the editor, passes none, and the
+record has the axioms Lean's `collectAxioms` reports. -/
+def declaration (name : Name) (stage : Stage) (scope? : Option ContractScope := none)
+    (replayed : Option (Std.HashMap Name (Array Name)) := none) :
     CommandElabM RegulaPolicy.Declaration :=
-  (·.1) <$> declarationReading name stage scope?
+  (·.1) <$> declarationReading name stage scope? replayed
 
 /-- Complete current-module inventory, with no visibility or generated-name filter.
 Uses Lean's own local constant map through its environment-linter API. The caller
@@ -3424,7 +3435,7 @@ def commandDeclarations :
           !names.contains name then names := names.push name
   if names.isEmpty then return (#[], #[])
   let scope ← ContractScope.new env
-  let readings ← names.mapM (declarationReading · .snapshot scope)
+  let readings ← names.mapM (declarationReading · .snapshot scope none)
   return (readings.map (·.1), readings.filterMap fun (record, unread) =>
     unread.map (record.name, ·))
 
