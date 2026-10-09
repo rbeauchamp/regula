@@ -184,6 +184,10 @@ The plain shape is a conservative guard under that assertion. It is not a guaran
 lakefile that someone wrote to defeat it. The verification of Regula uses the option in the timed
 check of its own code (`diagnostics self-lint`).
 
+The driver takes the option only from the command line. It refuses the option in the
+`lintDriverArgs` of a package, because the audited project could give it there. The banner of the
+run names the assertion, and the JSON result records it (`scope.ordinaryLakefiles`).
+
 In the plain shape, each package declares only `lean_lib`, `lean_exe`, `input_file` and
 `input_dir` targets. Each field of the configuration of a package or a target has the default
 value of Lake, except for a short list of fields. Lake gives the fields of each type of

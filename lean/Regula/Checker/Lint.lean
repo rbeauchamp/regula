@@ -178,6 +178,23 @@ private def dispatchRefusal : IO (Option String) := do
     return none
   return some message
 
+/-- The banner's note of the workspace owner's assertion. -/
+private def ownerAssertion : String :=
+  "; the workspace owner asserts ordinary lakefiles (--ordinary-lakefiles)"
+
+/-- A refusal when the package that `lake lint` was dispatched from gives `--ordinary-lakefiles`
+in its `lintDriverArgs`, which Lake places before the command line's arguments: the option is
+the workspace owner's assertion on the command line, not the audited project's. A workspace that
+does not load is left to `dispatchRefusal`, which refuses it. -/
+private def configuredOptInRefusal : IO (Option String) := do
+  let configured ← try
+      Workspace.withRootWorkspace (← repoRoot) fun ws => pure ws.root.lintDriverArgs
+    catch _ => return none
+  return if configured.contains "--ordinary-lakefiles" then
+      some "--ordinary-lakefiles is the workspace owner's assertion on the lake lint command \
+        line; the package's lintDriverArgs cannot give it"
+    else none
+
 /-- Every path but the audit's `classify` returns a non-accepted class. -/
 private unsafe def lint (args : List String) : IO Outcome := do
   let parsed := parseArgs args {}
@@ -186,6 +203,8 @@ private unsafe def lint (args : List String) : IO Outcome := do
   match parsed with
   | .error message => refuse message
   | .ok options =>
+    if options.ordinaryLakefiles then
+      if let some message ← configuredOptInRefusal then return ← refuse message
     if options.help || options.explain then
       if options.jsonOut.isSome || options.verbose || options.ordinaryLakefiles then
         return ← refuse "--json-out, --verbose and --ordinary-lakefiles apply only to an audit"
@@ -195,7 +214,8 @@ private unsafe def lint (args : List String) : IO Outcome := do
     if let some message ← dispatchRefusal then return ← refuse message
     if options.explain then return ← explain options
     IO.println
-        s!"regula lint: enforcing all manifested Lake surfaces; mode {modeText options.fresh}"
+        s!"regula lint: enforcing all manifested Lake surfaces; mode {modeText options.fresh}\
+          {if options.ordinaryLakefiles then ownerAssertion else ""}"
     (← IO.getStdout).flush
     let worker ← Lake.buildTargetsShowing (← repoRoot) #[workerTarget]
     unless worker.succeeded && (← (← workerBinary).pathExists) do
@@ -204,6 +224,7 @@ private unsafe def lint (args : List String) : IO Outcome := do
         build"
       return .incomplete
     AxiomGate.claimedBuild.set (Lake.buildAuditTargets options.ordinaryLakefiles)
+    AxiomGate.ordinaryLakefiles.set options.ordinaryLakefiles
     let code ← AxiomGate.entry (gateArgs options)
     let observed ← AxiomGate.terminalObservation.get
     let outcome := classify (requestedMode options.fresh) code observed

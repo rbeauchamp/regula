@@ -297,6 +297,10 @@ shape, and it reuses your ordinary build output. The plain shape is a conservati
 your assertion. It is not a guarantee against a lakefile that someone wrote to defeat it. Without
 the option the driver always builds with the marker ([details](proofs-and-boundaries.md#the-acceptance-boundary)).
 
+Give the option on the command line. The driver refuses it in `lintDriverArgs`, which your
+lakefile could set for each run. The banner of the run names your assertion, and the JSON report
+records it as `scope.ordinaryLakefiles`.
+
 The driver builds every manifested library and executable by its explicit Lake target, with
 warnings as failures, and inspects the completed environments: each library in one, and each
 claimed executable's root in one of its own, since every root defines `main` (a root inside

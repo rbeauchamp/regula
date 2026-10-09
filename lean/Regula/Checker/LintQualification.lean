@@ -81,12 +81,13 @@ file audit lists every classified declaration only with `--verbose`. The adopter
 custom `policy` target, so the driver keeps the audit-build marker (`Lake.auditMarkerNeeded`) and
 an ordinary build after it rebuilds; without that target, also with an `input_file` in `needs`,
 the workspace has the plain shape and an ordinary `lake build` and the driver reuse each other's
-build output when the owner passes `--ordinary-lakefiles`, and the driver keeps the marker
-without it; with Lake's `ilean` facet declared again with Lake's own configuration, a library
-field outside the plain shape's list (`libName`), a `nativeFacets` that is not Lake's whole
-default term, a lakefile declaration beside Lake's configuration declarations, a theorem that
-equates two functions, or an excluded library in `needs` that imports `Regula.Linter`, the driver
-keeps the marker and accepts the claim. -/
+build output when the owner passes `--ordinary-lakefiles`, which the banner names and the
+result records as `scope.ordinaryLakefiles`, and the driver keeps the marker without it; a
+`lintDriverArgs` entry that gives the option is refused; with Lake's `ilean` facet declared again
+with Lake's own configuration, a library field outside the plain shape's list (`libName`), a
+`nativeFacets` that is not Lake's whole default term, a lakefile declaration beside Lake's
+configuration declarations, a theorem that equates two functions, or an excluded library in
+`needs` that imports `Regula.Linter`, the driver keeps the marker and accepts the claim. -/
 private def leanAdopter (repo adopter : FilePath) : IO (Array String) := do
   BuildLintQualification.setup repo adopter
   -- The workspace owner's assertion that the lakefiles are ordinary configuration.
@@ -162,6 +163,26 @@ private def leanAdopter (repo adopter : FilePath) : IO (Array String) := do
       optIn
     return first ++ rebuilt ++ again
   failures := failures ++ (← reused "lean/plain-reused")
+  -- The banner names the owner's assertion, and the result records it as
+  -- `scope.ordinaryLakefiles`.
+  failures := failures ++ (← expect adopter { positive with
+      label := "lean/opt-in-reported"
+      contains := positive.contains.push "the workspace owner asserts ordinary lakefiles" }
+    (optIn ++ #["--json-out", "opt-in.json"]))
+  let recorded := ((← readJson (adopter / "opt-in.json")).getObjValD "scope").getObjValD
+    "ordinaryLakefiles"
+  unless recorded == toJson true do
+    failures := failures.push s!"lake-lint/lean/opt-in-reported: scope.ordinaryLakefiles is \
+      {recorded.compress}"
+  IO.FS.removeFile (adopter / "opt-in.json")
+  -- A package's `lintDriverArgs` cannot give the owner's assertion: the driver refuses it.
+  IO.FS.writeFile lakefile (plain.replace "lintDriver := \"regula/lint\""
+    "lintDriver := \"regula/lint\"\n  lintDriverArgs := #[\"--ordinary-lakefiles\"]")
+  failures := failures ++ (← expect adopter {
+      label := "lean/opt-in-configured-refused", exitCode := 2,
+      contains := #["lintDriverArgs cannot give it", "regula lint: INVALID CONFIGURATION"],
+      excludes := #[s!"regula lint: {acceptanceLabel}"] })
+  IO.FS.writeFile lakefile plain
   -- An `input_file` in `needs` keeps the plain shape.
   let notes := adopter / "notes.txt"
   IO.FS.writeFile notes "Widget notes.\n"
