@@ -76,10 +76,10 @@ produced it, a native-proof axiom
 rests on its natively replayed statement and command provenance instead, and arbitrary process
 or trusted-plugin compromise is outside scope. Module 7 §7.5 also puts code that deliberately
 changes Lean's environment, compiler or build to make a check pass outside scope. An example is a
-direct write to an environment extension's state that bypasses the command or attribute Lean
-gives for it. Where the standard or a rule page states a check for a mechanism, that statement
-governs, and the mechanism is in scope. Ordinary declarations, attributes such as
-`implemented_by`, `extern` and `csimp`, and `initialize` stay in scope, as §7.6 states.
+direct write to the axiom table `exportedAxiomsExt`, which no rule or section checks. Where the
+standard or a rule page states a check for a mechanism, that statement governs, and the mechanism
+is in scope. Ordinary declarations, attributes such as `implemented_by`, `extern` and `csimp`,
+and `initialize` stay in scope, as §7.6 states.
 
 Choose checks from AGENTS.md and the applicable checklist rows:
 

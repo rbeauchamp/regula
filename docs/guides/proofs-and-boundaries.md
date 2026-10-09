@@ -3528,12 +3528,13 @@ governs, and the mechanism is in scope. The examples below are out of scope only
 statement covers them. Each one is a trusted boundary of the axiom collection, of the execution
 account or of the two:
 
-- **A direct write to the state of an environment extension.** Such a write goes around the
-  command or attribute that Lean gives for that extension. The axiom collection uses
-  `Lean.collectAxioms`. For a declaration that an imported module exports, that function reads the
-  axiom table `exportedAxiomsExt` that Lean calculated when it wrote the module. The audit imports
-  each module that it inspects. A direct write to that table changes the axiom sets that the
-  collection gives to the rules [RG1001]–[RG1005].
+- **A direct write to the state of an environment extension that no rule or section of the standard
+  checks.** Such a write goes around the command or attribute that Lean gives for that extension.
+  An example is the axiom table `exportedAxiomsExt` that Lean calculates when it writes a module.
+  The audit imports each module that it inspects, and for a declaration that such a module exports
+  `Lean.collectAxioms` reads that table. Thus a direct write to that table changes the axiom sets
+  that the axiom collection gives to the rules [RG1001]–[RG1005]. On a path that a program can run,
+  [RG3001] reports a metaprogram write to the `implemented_by` mapping as unresolved.
 - **A declaration of a dependency that a metaprogram adds with `debug.skipKernelTC`.** [RG2005]
   states the check for an owned declaration, thus an owned declaration is in scope.
   [Admission](#producers) replays the owned declarations that are not `unsafe` or `partial`
@@ -3541,11 +3542,13 @@ account or of the two:
   `Fixtures.Mutations.LocalUncheckedAdmission` is an observation of one refusal. Admission does
   not replay an `unsafe` or `partial` declaration or a declaration of a dependency. The axiom
   collection trusts each declaration that admission does not replay.
-- **A user compiler pass, or a direct write to the state of the IR or LCNF extensions.** A
-  declaration with the attribute `@[cpass]` can add, remove or replace a pass of Lean's compiler.
-  A direct write to the state of those extensions goes around Lean's compiler. The execution
-  account reads the compiled code that the compiler stored. It trusts that the passes of the
-  pinned compiler made that code.
+- **A user compiler pass, or a direct write that stores a compiled body that Lean's compiler did
+  not make.** A declaration with the attribute `@[cpass]` can add, remove or replace a pass of
+  Lean's compiler. A direct write to the IR or LCNF extensions can store a body that the compiler
+  did not make, for example an `fdecl` body. The execution account reads the compiled code in those
+  extensions. It trusts that the passes of the pinned compiler made each body that it reads.
+  [RG3001] reports a write that leaves a retained compiled body missing, or that leaves an opaque
+  export placeholder, as unresolved.
 - **An `f._unsafe_rec` companion that [RG1006] does not inspect, for example one in a dependency.**
   Lean's compiler compiles `f` from the value of `f._unsafe_rec` if that constant exists, in
   `Lean.Compiler.LCNF.toDecl`. [RG1006] admits an owned recursion helper only where Lean's
@@ -3571,10 +3574,10 @@ write to the axiom table. Comparator calculates the axioms from the declarations
 not from that table. It refuses each axiom that is not one of its permitted axioms.
 
 No step of that page checks the changes to compiled code. These are a compiler pass, a direct
-write to the IR or LCNF extensions and a native build setting. An `_unsafe_rec` companion that
-[RG1006] does not inspect is also such a change. Thus these changes stay trusted boundaries of the
-execution account of [RG3001] and [RG3002] and of the native replay of [RG1004]. To check a proof
-from a source that you do not trust, use [comparator](https://github.com/leanprover/comparator).
+write that stores a compiled body that Lean's compiler did not make and a native build setting. An
+`_unsafe_rec` companion that [RG1006] does not inspect is also such a change. Thus these changes
+stay trusted boundaries of the execution account of [RG3001] and [RG3002] and of the native replay
+of [RG1004]. To check a proof from a source that you do not trust, use [comparator](https://github.com/leanprover/comparator).
 
 ## Operational assumptions
 

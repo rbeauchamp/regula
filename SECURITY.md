@@ -40,12 +40,16 @@ Where the standard or a rule page states a check for a mechanism, that statement
 mechanism is in scope. The examples below are out of scope only where no such statement covers
 them. Code that makes one of these changes to make a check pass is not honest code:
 
-- A direct write to the state of an environment extension that goes around the command or
-  attribute that Lean gives for that extension. An example is a direct write to the axiom table
-  `exportedAxiomsExt` that Lean calculates for each module.
+- A direct write to the state of an environment extension that no rule or section of the standard
+  checks. Such a write goes around the command or attribute that Lean gives for that extension. An
+  example is a direct write to the axiom table `exportedAxiomsExt` that Lean calculates for each
+  module. On a path that a program can run, Regula reports a metaprogram write to the
+  `implemented_by` mapping as unresolved.
 - A declaration of a dependency that a metaprogram adds with `debug.skipKernelTC`.
-- A user compiler pass (`@[cpass]`), or a direct write to the state of the IR or LCNF extensions
-  that goes around Lean's compiler.
+- A user compiler pass (`@[cpass]`), or a direct write that stores a compiled body that Lean's
+  compiler did not make. An example is a forged `fdecl` body in the IR extension. Regula reports a
+  write that leaves a retained compiled body missing, or that leaves an opaque export placeholder,
+  as unresolved.
 - An `f._unsafe_rec` companion that Regula does not inspect, for example one in a dependency.
 - A native build setting: `extern_lib`, `moreLinkArgs` or `moreLeancArgs`.
 
@@ -62,10 +66,10 @@ write to the axiom table. Comparator calculates the axioms from the declarations
 not from that table. It refuses each axiom that is not one of its permitted axioms.
 
 No step of that page checks the changes to compiled code. These are a compiler pass, a direct
-write to the IR or LCNF extensions and a native build setting. An `_unsafe_rec` companion that
-Regula does not inspect is also such a change. The checks of Regula that read compiled code trust
-that the project makes none of these changes. To check a proof from a source that you do not
-trust, use [comparator](https://github.com/leanprover/comparator).
+write that stores a compiled body that Lean's compiler did not make and a native build setting. An
+`_unsafe_rec` companion that Regula does not inspect is also such a change. The checks of Regula
+that read compiled code trust that the project makes none of these changes. To check a proof from
+a source that you do not trust, use [comparator](https://github.com/leanprover/comparator).
 
 ## What counts as a vulnerability
 
