@@ -2783,9 +2783,12 @@ Lean language frontend's preceding-command array, and the low-level
 import-time marker the feedback switch is off whatever a command scope sets `linter.regula` to;
 that every local finding is gated by that switch is checked by inspection. Disabling local
 feedback cannot disable a mandatory project predicate. Enabling it cannot reach a project audit's
-own build: `lake lint`'s claimed build and the audit's fresh elaboration pass the unregistered
-command-line marker `weak.regula.auditBuild`, which the linter reads only from a module's
-import-time options and under which it emits nothing.
+own build. The audit's fresh elaboration passes the unregistered command-line marker
+`weak.regula.auditBuild`. The linter reads the marker only from the import-time options of a
+module, and under it the linter emits nothing. `lake lint`'s claimed build also passes the marker,
+except under the owner's `--ordinary-lakefiles` for a workspace of the plain shape
+([acceptance boundary](#the-acceptance-boundary)). There no module of the root package imports
+`Regula.Linter`, so the linter runs on none of them.
 
 **Documentation presence.** `Lean.findDocString?` accepts ordinary, Verso and inherited
 docstrings; private names follow Lean's visibility and never enter the public `@[regula_material]`
