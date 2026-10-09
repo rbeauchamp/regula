@@ -58,6 +58,21 @@ def libraryOptions (lib : _root_.Lake.LeanLib) : RegulaPolicy.Community.BuildOpt
 def executableOptions (exe : _root_.Lake.LeanExe) : RegulaPolicy.Community.BuildOptions :=
   buildOptions exe.root.leanOptions exe.root.weakLeanArgs exe.root.leanArgs
 
+/-- The modules Lake can build as part of `library`, found in its source directory with Lake's
+glob reader: those its globs match, and the submodules of each root that a glob matches, which
+is the set `LeanLibConfig.isBuildableModule` admits among the module files. A module may occur
+twice. -/
+def buildableModules (library : _root_.Lake.LeanLib) : IO (Array Name) := do
+  let names ← IO.mkRef (#[] : Array Name)
+  let mut globs := library.config.globs
+  for root in library.roots do
+    if library.config.globs.any (·.matches root) &&
+        (← (Lean.modToFilePath library.srcDir root "").isDir) then
+      globs := globs.push (.submodules root)
+  for glob in globs do
+    glob.forEachModuleIn library.srcDir fun name => names.modify (·.push name)
+  names.get
+
 /-- Obtain every root-package Lean library and executable, exact module, and
 exact source from Lake's own elaborated package model. This loads the checked
 project's workspace in-process, so `lakefile.lean` and `lakefile.toml`
@@ -106,14 +121,8 @@ def surfaceInventory (repo : FilePath) : IO SurfaceInventory :=
     let dependencies ← (ws.packages.extract 1 ws.packages.size).mapM fun package => do
       let names ← IO.mkRef ({} : NameSet)
       for library in package.leanLibs do
-        let mut globs := library.config.globs
-        for root in library.roots do
-          if library.config.globs.any (·.matches root) &&
-              (← (Lean.modToFilePath library.srcDir root "").isDir) then
-            globs := globs.push (.submodules root)
-        for glob in globs do
-          glob.forEachModuleIn library.srcDir fun name => do
-            names.modify (·.insert name)
+        for name in ← buildableModules library do
+          names.modify (·.insert name)
       let mut sources := #[]
       for name in (← names.get).toArray.qsort Name.quickLt do
         let some resolved := ws.findModule? name
@@ -158,36 +167,15 @@ imports `Regula.Linter` whatever its source sets `linter.regula` to (`liveFeedba
 The marker is unregistered and `weak.`, so every module's command scopes ignore it and
 elaborate exactly as without it. The audit's own policy stages report Regula findings; the
 warning-free check then measures only other warnings. The option enters Lake's module trace,
-so a module built with local feedback, for example by an ordinary `lake build`, is rebuilt:
-its replayed log can neither add Regula warnings nor stand in for this configuration's
+so with it a module built with local feedback, for example by an ordinary `lake build`, is
+rebuilt: its replayed log can neither add Regula warnings nor stand in for this configuration's
 warnings. Lake scopes Lean options by package and library, not by module, so the trace change
-reaches every root-package module; `axiomGate` and the build-lint target therefore keep
-ordinary options (`AxiomGate.claimedBuild`). -/
+reaches every root-package module that the claimed build compiles. `buildAuditTargets`
+therefore omits it only for a workspace of the plain shape in which each module of the root
+package resolves to its one source and none imports the marker's reader
+(`auditMarkerNeeded`); `axiomGate` and the build-lint target keep ordinary options
+(`AxiomGate.claimedBuild`). -/
 def auditLeanOptions : LeanOptions := .ofArray #[⟨Regula.Linter.auditBuildOption, .ofBool true⟩]
-
-/-- `buildTargets` with `auditLeanOptions` on the root package, run in-process through Lake's
-build API because the `lake build` command line sets no Lean options. The inherited search
-paths are ignored as in `buildTargets`; the build monitor's text is the output, and a failed
-build exits 1. Lake's progress line for each job is also shown as the build runs, as by
-`buildTargetsShowing`. -/
-def buildAuditTargets (repo : FilePath) (targets : Array String) : IO ProcessResult := do
-  let buffer ← IO.mkRef ({} : IO.FS.Stream.Buffer)
-  let out ← showingStream (IO.FS.Stream.ofBuffer buffer) isLakeProgressLine
-  let exitCode ← try
-      Workspace.withRootWorkspace repo (scrubSearchPath := true) fun ws => do
-        let specs ← match ← (_root_.Lake.parseTargetSpecs ws targets.toList).toBaseIO with
-          | .ok specs => pure specs
-          | .error error => throw <| IO.userError (toString error)
-        ws.runBuild (_root_.Lake.buildSpecs specs) {
-          out := .stream out, ansiMode := .noAnsi, showSuccess := true,
-          leanOptOverrides := ({} : NameMap LeanOptions).insert ws.root.baseName auditLeanOptions }
-      pure (0 : UInt32)
-    catch error =>
-      out.putStrLn s!"error: {error}"
-      pure 1
-  let some stdout := String.fromUTF8? (← buffer.get).data
-    | return { exitCode := 1, stdout := "", stderr := "error: build output is not UTF-8" }
-  return { exitCode, stdout, stderr := "" }
 
 /-- Build the claimed Lake targets and require success with no warnings.
 Returns the diagnostic lines to report on failure. -/
