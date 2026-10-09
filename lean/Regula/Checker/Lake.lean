@@ -179,8 +179,10 @@ keep ordinary options (`AxiomGate.claimedBuild`). -/
 def auditLeanOptions : LeanOptions := .ofArray #[⟨Regula.Linter.auditBuildOption, .ofBool true⟩]
 
 /-- The module whose import loads Regula's local feedback: it registers the linter and the module
-hook with `initialize`, and it is the only module that reads the marker of `auditLeanOptions`.
-That it is the only reader is checked by inspection. -/
+hook with `initialize`, and it is the only module of Regula that reads the marker of
+`auditLeanOptions`. That it is Regula's only reader is checked by inspection. A project module that
+reads the option from its own import-time options would read the marker too; the equal verdicts of
+the plain shape assume that none does. -/
 def linterModule : Name := `Regula.Linter
 
 /-- The kind of a target that a package declares, or of the target that a `needs` entry names,
@@ -216,7 +218,7 @@ structure PackageShape where
 `input_dir` targets, each `needs` entry names an `input_file` or an `input_dir` of the package,
 and it has no extra-dependency target and no plugin, dynamic library or extra argument, object or
 library. In a workspace of such packages that declares no facet, new or of Lake's name, a build
-of `lean_lib` and `lean_exe` targets runs no project code: it compiles modules and reads and
+of `lean_lib` and `lean_exe` targets runs no custom build step: it compiles modules and reads and
 hashes input files. -/
 def PackageShape.Plain (shape : PackageShape) : Prop :=
   (∀ kind ∈ shape.targets,
@@ -420,9 +422,10 @@ sets no Lean options, with `auditLeanOptions` on the root package unless `auditM
 decides that the workspace is of the plain shape and that no module of the root package imports
 `linterModule`. Each failure to read the workspace, by an exception or by an unknown, keeps the
 marker. The marked build and the unmarked one give the same verdict for that shape only: a build
-of `lean_lib` and `lean_exe` targets in it runs no project code, so it compiles only modules that
-the root package owns, whose imports the decision read (or modules of other packages, which the
-root package's options do not reach), and the marker's only reader is loaded in none of them.
+of `lean_lib` and `lean_exe` targets in it runs no custom build step, so it compiles only modules
+that the root package owns, whose imports the decision read (or modules of other packages, which
+the root package's options do not reach), and Regula's only reader of the marker is loaded in none
+of them. That no project module reads the marker itself is assumed.
 Without the marker the ordinary build output is reused as it is. The inherited search paths are
 ignored as in `buildTargets`; the build monitor's text is the output, and a failed build exits 1.
 Lake's progress line for each job is also shown as the build runs, as by `buildTargetsShowing`. -/
