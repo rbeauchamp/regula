@@ -1457,8 +1457,9 @@ def guide : RuleId → Guide
           dynamic library or plugin it loads, or a process it spawns. The account is the static \
           closure; such code is data to it, and the toolchain primitive that runs it is trusted \
           base. The `initialize` and `[init]` actions of modules that the project imports but \
-          does not own, static or at runtime, are likewise outside the account; those of owned \
-          modules are executable roots (RG3001).",
+          does not own, static or at runtime, are likewise not roots of their own: the account \
+          covers only those that an existing root reaches, through the constant that the action \
+          initializes. Those of owned modules are executable roots (RG3001).",
         "That the executable roots are the ones the project intends to cover (R-INVARIANT)."]
       configuration := [
         "`execution` in the surface manifest (`report` or `checked`), or `--execution checked` for \
@@ -1477,11 +1478,13 @@ def guide : RuleId → Guide
         `RegulaPolicy.failure_reported`, `RegulaPolicy.executionFindings_sound` and \
         `RegulaPolicy.checked_toolchainBase`; an accepted run satisfies `RegulaPolicy.BoundaryOK`. \
         `RegulaPolicy.DefeqComparison.ofAttempt_checked_iff` and `ofAttempt_negative_iff`: a \
-        definitional comparison is checked exactly when the kernel admitted the proof with \
-        Standard-Logical axioms, and trusted exactly when it refused the proof or admitted it \
-        with a different axiom. `RegulaPolicy.ExecutionWalk.checked_walk` decides the walk over \
-        the records of the probe. Root discovery, the kernel's answer, reading each record from \
-        compiler IR and observing module origins are operational, and no theorem states that \
+        definitional comparison is checked exactly when the attempt recorded the kernel's \
+        admission of the proof with Standard-Logical axioms, and trusted exactly when it recorded \
+        the kernel's refusal or an admission with a different axiom; an error while it records \
+        the answer, also after an admission, leaves it unresolved. \
+        `RegulaPolicy.ExecutionWalk.checked_walk` decides the walk over the records of the probe. \
+        Root discovery, the kernel's answer, reading each record from compiler IR and observing \
+        module origins are operational, and no theorem states that \
         `RegulaPolicy.ExecutionWalk.assemble` builds the correct account from the visits."
       sources :=
           ["lean/Regula/Probe.lean", "lean/RegulaPolicy/ExecutionWalk.lean",

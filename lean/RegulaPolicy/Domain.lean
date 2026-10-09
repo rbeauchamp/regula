@@ -221,24 +221,27 @@ inductive KernelAnswer where
 def KernelAnswer.withinStandardLogical (axioms : Array Lean.Name) : Bool :=
   axioms.all fun ax => ax == `propext || ax == `Quot.sound || ax == `Classical.choice
 
-/-- Outcome of the checker-initiated kernel-definitional comparison of a runtime replacement
-with its reference. Each value has one meaning, stated by the kernel's answer (`KernelAnswer`);
-`ofAttempt` gives the value of an attempt, and its theorems show that the value it gives has this
-meaning:
+/-- Outcome of the checker's kernel check of one closed correspondence proof between a runtime
+replacement and its reference: the reflexivity proof of the definitional comparison, or a proof
+that a theorem candidate gives. Each value has one meaning, stated by the kernel's answer that
+the attempt recorded (`KernelAnswer`); `ofAttempt` gives the value of an attempt, and its theorems
+show that the value it gives has this meaning:
 
-- `completed (some detail)`: the kernel decided, and admitted the reflexivity proof with its axioms
-  within the Standard-Logical foundations. `detail` prints that proof and the required
+- `completed (some detail)`: the attempt recorded the kernel's admission of the proof, with its
+  axioms within the Standard-Logical foundations. `detail` prints that proof and the required
   proposition (`ofAttempt_checked_iff`).
-- `completed none`: the kernel decided without such evidence. It refused the proof, or it admitted
-  the proof with an axiom outside those foundations (`ofAttempt_negative_iff`).
-- `incomplete reason`: no decision of the kernel is recorded. The kernel stopped before it decided
-  (resource exhaustion or interruption), or the attempt raised an error, whatever the error,
-  before it recorded the kernel's answer (`ofAttempt_incomplete_iff`). `reason` tells which. -/
+- `completed none`: the attempt recorded a decision of the kernel without such evidence: its
+  refusal of the proof, or its admission of the proof with an axiom outside those foundations
+  (`ofAttempt_negative_iff`).
+- `incomplete reason`: the attempt recorded no decision of the kernel. The kernel stopped before
+  it decided (resource exhaustion or interruption), or the attempt raised an error, whatever the
+  error, before it recorded the kernel's answer, also after the kernel admitted the proof
+  (`ofAttempt_incomplete_iff`). `reason` tells which. -/
 inductive DefeqComparison where
-  /-- The kernel decided; `admitted` is the evidence detail when it admitted the proof within the
-  Standard-Logical foundations. -/
+  /-- The attempt recorded a decision of the kernel; `admitted` is the evidence detail when it
+  recorded an admission of the proof within the Standard-Logical foundations. -/
   | completed (admitted : Option String)
-  /-- No decision of the kernel is recorded; `reason` tells why. -/
+  /-- The attempt recorded no decision of the kernel; `reason` tells why. -/
   | incomplete (reason : String)
   deriving Repr, DecidableEq
 
@@ -279,8 +282,9 @@ theorem DefeqComparison.classify_unresolved_iff (o : DefeqComparison) :
     o.classify.1 = .unresolved ↔ ∃ reason, o = .incomplete reason := by
   rcases o with (_ | _) | _ <;> simp [classify]
 
-/-- An attempt records a completed positive comparison exactly when the kernel admitted the proof
-with its axioms within the Standard-Logical foundations; `detail` is the admitted detail. -/
+/-- An attempt records a completed positive comparison exactly when it recorded the kernel's
+admission of the proof with its axioms within the Standard-Logical foundations; `detail` is the
+admitted detail. -/
 theorem DefeqComparison.ofAttempt_checked_iff (attempt : Except String KernelAnswer)
     (detail : String) :
     ofAttempt attempt = .completed (some detail) ↔
@@ -296,8 +300,9 @@ theorem DefeqComparison.ofAttempt_checked_iff (attempt : Except String KernelAns
   · simp [ofAttempt]
   · simp [ofAttempt]
 
-/-- An attempt records a completed negative comparison exactly when the kernel refused the proof,
-or admitted it with an axiom outside the Standard-Logical foundations. -/
+/-- An attempt records a completed negative comparison exactly when it recorded the kernel's
+refusal of the proof, or its admission of the proof with an axiom outside the Standard-Logical
+foundations. -/
 theorem DefeqComparison.ofAttempt_negative_iff (attempt : Except String KernelAnswer) :
     ofAttempt attempt = .completed none ↔
       attempt = .ok .refused ∨ ∃ axioms detail, attempt = .ok (.admitted axioms detail) ∧
@@ -308,8 +313,8 @@ theorem DefeqComparison.ofAttempt_negative_iff (attempt : Except String KernelAn
   · simp [ofAttempt]
   · simp [ofAttempt]
 
-/-- An attempt records an incomplete comparison exactly when the kernel stopped before it decided
-or the attempt raised an error. -/
+/-- An attempt records an incomplete comparison exactly when it recorded that the kernel stopped
+before it decided, or it raised an error before it recorded an answer. -/
 theorem DefeqComparison.ofAttempt_incomplete_iff (attempt : Except String KernelAnswer) :
     (∃ reason, ofAttempt attempt = .incomplete reason) ↔
       attempt = .ok .exhausted ∨ ∃ error, attempt = .error error := by
