@@ -3620,9 +3620,10 @@ copy.
 
 The copy of the first cluster starts with the module artifacts of the build of the repository
 (`seedModuleArtifacts`). Thus its contamination gates do not build `RegulaPolicy` and the probe
-modules again from empty output. The verdict of each such gate comes from the module graph. The
-graph worker reads each `Regula` module from the library of the running checker, before the
-output of the copy. Thus the files of the copy for the probe modules have no effect on the graph.
+modules again from empty output. The verdict of each such gate comes from its build, the
+manifest, the Lake inventory and the module graph. The graph worker reads each `Regula` module
+from the library of the running checker, before the output of the copy. Thus the files of the
+copy for the probe modules have no effect on the graph.
 
 Lake uses a seeded `RegulaPolicy` or `AuditApp` artifact only if its saved trace agrees with the
 hash of the inputs of its module. The bytes of the source are one of these inputs. Thus Lake
