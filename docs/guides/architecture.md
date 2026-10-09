@@ -350,11 +350,11 @@ metadata, not authenticated binary identity.
   result type is `Decidable _`, and `null` for any other declaration. [RG1008] is decided from it
   and from the `executableContract` records of the same inventory
   (`RegulaPolicy.policyFor_decisionContract_iff`).
-- **Axiom-table omissions:** since schema 12 a declaration record carries `tableOmissions`: each
-  axiom that the declaration reaches in the replayed kernel and that Lean's `collectAxioms` does
-  not report, with `via`, the constant and module that the omission was passed on from, or `null`
-  when the table entry of the declaration itself omits the axiom. The rules decide on `axioms`, and
-  the omissions are reported, not failed ([RG2005]).
+- **Axiom-table omissions:** since schema 12 a declaration record carries `tableOmissions`. Each
+  entry is an axiom that the declaration reaches in the replayed kernel and that Lean's
+  `collectAxioms` does not report. Its `via` is the constant and module that the omission was
+  passed on from. It is `null` when the table entry of the declaration itself omits the axiom. The
+  rules decide on `axioms`, and the omissions are reported, not failed ([RG2005]).
 - **Names:** since schema 6 every Lean name of a result, in `diagnostics`, `scope` and
   `acceptance` alike, and of the producer report it renders, is written one way
   (`RegistryCodec.printedNameJson`): the text Lean prints for it, or, only where Lean's parser does
