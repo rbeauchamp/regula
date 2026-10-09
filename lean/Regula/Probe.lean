@@ -752,10 +752,10 @@ private def initializerActions (env : Environment) (modules : List Name) : Array
   let mut actions : Array Name := #[]
   for (imported, idx) in env.header.modules.zipIdx do
     unless modules.contains imported.module do continue
-    for attribute in [regularInitAttr, builtinInitAttr] do
-      let entries := attribute.ext.getModuleEntries env idx
+    for initAttribute in [regularInitAttr, builtinInitAttr] do
+      let entries := initAttribute.ext.getModuleEntries env idx
       let entries := entries ++
-        (attribute.ext.getModuleIREntries env idx).filter (!entries.contains ·)
+        (initAttribute.ext.getModuleIREntries env idx).filter (!entries.contains ·)
       for (declaration, action) in entries do
         let action := if action.isAnonymous then declaration else action
         unless actions.contains action do
