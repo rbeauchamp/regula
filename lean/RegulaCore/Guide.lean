@@ -757,10 +757,15 @@ def guide : RuleId → Guide
           ["BUILD-03", "THEOREM-07", "SCOPE-02", "SCOPE-03", "TYPE-01", "THEOREM-01",
               "THEOREM-03", "COMP-01", "BUILD-01", "BUILD-02"]
       linkage := declarationLinkage ++ " Extracting the contract observation (`Regula.Collect`), \
-        including the reduction that reads a decision kind, the reading of the decided function \
-        and of its universe levels, and the search for a mention of the implementation, is \
-        operational. Two decisions in it are proved: a head constant is read as a kind exactly \
-        when it is that kind's structure \
+        including the reduction that reads a decision kind and the reading of the decided \
+        function and of its universe levels, is operational. Three decisions in it are proved. \
+        The search that guards each reduction, and the search for a mention of the \
+        implementation, return a route exactly when a constant of the term leads to a target \
+        through the records of the observing pass, and a returned route follows those records \
+        (`RegulaPolicy.MentionSearch.checked_search`, `search_sound`). What a record lists is \
+        read from the environment, and that a constant with no record leads to no target is \
+        argued and is not machine-checked. A head constant is read as a kind \
+        exactly when it is that kind's structure \
         (`RegulaPolicy.DecisionKind.ofStructureName?_eq_some_iff`), and a decided function of a \
         form that is read is accepted exactly when its field application, if it has one, is on \
         a type with one constructor and no index with the arguments its fields in order, and \
@@ -780,7 +785,8 @@ def guide : RuleId → Guide
         The search that finds the shared definitions, and the reading of each, are operational."
       sources :=
           ["lean/Regula/Contract.lean", "lean/Regula/Collect.lean", "lean/Regula/Probe.lean",
-              "lean/RegulaPolicy/Domain.lean", "lean/RegulaCore/Policy.lean"] }
+              "lean/RegulaPolicy/Domain.lean", "lean/RegulaPolicy/MentionSearch.lean",
+              "lean/RegulaCore/Policy.lean"] }
   | .decisionContract => {
       problem := "A function registered as a decision with `@[regula_decision]` has no decision \
         contract in its inventory, and its result type is not `Decidable _`. Nothing then states \

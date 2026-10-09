@@ -34,6 +34,7 @@ public import Lean.Util.FoldConsts
 public import RegulaPolicy.Domain
 public import RegulaPolicy.Erasure
 public import RegulaPolicy.NativeStatement
+public import RegulaPolicy.MentionSearch
 public import Regula.Contract
 public import Regula.Decision
 
@@ -2093,24 +2094,62 @@ def ContractScope.constantAware (scope : ContractScope) (env : Environment) (nam
   | some index => scope.aware[(index : Nat)]?.getD true
   | none => scope.mainAware
 
-/-- Whether a constant `target` admits is among the constants `type` mentions, closed under
-`unfoldReferences`, for a `target` that admits only constants of `Regula.Contract`. Constants of
-modules outside the scope are not expanded, and a search that ends without finding one records
-every constant it expanded in `free`, the memo of that same `target`. -/
-private def ContractScope.reaches (scope : ContractScope) (env : Environment)
-    (target : Name → Bool) (free : IO.Ref NameSet) (type : Expr) : BaseIO Bool := do
-  let known ← free.get
-  let mut pending := type.getUsedConstants
-  let mut expanded : NameSet := {}
+/-- The observing pass of a search of a mentioned constant (`RegulaPolicy.MentionSearch`): the
+record of each constant that the search takes before it takes a target, for each such constant
+that `lookup` reads. `lookup` gives the constants that a constant mentions, or `none` for a
+constant that the search does not expand. The pass takes the constants in the order of the
+search: a stack of pushed constants, the constants of `start` pushed first, each constant pushed
+one time. The search over these records takes the same constants in the same order, so it
+returns at the same target, or `none` when the pass read each constant that the search reaches.
+That `lookup` reads the environment truly is this pass's, not a theorem. -/
+private def mentionRecords (lookup : Name → Option (Array Name)) (start targets : Array Name) :
+    RegulaPolicy.MentionSearch.Records := Id.run do
+  let mut marked : Std.HashSet Name := {}
+  let mut pending : Array Name := #[]
+  for name in start do
+    unless marked.contains name do
+      marked := marked.insert name
+      pending := pending.push name
+  let mut records : RegulaPolicy.MentionSearch.Records := {}
   while !pending.isEmpty do
     let name := pending.back!
     pending := pending.pop
-    if target name then return true
-    if expanded.contains name || known.contains name || !scope.constantAware env name then continue
-    expanded := expanded.insert name
-    if let some info := env.find? name then
-      pending := pending ++ unfoldReferences info
-  free.modify fun free => expanded.foldl (fun free name => free.insert name) free
+    if targets.contains name then break
+    if let some mentioned := lookup name then
+      records := records.insert name ⟨mentioned⟩
+      for next in mentioned do
+        unless marked.contains next do
+          marked := marked.insert next
+          pending := pending.push next
+  return records
+
+/-- The route by which a constant of `start` leads to one of `targets`, through the constants
+that `lookup` gives: the observing pass (`mentionRecords`) and the registered decision
+`RegulaPolicy.MentionSearch.search`, which returns a route exactly when such a route exists in
+the records (`checked_search`). -/
+private def mentionRoute? (lookup : Name → Option (Array Name)) (start targets : Array Name) :
+    Option (Array Name) :=
+  RegulaPolicy.MentionSearch.checked_search.run
+    { records := mentionRecords lookup start targets, start, targets }
+
+/-- Whether one of `targets` is among the constants `type` mentions, closed under
+`unfoldReferences`, for `targets` that are constants of `Regula.Contract`: the observing pass
+(`mentionRecords`) and the registered decision `RegulaPolicy.MentionSearch.search`. Constants of
+modules outside the scope and constants of the memo `free` of those same `targets` are not
+expanded. A search that ends without a target records each constant
+it expanded in `free`: by the search's kind no expanded constant leads to a target in the records,
+and a constant that it did not expand leads to none in the environment, so none of them does. -/
+private def ContractScope.reaches (scope : ContractScope) (env : Environment)
+    (targets : Array Name) (free : IO.Ref NameSet) (type : Expr) : BaseIO Bool := do
+  let known ← free.get
+  let lookup (name : Name) : Option (Array Name) :=
+    if known.contains name || !scope.constantAware env name then none
+    else (env.find? name).map unfoldReferences
+  let start := type.getUsedConstants
+  let records := mentionRecords lookup start targets
+  if (RegulaPolicy.MentionSearch.checked_search.run { records, start, targets }).isSome then
+    return true
+  free.modify fun free => records.fold (fun free name _ => free.insert name) free
   return false
 
 /-- Whether reducing `type` can produce `Regula.ExecutableContract`: whether the contract type is
@@ -2122,14 +2161,17 @@ outside the scope are not expanded, and a search that ends without finding the c
 records every constant it expanded as free. -/
 def ContractScope.mayReach (scope : ContractScope) (env : Environment) (type : Expr) :
     BaseIO Bool :=
-  scope.reaches env (· == ``Regula.ExecutableContract) scope.free type
+  scope.reaches env #[``Regula.ExecutableContract] scope.free type
 
 /-- Whether reducing `requirement` can produce a decision kind: whether `Regula.DecidesSoundly`,
-`Regula.DecidesCompletely` or `Regula.Decides` is among the constants it mentions, closed under
+`Regula.DecidesCompletely` or `Regula.Decides`, the structure of each kind
+(`RegulaPolicy.DecisionKind.structureName`), is among the constants it mentions, closed under
 `unfoldReferences`, by the argument of `ContractScope.mayReach`. -/
 def ContractScope.mayReachDecision (scope : ContractScope) (env : Environment)
     (requirement : Expr) : BaseIO Bool :=
-  scope.reaches env (fun name => (RegulaPolicy.DecisionKind.ofStructureName? name).isSome)
+  scope.reaches env
+    (#[RegulaPolicy.DecisionKind.«sound», RegulaPolicy.DecisionKind.«complete»,
+      RegulaPolicy.DecisionKind.«soundAndComplete»].map RegulaPolicy.DecisionKind.structureName)
     scope.decisionFree requirement
 
 /-- The constants by which `e` mentions `target`, closed under unfolding: the first is a constant
@@ -2139,9 +2181,10 @@ proof and an opaque constant's value are not followed: Lean's reduction unfolds 
 proposition does not depend on which proof of a statement a proof term is. Only a constant that
 can mention `target` is expanded: one of its module, of a module that transitively imports it
 (`importersOf`), or of the current module; an imported constant never mentions a constant of the
-current module. -/
+current module. The search is `mentionRoute?`: the observing pass reads `statusReferences` of each
+constant that can mention `target`, and the registered decision returns the route. -/
 private def mentionChain? (env : Environment) (target : Name) (e : Expr) :
-    Option (Array Name) := Id.run do
+    Option (Array Name) :=
   let targetModule := env.getModuleIdxFor? target
   let importers := targetModule.bind fun index =>
     env.header.moduleNames[(index : Nat)]?.map (importersOf env)
@@ -2153,34 +2196,9 @@ private def mentionChain? (env : Environment) (target : Name) (e : Expr) :
       | none, _ => false
       | some _, some aware => aware[(index : Nat)]?.getD true
       | some _, none => true
-  -- Each reached constant with the constant that mentions it; `.anonymous` for one `e` mentions.
-  let mut mentionedBy : NameMap Name := {}
-  let mut pending : Array Name := #[]
-  for name in e.getUsedConstants do
-    unless mentionedBy.contains name do
-      mentionedBy := mentionedBy.insert name .anonymous
-      pending := pending.push name
-  while !pending.isEmpty do
-    let name := pending.back!
-    pending := pending.pop
-    if name == target then
-      let mut chain := #[name]
-      let mut current := name
-      for _ in [:mentionedBy.size] do
-        match mentionedBy.find? current with
-        | some source =>
-          if source.isAnonymous then break
-          chain := chain.push source
-          current := source
-        | none => break
-      return some chain.reverse
-    unless canMention name do continue
-    if let some info := env.find? name then
-      for next in statusReferences info do
-        unless mentionedBy.contains next do
-          mentionedBy := mentionedBy.insert next name
-          pending := pending.push next
-  return none
+  let lookup (name : Name) : Option (Array Name) :=
+    if canMention name then (env.find? name).map statusReferences else none
+  mentionRoute? lookup e.getUsedConstants #[target]
 
 /-- The structure, the position of the field and the number of the structure's parameters when
 `value`, under `binders` binders already opened, is a field's projection function: one binder

@@ -592,7 +592,7 @@ the call through each success owner.
 | [RG1004] | The above plus `authorizedNativeAxioms_iff`, `native_generated`, `native_provenance`, `compilerTrustingAxiomName_iff`. For the statement that the replay reads: `NativeStatement.asserted?_sound`, `NativeStatement.asserted?_complete` and the kind `NativeStatement.checked_recognize` ([below](#the-native-axiom-statement-decision-and-observing-pass)). | Transcript and replay truth; authorization permits teaching only. The replay evaluates compiled code, and its result is an observation. The recorded text of a statement is not proved to identify its expression. The [deliberate changes](#changes-to-leans-environment-compiler-or-build) to Lean's environment, compiler or build are trusted boundaries. |
 | [RG1005] | `foundationFor_least`, `leastFoundation_ext`, `policyFor_conforming_iff` | The least containing profile of the observed axioms, not the least possible axioms for the proposition. The [deliberate changes](#changes-to-leans-environment-compiler-or-build) to Lean's environment, compiler or build are trusted boundaries. |
 | [RG1006] | The helper authorization `_iff` theorems, `Roles.safetyHelpers_iff`, `policyFor_conforming_iff`, `subject_contract`, `partialParent_rule`; for the comparison that records a recursion helper's observation, `Erasure.equalWithin_iff`, `Erasure.reproduces_iff` and the kind `Erasure.checked_reproduces` ([below](#the-recursion-helper-comparison-decision-and-observing-pass)) | Exact helper metadata, the relevant recorded recursion-helper or constructor-index observation and the base's axioms are checked. A `partial def`'s helper always has a finding naming its opaque parent when that parent is in the inventory. A recursion helper's observation is recorded only where Lean's kernel checked, at that audit, the base's recursion equation for each helper of the group (`Collect.recursionEquationChecked`); that check is the collector's, not a theorem of the policy. The collector observations, the step from the recursion equation to the values the helper returns, compiled-code correspondence and execution coverage are not proved. A recursion helper's termination still trusts Lean's well-founded preprocessing (standard §7.4); a constructor wrapper's native object-tag correspondence remains trusted. |
-| [RG1007] | `ContractOK` through `ruleFor`; `DecisionKind.ofStructureName?_eq_some_iff` (a head constant is read as a decision kind exactly when it is that kind's structure); `DecidedFunction.covers_iff` with `FieldPacking.covers_iff` (a decided function of a form that is read is accepted exactly when the kind's result type has no leading binder and, for a field application, the type has one constructor and no index and the arguments are its fields, each once and in order), with `Regula.Decides.of_packing` and its one-way forms (a kind on a packing that reaches every tuple of arguments is the kind of the function) and `Regula.Decides.iff_slice` (a kind with an argument left whose acceptance predicate reads the result at one fixed value of that argument is the kind of one slice) | Recorded contract failures are enforced; Probe's extraction of the proposition and root, the reduction that exposes a requirement's head constant, the reading of the decided function as the implementation on its arguments, on every field of one structure or on a product (`Function.uncurry`), or with its result erased (`Regula.Dependent.isSome`, `isOk`), the reading of each field from the kernel-checked definition of its projection and of the constructor and index counts from the kernel-checked inductive type, and of the number of leading binders of the kind's result type, which give `DecidedFunction.covers` its input, the two steps from those numbers to "every tuple of arguments is the fields of a value" and "no argument is left", which are argued and not machine-checked ([below](#decision-kinds-of-regulas-own-decisions)), the reading of the universe levels, the search that finds a mention of the implementation in a decision's acceptance predicate or specification, proof admission and adequacy are not proved by this relation. |
+| [RG1007] | `ContractOK` through `ruleFor`; `DecisionKind.ofStructureName?_eq_some_iff` (a head constant is read as a decision kind exactly when it is that kind's structure); `DecidedFunction.covers_iff` with `FieldPacking.covers_iff` (a decided function of a form that is read is accepted exactly when the kind's result type has no leading binder and, for a field application, the type has one constructor and no index and the arguments are its fields, each once and in order), with `Regula.Decides.of_packing` and its one-way forms (a kind on a packing that reaches every tuple of arguments is the kind of the function) and `Regula.Decides.iff_slice` (a kind with an argument left whose acceptance predicate reads the result at one fixed value of that argument is the kind of one slice). For the searches that guard each reduction and find a mention of the implementation: `MentionSearch.search_sound`, `search_complete` and the kind `MentionSearch.checked_search`. | Recorded contract failures are enforced; Probe's extraction of the proposition and root, the reduction that exposes a requirement's head constant, the reading of the decided function as the implementation on its arguments, on every field of one structure or on a product (`Function.uncurry`), or with its result erased (`Regula.Dependent.isSome`, `isOk`), the reading of each field from the kernel-checked definition of its projection and of the constructor and index counts from the kernel-checked inductive type, and of the number of leading binders of the kind's result type, which give `DecidedFunction.covers` its input, the two steps from those numbers to "every tuple of arguments is the fields of a value" and "no argument is left", which are argued and not machine-checked ([below](#decision-kinds-of-regulas-own-decisions)), the reading of the universe levels, what each record of the searches lists, that a constant with no record leads to no target, proof admission and adequacy are not proved by this relation. |
 | [RG1008] | `policyFor_decisionContract_iff`, `Roles.decided_iff`, `policyFor_ordered` through `ruleFor`; `decisionFailure_none_iff` for the self-audit's direct use; `editor_decision_ne_decisionContract` (the editor never renders it) | A registered decision without a `Decidable` result or an accepted decision contract in its inventory is reported, among the declarations that meet their other requirements. Reading the registrations of every loaded module and the result type by reduction (`Regula.decisionRegistrations`, `Collect.decisionResult?`, `returnsDecidable`) is the collector's, and so are each recorded contract and the refusal of a registration that names a declaration outside the inventory (`Collect.ownedDecisionRegistrations`). A result type the reduction does not unfold to `Decidable _` counts as another form, which fails closed. Which functions are registered, and each specification's adequacy, are review. |
 | [RG1009] | `sharedTestFailure_none_iff` with the kind `checked_sharedTestFailure`, `declarationFailure_ordered` through `ruleFor`, and `mem_sharedNames_booleans` with `SharedDefinition.class_eq_boolean_iff` for the recorded names | A decision registration is reported when its record names a shared function with a result of `Bool` or `BEq`. Its place is after the recorded refusals of its contract. The search that finds the shared functions and the reading of each one (`Collect.sharedReading`, `Collect.sharedDefinition`) are the collector's and are not proved. The search compares names. A copy of a test under a second name passes. A shared function with a different result type is named in the account and is not refused. A file with a `module` header gives the editor an imported function with no exported value as an axiom. The editor reads its class from its type. It reports a reading that could miss a test below such a function as incomplete ([RG2005]). |
 | [RG2004] | `policyFor_ordered` (membership first), `CensusOK`, `PlanOK` | Complete Lake and environment ownership acquisition. |
@@ -769,6 +769,7 @@ Two-way decisions (`Regula.Decides`), each with an accepted and a refused input:
 | `Regula.Checker.Documentation.scanLines`, `scanVersoLines` (accept on a result with no violation) | `Clean`, `VersoClean`: the lines are a run of transitions from the first line to the end of the document. The fence protocol permits each transition, and each keeps the shape rule (`scanLines_problems_eq_empty_iff`, `scanVersoLines_problems_eq_empty_iff`). | The fence protocol and the shape rule of [RG4001] ([below](#the-fence-scanners-decisions-and-observing-pass)). The input is a `Source`: a document with the lines of its text. The kinds say nothing about the fences of a result. |
 | `Regula.Checker.Admission.checkHeader` (accepts on `.ok ()`) | `HeaderOK` (`checkHeader_eq_ok_iff`). Each replayed or reported module lists its constants under their own names. No module of the replay base imports a replayed module. | The decision on the header of [RG2005] ([below](#receipt-validation-decisions-and-observing-pass)). |
 | `RegulaPolicy.ExecutionWalk.walk` (accepts on `.ok`) | `Recorded` (`walk_ok`, `walk_complete`, `walk_recorded`). Each name that the edges of the records reach from the root has a record. | The walk of an execution root of [RG3001] and [RG3002] ([below](#root-and-closure-discovery-decision-and-observing-pass)). The visits are exactly the reached names (`walk_sound`, `walk_complete`). |
+| `RegulaPolicy.MentionSearch.search` (accepts on a route) | `Found` (`found_of_search`, `search_complete`). A constant that the term mentions leads to a target through the records. | Contract recognition and reach of [RG1007] ([below](#contract-recognition-and-reach-decision-and-observing-pass)). A returned route follows the records (`search_sound`). |
 | `Regula.SourceTexts.intern` | One `sourceTexts` member, `null`, and string `sourceText` members (`intern_isOk_iff`) | Writing a result document. |
 | `Regula.Markdown.documentErrors`, `Regula.Markdown.siteLinkErrors`, `Regula.Prose.bareMentions`, `Regula.Site.linkErrors`, `Regula.Site.missingAnchors`, `Regula.Site.rowsMismatch` | Their `_nil_iff` and `_eq_none_iff` relations | The rule-ID checks of Markdown and of the rendered standard, and the site's link, anchor and checklist checks. `siteLinkErrors` is the check of the links of the root `README.md` to the rule-reference site. |
 | `Regula.Controlled.parse` | The text is the text that `write` gives for a vocabulary (`parse_write`, `write_of_parse`). A vocabulary is a draft with `Draft.WellFormed` (`Draft.defects_nil_iff`). | The vocabulary `CONTEXT.md` (check C9) of the [writing rules](writing.md). The file system gives the text. |
@@ -831,7 +832,7 @@ Decisions with no kind, and what stands instead:
 ### Decisions not registered with `regula_decision`
 
 Every decision of the three tables with a kind is registered with `@[regula_decision]`, so
-[RG1008] requires its contract: 55 functions of `RegulaPolicy`, 28 of `RegulaCore`, 9 of
+[RG1008] requires its contract: 56 functions of `RegulaPolicy`, 28 of `RegulaCore`, 9 of
 `RegulaQualification`, 3 of `AuditApp`, 8 of `RegulaProvision`, 6 of `RegulaVerification` and
 23 of the excluded `Regula` library, where the `self-audit` diagnostic decides the rule. Sixteen
 of them are registered from another module of their library, with
@@ -1609,11 +1610,85 @@ A comparison read the reports of the fixtures and of the claimed libraries `Regu
 `RegulaCore`, before and after the split. Only the list of modules was different. This is an
 observation for those environments only.
 
-### The producers that are not split
+### Contract recognition and reach: decision and observing pass
 
-The other producer of [#199](https://github.com/rbeauchamp/regula/issues/199) is not split and has
-no kind: contract recognition and reach. The sections below state what is proved and what is
-observed for it.
+[RG1007] reads the `ExecutableContract` registration of a declaration
+(`Collect.executableContract?`). There, the collector asks three questions of one form. Each
+question is an observing pass and one pure decision with a kind.
+
+- **The questions.** Before the collector reduces a declared type, `ContractScope.mayReach` asks if
+  `Regula.ExecutableContract` can be among the constants of the reduction. Before the collector
+  reduces the requirement of a registration, `ContractScope.mayReachDecision` asks the same about the
+  structures of the three decision kinds. For a decision registration, `mentionChain?` asks if the
+  acceptance predicate or the specification mentions the implementation, and through which
+  constants.
+- **The observing pass** is `Collect.mentionRecords`. It takes the constants in the order of a
+  stack. The constants of the term go on the stack first, and no constant goes on the stack two
+  times. For each constant that the pass takes before a target, it gives a record of the constants
+  that the constant mentions (`MentionSearch.References`). A constant that the question does not
+  expand has no record.
+- **The decision** is `MentionSearch.search`. Its argument, `MentionSearch.SearchRequest`, holds
+  the records, the constants of the term and the targets. It returns the route to the first target
+  that it takes from the stack, or `none`. The stack holds each route in reverse order and shares
+  the route of the constant that pushed it. `checked_search` registers the kind `Regula.Decides`
+  against `MentionSearch.Found`: a constant of the term leads to a target through the records.
+
+Each question gives the constants that a record lists, and the constants that have no record:
+
+| Question | A record lists | No record |
+| --- | --- | --- |
+| `mayReach`, `mayReachDecision` | The constants of the type, of the value and of the constructors or the recursor rules (`unfoldReferences`). | A constant of a module that does not import `Regula.Contract`. A constant of the memo of the same targets. A constant that the environment does not have. |
+| `mentionChain?` | The constants of the type, and of the value of a definition. The constructors of an inductive type, and the constructors and the constants of the rules of a recursor (`statusReferences`). | A constant of a module that does not import the module of the implementation. A constant that the environment does not have. |
+
+The type of a record is indexed by its constant (`References name`), so the map of records holds a
+record only under its own constant. The pass takes the constants in the order of the decision.
+Thus the decision takes the same constants and returns at the same target. If the pass finds no
+target, it read each constant that the search reaches. A guard that finds no target adds each
+constant with a record to the memo of its targets.
+
+**Proved**, about the function that the three questions run. It is in the claimed library
+`RegulaPolicy` (`RegulaPolicy.MentionSearch`), so acceptance admits each theorem with Lean's kernel
+and reports its axioms: `propext`, `Classical.choice` and `Quot.sound`.
+
+| Property | Declarations | Meaning and limit |
+| --- | --- | --- |
+| A route follows the records | `MentionSearch.search_sound` | A returned route starts at a constant of the term and stops at a target. Each constant before the target has a record that lists the next constant (`Route`). |
+| No route is lost | `MentionSearch.search_complete` | The search returns a route when a constant of the term leads to a target (`Leads`). The bound of the steps is one more than the number of constants that the term and all records list. |
+| The decision is exact | `MentionSearch.checked_search` | `search` returns a route exactly when `Found` is true. It accepts a term that mentions a target, and it refuses a term that mentions no constant. |
+
+**Hypotheses and trusted boundary.** The theorems start from the records. They do not prove these
+items:
+
+- That a record lists what the environment holds for its constant. The type binds a record to its
+  constant, but not to the pass. The pass reads the environment, and that step is read from the
+  code.
+- That a constant with no record leads to no target in the environment. For a constant of a
+  module that does not import the module of a target, Lean's imports give this (`importersOf`). A
+  constant of the memo had no route in an earlier search of the same targets. A constant that the
+  environment does not have mentions no constant there.
+- That the reduction of a type adds only constants to which the constants of the type lead. This
+  is the argument of `ContractScope.mayReach`, read from Lean's reduction.
+- That the route in a message is the shortest route. It is the first route that the search takes.
+
+**The other parts of recognition have no new decision.** The eligibility of a registration is a
+conjunction of facts that Lean gives. The type is closed, and the implementation is a named
+constant. The implementation is computable, safe and not `partial`, and it is not a proposition
+and not a type. A kind on that conjunction would state the expression of the function as its
+specification. The reading of a kind and of the decided function already has its decisions,
+`DecisionKind.ofStructureName?` and `DecidedFunction.covers`.
+
+**The verdicts are the same.** No theorem compares the searches before this split with the
+searches after it. `mentionChain?` takes the constants in the same order as before, so it gives the
+same route. The guards marked a constant when they took it from the stack, and now they mark it
+when it goes on the stack. That changes which constants a guard reads before a target, but not if
+it finds one. Before this split, the memo also held the constants that the environment does not
+have, which lead to no target.
+
+### Open obligations of the split producers
+
+Each producer that [#199](https://github.com/rbeauchamp/regula/issues/199) lists is now an
+observing pass and pure decisions with kinds. The sections above state what is proved and what is
+observed for each of them.
 
 These proof obligations of the producers that are split are open:
 
@@ -2056,8 +2131,9 @@ which generates no wrapper, it checks only that the observer finds none.
 `Collect.declaration` reduces a declared type only when the reduction could produce
 `Regula.ExecutableContract` (`ContractScope.mayReach`). That holds when the contract type is among
 the type's constants, closed under unfolding, and only modules that import `Regula.Contract`
-contribute constants. It reduces a registration's requirement, to read its
-decision kind from the head constant, under the same condition for the three kinds
+contribute constants. The search is the decision `MentionSearch.search`
+([above](#contract-recognition-and-reach-decision-and-observing-pass)). It reduces a registration's
+requirement, to read its decision kind from the head constant, under the same condition for the three kinds
 (`ContractScope.mayReachDecision`), so a registration whose requirement cannot reach a kind is
 recorded as before, without that reduction. For a recursion helper it reruns Lean's own recursion compiler on the
 helper's group (structural recursion with Lean's automatic choice, then on the argument position
