@@ -111,6 +111,22 @@ private def declarationText (id : RuleId) (name : Name) (detail : String) (modul
     .incrementalProject (some claim)
   return finding.text
 
+/-- One declaration for which Lean's `collectAxioms` omits axioms that it reaches in the replayed
+kernel, by its module and name, with the two sets and where each omission comes from
+(`RegulaPolicy.tableOmissionText`). -/
+structure OmissionReport where
+  /-- The module that owns the declaration. -/
+  «module» : String
+  /-- The declaration. -/
+  declaration : String
+  /-- The two axiom sets and the origin of each omission. -/
+  detail : String
+  deriving ToJson, FromJson, DecidableEq, Repr
+
+/-- The text of an omission report: the declaration, its module and the detail. -/
+def OmissionReport.text (r : OmissionReport) : String :=
+  s!"{r.declaration} ({r.module}): {r.detail}"
+
 /-- One module's region-free verdict, transported from its worker process as JSON. -/
 structure ModuleResult where
   /-- The audited module's name. -/
@@ -125,20 +141,21 @@ structure ModuleResult where
   declarations that `RegulaPolicy.operationalFailure` or, where that passes,
   `RegulaPolicy.decisionFailure` rejects. -/
   violations : Array String
-  /-- Declarations that are `unsafe` or `partial` and have no unsafe-recursion base, reported
-  rather than failed. -/
+  /-- Declarations that are `unsafe` or `partial` and have no unsafe-recursion base, each with its
+  module, reported rather than failed. -/
   unsafeDeclarations : Array String
-  /-- The opaque bases of the module's `partial def`s, reported rather than failed. -/
+  /-- The opaque bases of the module's `partial def`s, each with its module, reported rather than
+  failed. -/
   partialDefinitions : Array String
   /-- The admitted axioms, outside Standard-Logical, that a toolchain `Lake` module declares. -/
   toolchainAxioms : Array String
-  /-- Non-proposition declarations whose axioms include one of those toolchain axioms. -/
+  /-- Non-proposition declarations whose axioms include one of those toolchain axioms, each with
+  its module. -/
   toolchainDependents : Array String
-  /-- Each declaration for which Lean's `collectAxioms` omits axioms it reaches in the replayed
-  kernel, with the two sets and where each omission comes from
-  (`RegulaPolicy.tableOmissionText`), reported rather than failed. -/
-  tableOmissions : Array String
-  deriving ToJson, FromJson
+  /-- Each declaration of the module for which Lean's `collectAxioms` omits axioms it reaches in
+  the replayed kernel, reported rather than failed. -/
+  tableOmissions : Array OmissionReport
+  deriving ToJson, FromJson, DecidableEq, Repr
 
 /-- Decide one module's observations with the axioms its own environment attributes to the
 toolchain; every retained value is a freshly rendered string. -/
@@ -152,6 +169,8 @@ private def decide (o : ModuleObservation) : Except String ModuleResult := do
     if let some failure := failure? then
       violations := violations.push (← declarationText
         (ruleForMaterialDocumentation failure) name (materialDocumentationDetail failure) o.module)
+  -- A name is reported with its module: two modules, each audited alone, can declare one name.
+  let inModule (name : Name) : String := s!"{name} ({o.module})"
   let mut unsafeDeclarations := #[]
   let mut partialDefinitions := #[]
   let mut dependents := #[]
@@ -163,14 +182,14 @@ private def decide (o : ModuleObservation) : Except String ModuleResult := do
     if d.executableContract.isSome then contracts := contracts + 1
     match d.unsafeRecBase with
     | none => if d.isUnsafe || d.isPartial then unsafeDeclarations :=
-                                                 unsafeDeclarations.push d.name.toString
+                                                 unsafeDeclarations.push (inModule d.name)
     | some base =>
       -- A `partial def` compiles to an opaque base implemented by this helper; safe
       -- structural or well-founded recursion keeps a definition base.
       if o.declarations.any (fun r => r.name == base && r.kind == .«opaque») then
-        partialDefinitions := partialDefinitions.push base.toString
+        partialDefinitions := partialDefinitions.push (inModule base)
     if !d.isProp && d.axioms.any toolchain.names.contains then
-      dependents := dependents.push d.name.toString
+      dependents := dependents.push (inModule d.name)
     if let some failure := (checked_operationalFailure.run toolchain d).or
         (checked_decisionFailure.run d decided) then
       let id := ruleForFailure failure
@@ -180,11 +199,34 @@ private def decide (o : ModuleObservation) : Except String ModuleResult := do
       violations := violations.push (← declarationText id d.name detail o.module)
   let omissions := o.declarations.filterMap fun d =>
     if d.tableOmissions.isEmpty then none
-    else some s!"{d.name}: {tableOmissionText d.axioms d.tableOmissions}"
+    else some { «module» := o.module.toString, declaration := d.name.toString
+                detail := tableOmissionText d.axioms d.tableOmissions }
   return ⟨o.module.toString, o.declarations.size, o.admitted, contracts, violations,
       unsafeDeclarations,
     partialDefinitions,
     toolchain.names.map toString, dependents, omissions⟩
+
+/-- The omission reports of all module results, each kept: no report is merged with another,
+so two modules that declare one name keep a report each. Each module has one result, and a
+result reports only declarations of its own module. -/
+def omissionReports (results : Array ModuleResult) : Array OmissionReport :=
+  results.flatMap (·.tableOmissions)
+
+/-- A report is kept exactly when some module result holds it. -/
+theorem mem_omissionReports {results : Array ModuleResult} {r : OmissionReport} :
+    r ∈ omissionReports results ↔ ∃ m ∈ results, r ∈ m.tableOmissions := by
+  simp [omissionReports, Array.mem_flatMap]
+
+/-- The result of a module `moduleName` with one omission report of the declaration `f`. -/
+private def omissionControl (moduleName : String) : ModuleResult :=
+  ⟨moduleName, 1, 1, 0, #[], #[], #[], #[], #[],
+    #[{ «module» := moduleName, declaration := "f", detail := "collectAxioms []" }]⟩
+
+/-- Control: two modules that each declare `f` with the same omission keep two reports, one for
+each module. -/
+theorem omissionReports_twoModules :
+    (omissionReports #[omissionControl "A", omissionControl "B"]).map (·.module) =
+      #["A", "B"] := by decide +kernel
 
 /-- Worker: observe and decide exactly one module, printing only its JSON result. -/
 unsafe def worker (moduleName source : String) : IO Unit := do
@@ -238,9 +280,10 @@ def check (jobs : Nat := 4) : IO Unit := do
     definition(s): {partialDefinitions.toList}"
   IO.println s!"reported, not failed: {dependents.size} definition(s) reach toolchain Lake \
     axiom(s) {(union (·.toolchainAxioms)).toList}: {dependents.toList}"
-  let omissions := union (·.tableOmissions)
+  let omissions := omissionReports results
   IO.println s!"reported, not failed: {omissions.size} declaration(s) for which Lean's \
-    collectAxioms omits axioms they reach in the replayed kernel: {omissions.toList}"
+    collectAxioms omits axioms they reach in the replayed kernel: \
+    {(omissions.map (·.text)).toList}"
   IO.println "trusted, not verified: Lean import and kernel replay, the collector's observations, \
     the toolchain artifact paths, worker processes and JSON transport, and every execution path \
     (the library's executables make no execution claim)"
