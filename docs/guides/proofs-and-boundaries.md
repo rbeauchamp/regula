@@ -794,15 +794,15 @@ Which report states a kind depends on the library that holds the registration:
   registrations are contracts of the accepted inventory, so an accepted account of Regula states
   the kind of each and, for a one-way kind, the direction it leaves open.
 - **The excluded `Regula` library.** Acceptance does not report its declarations, so no report
-  states the kind of its twenty-four registrations, named here with their modules: `checked_same`
+  states the kind of its twenty-five registrations, named here with their modules: `checked_same`
   and `checked_read` (`Regula.SharedExecution`), `checked_intern` and `checked_expand`
   (`Regula.SourceTexts`), `checked_agrees` and `checked_canonical` (`Regula.JsonAgreement`),
   `checked_parseLocation` and `checked_parseDiagnostic` (`Regula.DiagnosticCodec`),
   `checked_exactFields` (`Regula.Checker.PolicyCodec`), `checked_scanLines` and
   `checked_scanVersoLines` (`Regula.Checker.FenceScan`), `checked_parseMode` and `checked_parseRule`
   (`Regula.RegistryCodec`), `checked_parseName` and `checked_parsePrintedNameJson`
-  (`Regula.StructuralName`), `checked_checkCopies`, `checked_checkHeader` and
-  `checked_admitReplay` (`Regula.Checker.Admission`),
+  (`Regula.StructuralName`), `checked_checkCopies`, `checked_checkHeader`,
+  `checked_admitReplay` and `checked_checkTable` (`Regula.Checker.Admission`),
   `checked_parseValue` (`Regula.Checker.Manifest`), `checked_auditMarkerNeeded`
   (`Regula.Checker.Lake`), `checked_validate`
   (`Regula.Checker.ProducerReport`), and `checked_admitExampleRequest`,
@@ -914,7 +914,7 @@ Decisions with no kind, and what stands instead:
 Every decision of the three tables with a kind is registered with `@[regula_decision]`, so
 [RG1008] requires its contract: 56 functions of `RegulaPolicy`, 28 of `RegulaCore`, 9 of
 `RegulaQualification`, 3 of `AuditApp`, 8 of `RegulaProvision`, 6 of `RegulaVerification` and
-24 of the excluded `Regula` library, where the `self-audit` diagnostic decides the rule. Sixteen
+25 of the excluded `Regula` library, where the `self-audit` diagnostic decides the rule. Sixteen
 of them are registered from another module of their library, with
 `attribute [regula_decision]` beside their contracts, because the module that declares them
 imports only the toolchain:
