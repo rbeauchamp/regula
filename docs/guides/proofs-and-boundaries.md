@@ -1686,8 +1686,9 @@ inferred from any pure proof.
   constants the start uses, along `Admission.successors`); `Admission.checkProof_ok`; and
   `Admission.checkCopies_sound` (a success gives every copy the `Admission.CopyAdmitted`
   conditions above, stated with the reachability relation `Admission.Reach`), and
-  `Admission.admitReplay_eq_ok` (a receipt has each copy admitted and each required key in the
-  replayed kernel, [above](#receipt-validation-decisions-and-observing-pass)). **Argued, not
+  `Admission.admitReplay_eq_ok` (a receipt has each copy admitted and a constant of the replayed
+  kernel under the name of each required key,
+  [above](#receipt-validation-decisions-and-observing-pass)). **Argued, not
   machine-checked:** `validate` gives these checks the replayed module data, the base's and the
   audited environment's `find?` and the replayed kernel, read from the code
   (`Admission.mem_offers` proves that no offered admission lists a `shared` module). Every cycle
