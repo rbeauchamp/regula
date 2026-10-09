@@ -1168,8 +1168,8 @@ fresh name, where its own name still denotes the held constant. The search of
 `KernelAxioms.reachSet` computes every name its proof reaches, through the types and values of the
 constants it uses, so admission can refuse a proof that reaches its own name (a circular proof) or
 axioms other than the held constant's. The axioms reported for a declaration are those it reaches
-in the replayed kernel (`replayedAxioms`), so replayed copies with the held constant's axioms make
-that report right whichever of them a declaration used. -/
+in the replayed kernel (`walkFind`, `KernelAxioms.axiomTable`), so replayed copies with the held
+constant's axioms make that report right whichever of them a declaration used. -/
 
 /-- The names of `seen` that `find` holds as axioms and `bound` lacks. -/
 def extraAxioms (find : Name → Option ConstantInfo) (seen bound : Std.HashSet Name) : List Name :=
@@ -1970,11 +1970,11 @@ theorem checkTable_eq_ok_iff (entries : Array (Name × Array Name × Array Name)
   refine forall₂_congr fun entry _ => ?_
   obtain ⟨name, lean, replayed⟩ := entry
   by_cases h : lean.all replayed.contains = true
-  · simp only [h, ↓reduceIte, true_iff]
-    intro a ha
+  · simp only [h, ↓reduceIte]
+    refine iff_of_true rfl fun a ha => ?_
     exact Array.contains_iff_mem.mp ((Array.all_eq_true'.mp h) a ha)
-  · simp only [h, Bool.false_eq_true, ↓reduceIte, reduceCtorEq, false_iff]
-    intro within
+  · simp only [h, Bool.false_eq_true, ↓reduceIte]
+    refine iff_of_false (fun hthrow => nomatch hthrow) fun within => ?_
     exact h (Array.all_eq_true'.mpr fun a ha => Array.contains_iff_mem.mpr (within a ha))
 
 /-- `checkTable` is a sound and complete decision of `TableWithin` (`checkTable_eq_ok_iff`). It
