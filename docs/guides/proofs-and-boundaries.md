@@ -3577,7 +3577,8 @@ No step of that page checks the changes to compiled code. These are a compiler p
 write that stores a compiled body that Lean's compiler did not make and a native build setting. An
 `_unsafe_rec` companion that [RG1006] does not inspect is also such a change. Thus these changes
 stay trusted boundaries of the execution account of [RG3001] and [RG3002] and of the native replay
-of [RG1004]. To check a proof from a source that you do not trust, use [comparator](https://github.com/leanprover/comparator).
+of [RG1004]. To check a proof from a source that you do not trust, use
+[comparator](https://github.com/leanprover/comparator).
 
 ## Operational assumptions
 
