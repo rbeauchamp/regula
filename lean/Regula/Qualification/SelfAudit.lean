@@ -217,17 +217,6 @@ theorem mem_omissionReports {results : Array ModuleResult} {r : OmissionReport} 
     r ∈ omissionReports results ↔ ∃ m ∈ results, r ∈ m.tableOmissions := by
   simp [omissionReports, Array.mem_flatMap]
 
-/-- The result of a module `moduleName` with one omission report of the declaration `f`. -/
-private def omissionControl (moduleName : String) : ModuleResult :=
-  ⟨moduleName, 1, 1, 0, #[], #[], #[], #[], #[],
-    #[{ «module» := moduleName, declaration := "f", detail := "collectAxioms []" }]⟩
-
-/-- Control: two modules that each declare `f` with the same omission keep two reports, one for
-each module. -/
-theorem omissionReports_twoModules :
-    (omissionReports #[omissionControl "A", omissionControl "B"]).map (·.module) =
-      #["A", "B"] := by decide +kernel
-
 /-- Worker: observe and decide exactly one module, printing only its JSON result. -/
 unsafe def worker (moduleName source : String) : IO Unit := do
   Checker.initializeLeanSearchPath

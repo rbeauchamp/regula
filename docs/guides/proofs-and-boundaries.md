@@ -1826,9 +1826,9 @@ inferred from any pure proof.
 
   An axiom that the search found and that `collectAxioms` does not give is reported, not failed.
   The record of the declaration has it in `tableOmissions`, with `via`, the constant that the
-  omission was passed on from. That constant is the first one that the declaration uses, reaches
-  the axiom and has it omitted too, as `Admission.passedOn` finds it. Without such a constant, the
-  table entry of the declaration itself omits the axiom. A project audit gives the number of these
+  omission was passed on from. That constant is the first one, other than the declaration itself,
+  that the declaration uses, reaches the axiom and has it omitted too, as `Admission.passedOn`
+  finds it. Without such a constant, the table entry of the declaration itself omits the axiom. A project audit gives the number of these
   declarations in the line `axiom tables:`, and the `--verbose` line of each declaration gives the
   two sets. The self-audit lists each of them.
 

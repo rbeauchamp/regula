@@ -1989,36 +1989,34 @@ theorem checked_checkTable : Regula.ExecutableContract checkTable
       simp at this⟩⟩
 
 /-- The constant an omission of the axiom `a` was passed on from: the first constant of `after`,
-the constants a declaration uses, that reaches `a` (`reaches c a`) and for which Lean's
-`collectAxioms` omits `a` too (`lean c`). `none` when `after` names no such constant: the table
-entry of the declaration itself omits `a`. -/
-def passedOn (after : Array Name) (reaches : Name → Name → Bool) (lean : Name → Array Name)
-    (a : Name) : Option Name :=
-  after.find? fun c => reaches c a && !(lean c).contains a
+the constants the declaration `root` uses, other than `root` itself, that reaches `a`
+(`reaches c a`) and for which Lean's `collectAxioms` omits `a` too (`lean c`). `none` when `after`
+names no such constant: the table entry of the declaration itself omits `a`. -/
+def passedOn (root : Name) (after : Array Name) (reaches : Name → Name → Bool)
+    (lean : Name → Array Name) (a : Name) : Option Name :=
+  after.find? fun c => c != root && reaches c a && !(lean c).contains a
 
-/-- The constant `passedOn` names is one of `after` that reaches the axiom and for which `lean`
-omits it. -/
-theorem passedOn_some {after : Array Name} {reaches : Name → Name → Bool}
-    {lean : Name → Array Name} {a c : Name} (h : passedOn after reaches lean a = some c) :
-    c ∈ after ∧ reaches c a = true ∧ a ∉ lean c := by
+/-- The constant `passedOn` names is one of `after` other than the declaration itself that
+reaches the axiom and for which `lean` omits it. -/
+theorem passedOn_some {root : Name} {after : Array Name} {reaches : Name → Name → Bool}
+    {lean : Name → Array Name} {a c : Name} (h : passedOn root after reaches lean a = some c) :
+    c ∈ after ∧ c ≠ root ∧ reaches c a = true ∧ a ∉ lean c := by
   unfold passedOn at h
   have hp := Array.find?_some h
-  simp only [Bool.and_eq_true, Bool.not_eq_eq_eq_not, Bool.not_true] at hp
-  refine ⟨Array.mem_of_find?_eq_some h, hp.1, fun hm => ?_⟩
+  simp only [Bool.and_eq_true, bne_iff_ne, Bool.not_eq_eq_eq_not, Bool.not_true] at hp
+  refine ⟨Array.mem_of_find?_eq_some h, hp.1.1, hp.1.2, fun hm => ?_⟩
   have hc : (lean c).contains a = true := Array.contains_iff_mem.mpr hm
   rw [hp.2] at hc
   exact Bool.false_ne_true hc
 
 /-- `passedOn` names no constant only when `lean` reports the axiom for each constant of `after`
-that reaches it. -/
-theorem passedOn_none {after : Array Name} {reaches : Name → Name → Bool}
-    {lean : Name → Array Name} {a : Name} (h : passedOn after reaches lean a = none) :
-    ∀ c ∈ after, reaches c a = true → a ∈ lean c := by
+other than the declaration itself that reaches it. -/
+theorem passedOn_none {root : Name} {after : Array Name} {reaches : Name → Name → Bool}
+    {lean : Name → Array Name} {a : Name} (h : passedOn root after reaches lean a = none) :
+    ∀ c ∈ after, c ≠ root → reaches c a = true → a ∈ lean c := by
   unfold passedOn at h
-  intro c hc hr
-  have := Array.find?_eq_none.mp h c hc
-  simp only [hr, Bool.true_and, Bool.not_eq_eq_eq_not, Bool.not_true, Bool.not_eq_false] at this
-  exact Array.contains_iff_mem.mp this
+  intro c hc hne hr
+  simpa [bne_iff_ne.mpr hne, hr] using Array.find?_eq_none.mp h c hc
 
 /-- A completed kernel admission: its receipt, and what it computed in the replayed kernel, as the
 audited environment names it (`Collect.Replayed`): the axioms each name of the owned declarations'
@@ -2105,7 +2103,7 @@ unsafe def validate (env : Environment) (ownedModules : Array Name) (reused : Ar
           unless omitted.isEmpty do
             let reaches (c a : Name) : Bool := (table[c]?).any (·.contains a)
             let recorded ← omitted.mapM fun a => do
-              let via ← (passedOn (successors walk root) reaches (leanAxioms env) a).mapM
+              let via ← (passedOn root (successors walk root) reaches (leanAxioms env) a).mapM
                 fun c => do
                   let c ← own c
                   let some index := env.getModuleIdxFor? c

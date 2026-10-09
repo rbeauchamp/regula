@@ -1367,10 +1367,10 @@ does not report for it, with where the omission comes from. -/
 structure TableOmission where
   /-- The axiom. -/
   «axiom» : Lean.Name
-  /-- The first constant the declaration uses that reaches the axiom and for which
-  `collectAxioms` omits it too, with that constant's module: the table entry the omission was
-  passed on from. `none` when the declaration uses no such constant: the table entry of the
-  declaration itself omits the axiom. -/
+  /-- The first constant other than the declaration itself that the declaration uses, that
+  reaches the axiom and for which `collectAxioms` omits it too, with that constant's module: the
+  table entry the omission was passed on from. `none` when the declaration uses no such constant:
+  the table entry of the declaration itself omits the axiom. -/
   via : Option (Lean.Name × Lean.Name)
   deriving Repr, DecidableEq
 
