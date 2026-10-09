@@ -797,22 +797,21 @@ def configDeclaration (names : NameSet) (constant : ConstantInfo) : ConfigDeclar
   | _ => .other
 
 /-- The entries of the `inline` attributes (`Lean.Compiler.inlineAttrs`) of the compiled
-configuration file at `compiled`, each declaration with its kind, read through Lean's typed
-attribute API from an environment that imports the file as the module `lakefile` from its
-directory. The search path is restored afterwards. -/
-def inlineEntries (compiled : FilePath) :
+configuration file whose module data is `config`, each declaration with its kind, read through
+Lean's typed attribute API. As Lake's `importConfigFileCore` applies a configuration file's entries
+of Lake's extensions, the file's entries of the attribute's extension, whose exported and added
+entries have one type, are added to `imported`, the environment of the file's imports, and read
+back as the extension's state, which starts empty in an imported environment. Importing the file
+itself would load its imports again, and the process would keep that data until it exits. -/
+def inlineEntries (imported : Environment) (config : ModuleData) :
     IO (Array (Name × Lean.Compiler.InlineAttributeKind)) := do
-  let some directory := compiled.parent
-    | throw <| IO.userError s!"lake-config-inline: {compiled} has no directory"
-  let saved ← searchPathRef.get
-  try
-    searchPathRef.set (directory :: saved)
-    let env ← importModules #[{ module := `lakefile }] {} 1024
-    let some index := env.getModuleIdx? `lakefile
-      | throw <| IO.userError s!"lake-config-inline: {compiled} is not imported"
-    return Lean.Compiler.inlineAttrs.ext.getModuleEntries env index
-  finally
-    searchPathRef.set saved
+  let ext := Lean.Compiler.inlineAttrs.ext
+  let some descriptor := (← persistentEnvExtensionsRef.get).find? (·.name == ext.name)
+    | throw <| IO.userError s!"lake-config-inline: the extension {ext.name} is not registered"
+  let entries := ((config.entries.find? (·.1 == ext.name)).map (·.2)).getD #[]
+  let env := entries.foldl (descriptor.addEntry (asyncMode := .sync)) imported
+  return (ext.getState env (asyncMode := .sync)).foldl (init := #[]) fun all name kind =>
+    all.push (name, kind)
 
 /-- The number of `inline` entries in `entries` that differ from those Lake's commands give: an
 entry for a declaration outside `inlined` or of a kind other than `inline`, and a declaration of
@@ -910,7 +909,7 @@ def leanConfigReading (ws : _root_.Lake.Workspace) (package : _root_.Lake.Packag
       if entries.isEmpty then none else some extension.toString
     imports := config.imports.map (·.module)
     attributes := ← attributeCommands imported package.configFile
-    strayInlines := strayInlines (← inlineEntries compiled) names.inlined }
+    strayInlines := strayInlines (← inlineEntries imported config) names.inlined }
 
 /-- What the plain shape reads of a target of `package` (`TargetShape`). For a `lakefile.lean`,
 `functions` is the reading of its compiled configuration (`leanConfigReading`). For a
