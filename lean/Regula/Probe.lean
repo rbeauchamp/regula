@@ -49,7 +49,8 @@ module index is requested, the report records:
 The report additionally carries an execution-coverage account, distinct from
 the logical axiom audit: for every owned executable root (computable,
 non-proposition, safe, non-partial, non-internal definitions and opaque
-constants, including claimed executable `main`s) it computes the transitive
+constants, including claimed executable `main`s, and the action of each
+initializer that an owned module records) it computes the transitive
 conservative closure over value-level dependencies, retained compiler IR,
 constant-equality simplification candidates, historical `@[implemented_by]`
 targets, and partial helpers. `@[extern]` constants are boundary leaves for
