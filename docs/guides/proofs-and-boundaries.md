@@ -1625,7 +1625,8 @@ question is an observing pass and one pure decision with a kind.
   expand has no record.
 - **The decision** is `MentionSearch.search`. Its argument, `MentionSearch.SearchRequest`, holds
   the records, the constants of the term and the targets. It returns the route to the first target
-  that it takes from the stack, or `none`. `checked_search` registers the kind `Regula.Decides`
+  that it takes from the stack, or `none`. The stack holds each route in reverse order and shares
+  the route of the constant that pushed it. `checked_search` registers the kind `Regula.Decides`
   against `MentionSearch.Found`: a constant of the term leads to a target through the records.
 
 Each question gives the constants that a record lists, and the constants that have no record:
@@ -1633,7 +1634,7 @@ Each question gives the constants that a record lists, and the constants that ha
 | Question | A record lists | No record |
 | --- | --- | --- |
 | `mayReach`, `mayReachDecision` | The constants of the type, of the value and of the constructors or the recursor rules (`unfoldReferences`). | A constant of a module that does not import `Regula.Contract`. A constant of the memo of the same targets. |
-| `mentionChain?` | The constants of the type, and of the value of a definition (`statusReferences`). | A constant of a module that does not import the module of the implementation. |
+| `mentionChain?` | The constants of the type, and of the value of a definition. The constructors of an inductive type, and the constructors and the constants of the rules of a recursor (`statusReferences`). | A constant of a module that does not import the module of the implementation. |
 
 The type of a record is indexed by its constant (`References name`), so the map of records holds a
 record only under its own constant. The pass takes the constants in the order of the decision.
