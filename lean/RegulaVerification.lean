@@ -267,8 +267,11 @@ def commands (copy pending : String) : Mode → List Command
       lake #["exe", "qualify", "--under-deadline", "history"]]
   -- Regula on its own code base: the repository's own `lake lint` through `regula/lint` in both
   -- packages, and the operational self-audit of the excluded `Regula` library after its
-  -- warning-free build.
-  | .selfLint => [lake #["lint"], lakeIn auditPackage #["lint"]]
+  -- warning-free build. As the owner of both packages, the repository asserts that their lakefiles
+  -- are ordinary configuration (`--ordinary-lakefiles`), so the driver can reuse ordinary build
+  -- output when the plain-shape guard admits the workspace.
+  | .selfLint => [lake #["lint", "--", "--ordinary-lakefiles"],
+      lakeIn auditPackage #["lint", "--", "--ordinary-lakefiles"]]
   | .selfAudit => [
       lake #["build", "Regula", "qualify"],
       lake #["exe", "qualify", "--under-deadline", "self-audit"]]

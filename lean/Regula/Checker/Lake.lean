@@ -240,7 +240,10 @@ def TargetShape.Plain (target : TargetShape) : Prop :=
 
 /-- A declaration of a package's compiled configuration file, as the plain shape reads it. -/
 inductive ConfigDeclaration where
-  /-- A definition whose type is one of Lake's configuration types (`configurationTypes`). -/
+  /-- One of Lake's configuration declarations, by name and kind (`configurationNames`): the
+  package declaration and its configuration, the package-name helper `_package.name`, a `require`
+  dependency, and each target's `ConfigDecl`, its declaration and its configuration, linked as
+  Lake's commands generate them. -/
   | configuration
   /-- A theorem or an axiom whose statement is a `Lake.FamilyDef` or an equation between types, as
   Lake's commands generate. A compiler replacement (`csimp`) is an equation between functions, so
@@ -265,6 +268,10 @@ def configExtensions : List String :=
     "Lake.packageAttr", "Lake.packageDepAttr", "Lake.leanLibAttr", "Lake.leanExeAttr",
     "Lake.inputFileAttr", "Lake.inputDirAttr", "Lake.targetAttr", "Lake.defaultTargetAttr"]
 
+/-- The roots of the module names of Lean and Lake, the only modules that a configuration file of
+the plain shape imports. -/
+def toolchainRoots : List Name := [`Init, `Std, `Lean, `Lake]
+
 /-- What the plain shape reads of one package of the workspace. -/
 structure PackageShape where
   /-- Each field of the package's configuration that Regula does not show to have Lake's default
@@ -280,17 +287,30 @@ structure PackageShape where
   /-- Each environment extension with entries of the compiled configuration file itself; none for
   a `lakefile.toml`. -/
   extensions : Array String
+  /-- The modules that the compiled configuration file imports; none for a `lakefile.toml`. -/
+  imports : Array Name
+  /-- The number of `attribute` commands, and of local or scoped attributes, in the configuration
+  file's parsed syntax; zero for a `lakefile.toml`. -/
+  attributes : Nat
+  /-- The number of entries of the `inline` attributes in the compiled configuration file that
+  differ from those Lake's commands give its configuration declarations; zero for a
+  `lakefile.toml`. -/
+  strayInlines : Nat
 
 /-- A package of the plain shape: it has Lake's default value in each field outside
 `packageFields`, each of its targets is of the plain shape, its configuration file declares no
 facet, each declaration of its compiled configuration file is a `configuration` or a `typeFact`,
-and each extension with entries of that file is one of `configExtensions`. In a workspace of such
-packages, a build of `lean_lib` and `lean_exe` targets runs no custom build step: it compiles
+and each extension with entries of that file is one of `configExtensions`. The file imports only
+modules of Lean and Lake (`toolchainRoots`), its syntax has no `attribute` command and no local or
+scoped attribute, and its `inline` entries are exactly those of Lake's commands. In a workspace of
+such packages, a build of `lean_lib` and `lean_exe` targets runs no custom build step: it compiles
 modules and reads and hashes input files. -/
 def PackageShape.Plain (shape : PackageShape) : Prop :=
   (∀ field ∈ shape.unknown, field ∈ packageFields) ∧ (∀ target ∈ shape.targets, target.Plain) ∧
     shape.facets = some 0 ∧ (∀ declaration ∈ shape.declarations, declaration ≠ .other) ∧
-    ∀ extension ∈ shape.extensions, extension ∈ configExtensions
+    (∀ extension ∈ shape.extensions, extension ∈ configExtensions) ∧
+    (∀ module ∈ shape.imports, module.getRoot ∈ toolchainRoots) ∧ shape.attributes = 0 ∧
+    shape.strayInlines = 0
 
 /-- Whether `kind` is one of the two input kinds. -/
 def TargetKind.input : TargetKind → Bool
@@ -316,7 +336,9 @@ theorem TargetShape.plain_iff (target : TargetShape) : target.plain = true ↔ t
 def PackageShape.plain (shape : PackageShape) : Bool :=
   shape.unknown.all (packageFields.contains ·) && shape.targets.all TargetShape.plain &&
     shape.facets == some 0 && shape.declarations.all (· != .other) &&
-    shape.extensions.all (configExtensions.contains ·)
+    shape.extensions.all (configExtensions.contains ·) &&
+    shape.imports.all (toolchainRoots.contains ·.getRoot) && shape.attributes == 0 &&
+    shape.strayInlines == 0
 
 /-- `PackageShape.plain` decides `PackageShape.Plain`. -/
 theorem PackageShape.plain_iff (shape : PackageShape) : shape.plain = true ↔ shape.Plain := by
@@ -407,9 +429,9 @@ theorem checked_auditMarkerNeeded : Regula.ExecutableContract auditMarkerNeeded
       ¬ (∀ shape ∈ inputs.packages, shape.Plain) ∨
         ∃ entry ∈ inputs.modules, ¬ entry.Resolved ∨ linterModule ∈ entry.imports) :=
   ⟨Regula.Decides.of_iff auditMarkerNeeded_iff
-    ⟨⟨#[⟨#[], #[], none, #[], #[]⟩], #[]⟩, (auditMarkerNeeded_iff _).mpr
+    ⟨⟨#[⟨#[], #[], none, #[], #[], #[], 0, 0⟩], #[]⟩, (auditMarkerNeeded_iff _).mpr
       (.inl fun plain => by
-        have facets := (plain ⟨#[], #[], none, #[], #[]⟩ (by simp)).2.2.1
+        have facets := (plain ⟨#[], #[], none, #[], #[], #[], 0, 0⟩ (by simp)).2.2.1
         simp at facets)⟩
     ⟨⟨#[], #[]⟩, fun accepted => by
       rcases (auditMarkerNeeded_iff _).mp accepted with notPlain | ⟨_, member, _⟩
@@ -608,28 +630,129 @@ def defaultFunctionFields (config : ModuleData) : Bool :=
       | some ``_root_.Lake.InputFileConfig => pure ()
       | _ => none
 
-/-- Lake's configuration types: the types of the definitions that Lake's `package`, `require`,
-`lean_lib`, `lean_exe`, `input_file` and `input_dir` commands generate, and that of the package's
-name. -/
-def configurationTypes : List Name :=
-  [``_root_.Lake.PackageDecl, ``_root_.Lake.PackageConfig, ``_root_.Lake.Dependency,
-    ``_root_.Lake.ConfigDecl, ``_root_.Lake.LeanLibDecl, ``_root_.Lake.LeanExeDecl,
-    ``_root_.Lake.InputFileDecl, ``_root_.Lake.InputDirDecl, ``_root_.Lake.LeanLibConfig,
-    ``_root_.Lake.LeanExeConfig, ``_root_.Lake.InputFileConfig, ``_root_.Lake.InputDirConfig,
-    ``Lean.Name]
+/-- Lake's configuration declarations in a compiled configuration file, by name, linked as Lake's
+commands generate them (`configurationNames`). -/
+structure ConfigurationNames where
+  /-- Each configuration declaration. -/
+  declarations : NameSet
+  /-- Those to which Lake's commands give the `inline` attribute: the package declaration, the
+  package-name helper and each target's declaration. -/
+  inlined : NameSet
 
-/-- The `ConfigDeclaration` of a declaration of a compiled configuration file: a definition whose
-type's head is one of `configurationTypes`, a theorem or an axiom whose statement is a
+/-- The configuration declarations of the compiled configuration file `config`, each a definition
+linked as Lake's commands generate it: a `ConfigDecl` whose value is `KConfigDecl.toConfigDecl` of
+a definition of the file whose value is `DSL.mkConfigDecl` of a definition of the file, with those
+two; a `PackageDecl` whose value is `PackageDecl.mk` of a definition of the file, with that
+definition; a `Dependency` whose value is a `Dependency.mk`; and the package-name helper
+`_package.name` of type `Name`. -/
+def configurationNames (config : ModuleData) : ConfigurationNames := Id.run do
+  let definition? (name : Name) : Option Expr :=
+    match config.constants.find? (·.name == name) with
+    | some (.defnInfo info) => some info.value
+    | _ => none
+  let mut names : ConfigurationNames := { declarations := {}, inlined := {} }
+  for constant in config.constants do
+    let .defnInfo info := constant | continue
+    let value := info.value
+    if constant.type == .const ``_root_.Lake.ConfigDecl [] &&
+        value.isAppOfArity ``_root_.Lake.KConfigDecl.toConfigDecl 2 then
+      let some declaration := value.appArg!.constName? | continue
+      let some declared := definition? declaration | continue
+      unless declared.isAppOfArity ``_root_.Lake.DSL.mkConfigDecl 6 do continue
+      let some configuration := (declared.getArg! 3).constName? | continue
+      unless (definition? configuration).isSome do continue
+      names := {
+        declarations :=
+          ((names.declarations.insert constant.name).insert declaration).insert configuration
+        inlined := names.inlined.insert declaration }
+    else if constant.type == .const ``_root_.Lake.PackageDecl [] &&
+        value.isAppOfArity ``_root_.Lake.PackageDecl.mk 4 then
+      let some configuration := (value.getArg! 3).constName? | continue
+      unless (definition? configuration).isSome do continue
+      names := {
+        declarations := (names.declarations.insert constant.name).insert configuration
+        inlined := names.inlined.insert constant.name }
+    else if constant.type == .const ``_root_.Lake.Dependency [] &&
+        value.isAppOf ``_root_.Lake.Dependency.mk then
+      names := { names with declarations := names.declarations.insert constant.name }
+    else if constant.name == `_package.name && constant.type == .const ``Lean.Name [] then
+      names := {
+        declarations := names.declarations.insert constant.name
+        inlined := names.inlined.insert constant.name }
+  return names
+
+/-- The `ConfigDeclaration` of a declaration of a compiled configuration file whose configuration
+declarations are `names`: one of them, a theorem or an axiom whose statement is a
 `Lake.FamilyDef` or an equation in `Type`, or any other declaration. -/
-def configDeclaration (constant : ConstantInfo) : ConfigDeclaration :=
+def configDeclaration (names : NameSet) (constant : ConstantInfo) : ConfigDeclaration :=
   let typeFact := constant.type.isAppOf ``_root_.Lake.FamilyDef ||
     (constant.type.isAppOfArity ``Eq 3 && constant.type.getArg! 0 == .sort (.succ .zero))
   match constant with
-  | .defnInfo _ =>
-      if constant.type.getAppFn.constName?.any (configurationTypes.contains ·) then .configuration
-      else .other
+  | .defnInfo _ => if names.contains constant.name then .configuration else .other
   | .thmInfo _ | .axiomInfo _ => if typeFact then .typeFact else .other
   | _ => .other
+
+/-- The entries of the `inline` attributes (`Lean.Compiler.inlineAttrs`) of the compiled
+configuration file at `compiled`, each declaration with its kind, read through Lean's typed
+attribute API from an environment that imports the file as the module `lakefile` from its
+directory. The search path is restored afterwards. -/
+def inlineEntries (compiled : FilePath) :
+    IO (Array (Name × Lean.Compiler.InlineAttributeKind)) := do
+  let some directory := compiled.parent
+    | throw <| IO.userError s!"lake-config-inline: {compiled} has no directory"
+  let saved ← searchPathRef.get
+  try
+    searchPathRef.set (directory :: saved)
+    let env ← importModules #[{ module := `lakefile }] {} 1024
+    let some index := env.getModuleIdx? `lakefile
+      | throw <| IO.userError s!"lake-config-inline: {compiled} is not imported"
+    return Lean.Compiler.inlineAttrs.ext.getModuleEntries env index
+  finally
+    searchPathRef.set saved
+
+/-- The number of `inline` entries in `entries` that differ from those Lake's commands give: an
+entry for a declaration outside `inlined` or of a kind other than `inline`, and a declaration of
+`inlined` with no entry. -/
+def strayInlines (entries : Array (Name × Lean.Compiler.InlineAttributeKind)) (inlined : NameSet) :
+    Nat :=
+  let stray := entries.filter fun (name, kind) =>
+    !(inlined.contains name && match kind with | .inline => true | _ => false)
+  let missing := (inlined.toList.filter fun name => !entries.any (·.1 == name)).length
+  stray.size + missing
+
+/-- `env` with the scoped entries of the namespaces `Lake` and `Lake.DSL` active, as after a
+configuration file's `open Lake DSL`, so that Lake's scoped syntax parses. -/
+def withLakeSyntax (env : Environment) : IO Environment := do
+  let mut env := env
+  for ext in ← scopedEnvExtensionsRef.get do
+    env := ext.activateScoped (ext.activateScoped env `Lake) `Lake.DSL
+  return env
+
+/-- The number of `attribute` commands, and of local or scoped attributes, in the configuration
+file at `path`, parsed with the parsers of `env`, the environment of the file's imports. Lake's scoped syntax is active
+(`withLakeSyntax`). A parse error raises, so a file that needs other syntax keeps the marker. -/
+def attributeCommands (env : Environment) (path : FilePath) : IO Nat := do
+  let env ← withLakeSyntax env
+  let source ← IO.FS.readFile path
+  let inputCtx := Parser.mkInputContext source path.toString
+  let (_, state, messages) ← Parser.parseHeader inputCtx
+  let mut state := state
+  let mut messages := messages
+  let mut count := 0
+  for _ in [0:source.length + 1] do
+    let (command, state', messages') :=
+      Parser.parseCommand inputCtx { env, options := {} } state messages
+    state := state'
+    messages := messages'
+    for node in command.topDown do
+      if node.isOfKind ``Lean.Parser.Command.attribute ||
+          (node.isOfKind ``Lean.Parser.Term.attrKind && !node[0].isNone) then
+        count := count + 1
+    if Parser.isTerminalCommand command then
+      if messages.hasErrors then
+        throw <| IO.userError s!"lake-config-parse: {path} does not parse"
+      return count
+  throw <| IO.userError s!"lake-config-parse: {path} has no end"
 
 /-- What Regula reads of the compiled configuration file of a package. -/
 structure ConfigReading where
@@ -641,17 +764,29 @@ structure ConfigReading where
   declarations : Array ConfigDeclaration
   /-- Each environment extension with entries of the file itself. -/
   extensions : Array String
+  /-- The modules that the file imports. -/
+  imports : Array Name
+  /-- `attributeCommands` of the configuration file. -/
+  attributes : Nat
+  /-- `strayInlines` of the file. -/
+  strayInlines : Nat
+
+/-- What Regula reads of a `lakefile.toml`, which has no compiled configuration file: Lake's TOML
+loader gives it no facet and no declaration. -/
+def tomlReading : ConfigReading :=
+  { facets := some 0, functions := false, declarations := #[], extensions := #[], imports := #[],
+    attributes := 0, strayInlines := 0 }
 
 /-- What Regula reads of the compiled configuration of a package whose configuration file is
 `lakefile.lean` (`ConfigReading`). Lake keeps the compiled file at `.lake/config/<index>/` of the
 workspace and imports its imports through `importModulesUsingCache`, which this reads again. The
 facets are the entries of Lake's three facet attributes in the file and in its imports, which are
-what Lake loaded. The declarations and the extensions are the file's own, so a registration of an
-attribute whose scope ends in the file, which leaves no entry, still shows as its declaration. -/
+what Lake loaded. The declarations, the extensions and the `inline` entries are the file's own.
+An attribute whose scope ends in the file leaves no entry, so its command is counted in the
+file's syntax. -/
 def leanConfigReading (ws : _root_.Lake.Workspace) (package : _root_.Lake.Package) :
     IO ConfigReading := do
-  let some file := package.configFile.fileName |
-    return { facets := none, functions := false, declarations := #[], extensions := #[] }
+  let some file := package.configFile.fileName | return { tomlReading with facets := none }
   let compiled := ws.root.dir / _root_.Lake.defaultLakeDir / "config" / toString package.wsIdx /
     (FilePath.mk file).withExtension "olean"
   let (config, _) ← readModuleData compiled
@@ -661,12 +796,16 @@ def leanConfigReading (ws : _root_.Lake.Workspace) (package : _root_.Lake.Packag
   let facets := [_root_.Lake.moduleFacetAttr, _root_.Lake.packageFacetAttr,
     _root_.Lake.libraryFacetAttr].foldl (init := 0) fun count facetAttribute =>
       count + (facetAttribute.getAllEntries imported).size + own facetAttribute.ext.name
+  let names := configurationNames config
   return {
     facets := if (_root_.Lake.targetAttr.getAllEntries imported).isEmpty then some facets else none
     functions := defaultFunctionFields config
-    declarations := config.constants.map configDeclaration
+    declarations := config.constants.map (configDeclaration names.declarations)
     extensions := config.entries.filterMap fun (extension, entries) =>
-      if entries.isEmpty then none else some extension.toString }
+      if entries.isEmpty then none else some extension.toString
+    imports := config.imports.map (·.module)
+    attributes := ← attributeCommands imported package.configFile
+    strayInlines := strayInlines (← inlineEntries compiled) names.inlined }
 
 /-- What the plain shape reads of a target of `package` (`TargetShape`). For a `lakefile.lean`,
 `functions` is the reading of its compiled configuration (`leanConfigReading`). For a
@@ -703,16 +842,15 @@ declares no facet and has no compiled configuration file: Lake's TOML loader giv
 def packageShape (ws : _root_.Lake.Workspace) (package : _root_.Lake.Package) :
     IO PackageShape := do
   let toml := package.configFile.extension == some "toml"
-  let reading ← if toml then
-      pure { facets := some 0, functions := false, declarations := #[], extensions := #[] }
-    else leanConfigReading ws package
+  let reading ← if toml then pure tomlReading else leanConfigReading ws package
   return {
     unknown := unknownFields (_root_.Lake.ConfigFields.fields
       (σ := _root_.Lake.PackageConfig package.keyName package.origName))
       (packageChecks package.config)
     targets := package.targetDecls.map (targetShape package · toml reading.functions)
     facets := reading.facets, declarations := reading.declarations
-    extensions := reading.extensions }
+    extensions := reading.extensions, imports := reading.imports, attributes := reading.attributes
+    strayInlines := reading.strayInlines }
 
 /-- Each buildable module of the root package's libraries and each root of its executables, with
 the real path of each source file that a library or an executable gives it, the source file of the
@@ -755,19 +893,23 @@ def markerInputs (ws : _root_.Lake.Workspace) : IO (Option MarkerInputs) := do
   return some { packages, modules }
 
 /-- `buildTargets`, run in-process through Lake's build API because the `lake build` command line
-sets no Lean options, with `auditLeanOptions` on the root package unless `auditMarkerNeeded`
-decides that the workspace is of the plain shape and that each module of the root package resolves
-to its one source and does not import `linterModule`. Each failure to read the workspace, by an
-exception or by an unknown, keeps the marker. The marked build and the unmarked one give the same
-verdict for that shape only: a build of `lean_lib` and `lean_exe` targets in it runs no custom
-build step, so it compiles only modules that the root package owns, whose imports the decision
-read (or modules of other packages, which the root package's options do not reach), and Regula's
-only reader of the marker is loaded in none of them. That no project module reads the marker
-itself is assumed. Without the marker the ordinary build output is reused as it is. The inherited
-search paths are ignored as in `buildTargets`; the build monitor's text is the output, and a
-failed build exits 1. Lake's progress line for each job is also shown as the build runs, as by
-`buildTargetsShowing`. -/
-def buildAuditTargets (repo : FilePath) (targets : Array String) : IO ProcessResult := do
+sets no Lean options, with `auditLeanOptions` on the root package. Without `ordinary` that is every
+build, as before the plain shape existed. With `ordinary`, the workspace owner's assertion that the
+workspace's lakefiles are ordinary configuration (`lake lint -- --ordinary-lakefiles`), the marker
+is omitted when `auditMarkerNeeded` decides that the workspace is of the plain shape and that each
+module of the root package resolves to its one source and does not import `linterModule`; each
+failure to read the workspace, by an exception or by an unknown, keeps it. The plain shape is a
+conservative guard under that assertion, not a guarantee against a lakefile written to defeat it.
+For that shape the marked build and the unmarked one give the same verdict: a build of `lean_lib`
+and `lean_exe` targets in it runs no custom build step, so it compiles only modules that the root
+package owns, whose imports the decision read (or modules of other packages, which the root
+package's options do not reach), and Regula's only reader of the marker is loaded in none of them.
+That no project module reads the marker itself is assumed. Without the marker the ordinary build
+output is reused as it is. The inherited search paths are ignored as in `buildTargets`; the build
+monitor's text is the output, and a failed build exits 1. Lake's progress line for each job is also
+shown as the build runs, as by `buildTargetsShowing`. -/
+def buildAuditTargets (ordinary : Bool) (repo : FilePath) (targets : Array String) :
+    IO ProcessResult := do
   let buffer ← IO.mkRef ({} : IO.FS.Stream.Buffer)
   let out ← showingStream (IO.FS.Stream.ofBuffer buffer) isLakeProgressLine
   let exitCode ← try
@@ -775,7 +917,7 @@ def buildAuditTargets (repo : FilePath) (targets : Array String) : IO ProcessRes
         let specs ← match ← (_root_.Lake.parseTargetSpecs ws targets.toList).toBaseIO with
           | .ok specs => pure specs
           | .error error => throw <| IO.userError (toString error)
-        let marked ← try
+        let marked ← if !ordinary then pure true else try
             pure <| match ← markerInputs ws with
               | some inputs => checked_auditMarkerNeeded.run inputs
               | none => true

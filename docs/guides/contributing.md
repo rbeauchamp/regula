@@ -227,7 +227,7 @@ checker behavior:
 | `cli` | Command-line behavior and diagnostics. |
 | `environments` | Isolated environments, documentation scanning, and external adopters. |
 | `build-policy` | Enforcement through the example's ordinary Lake build. |
-| `lint-driver` | `lake lint` dispatch and exit classes in both shipped adopters, its claimed build with the audit-build marker outside the plain shape (an imported `Regula.Linter`, a custom target, a facet declared again in place of a facet of Lake, a library in `needs`) and without it in the plain shape, also with an input file in `needs`, and the cold compiler guard of `lakefile.lean`: refusal of an inherited `LEAN_SYSROOT` child that fails and of one that succeeds without reporting the running compiler's identity, then a restored load. The marker also stays for a facet declared again with the configuration of Lake, a library field outside the list and a different `nativeFacets`. A filter other than `"*"` in the `lakefile.toml` adopter keeps the marker too. So does a lakefile declaration beside the configuration declarations, or a theorem that equates two functions. |
+| `lint-driver` | `lake lint` dispatch and exit classes in both shipped adopters, its claimed build with the audit-build marker outside the plain shape (an imported `Regula.Linter`, a custom target, a facet declared again in place of a facet of Lake, a library in `needs`) and without it in the plain shape, also with an input file in `needs`, and the cold compiler guard of `lakefile.lean`: refusal of an inherited `LEAN_SYSROOT` child that fails and of one that succeeds without reporting the running compiler's identity, then a restored load. The marker also stays for a facet declared again with the configuration of Lake, a library field outside the list and a different `nativeFacets`. A filter other than `"*"` in the `lakefile.toml` adopter keeps the marker too. So does a lakefile declaration beside the configuration declarations, or a theorem that equates two functions. These run with `--ordinary-lakefiles`. Without it a plain workspace keeps the marker too. |
 | `producers` | [Project producer and documentation qualification](proofs-and-boundaries.md#producers). |
 | `history` | [Source-bound replacement history qualification](proofs-and-boundaries.md#producers). |
 | `self-lint` | This repository's own `lake lint` through the `regula/lint` driver, in the root and `audit/` packages ([repository conformance](#repository-conformance)). |
@@ -341,8 +341,8 @@ audits the first two freshly, with every target built under the options of
   coverage.
 
 Two diagnostics apply Regula to the rest of its own code base; neither is part of acceptance.
-`./scripts/verify.sh diagnostics self-lint` runs `lake lint` through the `regula/lint` driver in
-the root package and then in `audit/`, exactly as an adopter does. Both packages set
+`./scripts/verify.sh diagnostics self-lint` runs `lake lint -- --ordinary-lakefiles` through the
+`regula/lint` driver in the root package and then in `audit/`, as the owner of the two packages. Both packages set
 `lintDriver := "regula/lint"`, so it runs over each package's `foundation_manifest.json` in
 incremental mode and checks the same claimed surfaces as acceptance, through the driver's
 dispatch and exit classes. `./scripts/verify.sh

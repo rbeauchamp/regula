@@ -175,7 +175,14 @@ refused. The driver builds the claimed targets with the audit-build marker
 
 Lake scopes the marker to the whole package in its module trace. Thus with the marker, the audit
 rebuilds the modules that an ordinary build made, and their replayed logs do not enter its
-warning check. The driver omits the marker only for a workspace of the plain shape.
+warning check. The driver omits the marker only for a workspace of the plain shape. It omits it
+only if the owner of the workspace asks for it with `lake lint -- --ordinary-lakefiles`. Without
+the option, the driver always builds with the marker.
+
+With the option, the owner asserts that the lakefiles of the workspace are ordinary configuration.
+The plain shape is a conservative guard under that assertion. It is not a guarantee against a
+lakefile that someone wrote to defeat it. The verification of Regula uses the option in the timed
+check of its own code (`diagnostics self-lint`).
 
 In the plain shape, each package declares only `lean_lib`, `lean_exe`, `input_file` and
 `input_dir` targets. Each field of the configuration of a package or a target has the default
@@ -201,14 +208,18 @@ one. A file `lakefile.toml` declares no facet and cannot set `nativeFacets`. Its
 an input target. Thus a build in the plain shape runs no custom build step.
 
 A file `lakefile.lean` must also declare only what the commands of Lake generate. These are the
-definitions of the package, its targets, their configurations, `require` and the name of the
-package. The others are theorems and axioms that state a `Lake.FamilyDef` or an equation between
-types (`configDeclaration`).
+definitions of the package, its targets and their configurations, `require` and the name of the
+package. The commands link each of them in a fixed form (`configurationNames`). The others are
+theorems and axioms that state a `Lake.FamilyDef` or an equation between types.
 
 The entries of the file itself must be in a list of extensions that the commands of Lake and their
-compilation fill (`configExtensions`). Thus a compiler replacement (`csimp`), `implemented_by`,
-`extern` or `init` keeps the marker. A registration that ends in the file has a declaration too,
-so it also keeps the marker.
+compilation fill (`configExtensions`). Its entries of the attribute `inline` must be the same as
+the entries that the commands give. Thus a compiler replacement (`csimp`), `implemented_by`,
+`extern`, `init` or `noinline` keeps the marker.
+
+The file must import only modules of Lean and of Lake. Its syntax must have no `attribute` command
+and no local or scoped attribute. A local registration leaves no entry, so the syntax is the place
+to find it.
 
 The driver also reads each buildable module of the root package and each executable root, with
 the imports from Lake's `transImports` facet (`markerInputs`). Each name must have one source
@@ -825,7 +836,7 @@ Two-way decisions (`Regula.Decides`), each with an accepted and a refused input:
 | `Regula.JsonAgreement.agrees` | `JsonAgreement.Agree` (`agrees_iff`). The two values have one constructor and equal scalars. The elements of two arrays agree in order. Two objects have the same number of members. Each member of the first is found by its name in the second, with a value that it agrees with. | The comparison of an input with the encoding of the decoded value ([below](#the-diagnostic-and-policy-codecs-decisions-and-observing-pass)). |
 | `Regula.JsonAgreement.canonical` (accepts on `.ok`) | The reader returns a value, and the input agrees with the encoding of that value (`canonical_eq_ok_iff`). | The decoders `DiagnosticCodec.parseLocation` and `parseDiagnostic`. The reader and the encoder are arguments, so the kind is about each reader and each encoder. |
 | `Regula.Checker.PolicyCodec.exactFields` (accepts on `.ok`) | `ExactFields` (`exactFields_iff`). The value is an object, and its member names are the expected names in some order. | The decoders of the worker protocol and of the producer reports. The proof that the expected names are distinct is an argument of the function. |
-| `Regula.Checker.Lake.auditMarkerNeeded` (accepts on `true`) | A package is not `PackageShape.Plain`, or some entry is not `ModuleEntry.Resolved` or has `Regula.Linter` among its imports (`auditMarkerNeeded_iff`). | The choice of the `lake lint` driver's claimed build, with or without the audit-build marker ([acceptance boundary](#the-acceptance-boundary)). The shape of each package is read from the configuration of Lake and from its compiled configuration file. Each entry is a module of the root package with its source files and the modules that Lake's `transImports` facet reports it imports (`markerInputs`). That `Regula.Linter` is the only reader of the marker in Regula is by inspection. That no module of the project reads the marker itself is an assumption. |
+| `Regula.Checker.Lake.auditMarkerNeeded` (accepts on `true`) | A package is not `PackageShape.Plain`, or some entry is not `ModuleEntry.Resolved` or has `Regula.Linter` among its imports (`auditMarkerNeeded_iff`). | The choice of the `lake lint` driver's claimed build, with or without the audit-build marker, when the owner passes `--ordinary-lakefiles` ([acceptance boundary](#the-acceptance-boundary)). The shape of each package is read from the configuration of Lake and from its compiled configuration file. Each entry is a module of the root package with its source files and the modules that Lake's `transImports` facet reports it imports (`markerInputs`). That `Regula.Linter` is the only reader of the marker in Regula is by inspection. That no module of the project reads the marker itself is an assumption. |
 | `Regula.Checker.Documentation.scanLines`, `scanVersoLines` (accept on a result with no violation) | `Clean`, `VersoClean`: the lines are a run of transitions from the first line to the end of the document. The fence protocol permits each transition, and each keeps the shape rule (`scanLines_problems_eq_empty_iff`, `scanVersoLines_problems_eq_empty_iff`). | The fence protocol and the shape rule of [RG4001] ([below](#the-fence-scanners-decisions-and-observing-pass)). The input is a `Source`: a document with the lines of its text. The kinds say nothing about the fences of a result. |
 | `Regula.Checker.Admission.checkHeader` (accepts on `.ok ()`) | `HeaderOK` (`checkHeader_eq_ok_iff`). Each replayed or reported module lists its constants under their own names. No module of the replay base imports a replayed module. | The decision on the header of [RG2005] ([below](#receipt-validation-decisions-and-observing-pass)). |
 | `Regula.SourceTexts.intern` | One `sourceTexts` member, `null`, and string `sourceText` members (`intern_isOk_iff`) | Writing a result document. |

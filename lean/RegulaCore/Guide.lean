@@ -1106,11 +1106,10 @@ def guide : RuleId → Guide
           (standard §6.2). The detector sees only emitted warnings, so it cannot tell such a \
           disable from a forbidden one; review checks them."]
       limitations := [
-        "`lake lint` builds with Regula's audit-build marker, except in a workspace that \
-          declares only `lean_lib`, `lean_exe`, `input_file` and `input_dir` targets, each \
-          with the default configuration of Lake outside a short list of fields, whose \
-          `lakefile.lean` declares nothing else, and in which no module of the package imports \
-          `Regula.Linter`. The marker turns the local linter off \
+        "`lake lint` builds with Regula's audit-build marker, except when the workspace owner \
+          passes `--ordinary-lakefiles`, asserting that the workspace's lakefiles are ordinary \
+          configuration, and a conservative plain-shape guard admits the workspace. The marker \
+          turns the local linter off \
           whatever the source sets `linter.regula` to, so Regula's own local findings are not \
           build warnings there and its policy stages report those rules. `axiomGate` and the \
           build-lint `policy` target keep ordinary options, so in a module that imports \
