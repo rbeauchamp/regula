@@ -1473,8 +1473,8 @@ of `docs/` and on the Verso sources of the standard. It compiles each fence that
   `Admission.TableWithin`.
 - **The observing pass** is the rest of `validate`. It computes the replay set (`replaySet`) and
   the reported modules, imports the replay base and replays the copies (`replayMap`). It computes
-  the axioms of the owned declarations ([**Axioms**](#producers)). It gives a failure of a decision
-  its text, and it catches the exceptions of the replay.
+  the axioms of the owned declarations, gives a failure of a decision its text and catches the
+  exceptions of the replay.
 
 The import of the replay base runs before the handler of `validate`, as before this split. Thus an
 exception of the import goes to the caller of `validate`, without the tag of an admission failure.
@@ -1806,22 +1806,22 @@ inferred from any pure proof.
 - **Axioms.** The record of an owned declaration has the axioms that the declaration reaches in the
   replayed kernel. It does not have the axioms of the table that Lean writes for each module, which
   `collectAxioms` reads first for an imported name. After the replay, `Admission.validate` starts
-  `KernelAxioms.axiomTable` from the owned declarations (`Probe.ownedConstants`). A step of that
-  search goes from a constant to each constant of its type and its value (`KernelAxioms.successors`).
-  A step also goes from an inductive type to its constructors, and from a recursor to its inductive
+  the search `KernelAxioms.axiomTable` from the owned declarations of `Probe.ownedConstants`. A step
+  of the search `KernelAxioms.successors` goes from a constant to each constant of its type and its
+  value. A step also goes from an inductive type to its constructors, and from a recursor to its inductive
   types.
 
-  The search reads the constants of the replayed kernel (`Admission.walkFind`). Replay does not
-  check an `unsafe` or `partial` constant. Under such a name, the search reads the constant that
-  the audited environment keeps. The search goes forward one time from all the owned declarations.
+  The search reads the constants of the replayed kernel through `Admission.walkFind`. Replay does
+  not check an `unsafe` or `partial` constant, and under such a name the search reads the constant
+  that the audited environment keeps. The search goes forward one time from all the owned declarations.
   Then it goes back one time from each axiom that it found, along the steps that it recorded. Thus
   the search reads the type and the value of each constant only one time for each environment.
 
   `Admission.checkTable` then refuses a declaration for which `collectAxioms` gives an axiom that
   the search did not find. Such a module table was not calculated from the constants that the
   kernel checked. The refusal names the declaration and the two axiom sets, and [RG2005] reports
-  it as incomplete. The records go to the report (`Probe.environmentReport`) and to the self-audit
-  (`Qualification.SelfAudit`). The axiom names come from the audited environment, because
+  it as incomplete. The records go to the report of `Probe.environmentReport` and to the self-audit
+  of `Qualification.SelfAudit`. The axiom names come from the audited environment, because
   `validate` releases the regions of the replay base.
 
   **Proved** about the executed definitions: `KernelAxioms.axiomTable_some` (each owned
@@ -3761,8 +3761,8 @@ account or of the two:
   checks.** Such a write goes around the command or attribute that Lean gives for that extension.
   The axiom table `exportedAxiomsExt` that Lean calculates when it writes a module is not such an
   extension, because [RG2005] states its check. The rules [RG1001]–[RG1005] use the axioms that
-  each owned declaration reaches in the replayed kernel ([**Axioms**](#producers)). A write to that
-  table cannot remove an axiom from them, and admission refuses a table with an axiom that the
+  each owned declaration reaches in the replayed kernel, as [**Axioms**](#producers) tells. A write
+  to that table cannot remove an axiom from them, and admission refuses a table with an axiom that the
   declaration does not reach. The controls `Fixtures.Mutations.ForgedAxiomTableOmission` and
   `Fixtures.Mutations.ForgedAxiomTableAddition` are observations of the two cases.
 - **A declaration of a dependency that a metaprogram adds with `debug.skipKernelTC`.** [RG2005]
