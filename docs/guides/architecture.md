@@ -451,6 +451,8 @@ metadata, not authenticated binary identity.
   execution claim and exact source even without findings.
 - **Build origin:** In `axiomGate` project results, `scope.buildOrigin` names the origin of the
   build output. It is `isolatedCopy`, `driverCopy` or `incrementalBuild`.
+- **Owner's assertion:** `scope.ordinaryLakefiles` is `true` only when the `lint` driver ran with
+  `--ordinary-lakefiles` on its command line.
 - **Acceptance account:** a completed result's `acceptance.account` renders the report account:
   `coverage` (only `freshWholeProject` is whole-project acceptance), `checked` (the theorem
   `RegulaPolicy.accept_iff` and the job count), `contracts` (each [RG1007] registration with its

@@ -170,10 +170,85 @@ directory, and passes the dispatching workspace's package library directories, t
 the working-directory workspace's library directories and that directory to begin it
 (`Regula.Checker.Lint.dispatchedFrom_iff`) and otherwise refuses with exit 2, so a driver started
 outside Lake, by a Lake not collocated with the toolchain, or with `-d` from another project is
-refused. The claimed targets are built with the audit-build marker `weak.regula.auditBuild`
-([editor feedback](#editor-feedback)); Lake scopes it to the whole package in its module trace, so
-modules last built with ordinary options are rebuilt for the audit and their replayed logs never
-enter its warning check.
+refused. The driver builds the claimed targets with the audit-build marker
+`weak.regula.auditBuild` ([editor feedback](#editor-feedback)), except in the case below.
+
+Lake scopes the marker to the whole package in its module trace. Thus with the marker, the audit
+rebuilds the modules that an ordinary build made, and their replayed logs do not enter its
+warning check. The driver omits the marker only for a workspace of the plain shape. It omits it
+only if the owner of the workspace asks for it with `lake lint -- --ordinary-lakefiles`. Without
+the option, the driver always builds with the marker.
+
+With the option, the owner asserts that the lakefiles of the workspace are ordinary configuration.
+The plain shape is a conservative guard under that assertion. It is not a guarantee against a
+lakefile that someone wrote to defeat it. The verification of Regula uses the option in the timed
+check of its own code (`diagnostics self-lint`). A nightly check of its root package,
+`diagnostics self-lint-default`, runs without the option.
+
+The driver takes the option only from the command line. It refuses the option in the
+`lintDriverArgs` of a package, because the audited project could give it there. The banner of the
+run names the assertion, and the JSON result records it (`scope.ordinaryLakefiles`). Before the
+build, the run prints if the build omits the marker, or keeps it and why.
+
+In the plain shape, each package declares only `lean_lib`, `lean_exe`, `input_file` and
+`input_dir` targets. Each field of the configuration of a package or a target has the default
+value of Lake, except for a short list of fields. Lake gives the fields of each type of
+configuration (`Lake.ConfigFields`). Thus a field that a different release of Lake adds keeps the
+marker.
+
+A library can change its source directory, roots, globs, `needs` and Lean options. An executable
+can also change its root, its file name and its interpreter support. An input target can change
+its path and its text mode. Each `needs` entry must name an `input_file` or an `input_dir` of the
+same package. A package can change its source directory, its Lean options, its lint and test
+drivers and its metadata.
+
+Lake runs no code from these fields in a build. The function `nativeFacets` of a library or an
+executable and the filter of an `input_dir` are also fields. Regula reads them from the compiled
+configuration file in `.lake/config/` (`leanConfigReading`). Each must be the whole default term
+of Lake, for the filter `Pattern.star`, except for its proofs. Any other term keeps the marker.
+
+The compiled configuration file also records each facet that the file declares, new or in place
+of a facet of Lake. The driver counts these declarations, and it keeps the marker if there is
+one. A file `lakefile.toml` declares no facet and cannot set `nativeFacets`. Its filter of an
+`input_dir` is the default only if it omits the filter or writes `"*"`. Lake only reads and hashes
+an input target. Thus a build in the plain shape runs no custom build step.
+
+A file `lakefile.lean` must also declare only what the commands of Lake generate. These are the
+definitions of the package, its targets and their configurations, `require` and the name of the
+package. The commands link each of them in a fixed form (`configurationNames`). The others are
+theorems and axioms that state a `Lake.FamilyDef` or an equation between types.
+
+The entries of the file itself must be in a list of extensions that the commands of Lake and their
+compilation fill (`configExtensions`). Its entries of the attribute `inline` must be the same as
+the entries that the commands give. Thus a compiler replacement (`csimp`), `implemented_by`,
+`extern`, `init` or `noinline` keeps the marker.
+
+The file must import only modules of Lean and of Lake. Its syntax must have no `attribute` command
+and no local or scoped attribute. A local registration leaves no entry, so the syntax is the place
+to find it.
+
+The driver also reads each buildable module of the root package and each executable root, with
+the imports from Lake's `transImports` facet (`markerInputs`). Each name must have one source
+file, and Lake must resolve the name to that file (`ModuleEntry.Resolved`). The driver omits the
+marker only if none of these modules imports `Regula.Linter`, directly or transitively.
+
+Then the build compiles no module that loads the only reader of the marker in Regula. Thus the
+marker can change no elaboration, if no module of the project reads the marker itself. The driver
+then reuses the modules that an ordinary build made, for example the modules of the driver itself
+in this repository.
+
+The decision is `Regula.Checker.Lake.auditMarkerNeeded`, two-way against its specification
+(`checked_auditMarkerNeeded`). The specification is the negation of the plain shape
+(`PackageShape.Plain`), or a module that is not resolved or that has `Regula.Linter` among its
+imports. The driver keeps the marker if it cannot read the workspace, by an exception or an
+unknown. The same verdict with and without the marker is a claim for the plain shape only.
+
+That `Regula.Linter` is the only reader of the marker in Regula is by inspection. That no module
+of the project reads the marker itself is an assumption. That Lake runs no code from the fields
+of the list is read from the source of Lake. The source of Lake also shows that a build in the
+plain shape runs no custom build step. That the listed declarations and extensions add no code to
+a build is read from the source of Lean and of Lake. Lake's discovery of the modules and of their
+imports, and its compiled configuration files, are trusted.
 
 The command `./scripts/verify.sh` makes one copy of the checkout, and its first step operates in
 that copy. The driver of that command, `lean/RegulaVerification.lean`, makes the copy before it
@@ -719,16 +794,17 @@ Which report states a kind depends on the library that holds the registration:
   registrations are contracts of the accepted inventory, so an accepted account of Regula states
   the kind of each and, for a one-way kind, the direction it leaves open.
 - **The excluded `Regula` library.** Acceptance does not report its declarations, so no report
-  states the kind of its twenty-three registrations, named here with their modules: `checked_same`
+  states the kind of its twenty-five registrations, named here with their modules: `checked_same`
   and `checked_read` (`Regula.SharedExecution`), `checked_intern` and `checked_expand`
   (`Regula.SourceTexts`), `checked_agrees` and `checked_canonical` (`Regula.JsonAgreement`),
   `checked_parseLocation` and `checked_parseDiagnostic` (`Regula.DiagnosticCodec`),
   `checked_exactFields` (`Regula.Checker.PolicyCodec`), `checked_scanLines` and
   `checked_scanVersoLines` (`Regula.Checker.FenceScan`), `checked_parseMode` and `checked_parseRule`
   (`Regula.RegistryCodec`), `checked_parseName` and `checked_parsePrintedNameJson`
-  (`Regula.StructuralName`), `checked_checkCopies`, `checked_checkHeader` and
-  `checked_admitReplay` (`Regula.Checker.Admission`),
-  `checked_parseValue` (`Regula.Checker.Manifest`), `checked_validate`
+  (`Regula.StructuralName`), `checked_checkCopies`, `checked_checkHeader`,
+  `checked_admitReplay` and `checked_checkTable` (`Regula.Checker.Admission`),
+  `checked_parseValue` (`Regula.Checker.Manifest`), `checked_auditMarkerNeeded`
+  (`Regula.Checker.LintBuild`), `checked_validate`
   (`Regula.Checker.ProducerReport`), and `checked_admitExampleRequest`,
   `checked_admitExampleSources` and `checked_admitDemonstration` (`Regula.Website`). Lean's kernel checks each kind's proof in the library's
   warning-free build, and the `self-audit` diagnostic holds each registration to [RG1007],
@@ -768,6 +844,7 @@ Two-way decisions (`Regula.Decides`), each with an accepted and a refused input:
 | `Regula.JsonAgreement.agrees` | `JsonAgreement.Agree` (`agrees_iff`). The two values have one constructor and equal scalars. The elements of two arrays agree in order. Two objects have the same number of members. Each member of the first is found by its name in the second, with a value that it agrees with. | The comparison of an input with the encoding of the decoded value ([below](#the-diagnostic-and-policy-codecs-decisions-and-observing-pass)). |
 | `Regula.JsonAgreement.canonical` (accepts on `.ok`) | The reader returns a value, and the input agrees with the encoding of that value (`canonical_eq_ok_iff`). | The decoders `DiagnosticCodec.parseLocation` and `parseDiagnostic`. The reader and the encoder are arguments, so the kind is about each reader and each encoder. |
 | `Regula.Checker.PolicyCodec.exactFields` (accepts on `.ok`) | `ExactFields` (`exactFields_iff`). The value is an object, and its member names are the expected names in some order. | The decoders of the worker protocol and of the producer reports. The proof that the expected names are distinct is an argument of the function. |
+| `Regula.Checker.Lake.auditMarkerNeeded` (accepts on `true`) | A package is not `PackageShape.Plain`, or some entry is not `ModuleEntry.Resolved` or has `Regula.Linter` among its imports (`auditMarkerNeeded_iff`). | The choice of the `lake lint` driver's claimed build, with or without the audit-build marker, when the owner passes `--ordinary-lakefiles` ([acceptance boundary](#the-acceptance-boundary)). The shape of each package is read from the configuration of Lake and from its compiled configuration file. Each entry is a module of the root package with its source files and the modules that Lake's `transImports` facet reports it imports (`markerInputs`). That `Regula.Linter` is the only reader of the marker in Regula is by inspection. That no module of the project reads the marker itself is an assumption. |
 | `Regula.Checker.Documentation.scanLines`, `scanVersoLines` (accept on a result with no violation) | `Clean`, `VersoClean`: the lines are a run of transitions from the first line to the end of the document. The fence protocol permits each transition, and each keeps the shape rule (`scanLines_problems_eq_empty_iff`, `scanVersoLines_problems_eq_empty_iff`). | The fence protocol and the shape rule of [RG4001] ([below](#the-fence-scanners-decisions-and-observing-pass)). The input is a `Source`: a document with the lines of its text. The kinds say nothing about the fences of a result. |
 | `Regula.Checker.Admission.checkHeader` (accepts on `.ok ()`) | `HeaderOK` (`checkHeader_eq_ok_iff`). Each replayed or reported module lists its constants under their own names. No module of the replay base imports a replayed module. | The decision on the header of [RG2005] ([below](#receipt-validation-decisions-and-observing-pass)). |
 | `Regula.Checker.Admission.checkTable` (accepts on `.ok ()`) | `TableWithin` (`checkTable_eq_ok_iff`). Each axiom that `collectAxioms` gives for a declaration is an axiom that the declaration reaches in the replayed kernel. | The decision on the axiom tables of [RG2005] ([below](#receipt-validation-decisions-and-observing-pass)). |
@@ -837,7 +914,7 @@ Decisions with no kind, and what stands instead:
 Every decision of the three tables with a kind is registered with `@[regula_decision]`, so
 [RG1008] requires its contract: 56 functions of `RegulaPolicy`, 28 of `RegulaCore`, 9 of
 `RegulaQualification`, 3 of `AuditApp`, 8 of `RegulaProvision`, 6 of `RegulaVerification` and
-23 of the excluded `Regula` library, where the `self-audit` diagnostic decides the rule. Sixteen
+25 of the excluded `Regula` library, where the `self-audit` diagnostic decides the rule. Sixteen
 of them are registered from another module of their library, with
 `attribute [regula_decision]` beside their contracts, because the module that declares them
 imports only the toolchain:
@@ -2843,9 +2920,12 @@ Lean language frontend's preceding-command array, and the low-level
 import-time marker the feedback switch is off whatever a command scope sets `linter.regula` to;
 that every local finding is gated by that switch is checked by inspection. Disabling local
 feedback cannot disable a mandatory project predicate. Enabling it cannot reach a project audit's
-own build: `lake lint`'s claimed build and the audit's fresh elaboration pass the unregistered
-command-line marker `weak.regula.auditBuild`, which the linter reads only from a module's
-import-time options and under which it emits nothing.
+own build. The audit's fresh elaboration passes the unregistered command-line marker
+`weak.regula.auditBuild`. The linter reads the marker only from the import-time options of a
+module, and under it the linter emits nothing. `lake lint`'s claimed build also passes the marker,
+except under the owner's `--ordinary-lakefiles` for a workspace of the plain shape
+([acceptance boundary](#the-acceptance-boundary)). There no module of the root package imports
+`Regula.Linter`, so the linter runs on none of them.
 
 **Documentation presence.** `Lean.findDocString?` accepts ordinary, Verso and inherited
 docstrings; private names follow Lean's visibility and never enter the public `@[regula_material]`
@@ -3402,7 +3482,7 @@ not yet proved, and are labelled so at their definition; they are not correctnes
 | checkerSelftest structural | a lemma realized in a claimed module and the toolchain, in both import orders; unchecked, circular, `sorry` and kept-cycle copies of one name | Lean's realization, import, kept copy and kernel check of several copies of one name | External | observed; the copies are checked by `Admission.checkCopies` (`checkCopies_sound`) in the decision `admitReplay` (`admitReplay_eq_ok`), over the replayed constants of `replayMap` (`replayMap_sound`, `replayMap_complete`) |
 | checkerSelftest structural | a function declared in one claimed module and registered with `attribute [regula_decision]` in another, without and with its decision contract, as plain files and as `module`s | Lean's saving and loading of the registration, and the collector's reading of it | External | observed; the decision over the recorded declaration is `policyFor_decisionContract_iff` |
 | checkerSelftest execution | each compiler-path mutation and correspondence control, with its positive and fresh restoration | compiler-derived execution coverage and correspondence evidence through the public gate; the emitted-C check of reachable code on the pin | External | observed |
-| checkerSelftest cli, environments, build-policy, lint-driver | CLI sweep, adopters, clean checkout, ordinary build, `lake lint` exit classes, cold compiler guard refusal of a failing and of a successful unidentified child process with its restored load | packaging, Lake and build integration | External | observed |
+| checkerSelftest cli, environments, build-policy, lint-driver | CLI sweep, adopters, clean checkout, ordinary build, `lake lint` exit classes, its claimed build with and without the audit-build marker, cold compiler guard refusal of a failing and of a successful unidentified child process with its restored load | packaging, Lake and build integration | External | observed |
 | ordinary | `qualify registry`, `qualify native` | CLI output invalidation, registry and site validators; compiler messages and ranges | External | observed |
 | ordinary | `RegistryChecks` codec, source and execution-account cases | registry, diagnostic and source codecs; the result file's shared execution form | Proved in part | round-trip theorems of `Json` values, with those of each finding and each location (`parseDiagnostic_roundtrip`, `parseLocation_roundtrip`); that the shared form is kept, and that a parsed shared form reads back to the built account, are observed; open: state the remaining refusals as theorems |
 | standalone | `qualify environments` finalize mutations | `finalize` refusals | Proved relation | `finalize_iff`; instance membership sampled; no transcript substitution: an accepted run has no transcript job (`accepted_no_transcript_subjects`) |

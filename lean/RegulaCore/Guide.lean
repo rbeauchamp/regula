@@ -1129,7 +1129,10 @@ def guide : RuleId → Guide
           (standard §6.2). The detector sees only emitted warnings, so it cannot tell such a \
           disable from a forbidden one; review checks them."]
       limitations := [
-        "`lake lint` builds with Regula's audit-build marker, which turns the local linter off \
+        "`lake lint` builds with Regula's audit-build marker, except when the workspace owner \
+          passes `--ordinary-lakefiles`, asserting that the workspace's lakefiles are ordinary \
+          configuration, and a conservative plain-shape guard admits the workspace. The marker \
+          turns the local linter off \
           whatever the source sets `linter.regula` to, so Regula's own local findings are not \
           build warnings there and its policy stages report those rules. `axiomGate` and the \
           build-lint `policy` target keep ordinary options, so in a module that imports \
@@ -1140,8 +1143,8 @@ def guide : RuleId → Guide
       linkage := "Acceptance side only: an accepted run satisfies `RegulaPolicy.BuildOK`. Reading \
         Lake's build result is operational."
       sources :=
-          ["lean/Regula/Checker/Lake.lean", "lean/Regula/Checker/Diagnostics.lean",
-              "lean/Regula/Checker/ResultProtocol.lean"] }
+          ["lean/Regula/Checker/Lake.lean", "lean/Regula/Checker/LintBuild.lean",
+              "lean/Regula/Checker/Diagnostics.lean", "lean/Regula/Checker/ResultProtocol.lean"] }
   | .coverage => {
       problem := "The exact module and declaration inventory from Lake does not match the owned \
         coverage: a claimed library imports an excluded or checker-probe module, a module is \
