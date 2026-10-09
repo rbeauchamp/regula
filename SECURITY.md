@@ -36,21 +36,24 @@ and `initialize` are honest code.
 tells how Regula treats each of them. Honest code can also use macros, elaborators, tactics and
 evaluators in the usual way, and the guarantees include the declarations that such use makes.
 
-For example, code that makes one of these changes to make a check pass is not honest code:
+Where the standard or a rule page states a check for a mechanism, that statement governs, and the
+mechanism is in scope. The examples below are out of scope only where no such statement covers
+them. Code that makes one of these changes to make a check pass is not honest code:
 
 - A direct write to the state of an environment extension that goes around the command or
   attribute that Lean gives for that extension. An example is a direct write to the axiom table
   `exportedAxiomsExt` that Lean calculates for each module.
-- A declaration that a metaprogram adds with `debug.skipKernelTC`.
+- A declaration of a dependency that a metaprogram adds with `debug.skipKernelTC`.
 - A user compiler pass (`@[cpass]`), or a direct write to the state of the IR or LCNF extensions
   that goes around Lean's compiler.
-- An `f._unsafe_rec` companion that a metaprogram adds for a definition `f`.
+- An `f._unsafe_rec` companion that Regula does not inspect, for example one in a dependency.
 - A native build setting: `extern_lib`, `moreLinkArgs` or `moreLeancArgs`.
 
-Regula checks for some of these changes. For example, it replays the declarations of the project
-that are not `unsafe` or `partial` through Lean's kernel. But a pass makes no claim that the
-project has none of these changes. The [README](README.md) puts Regula at the `#print axioms` step
-of [Validating a Lean Proof](https://lean-lang.org/doc/reference/latest/ValidatingProofs/).
+Regula checks for some changes of this kind, where the standard or a rule page states the check.
+For example, it replays the declarations of the project that are not `unsafe` or `partial` through
+Lean's kernel. But a pass makes no claim that the project has none of the changes in the list.
+The [README](README.md) puts Regula at the `#print axioms` step of
+[Validating a Lean Proof](https://lean-lang.org/doc/reference/latest/ValidatingProofs/).
 
 The later steps of that page, `lean4checker` and comparator, replay declarations through Lean's
 kernel. Thus the two refuse a declaration that `debug.skipKernelTC` adds and that the kernel does
@@ -59,10 +62,10 @@ write to the axiom table. Comparator calculates the axioms from the declarations
 not from that table. It refuses each axiom that is not one of its permitted axioms.
 
 No step of that page checks the changes to compiled code. These are a compiler pass, a direct
-write to the IR or LCNF extensions, an `_unsafe_rec` companion and a native build setting. The
-checks of Regula that read compiled code trust that the project makes none of these changes. To
-check a proof from a source that you do not trust, use
-[comparator](https://github.com/leanprover/comparator).
+write to the IR or LCNF extensions and a native build setting. An `_unsafe_rec` companion that
+Regula does not inspect is also such a change. The checks of Regula that read compiled code trust
+that the project makes none of these changes. To check a proof from a source that you do not
+trust, use [comparator](https://github.com/leanprover/comparator).
 
 ## What counts as a vulnerability
 

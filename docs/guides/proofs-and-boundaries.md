@@ -3523,8 +3523,10 @@ make a check pass. Ordinary declarations, attributes such as `implemented_by`, `
 each of them.
 
 The axiom collection and the execution account ([RG3001], [RG3002]) trust that the project makes
-no such change. The list below gives examples, and each one is a trusted boundary of one of the
-two or of the two:
+no such change. Where the standard or a rule page states a check for a mechanism, that statement
+governs, and the mechanism is in scope. The examples below are out of scope only where no such
+statement covers them. Each one is a trusted boundary of the axiom collection, of the execution
+account or of the two:
 
 - **A direct write to the state of an environment extension.** Such a write goes around the
   command or attribute that Lean gives for that extension. The axiom collection uses
@@ -3532,9 +3534,10 @@ two or of the two:
   axiom table `exportedAxiomsExt` that Lean calculated when it wrote the module. The audit imports
   each module that it inspects. A direct write to that table changes the axiom sets that the
   collection gives to the rules [RG1001]–[RG1005].
-- **A declaration that a metaprogram adds with `debug.skipKernelTC`.** [Admission](#producers)
-  replays the owned declarations that are not `unsafe` or `partial` through the kernel. It refuses
-  such a declaration that the kernel does not accept ([RG2005]), and the control
+- **A declaration of a dependency that a metaprogram adds with `debug.skipKernelTC`.** [RG2005]
+  states the check for an owned declaration, thus an owned declaration is in scope.
+  [Admission](#producers) replays the owned declarations that are not `unsafe` or `partial`
+  through the kernel. It refuses such a declaration that the kernel does not accept, and the control
   `Fixtures.Mutations.LocalUncheckedAdmission` is an observation of one refusal. Admission does
   not replay an `unsafe` or `partial` declaration or a declaration of a dependency. The axiom
   collection trusts each declaration that admission does not replay.
@@ -3543,8 +3546,8 @@ two or of the two:
   A direct write to the state of those extensions goes around Lean's compiler. The execution
   account reads the compiled code that the compiler stored. It trusts that the passes of the
   pinned compiler made that code.
-- **An `f._unsafe_rec` companion that a metaprogram adds for a definition `f`.** Lean's compiler
-  compiles `f` from the value of `f._unsafe_rec` if that constant exists, in
+- **An `f._unsafe_rec` companion that [RG1006] does not inspect, for example one in a dependency.**
+  Lean's compiler compiles `f` from the value of `f._unsafe_rec` if that constant exists, in
   `Lean.Compiler.LCNF.toDecl`. [RG1006] admits an owned recursion helper only where Lean's
   recursion compiler regenerates its base from it, as
   [the recursion-helper comparison](#the-recursion-helper-comparison-decision-and-observing-pass)
@@ -3556,8 +3559,9 @@ two or of the two:
   Lean code, not the native objects that the build links. It trusts that the linked program runs
   that code.
 
-Regula finds some of these changes, but an accepted result makes no claim that the project has
-none of them. The [README](../../README.md) puts Regula at the `#print axioms` step of
+Regula finds some changes of this kind, where the standard or a rule page states the check. An
+accepted result makes no claim that the project has none of the changes in the list. The
+[README](../../README.md) puts Regula at the `#print axioms` step of
 [Validating a Lean Proof](https://lean-lang.org/doc/reference/latest/ValidatingProofs/).
 
 The later steps of that page, `lean4checker` and comparator, replay declarations through Lean's
@@ -3567,10 +3571,10 @@ write to the axiom table. Comparator calculates the axioms from the declarations
 not from that table. It refuses each axiom that is not one of its permitted axioms.
 
 No step of that page checks the changes to compiled code. These are a compiler pass, a direct
-write to the IR or LCNF extensions, an `_unsafe_rec` companion and a native build setting. Thus
-they stay trusted boundaries of the execution account ([RG3001], [RG3002]) and of the native
-replay ([RG1004]). To check a proof from a source that you do not trust, use
-[comparator](https://github.com/leanprover/comparator).
+write to the IR or LCNF extensions and a native build setting. An `_unsafe_rec` companion that
+[RG1006] does not inspect is also such a change. Thus these changes stay trusted boundaries of the
+execution account of [RG3001] and [RG3002] and of the native replay of [RG1004]. To check a proof
+from a source that you do not trust, use [comparator](https://github.com/leanprover/comparator).
 
 ## Operational assumptions
 
