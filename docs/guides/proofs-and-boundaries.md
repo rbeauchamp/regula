@@ -175,36 +175,52 @@ refused. The driver builds the claimed targets with the audit-build marker
 
 Lake scopes the marker to the whole package in its module trace. Thus with the marker, the audit
 rebuilds the modules that an ordinary build made, and their replayed logs do not enter its
-warning check. The driver omits the marker only for a workspace of the plain shape. In that
-shape, each package declares only `lean_lib`, `lean_exe`, `input_file` and `input_dir` targets.
+warning check. The driver omits the marker only for a workspace of the plain shape.
 
-Each `needs` entry of a library or an executable names an `input_file` or an `input_dir` of its
-package. No package, library or executable has an `extraDepTargets` entry, a plugin, a dynamic
-library, or an extra argument, object or library. No configuration declares a facet, new or in
-place of a facet of Lake.
+In the plain shape, each package declares only `lean_lib`, `lean_exe`, `input_file` and
+`input_dir` targets. Each field of the configuration of a package or a target has the default
+value of Lake, except for a short list of fields. Lake gives the fields of each type of
+configuration (`Lake.ConfigFields`). Thus a field that a different release of Lake adds keeps the
+marker.
 
-Lake keeps no record of such a declaration. Thus a facet is Lake's own for the driver only if its
-configuration is the object that Lake started from (`customFacets`). Lake only reads and hashes an
-input target, so a build in that shape runs no custom build step.
+A library can change its source directory, roots, globs, `needs` and Lean options. An executable
+can also change its root, its file name and its interpreter support. An input target can change
+its path and its text mode. Each `needs` entry must name an `input_file` or an `input_dir` of the
+same package. A package can change its source directory, its Lean options, its lint and test
+drivers and its metadata.
+
+Lake runs no code from these fields in a build. The function `nativeFacets` of a library or an
+executable and the filter of an `input_dir` are also fields. Regula reads them from the compiled
+configuration file in `.lake/config/` (`leanConfigReading`). It accepts only the default term of
+Lake for `nativeFacets` and the pattern `Pattern.star` for the filter. Any other term keeps the
+marker.
+
+The compiled configuration file also records each facet that the file declares, new or in place
+of a facet of Lake. The driver counts these declarations, and it keeps the marker if there is
+one. A file `lakefile.toml` declares no facet and sets no function. Lake only reads and hashes an
+input target. Thus a build in the plain shape runs no custom build step.
 
 The driver also reads each buildable module of the root package and each executable root, with
-the imports from Lake's `transImports` facet (`markerInputs`). It omits the marker only if none
-of these modules imports `Regula.Linter`, directly or transitively. Then the build compiles no
-module that loads the only reader of the marker in Regula. Thus the marker can change no
-elaboration, if no module of the project reads the marker itself. The driver then reuses the
-modules that an ordinary build made, for example the modules of the driver itself in this
-repository.
+the imports from Lake's `transImports` facet (`markerInputs`). Each name must have one source
+file, and Lake must resolve the name to that file (`ModuleEntry.Resolved`). The driver omits the
+marker only if none of these modules imports `Regula.Linter`, directly or transitively.
+
+Then the build compiles no module that loads the only reader of the marker in Regula. Thus the
+marker can change no elaboration, if no module of the project reads the marker itself. The driver
+then reuses the modules that an ordinary build made, for example the modules of the driver itself
+in this repository.
 
 The decision is `Regula.Checker.Lake.auditMarkerNeeded`, two-way against its specification
 (`checked_auditMarkerNeeded`). The specification is the negation of the plain shape
-(`PackageShape.Plain`, no declared facet), or a module with `Regula.Linter` among its imports. The
-driver keeps the marker if it cannot read the workspace, by an exception or an unknown. The same
-verdict with and without the marker is a claim for the plain shape only.
+(`PackageShape.Plain`), or a module that is not resolved or that has `Regula.Linter` among its
+imports. The driver keeps the marker if it cannot read the workspace, by an exception or an
+unknown. The same verdict with and without the marker is a claim for the plain shape only.
 
 That `Regula.Linter` is the only reader of the marker in Regula is by inspection. That no module
-of the project reads the marker itself is an assumption. That a build in the plain shape runs no
-custom build step is read from the source of Lake. Lake's discovery of the modules and of their
-imports is trusted.
+of the project reads the marker itself is an assumption. That Lake runs no code from the fields
+of the list is read from the source of Lake. The source of Lake also shows that a build in the
+plain shape runs no custom build step. Lake's discovery of the modules and of their imports, and
+its compiled configuration files, are trusted.
 
 The command `./scripts/verify.sh` makes one copy of the checkout, and its first step operates in
 that copy. The driver of that command, `lean/RegulaVerification.lean`, makes the copy before it
@@ -798,7 +814,7 @@ Two-way decisions (`Regula.Decides`), each with an accepted and a refused input:
 | `Regula.JsonAgreement.agrees` | `JsonAgreement.Agree` (`agrees_iff`). The two values have one constructor and equal scalars. The elements of two arrays agree in order. Two objects have the same number of members. Each member of the first is found by its name in the second, with a value that it agrees with. | The comparison of an input with the encoding of the decoded value ([below](#the-diagnostic-and-policy-codecs-decisions-and-observing-pass)). |
 | `Regula.JsonAgreement.canonical` (accepts on `.ok`) | The reader returns a value, and the input agrees with the encoding of that value (`canonical_eq_ok_iff`). | The decoders `DiagnosticCodec.parseLocation` and `parseDiagnostic`. The reader and the encoder are arguments, so the kind is about each reader and each encoder. |
 | `Regula.Checker.PolicyCodec.exactFields` (accepts on `.ok`) | `ExactFields` (`exactFields_iff`). The value is an object, and its member names are the expected names in some order. | The decoders of the worker protocol and of the producer reports. The proof that the expected names are distinct is an argument of the function. |
-| `Regula.Checker.Lake.auditMarkerNeeded` (accepts on `true`) | A package is not `PackageShape.Plain`, the workspace declares a facet, or some entry has `Regula.Linter` among its imports (`auditMarkerNeeded_iff`). | The choice of the `lake lint` driver's claimed build, with or without the audit-build marker ([acceptance boundary](#the-acceptance-boundary)). The shape of each package is read from the configuration of Lake. Each entry is a module of the root package with the modules that Lake's `transImports` facet reports it imports (`markerInputs`). That `Regula.Linter` is the only reader of the marker in Regula is by inspection. That no module of the project reads the marker itself is an assumption. |
+| `Regula.Checker.Lake.auditMarkerNeeded` (accepts on `true`) | A package is not `PackageShape.Plain`, or some entry is not `ModuleEntry.Resolved` or has `Regula.Linter` among its imports (`auditMarkerNeeded_iff`). | The choice of the `lake lint` driver's claimed build, with or without the audit-build marker ([acceptance boundary](#the-acceptance-boundary)). The shape of each package is read from the configuration of Lake and from its compiled configuration file. Each entry is a module of the root package with its source files and the modules that Lake's `transImports` facet reports it imports (`markerInputs`). That `Regula.Linter` is the only reader of the marker in Regula is by inspection. That no module of the project reads the marker itself is an assumption. |
 | `Regula.Checker.Documentation.scanLines`, `scanVersoLines` (accept on a result with no violation) | `Clean`, `VersoClean`: the lines are a run of transitions from the first line to the end of the document. The fence protocol permits each transition, and each keeps the shape rule (`scanLines_problems_eq_empty_iff`, `scanVersoLines_problems_eq_empty_iff`). | The fence protocol and the shape rule of [RG4001] ([below](#the-fence-scanners-decisions-and-observing-pass)). The input is a `Source`: a document with the lines of its text. The kinds say nothing about the fences of a result. |
 | `Regula.Checker.Admission.checkHeader` (accepts on `.ok ()`) | `HeaderOK` (`checkHeader_eq_ok_iff`). Each replayed or reported module lists its constants under their own names. No module of the replay base imports a replayed module. | The decision on the header of [RG2005] ([below](#receipt-validation-decisions-and-observing-pass)). |
 | `Regula.SourceTexts.intern` | One `sourceTexts` member, `null`, and string `sourceText` members (`intern_isOk_iff`) | Writing a result document. |

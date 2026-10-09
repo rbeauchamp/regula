@@ -5,6 +5,8 @@ import RegulaCore.EditorPolicy
 import Regula.Contract
 import Regula.Decision
 import Lake.CLI.Build
+import Lake.Load.Lean.Elab
+import Lean.Compiler.ImplementedByAttr
 
 /-! # Lake-semantic discovery
 
@@ -173,9 +175,10 @@ so with it a module built with local feedback, for example by an ordinary `lake 
 rebuilt: its replayed log can neither add Regula warnings nor stand in for this configuration's
 warnings. Lake scopes Lean options by package and library, not by module, so the trace change
 reaches every root-package module that the claimed build compiles. `buildAuditTargets`
-therefore omits it only for a workspace of the plain shape in which no module of the root
-package imports the marker's reader (`auditMarkerNeeded`); `axiomGate` and the build-lint target
-keep ordinary options (`AxiomGate.claimedBuild`). -/
+therefore omits it only for a workspace of the plain shape in which each module of the root
+package resolves to its one source and none imports the marker's reader
+(`auditMarkerNeeded`); `axiomGate` and the build-lint target keep ordinary options
+(`AxiomGate.claimedBuild`). -/
 def auditLeanOptions : LeanOptions := .ofArray #[⟨Regula.Linter.auditBuildOption, .ofBool true⟩]
 
 /-- The module whose import loads Regula's local feedback: it registers the linter and the module
@@ -201,122 +204,181 @@ inductive TargetKind where
   | other
   deriving DecidableEq, Repr
 
+/-- The fields of a target's configuration that the plain shape lets differ from Lake's default:
+the source directory, roots and globs of a library, the root, file name and interpreter support
+of an executable, `needs` and Lean options of both, and the path and text mode of an input target.
+Lake's build runs no code from any of them. -/
+def TargetKind.fields : TargetKind → List Name
+  | .leanLib => [`srcDir, `roots, `globs, `needs, `leanOptions]
+  | .leanExe => [`srcDir, `root, `exeName, `needs, `supportInterpreter, `leanOptions]
+  | .inputFile | .inputDir => [`path, `text]
+  | .other => []
+
+/-- The fields of a package's configuration that the plain shape lets differ from Lake's default:
+the source directory, Lean options, the lint and test drivers, and the package's metadata. Lake's
+build runs no code from any of them. -/
+def packageFields : List Name :=
+  [`srcDir, `leanOptions, `lintDriver, `lintDriverArgs, `testDriver, `testDriverArgs, `version,
+    `versionTags, `description, `keywords, `homepage, `license, `licenseFiles, `readmeFile,
+    `reservoir]
+
+/-- What the plain shape reads of one target of a package. -/
+structure TargetShape where
+  /-- The kind of the target. -/
+  kind : TargetKind
+  /-- Each field of the target's configuration that Regula does not show to have Lake's default
+  value. -/
+  unknown : Array Name
+  /-- The kind of the target that each `needs` entry of a library or an executable names. -/
+  needs : Array TargetKind
+
+/-- A target of the plain shape: a `lean_lib`, `lean_exe`, `input_file` or `input_dir` that has
+Lake's default value in each field outside `TargetKind.fields`, and whose `needs` entries each
+name an `input_file` or an `input_dir` of its package. -/
+def TargetShape.Plain (target : TargetShape) : Prop :=
+  target.kind ≠ .other ∧ (∀ field ∈ target.unknown, field ∈ target.kind.fields) ∧
+    ∀ kind ∈ target.needs, kind = .inputFile ∨ kind = .inputDir
+
 /-- What the plain shape reads of one package of the workspace. -/
 structure PackageShape where
-  /-- The kind of each target the package declares. -/
-  targets : Array TargetKind
-  /-- The kind of the target that each `needs` entry of its libraries and executables names. -/
-  needs : Array TargetKind
-  /-- The number of `extraDepTargets` entries of the package, its libraries and its
-  executables. -/
-  extraDeps : Nat
-  /-- The number of plugins, dynamic libraries, and extra `lean`, `leanc` and link arguments,
-  objects and libraries that the package, its libraries and its executables configure. -/
-  extras : Nat
+  /-- Each field of the package's configuration that Regula does not show to have Lake's default
+  value. -/
+  unknown : Array Name
+  /-- Each target that the package declares. -/
+  targets : Array TargetShape
+  /-- The number of facets that the package's configuration file declares, new or in place of
+  one of Lake's; `none` when Regula cannot read it. -/
+  facets : Option Nat
 
-/-- The plain shape of a package: it declares only `lean_lib`, `lean_exe`, `input_file` and
-`input_dir` targets, each `needs` entry names an `input_file` or an `input_dir` of the package,
-and it has no extra-dependency target and no plugin, dynamic library or extra argument, object or
-library. In a workspace of such packages that declares no facet, new or of Lake's name, a build
-of `lean_lib` and `lean_exe` targets runs no custom build step: it compiles modules and reads and
-hashes input files. -/
+/-- A package of the plain shape: it has Lake's default value in each field outside
+`packageFields`, each of its targets is of the plain shape, and its configuration file declares no
+facet. In a workspace of such packages, a build of `lean_lib` and `lean_exe` targets runs no
+custom build step: it compiles modules and reads and hashes input files. -/
 def PackageShape.Plain (shape : PackageShape) : Prop :=
-  (∀ kind ∈ shape.targets,
-      kind = .leanLib ∨ kind = .leanExe ∨ kind = .inputFile ∨ kind = .inputDir) ∧
-    (∀ kind ∈ shape.needs, kind = .inputFile ∨ kind = .inputDir) ∧
-    shape.extraDeps = 0 ∧ shape.extras = 0
-
-/-- Whether `kind` is one of the four kinds the plain shape admits. -/
-def TargetKind.admitted : TargetKind → Bool
-  | .other => false
-  | _ => true
+  (∀ field ∈ shape.unknown, field ∈ packageFields) ∧ (∀ target ∈ shape.targets, target.Plain) ∧
+    shape.facets = some 0
 
 /-- Whether `kind` is one of the two input kinds. -/
 def TargetKind.input : TargetKind → Bool
   | .inputFile | .inputDir => true
   | _ => false
 
-/-- The test of `PackageShape.Plain` (`plain_iff`). -/
-def PackageShape.plain (shape : PackageShape) : Bool :=
-  shape.targets.all TargetKind.admitted && shape.needs.all TargetKind.input &&
-    shape.extraDeps == 0 && shape.extras == 0
-
-/-- `TargetKind.admitted` holds exactly for the four admitted kinds. -/
-theorem TargetKind.admitted_iff (kind : TargetKind) :
-    kind.admitted = true ↔
-      kind = .leanLib ∨ kind = .leanExe ∨ kind = .inputFile ∨ kind = .inputDir := by
-  cases kind <;> simp [admitted]
-
 /-- `TargetKind.input` holds exactly for the two input kinds. -/
 theorem TargetKind.input_iff (kind : TargetKind) :
     kind.input = true ↔ kind = .inputFile ∨ kind = .inputDir := by
   cases kind <;> simp [input]
 
+/-- The test of `TargetShape.Plain` (`TargetShape.plain_iff`). -/
+def TargetShape.plain (target : TargetShape) : Bool :=
+  target.kind != .other && target.unknown.all (target.kind.fields.contains ·) &&
+    target.needs.all TargetKind.input
+
+/-- `TargetShape.plain` decides `TargetShape.Plain`. -/
+theorem TargetShape.plain_iff (target : TargetShape) : target.plain = true ↔ target.Plain := by
+  simp only [plain, Plain, Bool.and_eq_true, bne_iff_ne, ne_eq, Array.all_eq_true',
+    List.contains_iff_mem, TargetKind.input_iff, and_assoc]
+
+/-- The test of `PackageShape.Plain` (`PackageShape.plain_iff`). -/
+def PackageShape.plain (shape : PackageShape) : Bool :=
+  shape.unknown.all (packageFields.contains ·) && shape.targets.all TargetShape.plain &&
+    shape.facets == some 0
+
 /-- `PackageShape.plain` decides `PackageShape.Plain`. -/
 theorem PackageShape.plain_iff (shape : PackageShape) : shape.plain = true ↔ shape.Plain := by
-  simp only [plain, Plain, Bool.and_eq_true, Array.all_eq_true', beq_iff_eq,
-    TargetKind.admitted_iff, TargetKind.input_iff, and_assoc]
+  simp only [plain, Plain, Bool.and_eq_true, Array.all_eq_true', List.contains_iff_mem,
+    TargetShape.plain_iff, beq_iff_eq, and_assoc]
+
+/-- A module of the root package as the driver reads it: the source file that each of the
+package's libraries and executables gives the name, the source file of the module that Lake
+resolves the name to, and the modules that Lake reports it imports transitively. -/
+structure ModuleEntry where
+  /-- The module's name. -/
+  name : Name
+  /-- The real path of the source file that each library and each executable of the root package
+  gives the name. -/
+  sources : Array String
+  /-- The real path of the source file of the module that Lake resolves the name to, if that
+  module is of the root package. -/
+  resolved : Option String
+  /-- The modules that Lake's `transImports` facet reports for the name. -/
+  imports : Array Name
+
+/-- A module that Lake resolves to the one source file that the root package gives it. -/
+def ModuleEntry.Resolved (entry : ModuleEntry) : Prop :=
+  ∀ source ∈ entry.sources, entry.resolved = some source
+
+/-- The test of `ModuleEntry.Resolved` (`ModuleEntry.resolvedTest_iff`). -/
+def ModuleEntry.resolvedTest (entry : ModuleEntry) : Bool :=
+  entry.sources.all (entry.resolved == some ·)
+
+/-- `ModuleEntry.resolvedTest` decides `ModuleEntry.Resolved`. -/
+theorem ModuleEntry.resolvedTest_iff (entry : ModuleEntry) :
+    entry.resolvedTest = true ↔ entry.Resolved := by
+  simp only [resolvedTest, Resolved, Array.all_eq_true', beq_iff_eq]
 
 /-- What the `lint` driver reads of the workspace before its claimed build: the shape of each
-package, the facets it declares, and each module that the root package owns with its
-transitive imports. Lake applies the root package's Lean options to the modules that package
-owns: the buildable modules of its libraries and the roots of its executables. -/
+package, and each module that the root package owns. Lake applies the root package's Lean options
+to the modules that package owns: the buildable modules of its libraries and the roots of its
+executables. -/
 structure MarkerInputs where
   /-- The shape of each package of the workspace (`packageShape`). -/
   packages : Array PackageShape
-  /-- The number of facets that the workspace declares, new or in place of Lake's own
-  (`customFacets`). -/
-  customFacets : Nat
   /-- Each buildable module of the root package's libraries (`buildableModules`) and each root of
-  its executables, with the modules that Lake reports it imports transitively
-  (`moduleImports`). -/
-  closure : Array (Name × Array Name)
+  its executables (`moduleEntries`). -/
+  modules : Array ModuleEntry
 
-/-- Whether the `lint` driver's claimed build passes `auditLeanOptions`: the workspace is not of
-the plain shape (a package that is not `PackageShape.Plain`, or a custom facet), or a module of
-the root package imports `linterModule`, directly or transitively (`auditMarkerNeeded_iff`). -/
+/-- Whether the `lint` driver's claimed build passes `auditLeanOptions`: a package is not
+`PackageShape.Plain`, or a module of the root package is not `ModuleEntry.Resolved` or imports
+`linterModule`, directly or transitively (`auditMarkerNeeded_iff`). -/
 @[regula_decision]
 def auditMarkerNeeded (inputs : MarkerInputs) : Bool :=
-  !(inputs.packages.all PackageShape.plain && inputs.customFacets == 0) ||
-    inputs.closure.any fun entry => entry.2.contains linterModule
+  !(inputs.packages.all PackageShape.plain) ||
+    inputs.modules.any fun entry => !entry.resolvedTest || entry.imports.contains linterModule
 
-/-- `auditMarkerNeeded` asks for the marker exactly when the workspace is not of the plain shape
-or some entry's imports have the linter's module among them. -/
+/-- `auditMarkerNeeded` asks for the marker exactly when a package is not of the plain shape, or
+a module of the root package is not resolved to its one source or has the linter's module among
+its imports. -/
 theorem auditMarkerNeeded_iff (inputs : MarkerInputs) :
     auditMarkerNeeded inputs = true ↔
-      ¬ ((∀ shape ∈ inputs.packages, shape.Plain) ∧ inputs.customFacets = 0) ∨
-        ∃ entry ∈ inputs.closure, linterModule ∈ entry.2 := by
-  have plain : (inputs.packages.all PackageShape.plain && inputs.customFacets == 0) = true ↔
-      (∀ shape ∈ inputs.packages, shape.Plain) ∧ inputs.customFacets = 0 := by
-    simp only [Bool.and_eq_true, Array.all_eq_true', PackageShape.plain_iff, beq_iff_eq]
-  have imports : (inputs.closure.any fun entry => entry.2.contains linterModule) = true ↔
-      ∃ entry ∈ inputs.closure, linterModule ∈ entry.2 := by
-    simp only [Array.any_eq_true, Array.contains_iff_mem]
+      ¬ (∀ shape ∈ inputs.packages, shape.Plain) ∨
+        ∃ entry ∈ inputs.modules, ¬ entry.Resolved ∨ linterModule ∈ entry.imports := by
+  have plain : inputs.packages.all PackageShape.plain = true ↔
+      ∀ shape ∈ inputs.packages, shape.Plain := by
+    simp only [Array.all_eq_true', PackageShape.plain_iff]
+  have modules : (inputs.modules.any fun entry =>
+        !entry.resolvedTest || entry.imports.contains linterModule) = true ↔
+      ∃ entry ∈ inputs.modules, ¬ entry.Resolved ∨ linterModule ∈ entry.imports := by
+    simp only [Array.any_eq_true, Bool.or_eq_true, Bool.not_eq_true', Bool.eq_false_iff, ne_eq,
+      ModuleEntry.resolvedTest_iff, Array.contains_iff_mem]
     constructor
-    · rintro ⟨i, bound, member⟩
-      exact ⟨inputs.closure[i], Array.getElem_mem bound, member⟩
-    · rintro ⟨entry, entered, member⟩
+    · rintro ⟨i, bound, holds⟩
+      exact ⟨inputs.modules[i], Array.getElem_mem bound, holds⟩
+    · rintro ⟨entry, entered, holds⟩
       obtain ⟨i, bound, rfl⟩ := Array.getElem_of_mem entered
-      exact ⟨i, bound, member⟩
+      exact ⟨i, bound, holds⟩
   rw [auditMarkerNeeded, Bool.or_eq_true, Bool.not_eq_true', Bool.eq_false_iff, ne_eq, plain,
-    imports]
+    modules]
 
-/-- `auditMarkerNeeded` is a sound and complete decision of "the workspace is not of the plain
-shape, or a module of the root package imports the linter's module" (`auditMarkerNeeded_iff`):
-it asks for the marker for a workspace with a custom facet and not for an empty one. The
-specification is a statement about fields, kinds and membership; it names no test of the
-implementation. It does not establish that `linterModule` is the only reader of the marker, nor
-that the inputs describe the workspace: the first is checked by inspection, and the second rests
-on `markerInputs`, Lake's configuration and its `transImports` facet. -/
+/-- `auditMarkerNeeded` is a sound and complete decision of "a package is not of the plain shape,
+or a module of the root package is not resolved to its one source or imports the linter's module"
+(`auditMarkerNeeded_iff`): it asks for the marker for a package whose facets it cannot read, and
+not for an empty workspace. The specification is a statement about fields, kinds and membership;
+it names no test of the implementation. It does not establish that `linterModule` is the only
+reader of the marker, nor that the inputs describe the workspace: the first is checked by
+inspection, and the second rests on `markerInputs`, Lake's configuration, its compiled
+configuration files and its `transImports` facet. -/
 theorem checked_auditMarkerNeeded : Regula.ExecutableContract auditMarkerNeeded
     (Regula.Decides (· = true) fun inputs : MarkerInputs =>
-      ¬ ((∀ shape ∈ inputs.packages, shape.Plain) ∧ inputs.customFacets = 0) ∨
-        ∃ entry ∈ inputs.closure, linterModule ∈ entry.2) :=
+      ¬ (∀ shape ∈ inputs.packages, shape.Plain) ∨
+        ∃ entry ∈ inputs.modules, ¬ entry.Resolved ∨ linterModule ∈ entry.imports) :=
   ⟨Regula.Decides.of_iff auditMarkerNeeded_iff
-    ⟨⟨#[], 1, #[]⟩, (auditMarkerNeeded_iff _).mpr (.inl fun ⟨_, zero⟩ => absurd zero (by decide))⟩
-    ⟨⟨#[], 0, #[]⟩, fun accepted => by
+    ⟨⟨#[⟨#[], #[], none⟩], #[]⟩, (auditMarkerNeeded_iff _).mpr
+      (.inl fun plain => by
+        have facets := (plain ⟨#[], #[], none⟩ (by simp)).2.2
+        simp at facets)⟩
+    ⟨⟨#[], #[]⟩, fun accepted => by
       rcases (auditMarkerNeeded_iff _).mp accepted with notPlain | ⟨_, member, _⟩
-      · exact notPlain ⟨(fun _ member => by simp at member), rfl⟩
+      · exact notPlain fun _ member => by simp at member
       · simp at member⟩⟩
 
 /-- Lake reads an explicit `+module` with `String.toName` and splits facets at `:`.
@@ -371,65 +433,240 @@ def needKind (package : _root_.Lake.Package) (key : _root_.Lake.PartialBuildKey)
       else .other
   | _ => .other
 
-/-- The number of plugins, dynamic libraries, and extra `lean`, `leanc` and link arguments,
-objects and libraries that `config` sets. -/
-def configExtras (config : _root_.Lake.LeanConfig) : Nat :=
-  config.moreLeanArgs.size + config.weakLeanArgs.size + config.moreLeancArgs.size +
-    config.weakLeancArgs.size + config.moreLinkArgs.size + config.weakLinkArgs.size +
-    config.moreLinkObjs.size + config.moreLinkLibs.size + config.dynlibs.size +
-    config.plugins.size
+/-- The canonical fields that Lake lists for a configuration type (`Lake.ConfigFields`) that
+`checks` does not show to have Lake's default value: each field with no test in `checks`, and each
+whose test is `false`. A field that Lake adds in another release has no test, so it is listed. -/
+def unknownFields (fields : Array _root_.Lake.ConfigFieldInfo) (checks : List (Name × Bool)) :
+    Array Name :=
+  fields.filterMap fun field =>
+    if field.canonical && checks.lookup field.name != some true then some field.name else none
 
-/-- What the plain shape reads of `package`: Lake's configuration of the package, its libraries
-and its executables. -/
-def packageShape (package : _root_.Lake.Package) : PackageShape where
-  targets := package.targetDecls.map (declarationKind ·.kind)
-  needs := (package.leanLibs.flatMap (·.config.needs) ++
-      package.leanExes.flatMap (·.config.needs)).map (needKind package)
-  extraDeps := package.config.extraDepTargets.size +
-    (package.leanLibs.map (·.config.extraDepTargets.size)).sum +
-    (package.leanExes.map (·.config.extraDepTargets.size)).sum
-  extras := configExtras package.config.toLeanConfig +
-    (package.leanLibs.map (configExtras ·.config.toLeanConfig)).sum +
-    (package.leanExes.map (configExtras ·.config.toLeanConfig)).sum
+/-- The tests against Lake's defaults of the fields of `LeanConfig`, which a package, a library and
+an executable share. `leanOptions` has no test. -/
+def leanConfigChecks (config : _root_.Lake.LeanConfig) : List (Name × Bool) :=
+  [(`buildType, config.buildType == .release), (`moreLeanArgs, config.moreLeanArgs.isEmpty),
+    (`weakLeanArgs, config.weakLeanArgs.isEmpty), (`moreLeancArgs, config.moreLeancArgs.isEmpty),
+    (`moreServerOptions, config.moreServerOptions.isEmpty),
+    (`weakLeancArgs, config.weakLeancArgs.isEmpty), (`moreLinkObjs, config.moreLinkObjs.isEmpty),
+    (`moreLinkLibs, config.moreLinkLibs.isEmpty), (`moreLinkArgs, config.moreLinkArgs.isEmpty),
+    (`weakLinkArgs, config.weakLinkArgs.isEmpty), (`backend, config.backend == .default),
+    (`platformIndependent, config.platformIndependent.isNone),
+    (`dynlibs, config.dynlibs.isEmpty), (`plugins, config.plugins.isEmpty),
+    (`requiresModuleSystem, !config.requiresModuleSystem),
+    (`allowNonModules, !config.allowNonModules)]
 
-/-- The number of facets of `ws` that are not Lake's own: each name outside `initFacetConfigs`, and
-each name of Lake's that a configuration declares again. Lake puts a declared facet in place of
-its own facet of that name (`FacetConfigMap.insert`) and keeps no record of the declaration, so a
-facet counts as Lake's own only when its configuration is the very object of `initFacetConfigs`
-that the workspace was loaded from; a declared facet is a new object. Comparing addresses is
-`unsafe`. An object of Lake's that is not shared only counts as declared, which keeps the
-marker. -/
-unsafe def customFacets (ws : _root_.Lake.Workspace) : Nat :=
-  ws.facetConfigs.foldl (init := 0) fun count name config =>
-    match _root_.Lake.FacetConfigMap.get? name _root_.Lake.initFacetConfigs with
-    | some lake => if ptrEq config lake then count else count + 1
-    | none => count + 1
+/-- The tests against Lake's defaults of the fields of a package's configuration. The fields of
+`packageFields` have no test. -/
+def packageChecks {key origin : Name} (config : _root_.Lake.PackageConfig key origin) :
+    List (Name × Bool) :=
+  leanConfigChecks config.toLeanConfig ++
+    [(`bootstrap, !config.bootstrap), (`extraDepTargets, config.extraDepTargets.isEmpty),
+      (`precompileModules, !config.precompileModules),
+      (`moreGlobalServerArgs, config.moreGlobalServerArgs.isEmpty),
+      (`buildDir, decide (config.buildDir = _root_.Lake.defaultBuildDir)),
+      (`leanLibDir, decide (config.leanLibDir = _root_.Lake.defaultLeanLibDir)),
+      (`nativeLibDir, decide (config.nativeLibDir = _root_.Lake.defaultNativeLibDir)),
+      (`binDir, decide (config.binDir = _root_.Lake.defaultBinDir)),
+      (`irDir, decide (config.irDir = _root_.Lake.defaultIrDir)),
+      (`releaseRepo, config.releaseRepo.isNone), (`buildArchive, config.buildArchive.isNone),
+      (`preferReleaseBuild, !config.preferReleaseBuild),
+      (`enableArtifactCache?, config.enableArtifactCache?.isNone),
+      (`restoreAllArtifacts?, config.restoreAllArtifacts?.isNone),
+      (`libPrefixOnWindows, !config.libPrefixOnWindows),
+      (`allowImportAll, !config.allowImportAll), (`builtinLint?, config.builtinLint?.isNone),
+      (`fixedToolchain, !config.fixedToolchain),
+      (`packagesDir, decide (config.packagesDir = _root_.Lake.defaultPackagesDir))]
+
+/-- The tests against Lake's defaults of the fields of a library's configuration;
+`nativeFacets` is the given reading of the compiled configuration (`leanConfigReading`). The
+fields of `TargetKind.fields` have no test. -/
+def libraryChecks {name : Name} (config : _root_.Lake.LeanLibConfig name) (nativeFacets : Bool) :
+    List (Name × Bool) :=
+  leanConfigChecks config.toLeanConfig ++
+    [(`libName, config.libName.isEmpty), (`libPrefixOnWindows, !config.libPrefixOnWindows),
+      (`extraDepTargets, config.extraDepTargets.isEmpty),
+      (`precompileModules, !config.precompileModules),
+      (`defaultFacets, config.defaultFacets == #[_root_.Lake.LeanLib.leanArtsFacet]),
+      (`nativeFacets, nativeFacets), (`allowImportAll, !config.allowImportAll)]
+
+/-- The tests against Lake's defaults of the fields of an executable's configuration;
+`nativeFacets` is the given reading of the compiled configuration (`leanConfigReading`). The
+fields of `TargetKind.fields` have no test. -/
+def executableChecks {name : Name} (config : _root_.Lake.LeanExeConfig name)
+    (nativeFacets : Bool) : List (Name × Bool) :=
+  leanConfigChecks config.toLeanConfig ++
+    [(`extraDepTargets, config.extraDepTargets.isEmpty), (`nativeFacets, nativeFacets)]
+
+/-- Whether `term` is Lake's default `nativeFacets` as a configuration file elaborates it:
+`fun shouldExport => #[if shouldExport then Module.oExportFacet else Module.oFacet]`. -/
+def defaultNativeFacets (term : Expr) : Bool :=
+  match term with
+  | .lam _ (.const ``Bool []) body _ =>
+      body.isAppOfArity ``List.toArray 2 &&
+        let list := body.appArg!
+        list.isAppOfArity ``List.cons 3 && list.appArg!.isAppOfArity ``List.nil 1 &&
+          let choice := list.appFn!.appArg!
+          choice.isAppOfArity ``ite 5 &&
+            choice.getArg! 1 == mkApp3 (.const ``Eq [.succ .zero]) (.const ``Bool []) (.bvar 0)
+              (.const ``Bool.true []) &&
+            facet (choice.getArg! 3) ``_root_.Lake.Module.oExportFacet &&
+            facet (choice.getArg! 4) ``_root_.Lake.Module.oFacet
+  | _ => false
+where
+  /-- Whether `term` is the module facet named by the constant `name`. -/
+  facet (term : Expr) (name : Name) : Bool :=
+    term.isAppOfArity ``_root_.Lake.ModuleFacet.mk 3 && term.getArg! 1 == .const name []
+
+/-- Whether every target that the compiled configuration `config` declares is Lake's DSL form whose
+function fields are Lake's defaults. Each tagged target is a constant of type `ConfigDecl` whose
+value is `KConfigDecl.toConfigDecl` of a constant of the file, whose value is
+`DSL.mkConfigDecl` of a configuration constant of the file. That constant is a `LeanLibConfig.mk`
+or `LeanExeConfig.mk` with Lake's default `nativeFacets` (`defaultNativeFacets`), an
+`InputDirConfig.mk` with Lake's `Pattern.star`, or an `InputFileConfig`. Any other term is not
+recognized, so it gives `false`; the positions are those of Lake's constructors, and a term at
+another position matches none of these forms. -/
+def defaultFunctionFields (config : ModuleData) : Bool :=
+  let value? (name : Name) := (config.constants.find? (·.name == name)).bind (·.value?)
+  config.constants.all fun constant =>
+    constant.type != .const ``_root_.Lake.ConfigDecl [] || Option.isSome do
+      let tagged ← constant.value?
+      guard (tagged.isAppOfArity ``_root_.Lake.KConfigDecl.toConfigDecl 2)
+      let declaration ← value? (← tagged.appArg!.constName?)
+      guard (declaration.isAppOfArity ``_root_.Lake.DSL.mkConfigDecl 6)
+      let name ← (declaration.getArg! 3).constName?
+      let some configuration := config.constants.find? (·.name == name) | none
+      let value ← configuration.value?
+      match configuration.type.getAppFn.constName? with
+      | some ``_root_.Lake.LeanLibConfig =>
+          guard (value.isAppOfArity ``_root_.Lake.LeanLibConfig.mk 13 &&
+            defaultNativeFacets (value.getArg! 11))
+      | some ``_root_.Lake.LeanExeConfig =>
+          guard (value.isAppOfArity ``_root_.Lake.LeanExeConfig.mk 9 &&
+            defaultNativeFacets (value.getArg! 8))
+      | some ``_root_.Lake.InputDirConfig =>
+          guard (value.isAppOfArity ``_root_.Lake.InputDirConfig.mk 4 &&
+            (value.getArg! 3).isAppOfArity ``_root_.Lake.Pattern.star 2)
+      | some ``_root_.Lake.InputFileConfig => pure ()
+      | _ => none
+
+/-- What Regula reads of the compiled configuration of a package whose configuration file is
+`lakefile.lean`: the number of facets that the file declares, and whether its targets have Lake's
+default function fields (`defaultFunctionFields`). Lake keeps the compiled file at
+`.lake/config/<index>/` of the workspace and imports its imports through
+`importModulesUsingCache`, which this reads again. The facets are the entries of Lake's three
+facet attributes in the file and in its imports, which are what Lake loaded. The reading is
+`(none, false)` when an import declares a target, or when the file sets `implemented_by` or
+`extern`, which can give a constant of the file code other than its term. -/
+def leanConfigReading (ws : _root_.Lake.Workspace) (package : _root_.Lake.Package) :
+    IO (Option Nat × Bool) := do
+  let some file := package.configFile.fileName | return (none, false)
+  let compiled := ws.root.dir / _root_.Lake.defaultLakeDir / "config" / toString package.wsIdx /
+    (FilePath.mk file).withExtension "olean"
+  let (config, _) ← readModuleData compiled
+  let imported ← _root_.Lake.importModulesUsingCache config.imports {} 1024
+  let own (extension : Name) : Nat :=
+    ((config.entries.find? (·.1 == extension)).map (·.2.size)).getD 0
+  if !(_root_.Lake.targetAttr.getAllEntries imported).isEmpty ||
+      own Lean.Compiler.implementedByAttr.ext.name + own Lean.externAttr.ext.name != 0 then
+    return (none, false)
+  let facets := [_root_.Lake.moduleFacetAttr, _root_.Lake.packageFacetAttr,
+    _root_.Lake.libraryFacetAttr].foldl (init := 0) fun count facetAttribute =>
+      count + (facetAttribute.getAllEntries imported).size + own facetAttribute.ext.name
+  return (some facets, defaultFunctionFields config)
+
+/-- What the plain shape reads of a target of `package` (`TargetShape`); `functions` says whether
+its function fields have Lake's defaults. -/
+def targetShape (package : _root_.Lake.Package)
+    (declaration : _root_.Lake.PConfigDecl package.keyName) (functions : Bool) : TargetShape :=
+  let kind := declarationKind declaration.kind
+  if let some config := declaration.config? _root_.Lake.LeanLib.configKind then
+    { kind, needs := config.needs.map (needKind package)
+      unknown := unknownFields (_root_.Lake.ConfigFields.fields
+        (σ := _root_.Lake.LeanLibConfig declaration.name)) (libraryChecks config functions) }
+  else if let some config := declaration.config? _root_.Lake.LeanExe.configKind then
+    { kind, needs := config.needs.map (needKind package)
+      unknown := unknownFields (_root_.Lake.ConfigFields.fields
+        (σ := _root_.Lake.LeanExeConfig declaration.name)) (executableChecks config functions) }
+  else if kind == .inputDir then
+    { kind, needs := #[]
+      unknown := unknownFields (_root_.Lake.ConfigFields.fields
+        (σ := _root_.Lake.InputDirConfig declaration.name)) [(`filter, functions)] }
+  else if kind == .inputFile then
+    { kind, needs := #[]
+      unknown := unknownFields (_root_.Lake.ConfigFields.fields
+        (σ := _root_.Lake.InputFileConfig declaration.name)) [] }
+  else { kind := .other, unknown := #[], needs := #[] }
+
+/-- What the plain shape reads of `package`: Lake's configuration of the package and of each
+target, and for `lakefile.lean` its compiled configuration (`leanConfigReading`). A `lakefile.toml`
+declares no facet and sets no function field: Lake's TOML loader gives it no facet, leaves
+`nativeFacets` at its default, and builds an `input_dir` filter from a structured pattern. -/
+def packageShape (ws : _root_.Lake.Workspace) (package : _root_.Lake.Package) :
+    IO PackageShape := do
+  let (facets, functions) ←
+    if package.configFile.extension == some "toml" then pure (some 0, true)
+    else leanConfigReading ws package
+  return {
+    unknown := unknownFields (_root_.Lake.ConfigFields.fields
+      (σ := _root_.Lake.PackageConfig package.keyName package.origName))
+      (packageChecks package.config)
+    targets := package.targetDecls.map (targetShape package · functions)
+    facets }
+
+/-- Each buildable module of the root package's libraries and each root of its executables, with
+the real path of each source file that a library or an executable gives it, the source file of the
+module that Lake resolves the name to (`Workspace.findTargetModule?`, which the `+NAME` targets of
+`moduleImports` also use) when that module is of the root package, and its imports. `none` when
+`moduleImports` reads none. -/
+def moduleEntries (ws : _root_.Lake.Workspace) : IO (Option (Array ModuleEntry)) := do
+  let root := ws.root
+  let mut sources : Array (Name × FilePath) := #[]
+  for library in root.leanLibs do
+    for name in ← buildableModules library do
+      sources := sources.push (name, Lean.modToFilePath library.srcDir name "lean")
+  for exe in root.leanExes do
+    sources := sources.push (exe.root.name, exe.root.leanFile)
+  let mut names : Array Name := #[]
+  let mut seen : NameSet := {}
+  for (name, _) in sources do
+    unless seen.contains name do
+      names := names.push name
+      seen := seen.insert name
+  let some closure ← moduleImports ws names | return none
+  let real (path : FilePath) : IO String := return (← IO.FS.realPath path).toString
+  some <$> closure.mapM fun (name, imports) => do
+    let mut paths : Array String := #[]
+    for (other, source) in sources do
+      if other == name then
+        let path ← real source
+        unless paths.contains path do paths := paths.push path
+    let resolved ← match ws.findTargetModule? name with
+      | some found =>
+          if found.pkg.keyName == root.keyName then some <$> real found.leanFile else pure none
+      | none => pure none
+    return { name, sources := paths, resolved, imports }
 
 /-- The `MarkerInputs` of `ws`. `none` when Lake cannot read the imports of a module of the root
 package; the caller also keeps the marker when this raises. -/
-unsafe def markerInputs (ws : _root_.Lake.Workspace) : IO (Option MarkerInputs) := do
-  let root := ws.root
-  let mut modules : Array Name := #[]
-  for library in root.leanLibs do
-    modules := modules ++ (← buildableModules library)
-  modules := modules ++ root.leanExes.map (·.root.name)
-  let some closure ← moduleImports ws modules | return none
-  return some
-    { packages := ws.packages.map packageShape, customFacets := customFacets ws, closure }
+def markerInputs (ws : _root_.Lake.Workspace) : IO (Option MarkerInputs) := do
+  let packages ← ws.packages.mapM (packageShape ws)
+  let some modules ← moduleEntries ws | return none
+  return some { packages, modules }
 
 /-- `buildTargets`, run in-process through Lake's build API because the `lake build` command line
 sets no Lean options, with `auditLeanOptions` on the root package unless `auditMarkerNeeded`
-decides that the workspace is of the plain shape and that no module of the root package imports
-`linterModule`. Each failure to read the workspace, by an exception or by an unknown, keeps the
-marker. The marked build and the unmarked one give the same verdict for that shape only: a build
-of `lean_lib` and `lean_exe` targets in it runs no custom build step, so it compiles only modules
-that the root package owns, whose imports the decision read (or modules of other packages, which
-the root package's options do not reach), and Regula's only reader of the marker is loaded in none
-of them. That no project module reads the marker itself is assumed.
-Without the marker the ordinary build output is reused as it is. The inherited search paths are
-ignored as in `buildTargets`; the build monitor's text is the output, and a failed build exits 1.
-Lake's progress line for each job is also shown as the build runs, as by `buildTargetsShowing`. -/
-unsafe def buildAuditTargets (repo : FilePath) (targets : Array String) : IO ProcessResult := do
+decides that the workspace is of the plain shape and that each module of the root package resolves
+to its one source and does not import `linterModule`. Each failure to read the workspace, by an
+exception or by an unknown, keeps the marker. The marked build and the unmarked one give the same
+verdict for that shape only: a build of `lean_lib` and `lean_exe` targets in it runs no custom
+build step, so it compiles only modules that the root package owns, whose imports the decision
+read (or modules of other packages, which the root package's options do not reach), and Regula's
+only reader of the marker is loaded in none of them. That no project module reads the marker
+itself is assumed. Without the marker the ordinary build output is reused as it is. The inherited
+search paths are ignored as in `buildTargets`; the build monitor's text is the output, and a
+failed build exits 1. Lake's progress line for each job is also shown as the build runs, as by
+`buildTargetsShowing`. -/
+def buildAuditTargets (repo : FilePath) (targets : Array String) : IO ProcessResult := do
   let buffer ← IO.mkRef ({} : IO.FS.Stream.Buffer)
   let out ← showingStream (IO.FS.Stream.ofBuffer buffer) isLakeProgressLine
   let exitCode ← try

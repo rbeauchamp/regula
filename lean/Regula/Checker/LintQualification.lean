@@ -81,8 +81,10 @@ file audit lists every classified declaration only with `--verbose`. The adopter
 custom `policy` target, so the driver keeps the audit-build marker (`Lake.auditMarkerNeeded`) and
 an ordinary build after it rebuilds; without that target, also with an `input_file` in `needs`,
 the workspace has the plain shape and an ordinary `lake build` and the driver reuse each other's
-build output; with Lake's `ilean` facet declared again, or with an excluded library in `needs`
-that imports `Regula.Linter`, the driver keeps the marker and accepts the claim. -/
+build output; with Lake's `ilean` facet declared again with Lake's own configuration, a library
+field outside the plain shape's list (`libName`), a `nativeFacets` that is not Lake's default, or
+an excluded library in `needs` that imports `Regula.Linter`, the driver keeps the marker and
+accepts the claim. -/
 private def leanAdopter (repo adopter : FilePath) : IO (Array String) := do
   BuildLintQualification.setup repo adopter
   -- The first run builds every module, showing Lake's progress line for each.
@@ -156,16 +158,27 @@ private def leanAdopter (repo adopter : FilePath) : IO (Array String) := do
       where\n  path := \"notes.txt\""
   failures := failures ++ (← reused "lean/input-needs-reused")
   IO.FS.removeFile notes
-  -- A facet declared in place of one of Lake's, with Lake's fetch: Lake keeps no record of the
-  -- declaration, so the driver tells it apart by its configuration object and keeps the marker,
-  -- and an ordinary build after it rebuilds the library's modules.
-  IO.FS.writeFile lakefile (plain ++ "\n/-- Lake's `ilean` facet, declared again. -/\n\
-    @[«module_facet»] def ileanAgain : ModuleFacetDecl :=\n  \
-    ⟨Module.ileanFacet, { Module.ileanFacetConfig with buildable := false }⟩\n")
-  failures := failures ++ (← expect adopter { positive with label := "lean/lake-facet-marked" })
-  let ordinary ← runProcess adopter "lake" #["build", "Widget"] scrubbedLeanPathEnv
-  unless ordinary.succeeded && ordinary.output.contains "] Built Widget" do
-    failures := failures.push s!"lake-lint/lean/lake-facet-marked: {ordinary.output}"
+  -- Each of these keeps the marker, so an ordinary build after the driver rebuilds the library's
+  -- modules: Lake's `ilean` facet declared again with Lake's own configuration, which the
+  -- compiled configuration file records as a facet declaration; a field outside the plain
+  -- shape's list with another value than Lake's default; and a `nativeFacets` term that is not
+  -- Lake's default.
+  let marked (label text : String) : IO (Array String) := do
+    IO.FS.writeFile lakefile text
+    let run ← expect adopter { positive with label }
+    let ordinary ← runProcess adopter "lake" #["build", "Widget"] scrubbedLeanPathEnv
+    return if ordinary.succeeded && ordinary.output.contains "] Built Widget" then run
+      else run.push s!"lake-lint/{label}: the ordinary build reused the driver's build: \
+        {ordinary.output}"
+  let widgetLibrary (field : String) : String :=
+    plain.replace "globs := #[.andSubmodules `Widget]"
+      s!"globs := #[.andSubmodules `Widget]\n  {field}"
+  failures := failures ++ (← marked "lean/lake-facet-marked" (plain ++
+    "\n/-- Lake's `ilean` facet, declared again. -/\n@[«module_facet»] def ileanAgain : \
+      ModuleFacetDecl :=\n  ⟨Module.ileanFacet, Module.ileanFacetConfig⟩\n"))
+  failures := failures ++ (← marked "lean/field-marked" (widgetLibrary "libName := \"widget\""))
+  failures := failures ++ (← marked "lean/native-facets-marked"
+    (widgetLibrary "nativeFacets := fun _ => #[Module.oFacet]"))
   restore adopter originals
   -- An unimported glob module; the second run has every module cached.
   mutate additional "namespace Widget.Additional"
