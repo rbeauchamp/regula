@@ -497,36 +497,60 @@ def executableChecks {name : Name} (config : _root_.Lake.LeanExeConfig name)
   leanConfigChecks config.toLeanConfig ++
     [(`extraDepTargets, config.extraDepTargets.isEmpty), (`nativeFacets, nativeFacets)]
 
-/-- Whether `term` is Lake's default `nativeFacets` as a configuration file elaborates it:
-`fun shouldExport => #[if shouldExport then Module.oExportFacet else Module.oFacet]`. -/
-def defaultNativeFacets (term : Expr) : Bool :=
-  match term with
-  | .lam _ (.const ``Bool []) body _ =>
-      body.isAppOfArity ``List.toArray 2 &&
-        let list := body.appArg!
-        list.isAppOfArity ``List.cons 3 && list.appArg!.isAppOfArity ``List.nil 1 &&
-          let choice := list.appFn!.appArg!
-          choice.isAppOfArity ``ite 5 &&
-            choice.getArg! 1 == mkApp3 (.const ``Eq [.succ .zero]) (.const ``Bool []) (.bvar 0)
-              (.const ``Bool.true []) &&
-            facet (choice.getArg! 3) ``_root_.Lake.Module.oExportFacet &&
-            facet (choice.getArg! 4) ``_root_.Lake.Module.oFacet
-  | _ => false
-where
-  /-- Whether `term` is the module facet named by the constant `name`. -/
-  facet (term : Expr) (name : Name) : Bool :=
-    term.isAppOfArity ``_root_.Lake.ModuleFacet.mk 3 && term.getArg! 1 == .const name []
+/-- Lake's default `nativeFacets` as a configuration file elaborates it at the pinned Lake,
+`fun shouldExport => #[if shouldExport then Module.oExportFacet else Module.oFacet]`, with a
+metavariable in place of each of its two proofs that the facet's output is a file path. -/
+def defaultNativeFacetsTerm : Expr :=
+  let facetType := mkApp (.const ``_root_.Lake.ModuleFacet []) (.const ``System.FilePath [])
+  let one : Level := .succ .zero
+  let facet (name : Name) (proof : Nat) : Expr :=
+    mkApp3 (.const ``_root_.Lake.ModuleFacet.mk []) (.const ``System.FilePath []) (.const name [])
+      (.mvar ⟨.num `proof proof⟩)
+  let choice := mkAppN (.const ``ite [one]) #[facetType,
+    mkApp3 (.const ``Eq [one]) (.const ``Bool []) (.bvar 0) (.const ``Bool.true []),
+    mkApp2 (.const ``instDecidableEqBool []) (.bvar 0) (.const ``Bool.true []),
+    facet ``_root_.Lake.Module.oExportFacet 1, facet ``_root_.Lake.Module.oFacet 2]
+  .lam `shouldExport (.const ``Bool []) (mkApp2 (.const ``List.toArray [.zero]) facetType
+    (mkApp3 (.const ``List.cons [.zero]) facetType choice
+      (mkApp (.const ``List.nil [.zero]) facetType))) .default
+
+/-- Lake's `Pattern.star` for paths, the default filter of an `input_dir`, as a configuration file
+elaborates it at the pinned Lake. -/
+def starPatternTerm : Expr :=
+  mkApp2 (.const ``_root_.Lake.Pattern.star [.zero, .zero]) (.const ``System.FilePath [])
+    (.const ``_root_.Lake.PathPatDescr [])
+
+/-- Whether `term` is the whole term `expected`, except that each metavariable of `expected`
+stands for a constant that `theorems` names: a proof, which the compiler erases. Binder names are
+not compared; everything else is. -/
+def sameUpToProofs (theorems : NameSet) : Expr → Expr → Bool
+  | .mvar _, term => match term with
+    | .const name _ => theorems.contains name
+    | _ => false
+  | .app function argument, term => match term with
+    | .app function' argument' =>
+        sameUpToProofs theorems function function' && sameUpToProofs theorems argument argument'
+    | _ => false
+  | .lam _ type body info, term => match term with
+    | .lam _ type' body' info' =>
+        info == info' && sameUpToProofs theorems type type' && sameUpToProofs theorems body body'
+    | _ => false
+  | expected, term => expected == term
 
 /-- Whether every target that the compiled configuration `config` declares is Lake's DSL form whose
 function fields are Lake's defaults. Each tagged target is a constant of type `ConfigDecl` whose
 value is `KConfigDecl.toConfigDecl` of a constant of the file, whose value is
 `DSL.mkConfigDecl` of a configuration constant of the file. That constant is a `LeanLibConfig.mk`
-or `LeanExeConfig.mk` with Lake's default `nativeFacets` (`defaultNativeFacets`), an
-`InputDirConfig.mk` with Lake's `Pattern.star`, or an `InputFileConfig`. Any other term is not
-recognized, so it gives `false`; the positions are those of Lake's constructors, and a term at
-another position matches none of these forms. -/
+or `LeanExeConfig.mk` whose `nativeFacets` is the whole term `defaultNativeFacetsTerm`, its proofs
+aside (`sameUpToProofs` with the theorems of the file), an `InputDirConfig.mk` whose filter is the
+whole term `starPatternTerm`, or an `InputFileConfig`. Any other term gives `false`; the positions
+are those of Lake's constructors, and a term at another position is not one of these terms. -/
 def defaultFunctionFields (config : ModuleData) : Bool :=
   let value? (name : Name) := (config.constants.find? (·.name == name)).bind (·.value?)
+  let theorems : NameSet := config.constants.foldl (init := {}) fun names constant =>
+    match constant with
+    | .thmInfo _ => names.insert constant.name
+    | _ => names
   config.constants.all fun constant =>
     constant.type != .const ``_root_.Lake.ConfigDecl [] || Option.isSome do
       let tagged ← constant.value?
@@ -539,13 +563,13 @@ def defaultFunctionFields (config : ModuleData) : Bool :=
       match configuration.type.getAppFn.constName? with
       | some ``_root_.Lake.LeanLibConfig =>
           guard (value.isAppOfArity ``_root_.Lake.LeanLibConfig.mk 13 &&
-            defaultNativeFacets (value.getArg! 11))
+            sameUpToProofs theorems defaultNativeFacetsTerm (value.getArg! 11))
       | some ``_root_.Lake.LeanExeConfig =>
           guard (value.isAppOfArity ``_root_.Lake.LeanExeConfig.mk 9 &&
-            defaultNativeFacets (value.getArg! 8))
+            sameUpToProofs theorems defaultNativeFacetsTerm (value.getArg! 8))
       | some ``_root_.Lake.InputDirConfig =>
           guard (value.isAppOfArity ``_root_.Lake.InputDirConfig.mk 4 &&
-            (value.getArg! 3).isAppOfArity ``_root_.Lake.Pattern.star 2)
+            sameUpToProofs theorems starPatternTerm (value.getArg! 3))
       | some ``_root_.Lake.InputFileConfig => pure ()
       | _ => none
 
@@ -574,23 +598,29 @@ def leanConfigReading (ws : _root_.Lake.Workspace) (package : _root_.Lake.Packag
       count + (facetAttribute.getAllEntries imported).size + own facetAttribute.ext.name
   return (some facets, defaultFunctionFields config)
 
-/-- What the plain shape reads of a target of `package` (`TargetShape`); `functions` says whether
-its function fields have Lake's defaults. -/
+/-- What the plain shape reads of a target of `package` (`TargetShape`). For a `lakefile.lean`,
+`functions` is the reading of its compiled configuration (`leanConfigReading`). For a
+`lakefile.toml` (`toml`), Lake's TOML loader never sets `nativeFacets`, and it gives an `input_dir`
+Lake's `Pattern.star`, which is named `star`, only for an omitted filter or `"*"`; it gives every
+other filter `Pattern.ofDescr`, which has no name. -/
 def targetShape (package : _root_.Lake.Package)
-    (declaration : _root_.Lake.PConfigDecl package.keyName) (functions : Bool) : TargetShape :=
+    (declaration : _root_.Lake.PConfigDecl package.keyName) (toml functions : Bool) :
+    TargetShape :=
   let kind := declarationKind declaration.kind
+  let nativeFacets := toml || functions
   if let some config := declaration.config? _root_.Lake.LeanLib.configKind then
     { kind, needs := config.needs.map (needKind package)
       unknown := unknownFields (_root_.Lake.ConfigFields.fields
-        (σ := _root_.Lake.LeanLibConfig declaration.name)) (libraryChecks config functions) }
+        (σ := _root_.Lake.LeanLibConfig declaration.name)) (libraryChecks config nativeFacets) }
   else if let some config := declaration.config? _root_.Lake.LeanExe.configKind then
     { kind, needs := config.needs.map (needKind package)
       unknown := unknownFields (_root_.Lake.ConfigFields.fields
-        (σ := _root_.Lake.LeanExeConfig declaration.name)) (executableChecks config functions) }
-  else if kind == .inputDir then
+        (σ := _root_.Lake.LeanExeConfig declaration.name)) (executableChecks config nativeFacets) }
+  else if let some config := declaration.config? _root_.Lake.InputDir.configKind then
     { kind, needs := #[]
       unknown := unknownFields (_root_.Lake.ConfigFields.fields
-        (σ := _root_.Lake.InputDirConfig declaration.name)) [(`filter, functions)] }
+        (σ := _root_.Lake.InputDirConfig declaration.name))
+        [(`filter, if toml then config.filter.name == `star else functions)] }
   else if kind == .inputFile then
     { kind, needs := #[]
       unknown := unknownFields (_root_.Lake.ConfigFields.fields
@@ -599,18 +629,16 @@ def targetShape (package : _root_.Lake.Package)
 
 /-- What the plain shape reads of `package`: Lake's configuration of the package and of each
 target, and for `lakefile.lean` its compiled configuration (`leanConfigReading`). A `lakefile.toml`
-declares no facet and sets no function field: Lake's TOML loader gives it no facet, leaves
-`nativeFacets` at its default, and builds an `input_dir` filter from a structured pattern. -/
+declares no facet: Lake's TOML loader gives it none. -/
 def packageShape (ws : _root_.Lake.Workspace) (package : _root_.Lake.Package) :
     IO PackageShape := do
-  let (facets, functions) ←
-    if package.configFile.extension == some "toml" then pure (some 0, true)
-    else leanConfigReading ws package
+  let toml := package.configFile.extension == some "toml"
+  let (facets, functions) ← if toml then pure (some 0, false) else leanConfigReading ws package
   return {
     unknown := unknownFields (_root_.Lake.ConfigFields.fields
       (σ := _root_.Lake.PackageConfig package.keyName package.origName))
       (packageChecks package.config)
-    targets := package.targetDecls.map (targetShape package · functions)
+    targets := package.targetDecls.map (targetShape package · toml functions)
     facets }
 
 /-- Each buildable module of the root package's libraries and each root of its executables, with

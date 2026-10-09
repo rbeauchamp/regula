@@ -191,14 +191,14 @@ drivers and its metadata.
 
 Lake runs no code from these fields in a build. The function `nativeFacets` of a library or an
 executable and the filter of an `input_dir` are also fields. Regula reads them from the compiled
-configuration file in `.lake/config/` (`leanConfigReading`). It accepts only the default term of
-Lake for `nativeFacets` and the pattern `Pattern.star` for the filter. Any other term keeps the
-marker.
+configuration file in `.lake/config/` (`leanConfigReading`). Each must be the whole default term
+of Lake, for the filter `Pattern.star`, except for its proofs. Any other term keeps the marker.
 
 The compiled configuration file also records each facet that the file declares, new or in place
 of a facet of Lake. The driver counts these declarations, and it keeps the marker if there is
-one. A file `lakefile.toml` declares no facet and sets no function. Lake only reads and hashes an
-input target. Thus a build in the plain shape runs no custom build step.
+one. A file `lakefile.toml` declares no facet and cannot set `nativeFacets`. Its filter of an
+`input_dir` is the default only if it omits the filter or writes `"*"`. Lake only reads and hashes
+an input target. Thus a build in the plain shape runs no custom build step.
 
 The driver also reads each buildable module of the root package and each executable root, with
 the imports from Lake's `transImports` facet (`markerInputs`). Each name must have one source

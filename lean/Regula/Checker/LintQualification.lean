@@ -82,9 +82,9 @@ custom `policy` target, so the driver keeps the audit-build marker (`Lake.auditM
 an ordinary build after it rebuilds; without that target, also with an `input_file` in `needs`,
 the workspace has the plain shape and an ordinary `lake build` and the driver reuse each other's
 build output; with Lake's `ilean` facet declared again with Lake's own configuration, a library
-field outside the plain shape's list (`libName`), a `nativeFacets` that is not Lake's default, or
-an excluded library in `needs` that imports `Regula.Linter`, the driver keeps the marker and
-accepts the claim. -/
+field outside the plain shape's list (`libName`), a `nativeFacets` that is not Lake's whole
+default term, or an excluded library in `needs` that imports `Regula.Linter`, the driver keeps the
+marker and accepts the claim. -/
 private def leanAdopter (repo adopter : FilePath) : IO (Array String) := do
   BuildLintQualification.setup repo adopter
   -- The first run builds every module, showing Lake's progress line for each.
@@ -161,8 +161,8 @@ private def leanAdopter (repo adopter : FilePath) : IO (Array String) := do
   -- Each of these keeps the marker, so an ordinary build after the driver rebuilds the library's
   -- modules: Lake's `ilean` facet declared again with Lake's own configuration, which the
   -- compiled configuration file records as a facet declaration; a field outside the plain
-  -- shape's list with another value than Lake's default; and a `nativeFacets` term that is not
-  -- Lake's default.
+  -- shape's list with another value than Lake's default; and a `nativeFacets` that differs from
+  -- Lake's default only in the `Decidable` instance of its `if`, which adds code.
   let marked (label text : String) : IO (Array String) := do
     IO.FS.writeFile lakefile text
     let run ← expect adopter { positive with label }
@@ -178,7 +178,8 @@ private def leanAdopter (repo adopter : FilePath) : IO (Array String) := do
       ModuleFacetDecl :=\n  ⟨Module.ileanFacet, Module.ileanFacetConfig⟩\n"))
   failures := failures ++ (← marked "lean/field-marked" (widgetLibrary "libName := \"widget\""))
   failures := failures ++ (← marked "lean/native-facets-marked"
-    (widgetLibrary "nativeFacets := fun _ => #[Module.oFacet]"))
+    (widgetLibrary "nativeFacets := fun b => #[@ite (ModuleFacet System.FilePath) (b = true)\n    \
+      (dbgTrace \"extra\" (fun _ => inferInstance)) Module.oExportFacet Module.oFacet]"))
   restore adopter originals
   -- An unimported glob module; the second run has every module cached.
   mutate additional "namespace Widget.Additional"
@@ -264,7 +265,9 @@ one target under both is a configuration refusal, and so is a library or executa
 claimed or excluded, that names no root target of its kind: one refusal that quotes the entry as
 the manifest writes it and lists the root targets of that kind by Lake target name, in the driver
 and, for an executable entry, in the adopter's `axiomGate --file` audit, which reads the manifest
-through the same loader. -/
+through the same loader. Without the `Regula.Linter` import, an `input_dir` filter `"*"` keeps the
+plain shape, and the driver and an ordinary build reuse each other's output; any other filter keeps
+the marker. -/
 private def tomlAdopter (repo adopter : FilePath) : IO (Array String) := do
   BuildLintQualification.setup repo adopter "lake-lint-toml" #["Gadget.lean", "Gadget/Double.lean"]
     "lakefile.toml"
@@ -394,6 +397,35 @@ private def tomlAdopter (repo adopter : FilePath) : IO (Array String) := do
   IO.FS.removeFile cli
   IO.FS.removeFile extra
   restore adopter targetOriginals
+  -- Without the `Regula.Linter` import the workspace can have the plain shape. A `lakefile.toml`
+  -- `input_dir` filter is Lake's default only when it is omitted or `"*"`: then an ordinary build
+  -- and the driver reuse each other's output. With any other filter the driver keeps the marker,
+  -- so an ordinary build after it rebuilds the library's modules.
+  mutate double "import Regula.Linter\n\n" ""
+  let inputs := adopter / "inputs"
+  IO.FS.createDirAll inputs
+  IO.FS.writeFile (inputs / "notes.lean") "-- An input file.\n"
+  let base ← IO.FS.readFile lakefile
+  let withFilter (filter : String) : IO Unit :=
+    IO.FS.writeFile lakefile (base.replace "globs = [\"Gadget\", \"Gadget.+\"]"
+      s!"globs = [\"Gadget\", \"Gadget.+\"]\nneeds = [\"@/notes\"]\n\n[[input_dir]]\n\
+        name = \"notes\"\npath = \"inputs\"\n{filter}")
+  withFilter "filter = \"*\""
+  failures := failures ++ (← expect adopter (accepted "toml/star-reused"))
+  let ordinary ← runProcess adopter "lake" #["build"] scrubbedLeanPathEnv
+  unless ordinary.succeeded && !ordinary.output.contains "] Built Gadget" do
+    failures := failures.push s!"lake-lint/toml/star-reused: the ordinary build rebuilt a module: \
+      {ordinary.output}"
+  failures := failures ++ (← expect adopter { accepted "toml/star-reused-again" with
+    excludes := (accepted "toml/star-reused-again").excludes.push "] Built" })
+  withFilter "filter = { extension = [\"lean\"] }"
+  failures := failures ++ (← expect adopter (accepted "toml/filter-marked"))
+  let ordinary ← runProcess adopter "lake" #["build"] scrubbedLeanPathEnv
+  unless ordinary.succeeded && ordinary.output.contains "] Built Gadget" do
+    failures := failures.push s!"lake-lint/toml/filter-marked: the ordinary build reused the \
+      driver's build: {ordinary.output}"
+  IO.FS.removeDirAll inputs
+  restore adopter (originals ++ targetOriginals)
   failures := failures ++
       (← expect adopter (accepted "toml/fresh-restored" (fresh := true)) #["--", "--fresh"])
   return failures
