@@ -767,7 +767,7 @@ module's frontend extension environment. Each declaration record has the axioms 
 for it, those it reaches in the kernel that replayed it (`Admission.validate`), or, with no
 `replayed`, those Lean's `collectAxioms` reports. -/
 def environmentReport (modules : List Name)
-    (loadReplacementHistory : Name → IO (Except String (Array (Name × Name)))) :=
+    (loadReplacementHistory : Name → IO (Except String (Array (Name × Name))) :=
       fun _ => pure (.error "trusted source-history loader was not supplied"))
     (includeExecution : Bool := true) (includeModuleOrigins : Bool := true)
     (replayed : Option (Std.HashMap Name (Array Name)) := none) :
