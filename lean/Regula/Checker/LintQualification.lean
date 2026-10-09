@@ -83,8 +83,9 @@ an ordinary build after it rebuilds; without that target, also with an `input_fi
 the workspace has the plain shape and an ordinary `lake build` and the driver reuse each other's
 build output; with Lake's `ilean` facet declared again with Lake's own configuration, a library
 field outside the plain shape's list (`libName`), a `nativeFacets` that is not Lake's whole
-default term, or an excluded library in `needs` that imports `Regula.Linter`, the driver keeps the
-marker and accepts the claim. -/
+default term, a lakefile declaration beside Lake's configuration declarations, a theorem that
+equates two functions, or an excluded library in `needs` that imports `Regula.Linter`, the driver
+keeps the marker and accepts the claim. -/
 private def leanAdopter (repo adopter : FilePath) : IO (Array String) := do
   BuildLintQualification.setup repo adopter
   -- The first run builds every module, showing Lake's progress line for each.
@@ -180,6 +181,12 @@ private def leanAdopter (repo adopter : FilePath) : IO (Array String) := do
   failures := failures ++ (← marked "lean/native-facets-marked"
     (widgetLibrary "nativeFacets := fun b => #[@ite (ModuleFacet System.FilePath) (b = true)\n    \
       (dbgTrace \"extra\" (fun _ => inferInstance)) Module.oExportFacet Module.oFacet]"))
+  -- A declaration of the lakefile beside Lake's configuration declarations, and a theorem that
+  -- equates two functions, the form of a compiler replacement (`csimp`), each keep the marker.
+  failures := failures ++ (← marked "lean/declaration-marked"
+    (plain ++ "\ndef helperVersion : Nat := 1\n"))
+  failures := failures ++ (← marked "lean/theorem-marked"
+    (plain ++ "\ntheorem identityFact : @id Nat = @id Nat := rfl\n"))
   restore adopter originals
   -- An unimported glob module; the second run has every module cached.
   mutate additional "namespace Widget.Additional"

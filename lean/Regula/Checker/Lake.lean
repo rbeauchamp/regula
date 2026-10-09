@@ -6,7 +6,6 @@ import Regula.Contract
 import Regula.Decision
 import Lake.CLI.Build
 import Lake.Load.Lean.Elab
-import Lean.Compiler.ImplementedByAttr
 
 /-! # Lake-semantic discovery
 
@@ -239,6 +238,33 @@ def TargetShape.Plain (target : TargetShape) : Prop :=
   target.kind ≠ .other ∧ (∀ field ∈ target.unknown, field ∈ target.kind.fields) ∧
     ∀ kind ∈ target.needs, kind = .inputFile ∨ kind = .inputDir
 
+/-- A declaration of a package's compiled configuration file, as the plain shape reads it. -/
+inductive ConfigDeclaration where
+  /-- A definition whose type is one of Lake's configuration types (`configurationTypes`). -/
+  | configuration
+  /-- A theorem or an axiom whose statement is a `Lake.FamilyDef` or an equation between types, as
+  Lake's commands generate. A compiler replacement (`csimp`) is an equation between functions, so
+  it is not one. -/
+  | typeFact
+  /-- Any other declaration. -/
+  | other
+  deriving DecidableEq, Repr
+
+/-- The environment extensions whose entries a compiled configuration file of the plain shape may
+have: those that Lake's commands and the compilation of their declarations fill, as in Regula's own
+configuration files at the pinned Lean. Any other extension, such as that of `csimp`,
+`implemented_by`, `extern`, `init` or a documentation comment, is not plain. -/
+def configExtensions : List String :=
+  ["Lean.declRangeExt", "_private.Lean.Namespace.0.Lean.namespacesExt", "reducibilityCore",
+    "Lean.Compiler.inlineAttrs", "_private.Lean.Util.CollectAxioms.0.Lean.exportedAxiomsExt",
+    "_private.Lean.Compiler.ModPkgExt.0.Lean.modPkgExt", "Lean.Meta.instanceExtension",
+    "Lean.IR.declMapExt", "_private.Lean.ExtraModUses.0.Lean.extraModUses",
+    "Lean.Compiler.LCNF.baseExt", "Lean.Compiler.LCNF.monoExt", "Lean.Compiler.LCNF.impureSigExt",
+    "Lean.Compiler.LCNF.UnreachableBranches.functionSummariesExt", "Lean.deprecatedModuleExt",
+    "Lean.Meta.simpExtension", "Lean.Linter.deprecatedAttr", "symbolFrequency", "sineQueNon",
+    "Lake.packageAttr", "Lake.packageDepAttr", "Lake.leanLibAttr", "Lake.leanExeAttr",
+    "Lake.inputFileAttr", "Lake.inputDirAttr", "Lake.targetAttr", "Lake.defaultTargetAttr"]
+
 /-- What the plain shape reads of one package of the workspace. -/
 structure PackageShape where
   /-- Each field of the package's configuration that Regula does not show to have Lake's default
@@ -249,14 +275,22 @@ structure PackageShape where
   /-- The number of facets that the package's configuration file declares, new or in place of
   one of Lake's; `none` when Regula cannot read it. -/
   facets : Option Nat
+  /-- Each declaration of the package's compiled configuration file; none for a `lakefile.toml`. -/
+  declarations : Array ConfigDeclaration
+  /-- Each environment extension with entries of the compiled configuration file itself; none for
+  a `lakefile.toml`. -/
+  extensions : Array String
 
 /-- A package of the plain shape: it has Lake's default value in each field outside
-`packageFields`, each of its targets is of the plain shape, and its configuration file declares no
-facet. In a workspace of such packages, a build of `lean_lib` and `lean_exe` targets runs no
-custom build step: it compiles modules and reads and hashes input files. -/
+`packageFields`, each of its targets is of the plain shape, its configuration file declares no
+facet, each declaration of its compiled configuration file is a `configuration` or a `typeFact`,
+and each extension with entries of that file is one of `configExtensions`. In a workspace of such
+packages, a build of `lean_lib` and `lean_exe` targets runs no custom build step: it compiles
+modules and reads and hashes input files. -/
 def PackageShape.Plain (shape : PackageShape) : Prop :=
   (∀ field ∈ shape.unknown, field ∈ packageFields) ∧ (∀ target ∈ shape.targets, target.Plain) ∧
-    shape.facets = some 0
+    shape.facets = some 0 ∧ (∀ declaration ∈ shape.declarations, declaration ≠ .other) ∧
+    ∀ extension ∈ shape.extensions, extension ∈ configExtensions
 
 /-- Whether `kind` is one of the two input kinds. -/
 def TargetKind.input : TargetKind → Bool
@@ -281,12 +315,13 @@ theorem TargetShape.plain_iff (target : TargetShape) : target.plain = true ↔ t
 /-- The test of `PackageShape.Plain` (`PackageShape.plain_iff`). -/
 def PackageShape.plain (shape : PackageShape) : Bool :=
   shape.unknown.all (packageFields.contains ·) && shape.targets.all TargetShape.plain &&
-    shape.facets == some 0
+    shape.facets == some 0 && shape.declarations.all (· != .other) &&
+    shape.extensions.all (configExtensions.contains ·)
 
 /-- `PackageShape.plain` decides `PackageShape.Plain`. -/
 theorem PackageShape.plain_iff (shape : PackageShape) : shape.plain = true ↔ shape.Plain := by
   simp only [plain, Plain, Bool.and_eq_true, Array.all_eq_true', List.contains_iff_mem,
-    TargetShape.plain_iff, beq_iff_eq, and_assoc]
+    TargetShape.plain_iff, beq_iff_eq, bne_iff_ne, ne_eq, and_assoc]
 
 /-- A module of the root package as the driver reads it: the source file that each of the
 package's libraries and executables gives the name, the source file of the module that Lake
@@ -372,9 +407,9 @@ theorem checked_auditMarkerNeeded : Regula.ExecutableContract auditMarkerNeeded
       ¬ (∀ shape ∈ inputs.packages, shape.Plain) ∨
         ∃ entry ∈ inputs.modules, ¬ entry.Resolved ∨ linterModule ∈ entry.imports) :=
   ⟨Regula.Decides.of_iff auditMarkerNeeded_iff
-    ⟨⟨#[⟨#[], #[], none⟩], #[]⟩, (auditMarkerNeeded_iff _).mpr
+    ⟨⟨#[⟨#[], #[], none, #[], #[]⟩], #[]⟩, (auditMarkerNeeded_iff _).mpr
       (.inl fun plain => by
-        have facets := (plain ⟨#[], #[], none⟩ (by simp)).2.2
+        have facets := (plain ⟨#[], #[], none, #[], #[]⟩ (by simp)).2.2.1
         simp at facets)⟩
     ⟨⟨#[], #[]⟩, fun accepted => by
       rcases (auditMarkerNeeded_iff _).mp accepted with notPlain | ⟨_, member, _⟩
@@ -573,30 +608,65 @@ def defaultFunctionFields (config : ModuleData) : Bool :=
       | some ``_root_.Lake.InputFileConfig => pure ()
       | _ => none
 
+/-- Lake's configuration types: the types of the definitions that Lake's `package`, `require`,
+`lean_lib`, `lean_exe`, `input_file` and `input_dir` commands generate, and that of the package's
+name. -/
+def configurationTypes : List Name :=
+  [``_root_.Lake.PackageDecl, ``_root_.Lake.PackageConfig, ``_root_.Lake.Dependency,
+    ``_root_.Lake.ConfigDecl, ``_root_.Lake.LeanLibDecl, ``_root_.Lake.LeanExeDecl,
+    ``_root_.Lake.InputFileDecl, ``_root_.Lake.InputDirDecl, ``_root_.Lake.LeanLibConfig,
+    ``_root_.Lake.LeanExeConfig, ``_root_.Lake.InputFileConfig, ``_root_.Lake.InputDirConfig,
+    ``Lean.Name]
+
+/-- The `ConfigDeclaration` of a declaration of a compiled configuration file: a definition whose
+type's head is one of `configurationTypes`, a theorem or an axiom whose statement is a
+`Lake.FamilyDef` or an equation in `Type`, or any other declaration. -/
+def configDeclaration (constant : ConstantInfo) : ConfigDeclaration :=
+  let typeFact := constant.type.isAppOf ``_root_.Lake.FamilyDef ||
+    (constant.type.isAppOfArity ``Eq 3 && constant.type.getArg! 0 == .sort (.succ .zero))
+  match constant with
+  | .defnInfo _ =>
+      if constant.type.getAppFn.constName?.any (configurationTypes.contains ·) then .configuration
+      else .other
+  | .thmInfo _ | .axiomInfo _ => if typeFact then .typeFact else .other
+  | _ => .other
+
+/-- What Regula reads of the compiled configuration file of a package. -/
+structure ConfigReading where
+  /-- The number of facets that the file declares; `none` when an import declares a target. -/
+  facets : Option Nat
+  /-- Whether its targets have Lake's default function fields (`defaultFunctionFields`). -/
+  functions : Bool
+  /-- The `ConfigDeclaration` of each declaration of the file. -/
+  declarations : Array ConfigDeclaration
+  /-- Each environment extension with entries of the file itself. -/
+  extensions : Array String
+
 /-- What Regula reads of the compiled configuration of a package whose configuration file is
-`lakefile.lean`: the number of facets that the file declares, and whether its targets have Lake's
-default function fields (`defaultFunctionFields`). Lake keeps the compiled file at
-`.lake/config/<index>/` of the workspace and imports its imports through
-`importModulesUsingCache`, which this reads again. The facets are the entries of Lake's three
-facet attributes in the file and in its imports, which are what Lake loaded. The reading is
-`(none, false)` when an import declares a target, or when the file sets `implemented_by` or
-`extern`, which can give a constant of the file code other than its term. -/
+`lakefile.lean` (`ConfigReading`). Lake keeps the compiled file at `.lake/config/<index>/` of the
+workspace and imports its imports through `importModulesUsingCache`, which this reads again. The
+facets are the entries of Lake's three facet attributes in the file and in its imports, which are
+what Lake loaded. The declarations and the extensions are the file's own, so a registration of an
+attribute whose scope ends in the file, which leaves no entry, still shows as its declaration. -/
 def leanConfigReading (ws : _root_.Lake.Workspace) (package : _root_.Lake.Package) :
-    IO (Option Nat × Bool) := do
-  let some file := package.configFile.fileName | return (none, false)
+    IO ConfigReading := do
+  let some file := package.configFile.fileName |
+    return { facets := none, functions := false, declarations := #[], extensions := #[] }
   let compiled := ws.root.dir / _root_.Lake.defaultLakeDir / "config" / toString package.wsIdx /
     (FilePath.mk file).withExtension "olean"
   let (config, _) ← readModuleData compiled
   let imported ← _root_.Lake.importModulesUsingCache config.imports {} 1024
   let own (extension : Name) : Nat :=
     ((config.entries.find? (·.1 == extension)).map (·.2.size)).getD 0
-  if !(_root_.Lake.targetAttr.getAllEntries imported).isEmpty ||
-      own Lean.Compiler.implementedByAttr.ext.name + own Lean.externAttr.ext.name != 0 then
-    return (none, false)
   let facets := [_root_.Lake.moduleFacetAttr, _root_.Lake.packageFacetAttr,
     _root_.Lake.libraryFacetAttr].foldl (init := 0) fun count facetAttribute =>
       count + (facetAttribute.getAllEntries imported).size + own facetAttribute.ext.name
-  return (some facets, defaultFunctionFields config)
+  return {
+    facets := if (_root_.Lake.targetAttr.getAllEntries imported).isEmpty then some facets else none
+    functions := defaultFunctionFields config
+    declarations := config.constants.map configDeclaration
+    extensions := config.entries.filterMap fun (extension, entries) =>
+      if entries.isEmpty then none else some extension.toString }
 
 /-- What the plain shape reads of a target of `package` (`TargetShape`). For a `lakefile.lean`,
 `functions` is the reading of its compiled configuration (`leanConfigReading`). For a
@@ -629,17 +699,20 @@ def targetShape (package : _root_.Lake.Package)
 
 /-- What the plain shape reads of `package`: Lake's configuration of the package and of each
 target, and for `lakefile.lean` its compiled configuration (`leanConfigReading`). A `lakefile.toml`
-declares no facet: Lake's TOML loader gives it none. -/
+declares no facet and has no compiled configuration file: Lake's TOML loader gives it no facet. -/
 def packageShape (ws : _root_.Lake.Workspace) (package : _root_.Lake.Package) :
     IO PackageShape := do
   let toml := package.configFile.extension == some "toml"
-  let (facets, functions) ← if toml then pure (some 0, false) else leanConfigReading ws package
+  let reading ← if toml then
+      pure { facets := some 0, functions := false, declarations := #[], extensions := #[] }
+    else leanConfigReading ws package
   return {
     unknown := unknownFields (_root_.Lake.ConfigFields.fields
       (σ := _root_.Lake.PackageConfig package.keyName package.origName))
       (packageChecks package.config)
-    targets := package.targetDecls.map (targetShape package · toml functions)
-    facets }
+    targets := package.targetDecls.map (targetShape package · toml reading.functions)
+    facets := reading.facets, declarations := reading.declarations
+    extensions := reading.extensions }
 
 /-- Each buildable module of the root package's libraries and each root of its executables, with
 the real path of each source file that a library or an executable gives it, the source file of the

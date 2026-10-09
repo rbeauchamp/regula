@@ -1108,8 +1108,9 @@ def guide : RuleId → Guide
       limitations := [
         "`lake lint` builds with Regula's audit-build marker, except in a workspace that \
           declares only `lean_lib`, `lean_exe`, `input_file` and `input_dir` targets, each \
-          with the default configuration of Lake outside a short list of fields, and in which no \
-          module of the package imports `Regula.Linter`. The marker turns the local linter off \
+          with the default configuration of Lake outside a short list of fields, whose \
+          `lakefile.lean` declares nothing else, and in which no module of the package imports \
+          `Regula.Linter`. The marker turns the local linter off \
           whatever the source sets `linter.regula` to, so Regula's own local findings are not \
           build warnings there and its policy stages report those rules. `axiomGate` and the \
           build-lint `policy` target keep ordinary options, so in a module that imports \

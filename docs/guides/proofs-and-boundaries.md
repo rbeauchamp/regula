@@ -200,6 +200,16 @@ one. A file `lakefile.toml` declares no facet and cannot set `nativeFacets`. Its
 `input_dir` is the default only if it omits the filter or writes `"*"`. Lake only reads and hashes
 an input target. Thus a build in the plain shape runs no custom build step.
 
+A file `lakefile.lean` must also declare only what the commands of Lake generate. These are the
+definitions of the package, its targets, their configurations, `require` and the name of the
+package. The others are theorems and axioms that state a `Lake.FamilyDef` or an equation between
+types (`configDeclaration`).
+
+The entries of the file itself must be in a list of extensions that the commands of Lake and their
+compilation fill (`configExtensions`). Thus a compiler replacement (`csimp`), `implemented_by`,
+`extern` or `init` keeps the marker. A registration that ends in the file has a declaration too,
+so it also keeps the marker.
+
 The driver also reads each buildable module of the root package and each executable root, with
 the imports from Lake's `transImports` facet (`markerInputs`). Each name must have one source
 file, and Lake must resolve the name to that file (`ModuleEntry.Resolved`). The driver omits the
@@ -219,8 +229,9 @@ unknown. The same verdict with and without the marker is a claim for the plain s
 That `Regula.Linter` is the only reader of the marker in Regula is by inspection. That no module
 of the project reads the marker itself is an assumption. That Lake runs no code from the fields
 of the list is read from the source of Lake. The source of Lake also shows that a build in the
-plain shape runs no custom build step. Lake's discovery of the modules and of their imports, and
-its compiled configuration files, are trusted.
+plain shape runs no custom build step. That the listed declarations and extensions add no code to
+a build is read from the source of Lean and of Lake. Lake's discovery of the modules and of their
+imports, and its compiled configuration files, are trusted.
 
 The command `./scripts/verify.sh` makes one copy of the checkout, and its first step operates in
 that copy. The driver of that command, `lean/RegulaVerification.lean`, makes the copy before it
