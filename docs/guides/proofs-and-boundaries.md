@@ -1594,8 +1594,8 @@ of the type in `Collect.returnsSort`). It then adds the action of each initializ
 module records, whatever its name or safety (`Probe.initializerActions`). Lean records these
 actions in the entries of the attributes `[init]` and `[builtin_init]`.
 
-The selection of roots is the conjunction of these facts, together with these entries, so a kind
-on it would state the expression of the function as its specification. Thus the census of roots
+The selection of roots is the conjunction of these facts, together with these entries. A kind on
+it would state the expression of the function as its specification. Thus the census of roots
 is observed, and `environmentReport` adds the root of each valid registration to it.
 
 **The verdicts are the same.** No theorem compares the producer before this split with the
