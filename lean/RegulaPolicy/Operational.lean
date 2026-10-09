@@ -99,7 +99,7 @@ recorded decision registration sharing a test. Escape hatches do not appear. -/
 def OperationalOK (t : ToolchainAxioms) (d : Declaration) : Prop :=
   d.kind ≠ .«axiom» ∧
   (∀ n ∈ d.axioms, Permitted .standardLogical n ∨ (d.isProp = false ∧ n ∈ t.names)) ∧
-  ContractOK d ∧ SharedTestOK d
+  ContractOK d.executableContract ∧ SharedTestOK d.executableContract
 
 theorem mem_operationalAxioms (t : ToolchainAxioms) (d : Declaration) (n : Name) :
     n ∈ operationalAxioms t d ↔ n ∈ d.axioms ∧ (d.isProp = false → n ∉ t.names) := by

@@ -48,20 +48,20 @@ theorem authorizedUnsafeRecHelpers_iff (ds : Array Declaration) (n : Name) :
   simp [authorizedUnsafeRecHelpers, Array.mem_map, Array.mem_filter, and_left_comm, and_comm]
 
 /-- The implementations the inventory's decision contracts decide: the implementation of every
-recorded executable contract that states a decision kind and was not refused, in inventory
-order. -/
-def decidedImplementations (ds : Array Declaration) : Array Name :=
-  ds.filterMap fun d => d.executableContract.bind fun c =>
+recorded contract that states a decision kind and was not refused, in inventory order. It reads
+the recorded contracts (`recordedContracts`) and no other field of the records. -/
+def decidedImplementations (contracts : Array RecordedContract) : Array Name :=
+  contracts.filterMap fun recorded => recorded.bind fun c =>
     if c.kind.isSome && c.failure.isNone then some c.root else none
 
 /-- A name is among the decided implementations exactly when a decision contract of the inventory
 decides it (`DecisionRegistered`). -/
-theorem decidedImplementations_iff (ds : Array Declaration) (n : Name) :
-    n ∈ decidedImplementations ds ↔ DecisionRegistered ds n := by
+theorem decidedImplementations_iff (contracts : Array RecordedContract) (n : Name) :
+    n ∈ decidedImplementations contracts ↔ DecisionRegistered contracts n := by
   simp only [decidedImplementations, Array.mem_filterMap, DecisionRegistered, Option.mem_def]
   constructor
   · rintro ⟨r, hr, found⟩
-    cases contract : r.executableContract with
+    cases contract : r with
     | none => simp [contract] at found
     | some c =>
       simp only [contract, Option.bind_some, Option.ite_none_right_eq_some, Bool.and_eq_true,
@@ -178,51 +178,48 @@ def labelOf (axioms : Array Name) (native : Array Name := #[]) : FoundationClass
   else if axioms.all (ConformingProfile.permits .choiceFree) then .choiceFree
   else .standardLogical
 
-/-- The decision of the shared-test requirement over a recorded declaration: the failure where
-the record of its decision registration names a function with a result of `Bool` or `BEq` that
-the specification shares with the implementation or the acceptance predicate, and nothing
-otherwise (`checked_sharedTestFailure`). It reads the names alone, which are the collector's
+/-- The decision of the shared-test requirement over the recorded contract of a declaration: the
+failure where the record of its decision registration names a function with a result of `Bool`
+or `BEq` that the specification shares with the implementation or the acceptance predicate, and
+nothing otherwise (`checked_sharedTestFailure`). It reads the names alone, which are the collector's
 observation (`sharedNames`), so it decides nothing about a function that the collector's search
 does not name: a copy of a test under a second name, or a shared function of the other class. -/
 @[regula_decision]
-def sharedTestFailure (decl : Declaration.ProjectWritten) : Option DeclarationFailure :=
-  if decl.executableContract.any (!·.shared.booleans.isEmpty) then some .sharedTest else none
+def sharedTestFailure (contract : RecordedContract) : Option DeclarationFailure :=
+  if contract.any (!·.shared.booleans.isEmpty) then some .sharedTest else none
 
 /-- Exact success relation of the executed shared-test decision, for every record. -/
-theorem sharedTestFailure_none_iff (d : Declaration.ProjectWritten) :
-    sharedTestFailure d = none ↔ SharedTestOK d := by
+theorem sharedTestFailure_none_iff (contract : RecordedContract) :
+    sharedTestFailure contract = none ↔ SharedTestOK contract := by
   unfold sharedTestFailure SharedTestOK
-  cases d.executableContract <;> simp
+  cases contract <;> simp
 
 /-- The shared-test decision has one failure, reported exactly where the requirement is unmet. -/
-theorem sharedTestFailure_eq_some_iff (d : Declaration.ProjectWritten)
+theorem sharedTestFailure_eq_some_iff (contract : RecordedContract)
     (failure : DeclarationFailure) :
-    sharedTestFailure d = some failure ↔ failure = .sharedTest ∧ ¬ SharedTestOK d := by
+    sharedTestFailure contract = some failure ↔
+      failure = .sharedTest ∧ ¬ SharedTestOK contract := by
   rw [← sharedTestFailure_none_iff]
   unfold sharedTestFailure
   split <;> simp [eq_comm]
 
 /-- The shared-test decision reports a failure exactly where the requirement is unmet. -/
-@[simp] theorem sharedTestFailure_isSome_iff (d : Declaration.ProjectWritten) :
-    (sharedTestFailure d).isSome = true ↔ ¬ SharedTestOK d := by
+@[simp] theorem sharedTestFailure_isSome_iff (contract : RecordedContract) :
+    (sharedTestFailure contract).isSome = true ↔ ¬ SharedTestOK contract := by
   rw [← sharedTestFailure_none_iff, Option.isSome_iff_ne_none]
 
-/-- `sharedTestFailure` reports nothing exactly when the record meets `SharedTestOK`
-(`sharedTestFailure_none_iff`): nothing for a record with no contract, and the failure for the
-record of a decision registration that names one shared test. The decision is over the recorded
+/-- `sharedTestFailure` reports nothing exactly when the recorded contract meets `SharedTestOK`
+(`sharedTestFailure_none_iff`): nothing for no recorded contract, and the failure for the record
+of a decision registration that names one shared test. The decision is over the recorded
 names. That the names are the functions that the two sides of the registration share is the
 collector's, whose search compares constants by name. -/
 theorem checked_sharedTestFailure : Regula.ExecutableContract sharedTestFailure
     (Regula.Decides (· = none) SharedTestOK) :=
-  let recorded (executableContract : Option ExecutableContract) : Declaration.ProjectWritten :=
-    { «instance» := false, «noncomputable» := false, implementedBy := none, «extern» := false
-      projection := false, matcher := false, recursive := false, recordedRanges := none
-      generatedFrom := none, constructorIndex := none, executableContract }
   ⟨.of_iff sharedTestFailure_none_iff
-    ⟨recorded none, by simp [sharedTestFailure, recorded]⟩
-    ⟨recorded (some { root := `check, requirement := "", failure := none
-                      kind := some .«soundAndComplete», shared := { booleans := #[`test] } }),
-      by simp [sharedTestFailure, recorded]⟩⟩
+    ⟨none, by simp [sharedTestFailure]⟩
+    ⟨some { root := `check, requirement := "", failure := none
+            kind := some .«soundAndComplete», shared := { booleans := #[`test] } },
+      by simp [sharedTestFailure]⟩⟩
 
 /-- Raw computational kernel over supplied role sets; callers can supply arbitrary
 sets here. This is not an admission or authorization API. Production decisions
@@ -246,7 +243,7 @@ def declarationFailure (decl : Declaration) (claim : InspectionRequest)
   else if decl.axioms.any (compilerAxiom native) && claim != .teaching then
     some .compilerTrusting
   else if decl.executableContract.any (·.failure.isSome) then some .executableContract
-  else if (sharedTestFailure decl).isSome then some .sharedTest
+  else if (sharedTestFailure decl.executableContract).isSome then some .sharedTest
   else match claim with
     | .conforming profile =>
         if decl.axioms.all fun name => compilerAxiom native name ||
@@ -306,12 +303,12 @@ structure Roles (inventory : Inventory) where
   constructorHelpers_exact :
     constructorHelpers = authorizedConstructorIndexHelpers inventory.declarations
   /-- `decided` is what `decidedImplementations` computes from this inventory. -/
-  decided_exact : decided = decidedImplementations inventory.declarations
+  decided_exact : decided = decidedImplementations (recordedContracts inventory.declarations)
 
 /-- A name is among an inventory's decided implementations exactly when a decision contract of
 that inventory decides it. -/
 theorem Roles.decided_iff {i : Inventory} (roles : Roles i) (n : Name) :
-    n ∈ roles.decided ↔ DecisionRegistered i.declarations n := by
+    n ∈ roles.decided ↔ DecisionRegistered (recordedContracts i.declarations) n := by
   rw [roles.decided_exact, decidedImplementations_iff]
 
 /-- The two distinct generated families admitted by the safety policy. -/
@@ -344,7 +341,7 @@ theorem Roles.partialParent_not_safetyHelper {i : Inventory} (roles : Roles i)
 def authorize (i : Inventory) : Roles i :=
   ⟨authorizedNativeAxioms i.declarations i.transcripts,
    authorizedUnsafeRecHelpers i.declarations, authorizedConstructorIndexHelpers i.declarations,
-   decidedImplementations i.declarations, rfl, rfl, rfl, rfl⟩
+   decidedImplementations (recordedContracts i.declarations), rfl, rfl, rfl, rfl⟩
 
 /-- Any role receipt for this exact inventory equals recomputation of every validator.
 The equations in Roles determine the arrays; no producer verdict is assumed. -/
@@ -661,9 +658,11 @@ theorem policyFor_decisionContract_iff (i : Inventory) (roles : Roles i) (d : De
     (r : InspectionRequest) :
     policyFor i roles d r = some .decisionContract ↔
       d ∈ i.declarations ∧ DeclarationOK d r roles.native roles.safetyHelpers ∧
-        d.decisionResult = some .«other» ∧ ¬ DecisionRegistered i.declarations d.name := by
+        d.decisionResult = some .«other» ∧
+          ¬ DecisionRegistered (recordedContracts i.declarations) d.name := by
   have unmet : ¬ DecisionOK d roles.decided ↔
-      d.decisionResult = some .«other» ∧ ¬ DecisionRegistered i.declarations d.name := by
+      d.decisionResult = some .«other» ∧
+        ¬ DecisionRegistered (recordedContracts i.declarations) d.name := by
     rw [← roles.decided_iff]
     simp [DecisionOK]
   rw [← unmet, ← declarationFailure_none_iff]
@@ -861,7 +860,8 @@ theorem permitted_standard (p : ConformingProfile) (n : Name) (h : Permitted p n
 and shared-test requirements. Teaching authorization never relaxes a conforming profile. -/
 theorem conforming_iff (i : Inventory) (roles : Roles i) (d : Declaration) (p : ConformingProfile) :
     DeclarationOK d (.conforming p) roles.native roles.safetyHelpers ↔
-      FoundationOK d p ∧ SafetyOK d roles.safetyHelpers ∧ ContractOK d ∧ SharedTestOK d := by
+      FoundationOK d p ∧ SafetyOK d roles.safetyHelpers ∧ ContractOK d.executableContract ∧
+        SharedTestOK d.executableContract := by
   constructor
   · intro h
     rcases h with h | ⟨ha, _, _, hs, hc, ht, hshared, hp⟩
@@ -892,7 +892,8 @@ refuses exactly when membership or one of those requirements fails. -/
 theorem policyFor_conforming_iff (i : Inventory) (roles : Roles i) (d : Declaration)
     (p : ConformingProfile) :
     policyFor i roles d (.conforming p) = none ↔ d ∈ i.declarations ∧
-      (FoundationOK d p ∧ SafetyOK d roles.safetyHelpers ∧ ContractOK d ∧ SharedTestOK d) ∧
+      (FoundationOK d p ∧ SafetyOK d roles.safetyHelpers ∧ ContractOK d.executableContract ∧
+        SharedTestOK d.executableContract) ∧
         DecisionOK d roles.decided := by
   rw [policyFor_none_iff, conforming_iff]
 

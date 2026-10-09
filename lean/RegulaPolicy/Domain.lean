@@ -780,6 +780,29 @@ theorem DecisionKind.ofStructureName?_eq_some_iff (name : Lean.Name) (kind : Dec
   · rintro rfl
     cases kind <;> rfl
 
+/-- Every decision kind (`DecisionKind.mem_all`). -/
+def DecisionKind.all : Array DecisionKind := #[.«sound», .«complete», .«soundAndComplete»]
+
+/-- Each kind is listed. A new kind is a new constructor, and this theorem fails until `all` lists
+it. -/
+theorem DecisionKind.mem_all (kind : DecisionKind) : kind ∈ all := by
+  cases kind <;> simp [all]
+
+/-- The structure of each decision kind, the constants to which a registration's requirement
+reduces when it states a kind (`DecisionKind.mem_structureNames_iff`). -/
+def DecisionKind.structureNames : Array Lean.Name := all.map structureName
+
+/-- A name is listed exactly when it is read as a kind (`ofStructureName?`). -/
+theorem DecisionKind.mem_structureNames_iff (name : Lean.Name) :
+    name ∈ structureNames ↔ (ofStructureName? name).isSome := by
+  simp only [structureNames, Array.mem_map, Option.isSome_iff_exists,
+    ofStructureName?_eq_some_iff]
+  constructor
+  · rintro ⟨kind, -, rfl⟩
+    exact ⟨kind, rfl⟩
+  · rintro ⟨kind, rfl⟩
+    exact ⟨kind, mem_all kind, rfl⟩
+
 /-- What a registration of the kind establishes about the implementation, as the account
 states it. -/
 def DecisionKind.establishes : DecisionKind → String
@@ -1242,6 +1265,13 @@ structure ExecutableContract where
   shared : SharedNames := {}
   deriving Repr, DecidableEq
 
+/-- The recorded contract of a declaration: the collector's observation of its executable-contract
+registration (`Declaration.executableContract`), and `none` without one. A mark a project writes
+decides one of its refusals: the collector reads whether Lean marks the implementation
+`noncomputable`. The decisions of RG1007 and RG1009 take this and no other field of the record,
+so they read what a project writes only through it. -/
+abbrev RecordedContract := Option ExecutableContract
+
 /-- The part of a declaration's record that is kernel-checked declaration data: a field of the
 constant's `ConstantInfo`, which Lean's kernel admitted with the declaration, or a value computed
 from such fields alone by a pure function. The gate replays the owned declarations of an
@@ -1326,10 +1356,18 @@ structure Declaration.ToolchainObserved where
   candidate (`NativeStatement.Recognition`): `e` with the proof that the decision returns it for
   that tactic, prefix and type. So it evaluates no other expression. -/
   nativeReplay : Option Bool
-  /-- The axioms the constant transitively depends on (`collectAxioms`), sorted and without
-  duplicates. -/
+  /-- The axioms the constant transitively depends on, sorted and without duplicates: those it
+  reaches in the kernel that replayed it (`KernelAxioms.axiomTable`), or, for an editor
+  snapshot, which has no replayed kernel, those `collectAxioms` reports. -/
   axioms : Array Lean.Name
   deriving Repr, DecidableEq
+
+/-- The text of the omissions of a declaration with the axioms `axioms`: the axioms Lean's
+`collectAxioms` reports (`axioms` without the omitted ones), those the declaration reaches in the
+replayed kernel, and the omitted ones. -/
+def tableOmissionText (axioms omissions : Array Lean.Name) : String :=
+  let (omitted, reported) := axioms.partition omissions.contains
+  s!"collectAxioms {reported.toList}, replayed kernel {axioms.toList}; omitted: {omitted.toList}"
 
 /-- The part of a declaration's record that is read from environment state an audited project
 can write, or that such state decides: an environment extension's entry, an attribute, a
@@ -1383,6 +1421,12 @@ structure Declaration.ProjectWritten where
   project's own statement that the function is a decision; the result type is read by
   reduction. -/
   decisionResult : Option DecisionResult := none
+  /-- The axioms of `axioms` that Lean's `collectAxioms` does not report. Lean's module tables
+  are environment state a project can write, and Lean's own computation of a table can omit an
+  axiom. The checker reports these and decides on `axioms`; admission refuses a declaration for
+  which `collectAxioms` reports an axiom outside `axioms`, so `axioms` without these is what
+  `collectAxioms` reports. Empty for an editor snapshot. -/
+  tableOmissions : Array Lean.Name := #[]
   deriving Repr, DecidableEq
 
 /-- The part of a declaration's record that holds no field of `Declaration.ProjectWritten`: its

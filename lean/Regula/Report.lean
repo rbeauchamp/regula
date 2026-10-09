@@ -195,13 +195,14 @@ instance : ToJson RegulaPolicy.Declaration := ⟨fun d => Json.mkObj [
   ("nativeStatement", toJson d.nativeStatement), ("nativeReplay", toJson d.nativeReplay),
   ("ranges", toJson d.recordedRanges), ("generatedFrom", toJson d.generatedFrom),
   ("axioms", toJson d.axioms), ("executableContract", toJson d.executableContract),
-  ("decisionResult", toJson d.decisionResult)]⟩
+  ("decisionResult", toJson d.decisionResult), ("tableOmissions", toJson d.tableOmissions)]⟩
 instance : FromJson RegulaPolicy.Declaration := ⟨fun j => do
   exactFields j ["name", "module", "kind", "type", "prettyType", "isProp", "isUnsafe", "isPartial",
       "safety", "instance", "noncomputable", "implementedBy", "extern", "internal", "private",
           "projection", "matcher", "recursive", "unsafeRecBase", "levelParams", "all", "hints",
               "valueConstants", "unsafeRecRegenerated", "constructorIndex", "nativeStatement", "nativeReplay",
-                  "ranges", "generatedFrom", "axioms", "executableContract", "decisionResult"]
+                  "ranges", "generatedFrom", "axioms", "executableContract", "decisionResult",
+                      "tableOmissions"]
   return {
     name := ← j.getObjValAs? _ "name"
     «module» := ← j.getObjValAs? _ "module"
@@ -235,6 +236,7 @@ instance : FromJson RegulaPolicy.Declaration := ⟨fun j => do
     axioms := ← j.getObjValAs? _ "axioms"
     executableContract := ← j.getObjValAs? _ "executableContract"
     decisionResult := ← j.getObjValAs? _ "decisionResult"
+    tableOmissions := ← j.getObjValAs? _ "tableOmissions"
   }⟩
 
 /-- One execution boundary a root's closure reaches (`RegulaPolicy.ExecutionBoundary`), with a

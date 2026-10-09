@@ -2094,14 +2094,13 @@ declaration Lean generated it from. One without a range of its own is located at
 declaration's range, with its own module as a related location; one with a range of its own keeps
 it, with no related location: `Channel.value` at its field and the action at its `initialize`
 command, both other than their source's, and `Channel.mk` at the structure's name, where Lean
-records an implicit constructor (`expandCtor`, `Lean/Elab/Structure.lean:235-246`). `Rec`'s
-range is read from its own finding or, when it has none, from its implicit constructor's finding,
-at the same name: Lean's `exportedAxiomsExt`
-(`Lean/Util/CollectAxioms.lean:118-140` in the v4.34.0 toolchain source) computes a module's
-axioms in one shared cache, and when it reaches an inductive first through its constructor, it
-caches the inductive with that constructor's in-progress empty entry, so the inductive can record
-no axiom while its constructor records `Classical.choice`. The claim is still rejected, because
-the constructor is flagged. None of
+records an implicit constructor (`expandCtor`, `Lean/Elab/Structure.lean:235-246`). `Rec` has
+a finding of its own: the checker reads each declaration's axioms in the kernel that replayed it,
+where `Rec` reaches its constructor and so `Classical.choice`. Lean's `exportedAxiomsExt`
+(`Lean/Util/CollectAxioms.lean:118-140` in the v4.34.0 toolchain source) can record no axiom for
+it: it computes a module's axioms in one shared cache, and when it reaches an inductive first
+through its constructor, it caches the inductive with that constructor's in-progress empty entry.
+None of
 `Channel.fact`, which has no source range, `Word.ofNat` and the `vzero` elaborator in `Channel`'s
 namespace is attributed, though each is named under a structure: Lean did not generate them from
 it. `Channel.fact` keeps module attribution, and `Word.ofNat` and the elaborator their own
@@ -2146,8 +2145,7 @@ private def sourceAttributionFailure (report : Json) : Option String := Id.run d
       ("countUp._unsafe_rec", "countUp"), ("countUp._proof_3", "countUp"),
       ("sumButLast._proof_1", "sumButLast"), ("middle._proof_1", "middle"),
       ("middle._proof_2", "middle")] do
-    let some owner := find ownerName <|> find (ownerName ++ ".mk")
-      | return some s!"no {ownerName} finding"
+    let some owner := find ownerName | return some s!"no {ownerName} finding"
     let some d := find name | return some s!"no {name} finding"
     unless attributed d owner ownerName do
       return some s!"{name} is not attributed to and located at {ownerName}"

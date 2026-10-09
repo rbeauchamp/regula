@@ -13,7 +13,7 @@ imports no Mathlib. Its libraries (`lakefile.lean`, `foundation_manifest.json`):
 
 | Library | Role | Claim |
 | --- | --- | --- |
-| `RegulaPolicy` | Pure policy: domain types, the one supported compiler identity (`Compiler`), admission, declaration/execution decisions, the acceptance plan and its theorems. Imports only Init, Std, `Lean.PrivateName` (for generated native-axiom names), `Lean.Expr` (the terms the recursion-helper comparison `Erasure.reproduces` and the native-axiom statement decision `NativeStatement.recognize?` decide over; its closure holds no `Lean.Environment`), the import-free `Regula.Contract` and, to register its decisions, `Regula.Decision` ([below](#the-decision-registration-import)). | Claimed, Standard-Logical |
+| `RegulaPolicy` | Pure policy: domain types, the one supported compiler identity (`Compiler`), admission, declaration/execution decisions, the acceptance plan and its theorems. Imports only Init, Std, `Lean.PrivateName` (for generated native-axiom names), `Lean.Expr` (the terms the recursion-helper comparison `Erasure.reproduces` and the native-axiom statement decision `NativeStatement.recognize?` decide over; its closure holds no `Lean.Environment`), `Lean.Util.FoldConsts` (for the kernel axiom search `KernelAxioms`, with no `Lean.Environment` in its closure either), the import-free `Regula.Contract` and, to register its decisions, `Regula.Decision` ([below](#the-decision-registration-import)). | Claimed, Standard-Logical |
 | `RegulaCore` | The rule registry (`RuleId`, `Rule`, `Guide`), the pure projections the checker executes (`Policy`, `Coordinates`, `Source`, `Assembly`, `EditorPolicy`, `Lint`, `Account`), agent guidance (`Feedback`, `Guidance`), project setup (`Setup`), the installed-compiler identity and selector decisions (`Toolchain`) and the site's pure decisions (`Edition`, `Site*`). Imports the policy library, never the reverse, Lean's `Lean.Data.Position` but not `Lean.Data.Lsp.Utf16`, whose closure contains `Lean.Environment`, and, to register its decisions, `Regula.Decision`, whose closure contains it too ([below](#the-decision-registration-import)). | Claimed |
 | `RegulaQualification` | Pure observation requirements and checked contracts for qualification campaigns, not process launchers; testing requirements are not production policy, so they belong neither in `RegulaPolicy` nor in the mathematical `Audit` examples. | Claimed |
 | `RegulaVerification`, `RegulaProvision` | Toolchain-only acceptance runner and dependency provisioning for the pinned release. Pure decision contracts surround trusted build, process and filesystem effects. Each library's `Decisions` module, which no program imports, registers those decisions' kinds with the checker's two interfaces. | Claimed |
@@ -244,7 +244,7 @@ lake exe axiomGate --with-docs --json-out tmp/result.json
 ```
 
 Each export is versioned on its own: the surface manifest is schema 2, the registry schema 4, the
-result schema 11, the worker packet schema 1, the rule-example corpus export schema 1, the
+result schema 12, the worker packet schema 1, the rule-example corpus export schema 1, the
 acceptance link schema 1 and the site's `build.json` schema 2. Registry and result envelopes carry
 `schemaVersion`, `producerVersion`, `toolchain` and `sourceRevision` from
 `Regula.Checker.Producer.identity`: `producerVersion` is the installed release's spelling
@@ -259,7 +259,7 @@ metadata, not authenticated binary identity.
   re-encoding, refusing unknown or missing fields, changed routes and stale lifecycle data.
   Registry admission rejects duplicate external IDs, missing clauses, pages or examples, unknown
   JSON fields or versions, and invalid lifecycle references.
-- **Result, schema 11:** `scope`, `mode`, `status`, `stages` (the stages
+- **Result, schema 12:** `scope`, `mode`, `status`, `stages` (the stages
   `RegulaPolicy.requiredStages` requires for the mode, plus the documentation stages of a
   `--with-docs` run), `stagesCompleted`, `complete`, `stagesNotRun`, `diagnostics` (each with its
   `remedy`, in run order), `rules` (the guidance of every rule that fired, once each, in registry
@@ -350,6 +350,10 @@ metadata, not authenticated binary identity.
   result type is `Decidable _`, and `null` for any other declaration. [RG1008] is decided from it
   and from the `executableContract` records of the same inventory
   (`RegulaPolicy.policyFor_decisionContract_iff`).
+- **Axiom-table omissions:** since schema 12 a declaration record carries `tableOmissions`. Each
+  entry is an axiom that the declaration reaches in the replayed kernel and that Lean's
+  `collectAxioms` does not report. The rules decide on `axioms`, and the omissions are reported,
+  not failed ([RG2005]).
 - **Names:** since schema 6 every Lean name of a result, in `diagnostics`, `scope` and
   `acceptance` alike, and of the producer report it renders, is written one way
   (`RegistryCodec.printedNameJson`): the text Lean prints for it, or, only where Lean's parser does

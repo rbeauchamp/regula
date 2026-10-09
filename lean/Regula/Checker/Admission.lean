@@ -4,6 +4,7 @@ import Regula.Probe
 import Regula.Checker.SharedName
 import Std.Data.HashMap.Lemmas
 import Regula.Decision
+import RegulaPolicy.KernelAxioms
 
 /-!
 # Checked logical admission
@@ -19,15 +20,19 @@ which candidates have every owned module of their closure reused too.
 Replay reads each replayed module's own constants (`Copy`), so a name that several
 modules contain, such as an equation lemma Lean realizes in each module that needs it,
 has every owned copy checked (`replayMap_sound`, `checkCopies_sound`).
-`validate` is an observing pass around two registered decisions: `checkHeader` on the module data
-of the header (`checked_checkHeader`) and `admitReplay` on the replayed kernel
-(`checked_admitReplay`), which returns the receipt.
+`validate` is an observing pass around three registered decisions: `checkHeader` on the module
+data of the header (`checked_checkHeader`), `admitReplay` on the replayed kernel
+(`checked_admitReplay`), which returns the receipt, and `checkTable` on the axioms of the owned
+declarations. Those axioms are the ones each declaration reaches in the replayed kernel
+(`KernelAxioms.axiomTable`), which `validate` returns with the receipt for the foundation rules;
+`checkTable` refuses a declaration for which Lean's `collectAxioms` reports an axiom outside them.
 -/
 
 namespace Regula.Checker.Admission
 
 open Lean
 open RegulaPolicy.Guards (forM_eq_ok)
+open RegulaPolicy.KernelAxioms
 -- Names cross the worker boundary in the report's own encoding, which reads back every name,
 -- including the hygienic names Lean generates (`RegistryCodec.printedNameJson_roundtrip`).
 open scoped Regula.Report
@@ -82,74 +87,6 @@ theorem originIndex_keyed (origins : Array RegulaPolicy.ModuleOrigin) :
       obtain rfl := Option.some.inj hn
       exact beq_iff_eq.mp heq
     · exact hindex n origin hn
-
-/-- Push `m` onto the pending names unless it was seen before. -/
-private def pushNew (acc : List Name × Std.HashSet Name) (m : Name) :
-    List Name × Std.HashSet Name :=
-  if acc.2.contains m then acc else (m :: acc.1, acc.2.insert m)
-
-/-- `pushNew` leaves a seen name's state unchanged. -/
-private theorem pushNew_seen {p : List Name} {s : Std.HashSet Name} {m : Name}
-    (h : s.contains m = true) : pushNew (p, s) m = (p, s) := by
-  simp [pushNew, h]
-
-/-- `pushNew` pushes and records an unseen name. -/
-private theorem pushNew_unseen {p : List Name} {s : Std.HashSet Name} {m : Name}
-    (h : ¬ s.contains m = true) : pushNew (p, s) m = (m :: p, s.insert m) := by
-  simp [pushNew, h]
-
-/-- What folding `pushNew` over `names` does to the pending names `p` and the seen names `s`. -/
-private theorem foldl_pushNew (names p : List Name) (s : Std.HashSet Name) :
-    (∀ x, x ∈ (names.foldl pushNew (p, s)).2 ↔ x ∈ s ∨ x ∈ names) ∧
-    (∀ x ∈ (names.foldl pushNew (p, s)).1, x ∈ p ∨ x ∈ names) ∧
-    (∀ x ∈ p, x ∈ (names.foldl pushNew (p, s)).1) ∧
-    (∀ x ∈ (names.foldl pushNew (p, s)).2, x ∈ s ∨ x ∈ (names.foldl pushNew (p, s)).1) := by
-  induction names generalizing p s with
-  | nil => exact ⟨by simp, by simp, by simp, fun x hx => .inl hx⟩
-  | cons m names ih =>
-    simp only [List.foldl_cons]
-    by_cases hm : s.contains m
-    · rw [pushNew_seen hm]
-      obtain ⟨h1, h2, h3, h4⟩ := ih p s
-      have hms : m ∈ s := Std.HashSet.mem_iff_contains.mpr hm
-      refine ⟨fun x => ?_, fun x hx => ?_, h3, h4⟩
-      · rw [h1 x, List.mem_cons]
-        constructor
-        · rintro (hx | hx)
-          · exact .inl hx
-          · exact .inr (.inr hx)
-        · rintro (hx | rfl | hx)
-          · exact .inl hx
-          · exact .inl hms
-          · exact .inr hx
-      · rcases h2 x hx with hx | hx
-        · exact .inl hx
-        · exact .inr (List.mem_cons_of_mem _ hx)
-    · rw [pushNew_unseen hm]
-      obtain ⟨h1, h2, h3, h4⟩ := ih (m :: p) (s.insert m)
-      refine ⟨fun x => ?_, fun x hx => ?_, fun x hx => h3 x (List.mem_cons_of_mem _ hx),
-        fun x hx => ?_⟩
-      · rw [h1 x, Std.HashSet.mem_insert, List.mem_cons, beq_iff_eq]
-        constructor
-        · rintro ((rfl | hx) | hx)
-          · exact .inr (.inl rfl)
-          · exact .inl hx
-          · exact .inr (.inr hx)
-        · rintro (hx | rfl | hx)
-          · exact .inl (.inr hx)
-          · exact .inl (.inl rfl)
-          · exact .inr hx
-      · rcases h2 x hx with hx | hx
-        · rcases List.mem_cons.mp hx with rfl | hx
-          · exact .inr List.mem_cons_self
-          · exact .inl hx
-        · exact .inr (List.mem_cons_of_mem _ hx)
-      · rcases h4 x hx with hx | hx
-        · rcases Std.HashSet.mem_insert.mp hx with hx | hx
-          · rw [← beq_iff_eq.mp hx]
-            exact .inr (h3 m List.mem_cons_self)
-          · exact .inl hx
-        · exact .inr hx
 
 /-- Settle the `pending` modules, recording in `seen` every name ever pushed: the origin of each
 goes into `closure` and its imports not yet seen become pending. It returns the closure once
@@ -1227,159 +1164,12 @@ def nameCounts (copies : Array Copy) : Std.HashMap Name Nat :=
 /-! ### The names a proof reaches
 
 A copy that is not the constant the replayed kernel holds under its name is checked there under a
-fresh name, where its own name still denotes the held constant. The search below computes every
-name its proof reaches, through the types and values of the constants it uses, so admission can
-refuse a proof that reaches its own name (a circular proof) or axioms other than the held
-constant's. `collectAxioms` reports, for an imported name, the axioms its attributed module
-computed for its own copy when compiled, so replayed copies with the held constant's axioms make
-that report right whichever of them a declaration used. -/
-
-/-- The constants the type and value of `info` use (`ConstantInfo.getUsedConstantsAsSet`). -/
-def successorsOf (info : ConstantInfo) : Array Name :=
-  Std.TreeSet.toArray info.getUsedConstantsAsSet
-
-/-- The constants the constant `find` holds under `n` uses, or none when it holds none. -/
-def successors (find : Name → Option ConstantInfo) (n : Name) : Array Name :=
-  match find n with
-  | some info => successorsOf info
-  | none => #[]
-
-/-- `x` is reachable from `n` along `successors find`, in zero or more steps. -/
-inductive Reach (find : Name → Option ConstantInfo) : Name → Name → Prop
-  /-- Every name reaches itself. -/
-  | refl (n : Name) : Reach find n n
-  /-- A name reaches whatever a constant it uses reaches. -/
-  | step {n m x : Name} : m ∈ successors find n → Reach find m x → Reach find n x
-
-/-- Reachability extends by one more used constant. -/
-theorem Reach.tail {find : Name → Option ConstantInfo} {n x y : Name} (h : Reach find n x)
-    (hy : y ∈ successors find x) : Reach find n y := by
-  induction h with
-  | refl => exact .step hy (.refl y)
-  | step hm _ ih => exact .step hm (ih hy)
-
-/-- Expand the `pending` names, recording in `seen` every name ever pushed. It returns the seen
-names once nothing is pending, or `none` when `fuel` runs out first. -/
-def reachLoop (find : Name → Option ConstantInfo) :
-    Nat → List Name → Std.HashSet Name → Option (Std.HashSet Name)
-  | _, [], seen => some seen
-  | 0, _ :: _, _ => none
-  | fuel + 1, n :: rest, seen =>
-    let next := (successors find n).toList.foldl pushNew (rest, seen)
-    reachLoop find fuel next.1 next.2
-
-/-- Every name reachable from the constants `start` uses, within `fuel` expansions, or `none`
-when the fuel runs out. -/
-def reachSet (find : Name → Option ConstantInfo) (fuel : Nat) (start : ConstantInfo) :
-    Option (Std.HashSet Name) :=
-  let first := (successorsOf start).toList.foldl pushNew ([], {})
-  reachLoop find fuel first.1 first.2
-
-/-- The loop invariant: pending names were seen; every seen name is pending or has every
-successor seen; and every seen name is reachable from a constant `start` uses. -/
-private def LoopInv (find : Name → Option ConstantInfo) (start : ConstantInfo)
-    (pending : List Name) (seen : Std.HashSet Name) : Prop :=
-  (∀ x ∈ pending, x ∈ seen) ∧
-    (∀ x ∈ seen, x ∈ pending ∨ ∀ m ∈ successors find x, m ∈ seen) ∧
-    ∀ x ∈ seen, ∃ m ∈ successorsOf start, Reach find m x
-
-/-- A loop that returns from an invariant state returns a set closed under `successors`,
-containing every seen name, and holding only names reachable from `start`'s constants. -/
-private theorem reachLoop_some {find : Name → Option ConstantInfo} {start : ConstantInfo} :
-    ∀ (fuel : Nat) (pending : List Name) (seen result : Std.HashSet Name),
-      LoopInv find start pending seen → reachLoop find fuel pending seen = some result →
-      (∀ x ∈ result, ∀ m ∈ successors find x, m ∈ result) ∧ (∀ x ∈ seen, x ∈ result) ∧
-        ∀ x ∈ result, ∃ m ∈ successorsOf start, Reach find m x := by
-  intro fuel
-  induction fuel with
-  | zero =>
-    intro pending seen result hinv h
-    cases pending with
-    | nil =>
-      simp only [reachLoop, Option.some.injEq] at h
-      subst h
-      refine ⟨fun x hx => ?_, fun _ hx => hx, hinv.2.2⟩
-      rcases hinv.2.1 x hx with hx | hx
-      · simp at hx
-      · exact hx
-    | cons n rest => simp [reachLoop] at h
-  | succ fuel ih =>
-    intro pending seen result hinv h
-    cases pending with
-    | nil =>
-      simp only [reachLoop, Option.some.injEq] at h
-      subst h
-      refine ⟨fun x hx => ?_, fun _ hx => hx, hinv.2.2⟩
-      rcases hinv.2.1 x hx with hx | hx
-      · simp at hx
-      · exact hx
-    | cons n rest =>
-      simp only [reachLoop] at h
-      obtain ⟨f1, f2, f3, f4⟩ := foldl_pushNew (successors find n).toList rest seen
-      have hn : n ∈ seen := hinv.1 n List.mem_cons_self
-      obtain ⟨m₀, hm₀, hreach⟩ := hinv.2.2 n hn
-      have inv : LoopInv find start ((successors find n).toList.foldl pushNew (rest, seen)).1
-          ((successors find n).toList.foldl pushNew (rest, seen)).2 := by
-        refine ⟨fun x hx => ?_, fun x hx => ?_, fun x hx => ?_⟩
-        · rcases f2 x hx with hx | hx
-          · exact (f1 x).mpr (.inl (hinv.1 x (List.mem_cons_of_mem _ hx)))
-          · exact (f1 x).mpr (.inr hx)
-        · rcases f4 x hx with hx | hx
-          · rcases hinv.2.1 x hx with hp | hsucc
-            · rcases List.mem_cons.mp hp with rfl | hp
-              · exact .inr fun m hm => (f1 m).mpr (.inr (Array.mem_toList_iff.mpr hm))
-              · exact .inl (f3 x hp)
-            · exact .inr fun m hm => (f1 m).mpr (.inl (hsucc m hm))
-          · exact .inl hx
-        · rcases (f1 x).mp hx with hx | hx
-          · exact hinv.2.2 x hx
-          · exact ⟨m₀, hm₀, hreach.tail (Array.mem_toList_iff.mp hx)⟩
-      obtain ⟨r1, r2, r3⟩ := ih _ _ result inv h
-      exact ⟨r1, fun x hx => r2 x ((f1 x).mpr (.inl hx)), r3⟩
-
-/-- A completed `reachSet` holds exactly the names reachable from the constants `start` uses:
-every such name is in it, and every name in it is such a name. -/
-theorem reachSet_some {find : Name → Option ConstantInfo} {fuel : Nat} {start : ConstantInfo}
-    {result : Std.HashSet Name} (h : reachSet find fuel start = some result) :
-    (∀ m ∈ successorsOf start, ∀ x, Reach find m x → x ∈ result) ∧
-      ∀ x ∈ result, ∃ m ∈ successorsOf start, Reach find m x := by
-  obtain ⟨f1, f2, -, f4⟩ := foldl_pushNew (successorsOf start).toList [] {}
-  have inv : LoopInv find start ((successorsOf start).toList.foldl pushNew ([], {})).1
-      ((successorsOf start).toList.foldl pushNew ([], {})).2 := by
-    refine ⟨fun x hx => ?_, fun x hx => ?_, fun x hx => ?_⟩
-    · rcases f2 x hx with hx | hx
-      · simp at hx
-      · exact (f1 x).mpr (.inr hx)
-    · rcases f4 x hx with hx | hx
-      · simp at hx
-      · exact .inl hx
-    · rcases (f1 x).mp hx with hx | hx
-      · simp at hx
-      · exact ⟨x, Array.mem_toList_iff.mp hx, .refl x⟩
-  obtain ⟨closed, contains, sound⟩ := reachLoop_some fuel _ _ result inv h
-  refine ⟨fun m hm x hx => ?_, sound⟩
-  have hm' : m ∈ result := contains m ((f1 m).mpr (.inr (Array.mem_toList_iff.mpr hm)))
-  clear hm
-  induction hx with
-  | refl => exact hm'
-  | step hs _ ih => exact ih (closed _ hm' _ hs)
-
-/-- Whether `find` holds an axiom under `n`. -/
-def isAxiomIn (find : Name → Option ConstantInfo) (n : Name) : Bool :=
-  match find n with
-  | some (.axiomInfo _) => true
-  | _ => false
-
-/-- `find` holds an axiom under `n`, as a proposition. `isAxiomIn` decides it
-(`isAxiomIn_iff`). -/
-def IsAxiomIn (find : Name → Option ConstantInfo) (n : Name) : Prop :=
-  ∃ value, find n = some (.axiomInfo value)
-
-/-- The executed test accepts exactly the names that `find` holds as axioms. -/
-theorem isAxiomIn_iff (find : Name → Option ConstantInfo) (n : Name) :
-    isAxiomIn find n = true ↔ IsAxiomIn find n := by
-  unfold isAxiomIn IsAxiomIn
-  split <;> simp_all
+fresh name, where its own name still denotes the held constant. The search of
+`KernelAxioms.reachSet` computes every name its proof reaches, through the types and values of the
+constants it uses, so admission can refuse a proof that reaches its own name (a circular proof) or
+axioms other than the held constant's. The axioms reported for a declaration are those it reaches
+in the replayed kernel (`walkFind`, `KernelAxioms.axiomTable`), so replayed copies with the held
+constant's axioms make that report right whichever of them a declaration used. -/
 
 /-- The names of `seen` that `find` holds as axioms and `bound` lacks. -/
 def extraAxioms (find : Name → Option ConstantInfo) (seen bound : Std.HashSet Name) : List Name :=
@@ -1467,11 +1257,11 @@ def checkProof (checked : Kernel.Environment) (find : Name → Option ConstantIn
 /-- What a successful `checkProof` establishes. -/
 def ProofOK (checked : Kernel.Environment) (find : Name → Option ConstantInfo) (name : Name)
     (held info : ConstantInfo) : Prop :=
-  RenamedOK checked info ∧ (∀ m ∈ successorsOf info, ¬ Reach find m name) ∧
-    (∀ m ∈ successorsOf info, ∀ a, Reach find m a → IsAxiomIn find a →
-      ∃ m' ∈ successorsOf held, Reach checked.find? m' a) ∧
-    ∀ m' ∈ successorsOf held, ∀ a, Reach checked.find? m' a → IsAxiomIn checked.find? a →
-      ∃ m ∈ successorsOf info, Reach find m a
+  RenamedOK checked info ∧ (∀ m ∈ successorsOf info, ¬ Reach (successors find) m name) ∧
+    (∀ m ∈ successorsOf info, ∀ a, Reach (successors find) m a → IsAxiomIn find a →
+      ∃ m' ∈ successorsOf held, Reach (successors checked.find?) m' a) ∧
+    ∀ m' ∈ successorsOf held, ∀ a, Reach (successors checked.find?) m' a →
+      IsAxiomIn checked.find? a → ∃ m ∈ successorsOf info, Reach (successors find) m a
 
 /-- A successful `checkProof` gives `ProofOK`. -/
 theorem checkProof_ok {checked : Kernel.Environment} {find : Name → Option ConstantInfo}
@@ -2113,6 +1903,101 @@ theorem checked_admitReplay : Regula.ExecutableContract admitReplay
        ⟨{ request := { modules := #[], replay := #[], reported := #[] }, read := rfl, reused := #[]
           checked, kept := fun _ => none, fuel := 0, shared := fun _ => false }, rfl⟩ }⟩
 
+/-! ## The axioms of each owned declaration
+
+The foundation rules decide on the axioms each owned declaration reaches in the replayed kernel
+(`KernelAxioms.axiomTable` over `walkFind`), never on the axiom table `exportedAxiomsExt` that each
+module writes when it is compiled and that Lean's `collectAxioms` reads first for a name an
+imported module exported. Every step `collectAxioms` takes from a constant is a step of
+`KernelAxioms.successors`, so on the constants a module was compiled from, every axiom its table
+records for a declaration is reached in the replayed kernel too. A table that records an axiom the
+replayed development does not reach therefore was not computed from the constants the kernel
+checked, and admission refuses it (`checkTable`). A table may omit axioms that the replayed
+development reaches: Lean's own computation of the table can stop early on an inductive type and
+its constructors. The rules then decide on the replayed axioms, and the audit reports each axiom
+the table omits for an owned declaration. -/
+
+/-- The constants the search of each owned declaration's axioms reads: the replayed kernel's, and
+under each name that `Kernel.Environment.replay` does not check, the `unsafe` or `partial` constant
+that `replayed` maps it to, the one the audited environment keeps. A constant the replayed kernel
+holds refers only to constants it holds, so the search from one of them reads the replayed kernel
+alone. -/
+def walkFind (checked : Kernel.Environment) (replayed : Std.HashMap Name ConstantInfo) (n : Name) :
+    Option ConstantInfo :=
+  match checked.find? n with
+  | some info => some info
+  | none => replayed[n]?.filter fun info => info.isUnsafe || info.isPartial
+
+/-- The axioms that Lean's `collectAxioms` reports for `name` in `env`: for a name that an
+imported module exported, those the module recorded when it was compiled. -/
+def leanAxioms (env : Environment) (name : Name) : Array Name :=
+  letI : MonadEnv (StateM Environment) := ⟨get, modify⟩
+  (collectAxioms name : StateM Environment (Array Name)).run' env
+
+/-- A declaration for which Lean's `collectAxioms` reports an axiom that its replayed development
+does not reach: the declaration, the axioms `collectAxioms` reports and those it reaches in the
+replayed kernel. -/
+structure TableExcess where
+  /-- The declaration. -/
+  name : Name
+  /-- The axioms Lean's `collectAxioms` reports for it (`leanAxioms`). -/
+  lean : Array Name
+  /-- The axioms it reaches in the replayed kernel (`KernelAxioms.ReachesAxiom`). -/
+  replayed : Array Name
+
+/-- The text of a `TableExcess`. -/
+def TableExcess.describe (excess : TableExcess) : String :=
+  s!"the axioms Lean's collectAxioms reports for {excess.name}, {excess.lean.toList}, include \
+    one that its development in the replayed kernel does not reach; there it reaches \
+    {excess.replayed.toList}"
+
+/-- Every axiom Lean's `collectAxioms` reports for each declaration of `entries` (the second
+component) is one the declaration reaches in the replayed kernel (the third). -/
+def TableWithin (entries : Array (Name × Array Name × Array Name)) : Prop :=
+  ∀ entry ∈ entries, ∀ a ∈ entry.2.1, a ∈ entry.2.2
+
+/-- Refuse the first declaration for which Lean's `collectAxioms` reports an axiom outside those it
+reaches in the replayed kernel. -/
+@[regula_decision]
+def checkTable (entries : Array (Name × Array Name × Array Name)) : Except TableExcess Unit :=
+  forM entries fun (name, lean, replayed) =>
+    if lean.all replayed.contains then pure () else throw ⟨name, lean, replayed⟩
+
+/-- **`checkTable` accepts exactly the entries `TableWithin` admits.** -/
+theorem checkTable_eq_ok_iff (entries : Array (Name × Array Name × Array Name)) :
+    checkTable entries = .ok () ↔ TableWithin entries := by
+  unfold checkTable TableWithin
+  rw [RegulaPolicy.Guards.forM_eq_ok]
+  refine forall₂_congr fun entry _ => ?_
+  obtain ⟨name, lean, replayed⟩ := entry
+  by_cases h : lean.all replayed.contains = true
+  · simp only [h, ↓reduceIte]
+    refine iff_of_true rfl fun a ha => ?_
+    exact Array.contains_iff_mem.mp ((Array.all_eq_true'.mp h) a ha)
+  · simp only [h, Bool.false_eq_true, ↓reduceIte]
+    refine iff_of_false (fun hthrow => nomatch hthrow) fun within => ?_
+    exact h (Array.all_eq_true'.mpr fun a ha => Array.contains_iff_mem.mpr (within a ha))
+
+/-- `checkTable` is a sound and complete decision of `TableWithin` (`checkTable_eq_ok_iff`). It
+accepts no entries, and it refuses a declaration with an axiom it does not reach. -/
+theorem checked_checkTable : Regula.ExecutableContract checkTable
+    (Regula.Decides (· = .ok ()) TableWithin) :=
+  ⟨Regula.Decides.of_iff checkTable_eq_ok_iff ⟨#[], rfl⟩
+    ⟨#[(`d, #[`a], #[])], fun accepted => by
+      have := (checkTable_eq_ok_iff _).mp accepted (`d, #[`a], #[]) (by simp) `a (by simp)
+      simp at this⟩⟩
+
+/-- A completed kernel admission: its receipt, and what it computed in the replayed kernel, as the
+audited environment names it (`Collect.Replayed`): the axioms each name of the owned declarations'
+closure reaches there (`KernelAxioms.ReachesAxiom` over `walkFind`), which the foundation rules
+decide on, and the axioms Lean's `collectAxioms` omits for an owned declaration, which the audit
+reports. -/
+structure Admitted where
+  /-- The receipt of the admission. -/
+  receipt : ProducerReport.AdmissionReceipt
+  /-- The axioms of the closure and the omissions of the owned declarations. -/
+  replayed : Regula.Collect.Replayed
+
 /-- Replay the completed owned logical declarations against trusted imports, except those of
 the `reused` modules, which stay in the replay base with the trusted imports (`replaySet`). This
 is the observing pass of admission: `checkHeader` decides on the module data of the header, the
@@ -2127,11 +2012,15 @@ reused module among `requested` is one whose declarations this environment repor
 requires the key of each of its constants that is neither `unsafe` nor `partial`, read from the
 module's own data as for a replayed module (`mem_required`), and the coordinator accepts those
 keys only when the earlier environment that replayed the module admitted them
-(`reuseJustified`). The original environment is retained for compiler metadata only after replay
-succeeds. This is not a fresh replay of the imported dependency graph. -/
+(`reuseJustified`). With the receipt, `validate` returns the axioms that each name of the closure of
+the `ownedModules`' declarations (`Probe.ownedConstants`) reaches in the replayed kernel
+(`KernelAxioms.axiomTable` over `walkFind`, `KernelAxioms.axiomTable_some`), after `checkTable`
+admitted those of the owned declarations against the axioms Lean's `collectAxioms` reports, and,
+for each owned declaration, the axioms `collectAxioms` omits. The original environment is retained
+for compiler metadata only after replay succeeds. This is not a fresh replay of the imported dependency graph. -/
 unsafe def validate (env : Environment) (ownedModules : Array Name) (reused : Array Name := #[])
     (requested : Array Name := #[]) :
-    IO (Except ProducerReport.AdmissionFailure ProducerReport.AdmissionReceipt) := do
+    IO (Except ProducerReport.AdmissionFailure Admitted) := do
   -- The force-loaded reporter now depends on the positive policy library.
   -- Replay these exact checker implementation modules too; importing them into
   -- the base would reintroduce unchecked owned policy declarations. They do not
@@ -2152,11 +2041,38 @@ unsafe def validate (env : Environment) (ownedModules : Array Name) (reused : Ar
     try
       let find := base.toKernelEnv.find?
       let shared (copy : Copy) : Bool := (find copy.name).isSome || 2 ≤ counts.getD copy.name 0
-      let checked ← Lean.Kernel.Environment.replay (replayMap find env.find? request.copies)
-        base.toKernelEnv
+      let replayed := replayMap find env.find? request.copies
+      let checked ← Lean.Kernel.Environment.replay replayed base.toKernelEnv
       match checked_admitReplay.run
           { request, read, reused, checked, kept := env.find?, fuel, shared } with
-      | .ok receipt => return .ok receipt
+      | .ok receipt =>
+        let roots := (Regula.Probe.ownedConstants env ownedModules.toList).map (·.1)
+        let walk := walkFind checked replayed
+        let some table := axiomTable walk (fuel + roots.size) roots
+          | throw <| IO.userError "the search of the axioms that the owned declarations reach \
+              in the replayed kernel ran out of fuel"
+        -- The names the search found belong to the replay base's regions, which are released
+        -- below, so each name is kept as the audited environment names it.
+        let own (n : Name) : IO Name := match env.find? n with
+          | some info => pure info.name
+          | none => throw <| IO.userError s!"the constant {n} of the replayed kernel is not in \
+              the audited environment"
+        let mut axioms : Std.HashMap Name (Array Name) := {}
+        for (n, reached) in table.toList do
+          axioms := axioms.insert (← own n) (← reached.mapM own)
+        let mut entries : Array (Name × Array Name × Array Name) := #[]
+        let mut omissions : Std.HashMap Name (Array Name) := {}
+        for root in roots do
+          let some reached := axioms[root]?
+            | throw <| IO.userError s!"no axioms were searched for {root} in the replayed kernel"
+          let lean := leanAxioms env root
+          entries := entries.push (root, lean, reached)
+          let omitted := reached.filter fun a => !lean.contains a
+          unless omitted.isEmpty do
+            omissions := omissions.insert root omitted
+        match checked_checkTable.run entries with
+        | .ok () => return .ok { receipt, replayed := { axioms, omissions } }
+        | .error excess => throw <| IO.userError excess.describe
       | .error (.copy failure) => throw <| IO.userError (← failure.describe)
       | .error (.missing name) => throw <| IO.userError s!"missing replayed declaration {name}"
     catch error =>

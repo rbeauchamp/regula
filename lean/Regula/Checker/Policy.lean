@@ -189,14 +189,17 @@ private def classifyWith (decl : Declaration) (foundation : String) : String :=
           s!" shared-others={repr (contract.shared.others.toList.map (·.toString))}"
         else "")) |>.getD ""
   let decisionText := (decl.decisionResult.map (s!" decision-result={·.spelling}")).getD ""
+  let omissionText := if decl.tableOmissions.isEmpty then "" else
+    s!" table-omissions: {RegulaPolicy.tableOmissionText decl.axioms decl.tableOmissions}"
   s!"{decl.name} ({decl.kind}){flagText}{roleText} type={decl.prettyType} " ++
     s!"axioms={repr (decl.axioms.toList.map (·.toString))} -> {foundation}{contractText}" ++
-    decisionText
+    decisionText ++ omissionText
 
 /-- One-line text of a declaration for `--verbose` output: its name, kind, flags, roles,
 type, axioms and foundation label, or `invalid-inventory` when the scope has no label for it,
-then its executable-contract record and, for a declaration registered with `@[regula_decision]`,
-whether its result type is `Decidable _` (`decision-result=`). -/
+then its executable-contract record, for a declaration registered with `@[regula_decision]`,
+whether its result type is `Decidable _` (`decision-result=`), and the axioms Lean's
+`collectAxioms` omits for it (`table-omissions:`, `RegulaPolicy.tableOmissionText`). -/
 def classify (decl : Declaration) (scope : PolicyScope) : String :=
   classifyWith decl ((labelOf decl scope).toOption.map (·.spelling) |>.getD "invalid-inventory")
 

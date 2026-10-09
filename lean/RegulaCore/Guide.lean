@@ -151,9 +151,13 @@ def guide : RuleId → Guide
         tactic proof, or an imported declaration with such a hole occurs in its transitive axiom \
         set. The proposition is not proved."
       trigger := [
-        "The checker computes the exact transitive axiom set of every owned declaration with \
-          Lean's `collectAxioms`. If `sorryAx` belongs to it, the declaration is rejected with \
-          applicability `hole`.",
+        "The checker computes the exact transitive axiom set of every owned declaration in the \
+          kernel that replayed it (RG2005): the axioms reached through the types and values of the \
+          constants it uses and the constructors of each inductive type, imported constants \
+          included. It does not read the table of axioms that \
+          Lean records for each module when the module is compiled, which `collectAxioms` and \
+          `#print axioms` read for an imported declaration. If `sorryAx` belongs to the set, the \
+          declaration is rejected with applicability `hole`.",
         "Theorems, proof-valued definitions and instances, and data definitions are all inspected; \
           alternate syntax (`admit`, a tactic `sorry`) is caught because the kernel term contains \
           `sorryAx`.",
@@ -184,7 +188,9 @@ def guide : RuleId → Guide
       limitations := [
         "In the editor the rule is reported for completed declarations of the current snapshot. A \
           cancelled collection reports nothing for that declaration; a failed one is reported as \
-          RG2005 (incomplete), never as an invented RG1002.",
+          RG2005 (incomplete), never as an invented RG1002. The editor has no replayed kernel: it \
+          reads the axioms Lean's `collectAxioms` reports, which for an imported declaration come \
+          from its module's table and can be fewer than the project audit computes.",
         "The checked example comes from a diagnostic single-file inspection that keeps Lean's \
           `sorry` warning as related evidence and continues to policy inspection; the ordinary \
           project commands stop earlier with RG2003, as described above."]
@@ -193,7 +199,7 @@ def guide : RuleId → Guide
       linkage := declarationLinkage
       sources :=
           ["lean/RegulaCore/Policy.lean", "lean/RegulaPolicy/Decision.lean",
-              "lean/Regula/Findings.lean"] }
+              "lean/Regula/Findings.lean", "lean/RegulaPolicy/KernelAxioms.lean"] }
   | .unknownAxiom => {
       problem := "A declaration's exact transitive axiom set contains an axiom outside Lean's \
         standard logical foundation (`propext`, `Quot.sound`, `Classical.choice`) that is neither \
@@ -329,6 +335,11 @@ def guide : RuleId → Guide
         "Each declaration receives the least label containing its exact axiom set. If that label \
           exceeds the surface maximum, the declaration is rejected with applicability \
           `label-exceeds-claim`.",
+        "The exact axiom set is computed in the kernel that replayed the declaration (RG2005), \
+          as for RG1002: the axioms reached through the types and values of the constants it \
+          uses and the constructors of each inductive type. It is not the table of axioms that \
+          each module records when compiled, which `#print axioms` reads for an imported \
+          declaration.",
         foundationTable]
       rationaleDetail := []
       proofShape := [
@@ -346,12 +357,18 @@ def guide : RuleId → Guide
           `regula.localFoundation` selects local feedback only."]
       limitations := [
         "The label is computed from the exact transitive set; a proof that merely could avoid an \
-          axiom still carries it until rewritten."]
+          axiom still carries it until rewritten.",
+        "The table Lean records for a module can omit axioms that a declaration reaches: the \
+          pinned Lean 4.34.1 records no axiom for `Float`, whose constructor's type reaches \
+          `propext` and `Quot.sound`. `#print axioms` can then show a smaller set, and a lower \
+          label, than the checker, and the audit reports the omission (RG2005). The editor, which \
+          has no replayed kernel, reads that table."]
       residuals := [.qualify]
       checklist := ["FOUND-03", "FOUND-04", "BUILD-02", "THEOREM-01", "THEOREM-10", "BUILD-01"]
       linkage := declarationLinkage
       sources :=
           ["lean/RegulaPolicy/Foundation.lean", "lean/RegulaCore/Policy.lean",
+              "lean/RegulaPolicy/KernelAxioms.lean",
               "website/RegulaStandard/MathematicalFoundations.lean"] }
   | .escapeHatch => {
       problem := "An owned declaration is marked `unsafe` or `partial` and satisfies neither \
@@ -757,10 +774,15 @@ def guide : RuleId → Guide
           ["BUILD-03", "THEOREM-07", "SCOPE-02", "SCOPE-03", "TYPE-01", "THEOREM-01",
               "THEOREM-03", "COMP-01", "BUILD-01", "BUILD-02"]
       linkage := declarationLinkage ++ " Extracting the contract observation (`Regula.Collect`), \
-        including the reduction that reads a decision kind, the reading of the decided function \
-        and of its universe levels, and the search for a mention of the implementation, is \
-        operational. Two decisions in it are proved: a head constant is read as a kind exactly \
-        when it is that kind's structure \
+        including the reduction that reads a decision kind and the reading of the decided \
+        function and of its universe levels, is operational. Three decisions in it are proved. \
+        The search that guards each reduction, and the search for a mention of the \
+        implementation, return a route exactly when a constant of the term leads to a target \
+        through the records of the observing pass, and a returned route follows those records \
+        (`RegulaPolicy.MentionSearch.checked_search`, `search_sound`). What a record lists is \
+        read from the environment, and that a constant with no record leads to no target is \
+        argued and is not machine-checked. A head constant is read as a kind \
+        exactly when it is that kind's structure \
         (`RegulaPolicy.DecisionKind.ofStructureName?_eq_some_iff`), and a decided function of a \
         form that is read is accepted exactly when its field application, if it has one, is on \
         a type with one constructor and no index with the arguments its fields in order, and \
@@ -780,7 +802,8 @@ def guide : RuleId → Guide
         The search that finds the shared definitions, and the reading of each, are operational."
       sources :=
           ["lean/Regula/Contract.lean", "lean/Regula/Collect.lean", "lean/Regula/Probe.lean",
-              "lean/RegulaPolicy/Domain.lean", "lean/RegulaCore/Policy.lean"] }
+              "lean/RegulaPolicy/Domain.lean", "lean/RegulaPolicy/MentionSearch.lean",
+              "lean/RegulaCore/Policy.lean"] }
   | .decisionContract => {
       problem := "A function registered as a decision with `@[regula_decision]` has no decision \
         contract in its inventory, and its result type is not `Decidable _`. Nothing then states \
@@ -1190,6 +1213,20 @@ def guide : RuleId → Guide
           declaration that fails replay, source or `.olean` bytes that changed after they were \
           frozen, or a required authentication that failed is reported here with impact \
           `incomplete`.",
+        "The axioms of each owned declaration that the foundation rules (RG1001 to RG1005) read \
+          are computed in the replayed kernel: those reached through the types and values of the \
+          constants it uses and the constructors of each inductive type. Lean records a table of \
+          axioms for each module when it is compiled, and `collectAxioms` reads it for an \
+          imported declaration. Each step of `collectAxioms` is a step of that computation, so a \
+          table computed from the replayed constants records no axiom the declaration does not \
+          reach. Admission therefore reports here, with impact `incomplete`, a declaration for \
+          which `collectAxioms` reports such an axiom, and names the declaration and the two \
+          axiom sets. A table that omits an axiom is reported, not failed: it is no finding, \
+          since Lean's own computation of a table can omit axioms reached through an inductive \
+          type's constructors (RG1005), and the rules decide on the replayed axioms. A project \
+          audit counts such declarations in its summary (`axiom tables:`), and its `--verbose` \
+          line of each, the JSON report and the self-audit give the two sets and the omitted \
+          axioms.",
         "In the editor, this rule marks results that need fresh evidence only the project command \
           collects, and those messages name `lake lint`. The editor also reports it, as \
           incomplete, when its own analysis of a declaration fails or the module has elaboration \
@@ -1221,9 +1258,20 @@ def guide : RuleId → Guide
           replayed or trusted one, or passed the kernel's check under a fresh name with a \
           proof that does not reach its own name and reaches the same axioms), and the frozen \
           sources were unchanged during the audit. A failed admission or changed source is \
-          incomplete and never accepted."]
+          incomplete and never accepted.",
+        "The axioms the foundation rules read for each owned declaration are exactly those it \
+          reaches in the replayed kernel, and no axiom that `collectAxioms` reports for it is \
+          outside them; each axiom it omits is reported. An `unsafe` or `partial` declaration, \
+          which replay does not check, is read as the audited environment keeps it.",
+        "Proved about the executed definitions: the axioms computed for a declaration are \
+          exactly those it reaches among the constants the search reads \
+          (`KernelAxioms.axiomTable_some`, `KernelAxioms.ReachesAxiom`), and the account's count \
+          of omissions is exactly the inventory's declarations that record one \
+          (`Account.checked_account`)."]
       notEstablished := [
-        "Imported, unowned dependencies are not replayed; they remain the declared trusted base.",
+        "Imported, unowned dependencies are not replayed; they remain the declared trusted base. \
+          The axioms a declaration reaches through them are read from their constants as \
+          imported.",
         "Incremental admission does not establish fresh source elaboration."]
       configuration := [
         "No option waives admission. A failed generated-role authentication cannot waive RG1001 or \
@@ -1237,9 +1285,10 @@ def guide : RuleId → Guide
           ["DECL-01", "DECL-02", "FOUND-05", "SCOPE-02", "TYPE-01", "THEOREM-01", "THEOREM-03",
               "THEOREM-07", "DECL-03", "DECL-04", "COMP-02", "COMP-04", "BUILD-01", "BUILD-04"]
       linkage := "Acceptance side only: an accepted run satisfies `RegulaPolicy.AdmissionOK`. \
-        Admission runs two registered decisions: `Admission.checkHeader` \
-        (`checked_checkHeader`, two-way) and `Admission.admitReplay` (`admitReplay_eq_ok`, \
-        `checked_admitReplay`, one-way), and `mem_required` states the required keys. These \
+        Admission runs three registered decisions: `Admission.checkHeader` \
+        (`checked_checkHeader`, two-way), `Admission.admitReplay` (`admitReplay_eq_ok`, \
+        `checked_admitReplay`, one-way) and `Admission.checkTable` (`checked_checkTable`, \
+        two-way), and `mem_required` states the required keys. These \
         theorems are about the request that the decisions take. The module data, the replay \
         set, the reported and reused modules, the lookup `kept`, the import of the replay base, \
         `shared` and the replayed kernel are observed or trusted, as the section \"Receipt \
@@ -1255,8 +1304,8 @@ def guide : RuleId → Guide
         (`sharedReading` in `Regula.Collect`): that record names no shared function with a \
         result of `Bool` or `BEq`, so the editor decision reports no RG1009 finding for it."
       sources :=
-          ["lean/Regula/Checker/Admission.lean", "lean/Regula/Checker/SourceAudit.lean",
-              "lean/Regula/Checker/SourceBinding.lean"] }
+          ["lean/Regula/Checker/Admission.lean", "lean/RegulaPolicy/KernelAxioms.lean",
+              "lean/Regula/Checker/SourceAudit.lean", "lean/Regula/Checker/SourceBinding.lean"] }
   | .communityConfiguration => {
       problem := "A claimed library or executable is built with automatic implicits on or \
         without Lean's `linter.missingDocs`, turns off a linter for all its modules beyond the \

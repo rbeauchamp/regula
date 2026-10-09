@@ -381,7 +381,7 @@ tag := "45-foundation-strength-kernel-only-choice-free-standard-logical"
 number := false
 %%%
 
-Every Lean declaration has an exact transitive axiom set. `#print axioms` reports this set by following its logical dependencies, including those from Mathlib. This standard fixes exactly three logical foundation labels plus one non-logical classification:
+Every Lean declaration has an exact transitive axiom set: the axioms reached through the types and values of the constants it uses, including those from Mathlib. `#print axioms` follows these dependencies, but for an imported declaration it reads the axiom table that the declaration's module recorded when it was compiled, and on the pinned toolchain such a table can omit axioms reached through the constructors of an inductive type. A gate therefore computes the set from the kernel-checked declarations (§7.4). This standard fixes exactly three logical foundation labels plus one non-logical classification:
 
 :::table +header
 *
