@@ -329,10 +329,11 @@ metadata, not authenticated binary identity.
   collector's real output this way and validates the document it gets, without the writer's to
   compare it with. That the proposal is kept, and so that the file is small, is not a theorem:
   it holds when the collector's accounts have the form the reader derives, which
-  `Probe.executionWalk` is written to produce (it queues names in the order of
-  `canonicalNames`), and when a rebuilt account is the same tree as the logical one, for which
-  the account codecs and the reader list each object's members in key order, as the JSON parser
-  inserts them. The `history` qualification and `RegistryChecks` observe both. A kept proposal
+  `Probe.executionWalk` is written to produce (the names that it queues after a record,
+  `ExecutionWalk.NodeRecord.successors`, are the channels of the reader in its order, each in the
+  order of `canonicalNames`), and when a rebuilt account is the same tree as the logical one, for
+  which the account codecs and the reader list each object's members in key order, as the JSON
+  parser inserts them. The `history` qualification and `RegistryChecks` observe both. A kept proposal
   whose every root entry is derived holds each reached name, edge and boundary record once per
   environment and a constant-size entry per root, where the logical member repeats them for
   every root that reaches them.

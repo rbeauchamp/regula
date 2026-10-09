@@ -1384,13 +1384,16 @@ def guide : RuleId → Guide
       linkage := "`RegulaPolicy.executionFailureRecords_empty_iff`, \
         `RegulaPolicy.executionFindings_empty_iff`, `RegulaPolicy.unresolved_reported`, \
         `Regula.Checker.Policy.checked_executionFailures` and `executionRule_injective`. \
-        `RegulaPolicy.DefeqComparison.ofAttempt_incomplete_iff` and `ofAttempt_error`: a \
-        comparison is incomplete, and so unresolved, exactly when the kernel stopped before it \
-        decided or the attempt raised an error. Extracting the execution closure from compiler IR, \
-        the census of roots and the kernel's answer are operational."
+        `RegulaPolicy.ExecutionWalk.checked_walk` decides the walk over the records of the probe: \
+        `walk_sound` and `walk_complete`. `RegulaPolicy.DefeqComparison.ofAttempt_incomplete_iff` \
+        and `ofAttempt_error`: a comparison is incomplete, and so unresolved, exactly when the \
+        kernel stopped before it decided or the attempt raised an error. Root discovery, the \
+        kernel's answer and reading each record from the environment and compiler IR are \
+        operational, and no theorem states that `RegulaPolicy.ExecutionWalk.assemble` builds the \
+        correct account from the visits."
       sources :=
-          ["lean/Regula/Probe.lean", "lean/RegulaCore/Policy.lean",
-              "lean/Regula/Checker/RuleDiagnostics.lean"] }
+          ["lean/Regula/Probe.lean", "lean/RegulaPolicy/ExecutionWalk.lean",
+              "lean/RegulaCore/Policy.lean", "lean/Regula/Checker/RuleDiagnostics.lean"] }
   | .executionBoundary => {
       problem := "On a surface claiming `\"execution\": \"checked\"`, a reachable boundary the \
         project or a dependency owns lacks kernel-checked correspondence: for example an \
@@ -1476,12 +1479,13 @@ def guide : RuleId → Guide
         `RegulaPolicy.DefeqComparison.ofAttempt_checked_iff` and `ofAttempt_negative_iff`: a \
         definitional comparison is checked exactly when the kernel admitted the proof with \
         Standard-Logical axioms, and trusted exactly when it refused the proof or admitted it \
-        with a different axiom. \
-        Extracting the execution closure from compiler IR and observing module origins are \
-        operational."
+        with a different axiom. `RegulaPolicy.ExecutionWalk.checked_walk` decides the walk over \
+        the records of the probe. Root discovery, the kernel's answer, reading each record from \
+        compiler IR and observing module origins are operational, and no theorem states that \
+        `RegulaPolicy.ExecutionWalk.assemble` builds the correct account from the visits."
       sources :=
-          ["lean/Regula/Probe.lean", "lean/RegulaCore/Policy.lean",
-              "website/RegulaStandard/ToolingAndMachineAudit.lean"] }
+          ["lean/Regula/Probe.lean", "lean/RegulaPolicy/ExecutionWalk.lean",
+              "lean/RegulaCore/Policy.lean", "website/RegulaStandard/ToolingAndMachineAudit.lean"] }
   | .fenceStructure => {
       problem := "A Markdown file in the checked documentation tree has a malformed Lean fence \
         classification: an orphan, misplaced, duplicated or misspelled marker, an invalid \
