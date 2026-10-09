@@ -1377,7 +1377,8 @@ def guide : RuleId → Guide
         `Regula.Checker.Policy.checked_executionFailures` and `executionRule_injective`. \
         `RegulaPolicy.ExecutionWalk.checked_walk` decides the walk over the records of the probe: \
         `walk_sound` and `walk_complete`. Root discovery and reading each record from the \
-        environment and compiler IR are operational."
+        environment and compiler IR are operational, and no theorem states that \
+        `RegulaPolicy.ExecutionWalk.assemble` builds the correct account from the visits."
       sources :=
           ["lean/Regula/Probe.lean", "lean/RegulaPolicy/ExecutionWalk.lean",
               "lean/RegulaCore/Policy.lean", "lean/Regula/Checker/RuleDiagnostics.lean"] }
@@ -1464,7 +1465,8 @@ def guide : RuleId → Guide
         `RegulaPolicy.checked_toolchainBase`; an accepted run satisfies `RegulaPolicy.BoundaryOK`. \
         `RegulaPolicy.ExecutionWalk.checked_walk` decides the walk over the records of the probe. Root \
         discovery, reading each record from compiler IR and observing module origins are \
-        operational."
+        operational, and no theorem states that `RegulaPolicy.ExecutionWalk.assemble` builds the \
+        correct account from the visits."
       sources :=
           ["lean/Regula/Probe.lean", "lean/RegulaPolicy/ExecutionWalk.lean",
               "lean/RegulaCore/Policy.lean", "website/RegulaStandard/ToolingAndMachineAudit.lean"] }
