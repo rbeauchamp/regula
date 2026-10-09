@@ -1468,6 +1468,16 @@ copy operation as the public gate, rather than a second fixed source list. -/
 private def prepareScratchRepo (repo scratch : FilePath) : IO Unit :=
   copyProject repo scratch scratch
 
+/-- Flush phase boundaries so CI timestamps and elapsed times identify the
+actual work, even when stdout is redirected. Timings are observations only. -/
+private def timedPhase {α : Type} (label : String) (action : IO α) : IO α := do
+  IO.println s!"phase {label}: start"
+  (← IO.getStdout).flush
+  let started ← IO.monoNanosNow
+  try action finally
+    IO.println s!"phase {label}: {((← IO.monoNanosNow) - started) / 1000000}ms"
+    (← IO.getStdout).flush
+
 private def withNewFile {α : Type} (path : FilePath) (text : String) (action : IO α) : IO α := do
   if ← path.pathExists then
     throw <| IO.userError s!"refusing to overwrite structural fixture {path}"
@@ -1646,6 +1656,30 @@ private def prepareSelfHosted (repo copy : FilePath) : IO Unit := do
   prepareScratchRepo repo copy
   IO.FS.writeFile (copy / "foundation_manifest.json") ((← selfHostedManifestText repo) ++ "\n")
 
+/-- Copy the module artifacts of the repository's build, the directories Lake gives its root
+package for `.olean` and `.ilean` files (`leanLibDir`) and for compiler output (`irDir`) with
+their traces, to the same places below `copy`, byte for byte. The copy's Lake configuration is
+the repository's, so these are the places Lake reads there. Lake rebuilds a module whose saved
+trace does not match the hash of its inputs, which are content hashes and options, not paths, so
+a module of the copy that the repository's build made from the same sources is reused there and
+any other is built: the copied files decide only what is rebuilt, not what a build gives. This is
+a reading of Lake's module build, not a theorem. -/
+private def seedModuleArtifacts (repo copy : FilePath) : IO Unit := do
+  let root := (← IO.FS.realPath repo).normalize.components
+  let places ← Workspace.withRootWorkspace repo (resolveDependencies := false) fun ws =>
+    pure #[ws.root.leanLibDir, ws.root.irDir]
+  for place in places do
+    let components := place.normalize.components
+    unless root.isPrefixOf components do
+      throw <| IO.userError s!"self-test: the build directory {place} is not below {repo}"
+    unless ← place.isDir do continue
+    for path in ← place.walkDir do
+      if ← path.isDir then continue
+      let relative := path.normalize.components.drop root.length
+      let destination := relative.foldl (· / FilePath.mk ·) copy
+      if let some parent := destination.parent then IO.FS.createDirAll parent
+      IO.FS.writeBinFile destination (← IO.FS.readBinFile path)
+
 /-- What a fresh gate reads of `project`: the entries its own copy operation (`copyProject`)
 copies into `snapshot`, each by its path below the project, a file with its bytes, in path
 order. The copy operation's own `.lake` there (the link to the shared packages, the path
@@ -1685,6 +1719,23 @@ each restored before the next, and then an accepting fresh gate on the restored 
 checks the restored copy's fresh input (`freshInput`) path by path and byte by byte against
 that of a copy prepared anew (`prepareSelfHosted`), and any difference fails this cluster.
 
+The copy's build directory starts with the module artifacts of the repository's build
+(`seedModuleArtifacts`), so the setup build and the contamination gates build only what that
+build did not make, such as `AuditApp` and the contaminated root, instead of `RegulaPolicy` and
+the probe modules from empty output. A contamination gate's verdict comes from its
+claimed-source build, the manifest, the Lake inventory and the module graph: the name, `.olean`
+place and recorded imports of each loaded module. The graph worker finds every `Regula` module,
+the probe modules among them, in the running checker's own library ahead of the copy's output
+(`withProbeSearch`), so it reads none of the copy's files for them, seeded or built.
+
+Lake reuses a seeded `RegulaPolicy` or `AuditApp` artifact only when its saved trace matches
+the hash of that module's inputs in the copy, the bytes of its source among them. So a reused
+`.olean` records the imports of the copy's own source and lies where the copy's build puts it,
+and the contaminated root is built from its contaminated source whatever the seed holds. Each
+gate therefore sees the graph it sees without the seed. That is a reading of Lake's
+module build and of `withProbeSearch`, not a theorem. The fresh gates read none of the seed:
+`copyProject` prunes `.lake`, so the restored gate still builds its copy from empty output.
+
 No fresh gate precedes the mutations here. The cluster is a serial chain, and a fresh gate on
 a self-hosted copy builds and inspects `RegulaPolicy` from empty output, the chain's longest
 step, so the chain holds only the fresh gate that has to follow the restorations. The accepting
@@ -1702,7 +1753,7 @@ private unsafe def structuralSelfHosted (layout : SourceLayout) (repo copy : Fil
     (Array String) := do
   let failures ← IO.mkRef (#[] : Array String)
   let gate (label : String) (args : Array String := #["--incremental"]) := do
-    Regula.Checker.timedPhase s!"structural/self-hosted/{label}" do
+    timedPhase s!"structural/self-hosted/{label}" do
       if ← timing.get then
         runProcessShowing copy (← toolPath repo "axiomGate").toString
           args #[(timingVariable, some "1")] (·.startsWith "verification phase ")
@@ -2415,16 +2466,6 @@ private unsafe def structuralCorrespondence (layout : SourceLayout) (repo copy :
               (·.push s!"correspondence/restored: fresh control failed:\n{restored.output}")
   failures.get
 
-/-- Flush phase boundaries so CI timestamps and elapsed times identify the
-actual work, even when stdout is redirected. Timings are observations only. -/
-private def timedPhase {α : Type} (label : String) (action : IO α) : IO α := do
-  IO.println s!"phase {label}: start"
-  (← IO.getStdout).flush
-  let started ← IO.monoNanosNow
-  try action finally
-    IO.println s!"phase {label}: {((← IO.monoNanosNow) - started) / 1000000}ms"
-    (← IO.getStdout).flush
-
 /-- One cluster of controls: its own isolated project below `scratch`, prepared by `prepare`
 and built, then the controls of `part` in it. A baseline that does not build is the cluster's
 failure. -/
@@ -2469,7 +2510,8 @@ clusters in the structural project are the second's, so none of them takes proce
 self-hosted chain, the first shard's longest item. The longest observed clusters are first. -/
 private unsafe def structuralClusters (layout : SourceLayout) (repo scratch : FilePath) :
     List (Shard × String × IO (Array String)) :=
-  [(.first, cluster repo scratch "self-hosted" (prepareSelfHosted repo)
+  [(.first, cluster repo scratch "self-hosted"
+      (fun copy => do prepareSelfHosted repo copy; seedModuleArtifacts repo copy)
       (applicationTargets layout) (structuralSelfHosted layout)),
     (.first, "self-hosted-positive",
       structuralSelfHostedPositive repo (scratch / "copy-self-hosted-positive")),

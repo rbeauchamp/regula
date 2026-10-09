@@ -3618,6 +3618,18 @@ fresh gate reads the audited project only through `copyProject`, which prunes th
 other file of the project, and the packages directory it links is the repository's for every
 copy.
 
+The copy of the first cluster starts with the module artifacts of the build of the repository
+(`seedModuleArtifacts`). Thus its contamination gates do not build `RegulaPolicy` and the probe
+modules again from empty output. The verdict of each such gate comes from the module graph. The
+graph worker reads each `Regula` module from the library of the running checker, before the
+output of the copy. Thus the files of the copy for the probe modules have no effect on the graph.
+
+Lake uses a seeded `RegulaPolicy` or `AuditApp` artifact only if its saved trace agrees with the
+hash of the inputs of its module. The bytes of the source are one of these inputs. Thus Lake
+always builds the contaminated root from its contaminated source. This statement is a reading of
+the module build of Lake, not a theorem. The fresh gates do not read the seed, because
+`copyProject` does not copy `.lake`.
+
 A fresh gate on a self-hosted copy builds and inspects `RegulaPolicy` from empty output, and
 the first cluster is a serial chain, the first shard's longest item, so each fresh gate in it
 adds its whole duration to that shard. With an accepting fresh gate before the mutations and
