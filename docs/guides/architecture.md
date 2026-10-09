@@ -13,7 +13,7 @@ imports no Mathlib. Its libraries (`lakefile.lean`, `foundation_manifest.json`):
 
 | Library | Role | Claim |
 | --- | --- | --- |
-| `RegulaPolicy` | Pure policy: domain types, the one supported compiler identity (`Compiler`), admission, declaration/execution decisions, the acceptance plan and its theorems. Imports only Init, Std, `Lean.PrivateName` (for generated native-axiom names), `Lean.Expr` (the terms the recursion-helper comparison `Erasure.reproduces` and the native-axiom statement decision `NativeStatement.recognize?` decide over; its closure holds no `Lean.Environment`), the import-free `Regula.Contract` and, to register its decisions, `Regula.Decision` ([below](#the-decision-registration-import)). | Claimed, Standard-Logical |
+| `RegulaPolicy` | Pure policy: domain types, the one supported compiler identity (`Compiler`), admission, declaration/execution decisions, the acceptance plan and its theorems. Imports only Init, Std, `Lean.PrivateName` (for generated native-axiom names), `Lean.Expr` (the terms the recursion-helper comparison `Erasure.reproduces` and the native-axiom statement decision `NativeStatement.recognize?` decide over; its closure holds no `Lean.Environment`), `Lean.Util.FoldConsts` and `Lean.Environment` (for the kernel axiom search `KernelAxioms`), the import-free `Regula.Contract` and, to register its decisions, `Regula.Decision` ([below](#the-decision-registration-import)). | Claimed, Standard-Logical |
 | `RegulaCore` | The rule registry (`RuleId`, `Rule`, `Guide`), the pure projections the checker executes (`Policy`, `Coordinates`, `Source`, `Assembly`, `EditorPolicy`, `Lint`, `Account`), agent guidance (`Feedback`, `Guidance`), project setup (`Setup`), the installed-compiler identity and selector decisions (`Toolchain`) and the site's pure decisions (`Edition`, `Site*`). Imports the policy library, never the reverse, Lean's `Lean.Data.Position` but not `Lean.Data.Lsp.Utf16`, whose closure contains `Lean.Environment`, and, to register its decisions, `Regula.Decision`, whose closure contains it too ([below](#the-decision-registration-import)). | Claimed |
 | `RegulaQualification` | Pure observation requirements and checked contracts for qualification campaigns, not process launchers; testing requirements are not production policy, so they belong neither in `RegulaPolicy` nor in the mathematical `Audit` examples. | Claimed |
 | `RegulaVerification`, `RegulaProvision` | Toolchain-only acceptance runner and dependency provisioning for the pinned release. Pure decision contracts surround trusted build, process and filesystem effects. Each library's `Decisions` module, which no program imports, registers those decisions' kinds with the checker's two interfaces. | Claimed |
@@ -113,7 +113,8 @@ execution classification use that same compiled capability.
 The observer imports Lean's environment API in the operational library. It is infrastructure
 only when its artifact is canonical and every incoming import is from authenticated reporter
 infrastructure or an authenticated, force-only collector. A claimed import of the observer or
-collector keeps it in the audit. No definition of the pure policy library uses the environment API.
+collector keeps it in the audit. No definition of the pure policy library uses the environment API,
+except `KernelAxioms.fuelFor`, which counts the constants of an environment.
 
 ### The decision registration import
 
