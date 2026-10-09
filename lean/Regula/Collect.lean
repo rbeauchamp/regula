@@ -176,6 +176,13 @@ private def erasedByCompilation (e : Expr) : MetaM Bool := do
 /-- The axioms a theorem the checker has Lean's kernel check may rest on: Standard-Logical. -/
 private def checkedAxioms : List Name := [``propext, ``Quot.sound, ``Classical.choice]
 
+/-- A bound on the names a search in `env` expands: one for each constant of its modules and of
+the current module, and `extra` more. Every name a constant of a kernel environment uses is a
+constant of it. -/
+def fuelFor (env : Environment) (extra : Nat) : Nat :=
+  env.header.moduleData.foldl (fun total data => total + data.constants.size) 0 +
+    env.constants.map₂.foldl (fun total _ _ => total + 1) 0 + extra
+
 /-- Whether Lean's kernel, in the current environment, accepts `value` as a proof of the closed
 statement `type` (`Environment.addDeclCore` on a theorem of a fresh name) and that theorem uses no
 axiom outside `checkedAxioms`. The theorem's axioms are those it reaches in the kernel environment
@@ -199,7 +206,7 @@ private def kernelChecked (cached : Std.HashMap Name (Array Name)) (type value :
   | .ok checked =>
     setEnv checked
     let some axioms := RegulaPolicy.KernelAxioms.axiomsWith checked.toKernelEnv.find? cached
-        (RegulaPolicy.KernelAxioms.fuelFor checked 1) name | return false
+        (fuelFor checked 1) name | return false
     return axioms.all checkedAxioms.contains
 
 /-- Whether Lean's kernel checks the threading law of the application `threaded`, the fact the

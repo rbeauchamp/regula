@@ -238,7 +238,7 @@ private def kernelAnswer (cached : Std.HashMap Name (Array Name)) (levels : List
   | .error e => return if kernelExhausted e then .exhausted else .refused
   | .ok checked =>
     let some axioms := RegulaPolicy.KernelAxioms.axiomsWith checked.toKernelEnv.find? cached
-        (RegulaPolicy.KernelAxioms.fuelFor checked 1) name | return .exhausted
+        (Regula.Collect.fuelFor checked 1) name | return .exhausted
     withOptions (fun opts => opts.setBool `pp.all true |>.setBool `pp.deepTerms true
         |>.set `pp.maxSteps (1000000 : Nat)) do
       return .admitted axioms s!"proof={← Meta.ppExpr proof}; required={← Meta.ppExpr required}"

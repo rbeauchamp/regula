@@ -1,6 +1,5 @@
 module
 
-public import Lean.Environment
 public import Lean.Util.FoldConsts
 public import Std.Data.HashMap.Lemmas
 public import Std.Data.HashSet.Lemmas
@@ -659,12 +658,5 @@ theorem axiomsWith_some {find : Name → Option ConstantInfo}
           simpa using hna
         rw [hnone]
         simp [(isAxiomIn_iff find a).mpr hax]
-
-/-- A bound on the names a search in `env` expands: one for each constant of its modules and of
-the current module, and `extra` more. Every name a constant of a kernel environment uses is a
-constant of it. -/
-def fuelFor (env : Environment) (extra : Nat) : Nat :=
-  env.header.moduleData.foldl (fun total data => total + data.constants.size) 0 +
-    env.constants.map₂.foldl (fun total _ _ => total + 1) 0 + extra
 
 end RegulaPolicy.KernelAxioms
