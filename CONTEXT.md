@@ -34,7 +34,7 @@ Standard: ASD-STE100 Issue 9
 | control | 7 | An input for a check, with the result that the check must give for it. | - | `docs/guides/contributing.md` |
 | decision contract | 7 | A theorem that tells which inputs a decision function accepts, in relation to a specification. | - | `lean/Regula/Contract.lean` |
 | finding | 19 | One report of a check that a rule is not obeyed or that the check did not complete. | - | `lean/RegulaCore/Rule.lean` (`Regula.Impact`) |
-| honest code | 19 | Code that does not make a change that the security policy excludes, for example a direct write to the state of an environment extension. | - | `SECURITY.md` |
+| honest code | 19 | Code that does not deliberately change the environment, the compiler or the build of Lean to make a check pass. | - | `SECURITY.md` |
 | requirement | 15 | A part of the standard that a project must obey. | - | `website/RegulaStandard.lean` |
 | rule-reference site | 15 | The site that has the standard and one page for each rule. | rule-reference website | `docs/guides/website.md` |
 | standard | 15 | The Regula document that gives the requirements for proofs and programs in Lean. | - | `website/RegulaStandard.lean` |

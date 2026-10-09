@@ -29,16 +29,14 @@ Regula's guarantees are those that its
 [rule reference](https://rbeauchamp.github.io/regula/dev/rules/) and
 [standard](https://rbeauchamp.github.io/regula/dev/standard/) state, in the trust boundary that
 [proofs and boundaries](docs/guides/proofs-and-boundaries.md) records. These guarantees are for
-honest code: code that does not make one of the changes in the list below to make a check pass.
-Honest code can add declarations, use attributes such as `implemented_by`, `extern` and `csimp`,
-and use `initialize`. These change Lean's environment through the commands and attributes that
-Lean gives for them.
+honest code: code that does not deliberately change Lean's environment, compiler or build to make
+a check pass. Ordinary declarations, attributes such as `implemented_by`, `extern` and `csimp`,
+and `initialize` are honest code.
 [Section 7.6 of the standard](https://rbeauchamp.github.io/regula/dev/standard/7-tooling-and-machine-audit/#76-classify-lean-computation-mechanisms-exactly)
 tells how Regula treats each of them. Honest code can also use macros, elaborators, tactics and
 evaluators in the usual way, and the guarantees include the declarations that such use makes.
 
-Code that makes one of these changes to Lean's environment, compiler or build to make a check pass
-is not honest code:
+For example, code that makes one of these changes to make a check pass is not honest code:
 
 - A direct write to the state of an environment extension that goes around the command or
   attribute that Lean gives for that extension. An example is a direct write to the axiom table
@@ -52,8 +50,14 @@ is not honest code:
 Regula checks for some of these changes. For example, it replays the declarations of the project
 that are not `unsafe` or `partial` through Lean's kernel. But a pass makes no claim that the
 project has none of these changes. The [README](README.md) puts Regula at the `#print axioms` step
-of [Validating a Lean Proof](https://lean-lang.org/doc/reference/latest/ValidatingProofs/). That
-page gives the later steps, `lean4checker` and comparator, for code that is not honest code. To
+of [Validating a Lean Proof](https://lean-lang.org/doc/reference/latest/ValidatingProofs/). The
+later steps of that page, `lean4checker` and comparator, replay declarations through Lean's
+kernel. These steps apply to the changes to proofs, for example a direct write to the axiom table
+or a declaration that `debug.skipKernelTC` adds.
+
+No step of that page checks the changes to compiled code. These are a compiler pass, a direct
+write to the IR or LCNF extensions, an `_unsafe_rec` companion and a native build setting. The
+checks of Regula that read compiled code trust that the project makes none of these changes. To
 check a proof from a source that you do not trust, use
 [comparator](https://github.com/leanprover/comparator).
 
@@ -77,9 +81,9 @@ A vulnerability is a way to break one of these guarantees on purpose:
 
 ## What does not
 
-- **The excluded changes to Lean's environment, compiler or build.** A way to make a check pass with code that
-  is not honest code, as the [scope](#scope) tells, is not a vulnerability. To ask that Regula
-  find more such changes, open a [public issue](https://github.com/rbeauchamp/regula/issues).
+- **Deliberate changes to Lean's environment, compiler or build.** A way to make a check pass with
+  code that is not honest code, as the [scope](#scope) tells, is not a vulnerability. To ask that
+  Regula find more such changes, open a [public issue](https://github.com/rbeauchamp/regula/issues).
 - **Code the audit builds.** An audit runs the code of the project with your permissions. Lake runs
   a `lakefile.lean`, elaboration runs the macros, elaborators and tactics of the project, and the
   report worker of Regula runs the initializers of the modules of the project. Regula is not a

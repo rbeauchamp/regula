@@ -74,9 +74,10 @@ Preserve module 7's assurance boundary: a recursion helper is admitted only when
 recursion compiler regenerates its base from it, up to compilation erasure, whatever evaluator
 produced it, a native-proof axiom
 rests on its natively replayed statement and command provenance instead, and arbitrary process
-or trusted-plugin compromise is outside scope. The changes to Lean's environment, compiler or
-build that module 7 §7.5 excludes are also outside scope. An example is a direct write to an
-environment extension's state that bypasses the command or attribute Lean gives for it.
+or trusted-plugin compromise is outside scope. Module 7 §7.5 also puts code that deliberately
+changes Lean's environment, compiler or build to make a check pass outside scope. An example is a
+direct write to an environment extension's state that bypasses the command or attribute Lean
+gives for it.
 Ordinary declarations, attributes such as `implemented_by`, `extern` and `csimp`, and
 `initialize` stay in scope (§7.6).
 
