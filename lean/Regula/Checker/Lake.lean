@@ -142,15 +142,61 @@ def surfaceInventory (repo : FilePath) : IO SurfaceInventory :=
     let root ← IO.FS.realPath repo
     return { root, leanLibDir, leanPath, leanSrcPath, libraries, executables, dependencies }
 
-/-- Build the targets with the inherited Lean search paths removed, so the
-build resolves modules only through the workspace being built. -/
-def buildTargets (repo : FilePath) (targets : Array String) : IO ProcessResult :=
-  runProcess repo "lake" (#["build"] ++ targets) scrubbedLeanPathEnv
+/-- A build the checker runs: the Lean options it sets on the root package, if any, and the lines
+of its output it also shows as it runs. A `Build` holds no way to run it other than `Build.run`,
+so every checker build runs as `Build.run` describes. -/
+structure Build where
+  /-- The Lean options set on the root package, over its own, or none. -/
+  rootOptions : Option LeanOptions := none
+  /-- Selects the output lines also printed to standard output as the build writes them. -/
+  display : String → Bool := fun _ => false
+  deriving Inhabited
+
+/-- Build `targets` of the workspace at `repo` as `build` describes, in this process through
+Lake's build API, as `lake build` does: its build monitor's text is the output, and a failed build
+exits 1. The inherited `LEAN_PATH` and `LEAN_SRC_PATH` are ignored, so the build resolves modules
+only through that workspace. No package reads or writes Lake's artifact cache
+(`Workspace.uncachedWorkspace`), and no module of the root package keeps a trace that records a
+restore from it (`Workspace.dropRestoredTraces`). So Lake elaborates each root-package module the
+build needs, or replays the log of the elaboration that wrote its trace; a module restored from
+the cache has no such log, so its warnings would be missing from the output. Lake's loader sets
+this process's Lean search path (`Lean.searchPathRef`), which the checker's workers inherit; the
+run restores it, so like a child `lake build` it leaves the checker's own state as it was. -/
+def Build.run (build : Build) (repo : FilePath) (targets : Array String) : IO ProcessResult := do
+  let buffer ← IO.mkRef ({} : IO.FS.Stream.Buffer)
+  let out ← showingStream (IO.FS.Stream.ofBuffer buffer) build.display
+  let searchPath ← Lean.searchPathRef.get
+  let exitCode ← try
+      Workspace.withRootWorkspace repo (scrubSearchPath := true) fun loaded => do
+        let ws := Workspace.uncachedWorkspace loaded
+        let specs ← match ← (_root_.Lake.parseTargetSpecs ws targets.toList).toBaseIO with
+          | .ok specs => pure specs
+          | .error error => throw <| IO.userError (toString error)
+        if let some spec := specs.find? (!·.buildable) then
+          throw <| IO.userError s!"'{spec.info.key.toSimpleString}' is not a buildable target"
+        Workspace.dropRestoredTraces ws
+        let leanOptOverrides := match build.rootOptions with
+          | some options => ({} : NameMap LeanOptions).insert ws.root.baseName options
+          | none => {}
+        ws.runBuild (_root_.Lake.buildSpecs specs) {
+          out := .stream out, ansiMode := .noAnsi, showSuccess := true, leanOptOverrides }
+      pure (0 : UInt32)
+    catch error =>
+      out.putStrLn s!"error: {error}"
+      pure 1
+    finally Lean.searchPathRef.set searchPath
+  let some stdout := String.fromUTF8? (← buffer.get).data
+    | return { exitCode := 1, stdout := "", stderr := "error: build output is not UTF-8" }
+  return { exitCode, stdout, stderr := "" }
+
+instance : CoeFun Build (fun _ => FilePath → Array String → IO ProcessResult) := ⟨Build.run⟩
+
+/-- Build the targets with the root package's own options, printing nothing as it runs. -/
+def buildTargets : Build := {}
 
 /-- `buildTargets`, also showing Lake's own progress line for each job (`isLakeProgressLine`) as
 the build runs; the captured output is the same. -/
-def buildTargetsShowing (repo : FilePath) (targets : Array String) : IO ProcessResult :=
-  runProcessShowing repo "lake" (#["build"] ++ targets) scrubbedLeanPathEnv isLakeProgressLine
+def buildTargetsShowing : Build := { display := isLakeProgressLine }
 
 /-- Root-package Lean options of the `lint` driver's audit build: the audit-build marker
 (`Regula.Linter.auditBuildOption`), which turns Regula's local feedback off in every module that
@@ -165,34 +211,15 @@ reaches every root-package module; `axiomGate` and the build-lint target therefo
 ordinary options (`AxiomGate.claimedBuild`). -/
 def auditLeanOptions : LeanOptions := .ofArray #[⟨Regula.Linter.auditBuildOption, .ofBool true⟩]
 
-/-- `buildTargets` with `auditLeanOptions` on the root package, run in-process through Lake's
-build API because the `lake build` command line sets no Lean options. The inherited search
-paths are ignored as in `buildTargets`; the build monitor's text is the output, and a failed
-build exits 1. Lake's progress line for each job is also shown as the build runs, as by
-`buildTargetsShowing`. -/
-def buildAuditTargets (repo : FilePath) (targets : Array String) : IO ProcessResult := do
-  let buffer ← IO.mkRef ({} : IO.FS.Stream.Buffer)
-  let out ← showingStream (IO.FS.Stream.ofBuffer buffer) isLakeProgressLine
-  let exitCode ← try
-      Workspace.withRootWorkspace repo (scrubSearchPath := true) fun ws => do
-        let specs ← match ← (_root_.Lake.parseTargetSpecs ws targets.toList).toBaseIO with
-          | .ok specs => pure specs
-          | .error error => throw <| IO.userError (toString error)
-        ws.runBuild (_root_.Lake.buildSpecs specs) {
-          out := .stream out, ansiMode := .noAnsi, showSuccess := true,
-          leanOptOverrides := ({} : NameMap LeanOptions).insert ws.root.baseName auditLeanOptions }
-      pure (0 : UInt32)
-    catch error =>
-      out.putStrLn s!"error: {error}"
-      pure 1
-  let some stdout := String.fromUTF8? (← buffer.get).data
-    | return { exitCode := 1, stdout := "", stderr := "error: build output is not UTF-8" }
-  return { exitCode, stdout, stderr := "" }
+/-- `buildTargetsShowing` with `auditLeanOptions` on the root package, which the `lake build`
+command line cannot set. -/
+def buildAuditTargets : Build :=
+  { rootOptions := some auditLeanOptions, display := isLakeProgressLine }
 
 /-- Build the claimed Lake targets and require success with no warnings.
 Returns the diagnostic lines to report on failure. -/
 def buildCheckedObservation (repo : FilePath) (targets : Array String)
-    (mode : String) (build : FilePath → Array String → IO ProcessResult := buildTargets) :
+    (mode : String) (build : Build := buildTargets) :
     IO (ProcessResult × Option (Array String)) := do
   let build ← build repo targets
   if build.succeeded && (warningLines build.output).isEmpty then return (build, none)

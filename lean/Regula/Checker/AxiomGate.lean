@@ -154,11 +154,11 @@ expression (`--kernel-types`), set when its options are admitted. It changes onl
 file renders, never a decision. -/
 initialize kernelTypes : IO.Ref Bool ← IO.mkRef false
 
-/-- The claimed-source build of a project audit: the ordinary `lake build`, showing Lake's
-progress line for each job as it runs (`Lake.buildTargetsShowing`), or `Lake.buildAuditTargets`
-when the `lint` driver selects it for its own audit. -/
-initialize claimedBuild : IO.Ref (FilePath → Array String → IO ProcessResult) ←
-  IO.mkRef Lake.buildTargetsShowing
+/-- The claimed-source build of a project audit: the build with the project's own options,
+showing Lake's progress line for each job as it runs (`Lake.buildTargetsShowing`), or
+`Lake.buildAuditTargets` when the `lint` driver selects it for its own audit. Either way it is a
+`Lake.Build`, so it runs without Lake's artifact cache (`Lake.Build.run`). -/
+initialize claimedBuild : IO.Ref Lake.Build ← IO.mkRef Lake.buildTargetsShowing
 
 /-- Record the invocation's result and return the status it decides, for the result output. -/
 private def record (observation : Lint.Observation) : IO ResultProtocol.Status := do

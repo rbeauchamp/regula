@@ -351,9 +351,14 @@ with the compiler's message before any foundation rule is checked. The same hold
 `sorry`: Lean warns `declaration uses 'sorry'`, so it is reported as [RG2003], not [RG1002]; silencing
 the warning does not help, because the hole is then reported as [RG1002].
 
+Lake's artifact cache does not change what a run checks. The audit's builds do not read or
+write that cache, whatever `enableArtifactCache` or `LAKE_ARTIFACT_CACHE` says. Lake keeps no
+compiler messages for a module that it restores from the cache. Thus the audit elaborates again
+each claimed module that Lake restored from the cache.
+
 For CI, provision the toolchain and dependencies, then run the driver as its own step so its
 exit status fails the job; use `--fresh` where the claim is fresh-source conformance, since
-incremental evidence trusts Lake's build cache:
+incremental evidence trusts the build traces that Lake recorded in the project:
 
 ```yaml
 - name: Regula

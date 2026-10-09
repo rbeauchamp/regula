@@ -7,10 +7,11 @@ Qualification of the `lake lint` driver path. Each control copies a shipped adop
 (`examples/build-lint` in `lakefile.lean` format, `examples/lake-lint-toml` in
 `lakefile.toml` format), establishes a green `lake lint`, applies one intended
 mutation, and re-establishes the green control after removing all build output.
-The driver reuses the build-policy audit body, whose detectors the build-policy
-partition qualifies; these controls establish Lake's dispatch, the exit classes,
-and the editor/builtin boundaries of this invocation path. They are diagnostics,
-not proofs of the driver or of Lake.
+The artifact-cache controls (`cachedWarning`, `dependencyCachedWarning`) start from their
+mutation and end with their green control. The driver reuses the build-policy audit body,
+whose detectors the build-policy partition qualifies; these controls establish Lake's dispatch,
+the exit classes, and the editor/builtin boundaries of this invocation path. They are
+diagnostics, not proofs of the driver or of Lake.
 -/
 
 namespace Regula.Checker.LintQualification
@@ -320,6 +321,110 @@ private def tomlAdopter (repo adopter : FilePath) : IO (Array String) := do
       (← expect adopter (accepted "toml/fresh-restored" (fresh := true)) #["--", "--fresh"])
   return failures
 
+/-- Counterexample control for issue 291, at an external boundary: Lake's artifact cache, whose
+restores the checker's proofs do not cover. A module that Lake restores from the cache gets a
+trace with an empty log, so a build that restores a claimed module reports none of its warnings.
+The `lakefile.lean` adopter enables the cache (`enableArtifactCache`, with every artifact copied
+into the build directory) in a private `LAKE_CACHE_DIR` of the control's own workspace, and a
+claimed module warns. Every `lake lint -- --fresh` must then be incomplete with RG2003: before the
+checker's builds stopped using the cache, the second identical run was accepted, the module
+restored from the cache the first run filled. The control then has Lake's ordinary `lake build`
+restore that module from the cache into the adopter's own build output, observes the restored
+trace, and requires the incremental `axiomGate` audit, whose build has the same Lean options and
+so the same trace, to report the warning too. Without the warning, a fresh run is accepted. -/
+private def cachedWarning (repo adopter : FilePath) : IO (Array String) := do
+  BuildLintQualification.setup repo adopter
+  mutate (adopter / "lakefile.lean") "lintDriver := \"regula/lint\""
+    "lintDriver := \"regula/lint\"\n  enableArtifactCache := true\n  restoreAllArtifacts := true"
+  let additional := adopter / "Widget" / "Additional.lean"
+  let original ← IO.FS.readFile additional
+  mutate additional "end Widget.Additional" <|
+    "/-- A claimed theorem whose proof leaves an unused `have`. -/\n" ++
+      "theorem withUnused (n : Nat) : n = n :=\n  have unused : 0 = 0 := rfl\n  rfl\n\n" ++
+      "end Widget.Additional"
+  let env := scrubbedLeanPathEnv ++ #[("LAKE_CACHE_DIR", some (adopter / "lake-cache").toString)]
+  let warning := "Variable name `unused` is not explicitly referenced"
+  let incomplete (label : String) : Expectation := {
+    label, exitCode := 3, contains := #["RG2003", warning, "regula lint: INCOMPLETE (exit 3)"],
+    excludes := #[s!"regula lint: {acceptanceLabel}"] }
+  let fresh := runProcess adopter "lake" #["lint", "--", "--fresh"] env
+  let mut failures ← assess (incomplete "cache/fresh") (← fresh)
+  failures := failures ++ (← assess (incomplete "cache/fresh-again") (← fresh))
+  let build := runProcess adopter "lake" #["build", "Widget"] env
+  let built ← build
+  IO.FS.removeDirAll (adopter / ".lake" / "build")
+  let restored ← build
+  let trace := adopter / ".lake" / "build" / "lib" / "lean" / "Widget" / "Additional.trace"
+  let synthetic := match ← (IO.FS.readFile trace).toBaseIO with
+    | .ok text => (Json.parse text).toOption.bind fun json =>
+        (json.getObjValAs? Bool "synthetic").toOption
+    | .error _ => none
+  unless built.succeeded && built.output.contains warning && restored.succeeded &&
+      !restored.output.contains warning && synthetic == some true do
+    failures := failures.push
+      s!"lake-lint/cache/restore: no warning-free restore of the module:\n{built.output}\n\
+        {restored.output}"
+  failures := failures ++ (← assess {
+      label := "cache/incremental-restored", exitCode := 3, contains := #["RG2003", warning],
+      excludes := #["axiom gate: PASS"] }
+    (← runProcess adopter "lake" #["exe", "axiomGate", "--incremental"] env))
+  -- The positive control: without the warning, the cache-enabled adopter is accepted.
+  IO.FS.writeFile additional original
+  failures := failures ++ (← assess (accepted "cache/fresh-restored" (fresh := true)) (← fresh))
+  return failures
+
+/-- `cachedWarning` with the artifact cache enabled only in a dependency's own configuration,
+which Lake reads before `LAKE_ARTIFACT_CACHE`: a path dependency inside the `lakefile.lean`
+adopter enables the cache (`enableArtifactCache`, with every artifact copied into the build
+directory) in a private `LAKE_CACHE_DIR` of the control's own workspace, and its module, which a
+claimed module imports, warns. Lake's ordinary `lake build` fills the cache with that module,
+and its build output is then removed, as in a new checkout. A `lake lint -- --fresh` must then
+elaborate the module again and be incomplete with RG2003, where restoring it from the cache would
+show no warning. Without the warning, a fresh run is accepted. -/
+private def dependencyCachedWarning (repo adopter : FilePath) : IO (Array String) := do
+  BuildLintQualification.setup repo adopter
+  let dependency := adopter / "dep"
+  IO.FS.createDirAll dependency
+  IO.FS.writeFile (dependency / "lakefile.lean") <|
+    "import Lake\nopen Lake DSL\n\npackage dep where\n  enableArtifactCache := true\n" ++
+      "  restoreAllArtifacts := true\n\nlean_lib Dep\n"
+  let module := dependency / "Dep.lean"
+  let warned := "/-! A dependency module. -/\n\n" ++
+    "/-- A theorem whose proof leaves an unused `have`. -/\n" ++
+    "theorem depWithUnused (n : Nat) : n = n :=\n  have unused : 0 = 0 := rfl\n  rfl\n"
+  IO.FS.writeFile module warned
+  mutate (adopter / "lakefile.lean") "require regula from"
+    "require dep from \"dep\"\n\nrequire regula from"
+  let manifest ← readJson (adopter / "lake-manifest.json")
+  let packages : Array Json ← IO.ofExcept <| manifest.getObjValAs? (Array Json) "packages"
+  writeJson (adopter / "lake-manifest.json") <| manifest.setObjVal! "packages" <|
+    toJson (#[Json.mkObj [
+      ("name", toJson "dep"), ("scope", toJson ""), ("configFile", toJson "lakefile.lean"),
+      ("manifestFile", toJson "lake-manifest.json"), ("inherited", toJson false),
+      ("type", toJson "path"), ("dir", toJson "dep")]] ++ packages)
+  let additional := adopter / "Widget" / "Additional.lean"
+  IO.FS.writeFile additional ("import Dep\n" ++ (← IO.FS.readFile additional))
+  let env := scrubbedLeanPathEnv ++ #[("LAKE_CACHE_DIR", some (adopter / "lake-cache").toString)]
+  let warning := "Variable name `unused` is not explicitly referenced"
+  let filled ← runProcess adopter "lake" #["build", "Dep"] env
+  let mut failures : Array String := #[]
+  unless filled.succeeded && filled.output.contains warning do
+    failures := failures.push s!"lake-lint/dependency-cache/fill: {filled.output}"
+  if ← (dependency / ".lake" / "build").pathExists then
+    IO.FS.removeDirAll (dependency / ".lake" / "build")
+  let fresh := runProcess adopter "lake" #["lint", "--", "--fresh"] env
+  failures := failures ++ (← assess {
+      label := "dependency-cache/fresh", exitCode := 3,
+      contains := #["RG2003", warning, "regula lint: INCOMPLETE (exit 3)"],
+      excludes := #[s!"regula lint: {acceptanceLabel}"] } (← fresh))
+  -- The positive control: without the warning, the adopter is accepted.
+  IO.FS.writeFile module <|
+    "/-! A dependency module. -/\n\n/-- A theorem. -/\n" ++
+      "theorem depReflexive (n : Nat) : n = n := rfl\n"
+  failures := failures ++
+    (← assess (accepted "dependency-cache/fresh-restored" (fresh := true)) (← fresh))
+  return failures
+
 /-- With the checker's `axiomGate` worker binary removed, `lake lint` builds it and still
 reaches the accepted result: Lake's lint dispatch itself builds only the driver. -/
 private def absentWorker (repo adopter : FilePath) : IO (Array String) := do
@@ -366,7 +471,8 @@ def qualify (repo scratch : FilePath) (jobs : Nat) : IO (Array String) := do
   let absent ← withScratch scratch "lake-lint-worker" fun adopter => absentWorker repo adopter
   if !absent.isEmpty then return absent
   let results ← mapConcurrent jobs
-    #[("lean", leanAdopter), ("toml", tomlAdopter), ("guard", compilerGuard)]
+    #[("lean", leanAdopter), ("toml", tomlAdopter), ("guard", compilerGuard),
+      ("cache", cachedWarning), ("dependency-cache", dependencyCachedWarning)]
     fun (name, control) => withScratch scratch s!"lake-lint-{name}" fun adopter =>
                             control repo adopter
   return results.foldl (· ++ ·) #[]

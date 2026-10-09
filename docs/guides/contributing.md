@@ -227,7 +227,7 @@ checker behavior:
 | `cli` | Command-line behavior and diagnostics. |
 | `environments` | Isolated environments, documentation scanning, and external adopters. |
 | `build-policy` | Enforcement through the example's ordinary Lake build. |
-| `lint-driver` | `lake lint` dispatch and exit classes in both shipped adopters, and the cold compiler guard of `lakefile.lean`: refusal of an inherited `LEAN_SYSROOT` child that fails and of one that succeeds without reporting the running compiler's identity, then a restored load. |
+| `lint-driver` | `lake lint` dispatch and exit classes in both shipped adopters, and the cold compiler guard of `lakefile.lean`: refusal of an inherited `LEAN_SYSROOT` child that fails and of one that succeeds without reporting the running compiler's identity, then a restored load. Lake's artifact cache is on in a private directory, and a claimed module warns. Then two identical `--fresh` runs and an incremental audit of the module that Lake restored from the cache each report [RG2003]. The same holds when only a path dependency turns the cache on in its own configuration, and its module warns. Without the warning, a fresh run is accepted. |
 | `producers` | [Project producer and documentation qualification](proofs-and-boundaries.md#producers). |
 | `history` | [Source-bound replacement history qualification](proofs-and-boundaries.md#producers). |
 | `self-lint` | This repository's own `lake lint` through the `regula/lint` driver, in the root and `audit/` packages ([repository conformance](#repository-conformance)). |

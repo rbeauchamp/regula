@@ -154,6 +154,22 @@ including the lint driver's options. A deferred build is followed by the source,
 configuration and frozen-artifact checks before the unchanged full inspection and terminal
 freshness checks.
 
+**No build uses Lake's artifact cache.** Lake writes no compiler messages in the build trace of
+a module that it restores from its artifact cache. Thus a check of the build output for warnings
+would accept such a module. Each checker build is a `Lake.Build`, and its only runner,
+`Lake.Build.run`, builds in the checker's process on `Workspace.uncachedWorkspace`. In that
+workspace, each package and each package that it records as a dependency has the cache off in
+its own configuration.
+
+`uncachedWorkspace_unreadable` and `uncachedWorkspace_unwritable` prove that Lake's predicates
+`Package.isArtifactCacheReadable` and `isArtifactCacheWritable` then give `false` for these
+packages. The settings of the workspace and `LAKE_ARTIFACT_CACHE` do not change this result.
+Lake `v4.34.1` uses these predicates to decide each read and each write of the cache. A build
+finds its packages only through the workspace and these dependency records. These two
+facts come from the source code of Lake, not from a proof. Before the build,
+`dropRestoredTraces` removes the trace of each root-package module that records a restore from
+the cache, so Lake elaborates that module again.
+
 Preflight can now report an excluded-module violation before a native link that would fail;
 that run can therefore report [RG2004]/exit 1 instead of the later [RG2003]/incomplete/exit 3.
 Its build stage remains unfinished and it is never accepted. An incomplete finding actually
