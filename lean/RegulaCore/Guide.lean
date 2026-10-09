@@ -1347,6 +1347,13 @@ def guide : RuleId → Guide
           helpers. Anything it cannot resolve or classify is reported with applicability \
           `execution-unresolved` and impact `incomplete`, in both `report` and `checked` execution \
           modes.",
+        "The executable roots include the action of each `initialize` block, named or anonymous, \
+          and of each `[init]` or `[builtin_init]` declaration of an owned module, as Lean's \
+          initializer attributes record it, whatever its name: Lean runs that action at startup \
+          or import, where no other root need reference it.",
+        "A comparison of a replacement with its reference is decided only by the kernel's \
+          answer. A comparison that the kernel stopped before it decided, or that raised an \
+          error before it recorded the kernel's answer, is unresolved.",
         "Replacement history is reconstructed by fresh re-elaboration; metaprogramming commands \
           such as `run_cmd`, `run_elab` or module-local elaborators make it unavailable.",
         "A path through the Lean toolchain's own origin-checked `Init`, `Std` or `Lean` modules \
@@ -1360,7 +1367,9 @@ def guide : RuleId → Guide
           classified; an unresolved path is incomplete and never accepted."]
       notEstablished := [
         "That the conservative closure is the program's actual runtime call graph: candidates and \
-          historical choices overapproximate it, and a safe program can be rejected."]
+          historical choices overapproximate it, and a safe program can be rejected.",
+        "That the executable roots are complete: the census of roots, the initializer actions \
+          among them, is read from Lean's records of each owned module, not proved."]
       configuration := [
         "No execution mode waives an unresolved path."]
       limitations := [
@@ -1375,7 +1384,10 @@ def guide : RuleId → Guide
       linkage := "`RegulaPolicy.executionFailureRecords_empty_iff`, \
         `RegulaPolicy.executionFindings_empty_iff`, `RegulaPolicy.unresolved_reported`, \
         `Regula.Checker.Policy.checked_executionFailures` and `executionRule_injective`. \
-        Extracting the execution closure from compiler IR is operational."
+        `RegulaPolicy.DefeqComparison.ofAttempt_incomplete_iff` and `ofAttempt_error`: a \
+        comparison is incomplete, and so unresolved, exactly when the kernel stopped before it \
+        decided or the attempt raised an error. Extracting the execution closure from compiler IR, \
+        the census of roots and the kernel's answer are operational."
       sources :=
           ["lean/Regula/Probe.lean", "lean/RegulaCore/Policy.lean",
               "lean/Regula/Checker/RuleDiagnostics.lean"] }
@@ -1441,8 +1453,9 @@ def guide : RuleId → Guide
           it evaluates by name (`Lean.Environment.evalConst`, `Lean.Meta.reduceBoolNative`), a \
           dynamic library or plugin it loads, or a process it spawns. The account is the static \
           closure; such code is data to it, and the toolchain primitive that runs it is trusted \
-          base. The `initialize` and `[init]` actions of imported modules, static or at runtime, \
-          are likewise outside the account.",
+          base. The `initialize` and `[init]` actions of modules that the project imports but \
+          does not own, static or at runtime, are likewise outside the account; those of owned \
+          modules are executable roots (RG3001).",
         "That the executable roots are the ones the project intends to cover (R-INVARIANT)."]
       configuration := [
         "`execution` in the surface manifest (`report` or `checked`), or `--execution checked` for \
@@ -1460,6 +1473,10 @@ def guide : RuleId → Guide
         `RegulaPolicy.boundaryFailures_toolchain`, `RegulaPolicy.project_boundary_reported`, \
         `RegulaPolicy.failure_reported`, `RegulaPolicy.executionFindings_sound` and \
         `RegulaPolicy.checked_toolchainBase`; an accepted run satisfies `RegulaPolicy.BoundaryOK`. \
+        `RegulaPolicy.DefeqComparison.ofAttempt_checked_iff` and `ofAttempt_negative_iff`: a \
+        definitional comparison is checked exactly when the kernel admitted the proof with \
+        Standard-Logical axioms, and trusted exactly when it refused the proof or admitted it \
+        with a different axiom. \
         Extracting the execution closure from compiler IR and observing module origins are \
         operational."
       sources :=
