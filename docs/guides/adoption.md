@@ -299,7 +299,8 @@ the option the driver always builds with the marker ([details](proofs-and-bounda
 
 Give the option on the command line. The driver refuses it in `lintDriverArgs`, which your
 lakefile could set for each run. The banner of the run names your assertion, and the JSON report
-records it as `scope.ordinaryLakefiles`.
+records it as `scope.ordinaryLakefiles`. Before the build, the run prints if the build omits the
+marker, or keeps it and why.
 
 The driver builds every manifested library and executable by its explicit Lake target, with
 warnings as failures, and inspects the completed environments: each library in one, and each

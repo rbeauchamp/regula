@@ -1,4 +1,5 @@
 import Regula.Checker.BuildLintQualification
+import Regula.Checker.Lake
 
 /-!
 # Lake lint driver qualification
@@ -9,7 +10,9 @@ Qualification of the `lake lint` driver path. Each control copies a shipped adop
 mutation, and re-establishes the green control after removing all build output.
 The driver reuses the build-policy audit body, whose detectors the build-policy
 partition qualifies; these controls establish Lake's dispatch, the exit classes,
-and the editor/builtin boundaries of this invocation path. They are diagnostics,
+and the editor/builtin boundaries of this invocation path. Decision probes load a changed
+adopter's workspace in-process, as the driver does, and check the decision of its claimed build
+under the owner's `--ordinary-lakefiles` without running an audit. They are diagnostics,
 not proofs of the driver or of Lake.
 -/
 
@@ -73,35 +76,71 @@ private def restore (adopter : FilePath) (files : Array (FilePath × String)) : 
   if ← (adopter / ".lake" / "build").pathExists then
     IO.FS.removeDirAll (adopter / ".lake" / "build")
 
+/-- A decision probe: after an ordinary `lake build` of `targets`, which leaves the compiled
+lakefile under `.lake/config`, the workspace at `adopter` is loaded in-process as the driver loads
+it, and the decision of the driver's claimed build under the owner's `--ordinary-lakefiles`
+(`Lake.markerInputs`, `Lake.checked_auditMarkerNeeded`) must be `marked`: `true` keeps the
+audit-build marker, `false` omits it. A failure names `Lake.markerReason`. The loads share the
+process's search path, so they run one at a time under `probes`. -/
+private def probe (probes : Std.Mutex Unit) (adopter : FilePath) (label : String)
+    (targets : Array String) (marked : Bool) : IO (Array String) := do
+  let build ← runProcess adopter "lake" (#["build"] ++ targets) scrubbedLeanPathEnv
+  let failures ← if !build.succeeded then
+      pure #[s!"lake-lint/{label}: the ordinary build failed", build.output]
+    else do
+      let decision : Except String (Bool × Option String) ← try
+          probes.atomically do
+            Workspace.withRootWorkspace adopter (scrubSearchPath := true) fun ws => do
+              let some inputs ← Lake.markerInputs ws
+                | return .error "Lake did not report the imports of a module of the root package"
+              return .ok (Lake.checked_auditMarkerNeeded.run inputs, Lake.markerReason inputs)
+        catch error => pure (.error (toString error))
+      let text (keeps : Bool) := if keeps then "keeps" else "omits"
+      pure <| match decision with
+        | .error error => #[s!"lake-lint/{label}: the workspace could not be read: {error}"]
+        | .ok (decided, reason) => if decided == marked then #[] else
+            #[s!"lake-lint/{label}: the claimed build {text decided} the marker, expected \
+              {text marked}: {reason.getD "the workspace has the plain shape"}"]
+  IO.println s!"lake-lint control {label}: {if failures.isEmpty then "completed" else "FAILED"}"
+  (← IO.getStdout).flush
+  return failures
+
+/-- The driver arguments of the workspace owner's assertion that the lakefiles are ordinary
+configuration. -/
+private def optIn : Array String := #["--", "--ordinary-lakefiles"]
+
+/-- The line of the driver's claimed build under the owner's `--ordinary-lakefiles` that omits the
+audit-build marker, and the start of the line that keeps it (`Lake.buildAuditTargets`). -/
+private def markerOmitted := "the claimed build omits the audit-build marker"
+private def markerKept := "the claimed build keeps the audit-build marker: "
+
 /-- `lakefile.lean` adopter: every exit class with its summary counts, a repeated cached failure,
 a claimed import outside every library (RG2004) in the driver and the file audit, a failed audit
 worker reported with its own error, Lake's builtin-only and combined dispatch, and the read-only
 configuration explanation. Default output shows Lake's build progress and no timing span; the
-file audit lists every classified declaration only with `--verbose`. The adopter declares the
-custom `policy` target, so the driver keeps the audit-build marker (`Lake.auditMarkerNeeded`) and
-an ordinary build after it rebuilds; without that target, also with an `input_file` in `needs`,
-the workspace has the plain shape and an ordinary `lake build` and the driver reuse each other's
-build output when the owner passes `--ordinary-lakefiles`, which the banner names and the
-result records as `scope.ordinaryLakefiles`, and the driver keeps the marker without it; a
-`lintDriverArgs` entry that gives the option is refused; with Lake's `ilean` facet declared again
-with Lake's own configuration, a library field outside the plain shape's list (`libName`), a
-`nativeFacets` that is not Lake's whole default term, a lakefile declaration beside Lake's
-configuration declarations, a theorem that equates two functions, or an excluded library in
-`needs` that imports `Regula.Linter`, the driver keeps the marker and accepts the claim. -/
-private def leanAdopter (repo adopter : FilePath) : IO (Array String) := do
+file audit lists every classified declaration only with `--verbose`. Without the custom `policy`
+target the workspace has the plain shape: without the owner's `--ordinary-lakefiles` the driver
+keeps the audit-build marker and prints no decision, so an ordinary build after it rebuilds; with
+it the driver prints that it omits the marker, and an ordinary `lake build` and the driver reuse
+each other's build output. The banner names the option and the result records it as
+`scope.ordinaryLakefiles`; a `lintDriverArgs` entry that gives it is refused. Decision probes of
+the guard (`probe`), each with one change to the adopter: the custom `policy` target and a
+library in `needs` keep the marker, an `input_file` in `needs` does not, and each change to the
+plain shape below keeps it: Lake's `ilean` facet declared again with Lake's own configuration, a
+library field outside the plain shape's list (`libName`), a `nativeFacets` that is not Lake's
+whole default term, a lakefile declaration beside Lake's configuration declarations, and a theorem
+that equates two functions. A custom target also brings declarations that are not Lake's
+configuration declarations and a configuration term that `Lake.defaultFunctionFields` does not
+read, so it keeps the marker on each of these counts. -/
+private def leanAdopter (probes : Std.Mutex Unit) (repo adopter : FilePath) :
+    IO (Array String) := do
   BuildLintQualification.setup repo adopter
-  -- The workspace owner's assertion that the lakefiles are ordinary configuration.
-  let optIn := #["--", "--ordinary-lakefiles"]
   -- The first run builds every module, showing Lake's progress line for each.
   let positive := accepted "lean/positive"
   let mut failures ← expect adopter
     { positive with contains := positive.contains.push "] Built Widget" }
   if !failures.isEmpty then return failures
-  -- The adopter declares the custom `policy` target, so its workspace is not of the plain shape
-  -- and the driver keeps the marker: an ordinary build after it rebuilds the library's modules.
-  let ordinary ← runProcess adopter "lake" #["build", "Widget"] scrubbedLeanPathEnv
-  unless ordinary.succeeded && ordinary.output.contains "] Built Widget" do
-    failures := failures.push s!"lake-lint/lean/custom-target-marked: {ordinary.output}"
+  failures := failures ++ (← probe probes adopter "lean/custom-target-marked" #["Widget"] true)
   failures := failures ++ (← expect adopter {
       label := "lean/explain-config", exitCode := 2,
       contains := #["no audit was run", "Widget.Additional", "kernel-only"],
@@ -122,47 +161,41 @@ private def leanAdopter (repo adopter : FilePath) : IO (Array String) := do
   let originals := #[(additional, ← IO.FS.readFile additional),
     (manifest, ← IO.FS.readFile manifest), (widget, ← IO.FS.readFile widget),
     (lakefile, ← IO.FS.readFile lakefile)]
-  -- A library outside the claim that the claimed library has built first (`needs`) and that
-  -- imports `Regula.Linter`: a library in `needs` is outside the plain shape, so the driver keeps
-  -- the marker, the library's live finding is not a build warning, and the claim is accepted.
-  let tooling := adopter / "Tooling.lean"
-  mutate lakefile "globs := #[.andSubmodules `Widget]"
-    "globs := #[.andSubmodules `Widget]\n  needs := #[`@/Tooling]\n\nlean_lib Tooling where\n  \
-      globs := #[.one `Tooling]"
-  mutate manifest "\"excluded-libraries\": []"
-    "\"excluded-libraries\": [{\"library\": \"Tooling\", \"rationale\": \"lint control\"}]"
-  IO.FS.writeFile tooling "import Regula.Linter\n\n/-! Tooling outside the claim. -/\n\n\
-    /-- A documented assumption. -/\naxiom toolingAssumption : True\n"
-  let needed := positive.contains.push "] Built Tooling"
-  failures := failures ++ (← expect adopter
-    { positive with label := "lean/needed-linter", contains := needed } optIn)
-  IO.FS.removeFile tooling
-  restore adopter originals
   -- The plain shape: without the `policy` target the workspace declares only `lean_lib` and
   -- `lean_exe` targets and Regula's input targets, and no module of the package imports
-  -- `Regula.Linter`. Without the owner's `--ordinary-lakefiles` the driver still keeps the marker,
-  -- as before the plain shape existed. With it the driver builds without the marker: its first run
-  -- rebuilds the modules built with the marker, and then an ordinary build and the driver reuse
-  -- each other's output.
+  -- `Regula.Linter`.
   let plain ← match (← IO.FS.readFile lakefile).splitOn "\n/-- The sole default target" with
     | [declarations, _] => pure declarations
     | _ => throw <| IO.userError "lake-lint: expected one policy target in the adopter's lakefile"
+  let widgetLibrary (field : String) : String :=
+    plain.replace "globs := #[.andSubmodules `Widget]"
+      s!"globs := #[.andSubmodules `Widget]\n  {field}"
+  -- A library outside the claim that the claimed library has built first (`needs`).
+  let tooling := adopter / "Tooling.lean"
+  IO.FS.writeFile tooling "/-! Tooling outside the claim. -/\n"
+  IO.FS.writeFile lakefile <| widgetLibrary "needs := #[`@/Tooling]\n\nlean_lib Tooling where\n  \
+    globs := #[.one `Tooling]"
+  failures := failures ++ (← probe probes adopter "lean/needed-library-marked" #["Widget"] true)
+  IO.FS.removeFile tooling
+  -- Without the owner's `--ordinary-lakefiles` the driver keeps the marker, as before the plain
+  -- shape existed, and prints no decision, so an ordinary build after it rebuilds. With it the
+  -- driver builds without the marker and says so, and an ordinary build and the driver reuse each
+  -- other's output.
   IO.FS.writeFile lakefile plain
-  failures := failures ++ (← expect adopter { positive with label := "lean/plain-default-marked" })
+  failures := failures ++ (← expect adopter { positive with
+    label := "lean/plain-default-marked", excludes := positive.excludes.push "the claimed build" })
   let ordinary ← runProcess adopter "lake" #["build", "Widget"] scrubbedLeanPathEnv
   unless ordinary.succeeded && ordinary.output.contains "] Built Widget" do
     failures := failures.push s!"lake-lint/lean/plain-default-marked: the ordinary build reused \
       the driver's build: {ordinary.output}"
-  let reused (label : String) : IO (Array String) := do
-    let first ← expect adopter { positive with label } optIn
-    let ordinary ← runProcess adopter "lake" #["build", "Widget"] scrubbedLeanPathEnv
-    let rebuilt := if ordinary.succeeded && !ordinary.output.contains "] Built Widget" then #[]
-      else #[s!"lake-lint/{label}: the ordinary build rebuilt a module: {ordinary.output}"]
-    let again ← expect adopter
-      { positive with label := s!"{label}-again", excludes := positive.excludes.push "] Built" }
-      optIn
-    return first ++ rebuilt ++ again
-  failures := failures ++ (← reused "lean/plain-reused")
+  failures := failures ++ (← expect adopter { positive with
+    label := "lean/plain-reused", contains := positive.contains.push markerOmitted } optIn)
+  let ordinary ← runProcess adopter "lake" #["build", "Widget"] scrubbedLeanPathEnv
+  unless ordinary.succeeded && !ordinary.output.contains "] Built Widget" do
+    failures := failures.push s!"lake-lint/lean/plain-reused: the ordinary build rebuilt a module: \
+      {ordinary.output}"
+  failures := failures ++ (← expect adopter { positive with
+    label := "lean/plain-reused-again", excludes := positive.excludes.push "] Built" } optIn)
   -- The banner names the owner's assertion, and the result records it as
   -- `scope.ordinaryLakefiles`.
   failures := failures ++ (← expect adopter { positive with
@@ -182,39 +215,29 @@ private def leanAdopter (repo adopter : FilePath) : IO (Array String) := do
       label := "lean/opt-in-configured-refused", exitCode := 2,
       contains := #["lintDriverArgs cannot give it", "regula lint: INVALID CONFIGURATION"],
       excludes := #[s!"regula lint: {acceptanceLabel}"] })
-  IO.FS.writeFile lakefile plain
   -- An `input_file` in `needs` keeps the plain shape.
   let notes := adopter / "notes.txt"
   IO.FS.writeFile notes "Widget notes.\n"
-  mutate lakefile "globs := #[.andSubmodules `Widget]"
-    "globs := #[.andSubmodules `Widget]\n  needs := #[`@/widgetNotes]\n\ninput_file widgetNotes \
-      where\n  path := \"notes.txt\""
-  failures := failures ++ (← reused "lean/input-needs-reused")
+  IO.FS.writeFile lakefile <| widgetLibrary "needs := #[`@/widgetNotes]\n\ninput_file widgetNotes \
+    where\n  path := \"notes.txt\""
+  failures := failures ++ (← probe probes adopter "lean/input-needs-plain" #["Widget"] false)
   IO.FS.removeFile notes
-  -- Each of these keeps the marker even with the owner's `--ordinary-lakefiles`, so an ordinary
-  -- build after the driver rebuilds the library's modules: Lake's `ilean` facet declared again with Lake's own configuration, which the
-  -- compiled configuration file records as a facet declaration; a field outside the plain
-  -- shape's list with another value than Lake's default; and a `nativeFacets` that differs from
-  -- Lake's default only in the `Decidable` instance of its `if`, which adds code.
+  -- Each of these keeps the marker: Lake's `ilean` facet declared again with Lake's own
+  -- configuration, which the compiled configuration file records as a facet declaration; a field
+  -- outside the plain shape's list with another value than Lake's default; a `nativeFacets` that
+  -- differs from Lake's default only in the `Decidable` instance of its `if`, which adds code; a
+  -- declaration of the lakefile beside Lake's configuration declarations; and a theorem that
+  -- equates two functions, the form of a compiler replacement (`csimp`).
   let marked (label text : String) : IO (Array String) := do
     IO.FS.writeFile lakefile text
-    let run ← expect adopter { positive with label } optIn
-    let ordinary ← runProcess adopter "lake" #["build", "Widget"] scrubbedLeanPathEnv
-    return if ordinary.succeeded && ordinary.output.contains "] Built Widget" then run
-      else run.push s!"lake-lint/{label}: the ordinary build reused the driver's build: \
-        {ordinary.output}"
-  let widgetLibrary (field : String) : String :=
-    plain.replace "globs := #[.andSubmodules `Widget]"
-      s!"globs := #[.andSubmodules `Widget]\n  {field}"
+    probe probes adopter label #["Widget"] true
   failures := failures ++ (← marked "lean/lake-facet-marked" (plain ++
-    "\n/-- Lake's `ilean` facet, declared again. -/\n@[«module_facet»] def ileanAgain : \
-      ModuleFacetDecl :=\n  ⟨Module.ileanFacet, Module.ileanFacetConfig⟩\n"))
+    "\n@[«module_facet»] def ileanAgain : ModuleFacetDecl :=\n  \
+      ⟨Module.ileanFacet, Module.ileanFacetConfig⟩\n"))
   failures := failures ++ (← marked "lean/field-marked" (widgetLibrary "libName := \"widget\""))
   failures := failures ++ (← marked "lean/native-facets-marked"
     (widgetLibrary "nativeFacets := fun b => #[@ite (ModuleFacet System.FilePath) (b = true)\n    \
       (dbgTrace \"extra\" (fun _ => inferInstance)) Module.oExportFacet Module.oFacet]"))
-  -- A declaration of the lakefile beside Lake's configuration declarations, and a theorem that
-  -- equates two functions, the form of a compiler replacement (`csimp`), each keep the marker.
   failures := failures ++ (← marked "lean/declaration-marked"
     (plain ++ "\ndef helperVersion : Nat := 1\n"))
   failures := failures ++ (← marked "lean/theorem-marked"
@@ -304,11 +327,14 @@ one target under both is a configuration refusal, and so is a library or executa
 claimed or excluded, that names no root target of its kind: one refusal that quotes the entry as
 the manifest writes it and lists the root targets of that kind by Lake target name, in the driver
 and, for an executable entry, in the adopter's `axiomGate --file` audit, which reads the manifest
-through the same loader. Without the `Regula.Linter` import, an `input_dir` filter `"*"` keeps the
-plain shape, and the driver and an ordinary build reuse each other's output; any other filter keeps
-the marker. Without the owner's `--ordinary-lakefiles` the driver keeps the marker whatever the
-shape. -/
-private def tomlAdopter (repo adopter : FilePath) : IO (Array String) := do
+through the same loader. Under the owner's `--ordinary-lakefiles` the driver keeps the audit-build
+marker for the live finding, whose module imports `Regula.Linter`, and prints why. Without that
+import, an `input_dir` filter `"*"` keeps the plain shape: the driver prints that it omits the
+marker, and an ordinary build reuses its output. Decision probes (`probe`) of the guard, each one
+change to the adopter: the filter `"*"` does not keep the marker, and a filter by extension and
+the `Regula.Linter` import each keep it. -/
+private def tomlAdopter (probes : Std.Mutex Unit) (repo adopter : FilePath) :
+    IO (Array String) := do
   BuildLintQualification.setup repo adopter "lake-lint-toml" #["Gadget.lean", "Gadget/Double.lean"]
     "lakefile.toml"
   let mut failures ← expect adopter (accepted "toml/positive")
@@ -340,13 +366,14 @@ private def tomlAdopter (repo adopter : FilePath) : IO (Array String) := do
   let ordinary ← runProcess adopter "lake" #["build"] scrubbedLeanPathEnv
   unless ordinary.succeeded && ordinary.output.contains "RG1001 [violation; editorSnapshot" do
     failures := failures.push s!"lake-lint/toml/live-build: {ordinary.output}"
-  -- `Gadget.Double` imports `Regula.Linter`, so the driver builds with the audit-build marker
-  -- (`Lake.auditMarkerNeeded`) and rebuilds the module that the ordinary build made.
+  -- `Gadget.Double` imports `Regula.Linter`, so even under the owner's `--ordinary-lakefiles` the
+  -- driver builds with the audit-build marker (`Lake.auditMarkerNeeded`), says why, and rebuilds
+  -- the module that the ordinary build made.
   failures := failures ++ (← expect adopter {
       label := "toml/live-finding", exitCode := 1,
       contains := #["RG1001", "liveFinding", "regula lint: VIOLATION (exit 1)",
-        "] Built Gadget.Double"],
-      excludes := #["build-failed", "editorSnapshot"] })
+        "] Built Gadget.Double", markerKept, "imports Regula.Linter"],
+      excludes := #["build-failed", "editorSnapshot"] } optIn)
   restore adopter originals
   -- A `lean_lib` and a `lean_exe` whose Lake target names are not Lean identifiers (#163, #166).
   -- The manifest names each by that name or as Lean prints it; both are one claim, naming both
@@ -438,9 +465,10 @@ private def tomlAdopter (repo adopter : FilePath) : IO (Array String) := do
   IO.FS.removeFile extra
   restore adopter targetOriginals
   -- Without the `Regula.Linter` import the workspace can have the plain shape. A `lakefile.toml`
-  -- `input_dir` filter is Lake's default only when it is omitted or `"*"`: then an ordinary build
-  -- and the driver reuse each other's output. With any other filter the driver keeps the marker,
-  -- so an ordinary build after it rebuilds the library's modules.
+  -- `input_dir` filter is Lake's default only when it is omitted or `"*"`: then the driver omits
+  -- the marker under the owner's `--ordinary-lakefiles`, and an ordinary build reuses its output.
+  -- With any other filter, or with the import, the driver keeps the marker.
+  let doubleSource ← IO.FS.readFile double
   mutate double "import Regula.Linter\n\n" ""
   let inputs := adopter / "inputs"
   IO.FS.createDirAll inputs
@@ -450,27 +478,20 @@ private def tomlAdopter (repo adopter : FilePath) : IO (Array String) := do
     IO.FS.writeFile lakefile (base.replace "globs = [\"Gadget\", \"Gadget.+\"]"
       s!"globs = [\"Gadget\", \"Gadget.+\"]\nneeds = [\"@/notes\"]\n\n[[input_dir]]\n\
         name = \"notes\"\npath = \"inputs\"\n{filter}")
-  let optIn := #["--", "--ordinary-lakefiles"]
   withFilter "filter = \"*\""
-  -- Without the owner's `--ordinary-lakefiles` the driver keeps the marker.
-  failures := failures ++ (← expect adopter (accepted "toml/star-default-marked"))
-  let ordinary ← runProcess adopter "lake" #["build"] scrubbedLeanPathEnv
-  unless ordinary.succeeded && ordinary.output.contains "] Built Gadget" do
-    failures := failures.push s!"lake-lint/toml/star-default-marked: the ordinary build reused \
-      the driver's build: {ordinary.output}"
-  failures := failures ++ (← expect adopter (accepted "toml/star-reused") optIn)
+  failures := failures ++ (← expect adopter
+    { accepted "toml/star-reused" with
+      contains := (accepted "toml/star-reused").contains.push markerOmitted } optIn)
   let ordinary ← runProcess adopter "lake" #["build"] scrubbedLeanPathEnv
   unless ordinary.succeeded && !ordinary.output.contains "] Built Gadget" do
     failures := failures.push s!"lake-lint/toml/star-reused: the ordinary build rebuilt a module: \
       {ordinary.output}"
-  failures := failures ++ (← expect adopter { accepted "toml/star-reused-again" with
-    excludes := (accepted "toml/star-reused-again").excludes.push "] Built" } optIn)
+  failures := failures ++ (← probe probes adopter "toml/star-plain" #[] false)
   withFilter "filter = { extension = [\"lean\"] }"
-  failures := failures ++ (← expect adopter (accepted "toml/filter-marked") optIn)
-  let ordinary ← runProcess adopter "lake" #["build"] scrubbedLeanPathEnv
-  unless ordinary.succeeded && ordinary.output.contains "] Built Gadget" do
-    failures := failures.push s!"lake-lint/toml/filter-marked: the ordinary build reused the \
-      driver's build: {ordinary.output}"
+  failures := failures ++ (← probe probes adopter "toml/filter-marked" #[] true)
+  withFilter "filter = \"*\""
+  IO.FS.writeFile double doubleSource
+  failures := failures ++ (← probe probes adopter "toml/linter-import-marked" #[] true)
   IO.FS.removeDirAll inputs
   restore adopter (originals ++ targetOriginals)
   failures := failures ++
@@ -518,12 +539,13 @@ private def compilerGuard (repo project : FilePath) : IO (Array String) := do
 
 /-- The absent-worker control first, alone, since the adopters share the checker's binaries;
 then both independent adopters and the cold compiler guard, each in its own disposable
-workspace. -/
+workspace. The adopters' decision probes load their workspaces one at a time (`probe`). -/
 def qualify (repo scratch : FilePath) (jobs : Nat) : IO (Array String) := do
   let absent ← withScratch scratch "lake-lint-worker" fun adopter => absentWorker repo adopter
   if !absent.isEmpty then return absent
+  let probes ← Std.Mutex.new ()
   let results ← mapConcurrent jobs
-    #[("lean", leanAdopter), ("toml", tomlAdopter), ("guard", compilerGuard)]
+    #[("lean", leanAdopter probes), ("toml", tomlAdopter probes), ("guard", compilerGuard)]
     fun (name, control) => withScratch scratch s!"lake-lint-{name}" fun adopter =>
                             control repo adopter
   return results.foldl (· ++ ·) #[]

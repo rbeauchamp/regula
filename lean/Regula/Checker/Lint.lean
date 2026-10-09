@@ -35,8 +35,8 @@ structure Options where
   verbose : Bool := false
   /-- `--ordinary-lakefiles`: the workspace owner asserts that the workspace's lakefiles are
   ordinary configuration. The claimed build then omits the audit-build marker when the plain-shape
-  guard `Lake.auditMarkerNeeded` admits the workspace (`Lake.buildAuditTargets`); without it the
-  build always has the marker. -/
+  guard `Lake.auditMarkerNeeded` admits the workspace, and prints whether it omits the marker or
+  keeps it and why (`Lake.buildAuditTargets`); without it the build always has the marker. -/
   ordinaryLakefiles : Bool := false
   /-- `--explain-config`: print the configuration an audit would use, run no audit and exit
   with the configuration class. -/
@@ -57,7 +57,8 @@ def usage : String :=
     trusted base.\n" ++
   "--ordinary-lakefiles asserts that the workspace's lakefiles are ordinary configuration: the \
     claimed build then omits the audit-build marker when a conservative guard admits the \
-    workspace, and reuses the ordinary build output.\n" ++
+    workspace, and reuses the ordinary build output; the driver prints whether it omits the \
+    marker or keeps it and why.\n" ++
   "exit codes: 0 accepted, 1 violation, 2 invalid configuration or invocation, 3 incomplete\n" ++
   "--explain-config and --help run no audit, establish no result and exit 2."
 

@@ -59,6 +59,9 @@ inductive Mode where
   | history
   /-- `diagnostics self-lint`: this repository's own `lake lint`. -/
   | selfLint
+  /-- `diagnostics self-lint-default`: this repository's own `lake lint` on the default path, with
+  the audit-build marker. -/
+  | selfLintDefault
   /-- `diagnostics self-audit`: the operational self-audit of the excluded `Regula` library. -/
   | selfAudit
   /-- `diagnostics rule-examples`: the whole rule-example corpus in one run. -/
@@ -96,6 +99,7 @@ def arguments : Mode → List String
   | .producers => ["diagnostics", "producers"]
   | .history => ["diagnostics", "history"]
   | .selfLint => ["diagnostics", "self-lint"]
+  | .selfLintDefault => ["diagnostics", "self-lint-default"]
   | .selfAudit => ["diagnostics", "self-audit"]
   | .ruleExamples => ["diagnostics", "rule-examples"]
   | .ruleExamplesFirst => ["diagnostics", "rule-examples", "1/2"]
@@ -106,7 +110,7 @@ def arguments : Mode → List String
 /-- Every supported mode occurs once; the parser searches only this closed vocabulary. -/
 def modes : List Mode := [.ordinary, .docs, .graph, .diagnostics, .fixtures, .structural,
   .execution, .structuralFirst, .structuralSecond, .executionFirst, .executionSecond, .cli,
-  .environments, .buildPolicy, .lintDriver, .producers, .history, .selfLint,
+  .environments, .buildPolicy, .lintDriver, .producers, .history, .selfLint, .selfLintDefault,
   .selfAudit, .ruleExamples, .ruleExamplesFirst, .ruleExamplesSecond, .site, .mathlib]
 
 /-- Argument parsing never accepts a prefix of a supported invocation. -/
@@ -272,6 +276,9 @@ def commands (copy pending : String) : Mode → List Command
   -- output when the plain-shape guard admits the workspace.
   | .selfLint => [lake #["lint", "--", "--ordinary-lakefiles"],
       lakeIn auditPackage #["lint", "--", "--ordinary-lakefiles"]]
+  -- The same two runs on the default path that an adopter gets, without the owner's assertion, so
+  -- with the audit-build marker.
+  | .selfLintDefault => [lake #["lint"], lakeIn auditPackage #["lint"]]
   | .selfAudit => [
       lake #["build", "Regula", "qualify"],
       lake #["exe", "qualify", "--under-deadline", "self-audit"]]
@@ -716,7 +723,7 @@ def report (ends : List (Command × Option UInt32)) : String :=
 private def usage : String :=
   "usage: scripts/verify.sh [docs | serialized-graph | site | mathlib | diagnostics \
     [fixtures|structural [1/2|2/2]|execution [1/2|2/2]|cli|environments|build-policy|\
-    lint-driver|producers|history|self-lint|self-audit|rule-examples [1/2|2/2]]]"
+    lint-driver|producers|history|self-lint|self-lint-default|self-audit|rule-examples [1/2|2/2]]]"
 
 /-- The earlier verdicts an attempt of `mode` invalidates, each with the constant text recording
 it as incomplete. Ordinary acceptance invalidates the accepted link, so it is not accepted from

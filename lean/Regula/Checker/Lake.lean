@@ -203,6 +203,14 @@ inductive TargetKind where
   | other
   deriving DecidableEq, Repr
 
+/-- The name of `kind` in the reasons of `markerReason`. -/
+def TargetKind.label : TargetKind → String
+  | .leanLib => "lean_lib"
+  | .leanExe => "lean_exe"
+  | .inputFile => "input_file"
+  | .inputDir => "input_dir"
+  | .other => "other"
+
 /-- The fields of a target's configuration that the plain shape lets differ from Lake's default:
 the source directory, roots and globs of a library, the root, file name and interpreter support
 of an executable, `needs` and Lean options of both, and the path and text mode of an input target.
@@ -223,6 +231,8 @@ def packageFields : List Name :=
 
 /-- What the plain shape reads of one target of a package. -/
 structure TargetShape where
+  /-- The target's name, which only `markerReason` reads. -/
+  name : Name
   /-- The kind of the target. -/
   kind : TargetKind
   /-- Each field of the target's configuration that Regula does not show to have Lake's default
@@ -274,6 +284,8 @@ def toolchainRoots : List Name := [`Init, `Std, `Lean, `Lake]
 
 /-- What the plain shape reads of one package of the workspace. -/
 structure PackageShape where
+  /-- The package's name, which only `markerReason` reads. -/
+  name : Name
   /-- Each field of the package's configuration that Regula does not show to have Lake's default
   value. -/
   unknown : Array Name
@@ -282,8 +294,9 @@ structure PackageShape where
   /-- The number of facets that the package's configuration file declares, new or in place of
   one of Lake's; `none` when Regula cannot read it. -/
   facets : Option Nat
-  /-- Each declaration of the package's compiled configuration file; none for a `lakefile.toml`. -/
-  declarations : Array ConfigDeclaration
+  /-- Each declaration of the package's compiled configuration file, by name; none for a
+  `lakefile.toml`. -/
+  declarations : Array (Name × ConfigDeclaration)
   /-- Each environment extension with entries of the compiled configuration file itself; none for
   a `lakefile.toml`. -/
   extensions : Array String
@@ -307,7 +320,7 @@ such packages, a build of `lean_lib` and `lean_exe` targets runs no custom build
 modules and reads and hashes input files. -/
 def PackageShape.Plain (shape : PackageShape) : Prop :=
   (∀ field ∈ shape.unknown, field ∈ packageFields) ∧ (∀ target ∈ shape.targets, target.Plain) ∧
-    shape.facets = some 0 ∧ (∀ declaration ∈ shape.declarations, declaration ≠ .other) ∧
+    shape.facets = some 0 ∧ (∀ declaration ∈ shape.declarations, declaration.2 ≠ .other) ∧
     (∀ extension ∈ shape.extensions, extension ∈ configExtensions) ∧
     (∀ module ∈ shape.imports, module.getRoot ∈ toolchainRoots) ∧ shape.attributes = 0 ∧
     shape.strayInlines = 0
@@ -335,7 +348,7 @@ theorem TargetShape.plain_iff (target : TargetShape) : target.plain = true ↔ t
 /-- The test of `PackageShape.Plain` (`PackageShape.plain_iff`). -/
 def PackageShape.plain (shape : PackageShape) : Bool :=
   shape.unknown.all (packageFields.contains ·) && shape.targets.all TargetShape.plain &&
-    shape.facets == some 0 && shape.declarations.all (· != .other) &&
+    shape.facets == some 0 && shape.declarations.all (·.2 != .other) &&
     shape.extensions.all (configExtensions.contains ·) &&
     shape.imports.all (toolchainRoots.contains ·.getRoot) && shape.attributes == 0 &&
     shape.strayInlines == 0
@@ -344,6 +357,56 @@ def PackageShape.plain (shape : PackageShape) : Bool :=
 theorem PackageShape.plain_iff (shape : PackageShape) : shape.plain = true ↔ shape.Plain := by
   simp only [plain, Plain, Bool.and_eq_true, Array.all_eq_true', List.contains_iff_mem,
     TargetShape.plain_iff, beq_iff_eq, bne_iff_ne, ne_eq, and_assoc]
+
+/-- The first condition of `TargetShape.plain` that `target` fails, as text: its kind, a field
+outside `TargetKind.fields`, or a `needs` entry that names no input target of its package. `none`
+exactly when `target` is plain (`TargetShape.failure?_eq_none`). -/
+def TargetShape.failure? (target : TargetShape) : Option String :=
+  (if target.kind == .other then
+      some s!"target {target.name} is not a lean_lib, lean_exe, input_file or input_dir"
+    else none).or <|
+  ((target.unknown.find? (!target.kind.fields.contains ·)).map
+    (s!"target {target.name} sets the field {·}")).or <|
+  (target.needs.find? (!·.input)).map
+    (s!"target {target.name} needs a target of kind {·.label}, not an input target of its package")
+
+/-- `TargetShape.failure?` gives no reason exactly for a plain target. -/
+theorem TargetShape.failure?_eq_none (target : TargetShape) :
+    target.failure? = none ↔ target.plain = true := by
+  simp only [failure?, plain, Option.or_eq_none_iff, Option.map_eq_none_iff, Array.find?_eq_none,
+    Bool.and_eq_true, Array.all_eq_true', Bool.not_eq_true', Bool.not_eq_false, bne_iff_ne, ne_eq]
+  split <;> simp_all
+
+/-- The first condition of `PackageShape.plain` that `shape` fails, as text: a package field, a
+target (`TargetShape.failure?`), the facets, a declaration, an extension, an import, an attribute
+command or a stray `inline` entry. `none` exactly when `shape` is plain
+(`PackageShape.failure?_eq_none`). -/
+def PackageShape.failure? (shape : PackageShape) : Option String :=
+  ((shape.unknown.find? (!packageFields.contains ·)).map (s!"the package field {·}")).or <|
+  (shape.targets.findSome? TargetShape.failure?).or <|
+  (if shape.facets == some 0 then none
+    else some (shape.facets.elim "facet declarations that Regula cannot read"
+      (s!"{·} facet declaration(s)"))).or <|
+  ((shape.declarations.find? fun (declaration : Name × ConfigDeclaration) =>
+      declaration.2 == ConfigDeclaration.other).map
+    fun (declaration : Name × ConfigDeclaration) =>
+      s!"the declaration {declaration.1}, not one of Lake's configuration declarations").or <|
+  ((shape.extensions.find? (!configExtensions.contains ·)).map
+    (s!"entries of the environment extension {·}")).or <|
+  ((shape.imports.find? fun (module : Name) => !toolchainRoots.contains module.getRoot).map
+    (s!"the import {·}")).or <|
+  (if shape.attributes == 0 then none
+    else some s!"{shape.attributes} attribute command(s) or local or scoped attribute(s)").or <|
+  if shape.strayInlines == 0 then none
+  else some s!"{shape.strayInlines} inline entr(ies) unlike those of Lake's commands"
+
+/-- `PackageShape.failure?` gives no reason exactly for a plain package. -/
+theorem PackageShape.failure?_eq_none (shape : PackageShape) :
+    shape.failure? = none ↔ shape.plain = true := by
+  simp only [failure?, plain, Option.or_eq_none_iff, Option.map_eq_none_iff, Array.find?_eq_none,
+    Array.findSome?_eq_none_iff, TargetShape.failure?_eq_none, Bool.and_eq_true,
+    Array.all_eq_true', Bool.not_eq_true', Bool.not_eq_false, beq_iff_eq, bne_iff_ne, ne_eq]
+  simp only [ite_eq_left_iff, reduceCtorEq, imp_false, Decidable.not_not, and_assoc]
 
 /-- A module of the root package as the driver reads it: the source file that each of the
 package's libraries and executables gives the name, the source file of the module that Lake
@@ -429,14 +492,46 @@ theorem checked_auditMarkerNeeded : Regula.ExecutableContract auditMarkerNeeded
       ¬ (∀ shape ∈ inputs.packages, shape.Plain) ∨
         ∃ entry ∈ inputs.modules, ¬ entry.Resolved ∨ linterModule ∈ entry.imports) :=
   ⟨Regula.Decides.of_iff auditMarkerNeeded_iff
-    ⟨⟨#[⟨#[], #[], none, #[], #[], #[], 0, 0⟩], #[]⟩, (auditMarkerNeeded_iff _).mpr
-      (.inl fun plain => by
-        have facets := (plain ⟨#[], #[], none, #[], #[], #[], 0, 0⟩ (by simp)).2.2.1
+    ⟨⟨#[⟨.anonymous, #[], #[], none, #[], #[], #[], 0, 0⟩], #[]⟩,
+      (auditMarkerNeeded_iff _).mpr (.inl fun plain => by
+        have facets := (plain ⟨.anonymous, #[], #[], none, #[], #[], #[], 0, 0⟩ (by simp)).2.2.1
         simp at facets)⟩
     ⟨⟨#[], #[]⟩, fun accepted => by
       rcases (auditMarkerNeeded_iff _).mp accepted with notPlain | ⟨_, member, _⟩
       · exact notPlain fun _ member => by simp at member
       · simp at member⟩⟩
+
+/-- Why `entry` asks for the marker, as text: it is not resolved to its one source, or it imports
+`linterModule`. -/
+def ModuleEntry.failure? (entry : ModuleEntry) : Option String :=
+  if !entry.resolvedTest then some s!"module {entry.name} does not resolve to its one source"
+  else if entry.imports.contains linterModule then
+    some s!"module {entry.name} imports {linterModule}"
+  else none
+
+/-- Why the `lint` driver's claimed build keeps the audit-build marker, as text: the first package
+that is not plain with its first failed condition (`PackageShape.failure?`), or the first module
+of the root package that asks for the marker (`ModuleEntry.failure?`). It gives a reason exactly
+when `auditMarkerNeeded` asks for the marker (`markerReason_isSome`). -/
+def markerReason (inputs : MarkerInputs) : Option String :=
+  (inputs.packages.findSome? fun shape => shape.failure?.map (s!"package {shape.name}: {·}")).or <|
+    inputs.modules.findSome? ModuleEntry.failure?
+
+/-- `markerReason` gives a reason exactly when `auditMarkerNeeded` asks for the marker. -/
+theorem markerReason_isSome (inputs : MarkerInputs) :
+    (markerReason inputs).isSome = auditMarkerNeeded inputs := by
+  have module (entry : ModuleEntry) : entry.failure? = none ↔
+      (!entry.resolvedTest || entry.imports.contains linterModule) = false := by
+    unfold ModuleEntry.failure?
+    split
+    · simp_all
+    · split <;> simp_all
+  rw [Bool.eq_iff_iff, Option.isSome_iff_ne_none, ne_eq, ← Bool.not_eq_false, Bool.not_eq_false]
+  simp only [markerReason, auditMarkerNeeded, Option.or_eq_none_iff, Array.findSome?_eq_none_iff,
+    Option.map_eq_none_iff, PackageShape.failure?_eq_none, module, Bool.or_eq_true,
+    Bool.not_eq_true', Array.any_eq_true', Bool.eq_false_iff]
+  rw [← Array.all_eq_true']
+  cases inputs.packages.all PackageShape.plain <;> simp [Decidable.imp_iff_not_or]
 
 /-- Lake reads an explicit `+module` with `String.toName` and splits facets at `:`.
 Use that spelling, with `facet`, only when it retains the exact discovered root name, as for
@@ -760,8 +855,8 @@ structure ConfigReading where
   facets : Option Nat
   /-- Whether its targets have Lake's default function fields (`defaultFunctionFields`). -/
   functions : Bool
-  /-- The `ConfigDeclaration` of each declaration of the file. -/
-  declarations : Array ConfigDeclaration
+  /-- The `ConfigDeclaration` of each declaration of the file, by name. -/
+  declarations : Array (Name × ConfigDeclaration)
   /-- Each environment extension with entries of the file itself. -/
   extensions : Array String
   /-- The modules that the file imports. -/
@@ -800,7 +895,8 @@ def leanConfigReading (ws : _root_.Lake.Workspace) (package : _root_.Lake.Packag
   return {
     facets := if (_root_.Lake.targetAttr.getAllEntries imported).isEmpty then some facets else none
     functions := defaultFunctionFields config
-    declarations := config.constants.map (configDeclaration names.declarations)
+    declarations := config.constants.map fun constant =>
+      (constant.name, configDeclaration names.declarations constant)
     extensions := config.entries.filterMap fun (extension, entries) =>
       if entries.isEmpty then none else some extension.toString
     imports := config.imports.map (·.module)
@@ -818,23 +914,23 @@ def targetShape (package : _root_.Lake.Package)
   let kind := declarationKind declaration.kind
   let nativeFacets := toml || functions
   if let some config := declaration.config? _root_.Lake.LeanLib.configKind then
-    { kind, needs := config.needs.map (needKind package)
+    { name := declaration.name, kind, needs := config.needs.map (needKind package)
       unknown := unknownFields (_root_.Lake.ConfigFields.fields
         (σ := _root_.Lake.LeanLibConfig declaration.name)) (libraryChecks config nativeFacets) }
   else if let some config := declaration.config? _root_.Lake.LeanExe.configKind then
-    { kind, needs := config.needs.map (needKind package)
+    { name := declaration.name, kind, needs := config.needs.map (needKind package)
       unknown := unknownFields (_root_.Lake.ConfigFields.fields
         (σ := _root_.Lake.LeanExeConfig declaration.name)) (executableChecks config nativeFacets) }
   else if let some config := declaration.config? _root_.Lake.InputDir.configKind then
-    { kind, needs := #[]
+    { name := declaration.name, kind, needs := #[]
       unknown := unknownFields (_root_.Lake.ConfigFields.fields
         (σ := _root_.Lake.InputDirConfig declaration.name))
         [(`filter, if toml then config.filter.name == `star else functions)] }
   else if kind == .inputFile then
-    { kind, needs := #[]
+    { name := declaration.name, kind, needs := #[]
       unknown := unknownFields (_root_.Lake.ConfigFields.fields
         (σ := _root_.Lake.InputFileConfig declaration.name)) [] }
-  else { kind := .other, unknown := #[], needs := #[] }
+  else { name := declaration.name, kind := .other, unknown := #[], needs := #[] }
 
 /-- What the plain shape reads of `package`: Lake's configuration of the package and of each
 target, and for `lakefile.lean` its compiled configuration (`leanConfigReading`). A `lakefile.toml`
@@ -844,6 +940,7 @@ def packageShape (ws : _root_.Lake.Workspace) (package : _root_.Lake.Package) :
   let toml := package.configFile.extension == some "toml"
   let reading ← if toml then pure tomlReading else leanConfigReading ws package
   return {
+    name := package.baseName
     unknown := unknownFields (_root_.Lake.ConfigFields.fields
       (σ := _root_.Lake.PackageConfig package.keyName package.origName))
       (packageChecks package.config)
@@ -898,7 +995,10 @@ build, as before the plain shape existed. With `ordinary`, the workspace owner's
 workspace's lakefiles are ordinary configuration (`lake lint -- --ordinary-lakefiles`), the marker
 is omitted when `auditMarkerNeeded` decides that the workspace is of the plain shape and that each
 module of the root package resolves to its one source and does not import `linterModule`; each
-failure to read the workspace, by an exception or by an unknown, keeps it. The plain shape is a
+failure to read the workspace, by an exception or by an unknown, keeps it. It then prints one line
+before the build, outside the build output: that the build omits the marker, or that it keeps it
+with the reason, which is `markerReason` (a reason exactly when `auditMarkerNeeded` asks for the
+marker, `markerReason_isSome`) or the failure to read the workspace. The plain shape is a
 conservative guard under that assertion, not a guarantee against a lakefile written to defeat it.
 For that shape the marked build and the unmarked one give the same verdict: a build of `lean_lib`
 and `lean_exe` targets in it runs no custom build step, so it compiles only modules that the root
@@ -917,11 +1017,22 @@ def buildAuditTargets (ordinary : Bool) (repo : FilePath) (targets : Array Strin
         let specs ← match ← (_root_.Lake.parseTargetSpecs ws targets.toList).toBaseIO with
           | .ok specs => pure specs
           | .error error => throw <| IO.userError (toString error)
-        let marked ← if !ordinary then pure true else try
-            pure <| match ← markerInputs ws with
-              | some inputs => checked_auditMarkerNeeded.run inputs
-              | none => true
-          catch _ => pure true
+        let marked ← if !ordinary then pure true else do
+          let reading : Except String MarkerInputs ← try
+              pure <| match ← markerInputs ws with
+                | some inputs => .ok inputs
+                | none => .error "Lake did not report the imports of a module of the root package"
+            catch error => pure (.error s!"the workspace could not be read: {error}")
+          let (marked, reason) := match reading with
+            | .ok inputs => (checked_auditMarkerNeeded.run inputs, markerReason inputs)
+            | .error reason => (true, some reason)
+          IO.println <| match reason with
+            | some reason =>
+                s!"regula lint: the claimed build keeps the audit-build marker: {reason}"
+            | none => "regula lint: the claimed build omits the audit-build marker: the workspace \
+                has the plain shape"
+          (← IO.getStdout).flush
+          pure marked
         let overrides : NameMap LeanOptions :=
           if marked then ({} : NameMap LeanOptions).insert ws.root.baseName auditLeanOptions else {}
         ws.runBuild (_root_.Lake.buildSpecs specs) {

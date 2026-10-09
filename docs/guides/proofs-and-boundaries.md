@@ -182,11 +182,13 @@ the option, the driver always builds with the marker.
 With the option, the owner asserts that the lakefiles of the workspace are ordinary configuration.
 The plain shape is a conservative guard under that assertion. It is not a guarantee against a
 lakefile that someone wrote to defeat it. The verification of Regula uses the option in the timed
-check of its own code (`diagnostics self-lint`).
+check of its own code (`diagnostics self-lint`). A nightly check of the same code,
+`diagnostics self-lint-default`, runs without the option.
 
 The driver takes the option only from the command line. It refuses the option in the
 `lintDriverArgs` of a package, because the audited project could give it there. The banner of the
-run names the assertion, and the JSON result records it (`scope.ordinaryLakefiles`).
+run names the assertion, and the JSON result records it (`scope.ordinaryLakefiles`). Before the
+build, the run prints if the build omits the marker, or keeps it and why.
 
 In the plain shape, each package declares only `lean_lib`, `lean_exe`, `input_file` and
 `input_dir` targets. Each field of the configuration of a package or a target has the default
