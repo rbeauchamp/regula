@@ -744,6 +744,16 @@
   "reason": "execution-trusted-boundary",
   "execution": "checked"
  },
+ "Fixtures.Mutations.AnonymousInitializerBoundary": {
+  "expect": "fail",
+  "claim": "standard-logical",
+  "execution": "checked",
+  "reason": "execution-trusted-boundary",
+  "output": [
+   "fixtures_initializer_reference",
+   "initFn"
+  ]
+ },
  "Fixtures.Mutations.NamespacedVariants": {
   "expect": "fail",
   "reason": "hole"
