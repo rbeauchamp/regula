@@ -19,8 +19,9 @@ executed `RegulaPolicy.checked_decisionFailure` decision (RG1008) against the de
 the same module registers (`RegulaPolicy.decidedImplementations` of the recorded contracts of its
 declarations), and the live linter's module-header (RG5001: docstring present and first, no
 repeated import) and material-documentation presence predicates
-(`Regula.Linter.Documentation`, RG5001–RG5003). Authored `unsafe`/`partial` declarations and
-the pinned toolchain's Lake axioms that in-process Lake APIs reach are reported, never failed.
+(`Regula.Linter.Documentation`, RG5001–RG5003). Authored `unsafe`/`partial` declarations, the
+pinned toolchain's Lake axioms that in-process Lake APIs reach, and the axioms Lean's
+`collectAxioms` omits for a declaration are reported, never failed.
 
 Each module is imported alone, because several executable roots of the library each define
 `main` and cannot share one environment. Warning-free elaboration (RG2003) is the preceding
@@ -78,11 +79,11 @@ private unsafe def observe (toolchainLib : FilePath) (moduleName : Name) (source
   let ctx : Elab.Command.Context := {
     fileName := "<operational-self-audit>", fileMap := FileMap.ofString "",
     snap? := none, cancelTk? := none }
-  let scope ← Regula.Collect.ContractScope.new env
+  let scope ← Regula.Collect.ContractScope.new env admission.replayed.axioms
   let collected ← EIO.toIO' <|
     (show Elab.Command.CommandElabM (Array RegulaPolicy.Declaration) from
       own.mapM fun (name, _) =>
-        Regula.Collect.declaration name .snapshot scope (some admission.axioms)).run ctx
+        Regula.Collect.declaration name .snapshot scope (some admission.replayed)).run ctx
       |>.run (Elab.Command.mkState env)
   let declarations : Array RegulaPolicy.Declaration ← match collected with
     | .ok (declarations, _) => pure declarations
@@ -133,6 +134,10 @@ structure ModuleResult where
   toolchainAxioms : Array String
   /-- Non-proposition declarations whose axioms include one of those toolchain axioms. -/
   toolchainDependents : Array String
+  /-- Each declaration for which Lean's `collectAxioms` omits axioms it reaches in the replayed
+  kernel, with the two sets and where each omission comes from
+  (`RegulaPolicy.tableOmissionText`), reported rather than failed. -/
+  tableOmissions : Array String
   deriving ToJson, FromJson
 
 /-- Decide one module's observations with the axioms its own environment attributes to the
@@ -173,10 +178,13 @@ private def decide (o : ModuleObservation) : Except String ModuleResult := do
       let detail := Findings.ruleDetail id d ++
         (if extra.isEmpty then "" else s!" (axioms outside Standard-Logical: {extra.toList})")
       violations := violations.push (← declarationText id d.name detail o.module)
+  let omissions := o.declarations.filterMap fun d =>
+    if d.tableOmissions.isEmpty then none
+    else some s!"{d.name}: {tableOmissionText d.axioms d.tableOmissions}"
   return ⟨o.module.toString, o.declarations.size, o.admitted, contracts, violations,
       unsafeDeclarations,
     partialDefinitions,
-    toolchain.names.map toString, dependents⟩
+    toolchain.names.map toString, dependents, omissions⟩
 
 /-- Worker: observe and decide exactly one module, printing only its JSON result. -/
 unsafe def worker (moduleName source : String) : IO Unit := do
@@ -230,6 +238,9 @@ def check (jobs : Nat := 4) : IO Unit := do
     definition(s): {partialDefinitions.toList}"
   IO.println s!"reported, not failed: {dependents.size} definition(s) reach toolchain Lake \
     axiom(s) {(union (·.toolchainAxioms)).toList}: {dependents.toList}"
+  let omissions := union (·.tableOmissions)
+  IO.println s!"reported, not failed: {omissions.size} declaration(s) for which Lean's \
+    collectAxioms omits axioms they reach in the replayed kernel: {omissions.toList}"
   IO.println "trusted, not verified: Lean import and kernel replay, the collector's observations, \
     the toolchain artifact paths, worker processes and JSON transport, and every execution path \
     (the library's executables make no execution claim)"

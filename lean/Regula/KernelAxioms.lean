@@ -1,5 +1,6 @@
 module
 
+public import Lean.Environment
 public import Lean.Util.FoldConsts
 public import Std.Data.HashMap.Lemmas
 public import Std.Data.HashSet.Lemmas
@@ -13,11 +14,12 @@ the owned modules (`Admission.validate`), so the foundation rules decide on what
 checked, never on the axiom table `exportedAxiomsExt` that Lean's `collectAxioms` reads first for
 an imported name.
 
-A search of a graph of names (`search`) underlies both computations here: `axiomsOf` for one name,
-and `axiomTable`, one forward search from every requested name and one backward search from each
-axiom found, for many names of one environment. `axiomsOf_some` and `axiomTable_some` state
-that each returns exactly the axioms `ReachesAxiom` relates to the name. Each search is bounded by
-its fuel: a search that runs out returns `none`, and the caller refuses.
+A search of a graph of names (`search`) underlies both computations here: `axiomTable`, one forward
+search from every requested name and one backward search from each axiom found, for all the names
+of their closure in one environment, and `axiomsWith`, a search from one name that stops at the
+names of such a table. `axiomTable_some` and `axiomsWith_some` state that each returns exactly the
+axioms `ReachesAxiom` relates to a name. Each search is bounded by its fuel: a search that runs out
+returns `none`, and the caller refuses.
 
 A step follows `ConstantInfo.getUsedConstantsAsSet`: the constants of the type and the value,
 the constructors of an inductive type, the inductive types of a recursor. Each step that Lean's
@@ -111,6 +113,13 @@ theorem Reach.tail {next : Name → Array Name} {n x y : Name} (h : Reach next n
   induction h with
   | refl => exact .step hy (.refl y)
   | step hm _ ih => exact .step hm (ih hy)
+
+/-- Reachability is transitive. -/
+theorem Reach.trans {next : Name → Array Name} {n m x : Name} (h : Reach next n m)
+    (h' : Reach next m x) : Reach next n x := by
+  induction h with
+  | refl => exact h'
+  | step hm _ ih => exact .step hm (ih h')
 
 /-- Expand the `pending` names, recording in `seen` every name ever pushed, and in `edges` each
 expanded name with the names after it. It returns the seen names and the edges once nothing is
@@ -313,33 +322,6 @@ of the constants used (`successors`), `n` itself included, and `find` holds an a
 def ReachesAxiom (find : Name → Option ConstantInfo) (n a : Name) : Prop :=
   Reach (successors find) n a ∧ IsAxiomIn find a
 
-/-- The axioms `n` reaches in `find`, within `fuel` expansions, or `none` when the fuel runs
-out. -/
-def axiomsOf (find : Name → Option ConstantInfo) (fuel : Nat) (n : Name) : Option (Array Name) :=
-  (search (successors find) fuel [n]).map fun seen => (seen.toList.filter (isAxiomIn find)).toArray
-
-/-- **`axiomsOf` returns exactly the axioms `n` reaches** (`ReachesAxiom`). -/
-theorem axiomsOf_some {find : Name → Option ConstantInfo} {fuel : Nat} {n : Name}
-    {axioms : Array Name} (h : axiomsOf find fuel n = some axioms) :
-    ∀ a, a ∈ axioms ↔ ReachesAxiom find n a := by
-  unfold axiomsOf at h
-  cases hs : search (successors find) fuel [n] with
-  | none => simp [hs] at h
-  | some seen =>
-    simp only [hs, Option.map_some, Option.some.injEq] at h
-    subst h
-    obtain ⟨complete, sound⟩ := search_some hs
-    intro a
-    simp only [List.mem_toArray, List.mem_filter, Std.HashSet.mem_toList, isAxiomIn_iff,
-      ReachesAxiom]
-    constructor
-    · rintro ⟨ha, hax⟩
-      obtain ⟨s, hs, hr⟩ := sound a ha
-      rw [List.mem_singleton.mp hs] at hr
-      exact ⟨hr, hax⟩
-    · rintro ⟨hr, hax⟩
-      exact ⟨complete n List.mem_cons_self a hr, hax⟩
-
 /-- Each name of `edges` under each name after it: the names before each name. -/
 def predecessors (edges : List (Name × Array Name)) : Std.HashMap Name (List Name) :=
   edges.foldl (init := {}) fun preds edge =>
@@ -445,46 +427,39 @@ reached `n`. -/
 def reachedFrom (found : List (Name × Std.HashSet Name)) (n : Name) : Array Name :=
   (found.filterMap fun (a, reaching) => if reaching.contains n then some a else none).toArray
 
-/-- The axioms each name of `roots` reaches in `find`: one forward search from all of `roots`,
-then one search back from each axiom it finds, along the edges the forward search recorded, so
-each constant's successors are computed once. `none` when a search runs out of `fuel`. -/
+/-- The axioms that each name reachable from `roots` reaches in `find`, under that name: one forward
+search from all of `roots`, then one search back from each axiom it finds, along the edges the
+forward search recorded, so each constant's successors are computed once. The table holds every
+name the forward search reached, so a later search can stop at any of them (`axiomsWith`).
+`none` when a search runs out of `fuel`. -/
 def axiomTable (find : Name → Option ConstantInfo) (fuel : Nat) (roots : Array Name) :
     Option (Std.HashMap Name (Array Name)) := do
   let (seen, edges) ← searchEdges (successors find) fuel roots.toList
   let preds := predecessors edges
   let found ← searchBack (fun y => (preds.getD y []).toArray) fuel
     (seen.toList.filter (isAxiomIn find))
-  return roots.foldl (init := {}) fun table n => table.insert n (reachedFrom found n)
+  return seen.toList.foldl (init := {}) fun table n => table.insert n (reachedFrom found n)
 
-/-- Folding `insert n (f n)` over `names` leaves each name of `names` under `f` of it. -/
-private theorem foldl_insert_get? (f : Name → Array Name) :
-    ∀ (names : List Name) (init : Std.HashMap Name (Array Name)) (n : Name), n ∈ names →
-      (names.foldl (init := init) fun table m => table.insert m (f m))[n]? = some (f n) := by
+/-- Folding `insert m (f m)` over `names` gives each name of `names` `f` of it, and leaves every
+other name as `init` has it. -/
+private theorem foldl_insert_getElem? (f : Name → Array Name) :
+    ∀ (names : List Name) (init : Std.HashMap Name (Array Name)) (n : Name),
+      (names.foldl (init := init) fun table m => table.insert m (f m))[n]? =
+        if n ∈ names then some (f n) else init[n]? := by
   intro names
   induction names with
   | nil => simp
   | cons m rest ih =>
-    intro init n hn
+    intro init n
     simp only [List.foldl_cons]
+    rw [ih, Std.HashMap.getElem?_insert]
     by_cases hr : n ∈ rest
-    · exact ih _ n hr
-    · have hm : m = n := by
-        rcases List.mem_cons.mp hn with rfl | h
-        · rfl
-        · exact absurd h hr
-      subst hm
-      suffices ∀ (names : List Name) (init : Std.HashMap Name (Array Name)), m ∉ names →
-          (names.foldl (init := init) fun table k => table.insert k (f k))[m]? = init[m]? by
-        rw [this rest _ hr, Std.HashMap.getElem?_insert_self]
-      intro names
-      induction names with
-      | nil => simp
-      | cons k ks ihk =>
-        intro init hk
-        simp only [List.foldl_cons]
-        rw [ihk _ (fun h => hk (List.mem_cons_of_mem _ h)), Std.HashMap.getElem?_insert]
-        have : (k == m) = false := beq_false_of_ne fun h => hk (h ▸ List.mem_cons_self)
-        simp [this]
+    · simp [hr]
+    · by_cases hm : m = n
+      · subst hm
+        simp [hr]
+      · have : (m == n) = false := beq_false_of_ne hm
+        simp [hr, this, List.mem_cons, Ne.symm hm]
 
 /-- A name reached from a name of the set `nodes`, along the names after each name in it, is in
 it, and the reversed path runs along `back`, which has every name of `nodes` before each name
@@ -506,11 +481,12 @@ private theorem reach_forward {next back : Name → Array Name}
   | refl => exact .refl _
   | step hm _ ih => exact ih.tail (after _ _ hm)
 
-/-- **`axiomTable` gives each name of `roots` exactly the axioms it reaches** (`ReachesAxiom`). -/
+/-- **`axiomTable` holds each name of `roots`, and gives each name it holds exactly the axioms that
+name reaches** (`ReachesAxiom`). -/
 theorem axiomTable_some {find : Name → Option ConstantInfo} {fuel : Nat} {roots : Array Name}
-    {table : Std.HashMap Name (Array Name)} (h : axiomTable find fuel roots = some table)
-    {n : Name} (hn : n ∈ roots) :
-    ∃ axioms, table[n]? = some axioms ∧ ∀ a, a ∈ axioms ↔ ReachesAxiom find n a := by
+    {table : Std.HashMap Name (Array Name)} (h : axiomTable find fuel roots = some table) :
+    (∀ n ∈ roots, ∃ axioms, table[n]? = some axioms) ∧
+      ∀ n axioms, table[n]? = some axioms → ∀ a, a ∈ axioms ↔ ReachesAxiom find n a := by
   unfold axiomTable at h
   cases hs : searchEdges (successors find) fuel roots.toList with
   | none => simp [hs] at h
@@ -524,44 +500,171 @@ theorem axiomTable_some {find : Name → Option ConstantInfo} {fuel : Nat} {root
       simp only [hs, hb, back, Option.bind_eq_bind, Option.bind_some, Option.pure_def,
         Option.some.injEq] at h
       subst h
-      refine ⟨reachedFrom found n, ?_, fun a => ?_⟩
-      · rw [← Array.foldl_toList]
-        exact foldl_insert_get? _ _ _ n (Array.mem_toList_iff.mpr hn)
-      have after : ∀ x y, x ∈ back y → y ∈ successors find x := by
-        intro x y hx
-        simp only [back, List.mem_toArray, mem_predecessors] at hx
-        obtain ⟨e, he, rfl, hy⟩ := hx
-        rwa [edgeOK e he] at hy
-      have before : ∀ x ∈ seen, ∀ y ∈ successors find x, x ∈ back y := by
-        intro x hx y hy
-        obtain ⟨e, he, rfl⟩ := hasEdge x hx
-        simp only [back, List.mem_toArray, mem_predecessors]
-        exact ⟨e, he, rfl, (edgeOK e he) ▸ hy⟩
-      have closed : ∀ x ∈ seen, ∀ y ∈ successors find x, y ∈ seen := by
-        intro x hx y hy
-        obtain ⟨s, hs, hr⟩ := sound x hx
-        exact complete s hs y (hr.tail hy)
-      have root : n ∈ roots.toList := Array.mem_toList_iff.mpr hn
-      obtain ⟨searched, entries⟩ := searchBack_some hb
-      simp only [reachedFrom, List.mem_toArray, List.mem_filterMap, Option.ite_none_right_eq_some,
-        Option.some.injEq, Prod.exists, ReachesAxiom]
-      constructor
-      · rintro ⟨b, reaching, hentry, hcontains, rfl⟩
-        obtain ⟨haxiom, hsearch⟩ := entries _ hentry
-        obtain ⟨-, hfound⟩ := search_some hsearch
-        obtain ⟨s, hs, hr⟩ := hfound n (Std.HashSet.mem_iff_contains.mpr hcontains)
-        rw [List.mem_singleton.mp hs] at hr
-        simp only [List.mem_filter, isAxiomIn_iff] at haxiom
-        exact ⟨reach_forward after hr, haxiom.2⟩
-      · rintro ⟨hr, hax⟩
-        have haxiom : a ∈ seen.toList.filter (isAxiomIn find) := by
-          simp only [List.mem_filter, Std.HashSet.mem_toList, isAxiomIn_iff]
-          exact ⟨complete n root a hr, hax⟩
-        obtain ⟨reaching, hentry, hsearch⟩ := searched a haxiom
-        have hback : Reach back a n :=
-          reach_back closed before (complete n root n (.refl n)) hr
-        exact ⟨a, reaching, hentry,
-          Std.HashSet.mem_iff_contains.mp ((search_some hsearch).1 a List.mem_cons_self n hback),
-          rfl⟩
+      have lookup : ∀ n, (seen.toList.foldl (init := ({} : Std.HashMap Name (Array Name)))
+          fun table m => table.insert m (reachedFrom found m))[n]? =
+            if n ∈ seen then some (reachedFrom found n) else none := by
+        intro n
+        rw [foldl_insert_getElem?]
+        simp [Std.HashSet.mem_toList]
+      refine ⟨fun n hn => ⟨reachedFrom found n, ?_⟩, fun n axioms hn a => ?_⟩
+      · rw [lookup]
+        simp [complete n (Array.mem_toList_iff.mpr hn) n (.refl n)]
+      rw [lookup] at hn
+      by_cases hseen : n ∈ seen
+      · simp only [hseen, ↓reduceIte, Option.some.injEq] at hn
+        subst hn
+        have after : ∀ x y, x ∈ back y → y ∈ successors find x := by
+          intro x y hx
+          simp only [back, List.mem_toArray, mem_predecessors] at hx
+          obtain ⟨e, he, rfl, hy⟩ := hx
+          rwa [edgeOK e he] at hy
+        have before : ∀ x ∈ seen, ∀ y ∈ successors find x, x ∈ back y := by
+          intro x hx y hy
+          obtain ⟨e, he, rfl⟩ := hasEdge x hx
+          simp only [back, List.mem_toArray, mem_predecessors]
+          exact ⟨e, he, rfl, (edgeOK e he) ▸ hy⟩
+        have closed : ∀ x ∈ seen, ∀ y ∈ successors find x, y ∈ seen := by
+          intro x hx y hy
+          obtain ⟨s, hs, hr⟩ := sound x hx
+          exact complete s hs y (hr.tail hy)
+        obtain ⟨searched, entries⟩ := searchBack_some hb
+        simp only [reachedFrom, List.mem_toArray, List.mem_filterMap,
+          Option.ite_none_right_eq_some, Option.some.injEq, Prod.exists, ReachesAxiom]
+        constructor
+        · rintro ⟨b, reaching, hentry, hcontains, rfl⟩
+          obtain ⟨haxiom, hsearch⟩ := entries _ hentry
+          obtain ⟨-, hfound⟩ := search_some hsearch
+          obtain ⟨s, hs, hr⟩ := hfound n (Std.HashSet.mem_iff_contains.mpr hcontains)
+          rw [List.mem_singleton.mp hs] at hr
+          simp only [List.mem_filter, isAxiomIn_iff] at haxiom
+          exact ⟨reach_forward after hr, haxiom.2⟩
+        · rintro ⟨hr, hax⟩
+          have haxiom : a ∈ seen.toList.filter (isAxiomIn find) := by
+            simp only [List.mem_filter, Std.HashSet.mem_toList, isAxiomIn_iff]
+            obtain ⟨s, hs, hsr⟩ := sound n hseen
+            exact ⟨complete s hs a (hsr.trans hr), hax⟩
+          obtain ⟨reaching, hentry, hsearch⟩ := searched a haxiom
+          have hback : Reach back a n := reach_back closed before hseen hr
+          exact ⟨a, reaching, hentry,
+            Std.HashSet.mem_iff_contains.mp ((search_some hsearch).1 a List.mem_cons_self n hback),
+            rfl⟩
+      · simp [hseen] at hn
+
+/-! ## A search that stops at names of known axioms
+
+The checks of proofs that the checker builds itself (a recursion equation, an execution
+correspondence) add a theorem to the audited environment and need its axioms. The search from it
+stops at each name whose axioms a table already holds (`axiomsWith`), the table of the owned
+declarations' closure that admission computed in the replayed kernel, and reads that entry
+instead. -/
+
+/-- The names after `n` along `next`, or none when `cached` holds `n`: the search stops there. -/
+def stopAt (cached : Std.HashMap Name (Array Name)) (next : Name → Array Name) (n : Name) :
+    Array Name :=
+  if cached.contains n then #[] else next n
+
+/-- Each entry of `cached` gives its name exactly the axioms that name reaches in `find`. -/
+def CacheCorrect (find : Name → Option ConstantInfo) (cached : Std.HashMap Name (Array Name)) :
+    Prop :=
+  ∀ n axioms, cached[n]? = some axioms → ∀ a, a ∈ axioms ↔ ReachesAxiom find n a
+
+/-- The axioms `n` reaches in `find`, read through the table `cached`: the search from `n` stops
+at each name `cached` holds and takes that name's entry, and takes each other name it reaches
+that `find` holds as an axiom. `none` when the search runs out of `fuel`. -/
+def axiomsWith (find : Name → Option ConstantInfo) (cached : Std.HashMap Name (Array Name))
+    (fuel : Nat) (n : Name) : Option (Array Name) :=
+  (search (stopAt cached (successors find)) fuel [n]).map fun seen =>
+    (seen.toList.flatMap fun m => match cached[m]? with
+      | some axioms => axioms.toList
+      | none => if isAxiomIn find m then [m] else []).toArray
+
+/-- Reachability along a relation is reachability along any relation that has its steps. -/
+theorem Reach.mono {next next' : Name → Array Name} (sub : ∀ x m, m ∈ next x → m ∈ next' x)
+    {x y : Name} (h : Reach next x y) : Reach next' x y := by
+  induction h with
+  | refl => exact .refl _
+  | step hm _ ih => exact .step (sub _ _ hm) ih
+
+/-- A path either reaches a name `cached` holds while it stops at none, and goes on from there,
+or it reaches its end, a name `cached` does not hold, while it stops at none. -/
+private theorem reach_stop {cached : Std.HashMap Name (Array Name)} {next : Name → Array Name}
+    {x a : Name} (h : Reach next x a) :
+    (∃ c, cached.contains c = true ∧ Reach (stopAt cached next) x c ∧ Reach next c a) ∨
+      (Reach (stopAt cached next) x a ∧ cached.contains a = false) := by
+  induction h with
+  | refl n =>
+    cases hc : cached.contains n
+    · exact .inr ⟨.refl n, rfl⟩
+    · exact .inl ⟨n, hc, .refl n, .refl n⟩
+  | @step n m x hm rest ih =>
+    cases hc : cached.contains n
+    · have hstep : m ∈ stopAt cached next n := by simp [stopAt, hc, hm]
+      rcases ih with ⟨c, hcc, hrc, hca⟩ | ⟨hra, hna⟩
+      · exact .inl ⟨c, hcc, .step hstep hrc, hca⟩
+      · exact .inr ⟨.step hstep hra, hna⟩
+    · exact .inl ⟨n, hc, .refl n, .step hm rest⟩
+
+/-- **With a correct table, `axiomsWith` returns exactly the axioms `n` reaches**
+(`ReachesAxiom`). -/
+theorem axiomsWith_some {find : Name → Option ConstantInfo}
+    {cached : Std.HashMap Name (Array Name)} {fuel : Nat} {n : Name} {axioms : Array Name}
+    (correct : CacheCorrect find cached) (h : axiomsWith find cached fuel n = some axioms) :
+    ∀ a, a ∈ axioms ↔ ReachesAxiom find n a := by
+  unfold axiomsWith at h
+  cases hs : search (stopAt cached (successors find)) fuel [n] with
+  | none => simp [hs] at h
+  | some seen =>
+    simp only [hs, Option.map_some, Option.some.injEq] at h
+    subst h
+    obtain ⟨complete, sound⟩ := search_some hs
+    have stopSub : ∀ x m, m ∈ stopAt cached (successors find) x → m ∈ successors find x := by
+      intro x m hm
+      unfold stopAt at hm
+      split at hm
+      · simp at hm
+      · exact hm
+    have reachOf : ∀ m ∈ seen, Reach (successors find) n m := by
+      intro m hm
+      obtain ⟨s, hs, hr⟩ := sound m hm
+      rw [List.mem_singleton.mp hs] at hr
+      exact hr.mono stopSub
+    intro a
+    simp only [List.mem_toArray, List.mem_flatMap, Std.HashSet.mem_toList]
+    constructor
+    · rintro ⟨m, hm, ha⟩
+      cases hc : cached[m]? with
+      | some entry =>
+        rw [hc] at ha
+        obtain ⟨hr, hax⟩ := (correct m entry hc a).mp (Array.mem_toList_iff.mp ha)
+        exact ⟨(reachOf m hm).trans hr, hax⟩
+      | none =>
+        rw [hc] at ha
+        by_cases hax : isAxiomIn find m = true
+        · simp only [hax, ↓reduceIte, List.mem_singleton] at ha
+          subst ha
+          exact ⟨reachOf a hm, (isAxiomIn_iff find a).mp hax⟩
+        · simp [hax] at ha
+    · rintro ⟨hr, hax⟩
+      rcases reach_stop (cached := cached) hr with ⟨c, hcc, hrc, hca⟩ | ⟨hra, hna⟩
+      · have hsome : (cached[c]?).isSome = true := by
+          rw [← Std.HashMap.contains_eq_isSome_getElem?]
+          exact hcc
+        obtain ⟨entry, hentry⟩ := Option.isSome_iff_exists.mp hsome
+        refine ⟨c, complete n List.mem_cons_self c hrc, ?_⟩
+        rw [hentry]
+        exact Array.mem_toList_iff.mpr ((correct c entry hentry a).mpr ⟨hca, hax⟩)
+      · refine ⟨a, complete n List.mem_cons_self a hra, ?_⟩
+        have hnone : cached[a]? = none := by
+          rw [Std.HashMap.contains_eq_isSome_getElem?] at hna
+          simpa using hna
+        rw [hnone]
+        simp [(isAxiomIn_iff find a).mpr hax]
+
+/-- A bound on the names a search in `env` expands: one for each constant of its modules and of
+the current module, and `extra` more. Every name a constant of a kernel environment uses is a
+constant of it. -/
+def fuelFor (env : Environment) (extra : Nat) : Nat :=
+  env.header.moduleData.foldl (fun total data => total + data.constants.size) 0 +
+    env.constants.map₂.foldl (fun total _ _ => total + 1) 0 + extra
 
 end Regula.KernelAxioms

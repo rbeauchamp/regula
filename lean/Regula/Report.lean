@@ -175,6 +175,15 @@ instance : FromJson RegulaPolicy.ExecutableContract := ⟨fun j => do
     shared := ← j.getObjValAs? _ "shared"
   }⟩
 
+/-- An axiom that Lean's `collectAxioms` omits for a declaration (`RegulaPolicy.TableOmission`),
+with its exact-field JSON codec: the axiom, and the constant and module the omission was passed
+on from, or `null`. -/
+instance : ToJson RegulaPolicy.TableOmission := ⟨fun o => Json.mkObj [
+  ("axiom", toJson o.axiom), ("via", toJson o.via)]⟩
+instance : FromJson RegulaPolicy.TableOmission := ⟨fun j => do
+  exactFields j ["axiom", "via"]
+  return { «axiom» := ← j.getObjValAs? _ "axiom", via := ← j.getObjValAs? _ "via" }⟩
+
 /-- The Lean-semantic record of one owned constant (`RegulaPolicy.Declaration`), with its
 exact-field JSON codec. The `ranges` member is the pair Lean recorded (`recordedRanges`); the
 admitted pair (`RegulaPolicy.Declaration.ranges`) is computed from it and is not transported. -/
@@ -195,13 +204,14 @@ instance : ToJson RegulaPolicy.Declaration := ⟨fun d => Json.mkObj [
   ("nativeStatement", toJson d.nativeStatement), ("nativeReplay", toJson d.nativeReplay),
   ("ranges", toJson d.recordedRanges), ("generatedFrom", toJson d.generatedFrom),
   ("axioms", toJson d.axioms), ("executableContract", toJson d.executableContract),
-  ("decisionResult", toJson d.decisionResult)]⟩
+  ("decisionResult", toJson d.decisionResult), ("tableOmissions", toJson d.tableOmissions)]⟩
 instance : FromJson RegulaPolicy.Declaration := ⟨fun j => do
   exactFields j ["name", "module", "kind", "type", "prettyType", "isProp", "isUnsafe", "isPartial",
       "safety", "instance", "noncomputable", "implementedBy", "extern", "internal", "private",
           "projection", "matcher", "recursive", "unsafeRecBase", "levelParams", "all", "hints",
               "valueConstants", "unsafeRecRegenerated", "constructorIndex", "nativeStatement", "nativeReplay",
-                  "ranges", "generatedFrom", "axioms", "executableContract", "decisionResult"]
+                  "ranges", "generatedFrom", "axioms", "executableContract", "decisionResult",
+                      "tableOmissions"]
   return {
     name := ← j.getObjValAs? _ "name"
     «module» := ← j.getObjValAs? _ "module"
@@ -235,6 +245,7 @@ instance : FromJson RegulaPolicy.Declaration := ⟨fun j => do
     axioms := ← j.getObjValAs? _ "axioms"
     executableContract := ← j.getObjValAs? _ "executableContract"
     decisionResult := ← j.getObjValAs? _ "decisionResult"
+    tableOmissions := ← j.getObjValAs? _ "tableOmissions"
   }⟩
 
 /-- One execution boundary a root's closure reaches (`RegulaPolicy.ExecutionBoundary`), with a

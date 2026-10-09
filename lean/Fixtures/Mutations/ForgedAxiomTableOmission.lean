@@ -8,7 +8,8 @@ Mutation: before it declares its theorem, the module empties every axiom-table e
 (`exportedAxiomsExt`, through `import all`). The table Lean writes for the module then records no
 axiom for a proof that uses `Classical.em`, and `#print axioms` in the module and in each importer
 reports none. Claimed kernel-only, the theorem is refused by the axioms it reaches in the replayed
-kernel.
+kernel, and the audit reports the omission in the theorem's own table entry: the table of
+`Classical.em` that the audit imports records the axioms.
 -/
 
 open Lean in

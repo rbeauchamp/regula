@@ -484,7 +484,7 @@ private unsafe def loadReportCoreAtSearchPath (modules : Array Name)
     let state := Elab.Command.mkState env
     match ← timedPhase "declaration report" <| EIO.toIO' <|
         (Regula.Probe.environmentReport requested.toList loadHistory includeExecution
-            includeModuleOrigins (some admitted.axioms)).run ctx |>.run state with
+            includeModuleOrigins (some admitted.replayed)).run ctx |>.run state with
     | .error ex => throw <| IO.userError (← ex.toMessageData.toString)
     | .ok (report, _) =>
       let historyTable ← histories.get

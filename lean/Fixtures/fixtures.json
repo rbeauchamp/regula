@@ -839,10 +839,21 @@
   "reason": "kernel-admission",
   "claim": "kernel-only"
  },
+ "Fixtures.Positive.TableOmission": {
+  "expect": "pass",
+  "claim": "choice-free",
+  "label": "choice-free",
+  "output": [
+   "table-omissions: collectAxioms []"
+  ]
+ },
  "Fixtures.Mutations.ForgedAxiomTableOmission": {
   "expect": "fail",
   "reason": "label-exceeds-claim",
-  "claim": "kernel-only"
+  "claim": "kernel-only",
+  "output": [
+   "Classical.choice in its own table entry"
+  ]
  },
  "Fixtures.Mutations.ForgedAxiomTableAddition": {
   "expect": "fail",

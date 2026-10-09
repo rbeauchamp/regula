@@ -361,7 +361,8 @@ def guide : RuleId → Guide
         "The table Lean records for a module can omit axioms that a declaration reaches: the \
           pinned Lean 4.34.1 records no axiom for `Float`, whose constructor's type reaches \
           `propext` and `Quot.sound`. `#print axioms` can then show a smaller set, and a lower \
-          label, than the checker. The editor, which has no replayed kernel, reads that table."]
+          label, than the checker, and the audit reports the omission (RG2005). The editor, which \
+          has no replayed kernel, reads that table."]
       residuals := [.qualify]
       checklist := ["FOUND-03", "FOUND-04", "BUILD-02", "THEOREM-01", "THEOREM-10", "BUILD-01"]
       linkage := declarationLinkage
@@ -1217,9 +1218,13 @@ def guide : RuleId → Guide
           table computed from the replayed constants records no axiom the declaration does not \
           reach. Admission therefore reports here, with impact `incomplete`, a declaration for \
           which `collectAxioms` reports such an axiom, and names the declaration and the two \
-          axiom sets. A table that omits an axiom is not reported: Lean's own computation of the \
-          table can omit axioms reached through an inductive type's constructors (RG1005), and \
-          the rules decide on the replayed axioms.",
+          axiom sets. A table that omits an axiom is reported, not failed: it is no finding, \
+          since Lean's own computation of a table can omit axioms reached through an inductive \
+          type's constructors (RG1005), and the rules decide on the replayed axioms. A project \
+          audit counts such declarations in its summary (`axiom tables:`), and its `--verbose` \
+          line of each, the JSON report and the self-audit give the two sets and, for each \
+          omitted axiom, the first constant the declaration uses whose table omits it too, with \
+          that constant's module, or else the declaration's own table entry.",
         "In the editor, this rule marks results that need fresh evidence only the project command \
           collects, and those messages name `lake lint`. The editor also reports it, as \
           incomplete, when its own analysis of a declaration fails or the module has elaboration \
@@ -1254,8 +1259,9 @@ def guide : RuleId → Guide
           incomplete and never accepted.",
         "The axioms the foundation rules read for each owned declaration are exactly those it \
           reaches in the replayed kernel, and no axiom that `collectAxioms` reports for it is \
-          outside them. An `unsafe` or `partial` declaration, which replay does not check, is \
-          read as the audited environment keeps it."]
+          outside them; each axiom it omits is reported with where the omission comes from. An \
+          `unsafe` or `partial` declaration, which replay does not check, is read as the audited \
+          environment keeps it."]
       notEstablished := [
         "Imported, unowned dependencies are not replayed; they remain the declared trusted base. \
           The axioms a declaration reaches through them are read from their constants as \
@@ -1278,8 +1284,10 @@ def guide : RuleId → Guide
         `checked_admitReplay`, one-way) and `Admission.checkTable` (`checked_checkTable`, \
         two-way), and `mem_required` states the required keys. `KernelAxioms.axiomTable_some` \
         states that the axioms computed for a declaration are exactly those it reaches \
-        (`KernelAxioms.ReachesAxiom`) among the constants the search reads. These \
-        theorems are about the request that the decisions take. The module data, the replay \
+        (`KernelAxioms.ReachesAxiom`) among the constants the search reads, and \
+        `Admission.passedOn_some` and `passedOn_none` state which constant an omission is \
+        passed on from. The account's count of omissions is exactly the inventory's \
+        declarations that record one (`Account.checked_account`). These theorems are about the request that the decisions take. The module data, the replay \
         set, the reported and reused modules, the lookup `kept`, the import of the replay base, \
         `shared` and the replayed kernel are observed or trusted, as the section \"Receipt \
         validation: decisions and observing pass\" of the guide of proofs and boundaries says. \

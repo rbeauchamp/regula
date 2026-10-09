@@ -1824,12 +1824,21 @@ inferred from any pure proof.
   of `Qualification.SelfAudit`. The axiom names come from the audited environment, because
   `validate` releases the regions of the replay base.
 
-  **Proved** about the executed definitions: `KernelAxioms.axiomTable_some` (each owned
-  declaration has exactly the axioms that `KernelAxioms.ReachesAxiom` relates to it), and
-  `KernelAxioms.axiomsOf_some` (the same for the search from one name). Also proved:
+  An axiom that the search found and that `collectAxioms` does not give is reported, not failed.
+  The record of the declaration has it in `tableOmissions`, with `via`, the constant that the
+  omission was passed on from. That constant is the first one that the declaration uses, reaches
+  the axiom and has it omitted too, as `Admission.passedOn` finds it. Without such a constant, the
+  table entry of the declaration itself omits the axiom. A project audit gives the number of these
+  declarations in the line `axiom tables:`, and the `--verbose` line of each declaration gives the
+  two sets. The self-audit lists each of them.
+
+  **Proved** about the executed definitions: `KernelAxioms.axiomTable_some` (each name of the
+  closure has exactly the axioms that `KernelAxioms.ReachesAxiom` relates to it). Also proved:
   `KernelAxioms.searchEdges_some` and `KernelAxioms.search_some` (a completed search holds exactly
   the names reachable from its start), and `Admission.checkTable_eq_ok_iff` with the two-way kind
-  `Admission.checked_checkTable`.
+  `Admission.checked_checkTable`. Also proved: `KernelAxioms.axiomsWith_some`,
+  `Admission.passedOn_some` and `Admission.passedOn_none`, and the omission part of
+  `Account.checked_account`.
 
   **Argued, not machine-checked:** each step of `collectAxioms` is a step of
   `KernelAxioms.successors`, as read from `Lean.Util.CollectAxioms` of the pinned toolchain. Thus
@@ -1842,10 +1851,15 @@ inferred from any pure proof.
   A constant of the replayed kernel refers only to constants of that kernel, so the search from a
   safe declaration reads only the replayed kernel. **Trusted:** the kernel and `replay` as above,
   and the constants of the imported, unowned dependencies, which replay does not check. The editor
-  has no replayed kernel, thus it reads `collectAxioms`. The checks of proofs that the checker makes
-  also read `collectAxioms`: the recursion equation of a recursion helper and an execution
-  correspondence. Each owned constant that such a proof uses has its own record, which the
-  foundation rules decide.
+  has no replayed kernel, thus it reads `collectAxioms`.
+
+  The checks of proofs that the checker makes use `KernelAxioms.axiomsWith`: the recursion equation
+  of a recursion helper and an execution correspondence. It starts at the new theorem, stops at
+  each name of the table that admission calculated and reads the entry of that name. With a correct
+  table, it gives exactly the axioms that the theorem reaches, as `axiomsWith_some` tells. **Argued,
+  not machine-checked:** the table is correct for the environment that holds the new theorem. The
+  replayed kernel and the audited environment give each name of the table the same axioms. No
+  constant of the audited environment uses the new theorem.
 - **Admission reuse.** One contract covers every environment of a project audit, a library's
   and an executable's alike. Each environment waits for the environments that replay the claimed
   library modules it loads. What a library's environment loads is read from the import headers

@@ -244,7 +244,7 @@ lake exe axiomGate --with-docs --json-out tmp/result.json
 ```
 
 Each export is versioned on its own: the surface manifest is schema 2, the registry schema 4, the
-result schema 11, the worker packet schema 1, the rule-example corpus export schema 1, the
+result schema 12, the worker packet schema 1, the rule-example corpus export schema 1, the
 acceptance link schema 1 and the site's `build.json` schema 2. Registry and result envelopes carry
 `schemaVersion`, `producerVersion`, `toolchain` and `sourceRevision` from
 `Regula.Checker.Producer.identity`: `producerVersion` is the installed release's spelling
@@ -259,7 +259,7 @@ metadata, not authenticated binary identity.
   re-encoding, refusing unknown or missing fields, changed routes and stale lifecycle data.
   Registry admission rejects duplicate external IDs, missing clauses, pages or examples, unknown
   JSON fields or versions, and invalid lifecycle references.
-- **Result, schema 11:** `scope`, `mode`, `status`, `stages` (the stages
+- **Result, schema 12:** `scope`, `mode`, `status`, `stages` (the stages
   `RegulaPolicy.requiredStages` requires for the mode, plus the documentation stages of a
   `--with-docs` run), `stagesCompleted`, `complete`, `stagesNotRun`, `diagnostics` (each with its
   `remedy`, in run order), `rules` (the guidance of every rule that fired, once each, in registry
@@ -350,6 +350,11 @@ metadata, not authenticated binary identity.
   result type is `Decidable _`, and `null` for any other declaration. [RG1008] is decided from it
   and from the `executableContract` records of the same inventory
   (`RegulaPolicy.policyFor_decisionContract_iff`).
+- **Axiom-table omissions:** since schema 12 a declaration record carries `tableOmissions`: each
+  axiom that the declaration reaches in the replayed kernel and that Lean's `collectAxioms` does
+  not report, with `via`, the constant and module that the omission was passed on from, or `null`
+  when the table entry of the declaration itself omits the axiom. The rules decide on `axioms`, and
+  the omissions are reported, not failed ([RG2005]).
 - **Names:** since schema 6 every Lean name of a result, in `diagnostics`, `scope` and
   `acceptance` alike, and of the producer report it renders, is written one way
   (`RegistryCodec.printedNameJson`): the text Lean prints for it, or, only where Lean's parser does

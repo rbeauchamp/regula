@@ -307,6 +307,19 @@ def isPolicyRejection (f : FenceKey) : Bool := f.expectation matches .policyReje
 /-- The fence is a trusted-compiler teaching example. -/
 def isTrustedTeaching (f : FenceKey) : Bool := f.expectation matches .trustedTeaching
 
+/-- An owned declaration for which Lean's `collectAxioms` omits axioms that it reaches in the
+replayed kernel: its name and module, its axioms and the omissions
+(`RegulaPolicy.Declaration.tableOmissions`). The audit reports it and does not fail it. -/
+structure OmissionAccount where
+  /-- The declaration. -/
+  declaration : Lean.Name
+  /-- Its module. -/
+  «module» : Lean.Name
+  /-- The axioms it reaches in the replayed kernel. -/
+  axioms : Array Lean.Name
+  /-- The axioms `collectAxioms` omits, with where each omission comes from. -/
+  omissions : Array RegulaPolicy.TableOmission
+
 /-- The report account's data. Construct it only through `account`. -/
 structure AccountData where
   /-- The claim's evidence mode. -/
@@ -331,6 +344,9 @@ structure AccountData where
   trusted : List Trusted
   /-- The semantic-review obligations left open. -/
   unresolved : List Residual
+  /-- Each owned declaration of the accepted inventory for which Lean's `collectAxioms` omits axioms
+  it reaches in the replayed kernel. -/
+  omissions : Array OmissionAccount
 
 /-- Every `ExecutableContract` registration among the census's declarations, with its module,
 implementation, rendered requirement, decision kind and shared functions, environment by
@@ -340,6 +356,13 @@ def contractsOf (i : Census) : Array ContractAccount :=
     d.executableContract.map fun k =>
       ⟨d.name, d.module, k.root, k.requirement, k.kind, k.shared⟩
 
+/-- Every declaration among the census's declarations that records an omission of Lean's
+`collectAxioms`, with its module, axioms and omissions, environment by environment. -/
+def omissionsOf (i : Census) : Array OmissionAccount :=
+  i.environments.flatMap fun e => e.policy.declarations.filterMap fun d =>
+    if d.tableOmissions.isEmpty then none
+    else some ⟨d.name, d.module, d.axioms, d.tableOmissions⟩
+
 /-- Required meaning of the account, for every claim and accepted run. Mode, scope,
 surfaces, toolchain and job count are the accepted report's own. Coverage is `coverageOf` the
 claim's mode (`coverage_fresh_iff`: fresh whole-project exactly for a fresh project claim). The
@@ -348,7 +371,8 @@ registrations, each with the decision kind and the shared functions the collecto
 Execution counts are
 `executionSummary` of each accepted environment, in order. The fence counts partition the
 accepted fences by expectation. Every residual obligation stays unresolved, R-GRAPH exactly
-when a serialized graph is claimed. -/
+when a serialized graph is claimed. The omissions are exactly the inventory's declarations that
+record one, each with its module, axioms and omissions. -/
 def AccountContract (project : {c : Claim} → AcceptedRun c → AccountData) : Prop :=
   ∀ (c : Claim) (run : AcceptedRun c),
     (project run).mode = c.val.mode ∧ (project run).scope = c.val.scope ∧
@@ -372,7 +396,10 @@ def AccountContract (project : {c : Claim} → AcceptedRun c → AccountData) : 
         (project run).fences.policyRejection + (project run).fences.trustedTeaching =
         run.report.census.fences.size) ∧
     (project run).trusted = Trusted.all ∧
-    (∀ r, r ∈ (project run).unresolved ↔ (r = .graph → c.val.mode = .serializedGraph))
+    (∀ r, r ∈ (project run).unresolved ↔ (r = .graph → c.val.mode = .serializedGraph)) ∧
+    (∀ x, x ∈ (project run).omissions ↔
+      ∃ e ∈ run.report.census.environments, ∃ d ∈ e.policy.declarations,
+        d.tableOmissions ≠ #[] ∧ x = ⟨d.name, d.module, d.axioms, d.tableOmissions⟩)
 
 private def accountImpl {c : Claim} (run : AcceptedRun c) : AccountData :=
   let report := run.report
@@ -386,7 +413,8 @@ private def accountImpl {c : Claim} (run : AcceptedRun c) : AccountData :=
       fences.countP isPolicyRejection, fences.countP isTrustedTeaching⟩
     trusted := Trusted.all
     unresolved := Residual.all.filter fun r => r != .graph || report.claim.val.mode ==
-                                                .serializedGraph }
+                                                .serializedGraph
+    omissions := omissionsOf report.census }
 
 private theorem fence_partition (fences : Array FenceKey) :
     fences.countP isPositive + fences.countP isCompilerRejection +
@@ -407,7 +435,7 @@ theorem coverageOf_fresh_iff (m : EvidenceMode) :
 /-- Registers `AccountContract` about the executed projection. -/
 theorem checked_account : Regula.ExecutableContract @accountImpl AccountContract := by
   refine ⟨fun c run => ?_⟩
-  refine ⟨rfl, rfl, rfl, rfl, rfl, rfl, ?_, rfl, ?_, rfl, ?_⟩
+  refine ⟨rfl, rfl, rfl, rfl, rfl, rfl, ?_, rfl, ?_, rfl, ?_, ?_⟩
   · intro x
     simp only [accountImpl, contractsOf, Array.mem_flatMap, Array.mem_filterMap,
       Option.map_eq_some_iff]
@@ -422,6 +450,19 @@ theorem checked_account : Regula.ExecutableContract @accountImpl AccountContract
     simp only [accountImpl, List.mem_filter, Residual.mem_all, true_and, Bool.or_eq_true,
       bne_iff_ne, ne_eq, beq_iff_eq]
     cases r <;> simp [AcceptedRun.report, Finalized.report, Accepted.report]
+  · intro x
+    simp only [accountImpl, omissionsOf, Array.mem_flatMap, Array.mem_filterMap]
+    constructor
+    · rintro ⟨e, he, d, hd, hx⟩
+      by_cases hempty : d.tableOmissions.isEmpty = true
+      · simp [hempty] at hx
+      · simp only [hempty, Bool.false_eq_true, ↓reduceIte, Option.some.injEq] at hx
+        exact ⟨e, he, d, hd, fun h => hempty (by simp [h]), hx.symm⟩
+    · rintro ⟨e, he, d, hd, hne, rfl⟩
+      refine ⟨e, he, d, hd, ?_⟩
+      have : d.tableOmissions.isEmpty = false := by
+        simpa [Array.isEmpty_iff] using hne
+      simp [this]
 
 /-- An executed account reads fresh whole-project coverage exactly for a fresh project claim. -/
 theorem coverage_fresh_iff {c : Claim} (run : AcceptedRun c) :
@@ -486,8 +527,8 @@ def pass (label : String) (a : Account) : String :=
 
 /-- Human account lines: the checked relation, each contract with its decision kind
 (`ContractAccount.decision`), its shared functions (`ContractAccount.sharing`) and its open
-review, the execution counts, fence kinds, trusted mechanisms, and the unresolved review
-identifiers. -/
+review, the execution counts, fence kinds, the count of declarations whose axiom tables omit
+axioms (the `--verbose` line of each lists its omissions), trusted mechanisms, and the unresolved review identifiers. -/
 def lines (a : Account) : Array String :=
   let d := a.val
   let checked :=
@@ -516,6 +557,12 @@ def lines (a : Account) : Array String :=
   let unresolved :=
       s!"unresolved semantic review, where applicable: {residualList d.unresolved}. " ++
     "These identifiers name open obligations, not completed reviews."
-  #[checked] ++ contracts ++ execution ++ fences ++ #[trusted, unresolved]
+  let passed := (d.omissions.filter fun o => o.omissions.any (·.via.isSome)).size
+  let omissions := if d.omissions.isEmpty then #[] else
+    #[s!"axiom tables: {d.omissions.size} declaration(s) for which Lean's collectAxioms omits \
+      axioms they reach in the replayed kernel, {passed} with an omission passed on from a \
+      constant they use; reported, not failed (listed with --verbose and in --json-out)"]
+  #[checked] ++ contracts ++ execution ++ fences ++ omissions ++ #[trusted, unresolved]
+
 
 end Regula.Checker.Account
