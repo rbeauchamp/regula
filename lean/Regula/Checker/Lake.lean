@@ -695,8 +695,10 @@ value is `KConfigDecl.toConfigDecl` of a constant of the file, whose value is
 `DSL.mkConfigDecl` of a configuration constant of the file. That constant is a `LeanLibConfig.mk`
 or `LeanExeConfig.mk` whose `nativeFacets` is the whole term `defaultNativeFacetsTerm`, its proofs
 aside (`sameUpToProofs` with the theorems of the file), an `InputDirConfig.mk` whose filter is the
-whole term `starPatternTerm`, or an `InputFileConfig`. Any other term gives `false`; the positions
-are those of Lake's constructors, and a term at another position is not one of these terms. -/
+whole term `starPatternTerm`, or an `InputFileConfig`. A custom target, whose constant's value is
+`DSL.mkTargetDecl`, is left to its kind, which `TargetShape.Plain` never admits. Any other term
+gives `false`; the positions are those of Lake's constructors, and a term at another position is
+not one of these terms. -/
 def defaultFunctionFields (config : ModuleData) : Bool :=
   let value? (name : Name) := (config.constants.find? (·.name == name)).bind (·.value?)
   let theorems : NameSet := config.constants.foldl (init := {}) fun names constant =>
@@ -708,6 +710,7 @@ def defaultFunctionFields (config : ModuleData) : Bool :=
       let tagged ← constant.value?
       guard (tagged.isAppOfArity ``_root_.Lake.KConfigDecl.toConfigDecl 2)
       let declaration ← value? (← tagged.appArg!.constName?)
+      if declaration.isAppOfArity ``_root_.Lake.DSL.mkTargetDecl 7 then return ()
       guard (declaration.isAppOfArity ``_root_.Lake.DSL.mkConfigDecl 6)
       let name ← (declaration.getArg! 3).constName?
       let some configuration := config.constants.find? (·.name == name) | none
@@ -737,9 +740,10 @@ structure ConfigurationNames where
 /-- The configuration declarations of the compiled configuration file `config`, each a definition
 linked as Lake's commands generate it: a `ConfigDecl` whose value is `KConfigDecl.toConfigDecl` of
 a definition of the file whose value is `DSL.mkConfigDecl` of a definition of the file, with those
-two; a `PackageDecl` whose value is `PackageDecl.mk` of a definition of the file, with that
-definition; a `Dependency` whose value is a `Dependency.mk`; and the package-name helper
-`_package.name` of type `Name`. -/
+two; a `ConfigDecl` whose value is `KConfigDecl.toConfigDecl` of a definition of the file whose
+value is `DSL.mkTargetDecl`, a custom target, with that definition; a `PackageDecl` whose value is
+`PackageDecl.mk` of a definition of the file, with that definition; a `Dependency` whose value is
+a `Dependency.mk`; and the package-name helper `_package.name` of type `Name`. -/
 def configurationNames (config : ModuleData) : ConfigurationNames := Id.run do
   let definition? (name : Name) : Option Expr :=
     match config.constants.find? (·.name == name) with
@@ -753,6 +757,11 @@ def configurationNames (config : ModuleData) : ConfigurationNames := Id.run do
         value.isAppOfArity ``_root_.Lake.KConfigDecl.toConfigDecl 2 then
       let some declaration := value.appArg!.constName? | continue
       let some declared := definition? declaration | continue
+      if declared.isAppOfArity ``_root_.Lake.DSL.mkTargetDecl 7 then
+        names := {
+          declarations := (names.declarations.insert constant.name).insert declaration
+          inlined := names.inlined.insert declaration }
+        continue
       unless declared.isAppOfArity ``_root_.Lake.DSL.mkConfigDecl 6 do continue
       let some configuration := (declared.getArg! 3).constName? | continue
       unless (definition? configuration).isSome do continue

@@ -227,11 +227,11 @@ checker behavior:
 | `cli` | Command-line behavior and diagnostics. |
 | `environments` | Isolated environments, documentation scanning, and external adopters. |
 | `build-policy` | Enforcement through the example's ordinary Lake build. |
-| `lint-driver` | `lake lint` dispatch and exit classes in both shipped adopters, and the cold compiler guard of `lakefile.lean`: refusal of an inherited `LEAN_SYSROOT` child that fails and of one that succeeds without reporting the running compiler's identity, then a restored load. In a plain workspace the driver keeps the audit-build marker without `--ordinary-lakefiles`, and with it omits the marker, reports it and reuses the ordinary build. Under the option, an import of `Regula.Linter` keeps the marker, and the driver reports the reason. Decision probes of the guard load a changed adopter in the process and check its decision without an audit. A custom target, a library in `needs`, a facet of Lake declared again and a library field outside the list keep the marker. So do a different `nativeFacets`, a lakefile declaration, a theorem that equates two functions, a TOML filter other than `"*"` and an import of `Regula.Linter`. An input file in `needs` and the filter `"*"` keep the plain shape. |
+| `lint-driver` | `lake lint` dispatch and exit classes in both shipped adopters, and the cold compiler guard of `lakefile.lean`: refusal of an inherited `LEAN_SYSROOT` child that fails and of one that succeeds without reporting the running compiler's identity, then a restored load. In a plain workspace the driver keeps the audit-build marker without `--ordinary-lakefiles`, and with it omits the marker, reports it and reuses the ordinary build. Under the option, an import of `Regula.Linter` keeps the marker, and the driver reports the reason. Decision probes of the guard load a changed adopter in the process and check its decision and reason without an audit. A custom target, a library in `needs`, a facet of Lake declared again and a library field outside the list keep the marker. So do a different `nativeFacets`, a lakefile declaration, a theorem that equates two functions, a TOML filter other than `"*"` and an import of `Regula.Linter`. An input file in `needs` and the filter `"*"` keep the plain shape. |
 | `producers` | [Project producer and documentation qualification](proofs-and-boundaries.md#producers). |
 | `history` | [Source-bound replacement history qualification](proofs-and-boundaries.md#producers). |
 | `self-lint` | This repository's own `lake lint -- --ordinary-lakefiles` through the `regula/lint` driver, in the root and `audit/` packages ([repository conformance](#repository-conformance)). |
-| `self-lint-default` | The same `lake lint` without `--ordinary-lakefiles`, so with the audit-build marker that an adopter gets by default ([repository conformance](#repository-conformance)). |
+| `self-lint-default` | The root package's `lake lint` without `--ordinary-lakefiles`, so with the audit-build marker that an adopter gets by default ([repository conformance](#repository-conformance)). |
 | `self-audit` | Operational self-audit of the excluded `Regula` library ([repository conformance](#repository-conformance)). |
 | `rule-examples`, `rule-examples 1/2`, `rule-examples 2/2` | [Source-owned corpus and diagnostic demonstrations](architecture.md#rule-examples); a shard runs half of the rules. |
 
@@ -347,9 +347,10 @@ Three diagnostics apply Regula to the rest of its own code base; none is part of
 `regula/lint` driver in the root package and then in `audit/`, as the owner of the two packages. Both packages set
 `lintDriver := "regula/lint"`, so it runs over each package's `foundation_manifest.json` in
 incremental mode and checks the same claimed surfaces as acceptance, through the driver's
-dispatch and exit classes. `./scripts/verify.sh diagnostics self-lint-default` runs the same two
-commands without `--ordinary-lakefiles`, so with the audit-build marker that an adopter gets by
-default. `./scripts/verify.sh
+dispatch and exit classes. `./scripts/verify.sh diagnostics self-lint-default` runs the root
+package's `lake lint` without `--ordinary-lakefiles`, so with the audit-build marker that an
+adopter gets by default. It leaves out the `audit/` package, which runs the same driver code.
+Its default path only adds the rebuild that made the old step exceed its limit. `./scripts/verify.sh
 diagnostics self-audit` checks the excluded operational `Regula` library: `lake build Regula`
 builds every module warning-free ([RG2003], because the package sets `warningAsError`), then
 `qualify self-audit` inspects each module of the library as Lake discovers it, each in its own

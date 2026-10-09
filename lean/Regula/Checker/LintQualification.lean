@@ -79,11 +79,12 @@ private def restore (adopter : FilePath) (files : Array (FilePath × String)) : 
 /-- A decision probe: after an ordinary `lake build` of `targets`, which leaves the compiled
 lakefile under `.lake/config`, the workspace at `adopter` is loaded in-process as the driver loads
 it, and the decision of the driver's claimed build under the owner's `--ordinary-lakefiles`
-(`Lake.markerInputs`, `Lake.checked_auditMarkerNeeded`) must be `marked`: `true` keeps the
-audit-build marker, `false` omits it. A failure names `Lake.markerReason`. The loads share the
-process's search path, so they run one at a time under `probes`. -/
+(`Lake.markerInputs`, `Lake.checked_auditMarkerNeeded`) must be `expected`: `none` omits the
+audit-build marker, and `some cause` keeps it with a reason (`Lake.markerReason`) that contains
+`cause`, so a probe whose change does not decide fails. The loads share the process's search
+path, so they run one at a time under `probes`. -/
 private def probe (probes : Std.Mutex Unit) (adopter : FilePath) (label : String)
-    (targets : Array String) (marked : Bool) : IO (Array String) := do
+    (targets : Array String) (expected : Option String) : IO (Array String) := do
   let build ← runProcess adopter "lake" (#["build"] ++ targets) scrubbedLeanPathEnv
   let failures ← if !build.succeeded then
       pure #[s!"lake-lint/{label}: the ordinary build failed", build.output]
@@ -95,12 +96,15 @@ private def probe (probes : Std.Mutex Unit) (adopter : FilePath) (label : String
                 | return .error "Lake did not report the imports of a module of the root package"
               return .ok (Lake.checked_auditMarkerNeeded.run inputs, Lake.markerReason inputs)
         catch error => pure (.error (toString error))
-      let text (keeps : Bool) := if keeps then "keeps" else "omits"
       pure <| match decision with
         | .error error => #[s!"lake-lint/{label}: the workspace could not be read: {error}"]
-        | .ok (decided, reason) => if decided == marked then #[] else
-            #[s!"lake-lint/{label}: the claimed build {text decided} the marker, expected \
-              {text marked}: {reason.getD "the workspace has the plain shape"}"]
+        | .ok (decided, reason) =>
+            if decided == expected.isSome &&
+                expected.all (fun cause => reason.any (·.contains cause)) then #[]
+            else #[s!"lake-lint/{label}: the claimed build \
+              {if decided then "keeps" else "omits"} the marker \
+              ({reason.getD "the plain shape"}), expected \
+              {expected.elim "the plain shape" (s!"a reason with '{·}'")}"]
   IO.println s!"lake-lint control {label}: {if failures.isEmpty then "completed" else "FAILED"}"
   (← IO.getStdout).flush
   return failures
@@ -124,14 +128,12 @@ keeps the audit-build marker and prints no decision, so an ordinary build after 
 it the driver prints that it omits the marker, and an ordinary `lake build` and the driver reuse
 each other's build output. The banner names the option and the result records it as
 `scope.ordinaryLakefiles`; a `lintDriverArgs` entry that gives it is refused. Decision probes of
-the guard (`probe`), each with one change to the adopter: the custom `policy` target and a
-library in `needs` keep the marker, an `input_file` in `needs` does not, and each change to the
-plain shape below keeps it: Lake's `ilean` facet declared again with Lake's own configuration, a
+the guard (`probe`), each with one change to the plain shape and the reason that decides: an
+`input_file` in `needs` keeps the plain shape, and each of these keeps the marker: a custom target,
+a library in `needs`, Lake's `ilean` facet declared again with Lake's own configuration, a
 library field outside the plain shape's list (`libName`), a `nativeFacets` that is not Lake's
 whole default term, a lakefile declaration beside Lake's configuration declarations, and a theorem
-that equates two functions. A custom target also brings declarations that are not Lake's
-configuration declarations and a configuration term that `Lake.defaultFunctionFields` does not
-read, so it keeps the marker on each of these counts. -/
+that equates two functions. -/
 private def leanAdopter (probes : Std.Mutex Unit) (repo adopter : FilePath) :
     IO (Array String) := do
   BuildLintQualification.setup repo adopter
@@ -140,7 +142,6 @@ private def leanAdopter (probes : Std.Mutex Unit) (repo adopter : FilePath) :
   let mut failures ← expect adopter
     { positive with contains := positive.contains.push "] Built Widget" }
   if !failures.isEmpty then return failures
-  failures := failures ++ (← probe probes adopter "lean/custom-target-marked" #["Widget"] true)
   failures := failures ++ (← expect adopter {
       label := "lean/explain-config", exitCode := 2,
       contains := #["no audit was run", "Widget.Additional", "kernel-only"],
@@ -170,12 +171,17 @@ private def leanAdopter (probes : Std.Mutex Unit) (repo adopter : FilePath) :
   let widgetLibrary (field : String) : String :=
     plain.replace "globs := #[.andSubmodules `Widget]"
       s!"globs := #[.andSubmodules `Widget]\n  {field}"
+  -- A custom target beside the targets of the plain shape.
+  IO.FS.writeFile lakefile (plain ++ "\ntarget extra : Unit := pure (pure ())\n")
+  failures := failures ++ (← probe probes adopter "lean/custom-target-marked" #["Widget"]
+    (some "target extra is not a lean_lib"))
   -- A library outside the claim that the claimed library has built first (`needs`).
   let tooling := adopter / "Tooling.lean"
   IO.FS.writeFile tooling "/-! Tooling outside the claim. -/\n"
   IO.FS.writeFile lakefile <| widgetLibrary "needs := #[`@/Tooling]\n\nlean_lib Tooling where\n  \
     globs := #[.one `Tooling]"
-  failures := failures ++ (← probe probes adopter "lean/needed-library-marked" #["Widget"] true)
+  failures := failures ++ (← probe probes adopter "lean/needed-library-marked" #["Widget"]
+    (some "target Widget needs a target of kind lean_lib"))
   IO.FS.removeFile tooling
   -- Without the owner's `--ordinary-lakefiles` the driver keeps the marker, as before the plain
   -- shape existed, and prints no decision, so an ordinary build after it rebuilds. With it the
@@ -220,27 +226,30 @@ private def leanAdopter (probes : Std.Mutex Unit) (repo adopter : FilePath) :
   IO.FS.writeFile notes "Widget notes.\n"
   IO.FS.writeFile lakefile <| widgetLibrary "needs := #[`@/widgetNotes]\n\ninput_file widgetNotes \
     where\n  path := \"notes.txt\""
-  failures := failures ++ (← probe probes adopter "lean/input-needs-plain" #["Widget"] false)
+  failures := failures ++ (← probe probes adopter "lean/input-needs-plain" #["Widget"] none)
   IO.FS.removeFile notes
-  -- Each of these keeps the marker: Lake's `ilean` facet declared again with Lake's own
-  -- configuration, which the compiled configuration file records as a facet declaration; a field
-  -- outside the plain shape's list with another value than Lake's default; a `nativeFacets` that
-  -- differs from Lake's default only in the `Decidable` instance of its `if`, which adds code; a
-  -- declaration of the lakefile beside Lake's configuration declarations; and a theorem that
-  -- equates two functions, the form of a compiler replacement (`csimp`).
-  let marked (label text : String) : IO (Array String) := do
+  -- Each of these keeps the marker, for the reason its change gives: Lake's `ilean` facet
+  -- declared again with Lake's own configuration, which the compiled configuration file records
+  -- as a facet declaration; a field outside the plain shape's list with another value than Lake's
+  -- default; a `nativeFacets` that differs from Lake's default only in the `Decidable` instance of
+  -- its `if`, which adds code; a declaration of the lakefile beside Lake's configuration
+  -- declarations; and a theorem that equates two functions, the form of a compiler replacement
+  -- (`csimp`).
+  let marked (label cause text : String) : IO (Array String) := do
     IO.FS.writeFile lakefile text
-    probe probes adopter label #["Widget"] true
-  failures := failures ++ (← marked "lean/lake-facet-marked" (plain ++
+    probe probes adopter label #["Widget"] (some cause)
+  failures := failures ++ (← marked "lean/lake-facet-marked" "1 facet declaration" (plain ++
     "\n@[«module_facet»] def ileanAgain : ModuleFacetDecl :=\n  \
       ⟨Module.ileanFacet, Module.ileanFacetConfig⟩\n"))
-  failures := failures ++ (← marked "lean/field-marked" (widgetLibrary "libName := \"widget\""))
+  failures := failures ++ (← marked "lean/field-marked" "target Widget sets the field libName"
+    (widgetLibrary "libName := \"widget\""))
   failures := failures ++ (← marked "lean/native-facets-marked"
+    "target Widget sets the field nativeFacets"
     (widgetLibrary "nativeFacets := fun b => #[@ite (ModuleFacet System.FilePath) (b = true)\n    \
       (dbgTrace \"extra\" (fun _ => inferInstance)) Module.oExportFacet Module.oFacet]"))
-  failures := failures ++ (← marked "lean/declaration-marked"
+  failures := failures ++ (← marked "lean/declaration-marked" "the declaration helperVersion"
     (plain ++ "\ndef helperVersion : Nat := 1\n"))
-  failures := failures ++ (← marked "lean/theorem-marked"
+  failures := failures ++ (← marked "lean/theorem-marked" "the declaration identityFact"
     (plain ++ "\ntheorem identityFact : @id Nat = @id Nat := rfl\n"))
   restore adopter originals
   -- An unimported glob module; the second run has every module cached.
@@ -330,9 +339,9 @@ and, for an executable entry, in the adopter's `axiomGate --file` audit, which r
 through the same loader. Under the owner's `--ordinary-lakefiles` the driver keeps the audit-build
 marker for the live finding, whose module imports `Regula.Linter`, and prints why. Without that
 import, an `input_dir` filter `"*"` keeps the plain shape: the driver prints that it omits the
-marker, and an ordinary build reuses its output. Decision probes (`probe`) of the guard, each one
-change to the adopter: the filter `"*"` does not keep the marker, and a filter by extension and
-the `Regula.Linter` import each keep it. -/
+marker, and an ordinary build reuses its output. Decision probes of the guard (`probe`), each with
+one change to the adopter and the reason that decides: the filter `"*"` keeps the plain shape, and
+a filter by extension and the `Regula.Linter` import each keep the marker. -/
 private def tomlAdopter (probes : Std.Mutex Unit) (repo adopter : FilePath) :
     IO (Array String) := do
   BuildLintQualification.setup repo adopter "lake-lint-toml" #["Gadget.lean", "Gadget/Double.lean"]
@@ -486,12 +495,14 @@ private def tomlAdopter (probes : Std.Mutex Unit) (repo adopter : FilePath) :
   unless ordinary.succeeded && !ordinary.output.contains "] Built Gadget" do
     failures := failures.push s!"lake-lint/toml/star-reused: the ordinary build rebuilt a module: \
       {ordinary.output}"
-  failures := failures ++ (← probe probes adopter "toml/star-plain" #[] false)
+  failures := failures ++ (← probe probes adopter "toml/star-plain" #[] none)
   withFilter "filter = { extension = [\"lean\"] }"
-  failures := failures ++ (← probe probes adopter "toml/filter-marked" #[] true)
+  failures := failures ++ (← probe probes adopter "toml/filter-marked" #[]
+    (some "target notes sets the field filter"))
   withFilter "filter = \"*\""
   IO.FS.writeFile double doubleSource
-  failures := failures ++ (← probe probes adopter "toml/linter-import-marked" #[] true)
+  failures := failures ++ (← probe probes adopter "toml/linter-import-marked" #[]
+    (some "imports Regula.Linter"))
   IO.FS.removeDirAll inputs
   restore adopter (originals ++ targetOriginals)
   failures := failures ++

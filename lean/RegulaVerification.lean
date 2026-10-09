@@ -59,7 +59,7 @@ inductive Mode where
   | history
   /-- `diagnostics self-lint`: this repository's own `lake lint`. -/
   | selfLint
-  /-- `diagnostics self-lint-default`: this repository's own `lake lint` on the default path, with
+  /-- `diagnostics self-lint-default`: the root package's own `lake lint` on the default path, with
   the audit-build marker. -/
   | selfLintDefault
   /-- `diagnostics self-audit`: the operational self-audit of the excluded `Regula` library. -/
@@ -276,9 +276,10 @@ def commands (copy pending : String) : Mode → List Command
   -- output when the plain-shape guard admits the workspace.
   | .selfLint => [lake #["lint", "--", "--ordinary-lakefiles"],
       lakeIn auditPackage #["lint", "--", "--ordinary-lakefiles"]]
-  -- The same two runs on the default path that an adopter gets, without the owner's assertion, so
-  -- with the audit-build marker.
-  | .selfLintDefault => [lake #["lint"], lakeIn auditPackage #["lint"]]
+  -- The root package's run on the default path that an adopter gets, without the owner's
+  -- assertion, so with the audit-build marker. The `audit/` package runs the same driver code, and
+  -- its default path would only add the rebuild that made the old step exceed its limit.
+  | .selfLintDefault => [lake #["lint"]]
   | .selfAudit => [
       lake #["build", "Regula", "qualify"],
       lake #["exe", "qualify", "--under-deadline", "self-audit"]]

@@ -182,7 +182,7 @@ the option, the driver always builds with the marker.
 With the option, the owner asserts that the lakefiles of the workspace are ordinary configuration.
 The plain shape is a conservative guard under that assertion. It is not a guarantee against a
 lakefile that someone wrote to defeat it. The verification of Regula uses the option in the timed
-check of its own code (`diagnostics self-lint`). A nightly check of the same code,
+check of its own code (`diagnostics self-lint`). A nightly check of its root package,
 `diagnostics self-lint-default`, runs without the option.
 
 The driver takes the option only from the command line. It refuses the option in the
