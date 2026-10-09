@@ -2164,15 +2164,13 @@ def ContractScope.mayReach (scope : ContractScope) (env : Environment) (type : E
   scope.reaches env #[``Regula.ExecutableContract] scope.free type
 
 /-- Whether reducing `requirement` can produce a decision kind: whether `Regula.DecidesSoundly`,
-`Regula.DecidesCompletely` or `Regula.Decides`, the structure of each kind
-(`RegulaPolicy.DecisionKind.structureName`), is among the constants it mentions, closed under
-`unfoldReferences`, by the argument of `ContractScope.mayReach`. -/
+`Regula.DecidesCompletely` or `Regula.Decides` is among the constants it mentions, closed under
+`unfoldReferences`, by the argument of `ContractScope.mayReach`. The targets are the structure of
+each kind (`RegulaPolicy.DecisionKind.structureNames`), which lists a name exactly when the name
+is read as a kind (`RegulaPolicy.DecisionKind.mem_structureNames_iff`). -/
 def ContractScope.mayReachDecision (scope : ContractScope) (env : Environment)
     (requirement : Expr) : BaseIO Bool :=
-  scope.reaches env
-    (#[RegulaPolicy.DecisionKind.«sound», RegulaPolicy.DecisionKind.«complete»,
-      RegulaPolicy.DecisionKind.«soundAndComplete»].map RegulaPolicy.DecisionKind.structureName)
-    scope.decisionFree requirement
+  scope.reaches env RegulaPolicy.DecisionKind.structureNames scope.decisionFree requirement
 
 /-- The constants by which `e` mentions `target`, closed under unfolding: the first is a constant
 `e` mentions, each is mentioned by the type or the unfoldable value of the one before

@@ -780,6 +780,29 @@ theorem DecisionKind.ofStructureName?_eq_some_iff (name : Lean.Name) (kind : Dec
   · rintro rfl
     cases kind <;> rfl
 
+/-- Every decision kind (`DecisionKind.mem_all`). -/
+def DecisionKind.all : Array DecisionKind := #[.«sound», .«complete», .«soundAndComplete»]
+
+/-- Each kind is listed. A new kind is a new constructor, and this theorem fails until `all` lists
+it. -/
+theorem DecisionKind.mem_all (kind : DecisionKind) : kind ∈ all := by
+  cases kind <;> simp [all]
+
+/-- The structure of each decision kind, the constants to which a registration's requirement
+reduces when it states a kind (`DecisionKind.mem_structureNames_iff`). -/
+def DecisionKind.structureNames : Array Lean.Name := all.map structureName
+
+/-- A name is listed exactly when it is read as a kind (`ofStructureName?`). -/
+theorem DecisionKind.mem_structureNames_iff (name : Lean.Name) :
+    name ∈ structureNames ↔ (ofStructureName? name).isSome := by
+  simp only [structureNames, Array.mem_map, Option.isSome_iff_exists,
+    ofStructureName?_eq_some_iff]
+  constructor
+  · rintro ⟨kind, -, rfl⟩
+    exact ⟨kind, rfl⟩
+  · rintro ⟨kind, rfl⟩
+    exact ⟨kind, mem_all kind, rfl⟩
+
 /-- What a registration of the kind establishes about the implementation, as the account
 states it. -/
 def DecisionKind.establishes : DecisionKind → String
@@ -1241,6 +1264,13 @@ structure ExecutableContract where
   intended one, and no registration is refused for it. Empty for every other registration. -/
   shared : SharedNames := {}
   deriving Repr, DecidableEq
+
+/-- The recorded contract of a declaration: the collector's observation of its executable-contract
+registration (`Declaration.executableContract`), and `none` without one. A mark a project writes
+decides one of its refusals: the collector reads whether Lean marks the implementation
+`noncomputable`. The decisions of RG1007 and RG1009 take this and no other field of the record,
+so they read what a project writes only through it. -/
+abbrev RecordedContract := Option ExecutableContract
 
 /-- The part of a declaration's record that is kernel-checked declaration data: a field of the
 constant's `ConstantInfo`, which Lean's kernel admitted with the declaration, or a value computed

@@ -151,7 +151,7 @@ private def decide (o : ModuleObservation) : Except String ModuleResult := do
   let mut contracts := 0
   -- A registered decision is decided by a contract of its own module: each module is audited in
   -- its own environment, so a contract in another module of the library does not count.
-  let decided := decidedImplementations o.declarations
+  let decided := decidedImplementations (recordedContracts o.declarations)
   for d in o.declarations do
     if d.executableContract.isSome then contracts := contracts + 1
     match d.unsafeRecBase with

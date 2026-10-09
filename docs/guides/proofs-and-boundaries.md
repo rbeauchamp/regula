@@ -525,10 +525,11 @@ use that takes a narrower part. What takes which part:
 | `SafetyOK` | `Declaration.KernelChecked` | Kernel-checked data alone (`isUnsafe`, `isPartial`, `name`). The helper set is a separate argument. |
 | `KnownDependencies`, `CompilerPolicyOK`, `ProfileOK` | `Declaration.ToolchainObserved` | Toolchain observations alone (`axioms`). |
 | `FoundationOK` | `Declaration.Inspected` | Kernel-checked data and toolchain observations (`kind`, `axioms`). |
-| `ContractOK` | `Declaration.ProjectWritten` | The recorded contract, whose refusals a project-written mark can decide. |
+| `ContractOK`, `SharedTestOK`, `sharedTestFailure` | The recorded contract (`RecordedContract`) | The recorded contract alone: its refusals, which a project-written mark can decide, and the names of its shared tests. |
+| `DecisionRegistered`, `decidedImplementations` | The recorded contracts of an inventory (`recordedContracts`) | The recorded contracts alone: the kind, the refusals and the implementation of each. |
 | `Erasure.reproduces` ([below](#the-recursion-helper-comparison-decision-and-observing-pass)) | No record: two values, `Erasure.Observations` and whether the pass finished | Toolchain observations of the terms of the two values, and the pass's report of its own run. |
 | `NativeStatement.recognize?` ([below](#the-native-axiom-statement-decision-and-observing-pass)) | No record: a `NativeStatement.Candidate` | The tactic and the prefix that `nativeAxiomOrigin?` reads from the name, and the kernel-checked type. |
-| `declarationFailure`, `DeclarationOK`, `declarationRequirements` and their theorems | `Declaration` | Every part: they join the relations above, so through `ContractOK` they read the recorded contract. |
+| `declarationFailure`, `DeclarationOK`, `declarationRequirements` and their theorems | `Declaration` | Every part: they join the relations above, so through `ContractOK` and `SharedTestOK` they read the recorded contract. |
 | `decisionFailure`, `DecisionOK` | `Declaration` | `decisionResult`, the project's own registration, and `name`. |
 | `NativeTeachingOK`, `RecursiveHelperOK`, `ConstructorIndexHelperOK` and the `authorized…` validators | `Declaration` | Every part. Each also requires values of project-written fields. A native-proof axiom must have no replacement and no `extern` implementation. A recursion helper and a constructor-index helper must have no replacement, no `extern` implementation and no recorded range. A recursion base must have no replacement and no `extern` implementation. A constructor-index base must have the helper as its replacement and no `extern` implementation. These conditions narrow what is admitted and authenticate nothing. |
 | `policyFor`, `memberFailure`, the editor decision | `Declaration` | Every part, through the decisions above. |
@@ -546,11 +547,12 @@ observations of the checker that a project-written mark decides are fields of
 mark for one refusal, and `constructorIndex` requires that the base's replacement
 (`@[implemented_by]`) is the helper, that the helper has no replacement and no recorded declaration
 range, that neither has an `extern` implementation, that the eliminator has no replacement and no
-`extern` implementation, and that `getObjTagNat` has no replacement. The declaration decision, the
-role validators and the other decisions that take the whole `Declaration` still read
-project-written fields: a decision of [RG1007] that does not read the `noncomputable` mark
-through the recorded contract, and role validators that do not read attribute and range marks, are
-the rest of [#199](https://github.com/rbeauchamp/regula/issues/199).
+`extern` implementation, and that `getObjTagNat` has no replacement. The decisions of [RG1007]
+and [RG1009] take the recorded contract and no other field, so they read the `noncomputable` mark
+only through it. The declaration decision, the decision requirement, the role validators and the
+other decisions that take the whole `Declaration` still read project-written fields. The rest of
+this part of [#199](https://github.com/rbeauchamp/regula/issues/199) is to give the decision
+requirement and the role validators those fields through typed records.
 
 **Consumers** (paths from `lean/Regula/`):
 
@@ -753,7 +755,7 @@ Two-way decisions (`Regula.Decides`), each with an accepted and a refused input:
 | Decision | Specification | Used by |
 | --- | --- | --- |
 | `RegulaPolicy.declarationFailure`, `decisionFailure`, `operationalFailure` (accept on `none`) | `DeclarationOK`, `DecisionOK`, `OperationalOK` | The declaration decision of [RG1001]–[RG1007] and [RG1009], over the recorded declaration and the supplied role sets; the decision requirement of [RG1008], over the recorded declaration and a supplied set of decided implementations; and the operational self-audit's. |
-| `RegulaPolicy.sharedTestFailure` (accepts on `none`) | `SharedTestOK`: the record of each contract names no function of the class `boolean` (`sharedTestFailure_none_iff`) | The requirement of [RG1009], over the project-written part of a recorded declaration. It accepts a record with no contract, and it refuses the record of a decision registration that names one test. `declarationFailure` runs it after the recorded refusals of the contract. |
+| `RegulaPolicy.sharedTestFailure` (accepts on `none`) | `SharedTestOK`: the record of each contract names no function of the class `boolean` (`sharedTestFailure_none_iff`) | The requirement of [RG1009], over the recorded contract of a declaration. It accepts a declaration with no recorded contract, and it refuses the record of a decision registration that names one test. `declarationFailure` runs it after the recorded refusals of the contract. |
 | `RegulaPolicy.boundaryFailures`, `executionFailureRecords`, `executionFindings` (accept on `#[]`) | `BoundaryOK`, `ExecutionOK` | [RG3001], [RG3002], for one supplied boundary and for an admitted inventory. |
 | `RegulaPolicy.Intent.hasIntentSection`, `RegulaPolicy.materialDocumentationFailure` | `IntentSection`, `MaterialDocumentationOK` | [RG5002], [RG5003]. |
 | `RegulaPolicy.ModuleHeader.failures`, `RegulaPolicy.Community.failures` (accept on `[]`) | `ModuleHeader.OK`, `Conforming` | [RG5001], [RG2006]. |
