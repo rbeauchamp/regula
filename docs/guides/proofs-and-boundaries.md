@@ -3778,10 +3778,12 @@ hosted runners (Diagnostics runs 37170060453 and 37171425583, both shards), 147 
 had passed when the first control started. That is a target, not a bound, and the timings above
 are observations: the deadline alone refuses a run.
 
-On the slower hosted runners, the timed step of the first shard took 397 s at commit `e6c4c996`,
-with 242 s for the chain. With the seed, Diagnostics run 37979063520 took 361 s, with 198 s for
+On the slower hosted runners, the timed step of the first shard took 405 s at commit `e6c4c996`,
+with 242 s for the chain. With the seed, Diagnostics run 37979063520 took 368 s, with 198 s for
 the chain and 156 s for its restored fresh gate. The chain now holds no fresh gate, so the
-positive is the longest item of the first shard.
+positive is the longest item of the first shard. Without that gate, the timed step took 295 s
+on a slower hosted runner (Diagnostics run 38015750002, attempt 2). The chain took 40 s there
+and the positive 133 s.
 
 Each partition's baseline build names what its controls read from the repository's own build
 (`Partition.baseline`, and `baselineOf` for a shard). The gates of these two partitions run in
