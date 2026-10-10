@@ -124,7 +124,8 @@ run_cmd do
   let h ← Regula.Collect.declaration helperName .replayCandidate
   let b ← Regula.Collect.declaration baseName .replayCandidate
   let t ← Regula.Collect.declaration parent .replayCandidate
-  unless RegulaPolicy.authorizedConstructorIndexHelpers #[t, b, h] == #[helperName] do
+  unless RegulaPolicy.authorizedConstructorIndexHelpers (RegulaPolicy.roleRecords #[t, b, h]) ==
+      #[helperName] do
     throwError "real constructor-index inventory was not authorized"
   let encoded := toJson h
   let .ok decoded := (fromJson? encoded : Except String Regula.Report.Declaration)
