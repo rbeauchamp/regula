@@ -129,7 +129,9 @@
    "executable-contract=below decision-kind=sound-and-complete requires=Regula.Decides (fun x => x = true) Below below shared-booleans=[] shared-others=[]",
    "knownSign shared-booleans=[] shared-others=[]",
    "firstBefore shared-booleans=[] shared-others=[\"descending\"]",
-   "admit shared-booleans=[] shared-others=[] shared-through-types=[\"settled\"]"
+   "admit shared-booleans=[] shared-others=[] shared-through-types=[\"settled\"]",
+   "admitNamed shared-booleans=[] shared-others=[] shared-through-types=[\"settled\"]",
+   "admitAliased shared-booleans=[] shared-others=[] shared-through-types=[\"settled\"]"
   ]
  },
  "Fixtures.Mutations.SharedTests": {

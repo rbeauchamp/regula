@@ -914,10 +914,11 @@ def guide : RuleId → Guide
           also below a function of another result type that the two sides share. The finding \
           names each such function after `shared-booleans=`.",
         "The checker does not enter the declaration of the input type of the kind from the \
-          input (`RegulaPolicy.StatementReading.reads`). It reads the specification from its \
-          body under its variable, and it does not follow a projection of a field of the input \
-          back to the input type. It reads the acceptance predicate in the same way with the \
-          result type. It follows everything else as before.",
+          input (`RegulaPolicy.StatementReading.reads`). It reads the specification from the \
+          body of its function abstraction, or of the definition that it names, under its \
+          variable. It does not follow a projection of a field of the input back to the input \
+          type, or to the type that an `abbrev` input type unfolds to. It reads the acceptance \
+          predicate in the same way with the result type. It follows everything else as before.",
         "A test that the two sides share only through the declaration of the input type, such \
           as a test that an invariant of a field of the input states, is not counted. The \
           report names it after `shared-through-types=`. A specification that names the input \

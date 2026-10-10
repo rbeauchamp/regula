@@ -17,9 +17,11 @@ definition whose value a statement depends on (`RegulaPolicy.ResultForm.ValueRea
 declaration of an inductive type, a constructor and a recursor. The reading is that rule with one
 exception: it does not enter the declaration of the input type of the kind from the input. A kind
 compares `accepts (f x)` with `spec x` for each input `x : α`, and the specification is
-`fun x : α => b`. The reading starts at the constants of `b`, not at those of `α`, and from a
-field's projection function of a structure that occurs in `α` it does not follow the edge back to
-that structure. The acceptance predicate is read in the same way, with the result type in the
+`fun x : α => b`, or a definition whose value is `fun x : α => b`. The reading starts at the
+constants of `b`, not at those of `α`, and from a field's projection function of a structure that
+occurs in `α` it does not follow the edge back to that structure. The constants of `α` include
+those of `α` with its reducible definitions unfolded at its head, so an `abbrev` of the input type
+is that type. The acceptance predicate is read in the same way, with the result type in the
 place of the input type. Everything else is followed as before: the arguments of each application,
 the types of opaque constants and axioms, and the declaration of a constant of `α` that `b` names in
 any other way, as the binder of `∀ y : α`, as an argument of a function or through a constructor.
@@ -223,14 +225,27 @@ theorem dropped {observed : Observed} {domain : Array Name} {target : Name}
 /-- What `reading` reads: the record of each constant outside Lean's own library that the term
 reaches by the rule of a statement, the constants of the input type, and the constants of the
 body of the term under the variable of the input. A constant with no record is not followed: a
-constant of Lean's own library, or one that the environment does not have. -/
+constant of Lean's own library, or one that the environment does not have.
+
+The pass (`Regula.Collect.readStatement`) builds the domain and the body in three forms:
+
+* For a term `fun x : α => b`, the constants of `α` and those of `b`.
+* For a term that is a definition `C`, or `fun x => C x`, where the value of `C` is
+  `fun x : α => b`, the constants of that `α` and those of that `b`.
+* For every other term, the constants of the domain `α` of its type and those of the term.
+
+In each form the domain also holds the constants of `α` with its reducible definitions unfolded at
+its head, so an `abbrev` of the input type is that type. The theorems below quantify over the
+request, so they hold of each form. -/
 structure Request where
   /-- What the pass read of each constant that it read. -/
   records : Std.HashMap Name Observed
   /-- The constants of the input type of the kind (the result type, for an acceptance
-  predicate): those of the type of the variable of the term. -/
+  predicate): those of the binder type of the term or of the definition that it names, and of
+  that type with its reducible definitions unfolded at its head. -/
   domain : Array Name
-  /-- The constants of the body of the term under the variable of the input. -/
+  /-- The constants of the body of the term under the variable of the input, or of the value of
+  the definition that it names. -/
   body : Array Name
 
 /-- The constants that the reading follows from `name`: those of its record (`Observed.read`),
@@ -371,7 +386,14 @@ private theorem through_input_from {request : Request} {source name : Name}
 /-- **What the reading leaves out is reached only through the input type.** A constant that the
 term reaches by the rule of a statement and not by the reading is reached by the rule from a
 constant of the input type that the reading does not reach: the body of the term names that
-constant in no way but through a projection of a field. -/
+constant in no way but through a projection of a field.
+
+The theorem quantifies over the request, so it holds of the request in each of the forms of
+`Request`: for a term `fun x : α => b`, the domain holds the constants of `α` and the body those
+of `b`. For a definition `C` whose value is `fun x : α => b`, named by the term itself or by
+`fun x => C x`, they are those of that `α` and that `b`. For an `abbrev` input type, the domain
+holds the constants of the type that it unfolds to as well. The constants of the domain are the
+input type here, and the body is what the specification states. -/
 theorem through_input {request : Request} {result : Reading}
     (returned : reading request = some result) {name : Name}
     (rule : name ∈ result.withTypes) (unread : name ∉ result.read) :

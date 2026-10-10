@@ -102,9 +102,10 @@ function of the first class below (rule RG1009), which it searches for at any de
 outside Lean's own library. It reads the definitions outside Lean's own library that `spec`
 reaches and that `f` or `accepts` also reaches. It reads `accepts` as it reads `spec`: each is
 a statement, and the value of a definition of a proposition that it names is read. It does not
-enter the declaration of the input type of the kind from the input: it reads `spec` from its body
-under its variable, and it does not follow a projection of a field of the input back to the input
-type. `accepts` is read in the same way with the result type. So a test that only the declaration
+enter the declaration of the input type of the kind from the input: it reads `spec` from the body
+of its function abstraction, or of the definition that it names, under its variable, and it does
+not follow a projection of a field of the input back to the input type, or to the type that an
+`abbrev` input type unfolds to. `accepts` is read in the same way with the result type. So a test that only the declaration
 of the input type names, such as a test that an invariant of a field of the input states, is not
 shared through `spec`: a change of the test changes which inputs there are, on the two sides
 together, and not the comparison at an input. The report names such a test apart, and no

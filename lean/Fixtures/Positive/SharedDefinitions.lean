@@ -33,6 +33,12 @@ predicate reaches too (`RegulaPolicy.SharedNames`):
   specification, and it does not follow a projection of a field of the input back to the input
   type. So the registration is accepted, and the record names `settled` as shared only through
   types (`RegulaPolicy.SharedNames.throughTypes`).
+* `admitNamed_decides`: the form of issue 270 with the specification as a definition,
+  `AdmitSpec`, whose type names the input type. The search reads the body of the value of
+  `AdmitSpec`, not its type, so it is accepted as `admit_decides` is.
+* `admitAliased_decides`: the form of issue 270 with the input type under an `abbrev`,
+  `AdmitAlias`. The projections name the structure that the `abbrev` unfolds to, which the search
+  holds as the input type too, so it is accepted as `admit_decides` is.
 -/
 import Regula.Contract
 
@@ -173,4 +179,30 @@ theorem admit_decides : Regula.ExecutableContract admit (fun run =>
     Regula.Decides (· = true) (fun input : AdmitInput => input.amount < input.limit)
       (fun input : AdmitInput => run input.panel input.amount input.limit)) :=
   ⟨.of_iff (fun input => admit_iff input.panel input.amount input.limit)
+    ⟨⟨⟨⟨5, by decide⟩⟩, 1, 3⟩, by decide⟩ ⟨⟨⟨⟨5, by decide⟩⟩, 7, 3⟩, by decide⟩⟩
+
+/-- A copy of `admit` under a second name. It runs the test `settled` on the meter. -/
+def admitNamed (panel : Panel) (amount limit : Nat) : Bool :=
+  settled panel.meter.level && decide (amount < limit)
+
+/-- The specification of `admitNamed`, as a definition: the amount is below the limit. -/
+def AdmitSpec (input : AdmitInput) : Prop := input.amount < input.limit
+
+theorem admitNamed_decides : Regula.ExecutableContract admitNamed (fun run =>
+    Regula.Decides (· = true) AdmitSpec
+      (fun input : AdmitInput => run input.panel input.amount input.limit)) :=
+  ⟨.of_iff (fun input => by simp [admitNamed, AdmitSpec, input.panel.meter.settled_level])
+    ⟨⟨⟨⟨5, by decide⟩⟩, 1, 3⟩, by decide⟩ ⟨⟨⟨⟨5, by decide⟩⟩, 7, 3⟩, by decide⟩⟩
+
+/-- The input type of `admit` under a second name. -/
+abbrev AdmitAlias := AdmitInput
+
+/-- A copy of `admit` under a third name. It runs the test `settled` on the meter. -/
+def admitAliased (panel : Panel) (amount limit : Nat) : Bool :=
+  settled panel.meter.level && decide (amount < limit)
+
+theorem admitAliased_decides : Regula.ExecutableContract admitAliased (fun run =>
+    Regula.Decides (· = true) (fun input : AdmitAlias => input.amount < input.limit)
+      (fun input : AdmitAlias => run input.panel input.amount input.limit)) :=
+  ⟨.of_iff (fun input => by simp [admitAliased, input.panel.meter.settled_level])
     ⟨⟨⟨⟨5, by decide⟩⟩, 1, 3⟩, by decide⟩ ⟨⟨⟨⟨5, by decide⟩⟩, 7, 3⟩, by decide⟩⟩

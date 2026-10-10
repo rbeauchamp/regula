@@ -1853,10 +1853,11 @@ acceptance predicate by the rule of a statement, with one exception. That readin
 pass and one pure decision with a kind.
 
 - **The exception.** The reading does not enter the declaration of the input type of the kind
-  from the input. It starts at the body of the specification under its variable, not at the type
-  of that variable. From a field's projection function of a structure of the input type, it does
-  not follow the edge back to that structure. The acceptance predicate is read in the same way
-  with the result type.
+  from the input. It starts at the body of the specification's function abstraction, or of the
+  definition that the specification names, under its variable. From a field's projection function
+  of a structure of the input type, it does not follow the edge back to that structure. An
+  `abbrev` input type includes the type that it unfolds to. The acceptance predicate is read in
+  the same way with the result type.
 - **The observing pass** is `Collect.readStatement`. It starts at the constants of the input type
   and of the body. It reads each constant outside Lean's own library that the rule of a statement
   reaches, `StatementReading.Observed.references`. For each such constant it gives a record,
@@ -1901,8 +1902,12 @@ items:
   `Lean.Expr.getUsedConstants`, a function of Lean's library.
 - That a projection function is a constant with a kernel-checked value that is the field of its
   last argument. The pass reads this from the value, as it does for a decided function.
-- That the constants of the input type are those of the type of the variable of the term. The
-  pass reads the term, and for a term that is no function abstraction, the domain of its type.
+- That the domain and the body are those of the input type and of what the term states. For a
+  function abstraction, the pass reads its binder type and its body. A term can name a
+  definition, alone or applied to its variable, with a function abstraction as its value. For
+  such a term, the pass reads the binder type and the body of that value. For a term of a
+  different form, it reads the domain of its type and the term. It adds the constants of the input type with its reducible definitions unfolded at
+  its head.
 - That a constant with no record leads to no shared test. A constant of Lean's own library is not
   read, as before this change.
 - That a test that only the declaration of the input type names is no part of a specification.

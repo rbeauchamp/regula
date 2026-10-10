@@ -3136,10 +3136,10 @@ reading of it (`RegulaPolicy.StatementReading.reading`). -/
 private structure StatementRead where
   /-- The record of each constant that the pass read. -/
   records : Std.HashMap Name RegulaPolicy.StatementReading.Observed
-  /-- The constants of the input type of the kind, or of its result type: those of the type of
-  the variable of the term. -/
+  /-- The constants of the input type of the kind, or of its result type, as `readStatement`
+  reads them. -/
   domain : Array Name
-  /-- The constants of the body of the term under that variable. -/
+  /-- The constants of the body of the term under its variable, as `readStatement` reads them. -/
   body : Array Name
   /-- The two readings of the term. -/
   reading : RegulaPolicy.StatementReading.Reading
@@ -3147,26 +3147,48 @@ private structure StatementRead where
 /-- The reading of `term`, a specification or an acceptance predicate, by the rule of a
 statement: the observing pass and the pure search `RegulaPolicy.StatementReading.reading`.
 
-The term is a function of the input of the kind (of its result, for an acceptance predicate).
-For `fun x : α => b`, the input type is `α` and the body is `b`; for a term that is no function
-abstraction, the input type is the domain of its type, and the body is the term. The pass reads
-each constant outside Lean's own library (`ContractScope.outsideToolchain`) that the constants of
-`α` and of `b` reach by the rule of a statement
+The term is a function of the input of the kind (of its result, for an acceptance predicate). The
+request (`RegulaPolicy.StatementReading.Request`) has the constants of an input type `α` as its
+`domain` and the constants of a body `b` as its `body`, in three forms:
+
+* For `fun x : α => b`, the binder type and the body of the term.
+* For a constant `C`, or `fun x => C x` (`Lean.Expr.eta`), where `C` is a definition whose
+  kernel-checked value, at the universe levels of the term, is `fun x : α => b`: the binder type
+  and the body of that value. `C x` is `b` by the unfolding of `C`, so the body is what the term
+  states, and a `∀ y : α` in `b` still names `α` in the body.
+* For every other term, the domain of its type as `α`, and the term as `b`.
+
+The domain also has the constants of `α` with its reducible definitions unfolded at its head
+(`Meta.whnfR`), so the input type of an `abbrev` is the structure that its projections name. The
+pass reads each constant outside Lean's own library (`ContractScope.outsideToolchain`) that the
+constants of the domain and of the body reach by the rule of a statement
 (`RegulaPolicy.StatementReading.Observed.references`), the reading of the search before it left
 out the declaration of the input type (`observeStatement`). That closure holds each constant that
 the reading reaches too (`RegulaPolicy.StatementReading.read_subset_withTypes`). The pure search
 then gives the two readings over those records (`RegulaPolicy.StatementReading.reading_some`);
 its bound of steps covers every record, and the reading refuses with an error should it run out.
-That the pass reads the environment truly is this function's, not a theorem. -/
+`RegulaPolicy.StatementReading.through_input` holds of the request in each form, since it holds
+of every request. That the pass reads the environment truly is this function's, not a theorem. -/
 private def readStatement (env : Environment) (scope : ContractScope) (term : Expr) :
     MetaM StatementRead := do
-  let (domain, body) ← match term.consumeMData with
-    | .lam _ type body _ => pure (type.getUsedConstants, body.getUsedConstants)
+  let term := term.consumeMData
+  let named := match term.eta with
+    | .const name levels => match env.find? name with
+      | some info@(.defnInfo _) => match (info.instantiateValueLevelParams! levels).consumeMData with
+        | value@(.lam ..) => some value
+        | _ => none
+      | _ => none
+    | _ => none
+  let (input, body) ← match named.getD term with
+    | .lam _ type body _ => pure (some type, body.getUsedConstants)
     | _ => do
-      let domain := match ← Meta.whnf (← Meta.inferType term) with
-        | .forallE _ type _ _ => type.getUsedConstants
-        | _ => #[]
-      pure (domain, term.getUsedConstants)
+      let input := match ← Meta.whnf (← Meta.inferType term) with
+        | .forallE _ type _ _ => some type
+        | _ => none
+      pure (input, term.getUsedConstants)
+  let domain ← match input with
+    | some type => pure (type.getUsedConstants ++ (← Meta.whnfR type).getUsedConstants)
+    | none => pure #[]
   let mut records : Std.HashMap Name RegulaPolicy.StatementReading.Observed := {}
   let mut seen : NameSet := {}
   let mut pending := domain ++ body
@@ -3271,8 +3293,9 @@ rule of a function (`functionReferences`), and the specification and the accepta
 the reading of a statement (`readStatement`, the registered decision
 `RegulaPolicy.StatementReading.reads`): the value of a definition of a proposition that a term
 names is read, and the value of a `Decidable` instance that it names is not. The reading starts at
-the body of the term under its variable, and from a field's projection function of a structure of
-the input type it does not follow the edge back to that structure. So the specification does not
+the body of the term's function abstraction, or of the definition that the term names, and from a
+field's projection function of a structure of the input type it does not follow the edge back to
+that structure. So the specification does not
 enter the declaration of its input type from the input, and the acceptance predicate does not
 enter the declaration of the result type from the result; each follows everything else as the
 rule of a statement does. The search reads kernel-checked values only. A runtime replacement (`implemented_by`,
