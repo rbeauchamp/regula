@@ -480,9 +480,9 @@ metadata, not authenticated binary identity.
   lists as `shared`.
 - **Shared through types:** since schema 13 the objects `sharedDefinitions` and `shared` also
   have the list `throughTypes`. It names each function with a result of `Bool` or `BEq` that the
-  two sides share only through the declaration of the input type or of the result type. An
-  example is a test that an invariant of a field of the input states. No registration is refused
-  for such a function.
+  two sides share only through the declaration of a type. That type is the input type or the
+  result type. An example is a test that an invariant of a field of the input states. No
+  registration is refused for such a function.
 - **Snapshot rendering:** `acceptance.snapshot` renders the audited sources in full, the
   configuration by URI and each dependency by package, pinned revision and input-scoped `dirty`
   bit (a dirty or path dependency as `{package, revision, dirty: true}`, with no content

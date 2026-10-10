@@ -761,7 +761,7 @@ The search does not enter the declaration of the input type from the input. It r
 its body, and it does not follow a projection of the input back to the input type. So a test
 that only an invariant of the input type names is not counted, and the account names it apart.
 A `Spec` that names the input type in a different way, or that states the invariant, reads the
-test. So does a `Spec` that reads a field whose type has such an invariant.
+test. So does a `Spec` that reads a field of a type with such an invariant.
 
 The account names each other function that `Spec` reaches first and that `check` or the
 acceptance predicate also reaches. The kind does not establish that such a function is the

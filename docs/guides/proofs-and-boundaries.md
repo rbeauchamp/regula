@@ -922,7 +922,7 @@ Two-way decisions (`Regula.Decides`), each with an accepted and a refused input:
 | `Regula.Checker.Admission.checkTable` (accepts on `.ok ()`) | `TableWithin` (`checkTable_eq_ok_iff`). Each axiom that `collectAxioms` gives for a declaration is an axiom that the declaration reaches in the replayed kernel. | The decision on the axiom tables of [RG2005] ([below](#receipt-validation-decisions-and-observing-pass)). |
 | `RegulaPolicy.ExecutionWalk.walk` (accepts on `.ok`) | `Recorded` (`walk_ok`, `walk_complete`, `walk_recorded`). Each name that the edges of the records reach from the root has a record. | The walk of an execution root of [RG3001] and [RG3002] ([below](#root-and-closure-discovery-decision-and-observing-pass)). The visits are exactly the reached names (`walk_sound`, `walk_complete`). |
 | `RegulaPolicy.MentionSearch.search` (accepts on a route) | `Found` (`found_of_search`, `search_complete`). A constant that the term mentions leads to a target through the records. | Contract recognition and reach of [RG1007] ([below](#contract-recognition-and-reach-decision-and-observing-pass)). A returned route follows the records (`search_sound`). |
-| `RegulaPolicy.StatementReading.reads` (accepts on `true`) | `Read` (`reads_iff`). The reading of a statement follows the constant from the record of the constant that mentions it, apart from the edge from a projection of the input type back to it. | What [RG1009] follows from the specification and the acceptance predicate ([below](#the-reading-of-a-statement-decision-and-observing-pass)). The closure over the records is exact (`reading_some`). |
+| `RegulaPolicy.StatementReading.reads` (accepts on `true`) | `Read` (`reads_iff`). The reading of a statement follows the constant from the record of the constant that mentions it. It does not follow a projection of the input type back to it. | What [RG1009] follows from the specification and the acceptance predicate ([below](#the-reading-of-a-statement-decision-and-observing-pass)). The closure over the records is exact (`reading_some`). |
 | `Regula.SourceTexts.intern` | One `sourceTexts` member, `null`, and string `sourceText` members (`intern_isOk_iff`) | Writing a result document. |
 | `Regula.Markdown.documentErrors`, `Regula.Markdown.siteLinkErrors`, `Regula.Prose.bareMentions`, `Regula.Site.linkErrors`, `Regula.Site.missingAnchors`, `Regula.Site.rowsMismatch` | Their `_nil_iff` and `_eq_none_iff` relations | The rule-ID checks of Markdown and of the rendered standard, and the site's link, anchor and checklist checks. `siteLinkErrors` is the check of the links of the root `README.md` to the rule-reference site. |
 | `Regula.Controlled.parse` | The text is the text that `write` gives for a vocabulary (`parse_write`, `write_of_parse`). A vocabulary is a draft with `Draft.WellFormed` (`Draft.defects_nil_iff`). | The vocabulary `CONTEXT.md` (check C9) of the [writing rules](writing.md). The file system gives the text. |
@@ -1878,7 +1878,7 @@ the comparison at each input is the one that it was. A specification that names 
 in a different way can depend on the test at an input, so the reading follows that name.
 
 This argument is not a theorem about Lean's semantics. Section 7.11 of the standard states it.
-The theorem `through_input` gives the property of the reading that the argument needs.
+The theorem `through_input` gives the property of the reading on which the argument depends.
 
 **Proved**, about the functions that the reading runs. They are in the claimed library
 `RegulaPolicy`, so acceptance admits each theorem with Lean's kernel and reports its axioms.
@@ -1908,11 +1908,11 @@ items:
 - That a test that only the declaration of the input type names is no part of a specification.
   This is the argument above.
 
-**The limits.** The reading is narrow. A specification that reads a field of a field of the input
+**The limits.** A specification that reads a field of a field of the input
 reads the type of the first field, with its declaration. So does a specification that names a
 component type of the input as a parameter, as the projections of a pair do. A type that the
-specification passes to a function that is no projection, as `xs[i]` passes the element type to
-the instance of `GetElem`, is read too. The controls `admitBelow_decides`, `admitPair_decides` and
+specification passes to a function that is no projection is read too. An example is the element
+type that `xs[i]` passes to the instance of `GetElem`. The controls `admitBelow_decides`, `admitPair_decides` and
 `admitAt_decides` show these limits.
 
 **The verdicts.** The rule of a statement is the reading of the search before
