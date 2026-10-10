@@ -643,11 +643,11 @@ use that takes a narrower part. What takes which part:
 | `DecisionRegistered`, `decidedImplementations` | The recorded contracts of an inventory (`recordedContracts`) | The recorded contracts alone: the kind, the refusals and the implementation of each. |
 | `Erasure.reproduces` ([below](#the-recursion-helper-comparison-decision-and-observing-pass)) | No record: two values, `Erasure.Observations` and whether the pass finished | Toolchain observations of the terms of the two values, and the pass's report of its own run. |
 | `NativeStatement.recognize?` ([below](#the-native-axiom-statement-decision-and-observing-pass)) | No record: a `NativeStatement.Candidate` | The tactic and the prefix that `nativeAxiomOrigin?` reads from the name, and the kernel-checked type. |
-| `declarationFailure`, `DeclarationOK`, `declarationRequirements` and their theorems | `Declaration` | Every part: they join the relations above, so through `ContractOK` and `SharedTestOK` they read the recorded contract. |
+| `declarationFailure`, `DeclarationOK`, `declarationRequirements` and their theorems | `Declaration.Assessed` | The inspected part and the recorded contract: they join the relations above, so through `ContractOK` and `SharedTestOK` they read the recorded contract. |
 | `decisionFailure`, `DecisionOK` | `Declaration.Registration` | The name and `decisionResult`, the project's own registration, alone. |
 | `NativeTeachingOK`, `RecursiveHelperOK`, `ConstructorIndexHelperOK` and the `authorized…` validators | `Declaration.Role`, and the role parts of an inventory (`roleRecords`) | The inspected part and four project-written marks: the replacement, the `extern` mark, the recorded ranges and the constructor-index observation. Each requires values of these marks. A native-proof axiom must have no replacement and no `extern` implementation. A recursion helper and a constructor-index helper must have no replacement, no `extern` implementation and no recorded range. A recursion base must have no replacement and no `extern` implementation. A constructor-index base must have the helper as its replacement and no `extern` implementation. These conditions narrow what is admitted and authenticate nothing. |
-| `policyFor`, `memberFailure`, the editor decision | `Declaration` | Every part, through the decisions above. |
-| `operationalFailure`, `OperationalOK`, `operationalView`, `operationalAxioms` | `Declaration` | `kind`, `isProp`, `axioms` and, through `ContractOK` and `SharedTestOK`, the recorded contract. The view also clears `isUnsafe` and `isPartial`. |
+| `policyFor`, `memberFailure`, the editor decision, `policyRequirements` | `Declaration` | Membership of the inventory, which is of the whole record: `policyFor` decides it, and `memberFailure` and the editor decision take a proof of it. `policyFor`, `memberFailure` and `policyRequirements` join the assessed part and the registration part. The editor decision reads only the assessed part: `declarationFailure` takes `Declaration.Assessed` and `needsRoleEvidence` takes `Declaration.Inspected`. |
+| `operationalFailure`, `OperationalOK`, `operationalView`, `operationalAxioms` | `Declaration.Assessed` | `kind`, `isProp`, `axioms` and, through `ContractOK` and `SharedTestOK`, the recorded contract. The view also clears `isUnsafe` and `isPartial`. |
 
 **Limits.** The parts classify the source of a value. They do not make an observation truthful,
 and that `Collect.declaration` fills each field from the source its part names is by inspection of
@@ -667,10 +667,14 @@ replacement. The decisions of [RG1007]
 and [RG1009] take the recorded contract and no other field, so they read the `noncomputable` mark
 only through it. The decision requirement of [RG1008] takes the name and the registration alone
 (`Declaration.Registration`). The role validators take the role part (`Declaration.Role`):
-the inspected part and the four marks that they read. The declaration decision and the other
-decisions that join the decisions above still take the whole `Declaration`. The rest of this part
-of [#199](https://github.com/rbeauchamp/regula/issues/199) is that each of them takes only the
-parts that the decisions it joins take.
+the inspected part and the four marks that they read. The declaration decision and the
+operational decision take the assessed part (`Declaration.Assessed`): the inspected part and the
+recorded contract. `policyFor`, `memberFailure` and the editor decision take the whole
+`Declaration` because membership of the inventory is a property of the whole record. `policyFor`
+decides it, and the other two take a proof of it. `policyFor`, `memberFailure` and
+`policyRequirements` join the assessed part and the registration part. The editor decision reads
+only the assessed part: it joins the declaration decision with `needsRoleEvidence`, which takes
+`Declaration.Inspected`.
 
 **Consumers** (paths from `lean/Regula/`):
 
@@ -873,7 +877,7 @@ Two-way decisions (`Regula.Decides`), each with an accepted and a refused input:
 
 | Decision | Specification | Used by |
 | --- | --- | --- |
-| `RegulaPolicy.declarationFailure`, `decisionFailure`, `operationalFailure` (accept on `none`) | `DeclarationOK`, `DecisionOK`, `OperationalOK` | The declaration decision of [RG1001]–[RG1007] and [RG1009], over the recorded declaration and the supplied role sets; the decision requirement of [RG1008], over the name and registration of the recorded declaration (`Declaration.Registration`) and a supplied set of decided implementations; and the operational self-audit's. |
+| `RegulaPolicy.declarationFailure`, `decisionFailure`, `operationalFailure` (accept on `none`) | `DeclarationOK`, `DecisionOK`, `OperationalOK` | The declaration decision of [RG1001]–[RG1007] and [RG1009], over the inspected part and the recorded contract of the recorded declaration (`Declaration.Assessed`) and the supplied role sets; the decision requirement of [RG1008], over the name and registration of the recorded declaration (`Declaration.Registration`) and a supplied set of decided implementations; and the operational self-audit's, over the assessed part. |
 | `RegulaPolicy.sharedTestFailure` (accepts on `none`) | `SharedTestOK`: the record of each contract names no function of the class `boolean` (`sharedTestFailure_none_iff`) | The requirement of [RG1009], over the recorded contract of a declaration. It accepts a declaration with no recorded contract, and it refuses the record of a decision registration that names one test. `declarationFailure` runs it after the recorded refusals of the contract. |
 | `RegulaPolicy.boundaryFailures`, `executionFailureRecords`, `executionFindings` (accept on `#[]`) | `BoundaryOK`, `ExecutionOK` | [RG3001], [RG3002], for one supplied boundary and for an admitted inventory. |
 | `RegulaPolicy.Intent.hasIntentSection`, `RegulaPolicy.materialDocumentationFailure` | `IntentSection`, `MaterialDocumentationOK` | [RG5002], [RG5003]. |

@@ -1542,6 +1542,33 @@ selection range lies within its full range, and otherwise that full range as its
 range (`Ranges.admitted`). -/
 def Declaration.ranges (d : Declaration) : Option Ranges := d.recordedRanges.map Ranges.admitted
 
+/-- What the declaration decision reads of a declaration's record, and nothing else: the inspected
+part (kernel-checked declaration data and toolchain observations) and the recorded contract,
+whose refusals a mark the project writes can decide. -/
+structure Declaration.Assessed extends Declaration.Inspected where
+  /-- The recorded contract (`Declaration.ProjectWritten.executableContract`). -/
+  executableContract : RecordedContract
+  deriving Repr, DecidableEq
+
+/-- The assessed part of a declaration's record: the inspected part and the recorded contract,
+each read through the part that declares it, so a move of the contract to another part fails
+here. -/
+def Declaration.assessed (d : Declaration) : Declaration.Assessed :=
+  { d.toInspected with executableContract := d.toProjectWritten.executableContract }
+
+/-- The inspected part of the assessed part is the inspected part of the record. -/
+@[simp] theorem Declaration.assessed_toInspected (d : Declaration) :
+    d.assessed.toInspected = d.toInspected := rfl
+
+/-- The recorded contract of the assessed part is the recorded contract of the record. -/
+@[simp] theorem Declaration.assessed_executableContract (d : Declaration) :
+    d.assessed.executableContract = d.executableContract := rfl
+
+/-- A declaration's record is read as its assessed part wherever a decision takes only that. No
+coercion leaves the assessed part: a requirement over a narrower part names the projection, so a
+record reaches each narrower part along one path only. -/
+instance : Coe Declaration Declaration.Assessed := ⟨Declaration.assessed⟩
+
 /-- A constructor-index helper spelling selects a candidate parent and base; it authorizes
 neither declaration. The replay observer and inventory relation establish its role. -/
 def constructorIndexOrigin? : Lean.Name → Option (Lean.Name × Lean.Name)

@@ -79,35 +79,37 @@ theorem admitToolchainAxioms_names {names : Array Name} {t : ToolchainAxioms}
 
 /-- The observed transitive axioms the operational decision inspects: all of them for a
 proposition, and all but the reported toolchain axioms for any other declaration. -/
-def operationalAxioms (t : ToolchainAxioms) (d : Declaration) : Array Name :=
+def operationalAxioms (t : ToolchainAxioms) (d : Declaration.Assessed) : Array Name :=
   if d.isProp then d.axioms else d.axioms.filter fun n => !t.names.contains n
 
 /-- The declaration the conforming decision sees: escape-hatch flags erased and reported
 toolchain axioms removed from a non-proposition's axiom set. -/
-def operationalView (t : ToolchainAxioms) (d : Declaration) : Declaration :=
+def operationalView (t : ToolchainAxioms) (d : Declaration.Assessed) : Declaration.Assessed :=
   { d with isUnsafe := false, isPartial := false, axioms := operationalAxioms t d }
 
 /-- Operational declaration decision: the conforming Standard-Logical decision on the view,
-with no generated roles. -/
+with no generated roles. Like `declarationFailure`, it takes the assessed part of the record
+(`Declaration.Assessed`). -/
 @[regula_decision]
-def operationalFailure (t : ToolchainAxioms) (d : Declaration) : Option DeclarationFailure :=
+def operationalFailure (t : ToolchainAxioms) (d : Declaration.Assessed) :
+    Option DeclarationFailure :=
   declarationFailure (operationalView t d) (.conforming .standardLogical) #[] #[]
 
 /-- Operational success: not an axiom declaration, every transitive axiom Standard-Logical or
 (for a non-proposition) a reported toolchain axiom, every recorded contract complete, and no
 recorded decision registration sharing a test. Escape hatches do not appear. -/
-def OperationalOK (t : ToolchainAxioms) (d : Declaration) : Prop :=
+def OperationalOK (t : ToolchainAxioms) (d : Declaration.Assessed) : Prop :=
   d.kind ≠ .«axiom» ∧
   (∀ n ∈ d.axioms, Permitted .standardLogical n ∨ (d.isProp = false ∧ n ∈ t.names)) ∧
   ContractOK d.executableContract ∧ SharedTestOK d.executableContract
 
-theorem mem_operationalAxioms (t : ToolchainAxioms) (d : Declaration) (n : Name) :
+theorem mem_operationalAxioms (t : ToolchainAxioms) (d : Declaration.Assessed) (n : Name) :
     n ∈ operationalAxioms t d ↔ n ∈ d.axioms ∧ (d.isProp = false → n ∉ t.names) := by
   unfold operationalAxioms
   cases hp : d.isProp <;> simp [Array.mem_filter]
 
 /-- Exact success relation of the executed operational decision. -/
-theorem operationalFailure_none_iff (t : ToolchainAxioms) (d : Declaration) :
+theorem operationalFailure_none_iff (t : ToolchainAxioms) (d : Declaration.Assessed) :
     operationalFailure t d = none ↔ OperationalOK t d := by
   unfold operationalFailure
   rw [declarationFailure_none_iff]
@@ -144,7 +146,7 @@ theorem operationalFailure_none_iff (t : ToolchainAxioms) (d : Declaration) :
     simp [Permitted] at hs
 
 /-- An escape hatch is never the operational failure. -/
-theorem operationalFailure_ne_escapeHatch (t : ToolchainAxioms) (d : Declaration) :
+theorem operationalFailure_ne_escapeHatch (t : ToolchainAxioms) (d : Declaration.Assessed) :
     operationalFailure t d ≠ some .escapeHatch := by
   unfold operationalFailure declarationFailure operationalView
   intro h
@@ -152,13 +154,14 @@ theorem operationalFailure_ne_escapeHatch (t : ToolchainAxioms) (d : Declaration
   all_goals simp_all
 
 /-- The decision does not depend on the escape-hatch flags. -/
-theorem operationalFailure_safety (t : ToolchainAxioms) (d : Declaration) (u p : Bool) :
+theorem operationalFailure_safety (t : ToolchainAxioms) (d : Declaration.Assessed) (u p : Bool) :
     operationalFailure t { d with isUnsafe := u, isPartial := p } = operationalFailure t d := by
   rfl
 
 /-- A proposition-typed declaration gets exactly the conforming Standard-Logical decision,
 up to its escape-hatch flags: no toolchain axiom is removed from a proof. -/
-theorem operationalFailure_prop (t : ToolchainAxioms) (d : Declaration) (hp : d.isProp = true) :
+theorem operationalFailure_prop (t : ToolchainAxioms) (d : Declaration.Assessed)
+    (hp : d.isProp = true) :
     operationalFailure t d = declarationFailure { d with isUnsafe := false, isPartial := false }
       (.conforming .standardLogical) #[] #[] := by
   have hax : operationalAxioms t d = d.axioms := by simp [operationalAxioms, hp]
@@ -169,7 +172,7 @@ theorem operationalFailure_prop (t : ToolchainAxioms) (d : Declaration) (hp : d.
 
 /-- On a declaration with no reported fact (no escape hatch and no toolchain axiom), the
 operational decision is the conforming Standard-Logical decision itself. -/
-theorem operationalFailure_eq_conforming (t : ToolchainAxioms) (d : Declaration)
+theorem operationalFailure_eq_conforming (t : ToolchainAxioms) (d : Declaration.Assessed)
     (hu : d.isUnsafe = false) (hpartial : d.isPartial = false)
     (hnone : ∀ n ∈ d.axioms, n ∉ t.names) :
     operationalFailure t d = declarationFailure d (.conforming .standardLogical) #[] #[] := by
@@ -179,7 +182,7 @@ theorem operationalFailure_eq_conforming (t : ToolchainAxioms) (d : Declaration)
     · rfl
     · exact Array.filter_eq_self.mpr fun n hn => by simpa using hnone n hn
   have hview : operationalView t d = d := by
-    obtain ⟨⟨checked, observed⟩, written⟩ := d
+    obtain ⟨⟨checked, observed⟩, contract⟩ := d
     cases checked
     cases observed
     simp_all [operationalView]
@@ -189,7 +192,7 @@ theorem operationalFailure_eq_conforming (t : ToolchainAxioms) (d : Declaration)
 escape-hatch failure, and agreement with the conforming Standard-Logical decision on every
 declaration without a reported fact. -/
 def OperationalFailureContract
-    (decide : ToolchainAxioms → Declaration → Option DeclarationFailure) : Prop :=
+    (decide : ToolchainAxioms → Declaration.Assessed → Option DeclarationFailure) : Prop :=
   ∀ t d, (decide t d = none ↔ OperationalOK t d) ∧ decide t d ≠ some .escapeHatch ∧
     (d.isUnsafe = false → d.isPartial = false → (∀ n ∈ d.axioms, n ∉ t.names) →
       decide t d = declarationFailure d (.conforming .standardLogical) #[] #[])
@@ -208,16 +211,14 @@ registers the larger requirement, which also fixes its agreement with the confor
 this registration states the accepted set as a two-way decision. -/
 theorem checked_operationalDecision : Regula.ExecutableContract operationalFailure (fun decide =>
     Regula.Decides (· = none)
-      (fun input : ToolchainAxioms × Declaration => OperationalOK input.1 input.2)
+      (fun input : ToolchainAxioms × Declaration.Assessed => OperationalOK input.1 input.2)
       (Function.uncurry decide)) :=
-  let recorded (kind : DeclarationKind) : Declaration :=
+  let recorded (kind : DeclarationKind) : Declaration.Assessed :=
     { name := `subject, «module» := `Module, kind, «type» := "", prettyType := "", isProp := false
-      isUnsafe := false, isPartial := false, safety := none, «instance» := false
-      «noncomputable» := false, implementedBy := none, «extern» := false, internal := false
-      «private» := false, projection := false, matcher := false, recursive := false
-      unsafeRecBase := none, levelParams := #[], all := #[], hints := none, valueConstants := #[]
-      unsafeRecRegenerated := none, constructorIndex := none, nativeStatement := none
-      nativeReplay := none, recordedRanges := none, generatedFrom := none, axioms := #[] }
+      isUnsafe := false, isPartial := false, safety := none, internal := false
+      «private» := false, unsafeRecBase := none, levelParams := #[], all := #[], hints := none
+      valueConstants := #[], unsafeRecRegenerated := none, nativeStatement := none
+      nativeReplay := none, axioms := #[], executableContract := none }
   let toolchain : ToolchainAxioms := ⟨#[], by simp, by simp⟩
   ⟨.of_iff (fun input => operationalFailure_none_iff input.1 input.2)
     ⟨(toolchain, recorded .«definition»),
