@@ -336,8 +336,9 @@ theorem commands_nonempty (copy pending : String) (mode : Mode) :
   cases mode <;> simp [commands, ruleExampleShard, selftest]
 
 /-- The first acceptance step runs its build, the registry checks and the combined qualification
-in the copy, and then the gate from the repository root: the gate is last, and it is the only
-command of the step that runs in the checkout. -/
+in the copy, and the gate from the repository root: the gate is the last of its commands, and it
+is the only command of the step that runs in the checkout. It runs beside the others
+(`beside_prebuilt`). -/
 theorem ordinary_places (copy pending : String) :
     (commands copy pending .ordinary).map (·.dir) = [copy, copy, copy, "."] := rfl
 
@@ -454,7 +455,7 @@ structure Ends (commands : List Command) where
 def Ends.statuses {commands : List Command} (group : Ends commands) : List (Option UInt32) :=
   group.ends.map (·.2)
 
-/-- The ends of two groups of commands that ran one after the other, as the ends of both. -/
+/-- The ends of two groups of commands, as the ends of both, in the order of the groups. -/
 def Ends.append {first second : List Command} (early : Ends first) (late : Ends second) :
     Ends (first ++ second) :=
   ⟨early.ends ++ late.ends, by simp [early.complete, late.complete]⟩
@@ -712,7 +713,7 @@ def removeOwn (path : System.FilePath) : IO Unit := do
 
 /-! ## The copy of the first acceptance step
 
-The first acceptance step makes its one build in a private copy of the project, and the
+The first acceptance step makes its builds in a private copy of the project, and the
 acceptance gate audits that copy. The gate executable imports the claimed libraries, so those
 libraries are compiled before the gate can run, and a gate that made its own copy would compile
 them a second time. This driver is the only process of the step that runs before any project
