@@ -3233,8 +3233,11 @@ counted constant that `other` holds of, so a constant below one is found only wh
 reaches it on a path with no such constant. Which constants it finds does not depend on the order
 of the search: they are the counted constants of `other` that are reachable when the edges out of
 those constants are removed. Each constant that it reaches has a record exactly when it is
-outside Lean's own library and in the environment, since the records are the closure of the rule
-of a statement, which holds that of the reading. -/
+outside Lean's own library, in the environment and not the unread constant of the term
+(`StatementRead.unread`), since the records are the closure of the rule of a statement, which
+holds that of the reading. The unread constant is a specification that the snapshot of a file
+with a `module` header has only as an imported axiom: it has no record, and `sharedReading`
+reports it (`Unread.shared`) where a shared test could be below it. -/
 private def sharedFrontier (env : Environment) (scope : ContractScope) (other : Name → Bool)
     (read : StatementRead) : MetaM (Array RegulaPolicy.SharedDefinition) := do
   let mut seen : NameSet := {}

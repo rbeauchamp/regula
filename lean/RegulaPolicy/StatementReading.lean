@@ -229,7 +229,10 @@ theorem dropped {observed : Observed} {domain : Array Name} {target : Name}
 /-- What `reading` reads: the record of each constant outside Lean's own library that the term
 reaches by the rule of a statement, the constants of the input type, and the constants of the
 body of the term under the variable of the input. A constant with no record is not followed: a
-constant of Lean's own library, or one that the environment does not have.
+constant of Lean's own library, one that the environment does not have, or, in the editor
+snapshot of a file with a `module` header, a specification or an acceptance predicate that is an
+imported definition with no exported value. The pass gives that definition no record and the
+caller reports the reading as incomplete for it (`Regula.Collect.readStatement`).
 
 The pass (`Regula.Collect.readStatement`) builds the domain and the body in three forms:
 
@@ -245,11 +248,13 @@ structure Request where
   /-- What the pass read of each constant that it read. -/
   records : Std.HashMap Name Observed
   /-- The constants of the input type of the kind (the result type, for an acceptance
-  predicate): those of the binder type of the term or of the definition that it names, and of
-  that type with its reducible definitions unfolded at its head. -/
+  predicate): those of the binder type of the term or, when the term is a definition, alone or
+  applied to its variable alone, of the binder type of that definition's value, and of that type
+  with its reducible definitions unfolded at its head. -/
   domain : Array Name
-  /-- The constants of the body of the term under the variable of the input, or of the value of
-  the definition that it names. -/
+  /-- The constants of the body of the term under the variable of the input or, when the term is
+  a definition, alone or applied to its variable alone, of the body of that definition's
+  value. -/
   body : Array Name
 
 /-- The constants that the reading follows from `name`: those of its record (`Observed.read`),

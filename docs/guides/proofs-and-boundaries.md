@@ -983,10 +983,32 @@ Decisions with no kind, and what stands instead:
 | The other registered contracts (`checked_request`, `checked_rule`, `checked_subject`, `checked_account`, `checked_summary`, `checked_executionFailures` and the census assembly contracts) | Each fixes a computed value, such as a rendered line or an assembled record, not a verdict. `checked_executionFailures` renders `executionFindings`, which has a kind. | The registered requirement, reported with no kind. |
 | `RegulaProvision.isObjectName`, `isComponent` | `isObjectName` defines the written form that it admits, and no separate relation is stated for it. `IsComponent` states a path component over the text and its characters. The text is not empty. It does not start with a period. Each character is an ASCII letter, an ASCII digit, `-`, `_` or `.`. The theorem `isComponent_iff` connects it to the test `isComponent`. | `IsComponent` is the specification of the kind of `component?`. A reviewer examines if the written forms are the intended ones. |
 
+**Inputs with a proof field.** Issue [#270](https://github.com/rbeauchamp/regula/issues/270)
+changed how [RG1009] reads a specification over an input with a proof field. It asks which
+registrations of Regula with no kind take such an input, and if a kind is now possible for each.
+A probe of the collector read the 57 modules of Regula that hold registrations:
+
+- There are 133 registrations, 110 with a kind and 23 with no kind. No record of the 110 names a
+  shared test, or a test shared only through the input type.
+- 11 of the 23 take an input with a proof field.
+- 4 of the 11 stand beside a kinded registration of the same function, which the two readings
+  accept: `editorDecisionImpl`, `admitScopeImpl`, `memberFailure` and `operationalFailure`.
+- 5 of the 11 are no decisions: `accountImpl`, `executionFailuresImpl`, `subjectImpl`,
+  `memberFoundation` and `executionSummary`.
+- 2 of the 11 have no kind for reasons that #270 does not change. The proof field of
+  `editorRequestImpl` is `String.isValidUTF8` of Lean's own library, which no reading follows.
+  `ruleForMemberImpl` selects a rule, and it reduces to `memberFailure`, which has a kind.
+
+So this change makes no new kind of Regula possible. Before it, [RG1009] refused no kind of
+Regula for this reason. The probe ran on the first, broader reading of this change. The final
+reading leaves out only steps that the first reading also left out. So it reaches at least as
+much, and it names no more tests shared only through the input type. Which registrations have no
+kind does not depend on the reading.
+
 ### Decisions not registered with `regula_decision`
 
 Every decision of the three tables with a kind is registered with `@[regula_decision]`, so
-[RG1008] requires its contract: 56 functions of `RegulaPolicy`, 28 of `RegulaCore`, 9 of
+[RG1008] requires its contract: 57 functions of `RegulaPolicy`, 28 of `RegulaCore`, 9 of
 `RegulaQualification`, 3 of `AuditApp`, 8 of `RegulaProvision`, 6 of `RegulaVerification` and
 25 of the excluded `Regula` library, where the `self-audit` diagnostic decides the rule. Sixteen
 of them are registered from another module of their library, with
@@ -1909,7 +1931,10 @@ items:
   different form, it reads the domain of its type and the term. It adds the constants of the input type with its reducible definitions unfolded at
   its head.
 - That a constant with no record leads to no shared test. A constant of Lean's own library is not
-  read, as before this change.
+  read, as before this change. The editor snapshot of a file with a `module` header gives no
+  record to one more constant. That is a specification or an acceptance predicate that is an
+  imported definition with no exported value. The editor then reports the reading as incomplete
+  with `Unread.shared`, where a shared test could be below that definition.
 - That a test that only the declaration of the input type names is no part of a specification.
   This is the argument above.
 
