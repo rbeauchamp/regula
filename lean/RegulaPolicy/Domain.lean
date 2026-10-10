@@ -1906,7 +1906,8 @@ structure ExecutionBoundary.ToolchainObserved where
 evidence and the constant run in its place. `@[implemented_by]` and `@[extern]` decide the kind
 where the constant has one of them. A constant whose type is an equality of two constants with the
 same list of distinct universe parameters makes a `compiler-simplification` boundary, registered
-with `@[csimp]` or not. The constant's safety and value decide the other kinds. -/
+with `@[csimp]` or not, and an attribute such as `@[simp]` makes Lean generate equation lemmas of
+that shape. The constant's safety and value decide the other kinds. -/
 structure ExecutionBoundary.ProjectWritten where
   /-- What kind of boundary it is. -/
   boundary : BoundaryKind

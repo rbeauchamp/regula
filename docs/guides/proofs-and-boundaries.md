@@ -660,13 +660,14 @@ the source text only for comparison.
 
 **Execution records.** The execution records are shaped by authored marks, and only a few of their
 fields are observed. A field stays observed only where no mark and no traversal through a
-project-written edge can change its value. That holds for the module of a name, its simplification
-candidates, and a boundary's constant, module and ownership. A field that the data of a mark enters
+project-written edge can change its value. That holds for the module of a name and for a boundary's
+constant, module and ownership. A field that the data of a mark enters
 is project-written, as the root's name, which `@[init]` can supply. What the walk computes over the
 reached names sits on the combined record, as the closure and a boundary's position do.
 
 A candidate boundary comes from a constant of an equality type, registered with `@[csimp]` or not.
-The two sides are constants with the same list of distinct universe parameters. The walk follows
+The two sides are constants with the same list of distinct universe parameters. An attribute such
+as `@[simp]` can make Lean generate such a constant, an equation lemma. The walk follows
 each recorded historical replacement conservatively, including one that the compiled code no longer
 runs. The [RG3001] and [RG3002] decisions read the two parts.
 

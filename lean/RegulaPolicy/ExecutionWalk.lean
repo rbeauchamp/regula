@@ -41,28 +41,29 @@ inductive CodeStatus where
   deriving Repr, DecidableEq, Inhabited
 
 /-- The part of a name's record that no mark decides: the module that the environment attributes to
-the name, and the simplification candidates at it. `Probe.observeNode` reads the candidates before
-any attribute test, from a search over constant types alone. -/
+the name. -/
 structure NodeRecord.ToolchainObserved where
   /-- The module that declares the name, when the environment attributes one. -/
   moduleName : Option Name := none
-  /-- The targets of the simplification candidates of this name: constants whose type is an
-  equality of this name and another constant with the same list of distinct universe parameters,
-  registered with `@[csimp]` or not. -/
-  candidateTargets : Array Name := #[]
   deriving Inhabited
 
 /-- The part of a name's record that marks an audited project writes decide. `@[extern]` and
 `@[implemented_by]` decide whether the pass reads the value at all, so they decide the constants its
-value uses and its compiled recursion helper. The retained calls include the initializers that
-`@[init]` names, and the status of the compiler body reads `@[extern]`. The replacement, history and
-simplification targets are the data of `@[implemented_by]`, of the replacement history and of
-`@[csimp]`, and the unresolved paths include those of the replacement history. -/
+value uses and its compiled recursion helper. The simplification candidates include the equation
+lemmas that an attribute such as `@[simp]` makes Lean generate. The retained calls include the
+initializers that `@[init]` names, and the status of the compiler body reads `@[extern]`. The
+replacement, history and simplification targets are the data of `@[implemented_by]`, of the
+replacement history and of `@[csimp]`, and the unresolved paths include those of the replacement
+history. -/
 structure NodeRecord.ProjectWritten where
   /-- The names that the retained compiler body of this name calls or names as initializers. -/
   compilerDependencies : Array Name := #[]
   /-- The retained compiler body of this name. -/
   code : CodeStatus := .missing
+  /-- The targets of the simplification candidates of this name: constants whose type is an
+  equality of this name and another constant with the same list of distinct universe parameters,
+  registered with `@[csimp]` or not. -/
+  candidateTargets : Array Name := #[]
   /-- The names that the logical value of this name uses. -/
   logicalTargets : Array Name := #[]
   /-- The compiled recursion helper of this name. -/
