@@ -373,16 +373,86 @@ theorem Roles.eq_authorize {i : Inventory} (roles : Roles i) : roles = authorize
     cases decided_exact
     rfl
 
-/-- Public policy checks exact inventory membership before using role evidence, then decides the
+/-- The inventory's record with name `n`: the identity of a declaration in an inventory, whose
+names are unique (`InventoryValid`). -/
+def Inventory.record? (i : Inventory) (n : Name) : Option Declaration :=
+  i.declarations.find? (·.name == n)
+
+/-- The record with a name is the inventory's member with that name. -/
+theorem Inventory.record?_eq_some_iff {i : Inventory} {n : Name} {d : Declaration} :
+    i.record? n = some d ↔ d ∈ i.declarations ∧ d.name = n := by
+  constructor
+  · intro h
+    exact ⟨Array.mem_of_find?_eq_some h, by simpa using Array.find?_some h⟩
+  · rintro ⟨hd, rfl⟩
+    cases h : i.record? d.name with
+    | none =>
+      unfold Inventory.record? at h
+      rw [Array.find?_eq_none] at h
+      exact absurd (by simp) (h d hd)
+    | some e =>
+      have he : e ∈ i.declarations := Array.mem_of_find?_eq_some h
+      have hname : e.name = d.name := by simpa using Array.find?_some h
+      rw [eq_of_name_eq i.valid.1 he hd hname]
+
+/-- The record of a member is its own record. -/
+theorem Inventory.record?_of_mem {i : Inventory} {d : Declaration} (hd : d ∈ i.declarations) :
+    i.record? d.name = some d :=
+  Inventory.record?_eq_some_iff.mpr ⟨hd, rfl⟩
+
+/-- The policy decision keyed by identity: on the inventory's record with name `n`, the
 declaration's own requirements (`declarationFailure`) and, where they are met, the decision
-requirement against the inventory's decision contracts (`decisionFailure`). -/
+requirement against the inventory's decision contracts (`decisionFailure`); `.invalidInventory`
+where the inventory has no record with that name. It takes the name and no supplied record, so
+two records with one name get one decision (`policyForName_identity`). -/
+@[regula_decision]
+def policyForName (i : Inventory) (roles : Roles i) (n : Name) (request : InspectionRequest) :
+    Option DeclarationFailure :=
+  match i.record? n with
+  | some d => (declarationFailure d request roles.native roles.safetyHelpers).or
+      (decisionFailure d roles.decided)
+  | none => some .invalidInventory
+
+/-- The admission boundary of a supplied record: `.invalidInventory` for a record that is not one
+of the inventory's records, and nothing for one that is. It compares the whole record, so a
+difference in any field, project-written ones included, refuses the record here; the decision on
+an admitted record is `policyForName`, which reads the record's identity alone. -/
+@[regula_decision]
+def recordFailure (i : Inventory) (d : Declaration) : Option DeclarationFailure :=
+  if d ∈ i.declarations then none else some .invalidInventory
+
+/-- The admission boundary refuses exactly the records that are not the inventory's. -/
+theorem recordFailure_none_iff (i : Inventory) (d : Declaration) :
+    recordFailure i d = none ↔ d ∈ i.declarations := by
+  unfold recordFailure
+  by_cases hd : d ∈ i.declarations <;> simp [hd]
+
+/-- Public policy: the admission boundary of the supplied record (`recordFailure`), then the
+policy decision on its identity (`policyForName`). -/
 @[regula_decision]
 def policyFor (i : Inventory) (roles : Roles i) (d : Declaration)
     (request : InspectionRequest) : Option DeclarationFailure :=
-  if d ∈ i.declarations then
-    (declarationFailure d request roles.native roles.safetyHelpers).or
-      (decisionFailure d roles.decided)
-  else some .invalidInventory
+  (recordFailure i d).or (policyForName i roles d.name request)
+
+/-- `policyFor` checks membership, then decides the record's own requirements and the decision
+requirement: the boundary and the identity-keyed decision compose to that. -/
+theorem policyFor_eq (i : Inventory) (roles : Roles i) (d : Declaration)
+    (request : InspectionRequest) :
+    policyFor i roles d request =
+      if d ∈ i.declarations then
+        (declarationFailure d request roles.native roles.safetyHelpers).or
+          (decisionFailure d roles.decided)
+      else some .invalidInventory := by
+  by_cases hd : d ∈ i.declarations
+  · simp [policyFor, recordFailure, hd, policyForName, Inventory.record?_of_mem hd]
+  · simp [policyFor, recordFailure, hd]
+
+/-- For a member, `policyFor` is the policy decision on its identity: the whole record enters
+`policyFor` only through the admission boundary (`recordFailure`). -/
+theorem policyFor_of_mem (i : Inventory) (roles : Roles i) {d : Declaration}
+    (hd : d ∈ i.declarations) (request : InspectionRequest) :
+    policyFor i roles d request = policyForName i roles d.name request := by
+  simp [policyFor, recordFailure, hd]
 
 /-- Foundation rendering uses the same inventory-bound generated-role result. -/
 def foundationFor (i : Inventory) (roles : Roles i) (d : Declaration) :
@@ -409,7 +479,7 @@ def memberFailure (i : Inventory) (roles : Roles i) (d : Declaration)
 
 /-- Registers `MemberFailureContract` about `memberFailure`. -/
 theorem checked_memberFailure : Regula.ExecutableContract memberFailure MemberFailureContract :=
-  ⟨fun i roles d member request => by simp [memberFailure, policyFor, member]⟩
+  ⟨fun i roles d member request => by simp [memberFailure, policyFor_eq, member]⟩
 
 /-- Required relation for the member-indexed classification: for every inventory member,
 `foundationFor` succeeds with exactly this class. The member form has no error case. -/
@@ -520,8 +590,8 @@ theorem policyFor_none_iff (i : Inventory) (roles : Roles i) (d : Declaration)
       d ∈ i.declarations ∧ DeclarationOK d r roles.native roles.safetyHelpers ∧
         DecisionOK d roles.decided := by
   by_cases hd : d ∈ i.declarations
-  · simp [policyFor, hd, declarationFailure_none_iff, decisionFailure_none_iff]
-  · simp [policyFor, hd]
+  · simp [policyFor_eq, hd, declarationFailure_none_iff, decisionFailure_none_iff]
+  · simp [policyFor_eq, hd]
 
 /-- The refusals of the recorded contract can refuse a declaration but never admit one: whatever
 the executed decision passes, it passes with the contract refusing nothing. -/
@@ -552,17 +622,37 @@ theorem declarationFailure_marks_refuse_only (ds : Array Declaration.Role)
     (fun _ => authorizedNativeAxioms_neutral) (fun _ => authorizedUnsafeRecHelpers_neutral)
     (authorizedNativeAxioms_not_logical _ _)
 
-/-- `policyFor` depends on the record only through its identity in the inventory: a record with a
-member's name gets that member's decision or, when it is not itself a member, the refusal
-`.invalidInventory`. No field of the record admits it beyond the member with that name. -/
-theorem policyFor_identity (i : Inventory) (roles : Roles i) {d d' : Declaration}
-    (hd : d ∈ i.declarations) (name : d'.name = d.name) (r : InspectionRequest) :
-    policyFor i roles d' r = policyFor i roles d r ∨
-      policyFor i roles d' r = some .invalidInventory := by
-  by_cases hd' : d' ∈ i.declarations
-  · cases eq_of_name_eq i.valid.1 hd' hd name
-    exact Or.inl rfl
-  · exact Or.inr (by simp [policyFor, hd'])
+/-- The policy decision takes the identity alone: two records with one name get one decision, so
+no field of a record, project-written or not, changes it. -/
+theorem policyForName_identity (i : Inventory) (roles : Roles i) {d d' : Declaration}
+    (name : d'.name = d.name) (request : InspectionRequest) :
+    policyForName i roles d'.name request = policyForName i roles d.name request := by
+  rw [name]
+
+/-- Exact success relation of the identity-keyed decision: the inventory has a record with the
+name, and that record meets its own requirements and the decision requirement. -/
+theorem policyForName_none_iff (i : Inventory) (roles : Roles i) (n : Name)
+    (r : InspectionRequest) :
+    policyForName i roles n r = none ↔
+      ∃ d ∈ i.declarations, d.name = n ∧ DeclarationOK d r roles.native roles.safetyHelpers ∧
+        DecisionOK d roles.decided := by
+  constructor
+  · intro h
+    cases hr : i.record? n with
+    | none => simp [policyForName, hr] at h
+    | some d =>
+      obtain ⟨hd, rfl⟩ := Inventory.record?_eq_some_iff.mp hr
+      have ok := (policyFor_none_iff i roles d r).mp (by rw [policyFor_of_mem i roles hd]; exact h)
+      exact ⟨d, hd, rfl, ok.2⟩
+  · rintro ⟨d, hd, rfl, ok⟩
+    rw [← policyFor_of_mem i roles hd]
+    exact (policyFor_none_iff i roles d r).mpr ⟨hd, ok⟩
+
+/-- `memberFailure` is the policy decision on the member's identity. -/
+theorem memberFailure_eq_name (i : Inventory) (roles : Roles i) {d : Declaration}
+    (hd : d ∈ i.declarations) (request : InspectionRequest) :
+    memberFailure i roles d hd request = policyForName i roles d.name request := by
+  simp [memberFailure, policyForName, Inventory.record?_of_mem hd]
 
 /-- `memberFailure` depends on the member only through its name. -/
 theorem memberFailure_identity (i : Inventory) (roles : Roles i) {d d' : Declaration}
@@ -573,7 +663,8 @@ theorem memberFailure_identity (i : Inventory) (roles : Roles i) {d d' : Declara
 
 /-- The record of the axiom-free declaration `subject` of module `Module` with the given kind,
 which is registered as no decision: the declaration of the witnesses of `checked_policyFor`,
-`checked_memberFailure_decides` and the editor decision's contract. -/
+`checked_policyForName`, `checked_recordFailure`, `checked_memberFailure_decides` and the editor
+decision's contract. -/
 def witnessDeclaration (kind : DeclarationKind) : Declaration :=
   { name := `subject, «module» := `Module, kind, «type» := "", prettyType := "", isProp := false
     isUnsafe := false, isPartial := false, safety := none, «instance» := false
@@ -675,6 +766,56 @@ theorem checked_policyFor : Regula.ExecutableContract policyFor (fun decide =>
         ((policyFor_none_iff (witnessInventory .«definition») (authorize _)
           (witnessDeclaration .«axiom») (.conforming .«kernelOnly»)).mp accepted).2.1⟩⟩
 
+/-- The arguments of `policyForName`, as the fields of one structure, in the order of the
+arguments. -/
+structure NameInput where
+  /-- The admitted inventory. -/
+  inventory : Inventory
+  /-- The role receipt of that inventory. -/
+  roles : Roles inventory
+  /-- The identity of the declaration: its name. -/
+  name : Name
+  /-- The inspection request. -/
+  request : InspectionRequest
+
+/-- `policyForName` reports nothing exactly for a name of the inventory whose record meets its own
+requirements and the decision requirement (`policyForName_none_iff`): nothing for the axiom-free
+definition `subject` of its inventory under Kernel-only, and a failure for a name the inventory
+does not have. The type of the roles depends on the inventory, so the kind is stated on the
+structure of the four arguments. -/
+theorem checked_policyForName : Regula.ExecutableContract policyForName (fun decide =>
+    Regula.Decides (· = none)
+      (fun input : NameInput => ∃ d ∈ input.inventory.declarations, d.name = input.name ∧
+        DeclarationOK d input.request input.roles.native input.roles.safetyHelpers ∧
+        DecisionOK d input.roles.decided)
+      (fun input => decide input.inventory input.roles input.name input.request)) :=
+  ⟨.of_iff (fun input =>
+      policyForName_none_iff input.inventory input.roles input.name input.request)
+    ⟨⟨witnessInventory .«definition», authorize _, `subject, .conforming .«kernelOnly»⟩,
+      (policyForName_none_iff _ _ _ _).mpr ⟨witnessDeclaration .«definition»,
+        witnessDeclaration_mem _, rfl, witnessDeclaration_definition_ok _ _ _⟩⟩
+    ⟨⟨witnessInventory .«definition», authorize _, `other, .conforming .«kernelOnly»⟩,
+      fun accepted => by
+        obtain ⟨d, hd, hname, -⟩ := (policyForName_none_iff _ _ _ _).mp accepted
+        simp only [witnessInventory, Array.mem_singleton] at hd
+        subst hd
+        simp [witnessDeclaration] at hname⟩⟩
+
+/-- `recordFailure` reports nothing exactly for a record of the inventory
+(`recordFailure_none_iff`): nothing for the definition of `witnessInventory .definition`, and a
+failure for the axiom record of the same name, which the inventory does not hold. -/
+theorem checked_recordFailure : Regula.ExecutableContract @recordFailure
+    (fun (failure : Inventory → Declaration → Option DeclarationFailure) =>
+    Regula.Decides (· = none)
+      (fun input : Inventory × Declaration => input.2 ∈ input.1.declarations)
+      (Function.uncurry failure)) :=
+  ⟨.of_iff (fun input => recordFailure_none_iff input.1 input.2)
+    ⟨(witnessInventory .«definition», witnessDeclaration .«definition»),
+      (recordFailure_none_iff _ _).mpr (witnessDeclaration_mem _)⟩
+    ⟨(witnessInventory .«definition», witnessDeclaration .«axiom»), fun accepted => by
+      have hd := (recordFailure_none_iff _ _).mp accepted
+      simp [witnessInventory, witnessDeclaration] at hd⟩⟩
+
 /-- `memberFailure` reports nothing exactly for a member that meets its own requirements and the
 decision requirement, under the inventory's own roles (`checked_memberFailure`,
 `policyFor_none_iff`): nothing for the axiom-free definition of its inventory under Kernel-only,
@@ -722,14 +863,14 @@ theorem policyFor_decisionContract_iff (i : Inventory) (roles : Roles i) (d : De
     simp [DecisionOK]
   rw [← unmet, ← declarationFailure_none_iff]
   by_cases hd : d ∈ i.declarations
-  · simp only [policyFor, hd, ↓reduceIte, true_and]
+  · simp only [policyFor_eq, hd, ↓reduceIte, true_and]
     cases own : declarationFailure d r roles.native roles.safetyHelpers with
     | none => simp [decisionFailure_eq_some_iff]
     | some failure =>
       have distinct := declarationFailure_ne_decisionContract d r roles.native roles.safetyHelpers
       rw [own] at distinct
       simpa using distinct
-  · simp [policyFor, hd]
+  · simp [policyFor_eq, hd]
 
 /-- Logical classification is an embedding of exactly the three conforming profiles. -/
 def ConformingProfile.foundationClass : ConformingProfile → FoundationClass
@@ -1009,7 +1150,7 @@ theorem policyFor_ordered (i : Inventory) (roles : Roles i) (d : Declaration)
   by_cases hd : d ∈ i.declarations
   · refine Or.inr ⟨hd, ?_⟩
     have own := declarationFailure_ordered d r roles.native roles.safetyHelpers
-    simp only [policyFor, hd, ↓reduceIte, policyRequirements, orderedDecision_append_singleton]
+    simp only [policyFor_eq, hd, ↓reduceIte, policyRequirements, orderedDecision_append_singleton]
     cases found : declarationFailure d r roles.native roles.safetyHelpers with
     | some failure => exact Or.inl ⟨failure, found ▸ own, rfl⟩
     | none =>
@@ -1018,6 +1159,6 @@ theorem policyFor_ordered (i : Inventory) (roles : Roles i) (d : Declaration)
       · exact Or.inr ⟨met, by simp [(decisionFailure_none_iff d roles.decided).mpr met]⟩
       · exact Or.inl ⟨met, by
           simp [(decisionFailure_eq_some_iff d roles.decided .decisionContract).mpr ⟨rfl, met⟩]⟩
-  · exact Or.inl ⟨hd, by simp [policyFor, hd]⟩
+  · exact Or.inl ⟨hd, by simp [policyFor_eq, hd]⟩
 
 end RegulaPolicy

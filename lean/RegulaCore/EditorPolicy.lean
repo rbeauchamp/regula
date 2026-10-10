@@ -118,7 +118,7 @@ theorem checked_editorDecision :
   ⟨fun i roles d member request => by
     have distinct := declarationFailure_ne_decisionContract d request roles.native
       roles.safetyHelpers
-    simp only [editorDecisionImpl, policyFor, member, ↓reduceIte]
+    simp only [editorDecisionImpl, policyFor_eq, member, ↓reduceIte]
     cases own : declarationFailure d request roles.native roles.safetyHelpers with
     | none =>
       have only (f : DeclarationFailure) : decisionFailure d roles.decided = some f →

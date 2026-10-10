@@ -646,7 +646,7 @@ use that takes a narrower part. What takes which part:
 | `declarationFailure`, `DeclarationOK`, `declarationRequirements` and their theorems | `Declaration.Assessed` | The inspected part and the recorded contract: they join the relations above, so through `ContractOK` and `SharedTestOK` they read the recorded contract. |
 | `decisionFailure`, `DecisionOK` | `Declaration.Registration` | The name and `decisionResult`, the project's own registration, alone. |
 | `NativeTeachingOK`, `RecursiveHelperOK` and the `authorized…` validators | `Declaration.Role`, and the role parts of an inventory (`roleRecords`) | The inspected part and three project-written marks: the replacement, the `extern` mark and the recorded ranges. A native-proof axiom must have no replacement and no `extern` implementation. A recursion helper must have no replacement, no `extern` implementation and no recorded range, and its base no replacement and no `extern` implementation. These marks can refuse a role but do not grant one: `authorizedNativeAxioms_neutral` and `authorizedUnsafeRecHelpers_neutral` prove that each name the executed validator admits is admitted with all marks of the inventory at their neutral values (`Declaration.Role.neutral`). |
-| `policyFor`, `memberFailure`, the editor decision, `policyRequirements` | `Declaration` | Membership of the inventory, which is of the whole record: `policyFor` decides it, and `memberFailure` and the editor decision take a proof of it. `policyFor`, `memberFailure` and `policyRequirements` join the assessed part and the registration part. The editor decision reads only the assessed part: `declarationFailure` takes `Declaration.Assessed` and `needsRoleEvidence` takes `Declaration.Inspected`. |
+| `policyFor`, `memberFailure`, the editor decision, `policyRequirements` | `Declaration` | Membership of the inventory, which is of the whole record. `policyFor` checks it at its admission boundary (`recordFailure`), and `memberFailure` and the editor decision take a proof of it. The decision on an admitted record is `policyForName`, which takes its name alone. `policyFor`, `memberFailure` and `policyRequirements` join the assessed part and the registration part. The editor decision reads only the assessed part: `declarationFailure` takes `Declaration.Assessed` and `needsRoleEvidence` takes `Declaration.Inspected`. |
 | `operationalFailure`, `OperationalOK`, `operationalView`, `operationalAxioms` | `Declaration.Assessed` | `kind`, `isProp`, `axioms` and, through `ContractOK` and `SharedTestOK`, the recorded contract. The view also clears `isUnsafe` and `isPartial`. |
 
 **Limits.** The parts classify the source of a value. They do not make an observation truthful,
@@ -667,27 +667,33 @@ the inspected part and the three marks that they read. The declaration decision 
 operational decision take the assessed part (`Declaration.Assessed`): the inspected part and the
 recorded contract. `policyFor`, `memberFailure` and the editor decision take the whole
 `Declaration` because membership of the inventory is a property of the whole record. `policyFor`
-decides it, and the other two take a proof of it. `policyFor`, `memberFailure` and
-`policyRequirements` join the assessed part and the registration part. The editor decision reads
-only the assessed part: it joins the declaration decision with `needsRoleEvidence`, which takes
-`Declaration.Inspected`.
+checks it at the admission boundary `recordFailure`, and the other two take a proof of it.
+`policyFor`, `memberFailure` and `policyRequirements` join the assessed part and the registration
+part. The editor decision reads only the assessed part: it joins the declaration decision with
+`needsRoleEvidence`, which takes `Declaration.Inspected`.
 
-**No project-written mark admits.** Each project-written input of a decision can refuse but does not
-admit, and a theorem says so for each. `NativeTeachingOK.neutral` and `RecursiveHelperOK.neutral`
-show that a role still holds with all marks of the inventory at their neutral values. The
-`_neutral` theorems of the two validators carry that to the executed functions. For the refusals
-of the recorded contract, `DeclarationOK.neutral` and `OperationalOK.neutral` show the same.
+**No project-written mark admits.** Each project-written input of a decision can refuse but does
+not admit, and a theorem says so for each. `NativeTeachingOK.neutral` and
+`RecursiveHelperOK.neutral` show that a role still holds with all marks of the inventory at their
+neutral values. The `_neutral` theorems of the two validators carry that to the executed
+functions. For the refusals of the recorded contract, `DeclarationOK.neutral` and
+`OperationalOK.neutral` show the same.
 `declarationFailure_marks_refuse_only` joins them through `DeclarationOK.of_subset`: a role that a
 mark removes can only refuse.
 
-The whole record enters `policyFor`, `memberFailure` and the editor decision only through its
-identity in the inventory. `policyFor_identity` shows that a record with a member's name gets that
-member's decision or the refusal `.invalidInventory`. `memberFailure_identity` and
-`editorDecisionImpl_identity` show that two members with one name get one decision. The
-registration that the decision requirement of [RG1008] reads is the rule's subject, not evidence.
-The rule applies to the functions a project marks as decisions, so the mark selects what the rule
-checks. A function without the mark is outside that rule by its definition, and all other rules
-still check it.
+`policyFor` is the admission boundary `recordFailure` followed by `policyForName`, the policy
+decision on the record's name. The boundary refuses a record that is not one of the inventory's
+records.
+`policyForName` takes the name alone, so `policyForName_identity` gives two records with one name
+one decision. `policyFor_of_mem` and `memberFailure_eq_name` show that a member's decision is the
+one on its name. `editorDecisionImpl_identity` shows that two members with one name get one editor
+decision. The whole record enters these decisions only through the admission boundary, which can
+refuse a record but admits none.
+
+The registration that the decision requirement of [RG1008] reads is the rule's subject, not
+evidence. The rule applies to the functions a project marks as decisions, so the mark selects what
+the rule checks. A function without the mark is outside that rule by its definition, and all
+other rules still check it.
 
 **Consumers** (paths from `lean/Regula/`):
 
@@ -925,6 +931,7 @@ Two-way decisions (`Regula.Decides`), each with an accepted and a refused input:
 | `admitPlan` (accepts on `.ok`) | `PlanJobsOK`: the proof fields of `Plan` (`admitPlan_isOk_iff`) | Plan admission, for every claim and census, on the structure of the three arguments (`PlanInput`). It accepts the three required jobs of `witnessPlan` and refuses no jobs. |
 | `ResultState.insertResult`, `ResultState.collect`, `admitIndexedResults` (accept on `.ok`) | `InsertOK`, `BatchOK`, `IndexedResultsOK` (`insertResult_success_iff`, `collect_success_iff`, `admitIndexedResults_ok_iff`) | Result admission, for every key type, payload type, order, required set and binding relation: the types and instances are fields of the structure of the arguments (`InsertInput`, `CollectInput`, `IndexedResultsInput`). The first two are stated at their own universe parameters, with witnesses over the one-point type `PUnit`; the third takes a payload type of `Type`, with witnesses over `Unit`. |
 | `policyFor`, `memberFailure`, `Regula.Linter.editorDecisionImpl` (accept on `none`) | `DeclarationOK` and `DecisionOK` under the inventory's own roles, together with membership in the inventory for `policyFor` (`policyFor_none_iff`); the other two take the membership proof as an argument, and the specification of the editor decision is `DeclarationOK` alone, since the editor does not decide the decision requirement | The public declaration decision of [RG1001]–[RG1009] for an inventory, its member-indexed form, and the editor's. The type of the roles depends on the inventory, and the membership proof of the last two on both, so each is decided on a structure of its arguments (`PolicyInput`, `MemberInput`). The witnesses are over `witnessInventory`, the inventory of one recorded declaration: an axiom-free definition passes under Kernel-only, and an authored axiom, or a declaration of another inventory, does not. |
+| `policyForName`, `recordFailure` (accept on `none`) | `DeclarationOK` and `DecisionOK` on the inventory's record with the name (`policyForName_none_iff`), and membership of a supplied record in the inventory (`recordFailure_none_iff`) | The policy decision keyed by a declaration's identity and the admission boundary of a supplied record, which `policyFor` composes (`policyFor_eq`, `policyFor_of_mem`). `policyForName` is decided on a structure of its arguments (`NameInput`). The witnesses are over `witnessInventory`. Its definition's name passes the decision and a name it lacks does not. Its own record passes the boundary and the axiom record of the same name does not. |
 | `admitBoundaryEvidence` (accepts on `.ok`) | `BoundaryFieldsOK`: the fields are those of some evidence of the kind (`boundaryEvidence_admission_preserves`, `boundaryEvidence_roundtrip`) | Admission of a boundary's correspondence fields ([RG3001], [RG3002]), on the structure of the four arguments (`BoundaryFields`). The result type depends on the boundary kind. |
 | `FieldPacking.covers` | `FieldPacking.Covers`: one constructor, no index, and the arguments are the fields, each once and in order (`FieldPacking.covers_iff`) | Whether a decision registration's statement applies its implementation to every argument ([RG1007]). It accepts a type with one constructor, no index and two fields given in order, and refuses a type with one constructor, one index and its one field given. The collector's reading of those numbers from Lean's declarations is not part of this kind. |
 | `DecidedFunction.covers` | `DecidedFunction.Covers`: a field application covers (`FieldPacking.Covers`), and the number of arguments that a result takes is zero (`DecidedFunction.covers_iff`) | Whether a decision registration's statement is about its implementation on every argument ([RG1007]). It accepts the function itself when no result takes an argument, and refuses it when a result takes one more, which is a kind about a partially applied function. The collector's reading of that number from the kind's result type is not part of this kind. |
