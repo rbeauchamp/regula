@@ -44,8 +44,9 @@ package «regula» where
   version := v!"0.11.0"
   -- Reservoir (https://reservoir.lean-lang.org) lists these, and each release tag with the version
   -- its lakefile declares.
-  description := "A strict linter for Lean projects. lake lint does not accept a theorem that \
-    depends on an axiom of your project, on native_decide or on a sorry, also through its imports."
+  description := "A strict linter for Lean. It checks that each theorem of your project depends \
+    only on the axioms of the foundation that you choose, also through its imports. Thus lake \
+    lint refuses a sorry, an axiom of your project and native_decide, which lake build accepts."
   keywords := #["linter", "devtool", "cli", "formal-verification", "software-verification"]
   homepage := "https://rbeauchamp.github.io/regula/"
   license := "MIT AND Apache-2.0"

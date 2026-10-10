@@ -649,7 +649,7 @@ private def unsummarized : List String := [unsummarizedReason "README.md"]
     s!"# Regula\n\nRegula accepts holes.\n\n```text\n{summary}\n```\n" == unsummarized &&
   checkSummary "README.md" s!"# Regula\n\n```text\n{summary}\n```\n" == unsummarized &&
   checkSummary "README.md"
-    s!"# Regula\n\n{summary.replace ". `lake lint`" ".\n`lake lint`"}\n" == unsummarized &&
+    s!"# Regula\n\n{summary.replace ". " ".\n"}\n" == unsummarized &&
   checkSummary "README.md" s!"# Regula\n\n- {summary}\n" == unsummarized &&
   checkSummary "README.md" s!"Before.\n\n# Regula\n\n{summary}\n" == unsummarized
 -- Compiled-evaluation observation at build time, not a kernel-checked proof.

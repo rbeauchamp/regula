@@ -1,8 +1,8 @@
 # Regula
 
-A strict linter for Lean projects. `lake lint` does not accept a theorem that depends on an `axiom` of your project, on `native_decide` or on a `sorry`, also through its imports.
+A strict linter for Lean. It checks that each theorem of your project depends only on the axioms of the foundation that you choose, also through its imports. Thus `lake lint` refuses a `sorry`, an `axiom` of your project and `native_decide`, which `lake build` accepts.
 
-Lean accepts such a theorem. It gives no warning for an `axiom` or for `native_decide`, and `lake build` succeeds. It warns about a `sorry` only at the declaration that contains the `sorry`. `#print axioms` shows these problems, but for one declaration at a time. Regula examines each declaration of the libraries that you claim, with the axioms that the declaration gets through its imports.
+Lean gives no warning for an `axiom` or for `native_decide`, and it warns about a `sorry` only at the declaration that contains the `sorry`. `#print axioms` shows these problems, but for one declaration at a time. Regula examines each declaration of the libraries that you claim, with the axioms that the declaration gets through its imports.
 
 For example, `lake build` accepts this module with no warning:
 
@@ -39,6 +39,19 @@ file audit: FAIL (4 violation(s), 0 incomplete finding(s))
 ```
 
 Each finding gives the rule, the location and the fix. The first finding of each rule in a run also links the page of the rule. Later findings of that rule refer to the first. The [rule reference](https://rbeauchamp.github.io/regula/rules/) has a page for each rule, with an example that the checker rejects and its correction.
+
+`lake lint` refuses each item on the left. The items on the right stay with your review, or Regula trusts them:
+
+| `lake lint` refuses | Your review, or trusted |
+| --- | --- |
+| A `sorry` or `admit`, an `axiom` of your project, or an axiom other than `propext`, `Quot.sound` and `Classical.choice`, through each import ([RG1001]–[RG1003]) | If each theorem states what you mean |
+| A proof that trusts the compiler: `native_decide`, `decide +native` or `bv_decide` ([RG1004]) | If your invariants cover each path that writes the state |
+| An axiom beyond the foundation that the library claims: `kernel-only`, `choice-free` or `standard-logical` ([RG1005]) | If your documentation describes the formal claim correctly |
+| A `partial` or `unsafe` declaration that you write ([RG1006]). A contract of a registered function that is missing or that the rules refuse ([RG1007]–[RG1009]). | Lean's kernel, compiler and runtime, Lake and the operating system |
+| An `extern` or `implemented_by` path that Regula cannot resolve ([RG3001]), and in `checked` mode a boundary with no proof of correspondence ([RG3002]) | The packages that you require from outside your Git work tree. Regula names them as trusted, and it does not replay them in Lean's kernel. A path dependency in your work tree is your own code, and Regula examines it. |
+| A build with a warning ([RG2003]), a manifest that does not classify each target ([RG2002]), and a module outside each library ([RG2004]) | Code that deliberately changes Lean's environment, compiler or build to make a check pass, where no rule examines the mechanism (see the [scope](SECURITY.md#scope) of the security policy) |
+| Missing evidence, for example of kernel admission ([RG2005]), and options other than the community configuration ([RG2006]) | |
+| A module without a module docstring ([RG5001]), and a registered material declaration without its docstring or its Intent section ([RG5002], [RG5003]) | |
 
 **Use Regula** when you depend on Lean code that you do not read line by line, or when you publish results as proved.
 
@@ -151,7 +164,21 @@ Each release supports only the Lean toolchain pinned in its `lean-toolchain`; th
 `lean/Regula/Checker/PolicyCodec.lean`, which keeps its upstream Apache 2.0 notice
 ([license text](LICENSES/Apache-2.0.txt); see [design influences](docs/guides/design-influences.md#adapted-code-and-licenses)).
 
+[RG1001]: https://rbeauchamp.github.io/regula/rules/RG1001/
 [RG1002]: https://rbeauchamp.github.io/regula/rules/RG1002/
+[RG1003]: https://rbeauchamp.github.io/regula/rules/RG1003/
+[RG1004]: https://rbeauchamp.github.io/regula/rules/RG1004/
 [RG1005]: https://rbeauchamp.github.io/regula/rules/RG1005/
+[RG1006]: https://rbeauchamp.github.io/regula/rules/RG1006/
+[RG1007]: https://rbeauchamp.github.io/regula/rules/RG1007/
+[RG1009]: https://rbeauchamp.github.io/regula/rules/RG1009/
+[RG2002]: https://rbeauchamp.github.io/regula/rules/RG2002/
 [RG2003]: https://rbeauchamp.github.io/regula/rules/RG2003/
+[RG2004]: https://rbeauchamp.github.io/regula/rules/RG2004/
+[RG2005]: https://rbeauchamp.github.io/regula/rules/RG2005/
 [RG2006]: https://rbeauchamp.github.io/regula/rules/RG2006/
+[RG3001]: https://rbeauchamp.github.io/regula/rules/RG3001/
+[RG3002]: https://rbeauchamp.github.io/regula/rules/RG3002/
+[RG5001]: https://rbeauchamp.github.io/regula/rules/RG5001/
+[RG5002]: https://rbeauchamp.github.io/regula/rules/RG5002/
+[RG5003]: https://rbeauchamp.github.io/regula/rules/RG5003/

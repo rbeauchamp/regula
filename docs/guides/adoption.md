@@ -1,6 +1,6 @@
 # Adopt Regula
 
-A strict linter for Lean projects. `lake lint` does not accept a theorem that depends on an `axiom` of your project, on `native_decide` or on a `sorry`, also through its imports.
+A strict linter for Lean. It checks that each theorem of your project depends only on the axioms of the foundation that you choose, also through its imports. Thus `lake lint` refuses a `sorry`, an `axiom` of your project and `native_decide`, which `lake build` accepts.
 
 This guide is the full procedure to adopt Regula. For a first try on one module, see [Try it](../../README.md#try-it) in the README.
 

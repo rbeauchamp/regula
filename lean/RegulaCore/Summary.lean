@@ -13,13 +13,21 @@ This module imports nothing, so each of those users can import it.
 
 namespace Regula.Site
 
-/-- The summary of Regula, in Markdown: what `lake lint` does not accept. -/
+/-- The summary of Regula, in Markdown: what it checks for each theorem, the foundation that the
+project chooses, also through imports, and the cases that `lake build` accepts and `lake lint`
+refuses. Its plain text is at most 350 characters, the limit of the description of a GitHub
+repository. -/
 def summary : String :=
-  "A strict linter for Lean projects. `lake lint` does not accept a theorem that depends on an \
-    `axiom` of your project, on `native_decide` or on a `sorry`, also through its imports."
+  "A strict linter for Lean. It checks that each theorem of your project depends only on the \
+    axioms of the foundation that you choose, also through its imports. Thus `lake lint` refuses \
+    a `sorry`, an `axiom` of your project and `native_decide`, which `lake build` accepts."
 
 /-- Markdown text without its backticks: the plain text of Markdown whose only markup is code
 spans, as the summary is. -/
 def plainText (markdown : String) : String := markdown.replace "`" ""
+
+-- The plain text of the summary fits the description of a GitHub repository.
+-- Compiled-evaluation observation at build time, not a kernel-checked proof.
+#guard (plainText summary).length ≤ 350
 
 end Regula.Site
