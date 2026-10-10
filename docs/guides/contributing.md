@@ -782,13 +782,13 @@ before acceptance (`lean --run lean/Regula/Release.lean agree`), refuses a versi
 that is not the latest listed release's, and an adoption-guide compatibility table that is not
 the one `Regula.releases` gives.
 
-The same step reads each requirement of Regula in the tracked Markdown documents: the line
+The same step reads each `require` of Regula in the tracked Markdown documents: the line
 `rev = "<tag>"` after the line `git = "<url>"`, or the text `"<url>" @ "<tag>"`. In these forms,
 `<url>` is `https://github.com/rbeauchamp/regula`, and the step reads only the lines that contain
-it in quotation marks. It refuses a requirement that names a release other than the latest listed
+it in quotation marks. It refuses a `require` that names a release other than the latest listed
 release. It also refuses a different use of that address in quotation marks. The root `README.md`
-and the adoption guide must each have a requirement of each form, or the step refuses. The release
-pull request sets each requirement to its release, and reads its edit back.
+and the adoption guide must each have a `require` of each form, or the step refuses. The release
+pull request sets each `require` to its release, and reads its edit back.
 
 `main` never carries a release label: `Regula.installed`
 ([`RegulaCore.Edition`](../../lean/RegulaCore/Edition.lean)) is `.unreleased` on every commit of
@@ -802,7 +802,7 @@ until the release commit has passed the same checks as `main`:
    creates the commit of the release pull request, a child of the `main` commit the workflow runs
    on that appends the release with its toolchain to `Regula.releases`, sets `lakefile.lean`'s
    `version` to it, adds its row to the adoption guide's compatibility table, sets each
-   requirement of Regula in the tracked Markdown documents to it, and stamps it into
+   `require` of Regula in the tracked Markdown documents to it, and stamps it into
    rule lifecycle positions still `.unreleased`
    ([`RegulaCore.Rule`](../../lean/RegulaCore/Rule.lean)): each `.unreleased` on a line that
    starts `lifecycle :=`. `.unreleased` is the placeholder for both positions: a new rule states

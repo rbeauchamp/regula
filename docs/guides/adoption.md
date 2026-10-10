@@ -49,8 +49,9 @@ version of Regula. Thus in version order, its tag is above the tag of each later
 example `v0.10.0`. `git tag --sort=-v:refname` and the tag list of GitHub show it first. Do not
 select a release by its position in such a list of tags. Select it from the table.
 
-The requirements below name the first row of the table. The release pull request sets them when
-it adds that row, and CI refuses a change that makes them name a different release.
+The two snippets below require the release of the first row of the table. The release pull
+request sets their release when it adds that row, and CI refuses a change that makes them require
+a different release.
 
 `lakefile.toml`:
 
