@@ -314,7 +314,8 @@ metadata, not authenticated binary identity.
   every reader (`ResultProtocol.readDocument`, the qualification drivers' `readResult`) takes the
   file through `SharedExecution.read`. The reader (`SharedExecution.restore?`,
   `SharedExecution.rebuildRoot`) derives a root's account from its entry: its visits are the walk
-  from the root over the edges the collector follows (`SharedExecution.walkLoop`); its reached
+  from the root over the edges the collector follows (`SharedExecution.walk`, the collector's own
+  walk `RegulaPolicy.StackWalk.walk`); its reached
   names are the visited ones; each channel's edges are those leaving a reached name; its required
   code is the targets of its compiler edges, and the root if its entry says so; its boundaries
   are its visited names' records in visit order, each with the reached names that call it. An

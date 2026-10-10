@@ -1,5 +1,6 @@
 import Regula.Report
 import Regula.SharedExecution
+import RegulaPolicy.ExecutionWalk
 
 /-! # Shared forms of execution accounts
 
@@ -13,9 +14,10 @@ from it, and otherwise writes the logical value as it is, so `SharedExecution.ex
 whatever these functions return. What depends on them is only how small the written member is. A
 root is written as an entry of constant size when the reader's derivation reproduces its account:
 its visits are the walk over the environment's edges, its edges those leaving its reached names,
-and its boundaries its visited names' records. The collector (`Regula.Probe`) is written to
-produce accounts of that form, which is unproved; a root whose account differs is written in
-full.
+and its boundaries its visited names' records. The reader's walk is the collector's walk
+(`RegulaPolicy.StackWalk.walk`), so for equal successor lists it gives the collector's visits and
+parents (`walk_agree`). The collector (`Regula.Probe`) is written to produce accounts of that form,
+which is unproved; a root whose account differs is written in full.
 
 The typed accounts give the names and their indices. The members the reader copies into a
 rebuilt account (a boundary's kind, correspondence, evidence and toolchain origin, a root's
@@ -198,5 +200,27 @@ def fitted (value : Json) : Json :=
 
 /-- The proposals of a result writer: `fitted` alone. -/
 def proposals : List (Json → Json) := [fitted]
+
+/-! ### The reader's walk is the producer's walk -/
+
+/-- **For equal successor lists, the reader's visits are the producer's.** Let `rename` take the
+name indices that the decoded successors reach from `root` to names, one-to-one on them. Let the
+record of the image of each such index list as its successors the images of the decoded successors
+of the index, in their order. Then the producer's walk from the image of `root`, when it returns
+visits, returns the reader's visits carried by `rename`, with the same parents
+(`StackWalk.walk_agree`): the two walks are one definition. That the encoding and the decoding of
+the shared edge sets give these hypotheses is not proved. -/
+theorem walk_agree {graph : SharedExecution.Graph} {root : Nat}
+    {request : ExecutionWalk.WalkRequest} {visits : Array (Name × Option Nat)}
+    {rename : Nat → Name} (rooted : rename root = request.root)
+    (injective : ∀ node node', StackWalk.Reach graph.next root node →
+      StackWalk.Reach graph.next root node' → rename node = rename node' → node = node')
+    (carried : ∀ node, StackWalk.Reach graph.next root node →
+      ExecutionWalk.successorsOf request.records (rename node) =
+        some ((graph.successors.getD node #[]).map rename))
+    (accepted : ExecutionWalk.walk request = .ok visits) :
+    visits = (SharedExecution.walk graph root).map (Prod.map rename id) :=
+  StackWalk.walk_agree injective (fun node reach => carried node reach)
+    (SharedExecution.walk_eq graph root) (by rw [rooted]; exact accepted)
 
 end Regula.ExecutionShare

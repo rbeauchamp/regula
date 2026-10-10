@@ -811,7 +811,7 @@ the call through each success owner.
 | [RG1008] | `policyFor_decisionContract_iff`, `Roles.decided_iff`, `policyFor_ordered` through `ruleFor`; `decisionFailure_none_iff` for the self-audit's direct use; `editor_decision_ne_decisionContract` (the editor never renders it) | The rule reports a registered decision without a `Decidable` result or an accepted decision contract that its inventory counts. It reports only declarations that meet their other requirements. The two environments of a counted contract must load the module of the function with the same origin (`census_decided_iff`), and the collector gives these origins. Reading the registrations of every loaded module and the result type by reduction (`Regula.decisionRegistrations`, `Collect.decisionResult?`, `returnsDecidable`) is the collector's, and so are each recorded contract and the refusal of a registration that names a declaration outside the inventory (`Collect.ownedDecisionRegistrations`). A result type the reduction does not unfold to `Decidable _` counts as another form, which fails closed. Which functions are registered, and each specification's adequacy, are review. |
 | [RG1009] | `sharedTestFailure_none_iff` with the kind `checked_sharedTestFailure`, `declarationFailure_ordered` through `ruleFor`, and `mem_sharedNames_booleans` with `SharedDefinition.class_eq_boolean_iff` for the recorded names. For what the search follows from the specification and the acceptance predicate: `StatementReading.reads_iff`, the kind `StatementReading.checked_reads`, `reading_some`, `read_subset_withTypes`, `through_input` and `no_shared_test` ([below](#the-reading-of-a-statement-decision-and-observing-pass)). | A decision registration is reported when its record names a shared function with a result of `Bool` or `BEq`. Its place is after the recorded refusals of its contract. The observing pass, the search of the implementation and the reading of each shared function (`Collect.sharedReading`, `Collect.sharedDefinition`) are the collector's and are not proved. That a test that only the declaration of the input type names is no part of a specification is an argument, not a theorem. The search compares names. A copy of a test under a second name passes. A shared function with a different result type is named in the account and is not refused. A file with a `module` header gives the editor an imported function with no exported value as an axiom. The editor reads its class from its type. It reports a reading that could miss a test below such a function as incomplete ([RG2005]). |
 | [RG2004] | `policyFor_ordered` (membership first), `CensusOK`, `PlanOK` | Complete Lake and environment ownership acquisition. |
-| [RG3001], [RG3002] | `executionFailureRecords_empty_iff`, `boundaryFailures_empty_iff`, `boundaryFailures_toolchain`, `project_boundary_reported`, `executionFindings_empty_iff`, `failure_reported`, `executionFindings_sound`, `checked_toolchainBase`. For the walk of a root, `ExecutionWalk.walk_sound`, `walk_complete`, `walk_nodup` and the kind `ExecutionWalk.checked_walk` ([below](#root-and-closure-discovery-decision-and-observing-pass)) | The theorems cover the supplied unresolved paths and boundaries and their supplied origins, and the visits of the walk over the records of the pass. They do not cover root discovery, the truth of a record or of the origin observation, or the toolchain's or external runtime code. They also do not cover the account that `ExecutionWalk.assemble` builds from the visits, or that the reader's walk (`SharedExecution.walkLoop`) gives the same visits and parents. The collector's record of the `partial` definition to which a constant is compiled is also not proved. The [deliberate changes](#changes-to-leans-environment-compiler-or-build) to Lean's environment, compiler or build are trusted boundaries. |
+| [RG3001], [RG3002] | `executionFailureRecords_empty_iff`, `boundaryFailures_empty_iff`, `boundaryFailures_toolchain`, `project_boundary_reported`, `executionFindings_empty_iff`, `failure_reported`, `executionFindings_sound`, `checked_toolchainBase`. For the walk of a root, `ExecutionWalk.walk_sound`, `walk_complete`, `walk_nodup`, the kind `ExecutionWalk.checked_walk` and `ExecutionShare.walk_agree` ([below](#root-and-closure-discovery-decision-and-observing-pass)) | The theorems cover the supplied unresolved paths and boundaries and their supplied origins, and the visits of the walk over the records of the pass. They do not cover root discovery, the truth of a record or of the origin observation, or the toolchain's or external runtime code. They also do not cover the account that `ExecutionWalk.assemble` builds from the visits. The reader runs the walk of the producer, which gives the same visits and parents for equal successor lists (`ExecutionShare.walk_agree`). That the decoded lists are equal is not proved. The collector's record of the `partial` definition to which a constant is compiled is also not proved. The [deliberate changes](#changes-to-leans-environment-compiler-or-build) to Lean's environment, compiler or build are trusted boundaries. |
 | [RG4001] | `checked_scanLines`, `checked_scanVersoLines`, `fence_of_leanShaped`, `example_of_leanShaped`, `toList_linesOf` | A document has no violation exactly when each of its lines is a permitted transition of the fence protocol and keeps the shape rule ([the fence scanners](#the-fence-scanners-decisions-and-observing-pass)). A clean document has a returned fence for each line of Lean shape. The body and the byte ranges of a returned fence, the text of a violation and the adequacy of the relation are not proved. That a Markdown reader opens a Lean block only at a line of Lean shape is by reading CommonMark. |
 | [RG4003] | `matchesPattern_iff`, `orderedLiterals_iff` | One effective error under the restricted grammar; producer completion and effective-error extraction are operational. Policy-negative source fixtures keep their separate registry-bound expectation qualifier, and a rejection is not positive conformance. |
 | [RG5002], [RG5003] | `materialDocumentationFailure_eq_none_iff`, `_eq_missingDocstring_iff`, `_eq_missingIntent_iff` (which docstrings each rule reports; the two never both fire), `hasIntentSection_iff`, `ruleForMaterialDocumentation_injective`; the native linter and the project gate both execute `RegulaPolicy.materialDocumentationFailure`, which `materialDocumentationFailure_eq_none_iff` ties to `MaterialDocumentationOK` | The ATX line grammar (`heading?`) is a definition with checked instances, not a theorem about Markdown (`intentHeading_examples`); `findDocString?` lookup is Lean's. Intent adequacy is R-INTENT. |
@@ -1825,9 +1825,10 @@ theorems decide.
   successors of each record and does not read a name two times.
 - **The decision** is `ExecutionWalk.walk`. Its argument, `ExecutionWalk.WalkRequest`, holds the
   records and the root. It returns the visits in the order of a stack of queued names, each with
-  the position of the visit that queued it. `checked_walk` registers the kind `Regula.Decides`
-  against `ExecutionWalk.Recorded`: each name that the edges of the records reach from the root has
-  a record.
+  the position of the visit that queued it. It is the stack walk `StackWalk.walk` over the
+  successors of the records, which `ExecutionWalk.successorsOf` gives. `checked_walk` registers the
+  kind `Regula.Decides` against `ExecutionWalk.Recorded`: each name that the edges of the records
+  reach from the root has a record.
 - **The account** is `ExecutionWalk.assemble`. Its argument, `ExecutionWalk.Walked`, holds the
   request, the visits and the proof that `walk` returned those visits for the request. It reads the
   record of each visit through that proof (`Walked.record`), with no default record. It builds the
@@ -1843,20 +1844,40 @@ record.
 The successors of a record are a definition of its targets (`NodeRecord.successors`,
 `mem_successors`). They are the compiler calls, then the targets of the candidates, the history,
 the current replacement, the logical value and the recursion helper. Thus each step of the walk is
-an edge of the account. The reader of a result file queues the same channels in the same order
-(`SharedExecution.walkLoop`).
+an edge of the account. The reader of a result file runs the same walk over the successor lists
+that it decodes from the shared edge sets (`SharedExecution.walk`).
 
 **Proved**, about the functions that `executionWalk` runs. They are in the claimed library
-`RegulaPolicy` (`RegulaPolicy.ExecutionWalk`), so acceptance admits each theorem with Lean's
-kernel and reports its axioms: `propext`, `Classical.choice` and `Quot.sound`.
+`RegulaPolicy` (`RegulaPolicy.StackWalk` and `RegulaPolicy.ExecutionWalk`), so acceptance admits
+each theorem with Lean's kernel and reports its axioms: `propext`, `Classical.choice` and
+`Quot.sound`. Each theorem of `ExecutionWalk` in this table follows from the theorem of `StackWalk`
+with the same name.
 
 | Property | Declarations | Meaning and limit |
 | --- | --- | --- |
-| The visits are the reached names | `ExecutionWalk.walk_sound`, `ExecutionWalk.walk_complete` | Each visit of a walk that returns visits is a name that the edges of the records reach from the root (`Reach`, over `Follows`). Each such name is a visit. |
-| One visit for each name | `ExecutionWalk.walk_nodup` | A walk that returns visits has no name two times. |
-| Each step is an edge | `ExecutionWalk.mem_successors` | A name that the walk queues after a record is a target of one of the edge channels of the record. |
-| The bound is sufficient | `ExecutionWalk.walk_ok` | A walk returns visits when each reached name has a record. The bound of the steps is one more than the number of successors of all records. |
+| The visits are the reached names | `StackWalk.walk_sound`, `StackWalk.walk_complete`, `ExecutionWalk.walk_sound`, `ExecutionWalk.walk_complete` | Each visit of a walk that returns visits is a node that the successors reach from the root (`StackWalk.Reach`). Each such node is a visit. For the records, these nodes are the names that the edges of the records reach (`ExecutionWalk.Reach`, over `Follows`). |
+| One visit for each name | `StackWalk.walk_nodup`, `ExecutionWalk.walk_nodup` | A walk that returns visits has no node two times. |
+| Each step is an edge | `ExecutionWalk.mem_successors`, `ExecutionWalk.reach_iff` | A name that the walk queues after a record is a target of one of the edge channels of the record. Thus the successors and the edges of the records reach the same names. |
+| The bound is sufficient | `StackWalk.walk_ok`, `ExecutionWalk.bounds`, `ExecutionWalk.walk_ok` | A walk returns visits when each reached node has successors and the bound is more than the number of successors of all nodes (`StackWalk.Bounds`). For the records, the bound is one more than the number of successors of all records. |
 | The decision is exact | `ExecutionWalk.checked_walk` | `walk` returns visits exactly when `Recorded` is true. It accepts a root with a record that has no successor, and it refuses a root with no record. |
+| Two walks agree | `StackWalk.walk_agree`, `StackWalk.walk_map`, `StackWalk.walk_fuel` | Take a map of the nodes that is one-to-one on the nodes that the first walk reaches. Let the successors of the image of each such node be the images of its successors, in their order. Then two walks that return visits give the visits of the first, carried by the map, with the same parents. Their bounds can be different. |
+
+**The reader runs the same walk.** `SharedExecution.walk` is `StackWalk.walk` at the indices of
+the decoded name table, over the successor lists that the reader decodes
+(`SharedExecution.walk_eq`). Each index has a list, and `Graph.bounds` shows that the bound of
+the graph is more than the number of their entries. Thus each walk of the reader returns visits
+(`Graph.walk_accepted`), and its branch for a failure is unreachable.
+
+`ExecutionShare.walk_agree` states the match of the two walks. Take a map of the name indices to
+names that is one-to-one on the indices that the reader reaches from the root. Let the record of
+the image of each such index list the images of the decoded successors of the index, in their
+order. Then the producer's accepted walk from the image of the root gives the reader's visits,
+carried by the map, with the same parents.
+
+`Graph.bounds`, `Graph.walk_accepted`, `SharedExecution.walk_eq` and `ExecutionShare.walk_agree`
+are in the library `Regula`, which acceptance does not claim. Lean's kernel admits them when Lake
+builds that library. Acceptance builds `Regula.RegistryChecks`, which stops with an error if one
+of them uses an axiom outside Standard-Logical.
 
 **Hypotheses and trusted boundary.** The theorems start from the records. They do not prove these
 items:
@@ -1870,10 +1891,12 @@ items:
 - That `assemble` builds the correct account from the records of the visits. No theorem is about
   that account. At the admission of a report, `ExecutionClosure.Valid` and `ExecutionRoot.Valid`
   check the closure that it builds (**Closure** in [Producers](#producers)).
-- That the reader of a result file gives the visits and the parents of the producer.
-  `SharedExecution.walkLoop` queues the same channels in the same order as `NodeRecord.successors`,
-  by the two definitions. No theorem relates the two walks. Their match is by reading, and the
-  `history` qualification and `RegistryChecks` observe it.
+- That the decoded successor lists are the successors of the records, carried by a name table
+  that is one-to-one on the reached indices. Then `ExecutionShare.walk_agree` gives the reader the
+  visits and the parents of the producer. That hypothesis rests on the encoding and the decoding
+  of the shared edge sets of all roots, and no theorem is about them. The `history` qualification
+  and `RegistryChecks` observe them. If the lists are different, the writer keeps the account of
+  that root as it is, and `read_write` still holds.
 - The text of an unresolved path.
 
 **Root discovery has no decision.** `Probe.executableRoots` selects the owned definitions and
@@ -2078,8 +2101,8 @@ These proof obligations of the producers that are split are open:
 
 - The body and the place of the fences that a fence scanner returns
   ([above](#the-fence-scanners-decisions-and-observing-pass)).
-- The account that `ExecutionWalk.assemble` builds from the visits, and the match of the reader's
-  walk with the producer's walk ([above](#root-and-closure-discovery-decision-and-observing-pass)).
+- The account that `ExecutionWalk.assemble` builds from the visits
+  ([above](#root-and-closure-discovery-decision-and-observing-pass)).
 
 ## Producers
 
