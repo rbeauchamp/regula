@@ -301,8 +301,7 @@ directory in `.lake/regula-scratch/` of the checkout.
 
 The copy has the files of the checkout, but not the directories `.git`, `.lake`, `.cache` and
 `.regula-scratch`, and not the root directory `tmp`. The theorem `walked_iff` gives that set of
-names. Thus the copy starts with no build output, and the first build in it compiles each
-module.
+names. Thus the copy starts with no build output, and the builds in it compile each module.
 
 The step has four commands, which the function `RegulaVerification.commands` gives. The build,
 the registry checks and the qualification controls operate in the copy. The last command is the

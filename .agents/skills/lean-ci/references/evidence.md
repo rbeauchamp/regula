@@ -352,9 +352,9 @@ for the commands at low priority. The higher value adds 20 percent to the gate. 
 above shows that the hosted gain of such a schedule was less than half of its prediction. Thus
 the criterion was set before a hosted run.
 
-Three slow-class runs with a window of 360 s or less
-confirm the target of a margin of 60 s. A slow-class run with a window of more than 375 s refutes
-the prediction. A slow-class run has a documentation step of 255 s or more.
+Three slow-class runs with a window of 360 s or less confirm the target of a margin of 60 s. A
+slow-class run with a window of more than 375 s refutes the prediction. A slow-class run has a
+documentation step of 255 s or more.
 
 One local run of this change on 14 processors took 114 s for the window. The local profile of
 `e0232383` took 130 s without its clone of Verso. In that run the gate took 75 s, and it ended
