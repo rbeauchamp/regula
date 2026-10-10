@@ -2436,18 +2436,31 @@ finds the two definitions distinct, and otherwise the search path decides which 
 Lake resolves an import only to a library module, thus the executable roots of a trusted package
 are not counted.
 
-`checkModuleNames` refuses, before any path is built, a module name that a package configures or
-provides with an unsafe component. A component is unsafe when it is an absolute path, or when
-a segment of it between path separators is empty, `.` or `..`. `FilePath.join` discards its base
-for an absolute component, so such a name could put a checker source or an owned artifact outside
-its directory. Each path that the ownership audit builds from a module name comes from
-`modulePath?`. **Proved:** `modulePath?_below`, the path is the directory followed by separated
-safe segments, so it lies below the directory.
+A module name is unsafe when one of its components is an absolute path. It is also unsafe when a
+segment of a component between separators is empty, `.` or `..`. `FilePath.join` discards its base for an
+absolute component, so such a name could put a checker source or an owned artifact outside its
+directory. The audit keeps one invariant: each module name that it handles has passed
+`safeModuleComponents?` at the entry where the name reaches the audit. It refuses an unsafe name
+there, before it builds a path from the name.
 
-Lake builds a module of any name below the root or a glob of a library. Thus an import alone can
-name a module that no configuration or file walk gives. `attributeLoaded` refuses each loaded
-module with an unsafe component too, whatever package provides it. It does this in each environment
-that the reporter loads.
+The entries are these, in `Regula.Checker.ModuleName` and its callers:
+
+- The configuration of each package of each Lake workspace that the audit reads, before a module
+  is resolved (`Lake.checkWorkspaceModuleNames`). The readers are `surfaceInventory`, the setup
+  commands, the build marker decision and the Verso readers.
+- The modules that a package provides, as each package resolves them (`Lake.packageModules`).
+- The requested modules of each environment, and each module of the environment that the toolchain
+  loaded for them, its imports included (`importReportEnvironment`).
+- The import lines that the audit parses, of bound sources, project sources, Verso sources,
+  sources to compile and Lean configurations.
+- The module of a source specification, and the modules of a serialized graph.
+
+Lake builds a module of any name below the root or a glob of a library. So an import alone can name
+a module that no configuration gives, thus the loaded environment is an entry of its own.
+`attributeLoaded` also refuses each loaded module with an unsafe name. The paths of checker
+sources, package sources and owned artifacts come from `modulePath?`, which refuses an empty base.
+**Proved:** `modulePath?_below` and `modulePath?_strict_prefix`. The lexical segments of the base
+are a strict prefix of those of the path, and no further segment is empty, `.` or `..`.
 
 Two builds of Regula's own package come before these checks. Lake builds the program
 that runs the audit, such as the `lake lint` driver, before it starts that program. The

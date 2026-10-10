@@ -75,10 +75,14 @@ def checkerSource (checker : FilePath) (name : Name) : Option FilePath :=
 
 /-- The module names that the configuration of `package` gives: the roots and the glob names of
 each library and the root of each executable, before any module is resolved or any path is built
-from them. -/
+from them. A glob keeps its kind: `.submodules` of the anonymous name selects the modules of the
+source directory itself and names no module, so it gives no name; `.one` and `.andSubmodules` name
+their module, and every other `.submodules` its prefix. -/
 def configuredModuleNames (package : _root_.Lake.Package) : Array Name :=
-  package.leanLibs.flatMap (fun library => library.roots ++ library.config.globs.map fun
-      | .one name | .submodules name | .andSubmodules name => name) ++
+  package.leanLibs.flatMap (fun library => library.roots ++ library.config.globs.filterMap fun
+      | .one name | .andSubmodules name => some name
+      | .submodules .anonymous => none
+      | .submodules name => some name) ++
     package.leanExes.map (·.config.root)
 
 /-- Refuse a module name of package `package` that `modulePath?` cannot place below a directory
@@ -87,10 +91,18 @@ segment between path separators, or a numeric component. `Lean.modToFilePath` jo
 `FilePath.join`, which discards its base for an absolute component, so such a name could resolve a
 checker source or an owned artifact outside the directory it belongs to. -/
 def checkModuleNames (package : String) (names : Array Name) : IO Unit := do
-  if let some name := names.find? (safeModuleComponents? · |>.isNone) then
+  if let some name := unsafeModuleName? names then
     throw <| IO.userError s!"lake-query-malformed: package '{package}' names module {name}, whose \
       name has a component that is an absolute path, has an empty, `.` or `..` segment between path \
       separators, or is a number"
+
+/-- Refuse a workspace that Lake loaded when a package's configuration gives a module name that
+`checkModuleNames` refuses: the entry of module names from Lake's load of a workspace, for every
+package, which each reader of a workspace passes before it resolves a module or builds a path from
+a name (`surfaceInventory`, `LintBuild.markerInputs`, the setup commands and the Verso readers). -/
+def checkWorkspaceModuleNames (ws : _root_.Lake.Workspace) : IO Unit :=
+  for package in ws.packages do
+    checkModuleNames package.baseName.toString (configuredModuleNames package)
 
 /-- Refuse a module that package `package` provides under a prefix reserved to the checker
 (`reservedModule`) unless its source `source` holds exactly the text of the running checker's own
@@ -258,8 +270,7 @@ def surfaceInventory (repo : FilePath) : IO SurfaceInventory :=
     let pkg := ws.root
     -- No path is built from a module name before each name that a package's configuration gives is
     -- a safe module name (`checkModuleNames`); a resolved module is placed by `modulePath?`.
-    for package in ws.packages do
-      checkModuleNames package.baseName.toString (configuredModuleNames package)
+    checkWorkspaceModuleNames ws
     -- Modules under the checker's reserved prefixes must hold the running checker's own source
     -- text, whatever package provides them (`checkReservedModules`).
     let checker ← checkerPackageDir

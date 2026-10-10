@@ -32,7 +32,13 @@ instance : FromJson SourceSpec := ⟨fun j => do
   Regula.Checker.PolicyCodec.exactFields j
       ["module", "source", "warningAsError", "rejectWarnings", "captureRejection"]
   return {
-    «module» := ← j.getObjValAs? _ "module"
+    «module» := ← do
+      -- An entry of module names: the module of a source to compile, also its file name.
+      let «module» : String ← j.getObjValAs? _ "module"
+      if (safeModuleComponents? «module».toName).isNone then
+        throw s!"module-name-unsafe: the source specification names module {«module»}, whose name \
+          is not admitted (safeModuleComponents?)"
+      pure «module»
     source := ← j.getObjValAs? _ "source"
     warningAsError := ← j.getObjValAs? _ "warningAsError"
     rejectWarnings := ← j.getObjValAs? _ "rejectWarnings"

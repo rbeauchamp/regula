@@ -1080,13 +1080,34 @@ private def pathDependency (repo adopter : FilePath) : IO (Array String) := do
   mutate claimed "import Support\n" s!"import Support\nimport Widget.«{(adopter / "Payload").toString}»\n"
   failures := failures ++ (← expect adopter {
       label := "path/imported-escaping-name", exitCode := 3,
-      contains := #["surface-attribution", "is an absolute path",
+      contains := #["module-name-unsafe", "is an absolute path",
         "regula lint: INCOMPLETE (exit 3)"] })
   IO.FS.writeFile claimed claimedSource
   -- The payloads' sources, and any compiled part a build left beside them.
   for directory in #[support, adopter] do
     for entry in ← directory.readDir do
       if entry.fileName.startsWith "Payload." then IO.FS.removeFile entry.path
+  -- The owned dependency's library selects its modules with `.submodules` of the anonymous name,
+  -- the modules of its source directory `src`, and has no root: the glob names no module, so the
+  -- audit's admission does not refuse it. Lake itself then takes every module name for the
+  -- library's own, `Init` included, so its build of the claimed library fails, and `lake lint`
+  -- cannot build its driver; the checker built in this repository shows the admission alone.
+  let supportFile := support / "Support.lean"
+  let supportText ← IO.FS.readFile supportFile
+  IO.FS.createDirAll (support / "src")
+  IO.FS.writeFile (support / "src" / "Support.lean") supportText
+  IO.FS.removeFile supportFile
+  asLean "import Lake\nopen Lake DSL\n\npackage build_lint_support\n\nlean_lib Support where\n  \
+    srcDir := \"src\"\n  roots := #[]\n  globs := #[.submodules .anonymous]\n"
+  failures := failures ++ (← assess {
+      label := "path/owned-anonymous-submodules", exitCode := 3,
+      contains := #["RG2003", "build-failed"],
+      excludes := #["lake-query-malformed", "names module"] }
+    (← runProcess adopter (repo / ".lake" / "build" / "bin" / "axiomGate").toString
+      #["--incremental", "--project", adopter.toString] scrubbedLeanPathEnv))
+  restore
+  IO.FS.writeFile supportFile supportText
+  IO.FS.removeDirAll (support / "src")
   -- The manifest names a copy elsewhere, and an override selects the one in the work tree.
   let external := adopter / "external"
   IO.FS.createDirAll external

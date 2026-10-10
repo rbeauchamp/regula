@@ -727,6 +727,8 @@ def leanConfigReading (ws : _root_.Lake.Workspace) (package : _root_.Lake.Packag
   let compiled := ws.root.dir / _root_.Lake.defaultLakeDir / "config" / toString package.wsIdx /
     (FilePath.mk file).withExtension "olean"
   let (config, _) ← readModuleData compiled
+  -- An entry of module names: the import lines of a Lean configuration.
+  requireSafeModuleNames s!"the configuration {package.configFile}" (config.imports.map (·.module))
   let imported ← _root_.Lake.importModulesUsingCache config.imports {} 1024
   let own (extension : Name) : Nat :=
     ((config.entries.find? (·.1 == extension)).map (·.2.size)).getD 0
@@ -811,6 +813,8 @@ def moduleEntries (ws : _root_.Lake.Workspace) : IO (Option (Array ModuleEntry))
       names := names.push name
       seen := seen.insert name
   let some closure ← moduleImports ws names | return none
+  -- An entry of module names: the import lines of the root package's modules.
+  requireSafeModuleNames "the imports of the root package's modules" (closure.flatMap (·.2))
   let real (path : FilePath) : IO String := return (← IO.FS.realPath path).toString
   some <$> closure.mapM fun (name, imports) => do
     let mut paths : Array String := #[]
@@ -827,6 +831,7 @@ def moduleEntries (ws : _root_.Lake.Workspace) : IO (Option (Array ModuleEntry))
 /-- The `MarkerInputs` of `ws`. `none` when Lake cannot read the imports of a module of the root
 package; the caller also keeps the marker when this raises. -/
 def markerInputs (ws : _root_.Lake.Workspace) : IO (Option MarkerInputs) := do
+  checkWorkspaceModuleNames ws
   let packages ← ws.packages.mapM (packageShape ws)
   let some modules ← moduleEntries ws | return none
   return some { packages, modules }

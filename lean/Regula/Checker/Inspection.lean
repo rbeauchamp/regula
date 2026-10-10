@@ -240,6 +240,8 @@ private def sourceClosure (sources : Std.HashMap Name ProducerReport.SourceBindi
     let imports ← try
         pure ((← Lean.parseImports' source.content source.path).imports.map (·.module)).toList
       catch _ => pure []
+    -- An entry of module names: the import lines of a bound source.
+    requireSafeModuleNames s!"the imports of {source.path}" imports.toArray
     pending := imports ++ pending
   return seen
 

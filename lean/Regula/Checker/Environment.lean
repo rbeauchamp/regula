@@ -715,17 +715,24 @@ private def replacementHistory (sourceRoots : Array FilePath)
       return .completed source.toString sourceBefore sourceAfter edges
   catch error => return .unavailable error.toString
 
-/-- The import operation shared by metadata refusal and full declaration reporting. -/
+/-- The import operation shared by metadata refusal and full declaration reporting: every audit
+worker loads its environment through it. Two entries of module names: the requested modules, and
+every module of the loaded environment (the requested ones and all their imports, from the import
+lines the toolchain resolved). Each must pass `safeModuleComponents?` (`requireSafeModuleNames`)
+before the audit builds a path from it or attributes it. -/
 private unsafe def importReportEnvironment (modules : Array Name) : IO Lean.Environment := do
   if modules.isEmpty || modules.toList.eraseDups.length != modules.size then
     throw <| IO.userError "environment report requires unique nonempty modules"
+  requireSafeModuleNames "the requested modules" modules
   Lean.enableInitializersExecution
   let importNames :=
     if modules.contains probeModuleName.toName then modules
     else modules.push probeModuleName.toName
   let imports := importNames.map fun module => ({ module, importAll := true } : Import)
-  timedPhase "environment imports" <| importModules imports {} 0 (loadExts := true)
+  let env ← timedPhase "environment imports" <| importModules imports {} 0 (loadExts := true)
     (level := .private)
+  requireSafeModuleNames "the loaded environment" env.header.moduleNames
+  return env
 
 private unsafe def loadReportCoreAtSearchPath (modules : Array Name)
     (sourceRoots : Array FilePath := #[])
@@ -737,6 +744,8 @@ private unsafe def loadReportCoreAtSearchPath (modules : Array Name)
     IO (Except ProducerReport.Refusal ProducerReport.Environment) := do
   if modules.isEmpty || modules.toList.eraseDups.length != modules.size then
     throw <| IO.userError "environment report requires unique nonempty modules"
+  -- No source is looked up for a name before it is admitted (`importReportEnvironment`).
+  requireSafeModuleNames "the requested modules" (modules ++ moduleSources.map (·.1))
   let mut resolvedSources := moduleSources
   for name in modules do
     if !resolvedSources.any (·.1 == name) then

@@ -155,6 +155,8 @@ def importClosure (sources : NameMap FilePath) (starts : List Name) : IO NameSet
     reached := reached.insert m
     let some file := sources.find? m | continue
     let header ← Lean.parseImports' (← IO.FS.readFile file) file.toString
+    -- An entry of module names: the import lines of a project source.
+    Regula.Checker.requireSafeModuleNames s!"the imports of {file}" (header.imports.map (·.module))
     for i in header.imports do
       if sources.contains i.module then pending := i.module :: pending
   return reached
@@ -194,6 +196,9 @@ def observe (root : FilePath) : IO Project := do
   let excludedExecutables := (manifest.map (·.excludedExecutables.map (·.executable))).getD #[]
   let (lakefile, configFile, driver, options, targets, allClaimed, libraries, mathlib,
       uncovered, unimported) ← Workspace.withRootWorkspace root fun ws => do
+      -- An entry of module names: the configuration of each package of the workspace, before
+      -- any module is resolved or any path is built from a name (`Lake.checkModuleNames`).
+      Regula.Checker.Lake.checkWorkspaceModuleNames ws
       let pkg := ws.root
       -- The source of every module a root library includes and of every executable root, and
       -- the claimed ones among them.
