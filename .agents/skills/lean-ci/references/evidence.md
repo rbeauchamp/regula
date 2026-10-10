@@ -312,8 +312,9 @@ The deadline also includes the start of the driver, which is before the window. 
 `lean --run` elaborates the driver, and the driver reads and checks `lake-manifest.json` and
 `foundation_manifest.json`. In the five runs, the start took 2.8 s to 3.0 s. That is the time
 from the line `provisioning: default verification needs no dependency acquisition` to the first
-line of the window. The provisioning before the deadline is the rest of the difference between
-the step and the window.
+line of the window. The rest of the difference between the step and the window is before the
+deadline. It contains a run of the driver with `--begin-attempt` and then the run of
+`scripts/provision.sh`.
 
 The job logs give the parts of the window in those runs. The build took 207 s to 222 s, the
 registry checks 2 s and the qualification controls 26 s to 29 s. The gate took 135 s to
@@ -350,8 +351,8 @@ This change has three parts:
 
 - The driver builds the targets of the gate first. The gate then runs beside the rest of the
   step, which runs at low priority.
-- The inspection starts the environment with the most owned modules first, of those that can
-  start.
+- Of the environments that can start, the inspection starts the one with the most modules of
+  its own first.
 - The preflight runs three workers at a time.
 
 The prediction for the slow class is a window of 306 s to 345 s. The lower value adds no time

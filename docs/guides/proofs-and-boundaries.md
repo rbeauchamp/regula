@@ -2217,9 +2217,9 @@ inferred from any pure proof.
   of the bound sources, starting at its own modules and the force-imported probe; the
   environments are ordered so that a library comes after the libraries whose modules it loads
   (`Inspection.libraryNeeds`, `Inspection.startOrder`). Of the environments that can start, the
-  one with the most owned modules comes first. The first environment in that order to load a
-  module replays it (`Inspection.replayers`). That is its own library's environment, unless claimed
-  libraries import one another. An executable's environment waits for every library. No
+  one with the most modules of its own comes first. The first environment in that order to load
+  a module replays it (`Inspection.replayers`). That is its own library's environment, unless
+  claimed libraries import one another. An executable's environment waits for every library. No
   environments wait for one another (`Inspection.prerequisites`), and environments that wait for
   nothing, or for the same ones, run side by side, three at a time. A worker publishes its
   completed admission (`Admission.Completed`: the receipt and the module origins) as soon as

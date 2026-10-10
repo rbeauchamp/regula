@@ -269,14 +269,14 @@ def libraryNeeds (requests : Array (Array Name)) (loads : Array (Option NameSet)
         other != index && (requests.getD other #[]).any loaded.contains
 
 /-- The order in which the environments become eligible to start: repeatedly, of the
-environments every one of whose `needs` is already placed, the one with the most owned modules
-(`sizes`), and of those with as many the first in claim order. An environment with more modules
-usually takes longer, so starting it first lets the smaller ones fill the other slots while it
-runs; the order decides only when an environment starts, never what it may reuse
-(`prerequisites_earlier` holds for every order). Where none is left, because the remaining
-environments need one another, the first of them in claim order that another of them needs is
-placed, so an environment nothing waits for (an executable's) still comes after the libraries it
-needs. -/
+environments every one of whose `needs` is already placed, the one that requests the most
+modules (`sizes`, its own modules), and of those with as many the first in claim order. An
+environment with more modules usually takes longer, so starting it first lets the smaller ones
+fill the other slots while it runs; the order decides only when an environment starts, never
+what it may reuse (`prerequisites_earlier` holds for every order). Where none is left, because
+the remaining environments need one another, the first of them in claim order that another of
+them needs is placed, so an environment nothing waits for (an executable's) still comes after the
+libraries it needs. -/
 def startOrder (needs : Array (Array Nat)) (sizes : Array Nat) : Array Nat := Id.run do
   let count := needs.size
   let mut placed := Array.replicate count false
