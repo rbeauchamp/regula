@@ -116,7 +116,7 @@ instance (ds : Array Declaration.Role) (ts : Array Transcript) (a : Declaration.
 the observed base and its auxiliary definitions, and for which Lean's kernel checks the recursion
 equation of each base of the group (`Declaration.unsafeRecRegenerated`, which records both). -/
 def RecursiveHelperShape (h : Declaration.Role) : Prop :=
-  h.kind = .definition ∧ h.internal = true ∧ h.ranges = none ∧ h.isPartial = true ∧
+  h.kind = .definition ∧ h.internal = true ∧ h.recordedRanges = none ∧ h.isPartial = true ∧
   h.isUnsafe = false ∧ h.hints = some .opaque ∧ h.implementedBy = none ∧ h.extern = false ∧
   h.unsafeRecRegenerated.isSome = true
 instance (h : Declaration.Role) : Decidable (RecursiveHelperShape h) := by
@@ -156,7 +156,7 @@ safe inductive parent and safe base in the same inventory and module. The base r
 runtime implementation with precisely this closed wrapper; neither may add another replacement
 or an external implementation. The observed structural comparison is a trusted producer boundary. -/
 def ConstructorIndexHelperOK (ds : Array Declaration.Role) (h : Declaration.Role) : Prop :=
-  h.kind = .definition ∧ h.internal = true ∧ h.ranges = none ∧
+  h.kind = .definition ∧ h.internal = true ∧ h.recordedRanges = none ∧
   h.isUnsafe = true ∧ h.isPartial = false ∧ h.hints = some .opaque ∧
   h.implementedBy = none ∧ h.extern = false ∧ h.all = #[h.name] ∧ h ∈ ds ∧
   ∃ t ∈ ds, ∃ b ∈ ds,

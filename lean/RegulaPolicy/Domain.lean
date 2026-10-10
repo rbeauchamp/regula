@@ -1542,13 +1542,6 @@ selection range lies within its full range, and otherwise that full range as its
 range (`Ranges.admitted`). -/
 def Declaration.ranges (d : Declaration) : Option Ranges := d.recordedRanges.map Ranges.admitted
 
-/-- The admitted ranges of the role part (`Declaration.ranges`). -/
-def Declaration.Role.ranges (r : Declaration.Role) : Option Ranges :=
-  r.recordedRanges.map Ranges.admitted
-
-/-- The admitted ranges of the role part are the admitted ranges of the record. -/
-@[simp] theorem Declaration.role_ranges (d : Declaration) : d.role.ranges = d.ranges := rfl
-
 /-- A constructor-index helper spelling selects a candidate parent and base; it authorizes
 neither declaration. The replay observer and inventory relation establish its role. -/
 def constructorIndexOrigin? : Lean.Name → Option (Lean.Name × Lean.Name)
