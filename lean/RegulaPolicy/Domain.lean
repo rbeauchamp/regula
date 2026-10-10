@@ -202,6 +202,59 @@ theorem Correspondence.canonical (s : String) (x : Correspondence) (h : parse? s
   unfold parse? at h
   split at h <;> cases h <;> rfl
 
+/-- Supported ConformingProfile values; parsing cannot manufacture an unknown constructor. -/
+inductive ConformingProfile where
+  /-- No axiom is permitted. -/
+  | «kernelOnly»
+  /-- `propext` and `Quot.sound` are permitted. -/
+  | «choiceFree»
+  /-- `propext`, `Quot.sound` and `Classical.choice` are permitted. -/
+  | «standardLogical»
+  deriving Repr, DecidableEq, Inhabited
+
+/-- The profile's text in manifests and reports (`kernel-only`, `choice-free` or
+`standard-logical`); `parse?` reads it back (`ConformingProfile.roundtrip`). -/
+def ConformingProfile.spelling : ConformingProfile → String
+  | .«kernelOnly» => "kernel-only"
+  | .«choiceFree» => "choice-free"
+  | .«standardLogical» => "standard-logical"
+
+/-- The profile a text names; `none` for any text that is not a `spelling`
+(`ConformingProfile.canonical`). -/
+@[regula_decision]
+def ConformingProfile.parse? : String → Option ConformingProfile
+  | "kernel-only" => some .«kernelOnly»
+  | "choice-free" => some .«choiceFree»
+  | "standard-logical" => some .«standardLogical»
+  | _ => none
+
+instance : ToString ConformingProfile := ⟨ConformingProfile.spelling⟩
+
+/-- Every value survives its actual spelling parser. -/
+@[simp] theorem ConformingProfile.roundtrip (x : ConformingProfile) : parse? x.spelling =
+    some x := by
+  cases x <;> rfl
+
+/-- The parser accepts only the canonical spelling of its result. -/
+theorem ConformingProfile.canonical (s : String) (x : ConformingProfile) (h : parse? s = some x) :
+    x.spelling = s := by
+  unfold parse? at h
+  split at h <;> cases h <;> rfl
+
+/-- Whether `profile` permits axiom `n`: no axiom for Kernel-only, `propext` and `Quot.sound`
+for Choice-Free, and additionally `Classical.choice` for Standard-Logical (`permits_iff`). This is
+the one statement of the three axiom sets: the profile check, the correspondence check of a
+runtime replacement (`DefeqComparison.ofAttempt`) and the checker's own Standard-Logical bounds
+all read it, here below `RegulaPolicy.Foundation` so that every module of the policy can. -/
+def ConformingProfile.permits : ConformingProfile → Lean.Name → Bool
+  | .kernelOnly, _ => false
+  | .choiceFree, n => n == `propext || n == `Quot.sound
+  | .standardLogical, n => n == `propext || n == `Quot.sound || n == `Classical.choice
+
+/-- `name` is `propext`, `Quot.sound` or `Classical.choice`. -/
+def standardLogicalAxiom (name : Lean.Name) : Bool :=
+  ConformingProfile.permits .standardLogical name
+
 /-- The kernel's answer to the theorem the checker declares, without adding it, to compare a
 runtime replacement with its reference: a closed proof, checked against the exact required
 proposition (`Probe.kernelAnswer`). Only the result of the kernel's own check selects the
@@ -215,11 +268,6 @@ inductive KernelAnswer where
   /-- The kernel stopped before it decided: it exhausted its resources or was interrupted. -/
   | exhausted
   deriving Repr, DecidableEq
-
-/-- Each axiom is one of the Standard-Logical foundations: `propext`, `Quot.sound` or
-`Classical.choice`. -/
-def KernelAnswer.withinStandardLogical (axioms : Array Lean.Name) : Bool :=
-  axioms.all fun ax => ax == `propext || ax == `Quot.sound || ax == `Classical.choice
 
 /-- Outcome of the checker's kernel check of one closed correspondence proof between a runtime
 replacement and its reference: the reflexivity proof of the definitional comparison, or a proof
@@ -251,7 +299,7 @@ decided completes a comparison, so an attempt that raised an error is incomplete
 error (`ofAttempt_error`). -/
 def DefeqComparison.ofAttempt : Except String KernelAnswer → DefeqComparison
   | .ok (.admitted axioms detail) =>
-      .completed (if KernelAnswer.withinStandardLogical axioms then some detail else none)
+      .completed (if axioms.all standardLogicalAxiom then some detail else none)
   | .ok .refused => .completed none
   | .ok .exhausted =>
       .incomplete "kernel resources exhausted before deciding definitional correspondence"
@@ -289,11 +337,11 @@ theorem DefeqComparison.ofAttempt_checked_iff (attempt : Except String KernelAns
     (detail : String) :
     ofAttempt attempt = .completed (some detail) ↔
       ∃ axioms, attempt = .ok (.admitted axioms detail) ∧
-        KernelAnswer.withinStandardLogical axioms = true := by
+        axioms.all standardLogicalAxiom = true := by
   rcases attempt with error | (⟨axioms, admitted⟩ | _ | _)
   · simp [ofAttempt]
-  · cases h : KernelAnswer.withinStandardLogical axioms
-    · simp [ofAttempt, h]
+  · cases h : axioms.all standardLogicalAxiom
+    · simp [ofAttempt, h, -Array.all_eq_true, -Array.all_eq_false]
     · simp only [ofAttempt, h, ite_true, completed.injEq, Option.some.injEq, Except.ok.injEq,
         KernelAnswer.admitted.injEq]
       exact ⟨fun same => ⟨axioms, ⟨rfl, same⟩, h⟩, fun ⟨_, ⟨_, same⟩, _⟩ => same⟩
@@ -306,10 +354,11 @@ foundations. -/
 theorem DefeqComparison.ofAttempt_negative_iff (attempt : Except String KernelAnswer) :
     ofAttempt attempt = .completed none ↔
       attempt = .ok .refused ∨ ∃ axioms detail, attempt = .ok (.admitted axioms detail) ∧
-        KernelAnswer.withinStandardLogical axioms = false := by
+        axioms.all standardLogicalAxiom = false := by
   rcases attempt with error | (⟨axioms, detail⟩ | _ | _)
   · simp [ofAttempt]
-  · cases h : KernelAnswer.withinStandardLogical axioms <;> simp [ofAttempt, h]
+  · cases h : axioms.all standardLogicalAxiom <;>
+      simp [ofAttempt, h, -Array.all_eq_true, -Array.all_eq_false]
   · simp [ofAttempt]
   · simp [ofAttempt]
 
@@ -372,45 +421,6 @@ instance : ToString FoundationClass := ⟨FoundationClass.spelling⟩
 
 /-- The parser accepts only the canonical spelling of its result. -/
 theorem FoundationClass.canonical (s : String) (x : FoundationClass) (h : parse? s = some x) :
-    x.spelling = s := by
-  unfold parse? at h
-  split at h <;> cases h <;> rfl
-
-/-- Supported ConformingProfile values; parsing cannot manufacture an unknown constructor. -/
-inductive ConformingProfile where
-  /-- No axiom is permitted. -/
-  | «kernelOnly»
-  /-- `propext` and `Quot.sound` are permitted. -/
-  | «choiceFree»
-  /-- `propext`, `Quot.sound` and `Classical.choice` are permitted. -/
-  | «standardLogical»
-  deriving Repr, DecidableEq, Inhabited
-
-/-- The profile's text in manifests and reports (`kernel-only`, `choice-free` or
-`standard-logical`); `parse?` reads it back (`ConformingProfile.roundtrip`). -/
-def ConformingProfile.spelling : ConformingProfile → String
-  | .«kernelOnly» => "kernel-only"
-  | .«choiceFree» => "choice-free"
-  | .«standardLogical» => "standard-logical"
-
-/-- The profile a text names; `none` for any text that is not a `spelling`
-(`ConformingProfile.canonical`). -/
-@[regula_decision]
-def ConformingProfile.parse? : String → Option ConformingProfile
-  | "kernel-only" => some .«kernelOnly»
-  | "choice-free" => some .«choiceFree»
-  | "standard-logical" => some .«standardLogical»
-  | _ => none
-
-instance : ToString ConformingProfile := ⟨ConformingProfile.spelling⟩
-
-/-- Every value survives its actual spelling parser. -/
-@[simp] theorem ConformingProfile.roundtrip (x : ConformingProfile) : parse? x.spelling =
-    some x := by
-  cases x <;> rfl
-
-/-- The parser accepts only the canonical spelling of its result. -/
-theorem ConformingProfile.canonical (s : String) (x : ConformingProfile) (h : parse? s = some x) :
     x.spelling = s := by
   unfold parse? at h
   split at h <;> cases h <;> rfl
@@ -1889,28 +1899,56 @@ theorem toolchainOrigin_roundtrip (o : ToolchainOrigin) :
     cases he
     simp [admitToolchainOrigin, hm, hn]
 
+/-- The observed part of a boundary's record. Its constant and module are the fields whose value the
+environment fixes for the constant the record is made at. Its ownership is the membership of that
+module in the claim's owned modules, so the environment's module and the claim fix it, and no mark
+decides it. Authored marks and traversal through project-written edges decide which records exist.
+A field that the data of a mark enters is project-written (`ExecutionBoundary.ProjectWritten`).
+`Probe.observeNode` sets the name to the observed constant, the module to the environment's
+attribution of it, and ownership to membership in the claim's owned modules. -/
+structure ExecutionBoundary.ToolchainObserved where
+  /-- The constant at the boundary. -/
+  name : Lean.Name
+  /-- The module that declares it. -/
+  «module» : Lean.Name
+  /-- The constant's module is one of the audited, owned modules. -/
+  owned : Bool
+  deriving Repr, DecidableEq
+
+/-- The part of a boundary's record that marks an audited project writes can decide: its kind, its
+evidence and the constant run in its place. `@[implemented_by]` and `@[extern]` decide the kind of
+the boundary that each makes, and for `@[extern]` the toolchain origin of the module chooses
+`native-runtime` over `external`. A constant whose type is an equality of two constants with the
+same list of distinct universe parameters makes a `compiler-simplification` boundary, registered
+with `@[csimp]` or not, and an attribute such as `@[simp]` makes Lean generate equation lemmas of
+that shape. The name of an axiom decides the `compiler-trusted-proof` kind
+(`RegulaPolicy.compilerTrustingAxiomName`), and the constant's safety and value decide the other
+kinds. -/
+structure ExecutionBoundary.ProjectWritten where
+  /-- What kind of boundary it is. -/
+  boundary : BoundaryKind
+  /-- The correspondence evidence, of a form the kind admits. -/
+  account : BoundaryEvidence boundary
+  /-- For a runtime replacement or compiler simplification, the constant run in its place. -/
+  replacement : Option Lean.Name
+  deriving Repr, DecidableEq
+
 /-- One boundary in the conservative compiler/source closure of an
 executable root. `boundary` is one of `runtime-replacement`, `compiler-simplification`,
 `native-runtime`,
 `external`, `unsafe-computation`, `partial-computation`, `opaque-computation`,
 or `compiler-trusted-proof`; `correspondence` is `checked`, `trusted`, or
-`unresolved`. -/
-structure ExecutionBoundary where
+`unresolved`. Each field the pass sets at one constant is declared in the part that says where its
+value comes from. Its position and its callers are computed over the walk of the root, through the
+edges of the project-written part of the name records (`ExecutionWalk.NodeRecord.ProjectWritten`),
+so they are fields of the boundary itself. Its callers are the sources of the compiled edges whose
+target is its observed name. -/
+structure ExecutionBoundary extends ExecutionBoundary.ToolchainObserved,
+    ExecutionBoundary.ProjectWritten where
   /-- The boundary's position in its root's boundary list. -/
   occurrence : Nat
-  /-- The constant at the boundary. -/
-  name : Lean.Name
-  /-- The module that declares it. -/
-  «module» : Lean.Name
-  /-- What kind of boundary it is. -/
-  boundary : BoundaryKind
-  /-- The correspondence evidence, of a form the kind admits. -/
-  account : BoundaryEvidence boundary
-  /-- The constant's module is one of the audited, owned modules. -/
-  owned : Bool
-  /-- For a runtime replacement or compiler simplification, the constant run in its place. -/
-  replacement : Option Lean.Name
-  /-- The constants whose retained compiler IR calls this one directly. -/
+  /-- The constants whose retained compiler IR calls this one directly, or names it as an
+  initializer. -/
   compilerCallers : Array Lean.Name := #[]
   deriving Repr, DecidableEq
 
@@ -1968,13 +2006,23 @@ theorem ExecutionBoundary.needsHistory_iff (b : ExecutionBoundary) :
 instance (b : ExecutionBoundary) : Decidable b.NeedsHistory :=
   decidable_of_iff _ b.needsHistory_iff
 
-/-- One first visit, recorded before inspecting its policy outcomes. A non-root visit
-retains the earlier visit that queued it; IR-only names may lack module attribution. -/
-structure ExecutionVisit where
+/-- The observed part of a visit: the fields whose value the environment fixes for the constant the
+visit is made at, which are that constant and its module. Authored marks and traversal through
+project-written edges decide which records exist. A field that the data of a mark enters is
+project-written, as a boundary's kind and replacement. `ExecutionWalk.assemble` copies the visited
+name and the module of its record (`NodeRecord.ToolchainObserved.moduleName`) into this part.
+IR-only names may lack module attribution. -/
+structure ExecutionVisit.ToolchainObserved where
   /-- The visited constant. -/
   name : Lean.Name
   /-- Its declaring module, when the environment attributes one. -/
   moduleName : Option Lean.Name
+  deriving Repr, DecidableEq
+
+/-- One first visit, recorded before inspecting its policy outcomes. Its constant and module are in
+the observed part (`ExecutionVisit.ToolchainObserved`). A non-root visit retains the earlier visit
+that queued it, which the walk computes. -/
+structure ExecutionVisit extends ExecutionVisit.ToolchainObserved where
   /-- The index of the visit that queued this one; `none` for the root. -/
   parent : Option Nat
   deriving Repr, DecidableEq
@@ -1982,7 +2030,19 @@ structure ExecutionVisit where
 /-- The walk's complete reached-name census and separately attributed edge sets.
 These are observations of the pinned collector, not a minimal runtime call graph.
 Current replacements remain distinct from successfully observed historical choices;
-active simplifications are used for cycle detection, not claimed compiler calls. -/
+active simplifications are used for cycle detection, not claimed compiler calls. The closure has no
+parts of its own: each visit carries the observed part of its name
+(`ExecutionVisit.ToolchainObserved`), and its parent and the closure's other fields are computed
+over the names that the walk reached through the edges of the project-written part of their records
+(`ExecutionWalk.NodeRecord.ProjectWritten`). Each edge set is named for the record field whose
+targets it copies. Beside the records, `ExecutionWalk.assemble` takes `rootCompiled`, the root's own
+compiled-code requirement. When it holds, the root is in `requiredCode`, and so in `unavailableCode`
+with a reported unavailable-code path when its compiler body is unavailable; without it, the root is
+required only as a compiled dependency of a reached name. `rootCompiled` is project-written, because
+the root's marks and tags enter it. `Probe.executionWalk` computes it as false exactly when the root
+has an `@[implemented_by]` or `@[macro_inline]` mark; when the root is a projection function, with
+or without IR; when it has no IR and is an auxiliary recursor, a `noConfusion` or a matcher; or when
+it has no IR and is a `brecOn` helper that `brecOnHelpers` finds by its structure. -/
 structure ExecutionClosure where
   /-- Every name the walk reached, sorted and without duplicates. -/
   nodes : Array Lean.Name
@@ -1990,7 +2050,9 @@ structure ExecutionClosure where
   visits : Array ExecutionVisit
   /-- From a constant to each constant its value mentions, where the walk follows the value. -/
   logicalEdges : Array (Lean.Name × Lean.Name) := #[]
-  /-- From a constant to the target of each `@[csimp]`-shaped simplification candidate. -/
+  /-- From a constant to the target of each simplification candidate: a constant whose type is an
+  equality of two constants with the same list of distinct universe parameters, registered with
+  `@[csimp]` or not. -/
   candidateEdges : Array (Lean.Name × Lean.Name) := #[]
   /-- From a constant to each replacement target its source replacement history records. -/
   historyEdges : Array (Lean.Name × Lean.Name) := #[]
@@ -2012,13 +2074,29 @@ def ExecutionClosure.edges (c : ExecutionClosure) (compilerEdges : Array (Lean.N
   compilerEdges ++ c.logicalEdges ++ c.candidateEdges ++ c.historyEdges ++
     c.currentReplacementEdges ++ c.helperEdges
 
-/-- The execution account of one owned executable root: the boundaries and unresolved paths its
-closure reaches, its compiled edges and the closure itself. -/
-structure ExecutionRoot where
+/-- The observed part of a root's account: the fields whose value the environment fixes for the
+constant the account is made at, which are that constant and its module. Authored marks and
+traversal through project-written edges decide which records exist. A field that the data of a mark
+enters is project-written, as a boundary's kind and replacement. `Probe.environmentReport` makes a
+root record for each name of `executableRoots` (each eligible owned definition or opaque constant
+and each `@[init]` or `@[builtin_init]` action) and each root of a registered contract with no
+refusal, with the name set to that constant and the module to the environment's attribution of
+it. -/
+structure ExecutionRoot.ToolchainObserved where
   /-- The root constant. -/
   name : Lean.Name
   /-- Its declaring module. -/
   «module» : Lean.Name
+  deriving Repr, DecidableEq
+
+/-- The execution account of one owned executable root: the boundaries and unresolved paths its
+closure reaches, its compiled edges and the closure itself. Its name and module are in the observed
+part (`ExecutionRoot.ToolchainObserved`). The other fields are computed over the walk of the root,
+through the edges of the project-written part of the name records it reads
+(`ExecutionWalk.NodeRecord.ProjectWritten`), and from the root's own compiled-code requirement
+(`rootCompiled`, described at `ExecutionClosure`), which can add the root's unavailable-code path to
+`unresolved`. So they are fields of the account itself. -/
+structure ExecutionRoot extends ExecutionRoot.ToolchainObserved where
   /-- Every boundary the closure reaches, in the order the walk found them. -/
   boundaries : Array ExecutionBoundary
   /-- A description of each dependency path the analysis could not resolve. -/

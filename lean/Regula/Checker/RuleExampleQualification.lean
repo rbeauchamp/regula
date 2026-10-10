@@ -27,7 +27,7 @@ run_cmd do
       ``Regula.Website.checked_admitDemonstration,
       ``Regula.Checker.Documentation.positiveClassifications_sound] do
     let axioms ← Lean.collectAxioms name
-    unless axioms.all (fun ax => #[`propext, `Quot.sound, `Classical.choice].contains ax) do
+    unless axioms.all RegulaPolicy.standardLogicalAxiom do
       throwError "example theorem {name} exceeds Standard-Logical: {axioms}"
 
 namespace Regula.Checker.RuleExampleQualification
@@ -533,5 +533,5 @@ end Regula.Checker.RuleExampleQualification
 run_cmd do
   for name in #[``Regula.Checker.RuleExampleQualification.qualify_sound] do
     let axioms ← Lean.collectAxioms name
-    unless axioms.all (fun ax => #[`propext, `Quot.sound, `Classical.choice].contains ax) do
+    unless axioms.all RegulaPolicy.standardLogicalAxiom do
       throwError "record-admission theorem {name} exceeds Standard-Logical: {axioms}"

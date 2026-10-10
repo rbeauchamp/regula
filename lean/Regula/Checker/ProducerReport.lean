@@ -1084,5 +1084,5 @@ run_cmd do
       ``Regula.Checker.ProducerReport.Admitted.admitExecution_eq,
       ``Regula.Checker.ProducerReport.fromJson_admitted] do
     let axioms ← Lean.collectAxioms name
-    unless axioms.all (fun ax => #[`propext, `Quot.sound, `Classical.choice].contains ax) do
+    unless axioms.all RegulaPolicy.standardLogicalAxiom do
       throwError "transport theorem {name} exceeds Standard-Logical: {axioms}"

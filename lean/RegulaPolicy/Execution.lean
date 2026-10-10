@@ -97,18 +97,21 @@ theorem checked_boundaryFailures : Regula.ExecutableContract boundaryFailures (f
       (Function.uncurry (Function.uncurry failures))) :=
   let root : ExecutionRoot :=
     { name := `root, «module» := `Module, boundaries := #[], unresolved := #[]
-      closure := { nodes := #[`root], visits := #[⟨`root, none, none⟩] } }
+      closure := { nodes := #[`root]
+                   visits := #[{ name := `root, moduleName := none, parent := none }] } }
+  let body (account : BoundaryEvidence .opaqueComputation) : ExecutionBoundary :=
+    { occurrence := 0, name := `body, «module» := `Module, owned := true
+      boundary := .opaqueComputation, account, replacement := none }
   ⟨.of_iff (fun input => boundaryFailures_empty_iff input.1.1 input.1.2 input.2)
-    ⟨((root, .checked), ⟨0, `body, `Module, .opaqueComputation, .checked .opaqueBody, true, none,
-        #[]⟩), by decide⟩
-    ⟨((root, .report), ⟨0, `body, `Module, .opaqueComputation, .unresolved none, true, none,
-        #[]⟩), by decide⟩⟩
+    ⟨((root, .checked), body (.checked .opaqueBody)), by decide⟩
+    ⟨((root, .report), body (.unresolved none)), by decide⟩⟩
 
 /-- A root with one unresolved path and no boundary: the refused input of
 `checked_executionFailureRecords`. -/
 private def unresolvedRoot : ExecutionRoot :=
   { name := `root, «module» := `Module, boundaries := #[], unresolved := #["path"]
-    closure := { nodes := #[`root], visits := #[⟨`root, none, none⟩] } }
+    closure := { nodes := #[`root]
+                 visits := #[{ name := `root, moduleName := none, parent := none }] } }
 
 /-- `unresolvedRoot` alone is a valid inventory. Proved from the definition of validity, not by
 evaluating its decision procedure, whose hashed name sets the kernel does not evaluate. -/

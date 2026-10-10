@@ -55,17 +55,6 @@ inductive InspectionRequest where
   | conforming (profile : ConformingProfile)
   deriving Repr, DecidableEq
 
-/-- Whether `profile` permits axiom `n`: no axiom for Kernel-only, `propext` and `Quot.sound`
-for Choice-Free, and additionally `Classical.choice` for Standard-Logical (`permits_iff`). -/
-def ConformingProfile.permits : ConformingProfile → Name → Bool
-  | .kernelOnly, _ => false
-  | .choiceFree, n => n == `propext || n == `Quot.sound
-  | .standardLogical, n => n == `propext || n == `Quot.sound || n == `Classical.choice
-
-/-- `name` is `propext`, `Quot.sound` or `Classical.choice`. -/
-def standardLogicalAxiom (name : Name) : Bool :=
-  ConformingProfile.permits .standardLogical name
-
 /-- Legacy compiler-trust names, independently of whether the selected compiler declares them. -/
 def legacyCompilerAxiom (name : Name) : Bool :=
   name == `Lean.trustCompiler || name == `Lean.ofReduceBool || name == `Lean.ofReduceNat
@@ -115,6 +104,19 @@ def LeastFoundation (a : Array Name) (p : ConformingProfile) : Prop :=
 @[simp] theorem permits_iff (p : ConformingProfile) (n : Name) :
     p.permits n = true ↔ Permitted p n := by
   cases p <;> simp [ConformingProfile.permits, Permitted, or_assoc]
+
+/-- An attempt records a completed positive comparison exactly when it recorded the kernel's
+admission of the proof with an axiom set that the Standard-Logical profile contains: the same
+permitted set as the profile check (`DefeqComparison.ofAttempt_checked_iff`, `permits_iff`). -/
+theorem DefeqComparison.ofAttempt_checked_iff_containsFoundation
+    (attempt : Except String KernelAnswer) (detail : String) :
+    DefeqComparison.ofAttempt attempt = .completed (some detail) ↔
+      ∃ axioms, attempt = .ok (.admitted axioms detail) ∧
+        ContainsFoundation .standardLogical axioms := by
+  rw [DefeqComparison.ofAttempt_checked_iff]
+  refine exists_congr fun axioms => and_congr_right fun _ => ?_
+  rw [Array.all_eq_true', ContainsFoundation]
+  exact forall₂_congr fun n _ => permits_iff .standardLogical n
 
 /-- Executable least-label selection, defined over set membership with no enumeration
 of programs or axiom subsets. The caller separately classifies forbidden axioms. -/

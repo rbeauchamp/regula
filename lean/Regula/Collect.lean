@@ -174,9 +174,6 @@ erases. -/
 private def erasedByCompilation (e : Expr) : MetaM Bool := do
   return (← Meta.isProof e) || (← Meta.isType e)
 
-/-- The axioms a theorem the checker has Lean's kernel check may rest on: Standard-Logical. -/
-private def checkedAxioms : List Name := [``propext, ``Quot.sound, ``Classical.choice]
-
 /-- A bound on the names a search in `env` expands: one for each constant of its modules and of
 the current module, and `extra` more. Every name a constant of a kernel environment uses is a
 constant of it. -/
@@ -185,15 +182,16 @@ def fuelFor (env : Environment) (extra : Nat) : Nat :=
     env.constants.map₂.foldl (fun total _ _ => total + 1) 0 + extra
 
 /-- Whether Lean's kernel, in the current environment, accepts `value` as a proof of the closed
-statement `type` (`Environment.addDeclCore` on a theorem of a fresh name) and that theorem uses no
-axiom outside `checkedAxioms`. The theorem's axioms are those it reaches in the kernel environment
-that holds it (`KernelAxioms.axiomsWith`): the search stops at each name of `cached`, the table
-that admission computed in the replayed kernel for the owned declarations' closure, and reads its
-entry there. A statement or a proof with a free variable or a metavariable answers `false`, and so
-does a search that runs out of fuel. The theorem stays in the environment, which the caller
-restores. What the kernel refuses with is thrown, a rejected proof and a resource limit alike (its
-deterministic timeout, deep recursion or excessive memory), and the caller tells the two apart by
-`checkerLimit?`. -/
+statement `type` (`Environment.addDeclCore` on a theorem of a fresh name) and that theorem uses
+only axioms that the Standard-Logical profile permits (`RegulaPolicy.standardLogicalAxiom`, the
+definition the profile check reads). The theorem's axioms are those it reaches in the kernel
+environment that holds it (`KernelAxioms.axiomsWith`): the search stops at each name of
+`cached`, the table that admission computed in the replayed kernel for the owned declarations'
+closure, and reads its entry there. A statement or a proof with a free variable or a metavariable
+answers `false`, and so does a search that runs out of fuel. The theorem stays in the environment,
+which the caller restores. What the kernel refuses with is thrown, a rejected proof and a resource
+limit alike (its deterministic timeout, deep recursion or excessive memory), and the caller tells
+the two apart by `checkerLimit?`. -/
 private def kernelChecked (cached : Std.HashMap Name (Array Name)) (type value : Expr) :
     MetaM Bool := do
   if type.hasMVar || value.hasMVar || type.hasFVar || value.hasFVar then return false
@@ -208,7 +206,7 @@ private def kernelChecked (cached : Std.HashMap Name (Array Name)) (type value :
     setEnv checked
     let some axioms := RegulaPolicy.KernelAxioms.axiomsWith checked.toKernelEnv.find? cached
         (fuelFor checked 1) name | return false
-    return axioms.all checkedAxioms.contains
+    return axioms.all RegulaPolicy.standardLogicalAxiom
 
 /-- Whether Lean's kernel checks the threading law of the application `threaded`, the fact the
 comparison needs before it takes a `match` that passes a variable through as the `match` that uses
@@ -223,12 +221,12 @@ the positions the comparison reads; what Lean records about `M` (that it is a ma
 `casesOn`, how many pattern variables an alternative binds) only says where to look and how to
 search for a proof (`Split.splitMatch`, or `cases` on the major premise, then `rfl`). Admission
 rests on the kernel alone: `Environment.addDeclCore` must accept the theorem, whose proof may use
-no axiom outside `checkedAxioms` (`kernelChecked`). The right-hand side is well typed only where
-`A ds` and each `A (pᵢ xs)` are definitionally equal, which the kernel decides whatever is
-irreducible. Nothing is kept: the theorem, and every constant the search realizes, is discarded. A
-search that fails, or a theorem the kernel rejects, answers `false`. A `checkerLimit?` reached is
-rethrown, in the search or in the kernel (its deterministic timeout, deep recursion or excessive
-memory): the helper is then undecided, not rejected. -/
+only Standard-Logical axioms (`kernelChecked`). The right-hand side is well typed only where `A ds`
+and each `A (pᵢ xs)` are definitionally equal, which the kernel decides whatever is irreducible.
+Nothing is kept: the theorem, and every constant the search realizes, is discarded. A search that
+fails, or a theorem the kernel rejects, answers `false`. A `checkerLimit?` reached is rethrown, in
+the search or in the kernel (its deterministic timeout, deep recursion or excessive memory): the
+helper is then undecided, not rejected. -/
 private def threadingLawChecked (cached : Std.HashMap Name (Array Name))
     (threaded : Meta.MatcherApp) : MetaM Bool := do
   let ambient := (← getLCtx).getFVars
@@ -1611,7 +1609,7 @@ replaced by its base: the theorem, with `value` the function `fun xs => body`,
 
 `∀ xs, base xs = body`
 
-by a proof that uses no axiom outside `checkedAxioms`. The checker builds the statement from the
+by a proof that uses only Standard-Logical axioms. The checker builds the statement from the
 constant `base` and from `value` alone and gives that statement itself to the kernel as the type
 of a theorem (`kernelChecked`), after `isRecursionEquation` has confirmed its form by `Expr`
 equality. No theorem is trusted for its name and no statement is compared with another: whatever

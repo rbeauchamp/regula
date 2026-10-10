@@ -650,7 +650,7 @@ interfaces do not imply a library-wide exemption.
 | Native axiom names | `nativeAxiomOrigin?_sound`, `nativeAxiomOrigin?_nativeAxiomName`, `nativeAxiomOrigin?_isSome_iff`, `compilerTrustingAxiomName_sound`, `compilerTrustingAxiomName_iff`, `modulePrivacy_nativeAxiomName`, `generatedPrefix_iff`, `native_generated`, `native_compilerTrustingAxiomName`, `native_provenance` | A name is recognized exactly when it is `nativeAxiomName parent t idxs`, Lean's own `Name.append` and `appendIndexAfter` as `nativeEqTrue` and `DeclNameGenerator.mkUniqueName` apply them, for `native_decide`, `decide +native` or `bv_decide`, with or without module privacy. `compilerTrustingAxiomName`, the execution probe's classification, holds exactly for these names and the enabled legacy compiler axioms. The prefix is nonanonymous without macro scopes and the generator indices are a nonempty list of positive numbers. For a declaration name without macro scopes in a module without macro scopes, a recognized prefix related to it by `GeneratedPrefix` (the name itself, or its `mkPrivateNameCore` form when it is public) gives exactly the names `DeclNameGenerator.mkUniqueName.curr` gives its native axioms, whether or not the module elaborates the proof without exporting (`modulePrivacy`). The recognition direction and that characterization assume `RuntimeStringAppend`, because `appendIndexAfter` uses the logically opaque extern `String.Internal.append`. The three tactic names and the list of `nativeEqTrue` call sites are cited from the pinned sources, not derived; hygienic and anonymous prefixes are not recognized. |
 | Execution policy | `executionFailureRecords_empty_iff`, `boundaryFailures_empty_iff`, `boundaryFailures_ids`, `rootFailures_ids`, `boundaryFailures_toolchain`, `project_boundary_reported`, `checked_toolchainBase` | No failure exactly when there is no unresolved path and every boundary meets its mode's relation; the failure kind of every boundary and path for every claim. A toolchain-owned boundary never fails; every boundary without an admitted toolchain origin or checked evidence has its own failure record, in every root whose account contains it, under a checked claim; the audit's toolchain trusted base has each toolchain-owned boundary (constant and kind) of every labeled environment account in exactly one entry, which lists exactly the environments and roots that reach it. |
 | Execution findings | `executionFindings_empty_iff`, `failure_reported`, `unresolved_reported`, `executionFindings_sound`, `rootFindings_ids`, `executionFindings_unresolved`, `ExecutionRoot.boundary_reported`, `ExecutionRoot.first_record`, `ExecutionRoot.folded_trusted`, `ExecutionRoot.carries_spec`, `ExecutionBoundary.restates_spec`, `boundaryFailures_restates`, `ExecutionInventory.reported_or_folded` | The findings the gate reports are the failure records with each folded boundary's record reported in the finding of the boundary it is reported with. A boundary is folded in two cases only. It repeats an earlier record: a boundary of the same root with a smaller occurrence number is trusted like it and has the same constant, kind, replacement and toolchain origin, so the two have the same failures for every claim. Or it is a trusted partial-computation boundary without a toolchain origin whose constant is the source of no helper edge, and a boundary of the same root that is trusted, not toolchain-owned and not itself foldable names its constant, by its `replacement` or, as a partial-computation boundary, by a helper edge. Every folded boundary is trusted, and every boundary of a root is, or restates, one that is reported on its own or is an implementation of one reported on its own. So the findings are empty exactly when `ExecutionOK` holds; every failure record is its boundary's own finding, is named in the finding of a boundary whose implementations include it, or is a later record of a boundary that is; every unresolved path is a finding unchanged; every finding has the kind, root and detail of a record, followed by its implementations; a root has one finding per failing boundary reported on its own; the unresolved findings are as many as the unresolved records; and every boundary of the account is counted by the coverage counts or folded. These are statements about the supplied account: that the collector records a `partial` definition and the constant compiled to it, and two candidates of one equality, in this form is its observation of the environment, not proved. |
-| Correspondence | `DefeqComparison.classify_checked_iff`, `classify_trusted_iff`, `classify_unresolved_iff`, `DefeqComparison.ofAttempt_checked_iff`, `ofAttempt_negative_iff`, `ofAttempt_incomplete_iff`, `ofAttempt_error` | Checked exactly for a completed comparison with admitted evidence, trusted exactly for a completed one without, unresolved exactly for one that did not complete. A comparison is completed exactly when the attempt recorded the answer of a kernel that decided. It has evidence when that answer is an admission with only Standard-Logical axioms. It has no evidence when the answer is a refusal, or an admission with a different axiom. An attempt that raised an error is incomplete, also after the kernel admitted the proof, for example when printing the proof failed. That `Probe.kernelAnswer` records the answer of the kernel is observed. |
+| Correspondence | `DefeqComparison.classify_checked_iff`, `classify_trusted_iff`, `classify_unresolved_iff`, `DefeqComparison.ofAttempt_checked_iff`, `ofAttempt_checked_iff_containsFoundation`, `ofAttempt_negative_iff`, `ofAttempt_incomplete_iff`, `ofAttempt_error` | Checked exactly for a completed comparison with admitted evidence, trusted exactly for a completed one without, unresolved exactly for one that did not complete. A comparison is completed exactly when the attempt recorded the answer of a kernel that decided. It has evidence when that answer is an admission with only Standard-Logical axioms, the set that the profile check permits. It has no evidence when the answer is a refusal, or an admission with a different axiom. An attempt that raised an error is incomplete, also after the kernel admitted the proof, for example when printing the proof failed. That `Probe.kernelAnswer` records the answer of the kernel is observed. |
 | Expected diagnostics | `matchesPattern_iff`, `orderedLiterals_iff` | The restricted pattern's ordered leftmost-split match within one effective-error message. |
 
 ### Where each field of a declaration's record comes from
@@ -696,27 +696,46 @@ source left kernel checking on, and the transcript does not replay it. The nativ
 and `validCoordinates` take the observed parts alone, and admission and the coordinate check read
 the source text only for comparison.
 
-**Limits.** The parts classify the source of a value but do not make an observation truthful.
-That `Collect.declaration` and `Frontend.buildCore` fill each field from the source its part names
-is by inspection of those functions, not proved. State a project writes can still enter a toolchain
-observation, and the docstring of each such field says how: `isProp` is Lean's answer, which does
-not unfold an irreducible definition; `prettyType` is Lean's printer, which uses the notations in
-force; `nativeReplay` runs compiled code; and what a project writes selects which regeneration
-`unsafeRecRegenerated` reports, while the pure comparison and the kernel decide it. The two
-observations of the checker that a project-written mark decides are fields of
-`Declaration.ProjectWritten` for that reason. `executableContract` reads Lean's `noncomputable`
-mark for one refusal. `tableOmissions` compares the axioms of Lean's module table, which a
-project can write, with the axioms that the replayed kernel gives. The decisions of [RG1007]
+**Execution records.** Authored marks and traversal through project-written edges decide which
+execution records exist. In a record, a field is observed where the environment fixes its value for
+the constant the record is made at. That holds for the module of a name and the constant and module
+of a boundary, root or visit. A boundary's ownership is its module's membership in the claim's owned
+modules: the environment's module and the claim fix it, and no mark decides it. A field that the
+data of a mark enters is project-written, as a boundary's kind and replacement.
+
+A visit's parent, the closure's other fields and a boundary's position are computed by the walk on
+the combined record. `ExecutionWalk.assemble` also takes `rootCompiled`, the root's compiled-code
+requirement. When it holds, the root is required code, and missing code of the root is reported as
+unavailable. The root's marks and tags enter it, so it is project-written. The `ExecutionClosure`
+docstring lists each condition.
+
+A candidate boundary comes from a constant of an equality type, registered with `@[csimp]` or not.
+The two sides are constants with the same list of distinct universe parameters. An attribute such as
+`@[simp]` can make Lean generate such a constant, an equation lemma. The walk follows each recorded
+historical replacement conservatively, including one that the compiled code no longer runs. The
+[RG3001] and [RG3002] decisions read the two parts.
+
+**Limits.** The parts classify the source of a value but do not make an observation truthful. That
+`Collect.declaration`, `Frontend.buildCore`, `Probe.observeNode` and `Probe.environmentReport` fill
+each field from the source its part names is by inspection of those functions, not proved. State a
+project writes can still enter a toolchain observation, and the docstring of each such field says
+how: `isProp` is Lean's answer, which does not unfold an irreducible definition; `prettyType` is
+Lean's printer, which uses the notations in force; `nativeReplay` runs compiled code; and what a
+project writes selects which regeneration `unsafeRecRegenerated` reports, while the pure comparison
+and the kernel decide it. The two observations of the checker that a project-written mark decides
+are fields of `Declaration.ProjectWritten` for that reason. `executableContract` reads Lean's
+`noncomputable` mark for one refusal. `tableOmissions` compares the axioms of Lean's module table,
+which a project can write, with the axioms that the replayed kernel gives. The decisions of [RG1007]
 and [RG1009] take the recorded contract and no other field, so they read the `noncomputable` mark
 only through it. The decision requirement of [RG1008] takes the name and the registration alone
-(`Declaration.Registration`). The role validators take the role part (`Declaration.Role`):
-the inspected part and the three marks that they read. The declaration decision and the
-operational decision take the assessed part (`Declaration.Assessed`): the inspected part and the
-recorded contract. `policyFor`, `memberFailure` and the editor decision take the whole
-`Declaration` because membership of the inventory is a property of the whole record. `policyFor`
-checks it at the admission boundary `recordFailure`, and the other two take a proof of it.
-`policyFor`, `memberFailure` and `policyRequirements` join the assessed part and the registration
-part. The editor decision reads only the assessed part: it joins the declaration decision with
+(`Declaration.Registration`). The role validators take the role part (`Declaration.Role`): the
+inspected part and the three marks that they read. The declaration decision and the operational
+decision take the assessed part (`Declaration.Assessed`): the inspected part and the recorded
+contract. `policyFor`, `memberFailure` and the editor decision take the whole `Declaration` because
+membership of the inventory is a property of the whole record. `policyFor` checks it at the
+admission boundary `recordFailure`, and the other two take a proof of it. `policyFor`,
+`memberFailure` and `policyRequirements` join the assessed part and the registration part. The
+editor decision reads only the assessed part: it joins the declaration decision with
 `needsRoleEvidence`, which takes `Declaration.Inspected`.
 
 **No project-written mark admits.** The marks of the role part and the refusals of the recorded
