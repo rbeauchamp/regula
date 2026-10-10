@@ -40,7 +40,7 @@ structure DependencyState where
   `RegulaPolicy`), as the collector found it among the dependency's modules: such a module is the
   checker's own code, which no request owns, so an owned dependency that provides one is trusted
   for it, like a dependency that is not owned. -/
-  reserved : Bool := false
+  reserved : Bool
   deriving Repr, DecidableEq
 
 /-- The exact inputs a request is about: source texts, configuration, toolchain and

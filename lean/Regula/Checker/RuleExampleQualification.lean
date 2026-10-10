@@ -87,7 +87,8 @@ def binding (record : Json) (mode : EvidenceMode) : Except String ExampleBinding
       dirty := true
       files := ← sources (← field record "checkerSources")
       -- Each production requires the slot's copy of `regula`, a Git work tree of its own.
-      owned := false }] }
+      owned := false
+      reserved := false }] }
   let request ← parseRequest (← field record "request")
   unless request.project == configuration.uri &&
       toJson request.configuration == (← PolicyCodec.parse configuration.source) do
