@@ -646,7 +646,7 @@ use that takes a narrower part. What takes which part:
 | `declarationFailure`, `DeclarationOK`, `declarationRequirements` and their theorems | `Declaration.Assessed` | The inspected part and the recorded contract: they join the relations above, so through `ContractOK` and `SharedTestOK` they read the recorded contract. |
 | `decisionFailure`, `DecisionOK` | `Declaration.Registration` | The name and `decisionResult`, the project's own registration, alone. |
 | `NativeTeachingOK`, `RecursiveHelperOK`, `ConstructorIndexHelperOK` and the `authorized…` validators | `Declaration.Role`, and the role parts of an inventory (`roleRecords`) | The inspected part and four project-written marks: the replacement, the `extern` mark, the recorded ranges and the constructor-index observation. Each requires values of these marks. A native-proof axiom must have no replacement and no `extern` implementation. A recursion helper and a constructor-index helper must have no replacement, no `extern` implementation and no recorded range. A recursion base must have no replacement and no `extern` implementation. A constructor-index base must have the helper as its replacement and no `extern` implementation. These conditions narrow what is admitted and authenticate nothing. |
-| `policyFor`, `memberFailure`, the editor decision, `policyRequirements` | `Declaration` | Membership of the inventory, which is of the whole record, and through the decisions above the assessed part and the registration part. `policyRequirements` joins those two parts. |
+| `policyFor`, `memberFailure`, the editor decision, `policyRequirements` | `Declaration` | Membership of the inventory, which is of the whole record: `policyFor` decides it, and `memberFailure` and the editor decision take a proof of it. `policyFor`, `memberFailure` and `policyRequirements` join the assessed part and the registration part. The editor decision reads only the assessed part. |
 | `operationalFailure`, `OperationalOK`, `operationalView`, `operationalAxioms` | `Declaration.Assessed` | `kind`, `isProp`, `axioms` and, through `ContractOK` and `SharedTestOK`, the recorded contract. The view also clears `isUnsafe` and `isPartial`. |
 
 **Limits.** The parts classify the source of a value. They do not make an observation truthful,
@@ -670,8 +670,10 @@ only through it. The decision requirement of [RG1008] takes the name and the reg
 the inspected part and the four marks that they read. The declaration decision and the
 operational decision take the assessed part (`Declaration.Assessed`): the inspected part and the
 recorded contract. `policyFor`, `memberFailure` and the editor decision take the whole
-`Declaration` because they decide membership of the inventory, which is of the whole record.
-`policyRequirements` joins the assessed part and the registration part.
+`Declaration` because membership of the inventory is a property of the whole record. `policyFor`
+decides it, and the other two take a proof of it. `policyFor`, `memberFailure` and
+`policyRequirements` join the assessed part and the registration part, and the editor decision
+reads only the assessed part.
 
 **Consumers** (paths from `lean/Regula/`):
 
