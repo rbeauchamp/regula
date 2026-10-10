@@ -30,7 +30,7 @@ unsafe def inspectNegative (repo path output : FilePath) : IO UInt32 := do
     stable sources configuration do
       let manifest ← Manifest.loadFor (Manifest.defaultPath repo) inventory
       if let some lines ← Lake.buildChecked repo
-          (Manifest.positiveTargets manifest) "incrementally" then
+          (Lake.claimedTargets manifest) "incrementally" then
         throw <| IO.userError ("example dependency build failed: " ++ "\n".intercalate lines.toList)
       withScratch repo "rule-policy-example" fun scratch => do
         let compilation ← IO.ofExcept <| (← SourceAudit.compile repo scratch
@@ -98,7 +98,7 @@ unsafe def documentation (repo docsRoot output : FilePath) : IO UInt32 := do
       let dependencies ← Snapshot.dependencies inventory
       stable projectSources configuration do
         let (buildProcess, buildResult) ← Lake.buildCheckedObservation copy
-            (Manifest.positiveTargets manifest) "fresh"
+            (Lake.claimedTargets manifest) "fresh"
         if let some lines := buildResult then
           throw <| IO.userError
               ("example dependency build failed: " ++ "\n".intercalate lines.toList)

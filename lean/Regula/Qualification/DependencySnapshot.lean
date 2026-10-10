@@ -53,7 +53,7 @@ private def control (project dependency : FilePath) : IO Unit := do
   for name in #[".env", "unrelated.txt"] do
     IO.FS.writeFile (dependency / name) "R4_SYNTHETIC_CHANGED"
   unchanged
-  let built ← Regula.Checker.Lake.buildTargets project #["Example"]
+  let built ← Regula.Checker.Lake.buildTargets project #[.surface (.library "Example")]
   requireChecks [⟨built.output, built.succeeded⟩,
     ⟨"custom dependency build directory", ← (dependency / "build/lib/lean/Dep.olean").pathExists⟩]
   unchanged

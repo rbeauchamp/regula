@@ -122,7 +122,8 @@ private def prepareVerso (repo copy : FilePath) (verso : VersoPackage)
       original.all linked.contains do
     return some "the isolated copy's Verso sources and package inputs are not the audited ones"
   let (_, failure) ← timedPhase "Verso documentation build" <|
-    Lake.buildCheckedObservation package #[verso.library.toString, verso.render] "fresh"
+    Lake.buildCheckedObservation package
+      #[.library (Manifest.targetSpelling verso.library), .executable verso.render] "fresh"
   if let some lines := failure then return some ("\n".intercalate lines.toList)
   return none
 
@@ -143,9 +144,10 @@ private def renderVerso (repo copy scratch : FilePath) (verso : VersoPackage)
   let package := copy / verso.dir.toString
   let library ← captureVerso { verso with dir := repo / verso.dir.toString }
   let output := scratch / "verso-render"
+  -- `prepareVerso` built the renderer without Lake's artifact cache; `lake exe` would build it
+  -- again in a workspace that uses the cache.
   let rendered ← timedPhase "Verso documentation rendering" <|
-    runProcess package "lake" #["exe", verso.render, "--output", output.toString]
-        scrubbedLeanPathEnv
+    Lake.runBuiltExecutable package verso.render #["--output", output.toString]
   unless rendered.succeeded do
     return some s!"Verso rendering failed ({rendered.exitCode}): {rendered.output}"
   let html := output / "html-multi"
@@ -214,7 +216,7 @@ unsafe def run (args : List String) : IO UInt32 := do
       SourceBinding.withUnchanged sources configuration do
         SourceBinding.configurationUnchanged configuration
         let (buildProcess, buildResult) ← Lake.buildCheckedObservation copy
-            (Manifest.positiveTargets manifest) "fresh"
+            (Lake.claimedTargets manifest) "fresh"
         SourceBinding.unchanged sources
         SourceBinding.configurationUnchanged configuration
         if let some lines := buildResult then

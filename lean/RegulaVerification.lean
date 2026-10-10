@@ -395,13 +395,18 @@ def stdio : IO.Process.StdioConfig := { stdin := .null, stdout := .inherit, stde
 /-- Start `command` without waiting for it; `none`, with a report, when it could not be started.
 It cannot raise. The child stays in the driver's process group, so the outer deadline's kill
 reaches it. The inherited Lean search paths are removed, so a Lake command resolves modules only
-through the workspace it runs in. Process execution and signal delivery remain trusted. -/
+through the workspace it runs in. `LAKE_ARTIFACT_CACHE` is `false`, so Lake's artifact cache is
+off for each package whose own configuration does not turn it on. These builds are not the
+checker's: the gate's own build of the claimed surface uses no artifact cache whatever the
+configuration says (`Regula.Checker.Lake.Build.run`). Process execution and signal delivery
+remain trusted. -/
 def start (command : Command) : BaseIO (Option (IO.Process.Child stdio)) := do
   announce s!"start {command.display}"
   let spawn : IO (IO.Process.Child stdio) := IO.Process.spawn {
     stdio with
     cmd := command.program, args := command.args, cwd := some command.dir,
-    env := #[("GHCR_TOKEN", none), ("LEAN_PATH", none), ("LEAN_SRC_PATH", none)] }
+    env := #[("GHCR_TOKEN", none), ("LEAN_PATH", none), ("LEAN_SRC_PATH", none),
+      ("LAKE_ARTIFACT_CACHE", some "false")] }
   match ← spawn.toBaseIO with
   | .ok child => return some child
   | .error error =>

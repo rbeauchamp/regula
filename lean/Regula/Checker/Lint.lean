@@ -219,7 +219,7 @@ private unsafe def lint (args : List String) : IO Outcome := do
         s!"regula lint: enforcing all manifested Lake surfaces; mode {modeText options.fresh}\
           {if options.ordinaryLakefiles then ownerAssertion else ""}"
     (← IO.getStdout).flush
-    let worker ← Lake.buildTargetsShowing (← repoRoot) #[workerTarget]
+    let worker ← Lake.buildTargetsShowing (← repoRoot) #[.spec workerTarget]
     unless worker.succeeded && (← (← workerBinary).pathExists) do
       IO.eprintln worker.output
       IO.eprintln s!"regula lint: {Outcome.incomplete.label}: audit worker {workerTarget} did not \

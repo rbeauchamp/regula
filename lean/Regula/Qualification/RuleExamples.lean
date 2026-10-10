@@ -36,10 +36,11 @@ private def optionalText (j : Json) (key fallback : String) : IO String :=
   | .error _ => pure fallback
   | .ok value => IO.ofExcept value.getStr?
 
-/-- Producer-window environment: the scrub plus no-optional-write Git and a
-disabled Lake artifact cache (fail-closed), so producer children take no shared
-optional locks and restore no shared cache artifacts, and timing output on
-(`Regula.Checker.timingVariable`), whose phase lines the driver totals. -/
+/-- Producer-window environment: the scrub plus no-optional-write Git and an empty
+`LAKE_CACHE_DIR`, which confines Lake's artifact cache to each workspace's own `.lake/cache`,
+so producer children take no shared optional locks and restore no shared cache artifacts
+(the checker's own builds use no artifact cache at all, `Regula.Checker.Lake.Build.run`), and
+timing output on (`Regula.Checker.timingVariable`), whose phase lines the driver totals. -/
 def corpusEnv : Array (String × Option String) :=
   cleanEnv ++ #[("GIT_OPTIONAL_LOCKS", some "0"), ("LAKE_CACHE_DIR", some ""),
     (Regula.Checker.timingVariable, some "1")]

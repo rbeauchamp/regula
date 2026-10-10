@@ -369,8 +369,7 @@ theorem markerReason_isSome (inputs : MarkerInputs) :
   cases inputs.packages.all PackageShape.plain <;> simp [Decidable.imp_iff_not_or]
 
 /-- Lake reads an explicit `+module` with `String.toName` and splits facets at `:`.
-Use that spelling, with `facet`, only when it retains the exact discovered root name, as for
-`moduleArtifactsTarget?`. -/
+Use that spelling, with `facet`, only when it retains the exact discovered root name. -/
 def moduleFacetTarget? (root : Name) (facet : String) : Option String :=
   let spelling := root.toString (escape := false)
   if spelling.toName = root ∧ spelling.contains ':' = false then
@@ -832,61 +831,49 @@ def markerInputs (ws : _root_.Lake.Workspace) : IO (Option MarkerInputs) := do
   let some modules ← moduleEntries ws | return none
   return some { packages, modules }
 
-/-- `buildTargets`, run in-process through Lake's build API because the `lake build` command line
-sets no Lean options, with `auditLeanOptions` on the root package. Without `ordinary` that is every
-build, as before the plain shape existed. With `ordinary`, the workspace owner's assertion that the
-workspace's lakefiles are ordinary configuration (`lake lint -- --ordinary-lakefiles`), the marker
-is omitted when `auditMarkerNeeded` decides that the workspace is of the plain shape and that each
-module of the root package resolves to its one source and does not import `linterModule`; each
-failure to read the workspace, by an exception or by an unknown, keeps it. It then prints one line
-before the build, outside the build output: that the build omits the marker, or that it keeps it
-with the reason, which is `markerReason` (a reason exactly when `auditMarkerNeeded` asks for the
-marker, `markerReason_isSome`) or the failure to read the workspace. The plain shape is a
-conservative guard under that assertion, not a guarantee against a lakefile written to defeat it.
+/-- The audit-build marker decision of `buildAuditTargets` for the workspace `ws` as Lake loads it:
+`auditLeanOptions` on the root package, or none. Without `ordinary` that is every build, as before
+the plain shape existed. With `ordinary`, the workspace owner's assertion that the workspace's
+lakefiles are ordinary configuration (`lake lint -- --ordinary-lakefiles`), the marker is omitted
+when `auditMarkerNeeded` decides that the workspace is of the plain shape and that each module of
+the root package resolves to its one source and does not import `linterModule`; each failure to
+read the workspace, by an exception or by an unknown, keeps it. It then prints one line before the
+build, outside the build output: that the build omits the marker, or that it keeps it with the
+reason, which is `markerReason` (a reason exactly when `auditMarkerNeeded` asks for the marker,
+`markerReason_isSome`) or the failure to read the workspace. The decision reads the configuration
+the workspace's lakefiles give, before `Lake.Build.run` turns off the artifact cache in it, and
+the imports of its modules through Lake (`moduleImports`), which builds no module. -/
+def auditRootOptions (ordinary : Bool) (ws : _root_.Lake.Workspace) :
+    IO (Option LeanOptions) := do
+  let marked ← if !ordinary then pure true else do
+    let reading : Except String MarkerInputs ← try
+        pure <| match ← markerInputs ws with
+          | some inputs => .ok inputs
+          | none => .error "Lake did not report the imports of a module of the root package"
+      catch error => pure (.error s!"the workspace could not be read: {error}")
+    let (marked, reason) := match reading with
+      | .ok inputs => (checked_auditMarkerNeeded.run inputs, markerReason inputs)
+      | .error reason => (true, some reason)
+    IO.println <| match reason with
+      | some reason =>
+          s!"regula lint: the claimed build keeps the audit-build marker: {reason}"
+      | none => "regula lint: the claimed build omits the audit-build marker: the workspace \
+          has the plain shape"
+    (← IO.getStdout).flush
+    pure marked
+  return if marked then some auditLeanOptions else none
+
+/-- `buildTargetsShowing` with the audit-build marker that `auditRootOptions` decides on the root
+package, which the `lake build` command line cannot set. The plain shape is a conservative guard
+under the workspace owner's assertion, not a guarantee against a lakefile written to defeat it.
 For that shape the marked build and the unmarked one give the same verdict: a build of `lean_lib`
 and `lean_exe` targets in it runs no custom build step, so it compiles only modules that the root
 package owns, whose imports the decision read (or modules of other packages, which the root
 package's options do not reach), and Regula's only reader of the marker is loaded in none of them.
 That no project module reads the marker itself is assumed. Without the marker the ordinary build
-output is reused as it is. The inherited search paths are ignored as in `buildTargets`; the build
-monitor's text is the output, and a failed build exits 1. Lake's progress line for each job is also
-shown as the build runs, as by `buildTargetsShowing`. -/
-def buildAuditTargets (ordinary : Bool) (repo : FilePath) (targets : Array String) :
-    IO ProcessResult := do
-  let buffer ← IO.mkRef ({} : IO.FS.Stream.Buffer)
-  let out ← showingStream (IO.FS.Stream.ofBuffer buffer) isLakeProgressLine
-  let exitCode ← try
-      Workspace.withRootWorkspace repo (scrubSearchPath := true) fun ws => do
-        let specs ← match ← (_root_.Lake.parseTargetSpecs ws targets.toList).toBaseIO with
-          | .ok specs => pure specs
-          | .error error => throw <| IO.userError (toString error)
-        let marked ← if !ordinary then pure true else do
-          let reading : Except String MarkerInputs ← try
-              pure <| match ← markerInputs ws with
-                | some inputs => .ok inputs
-                | none => .error "Lake did not report the imports of a module of the root package"
-            catch error => pure (.error s!"the workspace could not be read: {error}")
-          let (marked, reason) := match reading with
-            | .ok inputs => (checked_auditMarkerNeeded.run inputs, markerReason inputs)
-            | .error reason => (true, some reason)
-          IO.println <| match reason with
-            | some reason =>
-                s!"regula lint: the claimed build keeps the audit-build marker: {reason}"
-            | none => "regula lint: the claimed build omits the audit-build marker: the workspace \
-                has the plain shape"
-          (← IO.getStdout).flush
-          pure marked
-        let overrides : NameMap LeanOptions :=
-          if marked then ({} : NameMap LeanOptions).insert ws.root.baseName auditLeanOptions else {}
-        ws.runBuild (_root_.Lake.buildSpecs specs) {
-          out := .stream out, ansiMode := .noAnsi, showSuccess := true,
-          leanOptOverrides := overrides }
-      pure (0 : UInt32)
-    catch error =>
-      out.putStrLn s!"error: {error}"
-      pure 1
-  let some stdout := String.fromUTF8? (← buffer.get).data
-    | return { exitCode := 1, stdout := "", stderr := "error: build output is not UTF-8" }
-  return { exitCode, stdout, stderr := "" }
+output is reused as it is. Like every checker build it runs as `Build.run` describes, without
+Lake's artifact cache. -/
+def buildAuditTargets (ordinary : Bool) : Build :=
+  { rootOptions := auditRootOptions ordinary, display := isLakeProgressLine }
 
 end Regula.Checker.Lake

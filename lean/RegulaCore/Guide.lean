@@ -1096,6 +1096,20 @@ def guide : RuleId → Guide
           emitted diagnostic. Any warning fails, including when the source sets `warningAsError` \
           to false locally (for a single-file audit, when any `--claim` is requested). The \
           original compiler message is preserved in the finding.",
+        "The audit's builds neither read nor write Lake's artifact cache, whatever the project's \
+          `enableArtifactCache` or the `LAKE_ARTIFACT_CACHE` environment variable says, and a \
+          claimed module whose build trace records a restore from that cache is elaborated again. \
+          The trace Lake writes for a module it restores from the cache holds no compiler \
+          messages, so such a module could not show its warnings.",
+        "The audit's build requests the Lean artifacts of every module of each claimed library and \
+          the root module of each claimed executable, whatever the library's default facets, so \
+          Lake elaborates each claimed module or replays the messages its build trace records. \
+          After the build, each claimed module's trace must record an elaboration; a claimed \
+          module without one fails the build, and the finding is incomplete. The build finds each \
+          claimed library and executable among the root package's own targets by the name the \
+          manifest checks, not by reading that name as Lake target syntax, in which a `/` names \
+          a package; a name that matches none of them, or a library without a module, fails the \
+          build.",
         "In project runs (`lake lint`, `axiomGate`, the build-lint `policy` target) a warning or \
           failed build stops the audit before policy inspection, so the finding is incomplete and \
           the result INCOMPLETE (`lake lint` exit 3). A single-file `axiomGate --file F --claim P` \
@@ -1110,10 +1124,13 @@ def guide : RuleId → Guide
           statement again."]
       established := [
         "Every claimed module elaborated from source without errors or warnings under the audit's \
-          build."]
+          build: the build elaborated it, or, in an incremental run, replayed the messages of the \
+          elaboration that wrote its build trace. The build requested each claimed module's \
+          artifacts itself, and no claimed module was restored from Lake's artifact cache."]
       notEstablished := [
         "Fresh source elaboration unless the run is fresh: `lake lint` without `--fresh` is \
-          incremental and trusts Lake's build cache.",
+          incremental and trusts the build traces Lake recorded in the project's build directory \
+          to hold each up-to-date module's messages.",
         "That no linter was disabled: a disabled linter emits nothing for this rule to reject."]
       configuration := [
         "`warningAsError := false` in the source cannot hide a warning from the audit. Disabling a \
@@ -1141,9 +1158,16 @@ def guide : RuleId → Guide
       residuals := [.qualify]
       checklist := ["DECL-01", "BUILD-01", "DOC-01"]
       linkage := "Acceptance side only: an accepted run satisfies `RegulaPolicy.BuildOK`. Reading \
-        Lake's build result is operational."
+        Lake's build result is operational. That the audit's builds keep Lake's artifact cache \
+        off is proved of Lake's own cache predicates for every package of the build's workspace \
+        (`Workspace.uncachedWorkspace_unreadable`, `uncachedWorkspace_unwritable`); that Lake \
+        consults them before each access to the cache is read from Lake's source. That each \
+        claimed module's trace records an elaboration is checked of the trace file after the \
+        build (`Workspace.elaborationTrace`); that Lake replays the messages such a trace holds \
+        is read from Lake's source."
       sources :=
           ["lean/Regula/Checker/Lake.lean", "lean/Regula/Checker/LintBuild.lean",
+              "lean/Regula/Checker/Workspace.lean",
               "lean/Regula/Checker/Diagnostics.lean", "lean/Regula/Checker/ResultProtocol.lean"] }
   | .coverage => {
       problem := "The exact module and declaration inventory from Lake does not match the owned \

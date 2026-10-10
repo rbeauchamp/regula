@@ -1650,8 +1650,9 @@ def loadFor (path : FilePath) (inventory : Lake.SurfaceInventory) : IO Manifest 
   IO.ofExcept <| parseFor (inventory.libraries.map (·.library))
     (inventory.executables.map (·.executable)) path.toString (← IO.FS.readFile path)
 
-/-- The Lake targets a checker must build so every claimed module is
-elaborated and resolvable: each claimed library and claimed executable. -/
+/-- Each claimed library and claimed executable, as `lake build` command-line targets. A checker
+build names them with `Lake.claimedTargets` instead, which never reads a name as Lake target
+syntax. -/
 def positiveTargets (manifest : Manifest) : Array String :=
   manifest.surfaces.foldl
     (fun targets surface => targets.push surface.library ++ surface.executables) #[]
