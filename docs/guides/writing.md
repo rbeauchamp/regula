@@ -125,7 +125,7 @@ The relations `Blocks` and `Divided` give the blocks and the sentences. The rela
 
 ### The result of check C9
 
-The decisions of C9 are three Lean functions in `RegulaCore/Vocabulary.lean`. Each function has a decision contract, and the checker examines that contract.
+The decisions of C9 are the Lean functions below, in `RegulaCore/Vocabulary.lean`. Each function has a decision contract, and the checker examines that contract.
 
 - `parse` accepts a text if, and only if, the text is the text that `write` gives for a vocabulary (`checked_parse`). A vocabulary is a value with the statement `Draft.WellFormed`.
 - `adopt` accepts two vocabularies if, and only if, three conditions are correct (`checked_adopt`). The vocabulary of the project has the line `Shared vocabulary:`. The vocabulary of the package does not have that line. The rows of the project and the `Shared` tables of the package together have `Draft.WellFormed`.
@@ -212,7 +212,7 @@ A new document gets no entry, and it must have no finding. The cause is that eac
 
 These checks are not a check of each changed line. A change can remove one finding and add a different finding of the same check in the same document. The count stays the same, and the checks accept that change.
 
-The decisions of the baseline are four Lean functions in [`RegulaCore/ProseBaseline.lean`](../../lean/RegulaCore/ProseBaseline.lean), each with a decision contract:
+The decisions of the baseline are the Lean functions below, in [`RegulaCore/ProseBaseline.lean`](../../lean/RegulaCore/ProseBaseline.lean), each with a decision contract:
 
 - `Baseline.parse` accepts a text if, and only if, the text is the text that `Baseline.write` gives for a baseline (`checked_baselineParse`).
 - `gate` (check B1) gives no message if, and only if, each document agrees with the baseline and each entry has a document (`checked_gate`). The statements are `Observed.Admitted` and `Baseline.Documented`.

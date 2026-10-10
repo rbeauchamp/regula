@@ -884,7 +884,7 @@ Which report states a kind depends on the library that holds the registration:
   registrations are contracts of the accepted inventory, so an accepted account of Regula states
   the kind of each and, for a one-way kind, the direction it leaves open.
 - **The excluded `Regula` library.** Acceptance does not report its declarations, so no report
-  states the kind of its twenty-five registrations, named here with their modules: `checked_same`
+  states the kind of its registrations, named here with their modules: `checked_same`
   and `checked_read` (`Regula.SharedExecution`), `checked_intern` and `checked_expand`
   (`Regula.SourceTexts`), `checked_agrees` and `checked_canonical` (`Regula.JsonAgreement`),
   `checked_parseLocation` and `checked_parseDiagnostic` (`Regula.DiagnosticCodec`),
@@ -1035,10 +1035,10 @@ claims `RegulaPolicy`, so it decides [RG1009] for that registration too.
 ### Decisions not registered with `regula_decision`
 
 Every decision of the three tables with a kind is registered with `@[regula_decision]`, so
-[RG1008] requires its contract: 57 functions of `RegulaPolicy`, 28 of `RegulaCore`, 9 of
-`RegulaQualification`, 3 of `AuditApp`, 8 of `RegulaProvision`, 6 of `RegulaVerification` and
-25 of the excluded `Regula` library, where the `self-audit` diagnostic decides the rule. Sixteen
-of them are registered from another module of their library, with
+[RG1008] requires its contract. They are functions of `RegulaPolicy`, `RegulaCore`,
+`RegulaQualification`, `AuditApp`, `RegulaProvision`, `RegulaVerification` and the excluded
+`Regula` library, where the `self-audit` diagnostic decides the rule. The functions below are
+registered from another module of their library, with
 `attribute [regula_decision]` beside their contracts, because the module that declares them
 imports only the toolchain:
 
