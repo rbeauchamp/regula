@@ -1314,10 +1314,13 @@ private def runGroup (repo scratch : FilePath) (name : String)
 the other groups on `jobs` workers, each of which takes the next waiting group as soon as it is
 free (`mapWorkQueue`), so no worker idles while a group waits and no batch boundary holds a group
 back. `mapWorkQueue` returns one result for each group, in this order (`checked_indexedResults`).
-The groups are listed longest first, by their times in the CI job logs on the slower hosted
-runners, so the shorter ones fill the workers that the longer ones free. The path-dependency
-controls are one chain in one workspace, split into three groups (`pathSetup`). The adopters'
-decision probes load their workspaces one at a time (`probe`). -/
+The groups are listed longest first, so the shorter ones fill the workers that the longer ones
+free: the first four by their times in the CI runs on the slower hosted runners that reached the
+deadline under the old schedule, the two later path groups by local runs on a developer machine,
+and the short groups by two faster CI runs that passed under the old schedule
+(`docs/guides/proofs-and-boundaries.md` names the runs). The path-dependency controls are one
+chain in one workspace, split into three groups (`pathSetup`). The adopters' decision probes load
+their workspaces one at a time (`probe`). -/
 def qualify (repo scratch : FilePath) (jobs : Nat) : IO (Array String) := do
   let absent ← withScratch scratch "lake-lint-worker" fun adopter => absentWorker repo adopter
   if !absent.isEmpty then return absent

@@ -4186,9 +4186,9 @@ in 85 s.
 The lint-driver partition runs the control `toml/absent-worker` first and alone, because it
 removes the `axiomGate` of the repository's build. Then four workers run the other controls in
 groups, and each worker takes the next group when it is free (`LintQualification.qualify`). The
-groups start longest first, in the sequence of their times in the CI job logs. Each group writes
-its start and its time to the job log. The path-dependency controls are one chain in one adopter,
-which the queue runs as three groups.
+groups are listed longest first, by the times below. Each group writes its start and its time to
+the job log. The path-dependency controls are one chain in one adopter, which the queue runs as
+three groups.
 
 Each of these three groups starts from the same files of the adopter. The chain is cut at the
 two points where it has restored each file that it changed. At these points, the files differ
@@ -4199,38 +4199,61 @@ controls before it.
 
 On the slower hosted runners, the timed step of `diagnostics lint-driver` reached its
 420-second deadline after the path-dependency and owned-checker controls were added
-(Diagnostics runs 38073121895, 38074694772 and 38077207189). In these job logs, the build of the
-self-test took 160 to 169 s and the baseline build 42 to 46 s. That baseline build also built the
-fixtures, the claimed surface, `docFenceAudit` and `freshChecker`, which no lint-driver control
-reads. The path chain had run for more than 186 s when the deadline stopped the run. The cache
-controls and the guard waited for it in later batches of four.
+(Diagnostics runs 38073121895, 38074694772 and 38077207189, jobs 114274540988, 114279196648 and
+114289264598). In these job logs, the prologue from the start of the deadline to the build took
+about 3.5 s. Then the build of the self-test took 160 to 169 s, the baseline build 42 to 46 s and
+`toml/absent-worker` 10 to 12 s. That baseline build also built the fixtures, the claimed
+surface, `docFenceAudit` and `freshChecker`, which no lint-driver control reads.
+
+From the end of `toml/absent-worker`, where the groups start, `lean` took 140 to 153 s and `toml`
+121 to 133 s. The group `owned-checker` took 84 to 93 s, and the part of the path chain that is
+now `path-owned` 85 to 93 s (up to `path/owned-standard-logical`). The deadline killed each run
+190 to 202 s after the groups started, while the path chain was still running. Its last complete
+control was `path/override-last-fresh` in run 38073121895 and `path/owned-override` in the other
+two. The groups `cache`, `empty-facets`, `dependency-cache`, `escaped-name` and `guard` did not
+start in these runs.
+
+Two faster runs passed under the old schedule (Diagnostics runs 38071832852 and 38077102864, jobs
+114270714472 and 114289843134). Their builds of the self-test took 110 and 135 s. There, `lean`
+took 105 and 118 s and the whole path chain 162 and 179 s. After the chain, in later batches,
+`cache` took 18.7 and 20.7 s and `empty-facets` 17.1 and 19.2 s. Also, `dependency-cache` took
+14.9 and 17.1 s, `escaped-name` 14.7 and 16.5 s and `guard` 3.1 and 3.5 s.
+
+The next numbers are derived, not logged. In the faster runs, the chain took 1.52 to 1.54 times
+as long as `lean`. With that ratio, the times of `lean` in the runs that reached the deadline give
+a chain of about 213 to 236 s. Thus `path-names` and `path-layout` share about 120 to 151 s. The
+time of `lean` in the runs that reached the deadline is 1.19 to 1.46 times that of the faster
+runs. Scaled by that factor, `cache` takes at most about 30 s, `empty-facets` 28 s,
+`dependency-cache` 25 s, `escaped-name` 24 s and `guard` 5 s.
+
+The order of the first four groups comes from the runs that reached the deadline. The order of
+the five short groups comes from the faster runs. The order of `path-names` and `path-layout`
+comes from local runs on a developer machine. In these local runs, `path-names` took a half to
+three fifths of the time of the two. No other source gives that division.
 
 No worker of the queue is idle while a group waits. Thus a group starts not later than a quarter
 of the summed times of the groups listed before it. It ends not later than that time plus its own
-time. The four longest groups, listed first, start together. No schedule of four workers ends
-before the longest group or before a quarter of the total time of the groups.
+time. The four groups listed first start together. No schedule of four workers ends before the
+longest group or before a quarter of the total time of the groups.
 
-Under the old schedule, the CI job logs of the slower hosted runners give these times. The group
-`lean` took about 153 s, `toml` 133 s and `owned-checker` 92 s. The path chain took 225 to 235 s,
-and the part that is now `path-owned` took about 92 s of it. Then `cache` took 27 s,
-`empty-facets` 25 s, `dependency-cache` 22 s, `escaped-name` 21 s and `guard` 5 s. The total is
-703 to 713 s. Thus the lower end is about 176 to 178 s, more than the 153 s of `lean`.
+With these inputs, the groups take about 640 to 727 s together. Thus the lower end is about 160
+to 182 s, more than the time of `lean`. At the upper inputs, each group listed after the three
+path groups ends by about 199 s. The two later path groups end by about 261 s at most, and by
+about 208 s with the division of the local runs. At the lower inputs, the groups end by about
+188 s with that division.
 
-By the argument above, each group listed after the three path groups ends by about 193 s. The two
-later path groups end by about 194 to 261 s. That range depends on how `path-names` and
-`path-layout` divide the other 133 to 143 s, which the old logs do not show. In local runs,
-`path-names` took between a half and three fifths of that time. With that division, the two
-groups end by about 207 s.
-
-Before the groups, the timed step has about 3.6 s of prologue and the build of the self-test, 160
+Before the groups, the timed step has about 3.5 s of prologue and the build of the self-test, 160
 to 169 s. Then the baseline build takes about 0.5 s, because the build of the self-test also made
-its targets. The control `toml/absent-worker` takes 10 to 12 s. With the groups, the prediction
-for the timed step is about 367 to 392 s. The times other than that of the baseline build are
-from the old schedule. Thus the result is an estimate, not a bound on the new schedule.
+its targets. That time comes from local runs of the new schedule. The control
+`toml/absent-worker` takes 10 to 12 s. With the groups, the prediction for the timed step is
+about 362 to 393 s.
 
-The target is a timed step of at most 390 s on three runs on the slower hosted runners, 30 s
-under the deadline. The prediction straddles that target, thus the margin rests on the CI
-observations. That is a target, not a bound, and the deadline alone refuses a run.
+The times other than that of the baseline build are from the old schedule. Thus the result is an
+estimate, not a bound on the new schedule. The target is a timed step of at most 390 s on three
+runs on the slower hosted runners, 30 s under the deadline. The prediction straddles that target,
+thus the margin rests on the CI observations of this change. The job logs of these runs print the
+start and the time of each group. That is a target, not a bound, and the deadline alone refuses a
+run.
 
 **Other proved oracles.** Quantifiers range over supplied Lean values; the IO drivers call each
 `ExecutableContract.run`, so the evidence is required by their source linkage and erased at
