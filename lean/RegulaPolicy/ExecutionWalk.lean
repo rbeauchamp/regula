@@ -85,8 +85,8 @@ structure NodeRecord.ProjectWritten where
 the name, so the map of records (`Records`) holds the record of a name only under that name. The
 record holds the targets of the edges from the name and not the edges, so each edge that
 `assemble` builds from a record starts at the name of its visit. Each target set is declared in the
-part that says where its value comes from. The boundaries hold fields of the two parts, so they are
-a field of the record itself. -/
+part that says where its value comes from. The boundaries hold fields of the two parts of
+`ExecutionBoundary`, so they are a field of the record itself. -/
 structure NodeRecord (name : Name) extends NodeRecord.ToolchainObserved, NodeRecord.ProjectWritten
     where
   /-- The boundaries at this name, each with the occurrence `0`. -/

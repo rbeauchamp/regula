@@ -1906,8 +1906,9 @@ structure ExecutionBoundary.ToolchainObserved where
   deriving Repr, DecidableEq
 
 /-- The part of a boundary's record that marks an audited project writes can decide: its kind, its
-evidence and the constant run in its place. `@[implemented_by]` and `@[extern]` decide the kind
-where the constant has one of them. A constant whose type is an equality of two constants with the
+evidence and the constant run in its place. `@[implemented_by]` and `@[extern]` decide the kind of
+the boundary that each makes, and for `@[extern]` the toolchain origin of the module chooses
+`native-runtime` over `external`. A constant whose type is an equality of two constants with the
 same list of distinct universe parameters makes a `compiler-simplification` boundary, registered
 with `@[csimp]` or not, and an attribute such as `@[simp]` makes Lean generate equation lemmas of
 that shape. The name of an axiom decides the `compiler-trusted-proof` kind
@@ -1928,8 +1929,10 @@ executable root. `boundary` is one of `runtime-replacement`, `compiler-simplific
 `external`, `unsafe-computation`, `partial-computation`, `opaque-computation`,
 or `compiler-trusted-proof`; `correspondence` is `checked`, `trusted`, or
 `unresolved`. Each field the pass sets at one constant is declared in the part that says where its
-value comes from. Its position and its callers are computed over the walk of the root, through
-edges of the two parts, so they are fields of the boundary itself. -/
+value comes from. Its position and its callers are computed over the walk of the root, through the
+edges of the project-written part of the name records (`ExecutionWalk.NodeRecord.ProjectWritten`),
+so they are fields of the boundary itself. Its callers are the sources of the compiled edges whose
+target is its observed name. -/
 structure ExecutionBoundary extends ExecutionBoundary.ToolchainObserved,
     ExecutionBoundary.ProjectWritten where
   /-- The boundary's position in its root's boundary list. -/
@@ -2020,9 +2023,9 @@ Current replacements remain distinct from successfully observed historical choic
 active simplifications are used for cycle detection, not claimed compiler calls. The closure has no
 parts of its own: each visit carries the observed part of its name
 (`ExecutionVisit.ToolchainObserved`), and its parent and the closure's other fields are computed
-over the names that the walk reached, through the edges of the two parts of their records
-(`ExecutionWalk.NodeRecord`). Each edge set is named for the record field whose targets it copies.
--/
+over the names that the walk reached through the edges of the project-written part of their records
+(`ExecutionWalk.NodeRecord.ProjectWritten`). Each edge set is named for the record field whose
+targets it copies. -/
 structure ExecutionClosure where
   /-- Every name the walk reached, sorted and without duplicates. -/
   nodes : Array Lean.Name
@@ -2072,8 +2075,8 @@ structure ExecutionRoot.ToolchainObserved where
 /-- The execution account of one owned executable root: the boundaries and unresolved paths its
 closure reaches, its compiled edges and the closure itself. Its name and module are in the observed
 part (`ExecutionRoot.ToolchainObserved`). The other fields are computed over the walk of the root,
-through the edges of the two parts of the records it reads, so they are fields of the account
-itself. -/
+through the edges of the project-written part of the name records it reads
+(`ExecutionWalk.NodeRecord.ProjectWritten`), so they are fields of the account itself. -/
 structure ExecutionRoot extends ExecutionRoot.ToolchainObserved where
   /-- Every boundary the closure reaches, in the order the walk found them. -/
   boundaries : Array ExecutionBoundary
