@@ -174,7 +174,8 @@ private def gitStatusControls (root : FilePath) : IO Unit :=
     expectCase "input outside the root" #[scratch / "outside.lean"] "refused" "refused"
 
 /-- Runs the snapshot control group `group`: `git-status` (Git status controls only),
-`dependencies` (dependency snapshot retention on a Git and a non-Git local dependency),
+`dependencies` (dependency snapshot retention on a Git and a non-Git local dependency, which the
+audit trusts, since the project is a Git repository of its own),
 `history` (RG3001 history controls in fresh, incremental and build-lint modes), or `all`.
 Any other group, and any failed check, throws. -/
 def check (group : String) : IO Unit := do
@@ -203,6 +204,7 @@ def check (group : String) : IO Unit := do
     IO.FS.writeFile (dependency / "unrelated.txt") "R4_SYNTHETIC_UNRELATED"
     let project := scratch / "project"
     IO.FS.createDirAll project
+    success (← run project "git" #["init", "-q"])
     toolchain root project
     IO.FS.writeFile (project / "lakefile.toml")
       "name = \"snapshot_control\"\n[leanOptions]\nautoImplicit = false\nrelaxedAutoImplicit = \
