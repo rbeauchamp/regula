@@ -12,144 +12,51 @@ a decision registration and of its acceptance predicate: from each constant that
 reaches, which of the constants that the constant mentions the search follows (`reads`), and the
 constants that the term reaches by that reading (`reading`).
 
-A kind compares `accepts (f x)` with `spec x` for each input `x`. The search reads `spec` and
-`accepts` for what the truth of `spec x` and of `accepts r` depends on at a given `x` and a given
-`r`. Three parts of a term name only the types of values that are given, and the search does not
-follow them:
+The rule of a statement (`Observed.references`) follows the type of each constant, the value of a
+definition whose value a statement depends on (`RegulaPolicy.ResultForm.ValueRead`), and the
+declaration of an inductive type, a constructor and a recursor. The reading is that rule with one
+exception: it does not enter the declaration of the input type of the kind from the input. A kind
+compares `accepts (f x)` with `spec x` for each input `x : α`, and the specification is
+`fun x : α => b`. The reading starts at the constants of `b`, not at those of `α`, and from a
+field's projection function of a structure that occurs in `α` it does not follow the edge back to
+that structure. The acceptance predicate is read in the same way, with the result type in the
+place of the input type. Everything else is followed as before: the arguments of each application,
+the types of opaque constants and axioms, and the declaration of a constant of `α` that `b` names in
+any other way, as the binder of `∀ y : α`, as an argument of a function or through a constructor.
 
-* **The types of the leading variables of a function.** A term `fun (x₁ : T₁) … (xₙ : Tₙ) => b`
-  has the value of `b` at each argument, and `Tᵢ` is the domain: which arguments there are. A
-  change of the declaration of `Tᵢ`, such as an invariant of a structure in a proof field,
-  changes which values `Tᵢ` has, and not the value of the function at an argument. So the search
-  reads `b` and not `Tᵢ`. The specification itself is `fun x : α => b`, so the search does not
-  read the declaration of the input type through its variable, and the acceptance predicate is
-  `fun r : ρ => b`, so it does not read the declaration of the result type through its
-  variable.
-* **The parameters of an application of a field's projection function.** A projection function
-  applied to the parameters of its structure and to a value of the structure gives the field of
-  that value. The parameters, such as the element type of an array in `xs[i]` or the predicate of
-  a subtype in `x.val`, say which structure type the value has; the search reads the value and
-  the arguments after it, and not the parameters (`readStep`). The structure that a primitive
-  projection `e.i` names is not read either: the projection is the field of the value `e`.
-* **The type of a constant whose value the search reads.** The value of a definition determines
-  the definition, and its type is the type of that value. So the search reads the body of the
-  value and not the type. A field's projection function is such a definition: its value is the
-  field of its argument, so a specification that reads a field of its input, at any depth, does
-  not lead to the declaration of the structure.
-
-A term that quantifies over a type, or that builds or takes apart its values, names the type
-outside these parts: as the binder of `∀`, as an argument of `Exists`, `Eq` or another constant
-that is no projection function, or through a constructor or a recursor, whose declaration the
-search reads. So does a term that names a definition of a proposition: the search reads the value
-of that definition.
+A test `T` that the rule reaches only through the declaration of a constant of `α` that `b` does
+not name is not a part of `spec x` for any `x`: a change of `T` changes which values `α` has, the
+same set on the two sides of the kind, and the comparison at each input is the one that it was
+(rbeauchamp/regula#270). `through_input` states the property that this argument needs of the
+reading: a constant that the rule reaches and the reading does not is reached from a constant of
+the input type that the reading does not reach at all.
 
 `Observed` is what the observing pass (`Regula.Collect`) reads of one constant: its kind, the form
-of its result type, and the constants that each part of it mentions. `reads` decides which of
-those constants the search follows; it is registered with the kind `checked_reads` against
-`Read`. `Observed.withTypes` is the reading that also follows the three parts above, the reading
-of the search before it left them out (`read_withTypes`). `reading` closes the two readings from
-the constants of a term (`reading_some`); a constant that the reading with the types reaches and
-the reading does not is reached only through a type that the search does not follow
-(`read_subset_withTypes`), and the record of the registration names such a function with a result
-of `Bool` or `BEq` (`RegulaPolicy.SharedNames.throughTypes`). `sharedConstants` gives the shared
-constants of each reading: a registration that the reading accepts has no test that the reading
-of its specification and its implementation reach (`no_shared_test`), and one that the reading
-accepts and the reading with the types refuses has each such test in `throughTypes`
-(`accepted_throughTypes`).
+of its result type, the constants that each part of it mentions, and the structure of a field's
+projection function, read from its kernel-checked value. `reads` decides which of those constants
+the search follows; it is registered with the kind `checked_reads` against `Read`. `reading`
+closes the reading and the rule from the constants of a term (`reading_some`,
+`read_subset_withTypes`), and `sharedConstants` gives the shared constants of each
+(`no_shared_test`, `accepted_throughTypes`). The record of a registration names each function with
+a result of `Bool` or `BEq` that the two sides share by the rule and not by the reading
+(`RegulaPolicy.SharedNames.throughTypes`).
 
 **Not claimed.** That the constants of each part are those that the part mentions is the pass's:
-it reads them with `Lean.Expr.getUsedConstants`, and those of a body with `Lean.Expr.forEach'` and
-`readStep`, functions of Lean's library and of this module. That a statement does not depend on what the three parts name is the
-argument above, stated in the standard; it is not a theorem about Lean's semantics. -/
+it reads them with `Lean.Expr.getUsedConstants`, a function of Lean's library. That a test reached
+only through the declaration of the input type is no part of the specification is the argument
+above, stated in the standard; it is not a theorem about Lean's semantics. -/
 
 @[expose] public section
 
 namespace RegulaPolicy.StatementReading
 open Lean
 
-/-! ## The parts of a term -/
-
-/-- The leading function abstractions of `e`, each with its binder name, the type of its
-variable and its binder information, and the body under them: `e` is
-`fun (x₁ : T₁) … (xₙ : Tₙ) => b` with `b` no function abstraction. -/
-def lambdaParts : Expr → List (Name × Expr × BinderInfo) × Expr
-  | .lam name type body info =>
-    let (binders, inner) := lambdaParts body
-    ((name, type, info) :: binders, inner)
-  | e => ([], e)
-
-/-- The term with the function abstractions `binders` around `body`. -/
-def abstract (binders : List (Name × Expr × BinderInfo)) (body : Expr) : Expr :=
-  binders.foldr (fun binder inner => .lam binder.1 binder.2.1 inner binder.2.2) body
-
-/-- The parts of a term are the term: the types of the leading variables and the body hold every
-subterm of it, so a constant that the term mentions is in a type of a leading variable or in the
-body. -/
-theorem abstract_lambdaParts (e : Expr) : abstract (lambdaParts e).1 (lambdaParts e).2 = e := by
-  induction e with
-  | lam name type body info _ ih =>
-    simp only [lambdaParts, abstract, List.foldr_cons] at ih ⊢
-    rw [ih]
-  | _ => rfl
-
-/-- The body of `lambdaParts e` is no function abstraction. -/
-theorem lambdaParts_body (e : Expr) (name : Name) (type body : Expr) (info : BinderInfo) :
-    (lambdaParts e).2 ≠ .lam name type body info := by
-  induction e with
-  | lam _ _ _ _ _ ih => simpa only [lambdaParts] using ih
-  | _ => simp [lambdaParts]
-
-/-- What the reading takes of one subterm `e` of a body, for `Lean.Expr.forEach'`, which takes
-each subterm from the outside in and goes into its children only when asked: the constant that
-the reading reads at `e`, and whether it goes on into the children of `e`.
-
-* A constant is read.
-* An application of a field's projection function to at most the parameters of its structure,
-  where `parameters` gives the number of parameters of the structure of each projection function,
-  reads the function and not its arguments. In `p a₁ … aₖ b₁ … bₘ` with `k` parameters, the
-  reading goes into the function `p a₁ … aₖ` and the arguments `b₁ … bₘ`, and reads `p` there.
-* Every other subterm reads nothing itself, and the reading goes into its children. The children
-  of a primitive projection `e.i` are `e` alone: the name of its structure is no subterm, so the
-  reading does not read it. -/
-def readStep (parameters : Name → Option Nat) (e : Expr) : Option Name × Bool :=
-  match e with
-  | .const name _ => (some name, false)
-  | .app .. =>
-    match e.getAppFn with
-    | .const name _ =>
-      match parameters name with
-      | some count => if e.getAppNumArgs ≤ count then (some name, false) else (none, true)
-      | none => (none, true)
-    | _ => (none, true)
-  | _ => (none, true)
-
-/-- The reading leaves out the children of a subterm only at a constant, which has none, and at
-an application of a projection function to at most the parameters of its structure, where it
-reads the function (`readStep`). -/
-theorem readStep_skips {parameters : Name → Option Nat} {e : Expr}
-    (skips : (readStep parameters e).2 = false) :
-    (∃ name levels, e = .const name levels ∧ (readStep parameters e).1 = some name) ∨
-      ∃ name levels count, e.getAppFn = .const name levels ∧ parameters name = some count ∧
-        e.getAppNumArgs ≤ count ∧ (readStep parameters e).1 = some name := by
-  unfold readStep at skips ⊢
-  split
-  · next name levels => exact .inl ⟨name, levels, rfl, rfl⟩
-  · split
-    · next name levels head =>
-      split
-      · next count found =>
-        split
-        · next within => exact .inr ⟨name, levels, count, head, found, within, rfl⟩
-        · next => simp_all
-      · next => simp_all
-    · next => simp_all
-  · next => simp_all
-
 /-! ## The reading of one constant -/
 
 /-- The kind of a constant of the declaration of an inductive type: the inductive type, a
-constructor or a recursor. The search reads the declaration of such a constant: a statement about
-a value of an inductive type is about what its constructors hold, the proof fields among them. -/
+constructor or a recursor. The rule of a statement reads the declaration of such a constant: a
+statement about a value of an inductive type is about what its constructors hold, the proof
+fields among them. -/
 def Declares (kind : DeclarationKind) : Prop :=
   kind = .«inductive» ∨ kind = .«constructor» ∨ kind = .«recursor»
 
@@ -169,203 +76,189 @@ structure Observed where
   /-- For a definition: the constants that its value mentions. Empty for every other
   constant. -/
   value : Array Name
-  /-- For a definition: the constants that the body of its value under its leading variables
-  mentions (`lambdaParts`), with the parameters of each application of a projection function
-  and the structures of primitive projections left out (`readStep`). Empty for every other
-  constant. -/
-  body : Array Name
   /-- For an inductive type: its constructors. For a recursor: the constructor and the constants
   of the right side of each of its rules. Empty for every other constant. -/
   declaration : Array Name
+  /-- For a field's projection function: its structure, read from its kernel-checked value, which
+  is the primitive projection of its last argument under its binders. `none` for every other
+  constant. -/
+  projection : Option Name
   deriving Repr, DecidableEq, Inhabited
 
+/-- The constants that the rule of a statement follows from the constant: its type, the
+declaration of a constant of the declaration of an inductive type, and the value of a definition
+whose value the rule reads (`RegulaPolicy.ResultForm.ValueRead`). The rule reads no value of a
+proof or of a `Decidable` definition, and no value of a theorem, an opaque constant or an
+axiom. -/
+def Observed.references (observed : Observed) : Array Name :=
+  observed.type ++
+    (if Declares observed.kind then observed.declaration
+     else if observed.kind = .«definition» ∧ observed.result.ValueRead true then observed.value
+     else #[])
+
 /-- A constant that a constant mentions, with what the pass read of the constant that mentions
-it. -/
+it, and the constants of the input type of the kind (the result type, for an acceptance
+predicate). -/
 structure Mention where
   /-- What the pass read of the constant that mentions `target`. -/
   source : Observed
   /-- The constant that is mentioned. -/
   target : Name
+  /-- The constants of the input type of the kind, or of its result type. -/
+  domain : Array Name
   deriving Repr, DecidableEq, Inhabited
 
-/-- The search follows the mention by the rule of a statement. One case for each part of a
-constant that the rule reads:
+/-- The search follows the mention: the rule of a statement follows it, and it is not the edge
+from a field's projection function back to its structure, where that structure is a constant of
+the input type. Two cases:
 
-* `declaration`: the constant is of the declaration of an inductive type, and the target is in
-  its type or its declaration.
-* `body`: the constant is a definition whose value the rule reads
-  (`RegulaPolicy.ResultForm.ValueRead`), and the target is in the body of that value.
-* `type`: the constant is of no declaration of an inductive type, the rule does not read its
-  value, and the target is in its type: the statement of a proof, the proposition of a
-  `Decidable` value.
-
-The rule reads no other part. It does not read the types of the leading variables of a value,
-the parameters of an application of a projection function in it, the structure that a primitive
-projection in it names, or the type of a constant whose value it reads. It reads nothing of an
-opaque constant or of an axiom whose value it would read, since there is no value that a
-statement can depend on. -/
+* `other`: the constant is no projection function of a structure of the input type.
+* `field`: the constant is a projection function, and the target is not its structure: the type
+  of the field, or a type of a parameter. -/
 inductive Read (mention : Mention) : Prop where
-  /-- The target is in the type or the declaration of a constant of the declaration of an
-  inductive type. -/
-  | declaration (declares : Declares mention.source.kind)
-      (named : mention.target ∈ mention.source.type ∨ mention.target ∈ mention.source.declaration)
-  /-- The target is in the body of the value of a definition whose value the rule reads. -/
-  | body (definition : mention.source.kind = .«definition»)
-      (read : mention.source.result.ValueRead true) (named : mention.target ∈ mention.source.body)
-  /-- The target is in the type of a constant whose value the rule does not read. -/
-  | type (declares : ¬ Declares mention.source.kind)
-      (unread : ¬ mention.source.result.ValueRead true) (named : mention.target ∈ mention.source.type)
+  /-- The rule follows the target from a constant that is no projection function of a
+  structure of the input type. -/
+  | other (referenced : mention.target ∈ mention.source.references)
+      (outside : ∀ structure_, mention.source.projection = some structure_ →
+        structure_ ∉ mention.domain)
+  /-- The rule follows the target from a projection function, and the target is not its
+  structure. -/
+  | field (referenced : mention.target ∈ mention.source.references) (structure_ : Name)
+      (projection : mention.source.projection = some structure_)
+      (different : mention.target ≠ structure_)
 
 /-- The decision of the reading of a statement: whether the search follows the mention
 (`reads_iff`). -/
 @[regula_decision]
 def reads (mention : Mention) : Bool :=
-  match mention.source.kind with
-  | .«inductive» | .«constructor» | .«recursor» =>
-    mention.source.type.contains mention.target ||
-      mention.source.declaration.contains mention.target
-  | .«definition» =>
-    if mention.source.result.ValueRead true then mention.source.body.contains mention.target
-    else mention.source.type.contains mention.target
-  | .«axiom» | .«theorem» | .«opaque» | .«quotient» =>
-    !decide (mention.source.result.ValueRead true) &&
-      mention.source.type.contains mention.target
+  mention.source.references.contains mention.target &&
+    match mention.source.projection with
+    | some structure_ => structure_ != mention.target || !mention.domain.contains structure_
+    | none => true
 
 /-- `reads` decides `Read` exactly. -/
 theorem reads_iff (mention : Mention) : reads mention = true ↔ Read mention := by
-  obtain ⟨⟨kind, result, type, value, body, declaration⟩, target⟩ := mention
-  constructor
-  · intro accepted
-    cases kind <;> simp only [reads] at accepted
-    case «inductive» | «constructor» | «recursor» =>
-      exact .declaration (by simp [Declares])
-        (by simpa only [Bool.or_eq_true, Array.contains_iff_mem] using accepted)
-    case «definition» =>
-      by_cases read : result.ValueRead true
-      · simp only [read, ↓reduceIte, Array.contains_iff_mem] at accepted
-        exact .body rfl read accepted
-      · simp only [read, ↓reduceIte, Array.contains_iff_mem] at accepted
-        exact .type (by simp [Declares]) read accepted
-    all_goals
-      simp only [Bool.and_eq_true, Bool.not_eq_true', decide_eq_false_iff_not,
-        Array.contains_iff_mem] at accepted
-      exact .type (by simp [Declares]) accepted.1 accepted.2
-  · intro read
-    cases read with
-    | declaration declares named =>
-      simp only [Declares] at declares
-      rcases declares with same | same | same <;> subst same <;>
-        simpa only [reads, Bool.or_eq_true, Array.contains_iff_mem] using named
-    | body definition read named =>
-      subst definition
-      simpa only [reads, read, ↓reduceIte, Array.contains_iff_mem] using named
-    | type declares unread named =>
-      simp only [Declares, not_or] at declares
-      obtain ⟨notInductive, notConstructor, notRecursor⟩ := declares
-      cases kind <;> simp_all [reads]
+  obtain ⟨source, target, domain⟩ := mention
+  unfold reads
+  cases found : source.projection with
+  | none =>
+    simp only [Bool.and_true, Array.contains_iff_mem]
+    constructor
+    · intro referenced
+      exact .other referenced fun _ projection => by simp [found] at projection
+    · intro read
+      cases read with
+      | other referenced _ => exact referenced
+      | field referenced _ projection _ => simp [found] at projection
+  | some structure_ =>
+    simp only [Bool.and_eq_true, Array.contains_iff_mem, Bool.or_eq_true, bne_iff_ne, ne_eq,
+      Bool.not_eq_true', Bool.eq_false_iff]
+    constructor
+    · rintro ⟨referenced, different | outside⟩
+      · exact .field referenced structure_ found (Ne.symm different)
+      · exact .other referenced fun other projection => by
+          simp only [found, Option.some.injEq] at projection
+          exact projection ▸ outside
+    · intro read
+      cases read with
+      | other referenced outside => exact ⟨referenced, .inr (outside structure_ found)⟩
+      | field referenced other projection different =>
+        simp only [found, Option.some.injEq] at projection
+        exact ⟨referenced, .inl (projection ▸ Ne.symm different)⟩
 
-/-- `reads` decides `Read` (`reads_iff`): it follows the constant in the body of a definition
-whose value the rule reads, and it does not follow the input type in the type of the leading
-variable of that value. -/
+/-- `reads` decides `Read` (`reads_iff`): it follows a projection function of the input type to
+the type of its field, and it does not follow it back to the input type. -/
 theorem checked_reads : Regula.ExecutableContract reads (Regula.Decides (· = true) Read) :=
   ⟨.of_iff reads_iff
-    ⟨⟨⟨.«definition», .other, #[], #[`Input], #[`test], #[]⟩, `test⟩,
-      (reads_iff _).mpr (.body rfl (by decide) (by simp))⟩
-    ⟨⟨⟨.«definition», .other, #[], #[`Input], #[`test], #[]⟩, `Input⟩, fun accepted => by
-      cases (reads_iff _).mp accepted with
-      | declaration declares _ => simp [Declares] at declares
-      | body _ _ named => simp at named
-      | type _ unread _ => exact unread (by decide)⟩⟩
+    ⟨⟨⟨.«definition», .other, #[`Input, `Nat], #[`Input], #[], some `Input⟩, `Nat, #[`Input]⟩,
+      (reads_iff _).mpr (.field (by simp [Observed.references, Declares]) `Input rfl (by simp))⟩
+    ⟨⟨⟨.«definition», .other, #[`Input, `Nat], #[`Input], #[], some `Input⟩, `Input, #[`Input]⟩,
+      fun accepted => by
+        cases (reads_iff _).mp accepted with
+        | other _ outside => exact outside `Input rfl (by simp)
+        | field _ _ projection different =>
+          simp only [Option.some.injEq] at projection
+          exact different projection⟩⟩
 
-/-! ## The two readings of one constant -/
-
-/-- The constants that the search follows from the constant by the rule of a statement with the
-types that `Read` leaves out: its type, the declaration of a constant of the declaration of an
-inductive type, and the whole value of a definition whose value the rule reads, with the body
-that `Read` reads. This is the reading of the search before it left those types out: the pass
-reads the body from the value, so the body adds no constant to it. -/
-def Observed.withTypes (observed : Observed) : Array Name :=
-  observed.type ++
-    (if Declares observed.kind then observed.declaration
-     else if observed.kind = .«definition» ∧ observed.result.ValueRead true then
-       observed.value ++ observed.body
-     else #[])
-
-/-- The constants that the search follows from the constant (`reads`). -/
-def Observed.read (observed : Observed) : Array Name :=
-  observed.withTypes.filter fun target => reads ⟨observed, target⟩
-
-/-- The reading follows only what the reading with the types follows. -/
-theorem withTypes_of_read {mention : Mention} (read : Read mention) :
-    mention.target ∈ mention.source.withTypes := by
-  unfold Observed.withTypes
-  cases read with
-  | declaration declares named =>
-    rcases named with named | named
-    · exact Array.mem_append_left _ named
-    · refine Array.mem_append_right _ ?_
-      rw [ite_eq_left_of_eq_true _ _ (eq_true declares)]
-      exact named
-  | body definition read named =>
-    refine Array.mem_append_right _ ?_
-    rw [ite_eq_right_of_eq_false _ _ (eq_false (by simp [Declares, definition])),
-      ite_eq_left_of_eq_true _ _ (eq_true ⟨definition, read⟩)]
-    exact Array.mem_append_right _ named
-  | type _ _ named => exact Array.mem_append_left _ named
+/-- The constants that the search follows from the constant (`reads`), for the constants of the
+input type `domain`. -/
+def Observed.read (observed : Observed) (domain : Array Name) : Array Name :=
+  observed.references.filter fun target => reads ⟨observed, target, domain⟩
 
 /-- **The constants that the search follows from a constant are exactly those of `Read`.** -/
-theorem mem_read (observed : Observed) (target : Name) :
-    target ∈ observed.read ↔ Read ⟨observed, target⟩ := by
+theorem mem_read (observed : Observed) (domain : Array Name) (target : Name) :
+    target ∈ observed.read domain ↔ Read ⟨observed, target, domain⟩ := by
   unfold Observed.read
   rw [Array.mem_filter, reads_iff]
-  exact ⟨And.right, fun read => ⟨withTypes_of_read read, read⟩⟩
+  refine ⟨And.right, fun read => ⟨?_, read⟩⟩
+  cases read with
+  | other referenced _ => exact referenced
+  | field referenced _ _ _ => exact referenced
 
-/-- The reading follows only what the reading with the types follows. -/
-theorem read_withTypes {observed : Observed} {target : Name} (read : target ∈ observed.read) :
-    target ∈ observed.withTypes :=
-  withTypes_of_read ((mem_read observed target).mp read)
+/-- The reading follows only what the rule follows. -/
+theorem read_references {observed : Observed} {domain : Array Name} {target : Name}
+    (read : target ∈ observed.read domain) : target ∈ observed.references :=
+  (Array.mem_filter.mp read).1
+
+/-- A constant that the rule follows and the reading does not is the structure of a projection
+function, and a constant of the input type. -/
+theorem dropped {observed : Observed} {domain : Array Name} {target : Name}
+    (referenced : target ∈ observed.references) (unread : target ∉ observed.read domain) :
+    observed.projection = some target ∧ target ∈ domain := by
+  rw [mem_read] at unread
+  cases found : observed.projection with
+  | none => exact absurd (.other referenced fun _ projection => by simp [found] at projection) unread
+  | some structure_ =>
+    by_cases same : target = structure_
+    · subst same
+      by_cases inside : target ∈ domain
+      · exact ⟨rfl, inside⟩
+      · exact absurd (.other referenced fun other projection => by
+          simp only [found, Option.some.injEq] at projection
+          exact projection ▸ inside) unread
+    · exact absurd (.field referenced structure_ found same) unread
 
 /-! ## The reading of a term -/
 
 /-- What `reading` reads: the record of each constant outside Lean's own library that the term
-reaches by the reading with the types, the constants of the term, and those of its body that the
-reading reads (`lambdaParts`, `readStep`). A constant with no record is not followed: a
+reaches by the rule of a statement, the constants of the input type, and the constants of the
+body of the term under the variable of the input. A constant with no record is not followed: a
 constant of Lean's own library, or one that the environment does not have. -/
 structure Request where
   /-- What the pass read of each constant that it read. -/
   records : Std.HashMap Name Observed
-  /-- The constants that the term mentions. -/
-  term : Array Name
-  /-- The constants that the body of the term under its leading variables mentions, with the
-  parameters of each application of a projection function and the structures of primitive
-  projections left out (`readStep`). -/
+  /-- The constants of the input type of the kind (the result type, for an acceptance
+  predicate): those of the type of the variable of the term. -/
+  domain : Array Name
+  /-- The constants of the body of the term under the variable of the input. -/
   body : Array Name
 
 /-- The constants that the reading follows from `name`: those of its record (`Observed.read`),
 or none without a record. -/
 def Request.readNext (request : Request) (name : Name) : Array Name :=
   match request.records[name]? with
-  | some observed => observed.read
+  | some observed => observed.read request.domain
   | none => #[]
 
-/-- The constants that the reading with the types follows from `name`. -/
+/-- The constants that the rule of a statement follows from `name`. -/
 def Request.withTypesNext (request : Request) (name : Name) : Array Name :=
   match request.records[name]? with
-  | some observed => observed.withTypes
+  | some observed => observed.references
   | none => #[]
 
 /-- The bound of the steps of a search over the records: one more than the number of constants
 that the term and all records list. A search expands each constant one time. -/
 def Request.fuel (request : Request) : Nat :=
-  request.records.fold (fun total _ observed => total + observed.withTypes.size)
-    (request.term.size + request.body.size + 1)
+  request.records.fold (fun total _ observed => total + observed.references.size)
+    (request.domain.size + request.body.size + 1)
 
-/-- The constants with a record that a term reaches: those that the search reads (`read`), and
-those that it reaches by the reading with the types (`withTypes`). -/
+/-- The constants with a record that a term reaches: by the reading from its body (`read`), and
+by the rule of a statement from the whole term, its input type included (`withTypes`). -/
 structure Reading where
   /-- The constants with a record that the body of the term reaches by `Request.readNext`. -/
   read : Array Name
-  /-- The constants with a record that the term reaches by `Request.withTypesNext`. -/
+  /-- The constants with a record that the term reaches by `Request.withTypesNext`, the rule of
+  a statement, from the constants of its input type and of its body. -/
   withTypes : Array Name
 
 /-- The two readings of the term, or `none` when a search runs out of its bound of steps
@@ -373,30 +266,27 @@ structure Reading where
 def reading (request : Request) : Option Reading := do
   let read ← KernelAxioms.search request.readNext request.fuel request.body.toList
   let withTypes ← KernelAxioms.search request.withTypesNext request.fuel
-    (request.term ++ request.body).toList
+    (request.domain ++ request.body).toList
   let recorded (names : Std.HashSet Name) : Array Name :=
     (names.toList.filter request.records.contains).toArray
   return { read := recorded read, withTypes := recorded withTypes }
 
 /-- **The two readings of a term.** A constant is in `read` exactly when it has a record and
-the body of the term reaches it by the reading (`Read`, through `Request.readNext`), and in
-`withTypes` exactly when it has a record and the term reaches it by the reading with the types.
-A constant of `withTypes` that is not in `read` is reached only through a part of the term that
-the reading does not read, a type of a leading variable or a parameter of a projection, or
-through a step that `Read` does not take. -/
+the body of the term reaches it by the reading, and in `withTypes` exactly when it has a record and
+the term, its input type included, reaches it by the rule of a statement. -/
 theorem reading_some {request : Request} {result : Reading}
     (returned : reading request = some result) :
     (∀ name, name ∈ result.read ↔ request.records.contains name = true ∧
       ∃ start ∈ request.body, KernelAxioms.Reach request.readNext start name) ∧
     (∀ name, name ∈ result.withTypes ↔ request.records.contains name = true ∧
-      ∃ start ∈ request.term ++ request.body,
+      ∃ start ∈ request.domain ++ request.body,
         KernelAxioms.Reach request.withTypesNext start name) := by
   unfold reading at returned
   cases readSearch : KernelAxioms.search request.readNext request.fuel request.body.toList with
   | none => simp [readSearch] at returned
   | some read =>
     cases withTypesSearch : KernelAxioms.search request.withTypesNext request.fuel
-        (request.term ++ request.body).toList with
+        (request.domain ++ request.body).toList with
     | none =>
       simp only [readSearch, withTypesSearch, Option.bind_eq_bind, Option.bind_some,
         Option.bind_none, reduceCtorEq] at returned
@@ -422,32 +312,87 @@ theorem reading_some {request : Request} {result : Reading}
         · rintro ⟨recorded, start, starts, reach⟩
           exact ⟨withComplete start (Array.mem_toList_iff.mpr starts) name reach, recorded⟩
 
-/-- **The reading reaches only what the reading with the types reaches.** So a registration that
-the search refuses for a function that the reading reaches, it refuses also by the reading with
-the types: the reading refuses no registration that the reading with the types accepts. -/
-theorem read_subset_withTypes {request : Request} {result : Reading}
-    (returned : reading request = some result) {name : Name} (member : name ∈ result.read) :
-    name ∈ result.withTypes := by
-  obtain ⟨read, withTypes⟩ := reading_some returned
-  obtain ⟨recorded, start, starts, reach⟩ := (read name).mp member
-  refine (withTypes name).mpr ⟨recorded, start, Array.mem_append_right _ starts, ?_⟩
-  refine reach.mono fun source target step => ?_
+/-- Each step of the reading is a step of the rule. -/
+theorem readNext_withTypesNext {request : Request} {source target : Name}
+    (step : target ∈ request.readNext source) : target ∈ request.withTypesNext source := by
   unfold Request.readNext at step
   unfold Request.withTypesNext
   cases found : request.records[source]? with
   | none => simp [found] at step
   | some observed =>
     simp only [found] at step ⊢
-    exact read_withTypes step
+    exact read_references step
 
+/-- **The reading reaches only what the rule reaches.** So a registration that the search refuses
+for a function that the reading reaches, it refuses also by the rule: the reading refuses no
+registration that the rule accepts. -/
+theorem read_subset_withTypes {request : Request} {result : Reading}
+    (returned : reading request = some result) {name : Name} (member : name ∈ result.read) :
+    name ∈ result.withTypes := by
+  obtain ⟨read, withTypes⟩ := reading_some returned
+  obtain ⟨recorded, start, starts, reach⟩ := (read name).mp member
+  exact (withTypes name).mpr ⟨recorded, start, Array.mem_append_right _ starts,
+    reach.mono fun _ _ step => readNext_withTypesNext step⟩
+
+/-- The body of the term reaches the constant by the reading. -/
+def Request.Reads (request : Request) (name : Name) : Prop :=
+  ∃ start ∈ request.body, KernelAxioms.Reach request.readNext start name
+
+/-- A rule path from a constant that the reading reaches, or from a constant of the input type
+that it does not reach, to a constant that it does not reach, passes through a constant of the
+input type that the reading does not reach. -/
+private theorem through_input_from {request : Request} {source name : Name}
+    (reach : KernelAxioms.Reach request.withTypesNext source name)
+    (unread : ¬ request.Reads name)
+    (from_ : request.Reads source ∨ (source ∈ request.domain ∧ ¬ request.Reads source)) :
+    ∃ constant ∈ request.domain, ¬ request.Reads constant ∧
+      KernelAxioms.Reach request.withTypesNext constant name := by
+  induction reach with
+  | refl source =>
+    rcases from_ with read | ⟨inside, unreadSource⟩
+    · exact absurd read unread
+    · exact ⟨source, inside, unreadSource, .refl source⟩
+  | @step source middle name step rest next =>
+    rcases from_ with ⟨start, starts, readSource⟩ | ⟨inside, unreadSource⟩
+    · by_cases readStep : middle ∈ request.readNext source
+      · exact next unread (.inl ⟨start, starts, readSource.tail readStep⟩)
+      · unfold Request.withTypesNext at step
+        unfold Request.readNext at readStep
+        cases found : request.records[source]? with
+        | none => simp [found] at step
+        | some observed =>
+          simp only [found] at step readStep
+          obtain ⟨-, inside⟩ := dropped step readStep
+          by_cases readMiddle : request.Reads middle
+          · exact next unread (.inl readMiddle)
+          · exact next unread (.inr ⟨inside, readMiddle⟩)
+    · exact ⟨source, inside, unreadSource, .step step rest⟩
+
+/-- **What the reading leaves out is reached only through the input type.** A constant that the
+term reaches by the rule of a statement and not by the reading is reached by the rule from a
+constant of the input type that the reading does not reach: the body of the term names that
+constant in no way but through a projection of a field. -/
+theorem through_input {request : Request} {result : Reading}
+    (returned : reading request = some result) {name : Name}
+    (rule : name ∈ result.withTypes) (unread : name ∉ result.read) :
+    ∃ constant ∈ request.domain, ¬ request.Reads constant ∧
+      KernelAxioms.Reach request.withTypesNext constant name := by
+  obtain ⟨read, withTypes⟩ := reading_some returned
+  obtain ⟨recorded, start, starts, reach⟩ := (withTypes name).mp rule
+  have notRead : ¬ request.Reads name := fun reads => unread ((read name).mpr ⟨recorded, reads⟩)
+  rcases Array.mem_append.mp starts with inside | body
+  · by_cases readStart : request.Reads start
+    · exact through_input_from reach notRead (.inl readStart)
+    · exact through_input_from reach notRead (.inr ⟨inside, readStart⟩)
+  · exact through_input_from reach notRead (.inl ⟨start, body, .refl start⟩)
 
 /-! ## The shared functions of a registration -/
 
 /-- The shared constants of a decision registration by one reading: each constant that
 `specification` holds and that the other side holds too, the implementation (`implementation`)
-or `acceptance`, with what the collector read of it (`definitions`). `widen` selects the reading
-with the types (`Reading.withTypes`) over the reading (`Reading.read`), on the two terms. A
-constant that `definitions` has no entry for is left out. -/
+or `acceptance`, with what the collector read of it (`definitions`). `widen` selects the rule of a
+statement (`Reading.withTypes`) over the reading (`Reading.read`), on the two terms. A constant
+that `definitions` has no entry for is left out. -/
 def sharedConstants (widen : Bool) (specification acceptance : Reading)
     (implementation : Name → Bool) (definitions : Name → Option SharedDefinition) :
     List SharedDefinition :=
@@ -488,10 +433,10 @@ theorem no_shared_test {first : List SharedDefinition} {specification acceptance
   rw [sharedNames_booleans_eq_empty_iff] at accepted
   exact accepted definition (mem_sharedConstants.mpr ⟨name, read, .inl reached, found⟩)
 
-/-- **The reading refuses no registration that the reading with the types accepts.** Each shared
-constant of the reading is a shared constant of the reading with the types, when each reading
-reaches at most what the reading with the types reaches (`read_subset_withTypes`), so a function
-of the class `boolean` that the record names is one that the reading with the types shares
+/-- **The reading refuses no registration that the rule of a statement accepts.** Each shared
+constant of the reading is a shared constant of the rule of a statement, when each reading
+reaches at most what the rule of a statement reaches (`read_subset_withTypes`), so a function
+of the class `boolean` that the record names is one that the rule of a statement shares
 too. -/
 theorem sharedConstants_read_subset {specification acceptance : Reading}
     {implementation : Name → Bool} {definitions : Name → Option SharedDefinition}
@@ -507,11 +452,11 @@ theorem sharedConstants_read_subset {specification acceptance : Reading}
   · simpa using specificationWithin name held
   · simpa using other.imp id (acceptanceWithin name)
 
-/-- **What the change accepts.** A registration that the reading accepts and that the reading
-with the types refuses has each of the functions of the class `boolean` that the reading with
-the types shares in `throughTypes`, and the implementation does not reach any of them through
-what the specification reads: for each such function, the specification does not read it, or
-the implementation does not reach it and the acceptance predicate does not read it. -/
+/-- **What the change accepts.** A registration that the reading accepts and that the rule of a
+statement refuses has each of the functions of the class `boolean` that the rule shares in
+`throughTypes`, and the implementation does not reach any of them through what the specification
+reads: for each such function, the specification does not read it, or the implementation does
+not reach it and the acceptance predicate does not read it. -/
 theorem accepted_throughTypes {first : List SharedDefinition} {specification acceptance : Reading}
     {implementation : Name → Bool} {definitions : Name → Option SharedDefinition}
     (accepted : (sharedNames first

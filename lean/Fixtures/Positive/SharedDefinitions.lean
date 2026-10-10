@@ -26,14 +26,13 @@ predicate reaches too (`RegulaPolicy.SharedNames`):
   type has a field that takes an argument, so it is a function, named in the class `other`. The
   test is a function abstraction inside the record and no constant, so the search has no
   function with a result of `Bool` to name.
-* `admit_decides`: the input holds a panel, which holds a meter whose invariant is stated with
-  the test `settled` in a proof field. The function runs `settled`, and the specification reads
-  two fields of the input and names no test. The search does not read the declaration of the
-  input type through the variable of the specification, nor the declaration of a structure
-  through a projection of one of its fields, so the registration is accepted. The record names
-  `settled` as shared only through types (`RegulaPolicy.SharedNames.throughTypes`).
-* `admitPair_decides`: the same with the input as a pair. The projections of a pair have the
-  meter type as a parameter, which the search does not read either.
+* `admit_decides`: the form of issue 270. The input holds a panel, which holds a meter whose
+  invariant is stated with the test `settled` in a proof field, and the function runs `settled`.
+  The specification compares two other fields of the input and names no test. The search does
+  not enter the declaration of the input type from the input: it starts at the body of the
+  specification, and it does not follow a projection of a field of the input back to the input
+  type. So the registration is accepted, and the record names `settled` as shared only through
+  types (`RegulaPolicy.SharedNames.throughTypes`).
 -/
 import Regula.Contract
 
@@ -158,28 +157,20 @@ structure AdmitInput where
   panel : Panel
   /-- The requested amount. -/
   amount : Nat
+  /-- The limit of the amount. -/
+  limit : Nat
 
-/-- Whether the amount is below the reading of the meter. It runs the test `settled`. -/
-def admit (panel : Panel) (amount : Nat) : Bool :=
-  settled panel.meter.level && decide (amount < panel.meter.level)
+/-- Whether the amount is below the limit. It runs the test `settled` on the meter. -/
+def admit (panel : Panel) (amount limit : Nat) : Bool :=
+  settled panel.meter.level && decide (amount < limit)
 
-/-- The function accepts exactly an amount below the reading: the invariant gives `settled`. -/
-theorem admit_iff (panel : Panel) (amount : Nat) :
-    admit panel amount = true ↔ amount < panel.meter.level := by
+/-- The function accepts exactly an amount below the limit: the invariant gives `settled`. -/
+theorem admit_iff (panel : Panel) (amount limit : Nat) :
+    admit panel amount limit = true ↔ amount < limit := by
   simp [admit, panel.meter.settled_level]
 
 theorem admit_decides : Regula.ExecutableContract admit (fun run =>
-    Regula.Decides (· = true) (fun input : AdmitInput => input.amount < input.panel.meter.level)
-      (fun input : AdmitInput => run input.panel input.amount)) :=
-  ⟨.of_iff (fun input => admit_iff input.panel input.amount)
-    ⟨⟨⟨⟨5, by decide⟩⟩, 1⟩, by decide⟩ ⟨⟨⟨⟨5, by decide⟩⟩, 7⟩, by decide⟩⟩
-
-/-- Whether the amount is below the reading of the meter, with the input as a pair. -/
-def admitPair (meter : Meter) (amount : Nat) : Bool :=
-  settled meter.level && decide (amount < meter.level)
-
-theorem admitPair_decides : Regula.ExecutableContract admitPair (fun run =>
-    Regula.Decides (· = true) (fun input : Meter × Nat => input.2 < input.1.level)
-      (Function.uncurry run)) :=
-  ⟨.of_iff (fun input => by simp [Function.uncurry, admitPair, input.1.settled_level])
-    ⟨(⟨5, by decide⟩, 1), by decide⟩ ⟨(⟨5, by decide⟩, 7), by decide⟩⟩
+    Regula.Decides (· = true) (fun input : AdmitInput => input.amount < input.limit)
+      (fun input : AdmitInput => run input.panel input.amount input.limit)) :=
+  ⟨.of_iff (fun input => admit_iff input.panel input.amount input.limit)
+    ⟨⟨⟨⟨5, by decide⟩⟩, 1, 3⟩, by decide⟩ ⟨⟨⟨⟨5, by decide⟩⟩, 7, 3⟩, by decide⟩⟩

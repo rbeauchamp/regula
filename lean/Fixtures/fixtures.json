@@ -129,8 +129,7 @@
    "executable-contract=below decision-kind=sound-and-complete requires=Regula.Decides (fun x => x = true) Below below shared-booleans=[] shared-others=[]",
    "knownSign shared-booleans=[] shared-others=[]",
    "firstBefore shared-booleans=[] shared-others=[\"descending\"]",
-   "admit shared-booleans=[] shared-others=[] shared-through-types=[\"settled\"]",
-   "admitPair shared-booleans=[] shared-others=[] shared-through-types=[\"settled\"]"
+   "admit shared-booleans=[] shared-others=[] shared-through-types=[\"settled\"]"
   ]
  },
  "Fixtures.Mutations.SharedTests": {
@@ -160,6 +159,14 @@
    "[VIOLATION[shared-test]] admit_through_decides (theorem)",
    "[VIOLATION[shared-test]] admit_every_decides (theorem)",
    "admit shared-booleans=[\"settled\"] shared-others=[] shared-through-types=[]",
+   "[VIOLATION[shared-test]] zeroTest_decides (theorem)",
+   "zeroTest shared-booleans=[\"isZero\"] shared-others=[] shared-through-types=[]",
+   "[VIOLATION[shared-test]] zeroAlways_decides (theorem)",
+   "zeroAlways shared-booleans=[\"always\"] shared-others=[] shared-through-types=[]",
+   "[VIOLATION[shared-test]] admitBelow_decides (theorem)",
+   "admitBelow shared-booleans=[\"settled\"] shared-others=[] shared-through-types=[]",
+   "[VIOLATION[shared-test]] admitPair_decides (theorem)",
+   "admitPair shared-booleans=[\"settled\"] shared-others=[] shared-through-types=[]",
    "[VIOLATION[shared-test]] admitAt_decides (theorem)",
    "admitAt shared-booleans=[\"settled\"] shared-others=[] shared-through-types=[]"
   ]

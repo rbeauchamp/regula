@@ -1130,8 +1130,8 @@ specification shares with its implementation or its acceptance predicate, by cla
 (`sharedNames`). Each list is sorted and has no duplicate. The lists come from three searches:
 a function of the class `boolean` is named at any depth, a function of the class `other` is
 named where the specification reaches it first, and a function of the class `boolean` that the
-two sides share only when the search also follows the types that it does not read is named
-apart. -/
+two sides share only when the search also enters the declaration of the input type from the
+input is named apart. -/
 structure SharedNames where
   /-- The functions of the class `SharedClass.boolean` that the specification reaches at any
   depth, also below a function of the class `other`, and that the other side reaches too. -/
@@ -1139,13 +1139,13 @@ structure SharedNames where
   /-- The functions of the class `SharedClass.other` that the specification reaches first, with
   no counted function between, and that the other side reaches too. -/
   others : Array Lean.Name := #[]
-  /-- The functions of the class `SharedClass.boolean` that the two sides share when the search
-  also follows the types that it does not read, and that are not in `booleans`: the types of the
-  leading variables of a term or of a value, and the type of a constant whose value it reads
-  (`RegulaPolicy.StatementReading`). The specification reaches each of them only through such a
-  type, such as the declaration of its input type, or the other side does. No registration is
-  refused for them: the record names them so that a review sees, for example, an invariant of
-  the input that names a test of the implementation. -/
+  /-- The functions of the class `SharedClass.boolean` that the two sides share by the rule of a
+  statement, which also enters the declaration of the input type of the kind from the input (of
+  its result type, for the acceptance predicate), and that are not in `booleans`
+  (`RegulaPolicy.StatementReading`). A side reaches each of them only through a constant of that
+  type that its term does not name (`RegulaPolicy.StatementReading.through_input`). No
+  registration is refused for them: the record names them so that a review sees, for example, an
+  invariant of the input that names a test of the implementation. -/
   throughTypes : Array Lean.Name := #[]
   deriving Repr, DecidableEq, Inhabited
 
@@ -1173,8 +1173,9 @@ theorem mem_booleanNames (definitions : List SharedDefinition) (name : Lean.Name
 three lists of shared constants. `first` has each counted constant that the specification reaches
 first: that reading stops at each of them. `reached` has each constant that the specification
 reaches at any depth and that the other side reaches too: that reading stops at no constant.
-`widened` has each constant that the specification reaches at any depth when the search also
-follows the types that it does not read, and that the other side reaches in the same way. The
+`widened` has each constant that the specification reaches at any depth by the rule of a
+statement, which also enters the declaration of the input type from the input, and that the other
+side reaches in the same way. The
 functions of the class `boolean` are named from `reached`, those of the class `other` from
 `first`, and those of the class `boolean` that `widened` has and `reached` does not are named
 apart (`mem_sharedNames_booleans`, `mem_sharedNames_others`, `mem_sharedNames_throughTypes`).

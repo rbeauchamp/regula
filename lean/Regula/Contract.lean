@@ -101,16 +101,15 @@ that `spec` and `accepts` both call. The linter refuses a registration whose two
 function of the first class below (rule RG1009), which it searches for at any depth of `spec`,
 outside Lean's own library. It reads the definitions outside Lean's own library that `spec`
 reaches and that `f` or `accepts` also reaches. It reads `accepts` as it reads `spec`: each is
-a statement, and the value of a definition of a proposition that it names is read. It reads each
-for what it states at a given input and a given result: the body of the term, and of each value
-that it reads, under their leading variables. It does not read the types of those variables, the
-type of a definition whose value it reads, or the parameters of the structure in an application
-of a field's projection function. So a test that only the declaration of the input type names,
-such as a test that an invariant of a field of the input states, is not shared through `spec`: a
-change of the test changes which inputs there are, on the two sides together, and not the
-comparison at an input. The report names such a test apart, and no registration is refused for
-it. A `spec` that quantifies over a type, builds or takes apart its values, or passes it to a
-function that is no projection of a field names the type, and the search reads its declaration.
+a statement, and the value of a definition of a proposition that it names is read. It does not
+enter the declaration of the input type of the kind from the input: it reads `spec` from its body
+under its variable, and it does not follow a projection of a field of the input back to the input
+type. `accepts` is read in the same way with the result type. So a test that only the declaration
+of the input type names, such as a test that an invariant of a field of the input states, is not
+shared through `spec`: a change of the test changes which inputs there are, on the two sides
+together, and not the comparison at an input. The report names such a test apart, and no
+registration is refused for it. A `spec` that names the input type in any other way, as
+`∀ y : α` does, or that reads a field whose type has such an invariant, reads the declaration.
 It reads the functions that the two sides share in two classes:
 
 * **A function with a result of `Bool`, and a definition with a result of `BEq _`.** The

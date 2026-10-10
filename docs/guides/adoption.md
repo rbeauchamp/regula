@@ -757,10 +757,11 @@ depth. State that condition as a proposition in `Spec`, and let `check` decide i
 compares names. A copy of a test under a second name passes, and so does a test of Lean's own
 library.
 
-The search reads what `Spec` states at a given input. It does not read the type of the input
-through the variable of `Spec`, or a structure through a projection of a field. So a
-test that only an invariant of the input type names is not counted, and the account names it
-apart. A `Spec` that quantifies over such a type, or that states the invariant, reads the test.
+The search does not enter the declaration of the input type from the input. It reads `Spec` from
+its body, and it does not follow a projection of the input back to the input type. So a test
+that only an invariant of the input type names is not counted, and the account names it apart.
+A `Spec` that names the input type in a different way, or that states the invariant, reads the
+test. So does a `Spec` that reads a field whose type has such an invariant.
 
 The account names each other function that `Spec` reaches first and that `check` or the
 acceptance predicate also reaches. The kind does not establish that such a function is the
