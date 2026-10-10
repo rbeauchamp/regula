@@ -137,6 +137,18 @@ def timedPhase {α : Type} (label : String) (action : IO α) : IO α := do
     let elapsed ← IO.monoNanosNow
     timingSpan s!"verification phase {label}: {(elapsed - start) / 1000000}ms (finished)"
 
+/-- Run `action`, printing the job-log line `phase LABEL: start` before it and
+`phase LABEL: Nms` with its elapsed wall time after it, also when it throws. Unlike `timedPhase`,
+it prints these lines when timing output is off. Each line is flushed, so CI timestamps identify
+the actual work even when standard output is redirected. The times are observations only. -/
+def loggedPhase {α : Type} (label : String) (action : IO α) : IO α := do
+  IO.println s!"phase {label}: start"
+  (← IO.getStdout).flush
+  let started ← IO.monoNanosNow
+  try action finally
+    IO.println s!"phase {label}: {((← IO.monoNanosNow) - started) / 1000000}ms"
+    (← IO.getStdout).flush
+
 /-- The lines of `output`, split at each newline. -/
 def outputLines (output : String) : Array String :=
   output.splitOn "\n" |>.toArray
