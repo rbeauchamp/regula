@@ -763,8 +763,8 @@ private def compilerGuard (repo project : FilePath) : IO (Array String) := do
     (← assess { label := "guard/restored", exitCode := 0 } (← load #[]))
 
 /-- The absent-worker control first, alone, since the adopters share the checker's binaries;
-then both independent adopters and the cold compiler guard, each in its own disposable
-workspace. The adopters' decision probes load their workspaces one at a time (`probe`). -/
+then both independent adopters, the cold compiler guard, the artifact-cache controls and
+`escapedNameWarning`, each in its own disposable workspace. The adopters' decision probes load their workspaces one at a time (`probe`). -/
 def qualify (repo scratch : FilePath) (jobs : Nat) : IO (Array String) := do
   let absent ← withScratch scratch "lake-lint-worker" fun adopter => absentWorker repo adopter
   if !absent.isEmpty then return absent
