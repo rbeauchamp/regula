@@ -42,7 +42,16 @@ The release steps generate the table from the release data, and CI refuses a tab
 disagrees with it; a row is added when a release's pull request merges, shortly before CI
 publishes the release. The [releases page](https://github.com/rbeauchamp/regula/releases)
 has each release's notes. Choose the newest release for your `lean-toolchain`, set your
-`lean-toolchain` to its toolchain if you move, then require its tag (below, `v4.34.0`).
+`lean-toolchain` to its toolchain if you move, then require its tag.
+
+The first release, `v4.34.0`, is legacy. Its tag is the number of its Lean release, not a
+version of Regula. Thus in version order, its tag is above the tag of each later release, for
+example `v0.10.0`. `git tag --sort=-v:refname` and the tag list of GitHub show it first. Do not
+select a release by its position in such a list of tags. Select it from the table.
+
+The two snippets below require the release of the first row of the table. The release pull
+request sets their release when it adds that row, and CI refuses a change that makes them require
+a different release.
 
 `lakefile.toml`:
 
@@ -50,14 +59,14 @@ has each release's notes. Choose the newest release for your `lean-toolchain`, s
 [[require]]
 name = "regula"
 git = "https://github.com/rbeauchamp/regula"
-rev = "v4.34.0"
+rev = "v0.10.0"
 ```
 
 `lakefile.lean`:
 
 ```text
 require regula from git
-  "https://github.com/rbeauchamp/regula" @ "v4.34.0"
+  "https://github.com/rbeauchamp/regula" @ "v0.10.0"
 ```
 
 Then fetch it:

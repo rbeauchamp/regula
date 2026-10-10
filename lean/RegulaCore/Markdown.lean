@@ -1200,8 +1200,8 @@ theorem piecesAccepted_nil (page : RuleId → String → Prop) : PiecesAccepted 
 /-! ## The pages of a rule and the audit marker -/
 
 /-- The tracked documents whose links to the site name no edition, so that each link opens the
-latest release and a release changes no such document: the root `README.md`. Only in these
-documents is the stable address of a rule a link to its page (`target`), and the site build
+latest release and a release changes no link of such a document: the root `README.md`. Only in
+these documents is the stable address of a rule a link to its page (`target`), and the site build
 requires each address of the site in each of them in its artifact (`Regula.Site.siteAnchors`). -/
 def stableDocuments : List String := ["README.md"]
 

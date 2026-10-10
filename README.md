@@ -54,19 +54,25 @@ with a checked violating and corrected example.
 
 ## Try it
 
-Regula is a Lake package with its own semantic versions, tagged `v<version>`; each release
+Regula is a Lake package with its own semantic versions, tagged `v<version>`. Each release
 supports exactly one Lean toolchain. Require the newest release for your `lean-toolchain` from
-the [compatibility table](docs/guides/adoption.md#1-require-regula); the first release,
-`v4.34.0`, is for `leanprover/lean4:v4.34.0`. When none matches, see
+the [compatibility table](docs/guides/adoption.md#1-require-regula). The step below requires the
+latest release of that table, and CI refuses a change that makes it require a different release.
+When no release matches your toolchain, see
 [when your Lean release has no Regula release](docs/guides/adoption.md#when-your-lean-release-has-no-regula-release).
 
+The first release, `v4.34.0`, is a legacy release for `leanprover/lean4:v4.34.0`. Its tag is the
+number of its Lean release, not a version of Regula. Thus in version order, its tag is above the
+tag of each later release, for example `v0.10.0`. `git tag --sort=-v:refname` and the tag list of
+GitHub show it first. Do not select a release by its position in such a list of tags.
+
 1. **Require it** in `lakefile.toml`
-   (`lakefile.lean`: `require regula from git "https://github.com/rbeauchamp/regula" @ "v4.34.0"`):
+   (`lakefile.lean`: `require regula from git "https://github.com/rbeauchamp/regula" @ "v0.10.0"`):
    ```toml
    [[require]]
    name = "regula"
    git = "https://github.com/rbeauchamp/regula"
-   rev = "v4.34.0"
+   rev = "v0.10.0"
    ```
 2. **Set it up and run it:**
    ```sh

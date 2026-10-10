@@ -41,9 +41,11 @@ jobs:
       - name: Refuse a release label on main or a pull request
         run: lean --run lean/Regula/Release.lean unreleased
 
-      # The lakefile's version, as Lake reads it, is the latest listed release's, and the adoption
-      # guide's compatibility table lists every release of Regula.releases with its toolchain.
-      - name: Refuse a lakefile version or compatibility table the release data contradicts
+      # The lakefile's version, as Lake reads it, is the latest listed release's, the adoption
+      # guide's compatibility table lists every release of Regula.releases with its toolchain,
+      # each require of Regula in a tracked Markdown document names the latest listed release, and
+      # the root README.md and the adoption guide each require it in each form.
+      - name: Refuse a lakefile version, compatibility table or documented requirement the release data contradicts
         run: lean --run lean/Regula/Release.lean agree
 
       # Includes RegulaPolicy collection/finalization proofs and all acceptance

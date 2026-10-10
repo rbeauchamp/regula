@@ -316,7 +316,8 @@ A release takes these steps, in order ([release procedure](contributing.md#relea
    from the link in the job summary. Its commit appends the release, with the version the
    workflow derives and its toolchain, to `Regula.releases`
    ([`RegulaCore.Edition`](../../lean/RegulaCore/Edition.lean)), sets `lakefile.lean`'s
-   `version`, adds it to the adoption guide's compatibility table and stamps it into rule
+   `version`, adds it to the adoption guide's compatibility table, sets each `require` of
+   Regula in the tracked Markdown documents to it and stamps it into rule
    lifecycle positions still `.unreleased`; `Regula.installed` stays `.unreleased`. Its `site`
    check passes with a preview of the release's edition, which is never deployed.
 2. When it merges, CI on `main`, once acceptance and the rule-example shards pass, creates the

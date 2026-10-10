@@ -4,8 +4,9 @@ name: Release
 # It derives the version from the Conventional Commits types of main's commits since the previous
 # release and from lean-toolchain; its bump input may raise that bump, never lower it. It creates
 # the branch of the release pull request, which lists the release with its toolchain, sets the
-# lakefile's version, adds it to the adoption guide's compatibility table and stamps it into the
-# rules; a maintainer opens that pull request from the link in the job summary. While it observes
+# lakefile's version, adds it to the adoption guide's compatibility table, sets the rev of each
+# require of Regula in the tracked Markdown documents to it and stamps it into the rules; a
+# maintainer opens that pull request from the link in the job summary. While it observes
 # a release pull request for that version open, it refuses and creates no branch: close that pull
 # request first, run this workflow again and open a fresh one from the new link. Separately, a
 # run writes a branch only by creating a new one, so no run moves a branch that exists. Once the
@@ -33,7 +34,8 @@ concurrency:
 jobs:
   # Derive the version, then create the commit of the release pull request (main's commit with
   # the release appended to Regula.releases with its toolchain, the lakefile's version, the
-  # adoption guide's compatibility table and each .unreleased on a `lifecycle :=` line;
+  # adoption guide's compatibility table, the rev of each require of Regula in the tracked
+  # Markdown documents and each .unreleased on a `lifecycle :=` line;
   # Regula.installed stays .unreleased), refuse unless GitHub verified its signature, create the
   # branch release/v<version>-<commit>, named after that commit, and write the link that opens
   # its pull request to the job summary. main's rules count a push by this job to the branch of
