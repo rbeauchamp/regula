@@ -232,23 +232,28 @@ theorem Ranges.validFor_iff (r : Ranges) (source : String) :
     r.validFor source = true ↔ r.ValidFor source :=
   r.validForLines_iff _
 
-/-- Every command's `added` names are exactly its `addedDeclarations` names, none anonymous. -/
-def Frontend.Transcript.validCoordinates (t : Frontend.Transcript) : Bool :=
+/-- Every command's `added` names are exactly its `addedDeclarations` names, none anonymous. It
+takes the observed part of a transcript, so it reads no source text and no runtime replacement. -/
+def Frontend.Transcript.ToolchainObserved.validCoordinates
+    (t : Frontend.Transcript.ToolchainObserved) : Bool :=
   t.commands.all fun command =>
     command.added == command.addedDeclarations.map (·.name) &&
     command.added.all (· != .anonymous)
 
 /-- Every command's `added` names are exactly its `addedDeclarations` names, none anonymous, as a
-proposition. `Frontend.Transcript.validCoordinates` decides it
-(`Frontend.Transcript.validCoordinates_iff`). -/
-def Frontend.Transcript.ValidCoordinates (t : Frontend.Transcript) : Prop :=
+proposition, over the observed part of a transcript. `validCoordinates` decides it
+(`validCoordinates_iff`). -/
+def Frontend.Transcript.ToolchainObserved.ValidCoordinates
+    (t : Frontend.Transcript.ToolchainObserved) : Prop :=
   ∀ command ∈ t.commands, command.added = command.addedDeclarations.map (·.name) ∧
     ∀ name ∈ command.added, name ≠ .anonymous
 
 /-- The executed check accepts exactly the transcripts with valid coordinates. -/
-theorem Frontend.Transcript.validCoordinates_iff (t : Frontend.Transcript) :
+theorem Frontend.Transcript.ToolchainObserved.validCoordinates_iff
+    (t : Frontend.Transcript.ToolchainObserved) :
     t.validCoordinates = true ↔ t.ValidCoordinates := by
-  simp [Frontend.Transcript.validCoordinates, Frontend.Transcript.ValidCoordinates,
+  simp [Frontend.Transcript.ToolchainObserved.validCoordinates,
+    Frontend.Transcript.ToolchainObserved.ValidCoordinates,
     -Array.all_eq_true, Array.all_eq_true']
 
 /-- The executed check of a declaration's admitted ranges accepts exactly a declaration whose
@@ -259,7 +264,10 @@ theorem Declaration.ranges_all_validForLines_iff (d : Declaration) (lines : List
   cases d.ranges <;> simp [Ranges.validForLines_iff]
 
 /-- Admitted inventories have one declaration per name and one transcript per module.
-Ordered mutual-group sequences are intentionally not normalized. -/
+Ordered mutual-group sequences are intentionally not normalized. Each requirement of a transcript
+reads one of its parts: its module, source path, toolchain identity and commands
+(`ValidCoordinates`) are observed, and its size and the declarations' ranges are compared with
+its source text, which the project writes. -/
 def InventoryValid (decls : Array Declaration) (transcripts : Array Frontend.Transcript) : Prop :=
   UniqueNames (decls.map (·.name)) ∧
   (∀ d ∈ decls, d.Valid) ∧
@@ -281,7 +289,7 @@ instance instDecidableInventoryValid (decls : Array Declaration)
   unfold InventoryValid
   -- A let in the proposition is reduced during instance synthesis. Bind the
   -- derived lines in the executable decision so all declarations share them.
-  letI (t : Frontend.Transcript) : Decidable t.ValidCoordinates :=
+  letI (t : Frontend.Transcript.ToolchainObserved) : Decidable t.ValidCoordinates :=
     decidable_of_iff _ t.validCoordinates_iff
   letI (t : Frontend.Transcript) : Decidable
       (∀ d ∈ decls, d.module = t.module →

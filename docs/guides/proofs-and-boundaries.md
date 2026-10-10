@@ -655,8 +655,8 @@ the source text and the runtime replacements that its commands recorded. A comma
 into the records of the constants it added and what the frontend observed of it,
 `Command.KernelChecked` and `Command.ToolchainObserved`. The native role validator takes the
 observed parts alone, through `observedTranscripts`, so it reads no source text and no
-replacement. Admission and the coordinate check take the whole transcript: they read its source
-text in requirements that compare it with the records.
+replacement. `validCoordinates` takes the observed part too, and admission and the coordinate check
+read the source text only to compare it with the records.
 
 **Limits.** The parts classify the source of a value. They do not make an observation truthful,
 and that `Collect.declaration` fills each field from the source its part names is by inspection of
