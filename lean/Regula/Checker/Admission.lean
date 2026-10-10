@@ -1490,9 +1490,9 @@ def addReporters (candidates : Array (Name × ModuleData)) (replay : Array Name)
 /-- The modules `validate` replays in an environment that loaded `loaded`: every `owned` module
 that is not `reused`, then every reporter module and every module of `checker`, the modules of
 the owned dependencies under the checker's reserved prefixes that the environment does not own
-(`EnvironmentOwnership.reporterOnly`), that imports one of them, directly or through other such modules. Each pass over those candidates that
-changes the set adds one of them, so as many passes as there are candidates reach every such
-importer. -/
+(`EnvironmentOwnership.reporterOnly`), that imports one of them, directly or through other such
+modules. Each pass over those candidates that changes the set adds one of them, so as many passes
+as there are candidates reach every such importer. -/
 def replaySet (loaded : Array (Name × ModuleData)) (owned reused : Array Name)
     (checker : Array Name := #[]) : Array Name :=
   let candidates := loaded.filter fun entry =>

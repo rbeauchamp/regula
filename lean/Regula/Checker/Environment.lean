@@ -399,8 +399,8 @@ theorem EnvironmentOwnership.dependencies_replayed {origins : Array Regula.Repor
 
 /-- Modules loaded from an owned package's output (`Ownership.outputs`: the root package's, then
 each owned dependency's) that the environment neither owns (`EnvironmentOwnership.modules`) nor
-exempts (`EnvironmentOwnership.reporterOnly`, the infrastructure modules), retaining every direct
-importer in header order. An output directory that does not exist holds no loaded module. The
+exempts (`EnvironmentOwnership.reporterOnly` and the infrastructure modules), retaining every
+direct importer in header order. An output directory that does not exist holds no loaded module. The
 metadata phase and full loader share this refusal. -/
 def ModuleGraph.unownedModules (graph : ModuleGraph) (ownership : EnvironmentOwnership)
     (outputs : Array FilePath) : IO (Array ProducerReport.UnownedModule) := do

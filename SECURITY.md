@@ -54,9 +54,10 @@ them. Code that makes one of these changes to make a check pass is not honest co
 Regula checks for some changes of this kind, where the standard or a rule page states the check.
 For example, it replays the declarations of the project that are not `unsafe` or `partial` through
 Lean's kernel. It calculates the axioms of each declaration of the project from that kernel, not
-from the axiom table `exportedAxiomsExt` that Lean writes for each module. It also replays and checks
-the modules of a path dependency in the project's Git work tree that the claimed modules import, except Regula's own.
-But a pass makes no claim that the project has none of the changes in the list.
+from the axiom table `exportedAxiomsExt` that Lean writes for each module. It also replays and
+checks the modules of a path dependency in the project's Git work tree that the claimed modules
+import, except Regula's own. But a pass makes no claim that the project has none of the changes in
+the list.
 The [README](README.md) puts Regula at the `#print axioms` step of
 [Validating a Lean Proof](https://lean-lang.org/doc/reference/latest/ValidatingProofs/).
 
@@ -78,8 +79,9 @@ layout. Also, no two packages provide a module of the same name. For this condit
 the library modules of each package and the executable roots of each owned package. Regula refuses
 any other workspace before it builds the project or a copy of it.
 
-Lake builds the program that runs the audit before that check, for example the `lake lint` driver. The verification driver of this repository also
-builds its own copy first. These two builds are of Regula's own package.
+Lake builds the program that runs the audit before that check, for example the `lake lint` driver.
+The verification driver of this repository also builds its own copy first. These two builds are of
+Regula's own package.
 
 Regula reserves the module name prefixes `Regula` and `RegulaPolicy` to itself. In each audit, only
 the running checker's own package can provide a module under them with any source. A different

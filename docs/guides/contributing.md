@@ -311,7 +311,8 @@ audits the first two freshly, with every target built under the options of
   the claimed surface of the `audit/` package, which imports only Lean's core libraries, requires
   the checker by relative path as an adopter can and is audited against its own surface manifest.
   The checker is in the same Git work tree, so that audit replays and checks each of its modules
-  that the `Audit` modules import. `audit/Audit/` is one positive surface
+  that the `Audit` modules import. Its `Regula` and `RegulaPolicy` modules are the checker's own
+  code, and that audit does not own them. `audit/Audit/` is one positive surface
   holding mathematical models, proofs and executable examples, not the checker, and contains no
   project axioms, holes, compiler-trusting proofs, authored partial or unsafe declarations,
   runtime replacements or external declarations; generated partial helpers for safe recursion are

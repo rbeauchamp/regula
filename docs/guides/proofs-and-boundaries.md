@@ -1710,9 +1710,10 @@ items:
 - That the replay set, the reported modules and the reused modules of a request are those that
   the pass computes. The replay set is `replaySet` of the header, `ownedModules`, `reused` and
   `checker`. The argument `checker` holds the modules of an owned dependency under the prefixes
-  `Regula` and `RegulaPolicy` that the environment does not own. The reported modules are the modules of `reused` that are in `requested` and not in the replay set.
-  The reused modules are the argument `reused` of `validate`, and these steps are read from the
-  code. `mem_replaySet` proves only that each owned module that is not reused is in the replay set.
+  `Regula` and `RegulaPolicy` that the environment does not own. The reported modules are the
+  modules of `reused` that are in `requested` and not in the replay set. The reused modules are
+  the argument `reused` of `validate`, and these steps are read from the code. `mem_replaySet`
+  proves only that each owned module that is not reused is in the replay set.
 - That the replay base is what the pass imports. `importModules` of Lean reads the `.olean` files.
 - That `shared` names the copies of a name that the base or a different replayed module also
   declares. The pass computes it from the base and from `nameCounts`, and that step is read from
@@ -2424,9 +2425,9 @@ A Git dependency that Lake clones has a work tree of its own, and so does a subm
 neither is owned.
 
 Ownership has a supported scope. Each audit, incremental or fresh, refuses two things before it
-builds the project or a copy. `checkDefaultLayout` refuses an owned package, the root package included, that sets an
-output directory other than Lake's default. It compares the configured values, with no path
-resolved.
+builds the project or a copy. `checkDefaultLayout` refuses an owned package, the root package
+included, that sets an output directory other than Lake's default. It compares the configured
+values, with no path resolved.
 
 `checkOneProvider` refuses a module name that two packages of the workspace provide, as
 `lake-query-malformed`. It counts the library modules of each package, and the executable roots of

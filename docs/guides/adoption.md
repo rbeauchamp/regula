@@ -356,10 +356,9 @@ failed audit-worker build or an invalid argument, prints its error and the outco
 A path dependency in the Git work tree of your project is your own code. The audit replays each
 of its modules that your claimed modules import, other than Regula's own, as it replays your
 libraries. It checks their declarations under Standard-Logical. With `--fresh`, the isolated copy
-holds it and builds it. A
-dependency outside that work tree, for example Mathlib, is trusted, and the account names it on
-the line `trusted dependencies`. A correspondence proof for [RG3002] counts only from a module that
-the audit replays, or from Lean's own library.
+holds it and builds it. A dependency outside that work tree, for example Mathlib, is trusted, and
+the account names it on the line `trusted dependencies`. A correspondence proof for [RG3002]
+counts only from a module that the audit replays, or from Lean's own library.
 
 The audit checks a decision function of an owned path dependency, with `@[regula_decision]`, in
 each environment that inspects it. So its contract must be in a module that your claimed modules
