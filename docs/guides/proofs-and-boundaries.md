@@ -2468,7 +2468,8 @@ Two builds of Regula's own package come before these checks. Lake builds the pro
 that runs the audit, such as the `lake lint` driver, before it starts that program. The
 verification driver of this repository builds its own copy before the gate audits it with
 `--driver-copy`. The `lake lint` driver builds its audit worker only after `surfaceInventory`
-accepts the workspace.
+accepts the workspace that `lake lint` ran in. If it refuses that workspace and `--project` names a
+different project, the driver stops with that refusal as `INCOMPLETE`, before the audit.
 
 A loaded module belongs to an owned package only if its `.olean` is exactly that package's
 artifact of it below `.lake/build/lib/lean`, on real paths. `Environment.attributeLoaded` decides
