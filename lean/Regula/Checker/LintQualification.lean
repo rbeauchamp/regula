@@ -483,14 +483,13 @@ private def emptyFacetsWarning (repo adopter : FilePath) : IO (Array String) := 
 
 /-- Counterexample control for the class the second review of issue 291 found: a claimed name
 that the audit's build read as Lake target syntax, in which a `/` names a package. The
-`lakefile.toml` adopter's claimed library is named `foo/bar`, and a path dependency `foo` has a
-library `bar` that builds no module by default, which Lake's command line reads `foo/bar` as.
-Lake's ordinary `lake build +Gadget:leanArts` elaborates the claimed root module, which warns, and
-the incremental `axiomGate` audit must find the claimed library itself and report RG2003; without
-the warning, a fresh run is accepted. When the build read the claimed name, which the manifest
-records as `«foo/bar»`, as target syntax, it refused this project as naming an unknown package
-`«foo`. Lake's manifest cannot record a package of that name, which would have had its library
-built in place of the claimed one. -/
+`lakefile.toml` adopter's claimed library is named `foo/bar`, which the manifest records as
+`«foo/bar»`, and a path dependency named `«foo` has a library named `bar»` that builds no module
+by default: Lake's command line reads `«foo/bar»` as that library. Lake's ordinary
+`lake build +Gadget:leanArts` elaborates the claimed root module, which warns, and the incremental
+`axiomGate` audit must find the claimed library itself and report RG2003: when the audit's build
+read the claimed name as target syntax, it built the dependency's empty library, observed no
+warning and was accepted. Without the warning, a fresh run is accepted. -/
 private def escapedNameWarning (repo adopter : FilePath) : IO (Array String) := do
   BuildLintQualification.setup repo adopter "lake-lint-toml" #["Gadget.lean", "Gadget/Double.lean"]
     "lakefile.toml"
@@ -498,21 +497,23 @@ private def escapedNameWarning (repo adopter : FilePath) : IO (Array String) := 
   mutate lakefile "defaultTargets = [\"Gadget\"]\n" ""
   mutate lakefile "name = \"Gadget\"" "name = \"foo/bar\""
   mutate lakefile "[[require]]\nname = \"regula\""
-    "[[require]]\nname = \"foo\"\npath = \"dep\"\n\n[[require]]\nname = \"regula\""
+    "[[require]]\nname = \"«foo\"\npath = \"dep\"\n\n[[require]]\nname = \"regula\""
   let dependency := adopter / "dep"
   IO.FS.createDirAll dependency
   IO.FS.writeFile (dependency / "lakefile.toml")
-    "name = \"foo\"\n\n[[lean_lib]]\nname = \"bar\"\ndefaultFacets = []\n"
-  IO.FS.writeFile (dependency / "bar.lean") "/-! A dependency module that no build needs. -/\n"
+    "name = \"«foo\"\n\n[[lean_lib]]\nname = \"bar»\"\ndefaultFacets = []\n"
+  IO.FS.writeFile (dependency / "bar».lean") "/-! A dependency module that no build needs. -/\n"
   let lakeManifest ← readJson (adopter / "lake-manifest.json")
   let packages : Array Json ← IO.ofExcept <| lakeManifest.getObjValAs? (Array Json) "packages"
   writeJson (adopter / "lake-manifest.json") <| lakeManifest.setObjVal! "packages" <|
     toJson (#[Json.mkObj [
-      ("name", toJson "foo"), ("scope", toJson ""), ("configFile", toJson "lakefile.toml"),
+      -- Lean writes the package name `«foo` escaped, as `««foo»`, and reads it back.
+      ("name", toJson (Name.mkSimple "«foo")), ("scope", toJson ""),
+      ("configFile", toJson "lakefile.toml"),
       ("manifestFile", toJson "lake-manifest.json"), ("inherited", toJson false),
       ("type", toJson "path"), ("dir", toJson "dep")]] ++ packages)
   mutate (adopter / "foundation_manifest.json") "\"library\": \"Gadget\""
-    "\"library\": \"foo/bar\""
+    "\"library\": \"«foo/bar»\""
   let gadget := adopter / "Gadget.lean"
   let original ← IO.FS.readFile gadget
   IO.FS.writeFile gadget <| original ++
