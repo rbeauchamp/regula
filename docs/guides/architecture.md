@@ -135,7 +135,7 @@ which brings those declarations into scope; that none of their definitions uses 
 inspection, as it already was for `AuditApp.Limiter` and `Regula.MaterialClaim`. The extension is
 an ordinary definition, not a `meta` one, so the collector reads the registrations through it.
 `RegulaPolicy.Compiler` imports only `Init`, because the compiler guard elaborates it alone before
-the package is built, so its two decisions are registered from `RegulaPolicy.Claim`, a module of
+the package is built, so its decisions are registered from `RegulaPolicy.Claim`, a module of
 the same library that imports it (`attribute [regula_decision]`). The two standalone programs
 import only the toolchain for the same reason, since each runs with `lean --run` before the
 package is built, and the `Decisions` module of each one's library registers its decisions the
