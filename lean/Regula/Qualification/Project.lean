@@ -16,7 +16,9 @@ def cleanEnv : Array (String × Option String) := #[("LEAN_PATH", none), ("LEAN_
 /-- A dotted Lean name as result documents write it (`RegistryCodec.printedNameJson`). -/
 def nameJson (name : String) : Json := Regula.RegistryCodec.printedNameJson name.toName
 
-/-- Fresh source-bound adopter sharing only pinned dependency artifacts. -/
+/-- Fresh source-bound adopter sharing only pinned dependency artifacts. It is a Git repository
+of its own, so `regula`, which it requires from `root`, is a trusted dependency in a different Git
+work tree, as an adopter's is. -/
 def prepareProject (root project : FilePath) (packageName claim rationale : String) : IO Unit := do
   IO.FS.writeBinFile (project / "lean-toolchain") (← IO.FS.readBinFile (root / "lean-toolchain"))
   IO.FS.writeFile (project / "lakefile.lean")
@@ -39,7 +41,9 @@ def prepareProject (root project : FilePath) (packageName claim rationale : Stri
   IO.FS.createDirAll (project / ".lake")
   let result ← run root "ln"
       #["-s", (root / ".lake/packages").toString, (project / ".lake/packages").toString]
-  requireChecks [⟨"pinned dependency link", result.exitCode == 0⟩]
+  let initialized ← run project "git" #["init", "-q"]
+  requireChecks [⟨"pinned dependency link", result.exitCode == 0⟩,
+    ⟨"adopter repository", initialized.exitCode == 0⟩]
 
 /-- Core-only adopter for source/evidence controls. No checker dependency is imported
 into the observed surface, matching the original standalone qualification path. -/
