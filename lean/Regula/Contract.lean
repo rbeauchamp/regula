@@ -109,7 +109,8 @@ of the input type names, such as a test that an invariant of a field of the inpu
 shared through `spec`: a change of the test changes which inputs there are, on the two sides
 together, and not the comparison at an input. The report names such a test apart, and no
 registration is refused for it. A `spec` that names the input type in any other way, as
-`∀ y : α` does, or that reads a field whose type has such an invariant, reads the declaration.
+`∀ y : α` does, or that reads a field whose result type has such an invariant and is not the
+input type, reads the declaration.
 It reads the functions that the two sides share in two classes:
 
 * **A function with a result of `Bool`, and a definition with a result of `BEq _`.** The

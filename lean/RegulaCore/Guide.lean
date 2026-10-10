@@ -921,8 +921,8 @@ def guide : RuleId → Guide
         "A test that the two sides share only through the declaration of the input type, such \
           as a test that an invariant of a field of the input states, is not counted. The \
           report names it after `shared-through-types=`. A specification that names the input \
-          type in any other way, or that reads a field whose type has such an invariant, \
-          reaches the test, and it is counted.",
+          type in any other way, or that reads a field whose result type has such an \
+          invariant and is not the input type, reaches the test, and it is counted.",
         "A function of Lean's own library is not counted, and no module of that library is \
           read. A structure projection is not counted. A definition with a result of \
           `Decidable p` is not counted, and the specification's side does not read its value.",
