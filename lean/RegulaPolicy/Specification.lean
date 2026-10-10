@@ -45,8 +45,8 @@ instance (d : Declaration.ToolchainObserved) (native : Array Name) :
     Decidable (KnownDependencies d native) := by
   unfold KnownDependencies; infer_instance
 
-/-- Authored unsafe/partial code is refused; the data-level exception is the inventory-validated
-recursion helpers. The public theorem substitutes authenticated roles. -/
+/-- Authored unsafe/partial code is refused; the data-level exception is an inventory-validated
+recursion helper. The public theorem substitutes authenticated roles. -/
 def SafetyOK (d : Declaration.KernelChecked) (helpers : Array Name) : Prop :=
   (d.isUnsafe = false ∧ d.isPartial = false) ∨ d.name ∈ helpers
 instance (d : Declaration.KernelChecked) (helpers : Array Name) :
