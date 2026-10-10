@@ -442,11 +442,14 @@ private def structuralProject (manifest : Manifest) (ws : _root_.Lake.Workspace)
 
 /-- Immutable Lake-derived coordinates, acquired before fixture imports can
 register additional environment extensions. Scratch controls reanchor the
-relative directory without loading cold Lake configurations in this process. -/
+relative directories without loading cold Lake configurations in this process. -/
 private structure SourceLayout where
   relativeDir : FilePath
   /-- The structural project derived from the repository (`structuralProject`). -/
   project : StructuralProject
+  /-- Where Lake puts the root package's module artifacts, relative to the package directory:
+  its `leanLibDir` and its `irDir` (`seedModuleArtifacts`). -/
+  artifactDirs : Array FilePath
 
 private def loadSourceLayout (repo : FilePath) : IO SourceLayout := do
   let manifestPath := Manifest.defaultPath repo
@@ -457,7 +460,15 @@ private def loadSourceLayout (repo : FilePath) : IO SourceLayout := do
     if relativeDir.isAbsolute || relativeDir.components.contains ".." then
       throw <| IO.userError
         "self-test: package source directory must stay inside the copied repository"
-    return { relativeDir, project := ← structuralProject manifest ws }
+    let root := ws.root.dir.normalize.components
+    let artifactDirs ← #[ws.root.leanLibDir, ws.root.irDir].mapM fun place => do
+      let components := place.normalize.components
+      let relative := components.drop root.length
+      unless root.isPrefixOf components && !relative.isEmpty && !relative.contains ".." do
+        throw <| IO.userError
+          s!"self-test: the build directory {place} must stay inside the copied repository"
+      return System.mkFilePath relative
+    return { relativeDir, project := ← structuralProject manifest ws, artifactDirs }
 
 private inductive ConstructorIndexProbe where
   | first
@@ -1658,25 +1669,22 @@ private def prepareSelfHosted (repo copy : FilePath) : IO Unit := do
 
 /-- Copy the module artifacts of the repository's build, the directories Lake gives its root
 package for `.olean` and `.ilean` files (`leanLibDir`) and for compiler output (`irDir`) with
-their traces, to the same places below `copy`, byte for byte. The copy's Lake configuration is
-the repository's, so these are the places Lake reads there. Lake rebuilds a module whose saved
-trace does not match the hash of its inputs, which are content hashes and options, not paths, so
-a module of the copy that the repository's build made from the same sources is reused there and
-any other is built: the copied files decide only what is rebuilt, not what a build gives. This is
-a reading of Lake's module build, not a theorem. -/
-private def seedModuleArtifacts (repo copy : FilePath) : IO Unit := do
-  let root := (← IO.FS.realPath repo).normalize.components
-  let places ← Workspace.withRootWorkspace repo (resolveDependencies := false) fun ws =>
-    pure #[ws.root.leanLibDir, ws.root.irDir]
-  for place in places do
-    let components := place.normalize.components
-    unless root.isPrefixOf components do
-      throw <| IO.userError s!"self-test: the build directory {place} is not below {repo}"
+their traces (`SourceLayout.artifactDirs`, read once at startup), to the same places below
+`copy`, byte for byte. The copy's Lake configuration is the repository's, so these are the
+places Lake reads there. Lake rebuilds a module whose saved trace does not match the hash of its
+inputs, which are content hashes and options, not paths, so a module of the copy that the
+repository's build made from the same sources is reused there and any other is built: the
+copied files decide only what is rebuilt, not what a build gives. This is a reading of Lake's
+module build, not a theorem. -/
+private def seedModuleArtifacts (layout : SourceLayout) (repo copy : FilePath) : IO Unit := do
+  for relative in layout.artifactDirs do
+    let place := repo / relative
     unless ← place.isDir do continue
+    let base := place.normalize.components
     for path in ← place.walkDir do
       if ← path.isDir then continue
-      let relative := path.normalize.components.drop root.length
-      let destination := relative.foldl (· / FilePath.mk ·) copy
+      let destination :=
+        (path.normalize.components.drop base.length).foldl (· / FilePath.mk ·) (copy / relative)
       if let some parent := destination.parent then IO.FS.createDirAll parent
       IO.FS.writeBinFile destination (← IO.FS.readBinFile path)
 
@@ -1705,6 +1713,36 @@ private def freshInputDifference (before after : Array (String × Option ByteArr
     | some (b, a) => if b.1 == a.1 then b.1 else s!"{b.1} / {a.1}"
     | none => s!"{before.size} entries before, {after.size} after"
 
+/-- The shard of the two self-hosted clusters and of the comparison of their fresh inputs after
+the queue (`selfHostedIdentity`): one definition, so that the comparison runs in exactly the
+shard whose queue runs the two clusters. -/
+private def selfHostedShard : Shard := .first
+
+/-- The fresh inputs (`freshInput`) that the two self-hosted clusters record: that of the
+restored copy, which `structuralSelfHosted` records after its last restoration, and that of the
+positive's own copy, which `structuralSelfHostedPositive` records before its accepting gate runs
+on that copy. -/
+private structure SelfHostedInputs where
+  restored : IO.Ref (Option (Array (String × Option ByteArray)))
+  positive : IO.Ref (Option (Array (String × Option ByteArray)))
+
+private def SelfHostedInputs.new : IO SelfHostedInputs :=
+  return { restored := ← IO.mkRef none, positive := ← IO.mkRef none }
+
+/-- The comparison that replaces an accepting fresh gate on the restored copy, run after the
+queue has finished both self-hosted clusters: the restored copy's fresh input must be that of
+the copy the positive's accepting gate ran on, path by path and byte by byte. A cluster that
+stopped before it recorded its fresh input fails the comparison. -/
+private def selfHostedIdentity (inputs : SelfHostedInputs) : IO (Array String) := do
+  let (some restored, some positive) := (← inputs.restored.get, ← inputs.positive.get)
+    | return #["structural/self-hosted/restored: the restored copy's fresh input was not \
+        compared with that of the positive's copy, because a self-hosted cluster stopped \
+        before it recorded its own"]
+  return match freshInputDifference positive restored with
+    | none => #[]
+    | some difference => #[s!"structural/self-hosted/restored: the restored copy is not the \
+        copy the positive accepted, for a fresh gate; first difference: {difference}"]
+
 /-- Structural controls that need the checker's own package as the audited project: in
 a copy of the repository, the probe modules are exempt from the environment-level exclusion
 check (the force import always brings them in), and a claimed module importing the probe's
@@ -1714,10 +1752,10 @@ The copy claims `selfHostedManifestText`, so its gates build `RegulaPolicy` and 
 module scope too.
 
 On its own copy, the cluster runs the incremental gate on each of the three contaminations,
-each restored before the next, and then an accepting fresh gate on the restored copy, whose
-`.lake` still holds what the setup build and the incremental gates left. Before that gate, it
-checks the restored copy's fresh input (`freshInput`) path by path and byte by byte against
-that of a copy prepared anew (`prepareSelfHosted`), and any difference fails this cluster.
+each restored before the next, and then records the restored copy's fresh input (`freshInput`)
+in `inputs`. After the queue, `selfHostedIdentity` requires it to equal, path by path and byte
+by byte, the fresh input of the copy on which `structuralSelfHostedPositive` ran its accepting
+fresh gate, and any difference fails the shard. No fresh gate runs in this cluster.
 
 The copy's build directory starts with the module artifacts of the repository's build
 (`seedModuleArtifacts`), so the setup build and the contamination gates build only what that
@@ -1733,24 +1771,22 @@ the hash of that module's inputs in the copy, the bytes of its source among them
 `.olean` records the imports of the copy's own source and lies where the copy's build puts it,
 and the contaminated root is built from its contaminated source whatever the seed holds. Each
 gate therefore sees the graph it sees without the seed. That is a reading of Lake's
-module build and of `withProbeSearch`, not a theorem. The fresh gates read none of the seed:
-`copyProject` prunes `.lake`, so the restored gate still builds its copy from empty output.
+module build and of `withProbeSearch`, not a theorem.
 
-No fresh gate precedes the mutations here. The cluster is a serial chain, and a fresh gate on
-a self-hosted copy builds and inspects `RegulaPolicy` from empty output, the chain's longest
-step, so the chain holds only the fresh gate that has to follow the restorations. The accepting
-fresh gate on the copy as prepared is `structuralSelfHostedPositive`, a cluster of its own in
-this shard, which the queue runs beside this one; neither accepting gate depends on the other
-shard. That cluster's copy is another one prepared the same way, not this cluster's: nothing
-compares the two, and that `prepareSelfHosted` gives both the same content is a reading of its
-code, not a theorem. That equal fresh input gives the same gate run, so that the restored gate
-here audits what a copy prepared anew gives, rests on a fact that is not a theorem either: a
-fresh gate reads the audited project only through its copy operation (`copyProject`, which
-prunes the project's `.lake`), and builds that copy from empty output; without `--with-docs`,
-as here, it reads no other file of the project, and the packages directory it links is the
-repository's for every copy. `freshInput` is that operation's output. -/
-private unsafe def structuralSelfHosted (layout : SourceLayout) (repo copy : FilePath) : IO
-    (Array String) := do
+The identity stands for an accepting fresh gate on the restored copy, which this cluster ran
+before as the last step of its serial chain. What it establishes is a run-time fact: the
+restorations left the copy with exactly the input that a fresh gate copies from the positive's
+copy, the input that gate accepted. That a fresh gate on the restored copy would then accept
+too rests on a fact that is not a theorem: a fresh gate reads the audited project only through
+its copy operation (`copyProject`, which prunes the project's `.lake`, so the incremental gates'
+build output and the seed here are not read), and builds that copy from empty output; without
+`--with-docs`, as here, it reads no other file of the project, and the packages directory it
+links is the repository's for every copy. `freshInput` is that operation's output. The restored
+fresh gates of the structural project's clusters (`structuralPartA` and the others) run that
+same path on a project whose `.lake` holds the build output of incremental contamination gates.
+Dropping the gate here was the operator's decision (#305). -/
+private unsafe def structuralSelfHosted (layout : SourceLayout) (repo copy : FilePath)
+    (inputs : SelfHostedInputs) : IO (Array String) := do
   let failures ← IO.mkRef (#[] : Array String)
   let gate (label : String) (args : Array String := #["--incremental"]) := do
     timedPhase s!"structural/self-hosted/{label}" do
@@ -1770,26 +1806,21 @@ private unsafe def structuralSelfHosted (layout : SourceLayout) (repo copy : Fil
         failures.modify (·.push failure)
   let some parent := copy.parent
     | throw <| IO.userError s!"self-test: the self-hosted copy {copy} has no parent directory"
-  let prepared := parent / "self-hosted-prepared"
-  prepareSelfHosted repo prepared
-  let before ← freshInput prepared (parent / "self-hosted-input-prepared")
-  let after ← freshInput copy (parent / "self-hosted-input-restored")
-  if let some difference := freshInputDifference before after then
-    failures.modify (·.push s!"structural/self-hosted/restored: the restored copy is not the \
-      prepared one for a fresh gate; first difference: {difference}")
-  let restored ← gate "restored" #[]
-  if !restored.succeeded then
-    failures.modify (·.push
-      s!"structural/self-hosted/restored: final fresh gate failed:\n{restored.output}")
+  inputs.restored.set (some (← freshInput copy (parent / "self-hosted-input-restored")))
   failures.get
 
 /-- The positive beside `structuralSelfHosted`, a cluster of its own in the same shard: the
 fresh gate accepts the self-hosted copy as prepared (`prepareSelfHosted`), with no setup build
-and no mutation. It is not a gate on the copy `structuralSelfHosted` mutates and restores;
-that cluster runs its own accepting fresh gate after the restorations, and checks the restored
-copy's fresh input equal to that of a copy prepared this way. -/
-private unsafe def structuralSelfHostedPositive (repo copy : FilePath) : IO (Array String) := do
+and no mutation. Before that gate runs, it records the copy's fresh input in `inputs`, which
+`selfHostedIdentity` compares with the restored copy's after the queue. Nothing writes outside
+the copy's `.lake` between that record and the gate's own copy operation; that is a reading of
+this code and of the gate, not a theorem. -/
+private unsafe def structuralSelfHostedPositive (repo copy : FilePath)
+    (inputs : SelfHostedInputs) : IO (Array String) := do
   prepareSelfHosted repo copy
+  let some parent := copy.parent
+    | throw <| IO.userError s!"self-test: the self-hosted copy {copy} has no parent directory"
+  inputs.positive.set (some (← freshInput copy (parent / "self-hosted-input-positive")))
   let accepted ← runBinaryFrom repo copy "axiomGate" #[]
   if accepted.succeeded then return #[]
   return #[s!"structural/self-hosted/positive: fresh gate failed:\n{accepted.output}"]
@@ -2502,29 +2533,33 @@ private def qualifyItems (label : String) (jobs : Nat)
 
 /-- The structural mutation clusters, each in its own isolated project, so no two concurrent
 Lake builds ever write one build directory, and each with its shard. Each cluster's project is
-the structural project; the two self-hosted clusters' are copies of the repository, each of
-whose gates builds `RegulaPolicy`. Both are in the first shard, so its queue runs the accepting
-fresh gate on the copy as prepared beside the contamination gates, not ahead of them in their
-serial chain (`structuralSelfHosted`). They are the first shard's only clusters: the four
-clusters in the structural project are the second's, so none of them takes processors from the
-self-hosted chain, the first shard's longest item. The longest observed clusters are first. -/
-private unsafe def structuralClusters (layout : SourceLayout) (repo scratch : FilePath) :
-    List (Shard × String × IO (Array String)) :=
-  [(.first, cluster repo scratch "self-hosted"
-      (fun copy => do prepareSelfHosted repo copy; seedModuleArtifacts repo copy)
-      (applicationTargets layout) (structuralSelfHosted layout)),
-    (.first, "self-hosted-positive",
-      structuralSelfHostedPositive repo (scratch / "copy-self-hosted-positive")),
+the structural project; the two self-hosted clusters' are copies of the repository. Both are in
+`selfHostedShard`, whose queue runs the accepting fresh gate on the copy as prepared beside the
+contamination gates of `structuralSelfHosted`, and both record their fresh inputs in `inputs`
+for `selfHostedIdentity`, which the caller runs after the queue. They are the first shard's only
+clusters: the four clusters in the structural project are the second's, so none of them takes
+processors from the self-hosted clusters. The longest observed clusters are first. -/
+private unsafe def structuralClusters (layout : SourceLayout) (repo scratch : FilePath)
+    (inputs : SelfHostedInputs) : List (Shard × String × IO (Array String)) :=
+  [(selfHostedShard, "self-hosted-positive",
+      structuralSelfHostedPositive repo (scratch / "copy-self-hosted-positive") inputs),
+    (selfHostedShard, cluster repo scratch "self-hosted"
+      (fun copy => do prepareSelfHosted repo copy; seedModuleArtifacts layout repo copy)
+      (applicationTargets layout) (structuralSelfHosted layout · · inputs)),
     (.second, projectCluster layout repo scratch "a" (structuralPartA layout)),
     (.second, projectCluster layout repo scratch "d" (structuralPartD layout)),
     (.second, projectCluster layout repo scratch "c" (structuralPartC layout)),
     (.second, projectCluster layout repo scratch "b" (structuralPartB layout))]
 
-/-- Structural qualification: the mutation clusters (`structuralClusters`) on `jobs` workers. -/
+/-- Structural qualification: the mutation clusters (`structuralClusters`) on `jobs` workers,
+then the comparison of the self-hosted fresh inputs (`selfHostedIdentity`). -/
 private unsafe def structuralQualification (layout : SourceLayout) (repo scratch : FilePath)
     (jobs : Nat)
-    : IO (Array String) :=
-  qualifyItems "structural" jobs ((structuralClusters layout repo scratch).map (·.2)).toArray
+    : IO (Array String) := do
+  let inputs ← SelfHostedInputs.new
+  let clusters ← qualifyItems "structural" jobs
+    ((structuralClusters layout repo scratch inputs).map (·.2)).toArray
+  return clusters ++ (← selfHostedIdentity inputs)
 
 /-- Execution qualification: the correspondence controls, in two clusters whose projects are
 the structural project, and the compiler-path cases, each phase of each case in a scratch
@@ -3174,25 +3209,34 @@ library cycle control, the driver copy control and the manifest controls share o
 clusters and take the
 workers the first clusters free, instead of competing with the first clusters for the
 processors. Each control has its shard; with `shard`, only that shard's controls run, and only
-the groups it ran report. -/
+the groups it ran report. After the queue, the shard of the self-hosted clusters
+(`selfHostedShard`) compares their fresh inputs (`selfHostedIdentity`). -/
 private unsafe def runStructural (layout : SourceLayout) (repo : FilePath) (jobs : Nat)
     (shard : Option Shard) (failures : IO.Ref (Array String)) : IO Unit := do
   -- Every result carries its group, so none is found by its position in the queue.
   let results ← timedPhase "structural controls" <|
     withScratch repo "checker-structural" fun scratch =>
       withScratch repo "checker-manifest" fun manifests => do
+        let inputs ← SelfHostedInputs.new
         let controls : List (Shard × StructuralGroup × String × IO (Array String)) :=
           [(Shard.first, StructuralGroup.frozen, "frozen artifact controls",
               withScratch repo "checker-frozen-artifacts" frozenArtifactControls)] ++
-          (structuralClusters layout repo scratch).map (fun (assigned, name, run) =>
+          (structuralClusters layout repo scratch inputs).map (fun (assigned, name, run) =>
             (assigned, StructuralGroup.clusters, s!"structural {name}", run)) ++
           [(Shard.second, StructuralGroup.cycle, "library cycle control", libraryCycleControl repo),
             (Shard.second, StructuralGroup.driverCopy, "driver copy control",
               driverCopyControl repo),
             (Shard.second, StructuralGroup.manifest, "manifest controls",
               manifestQualification repo manifests)]
-        mapWorkQueue (max 1 jobs) ((inShard shard controls).map (·.2)).toArray
+        let mut results ← mapWorkQueue (max 1 jobs) ((inShard shard controls).map (·.2)).toArray
           fun (group, label, run) => do return (group, label, ← timedPhase label run)
+        -- The queue has finished, so both self-hosted clusters have recorded their inputs.
+        let afterQueue : List (Shard × StructuralGroup × String × IO (Array String)) :=
+          [(selfHostedShard, StructuralGroup.clusters, "structural self-hosted identity",
+            selfHostedIdentity inputs)]
+        for (group, label, run) in (inShard shard afterQueue).map (·.2) do
+          results := results.push (group, label, ← timedPhase label run)
+        return results
   let ran (group : StructuralGroup) : Bool := results.any (·.1 == group)
   let failuresOf (group : StructuralGroup) : Array String :=
     (results.filter (·.1 == group)).foldl (· ++ ·.2.2) #[]

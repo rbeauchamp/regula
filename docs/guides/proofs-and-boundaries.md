@@ -3682,22 +3682,25 @@ outside the toolchain is a `RegulaPolicy` module or one of
 `RegulaPolicy.infrastructureModuleNames` (the command beside `probeModuleNames`, whose docstring
 states what it does not see). The controls are two clusters, both in the first shard, whose
 queue runs them beside one another.
-`structuralSelfHosted` builds the copy and runs the incremental gate on each of the three
-contaminations, restoring each before the next. It then checks the restored copy's fresh input
-against that of a copy prepared anew, and runs an accepting fresh gate on the restored copy
-itself, whose `.lake` still holds what the setup build and the incremental gates left.
-`freshInput` takes what the gate's copy operation copies from each of the two copies, and any
-differing path or byte fails the cluster. `structuralSelfHostedPositive` runs the accepting
-fresh gate on another copy prepared the same way (`prepareSelfHosted`), with no setup build and
-no mutation: it is the accepting gate on the unmutated copy, outside the first cluster's serial
-chain. Neither accepting gate depends on the other shard. Nothing compares the positive's copy
-with the first cluster's; that `prepareSelfHosted` gives both the same content is a reading of
-its code, not a theorem. That equal fresh input gives the same gate run, so that the restored
-gate audits what a copy prepared anew gives, rests on a fact that is not a theorem either: a
-fresh gate reads the audited project only through `copyProject`, which prunes the project's
-`.lake`, and builds that copy from empty output; without `--with-docs`, as here, it reads no
-other file of the project, and the packages directory it links is the repository's for every
-copy.
+
+`structuralSelfHosted` builds its copy and runs the incremental gate on each of the three
+contaminations. It restores each contamination before the next. Then it records the fresh input
+of the restored copy with `freshInput`: the files that the copy operation of a fresh gate copies
+from it. `structuralSelfHostedPositive` prepares a different copy with `prepareSelfHosted`,
+records its fresh input and then runs the accepting fresh gate on that copy.
+
+After the queue of the first shard stops, `selfHostedIdentity` compares the two fresh inputs
+path by path and byte by byte. A difference fails the shard. This comparison takes the place of
+an accepting fresh gate on the restored copy. It shows that the restorations gave the copy the
+same fresh input as the copy that the positive gate accepted.
+
+The comparison does not prove that a fresh gate accepts the restored copy. That result also
+rests on a fact that is not a theorem. A fresh gate reads the audited project only through
+`copyProject` and builds that copy from empty output. `copyProject` does not copy `.lake`, so
+the gate does not read the output of the setup build, of the seed or of the incremental gates.
+Without `--with-docs`, as here, the gate reads no other file of the project, and it links the
+packages directory of the repository for each copy. The restored fresh gates of the clusters in
+the structural project run the same path on a project with such output in its `.lake`.
 
 The copy of the first cluster starts with the module artifacts of the build of the repository
 (`seedModuleArtifacts`). Thus its contamination gates do not build `RegulaPolicy` and the probe
@@ -3713,15 +3716,14 @@ the module build of Lake, not a theorem. The fresh gates do not read the seed, b
 `copyProject` does not copy `.lake`.
 
 A fresh gate on a self-hosted copy builds and inspects `RegulaPolicy` from empty output, and
-the first cluster is a serial chain, the first shard's longest item, so each fresh gate in it
-adds its whole duration to that shard. With an accepting fresh gate before the mutations and
+the first cluster is a serial chain, which was the first shard's longest item, so each fresh gate
+in it added its whole duration to that shard. With an accepting fresh gate before the mutations and
 another after their restoration both in that chain, in one instrumented local run (2026-10-03,
 14 cores) those two gates took 47 s and 43 s of the cluster's 117 s and the three contamination
 gates 23 s, and on the slower hosted runners the cluster took 262 to 266 s beside 100 to 108 s
 for cluster `a`, so that the shard's timed step took 394 to 414 s and once reached its
 420-second deadline. The
-gate on the unmutated copy therefore runs as the positive cluster, beside the chain; the gate
-on the restored copy has to follow the contamination gates and stays in it; and the four
+gate on the unmutated copy therefore runs as the positive cluster, beside the chain, and the four
 clusters in the structural project (`a`, `b`, `c` and `d`) run in the second shard, which no
 longer holds the positive. With cluster `a` still in the first shard, beside the chain and the
 positive, that shard's timed step took 354 s and 362 s on the slower hosted runners
@@ -3733,6 +3735,11 @@ That step includes the build of the self-test and its checker executables: on th
 hosted runners (Diagnostics runs 37170060453 and 37171425583, both shards), 147 to 157 s of it
 had passed when the first control started. That is a target, not a bound, and the timings above
 are observations: the deadline alone refuses a run.
+
+On the slower hosted runners, the timed step of the first shard took 397 s at commit `e6c4c996`,
+with 242 s for the chain. With the seed, Diagnostics run 37979063520 took 361 s, with 198 s for
+the chain and 156 s for its restored fresh gate. The chain now holds no fresh gate, so the
+positive is the longest item of the first shard.
 
 Each partition's baseline build names what its controls read from the repository's own build
 (`Partition.baseline`, and `baselineOf` for a shard). The gates of these two partitions run in
