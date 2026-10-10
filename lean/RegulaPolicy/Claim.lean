@@ -265,6 +265,9 @@ structure SurfaceAssignment where
   profile : ConformingProfile
   /-- The execution claim for the target. -/
   execution : ExecutionClaim
+  /-- The claimed surfaces, by their targets, whose registered decisions the recorded
+  contracts of this surface's declarations count toward (the manifest's `decides`). -/
+  decides : Array String := #[]
   deriving Repr, DecidableEq
 
 /-- The surface's modules: its library's modules other than its executables' roots, then

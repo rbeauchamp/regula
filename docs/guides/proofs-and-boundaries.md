@@ -607,7 +607,7 @@ interfaces do not imply a library-wide exemption.
 | Least foundation | `leastFoundation_spec`, `leastFoundation_ext`, `foundationFor_least` | Every axiom set within Standard-Logical gets its least containing profile, invariant under order and duplicates. The actual public classifier (`foundationFor` with inventory-bound roles) uses this same result. Not the weakest possible proof of the proposition. |
 | Classification | `foundationFor_iff`, `declarationFailure_iff`, `policyFor_ordered`, `OrderedDecision.unique` | Each of the six foundation classes (three labels, hole, unknown axiom, compiler-trusting) has its exact meaning; a declaration's diagnostic is its first failed requirement (invalid membership, owned axiom, hole, unknown, escape hatch, compiler trust, contract failure, profile excess, missing decision contract). For an axiom set outside Standard-Logical, classification keeps the diagnostic precedence hole, then unknown axiom, then compiler-trusting. Renderer strings are not proved. |
 | Declaration policy | `policyFor_none_iff`, `policyFor_conforming_iff` | Success is inventory membership plus the independent requirements; teaching never relaxes a conforming profile. A conforming request requires its permitted foundation, safety relation and recorded contract obligations, and the decision requirement of the next row. |
-| Decision requirement | `DecisionOK`, `DecisionRegistered`, `decisionFailure_none_iff`, `decidedImplementations_iff`, `Roles.decided_iff`, `policyFor_decisionContract_iff`, `declarationFailure_ne_decisionContract` | A declaration recorded as registered with `@[regula_decision]` whose result type is not `Decidable _` must be the implementation of a recorded contract of the same inventory that states a decision kind and was not refused. `policyFor` reports the decision failure exactly for an inventory member that meets every requirement of its own record, is so recorded, and has no such contract; no other requirement reports that failure, and it is decided last (`policyFor_ordered`). No other recorded field enters the requirement, so the generated-from relation the collector records for a finding's location, which a project can write, does not waive it. The registration, the result type and each contract record are observations. That every checker is registered is not checked. |
+| Decision requirement | `DecisionOK`, `DecisionRegistered`, `decisionFailure_none_iff`, `decidedImplementations_iff`, `Roles.decided_iff`, `Inventory.decisionContracts_iff`, `policyFor_decisionContract_iff`, `census_decided_iff`, `census_decided_iff_of_unrelated`, `accepted_counted_judgment`, `declarationFailure_ne_decisionContract` | A declaration recorded as registered with `@[regula_decision]` whose result type is not `Decidable _` must be the implementation of a recorded contract that the inventory counts. That contract states a decision kind and was not refused. The inventory counts its own recorded contracts. In a project census it also counts the records of each surface that names its surface in `decides` (`census_decided_iff`). It counts a record only for a function in a module of its surface that the other environment loaded with the same origin. Each counted registration met its own requirements in an accepted run (`accepted_counted_judgment`). If no surface names its surface, the inventory reads its own contracts only (`census_decided_iff_of_unrelated`). `policyFor` reports the decision failure exactly for an inventory member that meets every requirement of its own record, is so recorded, and has no such contract; no other requirement reports that failure, and it is decided last (`policyFor_ordered`). No other recorded field enters the requirement, so the generated-from relation the collector records for a finding's location, which a project can write, does not waive it. The registration, the result type and each contract record are observations. That every checker is registered is not checked. |
 | Roles | `NativeTeachingOK`, `RecursiveHelperOK`, the two authorization `_iff` theorems, `authorizedUnsafeRecHelpers_base`, `Roles.safetyHelpers_iff` | Each name has its full relation in this inventory. `RecursiveHelperOK` reads no transcript: it requires the recorded observation (`unsafeRecRegenerated`: the regeneration, and the kernel's check of the base's recursion equation), exact metadata, a safe base with the same module/type and Standard-Logical axioms, and the exact group mapping. `authorizedUnsafeRecHelpers_base` states a narrower part of that for every authorized helper: the recorded observation, and a base that is an inventory definition of the same module and type, neither `partial` nor `unsafe`, with axioms within Standard-Logical. `Roles.safetyHelpers_iff` states that a name is a safety helper exactly when that full relation holds for it; no constructor-index wrapper is one. Native roles retain the three §7.5 conditions. `Roles.partialParent_not_safetyHelper` excludes a `partial def`'s helper from the safety exception. The observations are inputs; these predicates do not prove them truthful. |
 | Native axiom names | `nativeAxiomOrigin?_sound`, `nativeAxiomOrigin?_nativeAxiomName`, `nativeAxiomOrigin?_isSome_iff`, `compilerTrustingAxiomName_sound`, `compilerTrustingAxiomName_iff`, `modulePrivacy_nativeAxiomName`, `generatedPrefix_iff`, `native_generated`, `native_compilerTrustingAxiomName`, `native_provenance` | A name is recognized exactly when it is `nativeAxiomName parent t idxs`, Lean's own `Name.append` and `appendIndexAfter` as `nativeEqTrue` and `DeclNameGenerator.mkUniqueName` apply them, for `native_decide`, `decide +native` or `bv_decide`, with or without module privacy. `compilerTrustingAxiomName`, the execution probe's classification, holds exactly for these names and the enabled legacy compiler axioms. The prefix is nonanonymous without macro scopes and the generator indices are a nonempty list of positive numbers. For a declaration name without macro scopes in a module without macro scopes, a recognized prefix related to it by `GeneratedPrefix` (the name itself, or its `mkPrivateNameCore` form when it is public) gives exactly the names `DeclNameGenerator.mkUniqueName.curr` gives its native axioms, whether or not the module elaborates the proof without exporting (`modulePrivacy`). The recognition direction and that characterization assume `RuntimeStringAppend`, because `appendIndexAfter` uses the logically opaque extern `String.Internal.append`. The three tactic names and the list of `nativeEqTrue` call sites are cited from the pinned sources, not derived; hygienic and anonymous prefixes are not recognized. |
 | Execution policy | `executionFailureRecords_empty_iff`, `boundaryFailures_empty_iff`, `boundaryFailures_ids`, `rootFailures_ids`, `boundaryFailures_toolchain`, `project_boundary_reported`, `checked_toolchainBase` | No failure exactly when there is no unresolved path and every boundary meets its mode's relation; the failure kind of every boundary and path for every claim. A toolchain-owned boundary never fails; every boundary without an admitted toolchain origin or checked evidence has its own failure record, in every root whose account contains it, under a checked claim; the audit's toolchain trusted base has each toolchain-owned boundary (constant and kind) of every labeled environment account in exactly one entry, which lists exactly the environments and roots that reach it. |
@@ -640,7 +640,7 @@ use that takes a narrower part. What takes which part:
 | `KnownDependencies`, `CompilerPolicyOK`, `ProfileOK` | `Declaration.ToolchainObserved` | Toolchain observations alone (`axioms`). |
 | `FoundationOK` | `Declaration.Inspected` | Kernel-checked data and toolchain observations (`kind`, `axioms`). |
 | `ContractOK`, `SharedTestOK`, `sharedTestFailure` | The recorded contract (`RecordedContract`) | The recorded contract alone: its refusals, which a project-written mark can decide, and the names of its shared tests. |
-| `DecisionRegistered`, `decidedImplementations` | The recorded contracts of an inventory (`recordedContracts`) | The recorded contracts alone: the kind, the refusals and the implementation of each. |
+| `DecisionRegistered`, `decidedImplementations` | The recorded contracts an inventory counts (`Inventory.decisionContracts`: its own `recordedContracts`, then `Inventory.counted`) | The recorded contracts alone: the kind, the refusals and the implementation of each. |
 | `Erasure.reproduces` ([below](#the-recursion-helper-comparison-decision-and-observing-pass)) | No record: two values, `Erasure.Observations` and whether the pass finished | Toolchain observations of the terms of the two values, and the pass's report of its own run. |
 | `NativeStatement.recognize?` ([below](#the-native-axiom-statement-decision-and-observing-pass)) | No record: a `NativeStatement.Candidate` | The tactic and the prefix that `nativeAxiomOrigin?` reads from the name, and the kernel-checked type. |
 | `declarationFailure`, `DeclarationOK`, `declarationRequirements` and their theorems | `Declaration.Assessed` | The inspected part and the recorded contract: they join the relations above, so through `ContractOK` and `SharedTestOK` they read the recorded contract. |
@@ -658,27 +658,46 @@ source left kernel checking on, and the transcript does not replay it. The nativ
 and `validCoordinates` take the observed parts alone, and admission and the coordinate check read
 the source text only for comparison.
 
-**Limits.** The parts classify the source of a value but do not make an observation truthful.
-That `Collect.declaration` and `Frontend.buildCore` fill each field from the source its part names
-is by inspection of those functions, not proved. State a project writes can still enter a toolchain
-observation, and the docstring of each such field says how: `isProp` is Lean's answer, which does
-not unfold an irreducible definition; `prettyType` is Lean's printer, which uses the notations in
-force; `nativeReplay` runs compiled code; and what a project writes selects which regeneration
-`unsafeRecRegenerated` reports, while the pure comparison and the kernel decide it. The two
-observations of the checker that a project-written mark decides are fields of
-`Declaration.ProjectWritten` for that reason. `executableContract` reads Lean's `noncomputable`
-mark for one refusal. `tableOmissions` compares the axioms of Lean's module table, which a
-project can write, with the axioms that the replayed kernel gives. The decisions of [RG1007]
+**Execution records.** Authored marks and traversal through project-written edges decide which
+execution records exist. In a record, a field is observed where the environment fixes its value for
+the constant the record is made at. That holds for the module of a name and the constant and module
+of a boundary, root or visit. A boundary's ownership is its module's membership in the claim's owned
+modules: the environment's module and the claim fix it, and no mark decides it. A field that the
+data of a mark enters is project-written, as a boundary's kind and replacement.
+
+A visit's parent, the closure's other fields and a boundary's position are computed by the walk on
+the combined record. `ExecutionWalk.assemble` also takes `rootCompiled`, the root's compiled-code
+requirement. When it holds, the root is required code, and missing code of the root is reported as
+unavailable. The root's marks and tags enter it, so it is project-written. The `ExecutionClosure`
+docstring lists each condition.
+
+A candidate boundary comes from a constant of an equality type, registered with `@[csimp]` or not.
+The two sides are constants with the same list of distinct universe parameters. An attribute such as
+`@[simp]` can make Lean generate such a constant, an equation lemma. The walk follows each recorded
+historical replacement conservatively, including one that the compiled code no longer runs. The
+[RG3001] and [RG3002] decisions read the two parts.
+
+**Limits.** The parts classify the source of a value but do not make an observation truthful. That
+`Collect.declaration`, `Frontend.buildCore`, `Probe.observeNode` and `Probe.environmentReport` fill
+each field from the source its part names is by inspection of those functions, not proved. State a
+project writes can still enter a toolchain observation, and the docstring of each such field says
+how: `isProp` is Lean's answer, which does not unfold an irreducible definition; `prettyType` is
+Lean's printer, which uses the notations in force; `nativeReplay` runs compiled code; and what a
+project writes selects which regeneration `unsafeRecRegenerated` reports, while the pure comparison
+and the kernel decide it. The two observations of the checker that a project-written mark decides
+are fields of `Declaration.ProjectWritten` for that reason. `executableContract` reads Lean's
+`noncomputable` mark for one refusal. `tableOmissions` compares the axioms of Lean's module table,
+which a project can write, with the axioms that the replayed kernel gives. The decisions of [RG1007]
 and [RG1009] take the recorded contract and no other field, so they read the `noncomputable` mark
 only through it. The decision requirement of [RG1008] takes the name and the registration alone
-(`Declaration.Registration`). The role validators take the role part (`Declaration.Role`):
-the inspected part and the three marks that they read. The declaration decision and the
-operational decision take the assessed part (`Declaration.Assessed`): the inspected part and the
-recorded contract. `policyFor`, `memberFailure` and the editor decision take the whole
-`Declaration` because membership of the inventory is a property of the whole record. `policyFor`
-checks it at the admission boundary `recordFailure`, and the other two take a proof of it.
-`policyFor`, `memberFailure` and `policyRequirements` join the assessed part and the registration
-part. The editor decision reads only the assessed part: it joins the declaration decision with
+(`Declaration.Registration`). The role validators take the role part (`Declaration.Role`): the
+inspected part and the three marks that they read. The declaration decision and the operational
+decision take the assessed part (`Declaration.Assessed`): the inspected part and the recorded
+contract. `policyFor`, `memberFailure` and the editor decision take the whole `Declaration` because
+membership of the inventory is a property of the whole record. `policyFor` checks it at the
+admission boundary `recordFailure`, and the other two take a proof of it. `policyFor`,
+`memberFailure` and `policyRequirements` join the assessed part and the registration part. The
+editor decision reads only the assessed part: it joins the declaration decision with
 `needsRoleEvidence`, which takes `Declaration.Inspected`.
 
 **No project-written mark admits.** The marks of the role part and the refusals of the recorded
@@ -751,7 +770,7 @@ the call through each success owner.
 | [RG1005] | `foundationFor_least`, `leastFoundation_ext`, `policyFor_conforming_iff` | The least containing profile of the observed axioms, not the least possible axioms for the proposition. The [deliberate changes](#changes-to-leans-environment-compiler-or-build) to Lean's environment, compiler or build are trusted boundaries. |
 | [RG1006] | The helper authorization `_iff` theorems, `Roles.safetyHelpers_iff`, `policyFor_conforming_iff`, `subject_contract`, `partialParent_rule`; for the comparison that records a recursion helper's observation, `Erasure.equalWithin_iff`, `Erasure.reproduces_iff` and the kind `Erasure.checked_reproduces` ([below](#the-recursion-helper-comparison-decision-and-observing-pass)) | Exact helper metadata, the recorded recursion-helper observation and the base's axioms are checked. A `partial def`'s helper always has a finding naming its opaque parent when that parent is in the inventory. A recursion helper's observation is recorded only where Lean's kernel checked, at that audit, the base's recursion equation for each helper of the group (`Collect.recursionEquationChecked`); that check is the collector's, not a theorem of the policy. The collector observations, the step from the recursion equation to the values the helper returns, compiled-code correspondence and execution coverage are not proved. A recursion helper's termination still trusts Lean's well-founded preprocessing (standard §7.4). No constructor-index wrapper is admitted. |
 | [RG1007] | `ContractOK` through `ruleFor`; `DecisionKind.ofStructureName?_eq_some_iff` (a head constant is read as a decision kind exactly when it is that kind's structure); `DecidedFunction.covers_iff` with `FieldPacking.covers_iff` (a decided function of a form that is read is accepted exactly when the kind's result type has no leading binder and, for a field application, the type has one constructor and no index and the arguments are its fields, each once and in order), with `Regula.Decides.of_packing` and its one-way forms (a kind on a packing that reaches every tuple of arguments is the kind of the function) and `Regula.Decides.iff_slice` (a kind with an argument left whose acceptance predicate reads the result at one fixed value of that argument is the kind of one slice). For the searches that guard each reduction and find a mention of the implementation: `MentionSearch.search_sound`, `search_complete` and the kind `MentionSearch.checked_search`. | Recorded contract failures are enforced; Probe's extraction of the proposition and root, the reduction that exposes a requirement's head constant, the reading of the decided function as the implementation on its arguments, on every field of one structure or on a product (`Function.uncurry`), or with its result erased (`Regula.Dependent.isSome`, `isOk`), the reading of each field from the kernel-checked definition of its projection and of the constructor and index counts from the kernel-checked inductive type, and of the number of leading binders of the kind's result type, which give `DecidedFunction.covers` its input, the two steps from those numbers to "every tuple of arguments is the fields of a value" and "no argument is left", which are argued and not machine-checked ([below](#decision-kinds-of-regulas-own-decisions)), the reading of the universe levels, what each record of the searches lists, that a constant with no record leads to no target, proof admission and adequacy are not proved by this relation. |
-| [RG1008] | `policyFor_decisionContract_iff`, `Roles.decided_iff`, `policyFor_ordered` through `ruleFor`; `decisionFailure_none_iff` for the self-audit's direct use; `editor_decision_ne_decisionContract` (the editor never renders it) | A registered decision without a `Decidable` result or an accepted decision contract in its inventory is reported, among the declarations that meet their other requirements. Reading the registrations of every loaded module and the result type by reduction (`Regula.decisionRegistrations`, `Collect.decisionResult?`, `returnsDecidable`) is the collector's, and so are each recorded contract and the refusal of a registration that names a declaration outside the inventory (`Collect.ownedDecisionRegistrations`). A result type the reduction does not unfold to `Decidable _` counts as another form, which fails closed. Which functions are registered, and each specification's adequacy, are review. |
+| [RG1008] | `policyFor_decisionContract_iff`, `Roles.decided_iff`, `policyFor_ordered` through `ruleFor`; `decisionFailure_none_iff` for the self-audit's direct use; `editor_decision_ne_decisionContract` (the editor never renders it) | The rule reports a registered decision without a `Decidable` result or an accepted decision contract that its inventory counts. It reports only declarations that meet their other requirements. The two environments of a counted contract must load the module of the function with the same origin (`census_decided_iff`), and the collector gives these origins. Reading the registrations of every loaded module and the result type by reduction (`Regula.decisionRegistrations`, `Collect.decisionResult?`, `returnsDecidable`) is the collector's, and so are each recorded contract and the refusal of a registration that names a declaration outside the inventory (`Collect.ownedDecisionRegistrations`). A result type the reduction does not unfold to `Decidable _` counts as another form, which fails closed. Which functions are registered, and each specification's adequacy, are review. |
 | [RG1009] | `sharedTestFailure_none_iff` with the kind `checked_sharedTestFailure`, `declarationFailure_ordered` through `ruleFor`, and `mem_sharedNames_booleans` with `SharedDefinition.class_eq_boolean_iff` for the recorded names. For what the search follows from the specification and the acceptance predicate: `StatementReading.reads_iff`, the kind `StatementReading.checked_reads`, `reading_some`, `read_subset_withTypes`, `through_input` and `no_shared_test` ([below](#the-reading-of-a-statement-decision-and-observing-pass)). | A decision registration is reported when its record names a shared function with a result of `Bool` or `BEq`. Its place is after the recorded refusals of its contract. The observing pass, the search of the implementation and the reading of each shared function (`Collect.sharedReading`, `Collect.sharedDefinition`) are the collector's and are not proved. That a test that only the declaration of the input type names is no part of a specification is an argument, not a theorem. The search compares names. A copy of a test under a second name passes. A shared function with a different result type is named in the account and is not refused. A file with a `module` header gives the editor an imported function with no exported value as an axiom. The editor reads its class from its type. It reports a reading that could miss a test below such a function as incomplete ([RG2005]). |
 | [RG2004] | `policyFor_ordered` (membership first), `CensusOK`, `PlanOK` | Complete Lake and environment ownership acquisition. |
 | [RG3001], [RG3002] | `executionFailureRecords_empty_iff`, `boundaryFailures_empty_iff`, `boundaryFailures_toolchain`, `project_boundary_reported`, `executionFindings_empty_iff`, `failure_reported`, `executionFindings_sound`, `checked_toolchainBase`. For the walk of a root, `ExecutionWalk.walk_sound`, `walk_complete`, `walk_nodup` and the kind `ExecutionWalk.checked_walk` ([below](#root-and-closure-discovery-decision-and-observing-pass)) | The theorems cover the supplied unresolved paths and boundaries and their supplied origins, and the visits of the walk over the records of the pass. They do not cover root discovery, the truth of a record or of the origin observation, or the toolchain's or external runtime code. They also do not cover the account that `ExecutionWalk.assemble` builds from the visits, or that the reader's walk (`SharedExecution.walkLoop`) gives the same visits and parents. The collector's record of the `partial` definition to which a constant is compiled is also not proved. The [deliberate changes](#changes-to-leans-environment-compiler-or-build) to Lean's environment, compiler or build are trusted boundaries. |
@@ -1092,6 +1111,25 @@ and the other registering it: the audit reports the function under [RG1008] whil
 decides it and accepts it, recorded as registered, with the contract. It runs both for plain
 files and for `module`s, where the registering module imports the declaring one privately, so
 Lean saves the registration with that module's private data.
+
+In a project audit a registration also counts the decision contracts of each claimed surface that
+names its surface in `decides`. Thus a library that imports only the toolchain and
+`Regula.Decision` can hold the function, and a library with a proof dependency can state its kind.
+In a file that is a `module`, that import can be `meta import Regula.Decision`, an
+elaboration-time import.
+
+The census binds the counted contracts of each inventory to the records of those environments in
+the same run. It counts a record only if the other environment loaded the module of the function
+with the same origin. `census_decided_iff` states the decided implementations over exactly those records.
+`accepted_counted_judgment` proves that each counted registration met its own requirements in its
+own environment of the accepted run.
+
+The relation is configuration, and the parser refuses one that names its own surface or no claimed
+surface (`Manifest.parse_relations`). The structural partition observes the decision in a project
+of two libraries. The first library marks a function, and only the second library has its
+contract. With the relation the audit accepts the function, and the account names the surface of
+the contract. Without the relation, or with the relation and with no contract, the audit reports
+it under [RG1008].
 
 `@[regula_decision]` is applied after compilation. Lean applies an
 attribute of the earlier application time to the `_unary` or `_mutual` definition it generates
@@ -3842,6 +3880,7 @@ not yet proved, and are labelled so at their definition; they are not correctnes
 | checkerSelftest structural | real manifests, missing file, unlisted modules, fresh-checker coverage, CLI refusal rendering, Lake discovery, executable classification | file IO, CLI rendering, Lake inventory | External | observed |
 | checkerSelftest structural | a lemma realized in a claimed module and the toolchain, in both import orders; unchecked, circular, `sorry` and kept-cycle copies of one name | Lean's realization, import, kept copy and kernel check of several copies of one name | External | observed; the copies are checked by `Admission.checkCopies` (`checkCopies_sound`) in the decision `admitReplay` (`admitReplay_eq_ok`), over the replayed constants of `replayMap` (`replayMap_sound`, `replayMap_complete`) |
 | checkerSelftest structural | a function declared in one claimed module and registered with `attribute [regula_decision]` in another, without and with its decision contract, as plain files and as `module`s | Lean's saving and loading of the registration, and the collector's reading of it | External | observed; the decision over the recorded declaration is `policyFor_decisionContract_iff` |
+| checkerSelftest structural | a function that one claimed library marks, with its only contract in a second library that imports it: with the manifest relation, without it, and with the relation and with no contract, each in a fresh project of its own | the manifest field, the freeze of the counted records and the account through the public gate | External | observed. The decided implementations over the census are `census_decided_iff`, and the parser refuses a relation to no claimed surface (`parse_relations`). |
 | checkerSelftest execution | each compiler-path mutation and correspondence control, with its positive and fresh restoration | compiler-derived execution coverage and correspondence evidence through the public gate; the emitted-C check of reachable code on the pin | External | observed |
 | checkerSelftest cli, environments, build-policy, lint-driver | CLI sweep, adopters, clean checkout, ordinary build, `lake lint` exit classes, its claimed build with and without the audit-build marker, cold compiler guard refusal of a failing and of a successful unidentified child process with its restored load, a forged correspondence theorem of an owned path dependency refused by replay and one of a dependency in a Git work tree of its own refused as evidence ([RG3002]) | packaging, Lake and build integration | External | observed |
 | ordinary | `qualify registry`, `qualify native` | CLI output invalidation, registry and site validators; compiler messages and ranges | External | observed |
@@ -4110,21 +4149,32 @@ controls run `axiomGate` on the repository with a manifest it refuses before any
 structural baseline is `axiomGate`, `docFenceAudit` and `freshChecker` (its first shard, whose
 controls run `axiomGate` alone, names only that; its second keeps the partition's baseline),
 the execution baseline is `axiomGate` alone, and neither builds the
-repository's claimed surface; the other partitions keep the complete baseline. That is a
-reading of the controls' code, not a theorem. Two guards bound it: after the baseline build,
+repository's claimed surface; the lint-driver baseline is `axiomGate` and `lint`, and the other
+partitions keep the complete baseline. That is a reading of the controls' code, not a theorem.
+For the structural and execution partitions, two guards bound it: after the baseline build,
 `toolPath` refuses an executable that build did not name (for every checker executable the
 self-test's own module runs, other than itself), and `baselineOf_axiomGate` proves that every
 baseline names `axiomGate`, which `CompilerPaths` and `PolicyQualification` run by its path. A
-claimed-surface `.olean` that a control read from the repository's build without the baseline
-naming it would be absent on a clean checkout and fail that control there; on a warm local
-build it is not detected. `scripts/verify.sh` builds the self-test, `axiomGate` and, for a
-structural selection, the other checker executables its baseline names (none for the first
-shard) in one Lake invocation
+claimed-surface `.olean` that a control of these two partitions read from the repository's build
+without the baseline naming it would be absent on a clean checkout and fail that control there;
+on a warm local build it is not detected. `scripts/verify.sh` builds the self-test, `axiomGate`
+and, for a structural or lint-driver selection, the other checker executables its baseline names
+(none for the first shard) in one Lake invocation
 (`RegulaVerification.commands`), so the gate's own modules compile beside the self-test's last
 ones instead of after its link; that command selects nothing, and the baseline build still
-names and builds its targets. The frozen-artifact, library cycle, driver copy and manifest
-controls run in the structural clusters' queue, so no more of them run at once than the queue
-has workers.
+names and builds its targets. The frozen-artifact, cross-surface decision, library cycle, driver
+copy and manifest controls run in the structural clusters' queue, so no more of them run at
+once than the queue has workers.
+
+The lint-driver controls run `lake lint` in adopters of their own, which require `regula` as a
+Lake path dependency of the checkout. The two guards and the clean-checkout argument above do not
+cover the modules that these adopters read from the repository's build. If the baseline did not
+build such a module, an adopter's Lake builds it there instead of a refusal, possibly in several
+concurrent groups. No guard detects that. Each module that the adopters import is one that
+`axiomGate` or `lint` imports, apart from `Regula.Linter` and `Regula.Linter.Rules`, by a reading
+of import lines. The control `toml/absent-worker` runs alone before the other controls, and it
+builds those two because its adopter's `examples/lake-lint-toml/Gadget/Double.lean` imports
+`Regula.Linter`.
 
 The controls of each of these two partitions are divided into two shards, `1/2` and `2/2`
 (`--shard`), which the diagnostics workflow runs as separate jobs. Every control carries its one
@@ -4132,10 +4182,10 @@ shard where the partition lists it, and a shard runs the controls that carry it 
 `inShard_cover` proves that the two selections together are a rearrangement of the whole list,
 so each control runs in exactly one shard. Both shards list the same controls because they run
 the same sources, which no theorem states. The structural shards are the mutation clusters
-`self-hosted` and `self-hosted-positive` with the frozen-artifact controls, and `a`, `b`, `c`
-and `d` with the library cycle, driver copy and manifest controls; the execution shards hold one
-correspondence cluster each and alternate compiler-path cases. A shard's PASS names the
-controls it ran and is not the partition's.
+`self-hosted` and `self-hosted-positive` with the frozen-artifact and cross-surface decision
+controls, and `a`, `b`, `c` and `d` with the library cycle, driver copy and manifest controls; the
+execution shards hold one correspondence cluster each and alternate compiler-path cases. A
+shard's PASS names the controls it ran and is not the partition's.
 
 Before the structural project, every cluster ran in a copy of the whole repository claiming
 `RegulaPolicy`, and one partition held the structural, correspondence and compiler-path
@@ -4151,6 +4201,78 @@ a bound: the deadline itself is what refuses a slower run. The `structural` run 
 partition's frozen-artifact and library-cycle controls (the admission reuse rows of the table
 above); with them, one run the same day on that machine, at a load average of 7 to 11, passed
 in 85 s.
+
+The lint-driver partition runs the control `toml/absent-worker` first and alone, because it
+removes the `axiomGate` of the repository's build. Then four workers run the other controls in
+groups, and each worker takes the next group when it is free (`LintQualification.qualify`). The
+groups are listed longest first, by the times below. Each group writes its start and its time to
+the job log. The path-dependency controls are one chain in one adopter, which the queue runs as
+three groups.
+
+Each of these three groups starts from the same files of the adopter. The chain is cut at the
+two points where it has restored each file that it changed. At these points, the files differ
+from the start only in build output and in one module that the next control writes again. Thus
+each control reads the files that it read in the chain. Only the first control of a later group
+that builds starts with no build output. In the chain, it started with the output of the
+controls before it.
+
+On the slower hosted runners, the timed step of `diagnostics lint-driver` reached its
+420-second deadline after the path-dependency and owned-checker controls were added
+(Diagnostics runs 38073121895, 38074694772 and 38077207189, jobs 114274540988, 114279196648 and
+114289264598). In these job logs, the prologue from the start of the deadline to the build took
+about 3.5 s. Then the build of the self-test took 160 to 169 s, the baseline build 42 to 46 s and
+`toml/absent-worker` 10 to 12 s. That baseline build also built the fixtures, the claimed
+surface, `docFenceAudit` and `freshChecker`, which no lint-driver control reads.
+
+From the end of `toml/absent-worker`, where the groups start, `lean` took 140 to 153 s and `toml`
+121 to 133 s. The group `owned-checker` took 84 to 93 s, and the part of the path chain that is
+now `path-owned` 85 to 93 s (up to `path/owned-standard-logical`). The deadline killed each run
+190 to 202 s after the groups started, while the path chain was still running. Its last complete
+control was `path/override-last-fresh` in run 38073121895 and `path/owned-override` in the other
+two. The groups `cache`, `empty-facets`, `dependency-cache`, `escaped-name` and `guard` did not
+start in these runs.
+
+Two faster runs passed under the old schedule (Diagnostics runs 38071832852 and 38077102864, jobs
+114270714472 and 114289843134). Their builds of the self-test took 110 and 135 s. There, `lean`
+took 105 and 118 s and the whole path chain 162 and 179 s. After the chain, in later batches,
+`cache` took 18.7 and 20.7 s and `empty-facets` 17.1 and 19.2 s. Also, `dependency-cache` took
+14.9 and 17.1 s, `escaped-name` 14.7 and 16.5 s and `guard` 3.1 and 3.5 s.
+
+The next numbers are derived, not logged. In the faster runs, the chain took 1.52 to 1.54 times
+as long as `lean`. With that ratio, the times of `lean` in the runs that reached the deadline give
+a chain of about 213 to 236 s. Thus `path-names` and `path-layout` share about 120 to 151 s. The
+time of `lean` in the runs that reached the deadline is 1.19 to 1.46 times that of the faster
+runs. Scaled by that factor, `cache` takes at most about 30 s, `empty-facets` 28 s,
+`dependency-cache` 25 s, `escaped-name` 24 s and `guard` 5 s.
+
+The order of the first four groups comes from the runs that reached the deadline. The order of
+the five short groups comes from the faster runs. The order of `path-names` and `path-layout`
+comes from local runs on a developer machine. In these local runs, `path-names` took a half to
+three fifths of the time of the two. No other source gives that division.
+
+No worker of the queue is idle while a group waits. Thus a group starts not later than a quarter
+of the summed times of the groups listed before it. It ends not later than that time plus its own
+time. The four groups listed first start together. No schedule of four workers ends before the
+longest group or before a quarter of the total time of the groups.
+
+With these inputs, the groups take about 640 to 727 s together. Thus the lower end is about 160
+to 182 s, more than the time of `lean`. At the upper inputs, each group listed after the three
+path groups ends by about 199 s. The two later path groups end by about 261 s at most, and by
+about 208 s with the division of the local runs. At the lower inputs, the groups end by about
+188 s with that division.
+
+Before the groups, the timed step has about 3.5 s of prologue and the build of the self-test, 160
+to 169 s. Then the baseline build takes about 0.5 s, because the build of the self-test also made
+its targets. That time comes from local runs of the new schedule. The control
+`toml/absent-worker` takes 10 to 12 s. With the groups, the prediction for the timed step is
+about 362 to 393 s.
+
+The times other than that of the baseline build are from the old schedule. Thus the result is an
+estimate, not a bound on the new schedule. The target is a timed step of at most 390 s on three
+runs on the slower hosted runners, 30 s under the deadline. The prediction straddles that target,
+thus the margin rests on the CI observations of this change. The job logs of these runs print the
+start and the time of each group. That is a target, not a bound, and the deadline alone refuses a
+run.
 
 **Other proved oracles.** Quantifiers range over supplied Lean values; the IO drivers call each
 `ExecutableContract.run`, so the evidence is required by their source linkage and erased at

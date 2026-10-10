@@ -19,7 +19,7 @@
     ["docs/guides/performance-notes.md", "24", "0", "0", "44", "0", "0", "30", "0"],
     ["docs/guides/proofs-and-boundaries.md", "538", "0", "71", "492", "0", "1", "641", "0"],
     ["docs/guides/toolchains.md", "0", "0", "0", "2", "0", "0", "1", "0"],
-    ["docs/guides/website.md", "46", "18", "14", "56", "0", "1", "110", "0"],
+    ["docs/guides/website.md", "45", "18", "14", "55", "0", "1", "110", "0"],
     ["examples/README.md", "1", "0", "0", "1", "0", "0", "0", "0"],
     ["examples/build-lint/README.md", "2", "0", "0", "4", "0", "0", "6", "0"],
     ["examples/lake-lint-toml/README.md", "2", "0", "1", "0", "0", "0", "1", "0"],

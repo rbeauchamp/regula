@@ -263,7 +263,8 @@ private def manifestJson (manifest : Manifest) : Json :=
       ("executables", Json.arr <| surface.executables.map Json.str),
       ("claim", Json.str surface.claim.toString),
       ("execution", Json.str surface.execution.spelling),
-      ("rationale", Json.str surface.rationale)
+      ("rationale", Json.str surface.rationale),
+      ("decides", Json.arr <| surface.decides.map Json.str)
     ]),
     ("excluded-libraries", Json.arr <| manifest.excludedLibraries.map fun item =>
       Json.mkObj [
@@ -803,6 +804,14 @@ private unsafe def auditSurfaceAt (repo manifestPath : FilePath)
               some environment.surface.library
             else none
         | _ => none
+      -- RG1008 counts, toward each environment's registered decisions, the recorded contracts of
+      -- the surfaces the manifest relates to its own, from the declarations and module origins of
+      -- every environment, as the census binds them (`RegulaPolicy.countedFor`).
+      let countedInputs := inspections.filterMap fun (_, outcome) =>
+        match outcome with
+        | .ok (.ok inspected) =>
+            some (inspected.admitted.report.declarations, inspected.admitted.report.moduleOrigins)
+        | _ => none
       for (environment, outcome) in inspections do
         let surface := environment.surface
         -- Locations come from this environment's own bindings, those of the dependency modules it
@@ -848,6 +857,8 @@ private unsafe def auditSurfaceAt (repo manifestPath : FilePath)
                 .incomplete)
         let scope ← IO.ofExcept <|
           Policy.admitScope report.compilerCapability report.declarations transcripts
+        let scope := scope.counting <| RegulaPolicy.countedContracts assignments countedInputs
+          surface.library report.declarations report.moduleOrigins
         let native := scope.native
         let unsafeHelpers := scope.helpers
         totalDeclarations := totalDeclarations + report.declarations.size
@@ -1008,8 +1019,10 @@ private unsafe def auditSurfaceAt (repo manifestPath : FilePath)
         s!"claimed executables: {claimedExes}   " ++
         s!"owned modules: {ownedModules}   owned declarations: {totalDeclarations}"
       for surface in manifest.surfaces do
+        let decides := if surface.decides.isEmpty then "" else
+          s!"; its decision registrations count toward {", ".intercalate surface.decides.toList}"
         IO.println <| s!"claimed profile for {surface.library}: {surface.claim} " ++
-          s!"(execution: {surface.execution})"
+          s!"(execution: {surface.execution}{decides})"
       for excluded in manifest.excludedLibraries do
         let count := (libraries.find? (·.name == excluded.library)).map (·.modules.size) |>.getD 0
         IO.println s!"excluded library {excluded.library}: {count} module(s)"

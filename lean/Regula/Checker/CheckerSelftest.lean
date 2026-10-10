@@ -152,12 +152,25 @@ projects of their own (the structural project, a copy of the repository, a scrat
 where the gate builds and inspects that project's targets itself; the manifest controls run
 `axiomGate` on the repository with a manifest it refuses before any build. So from the
 repository's build they read only the executables they run: `axiomGate` in both partitions, and
-in the structural clusters `docFenceAudit` and `freshChecker`. The other partitions keep the
-complete baseline. -/
+in the structural clusters `docFenceAudit` and `freshChecker`. The lint-driver controls run
+adopters of their own, which import `Regula.Contract` or `Regula.Linter`, and a fresh audit
+builds in a copy of its own. From the repository's build they read `lint`, the driver that Lake
+runs for `lake lint`, `axiomGate`, which that driver and some controls run, and the modules the
+adopters import. That `axiomGate` or `lint` imports each of those modules, apart from
+`Regula.Linter` and `Regula.Linter.Rules`, is a reading of import lines. Neither `toolPath` nor
+`baselineOf_axiomGate` covers that reading, and a module missing from this baseline is not absent
+on a clean checkout: the adopters require `regula` as a Lake path dependency of the checkout
+(`BuildLintQualification.setup`), so an adopter's Lake builds such a module into the repository's
+build on demand, possibly in several groups at once, instead of a refusal, and no guard detects
+that. `Regula.Linter` and `Regula.Linter.Rules` are built before the concurrent groups only
+because the first control, which runs alone (`LintQualification.qualify`), audits an adopter whose
+`examples/lake-lint-toml/Gadget/Double.lean` imports `Regula.Linter`. The other partitions keep
+the complete baseline. -/
 private def Partition.baseline : Partition → Baseline
   | .structural => ⟨["axiomGate", "docFenceAudit", "freshChecker"], false⟩
   | .execution => ⟨["axiomGate"], false⟩
-  | .fixtures | .cli | .environments | .buildPolicy | .lintDriver => ⟨checkerTools, true⟩
+  | .lintDriver => ⟨["axiomGate", "lint"], false⟩
+  | .fixtures | .cli | .environments | .buildPolicy => ⟨checkerTools, true⟩
 
 /-- Every partition's baseline build names `axiomGate`: the executable that controls of every
 partition run, some by its path in the repository's build instead of through `toolPath`
@@ -1385,8 +1398,8 @@ private def expectManifestPublicFailure (repo : FilePath) (name : String)
   return some s!"manifest/public/{name}: wrong diagnostic:\n{result.output}"
 
 /-- External manifest controls only: the real repository manifest, and the public `axiomGate`
-CLI rendering the missing-file, malformed, incomplete, wrong-version, unknown-key and
-bad-execution refusal classes and a Lake-inventory refusal. The pure parser is proved for every
+CLI rendering the missing-file, malformed, incomplete, wrong-version, unknown-key,
+bad-execution and unknown-`decides` refusal classes and a Lake-inventory refusal. The pure parser is proved for every
 input instead of sampled in process: `Manifest.parse_sound` and `Manifest.parse_input` for what
 it accepts, `Manifest.parseValue_ok` for exactly which JSON values its value stage accepts,
 `Manifest.parse_emptyExclusions` for empty exclusions, and the refusal-class
@@ -1437,6 +1450,13 @@ private def manifestQualification (repo scratch : FilePath) : IO (Array String) 
   if let some failure ← expectManifestPublicFailure repo "bad-execution" badExecution
       "manifest-schema: surfaces[0].execution must be \"report\" or \"checked\"" then
     failures := failures.push failure
+  let unknownDecides := scratch / "unknown-decides.json"
+  IO.FS.writeFile unknownDecides <| "{\"schema-version\":2,\"surfaces\":[{" ++
+    "\"library\":\"AuditApp\",\"claim\":\"standard-logical\",\"rationale\":\"control\"," ++
+    "\"decides\":[\"NoSuchLibrary\"]}],\"excluded-libraries\":[],\"excluded-executables\":[]}"
+  if let some failure ← expectManifestPublicFailure repo "unknown-decides" unknownDecides
+      "manifest-schema: surface 'AuditApp' decides 'NoSuchLibrary', which is not a claimed" then
+    failures := failures.push failure
   let unknownLibrary := scratch / "unknown-library.json"
   IO.FS.writeFile unknownLibrary <| "{\"schema-version\":2,\"surfaces\":[{" ++
     "\"library\":\"NoSuchLibrary\",\"claim\":\"standard-logical\",\"rationale\":\"negative\"}]," ++
@@ -1458,16 +1478,6 @@ private def appendFailure (failures : IO.Ref (Array String)) (value : Option Str
 copy operation as the public gate, rather than a second fixed source list. -/
 private def prepareScratchRepo (repo scratch : FilePath) : IO Unit :=
   discard <| Lake.copyProject repo scratch scratch
-
-/-- Flush phase boundaries so CI timestamps and elapsed times identify the
-actual work, even when stdout is redirected. Timings are observations only. -/
-private def timedPhase {α : Type} (label : String) (action : IO α) : IO α := do
-  IO.println s!"phase {label}: start"
-  (← IO.getStdout).flush
-  let started ← IO.monoNanosNow
-  try action finally
-    IO.println s!"phase {label}: {((← IO.monoNanosNow) - started) / 1000000}ms"
-    (← IO.getStdout).flush
 
 private def withNewFile {α : Type} (path : FilePath) (text : String) (action : IO α) : IO α := do
   if ← path.pathExists then
@@ -1769,7 +1779,7 @@ private unsafe def structuralSelfHosted (layout : SourceLayout) (repo copy : Fil
     (inputs : SelfHostedInputs) : IO (Array String) := do
   let failures ← IO.mkRef (#[] : Array String)
   let gate (label : String) (args : Array String := #["--incremental"]) := do
-    timedPhase s!"structural/self-hosted/{label}" do
+    loggedPhase s!"structural/self-hosted/{label}" do
       if ← timing.get then
         runProcessShowing copy (← toolPath repo "axiomGate").toString
           args #[(timingVariable, some "1")] (·.startsWith "verification phase ")
@@ -2485,7 +2495,7 @@ private def cluster (repo scratch : FilePath) (name : String) (prepare : FilePat
     String × IO (Array String) :=
   (name, do
     let copy := scratch / s!"copy-{name}"
-    let setup ← timedPhase s!"cluster {name} setup" do
+    let setup ← loggedPhase s!"cluster {name} setup" do
       prepare copy
       runProcess copy "lake" (#["build"] ++ targets)
     if !setup.succeeded then
@@ -2508,7 +2518,7 @@ free, and collect their failures. Every item prints its own elapsed time. -/
 private def qualifyItems (label : String) (jobs : Nat)
     (items : Array (String × IO (Array String))) : IO (Array String) := do
   let results ← mapWorkQueue (max 1 jobs) items fun (name, run) =>
-    timedPhase s!"{label} {name}" run
+    loggedPhase s!"{label} {name}" run
   return results.foldl (· ++ ·) #[]
 
 /-- The structural mutation clusters, each in its own isolated project, so no two concurrent
@@ -2596,7 +2606,7 @@ private unsafe def fenceEnvironmentQualification (layout : SourceLayout) (repo s
     if ← (dir / ".lake" / "build").pathExists then
       failures.modify (·.push s!"fence-env/{name}: setup unexpectedly has a build directory")
     action dir
-  timedPhase "clean-checkout/doc-fences" <| unbuilt "doc-fences" fun dir => do
+  loggedPhase "clean-checkout/doc-fences" <| unbuilt "doc-fences" fun dir => do
     let corpus := dir / "fence-corpus"
     IO.FS.createDirAll corpus
     IO.FS.writeFile (corpus / "owned-import.md")
@@ -2607,7 +2617,7 @@ private unsafe def fenceEnvironmentQualification (layout : SourceLayout) (repo s
       failures.modify (·.push
         s!"fence-env/doc-fences: fence importing an owned module failed from unbuilt \
           state:\n{result.output}")
-  timedPhase "clean-checkout/file-mode" <| unbuilt "file-mode" fun dir => do
+  loggedPhase "clean-checkout/file-mode" <| unbuilt "file-mode" fun dir => do
     let result ← runScrubbed dir "axiomGate"
       #["--file",
           ((dir / layout.relativeDir) / "Fixtures" / "Positive" / "ExternalUse.lean").toString,
@@ -2622,7 +2632,7 @@ private unsafe def fenceEnvironmentQualification (layout : SourceLayout) (repo s
   -- `leanchecker --fresh` on the real claimed graph replays Init and Lean
   -- once per root, which is the separate optional serialized-graph
   -- claim (`scripts/verify.sh serialized-graph`), not a clean-checkout property.
-  timedPhase "clean-checkout/fresh-checker" <| unbuilt "fresh-checker" fun dir => do
+  loggedPhase "clean-checkout/fresh-checker" <| unbuilt "fresh-checker" fun dir => do
     let sources := dir / layout.relativeDir
     let expected := freshControlStems.map (s!"FreshControl.{·}")
     IO.FS.createDirAll (sources / "FreshControl")
@@ -2833,7 +2843,7 @@ private unsafe def runFixtures (repo : FilePath) (jobs : Nat)
     (fixtures : Array FixtureSpec) (failures : IO.Ref (Array String)) : IO Unit := do
   let inventory ← Lake.surfaceInventory repo
   withScratch repo "checker-fixtures" fun scratch => do
-    let fixtureResults ← timedPhase "in-process fixtures" <|
+    let fixtureResults ← loggedPhase "in-process fixtures" <|
       fixtureVerdicts repo scratch jobs fixtures inventory.leanPath
     for result in fixtureResults do appendFailure failures result
     IO.println (s!"self-test fixtures: " ++
@@ -2841,7 +2851,7 @@ private unsafe def runFixtures (repo : FilePath) (jobs : Nat)
       s!" ({fixtures.size} in one process, one environment load per import closure)")
   for failure in scannerQualification do failures.modify (·.push failure)
   withScratch repo "checker-fence-corpus" fun scratch => do
-    let corpus ← timedPhase "in-process fence corpus" <|
+    let corpus ← loggedPhase "in-process fence corpus" <|
       fenceCorpusQualification repo scratch jobs
     for failure in corpus do failures.modify (·.push failure)
     IO.println <| "self-test Markdown: " ++
@@ -2972,6 +2982,92 @@ private def libraryCycleControl (repo : FilePath) : IO (Array String) :=
       library == "Right" && required.contains ("Right.Base", "rightBase")) do
     failures := failures.push "library-cycle/reused-key: the Right environment does not require \
       the key of its reused module Right.Base"
+  return failures
+
+/-- Writes the project of `crossSurfaceDecisionControl` into the empty directory `project`. It
+requires the checker at `repo` by path and has two libraries. `Exec` imports only
+`Regula.Decision` and declares `crossCheck`, registered with `@[regula_decision]`. `Proofs`
+imports `Exec`, and with `decided` it imports `Regula.Contract` and holds the only decision
+registration of `crossCheck`; without it, it holds an unrelated theorem. With `relation` the
+manifest names `Exec` in the `decides` of `Proofs`. -/
+private def writeCrossSurfaceProject (repo project : FilePath) (relation decided : Bool) :
+    IO Unit := do
+  IO.FS.writeFile (project / "lean-toolchain") (← IO.FS.readFile (repo / "lean-toolchain"))
+  IO.FS.writeFile (project / "lakefile.toml") <|
+    "name = \"cross_surface_control\"\n[leanOptions]\nautoImplicit = false\n" ++
+      "relaxedAutoImplicit = false\nlinter.missingDocs = true\n" ++
+      s!"[[require]]\nname = \"regula\"\npath = {(Json.str repo.toString).compress}\n" ++
+      "[[lean_lib]]\nname = \"Exec\"\nglobs = [\"Exec.+\"]\n" ++
+      "[[lean_lib]]\nname = \"Proofs\"\nglobs = [\"Proofs.+\"]\n"
+  writeJson (project / "lake-manifest.json") <|
+    (← adopterLakeManifest repo repo.toString).setObjVal! "name" (Json.str "cross_surface_control")
+  IO.FS.createDirAll (project / "Exec")
+  IO.FS.createDirAll (project / "Proofs")
+  IO.FS.writeFile (project / "Exec" / "Check.lean") <|
+    "import Regula.Decision\n\n/-! A decision whose kind another library states. -/\n\n" ++
+      "/-- Whether `n` is positive. -/\n@[regula_decision]\n" ++
+      "def crossCheck (n : Nat) : Bool := decide (0 < n)\n"
+  IO.FS.writeFile (project / "Proofs" / "Kind.lean") <| if decided then
+      "import Exec.Check\nimport Regula.Contract\n\n/-! The decision kind of `crossCheck`. -/\n\n" ++
+        "/-- `crossCheck` accepts exactly the positive numbers. -/\n" ++
+        "theorem crossCheck_decides :\n" ++
+        "    Regula.ExecutableContract crossCheck\n" ++
+        "      (Regula.Decides (· = true) fun n => 0 < n) :=\n" ++
+        "  ⟨{ sound := fun _ accepted => of_decide_eq_true accepted\n" ++
+        "     accepted := ⟨1, by decide⟩\n" ++
+        "     complete := fun _ holds => decide_eq_true holds\n" ++
+        "     refused := ⟨0, by decide⟩ }⟩\n"
+    else
+      "import Exec.Check\n\n/-! No decision kind of `crossCheck`. -/\n\n" ++
+        "/-- A fact of the proof library. -/\ntheorem kindAbsent : True := True.intro\n"
+  let surface (library decides : String) : String :=
+    "{\"library\":\"" ++ library ++ "\",\"claim\":\"standard-logical\"," ++ decides ++
+      "\"rationale\":\"Cross-surface decision control\"}"
+  IO.FS.writeFile (Manifest.defaultPath project) <|
+    "{\"schema-version\":2,\"surfaces\":[" ++ surface "Exec" "" ++ "," ++
+      surface "Proofs" (if relation then "\"decides\":[\"Exec\"]," else "") ++
+      "],\"excluded-libraries\":[],\"excluded-executables\":[]}"
+
+/-- External-boundary control for a decision registration that one claimed surface counts toward
+a registered function of another (standard §7.11). The manifest field, the freeze of the counted
+records, the account and the public gate are the external mechanism;
+`RegulaPolicy.census_decided_iff` states the decided implementations over the census, and
+`RegulaPolicy.accepted_counted_judgment` that each counted registration met its own requirements.
+Each case runs in a fresh disposable project of its own (`writeCrossSurfaceProject`), so no
+mutation shares a workspace or a build artifact with the green control (standard §7.8). The green
+control has the relation and the registration: the audit must accept, and the account must name
+`Proofs` as the surface of the one counted registration. One mutation removes the relation and
+the other the registration: each must report `crossCheck` under RG1008. -/
+private def crossSurfaceDecisionControl (repo : FilePath) : IO (Array String) := do
+  let gate (project : FilePath) (args : Array String) := do
+    runProcess project (← toolPath repo "axiomGate").toString
+      (#["--project", project.toString, "--incremental"] ++ args) scrubbedLeanPathEnv
+  let mut failures := #[]
+  let green ← withScratch repo "cross-surface-green" fun project =>
+    withScratch repo "cross-surface-result" fun output => do
+      writeCrossSurfaceProject repo project true true
+      let result := output / "result.json"
+      let accepted ← gate project #["--json-out", result.toString]
+      if !accepted.succeeded then
+        return some s!"cross-surface/related: expected PASS:\n{accepted.output}"
+      let json ← requireAuditDocument (← IO.ofExcept (Json.parse (← IO.FS.readFile result)))
+      let counted ← IO.ofExcept <| (json.getObjVal? "acceptance").bind fun acceptance =>
+        (acceptance.getObjVal? "account").bind (·.getObjValAs? (Array Json) "countedContracts")
+      let named (entry : Json) : Bool :=
+        (entry.getObjValAs? String "surface").toOption == some "Exec" &&
+          (entry.getObjValAs? String "source").toOption == some "Proofs" &&
+          (entry.getObjValAs? String "registration").toOption == some "crossCheck_decides" &&
+          (entry.getObjValAs? String "implementation").toOption == some "crossCheck"
+      if counted.size == 1 && counted.all named then return none
+      return some s!"cross-surface/account: expected one counted registration of Proofs for \
+        crossCheck of Exec, found {(Json.arr counted).compress}"
+  if let some failure := green then failures := failures.push failure
+  for (name, relation, decided) in #[("unrelated", false, true), ("removed", true, false)] do
+    let refused ← withScratch repo s!"cross-surface-{name}" fun project => do
+      writeCrossSurfaceProject repo project relation decided
+      return expectedFailure s!"cross-surface/{name}" (← gate project #[])
+        #["RG1008", "crossCheck (def)"]
+    if let some failure := refused then failures := failures.push failure
   return failures
 
 /-- External-boundary controls of the copy that the verification driver makes for the first
@@ -3180,6 +3276,7 @@ private inductive StructuralGroup where
   | frozen
   | clusters
   | cycle
+  | crossSurface
   | driverCopy
   | manifest
   deriving BEq
@@ -3191,7 +3288,8 @@ private def shardDescription (shard : Shard) (names : Array String) : String :=
 
 /-- Structural mutations and manifest controls retain their isolated projects, worker joins,
 and complete failure accumulation. The frozen-artifact controls, the mutation clusters, the
-library cycle control, the driver copy control and the manifest controls share one queue of
+cross-surface decision control, the library cycle control, the driver copy control and the
+manifest controls share one queue of
 `jobs` workers, so no more than `jobs` of them run at once. The short controls wait behind the
 clusters and take the
 workers the first clusters free, instead of competing with the first clusters for the
@@ -3201,7 +3299,7 @@ the groups it ran report. After the queue, the shard of the self-hosted clusters
 private unsafe def runStructural (layout : SourceLayout) (repo : FilePath) (jobs : Nat)
     (shard : Option Shard) (failures : IO.Ref (Array String)) : IO Unit := do
   -- Every result carries its group, so none is found by its position in the queue.
-  let results ← timedPhase "structural controls" <|
+  let results ← loggedPhase "structural controls" <|
     withScratch repo "checker-structural" fun scratch =>
       withScratch repo "checker-manifest" fun manifests => do
         let inputs ← SelfHostedInputs.new
@@ -3210,19 +3308,21 @@ private unsafe def runStructural (layout : SourceLayout) (repo : FilePath) (jobs
               withScratch repo "checker-frozen-artifacts" frozenArtifactControls)] ++
           (structuralClusters layout repo scratch inputs).map (fun (assigned, name, run) =>
             (assigned, StructuralGroup.clusters, s!"structural {name}", run)) ++
-          [(Shard.second, StructuralGroup.cycle, "library cycle control", libraryCycleControl repo),
+          [(Shard.first, StructuralGroup.crossSurface, "cross-surface decision control",
+              crossSurfaceDecisionControl repo),
+            (Shard.second, StructuralGroup.cycle, "library cycle control", libraryCycleControl repo),
             (Shard.second, StructuralGroup.driverCopy, "driver copy control",
               driverCopyControl repo),
             (Shard.second, StructuralGroup.manifest, "manifest controls",
               manifestQualification repo manifests)]
         let mut results ← mapWorkQueue (max 1 jobs) ((inShard shard controls).map (·.2)).toArray
-          fun (group, label, run) => do return (group, label, ← timedPhase label run)
+          fun (group, label, run) => do return (group, label, ← loggedPhase label run)
         -- The queue has finished, so both self-hosted clusters have recorded their inputs.
         let afterQueue : List (Shard × StructuralGroup × String × IO (Array String)) :=
           [(selfHostedShard, StructuralGroup.clusters, "structural self-hosted identity",
             selfHostedIdentity inputs)]
         for (group, label, run) in (inShard shard afterQueue).map (·.2) do
-          results := results.push (group, label, ← timedPhase label run)
+          results := results.push (group, label, ← loggedPhase label run)
         return results
   let ran (group : StructuralGroup) : Bool := results.any (·.1 == group)
   let failuresOf (group : StructuralGroup) : Array String :=
@@ -3237,7 +3337,8 @@ private unsafe def runStructural (layout : SourceLayout) (repo : FilePath) (jobs
         added .olean, .olean.server or .olean.private; restored parts are offered again)"
   if ran .manifest then
     IO.println "self-test manifest: completed (valid in-process; missing, malformed, \
-      incomplete, wrong-version, unknown-key, bad-execution and unknown-library public cases)"
+      incomplete, wrong-version, unknown-key, bad-execution, unknown-decides and unknown-library \
+      public cases)"
   if ran .clusters then
     IO.println <| "self-test structural: " ++ verdict .clusters ++ match shard with
       | none =>
@@ -3252,6 +3353,11 @@ private unsafe def runStructural (layout : SourceLayout) (repo : FilePath) (jobs
     IO.println <| "self-test library cycle: " ++ verdict .cycle ++
       " (two claimed libraries that import one another: accepted, each module replayed in one \
         environment, a requested module reused with its keys)"
+  if ran .crossSurface then
+    IO.println <| "self-test cross-surface decisions: " ++ verdict .crossSurface ++
+      " (a registered function whose only decision registration is in another claimed library: \
+        accepted with the manifest relation and named with that surface in the account, RG1008 \
+        without the relation and without the registration)"
   if ran .driverCopy then
     IO.println <| "self-test driver copy: " ++ verdict .driverCopy ++
       " (the driver's copy holds the project and no build output, and the checker's reclamation \
@@ -3266,7 +3372,7 @@ each with its positive, mutation and fresh restoration in an isolated project. W
 only that shard's controls run and are named. -/
 private unsafe def runExecution (layout : SourceLayout) (repo : FilePath) (jobs : Nat)
     (shard : Option Shard) (failures : IO.Ref (Array String)) : IO Unit := do
-  let (names, execution) ← timedPhase "execution controls" <|
+  let (names, execution) ← loggedPhase "execution controls" <|
     withScratch repo "checker-execution" fun scratch =>
       executionQualification layout repo scratch jobs shard
   for failure in execution do failures.modify (·.push failure)
@@ -3288,14 +3394,14 @@ private def runCli (repo : FilePath) (jobs : Nat) (fullCli : Bool)
   -- The build-bound sweep contains every smoke control; each runs once.
   let cliFixtures := if fullCli then fixtures else smokeFixtures
   let cliLabel := if fullCli then "full CLI sweep" else "CLI smoke"
-  let cliResults ← timedPhase cliLabel <|
+  let cliResults ← loggedPhase cliLabel <|
     mapConcurrent jobs cliFixtures (checkFixtureCli repo)
   for result in cliResults do appendFailure failures result
   IO.println <| s!"self-test {cliLabel}: " ++
     (if cliResults.all (·.isNone) then "PASS" else "FAIL") ++
     s!" ({cliFixtures.size} real axiomGate --file invocations)"
   if fullCli then
-    let attribution ← timedPhase "source attribution" <|
+    let attribution ← loggedPhase "source attribution" <|
       withScratch repo "checker-source-attribution" fun scratch =>
         sourceAttributionControls scratch (runBinary repo "axiomGate" ·)
     for failure in attribution do failures.modify (·.push failure)
@@ -3313,16 +3419,16 @@ private unsafe def runEnvironments (layout : SourceLayout) (repo : FilePath)
   -- Its builds live in isolated copies; the other public controls cannot
   -- consume or alter those owned outputs.
   let fenceEnvTask ← IO.asTask (prio := .dedicated) do
-    timedPhase "clean-checkout environments" <|
+    loggedPhase "clean-checkout environments" <|
       withScratch repo "checker-fence-env" fun scratch =>
         fenceEnvironmentQualification layout repo scratch
   withScratch repo "checker-scanner" fun scratch => do
-    for failure in ← timedPhase "public fence corpus" (publicScannerQualification repo scratch) do
+    for failure in ← loggedPhase "public fence corpus" (publicScannerQualification repo scratch) do
       failures.modify (·.push failure)
   IO.println s!"self-test public fence corpus: completed \
     ({(fenceCorpusCases "" "" ++ publicOnlyFenceCases).size} end-to-end cases)"
   withScratch repo "checker-adopter" fun scratch => do
-    let adopter ← timedPhase "external adopters" (adopterQualification repo scratch)
+    let adopter ← loggedPhase "external adopters" (adopterQualification repo scratch)
     for failure in adopter do failures.modify (·.push failure)
     IO.println <| "self-test external adopters: " ++
       (if adopter.isEmpty then "PASS" else "FAIL") ++
@@ -3335,7 +3441,7 @@ private unsafe def runEnvironments (layout : SourceLayout) (repo : FilePath)
     (if fenceEnv.isEmpty then "PASS" else "FAIL") ++
     " (clean-checkout doc fences, --file, freshChecker with no prior build on a two-root control \
       surface)"
-  let surface ← timedPhase "public surface" <| runBinary repo "axiomGate" #["--incremental"]
+  let surface ← loggedPhase "public surface" <| runBinary repo "axiomGate" #["--incremental"]
   if !surface.succeeded then
     failures.modify (·.push s!"surface/baseline: public incremental gate failed:\n{surface.output}")
   IO.println "self-test public controls: completed (surface)"
@@ -3345,7 +3451,7 @@ share the clean-checkout environment controls' CI time budget. -/
 private def runBuildPolicy (repo : FilePath) (jobs : Nat)
     (failures : IO.Ref (Array String)) : IO Unit := do
   withScratch repo "checker-build-lint" fun scratch => do
-    let buildLint ← timedPhase "ordinary-build policy controls" <|
+    let buildLint ← loggedPhase "ordinary-build policy controls" <|
       BuildLintQualification.qualify repo scratch jobs
     for failure in buildLint do failures.modify (·.push failure)
     IO.println <| "self-test build policy linter: " ++
@@ -3359,7 +3465,7 @@ partition. -/
 private def runLintDriver (repo : FilePath) (jobs : Nat)
     (failures : IO.Ref (Array String)) : IO Unit := do
   withScratch repo "checker-lake-lint" fun scratch => do
-    let lint ← timedPhase "lake lint driver controls" <|
+    let lint ← loggedPhase "lake lint driver controls" <|
       LintQualification.qualify repo scratch jobs
     for failure in lint do failures.modify (·.push failure)
     IO.println <| "self-test lake lint driver: " ++ (if lint.isEmpty then "PASS" else "FAIL")
@@ -3560,7 +3666,7 @@ unsafe def run (args : List String) : IO UInt32 := do
   let fixtureTargets ← if baselines.any (·.surface) then
       pure (((← importedFixtures repo).filter (· != structuralFixture)).push structuralFixture)
     else pure #[]
-  let build ← timedPhase "baseline build" <| runProcess repo "lake"
+  let build ← loggedPhase "baseline build" <| runProcess repo "lake"
     (#["build"] ++ tools.toArray ++
       (if baselines.any (·.surface) then
         fixtureTargets.map (·.toString) ++ Manifest.positiveTargets surfaceManifest

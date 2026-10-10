@@ -36,8 +36,9 @@ inductive DeclarationFailure where
   /-- A transitive axiom lies outside the requested conforming profile. -/
   | profileExceeded
   /-- The declaration is registered as a decision (`@[regula_decision]`), its result type is not
-  `Decidable _`, and no decision contract of the inventory decides it
-  (`decidedImplementations`). -/
+  `Decidable _`, and no decision contract that the inventory counts, its own or one of a surface
+  whose `decides` names its library, decides it (`Inventory.decisionContracts`,
+  `decidedImplementations`). -/
   | decisionContract
   /-- The declaration is not a member of the admitted inventory. -/
   | invalidInventory
