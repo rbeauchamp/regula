@@ -341,7 +341,7 @@ theorem DefeqComparison.ofAttempt_checked_iff (attempt : Except String KernelAns
   rcases attempt with error | (⟨axioms, admitted⟩ | _ | _)
   · simp [ofAttempt]
   · cases h : axioms.all standardLogicalAxiom
-    · simp [ofAttempt, h]
+    · simp [ofAttempt, h, -Array.all_eq_true, -Array.all_eq_false]
     · simp only [ofAttempt, h, ite_true, completed.injEq, Option.some.injEq, Except.ok.injEq,
         KernelAnswer.admitted.injEq]
       exact ⟨fun same => ⟨axioms, ⟨rfl, same⟩, h⟩, fun ⟨_, ⟨_, same⟩, _⟩ => same⟩
@@ -357,7 +357,8 @@ theorem DefeqComparison.ofAttempt_negative_iff (attempt : Except String KernelAn
         axioms.all standardLogicalAxiom = false := by
   rcases attempt with error | (⟨axioms, detail⟩ | _ | _)
   · simp [ofAttempt]
-  · cases h : axioms.all standardLogicalAxiom <;> simp [ofAttempt, h]
+  · cases h : axioms.all standardLogicalAxiom <;>
+      simp [ofAttempt, h, -Array.all_eq_true, -Array.all_eq_false]
   · simp [ofAttempt]
   · simp [ofAttempt]
 
