@@ -8,9 +8,9 @@ meta import Regula.Decision
 /-! # The reading of a statement
 
 The pure decision of what the search for shared functions (RG1009) reads of the specification of
-a decision registration and of its acceptance predicate: from each constant that such a term
-reaches, which of the constants that the constant mentions the search follows (`reads`), and the
-constants that the term reaches by that reading (`reading`).
+a decision registration: from each constant that the specification reaches, which of the
+constants that the constant mentions the search follows (`reads`), and the constants that the
+specification reaches by that reading (`reading`).
 
 The rule of a statement (`Observed.references`) follows the type of each constant, the value of a
 definition whose value a statement depends on (`RegulaPolicy.ResultForm.ValueRead`), and the
@@ -22,8 +22,7 @@ the search reads the body of that definition's value, `fun x : α => b`. The rea
 constants of `b`, not at those of `α`, and from a field's projection function of a structure that
 occurs in `α` it does not follow the edge back to that structure. The constants of `α` include
 those of `α` with its reducible definitions unfolded at its head, so an `abbrev` of the input type
-is that type. The acceptance predicate is read in the same way, with the result type in the
-place of the input type. Everything else is followed as before: the arguments of each application,
+is that type. Everything else is followed as before: the arguments of each application,
 the types of definitions, opaque constants and axioms, and the declaration of a constant of `α`
 that `b` names in any other way, as the binder of `∀ y : α`, as an argument of a function or
 through a constructor. So a definition that `b` names, as `fun x => P x ∧ 0 < x.size` names `P`,
@@ -37,14 +36,22 @@ same set on the two sides of the kind, and the comparison at each input is the o
 reading: a constant that the rule reaches and the reading does not is reached from a constant of
 the input type that the reading does not reach at all.
 
+The acceptance predicate has no such exception: the search reads it by the rule of a statement,
+from all of its constants, the type of its variable included. The argument above holds for the
+input type only, since the two sides of a kind range over the same inputs. A value of the result
+type occurs on one side only, in `accepts (f x)`. So a test that the declaration of the result
+type names can be a part of `accepts (f x)`, and a specification that names it shares it with the
+acceptance predicate: a change of the test changes the two sides together.
+
 `Observed` is what the observing pass (`Regula.Collect`) reads of one constant: its kind, the form
 of its result type, the constants that each part of it mentions, and the structure of a field's
 projection function, read from its kernel-checked value. `reads` decides which of those constants
 the search follows; it is registered with the kind `checked_reads` against `Read`. `reading`
-closes the reading and the rule from the constants of a term (`reading_some`,
-`read_subset_withTypes`), and `sharedConstants` gives the shared constants of each
-(`no_shared_test`, `accepted_throughTypes`). The record of a registration names each function with
-a result of `Bool` or `BEq` that the two sides share by the rule and not by the reading
+closes the reading and the rule from the constants of the specification (`reading_some`,
+`read_subset_withTypes`), and `sharedConstants` gives the shared constants of each against the
+reach of the implementation and of the acceptance predicate (`no_shared_test`,
+`accepted_throughTypes`). The record of a registration names each function with a result of
+`Bool` or `BEq` that the two sides share by the rule and not by the reading
 (`RegulaPolicy.SharedNames.throughTypes`).
 
 **Not claimed.** That the constants of each part are those that the part mentions is the pass's:
@@ -103,14 +110,13 @@ def Observed.references (observed : Observed) : Array Name :=
      else #[])
 
 /-- A constant that a constant mentions, with what the pass read of the constant that mentions
-it, and the constants of the input type of the kind (the result type, for an acceptance
-predicate). -/
+it, and the constants of the input type of the kind. -/
 structure Mention where
   /-- What the pass read of the constant that mentions `target`. -/
   source : Observed
   /-- The constant that is mentioned. -/
   target : Name
-  /-- The constants of the input type of the kind, or of its result type. -/
+  /-- The constants of the input type of the kind. -/
   domain : Array Name
   deriving Repr, DecidableEq, Inhabited
 
@@ -226,13 +232,14 @@ theorem dropped {observed : Observed} {domain : Array Name} {target : Name}
 
 /-! ## The reading of a term -/
 
-/-- What `reading` reads: the record of each constant outside Lean's own library that the term
-reaches by the rule of a statement, the constants of the input type, and the constants of the
-body of the term under the variable of the input. A constant with no record is not followed: a
-constant of Lean's own library, one that the environment does not have, or, in the editor
-snapshot of a file with a `module` header, a specification or an acceptance predicate that is an
-imported definition with no exported value. The pass gives that definition no record and the
-caller reports the reading as incomplete for it (`Regula.Collect.readStatement`).
+/-- What `reading` reads of a specification: the record of each constant outside Lean's own
+library that the term reaches by the rule of a statement, the constants of the input type, and
+the constants of the body of the term under the variable of the input. A constant with no record
+is not followed: a constant of Lean's own library, one that the environment does not have, or, in
+the editor snapshot of a file with a `module` header, a specification that is an imported
+definition with no exported value. The pass gives that definition no record and the caller
+reports the reading as incomplete for it (`Regula.Collect.readStatement`). The acceptance
+predicate is read by the rule of a statement alone, with no request.
 
 The pass (`Regula.Collect.readStatement`) builds the domain and the body in three forms:
 
@@ -247,10 +254,9 @@ request, so they hold of each form. -/
 structure Request where
   /-- What the pass read of each constant that it read. -/
   records : Std.HashMap Name Observed
-  /-- The constants of the input type of the kind (the result type, for an acceptance
-  predicate): those of the binder type of the term or, when the term is a definition, alone or
-  applied to its variable alone, of the binder type of that definition's value, and of that type
-  with its reducible definitions unfolded at its head. -/
+  /-- The constants of the input type of the kind: those of the binder type of the term or, when
+  the term is a definition, alone or applied to its variable alone, of the binder type of that
+  definition's value, and of that type with its reducible definitions unfolded at its head. -/
   domain : Array Name
   /-- The constants of the body of the term under the variable of the input or, when the term is
   a definition, alone or applied to its variable alone, of the body of that definition's
@@ -419,100 +425,98 @@ theorem through_input {request : Request} {result : Reading}
 
 /-! ## The shared functions of a registration -/
 
-/-- The shared constants of a decision registration by one reading: each constant that
-`specification` holds and that the other side holds too, the implementation (`implementation`)
-or `acceptance`, with what the collector read of it (`definitions`). `widen` selects the rule of a
-statement (`Reading.withTypes`) over the reading (`Reading.read`), on the two terms. A constant
-that `definitions` has no entry for is left out. -/
-def sharedConstants (widen : Bool) (specification acceptance : Reading)
-    (implementation : Name → Bool) (definitions : Name → Option SharedDefinition) :
+/-- The shared constants of a decision registration by one reading of the specification: each
+constant that `specification` holds and that the other side reaches too, the implementation
+(`implementation`) or the acceptance predicate (`acceptance`), with what the collector read of it
+(`definitions`). `widen` selects the rule of a statement (`Reading.withTypes`) over the reading
+(`Reading.read`) for the specification. The other side is the same for the two: the reach of the
+implementation by the rule of a function, and the reach of the acceptance predicate by the rule of
+a statement from all of its constants, its result type included. A constant that `definitions`
+has no entry for is left out. -/
+def sharedConstants (widen : Bool) (specification : Reading)
+    (implementation acceptance : Name → Bool) (definitions : Name → Option SharedDefinition) :
     List SharedDefinition :=
-  let side (reading : Reading) := if widen then reading.withTypes else reading.read
-  (side specification).toList.filterMap fun name =>
-    if implementation name || (side acceptance).contains name then definitions name else none
+  (if widen then specification.withTypes else specification.read).toList.filterMap fun name =>
+    if implementation name || acceptance name then definitions name else none
 
 /-- A constant is a shared constant of a reading exactly when the specification holds it by that
-reading, the implementation or the acceptance predicate holds it by the same reading, and the
-collector read it. -/
-theorem mem_sharedConstants {widen : Bool} {specification acceptance : Reading}
-    {implementation : Name → Bool} {definitions : Name → Option SharedDefinition}
+reading, the implementation or the acceptance predicate reaches it, and the collector read it. -/
+theorem mem_sharedConstants {widen : Bool} {specification : Reading}
+    {implementation acceptance : Name → Bool} {definitions : Name → Option SharedDefinition}
     {definition : SharedDefinition} :
-    definition ∈ sharedConstants widen specification acceptance implementation definitions ↔
+    definition ∈ sharedConstants widen specification implementation acceptance definitions ↔
       ∃ name, name ∈ (if widen then specification.withTypes else specification.read) ∧
-        (implementation name = true ∨
-          name ∈ (if widen then acceptance.withTypes else acceptance.read)) ∧
+        (implementation name = true ∨ acceptance name = true) ∧
         definitions name = some definition := by
   unfold sharedConstants
   simp only [List.mem_filterMap, Array.mem_toList_iff, Option.ite_none_right_eq_some,
-    Bool.or_eq_true, Array.contains_iff_mem]
+    Bool.or_eq_true]
 
-/-- **A registration that the reading accepts has no test that its specification reads and its
-implementation reaches.** When the record names no function of the class `boolean` from the
-reading (`RegulaPolicy.sharedTestFailure` then refuses nothing), no constant that the reading of
-the specification reaches and that the implementation reaches is of that class. This is the
-reason of the rule (RG1009) at the level of the readings: what the specification states shares
-no test with the implementation. That the reading of the body is what the specification states
-is the argument of this module. -/
-theorem no_shared_test {first : List SharedDefinition} {specification acceptance : Reading}
-    {implementation : Name → Bool} {definitions : Name → Option SharedDefinition}
+/-- **A registration that the reading accepts has no test that its specification reads and the
+other side reaches.** When the record names no function of the class `boolean` from the reading
+(`RegulaPolicy.sharedTestFailure` then refuses nothing), no constant that the reading of the
+specification reaches and that the implementation or the acceptance predicate reaches is of that
+class. This is the reason of the rule (RG1009) at the level of the readings: what the
+specification states shares no test with the implementation or with the acceptance predicate.
+That the reading of the body is what the specification states is the argument of this module. -/
+theorem no_shared_test {first : List SharedDefinition} {specification : Reading}
+    {implementation acceptance : Name → Bool} {definitions : Name → Option SharedDefinition}
     (accepted : (sharedNames first
-      (sharedConstants false specification acceptance implementation definitions)
-      (sharedConstants true specification acceptance implementation definitions)).booleans = #[])
+      (sharedConstants false specification implementation acceptance definitions)
+      (sharedConstants true specification implementation acceptance definitions)).booleans = #[])
     {name : Name} {definition : SharedDefinition} (read : name ∈ specification.read)
-    (reached : implementation name = true) (found : definitions name = some definition) :
+    (reached : implementation name = true ∨ acceptance name = true)
+    (found : definitions name = some definition) :
     definition.class ≠ .boolean := by
   rw [sharedNames_booleans_eq_empty_iff] at accepted
-  exact accepted definition (mem_sharedConstants.mpr ⟨name, read, .inl reached, found⟩)
+  exact accepted definition (mem_sharedConstants.mpr ⟨name, read, reached, found⟩)
 
 /-- **The reading refuses no registration that the rule of a statement accepts.** Each shared
-constant of the reading is a shared constant of the rule of a statement, when each reading
-reaches at most what the rule of a statement reaches (`read_subset_withTypes`), so a function
-of the class `boolean` that the record names is one that the rule of a statement shares
-too. -/
-theorem sharedConstants_read_subset {specification acceptance : Reading}
-    {implementation : Name → Bool} {definitions : Name → Option SharedDefinition}
+constant of the reading is a shared constant of the rule of a statement, when the reading reaches
+at most what the rule of a statement reaches (`read_subset_withTypes`), so a function of the
+class `boolean` that the record names is one that the rule of a statement shares too. -/
+theorem sharedConstants_read_subset {specification : Reading}
+    {implementation acceptance : Name → Bool} {definitions : Name → Option SharedDefinition}
     (specificationWithin : ∀ name, name ∈ specification.read → name ∈ specification.withTypes)
-    (acceptanceWithin : ∀ name, name ∈ acceptance.read → name ∈ acceptance.withTypes)
     {definition : SharedDefinition}
-    (shared : definition ∈ sharedConstants false specification acceptance implementation
+    (shared : definition ∈ sharedConstants false specification implementation acceptance
       definitions) :
-    definition ∈ sharedConstants true specification acceptance implementation definitions := by
+    definition ∈ sharedConstants true specification implementation acceptance definitions := by
   obtain ⟨name, held, other, found⟩ := mem_sharedConstants.mp shared
-  simp only [Bool.false_eq_true, ↓reduceIte] at held other
-  refine mem_sharedConstants.mpr ⟨name, ?_, ?_, found⟩
-  · simpa using specificationWithin name held
-  · simpa using other.imp id (acceptanceWithin name)
+  simp only [Bool.false_eq_true, ↓reduceIte] at held
+  exact mem_sharedConstants.mpr ⟨name, by simpa using specificationWithin name held, other, found⟩
 
 /-- **What the change accepts.** A registration that the reading accepts and that the rule of a
 statement refuses has each of the functions of the class `boolean` that the rule shares in
-`throughTypes`, and the implementation does not reach any of them through what the specification
-reads: for each such function, the specification does not read it, or the implementation does
-not reach it and the acceptance predicate does not read it. -/
-theorem accepted_throughTypes {first : List SharedDefinition} {specification acceptance : Reading}
-    {implementation : Name → Bool} {definitions : Name → Option SharedDefinition}
+`throughTypes`, and the other side does not reach any of them through what the specification
+reads: for each such function, the specification does not read it, or neither the implementation
+nor the acceptance predicate reaches it. -/
+theorem accepted_throughTypes {first : List SharedDefinition} {specification : Reading}
+    {implementation acceptance : Name → Bool} {definitions : Name → Option SharedDefinition}
     (accepted : (sharedNames first
-      (sharedConstants false specification acceptance implementation definitions)
-      (sharedConstants true specification acceptance implementation definitions)).booleans = #[])
+      (sharedConstants false specification implementation acceptance definitions)
+      (sharedConstants true specification implementation acceptance definitions)).booleans = #[])
     {definition : SharedDefinition}
-    (shared : definition ∈ sharedConstants true specification acceptance implementation
+    (shared : definition ∈ sharedConstants true specification implementation acceptance
       definitions)
     (boolean : definition.class = .boolean) :
     definition.name ∈ (sharedNames first
-      (sharedConstants false specification acceptance implementation definitions)
-      (sharedConstants true specification acceptance implementation definitions)).throughTypes ∧
+      (sharedConstants false specification implementation acceptance definitions)
+      (sharedConstants true specification implementation acceptance definitions)).throughTypes ∧
     ∀ name, definitions name = some definition →
-      name ∉ specification.read ∨ (implementation name = false ∧ name ∉ acceptance.read) := by
+      name ∉ specification.read ∨ (implementation name = false ∧ acceptance name = false) := by
   have none := (sharedNames_booleans_eq_empty_iff _ _ _).mp accepted
   refine ⟨(mem_sharedNames_throughTypes _ _ _ _).mpr ⟨⟨definition, shared, boolean, rfl⟩,
     fun ⟨other, member, otherBoolean, _⟩ => none other member otherBoolean⟩, ?_⟩
   intro name found
   by_cases read : name ∈ specification.read
-  · refine .inr ⟨?_, fun acceptanceRead => ?_⟩
+  · refine .inr ⟨?_, ?_⟩
     · cases reached : implementation name
       · rfl
-      · exact absurd boolean (no_shared_test accepted read reached found)
-    · exact none definition (mem_sharedConstants.mpr ⟨name, read, .inr acceptanceRead, found⟩)
-        boolean
+      · exact absurd boolean (no_shared_test accepted read (.inl reached) found)
+    · cases reached : acceptance name
+      · rfl
+      · exact absurd boolean (no_shared_test accepted read (.inr reached) found)
   · exact .inl read
 
 end RegulaPolicy.StatementReading

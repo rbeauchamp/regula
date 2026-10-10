@@ -172,7 +172,9 @@
    "[VIOLATION[shared-test]] admitAt_decides (theorem)",
    "admitAt shared-booleans=[\"settled\"] shared-others=[] shared-through-types=[]",
    "[VIOLATION[shared-test]] admitAnd_decides (theorem)",
-   "admitAnd shared-booleans=[\"settled\"] shared-others=[] shared-through-types=[]"
+   "admitAnd shared-booleans=[\"settled\"] shared-others=[] shared-through-types=[]",
+   "[VIOLATION[shared-test]] flaggedOf_decides (theorem)",
+   "flaggedOf shared-booleans=[\"flagTest\"] shared-others=[] shared-through-types=[]"
   ]
  },
  "Fixtures.Positive.HiddenTest": {

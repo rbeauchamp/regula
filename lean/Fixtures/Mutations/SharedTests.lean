@@ -54,6 +54,11 @@ controls.
   among other terms. The search reads the type of `AdmitSpec`, which names the input type, and
   the declaration of the input type there. `AdmitSpec` alone is read from its value
   (`admitNamed_decides` of `Fixtures.Positive.SharedDefinitions`).
+* `flaggedOf_decides`: the result type has a proof field stated with the test `flagTest`, and the
+  specification names `flagTest`. The function runs no test, and the acceptance predicate reads
+  the flag of the result. The search reads the acceptance predicate by the rule of a statement,
+  the declaration of the result type included, so it reaches `flagTest` there. A value of the
+  result type occurs on one side of the kind only, so the two sides share the test.
 -/
 import Regula.Contract
 
@@ -341,3 +346,29 @@ theorem admitAnd_decides : Regula.ExecutableContract admitAnd (fun run =>
       (fun input : AdmitInput => run input.panel input.amount input.limit)) :=
   ⟨.of_iff (fun input => by simp [admitAnd, AdmitSpec, input.panel.meter.settled_level])
     ⟨⟨⟨⟨5, by decide⟩⟩, 1, 3⟩, by decide⟩ ⟨⟨⟨⟨5, by decide⟩⟩, 7, 3⟩, by decide⟩⟩
+
+/-- An eighth helper with a result of `Bool`. -/
+def flagTest (n : Nat) : Bool := decide (n < 10)
+
+/-- A result whose flag is stated with the test `flagTest`. -/
+structure Flagged where
+  /-- The number. -/
+  n : Nat
+  /-- The flag. -/
+  ok : Bool
+  /-- The flag is the test of the number. -/
+  h : ok = flagTest n
+
+/-- An input that holds a result. -/
+structure FlaggedInput where
+  /-- The result. -/
+  result : Flagged
+
+/-- The result of the input. It runs no test. -/
+def flaggedOf (x : FlaggedInput) : Flagged := x.result
+
+theorem flaggedOf_decides : Regula.ExecutableContract flaggedOf
+    (Regula.Decides (fun r : Flagged => r.ok = true)
+      (fun x : FlaggedInput => flagTest x.result.n = true)) :=
+  ⟨.of_iff (fun x => by simp [flaggedOf, x.result.h])
+    ⟨⟨⟨0, true, by decide⟩⟩, by decide⟩ ⟨⟨⟨10, false, by decide⟩⟩, by decide⟩⟩

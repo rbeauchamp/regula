@@ -100,13 +100,15 @@ does not establish that the shared function is the intended one. The same holds 
 that `spec` and `accepts` both call. The linter refuses a registration whose two sides share a
 function of the first class below (rule RG1009), which it searches for at any depth of `spec`,
 outside Lean's own library. It reads the definitions outside Lean's own library that `spec`
-reaches and that `f` or `accepts` also reaches. It reads `accepts` as it reads `spec`: each is
-a statement, and the value of a definition of a proposition that it names is read. It does not
+reaches and that `f` or `accepts` also reaches. It reads `accepts` and `spec` as statements: the value
+of a definition of a proposition that each names is read. It reads all of `accepts`, the
+declaration of the result type included: a value of the result type occurs only in
+`accepts (f x)`, so a test that the declaration names can be a part of that side. It does not
 enter the declaration of the input type of the kind from the input: it reads `spec` from the body
 of its function abstraction under its variable, and when `spec` is a definition, alone or applied
 to its variable alone, from the body of that definition's value. It does not follow a projection
 of a field of the input back to the input type, or to the type that an `abbrev` input type
-unfolds to. `accepts` is read in the same way with the result type. A definition that the body
+unfolds to. A definition that the body
 names among other terms, as `fun x => P x ∧ 0 < x.size` names `P`, has its type read, and where
 that type names the input type, the search reads its declaration. So a test that only the declaration
 of the input type names, such as a test that an invariant of a field of the input states, is not

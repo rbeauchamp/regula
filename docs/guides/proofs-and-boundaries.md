@@ -1870,16 +1870,15 @@ have, which lead to no target.
 ### The reading of a statement: decision and observing pass
 
 [RG1009] searches the two sides of a decision registration for the functions that they share. It
-reads the implementation by the rule of a function. It reads the specification and the
-acceptance predicate by the rule of a statement, with one exception. That reading is an observing
-pass and one pure decision with a kind.
+reads the implementation by the rule of a function, and the acceptance predicate by the rule of a
+statement. It reads the specification by the rule of a statement, with one exception. That
+reading is an observing pass and one pure decision with a kind.
 
 - **The exception.** The reading does not enter the declaration of the input type of the kind
   from the input. It starts at the body of the specification's function abstraction under its
   variable. When the specification is a definition, alone or applied to its variable alone, the
   search reads the body of that definition's value. From a field's projection function of the
-  input type, also through an `abbrev`, it does not follow the edge back to that type. The
-  acceptance predicate is read in the same way with the result type.
+  input type, also through an `abbrev`, it does not follow the edge back to that type.
 - **The observing pass** is `Collect.readStatement`. It starts at the constants of the input type
   and of the body. It reads each constant outside Lean's own library that the rule of a statement
   reaches, `StatementReading.Observed.references`. For each such constant it gives a record,
@@ -1903,6 +1902,12 @@ in a different way can depend on the test at an input, so the reading follows th
 This argument is not a theorem about Lean's semantics. Section 7.11 of the standard states it.
 The theorem `through_input` gives the property of the reading on which the argument depends.
 
+**The acceptance predicate.** The search reads it by the rule of a statement, the declaration of
+the result type included. The argument above holds for the input type only. A value of the result
+type occurs on one side of the kind only, in `accepts (f x)`. So a specification that names a test
+of that declaration shares it with the acceptance predicate. The control `flaggedOf_decides` shows
+this case.
+
 **Proved**, about the functions that the reading runs. They are in the claimed library
 `RegulaPolicy`, so acceptance admits each theorem with Lean's kernel and reports its axioms.
 
@@ -1914,8 +1919,8 @@ The theorem `through_input` gives the property of the reading on which the argum
 | The closure is exact | `StatementReading.reading_some` | A constant is in `read` exactly when it has a record and the body of the term reaches it by `reads`. The same holds of `withTypes` and the rule. |
 | Only through the input type | `StatementReading.through_input` | A constant that the rule reaches and the reading does not, the rule reaches from a constant of the input type. The reading reaches that constant of the input type in no way. |
 | The names through types | `mem_sharedNames_throughTypes` | A name is in `throughTypes` exactly when the rule shares a test with that name and the reading does not. |
-| The rule holds of what is read | `StatementReading.no_shared_test` | A record that names no test of the class `boolean` has no such constant that the reading of the specification and the implementation reach. |
-| What the change accepts | `StatementReading.accepted_throughTypes`, `sharedConstants_read_subset` | A registration that the reading accepts and the rule refuses has each such test in `throughTypes`. The specification does not read it, or the implementation does not reach it. |
+| The rule holds of what is read | `StatementReading.no_shared_test` | Take a record that names no test of the class `boolean`. No constant of that class is then read in the specification and reached by the other side. The other side is the implementation or the acceptance predicate. |
+| What the change accepts | `StatementReading.accepted_throughTypes`, `sharedConstants_read_subset` | A registration that the reading accepts and the rule refuses has each such test in `throughTypes`. The specification does not read it, or neither the implementation nor the acceptance predicate reaches it. |
 
 **Hypotheses and trusted boundary.** The theorems start from the records. They do not prove these
 items:
@@ -1928,12 +1933,12 @@ items:
   function abstraction, the pass reads its binder type and its body. A term can name a
   definition, alone or applied to its variable, with a function abstraction as its value. For
   such a term, the pass reads the binder type and the body of that value. For a term of a
-  different form, it reads the domain of its type and the term. It adds the constants of the input type with its reducible definitions unfolded at
-  its head.
+  different form, it reads the domain of its type and the term. It adds the constants of the
+  input type with its reducible definitions unfolded at its head.
 - That a constant with no record leads to no shared test. A constant of Lean's own library is not
   read, as before this change. The editor snapshot of a file with a `module` header gives no
-  record to one more constant. That is a specification or an acceptance predicate that is an
-  imported definition with no exported value. The editor then reports the reading as incomplete
+  record to one more constant. That is a specification that is an imported definition with no
+  exported value. The editor then reports the reading as incomplete
   with `Unread.shared`, where a shared test could be below that definition.
 - That a test that only the declaration of the input type names is no part of a specification.
   This is the argument above.
@@ -1953,9 +1958,9 @@ type. The control `admitAnd_decides` shows this limit.
 
 **The verdicts.** The rule of a statement is the reading of the search before
 [#270](https://github.com/rbeauchamp/regula/issues/270). The reading reaches part of what the rule
-reaches, so no registration is newly refused. A registration is newly accepted only when the two
-sides shared each of its tests only through the input type or the result type. The record names
-each such test after `shared-through-types=`.
+reaches, so no registration is newly refused. A registration is newly accepted only when its
+specification reached each shared test only through the input type. The record names each such
+test after `shared-through-types=`. The acceptance predicate is read as before #270.
 
 ### Open obligations of the split producers
 

@@ -3076,8 +3076,9 @@ the proposition `p` and those of the instance term, which names the same functio
 does not follow the value of a theorem or of an opaque constant: Lean's kernel unfolds neither.
 From an inductive type, a constructor and a recursor it follows nothing, not their types
 either: a function depends on the declaration of its data, which is not a shared definition,
-and not on what a field's type mentions. The specification and the acceptance predicate are
-read by the rule of a statement (`readStatement`). -/
+and not on what a field's type mentions. The acceptance predicate is read by the rule of a
+statement (`statementRecords`), and the specification by the reading of a statement
+(`readStatement`). -/
 private def functionReferences (env : Environment) (scope : ContractScope) (info : ConstantInfo) :
     MetaM (Array Name) := do
   match info with
@@ -3131,29 +3132,51 @@ private def observeStatement (env : Environment) (scope : ContractScope) (info :
   return { kind := kindOf info, result := ← scope.resultForm env info
            type := info.type.getUsedConstants, value, declaration, projection }
 
-/-- What the observing pass reads of a specification or an acceptance predicate, with the pure
-reading of it (`RegulaPolicy.StatementReading.reading`). -/
+/-- The record of each constant outside Lean's own library (`ContractScope.outsideToolchain`) that
+`roots` reach by the rule of a statement (`RegulaPolicy.StatementReading.Observed.references`), as
+`observeStatement` reads it: the reading of a statement before it left out the declaration of the
+input type. A constant of `skip` gets no record, and the closure does not follow it. -/
+private def statementRecords (env : Environment) (scope : ContractScope) (skip : NameSet)
+    (roots : Array Name) : MetaM (Std.HashMap Name RegulaPolicy.StatementReading.Observed) := do
+  let mut records : Std.HashMap Name RegulaPolicy.StatementReading.Observed := {}
+  let mut seen := skip
+  let mut pending := roots
+  while !pending.isEmpty do
+    let name := pending.back!
+    pending := pending.pop
+    if seen.contains name then continue
+    seen := seen.insert name
+    unless ← scope.outsideToolchain env name do continue
+    let some info := env.find? name | continue
+    let observed ← observeStatement env scope info
+    records := records.insert name observed
+    pending := pending ++ observed.references
+  return records
+
+/-- What the observing pass reads of a specification, with the pure reading of it
+(`RegulaPolicy.StatementReading.reading`). -/
 private structure StatementRead where
   /-- The record of each constant that the pass read. -/
   records : Std.HashMap Name RegulaPolicy.StatementReading.Observed
-  /-- The constants of the input type of the kind, or of its result type, as `readStatement`
-  reads them. -/
+  /-- The constants of the input type of the kind, as `readStatement` reads them. -/
   domain : Array Name
   /-- The constants of the body of the term under its variable, as `readStatement` reads them. -/
   body : Array Name
-  /-- The definition that the term is, alone or applied to its variable alone, when the snapshot
-  of a file with a `module` header has it only as an imported axiom: the reading does not follow
-  it (`readStatement`). -/
+  /-- The definition that the specification is, alone or applied to its variable alone, when the
+  snapshot of a file with a `module` header has it only as an imported axiom: the reading does not
+  follow it (`readStatement`). -/
   unread : Option Name
   /-- The two readings of the term. -/
   reading : RegulaPolicy.StatementReading.Reading
 
-/-- The reading of `term`, a specification or an acceptance predicate, by the rule of a
-statement: the observing pass and the pure search `RegulaPolicy.StatementReading.reading`.
+/-- The reading of `term`, the specification of a decision registration, by the rule of a
+statement with the exception of its input type: the observing pass and the pure search
+`RegulaPolicy.StatementReading.reading`. The acceptance predicate has no such reading:
+`sharedReading` reads it by the rule of a statement alone (`statementRecords`).
 
-The term is a function of the input of the kind (of its result, for an acceptance predicate). The
-request (`RegulaPolicy.StatementReading.Request`) has the constants of an input type `α` as its
-`domain` and the constants of a body `b` as its `body`, in three forms:
+The term is a function of the input of the kind. The request
+(`RegulaPolicy.StatementReading.Request`) has the constants of an input type `α` as its `domain`
+and the constants of a body `b` as its `body`, in three forms:
 
 * For `fun x : α => b`, the binder type and the body of the term.
 * When the term is a definition `C`, alone or applied to its variable alone (`fun x => C x`,
@@ -3164,13 +3187,11 @@ request (`RegulaPolicy.StatementReading.Request`) has the constants of an input 
 
 The domain also has the constants of `α` with its reducible definitions unfolded at its head
 (`Meta.whnfR`), so the input type of an `abbrev` is the structure that its projections name. The
-pass reads each constant outside Lean's own library (`ContractScope.outsideToolchain`) that the
-constants of the domain and of the body reach by the rule of a statement
-(`RegulaPolicy.StatementReading.Observed.references`), the reading of the search before it left
-out the declaration of the input type (`observeStatement`). That closure holds each constant that
-the reading reaches too (`RegulaPolicy.StatementReading.read_subset_withTypes`). The pure search
-then gives the two readings over those records (`RegulaPolicy.StatementReading.reading_some`);
-its bound of steps covers every record, and the reading refuses with an error should it run out.
+pass reads each constant that the constants of the domain and of the body reach by the rule of a
+statement (`statementRecords`). That closure holds each constant that the reading reaches too
+(`RegulaPolicy.StatementReading.read_subset_withTypes`). The pure search then gives the two
+readings over those records (`RegulaPolicy.StatementReading.reading_some`); its bound of steps
+covers every record, and the reading refuses with an error should it run out.
 `RegulaPolicy.StatementReading.through_input` holds of the request in each form, since it holds
 of every request. That the pass reads the environment truly is this function's, not a theorem.
 
@@ -3205,19 +3226,7 @@ private def readStatement (env : Environment) (scope : ContractScope) (hides : B
   let domain ← match input with
     | some type => pure (type.getUsedConstants ++ (← Meta.whnfR type).getUsedConstants)
     | none => pure #[]
-  let mut records : Std.HashMap Name RegulaPolicy.StatementReading.Observed := {}
-  let mut seen : NameSet := unread.elim {} ({} : NameSet).insert
-  let mut pending := domain ++ body
-  while !pending.isEmpty do
-    let name := pending.back!
-    pending := pending.pop
-    if seen.contains name then continue
-    seen := seen.insert name
-    unless ← scope.outsideToolchain env name do continue
-    let some info := env.find? name | continue
-    let observed ← observeStatement env scope info
-    records := records.insert name observed
-    pending := pending ++ observed.references
+  let records ← statementRecords env scope (unread.elim {} ({} : NameSet).insert) (domain ++ body)
   let some reading := RegulaPolicy.StatementReading.reading { records, domain, body }
     | throwError "the reading of a decision statement ran out of its bound of steps"
   return { records, domain, body, unread, reading }
@@ -3308,42 +3317,48 @@ One side is the specification. The other side is the implementation with the acc
 predicate: a kind states `accepts (f x)` against `spec x`, so a definition that the acceptance
 predicate and the specification share enters both sides of that statement as one that the
 implementation and the specification share does. The search reads the implementation by the
-rule of a function (`functionReferences`), and the specification and the acceptance predicate by
-the reading of a statement (`readStatement`, the registered decision
-`RegulaPolicy.StatementReading.reads`): the value of a definition of a proposition that a term
-names is read, and the value of a `Decidable` instance that it names is not. The reading starts at
-the body of the term's function abstraction. When the term is a definition, alone or applied to
-its variable alone, the reading starts at the body of that definition's value. From a field's
-projection function of a structure of the input type it does not follow the edge back to that
-structure. A definition that the body names among other terms, or that the value of a named
-term names, has its type read: where that type names the input type, the reading enters the
-declaration of the input type there. Apart from that, the specification does not
-enter the declaration of its input type from the input, and the acceptance predicate does not
-enter the declaration of the result type from the result; each follows everything else as the
-rule of a statement does. The search reads kernel-checked values only. A runtime replacement (`implemented_by`,
-`extern`, `csimp`) is in no such value: a kind is a theorem about the definition that Lean's
-kernel reads, and the execution closure accounts for the code that runs in its place.
+rule of a function (`functionReferences`), and the acceptance predicate by the rule of a
+statement from all of its constants, the type of its variable included (`statementRecords`), as
+before #270: the value of a definition of a proposition that it names is read, and the value of
+a `Decidable` instance that it names is not. A value of the result type occurs on one side of the
+kind only, in `accepts (f x)`, so a test that the declaration of the result type names can be a
+part of that side, and the search reads that declaration.
 
-The record has three lists, from three readings of the specification. The first reading stops
-at each counted constant that the other side reaches (`sharedFrontier`), and the functions of the
-class `other` are named from it. The second reading stops nowhere: it has each constant that the
-specification reaches by the reading of a statement and that the other side reaches too, also
-below a counted one. The functions of the class `boolean` are named from the second reading, so a
-record that names none has none at any depth, a function of that class below a function of the
-class `other` included. The third reading is the rule of a statement from the whole term, its
-input type included (`RegulaPolicy.StatementReading.Observed.references`), on both sides of the
-statement: the functions of the class `boolean` that it has and the second does not are named
-apart (`RegulaPolicy.SharedNames.throughTypes`), and no registration is refused for them. Each
-is reached only through a constant of the input type, or of the result type, that the reading
-does not reach (`RegulaPolicy.StatementReading.through_input`).
+The search reads the specification by the reading of a statement (`readStatement`, the registered
+decision `RegulaPolicy.StatementReading.reads`), which leaves out the declaration of the input type
+entered from the input: the two sides range over the same inputs. The reading starts at the body
+of the specification's function abstraction. When the specification is a definition, alone or
+applied to its variable alone, the reading starts at the body of that definition's value. From a
+field's projection function of a structure of the input type it does not follow the edge back to
+that structure. A definition that the body names among other terms, or that the value of a named
+specification names, has its type read: where that type names the input type, the reading enters
+the declaration of the input type there. The reading follows everything else as the rule of a
+statement does. The search reads kernel-checked values only. A runtime replacement
+(`implemented_by`, `extern`, `csimp`) is in no such value: a kind is a theorem about the
+definition that Lean's kernel reads, and the execution closure accounts for the code that runs in
+its place.
+
+The record has three lists, from three readings of the specification against the same other
+side. The first reading stops at each counted constant that the other side reaches
+(`sharedFrontier`), and the functions of the class `other` are named from it. The second reading
+stops nowhere: it has each constant that the specification reaches by the reading of a statement
+and that the other side reaches too, also below a counted one. The functions of the class
+`boolean` are named from the second reading, so a record that names none has none at any depth,
+a function of that class below a function of the class `other` included. The third reading is the
+rule of a statement from the whole specification, its input type included
+(`RegulaPolicy.StatementReading.Observed.references`): the functions of the class `boolean` that
+it has and the second does not are named apart (`RegulaPolicy.SharedNames.throughTypes`), and no
+registration is refused for them. The specification reaches each only through a constant of the
+input type that the reading does not reach (`RegulaPolicy.StatementReading.through_input`).
 
 `RegulaPolicy.sharedNames` gives the names by class over what the readings read
 (`RegulaPolicy.mem_sharedNames_booleans`, `RegulaPolicy.mem_sharedNames_others`,
 `RegulaPolicy.mem_sharedNames_throughTypes`), and the shared constants of the second and third
 readings are `RegulaPolicy.StatementReading.sharedConstants`: a registration whose record names
 no function of the class `boolean` has no such function that the reading of the specification
-and the implementation reach (`RegulaPolicy.StatementReading.no_shared_test`). The search itself
-is operational apart from the reading of a statement, and it refuses no registration: the pure decision
+reaches and that the implementation or the acceptance predicate reaches
+(`RegulaPolicy.StatementReading.no_shared_test`). The search itself is operational apart from the
+reading of a statement, and it refuses no registration: the pure decision
 `RegulaPolicy.sharedTestFailure` refuses a registration whose record names a function of the
 class `boolean`. The search names the functions that the two sides share by name. It does not
 establish that the specification is the intended one, and a copy of a definition under a second
@@ -3352,10 +3367,11 @@ name is a different constant, which it does not find.
 The second component is for the `snapshot` stage in the environment of a file with a `module`
 header, where a side can reach a constant with no value (`hiddenValue?`). The search does not
 read below such a constant, so a function of the class `boolean` that the two sides share only
-below it is not found. A specification or an acceptance predicate that is such a definition,
-alone or applied to its variable alone, is such a constant of its side (`StatementRead.unread`):
-the reading does not follow it, not through its type either, since the project check reads its
-body and not its type. That can be only in three cases, and the component is the constant of
+below it is not found. A specification that is such a definition, alone or applied to its
+variable alone, is such a constant of its side (`StatementRead.unread`): the reading does not
+follow it, not through its type either, since the project check reads its body and not its type.
+An acceptance predicate that is such a definition is read through its type, by the rule of a
+statement. That can be only in three cases, and the component is the constant of
 the first that holds, of the other side where the two sides have one. Each side has such a
 constant. Or the other side has one, and the
 specification reaches a function of the class `boolean`, which the other side could reach below
@@ -3368,32 +3384,28 @@ private def sharedReading (env : Environment) (scope : ContractScope) (stage : S
     (statement : DecisionStatement) : MetaM (RegulaPolicy.SharedNames × Option Name) := do
   let hides := stage == .snapshot && env.header.isModule
   let implementation ← implementationReach env scope statement.implementation
-  let acceptanceRead ← readStatement env scope hides statement.accepts
-  let acceptanceReading := acceptanceRead.reading
-  let acceptance := acceptanceReading.read.foldl NameSet.insert {}
-  let acceptanceWithTypes := acceptanceReading.withTypes.foldl NameSet.insert {}
+  let acceptance := (← statementRecords env scope {} statement.accepts.getUsedConstants).fold
+    (fun reach name _ => reach.insert name) ({} : NameSet)
   let other := fun name => implementation.contains name || acceptance.contains name
-  let otherWithTypes := fun name =>
-    implementation.contains name || acceptanceWithTypes.contains name
   let specificationRead ← readStatement env scope hides statement.spec
   let specificationReading := specificationRead.reading
   let first ← sharedFrontier env scope other specificationRead
   let mut definitions : Std.HashMap Name RegulaPolicy.SharedDefinition := {}
   for name in specificationReading.withTypes do
-    if otherWithTypes name then
+    if other name then
       let some info := env.find? name | continue
       definitions := definitions.insert name (← sharedDefinition env scope info)
   let shared (widen : Bool) := RegulaPolicy.StatementReading.sharedConstants widen
-    specificationReading acceptanceReading implementation.contains (definitions[·]?)
+    specificationReading implementation.contains acceptance.contains (definitions[·]?)
   let names := RegulaPolicy.sharedNames first.toList (shared false) (shared true)
   unless hides && names.booleans.isEmpty do
     return (names, none)
   let specification := specificationReading.read.foldl NameSet.insert {}
-  let withUnread (reach : NameSet) (read : StatementRead) := read.unread.elim reach reach.insert
   let hiddenOther ← match ← hiddenValue? env scope false implementation with
     | some constant => pure (some constant)
-    | none => hiddenValue? env scope true (withUnread acceptance acceptanceRead)
-  match ← hiddenValue? env scope true (withUnread specification specificationRead), hiddenOther with
+    | none => hiddenValue? env scope true acceptance
+  let unread := specificationRead.unread.elim specification specification.insert
+  match ← hiddenValue? env scope true unread, hiddenOther with
   | none, none => return (names, none)
   | some _, some constant => return (names, some constant)
   | none, some constant =>

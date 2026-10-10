@@ -255,8 +255,8 @@ the two sides of that statement as one that `spec` and `f` both use is, and the 
 "the implementation or the acceptance predicate". A proof of the kind that goes through a named
 function on the two sides can stay valid when that function changes, so the line says that the
 kind does not establish that these definitions are the intended ones. A function with a result
-of `Bool` or `BEq` that the two sides share only through the declaration of the input type or of
-the result type (`RegulaPolicy.SharedNames.throughTypes`) is named in a second part, which says
+of `Bool` or `BEq` that the two sides share only through the declaration of the input type
+(`RegulaPolicy.SharedNames.throughTypes`) is named in a second part, which says
 so. Empty for a contract whose record names none. A registration whose record names a function
 with a result of `Bool` or `BEq` that the two sides use is refused before the account
 (`RegulaPolicy.sharedTestFailure`), and none is refused for a function of the other class or for
@@ -273,15 +273,15 @@ def ContractAccount.sharing (k : ContractAccount) : String :=
         definitions are the intended ones"
     let throughTypes := if k.shared.throughTypes.isEmpty then "" else
       s!"; the two sides share {names k.shared.throughTypes} (each with a result of Bool or \
-        BEq) only through the declaration of the input type or of the result type, so the \
-        registration is not refused for them"
+        BEq) only through the declaration of the input type, so the registration is not \
+        refused for them"
     used ++ throughTypes
 
 -- Controls of the account line of the shared functions. The line names the side that shares
 -- them as "the implementation or the acceptance predicate", marks the functions with a result
 -- of `Bool` or `BEq`, and does not say that the kind establishes them. A function shared only
--- through the declaration of the input type is named in a part of its own. A contract whose record names no function has
--- no such line.
+-- through the declaration of the input type is named in a part of its own. A contract whose
+-- record names no function has no such line.
 -- Compiled-evaluation observation at build time, not a kernel-checked proof.
 #guard
   (⟨`c, `M, `f, "R", some .«sound», ⟨#[`small], #[`evens, `odds], #[]⟩⟩ :
@@ -296,8 +296,7 @@ def ContractAccount.sharing (k : ContractAccount) : String :=
 -- Compiled-evaluation observation at build time, not a kernel-checked proof.
 #guard (⟨`c, `M, `f, "R", some .«sound», ⟨#[], #[], #[`ready]⟩⟩ : ContractAccount).sharing ==
   "; the two sides share ready (each with a result of Bool or BEq) only through the \
-    declaration of the input type or of the result type, so the registration is not refused \
-    for them"
+    declaration of the input type, so the registration is not refused for them"
 -- Compiled-evaluation observation at build time, not a kernel-checked proof.
 #guard (⟨`c, `M, `f, "R", some .«sound», {}⟩ : ContractAccount).sharing == ""
 

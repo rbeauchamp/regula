@@ -752,10 +752,10 @@ two arguments, and state `Spec` without `check`. The accepted account then repor
 and, for a one-way kind, the direction it leaves open.
 
 [RG1009] refuses the registration when `Spec` and `check` reach one function with a result of
-`Bool` or `BEq`. The acceptance predicate counts as `check` does, and the search reads at any
-depth. State that condition as a proposition in `Spec`, and let `check` decide it. The rule
-compares names. A copy of a test under a second name passes, and so does a test of Lean's own
-library.
+`Bool` or `BEq`. The acceptance predicate counts as `check` does, the declaration of its result
+type included, and the search reads at any depth. State that condition as a proposition in
+`Spec`, and let `check` decide it. The rule compares names. A copy of a test under a second
+name passes, and so does a test of Lean's own library.
 
 The search does not enter the declaration of the input type from the input. It reads the body of
 the function abstraction of `Spec` under its variable. When `Spec` is a definition, alone or

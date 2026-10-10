@@ -918,9 +918,11 @@ def guide : RuleId → Guide
           body of its function abstraction under its variable. When the specification is a \
           definition, alone or applied to its variable alone, the search reads the body of that \
           definition's value. It does not follow a projection of a field of the input back to \
-          the input type, or to the type that an `abbrev` input type unfolds to. It reads the \
-          acceptance predicate in the same way with the result type. It follows everything else \
-          as before.",
+          the input type, or to the type that an `abbrev` input type unfolds to. It follows \
+          everything else as before.",
+        "The checker reads the acceptance predicate by the rule of a statement, the declaration \
+          of the result type included. A value of the result type occurs only in `accepts (f x)`, \
+          so a test that the declaration of the result type names can be a part of that side.",
         "A test that the two sides share only through the declaration of the input type, such \
           as a test that an invariant of a field of the input states, is not counted. The \
           report names it after `shared-through-types=`. A specification that names the input \
@@ -962,8 +964,7 @@ def guide : RuleId → Guide
         "The record of every accepted decision registration names no function with a result of \
           `Bool` or `BEq`, outside Lean's own library, that the specification and the other \
           side both reach, at any depth of the specification, apart from the declaration of the \
-          input type or of the result type that the search enters from the input or the \
-          result.",
+          input type that the search enters from the input.",
         "The account still names each other function that the two sides share, where the \
           specification reaches it first (`shared-others=`)."]
       notEstablished := [
@@ -978,20 +979,19 @@ def guide : RuleId → Guide
           a state transition, remains review (R-INTENT).",
         "Anything about a test of Lean's own library, which the two sides can both call.",
         "Anything about a test that the two sides share only through the declaration of the \
-          input type or of the result type (`shared-through-types=`), such as a test that an \
-          invariant of the input states. Whether the invariant is the intended one remains \
-          review.",
+          input type (`shared-through-types=`), such as a test that an invariant of the input \
+          states. Whether the invariant is the intended one remains review.",
         "A test that only a runtime replacement runs (`implemented_by`, `extern`, `csimp`): the \
           search reads kernel-checked values. RG3001 and RG3002 account for the replacement."]
       configuration := []
       limitations := [
         "The search compares constants by name. It follows the types of constants, the \
           unfoldable values of definitions and the constructors of inductive types from the \
-          specification and the acceptance predicate, apart from the declaration of the input \
-          type and of the result type that it enters from the input or the result. From the \
-          implementation it follows the types of constants and the unfoldable values of \
-          definitions. It does not read the body of a named proof declaration, and it reads no \
-          value of a `Decidable` instance on the specification's side (limitations of RG1007). \
+          specification, apart from the declaration of the input type that it enters from the \
+          input, and from the acceptance predicate. From the implementation it follows the types \
+          of constants and the unfoldable values of definitions. It does not read the body of a \
+          named proof declaration, and it reads no value of a `Decidable` instance on the \
+          specification's side (limitations of RG1007). \
           A proof term that is written inline in a specification is a part of that term, so a \
           test that it names is counted and the registration is refused, which is the safe \
           side.",
@@ -1004,9 +1004,9 @@ def guide : RuleId → Guide
           sides, finds no shared test, and one of two cases holds. Each side reaches an \
           imported constant with no value in the file, a function or not, whose value the \
           search of that side would read. Or one side reaches one, and the other side reaches \
-          a test that the rule counts. A specification or an acceptance predicate that is such \
-          an imported definition, alone or applied to its variable alone, is such a constant: \
-          the editor does not read it through its type, since `lake lint` reads its body.",
+          a test that the rule counts. A specification that is such an imported definition, \
+          alone or applied to its variable alone, is such a constant: the editor does not read \
+          it through its type, since `lake lint` reads its body.",
         "A definition that the body of the specification names among other terms, or that the \
           value of a named specification names, has its type read. Where that type names the \
           input type, the search reads the declaration of the input type there. So \
@@ -1033,19 +1033,21 @@ def guide : RuleId → Guide
         search read a definition of that class with that name \
         (`RegulaPolicy.mem_sharedNames_booleans`), and the class is a stated condition on what \
         was read of the definition (`RegulaPolicy.SharedDefinition.class_eq_boolean_iff`). What \
-        the search follows from each constant of the specification and of the acceptance \
-        predicate is the decision `RegulaPolicy.StatementReading.reads`, with the two-way kind \
+        the search follows from each constant of the specification is the decision \
+        `RegulaPolicy.StatementReading.reads`, with the two-way kind \
         `RegulaPolicy.StatementReading.checked_reads`, and `RegulaPolicy.StatementReading.reading` \
         closes it over the records of the observing pass (`reading_some`). It reaches only what \
         the rule of a statement reaches (`read_subset_withTypes`), so it refuses no \
         registration that the earlier search accepted. What the rule reaches and the reading \
         does not, the rule reaches from a constant of the input type that the reading does not \
         reach (`RegulaPolicy.StatementReading.through_input`), and a name is shared only \
-        through the input type exactly as `RegulaPolicy.mem_sharedNames_throughTypes` states. A record that names no \
-        test has no test that the reading of the specification and the implementation reach \
-        (`RegulaPolicy.StatementReading.no_shared_test`). The observing pass, the \
-        search for the implementation and the reading of each definition (`Regula.Collect`) \
-        are operational."
+        through the input type exactly as `RegulaPolicy.mem_sharedNames_throughTypes` states. \
+        The acceptance predicate is read by the rule of a statement. A record that names no \
+        test has no test that the reading of the specification reaches and that the \
+        implementation or the acceptance predicate reaches \
+        (`RegulaPolicy.StatementReading.no_shared_test`). The observing pass, the search for \
+        the implementation and the reading of each definition (`Regula.Collect`) are \
+        operational."
       sources :=
           ["lean/RegulaPolicy/Decision.lean", "lean/RegulaPolicy/Specification.lean",
               "lean/RegulaPolicy/Domain.lean", "lean/RegulaPolicy/StatementReading.lean",

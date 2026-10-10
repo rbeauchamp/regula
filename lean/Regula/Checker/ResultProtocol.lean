@@ -20,8 +20,8 @@ open Lean
 abbrev producer := Regula.Checker.Producer.identity
 
 /-- Result schema 13 records the functions with a result of `Bool` or `BEq` that the two sides of
-each decision registration share only through the declaration of the input type of the kind or of
-its result type (`RegulaPolicy.SharedNames.throughTypes`, `RegulaPolicy.StatementReading`): the
+each decision registration share only through the declaration of the input type of the kind
+(`RegulaPolicy.SharedNames.throughTypes`, `RegulaPolicy.StatementReading`): the
 `shared` object of a declaration's `executableContract` and the `sharedDefinitions` object of each
 `contracts` entry of the acceptance account carry the member `throughTypes`. Earlier schemas did
 not write the member.
@@ -466,7 +466,7 @@ function in `booleans`, which is named at any depth, so an accepted registration
 function in `others` is named where the specification reaches it first. The kind does not
 establish that it is the intended one, and no entry is refused for it. A function in
 `throughTypes` has a result of `Bool` or `BEq` and is shared only through the declaration of the
-input type or of the result type; no entry is refused for it. -/
+input type; no entry is refused for it. -/
 def accountJson (account : Regula.Checker.Account) : Json :=
   let a := account.val
   let residuals (rs : List Regula.Checker.Account.Residual) := toJson (rs.map (·.spelling))
