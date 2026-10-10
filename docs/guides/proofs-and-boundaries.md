@@ -658,27 +658,46 @@ source left kernel checking on, and the transcript does not replay it. The nativ
 and `validCoordinates` take the observed parts alone, and admission and the coordinate check read
 the source text only for comparison.
 
-**Limits.** The parts classify the source of a value but do not make an observation truthful.
-That `Collect.declaration` and `Frontend.buildCore` fill each field from the source its part names
-is by inspection of those functions, not proved. State a project writes can still enter a toolchain
-observation, and the docstring of each such field says how: `isProp` is Lean's answer, which does
-not unfold an irreducible definition; `prettyType` is Lean's printer, which uses the notations in
-force; `nativeReplay` runs compiled code; and what a project writes selects which regeneration
-`unsafeRecRegenerated` reports, while the pure comparison and the kernel decide it. The two
-observations of the checker that a project-written mark decides are fields of
-`Declaration.ProjectWritten` for that reason. `executableContract` reads Lean's `noncomputable`
-mark for one refusal. `tableOmissions` compares the axioms of Lean's module table, which a
-project can write, with the axioms that the replayed kernel gives. The decisions of [RG1007]
+**Execution records.** Authored marks and traversal through project-written edges decide which
+execution records exist. In a record, a field is observed where the environment fixes its value for
+the constant the record is made at. That holds for the module of a name and the constant and module
+of a boundary, root or visit. A boundary's ownership is its module's membership in the claim's owned
+modules: the environment's module and the claim fix it, and no mark decides it. A field that the
+data of a mark enters is project-written, as a boundary's kind and replacement.
+
+A visit's parent, the closure's other fields and a boundary's position are computed by the walk on
+the combined record. `ExecutionWalk.assemble` also takes `rootCompiled`, the root's compiled-code
+requirement. When it holds, the root is required code, and missing code of the root is reported as
+unavailable. The root's marks and tags enter it, so it is project-written. The `ExecutionClosure`
+docstring lists each condition.
+
+A candidate boundary comes from a constant of an equality type, registered with `@[csimp]` or not.
+The two sides are constants with the same list of distinct universe parameters. An attribute such as
+`@[simp]` can make Lean generate such a constant, an equation lemma. The walk follows each recorded
+historical replacement conservatively, including one that the compiled code no longer runs. The
+[RG3001] and [RG3002] decisions read the two parts.
+
+**Limits.** The parts classify the source of a value but do not make an observation truthful. That
+`Collect.declaration`, `Frontend.buildCore`, `Probe.observeNode` and `Probe.environmentReport` fill
+each field from the source its part names is by inspection of those functions, not proved. State a
+project writes can still enter a toolchain observation, and the docstring of each such field says
+how: `isProp` is Lean's answer, which does not unfold an irreducible definition; `prettyType` is
+Lean's printer, which uses the notations in force; `nativeReplay` runs compiled code; and what a
+project writes selects which regeneration `unsafeRecRegenerated` reports, while the pure comparison
+and the kernel decide it. The two observations of the checker that a project-written mark decides
+are fields of `Declaration.ProjectWritten` for that reason. `executableContract` reads Lean's
+`noncomputable` mark for one refusal. `tableOmissions` compares the axioms of Lean's module table,
+which a project can write, with the axioms that the replayed kernel gives. The decisions of [RG1007]
 and [RG1009] take the recorded contract and no other field, so they read the `noncomputable` mark
 only through it. The decision requirement of [RG1008] takes the name and the registration alone
-(`Declaration.Registration`). The role validators take the role part (`Declaration.Role`):
-the inspected part and the three marks that they read. The declaration decision and the
-operational decision take the assessed part (`Declaration.Assessed`): the inspected part and the
-recorded contract. `policyFor`, `memberFailure` and the editor decision take the whole
-`Declaration` because membership of the inventory is a property of the whole record. `policyFor`
-checks it at the admission boundary `recordFailure`, and the other two take a proof of it.
-`policyFor`, `memberFailure` and `policyRequirements` join the assessed part and the registration
-part. The editor decision reads only the assessed part: it joins the declaration decision with
+(`Declaration.Registration`). The role validators take the role part (`Declaration.Role`): the
+inspected part and the three marks that they read. The declaration decision and the operational
+decision take the assessed part (`Declaration.Assessed`): the inspected part and the recorded
+contract. `policyFor`, `memberFailure` and the editor decision take the whole `Declaration` because
+membership of the inventory is a property of the whole record. `policyFor` checks it at the
+admission boundary `recordFailure`, and the other two take a proof of it. `policyFor`,
+`memberFailure` and `policyRequirements` join the assessed part and the registration part. The
+editor decision reads only the assessed part: it joins the declaration decision with
 `needsRoleEvidence`, which takes `Declaration.Inspected`.
 
 **No project-written mark admits.** The marks of the role part and the refusals of the recorded
