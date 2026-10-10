@@ -159,13 +159,19 @@ only through that workspace. No package reads or writes Lake's artifact cache
 (`Workspace.uncachedWorkspace`), and no module of the root package keeps a trace that records a
 restore from it (`Workspace.dropRestoredTraces`). So Lake elaborates each root-package module the
 build needs, or replays the log of the elaboration that wrote its trace; a module restored from
-the cache has no such log, so its warnings would be missing from the output. Lake's loader sets
-this process's Lean search path (`Lean.searchPathRef`), which the checker's workers inherit; the
-run restores it, so like a child `lake build` it leaves the checker's own state as it was. -/
+the cache has no such log, so its warnings would be missing from the output. The `lean`
+processes Lake starts inherit this process's working directory, which a module's elaboration can
+read (`IO.currentDir`), so the build runs with the root package's directory as the working
+directory, as a `lake build` run there does. Lake's loader sets this process's Lean search path
+(`Lean.searchPathRef`), which the checker's workers inherit. The run restores both, so like a
+child `lake build` it leaves the checker's own state as it was. Both are process-wide, so no other
+task of the process may build or read them while it runs; the checker runs its builds one at a
+time. -/
 def Build.run (build : Build) (repo : FilePath) (targets : Array String) : IO ProcessResult := do
   let buffer ← IO.mkRef ({} : IO.FS.Stream.Buffer)
   let out ← showingStream (IO.FS.Stream.ofBuffer buffer) build.display
   let searchPath ← Lean.searchPathRef.get
+  let workingDirectory ← IO.currentDir
   let exitCode ← try
       Workspace.withRootWorkspace repo (scrubSearchPath := true) fun loaded => do
         let ws := Workspace.uncachedWorkspace loaded
@@ -178,13 +184,16 @@ def Build.run (build : Build) (repo : FilePath) (targets : Array String) : IO Pr
         let leanOptOverrides := match build.rootOptions with
           | some options => ({} : NameMap LeanOptions).insert ws.root.baseName options
           | none => {}
+        IO.Process.setCurrentDir ws.root.dir
         ws.runBuild (_root_.Lake.buildSpecs specs) {
           out := .stream out, ansiMode := .noAnsi, showSuccess := true, leanOptOverrides }
       pure (0 : UInt32)
     catch error =>
       out.putStrLn s!"error: {error}"
       pure 1
-    finally Lean.searchPathRef.set searchPath
+    finally
+      Lean.searchPathRef.set searchPath
+      IO.Process.setCurrentDir workingDirectory
   let some stdout := String.fromUTF8? (← buffer.get).data
     | return { exitCode := 1, stdout := "", stderr := "error: build output is not UTF-8" }
   return { exitCode, stdout, stderr := "" }
