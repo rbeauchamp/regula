@@ -303,10 +303,17 @@ built, and the result names the one statement that the gate cannot read.
 ## Regula: the gate beside the rest of the first step, after a prebuild (2026-10-10)
 
 Issue [#324](https://github.com/rbeauchamp/regula/issues/324) asked for a margin of the first
-step again. The part of the step under the deadline is the window from `verification: start git
-diff --check` to `local verification: PASS`. On the slow runner class, that window took 372 s to
-394 s in the five CI runs of `main` from `b2215df3` to `8e11edb4`. The documentation step took
-271 s to 286 s in the same runs.
+step again. The window of the step is the time from `verification: start git diff --check` to
+`local verification: PASS`. On the slow runner class, that window took 372 s to 394 s in the
+five CI runs of `main` from `b2215df3` to `8e11edb4`. The documentation step took 271 s to 286 s
+in the same runs.
+
+The deadline also includes the start of the driver, which is before the window. In that start,
+`lean --run` elaborates the driver, and the driver reads and checks `lake-manifest.json` and
+`foundation_manifest.json`. In the five runs, the start took 2.8 s to 3.0 s. That is the time
+from the line `provisioning: default verification needs no dependency acquisition` to the first
+line of the window. The provisioning before the deadline is the rest of the difference between
+the step and the window.
 
 The job logs give the parts of the window in those runs. The build took 207 s to 222 s, the
 registry checks 2 s and the qualification controls 26 s to 29 s. The gate took 135 s to
@@ -352,9 +359,11 @@ for the commands at low priority. The higher value adds 20 percent to the gate. 
 above shows that the hosted gain of such a schedule was less than half of its prediction. Thus
 the criterion was set before a hosted run.
 
-Three slow-class runs with a window of 360 s or less confirm the target of a margin of 60 s. A
-slow-class run with a window of more than 375 s refutes the prediction. A slow-class run has a
-documentation step of 255 s or more.
+The target is a margin of approximately 57 s under the deadline, net of the start of the driver.
+Three slow-class runs with a window of 360 s or less confirm that target. Such a window leaves
+60 s of the 420 s, and the start of the driver uses approximately 3 s of it. A slow-class run
+with a window of more than 375 s refutes the prediction. A slow-class run has a documentation
+step of 255 s or more.
 
 One local run of this change on 14 processors took 114 s for the window. The local profile of
 `e0232383` took 130 s without its clone of Verso. In that run the gate took 75 s, and it ended
