@@ -263,6 +263,10 @@ such a root, such as its umbrella module, for its own environment.
 }
 ```
 
+A surface can also name other claimed surfaces in `decides`. Then its decision registrations can
+decide the marked decisions of those surfaces
+([complete semantic review](#complete-semantic-review)).
+
 `claim` is the strongest foundation any declaration on the surface may use
 ([standard §4.5](https://rbeauchamp.github.io/regula/dev/standard/4-mathematical-foundations/#45-foundation-strength-kernel-only-choice-free-standard-logical)):
 
@@ -546,13 +550,13 @@ relation between it and the type.
 
 ## Machine-readable report
 
-`lake lint -- --json-out PATH` writes one JSON document, result schema 14, whatever the outcome;
+`lake lint -- --json-out PATH` writes one JSON document, result schema 15, whatever the outcome;
 the path is first written as an incomplete result, so a stale report is never mistaken for this
 run's. Its main members:
 
 | Member | Meaning |
 | --- | --- |
-| `schemaVersion` | `14`. Also `producerVersion`, `toolchain` and `sourceRevision` of the Regula build. |
+| `schemaVersion` | `15`. Also `producerVersion`, `toolchain` and `sourceRevision` of the Regula build. |
 | `status` | `completed` (accepted), `rejected` (a violation was established and no finding is incomplete), `incomplete` (evidence was missing) or `classified` (a file inspection with no conforming claim). For an audit that recorded its result and then finished, it and the diagnostics determine the exit code. |
 | `stages`, `stagesCompleted`, `stagesNotRun`, `complete` | The run's required stages and which completed, including the stages that finished before the run stopped. `complete` is `false` when the run stopped early, so fixing the reported findings can reveal more. |
 | `diagnostics` | Every finding in printed order, one per declaration even where the text groups them, with `id`, `impact`, `severity`, `mode`, `claim`, `location` (for source, its `uri`, byte and LSP ranges and its `sourceText`, an index into `sourceTexts`; for a module, its `name`), `arguments`, `text`, `remedy` and `helpUrl`. `arguments.declaration` (or `root` for an execution finding) is the name as Lean prints it, such as `"Widget.countdown.eq_1"`. For a declaration-policy finding of a project or file audit or of a rule example ([RG1005] and the other rules decided per audited declaration), `arguments.sourceDeclaration` names the declaration Lean generated the declaration from, at the end of that chain, or is `null` for a declaration Lean did not generate from another; for a generated declaration, `location` is its own range when Lean recorded one, and otherwise that source declaration's range when Lean recorded one, with `related` naming the declaration's own module. Other declaration findings carry no attribution: a documentation example's, a material-documentation one ([RG5002], [RG5003]) and the editor linter's record `null` and the declaration's own location. A declaration whose recorded selection range leaves its recorded range, as Lean records for the definitions of a `macro_rules` command over several syntax kinds, is located at its range, which is then its selection range too. |
@@ -850,13 +854,34 @@ Regula.Decision`, or `meta import Regula.Decision` in a file that is a `module`)
 own module cannot import `Regula.Decision` is marked from another module of the same library, with
 `attribute [regula_decision] check`; marking a function of another library or of a dependency
 stops the audit, which decides the requirement only for the functions its inventory declares. The
-audit then rejects a marked function unless a decision registration in the same library decides
-it, or its result type is `Decidable _`, which carries a proof either way ([RG1008]). So deleting the
+audit then rejects a marked function unless a decision registration in the same library, or in a
+surface that names that library in `decides` (below), decides it, or its result type is
+`Decidable _`, which carries a proof either way ([RG1008]). So deleting the
 theorem while the function stays marked fails `lake lint`. The editor does not report this rule,
 because a registration normally follows its function. Which functions you mark, and whether
 `Spec` is the specification you intend, stay your review
 ([standard §3.8](https://rbeauchamp.github.io/regula/dev/standard/3-logic-proof-patterns/#decision-kinds), [RG1007]).
 The [RG1008] page shows a marked function with and without its registration.
+
+A project can keep its executing definitions free of a proof dependency. One library holds the
+functions and does not import a proof library such as Mathlib. To carry the mark, it imports only
+the toolchain and `Regula.Decision`, as an elaboration-time `meta import` in a file that is a
+`module`. A second library imports the first library and a proof library, and it holds the
+theorems. If the proof of a kind uses the proof library, you can write the kind only in the second
+library. Keep the mark on the function in the first library, and name that library in the
+`decides` of the second surface:
+
+```json
+{ "library": "WidgetProofs", "claim": "standard-logical", "decides": ["Widget"],
+  "rationale": "..." }
+```
+
+The decision registrations of `WidgetProofs` then count toward the marked functions of `Widget`.
+The audit counts a registration only as the record of the `WidgetProofs` environment in the same
+run. Also, that environment must load the module of the function from the same build output. The
+registration must meet all requirements of `WidgetProofs`, and the function keeps the execution
+claim of `Widget`. The account names the surface that each counted registration comes from. The
+audit refuses a `decides` entry that names its own surface or no claimed surface.
 
 ## Limits
 

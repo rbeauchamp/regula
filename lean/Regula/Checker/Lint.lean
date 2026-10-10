@@ -134,6 +134,9 @@ private def explain (options : Options) : IO Outcome := do
     let modules := ((inventory.libraries.find? (·.library == surface.library)).map (·.modules)).getD
         #[]
     IO.println s!"surface {surface.library}: claim {surface.claim}, execution {surface.execution}"
+    unless surface.decides.isEmpty do
+      IO.println s!"  its decision registrations count toward: \
+        {", ".intercalate surface.decides.toList}"
     IO.println s!"  modules: {", ".intercalate (modules.map toString).toList}"
     unless surface.executables.isEmpty do
       IO.println s!"  executables: {", ".intercalate surface.executables.toList}"

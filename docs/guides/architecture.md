@@ -135,7 +135,7 @@ which brings those declarations into scope; that none of their definitions uses 
 inspection, as it already was for `AuditApp.Limiter` and `Regula.MaterialClaim`. The extension is
 an ordinary definition, not a `meta` one, so the collector reads the registrations through it.
 `RegulaPolicy.Compiler` imports only `Init`, because the compiler guard elaborates it alone before
-the package is built, so its two decisions are registered from `RegulaPolicy.Claim`, a module of
+the package is built, so its decisions are registered from `RegulaPolicy.Claim`, a module of
 the same library that imports it (`attribute [regula_decision]`). The two standalone programs
 import only the toolchain for the same reason, since each runs with `lean --run` before the
 package is built, and the `Decisions` module of each one's library registers its decisions the
@@ -164,6 +164,15 @@ reads. Declaration safety uses the recursion helpers; `Roles.safetyHelpers_iff` 
 is one exactly when the full recursion-helper relation holds for it. No unsafe constructor-index
 wrapper is admitted. Neither family changes the original unsafe/partial fields or
 execution-boundary correspondence.
+
+An inventory decides with its own decision contracts and with the contracts that it counts from
+other surfaces, which `Inventory.counted` holds. Inventory admission gives no counted contracts. In
+a project census, `countedFor` gives the counted contracts of an environment. They are the records
+of the environments of each surface that names its surface in `decides`. Also, the function must
+be in a module of the environment's surface, and the other environment must load this module with
+the same origin. `census_decided_iff`
+states this result, `Acceptance.countFrozen` sets the contracts, and plan admission checks them with
+`EnvironmentCensusOK`.
 
 `Location` is a source range (exact text with byte offsets for full and selection ranges), a
 module, or a project/configuration scope. `admitSource` (claimed `RegulaCore.Source`) checks
@@ -243,7 +252,7 @@ lake exe axiomGate --with-docs --json-out tmp/result.json
 ```
 
 Each export is versioned on its own: the surface manifest is schema 2, the registry schema 4, the
-result schema 14, the worker packet schema 1, the rule-example corpus export schema 1, the
+result schema 15, the worker packet schema 1, the rule-example corpus export schema 1, the
 acceptance link schema 1 and the site's `build.json` schema 2. Registry and result envelopes carry
 `schemaVersion`, `producerVersion`, `toolchain` and `sourceRevision` from
 `Regula.Checker.Producer.identity`: `producerVersion` is the installed release's spelling
@@ -258,7 +267,7 @@ metadata, not authenticated binary identity.
   re-encoding, refusing unknown or missing fields, changed routes and stale lifecycle data.
   Registry admission rejects duplicate external IDs, missing clauses, pages or examples, unknown
   JSON fields or versions, and invalid lifecycle references.
-- **Result, schema 14:** `scope`, `mode`, `status`, `stages` (the stages
+- **Result, schema 15:** `scope`, `mode`, `status`, `stages` (the stages
   `RegulaPolicy.requiredStages` requires for the mode, plus the documentation stages of a
   `--with-docs` run), `stagesCompleted`, `complete`, `stagesNotRun`, `diagnostics` (each with its
   `remedy`, in run order), `rules` (the guidance of every rule that fired, once each, in registry
@@ -348,7 +357,14 @@ metadata, not authenticated binary identity.
   `decidable` or `other` for a declaration registered with `@[regula_decision]`, by whether its
   result type is `Decidable _`, and `null` for any other declaration. [RG1008] is decided from it
   and from the `executableContract` records of the same inventory
-  (`RegulaPolicy.policyFor_decisionContract_iff`).
+  (`RegulaPolicy.policyFor_decisionContract_iff`). In a project audit, [RG1008] also reads the
+  records of each surface that names its surface in `decides` (`RegulaPolicy.census_decided_iff`).
+- **Counted contracts:** since schema 15 each `surfaces` entry of `acceptance` and each surface
+  of `scope.manifest` has `decides`. It names the claimed surfaces that the records of the surface
+  can decide. The account has `countedContracts`. Each entry is a record that an environment counts
+  from a different surface for a function that it marks as a decision. The entry gives the
+  `registration`, its `module`, the `implementation`, the surface of the function as `surface` and
+  the surface of the record as `source`.
 - **Axiom-table omissions:** since schema 12 a declaration record carries `tableOmissions`. Each
   entry is an axiom that the declaration reaches in the replayed kernel and that Lean's
   `collectAxioms` does not report. The rules decide on `axioms`, and the omissions are reported,
