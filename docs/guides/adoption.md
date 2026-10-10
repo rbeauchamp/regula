@@ -758,13 +758,17 @@ compares names. A copy of a test under a second name passes, and so does a test 
 library.
 
 The search does not enter the declaration of the input type from the input. It reads the body of
-the function abstraction of `Spec`, or of the definition that `Spec` names, under its variable.
-It does not follow a projection of the input back to the input type, or to the type that an
-`abbrev` input type gives. So a test
-that only an invariant of the input type names is not counted, and the account names it apart.
+the function abstraction of `Spec` under its variable. When `Spec` is a definition, alone or
+applied to its variable alone, the search reads the body of that definition's value. It does not
+follow a projection of the input back to the input type, or to the type that an `abbrev` input
+type gives. So a test that only an invariant of the input type names is not counted, and the
+account names it apart.
+
 A `Spec` that names the input type in a different way, or that states the invariant, reads the
 test. So does a `Spec` that reads a field with a result type that has such an invariant, unless
-that result type is the input type.
+that result type is the input type. A definition that the body names among other terms has its
+type read too. An example is `fun input => Spec input ∧ 0 < input.amount`. The type of `Spec`
+names the input type, so the search reads the declaration of the input type there.
 
 The account names each other function that `Spec` reaches first and that `check` or the
 acceptance predicate also reaches. The kind does not establish that such a function is the

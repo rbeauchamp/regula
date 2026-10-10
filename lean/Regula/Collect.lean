@@ -3141,6 +3141,10 @@ private structure StatementRead where
   domain : Array Name
   /-- The constants of the body of the term under its variable, as `readStatement` reads them. -/
   body : Array Name
+  /-- The definition that the term is, alone or applied to its variable alone, when the snapshot
+  of a file with a `module` header has it only as an imported axiom: the reading does not follow
+  it (`readStatement`). -/
+  unread : Option Name
   /-- The two readings of the term. -/
   reading : RegulaPolicy.StatementReading.Reading
 
@@ -3152,10 +3156,10 @@ request (`RegulaPolicy.StatementReading.Request`) has the constants of an input 
 `domain` and the constants of a body `b` as its `body`, in three forms:
 
 * For `fun x : α => b`, the binder type and the body of the term.
-* For a constant `C`, or `fun x => C x` (`Lean.Expr.eta`), where `C` is a definition whose
-  kernel-checked value, at the universe levels of the term, is `fun x : α => b`: the binder type
-  and the body of that value. `C x` is `b` by the unfolding of `C`, so the body is what the term
-  states, and a `∀ y : α` in `b` still names `α` in the body.
+* When the term is a definition `C`, alone or applied to its variable alone (`fun x => C x`,
+  `Lean.Expr.eta`), and the kernel-checked value of `C`, at the universe levels of the term, is
+  `fun x : α => b`: the binder type and the body of that value. `C x` is `b` by the unfolding of
+  `C`, so the body is what the term states, and a `∀ y : α` in `b` still names `α` in the body.
 * For every other term, the domain of its type as `α`, and the term as `b`.
 
 The domain also has the constants of `α` with its reducible definitions unfolded at its head
@@ -3168,10 +3172,22 @@ the reading reaches too (`RegulaPolicy.StatementReading.read_subset_withTypes`).
 then gives the two readings over those records (`RegulaPolicy.StatementReading.reading_some`);
 its bound of steps covers every record, and the reading refuses with an error should it run out.
 `RegulaPolicy.StatementReading.through_input` holds of the request in each form, since it holds
-of every request. That the pass reads the environment truly is this function's, not a theorem. -/
-private def readStatement (env : Environment) (scope : ContractScope) (term : Expr) :
+of every request. That the pass reads the environment truly is this function's, not a theorem.
+
+`hides` says that the environment is the snapshot of a file with a `module` header, which has an
+imported definition as an axiom when its module does not export the value. There, when the term
+is such a constant `C`, alone or applied to its variable alone, the pass cannot read the body of
+`C`, and it does not read `C` through its type: `C` gets no record, so neither reading follows it,
+and `unread` names it. The project check, which has the value of `C`, reads its body. In every
+other environment, an axiom `C` keeps its record. -/
+private def readStatement (env : Environment) (scope : ContractScope) (hides : Bool) (term : Expr) :
     MetaM StatementRead := do
   let term := term.consumeMData
+  let unread := match hides, term.eta with
+    | true, .const name _ => match env.getModuleIdxFor? name, env.find? name with
+      | some _, some (.axiomInfo _) => some name
+      | _, _ => none
+    | _, _ => none
   let named := match term.eta with
     | .const name levels => match env.find? name with
       | some info@(.defnInfo _) => match (info.instantiateValueLevelParams! levels).consumeMData with
@@ -3190,7 +3206,7 @@ private def readStatement (env : Environment) (scope : ContractScope) (term : Ex
     | some type => pure (type.getUsedConstants ++ (← Meta.whnfR type).getUsedConstants)
     | none => pure #[]
   let mut records : Std.HashMap Name RegulaPolicy.StatementReading.Observed := {}
-  let mut seen : NameSet := {}
+  let mut seen : NameSet := unread.elim {} ({} : NameSet).insert
   let mut pending := domain ++ body
   while !pending.isEmpty do
     let name := pending.back!
@@ -3204,7 +3220,7 @@ private def readStatement (env : Environment) (scope : ContractScope) (term : Ex
     pending := pending ++ observed.references
   let some reading := RegulaPolicy.StatementReading.reading { records, domain, body }
     | throwError "the reading of a decision statement ran out of its bound of steps"
-  return { records, domain, body, reading }
+  return { records, domain, body, unread, reading }
 
 /-- The first shared functions of a specification: each constant outside Lean's own library
 that the body of `spec` reaches by the reading of a statement
@@ -3293,9 +3309,12 @@ rule of a function (`functionReferences`), and the specification and the accepta
 the reading of a statement (`readStatement`, the registered decision
 `RegulaPolicy.StatementReading.reads`): the value of a definition of a proposition that a term
 names is read, and the value of a `Decidable` instance that it names is not. The reading starts at
-the body of the term's function abstraction, or of the definition that the term names, and from a
-field's projection function of a structure of the input type it does not follow the edge back to
-that structure. So the specification does not
+the body of the term's function abstraction. When the term is a definition, alone or applied to
+its variable alone, the reading starts at the body of that definition's value. From a field's
+projection function of a structure of the input type it does not follow the edge back to that
+structure. A definition that the body names among other terms, or that the value of a named
+term names, has its type read: where that type names the input type, the reading enters the
+declaration of the input type there. Apart from that, the specification does not
 enter the declaration of its input type from the input, and the acceptance predicate does not
 enter the declaration of the result type from the result; each follows everything else as the
 rule of a statement does. The search reads kernel-checked values only. A runtime replacement (`implemented_by`,
@@ -3330,7 +3349,10 @@ name is a different constant, which it does not find.
 The second component is for the `snapshot` stage in the environment of a file with a `module`
 header, where a side can reach a constant with no value (`hiddenValue?`). The search does not
 read below such a constant, so a function of the class `boolean` that the two sides share only
-below it is not found. That can be only in three cases, and the component is the constant of
+below it is not found. A specification or an acceptance predicate that is such a definition,
+alone or applied to its variable alone, is such a constant of its side (`StatementRead.unread`):
+the reading does not follow it, not through its type either, since the project check reads its
+body and not its type. That can be only in three cases, and the component is the constant of
 the first that holds, of the other side where the two sides have one. Each side has such a
 constant. Or the other side has one, and the
 specification reaches a function of the class `boolean`, which the other side could reach below
@@ -3341,14 +3363,16 @@ since the registration is then refused whatever is below, and at every other sta
 environment has the value of each constant. -/
 private def sharedReading (env : Environment) (scope : ContractScope) (stage : Stage)
     (statement : DecisionStatement) : MetaM (RegulaPolicy.SharedNames × Option Name) := do
+  let hides := stage == .snapshot && env.header.isModule
   let implementation ← implementationReach env scope statement.implementation
-  let acceptanceReading := (← readStatement env scope statement.accepts).reading
+  let acceptanceRead ← readStatement env scope hides statement.accepts
+  let acceptanceReading := acceptanceRead.reading
   let acceptance := acceptanceReading.read.foldl NameSet.insert {}
   let acceptanceWithTypes := acceptanceReading.withTypes.foldl NameSet.insert {}
   let other := fun name => implementation.contains name || acceptance.contains name
   let otherWithTypes := fun name =>
     implementation.contains name || acceptanceWithTypes.contains name
-  let specificationRead ← readStatement env scope statement.spec
+  let specificationRead ← readStatement env scope hides statement.spec
   let specificationReading := specificationRead.reading
   let first ← sharedFrontier env scope other specificationRead
   let mut definitions : Std.HashMap Name RegulaPolicy.SharedDefinition := {}
@@ -3359,13 +3383,14 @@ private def sharedReading (env : Environment) (scope : ContractScope) (stage : S
   let shared (widen : Bool) := RegulaPolicy.StatementReading.sharedConstants widen
     specificationReading acceptanceReading implementation.contains (definitions[·]?)
   let names := RegulaPolicy.sharedNames first.toList (shared false) (shared true)
-  unless stage == .snapshot && env.header.isModule && names.booleans.isEmpty do
+  unless hides && names.booleans.isEmpty do
     return (names, none)
   let specification := specificationReading.read.foldl NameSet.insert {}
+  let withUnread (reach : NameSet) (read : StatementRead) := read.unread.elim reach reach.insert
   let hiddenOther ← match ← hiddenValue? env scope false implementation with
     | some constant => pure (some constant)
-    | none => hiddenValue? env scope true acceptance
-  match ← hiddenValue? env scope true specification, hiddenOther with
+    | none => hiddenValue? env scope true (withUnread acceptance acceptanceRead)
+  match ← hiddenValue? env scope true (withUnread specification specificationRead), hiddenOther with
   | none, none => return (names, none)
   | some _, some constant => return (names, some constant)
   | none, some constant =>

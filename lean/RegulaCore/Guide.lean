@@ -915,10 +915,12 @@ def guide : RuleId → Guide
           names each such function after `shared-booleans=`.",
         "The checker does not enter the declaration of the input type of the kind from the \
           input (`RegulaPolicy.StatementReading.reads`). It reads the specification from the \
-          body of its function abstraction, or of the definition that it names, under its \
-          variable. It does not follow a projection of a field of the input back to the input \
-          type, or to the type that an `abbrev` input type unfolds to. It reads the acceptance \
-          predicate in the same way with the result type. It follows everything else as before.",
+          body of its function abstraction under its variable. When the specification is a \
+          definition, alone or applied to its variable alone, the search reads the body of that \
+          definition's value. It does not follow a projection of a field of the input back to \
+          the input type, or to the type that an `abbrev` input type unfolds to. It reads the \
+          acceptance predicate in the same way with the result type. It follows everything else \
+          as before.",
         "A test that the two sides share only through the declaration of the input type, such \
           as a test that an invariant of a field of the input states, is not counted. The \
           report names it after `shared-through-types=`. A specification that names the input \
@@ -1002,7 +1004,14 @@ def guide : RuleId → Guide
           sides, finds no shared test, and one of two cases holds. Each side reaches an \
           imported constant with no value in the file, a function or not, whose value the \
           search of that side would read. Or one side reaches one, and the other side reaches \
-          a test that the rule counts.",
+          a test that the rule counts. A specification or an acceptance predicate that is such \
+          an imported definition, alone or applied to its variable alone, is such a constant: \
+          the editor does not read it through its type, since `lake lint` reads its body.",
+        "A definition that the body of the specification names among other terms, or that the \
+          value of a named specification names, has its type read. Where that type names the \
+          input type, the search reads the declaration of the input type there. So \
+          `fun input => AdmitSpec input ∧ 0 < input.amount` reads the declaration of the type \
+          of `input`, and plain `AdmitSpec` does not.",
         "Whether a definition is a function is read from its type alone: it takes an argument, \
           or its result is a structure with a field that takes one. A constant of type `Bool` \
           is not a function and is not counted.",

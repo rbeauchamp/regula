@@ -1853,11 +1853,11 @@ acceptance predicate by the rule of a statement, with one exception. That readin
 pass and one pure decision with a kind.
 
 - **The exception.** The reading does not enter the declaration of the input type of the kind
-  from the input. It starts at the body of the specification's function abstraction, or of the
-  definition that the specification names, under its variable. From a field's projection function
-  of a structure of the input type, it does not follow the edge back to that structure. An
-  `abbrev` input type includes the type that it unfolds to. The acceptance predicate is read in
-  the same way with the result type.
+  from the input. It starts at the body of the specification's function abstraction under its
+  variable. When the specification is a definition, alone or applied to its variable alone, the
+  search reads the body of that definition's value. From a field's projection function of the
+  input type, also through an `abbrev`, it does not follow the edge back to that type. The
+  acceptance predicate is read in the same way with the result type.
 - **The observing pass** is `Collect.readStatement`. It starts at the constants of the input type
   and of the body. It reads each constant outside Lean's own library that the rule of a statement
   reaches, `StatementReading.Observed.references`. For each such constant it gives a record,
@@ -1919,6 +1919,12 @@ component type of the input as a parameter, as the projections of a pair do. A t
 specification passes to a function that is no projection is read too. An example is the element
 type that `xs[i]` passes to the instance of `GetElem`. The controls `admitBelow_decides`, `admitPair_decides` and
 `admitAt_decides` show these limits.
+
+A definition that the body names among other terms has its type read. So does a definition that
+the value of a named specification names. When that type names the input type, the search enters
+the declaration of the input type there. An example is
+`fun input => AdmitSpec input ∧ 0 < input.amount`, where the type of `AdmitSpec` names the input
+type. The control `admitAnd_decides` shows this limit.
 
 **The verdicts.** The rule of a statement is the reading of the search before
 [#270](https://github.com/rbeauchamp/regula/issues/270). The reading reaches part of what the rule

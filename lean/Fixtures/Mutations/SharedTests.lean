@@ -50,6 +50,10 @@ controls.
 * `admitAt_decides`: a limit of the search. The specification reads a meter of an array of the
   input by its index. The instance of `GetElem` for an array takes the meter type as an
   argument, and the search reads the declaration of the meter type.
+* `admitAnd_decides`: a limit of the search. The specification names the definition `AdmitSpec`
+  among other terms. The search reads the type of `AdmitSpec`, which names the input type, and
+  the declaration of the input type there. `AdmitSpec` alone is read from its value
+  (`admitNamed_decides` of `Fixtures.Positive.SharedDefinitions`).
 -/
 import Regula.Contract
 
@@ -323,3 +327,17 @@ theorem admitAt_decides : Regula.ExecutableContract admitAt (fun run =>
       exact ⟨And.right, fun below => ⟨Meter.settled_level _, below⟩⟩)
     ⟨⟨⟨#[⟨5, by decide⟩], ⟨0, by decide⟩⟩, 1⟩, by decide⟩
     ⟨⟨⟨#[⟨5, by decide⟩], ⟨0, by decide⟩⟩, 7⟩, by decide⟩⟩
+
+/-- The statement of `admit`, as a definition: the amount is below the limit. -/
+def AdmitSpec (input : AdmitInput) : Prop := input.amount < input.limit
+
+/-- Whether the amount is below the limit and positive. It runs the test `settled` on the meter. -/
+def admitAnd (panel : Panel) (amount limit : Nat) : Bool :=
+  settled panel.meter.level && decide (amount < limit) && decide (0 < amount)
+
+theorem admitAnd_decides : Regula.ExecutableContract admitAnd (fun run =>
+    Regula.Decides (· = true)
+      (fun input : AdmitInput => AdmitSpec input ∧ 0 < input.amount)
+      (fun input : AdmitInput => run input.panel input.amount input.limit)) :=
+  ⟨.of_iff (fun input => by simp [admitAnd, AdmitSpec, input.panel.meter.settled_level])
+    ⟨⟨⟨⟨5, by decide⟩⟩, 1, 3⟩, by decide⟩ ⟨⟨⟨⟨5, by decide⟩⟩, 7, 3⟩, by decide⟩⟩

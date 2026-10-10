@@ -17,14 +17,18 @@ definition whose value a statement depends on (`RegulaPolicy.ResultForm.ValueRea
 declaration of an inductive type, a constructor and a recursor. The reading is that rule with one
 exception: it does not enter the declaration of the input type of the kind from the input. A kind
 compares `accepts (f x)` with `spec x` for each input `x : α`, and the specification is
-`fun x : α => b`, or a definition whose value is `fun x : α => b`. The reading starts at the
+`fun x : α => b`. When the specification is a definition, alone or applied to its variable alone,
+the search reads the body of that definition's value, `fun x : α => b`. The reading starts at the
 constants of `b`, not at those of `α`, and from a field's projection function of a structure that
 occurs in `α` it does not follow the edge back to that structure. The constants of `α` include
 those of `α` with its reducible definitions unfolded at its head, so an `abbrev` of the input type
 is that type. The acceptance predicate is read in the same way, with the result type in the
 place of the input type. Everything else is followed as before: the arguments of each application,
-the types of opaque constants and axioms, and the declaration of a constant of `α` that `b` names in
-any other way, as the binder of `∀ y : α`, as an argument of a function or through a constructor.
+the types of definitions, opaque constants and axioms, and the declaration of a constant of `α`
+that `b` names in any other way, as the binder of `∀ y : α`, as an argument of a function or
+through a constructor. So a definition that `b` names, as `fun x => P x ∧ 0 < x.size` names `P`,
+has its type read, and where that type names `α`, the reading enters the declaration of `α`
+there.
 
 A test `T` that the rule reaches only through the declaration of a constant of `α` that `b` does
 not name is not a part of `spec x` for any `x`: a change of `T` changes which values `α` has, the
