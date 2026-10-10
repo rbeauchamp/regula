@@ -240,6 +240,26 @@ def checkAt (root scratch : FilePath) (launcher : Launcher.State) (jobs : Nat :=
       "    ⟨[0], by simp [none4, countSmall_eq_zero_iff, small_zero]⟩⟩", ""]
     let belowHidden := below "small n = false" "countSmall_eq_zero_iff"
     let belowHiddenStated := below "4 ≤ n" "countSmall_eq_zero_iff, small_eq_false_iff"
+    -- An input type whose invariant names a test, and a specification of it with no exported
+    -- value, so a `module` file that imports it has the specification as an axiom.
+    let hiddenSpec := "\n".intercalate [
+      "module", "import Regula.Linter",
+      "/-! An input whose invariant names a test, and a specification with no exported value. -/",
+      "@[expose] public def settled (n : Nat) : Bool := decide (n < 10)",
+      "public structure Meter where", "  level : Nat", "  settled_level : settled level = true",
+      "public structure AdmitInput where", "  meter : Meter", "  amount : Nat", "  limit : Nat",
+      "public def AdmitSpec (input : AdmitInput) : Prop := input.amount < input.limit",
+      "public theorem admitSpec_iff (input : AdmitInput) :",
+      "    AdmitSpec input ↔ input.amount < input.limit := Iff.rfl", ""]
+    let sharedHiddenSpec := "\n".intercalate [
+      "module", "import Regula.Linter", "public import Regula.Contract",
+      "public import HiddenSpec", "/-! A decision with an imported specification. -/",
+      "public def admitNamed (input : AdmitInput) : Bool :=",
+      "  settled input.meter.level && decide (input.amount < input.limit)",
+      "public theorem admitNamed_decides :",
+      "    Regula.ExecutableContract admitNamed (Regula.Decides (· = true) AdmitSpec) :=",
+      "  ⟨.of_iff (fun input => by simp [admitNamed, admitSpec_iff, input.meter.settled_level])",
+      "    ⟨⟨⟨5, by decide⟩, 1, 3⟩, by decide⟩ ⟨⟨⟨5, by decide⟩, 7, 3⟩, by decide⟩⟩", ""]
     let independent : Array Control := #[
       { label := "Axiom", source := axiomSource, ids := ["RG1001"] },
       { label := "PromotedAxiom", source := axiomSource, ids := ["RG1001"],
@@ -291,6 +311,7 @@ def checkAt (root scratch : FilePath) (launcher : Launcher.State) (jobs : Nat :=
           "  ⟨.of_iff (fun _ => Iff.rfl) ⟨0, by decide⟩ ⟨4, by decide⟩⟩\n",
         ids := ["RG1009"], detail := some "shared-test shared-booleans=[\"small\"]" },
       { label := "HiddenTest", source := hiddenTest, output := true },
+      { label := "HiddenSpec", source := hiddenSpec, output := true },
       { label := "Collect", source := inspect },
       -- RG5001 beyond presence: a command before the module docstring, and a repeated import.
       { label := "MisplacedDoc", source :=
@@ -333,11 +354,16 @@ def checkAt (root scratch : FilePath) (launcher : Launcher.State) (jobs : Nat :=
       -- registration that shares it. Where the function reaches the test only below an imported
       -- function with no value, the editor reports the reading as incomplete. Where the
       -- specification then reaches no test, no test can be shared, and the editor is silent.
+      -- Where the specification is an imported definition with no value, the editor does not
+      -- read it through its type, which names the input type, and reports the reading as
+      -- incomplete: `lake lint` reads its body and accepts the registration.
       ({ label := "SharedTestHidden", source := sharedHidden, ids := ["RG1009"],
          detail := some "shared-test shared-booleans=[\"small\"]" }, env),
       ({ label := "SharedTestBelowHidden", source := belowHidden, ids := ["RG2005"],
          detail := some "countSmall has no value" }, env),
       ({ label := "SharedTestBelowHiddenStated", source := belowHiddenStated }, env),
+      ({ label := "SharedTestHiddenSpec", source := sharedHiddenSpec, ids := ["RG2005"],
+         detail := some "AdmitSpec has no value" }, env),
       ({ label := "RestoredRange", source := restored, ids := ["RG1001"] }, #[]),
       ({ label := "Restored", source := base }, #[])] ++ retired.map fun (label, name) =>
       ({ label := label ++ "Importer", source := s!"import {label}\n" ++

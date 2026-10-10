@@ -1127,9 +1127,11 @@ instance (shared : SharedDefinition) : Decidable shared.Counted := by
 
 /-- The names that the record of a decision registration holds of the functions that its
 specification shares with its implementation or its acceptance predicate, by class
-(`sharedNames`). Each list is sorted and has no duplicate. The two lists come from two searches:
-a function of the class `boolean` is named at any depth, and a function of the class `other` is
-named where the specification reaches it first. -/
+(`sharedNames`). Each list is sorted and has no duplicate. The lists come from three searches:
+a function of the class `boolean` is named at any depth, a function of the class `other` is
+named where the specification reaches it first, and a function of the class `boolean` that the
+two sides share only when the search also enters the declaration of the input type from the
+input is named apart. -/
 structure SharedNames where
   /-- The functions of the class `SharedClass.boolean` that the specification reaches at any
   depth, also below a function of the class `other`, and that the other side reaches too. -/
@@ -1137,48 +1139,86 @@ structure SharedNames where
   /-- The functions of the class `SharedClass.other` that the specification reaches first, with
   no counted function between, and that the other side reaches too. -/
   others : Array Lean.Name := #[]
+  /-- The functions of the class `SharedClass.boolean` that the two sides share when the
+  specification is read by the rule of a statement, which also enters the declaration of the
+  input type of the kind from the input, and that are not in `booleans`
+  (`RegulaPolicy.StatementReading`). The other side is the same in the two readings. The
+  specification reaches each of them only through a constant of the input type that its body
+  does not name (`RegulaPolicy.StatementReading.through_input`). No registration is refused
+  for them: the record names them so that a review sees, for example, an invariant of the input
+  that names a test of the implementation. -/
+  throughTypes : Array Lean.Name := #[]
   deriving Repr, DecidableEq, Inhabited
 
 /-- No function is named. -/
 def SharedNames.isEmpty (names : SharedNames) : Bool :=
-  names.booleans.isEmpty && names.others.isEmpty
+  names.booleans.isEmpty && names.others.isEmpty && names.throughTypes.isEmpty
 
 /-- The named functions of the class `boolean` as a finding and a classification line print
 them: `shared-booleans=` and the list of the names as Lean prints them. -/
 def SharedNames.booleansText (names : SharedNames) : String :=
   s!"shared-booleans={repr (names.booleans.toList.map (·.toString))}"
 
+/-- The names of the constants of the class `boolean` in `definitions`. -/
+def booleanNames (definitions : List SharedDefinition) : List Lean.Name :=
+  (definitions.filter fun definition => decide (definition.class = .boolean)).map (·.name)
+
+/-- A name is among `booleanNames` exactly when it is the name of a constant of the class
+`boolean` in the list. -/
+theorem mem_booleanNames (definitions : List SharedDefinition) (name : Lean.Name) :
+    name ∈ booleanNames definitions ↔ ∃ definition ∈ definitions,
+      definition.class = .boolean ∧ definition.name = name := by
+  simp [booleanNames, and_assoc]
+
 /-- The names that the record of a decision registration holds, from what the collector read of
-two lists of shared constants. `first` has each counted constant that the specification reaches
+three lists of shared constants. `first` has each counted constant that the specification reaches
 first: that reading stops at each of them. `reached` has each constant that the specification
-reaches at any depth and that the other side reaches too: that reading stops at no constant. The
-functions of the class `boolean` are named from `reached`, and those of the class `other` from
-`first` (`mem_sharedNames_booleans`, `mem_sharedNames_others`). The class of each constant is
+reaches at any depth and that the other side reaches too: that reading stops at no constant.
+`widened` has each constant that the specification reaches at any depth by the rule of a
+statement, which also enters the declaration of the input type from the input, and that the other
+side reaches too, the same other side as for `reached`. The functions of the class `boolean` are
+named from `reached`, those of the class `other` from `first`, and those of the class `boolean`
+that `widened` has and `reached` does not are named apart (`mem_sharedNames_booleans`,
+`mem_sharedNames_others`, `mem_sharedNames_throughTypes`). The class of each constant is
 `SharedDefinition.class`, so the executed class is the stated one. -/
-def sharedNames (first reached : List SharedDefinition) : SharedNames where
-  booleans := canonicalNames
-    ((reached.filter fun definition => decide (definition.class = .boolean)).map (·.name)).toArray
+def sharedNames (first reached widened : List SharedDefinition) : SharedNames where
+  booleans := canonicalNames (booleanNames reached).toArray
   others := canonicalNames
     ((first.filter fun definition => decide (definition.class = .other)).map (·.name)).toArray
+  throughTypes := canonicalNames
+    ((booleanNames widened).filter fun name => !(booleanNames reached).contains name).toArray
 
 /-- A name is among the named functions of the class `boolean` exactly when it is the name of a
 constant of that class that the search at any depth read. -/
-theorem mem_sharedNames_booleans (first reached : List SharedDefinition) (name : Lean.Name) :
-    name ∈ (sharedNames first reached).booleans ↔ ∃ definition ∈ reached,
+theorem mem_sharedNames_booleans (first reached widened : List SharedDefinition)
+    (name : Lean.Name) :
+    name ∈ (sharedNames first reached widened).booleans ↔ ∃ definition ∈ reached,
       definition.class = .boolean ∧ definition.name = name := by
-  simp [sharedNames, mem_canonicalNames, and_assoc]
+  simp [sharedNames, mem_canonicalNames, mem_booleanNames]
 
 /-- A name is among the named functions of the class `other` exactly when it is the name of a
 constant of that class that the specification reaches first. -/
-theorem mem_sharedNames_others (first reached : List SharedDefinition) (name : Lean.Name) :
-    name ∈ (sharedNames first reached).others ↔ ∃ definition ∈ first,
+theorem mem_sharedNames_others (first reached widened : List SharedDefinition)
+    (name : Lean.Name) :
+    name ∈ (sharedNames first reached widened).others ↔ ∃ definition ∈ first,
       definition.class = .other ∧ definition.name = name := by
   simp [sharedNames, mem_canonicalNames, and_assoc]
 
+/-- A name is among the functions that the two sides share only through types exactly when it is
+the name of a constant of the class `boolean` that the search with the types read, and no
+constant of that class with that name is one that the search read. -/
+theorem mem_sharedNames_throughTypes (first reached widened : List SharedDefinition)
+    (name : Lean.Name) :
+    name ∈ (sharedNames first reached widened).throughTypes ↔
+      (∃ definition ∈ widened, definition.class = .boolean ∧ definition.name = name) ∧
+        ¬ ∃ definition ∈ reached, definition.class = .boolean ∧ definition.name = name := by
+  simp only [sharedNames, mem_canonicalNames, List.mem_toArray, List.mem_filter,
+    Bool.not_eq_true', Bool.eq_false_iff, ne_eq, List.contains_iff_mem, mem_booleanNames]
+
 /-- No function of the class `boolean` is named exactly when the search at any depth read no
 constant of that class. -/
-theorem sharedNames_booleans_eq_empty_iff (first reached : List SharedDefinition) :
-    (sharedNames first reached).booleans = #[] ↔
+theorem sharedNames_booleans_eq_empty_iff (first reached widened : List SharedDefinition) :
+    (sharedNames first reached widened).booleans = #[] ↔
       ∀ definition ∈ reached, definition.class ≠ .boolean := by
   simp only [Array.eq_empty_iff_forall_not_mem, mem_sharedNames_booleans]
   exact ⟨fun absent definition member boolean => absent _ ⟨definition, member, boolean, rfl⟩,
@@ -1186,21 +1226,37 @@ theorem sharedNames_booleans_eq_empty_iff (first reached : List SharedDefinition
 
 /-- No function of the class `other` is named exactly when the specification reaches no constant
 of that class first. -/
-theorem sharedNames_others_eq_empty_iff (first reached : List SharedDefinition) :
-    (sharedNames first reached).others = #[] ↔
+theorem sharedNames_others_eq_empty_iff (first reached widened : List SharedDefinition) :
+    (sharedNames first reached widened).others = #[] ↔
       ∀ definition ∈ first, definition.class ≠ .other := by
   simp only [Array.eq_empty_iff_forall_not_mem, mem_sharedNames_others]
   exact ⟨fun absent definition member other => absent _ ⟨definition, member, other, rfl⟩,
     fun absent _ ⟨definition, member, other, _⟩ => absent definition member other⟩
 
+/-- No function is named only through types exactly when each constant of the class `boolean`
+that the search with the types read has the name of one that the search read. -/
+theorem sharedNames_throughTypes_eq_empty_iff (first reached widened : List SharedDefinition) :
+    (sharedNames first reached widened).throughTypes = #[] ↔
+      ∀ definition ∈ widened, definition.class = .boolean →
+        ∃ other ∈ reached, other.class = .boolean ∧ other.name = definition.name := by
+  simp only [Array.eq_empty_iff_forall_not_mem, mem_sharedNames_throughTypes, not_and,
+    Classical.not_not]
+  exact ⟨fun absent definition member boolean => absent _ ⟨definition, member, boolean, rfl⟩,
+    fun absent _ ⟨definition, member, boolean, same⟩ => same ▸ absent definition member boolean⟩
+
 /-- No function is named exactly when the search at any depth read no constant of the class
-`boolean` and the specification reaches no constant of the class `other` first. -/
-theorem sharedNames_isEmpty_iff (first reached : List SharedDefinition) :
-    (sharedNames first reached).isEmpty = true ↔
-      (∀ definition ∈ reached, definition.class ≠ .boolean) ∧
-        ∀ definition ∈ first, definition.class ≠ .other := by
-  rw [SharedNames.isEmpty, Bool.and_eq_true, Array.isEmpty_iff, Array.isEmpty_iff,
-    sharedNames_booleans_eq_empty_iff, sharedNames_others_eq_empty_iff]
+`boolean`, the specification reaches no constant of the class `other` first, and each constant
+of the class `boolean` that the search with the types read has the name of one that the search
+read. -/
+theorem sharedNames_isEmpty_iff (first reached widened : List SharedDefinition) :
+    (sharedNames first reached widened).isEmpty = true ↔
+      ((∀ definition ∈ reached, definition.class ≠ .boolean) ∧
+        ∀ definition ∈ first, definition.class ≠ .other) ∧
+        ∀ definition ∈ widened, definition.class = .boolean →
+          ∃ other ∈ reached, other.class = .boolean ∧ other.name = definition.name := by
+  rw [SharedNames.isEmpty, Bool.and_eq_true, Bool.and_eq_true, Array.isEmpty_iff,
+    Array.isEmpty_iff, Array.isEmpty_iff, sharedNames_booleans_eq_empty_iff,
+    sharedNames_others_eq_empty_iff, sharedNames_throughTypes_eq_empty_iff]
 
 /-- What the collector observes of a function registered with `@[regula_decision]`: whether its
 result type is `Decidable _`, the form whose every result carries a proof of the decided

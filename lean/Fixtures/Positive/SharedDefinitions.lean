@@ -26,6 +26,19 @@ predicate reaches too (`RegulaPolicy.SharedNames`):
   type has a field that takes an argument, so it is a function, named in the class `other`. The
   test is a function abstraction inside the record and no constant, so the search has no
   function with a result of `Bool` to name.
+* `admit_decides`: the form of issue 270. The input holds a panel, which holds a meter whose
+  invariant is stated with the test `settled` in a proof field, and the function runs `settled`.
+  The specification compares two other fields of the input and names no test. The search does
+  not enter the declaration of the input type from the input: it starts at the body of the
+  specification, and it does not follow a projection of a field of the input back to the input
+  type. So the registration is accepted, and the record names `settled` as shared only through
+  types (`RegulaPolicy.SharedNames.throughTypes`).
+* `admitNamed_decides`: the form of issue 270 with the specification as a definition,
+  `AdmitSpec`, whose type names the input type. The search reads the body of the value of
+  `AdmitSpec`, not its type, so it is accepted as `admit_decides` is.
+* `admitAliased_decides`: the form of issue 270 with the input type under an `abbrev`,
+  `AdmitAlias`. The projections name the structure that the `abbrev` unfolds to, which the search
+  holds as the input type too, so it is accepted as `admit_decides` is.
 -/
 import Regula.Contract
 
@@ -128,3 +141,68 @@ theorem firstBefore_decides :
         (fun input : Nat × Nat => descending.before input.1 input.2 = true)
         (Function.uncurry run)) :=
   ⟨.of_iff (fun _ => Iff.rfl) ⟨(1, 0), by decide⟩ ⟨(0, 1), by decide⟩⟩
+
+/-- A test of a reading. -/
+def settled (n : Nat) : Bool := decide (n < 10)
+
+/-- A meter whose invariant is stated with the test `settled`. -/
+structure Meter where
+  /-- The reading. -/
+  level : Nat
+  /-- The reading is settled. -/
+  settled_level : settled level = true
+
+/-- A panel that holds a meter. -/
+structure Panel where
+  /-- The meter. -/
+  meter : Meter
+
+/-- The arguments of `admit`, in order. -/
+structure AdmitInput where
+  /-- The panel. -/
+  panel : Panel
+  /-- The requested amount. -/
+  amount : Nat
+  /-- The limit of the amount. -/
+  limit : Nat
+
+/-- Whether the amount is below the limit. It runs the test `settled` on the meter. -/
+def admit (panel : Panel) (amount limit : Nat) : Bool :=
+  settled panel.meter.level && decide (amount < limit)
+
+/-- The function accepts exactly an amount below the limit: the invariant gives `settled`. -/
+theorem admit_iff (panel : Panel) (amount limit : Nat) :
+    admit panel amount limit = true ↔ amount < limit := by
+  simp [admit, panel.meter.settled_level]
+
+theorem admit_decides : Regula.ExecutableContract admit (fun run =>
+    Regula.Decides (· = true) (fun input : AdmitInput => input.amount < input.limit)
+      (fun input : AdmitInput => run input.panel input.amount input.limit)) :=
+  ⟨.of_iff (fun input => admit_iff input.panel input.amount input.limit)
+    ⟨⟨⟨⟨5, by decide⟩⟩, 1, 3⟩, by decide⟩ ⟨⟨⟨⟨5, by decide⟩⟩, 7, 3⟩, by decide⟩⟩
+
+/-- A copy of `admit` under a second name. It runs the test `settled` on the meter. -/
+def admitNamed (panel : Panel) (amount limit : Nat) : Bool :=
+  settled panel.meter.level && decide (amount < limit)
+
+/-- The specification of `admitNamed`, as a definition: the amount is below the limit. -/
+def AdmitSpec (input : AdmitInput) : Prop := input.amount < input.limit
+
+theorem admitNamed_decides : Regula.ExecutableContract admitNamed (fun run =>
+    Regula.Decides (· = true) AdmitSpec
+      (fun input : AdmitInput => run input.panel input.amount input.limit)) :=
+  ⟨.of_iff (fun input => by simp [admitNamed, AdmitSpec, input.panel.meter.settled_level])
+    ⟨⟨⟨⟨5, by decide⟩⟩, 1, 3⟩, by decide⟩ ⟨⟨⟨⟨5, by decide⟩⟩, 7, 3⟩, by decide⟩⟩
+
+/-- The input type of `admit` under a second name. -/
+abbrev AdmitAlias := AdmitInput
+
+/-- A copy of `admit` under a third name. It runs the test `settled` on the meter. -/
+def admitAliased (panel : Panel) (amount limit : Nat) : Bool :=
+  settled panel.meter.level && decide (amount < limit)
+
+theorem admitAliased_decides : Regula.ExecutableContract admitAliased (fun run =>
+    Regula.Decides (· = true) (fun input : AdmitAlias => input.amount < input.limit)
+      (fun input : AdmitAlias => run input.panel input.amount input.limit)) :=
+  ⟨.of_iff (fun input => by simp [admitAliased, input.panel.meter.settled_level])
+    ⟨⟨⟨⟨5, by decide⟩⟩, 1, 3⟩, by decide⟩ ⟨⟨⟨⟨5, by decide⟩⟩, 7, 3⟩, by decide⟩⟩

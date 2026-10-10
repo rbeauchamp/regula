@@ -159,10 +159,11 @@ codec. -/
 abbrev ExecutableContract := RegulaPolicy.ExecutableContract
 deriving instance ToJson for RegulaPolicy.SharedNames
 instance : FromJson RegulaPolicy.SharedNames := ⟨fun j => do
-  exactFields j ["booleans", "others"]
+  exactFields j ["booleans", "others", "throughTypes"]
   return {
     booleans := ← j.getObjValAs? _ "booleans"
     others := ← j.getObjValAs? _ "others"
+    throughTypes := ← j.getObjValAs? _ "throughTypes"
   }⟩
 deriving instance ToJson for RegulaPolicy.ExecutableContract
 instance : FromJson RegulaPolicy.ExecutableContract := ⟨fun j => do
