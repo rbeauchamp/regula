@@ -243,7 +243,7 @@ lake exe axiomGate --with-docs --json-out tmp/result.json
 ```
 
 Each export is versioned on its own: the surface manifest is schema 2, the registry schema 4, the
-result schema 12, the worker packet schema 1, the rule-example corpus export schema 1, the
+result schema 13, the worker packet schema 1, the rule-example corpus export schema 1, the
 acceptance link schema 1 and the site's `build.json` schema 2. Registry and result envelopes carry
 `schemaVersion`, `producerVersion`, `toolchain` and `sourceRevision` from
 `Regula.Checker.Producer.identity`: `producerVersion` is the installed release's spelling
@@ -258,7 +258,7 @@ metadata, not authenticated binary identity.
   re-encoding, refusing unknown or missing fields, changed routes and stale lifecycle data.
   Registry admission rejects duplicate external IDs, missing clauses, pages or examples, unknown
   JSON fields or versions, and invalid lifecycle references.
-- **Result, schema 12:** `scope`, `mode`, `status`, `stages` (the stages
+- **Result, schema 13:** `scope`, `mode`, `status`, `stages` (the stages
   `RegulaPolicy.requiredStages` requires for the mode, plus the documentation stages of a
   `--with-docs` run), `stagesCompleted`, `complete`, `stagesNotRun`, `diagnostics` (each with its
   `remedy`, in run order), `rules` (the guidance of every rule that fired, once each, in registry
@@ -478,6 +478,10 @@ metadata, not authenticated binary identity.
   function. The kind does not establish that a function in `others` is the intended one, and
   no registration is refused for it. A declaration's `executableContract` carries the same two
   lists as `shared`.
+- **Shared through types:** since schema 13 the objects `sharedDefinitions` and `shared` also
+  have the list `throughTypes`. It names each function with a result of `Bool` or `BEq` that the
+  two sides share only through the declaration of the input type. An example is a test that an
+  invariant of a field of the input states. No registration is refused for such a function.
 - **Snapshot rendering:** `acceptance.snapshot` renders the audited sources in full, the
   configuration by URI and each dependency by package, pinned revision and input-scoped `dirty`
   bit (a dirty or path dependency as `{package, revision, dirty: true}`, with no content

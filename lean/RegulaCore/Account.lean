@@ -254,34 +254,49 @@ compares `accepts (f x)` with `spec x`, so a function that `spec` and `accepts` 
 the two sides of that statement as one that `spec` and `f` both use is, and the line says
 "the implementation or the acceptance predicate". A proof of the kind that goes through a named
 function on the two sides can stay valid when that function changes, so the line says that the
-kind does not establish that these definitions are the intended ones. Empty for a contract
-whose record names none. A registration whose record names a function with a result of `Bool` or
-`BEq` is refused before the account (`RegulaPolicy.sharedTestFailure`), and none is refused for a
-function of the other class. -/
+kind does not establish that these definitions are the intended ones. A function with a result
+of `Bool` or `BEq` that the two sides share only through the declaration of the input type
+(`RegulaPolicy.SharedNames.throughTypes`) is named in a second part, which says
+so. Empty for a contract whose record names none. A registration whose record names a function
+with a result of `Bool` or `BEq` that the two sides use is refused before the account
+(`RegulaPolicy.sharedTestFailure`), and none is refused for a function of the other class or for
+one shared only through such a declaration. -/
 def ContractAccount.sharing (k : ContractAccount) : String :=
   if k.shared.isEmpty then "" else
     let names (list : Array Lean.Name) := ", ".intercalate (list.toList.map (s!"{·}"))
     let booleans := if k.shared.booleans.isEmpty then []
       else [s!"{names k.shared.booleans} (each with a result of Bool or BEq)"]
     let others := if k.shared.others.isEmpty then [] else [names k.shared.others]
-    s!"; the specification, and the implementation or the acceptance predicate, both use \
-      {" and ".intercalate (booleans ++ others)}: the kind does not establish that these \
-      definitions are the intended ones"
+    let used := if (booleans ++ others).isEmpty then "" else
+      s!"; the specification, and the implementation or the acceptance predicate, both use \
+        {" and ".intercalate (booleans ++ others)}: the kind does not establish that these \
+        definitions are the intended ones"
+    let throughTypes := if k.shared.throughTypes.isEmpty then "" else
+      s!"; the two sides share {names k.shared.throughTypes} (each with a result of Bool or \
+        BEq) only through the declaration of the input type, so the registration is not \
+        refused for them"
+    used ++ throughTypes
 
 -- Controls of the account line of the shared functions. The line names the side that shares
 -- them as "the implementation or the acceptance predicate", marks the functions with a result
--- of `Bool` or `BEq`, and does not say that the kind establishes them. A contract whose record
--- names no function has no such line.
+-- of `Bool` or `BEq`, and does not say that the kind establishes them. A function shared only
+-- through the declaration of the input type is named in a part of its own. A contract whose
+-- record names no function has no such line.
 -- Compiled-evaluation observation at build time, not a kernel-checked proof.
 #guard
-  (⟨`c, `M, `f, "R", some .«sound», ⟨#[`small], #[`evens, `odds]⟩⟩ : ContractAccount).sharing ==
+  (⟨`c, `M, `f, "R", some .«sound», ⟨#[`small], #[`evens, `odds], #[]⟩⟩ :
+    ContractAccount).sharing ==
   "; the specification, and the implementation or the acceptance predicate, both use small \
     (each with a result of Bool or BEq) and evens, odds: the kind does not establish that these \
     definitions are the intended ones"
 -- Compiled-evaluation observation at build time, not a kernel-checked proof.
-#guard (⟨`c, `M, `f, "R", some .«sound», ⟨#[], #[`evens]⟩⟩ : ContractAccount).sharing ==
+#guard (⟨`c, `M, `f, "R", some .«sound», ⟨#[], #[`evens], #[]⟩⟩ : ContractAccount).sharing ==
   "; the specification, and the implementation or the acceptance predicate, both use evens: \
     the kind does not establish that these definitions are the intended ones"
+-- Compiled-evaluation observation at build time, not a kernel-checked proof.
+#guard (⟨`c, `M, `f, "R", some .«sound», ⟨#[], #[], #[`ready]⟩⟩ : ContractAccount).sharing ==
+  "; the two sides share ready (each with a result of Bool or BEq) only through the \
+    declaration of the input type, so the registration is not refused for them"
 -- Compiled-evaluation observation at build time, not a kernel-checked proof.
 #guard (⟨`c, `M, `f, "R", some .«sound», {}⟩ : ContractAccount).sharing == ""
 

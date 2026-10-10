@@ -517,13 +517,13 @@ relation between it and the type.
 
 ## Machine-readable report
 
-`lake lint -- --json-out PATH` writes one JSON document, result schema 12, whatever the outcome;
+`lake lint -- --json-out PATH` writes one JSON document, result schema 13, whatever the outcome;
 the path is first written as an incomplete result, so a stale report is never mistaken for this
 run's. Its main members:
 
 | Member | Meaning |
 | --- | --- |
-| `schemaVersion` | `12`. Also `producerVersion`, `toolchain` and `sourceRevision` of the Regula build. |
+| `schemaVersion` | `13`. Also `producerVersion`, `toolchain` and `sourceRevision` of the Regula build. |
 | `status` | `completed` (accepted), `rejected` (a violation was established and no finding is incomplete), `incomplete` (evidence was missing) or `classified` (a file inspection with no conforming claim). For an audit that recorded its result and then finished, it and the diagnostics determine the exit code. |
 | `stages`, `stagesCompleted`, `stagesNotRun`, `complete` | The run's required stages and which completed, including the stages that finished before the run stopped. `complete` is `false` when the run stopped early, so fixing the reported findings can reveal more. |
 | `diagnostics` | Every finding in printed order, one per declaration even where the text groups them, with `id`, `impact`, `severity`, `mode`, `claim`, `location` (for source, its `uri`, byte and LSP ranges and its `sourceText`, an index into `sourceTexts`; for a module, its `name`), `arguments`, `text`, `remedy` and `helpUrl`. `arguments.declaration` (or `root` for an execution finding) is the name as Lean prints it, such as `"Widget.countdown.eq_1"`. For a declaration-policy finding of a project or file audit or of a rule example ([RG1005] and the other rules decided per audited declaration), `arguments.sourceDeclaration` names the declaration Lean generated the declaration from, at the end of that chain, or is `null` for a declaration Lean did not generate from another; for a generated declaration, `location` is its own range when Lean recorded one, and otherwise that source declaration's range when Lean recorded one, with `related` naming the declaration's own module. Other declaration findings carry no attribution: a documentation example's, a material-documentation one ([RG5002], [RG5003]) and the editor linter's record `null` and the declaration's own location. A declaration whose recorded selection range leaves its recorded range, as Lean records for the definitions of a `macro_rules` command over several syntax kinds, is located at its range, which is then its selection range too. |
@@ -752,10 +752,23 @@ two arguments, and state `Spec` without `check`. The accepted account then repor
 and, for a one-way kind, the direction it leaves open.
 
 [RG1009] refuses the registration when `Spec` and `check` reach one function with a result of
-`Bool` or `BEq`. The acceptance predicate counts as `check` does, and the search reads at any
-depth. State that condition as a proposition in `Spec`, and let `check` decide it. The rule
-compares names. A copy of a test under a second name passes, and so does a test of Lean's own
-library.
+`Bool` or `BEq`. The acceptance predicate counts as `check` does, the declaration of its result
+type included, and the search reads at any depth. State that condition as a proposition in
+`Spec`, and let `check` decide it. The rule compares names. A copy of a test under a second
+name passes, and so does a test of Lean's own library.
+
+The search does not enter the declaration of the input type from the input. It reads the body of
+the function abstraction of `Spec` under its variable. When `Spec` is a definition, alone or
+applied to its variable alone, the search reads the body of that definition's value. It does not
+follow a projection of the input back to the input type, or to the type that an `abbrev` input
+type gives. So a test that only an invariant of the input type names is not counted, and the
+account names it apart.
+
+A `Spec` that names the input type in a different way, or that states the invariant, reads the
+test. So does a `Spec` that reads a field with a result type that has such an invariant, unless
+that result type is the input type. A definition that the body names among other terms has its
+type read too. An example is `fun input => Spec input ∧ 0 < input.amount`. The type of `Spec`
+names the input type, so the search reads the declaration of the input type there.
 
 The account names each other function that `Spec` reaches first and that `check` or the
 acceptance predicate also reaches. The kind does not establish that such a function is the

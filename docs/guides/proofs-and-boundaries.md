@@ -752,7 +752,7 @@ the call through each success owner.
 | [RG1006] | The helper authorization `_iff` theorems, `Roles.safetyHelpers_iff`, `policyFor_conforming_iff`, `subject_contract`, `partialParent_rule`; for the comparison that records a recursion helper's observation, `Erasure.equalWithin_iff`, `Erasure.reproduces_iff` and the kind `Erasure.checked_reproduces` ([below](#the-recursion-helper-comparison-decision-and-observing-pass)) | Exact helper metadata, the recorded recursion-helper observation and the base's axioms are checked. A `partial def`'s helper always has a finding naming its opaque parent when that parent is in the inventory. A recursion helper's observation is recorded only where Lean's kernel checked, at that audit, the base's recursion equation for each helper of the group (`Collect.recursionEquationChecked`); that check is the collector's, not a theorem of the policy. The collector observations, the step from the recursion equation to the values the helper returns, compiled-code correspondence and execution coverage are not proved. A recursion helper's termination still trusts Lean's well-founded preprocessing (standard §7.4). No constructor-index wrapper is admitted. |
 | [RG1007] | `ContractOK` through `ruleFor`; `DecisionKind.ofStructureName?_eq_some_iff` (a head constant is read as a decision kind exactly when it is that kind's structure); `DecidedFunction.covers_iff` with `FieldPacking.covers_iff` (a decided function of a form that is read is accepted exactly when the kind's result type has no leading binder and, for a field application, the type has one constructor and no index and the arguments are its fields, each once and in order), with `Regula.Decides.of_packing` and its one-way forms (a kind on a packing that reaches every tuple of arguments is the kind of the function) and `Regula.Decides.iff_slice` (a kind with an argument left whose acceptance predicate reads the result at one fixed value of that argument is the kind of one slice). For the searches that guard each reduction and find a mention of the implementation: `MentionSearch.search_sound`, `search_complete` and the kind `MentionSearch.checked_search`. | Recorded contract failures are enforced; Probe's extraction of the proposition and root, the reduction that exposes a requirement's head constant, the reading of the decided function as the implementation on its arguments, on every field of one structure or on a product (`Function.uncurry`), or with its result erased (`Regula.Dependent.isSome`, `isOk`), the reading of each field from the kernel-checked definition of its projection and of the constructor and index counts from the kernel-checked inductive type, and of the number of leading binders of the kind's result type, which give `DecidedFunction.covers` its input, the two steps from those numbers to "every tuple of arguments is the fields of a value" and "no argument is left", which are argued and not machine-checked ([below](#decision-kinds-of-regulas-own-decisions)), the reading of the universe levels, what each record of the searches lists, that a constant with no record leads to no target, proof admission and adequacy are not proved by this relation. |
 | [RG1008] | `policyFor_decisionContract_iff`, `Roles.decided_iff`, `policyFor_ordered` through `ruleFor`; `decisionFailure_none_iff` for the self-audit's direct use; `editor_decision_ne_decisionContract` (the editor never renders it) | A registered decision without a `Decidable` result or an accepted decision contract in its inventory is reported, among the declarations that meet their other requirements. Reading the registrations of every loaded module and the result type by reduction (`Regula.decisionRegistrations`, `Collect.decisionResult?`, `returnsDecidable`) is the collector's, and so are each recorded contract and the refusal of a registration that names a declaration outside the inventory (`Collect.ownedDecisionRegistrations`). A result type the reduction does not unfold to `Decidable _` counts as another form, which fails closed. Which functions are registered, and each specification's adequacy, are review. |
-| [RG1009] | `sharedTestFailure_none_iff` with the kind `checked_sharedTestFailure`, `declarationFailure_ordered` through `ruleFor`, and `mem_sharedNames_booleans` with `SharedDefinition.class_eq_boolean_iff` for the recorded names | A decision registration is reported when its record names a shared function with a result of `Bool` or `BEq`. Its place is after the recorded refusals of its contract. The search that finds the shared functions and the reading of each one (`Collect.sharedReading`, `Collect.sharedDefinition`) are the collector's and are not proved. The search compares names. A copy of a test under a second name passes. A shared function with a different result type is named in the account and is not refused. A file with a `module` header gives the editor an imported function with no exported value as an axiom. The editor reads its class from its type. It reports a reading that could miss a test below such a function as incomplete ([RG2005]). |
+| [RG1009] | `sharedTestFailure_none_iff` with the kind `checked_sharedTestFailure`, `declarationFailure_ordered` through `ruleFor`, and `mem_sharedNames_booleans` with `SharedDefinition.class_eq_boolean_iff` for the recorded names. For what the search follows from the specification and the acceptance predicate: `StatementReading.reads_iff`, the kind `StatementReading.checked_reads`, `reading_some`, `read_subset_withTypes`, `through_input` and `no_shared_test` ([below](#the-reading-of-a-statement-decision-and-observing-pass)). | A decision registration is reported when its record names a shared function with a result of `Bool` or `BEq`. Its place is after the recorded refusals of its contract. The observing pass, the search of the implementation and the reading of each shared function (`Collect.sharedReading`, `Collect.sharedDefinition`) are the collector's and are not proved. That a test that only the declaration of the input type names is no part of a specification is an argument, not a theorem. The search compares names. A copy of a test under a second name passes. A shared function with a different result type is named in the account and is not refused. A file with a `module` header gives the editor an imported function with no exported value as an axiom. The editor reads its class from its type. It reports a reading that could miss a test below such a function as incomplete ([RG2005]). |
 | [RG2004] | `policyFor_ordered` (membership first), `CensusOK`, `PlanOK` | Complete Lake and environment ownership acquisition. |
 | [RG3001], [RG3002] | `executionFailureRecords_empty_iff`, `boundaryFailures_empty_iff`, `boundaryFailures_toolchain`, `project_boundary_reported`, `executionFindings_empty_iff`, `failure_reported`, `executionFindings_sound`, `checked_toolchainBase`. For the walk of a root, `ExecutionWalk.walk_sound`, `walk_complete`, `walk_nodup` and the kind `ExecutionWalk.checked_walk` ([below](#root-and-closure-discovery-decision-and-observing-pass)) | The theorems cover the supplied unresolved paths and boundaries and their supplied origins, and the visits of the walk over the records of the pass. They do not cover root discovery, the truth of a record or of the origin observation, or the toolchain's or external runtime code. They also do not cover the account that `ExecutionWalk.assemble` builds from the visits, or that the reader's walk (`SharedExecution.walkLoop`) gives the same visits and parents. The collector's record of the `partial` definition to which a constant is compiled is also not proved. The [deliberate changes](#changes-to-leans-environment-compiler-or-build) to Lean's environment, compiler or build are trusted boundaries. |
 | [RG4001] | `checked_scanLines`, `checked_scanVersoLines`, `fence_of_leanShaped`, `example_of_leanShaped`, `toList_linesOf` | A document has no violation exactly when each of its lines is a permitted transition of the fence protocol and keeps the shape rule ([the fence scanners](#the-fence-scanners-decisions-and-observing-pass)). A clean document has a returned fence for each line of Lean shape. The body and the byte ranges of a returned fence, the text of a violation and the adequacy of the relation are not proved. That a Markdown reader opens a Lean block only at a line of Lean shape is by reading CommonMark. |
@@ -931,6 +931,7 @@ Two-way decisions (`Regula.Decides`), each with an accepted and a refused input:
 | `Regula.Checker.Admission.checkTable` (accepts on `.ok ()`) | `TableWithin` (`checkTable_eq_ok_iff`). Each axiom that `collectAxioms` gives for a declaration is an axiom that the declaration reaches in the replayed kernel. | The decision on the axiom tables of [RG2005] ([below](#receipt-validation-decisions-and-observing-pass)). |
 | `RegulaPolicy.ExecutionWalk.walk` (accepts on `.ok`) | `Recorded` (`walk_ok`, `walk_complete`, `walk_recorded`). Each name that the edges of the records reach from the root has a record. | The walk of an execution root of [RG3001] and [RG3002] ([below](#root-and-closure-discovery-decision-and-observing-pass)). The visits are exactly the reached names (`walk_sound`, `walk_complete`). |
 | `RegulaPolicy.MentionSearch.search` (accepts on a route) | `Found` (`found_of_search`, `search_complete`). A constant that the term mentions leads to a target through the records. | Contract recognition and reach of [RG1007] ([below](#contract-recognition-and-reach-decision-and-observing-pass)). A returned route follows the records (`search_sound`). |
+| `RegulaPolicy.StatementReading.reads` (accepts on `true`) | `Read` (`reads_iff`). The reading of a statement follows the constant from the record of the constant that mentions it. It does not follow a projection of the input type back to it. | What [RG1009] follows from the specification and the acceptance predicate ([below](#the-reading-of-a-statement-decision-and-observing-pass)). The closure over the records is exact (`reading_some`). |
 | `Regula.SourceTexts.intern` | One `sourceTexts` member, `null`, and string `sourceText` members (`intern_isOk_iff`) | Writing a result document. |
 | `Regula.Markdown.documentErrors`, `Regula.Markdown.siteLinkErrors`, `Regula.Prose.bareMentions`, `Regula.Site.linkErrors`, `Regula.Site.missingAnchors`, `Regula.Site.rowsMismatch` | Their `_nil_iff` and `_eq_none_iff` relations | The rule-ID checks of Markdown and of the rendered standard, and the site's link, anchor and checklist checks. `siteLinkErrors` is the check of the links of the root `README.md` to the rule-reference site. |
 | `Regula.Controlled.parse` | The text is the text that `write` gives for a vocabulary (`parse_write`, `write_of_parse`). A vocabulary is a draft with `Draft.WellFormed` (`Draft.defects_nil_iff`). | The vocabulary `CONTEXT.md` (check C9) of the [writing rules](writing.md). The file system gives the text. |
@@ -991,10 +992,41 @@ Decisions with no kind, and what stands instead:
 | The other registered contracts (`checked_request`, `checked_rule`, `checked_subject`, `checked_account`, `checked_summary`, `checked_executionFailures` and the census assembly contracts) | Each fixes a computed value, such as a rendered line or an assembled record, not a verdict. `checked_executionFailures` renders `executionFindings`, which has a kind. | The registered requirement, reported with no kind. |
 | `RegulaProvision.isObjectName`, `isComponent` | `isObjectName` defines the written form that it admits, and no separate relation is stated for it. `IsComponent` states a path component over the text and its characters. The text is not empty. It does not start with a period. Each character is an ASCII letter, an ASCII digit, `-`, `_` or `.`. The theorem `isComponent_iff` connects it to the test `isComponent`. | `IsComponent` is the specification of the kind of `component?`. A reviewer examines if the written forms are the intended ones. |
 
+**Inputs with a proof field.** Issue [#270](https://github.com/rbeauchamp/regula/issues/270)
+changed how [RG1009] reads a specification over an input with a proof field. It asks which
+registrations of Regula with no kind take such an input, and if a kind is now possible for each.
+A probe of the collector read the 57 modules of Regula that hold registrations:
+
+- There are 133 registrations, 110 with a kind and 23 with no kind. No record of the 110 names a
+  shared test, or a test shared only through the input type.
+- 11 of the 23 take an input with a proof field.
+- 4 of the 11 stand beside a kinded registration of the same function, which the two readings
+  accept: `editorDecisionImpl`, `admitScopeImpl`, `memberFailure` and `operationalFailure`.
+- 5 of the 11 are no decisions: `accountImpl`, `executionFailuresImpl`, `subjectImpl`,
+  `memberFoundation` and `executionSummary`.
+- 2 of the 11 have no kind for reasons that #270 does not change. The proof field of
+  `editorRequestImpl` is `String.isValidUTF8` of Lean's own library, which no reading follows.
+  `ruleForMemberImpl` selects a rule, and it reduces to `memberFailure`, which has a kind.
+
+So this change makes no new kind of Regula possible. Before it, [RG1009] refused no kind of
+Regula for this reason. Which registrations have no kind does not depend on the reading.
+
+The probe ran on the first, broader reading of this change. The final reading reads the other
+side as before #270. That is the implementation by the rule of a function and the acceptance
+predicate by the rule of a statement. The rule reach `withTypes` of the specification reaches at
+most what the specification reached before #270. So each test that the final reading shares, by
+the reading or by the rule, the search shared before #270.
+
+The `main` branch accepted the 109 kinded registrations that it has. So none of them names a
+shared test or a test shared only through the input type. This change adds one more,
+`RegulaPolicy.StatementReading.reads` with the kind `checked_reads`. Its acceptance predicate
+`(· = true)` reaches nothing outside Lean's own library. The acceptance check of this change
+claims `RegulaPolicy`, so it decides [RG1009] for that registration too.
+
 ### Decisions not registered with `regula_decision`
 
 Every decision of the three tables with a kind is registered with `@[regula_decision]`, so
-[RG1008] requires its contract: 56 functions of `RegulaPolicy`, 28 of `RegulaCore`, 9 of
+[RG1008] requires its contract: 57 functions of `RegulaPolicy`, 28 of `RegulaCore`, 9 of
 `RegulaQualification`, 3 of `AuditApp`, 8 of `RegulaProvision`, 6 of `RegulaVerification` and
 25 of the excluded `Regula` library, where the `self-audit` diagnostic decides the rule. Sixteen
 of them are registered from another module of their library, with
@@ -1852,6 +1884,101 @@ same route. The guards marked a constant when they took it from the stack, and n
 when it goes on the stack. That changes which constants a guard reads before a target, but not if
 it finds one. Before this split, the memo also held the constants that the environment does not
 have, which lead to no target.
+
+### The reading of a statement: decision and observing pass
+
+[RG1009] searches the two sides of a decision registration for the functions that they share. It
+reads the implementation by the rule of a function, and the acceptance predicate by the rule of a
+statement. It reads the specification by the rule of a statement, with one exception. That
+reading is an observing pass and one pure decision with a kind.
+
+- **The exception.** The reading does not enter the declaration of the input type of the kind
+  from the input. It starts at the body of the specification's function abstraction under its
+  variable. When the specification is a definition, alone or applied to its variable alone, the
+  search reads the body of that definition's value. From a field's projection function of the
+  input type, also through an `abbrev`, it does not follow the edge back to that type.
+- **The observing pass** is `Collect.readStatement`. It starts at the constants of the input type
+  and of the body. It reads each constant outside Lean's own library that the rule of a statement
+  reaches, `StatementReading.Observed.references`. For each such constant it gives a record,
+  `StatementReading.Observed`, with the kind and the form of the result type. The record also
+  holds the constants of the type, of the value and of the declaration, and the structure of a
+  projection function.
+- **The decision** is `StatementReading.reads`. Its argument, `StatementReading.Mention`, holds
+  the record of a constant, a constant that it mentions and the constants of the input type. It
+  accepts when the reading follows the mention. `checked_reads` registers the kind
+  `Regula.Decides` against `StatementReading.Read`.
+- **The closure** is `StatementReading.reading`. It runs `KernelAxioms.search` two times over the
+  records. One search follows `reads` from the body of the term. The other search follows the rule
+  of a statement from the input type and the body.
+
+**The argument.** A kind compares `accepts (f x)` with `spec x` for each input `x`. A test that
+only the declaration of the input type names is not a part of `spec x` for any `x`. A change of
+the test changes which values the input type has. The two sides range over the same values, so
+the comparison at each input is the one that it was. A specification that names the input type
+in a different way can depend on the test at an input, so the reading follows that name.
+
+This argument is not a theorem about Lean's semantics. Section 7.11 of the standard states it.
+The theorem `through_input` gives the property of the reading on which the argument depends.
+
+**The acceptance predicate.** The search reads it by the rule of a statement, the declaration of
+the result type included. The argument above holds for the input type only. A value of the result
+type occurs on one side of the kind only, in `accepts (f x)`. So a specification that names a test
+of that declaration shares it with the acceptance predicate. The control `flaggedOf_decides` shows
+this case.
+
+**Proved**, about the functions that the reading runs. They are in the claimed library
+`RegulaPolicy`, so acceptance admits each theorem with Lean's kernel and reports its axioms.
+
+| Property | Declarations | Meaning and limit |
+| --- | --- | --- |
+| The decision is exact | `StatementReading.reads_iff`, `checked_reads` | `reads` accepts a mention exactly when `Read` holds. It follows a projection of the input type to the type of its field, and not back to the input type. |
+| A record follows the decision | `StatementReading.mem_read`, `dropped` | The constants that a record gives to the closure are exactly those that `Read` relates to it. A constant that the rule follows and the reading does not is the structure of a projection, of the input type. |
+| The reading follows less | `StatementReading.read_subset_withTypes` | The rule reaches each constant that the reading reaches. So the reading refuses no registration that the rule accepts. |
+| The closure is exact | `StatementReading.reading_some` | A constant is in `read` exactly when it has a record and the body of the term reaches it by `reads`. The same holds of `withTypes` and the rule. |
+| Only through the input type | `StatementReading.through_input` | A constant that the rule reaches and the reading does not, the rule reaches from a constant of the input type. The reading reaches that constant of the input type in no way. |
+| The names through types | `mem_sharedNames_throughTypes` | A name is in `throughTypes` exactly when the rule shares a test with that name and the reading does not. |
+| The rule holds of what is read | `StatementReading.no_shared_test` | Take a record that names no test of the class `boolean`. No constant of that class is then read in the specification and reached by the other side. The other side is the implementation or the acceptance predicate. |
+| What the change accepts | `StatementReading.accepted_throughTypes`, `sharedConstants_read_subset` | A registration that the reading accepts and the rule refuses has each such test in `throughTypes`. The specification does not read it, or neither the implementation nor the acceptance predicate reaches it. |
+
+**Hypotheses and trusted boundary.** The theorems start from the records. They do not prove these
+items:
+
+- That a record holds the constants of each part of its constant. The pass reads them with
+  `Lean.Expr.getUsedConstants`, a function of Lean's library.
+- That a projection function is a constant with a kernel-checked value that is the field of its
+  last argument. The pass reads this from the value, as it does for a decided function.
+- That the domain and the body are those of the input type and of what the term states. For a
+  function abstraction, the pass reads its binder type and its body. A term can name a
+  definition, alone or applied to its variable, with a function abstraction as its value. For
+  such a term, the pass reads the binder type and the body of that value. For a term of a
+  different form, it reads the domain of its type and the term. It adds the constants of the
+  input type with its reducible definitions unfolded at its head.
+- That a constant with no record leads to no shared test. A constant of Lean's own library is not
+  read, as before this change. The editor snapshot of a file with a `module` header gives no
+  record to one more constant. That is a specification that is an imported definition with no
+  exported value. The editor then reports the reading as incomplete
+  with `Unread.shared`, where a shared test could be below that definition.
+- That a test that only the declaration of the input type names is no part of a specification.
+  This is the argument above.
+
+**The limits.** A specification that reads a field of a field of the input
+reads the type of the first field, with its declaration. So does a specification that names a
+component type of the input as a parameter, as the projections of a pair do. A type that the
+specification passes to a function that is no projection is read too. An example is the element
+type that `xs[i]` passes to the instance of `GetElem`. The controls `admitBelow_decides`, `admitPair_decides` and
+`admitAt_decides` show these limits.
+
+A definition that the body names among other terms has its type read. So does a definition that
+the value of a named specification names. When that type names the input type, the search enters
+the declaration of the input type there. An example is
+`fun input => AdmitSpec input ∧ 0 < input.amount`, where the type of `AdmitSpec` names the input
+type. The control `admitAnd_decides` shows this limit.
+
+**The verdicts.** The rule of a statement is the reading of the search before
+[#270](https://github.com/rbeauchamp/regula/issues/270). The reading reaches part of what the rule
+reaches, so no registration is newly refused. A registration is newly accepted only when its
+specification reached each shared test only through the input type. The record names each such
+test after `shared-through-types=`. The acceptance predicate is read as before #270.
 
 ### Open obligations of the split producers
 
