@@ -2444,7 +2444,9 @@ A loaded module belongs to an owned package only if its `.olean` is exactly that
 artifact of it below `.lake/build/lib/lean`, on real paths. `Environment.attributeLoaded` decides
 it, and the module then binds that package's source. It refuses a loaded module that an owned
 package provides and that is no such artifact. A module of the prefixes `Regula` or `RegulaPolicy`
-that is the checker's own artifact is the one exception.
+that is the checker's own artifact is the one exception. It belongs to the owned dependency that
+alone provides it, and to no package if the root package provides it. So an environment owns it
+when it imports an owned module, and a fresh copy then builds it.
 
 An owned dependency is audited like the root package. Each environment computes what it owns one
 time, in `Environment.EnvironmentOwnership.of`, and each job that works module by module takes its

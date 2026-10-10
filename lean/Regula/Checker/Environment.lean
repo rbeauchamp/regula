@@ -421,7 +421,11 @@ package's artifact of it. The module is refused when an owned package provides i
 package's artifact, or the artifact of more than one, except a module under the checker's reserved
 prefixes (`reservedModule`) that is the checker's own artifact, which the reporter's overlay serves
 from the checker's library and whose source in any package is the checker's own text
-(`Lake.checkReservedModules`). A module that no owned package provides belongs to none. The result
+(`Lake.checkReservedModules`). Such a module belongs to the owned dependency that alone provides it,
+so an environment owns it when it imports an owned module (`EnvironmentOwnership.of`), and a copy
+then builds it; one that the root package provides belongs to none, since the root package's
+modules are owned through their source bindings. A module that no owned package provides belongs
+to none. The result
 lists each loaded module that belongs to an owned dependency, in the order of the module origins,
 with its index in `Ownership.dependencies`, so dependency membership and each source bound for a
 module follow the artifact the environment loaded, not the name. -/
@@ -455,7 +459,10 @@ def attributeLoaded (origins : Array Regula.Report.ModuleOrigin) (ownership : Ow
     | #[] =>
       if reservedModule origin.name then
         if let some lib := checker then
-          if (← artifact lib origin.name) == some loaded then continue
+          if (← artifact lib origin.name) == some loaded then
+            if let [index] := providers then
+              if index ≥ offset then attributed := attributed.push (origin.name, index - offset)
+            continue
       return .error s!"surface-attribution: module {origin.name}, which the owned package {named} \
         provides, was loaded from {loaded}, which is not that package's artifact of it"
     | _ =>

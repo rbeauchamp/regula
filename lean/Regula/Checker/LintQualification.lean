@@ -564,7 +564,8 @@ private def cachedWarning (repo adopter : FilePath) : IO (Array String) := do
 
 /-- `cachedWarning` with the artifact cache enabled only in a dependency's own configuration,
 which Lake reads before `LAKE_ARTIFACT_CACHE`: a path dependency inside the `lakefile.lean`
-adopter enables the cache (`enableArtifactCache`, with every artifact copied into the build
+adopter, a Git repository of its own and so a trusted dependency that each audit builds in place,
+enables the cache (`enableArtifactCache`, with every artifact copied into the build
 directory) in a private `LAKE_CACHE_DIR` of the control's own workspace, and its module, which a
 claimed module imports, warns. Lake's ordinary `lake build` fills the cache with that module,
 and its build output is then removed, as in a new checkout. A `lake lint -- --fresh` must then
@@ -574,6 +575,9 @@ private def dependencyCachedWarning (repo adopter : FilePath) : IO (Array String
   BuildLintQualification.setup repo adopter
   let dependency := adopter / "dep"
   IO.FS.createDirAll dependency
+  let initialized ← runProcess dependency "git" #["init", "-q"]
+  unless initialized.succeeded do
+    return #[s!"lake-lint/dependency-cache: git init failed: {initialized.output}"]
   IO.FS.writeFile (dependency / "lakefile.lean") <|
     "import Lake\nopen Lake DSL\n\npackage dep where\n  enableArtifactCache := true\n" ++
       "  restoreAllArtifacts := true\n\nlean_lib Dep\n"
@@ -1090,6 +1094,27 @@ private def pathDependency (repo adopter : FilePath) : IO (Array String) := do
       #["trusted dependencies, not replayed through Lean's kernel:", "build_lint_support"] })
   return failures
 
+/-- The `lakefile.lean` adopter in the checker's own Git work tree, so `regula` is an owned
+dependency, with a claimed import of `RegulaPolicy.Claim`. The force-imported reporter loads
+checker modules outside the claimed closure that import an owned one, such as `RegulaPolicy.Codec`,
+which imports `RegulaPolicy.Domain`, and under `--fresh` the overlay serves them from the
+checker's library. Such a module belongs to `regula` (`Environment.attributeLoaded`), so the
+environment owns it and the fresh copy builds it; when it belonged to no package, the admission
+refused it as an unreplayed module that imports a replayed one. A `lake lint -- --fresh` must
+accept the adopter and name no trusted dependency. The claimed import is `RegulaPolicy.Claim`, not
+`Regula.Linter`, since the decision contracts of `RegulaPolicy.admitIdentity` and
+`RegulaPolicy.admitToolchainOrigin` lie in `RegulaPolicy.Claim`, and RG1008 requires them in the
+environment that owns those functions. -/
+private def ownedChecker (repo adopter : FilePath) : IO (Array String) := do
+  BuildLintQualification.setup repo adopter
+  IO.FS.removeDirAll (adopter / ".git")
+  mutate (adopter / "Widget.lean") "import Regula.Contract\n"
+    "import Regula.Contract\nimport RegulaPolicy.Claim\n"
+  let positive := accepted "owned-checker/fresh" (fresh := true)
+  let noneTrusted := "trusted dependencies, not replayed through Lean's kernel: none\n"
+  expect adopter { positive with contains := positive.contains.push noneTrusted }
+    #["--", "--fresh"]
+
 /-- With the checker's `axiomGate` worker binary removed, `lake lint` builds it and still
 reaches the accepted result: Lake's lint dispatch itself builds only the driver. -/
 private def absentWorker (repo adopter : FilePath) : IO (Array String) := do
@@ -1130,8 +1155,9 @@ private def compilerGuard (repo project : FilePath) : IO (Array String) := do
     (← assess { label := "guard/restored", exitCode := 0 } (← load #[]))
 
 /-- The absent-worker control first, alone, since the adopters share the checker's binaries;
-then both independent adopters, the path-dependency adopter, the cold compiler guard, the
-artifact-cache controls and `escapedNameWarning`, each in its own disposable workspace. The
+then both independent adopters, the path-dependency adopter, the owned-checker adopter, the cold
+compiler guard, the artifact-cache controls and `escapedNameWarning`, each in its own disposable
+workspace. The
 adopters' decision probes load their workspaces one at a time (`probe`). -/
 def qualify (repo scratch : FilePath) (jobs : Nat) : IO (Array String) := do
   let absent ← withScratch scratch "lake-lint-worker" fun adopter => absentWorker repo adopter
@@ -1141,7 +1167,7 @@ def qualify (repo scratch : FilePath) (jobs : Nat) : IO (Array String) := do
     #[("lean", leanAdopter probes), ("toml", tomlAdopter probes), ("guard", compilerGuard),
       ("cache", cachedWarning), ("dependency-cache", dependencyCachedWarning),
       ("empty-facets", emptyFacetsWarning), ("escaped-name", escapedNameWarning),
-      ("path", pathDependency)]
+      ("path", pathDependency), ("owned-checker", ownedChecker)]
     fun (name, control) => withScratch scratch s!"lake-lint-{name}" fun adopter =>
                             control repo adopter
   return results.foldl (· ++ ·) #[]
