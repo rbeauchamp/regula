@@ -781,12 +781,11 @@ of the dependency, or `Support` of the dependency and of a second owned one, is 
 driver builds its audit worker. So is a library root `Regula.«<directory>/Payload»` that a claimed
 module imports, whose absolute component would put its source and artifact outside the
 dependency's directories, and so is the root `Regula.«../Payload»`, whose `..` segment would leave
-them. A claimed module's import of `Widget.«<directory>/Payload»`, which Lake builds under the
-claimed library's glob outside every output directory, is refused once the module is loaded. An
-override in
-`.lake/package-overrides.json` that selects the dependency
-in place of one elsewhere is owned in the fresh copy too, and of two override entries the fresh
-copy loads the last, as Lake does. As a Git work tree of its own it is trusted: the forged theorem
+them. A claimed module's import of `Widget.«<adopter directory>/Payload»`, which Lake builds under
+the claimed library's glob outside every output directory, is refused once the module is loaded.
+An override in `.lake/package-overrides.json` that selects the dependency in place of one
+elsewhere is owned in the fresh copy too, and of two override entries the fresh copy loads the
+last, as Lake does. As a Git work tree of its own it is trusted: the forged theorem
 supplies no correspondence, so the boundary it was to prove is rejected (RG3002), and with an
 honest module the account names it. These observe Git's work-tree discovery, Lake's path
 dependencies and overrides and the fresh copy, which the ownership theorems (`sameWorkTree_iff`,
