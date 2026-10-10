@@ -86,6 +86,13 @@ def PolicyScope.native (s : PolicyScope) : Array Lean.Name := s.roles.native
 /-- The `_unsafe_rec` helpers admitted as generated roles (`Roles.helpers`). -/
 def PolicyScope.helpers (s : PolicyScope) : Array Lean.Name := s.roles.helpers
 
+/-- `s` with its inventory counting `counted`, the recorded contracts of other surfaces that the
+manifest counts toward its decision registrations (`RegulaPolicy.Inventory.withCounted`), and the
+roles recomputed for that inventory (`RegulaPolicy.Roles.withCounted`). -/
+def PolicyScope.counting (s : PolicyScope) (counted : Array RegulaPolicy.CountedContract) :
+    PolicyScope :=
+  ⟨s.inventory.withCounted counted, s.roles.withCounted counted⟩
+
 /-- A transcript-coordinate check over the declaration inventory. The operational
 adapter supplies `Frontend.validateCoordinates`, which runs `checked_coordinates`. -/
 abbrev CoordinateCheck :=

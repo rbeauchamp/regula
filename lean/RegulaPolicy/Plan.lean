@@ -266,6 +266,75 @@ def moduleNames (ms : Array ModuleKey) : Array Name := ms.map (·.name.name)
 def declarationNames (ds : Array DeclarationKey) : Array (Name × Name) :=
   ds.map (fun d => (d.moduleKey.name.name, d.name.name))
 
+/-- The claimed surface among `surfaces` that owns module `m`: the first whose modules include
+it. -/
+def surfaceOwning (surfaces : Array SurfaceAssignment) (m : Name) : Option SurfaceAssignment :=
+  surfaces.find? fun s => s.modules.any (·.name == m)
+
+/-- The claimed surface, by its target, that owns the first of an environment's `modules`; `none`
+when it has none or no claimed surface owns it. A project census assigns each environment the
+modules of one surface (`census_project_partition`). -/
+def environmentTarget (surfaces : Array SurfaceAssignment) (modules : Array ModuleKey) :
+    Option String :=
+  (modules[0]?.bind fun m => surfaceOwning surfaces m.name.name).map (·.target)
+
+/-- The recorded contracts that count toward the decision registrations of the environment whose
+own declarations are `owned`, whose loaded modules have the origins `origins` and whose surface
+is `target`. `environments` gives, for each environment, its policy declarations and the origins
+of the modules it loaded. A contract counts when it is the recorded contract of a declaration of
+one of them, the claimed surface that owns that declaration's module names `target` among the
+surfaces it decides (`SurfaceAssignment.decides`), and its implementation is an owned
+declaration whose module that environment loaded with an origin, `.olean` path and imports, equal
+to one of `origins`. Lean refuses an environment that holds two declarations of one name, so the
+implementation that contract names is the owned declaration. Each counted contract carries the
+surface, the declaration and the module that record it, in the order of `environments` and of
+their declarations. -/
+def countedContracts (surfaces : Array SurfaceAssignment)
+    (environments : Array (Array Declaration × Array ModuleOrigin)) (target : String)
+    (owned : Array Declaration) (origins : Array ModuleOrigin) : Array CountedContract :=
+  environments.flatMap fun (declarations, loaded) => declarations.filterMap fun d =>
+    d.executableContract.bind fun k =>
+      (surfaceOwning surfaces d.module).bind fun s =>
+        if s.decides.contains target && owned.any (fun o => o.name == k.root &&
+            loaded.any fun m => m.name == o.module && origins.contains m)
+        then some ⟨s.target, d.name, d.module, k⟩ else none
+
+/-- A contract counts toward an environment's registrations exactly when it is the recorded
+contract of a declaration of one of `environments` whose module a claimed surface owns that names
+`target` among those it decides, and it names an owned declaration whose module that environment
+loaded with an origin of `origins`; it carries that surface, declaration and module. -/
+theorem mem_countedContracts {surfaces : Array SurfaceAssignment}
+    {environments : Array (Array Declaration × Array ModuleOrigin)} {target : String}
+    {owned : Array Declaration} {origins : Array ModuleOrigin} {c : CountedContract} :
+    c ∈ countedContracts surfaces environments target owned origins ↔
+      ∃ e ∈ environments, ∃ d ∈ e.1, ∃ k, d.executableContract = some k ∧
+        ∃ s, surfaceOwning surfaces d.module = some s ∧ target ∈ s.decides ∧
+          (∃ o ∈ owned, o.name = k.root ∧ ∃ m ∈ e.2, m.name = o.module ∧ m ∈ origins) ∧
+          c = ⟨s.target, d.name, d.module, k⟩ := by
+  simp only [countedContracts, Array.mem_flatMap, Array.mem_filterMap, Option.bind_eq_some_iff,
+    Bool.and_eq_true, Array.contains_iff_mem, Array.any_eq_true', beq_iff_eq,
+    Option.ite_none_right_eq_some, Option.some.injEq]
+  constructor
+  · rintro ⟨⟨declarations, loaded⟩, he, d, hd, k, hk, s, hs, ⟨hdecides, o, ho, hname, m, hm, hmodule,
+      horigin⟩, rfl⟩
+    exact ⟨_, he, d, hd, k, hk, s, hs, hdecides, ⟨o, ho, hname, m, hm, hmodule, horigin⟩, rfl⟩
+  · rintro ⟨⟨declarations, loaded⟩, he, d, hd, k, hk, s, hs, hdecides, ⟨o, ho, hname, m, hm,
+      hmodule, horigin⟩, rfl⟩
+    exact ⟨_, he, d, hd, k, hk, s, hs, ⟨hdecides, o, ho, hname, m, hm, hmodule, horigin⟩, rfl⟩
+
+/-- The recorded contracts that the census `environments` count toward the decision registrations
+of environment `i` under the claim `c` (`countedContracts`): for the surface that owns `i`'s
+modules (`environmentTarget`), over the policy declarations and module origins of every
+environment, and none for an environment that no claimed surface owns, such as every environment
+of a file, editor or documentation claim. -/
+def countedFor (c : Claim) (environments : Array EnvironmentCensus) (i : EnvironmentCensus) :
+    Array CountedContract :=
+  match environmentTarget c.val.surfaces i.modules with
+  | some target => countedContracts c.val.surfaces
+      (environments.map fun e => (e.policy.declarations, e.origins)) target
+      i.policy.declarations i.origins
+  | none => #[]
+
 /-- The complete loaded import census binds every infrastructure receipt. Direct import
 edges are inspected for every loaded module, including ordinary dependencies. Collect
 is infrastructure only in its existing force-only case. Positive ownership is disjoint. -/
@@ -361,9 +430,13 @@ instance : LawfulHashable DeclarationKey where
 
 /-- Exact admitted key/data reconciliation and claim bindings. These checks cannot establish
 that the external environment traversal or source scan omitted nothing; that is the collector
-boundary. They do prevent a returned policy table from defining its own required census. -/
+boundary. They do prevent a returned policy table from defining its own required census. The
+contracts the inventory counts from other surfaces are exactly those the claim relates to it
+among the census's own environments (`countedFor`), so no contract counts that this run did not
+record. -/
 def EnvironmentCensusOK (c : Claim) (global : Census) (i : EnvironmentCensus) : Prop :=
   i.request.modules = i.modules ∧ i.request.key.snapshot.val = c.val.snapshot ∧
+  i.policy.counted = countedFor c global.environments i ∧
   InfrastructureOK c i ∧
   UniqueNames (moduleNames i.allModules) ∧
   (∀ m ∈ i.allModules, m.snapshot.val = c.val.snapshot) ∧
@@ -494,6 +567,65 @@ theorem census_requested_environment (c : Claim) (i : Census) (h : CensusOK c i)
   rw [← h.1] at hr
   obtain ⟨e, he, eq⟩ := Array.mem_map.mp hr
   exact ⟨e, he, eq, h.2.2.1 e he⟩
+
+/-- In a valid census, the contracts each environment counts from other surfaces are exactly
+those the claim relates to it among the census's own environments (`countedFor`). -/
+theorem census_counted (c : Claim) (i : Census) (h : CensusOK c i) {e : EnvironmentCensus}
+    (he : e ∈ i.environments) : e.policy.counted = countedFor c i.environments e :=
+  (h.2.2.1 e he).2.2.1
+
+/-- The decision requirement (RG1008) of a valid census reads exactly the recorded contracts of
+the surfaces the claim relates. A name is among an environment's decided implementations exactly
+when a decision contract of the environment's own declarations decides it, or when an
+environment of the same census has a declaration whose recorded contract states a decision kind,
+was not refused and names it as its implementation, where the claimed surface that owns that
+declaration's module names the environment's surface among those it decides
+(`SurfaceAssignment.decides`), and the name is an owned declaration of the environment whose
+module the other environment loaded with an origin equal to one the environment loaded. The
+records are those the census holds, so no contract of another run or of an environment the census
+does not hold counts. -/
+theorem census_decided_iff (c : Claim) (i : Census) (h : CensusOK c i) {e : EnvironmentCensus}
+    (he : e ∈ i.environments) (roles : Roles e.policy) (n : Name) :
+    n ∈ roles.decided ↔
+      DecisionRegistered (recordedContracts e.policy.declarations) n ∨
+      ∃ target, environmentTarget c.val.surfaces e.modules = some target ∧
+        ∃ e' ∈ i.environments, ∃ d ∈ e'.policy.declarations, ∃ k,
+          d.executableContract = some k ∧
+          (∃ s, surfaceOwning c.val.surfaces d.module = some s ∧ target ∈ s.decides) ∧
+          (∃ o ∈ e.policy.declarations, o.name = n ∧
+            ∃ m ∈ e'.origins, m.name = o.module ∧ m ∈ e.origins) ∧
+          k.root = n ∧ k.kind.isSome = true ∧ k.failure = none := by
+  rw [roles.decided_iff, Inventory.decisionContracts_iff, census_counted c i h he]
+  apply or_congr Iff.rfl
+  unfold countedFor
+  cases environmentTarget c.val.surfaces e.modules with
+  | none => simp
+  | some target =>
+    simp only [mem_countedContracts, Array.mem_map, Option.some.injEq, exists_eq_left']
+    constructor
+    · rintro ⟨_, ⟨_, ⟨e', he', rfl⟩, d, hd, k, hk, s, hs, hdecides, ⟨o, ho, hname, m, hm, hmodule,
+        horigin⟩, rfl⟩, hroot, hkind, hfailure⟩
+      exact ⟨e', he', d, hd, k, hk, ⟨s, hs, hdecides⟩,
+        ⟨o, ho, hname.trans hroot, m, hm, hmodule, horigin⟩, hroot, hkind, hfailure⟩
+    · rintro ⟨e', he', d, hd, k, hk, ⟨s, hs, hdecides⟩, ⟨o, ho, hname, m, hm, hmodule, horigin⟩,
+        hroot, hkind, hfailure⟩
+      exact ⟨_, ⟨_, ⟨e', he', rfl⟩, d, hd, k, hk, s, hs, hdecides,
+        ⟨o, ho, hname.trans hroot.symm, m, hm, hmodule, horigin⟩, rfl⟩, hroot, hkind, hfailure⟩
+
+/-- Where no claimed surface names an environment's surface among those it decides, such as in a
+claim whose surfaces decide none, the decision requirement of a valid census reads the recorded
+contracts of the environment's own declarations alone: exactly what it reads without the
+relation. -/
+theorem census_decided_iff_of_unrelated (c : Claim) (i : Census) (h : CensusOK c i)
+    {e : EnvironmentCensus} (he : e ∈ i.environments) (roles : Roles e.policy)
+    (unrelated : ∀ s ∈ c.val.surfaces, ∀ t ∈ s.decides,
+      environmentTarget c.val.surfaces e.modules ≠ some t) (n : Name) :
+    n ∈ roles.decided ↔ DecisionRegistered (recordedContracts e.policy.declarations) n := by
+  rw [census_decided_iff c i h he roles n]
+  refine or_iff_left ?_
+  rintro ⟨target, htarget, -, -, d, -, -, -, ⟨s, hs, hdecides⟩, -⟩
+  have member : s ∈ c.val.surfaces := Array.mem_of_find?_eq_some hs
+  exact unrelated s member target hdecides htarget
 
 /-- Ordinary project requests are the claim's surface environments, in order: each surface's
 library, then each of its executable roots alone (`SurfaceAssignment.environments`). -/

@@ -37,6 +37,10 @@ structure Surface where
   execution : RegulaPolicy.ExecutionClaim
   /-- The manifest's stated reason for the claim. -/
   rationale : String
+  /-- The other claimed surfaces, by their libraries' names, whose decision registrations the
+  recorded contracts of this surface's declarations count toward (RG1008). Each names another
+  claimed surface of the manifest. -/
+  decides : Array String := #[]
   deriving Repr
 
 /-- A root-package `lean_lib` the manifest excludes from every claimed surface. -/
@@ -250,14 +254,15 @@ Through `checked_conformingProfile`. -/
 def conformingProfile (profile : Profile) : Except String ConformingProfile :=
   checked_conformingProfile.run profile
 
-/-- Required claim surface for one manifest surface: its library name and execution claim,
-the conforming profile its claim spells, in manifest order the root of the first Lake executable
-of each claimed executable name, and, in Lake's order, the modules of the first Lake library of
-that name other than those roots. A root inside the library is thus assigned once, to its
+/-- Required claim surface for one manifest surface: its library name, execution claim and the
+surfaces it decides, the conforming profile its claim spells, in manifest order the root of the
+first Lake executable of each claimed executable name, and, in Lake's order, the modules of the
+first Lake library of that name other than those roots. A root inside the library is thus assigned once, to its
 executable's environment, where it keeps the surface's claim. -/
 def SurfaceAssigned (inventory : Lake.SurfaceInventory) (surface : Manifest.Surface)
     (assigned : SurfaceAssignment) : Prop :=
   assigned.target = surface.library ∧ assigned.execution = surface.execution ∧
+  assigned.decides = surface.decides ∧
   surface.claim.toString = assigned.profile.spelling ∧
   ∃ library, inventory.libraries.find? (·.library == surface.library) = some library ∧
     ∃ roots : List Name, roots.length = surface.executables.size ∧
@@ -276,7 +281,7 @@ theorem SurfaceAssigned.covers {inventory : Lake.SurfaceInventory} {surface : Ma
     (hl : inventory.libraries.find? (·.library == surface.library) = some library) :
     ∀ m ∈ library.modules, m ∈ assigned.library.map (·.name) ∨
       m ∈ assigned.executables.map (·.name) := by
-  obtain ⟨_, _, _, library', hl', roots, _, _, hlib, hexe⟩ := h
+  obtain ⟨_, _, _, _, library', hl', roots, _, _, hlib, hexe⟩ := h
   obtain rfl : library' = library := Option.some.inj (hl'.symm.trans hl)
   intro m hm
   by_cases hr : m ∈ roots
@@ -291,7 +296,7 @@ the root still loads it, as an import, in the library's environment. -/
 theorem SurfaceAssigned.disjoint {inventory : Lake.SurfaceInventory} {surface : Manifest.Surface}
     {assigned : SurfaceAssignment} (h : SurfaceAssigned inventory surface assigned) :
     ∀ m ∈ assigned.library.map (·.name), m ∉ assigned.executables.map (·.name) := by
-  obtain ⟨_, _, _, _, _, roots, _, _, hlib, hexe⟩ := h
+  obtain ⟨_, _, _, _, _, _, roots, _, _, hlib, hexe⟩ := h
   intro m hm hr
   rw [← Array.mem_toList_iff, Array.toList_map, hlib, List.mem_filter] at hm
   rw [← Array.mem_toList_iff, Array.toList_map, hexe] at hr
@@ -321,7 +326,8 @@ private def assignSurface (inventory : Lake.SurfaceInventory) (surface : Manifes
   let modules ← (library.modules.toList.filter (fun m => !roots.contains m)).mapM admitIdentity
   let rootModules ← roots.mapM admitIdentity
   let profile ← conformingProfile surface.claim
-  return ⟨surface.library, modules.toArray, rootModules.toArray, profile, surface.execution⟩
+  return ⟨surface.library, modules.toArray, rootModules.toArray, profile, surface.execution,
+    surface.decides⟩
 
 private def surfaceAssignmentsImpl (manifest : Manifest)
     (inventory : Lake.SurfaceInventory) : Except String (Array SurfaceAssignment) :=
@@ -378,7 +384,7 @@ private theorem assignSurface_ok (inventory : Lake.SurfaceInventory) (surface : 
     cases hr : surface.executables.toList.mapM (executableRoot inventory) with
     | error e =>
       simp only [bind, Except.bind, reduceCtorEq, false_iff, not_and, not_exists]
-      intro _ _ _ roots hlen hroots _ _
+      intro _ _ _ _ roots hlen hroots _ _
       rw [(rootsOk roots).mpr ⟨hlen, hroots⟩] at hr
       cases hr
     | ok roots =>
@@ -400,7 +406,7 @@ private theorem assignSurface_ok (inventory : Lake.SurfaceInventory) (surface : 
           admitIdentity with
       | error e =>
         simp only [hm, bind, Except.bind, reduceCtorEq, false_iff, not_and, not_exists]
-        intro _ _ _ roots' hlen' hroots' hnames _
+        intro _ _ _ _ roots' hlen' hroots' hnames _
         obtain rfl := sameRoots roots' hlen' hroots'
         rw [(admitIdentities_ok _ assigned.library.toList).mpr hnames] at hm
         cases hm
@@ -409,7 +415,7 @@ private theorem assignSurface_ok (inventory : Lake.SurfaceInventory) (surface : 
         cases hx : roots.mapM admitIdentity with
         | error e =>
           simp only [hm, hx, bind, Except.bind, reduceCtorEq, false_iff, not_and, not_exists]
-          intro _ _ _ roots' hlen' hroots' _ hrootNames
+          intro _ _ _ _ roots' hlen' hroots' _ hrootNames
           obtain rfl := sameRoots roots' hlen' hroots'
           rw [(admitIdentities_ok _ assigned.executables.toList).mpr hrootNames] at hx
           cases hx
@@ -418,7 +424,7 @@ private theorem assignSurface_ok (inventory : Lake.SurfaceInventory) (surface : 
           cases hp : conformingProfile surface.claim with
           | error e =>
             simp only [hm, hx, bind, Except.bind, reduceCtorEq, false_iff, not_and, not_exists]
-            intro _ _ hspell _ _ _ _ _
+            intro _ _ _ hspell _ _ _ _ _
             have := (checked_conformingProfile.evidence.1 surface.claim assigned.profile).mpr
               hspell
             change conformingProfile surface.claim = _ at this
@@ -429,9 +435,9 @@ private theorem assignSurface_ok (inventory : Lake.SurfaceInventory) (surface : 
             simp only [hm, hx, bind, Except.bind, pure, Except.pure, Except.ok.injEq]
             constructor
             · rintro rfl
-              exact ⟨rfl, rfl, hspell, roots, hlen, hroots, by simpa using hnames,
+              exact ⟨rfl, rfl, rfl, hspell, roots, hlen, hroots, by simpa using hnames,
                 by simpa using hrootNames⟩
-            · rintro ⟨ht, he, hs, roots', hlen', hroots', hn, hrn⟩
+            · rintro ⟨ht, he, hd, hs, roots', hlen', hroots', hn, hrn⟩
               obtain rfl := sameRoots roots' hlen' hroots'
               have hlib : assigned.library.toList = modules := by
                 have := (admitIdentities_ok _ assigned.library.toList).mpr hn
@@ -447,9 +453,9 @@ private theorem assignSurface_ok (inventory : Lake.SurfaceInventory) (surface : 
                 generalize assigned.profile = q
                 cases q <;> cases profile <;> simp [ConformingProfile.spelling]
               cases assigned with
-              | mk target lib exes prof exec =>
-                simp only at ht he hlib hexe hprof
-                subst ht he hprof
+              | mk target lib exes prof exec decides =>
+                simp only at ht he hd hlib hexe hprof
+                subst ht he hd hprof
                 rw [← hlib, ← hexe]
 
 /-- Registers `SurfaceAssignmentsContract` about the executed census assignment. -/
@@ -608,6 +614,33 @@ structure FrozenEnvironment where
   declarationDocumentation : Array ((Name × Name) × Option String)
   /-- The completed elaboration histories of the environment's modules. -/
   histories : Array HistoryObservation
+
+/-- `e` counting `counted`, recorded contracts of other surfaces, toward its decision
+registrations: its census's inventory counts them (`Inventory.withCounted`) and its role receipt
+is the one for that inventory (`Roles.withCounted`); every other observation is unchanged. -/
+def FrozenEnvironment.counting (e : FrozenEnvironment) (counted : Array CountedContract) :
+    FrozenEnvironment :=
+  { e with census := { e.census with policy := e.census.policy.withCounted counted }
+           roles := e.roles.withCounted counted }
+
+/-- The frozen environments of claim `c`, each counting the recorded contracts that the claim
+relates to it among all of them (`countedFor`), the binding `EnvironmentCensusOK` requires. -/
+def countFrozen (c : Claim) (environments : Array FrozenEnvironment) :
+    Array FrozenEnvironment :=
+  let censuses := environments.map (·.census)
+  environments.map fun e => e.counting (countedFor c censuses e.census)
+
+/-- `countFrozen` meets the binding of `EnvironmentCensusOK` by construction: each environment it
+returns counts exactly what `countedFor` relates to it among the environments it returns, since
+counting changes no declaration, module origin or module that `countedFor` reads. -/
+theorem countFrozen_counted (c : Claim) (environments : Array FrozenEnvironment) :
+    ∀ e ∈ countFrozen c environments,
+      e.census.policy.counted = countedFor c ((countFrozen c environments).map (·.census)) e.census
+    := by
+  intro e he
+  obtain ⟨e0, -, rfl⟩ := Array.mem_map.mp he
+  simp [countFrozen, FrozenEnvironment.counting, Inventory.withCounted, countedFor,
+    Array.map_map, Function.comp_def]
 
 /-- Select the role receipt already computed during admission of this exact environment.
 The dependent result prevents selecting a receipt for another inventory. -/

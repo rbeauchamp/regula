@@ -19,7 +19,14 @@ open Lean
 /-- This checker build's producer identity, written into every result envelope. -/
 abbrev producer := Regula.Checker.Producer.identity
 
-/-- Result schema 14 records which dependencies the audit owns: each dependency of a rendered
+/-- Result schema 15 records the relation between surfaces that the manifest declares for RG1008:
+each `surfaces` entry of an accepted project, and each surface of the manifest a project result
+renders in `scope`, carries `decides`, the claimed surfaces whose decision registrations its
+recorded contracts count toward, and the acceptance account carries
+`countedContracts`, each recorded contract that an environment counts from another surface and
+that decides a function it registers as a decision, with the surface of the function (`surface`)
+and the surface the contract comes from (`source`). Earlier schemas wrote neither member.
+Schema 14 records which dependencies the audit owns: each dependency of a rendered
 snapshot carries `owned`, `true` for a path dependency in the root package's Git work tree, each
 module of which the audit replays where a requested module imports it, except modules under the
 checker's reserved prefixes, which are the checker's own code (`snapshotJson`), and the
@@ -125,7 +132,7 @@ frozen configuration and dependency text from the snapshot (`snapshotJson`: a cl
 dependency is identified by its pinned revision, a dirty one only by package and `dirty`
 status) and imported-environment module lists (`acceptedJson`,
 `ProducerReport.Environment.resultJson`); schema 1 embedded them. -/
-def schemaVersion : Nat := 14
+def schemaVersion : Nat := 15
 
 /-- Envelope identity of every result file. -/
 def identityFields : List (String × Json) := RegistryCodec.identityFields producer schemaVersion
@@ -479,7 +486,9 @@ establish that it is the intended one, and no entry is refused for it. A functio
 input type; no entry is refused for it. Since schema 14 the account carries
 `trustedDependencies`, the packages of the snapshot dependencies that are not owned, whose
 declarations the audit does not replay, or that provide a module under the checker's reserved
-prefixes, which the audit does not own (`RegulaPolicy.DependencyState.reserved`). -/
+prefixes, which the audit does not own (`RegulaPolicy.DependencyState.reserved`). Since schema 15 the account also carries
+`countedContracts`: each decision registration an environment counts from another surface toward
+a function it registers as a decision (`Account.CountedAccount`), with both surfaces. -/
 def accountJson (account : Regula.Checker.Account) : Json :=
   let a := account.val
   let residuals (rs : List Regula.Checker.Account.Residual) := toJson (rs.map (·.spelling))
@@ -502,6 +511,12 @@ def accountJson (account : Regula.Checker.Account) : Json :=
         ("throughTypes",
           toJson (contract.shared.throughTypes.map RegistryCodec.printedNameJson))]),
       ("unresolvedReview", residuals Regula.Checker.Account.ContractAccount.unresolved)])),
+    ("countedContracts", toJson (a.counted.map fun counted => Json.mkObj [
+      ("rule", toJson Regula.RuleId.decisionContract.spelling),
+      ("surface", toJson counted.surface), ("source", toJson counted.source),
+      ("registration", RegistryCodec.printedNameJson counted.registration),
+      ("module", RegistryCodec.printedNameJson counted.module),
+      ("implementation", RegistryCodec.printedNameJson counted.implementation)])),
     ("executionSummary", toJson (a.execution.mapIdx fun environment summary => Json.mkObj [
       ("environment", toJson environment), ("roots", toJson summary.roots),
       ("boundaries", toJson summary.boundaries), ("checked", toJson summary.checked),
@@ -590,7 +605,8 @@ def acceptedJson {claim : RegulaPolicy.Claim} (accepted : RegulaPolicy.AcceptedR
       ("target", toJson surface.target),
       ("modules", toJson (surface.modules.map fun n => RegistryCodec.printedNameJson n.name)),
       ("profile", toJson surface.profile.spelling),
-      ("execution", toJson surface.execution.spelling)])),
+      ("execution", toJson surface.execution.spelling),
+      ("decides", toJson surface.decides)])),
     ("snapshot", snapshotJson snapshot),
     ("modules", toJson
         (report.census.modules.map fun key => RegistryCodec.printedNameJson key.name.name)),

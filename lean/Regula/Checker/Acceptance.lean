@@ -202,10 +202,13 @@ def freeze (claim : Claim) (expected : Array (Array Name))
     let dependencies ← IO.ofExcept <|
       ((reports[index]?.map (·.expectedDependencies)).getD #[]).mapM (moduleKey snapshot)
     pure ({ key := ⟨snapshot, index⟩, modules, dependencies } : EnvironmentRequest)
-  let environments ← requests.mapIdxM fun index request => do
+  let frozen ← requests.mapIdxM fun index request => do
     let some inspected := reports[index]?
       | throw <| IO.userError "missing requested environment inspection"
     freezeEnvironment claim request discovered sources ownedOutput inspected fileSource
+  -- Each environment counts the recorded contracts of the surfaces the claim relates to its own
+  -- among all of them, the binding plan admission checks (`countFrozen_counted`).
+  let environments := countFrozen claim frozen
   let census : Census := {
     requests, environments := environments.map (·.census),
     modules := requests.flatMap (·.modules),

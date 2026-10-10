@@ -107,6 +107,36 @@ theorem decidedImplementations_neutral {cs : Array RecordedContract} {n : Name}
     ⟨RecordedContract.neutral r, Array.mem_map_of_mem hr, { c with failure := none, shared := {} },
       by simp [RecordedContract.neutral, Option.mem_def.mp hc], root, kind, rfl⟩
 
+/-- The recorded contracts whose decisions count toward the decision registrations of an
+inventory: those of its own declarations (`recordedContracts`), then those it counts from other
+claimed surfaces (`Inventory.counted`). -/
+def Inventory.decisionContracts (i : Inventory) : Array RecordedContract :=
+  recordedContracts i.declarations ++ i.counted.map (some ·.contract)
+
+/-- A decision contract that an inventory counts decides `n` exactly when one of its own recorded
+contracts does, or one of the contracts it counts from another surface states a decision kind,
+was not refused and names `n` as its implementation. -/
+theorem Inventory.decisionContracts_iff (i : Inventory) (n : Name) :
+    DecisionRegistered i.decisionContracts n ↔
+      DecisionRegistered (recordedContracts i.declarations) n ∨
+        ∃ c ∈ i.counted, c.contract.root = n ∧ c.contract.kind.isSome = true ∧
+          c.contract.failure = none := by
+  simp only [Inventory.decisionContracts, DecisionRegistered, Array.mem_append, Array.mem_map,
+    or_and_right, exists_or]
+  apply or_congr Iff.rfl
+  constructor
+  · rintro ⟨_, ⟨c, hc, rfl⟩, k, hk, h⟩
+    cases Option.mem_def.mp hk
+    exact ⟨c, hc, h⟩
+  · rintro ⟨c, hc, h⟩
+    exact ⟨_, ⟨c, hc, rfl⟩, c.contract, rfl, h⟩
+
+/-- An inventory that counts no contract of another surface, such as every inventory that
+`admitInventory` returns, decides its registrations from its own recorded contracts alone. -/
+theorem Inventory.decisionContracts_of_counted_empty {i : Inventory} (h : i.counted = #[]) :
+    i.decisionContracts = recordedContracts i.declarations := by
+  simp [Inventory.decisionContracts, h]
+
 /-- Every name `authorizedUnsafeRecHelpers` admits is a helper for which the checker recorded that
 Lean's own recursion compiler regenerated its base and that Lean's kernel checked the base's
 recursion equation for the helper's value (`Declaration.unsafeRecRegenerated`), and whose
@@ -321,9 +351,9 @@ theorem decisionFailure_eq_some_iff (d : Declaration.Registration) (decided : Ar
   unfold decisionFailure
   split <;> simp [eq_comm]
 
-/-- Inventory-bound observations of the actual role validators and of the inventory's decision
-contracts. Supplying arbitrary name arrays cannot authorize a role or discharge a decision
-requirement: every equation must be proved for this inventory. -/
+/-- Inventory-bound observations of the actual role validators and of the decision contracts the
+inventory counts (`Inventory.decisionContracts`). Supplying arbitrary name arrays cannot authorize
+a role or discharge a decision requirement: every equation must be proved for this inventory. -/
 structure Roles (inventory : Inventory) where
   /-- Names of the declarations that satisfy `NativeTeachingOK`: the native-proof axioms of
   `native_decide`, `decide +native` and `bv_decide` admitted as generated roles, in inventory
@@ -332,8 +362,9 @@ structure Roles (inventory : Inventory) where
   /-- Names of the declarations that satisfy `RecursiveHelperOK`: the generated `_unsafe_rec`
   helpers admitted as generated roles, in inventory order. -/
   helpers : Array Name
-  /-- The implementations the inventory's decision contracts decide (`DecisionRegistered`), in
-  inventory order. -/
+  /-- The implementations the decision contracts the inventory counts decide
+  (`DecisionRegistered` of `Inventory.decisionContracts`): those of its own declarations, in
+  inventory order, then those it counts from other surfaces. -/
   decided : Array Name
   /-- `native` is what `authorizedNativeAxioms` computes from this inventory. -/
   native_exact :
@@ -341,13 +372,15 @@ structure Roles (inventory : Inventory) where
       (observedTranscripts inventory.transcripts)
   /-- `helpers` is what `authorizedUnsafeRecHelpers` computes from this inventory. -/
   helpers_exact : helpers = authorizedUnsafeRecHelpers (roleRecords inventory.declarations)
-  /-- `decided` is what `decidedImplementations` computes from this inventory. -/
-  decided_exact : decided = decidedImplementations (recordedContracts inventory.declarations)
+  /-- `decided` is what `decidedImplementations` computes from the contracts this inventory
+  counts. -/
+  decided_exact : decided = decidedImplementations inventory.decisionContracts
 
-/-- A name is among an inventory's decided implementations exactly when a decision contract of
-that inventory decides it. -/
+/-- A name is among an inventory's decided implementations exactly when a decision contract that
+the inventory counts decides it: one of its own, or one it counts from another surface
+(`Inventory.decisionContracts_iff`). -/
 theorem Roles.decided_iff {i : Inventory} (roles : Roles i) (n : Name) :
-    n ∈ roles.decided ↔ DecisionRegistered (recordedContracts i.declarations) n := by
+    n ∈ roles.decided ↔ DecisionRegistered i.decisionContracts n := by
   rw [roles.decided_exact, decidedImplementations_iff]
 
 /-- The generated declarations the safety policy admits: the recursion helpers. No unsafe
@@ -373,7 +406,15 @@ theorem Roles.partialParent_not_safetyHelper {i : Inventory} (roles : Roles i)
 def authorize (i : Inventory) : Roles i :=
   ⟨authorizedNativeAxioms (roleRecords i.declarations) (observedTranscripts i.transcripts),
    authorizedUnsafeRecHelpers (roleRecords i.declarations),
-   decidedImplementations (recordedContracts i.declarations), rfl, rfl, rfl⟩
+   decidedImplementations i.decisionContracts, rfl, rfl, rfl⟩
+
+/-- The roles of `i` when it counts `counted` from other surfaces (`Inventory.withCounted`): the
+same native and helper roles, which read no counted contract, and the implementations the
+contracts the inventory then counts decide. -/
+def Roles.withCounted {i : Inventory} (roles : Roles i) (counted : Array CountedContract) :
+    Roles (i.withCounted counted) :=
+  ⟨roles.native, roles.helpers, decidedImplementations (i.withCounted counted).decisionContracts,
+    roles.native_exact, roles.helpers_exact, rfl⟩
 
 /-- Any role receipt for this exact inventory equals recomputation of every validator.
 The equations in Roles determine the arrays; no producer verdict is assumed. -/
@@ -875,20 +916,22 @@ theorem checked_memberFailure_decides : Regula.ExecutableContract memberFailure 
 
 /-- The public decision reports the decision failure exactly for an inventory member that meets
 every requirement of its own record, is registered as a decision with a result type other than
-`Decidable _`, and is the implementation of no decision contract of this inventory. So among the
-declarations that pass their own requirements, the reported ones are exactly the registered
-decisions without a `Decidable` result or a decision contract: no other field of the record
-enters the requirement. The registration and the result type are the collector's observation,
-and so is each recorded contract. -/
+`Decidable _`, and is the implementation of no decision contract that this inventory counts: none
+of its own declarations, and none it counts from another surface (`Inventory.decisionContracts_iff`,
+`Inventory.counted`). So among the declarations that pass their own requirements, the reported
+ones are exactly the registered decisions without a `Decidable` result or a counted decision
+contract: no other field of the record enters the requirement. The registration and the result
+type are the collector's observation, and so is each recorded contract; which contracts of other
+surfaces an inventory counts is the census's (`EnvironmentCensusOK`). -/
 theorem policyFor_decisionContract_iff (i : Inventory) (roles : Roles i) (d : Declaration)
     (r : InspectionRequest) :
     policyFor i roles d r = some .decisionContract ↔
       d ∈ i.declarations ∧ DeclarationOK d r roles.native roles.safetyHelpers ∧
         d.decisionResult = some .«other» ∧
-          ¬ DecisionRegistered (recordedContracts i.declarations) d.name := by
+          ¬ DecisionRegistered i.decisionContracts d.name := by
   have unmet : ¬ DecisionOK d roles.decided ↔
       d.decisionResult = some .«other» ∧
-        ¬ DecisionRegistered (recordedContracts i.declarations) d.name := by
+        ¬ DecisionRegistered i.decisionContracts d.name := by
     rw [← roles.decided_iff]
     simp [DecisionOK]
   rw [← unmet, ← declarationFailure_none_iff]

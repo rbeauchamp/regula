@@ -1114,7 +1114,7 @@ theorem positive_sound :
   ⟨{ sound := fun _ accepted => of_decide_eq_true accepted }⟩
 ```
 
-A project declares that a function is a decision by registering it with `@[regula_decision]`, which `Regula.Decision` provides. The registration is a requirement: a registered function MUST be the implementation of a decision registration in its inventory, or have a result type of the form `Decidable p`, and the build linter rejects a registered function with neither ({ref "exact-contract-and-coverage-scope"}[§7.11]). Deleting the theorem while the function stays registered therefore fails; for an unregistered function it would delete the requirement together with the evidence.
+A project declares that a function is a decision by registering it with `@[regula_decision]`, which `Regula.Decision` provides. The registration is a requirement: a registered function MUST be the implementation of a decision registration in its inventory, or in a surface that the project's manifest relates to its own, or have a result type of the form `Decidable p`, and the build linter rejects a registered function with neither ({ref "exact-contract-and-coverage-scope"}[§7.11]). Deleting the theorem while the function stays registered therefore fails; for an unregistered function it would delete the requirement together with the evidence.
 
 ```lean
 import Regula.Contract

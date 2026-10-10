@@ -268,7 +268,9 @@ instance (fs : Array FenceKey) (f : FenceKey) (o : ExampleObservation) (i : Inve
 
 /-- Example expectation meaning: positive/teaching inspect actual pure policies; compiler
 negatives match one effective error; policy negatives require exact completed rejection
-observations. Negative/teaching results never supply conforming positive program evidence. -/
+observations. Negative/teaching results never supply conforming positive program evidence. An
+example's inventory counts no contract of another surface: a group of examples has no manifest
+that relates surfaces. -/
 def ExampleExpectationOK (c : Claim) (fences : Array FenceKey) (f : FenceKey)
     (o : ExampleObservation) : Prop :=
   o.fence = f ∧ o.before = String.Pos.Raw.extract f.document.source ⟨f.body.start⟩ ⟨f.body.stop⟩ ∧
@@ -276,7 +278,8 @@ def ExampleExpectationOK (c : Claim) (fences : Array FenceKey) (f : FenceKey)
   match f.expectation, o.outcome with
   | .positive, .elaborated i required admitted failures =>
       let roles := authorize i
-      o.warnings = #[] ∧ o.declarationCensus = i.declarations.map (fun d => (d.module, d.name)) ∧
+      i.counted = #[] ∧ o.warnings = #[] ∧
+      o.declarationCensus = i.declarations.map (fun d => (d.module, d.name)) ∧
       ExampleSourceOK fences f o i ∧ ExampleAdmissionOK i required admitted failures ∧
       ∀ d ∈ i.declarations, d.module = o.unitName → DeclarationOK d
           (.conforming .standardLogical) roles.native roles.safetyHelpers ∧
@@ -288,7 +291,8 @@ def ExampleExpectationOK (c : Claim) (fences : Array FenceKey) (f : FenceKey)
       ∀ pair ∈ expected.zip actual, DiagnosticMatches c pair.1 pair.2
   | .trustedTeaching, .elaborated i required admitted failures =>
       let roles := authorize i
-      o.warnings = #[] ∧ o.declarationCensus = i.declarations.map (fun d => (d.module, d.name)) ∧
+      i.counted = #[] ∧ o.warnings = #[] ∧
+      o.declarationCensus = i.declarations.map (fun d => (d.module, d.name)) ∧
       ExampleSourceOK fences f o i ∧ ExampleAdmissionOK i required admitted failures ∧
       (∀ d ∈ i.declarations, d.module = o.unitName →
           DeclarationOK d .teaching roles.native roles.safetyHelpers ∧

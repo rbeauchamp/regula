@@ -12,8 +12,9 @@ import Regula.Decision
 Strict surface-manifest parsing. Unknowns and omissions fail closed. The pure `parse` is
 the executed parser. `parse_sound` proves what every accepted manifest satisfies;
 `parse_input` proves it has the allowed keys and schema version and that each entry is, in
-order, the decoding of its JSON element, including the `execution` field, with every library and
-executable name replaced by its recorded spelling;
+order, the decoding of its JSON element, including the `execution` and `decides` fields, with every
+library and executable name, and every library name a surface decides, replaced by its recorded
+spelling;
 `parse_emptyExclusions` proves that with empty exclusion arrays `parse` is the identity stage of
 the parsed surfaces. `parse` is the text parser, then `parseValue` (together `parseWritten`),
 then the identity stage `recordTargets` (`parse_ok`). `parseValue_ok` proves that
@@ -22,8 +23,10 @@ then the identity stage `recordTargets` (`parse_ok`). `parseValue_ok` proves tha
 the identity stage replaces each library and executable name by its recorded spelling
 (`recordedName`: Lake's own reading of a target name, printed as Lean prints a name) and accepts
 exactly when the library names, and the executable names, are distinct, well formed and recorded
-spellings, so a target's Lake target name and its name as Lean prints it are one name in every
-accepted manifest (`parse_recorded`).
+spellings and each surface decides only other claimed surfaces, each once (`RelationsNamed`), so
+a target's Lake target name and its name as Lean prints it are one name in every accepted manifest
+(`parse_recorded`), and every surface a surface decides is another claimed surface
+(`parse_relations`).
 That Lean reads a name it printed back as that name is trusted, not proved: the identity stage
 checks only that each recorded spelling is its own recorded spelling and refuses a spelling
 whose recorded spelling is not, which does not show that the name was read back.
@@ -265,10 +268,12 @@ structure Acc where
 def Acc.manifest (acc : Acc) : Manifest :=
     ⟨acc.surfaces, acc.excludedLibraries, acc.excludedExecutables⟩
 
-/-- A surface names a well-formed library and executables, a conforming claim and a rationale. -/
+/-- A surface names a well-formed library and executables, a conforming claim, a rationale, and
+well-formed library names, each once, for the surfaces it decides. -/
 def SurfaceOK (s : Surface) : Prop :=
   TargetName s.library ∧ (∀ e ∈ s.executables, TargetName e) ∧
-    s.claim ≠ .compilerTrusting ∧ s.rationale.trimAscii.isEmpty = false
+    s.claim ≠ .compilerTrusting ∧ s.rationale.trimAscii.isEmpty = false ∧
+    (∀ t ∈ s.decides, TargetName t) ∧ s.decides.toList.Nodup
 
 /-- The parsing invariant: the seen-name lists are exactly the accumulated manifest's library
 and executable names and have no duplicates, every surface satisfies `SurfaceOK`, and every
@@ -417,8 +422,70 @@ theorem surfaceExecution_ok {item : Json} {location : String} {execution : Execu
     · simp [throw, throwThe, MonadExceptOf.throw] at h
   · simp [throw, throwThe, MonadExceptOf.throw] at h
 
+/-- Record each surface that a surface decides once, refusing a malformed or repeated library
+name. -/
+def addDecided (location : String) : Array String → List String → Except String (Array String)
+  | seen, [] => pure seen
+  | seen, library :: rest => do
+    let _ ← targetName "library" library s!"{location}.decides"
+    if seen.contains library then
+      throw s!"manifest-schema: {location}.decides names '{library}' twice"
+    addDecided location (seen.push library) rest
+
+theorem addDecided_sound {location : String} :
+    ∀ {seen out : Array String} {names : List String}, seen.toList.Nodup →
+      addDecided location seen names = .ok out →
+      out = seen ++ names.toArray ∧ out.toList.Nodup ∧ ∀ n ∈ names, TargetName n
+  | seen, out, [], hn, h => by
+    simp only [addDecided, pure_eq_ok] at h
+    subst h
+    simp [hn]
+  | seen, out, library :: rest, hn, h => by
+    simp only [addDecided, bind_eq_ok] at h
+    obtain ⟨name, hname, h⟩ := h
+    split at h
+    · simp [throw, throwThe, MonadExceptOf.throw] at h
+    · rename_i hc
+      have hc : seen.contains library = false := by simpa using hc
+      obtain ⟨hout, hnd, hnames⟩ := addDecided_sound (push_nodup hn hc) h
+      refine ⟨by simp [hout], hnd, ?_⟩
+      intro n hmem
+      simp only [List.mem_cons] at hmem
+      rcases hmem with rfl | hmem
+      · exact (targetName_sound hname).2
+      · exact hnames n hmem
+
+/-- A surface's optional `decides`: the other claimed surfaces, by library name, whose decision
+registrations the recorded contracts of its declarations count toward, defaulting to none. Each
+must be a well-formed library name, named once; that each names another claimed surface is
+decided once every name is recorded (`RelationsNamed`). -/
+def surfaceDecides (item : Json) (location : String) : Except String (Array String) :=
+  match item.getObjVal? "decides" with
+  | .error _ => pure #[]
+  | .ok value => do addDecided location #[] (← stringArray s!"{location}.decides" value).toList
+
+theorem surfaceDecides_ok {item : Json} {location : String} {out : Array String}
+    (h : surfaceDecides item location = .ok out) :
+    (((∃ e, item.getObjVal? "decides" = .error e) ∧ out = #[]) ∨
+      item.getObjVal? "decides" = .ok (.arr (out.map .str))) ∧
+    (∀ n ∈ out, TargetName n) ∧ out.toList.Nodup := by
+  unfold surfaceDecides at h
+  split at h
+  · rename_i e he
+    simp only [pure_eq_ok] at h
+    subst h
+    exact ⟨.inl ⟨⟨e, he⟩, rfl⟩, by simp, by simp⟩
+  · rename_i value hv
+    simp only [bind_eq_ok] at h
+    obtain ⟨names, hnames, h⟩ := h
+    obtain ⟨hout, hnd, hok⟩ := addDecided_sound (by simp) h
+    have hout : out = names := by simpa using hout
+    subst hout
+    exact ⟨.inr (hv.trans (congrArg _ (stringArray_items hnames))),
+      fun n hn => hok n (by simpa using hn), hnd⟩
+
 /-- `s` is the decoding of the JSON surface `item`: every field is its JSON value, an absent
-`executables` is empty and an absent `execution` is `report`. The claim and the
+`executables` or `decides` is empty and an absent `execution` is `report`. The claim and the
 execution mode are stated with their written forms (`Profile.toString`,
 `ExecutionClaim.spelling`), and not with the parsers that the function calls. -/
 def SurfaceDecodes (item : Json) (s : Surface) : Prop :=
@@ -428,7 +495,9 @@ def SurfaceDecodes (item : Json) (s : Surface) : Prop :=
   (∃ text, item.getObjVal? "claim" = .ok (.str text) ∧ s.claim.toString = text) ∧
   (((∃ e, item.getObjVal? "execution" = .error e) ∧ s.execution = .report) ∨
     ∃ text, item.getObjVal? "execution" = .ok (.str text) ∧ s.execution.spelling = text) ∧
-  item.getObjVal? "rationale" = .ok (.str s.rationale)
+  item.getObjVal? "rationale" = .ok (.str s.rationale) ∧
+  (((∃ e, item.getObjVal? "decides" = .error e) ∧ s.decides = #[]) ∨
+    item.getObjVal? "decides" = .ok (.arr (s.decides.map .str)))
 
 /-- `l` is the decoding of the excluded-library JSON object `item`: its `library` and `rationale`
 strings. -/
@@ -442,12 +511,16 @@ def ExcludedExecutableDecodes (item : Json) (e : ExcludedExecutable) : Prop :=
   item.getObjVal? "executable" = .ok (.str e.executable) ∧
     item.getObjVal? "rationale" = .ok (.str e.rationale)
 
+/-- The keys a surface object may have. -/
+def surfaceKeys : Array String :=
+  #["library", "executables", "claim", "execution", "rationale", "decides"]
+
 /-- Parses the surface at `surfaces[index]` and appends it to `acc`, refusing an unknown key, a
-malformed or duplicate library or executable name, a bad claim or execution, or a blank
-rationale. -/
+malformed or duplicate library or executable name, a bad claim or execution, a blank rationale,
+or a malformed or repeated name among the surfaces it decides. -/
 def parseSurface (acc : Acc) (index : Nat) (item : Json) : Except String Acc := do
   let location := s!"surfaces[{index}]"
-  objectWithKeys item #["library", "executables", "claim", "execution", "rationale"] location
+  objectWithKeys item surfaceKeys location
   let library ← targetName "library" (← stringField item "library" location) s!"{location}.library"
   fresh acc.seen library s!"manifest-schema: duplicate library '{library}'"
   let executables ← surfaceExecutables item location
@@ -455,7 +528,8 @@ def parseSurface (acc : Acc) (index : Nat) (item : Json) : Except String Acc := 
   let claim ← surfaceClaim item location
   let execution ← surfaceExecution item location
   let why ← rationale (← stringField item "rationale" location) location
-  let surface : Surface := ⟨library, executables, claim, execution, why⟩
+  let decides ← surfaceDecides item location
+  let surface : Surface := ⟨library, executables, claim, execution, why, decides⟩
   return { acc with seen := acc.seen.push library, seenExes, surfaces := acc.surfaces.push surface }
 
 theorem parseSurface_inv {acc out : Acc} {index : Nat} {item : Json} (hi : acc.Inv)
@@ -466,8 +540,9 @@ theorem parseSurface_inv {acc out : Acc} {index : Nat} {item : Json} (hi : acc.I
   unfold parseSurface at h
   simp only [bind_eq_ok, pure_eq_ok] at h
   obtain ⟨_, _, lt, _, library, hlib, ⟨⟩, hfresh, execs, _, seenExes, hadd, claim, hclaim,
-    execution, _, rt, _, why, hwhy, rfl⟩ := h
+    execution, _, rt, _, why, hwhy, decides, hdecides, rfl⟩ := h
   obtain ⟨hseen, hnd, hexes, hxnd, hs, hl, he⟩ := hi
+  obtain ⟨-, hdnames, hdnd⟩ := surfaceDecides_ok hdecides
   have hf := fresh_sound hfresh
   obtain ⟨rfl, hname⟩ := targetName_sound hlib
   obtain ⟨hout, hxnd', hnames⟩ := addExecutables_sound hxnd hadd
@@ -479,7 +554,8 @@ theorem parseSurface_inv {acc out : Acc} {index : Nat} {item : Json} (hi : acc.I
     simp only [Array.mem_push] at hs'
     rcases hs' with hs' | rfl
     · exact hs s hs'
-    · exact ⟨hname, fun e he' => hnames e (by simpa using he'), surfaceClaim_sound hclaim, hr⟩
+    · exact ⟨hname, fun e he' => hnames e (by simpa using he'), surfaceClaim_sound hclaim, hr,
+        hdnames, hdnd⟩
 
 
 /-- Parses the entry at `excluded-libraries[index]` and appends it to `acc`, refusing an unknown
@@ -644,11 +720,12 @@ def parseValue (value : Json) : Except String Manifest := do
   let acc ← parseAll parseExcludedExecutable excludedExeValues.toList 0 acc
   return acc.manifest
 
-/-- `m` with `f` applied to every library and executable name, claimed or excluded, and nothing
-else changed. -/
+/-- `m` with `f` applied to every library and executable name, claimed or excluded, and to every
+library name a surface decides, and nothing else changed. -/
 def mapTargets (f : String → String) (m : Manifest) : Manifest where
   surfaces := m.surfaces.map fun s =>
-    { s with library := f s.library, executables := s.executables.map f }
+    { s with library := f s.library, executables := s.executables.map f,
+             decides := s.decides.map f }
   excludedLibraries := m.excludedLibraries.map fun l => { l with library := f l.library }
   excludedExecutables := m.excludedExecutables.map fun e => { e with executable := f e.executable }
 
@@ -661,11 +738,12 @@ theorem executables_mapTargets (f : String → String) (m : Manifest) :
   simp [executables, mapTargets, Array.map_map, Array.flatMap_map, Array.map_flatMap,
     Function.comp_def]
 
-/-- Every library and executable name of `m` is a recorded spelling: `recordedName` leaves it
-unchanged, so the name and any other spelling of the same Lake target are recorded as this one
-name. -/
+/-- Every library and executable name of `m`, and every library name a surface decides, is a
+recorded spelling: `recordedName` leaves it unchanged, so the name and any other spelling of the
+same Lake target are recorded as this one name. -/
 def Recorded (m : Manifest) : Prop :=
-  (∀ l ∈ libraries m, recordedName l = l) ∧ ∀ e ∈ executables m, recordedName e = e
+  (∀ l ∈ libraries m, recordedName l = l) ∧ (∀ e ∈ executables m, recordedName e = e) ∧
+    ∀ s ∈ m.surfaces, ∀ t ∈ s.decides, recordedName t = t
 
 /-- Names that are distinct, well formed and recorded spellings. -/
 def NamesRecorded (names : Array String) : Prop :=
@@ -674,10 +752,21 @@ def NamesRecorded (names : Array String) : Prop :=
 instance (names : Array String) : Decidable (NamesRecorded names) := by
   unfold NamesRecorded; infer_instance
 
+/-- Each claimed surface of `m` decides only other claimed surfaces of `m`, each once: the names
+in its `decides` are distinct, none is its own library, and each is the library of a claimed
+surface. -/
+def RelationsNamed (m : Manifest) : Prop :=
+  ∀ s ∈ m.surfaces, s.decides.toList.Nodup ∧
+    ∀ t ∈ s.decides, t ≠ s.library ∧ ∃ s' ∈ m.surfaces, s'.library = t
+
+instance (m : Manifest) : Decidable (RelationsNamed m) := by
+  unfold RelationsNamed; infer_instance
+
 /-- What `recordTargets` requires of the manifest it returns: library names, and executable
-names, that are distinct, well formed and recorded spellings. -/
+names, that are distinct, well formed and recorded spellings, and surfaces that decide only
+other claimed surfaces, each once (`RelationsNamed`). -/
 def TargetsRecorded (m : Manifest) : Prop :=
-  NamesRecorded (libraries m) ∧ NamesRecorded (executables m)
+  NamesRecorded (libraries m) ∧ NamesRecorded (executables m) ∧ RelationsNamed m
 
 instance (m : Manifest) : Decidable (TargetsRecorded m) := by
   unfold TargetsRecorded; infer_instance
@@ -700,17 +789,33 @@ def namesRefusal (kind : RegulaPolicy.TargetKind) (spellings : Array String) : O
       {repr (spellings.filter (recordedName · == recordedName s)).toList}"
   | none, none => none
 
-/-- Why `recordTargets` refuses `raw`: the `namesRefusal` of its library names, and otherwise of
-its executable names. This is diagnostic text; the decision is `TargetsRecorded`. -/
+/-- Why the surfaces of `m` do not decide only other claimed surfaces, each once
+(`RelationsNamed`), when a name shows it: of the first surface with such a name, the first name
+that is its own library, that no claimed surface has, or that it gives twice. -/
+def relationRefusal (m : Manifest) : Option String :=
+  m.surfaces.findSome? fun s =>
+    let unknown (t : String) := !m.surfaces.any (·.library == t)
+    (s.decides.find? fun t =>
+        t == s.library || unknown t || (s.decides.filter (· == t)).size > 1).map fun t =>
+      if t == s.library then s!"manifest-schema: surface '{s.library}' names itself in decides"
+      else if unknown t then s!"manifest-schema: surface '{s.library}' decides '{t}', which \
+        is not a claimed surface of the manifest"
+      else s!"manifest-schema: surface '{s.library}' names '{t}' more than once in decides"
+
+/-- Why `recordTargets` refuses `raw`: the `namesRefusal` of its library names, otherwise of its
+executable names, and otherwise the `relationRefusal` of its recorded manifest. This is
+diagnostic text; the decision is `TargetsRecorded`. -/
 def recordRefusal (raw : Manifest) : String :=
   match namesRefusal .library (libraries raw), namesRefusal .executable (executables raw) with
   | some refusal, _ => refusal
   | none, some refusal => refusal
-  | none, none => "manifest-schema: duplicate target name"
+  | none, none => (relationRefusal (mapTargets recordedName raw)).getD
+      "manifest-schema: duplicate target name"
 
 /-- The identity stage of `parse`: every library and executable name is replaced by its recorded
-spelling (`recordedName`), and the result is refused unless its library names, and its
-executable names, are distinct, well formed and recorded spellings (`TargetsRecorded`). Two
+spelling (`recordedName`), as is every library name a surface decides, and the result is refused
+unless its library names, and its executable names, are distinct, well formed and recorded
+spellings, and each surface decides only other claimed surfaces, each once (`TargetsRecorded`). Two
 spellings of one target, such as its Lake target name `widget-tool` and `«widget-tool»` as Lean
 prints it, are therefore one name in every manifest `parse` returns, and naming both is a
 duplicate. -/
@@ -720,8 +825,9 @@ def recordTargets (raw : Manifest) : Except String Manifest :=
   else .error (recordRefusal raw)
 
 /-- Exact characterization of the identity stage: it returns `m` from `raw` exactly when `m` is
-`raw` with every library and executable name replaced by its recorded spelling and the library
-names, and the executable names, are distinct, well formed and recorded spellings. -/
+`raw` with every library and executable name, and every library name a surface decides, replaced
+by its recorded spelling, and the library names, and the executable names, are distinct, well
+formed and recorded spellings, and each surface decides only other claimed surfaces, each once. -/
 theorem recordTargets_ok {raw m : Manifest} :
     recordTargets raw = .ok m ↔
       m = mapTargets recordedName raw ∧ TargetsRecorded m := by
@@ -744,17 +850,19 @@ theorem recordTargets_ok {raw m : Manifest} :
 /-- The identity stage keeps validity: the manifest it returns from a valid one is valid. -/
 theorem recordTargets_valid {raw m : Manifest} (hv : raw.Valid)
     (h : recordTargets raw = .ok m) : m.Valid := by
-  obtain ⟨rfl, ⟨hlnd, hlrec⟩, hxnd, hxrec⟩ := recordTargets_ok.mp h
+  obtain ⟨rfl, ⟨hlnd, hlrec⟩, ⟨hxnd, hxrec⟩, hrel⟩ := recordTargets_ok.mp h
   obtain ⟨hne, -, -, hsok, hlok, heok⟩ := hv
   refine ⟨?_, hlnd, hxnd, ?_, ?_, ?_⟩
   · intro hemp
     exact hne (by simpa [mapTargets] using hemp)
   · intro s hs
     obtain ⟨s0, hs0, rfl⟩ := Array.mem_map.mp hs
-    obtain ⟨-, -, hc, hr⟩ := hsok s0 hs0
-    refine ⟨(hlrec _ ?_).1, fun e he => (hxrec e ?_).1, hc, hr⟩
+    obtain ⟨-, -, hc, hr, -, -⟩ := hsok s0 hs0
+    refine ⟨(hlrec _ ?_).1, fun e he => (hxrec e ?_).1, hc, hr, fun t ht => ?_, (hrel _ hs).1⟩
     · exact Array.mem_append_left _ (Array.mem_map.mpr ⟨_, hs, rfl⟩)
     · exact Array.mem_append_left _ (Array.mem_flatMap.mpr ⟨_, hs, he⟩)
+    · obtain ⟨-, s1, hs1, rfl⟩ := (hrel _ hs).2 t ht
+      exact (hlrec _ (Array.mem_append_left _ (Array.mem_map.mpr ⟨_, hs1, rfl⟩))).1
   · intro l hl
     obtain ⟨l0, hl0, rfl⟩ := Array.mem_map.mp hl
     refine ⟨(hlrec _ ?_).1, (hlok l0 hl0).2⟩
@@ -784,24 +892,27 @@ theorem Valid.executableNames {m : Manifest} (hv : m.Valid) :
   · exact (hsok s hs).2.1 e he
   · exact (heok x hx).1
 
-/-- Replacing each library and executable name by its recorded spelling leaves unchanged a
-manifest whose names are recorded spellings. -/
+/-- Replacing each library and executable name, and each library name a surface decides, by its
+recorded spelling leaves unchanged a manifest whose names are recorded spellings. -/
 theorem mapTargets_of_recorded {m : Manifest} (hr : Recorded m) :
     mapTargets recordedName m = m := by
   obtain ⟨surfaces, excludedLibraries, excludedExecutables⟩ := m
-  obtain ⟨hlibs, hexes⟩ := hr
+  obtain ⟨hlibs, hexes, hdecides⟩ := hr
   have hs : surfaces.map (fun s => { s with
-      library := recordedName s.library, executables := s.executables.map recordedName }) =
-      surfaces := by
+      library := recordedName s.library, executables := s.executables.map recordedName,
+      decides := s.decides.map recordedName }) = surfaces := by
     refine (Array.map_congr_left fun s hs => ?_).trans (Array.map_id surfaces)
-    obtain ⟨library, executables', claim, execution, why⟩ := s
+    have hdec : s.decides.map recordedName = s.decides :=
+      (Array.map_congr_left fun t ht => hdecides s hs t ht).trans (Array.map_id s.decides)
+    obtain ⟨library, executables', claim, execution, why, decides⟩ := s
     have hlib : recordedName library = library :=
       hlibs library (Array.mem_append_left _ (Array.mem_map.mpr ⟨_, hs, rfl⟩))
     have : executables'.map recordedName = executables' :=
       (Array.map_congr_left fun e he => hexes e
         (Array.mem_append_left _ (Array.mem_flatMap.mpr ⟨_, hs, he⟩))).trans
         (Array.map_id executables')
-    simp [this, hlib]
+    simp only at hdec
+    simp [this, hlib, hdec]
   have hl : excludedLibraries.map
       (fun l => { l with library := recordedName l.library }) = excludedLibraries := by
     refine (Array.map_congr_left fun l hl => ?_).trans (Array.map_id excludedLibraries)
@@ -818,13 +929,13 @@ theorem mapTargets_of_recorded {m : Manifest} (hr : Recorded m) :
     simp [this]
   simp only [mapTargets, hs, hl, he]
 
-/-- The identity stage returns unchanged every valid manifest whose library and executable names
-are recorded spellings. -/
-theorem recordTargets_of_recorded {m : Manifest} (hv : m.Valid) (hr : Recorded m) :
-    recordTargets m = .ok m :=
+/-- The identity stage returns unchanged every valid manifest whose names are recorded spellings
+and whose surfaces decide only other claimed surfaces, each once. -/
+theorem recordTargets_of_recorded {m : Manifest} (hv : m.Valid) (hr : Recorded m)
+    (hn : RelationsNamed m) : recordTargets m = .ok m :=
   recordTargets_ok.mpr ⟨(mapTargets_of_recorded hr).symm,
     ⟨hv.2.1, fun l hl => ⟨hv.libraryNames l hl, hr.1 l hl⟩⟩,
-    hv.2.2.1, fun e he => ⟨hv.executableNames e he, hr.2 e he⟩⟩
+    ⟨hv.2.2.1, fun e he => ⟨hv.executableNames e he, hr.2.1 e he⟩⟩, hn⟩
 
 /-- The manifest as `text` writes it: parses `text` as JSON (a failure is `manifest-malformed`,
 naming `path`) and decodes it with `parseValue`, so every library and executable name is still
@@ -901,8 +1012,17 @@ distinct, so no accepted manifest names one Lake target under two spellings. -/
 theorem parse_recorded {path text : String} {m : Manifest} (h : parse path text = .ok m) :
     Recorded m := by
   obtain ⟨_, _, _, _, hr⟩ := parse_ok.mp h
-  obtain ⟨-, ⟨-, hlibs⟩, -, hexes⟩ := recordTargets_ok.mp hr
-  exact ⟨fun l hl => (hlibs l hl).2, fun e he => (hexes e he).2⟩
+  obtain ⟨-, ⟨-, hlibs⟩, ⟨-, hexes⟩, hrel⟩ := recordTargets_ok.mp hr
+  refine ⟨fun l hl => (hlibs l hl).2, fun e he => (hexes e he).2, fun s hs t ht => ?_⟩
+  obtain ⟨-, s1, hs1, rfl⟩ := (hrel s hs).2 t ht
+  exact (hlibs _ (Array.mem_append_left _ (Array.mem_map.mpr ⟨_, hs1, rfl⟩))).2
+
+/-- Every manifest `parse` accepts decides only other claimed surfaces, each once: each library
+name in a surface's `decides` is the library of another of its claimed surfaces. -/
+theorem parse_relations {path text : String} {m : Manifest} (h : parse path text = .ok m) :
+    RelationsNamed m := by
+  obtain ⟨_, _, _, _, hr⟩ := parse_ok.mp h
+  exact (recordTargets_ok.mp hr).2.2.2
 
 /-- The first entry of `written`, in order, whose recorded spelling is none of `discovered`. -/
 def unknownEntry? (discovered written : Array String) : Option String :=
@@ -1057,18 +1177,19 @@ theorem parseAll_decodes {α : Type} (step : Acc → Nat → Json → Except Str
 
 theorem parseSurface_input {acc out : Acc} {index : Nat} {item : Json}
     (h : parseSurface acc index item = .ok out) :
-    KeysAllowed item #["library", "executables", "claim", "execution", "rationale"] ∧
+    KeysAllowed item surfaceKeys ∧
       (∃ s, out.surfaces = acc.surfaces.push s ∧ SurfaceDecodes item s) ∧
       out.excludedLibraries = acc.excludedLibraries ∧ out.excludedExecutables =
           acc.excludedExecutables := by
   unfold parseSurface at h
   simp only [bind_eq_ok, pure_eq_ok] at h
   obtain ⟨_, hkeys, _, hlt, _, hlib, _, _, _, hexecs, _, _, _, hclaim, _, hexec, _, hrt, _, hwhy,
-    rfl⟩ := h
+    _, hdecides, rfl⟩ := h
   obtain ⟨rfl, -⟩ := targetName_sound hlib
   obtain ⟨rfl, -⟩ := rationale_sound hwhy
   exact ⟨objectWithKeys_sound hkeys, ⟨_, rfl, stringField_ok hlt, surfaceExecutables_ok hexecs,
-    surfaceClaim_ok hclaim, surfaceExecution_ok hexec, stringField_ok hrt⟩, rfl, rfl⟩
+    surfaceClaim_ok hclaim, surfaceExecution_ok hexec, stringField_ok hrt,
+    (surfaceDecides_ok hdecides).1⟩, rfl, rfl⟩
 
 theorem parseExcludedLibrary_input {acc out : Acc} {index : Nat} {item : Json}
     (h : parseExcludedLibrary acc index item = .ok out) :
@@ -1109,7 +1230,7 @@ def Encodes (value : Json) (m : Manifest) : Prop :=
     Decodes SurfaceDecodes sv.toList m.surfaces.toList ∧
     Decodes ExcludedLibraryDecodes lv.toList m.excludedLibraries.toList ∧
     Decodes ExcludedExecutableDecodes ev.toList m.excludedExecutables.toList ∧
-    (∀ item ∈ sv, KeysAllowed item #["library", "executables", "claim", "execution", "rationale"]) ∧
+    (∀ item ∈ sv, KeysAllowed item surfaceKeys) ∧
     (∀ item ∈ lv, KeysAllowed item #["library", "rationale"]) ∧
     (∀ item ∈ ev, KeysAllowed item #["executable", "rationale"])
 
@@ -1170,7 +1291,7 @@ theorem parse_input {path text : String} {m : Manifest} (h : parse path text = .
       Decodes SurfaceDecodes sv.toList raw.surfaces.toList ∧
       Decodes ExcludedLibraryDecodes lv.toList raw.excludedLibraries.toList ∧
       Decodes ExcludedExecutableDecodes ev.toList raw.excludedExecutables.toList ∧
-      (∀ item ∈ sv, KeysAllowed item #["library", "executables", "claim", "execution", "rationale"])
+      (∀ item ∈ sv, KeysAllowed item surfaceKeys)
           ∧
       (∀ item ∈ lv, KeysAllowed item #["library", "rationale"]) ∧
       (∀ item ∈ ev, KeysAllowed item #["executable", "rationale"]) := by
@@ -1306,6 +1427,28 @@ theorem surfaceExecution_complete {item : Json} {location : String} {execution :
       written ▸ RegulaPolicy.ExecutionClaim.roundtrip execution
     simp [surfaceExecution, htext, hparse, pure, Except.pure]
 
+theorem addDecided_complete {location : String} :
+    ∀ (seen : Array String) (names : List String), (seen.toList ++ names).Nodup →
+      (∀ n ∈ names, TargetName n) → addDecided location seen names = .ok (seen ++ names.toArray)
+  | seen, [], _, _ => by simp [addDecided, pure, Except.pure]
+  | seen, library :: rest, hnd, hnames => by
+    simp only [addDecided, bind, Except.bind, targetName_complete (hnames library (by simp)),
+      contains_false_of_nodup hnd, Bool.false_eq_true, ↓reduceIte]
+    refine (addDecided_complete (seen.push library) rest (by simpa using hnd)
+      (fun n hn => hnames n (by simp [hn]))).trans (by simp)
+
+theorem surfaceDecides_complete {item : Json} {location : String} {xs : Array String}
+    (hd : ((∃ e, item.getObjVal? "decides" = .error e) ∧ xs = #[]) ∨
+      item.getObjVal? "decides" = .ok (.arr (xs.map .str)))
+    (hnames : ∀ x ∈ xs, TargetName x) (hnd : xs.toList.Nodup) :
+    surfaceDecides item location = .ok xs := by
+  rcases hd with ⟨⟨e, he⟩, rfl⟩ | h
+  · simp [surfaceDecides, he, pure, Except.pure]
+  · have ha := addDecided_complete (location := location) #[] xs.toList (by simpa using hnd)
+      (fun n hn => hnames n (by simpa using hn))
+    simp [surfaceDecides, h, stringArray_complete (fun x hx => (hnames x hx).1) hnd, bind,
+      Except.bind, ha]
+
 /-- The parsing state after accepting surface `s`. -/
 def Acc.addSurface (acc : Acc) (s : Surface) : Acc :=
   { acc with
@@ -1326,20 +1469,21 @@ def Acc.addExcludedExecutable (acc : Acc) (e : ExcludedExecutable) : Acc :=
     excludedExecutables := acc.excludedExecutables.push e }
 
 theorem parseSurface_complete {acc : Acc} {index : Nat} {item : Json} {s : Surface}
-    (hkeys : KeysAllowed item #["library", "executables", "claim", "execution", "rationale"])
+    (hkeys : KeysAllowed item surfaceKeys)
     (hd : SurfaceDecodes item s) (hok : SurfaceOK s) (hfresh : acc.seen.contains s.library = false)
     (hexes : (acc.seenExes.toList ++ s.executables.toList).Nodup) :
     parseSurface acc index item = .ok (acc.addSurface s) := by
-  obtain ⟨hlib, hexecs, hclaim, hexec, hwhy⟩ := hd
-  obtain ⟨hname, hnames, hc, hr⟩ := hok
+  obtain ⟨hlib, hexecs, hclaim, hexec, hwhy, hdecides⟩ := hd
+  obtain ⟨hname, hnames, hc, hr, hdnames, hdnd⟩ := hok
   have hx := fun location => surfaceExecutables_complete (location := location) hexecs
     (fun x hx => (hnames x hx).1) (List.nodup_append.mp hexes).2.1
   have ha := fun location => addExecutables_complete (location := location) acc.seenExes
     s.executables.toList hexes (fun n hn => hnames n (by simpa using hn))
   simp [parseSurface, objectWithKeys_complete hkeys, stringField_complete hlib,
     targetName_complete hname, fresh_complete hfresh, hx, ha, surfaceClaim_complete hclaim hc,
-    surfaceExecution_complete hexec, stringField_complete hwhy, rationale_complete hr, bind,
-    Except.bind, pure, Except.pure, Acc.addSurface]
+    surfaceExecution_complete hexec, stringField_complete hwhy, rationale_complete hr,
+    surfaceDecides_complete hdecides hdnames hdnd, bind, Except.bind, pure, Except.pure,
+    Acc.addSurface]
 
 theorem parseExcludedLibrary_complete {acc : Acc} {index : Nat} {item : Json} {l : ExcludedLibrary}
     (hkeys : KeysAllowed item #["library", "rationale"]) (hd : ExcludedLibraryDecodes item l)
@@ -1407,7 +1551,7 @@ theorem parseValue_complete {value : Json} {m : Manifest} (hv : m.Valid) (he : E
   obtain ⟨a1, h1, pre1, hpre1, hsurf1, hseen1, hsx1, hel1, hee1⟩ := parseAll_complete (acc := {})
       (index := 0)
     parseSurface
-    (fun item s => KeysAllowed item #["library", "executables", "claim", "execution", "rationale"] ∧
+    (fun item s => KeysAllowed item surfaceKeys ∧
       SurfaceDecodes item s)
     (fun acc rest => ∃ pre, pre ++ rest = m.surfaces.toList ∧ acc.surfaces.toList = pre ∧
       acc.seen.toList = pre.map (·.library) ∧
@@ -1593,7 +1737,7 @@ theorem parse_surface_refuses {path text msg : String} {value : Json} {sv lv ev 
 
 /-- An unknown surface key yields the `objectWithKeys_unknown` message. -/
 theorem parseSurface_unknownKey {acc : Acc} {index : Nat} {item : Json} {msg : String}
-    (h : objectWithKeys item #["library", "executables", "claim", "execution", "rationale"]
+    (h : objectWithKeys item surfaceKeys
       s!"surfaces[{index}]" = .error msg) :
     parseSurface acc index item = .error msg := by
   unfold parseSurface
@@ -1602,7 +1746,7 @@ theorem parseSurface_unknownKey {acc : Acc} {index : Nat} {item : Json} {msg : S
 /-- Every check `parseSurface` runs before decoding `execution` accepts the item. -/
 def SurfacePrefixOK (acc : Acc) (index : Nat) (item : Json) : Prop :=
   let location := s!"surfaces[{index}]"
-  objectWithKeys item #["library", "executables", "claim", "execution", "rationale"] location
+  objectWithKeys item surfaceKeys location
       = .ok () ∧
   ∃ text library executables seenExes claim,
     stringField item "library" location = .ok text ∧
@@ -1657,13 +1801,35 @@ def positiveTargets (manifest : Manifest) : Array String :=
   manifest.surfaces.foldl
     (fun targets surface => targets.push surface.library ++ surface.executables) #[]
 
-/-- The actual manifest's `claimed` surfaces, with every other actual library and executable
-excluded. Both name sets equal the actual manifest's by construction. -/
+/-- `s` deciding only those of the surfaces it decides that `claimed` names. -/
+def Surface.decidingOnly (claimed : Array String) (s : Surface) : Surface :=
+  { s with decides := s.decides.filter claimed.contains }
+
+/-- Deciding fewer surfaces keeps the library. -/
+@[simp] theorem Surface.decidingOnly_library (claimed : Array String) (s : Surface) :
+    (s.decidingOnly claimed).library = s.library := rfl
+
+/-- Deciding fewer surfaces keeps the executables. -/
+@[simp] theorem Surface.decidingOnly_executables (claimed : Array String) (s : Surface) :
+    (s.decidingOnly claimed).executables = s.executables := rfl
+
+/-- A well-formed surface stays well formed when it decides fewer surfaces. -/
+theorem SurfaceOK.decidingOnly {s : Surface} (h : SurfaceOK s) (claimed : Array String) :
+    SurfaceOK (s.decidingOnly claimed) := by
+  obtain ⟨h1, h2, h3, h4, h5, h6⟩ := h
+  refine ⟨h1, h2, h3, h4, fun t ht => h5 t (Array.mem_filter.mp ht).1, ?_⟩
+  show (s.decides.filter claimed.contains).toList.Nodup
+  rw [Array.toList_filter]
+  exact h6.filter _
+
+/-- The actual manifest's `claimed` surfaces, each deciding only claimed surfaces, with every other
+actual library and executable excluded. Both name sets equal the actual manifest's by
+construction. -/
 def structuralManifest (actual : Manifest) (claimed : Array String) : Manifest :=
   let surfaces := actual.surfaces.filter (claimed.contains ·.library)
   let claimedLibs := surfaces.map (·.library)
   let claimedExes := surfaces.flatMap (·.executables)
-  { surfaces
+  { surfaces := surfaces.map (·.decidingOnly claimed)
     excludedLibraries := (libraries actual).filter (!claimedLibs.contains ·) |>.map
       fun library => ⟨library, "structural control: excluded"⟩
     excludedExecutables := (executables actual).filter (!claimedExes.contains ·) |>.map
@@ -1718,7 +1884,7 @@ theorem executables_structuralManifest (actual : Manifest) (claimed : Array Stri
         (executables actual).filter (fun y =>
           !((actual.surfaces.filter (claimed.contains ·.library)).flatMap
               (·.executables)).contains y) := by
-  simp only [structuralManifest, executables, Array.map_map]
+  simp only [structuralManifest, executables, Array.map_map, Array.flatMap_map]
   congr 1
   ext1 <;> simp [Function.comp_def]
 
@@ -1770,7 +1936,7 @@ theorem structuralManifest_valid {actual : Manifest} {claimed : Array String} (h
   obtain ⟨-, hlibs, hexes, hsok, hlok, -⟩ := hv
   have hwhy : "structural control: excluded".trimAscii.isEmpty = false :=
     trimAscii_isEmpty_eq_false (by decide) (by decide)
-  refine ⟨hne, ?_, ?_, ?_, ?_, ?_⟩
+  refine ⟨by simpa [structuralManifest] using hne, ?_, ?_, ?_, ?_, ?_⟩
   · rw [libraries_structuralManifest]
     refine filter_split_nodup (List.Nodup.sublist ?_ hlibs) hlibs
     simp only [libraries, Array.toList_map, Array.toList_filter, Array.toList_append]
@@ -1781,7 +1947,9 @@ theorem structuralManifest_valid {actual : Manifest} {claimed : Array String} (h
       Array.toList_map]
     exact (flatMap_filter_sublist _ _ _).trans (List.sublist_append_left _ _)
   · intro s hs
-    exact hsok s (Array.mem_filter.mp hs).1
+    simp only [structuralManifest, Array.mem_map, Array.mem_filter] at hs
+    obtain ⟨s0, ⟨hs0, -⟩, rfl⟩ := hs
+    exact (hsok s0 hs0).decidingOnly claimed
   · intro l hl
     simp only [structuralManifest, Array.mem_map, Array.mem_filter] at hl
     obtain ⟨library, ⟨hl, -⟩, rfl⟩ := hl
@@ -1792,12 +1960,13 @@ theorem structuralManifest_valid {actual : Manifest} {claimed : Array String} (h
     exact ⟨hexeName executable he, hwhy⟩
 
 /-- The actual manifest's classification of the libraries `kept` alone: its surfaces on a kept
-library, each with every executable it claims, and its exclusions of a kept library. It
+library, each with every executable it claims and deciding only kept surfaces, and its
+exclusions of a kept library. It
 excludes no executable, so it classifies the targets of a project whose root libraries are the
 kept libraries the actual manifest names and whose root executables are those the kept surfaces
 claim. -/
 def restrict (actual : Manifest) (kept : Array String) : Manifest :=
-  { surfaces := actual.surfaces.filter (kept.contains ·.library)
+  { surfaces := (actual.surfaces.filter (kept.contains ·.library)).map (·.decidingOnly kept)
     excludedLibraries := actual.excludedLibraries.filter (kept.contains ·.library)
     excludedExecutables := #[] }
 
@@ -1811,7 +1980,7 @@ theorem libraries_restrict (actual : Manifest) (kept : Array String) :
 theorem executables_restrict (actual : Manifest) (kept : Array String) :
     executables (restrict actual kept) =
       (actual.surfaces.filter (kept.contains ·.library)).flatMap (·.executables) := by
-  simp [restrict, executables]
+  simp [restrict, executables, Array.flatMap_map]
 
 /-- The restriction classifies exactly the kept libraries the actual manifest classifies. -/
 theorem restrict_libraries (actual : Manifest) (kept : Array String) (l : String) :
@@ -1832,7 +2001,7 @@ theorem restrict_valid {actual : Manifest} {kept : Array String} (hv : actual.Va
     (hne : actual.surfaces.filter (kept.contains ·.library) ≠ #[]) :
     (restrict actual kept).Valid := by
   obtain ⟨-, hlibs, hexes, hsok, hlok, -⟩ := hv
-  refine ⟨hne, ?_, ?_, ?_, ?_, ?_⟩
+  refine ⟨by simpa [restrict] using hne, ?_, ?_, ?_, ?_, ?_⟩
   · rw [libraries_restrict, Array.toList_filter]
     exact hlibs.filter _
   · rw [executables_restrict]
@@ -1841,7 +2010,9 @@ theorem restrict_valid {actual : Manifest} {kept : Array String} (hv : actual.Va
       Array.toList_map]
     exact (flatMap_filter_sublist _ _ _).trans (List.sublist_append_left _ _)
   · intro s hs
-    exact hsok s (Array.mem_filter.mp hs).1
+    simp only [restrict, Array.mem_map, Array.mem_filter] at hs
+    obtain ⟨s0, ⟨hs0, -⟩, rfl⟩ := hs
+    exact (hsok s0 hs0).decidingOnly kept
   · intro l hl
     exact hlok l (Array.mem_filter.mp hl).1
   · intro e he
@@ -1852,7 +2023,7 @@ def surfaceJson (s : Surface) : Json :=
   Json.mkObj [
     ("library", .str s.library), ("executables", Json.arr (s.executables.map .str)),
     ("claim", .str s.claim.toString), ("execution", .str (ExecutionClaim.toString s.execution)),
-    ("rationale", .str s.rationale)]
+    ("rationale", .str s.rationale), ("decides", Json.arr (s.decides.map .str))]
 
 /-- One excluded library in the checker's own JSON schema. -/
 def excludedLibraryJson (l : ExcludedLibrary) : Json :=
@@ -1899,7 +2070,7 @@ theorem toJson_encodes (m : Manifest) : Encodes (toJson m) m := by
     keysAllowed_of_keys (keys := #["excluded-executables", "excluded-libraries", "schema-version",
       "surfaces"]) rfl rfl (by simp), rfl, rfl, rfl, rfl, ?_, ?_, ?_, ?_, ?_, ?_⟩
   · rw [Array.toList_map]
-    exact Decodes.map fun s _ => ⟨rfl, .inr rfl, ⟨_, rfl, rfl⟩, .inr ⟨_, rfl, rfl⟩, rfl⟩
+    exact Decodes.map fun s _ => ⟨rfl, .inr rfl, ⟨_, rfl, rfl⟩, .inr ⟨_, rfl, rfl⟩, rfl, .inr rfl⟩
   · rw [Array.toList_map]
     exact Decodes.map fun _ _ => ⟨rfl, rfl⟩
   · rw [Array.toList_map]
@@ -1907,8 +2078,8 @@ theorem toJson_encodes (m : Manifest) : Encodes (toJson m) m := by
   · intro item hi
     obtain ⟨s, -, rfl⟩ := Array.mem_map.mp hi
     exact keysAllowed_of_keys
-        (keys := #["claim", "executables", "execution", "library", "rationale"])
-      rfl rfl (by simp)
+        (keys := #["claim", "decides", "executables", "execution", "library", "rationale"])
+      rfl rfl (by simp [surfaceKeys])
   · intro item hi
     obtain ⟨l, -, rfl⟩ := Array.mem_map.mp hi
     exact keysAllowed_of_keys (keys := #["library", "rationale"]) rfl rfl (by simp)
@@ -1923,19 +2094,40 @@ theorem parseValue_toJson {m : Manifest} : parseValue (toJson m) = .ok m ↔ m.V
   ⟨parseValue_sound, fun hv => parseValue_complete hv (toJson_encodes m)⟩
 
 /-- The text boundary, conditionally: whenever the text parser returns a value that encodes a
-valid `m` (as `toJson m` does) whose library and executable names are recorded spellings, the
-executed `parse` returns exactly `m`. -/
+valid `m` (as `toJson m` does) whose names are recorded spellings and whose surfaces decide only
+other claimed surfaces, each once, the executed `parse` returns exactly `m`. -/
 theorem parse_of_encodes {path text : String} {value : Json} {m : Manifest}
     (hvalue : Regula.Checker.PolicyCodec.parse text = .ok value) (he : Encodes value m)
-    (hv : m.Valid) (hr : Recorded m) : parse path text = .ok m :=
-  parse_ok.mpr ⟨value, m, hvalue, parseValue_complete hv he, recordTargets_of_recorded hv hr⟩
+    (hv : m.Valid) (hr : Recorded m) (hn : RelationsNamed m) : parse path text = .ok m :=
+  parse_ok.mpr ⟨value, m, hvalue, parseValue_complete hv he, recordTargets_of_recorded hv hr hn⟩
 
 /-- The structural copy names only libraries and executables of the actual manifest, so its
 names are recorded spellings whenever the actual manifest's are. -/
 theorem structuralManifest_recorded {actual : Manifest} {claimed : Array String}
-    (hr : Recorded actual) : Recorded (structuralManifest actual claimed) :=
-  ⟨fun l hl => hr.1 l ((structural_libraries actual claimed l).mp hl),
-    fun e he => hr.2 e ((structural_executables actual claimed e).mp he)⟩
+    (hr : Recorded actual) : Recorded (structuralManifest actual claimed) := by
+  refine ⟨fun l hl => hr.1 l ((structural_libraries actual claimed l).mp hl),
+    fun e he => hr.2.1 e ((structural_executables actual claimed e).mp he), fun s hs t ht => ?_⟩
+  simp only [structuralManifest, Array.mem_map, Array.mem_filter] at hs
+  obtain ⟨s0, ⟨hs0, -⟩, rfl⟩ := hs
+  exact hr.2.2 s0 hs0 t (Array.mem_filter.mp ht).1
+
+/-- A surface the structural copy keeps decides only surfaces the copy keeps, so the copy decides
+only other claimed surfaces, each once, whenever the actual manifest does. -/
+theorem structuralManifest_relations {actual : Manifest} {claimed : Array String}
+    (hn : RelationsNamed actual) : RelationsNamed (structuralManifest actual claimed) := by
+  intro s hs
+  simp only [structuralManifest, Array.mem_map, Array.mem_filter] at hs
+  obtain ⟨s0, ⟨hs0, -⟩, rfl⟩ := hs
+  obtain ⟨hnd, hnames⟩ := hn s0 hs0
+  refine ⟨?_, fun t ht => ?_⟩
+  · show (s0.decides.filter claimed.contains).toList.Nodup
+    rw [Array.toList_filter]
+    exact hnd.filter _
+  · obtain ⟨ht, hkept⟩ := Array.mem_filter.mp ht
+    obtain ⟨hself, s1, hs1, rfl⟩ := hnames t ht
+    refine ⟨hself, s1.decidingOnly claimed, ?_, rfl⟩
+    simp only [structuralManifest, Array.mem_map, Array.mem_filter]
+    exact ⟨s1, ⟨hs1, hkept⟩, rfl⟩
 
 /-- What the gate reads in the self-hosted structural copy: for any manifest the executed `parse`
 accepted, the JSON value stage recovers the in-memory structural copy exactly from its `toJson`,
@@ -1951,14 +2143,36 @@ theorem structural_roundtrip {path text : String} {actual : Manifest} {claimed :
         (structuralManifest actual claimed) :=
   have hv := structuralManifest_valid (parse_sound h) hne
   ⟨parseValue_toJson.mpr hv,
-    recordTargets_of_recorded hv (structuralManifest_recorded (parse_recorded h))⟩
+    recordTargets_of_recorded hv (structuralManifest_recorded (parse_recorded h))
+      (structuralManifest_relations (parse_relations h))⟩
 
 /-- The restriction names only libraries and executables of the actual manifest, so its names
 are recorded spellings whenever the actual manifest's are. -/
 theorem restrict_recorded {actual : Manifest} {kept : Array String} (hr : Recorded actual) :
-    Recorded (restrict actual kept) :=
-  ⟨fun l hl => hr.1 l ((restrict_libraries actual kept l).mp hl).1,
-    fun e he => hr.2 e (restrict_executables actual kept e he)⟩
+    Recorded (restrict actual kept) := by
+  refine ⟨fun l hl => hr.1 l ((restrict_libraries actual kept l).mp hl).1,
+    fun e he => hr.2.1 e (restrict_executables actual kept e he), fun s hs t ht => ?_⟩
+  simp only [restrict, Array.mem_map, Array.mem_filter] at hs
+  obtain ⟨s0, ⟨hs0, -⟩, rfl⟩ := hs
+  exact hr.2.2 s0 hs0 t (Array.mem_filter.mp ht).1
+
+/-- A surface the restriction keeps decides only kept surfaces, so the restriction decides only
+other claimed surfaces, each once, whenever the actual manifest does. -/
+theorem restrict_relations {actual : Manifest} {kept : Array String}
+    (hn : RelationsNamed actual) : RelationsNamed (restrict actual kept) := by
+  intro s hs
+  simp only [restrict, Array.mem_map, Array.mem_filter] at hs
+  obtain ⟨s0, ⟨hs0, -⟩, rfl⟩ := hs
+  obtain ⟨hnd, hnames⟩ := hn s0 hs0
+  refine ⟨?_, fun t ht => ?_⟩
+  · show (s0.decides.filter kept.contains).toList.Nodup
+    rw [Array.toList_filter]
+    exact hnd.filter _
+  · obtain ⟨ht, hkept⟩ := Array.mem_filter.mp ht
+    obtain ⟨hself, s1, hs1, rfl⟩ := hnames t ht
+    refine ⟨hself, s1.decidingOnly kept, ?_, rfl⟩
+    simp only [restrict, Array.mem_map, Array.mem_filter]
+    exact ⟨s1, ⟨hs1, hkept⟩, rfl⟩
 
 /-- What the gate reads in the structural project: for any manifest the executed `parse`
 accepted, the JSON value stage recovers its in-memory restriction exactly from its `toJson`,
@@ -1970,7 +2184,8 @@ theorem restrict_roundtrip {path text : String} {actual : Manifest} {kept : Arra
     parseValue (toJson (restrict actual kept)) = .ok (restrict actual kept) ∧
       recordTargets (restrict actual kept) = .ok (restrict actual kept) :=
   have hv := restrict_valid (parse_sound h) hne
-  ⟨parseValue_toJson.mpr hv, recordTargets_of_recorded hv (restrict_recorded (parse_recorded h))⟩
+  ⟨parseValue_toJson.mpr hv, recordTargets_of_recorded hv (restrict_recorded (parse_recorded h))
+    (restrict_relations (parse_relations h))⟩
 
 end Regula.Checker.Manifest
 
@@ -1991,6 +2206,10 @@ run_cmd do
       ``Regula.Checker.Manifest.structural_libraries,
       ``Regula.Checker.Manifest.structural_executables,
       ``Regula.Checker.Manifest.parse_recorded, ``Regula.Checker.Manifest.recordTargets_ok,
+      ``Regula.Checker.Manifest.parse_relations, ``Regula.Checker.Manifest.surfaceDecides_ok,
+      ``Regula.Checker.Manifest.surfaceDecides_complete,
+      ``Regula.Checker.Manifest.structuralManifest_relations,
+      ``Regula.Checker.Manifest.restrict_relations,
       ``Regula.Checker.Manifest.recordTargets_valid,
       ``Regula.Checker.Manifest.recordTargets_of_recorded,
       ``Regula.Checker.Manifest.recordedName_lakeTargetName,

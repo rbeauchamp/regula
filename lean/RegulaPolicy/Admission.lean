@@ -318,6 +318,23 @@ theorem inventoryValid_append_false_of_shared_name
     List.mem_map.mpr ⟨b, by simpa using hb, rfl⟩
   exact (List.pairwise_append.mp distinct).2.2 a.name leftMember b.name rightMember sameName
 
+/-- A recorded contract of a declaration of another claimed surface of the same project, which the
+project's manifest counts toward the decision registrations of an inventory (RG1008): the surface
+whose environment declares the registration, the registration, its module and its recorded
+contract. A project census admits it only as the record that surface's own environment holds in
+the same run (`EnvironmentCensusOK`, `countedContracts`). -/
+structure CountedContract where
+  /-- The claimed surface, by its Lake library's name, whose environment declares the
+  registration. -/
+  surface : String
+  /-- The declaration that registers the contract. -/
+  registration : Lean.Name
+  /-- The module that declares the registration. -/
+  «module» : Lean.Name
+  /-- The registration's recorded contract. -/
+  contract : ExecutableContract
+  deriving Repr, DecidableEq
+
 /-- No raw constructor or decoder can omit the inventory-validity proof. -/
 structure Inventory where
   /-- The observed compiler capability, proved equal to this compiled policy's expectation. -/
@@ -328,20 +345,35 @@ structure Inventory where
   transcripts : Array Frontend.Transcript
   /-- Proof that the declarations and transcripts satisfy `InventoryValid`. -/
   valid : InventoryValid declarations transcripts
+  /-- The recorded contracts of other claimed surfaces that the manifest counts toward the
+  decision registrations of this inventory, each with the surface that declares it. Admission
+  gives none (`admitInventory`); a project census binds them to the records of the related
+  surfaces' environments (`EnvironmentCensusOK`). No other field reads them, and they enter only
+  the implementations the inventory's decision registrations count as decided
+  (`Roles.decided`). -/
+  counted : Array CountedContract := #[]
   deriving DecidableEq
 
-/-- Validate without dropping, substituting, or deduplicating result observations. -/
+/-- `i` with `counted` as the contracts counted from other surfaces, and every other field
+unchanged. -/
+def Inventory.withCounted (i : Inventory) (counted : Array CountedContract) : Inventory :=
+  { i with counted }
+
+/-- Validate without dropping, substituting, or deduplicating result observations. The inventory
+counts no contract of another surface. -/
 @[regula_decision]
 def admitInventory (compiler : Compiler.Capability) (decls : Array Declaration)
     (transcripts : Array Frontend.Transcript) :
     Except String Inventory :=
-  if h : InventoryValid decls transcripts then .ok ⟨compiler, decls, transcripts, h⟩
+  if h : InventoryValid decls transcripts then .ok ⟨compiler, decls, transcripts, h, #[]⟩
   else .error "invalid policy inventory: anonymous, duplicate, or malformed identity"
 
-/-- Every valid inventory is admitted with exactly its input fields. -/
+/-- Every valid inventory is admitted with exactly its input fields, counting no contract of
+another surface. -/
 theorem admitInventory_exact (compiler : Compiler.Capability)
     (ds : Array Declaration) (ts : Array Frontend.Transcript)
-    (h : InventoryValid ds ts) : admitInventory compiler ds ts = .ok ⟨compiler, ds, ts, h⟩ := by
+    (h : InventoryValid ds ts) :
+    admitInventory compiler ds ts = .ok ⟨compiler, ds, ts, h, #[]⟩ := by
   simp [admitInventory, h]
 /-- Boundary toolchain-origin receipts must refer to this observation's module. -/
 def ExecutionBoundary.Valid (b : ExecutionBoundary) : Prop :=
