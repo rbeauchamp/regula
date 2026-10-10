@@ -9,7 +9,7 @@ The steps of a Regula release, run with the pinned toolchain alone, so they need
 ```text
 lean --run lean/Regula/Release.lean open        # create the branch of the release pull request
 lean --run lean/Regula/Release.lean unreleased  # refuse a release label on main or a pull request
-lean --run lean/Regula/Release.lean agree       # refuse a stale version, table, pin, mention or summary
+lean --run lean/Regula/Release.lean agree       # refuse a stale lakefile version, table, pin or mention
 lean --run lean/Regula/Release.lean title       # refuse a pull request title that is not a header
 lean --run lean/Regula/Release.lean candidate   # create the release commit for CI to check
 lean --run lean/Regula/Release.lean adopt       # derive it on main's commit, check it, adopt it
@@ -45,9 +45,7 @@ toolchain, each requirement of Regula in a tracked Markdown document (`setPins`)
 listed release, and the root `README.md` and the adoption guide each require it in each form
 (`unpinned`). The root `README.md` also states that release and its toolchain in prose, in
 mentions (`setMentions`) that name them (`mentionsAgree`), with a mention of each kind
-(`unmentioned`). The root `README.md`, the adoption guide and the `description` of `lakefile.lean`
-carry the summary of Regula that `RegulaCore/Site.lean` defines (`summaryOf`, `unsummarized`).
-`agree` checks these on every commit, the version and the description as Lake itself reads them
+(`unmentioned`). `agree` checks these on every commit, the version as Lake itself reads it
 (`lake reservoir-config`).
 
 ## Steps
@@ -1305,61 +1303,6 @@ theorem unmentioned_eq_nil_iff (ms : List Mention) (files : List String) :
 #guard (mentionsOf "f" "Regula `v0.9.0`" |>.toOption).map (unmentioned · ["f"]) ==
   some [("f", .lean)]
 
-/-! ## The summary of Regula
-
-`Regula.Site.summary` (`RegulaCore/Site.lean`) is the summary of Regula, in Markdown. The site's
-home page and its link previews use that definition. The root `README.md` and the adoption guide
-carry the same text, and the `description` of `lakefile.lean` carries it as plain text. `agree`
-reads the definition as text (`summaryOf`), because this file runs with the toolchain alone and
-does not import `RegulaCore`. It refuses unless each of `summarizedDocuments` contains the summary
-(`unsummarized`) and the description is its plain text (`plainText`). -/
-
-/-- The line that starts the definition of the summary in `RegulaCore/Site.lean`. -/
-private def summaryLine : String := "def summary : String :="
-
-/-- The summary that `RegulaCore/Site.lean` defines (`Regula.Site.summary`): the string literal
-that is the whole line after `def summary : String :=`, apart from its indentation. Refused when
-that line is not one string literal, or when the literal has a quotation mark or a backslash in
-it, which this reading does not decode. -/
-def summaryOf (site : String) : Except String String := do
-  let lines := site.splitOn "\n"
-  let some (i, _) := findLine lines summaryLine
-    | throw s!"RegulaCore/Site.lean has no `{summaryLine}` line"
-  let some next := lines[i + 1]?
-    | throw "RegulaCore/Site.lean ends after the line that starts the summary"
-  let some inner := ((next.trimAscii.toString.dropPrefix? "\"").bind
-      (·.toString.dropSuffix? "\"")).map (·.toString)
-    | throw "the line after the start of the summary in RegulaCore/Site.lean is not one string \
-        literal"
-  if inner.any fun c => c == '"' || c == '\\' then
-    throw "the summary in RegulaCore/Site.lean has a quotation mark or a backslash in it"
-  return inner
-
-/-- Markdown text without its backticks, the plain text of Markdown whose only markup is code
-spans. It is the same text reading as `Regula.Site.plainText`, which gives the site's link
-previews. -/
-def plainText (markdown : String) : String := markdown.replace "`" ""
-
-/-- The paths of the documents of `docs`, each a path with its text, whose text does not contain
-`summary`. -/
-def unsummarized (summary : String) (docs : List (String × String)) : List String :=
-  (docs.filter fun (_, text) => !decide (summary.toList <:+: text.toList)).map (·.1)
-
-/-- `unsummarized` names nothing exactly when the characters of `summary` occur in a row in the
-text of each document of `docs`. -/
-theorem unsummarized_eq_nil_iff (summary : String) (docs : List (String × String)) :
-    unsummarized summary docs = [] ↔ ∀ d ∈ docs, summary.toList <:+: d.2.toList := by
-  simp [unsummarized]
-
--- Controls of the text reading, which are samples and not proofs: the summary is the literal on
--- the line after its `def` line, a value on more lines or with an escape is refused, and a
--- document that has the summary only in a different form lacks it.
-#guard (summaryOf "def summary : String :=\n  \"A `linter`.\"\n" |>.toOption) == some "A `linter`."
-#guard summaryOf "def summary : String :=\n  \"A \\\n    linter.\"" matches .error _
-#guard summaryOf "def summary : String :=\n  \"A \\\"linter\\\".\"" matches .error _
-#guard plainText "A `linter`." == "A linter."
-#guard unsummarized "A `linter`." [("a", "# T\n\nA `linter`. More."), ("b", "A linter.")] == ["b"]
-
 /-! ## The release decision
 
 A release is cut from whichever head of `main` listing it first completes the whole chain. While
@@ -1805,16 +1748,12 @@ private def messagesSince (prev : Version) : IO (List String) := do
     let m := m.trimAscii.toString
     if m.isEmpty then none else some m
 
-/-- The package configuration Lake reads from `lakefile.lean`, as `lake reservoir-config` prints it:
-the metadata that Reservoir indexes. -/
-private def reservoirConfig : IO Json := do
+/-- The version Lake reads from `lakefile.lean`: `lake reservoir-config`, whose `version` is what
+Reservoir indexes a version tag with. -/
+private def lakeVersion : IO Version := do
   let out ← IO.Process.output { cmd := "lake", args := #["reservoir-config"] }
   unless out.exitCode == 0 do fail s!"lake reservoir-config: {out.stderr}"
-  IO.ofExcept (Json.parse out.stdout)
-
-/-- The version Lake reads from `lakefile.lean` (`reservoirConfig`), the version Reservoir indexes
-a version tag with. -/
-private def lakeVersion (json : Json) : IO Version := do
+  let json ← IO.ofExcept (Json.parse out.stdout)
   let text ← IO.ofExcept (json.getObjValAs? String "version")
   let some v := parseVersion text
     | fail s!"Lake reads the version {text} from lakefile.lean, not `major.minor.patch`"
@@ -1852,14 +1791,6 @@ private def pinnedDocuments : List String := ["README.md", guideFile.toString]
 latest listed release or its toolchain (`mentionsAgree`), and `open` sets them (`withMentions`).
 The adoption guide is not one: its compatibility table and its examples name earlier releases. -/
 private def mentionedDocuments : List String := ["README.md"]
-
-/-- `RegulaCore/Site.lean` in the checkout, which defines the summary of Regula
-(`Regula.Site.summary`). -/
-private def siteFile : FilePath := "lean/RegulaCore/Site.lean"
-
-/-- The documents that open with the summary of Regula, the root `README.md` and the adoption
-guide: `agree` refuses unless each contains it (`unsummarized`). -/
-private def summarizedDocuments : List String := ["README.md", guideFile.toString]
 
 /-- The release the checked-out commit installs; `none` when it is unreleased. -/
 private def installedHere : IO (Option Version) := do
@@ -2054,17 +1985,13 @@ def requireUnreleased : IO Unit := do
 (`Version.declared`), the adoption guide's compatibility table is `compatibilityTable` of
 `Regula.releases`, each of `pinnedDocuments` has a pin of Regula of each form (`unpinned`), the
 pins of Regula in the tracked Markdown documents (`setPins`) agree with the latest listed release
-(`pinsAgree`), each of `mentionedDocuments` has a mention of each kind (`unmentioned`), those
-mentions (`setMentions`) name the latest listed release or its toolchain (`mentionsAgree`), each of
-`summarizedDocuments` contains the summary that `RegulaCore/Site.lean` defines (`summaryOf`,
-`unsummarized`), and the description Lake reads from `lakefile.lean` is that summary's
-`plainText`. -/
+(`pinsAgree`), each of `mentionedDocuments` has a mention of each kind (`unmentioned`), and those
+mentions (`setMentions`) name the latest listed release or its toolchain (`mentionsAgree`). -/
 def agree : IO Unit := do
   let listed ← IO.ofExcept (releasesOf (← IO.FS.readFile editionFile))
   let some latest := listed.getLast? | fail "RegulaCore/Edition.lean lists no release"
   let declared := latest.version.declared
-  let config ← reservoirConfig
-  let lake ← lakeVersion config
+  let lake ← lakeVersion
   unless lake == declared do
     fail s!"Lake reads version {lake.spelling} from lakefile.lean, but the latest listed release \
       {latest.version.tag} declares {declared.spelling}; only the release pull request changes \
@@ -2100,27 +2027,12 @@ def agree : IO Unit := do
     fail s!"each mention of a release in {", ".intercalate mentionedDocuments} names the latest \
       listed release, {tag}, or its toolchain, leanprover/lean4:{toolchain}, which the release \
       pull request sets; these name a different release:\n{"\n".intercalate stale}"
-  let summary ← IO.ofExcept (summaryOf (← IO.FS.readFile siteFile))
-  let opening ← summarizedDocuments.mapM fun (path : String) => do
-    return (path, ← IO.FS.readFile ⟨path⟩)
-  let unsummarizedPaths := unsummarized summary opening
-  unless unsummarizedPaths.isEmpty do
-    fail s!"each of {", ".intercalate summarizedDocuments} contains the summary of Regula that \
-      {siteFile} defines, on one line and exactly so; these do not:\n\
-      {"\n".intercalate unsummarizedPaths}\n\nThe summary is:\n{summary}"
-  let description ← IO.ofExcept (config.getObjValAs? String "description")
-  unless description == plainText summary do
-    fail s!"the description of lakefile.lean, as Lake reads it, is the summary of Regula that \
-      {siteFile} defines, without its backticks:\n{plainText summary}\n\nLake reads:\n\
-      {description}"
   IO.println s!"lakefile.lean declares {lake.spelling}, the version of {tag}, the compatibility \
     table lists the {listed.length} listed releases, the {pins.length} requirements of \
     Regula in the tracked Markdown documents name {tag}: \
     {", ".intercalate (pins.map fun p => s!"{p.file}:{p.line}")}, and the {mentions.length} \
     mentions of a release name {tag} or leanprover/lean4:{toolchain}: \
-    {", ".intercalate (mentions.map fun m => s!"{m.file}:{m.line}")}; \
-    {", ".intercalate summarizedDocuments} contain the summary of Regula that {siteFile} defines, \
-    and the description of lakefile.lean is its plain text"
+    {", ".intercalate (mentions.map fun m => s!"{m.file}:{m.line}")}"
 
 /-- The title of the pull request the `title` step checks: `TITLE`, the title the `pull_request`
 event it runs on carries. Refused on any other event. -/

@@ -1,5 +1,6 @@
 import MD4Lean
 import RegulaCore.Markdown
+import RegulaCore.Summary
 
 /-! # Markdown documents, read by md4c
 
@@ -403,6 +404,15 @@ for (`Regula.Markdown.siteLinkErrors` of md4c's reading): in the root `README.md
 site that has no stable address. -/
 def checkSiteLinks (file source : String) : List String := siteLinkErrors file (read source)
 
+/-- What the opening of the Markdown document `file` with text `source` is refused for
+(`Regula.Markdown.summaryErrors` of md4c's readings of `summary` and of the document): in the
+root `README.md` and the adoption guide, a first block after the title that is not the paragraph
+`summary`, which is the summary of Regula (`Regula.Site.summary`) unless a control gives a
+different one. -/
+def checkSummary (file source : String) (summary : String := Regula.Site.summary) :
+    List String :=
+  summaryErrors file (read summary) (read source)
+
 /-- Whether `path` names a Markdown document: its extension is `md` or `markdown`, in any
 case. -/
 def isMarkdown (path : String) : Bool :=
@@ -617,6 +627,34 @@ private def bodyless : String :=
 #guard check "README.md" (s!"See [RG2003]({site "rules/RG2003/"}).\n") == [] &&
   check "docs/README.md" (s!"See [RG2003]({site "rules/RG2003/"}).\n") ==
     [s!"docs/README.md:1: RG2003 is linked to {site "rules/RG2003/"}, which is not its rule page"]
+
+-- The opening of `README.md` and of the adoption guide, as md4c reports it (`checkSummary`): the
+-- summary as the paragraph right after the title is accepted, and a different document is not
+-- examined. The summary in a code block after a different first paragraph, in a fenced block
+-- alone, on two lines, with more text in its paragraph, in a list item or after a block before
+-- the title is refused. A changed summary that a document still opens with in its old words is
+-- refused too.
+private def summary : String := Regula.Site.summary
+
+private def unsummarized : List String := [unsummarizedReason "README.md"]
+
+-- Compiled-evaluation observation at build time, not a kernel-checked proof.
+#guard checkSummary "README.md" s!"# Regula\n\n{summary}\n\nMore.\n" == [] &&
+  checkSummary "docs/guides/adoption.md" s!"# Adopt Regula\n\n{summary} More.\n" ==
+    [unsummarizedReason "docs/guides/adoption.md"] &&
+  checkSummary "docs/guides/adoption.md" s!"# Adopt Regula\n\n{summary}\n\n- One.\n" == [] &&
+  checkSummary "docs/README.md" "# Documentation\n\nAnother opening.\n" == []
+-- Compiled-evaluation observation at build time, not a kernel-checked proof.
+#guard checkSummary "README.md"
+    s!"# Regula\n\nRegula accepts holes.\n\n```text\n{summary}\n```\n" == unsummarized &&
+  checkSummary "README.md" s!"# Regula\n\n```text\n{summary}\n```\n" == unsummarized &&
+  checkSummary "README.md"
+    s!"# Regula\n\n{summary.replace ". `lake lint`" ".\n`lake lint`"}\n" == unsummarized &&
+  checkSummary "README.md" s!"# Regula\n\n- {summary}\n" == unsummarized &&
+  checkSummary "README.md" s!"Before.\n\n# Regula\n\n{summary}\n" == unsummarized
+-- Compiled-evaluation observation at build time, not a kernel-checked proof.
+#guard checkSummary "README.md" s!"# Regula\n\n{summary}\n" ("Regula accepts holes. " ++ summary) ==
+  unsummarized
 
 /-! Evaluated controls of the reader boundary of the prose checks
 (`RegulaCore/ControlledProse.lean`): the kind of each block md4c reports. The controls of the

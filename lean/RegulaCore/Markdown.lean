@@ -44,6 +44,10 @@ md4c's decision, and which piece each becomes is that module's (see Boundaries).
   `checked_siteLinkErrors`: the executed check of the links of each document of
   `stableDocuments` to the site. Each has a stable address, the site root or an address below a
   `stableRoots` directory with no fragment, so it names no edition.
+- `summarizedDocuments`, `OpensWith`, `opensWith_iff`, `summaryErrors`, `summaryErrors_nil_iff`,
+  `checked_summaryErrors`: the executed check of the opening of each document of
+  `summarizedDocuments`: the first block after its title is the paragraph that the summary of
+  Regula alone is, as the parser reads each (`Regula.Site.summary`).
 
 ## What prose is
 
@@ -1785,6 +1789,203 @@ theorem checked_siteLinkErrors : Regula.ExecutableContract siteLinkErrors (fun r
     ⟨("README.md", .read [.enter (Edition.dev.url "")]), fun accepted =>
       ((siteLinkErrors_nil_iff _ _).mp accepted _ rfl (by decide) _ (List.mem_singleton.mpr rfl)
         ⟨"https://", "/dev/", by decide⟩).not_edition .dev "" rfl⟩⟩
+
+/-! ## The opening of a document
+
+The root `README.md` and the adoption guide open with the summary of Regula
+(`Regula.Site.summary`, `RegulaCore/Summary.lean`): md4c reads the first block after the title of
+each as it reads the summary alone, one paragraph. The statement compares the pieces of the
+two readings, so it reads no Markdown syntax itself. A summary in a code block, in a list item, in
+two paragraphs or on two lines, or with a different text, is not that paragraph. -/
+
+/-- The documents that open with the summary of Regula, by their paths in the repository. -/
+def summarizedDocuments : List String := ["README.md", "docs/guides/adoption.md"]
+
+/-- No piece of `pieces` starts a block. -/
+def NoStart (pieces : List Piece) : Prop := ∀ kind, Piece.start kind ∉ pieces
+
+/-- `pieces` is empty or starts a block: what can follow the last piece of a block. -/
+def BlockEnd (pieces : List Piece) : Prop := ∀ piece ∈ pieces.head?, ∃ kind, piece = .start kind
+
+/-- The document `doc` opens with the paragraph `summary`, as the parser reads each: `summary` is
+one paragraph, and `doc` is a heading, the title, then exactly the pieces of `summary`, then the
+end of the document or the start of a different block. -/
+def OpensWith (summary doc : List Piece) : Prop :=
+  ∃ body title rest, summary = .start .paragraph :: body ∧ NoStart body ∧ NoStart title ∧
+    BlockEnd rest ∧ doc = .start .heading :: (title ++ (summary ++ rest))
+
+/-- Whether `piece` starts a block. -/
+def Piece.isStart : Piece → Bool
+  | .start _ => true
+  | _ => false
+
+/-- No piece starts a block exactly when no piece passes `Piece.isStart`. -/
+theorem noStart_iff (pieces : List Piece) :
+    pieces.any Piece.isStart = false ↔ NoStart pieces := by
+  simp only [List.any_eq_false, NoStart]
+  constructor
+  · intro h kind member
+    simpa [Piece.isStart] using h _ member
+  · intro h piece member
+    cases piece <;> simp [Piece.isStart]
+    exact h _ member
+
+/-- Whether `rest` can follow the last piece of a block: it is empty or starts a block. -/
+def endsBlock (rest : List Piece) : Bool := rest.head?.all Piece.isStart
+
+theorem endsBlock_iff (rest : List Piece) : endsBlock rest = true ↔ BlockEnd rest := by
+  cases rest with
+  | nil => simp [endsBlock, BlockEnd]
+  | cons piece rest => cases piece <;> simp [endsBlock, BlockEnd, Piece.isStart]
+
+/-- Whether `pieces` starts with the pieces of `summary`, and a block ends right after them. -/
+def startsWith (summary pieces : List Piece) : Bool :=
+  summary.isPrefixOf pieces && endsBlock (pieces.drop summary.length)
+
+theorem startsWith_iff (summary pieces : List Piece) :
+    startsWith summary pieces = true ↔ ∃ rest, BlockEnd rest ∧ pieces = summary ++ rest := by
+  simp only [startsWith, Bool.and_eq_true, List.isPrefixOf_iff_prefix, endsBlock_iff]
+  constructor
+  · rintro ⟨⟨rest, rfl⟩, ends⟩
+    exact ⟨rest, by simpa using ends, rfl⟩
+  · rintro ⟨rest, ends, rfl⟩
+    exact ⟨⟨rest, rfl⟩, by simpa using ends⟩
+
+/-- Whether the pieces after the start of the title hold the title's own pieces, none of which
+starts a block, and then start with `summary` (`startsWith`). -/
+def afterTitle (summary : List Piece) : List Piece → Bool
+  | [] => false
+  | piece :: rest =>
+    if piece.isStart then startsWith summary (piece :: rest) else afterTitle summary rest
+
+theorem afterTitle_iff {summary : List Piece} (starts : ∃ kind body, summary = .start kind :: body)
+    (pieces : List Piece) :
+    afterTitle summary pieces = true ↔
+      ∃ title rest, NoStart title ∧ BlockEnd rest ∧ pieces = title ++ (summary ++ rest) := by
+  obtain ⟨kind, body, rfl⟩ := starts
+  induction pieces with
+  | nil => simp [afterTitle]
+  | cons piece pieces ih =>
+    by_cases starting : ∃ k, piece = .start k
+    · obtain ⟨k, rfl⟩ := starting
+      simp only [afterTitle, Piece.isStart, ↓reduceIte, startsWith_iff]
+      constructor
+      · rintro ⟨rest, ends, h⟩
+        exact ⟨[], rest, by simp [NoStart], ends, by simpa using h⟩
+      · rintro ⟨title, rest, none, ends, h⟩
+        cases title with
+        | nil => exact ⟨rest, ends, by simpa using h⟩
+        | cons first title =>
+          simp only [List.cons_append, List.cons.injEq] at h
+          exact absurd (h.1 ▸ List.mem_cons_self) (none k)
+    · have other : piece.isStart = false := by
+        cases piece with
+        | start k => exact absurd ⟨k, rfl⟩ starting
+        | _ => rfl
+      simp only [afterTitle, other, Bool.false_eq_true, ↓reduceIte, ih]
+      constructor
+      · rintro ⟨title, rest, none, ends, rfl⟩
+        refine ⟨piece :: title, rest, ?_, ends, rfl⟩
+        intro k member
+        rcases List.mem_cons.mp member with h | h
+        · exact starting ⟨k, h.symm⟩
+        · exact none k h
+      · rintro ⟨title, rest, none, ends, h⟩
+        cases title with
+        | nil =>
+          simp only [List.nil_append, List.cons_append, List.cons.injEq] at h
+          exact absurd ⟨kind, h.1⟩ starting
+        | cons first title =>
+          simp only [List.cons_append, List.cons.injEq] at h
+          exact ⟨title, rest, fun k member => none k (List.mem_cons_of_mem _ member), ends, h.2⟩
+
+/-- Whether the document `doc` opens with the paragraph `summary` (`OpensWith`). -/
+def opensWith (summary doc : List Piece) : Bool :=
+  match summary, doc with
+  | .start .paragraph :: body, .start .heading :: after =>
+    !body.any Piece.isStart && afterTitle summary after
+  | _, _ => false
+
+theorem opensWith_iff (summary doc : List Piece) :
+    opensWith summary doc = true ↔ OpensWith summary doc := by
+  unfold opensWith OpensWith
+  split
+  · rename_i body after
+    rw [Bool.and_eq_true, Bool.not_eq_true', noStart_iff,
+      afterTitle_iff ⟨_, _, rfl⟩]
+    constructor
+    · rintro ⟨none, title, rest, untitled, ends, rfl⟩
+      exact ⟨body, title, rest, rfl, none, untitled, ends, rfl⟩
+    · rintro ⟨body', title, rest, same, none, untitled, ends, h⟩
+      simp only [List.cons.injEq, true_and] at same h
+      subst same
+      exact ⟨none, title, rest, untitled, ends, h⟩
+  · rename_i different
+    simp only [Bool.false_eq_true, false_iff, not_exists, not_and]
+    intro body title rest same _ _ _ h
+    exact different body _ same h
+
+/-- Why the document `file` is refused: it does not open with the summary. -/
+def unsummarizedReason (file : String) : String :=
+  s!"{file}: the first block after the title is not the summary of Regula \
+    (Regula.Site.summary in lean/RegulaCore/Summary.lean), one paragraph on one line, as md4c \
+    reads it"
+
+/-- What the document `file` is refused for, given the parser's reading `summary` of the summary
+of Regula and its reading `doc` of the document: when the document is one of
+`summarizedDocuments`, that it does not open with the summary (`OpensWith`), or that the summary
+cannot be read. A document whose reading cannot be used reports nothing here;
+`documentErrors` reports it. -/
+@[regula_decision]
+def summaryErrors (file : String) (summary doc : Reading) : List String :=
+  if file ∈ summarizedDocuments then
+    match summary, doc with
+    | _, .unread _ => []
+    | .unread reason, .read _ => [s!"{file}: md4c cannot read the summary of Regula: {reason}"]
+    | .read s, .read d => if opensWith s d then [] else [unsummarizedReason file]
+  else []
+
+/-- The check of the opening reports nothing exactly when, if the document is one of
+`summarizedDocuments` and its reading can be used, the summary's reading can be used and the
+document opens with it (`OpensWith`). -/
+theorem summaryErrors_nil_iff (file : String) (summary doc : Reading) :
+    summaryErrors file summary doc = [] ↔
+      file ∈ summarizedDocuments → ∀ pieces, doc = .read pieces →
+        ∃ s, summary = .read s ∧ OpensWith s pieces := by
+  unfold summaryErrors
+  by_cases member : file ∈ summarizedDocuments
+  · simp only [member, ↓reduceIte, true_implies]
+    cases doc with
+    | unread reason => simp
+    | read pieces =>
+      cases summary with
+      | unread reason => simp
+      | read s =>
+        by_cases opens : opensWith s pieces = true
+        · simp [opens, (opensWith_iff s pieces).mp opens]
+        · simp [opens, ← opensWith_iff]
+  · simp [member]
+
+/-- Registered contract of the executed check of the opening, as a two-way decision over the
+file name and the two readings (`summaryErrors_nil_iff`): it reports nothing for a document that
+is not one of `summarizedDocuments`, and an error for a `README.md` and a summary read as no
+pieces. -/
+theorem checked_summaryErrors : Regula.ExecutableContract summaryErrors (fun run =>
+    Regula.Decides (· = [])
+      (fun input : (String × Reading) × Reading =>
+        input.1.1 ∈ summarizedDocuments → ∀ pieces, input.2 = .read pieces →
+          ∃ s, input.1.2 = .read s ∧ OpensWith s pieces)
+      (Function.uncurry (Function.uncurry run))) :=
+  ⟨.of_iff (fun input => summaryErrors_nil_iff input.1.1 input.1.2 input.2)
+    ⟨(("a.md", .read []), .read []), (summaryErrors_nil_iff "a.md" (.read []) (.read [])).mpr
+      fun member => by simp [summarizedDocuments] at member⟩
+    ⟨(("README.md", .read []), .read []), fun accepted => by
+      obtain ⟨s, read, body, title, rest, paragraph, -⟩ :=
+        (summaryErrors_nil_iff "README.md" (.read []) (.read [])).mp accepted
+          (by simp [summarizedDocuments]) [] rfl
+      simp only [Reading.read.injEq] at read
+      subst read
+      simp at paragraph⟩⟩
 
 /-! Evaluated controls (observations of the compiled definitions, not proofs), on pieces written
 out by hand; the controls on Markdown text, read by md4c, are in `markdown/RegulaMarkdown.lean`. -/
