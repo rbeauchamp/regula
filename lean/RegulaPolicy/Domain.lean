@@ -1992,13 +1992,23 @@ theorem ExecutionBoundary.needsHistory_iff (b : ExecutionBoundary) :
 instance (b : ExecutionBoundary) : Decidable b.NeedsHistory :=
   decidable_of_iff _ b.needsHistory_iff
 
-/-- One first visit, recorded before inspecting its policy outcomes. A non-root visit
-retains the earlier visit that queued it; IR-only names may lack module attribution. -/
-structure ExecutionVisit where
+/-- The observed part of a visit: the fields whose value the environment fixes for the constant the
+visit is made at, which are that constant and its module. Authored marks and traversal through
+project-written edges decide which records exist. A field that the data of a mark enters is
+project-written, as a boundary's kind and replacement. `ExecutionWalk.assemble` copies the visited
+name and the module of its record (`NodeRecord.ToolchainObserved.moduleName`) into this part.
+IR-only names may lack module attribution. -/
+structure ExecutionVisit.ToolchainObserved where
   /-- The visited constant. -/
   name : Lean.Name
   /-- Its declaring module, when the environment attributes one. -/
   moduleName : Option Lean.Name
+  deriving Repr, DecidableEq
+
+/-- One first visit, recorded before inspecting its policy outcomes. Its constant and module are in
+the observed part (`ExecutionVisit.ToolchainObserved`). A non-root visit retains the earlier visit
+that queued it, which the walk computes. -/
+structure ExecutionVisit extends ExecutionVisit.ToolchainObserved where
   /-- The index of the visit that queued this one; `none` for the root. -/
   parent : Option Nat
   deriving Repr, DecidableEq
@@ -2006,10 +2016,12 @@ structure ExecutionVisit where
 /-- The walk's complete reached-name census and separately attributed edge sets.
 These are observations of the pinned collector, not a minimal runtime call graph.
 Current replacements remain distinct from successfully observed historical choices;
-active simplifications are used for cycle detection, not claimed compiler calls. Every field is
-computed over the names that the walk reached, through the edges of the two parts of their records
-(`ExecutionWalk.NodeRecord`), so the closure has no observed or project-written part. Each edge set
-is named for the record field whose targets it copies. -/
+active simplifications are used for cycle detection, not claimed compiler calls. The closure has no
+parts of its own: each visit carries the observed part of its name
+(`ExecutionVisit.ToolchainObserved`), and its parent and the closure's other fields are computed
+over the names that the walk reached, through the edges of the two parts of their records
+(`ExecutionWalk.NodeRecord`). Each edge set is named for the record field whose targets it copies.
+-/
 structure ExecutionClosure where
   /-- Every name the walk reached, sorted and without duplicates. -/
   nodes : Array Lean.Name

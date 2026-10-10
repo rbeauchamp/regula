@@ -218,7 +218,8 @@ def main : IO Unit := do
       logicalEdges := #[(root, `shared)]
       requiredCode := RegulaPolicy.canonicalNames #[root, `shared] } }
   let walked (root : Name) : Array RegulaPolicy.ExecutionVisit :=
-    #[⟨root, some `M, none⟩, ⟨`shared, some `M, some 0⟩]
+    #[{ name := root, moduleName := some `M, parent := none },
+      { name := `shared, moduleName := some `M, parent := some 0 }]
   let report (accounts : Array RegulaPolicy.ExecutionRoot) : Json :=
     Json.mkObj [(SharedExecution.accountKey, toJson accounts)]
   let logical := report #[account `first (walked `first), account `second (walked `second)]
@@ -254,7 +255,8 @@ def main : IO Unit := do
     "an environment without roots is stored as a shared form without roots"
   -- Visits the walk does not produce: the root's entry holds its account as it is, and the
   -- reader still returns the account.
-  let other := report #[account `first #[⟨`shared, some `M, none⟩, ⟨`first, some `M, some 0⟩],
+  let other := report #[account `first #[{ name := `shared, moduleName := some `M, parent := none },
+      { name := `first, moduleName := some `M, parent := some 0 }],
     account `second (walked `second)]
   let full := SharedExecution.intern ExecutionShare.proposals other
   let entries := (SharedExecution.field? SharedExecution.rootsKey

@@ -660,10 +660,10 @@ the source text only for comparison.
 
 **Execution records.** Authored marks and traversal through project-written edges decide which
 execution records exist. In a record, a field is observed where the environment fixes its value for
-the constant the record is made at. That holds for the module of a name, for a boundary's constant,
-module and ownership, and for a root's constant and module. A field that the data of a mark enters
-is project-written, as a boundary's kind and replacement. What the walk computes over the reached
-names sits on the combined record, as the closure and a boundary's position do.
+the constant the record is made at. That holds for the module of a name, a boundary's constant,
+module and ownership, and the constant and module of a root or visit. A field that the data of a
+mark enters is project-written, as a boundary's kind and replacement. A visit's parent, the
+closure's other fields and a boundary's position are computed by the walk on the combined record.
 
 A candidate boundary comes from a constant of an equality type, registered with `@[csimp]` or not.
 The two sides are constants with the same list of distinct universe parameters. An attribute such

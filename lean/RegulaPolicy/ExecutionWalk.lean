@@ -49,12 +49,13 @@ structure NodeRecord.ToolchainObserved where
 
 /-- The part of a name's record that marks an audited project writes decide. `@[extern]` and
 `@[implemented_by]` decide whether the pass reads the value at all, so they decide the constants its
-value uses and its compiled recursion helper. The simplification candidates include the equation
-lemmas that an attribute such as `@[simp]` makes Lean generate. The retained calls include the
-initializers that `@[init]` names, and the status of the compiler body reads `@[extern]`. The
-replacement, history and simplification targets are the data of `@[implemented_by]`, of the
-replacement history and of `@[csimp]`, and the unresolved paths include those of the replacement
-history. -/
+value uses and its compiled recursion helper. The simplification candidates are constants whose
+type is an equality of two constants with the same list of distinct universe parameters, and they
+include the equation lemmas of that shape that an attribute such as `@[simp]` makes Lean generate.
+The retained calls include the initializers that `@[init]` names, and the status of the compiler
+body reads `@[extern]`. The replacement, history and simplification targets are the data of
+`@[implemented_by]`, of the replacement history and of `@[csimp]`, and the unresolved paths include
+those of the replacement history. -/
 structure NodeRecord.ProjectWritten where
   /-- The names that the retained compiler body of this name calls or names as initializers. -/
   compilerDependencies : Array Name := #[]
