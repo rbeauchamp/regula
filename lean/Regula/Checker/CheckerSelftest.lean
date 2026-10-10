@@ -3285,7 +3285,8 @@ private def shardDescription (shard : Shard) (names : Array String) : String :=
 
 /-- Structural mutations and manifest controls retain their isolated projects, worker joins,
 and complete failure accumulation. The frozen-artifact controls, the mutation clusters, the
-library cycle control, the driver copy control and the manifest controls share one queue of
+cross-surface decision control, the library cycle control, the driver copy control and the
+manifest controls share one queue of
 `jobs` workers, so no more than `jobs` of them run at once. The short controls wait behind the
 clusters and take the
 workers the first clusters free, instead of competing with the first clusters for the

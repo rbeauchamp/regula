@@ -610,8 +610,7 @@ def manifestText (m : Manifest) : String :=
     "      \"executables\": " ++ strings s.executables ++ ",\n" ++
     "      \"claim\": " ++ str s.claim.toString ++ ",\n" ++
     "      \"execution\": " ++ str s.execution.spelling ++ ",\n" ++
-    "      \"rationale\": " ++ str s.rationale ++
-    (if s.decides.isEmpty then "" else ",\n      \"decides\": " ++ strings s.decides) ++ "\n" ++
+    "      \"rationale\": " ++ str s.rationale ++ "\n" ++
     "    }"
   "{\n" ++
   "  \"schema-version\": 2,\n" ++
