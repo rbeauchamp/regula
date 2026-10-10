@@ -220,10 +220,10 @@ private unsafe def lint (args : List String) : IO Outcome := do
           {if options.ordinaryLakefiles then ownerAssertion else ""}"
     (← IO.getStdout).flush
     -- The workspace's supported scope (`Lake.surfaceInventory`: Lake's default output layout of
-    -- each owned package and one provider for each module name) is decided before this driver
-    -- builds its audit worker. Outside it the worker is not built, and the audit, which decides the
-    -- same scope from Lake's load before its first build and needs no worker for that, reports the
-    -- refusal.
+    -- each owned package and one provider for each module name of an owned package) is decided
+    -- before this driver builds its audit worker. Outside it the worker is not built, and the
+    -- audit, which decides the same scope from Lake's load before its first build and needs no
+    -- worker for that, reports the refusal.
     if (← (Lake.surfaceInventory (← repoRoot)).toBaseIO) matches .ok _ then
       let worker ← Lake.buildTargetsShowing (← repoRoot) #[.spec workerTarget]
       unless worker.succeeded && (← (← workerBinary).pathExists) do

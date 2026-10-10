@@ -776,10 +776,13 @@ refused. A package that provides `Regula.Contract` with a source other than the 
 refused before any environment loads: a dependency required after the checker or before it, and a
 vendored package that Lake loads under the name `regula`. An executable root `Main` of the root
 package is accepted beside `regula`'s own, since a trusted package's executable roots are not
-counted. A module name that two packages provide, an executable root `Main` of the root package and
-of the dependency, or `Support` of the dependency and of a second owned one, is refused before the
-driver builds its audit worker. So is a library root `Regula.«<directory>/Payload»` that a claimed
-module imports, whose absolute component would put its source and artifact outside the
+counted. A name that two trusted packages provide, and neither the root package nor an owned
+dependency, is accepted too (`Lake.checkOneProvider`), though no control here builds such a
+workspace. A module name that an owned package and a second package provide, an executable root
+`Main` of the root package and of the dependency, or `Support` of the dependency and of a second
+owned one, is refused before the driver builds its audit worker. So is a library root
+`Regula.«<directory>/Payload»` that a claimed module imports, whose absolute component would put
+its source and artifact outside the
 dependency's directories, and so is the root `Regula.«../Payload»`, whose `..` segment would leave
 them. A claimed module's import of `Widget.«<adopter directory>/Payload»`, which Lake builds under
 the claimed library's glob outside every output directory, is refused once the module is loaded.
@@ -799,7 +802,7 @@ private def pathDependency (repo adopter : FilePath) : IO (Array String) := do
   mutate (adopter / "Widget.lean") "end Widget"
     "/-- Runs the dependency's caller. -/\ndef useCaller (n : Nat) : Nat := Support.caller n\n\
       \nend Widget"
-  let onlyRegula := "trusted dependencies, not replayed through Lean's kernel: regula\n"
+  let onlyRegula := "trusted dependencies, not wholly replayed through Lean's kernel: regula\n"
   let owned (label : String) (fresh : Bool := false) : Expectation :=
     let positive := accepted label fresh
     { positive with contains := positive.contains.push onlyRegula,
@@ -1146,7 +1149,8 @@ private def pathDependency (repo adopter : FilePath) : IO (Array String) := do
   let lastFresh := accepted "path/override-last-fresh" (fresh := true)
   failures := failures ++ (← expect adopter { lastFresh with
     contains := lastFresh.contains ++
-      #["trusted dependencies, not replayed through Lean's kernel:", "build_lint_support"] }
+      #["trusted dependencies, not wholly replayed through Lean's kernel:",
+        "build_lint_support"] }
     #["--", "--fresh"])
   IO.FS.removeFile (adopter / ".lake" / "package-overrides.json")
   writeJson manifestPath manifest
@@ -1163,7 +1167,8 @@ private def pathDependency (repo adopter : FilePath) : IO (Array String) := do
   let trustedPositive := accepted "path/trusted"
   failures := failures ++ (← expect adopter { trustedPositive with
     contains := trustedPositive.contains ++
-      #["trusted dependencies, not replayed through Lean's kernel:", "build_lint_support"] })
+      #["trusted dependencies, not wholly replayed through Lean's kernel:",
+        "build_lint_support"] })
   return failures
 
 /-- The `lakefile.lean` adopter in the checker's own Git work tree, so `regula` is an owned
@@ -1173,18 +1178,20 @@ whose decision contract lies in `RegulaPolicy.Claim`, which no claimed module im
 outside them, such as `RegulaCore.EditorPolicy`. A module under those prefixes is the checker's own
 code, which no environment owns (`Environment.projectModules`); the audit owns and replays the
 others, and replays each reserved module that imports one of them, such as `Regula.Linter.Rules`
-(`Admission.replaySet`). A `lake lint -- --fresh` must accept the adopter and name no trusted
-dependency: when the audit owned the reserved modules, it reported RG1008 for `admitIdentity`, and
-before that, the admission refused `RegulaPolicy.Codec`, which the reporter loads under `--fresh`,
-as an unreplayed module that imports a replayed one. -/
+(`Admission.replaySet`). A `lake lint -- --fresh` must accept the adopter: when the audit owned the
+reserved modules, it reported RG1008 for `admitIdentity`, and before that, the admission refused
+`RegulaPolicy.Codec`, which the reporter loads under `--fresh`, as an unreplayed module that
+imports a replayed one. Its account must name `regula` alone as a trusted dependency, as it names a
+`regula` outside the work tree, since `regula` provides modules under those prefixes
+(`RegulaPolicy.DependencyState.reserved`). -/
 private def ownedChecker (repo adopter : FilePath) : IO (Array String) := do
   BuildLintQualification.setup repo adopter
   IO.FS.removeDirAll (adopter / ".git")
   mutate (adopter / "Widget.lean") "import Regula.Contract\n"
     "import Regula.Contract\nimport Regula.Linter\n"
   let positive := accepted "owned-checker/fresh" (fresh := true)
-  let noneTrusted := "trusted dependencies, not replayed through Lean's kernel: none\n"
-  expect adopter { positive with contains := positive.contains.push noneTrusted }
+  let onlyRegula := "trusted dependencies, not wholly replayed through Lean's kernel: regula\n"
+  expect adopter { positive with contains := positive.contains.push onlyRegula }
     #["--", "--fresh"]
 
 /-- With the checker's `axiomGate` worker binary removed, `lake lint` builds it and still

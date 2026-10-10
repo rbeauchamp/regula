@@ -371,13 +371,16 @@ audit. The audit refuses a `buildDir`, `leanLibDir`, `nativeLibDir`, `binDir` or
 than Lake's default before it builds your project, as `lake-workspace-load-failed`. The prefixes
 `Regula` and `RegulaPolicy` belong to Regula: each audit refuses a module under them that does not
 have Regula's own source text. In a path dependency, such a module is Regula's own code, and the
-audit does not own it.
+audit does not own it. Thus the account names a path dependency with such modules as trusted, as
+it names Regula from outside your work tree.
 
-Each module name of your workspace must have one provider. The audit counts the library modules of
-each package, and the executable roots of your package and of each owned path dependency. It
-refuses a name that two of them provide, as `lake-query-malformed`. For example, it refuses an
-executable root `Main` in your package and in an owned path dependency. The executable roots of a
-trusted dependency are not counted, thus your `Main` can be beside the `Main` of Regula.
+Each module name of your package and of each owned path dependency must have one provider. The
+audit counts the library modules of each package, and the executable roots of your package and of
+each owned path dependency. It refuses a name that two of them provide if one of the two is your
+package or an owned path dependency, as `lake-query-malformed`. For example, it refuses an
+executable root `Main` in your package and in an owned path dependency. Two trusted dependencies
+can provide the same name. The executable roots of a trusted dependency are not counted, thus your
+`Main` can be beside the `Main` of Regula.
 
 While the claimed targets build, the driver shows Lake's own progress line for each job that
 does work (`✔ [3/10] Built Widget (1.2s)`), including a cached module whose warnings Lake

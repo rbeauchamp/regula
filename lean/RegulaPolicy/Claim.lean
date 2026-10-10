@@ -36,6 +36,11 @@ structure DependencyState where
   reserved prefixes, which are the checker's own code. A dependency that is not owned is
   trusted: its declarations are not replayed. -/
   owned : Bool
+  /-- Whether the dependency provides a module under the checker's reserved prefixes (`Regula`,
+  `RegulaPolicy`), as the collector found it among the dependency's modules: such a module is the
+  checker's own code, which no request owns, so an owned dependency that provides one is trusted
+  for it, like a dependency that is not owned. -/
+  reserved : Bool := false
   deriving Repr, DecidableEq
 
 /-- The exact inputs a request is about: source texts, configuration, toolchain and

@@ -388,7 +388,9 @@ theorem EnvironmentOwnership.reserved_not_owned {origins : Array Regula.Report.M
   · exact outside (Array.mem_append.mpr listed)
   · simp [reserved] at hm
 
-/-- Every inspected dependency module is one of the modules the environment owns and replays. -/
+/-- Every inspected dependency module is one of the modules the environment owns
+(`EnvironmentOwnership.modules`), which `Admission.validate` replays unless it reuses the module
+(`Admission.mem_replaySet`). -/
 theorem EnvironmentOwnership.dependencies_replayed {origins : Array Regula.Report.ModuleOrigin}
     {requested bound dependencies : Array Name} {m : Name}
     (h : m ∈ (EnvironmentOwnership.of origins requested bound dependencies).dependencies) :

@@ -357,9 +357,10 @@ structure AccountData where
   fences : FenceAccount
   /-- The mechanisms the run relies on without verifying. -/
   trusted : List Trusted
-  /-- The dependencies of the claim's snapshot that the run does not own, by package name, in
-  the snapshot's order: their declarations are not replayed through Lean's kernel, so the run
-  trusts them. -/
+  /-- The dependencies of the claim's snapshot that the run does not own, or that provide a module
+  under the checker's reserved prefixes (`RegulaPolicy.DependencyState.reserved`), by package
+  name, in the snapshot's order: the run does not replay the declarations of the one through
+  Lean's kernel, nor own those modules of the other, so it trusts them. -/
   trustedDependencies : Array String
   /-- The semantic-review obligations left open. -/
   unresolved : List Residual
@@ -390,7 +391,8 @@ registrations, each with the decision kind and the shared functions the collecto
 Execution counts are
 `executionSummary` of each accepted environment, in order. The fence counts partition the
 accepted fences by expectation. The trusted dependencies are the packages of the claim's
-snapshot dependencies that are not owned, in order. Every residual obligation stays unresolved,
+snapshot dependencies that are not owned or that provide a module under the checker's reserved
+prefixes, in order. Every residual obligation stays unresolved,
 R-GRAPH exactly when a serialized graph is claimed. The omissions are exactly the inventory's
 declarations that record one, each with its module, axioms and omissions. -/
 def AccountContract (project : {c : Claim} → AcceptedRun c → AccountData) : Prop :=
@@ -417,7 +419,8 @@ def AccountContract (project : {c : Claim} → AcceptedRun c → AccountData) : 
         run.report.census.fences.size) ∧
     (project run).trusted = Trusted.all ∧
     (∀ p, p ∈ (project run).trustedDependencies ↔
-      ∃ d ∈ c.val.snapshot.dependencies, d.owned = false ∧ d.package = p) ∧
+      ∃ d ∈ c.val.snapshot.dependencies, (d.owned = false ∨ d.reserved = true) ∧
+        d.package = p) ∧
     (∀ r, r ∈ (project run).unresolved ↔ (r = .graph → c.val.mode = .serializedGraph)) ∧
     (∀ x, x ∈ (project run).omissions ↔
       ∃ e ∈ run.report.census.environments, ∃ d ∈ e.policy.declarations,
@@ -435,7 +438,8 @@ private def accountImpl {c : Claim} (run : AcceptedRun c) : AccountData :=
       fences.countP isPolicyRejection, fences.countP isTrustedTeaching⟩
     trusted := Trusted.all
     trustedDependencies :=
-      (report.claim.val.snapshot.dependencies.filter (!·.owned)).map (·.package)
+      (report.claim.val.snapshot.dependencies.filter fun d => !d.owned || d.reserved).map
+        (·.package)
     unresolved := Residual.all.filter fun r => r != .graph || report.claim.val.mode ==
                                                 .serializedGraph
     omissions := omissionsOf report.census }
@@ -471,7 +475,8 @@ theorem checked_account : Regula.ExecutableContract @accountImpl AccountContract
   · exact ⟨Array.countP_eq_size_filter .., Array.countP_eq_size_filter ..,
       Array.countP_eq_size_filter .., Array.countP_eq_size_filter .., fence_partition _⟩
   · intro p
-    simp only [accountImpl, Array.mem_map, Array.mem_filter, Bool.not_eq_eq_eq_not, Bool.not_true]
+    simp only [accountImpl, Array.mem_map, Array.mem_filter, Bool.or_eq_true,
+      Bool.not_eq_eq_eq_not, Bool.not_true]
     constructor
     · rintro ⟨d, ⟨hd, ho⟩, rfl⟩
       exact ⟨d, hd, ho, rfl⟩
@@ -587,7 +592,7 @@ def lines (a : Account) : Array String :=
       s!"trusted, not verified: Lean {d.toolchain.leanVersion} ({d.toolchain.compilerCommit}); " ++
     "; ".intercalate (d.trusted.map (·.detail))
   let dependencies :=
-    "trusted dependencies, not replayed through Lean's kernel: " ++
+    "trusted dependencies, not wholly replayed through Lean's kernel: " ++
       (if d.trustedDependencies.isEmpty then "none"
       else ", ".intercalate d.trustedDependencies.toList)
   let unresolved :=

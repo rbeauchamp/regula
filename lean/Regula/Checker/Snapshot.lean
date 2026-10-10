@@ -561,7 +561,9 @@ def inputsUnchanged (inventory : Lake.SurfaceInventory)
 
 /-- Exact request bytes include configuration presence/absence and actual dependency state.
 Additional imported sources (for example history) are included by the coordinator only
-after matching their own before/after producer binding against current source bytes. -/
+after matching their own before/after producer binding against current source bytes. A
+dependency is `reserved` when one of its requested source modules lies under the checker's
+reserved prefixes (`reservedModule`). -/
 def make (root : FilePath) (configuration : Array (FilePath × Option String))
     (sources : Array SourceSnapshot) (deps : Array DependencyObservation) :
         Except String AdmittedSnapshot :=
@@ -574,6 +576,6 @@ def make (root : FilePath) (configuration : Array (FilePath × Option String))
     toolchain := ⟨Lean.versionString, Lean.githash, Producer.identity.sourceRevision⟩
     dependencies := deps.map fun dep => {
       package := dep.package, nominalRevision := dep.revision, dirty := dep.dirty, files := #[]
-      owned := dep.owned } }
+      owned := dep.owned, reserved := dep.sourcePaths.any (reservedModule ·.1) } }
 
 end Regula.Checker.Snapshot

@@ -2429,9 +2429,11 @@ builds the project or a copy. `checkDefaultLayout` refuses an owned package, the
 included, that sets an output directory other than Lake's default. It compares the configured
 values, with no path resolved.
 
-`checkOneProvider` refuses a module name that two packages of the workspace provide, as
-`lake-query-malformed`. It counts the library modules of each package, and the executable roots of
-the root package and of each owned dependency. Lake refuses an import of such a name only when it
+`checkOneProvider` refuses a module name that two packages provide, as `lake-query-malformed`,
+if one of the two is the root package or an owned dependency. Two trusted
+packages can provide the same name, because the audit attributes and owns no module of a trusted
+package. It counts the library modules of each package, and the executable roots of the root
+package and of each owned dependency. Lake refuses an import of such a name only when it
 finds the two definitions distinct, and otherwise the search path decides which artifact loads.
 Lake resolves an import only to a library module, thus the executable roots of a trusted package
 are not counted.
@@ -2489,17 +2491,22 @@ running checker's own. A module of an owned dependency with the prefix `Regula` 
 is not owned either. It is the checker's own code: its source is the checker's own text, and
 Regula's own audit checks it with its whole library. `Admission.replaySet` replays each of these
 modules that imports a replayed module, such as an owned `RegulaCore` module of `regula`.
+
 A module of a dependency's build output that no library of the package has is refused as
-[RG2004]. The account names each dependency that is not owned, and the snapshot records `owned`
-for each dependency.
+[RG2004]. The account names each dependency that is not owned. It also names each dependency
+that provides a module under the reserved prefixes, as `DependencyState.reserved` records. The
+snapshot records `owned` for each dependency.
 
 A project audit also inspects each module of an owned dependency that its environment owns and
 loads, as `EnvironmentOwnership.mem_dependencies` states. It inspects their declarations,
 executable roots and documentation, and the census binds their sources through
 `EnvironmentCensus.inspectedModules`. `EnvironmentOwnership.dependencies_replayed` proves that
-each of them is replayed when the source bindings hold the modules of the owned dependencies, as
-the inventory's do. The coordinator and the declaration worker compute the ownership from the same
-inputs, and the worker must report the same modules. The claim lists them as
+each of them is in `EnvironmentOwnership.modules`, the owned set. `Admission.validate` replays
+`Admission.replaySet`, and `Admission.mem_replaySet` proves that this set holds each module of the
+owned set that is not reused.
+
+The coordinator and the declaration worker compute the ownership from the same inputs, and the
+worker must report the same modules. The claim lists them as
 `ClaimCandidate.dependencies`, so `profileForModule` gives them Standard-Logical and
 `executionForModule` gives them report. Thus a project axiom, a hole or authored `unsafe` code in
 such a module is refused, but `Classical.choice` is permitted.

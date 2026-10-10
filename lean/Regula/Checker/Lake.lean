@@ -218,28 +218,30 @@ def packageModules (package : _root_.Lake.Package) :
   return (targets, sources)
 
 /-- Refuse a module name that more than one package of the workspace provides by its own module
-resolution (`TargetInventory.modules`), counting each package's library modules and the executable
-roots of the root package and of each owned dependency. `packages` gives each package's name,
-whether the audit owns it, and its targets, the root package first. An audit supports one provider
-for each such name: Lake refuses an import of a name with two providers only when it finds their
+resolution (`TargetInventory.modules`) when one of those packages is the root package or an owned
+dependency, counting each package's library modules and the executable roots of the root package
+and of each owned dependency. `packages` gives each package's name, whether the audit owns it, and
+its targets, the root package first. An audit supports one provider for each name that an owned
+package provides: Lake refuses an import of a name with two providers only when it finds their
 definitions distinct, and which one's artifact an environment loads otherwise follows the search
-path, not the package. A trusted package's executable roots are not counted: Lake resolves an
-import only to a library module (`Lake.Package.findModule?`), and a loaded module that an owned
-package provides is attributed only to that package's own artifact (`Environment.attributeLoaded`).
--/
+path, not the package. Two trusted packages may provide one name, since the audit attributes and
+owns no module of a trusted package. A trusted package's executable roots are not counted: Lake
+resolves an import only to a library module (`Lake.Package.findModule?`), and a loaded module that
+an owned package provides is attributed only to that package's own artifact
+(`Environment.attributeLoaded`). -/
 def checkOneProvider (packages : Array (String × Bool × Array TargetInventory)) : IO Unit := do
-  let mut providers : Std.HashMap Name String := {}
+  let mut providers : Std.HashMap Name (String × Bool) := {}
   for (package, owned, targets) in packages do
     for target in targets do
       unless owned || target.target.startsWith "lean_lib " do continue
       for name in target.modules do
         match providers[name]? with
-        | some other =>
-          unless other == package do
+        | some (other, otherOwned) =>
+          if other != package && (owned || otherOwned) then
             throw <| IO.userError s!"lake-query-malformed: module {name} is provided by package \
               '{other}' and by package '{package}'; an audit supports one provider for each \
-              module name of the workspace"
-        | none => providers := providers.insert name package
+              module name of the root package and of each owned dependency"
+        | none => providers := providers.insert name (package, owned)
 
 /-- Refuse the root package or an owned dependency of the inventory whose loaded configuration sets
 an output directory other than Lake's default (`defaultOutputDirectories`), compared by value with
@@ -356,8 +358,8 @@ def surfaceInventory (repo : FilePath) : IO SurfaceInventory :=
              configuration := ← IO.FS.readFile package.configFile
              outputDirectories := packageOutputDirectories package, targets } :
               DependencyInventory)
-    -- One provider for each library module of the workspace and each executable root of an owned
-    -- package, by each package's own resolution.
+    -- One provider for each library module and executable root of an owned package, counting the
+    -- library modules of every package, by each package's own resolution.
     checkOneProvider (#[(pkg.baseName.toString, true, targets)] ++
       dependencies.map fun dependency =>
         (dependency.package, dependency.owned, dependency.targets))
@@ -577,11 +579,11 @@ def copyProject (repo target exclude : FilePath) : IO ProjectCopy := do
 /-- Admit the inventory of a copy whose real directory is `root` and mark it as that copy
 (`SurfaceInventory.copy`), so that each environment refuses an owned module that the copy's own
 build did not produce (`Environment.ModuleGraph.outsideCopy`). The copy's inventory already keeps
-Lake's default output layout of each owned package and one provider for each module name
-(`surfaceInventory`). Lake's own load of the copy must select exactly what `expected` gives
-(`ProjectCopy.selection`): for the root package the same targets, each with the same modules and
-options, and the same dependency packages, each with the same selection. With no `expected`, for a
-copy that the verification driver made, the copy must own no dependency. -/
+Lake's default output layout of each owned package and one provider for each module name of an
+owned package (`surfaceInventory`). Lake's own load of the copy must select exactly what `expected`
+gives (`ProjectCopy.selection`): for the root package the same targets, each with the same modules
+and options, and the same dependency packages, each with the same selection. With no `expected`,
+for a copy that the verification driver made, the copy must own no dependency. -/
 def checkCopiedWorkspace (root : FilePath) (expected : Option CopySelection)
     (inventory : SurfaceInventory) : IO SurfaceInventory := do
   let refuse {α : Type} (detail : String) : IO α :=

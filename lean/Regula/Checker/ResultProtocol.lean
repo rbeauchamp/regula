@@ -24,7 +24,8 @@ snapshot carries `owned`, `true` for a path dependency in the root package's Git
 module of which the audit replays where a requested module imports it, except modules under the
 checker's reserved prefixes, which are the checker's own code (`snapshotJson`), and the
 acceptance account carries `trustedDependencies`, the packages of the dependencies that are not
-owned, which the audit trusts (`accountJson`), and each environment of the acceptance carries
+owned or that provide a module under those prefixes, which the audit trusts (`accountJson`), and
+each environment of the acceptance carries
 `dependencyModules`, the modules of owned dependencies whose declarations it inspects
 (`environmentJson`). Earlier schemas wrote none of these members, and the audit then owned no
 dependency.
@@ -477,7 +478,8 @@ establish that it is the intended one, and no entry is refused for it. A functio
 `throughTypes` has a result of `Bool` or `BEq` and is shared only through the declaration of the
 input type; no entry is refused for it. Since schema 14 the account carries
 `trustedDependencies`, the packages of the snapshot dependencies that are not owned, whose
-declarations the audit does not replay. -/
+declarations the audit does not replay, or that provide a module under the checker's reserved
+prefixes, which the audit does not own (`RegulaPolicy.DependencyState.reserved`). -/
 def accountJson (account : Regula.Checker.Account) : Json :=
   let a := account.val
   let residuals (rs : List Regula.Checker.Account.Residual) := toJson (rs.map (·.spelling))

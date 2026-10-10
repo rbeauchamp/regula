@@ -467,7 +467,8 @@ metadata, not authenticated binary identity.
   with that boundary, not again, `RegulaPolicy.checked_summary`),
   `fences` by expectation,
   `trusted` mechanisms, since schema 14 `trustedDependencies`, the packages of the dependencies
-  that the audit does not own, and the run's `unresolvedReview` identifiers. A completed envelope's
+  that the audit does not own or that hold a module under Regula's reserved prefixes, and the
+  run's `unresolvedReview` identifiers. A completed envelope's
   `mode` is the account's, and a listed identifier names an open obligation, not a completed
   review.
 - **Shared definitions:** since schema 11 each `contracts` entry of the account carries
