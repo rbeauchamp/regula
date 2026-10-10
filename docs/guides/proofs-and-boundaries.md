@@ -660,16 +660,17 @@ the source text only for comparison.
 
 **Execution records.** Authored marks and traversal through project-written edges decide which
 execution records exist. In a record, a field is observed where the environment fixes its value for
-the constant the record is made at. That holds for the module of a name, a boundary's constant,
-module and ownership, and the constant and module of a root or visit. A field that the data of a
-mark enters is project-written, as a boundary's kind and replacement. A visit's parent, the
-closure's other fields and a boundary's position are computed by the walk on the combined record.
+the constant the record is made at. That holds for the module of a name and the constant and module
+of a boundary, root or visit. A boundary's ownership is its module's membership in the claim's owned
+modules: the environment's module and the claim fix it, and no mark decides it. A field that the
+data of a mark enters is project-written, as a boundary's kind and replacement.
 
-A candidate boundary comes from a constant of an equality type, registered with `@[csimp]` or not.
-The two sides are constants with the same list of distinct universe parameters. An attribute such
-as `@[simp]` can make Lean generate such a constant, an equation lemma. The walk follows
-each recorded historical replacement conservatively, including one that the compiled code no longer
-runs. The [RG3001] and [RG3002] decisions read the two parts.
+A visit's parent, the closure's other fields and a boundary's position are computed by the walk on
+the combined record. A candidate boundary comes from a constant of an equality type, registered with
+`@[csimp]` or not. The two sides are constants with the same list of distinct universe parameters.
+An attribute such as `@[simp]` can make Lean generate such a constant, an equation lemma. The walk
+follows each recorded historical replacement conservatively, including one that the compiled code no
+longer runs. The [RG3001] and [RG3002] decisions read the two parts.
 
 **Limits.** The parts classify the source of a value but do not make an observation truthful. That
 `Collect.declaration`, `Frontend.buildCore`, `Probe.observeNode` and `Probe.environmentReport` fill
