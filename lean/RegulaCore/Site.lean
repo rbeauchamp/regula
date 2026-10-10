@@ -78,8 +78,8 @@ def repository : String := "https://github.com/rbeauchamp/regula"
 
 /-- The one-line description of Regula that link previews show. -/
 def tagline : String :=
-  "A strict linter for Lean: no holes, no hidden axioms, no unstated trust, and a fix for every \
-    finding."
+  "A strict linter for Lean projects. lake lint does not accept a theorem that depends on an \
+    axiom of your project, on native_decide or on a sorry, also through its imports."
 
 /-- The URL path of the project site. Absolute links in the output must start with it. -/
 def basePath : String := "/regula/"

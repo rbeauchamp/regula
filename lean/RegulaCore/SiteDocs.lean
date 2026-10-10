@@ -56,8 +56,8 @@ private def header (imports : List String) (title tag : String) (file : Option S
 private def subsection (tag heading : String) : String :=
   "# " ++ heading ++ "\n%%%\ntag := \"" ++ tag ++ "\"\nnumber := false\n%%%\n\n"
 
-/-- The site's home page (the edition root): what Regula rejects and where a newcomer starts,
-then the four things a reader comes to do, in order. -/
+/-- The site's home page (the edition root): what Regula rejects, in the words of the root
+`README.md`, and where a newcomer starts, then the four things a reader comes to do. -/
 def homePage (ident : Identity) : Except String String := do
   let notice ← htmlBlock (pageAnchor "regula" ++ editionHtml ident)
   let doc (path text : String) := "[" ++ text ++ "](" ++ blobUrl ident path ++ ")"
@@ -65,34 +65,23 @@ def homePage (ident : Identity) : Except String String := do
       "RegulaStandard", "Generated.Versions", "Generated.Credits"]
       "Regula rule reference" "regula" none ++
     notice ++ "\n" ++
-    "**Regula for Lean** is a strict linter: `lake lint` does not accept a project with a \
-      `sorry`, a project axiom, a compiler-trusting proof such as `native_decide`, or an axiom \
-      beyond the foundation you chose, and names every `extern` and `implemented_by` boundary \
-      your executables reach. Every rule below has a checked failing example, its fix, and what \
-      a pass does and does not establish. **New here?** Start with " ++
-        doc "README.md" "what it checks and how to try it" ++ ".\n\n" ++
-    "1. **Decide whether to adopt.** The [rule index](rules/) lists all " ++
-        toString RuleId.all.length ++ " rules, and [how rules are enforced](enforcement/) \
-          states what they share: a violation fails the result, and missing evidence never \
-          passes. The " ++ doc "docs/guides/adoption.md" "adoption guide" ++
-              " covers installation, `lake lint`, editor feedback and CI; " ++
-      "[the standard](standard/) and its [compliance checklist](standard/8-compliance-audit/) \
-        define what the rules enforce; every Lean example of the standard is elaborated when this \
-        site is built.\n" ++
-    "2. **Look up a rule.** Every finding names a rule ID such as `RG1002` (editor code \
-      `Regula.RG1002`) and ends with the URL of its page in the reference of the installed \
-      Regula version; the editor's *View explanation* link opens the same page. A rule page \
-      starts with what is wrong, what to do and a checked example. Open the \
-      [rule index](rules/), or press `/` to search.\n" ++
-    "3. **Review a Regula pass.** A finding is a violation, which makes the result FAIL, or \
-      incomplete, which makes it INCOMPLETE because required evidence is missing; neither is \
-      accepted. A pass is mechanical: each rule page states what the check establishes and which \
-      review obligations stay with you, and [checklist coverage](coverage/) maps every row of \
-      the compliance checklist to the rules that report on it and the review obligations it \
-      carries.\n" ++
-    "4. **Challenge a rule.** Each rule page gives the rule's rationale, its normative clauses and \
-      its detector sources at the commit the page was built from. To dispute a rule or report a \
-      wrong result, [open an issue](" ++ repository ++ "/issues).\n\n" ++
+    "**Regula** is a strict linter for Lean projects. `lake lint` does not accept a theorem that \
+      depends on an `axiom` of your project, on `native_decide` or on a `sorry`, also through its \
+      imports. This site is the reference of the Regula release above: a page for each rule, and \
+      the standard that the rules come from. **New here?** " ++
+        doc "README.md#try-it" "Try it" ++ " on one module, then " ++
+        doc "README.md#add-it-to-your-project" "add it to your project" ++ ".\n\n" ++
+    "1. **Look up a rule.** Each finding names a rule ID and ends with the address of the page of \
+      that rule. A rule page starts with the problem, the fix and an example that the checker \
+      rejects. Open the [rule index](rules/), or push `/` to search.\n" ++
+    "2. **Adopt Regula.** The " ++ doc "docs/guides/adoption.md" "adoption guide" ++
+      " tells how to install and run Regula, in the terminal, in the editor and in CI.\n" ++
+    "3. **Review a pass.** A pass is mechanical. Each rule page tells what the check shows and \
+      which review stays with you. [How rules are enforced](enforcement/) and \
+      [checklist coverage](coverage/) give the details.\n" ++
+    "4. **Challenge a rule.** Each rule page gives the reason for the rule, its clauses in the \
+      [standard](standard/) and the source of its check. To dispute a rule, \
+      [open an issue](" ++ repository ++ "/issues).\n\n" ++
     "{include Generated.Rules}\n\n{include Generated.Enforcement}\n\n{include \
       Generated.Coverage}\n\n{include RegulaStandard}\n\n{include Generated.Versions}\n\n{include \
       Generated.Credits}\n"

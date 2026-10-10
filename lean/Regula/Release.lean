@@ -9,7 +9,7 @@ The steps of a Regula release, run with the pinned toolchain alone, so they need
 ```text
 lean --run lean/Regula/Release.lean open        # create the branch of the release pull request
 lean --run lean/Regula/Release.lean unreleased  # refuse a release label on main or a pull request
-lean --run lean/Regula/Release.lean agree       # refuse a stale lakefile version, table or pin
+lean --run lean/Regula/Release.lean agree       # refuse a stale lakefile version, table, pin or mention
 lean --run lean/Regula/Release.lean title       # refuse a pull request title that is not a header
 lean --run lean/Regula/Release.lean candidate   # create the release commit for CI to check
 lean --run lean/Regula/Release.lean adopt       # derive it on main's commit, check it, adopt it
@@ -43,7 +43,9 @@ resets the lower components. `main`'s `lakefile.lean` declares the version of th
 release, the adoption guide's compatibility table lists every listed release with its
 toolchain, each requirement of Regula in a tracked Markdown document (`setPins`) names the latest
 listed release, and the root `README.md` and the adoption guide each require it in each form
-(`unpinned`); `agree` checks these on every commit, the version as Lake itself reads it
+(`unpinned`). The root `README.md` also states that release and its toolchain in prose, in
+mentions (`setMentions`) that name them (`mentionsAgree`), with a mention of each kind
+(`unmentioned`). `agree` checks these on every commit, the version as Lake itself reads it
 (`lake reservoir-config`).
 
 ## Steps
@@ -55,7 +57,8 @@ required `verify` job.
 `open` derives the version and creates the commit of the release pull request as a child of the
 `main` commit the workflow runs on: the release appended with its toolchain to `Regula.releases`,
 `lakefile.lean`'s `version` set to it, its row added to the adoption guide's compatibility table,
-each requirement of Regula in the tracked Markdown documents set to it (`withPins`), and the
+each requirement of Regula in the tracked Markdown documents set to it (`withPins`), each
+mention of a release in the root `README.md` set to it or its toolchain (`withMentions`), and the
 release stamped into each `.unreleased` on a line that starts `lifecycle :=`
 (`RegulaCore/Rule.lean`, `stampRules`, a convenience); `Regula.installed` stays `.unreleased`.
 While the last listed release is not published yet, `open` lists the release it derives in its
@@ -1076,6 +1079,188 @@ theorem unpinned_eq_nil_iff (pins : List Pin) (files : List String) :
     leanRequire gitUrl "v0.10.0") |>.toOption).map (unpinned · ["f", "g"]) ==
   some [("f", .toml), ("g", .toml), ("g", .lean)]
 
+/-! ## Mentions of the release
+
+The root `README.md` also states in prose which release its requirements name and which Lean
+toolchain that release supports, and its first try makes a project for that toolchain. Each such
+statement is a mention: ``Regula `<tag>` `` names a release of Regula, and
+`leanprover/lean4:<release>` names a Lean toolchain. `agree` refuses unless each mention in
+`mentionedDocuments` names the latest listed release or that release's toolchain, as its kind
+says, and each of those documents has a mention of each kind; `open` sets each mention to the
+release it prepares and reads its edit back. -/
+
+/-- What a mention names: a release of Regula or the Lean toolchain of a release. -/
+inductive Named where
+  /-- A release of Regula, written ``Regula `v<version>` ``. -/
+  | regula
+  /-- A Lean toolchain, written `leanprover/lean4:<release>`. -/
+  | lean
+  deriving DecidableEq, Repr
+
+/-- The kinds of mention, each once. -/
+def Named.all : List Named := [.regula, .lean]
+
+/-- `Named.all` lists each kind. -/
+theorem Named.mem_all (k : Named) : k ∈ Named.all := by cases k <;> simp [Named.all]
+
+/-- The text that starts a mention of each kind. The text after it, up to the end of the mention,
+is what the mention writes (`Named.text`). -/
+def Named.marker : Named → String
+  | .regula => "Regula `v"
+  | .lean => "leanprover/lean4:"
+
+/-- What a mention of each kind writes after its marker, as the refusal of an occurrence of the
+marker without it names it. -/
+def Named.expected : Named → String
+  | .regula => "a version such as `0.11.0` and a closing backtick"
+  | .lean => "a Lean release such as `v4.34.1`"
+
+/-- A character of a Lean release as `leanprover/lean4:` names it, such as `v4.34.1` or
+`v4.35.0-rc1`. -/
+def releaseChar (c : Char) : Bool := c.isAlphanum || c == '.' || c == '-'
+
+/-- The text that a mention of kind `k` writes at the start of `after`, the text that follows its
+marker, or `none` when `after` does not start with such text: one or more characters of a release
+(`releaseChar`), and for a release of Regula a closing backtick right after them. -/
+def Named.text (k : Named) (after : String) : Option String :=
+  let t := String.ofList (after.toList.takeWhile releaseChar)
+  if t.isEmpty then none
+  else match k with
+    | .regula => if (after.toList.drop t.length).head? == some '`' then some t else none
+    | .lean => some t
+
+/-- The release that a mention of kind `k` names when it writes `text` after its marker: the tag
+`v<text>` for a release of Regula, whose marker ends with `v`, or `text` for a Lean toolchain. -/
+def Named.release (k : Named) (text : String) : String :=
+  match k with
+  | .regula => "v" ++ text
+  | .lean => text
+
+/-- What a mention of kind `k` names for release `r`: its tag, or the release of its toolchain. -/
+def Named.of (r : Release) : Named → String
+  | .regula => r.version.tag
+  | .lean => r.toolchain.tag
+
+/-- The text that an edit writes after the marker of a mention of kind `k` for release `r`. -/
+def Named.written (r : Release) : Named → String
+  | .regula => r.version.spelling
+  | .lean => r.toolchain.tag
+
+/-- The text an edit writes for release `r` names, as a mention of its kind reads it, what that
+kind names for `r`. -/
+theorem Named.release_written (r : Release) (k : Named) : k.release (k.written r) = k.of r := by
+  cases k <;> rfl
+
+/-- A mention of a release in a document. -/
+structure Mention where
+  /-- The document, by its path in the repository. -/
+  file : String
+  /-- The line of the document, counted from 1, that holds the mention. -/
+  line : Nat
+  /-- What the mention names. -/
+  named : Named
+  /-- The release the mention names, as it reads it (`Named.release`): a tag such as `v0.11.0`,
+  or a Lean release such as `v4.34.1`. -/
+  release : String
+  deriving DecidableEq, Repr
+
+/-- The mention as the refusal of `agree` names it: `file:line: release`. -/
+def Mention.spelling (m : Mention) : String := s!"{m.file}:{m.line}: {m.release}"
+
+/-- The mentions of a release in document `doc` at path `file`, line by line, those of a release
+of Regula first in each line, and `doc` with each mention set to release `r` when `r` is given, or
+`doc` itself. A mention is an occurrence of the marker of its kind (`Named.marker`) followed by the
+text of its kind (`Named.text`). Refuses an occurrence of a marker that no such text follows. -/
+def setMentions (file doc : String) (r : Option Release) :
+    Except String (String × List Mention) := do
+  let mut out : Array String := #[]
+  let mut found : Array Mention := #[]
+  for (line, i) in (doc.splitOn "\n").zipIdx do
+    let mut text := line
+    for k in Named.all do
+      match text.splitOn k.marker with
+      | first :: rest@(_ :: _) =>
+        let mut pieces := #[first]
+        for piece in rest do
+          let some t := k.text piece
+            | throw s!"{file}:{i + 1}: `{k.marker}` is not followed by {k.expected}"
+          found := found.push ⟨file, i + 1, k, k.release t⟩
+          pieces := pieces.push
+            ((r.map (Named.written · k)).getD t ++ String.ofList (piece.toList.drop t.length))
+        text := k.marker.intercalate pieces.toList
+      | _ => pure ()
+    out := out.push text
+  return (if r.isSome then "\n".intercalate out.toList else doc, found.toList)
+
+/-- The mentions of a release in document `doc` at path `file` (`setMentions`). -/
+def mentionsOf (file doc : String) : Except String (List Mention) :=
+  return (← setMentions file doc none).2
+
+/-- Document `doc` at path `file` with each mention of a release set to release `r`
+(`setMentions`). Refused unless the edit reads back as the same mentions, each naming what its
+kind names for `r` (`Named.of`). -/
+def withMentions (file doc : String) (r : Release) : Except String String := do
+  let (result, found) ← setMentions file doc (some r)
+  unless (← mentionsOf file result) == found.map fun m => { m with release := m.named.of r } do
+    throw s!"the edited {file} does not read back as intended"
+  return result
+
+/-- Whether mentions `ms` agree with release `r`: each names `r` or its toolchain, as its kind
+says. -/
+def mentionsAgree (ms : List Mention) (r : Release) : Bool :=
+  ms.all fun m => m.release == m.named.of r
+
+/-- The mentions agree with `r` exactly when each mention of a release of Regula names the tag of
+`r`, and each mention of a Lean toolchain names the Lean release of the toolchain of `r`. -/
+theorem mentionsAgree_iff (ms : List Mention) (r : Release) :
+    mentionsAgree ms r = true ↔
+      (∀ m ∈ ms, m.named = .regula → m.release = r.version.tag) ∧
+        ∀ m ∈ ms, m.named = .lean → m.release = r.toolchain.tag := by
+  simp only [mentionsAgree, List.all_eq_true, beq_iff_eq]
+  constructor
+  · intro h
+    exact ⟨fun m hm hk => by simpa [Named.of, hk] using h m hm,
+      fun m hm hk => by simpa [Named.of, hk] using h m hm⟩
+  · rintro ⟨hr, hl⟩ m hm
+    cases hk : m.named with
+    | regula => simpa [Named.of] using hr m hm hk
+    | lean => simpa [Named.of] using hl m hm hk
+
+/-- Each document of `files`, in order, with each kind that no mention of `ms` in that document
+has: the statements of the release that those documents lack. -/
+def unmentioned (ms : List Mention) (files : List String) : List (String × Named) :=
+  files.flatMap fun file =>
+    (Named.all.filter fun k => !ms.any fun m => m.file == file && m.named == k).map (file, ·)
+
+/-- `unmentioned` names a document with a kind exactly when the document is one of `files` and no
+mention of `ms` in it has that kind. -/
+theorem mem_unmentioned (ms : List Mention) (files : List String) (file : String) (k : Named) :
+    (file, k) ∈ unmentioned ms files ↔
+      file ∈ files ∧ ¬∃ m ∈ ms, m.file = file ∧ m.named = k := by
+  simp [unmentioned, Named.mem_all]
+
+/-- `unmentioned` names nothing exactly when each document of `files` has a mention of each kind. -/
+theorem unmentioned_eq_nil_iff (ms : List Mention) (files : List String) :
+    unmentioned ms files = [] ↔
+      ∀ file ∈ files, ∀ k : Named, ∃ m ∈ ms, m.file = file ∧ m.named = k := by
+  simp [unmentioned, Named.mem_all]
+
+-- Controls of the text reading, which are samples and not proofs: the mentions of a line read in
+-- order of kind, an edit sets each mention and keeps the text around it, a marker without the
+-- text of its kind is refused, ``Regula `init` `` is no mention, and a document without a mention
+-- of a kind lacks that kind.
+#guard (mentionsOf "f" ("Regula `v0.9.0` is for the Lean toolchain `leanprover/lean4:v4.34.0`." ++
+    "\nlake +leanprover/lean4:v4.34.0 new demo") |>.toOption) ==
+  some [⟨"f", 1, .regula, "v0.9.0"⟩, ⟨"f", 1, .lean, "v4.34.0"⟩, ⟨"f", 2, .lean, "v4.34.0"⟩]
+#guard (withMentions "f" "Regula `v0.9.0` is for `leanprover/lean4:v4.34.0-rc1`, see Regula `v0.9.0`."
+    ⟨⟨0, 10, 0⟩, ⟨4, 34, 1⟩⟩ |>.toOption) ==
+  some "Regula `v0.10.0` is for `leanprover/lean4:v4.34.1`, see Regula `v0.10.0`."
+#guard mentionsOf "f" "Regula `v0.9.0 has no closing backtick" matches .error _
+#guard mentionsOf "f" "the toolchain leanprover/lean4: names no release" matches .error _
+#guard (mentionsOf "f" "Regula `init` writes a manifest" |>.toOption) == some []
+#guard (mentionsOf "f" "Regula `v0.9.0`" |>.toOption).map (unmentioned · ["f"]) ==
+  some [("f", .lean)]
+
 /-! ## The release decision
 
 A release is cut from whichever head of `main` listing it first completes the whole chain. While
@@ -1559,6 +1744,12 @@ private def markdownDocuments : IO (List (String × String)) := do
 `agree` refuses unless each has a pin of Regula of each form (`unpinned`). -/
 private def pinnedDocuments : List String := ["README.md", guideFile.toString]
 
+/-- The documents that state in prose the latest release and its toolchain, the root `README.md`:
+`agree` refuses unless each has a mention of each kind (`unmentioned`) and each mention names the
+latest listed release or its toolchain (`mentionsAgree`), and `open` sets them (`withMentions`).
+The adoption guide is not one: its compatibility table and its examples name earlier releases. -/
+private def mentionedDocuments : List String := ["README.md"]
+
 /-- The release the checked-out commit installs; `none` when it is unreleased. -/
 private def installedHere : IO (Option Version) := do
   IO.ofExcept (installedOf (← IO.FS.readFile editionFile))
@@ -1580,7 +1771,8 @@ published release, `lean-toolchain` and the `RELEASE_BUMP` input (exactly `deriv
 toolchain to `Regula.releases` in place of a listed release not yet published, if any, whose
 stamps it restamps (`restampRules`); `lakefile.lean`'s `version` set to it; the adoption guide's
 compatibility table regenerated; each requirement of Regula in the tracked Markdown documents set
-to it (`withPins`); and the release stamped into each `.unreleased` on a
+to it (`withPins`); each mention of a release in `mentionedDocuments` set to it or its toolchain
+(`withMentions`); and the release stamped into each `.unreleased` on a
 `lifecycle :=` line (`stampRules`), leaving `Regula.installed` unreleased. It then creates the
 branch `pullBranch` names after that commit (`pushBranch`), its only write of a branch. Refuses a
 derivation that releases nothing, a release `admits` refuses, a patch release that introduces a
@@ -1658,11 +1850,15 @@ def openRelease : IO Unit := do
   let guide ← IO.FS.readFile guideFile
   let tabled ← IO.ofExcept (withTable guide releases)
   -- Each tracked Markdown document that this changes, the adoption guide with its table
-  -- regenerated, with each pin of Regula set to the release.
+  -- regenerated, with each pin of Regula set to the release and, in each of
+  -- `mentionedDocuments`, each mention set to the release or its toolchain.
   let documents ← (← markdownDocuments).filterMapM fun (path, content) => do
     let base := if path == guideFile.toString then tabled else content
     let pinned ← IO.ofExcept (withPins gitUrl path base tag)
-    return if pinned == content then none else some (path, pinned)
+    let stated ← if mentionedDocuments.contains path then
+        IO.ofExcept (withMentions path pinned next)
+      else pure pinned
+    return if stated == content then none else some (path, stated)
   if ready == edition && stamped == rules && versioned == lakefile && documents.isEmpty then
     fail s!"main already lists {tag} and no `lifecycle :=` line says .unreleased; CI on main \
       releases it"
@@ -1676,7 +1872,8 @@ def openRelease : IO Unit := do
       (lakefileFile.toString, versioned)] ++ documents)
     s!"{title}\n\nLists {tag} for Lean {toolchain.spelling} in Regula.releases{replaced} sets \
       the lakefile's version to {v.spelling}, adds it to the adoption guide's compatibility \
-      table, sets each requirement of Regula in the tracked Markdown documents to it and \
+      table, sets each requirement of Regula in the tracked Markdown documents and each \
+      mention of a release in README.md to it or its toolchain, and \
       stamps it into each .unreleased on a `lifecycle :=` line; Regula.installed \
       stays unreleased. Of the tracked Markdown documents, it changes {changed}. \
       Once this is on main, CI creates the release commit, which sets \
@@ -1690,8 +1887,9 @@ def openRelease : IO Unit := do
     s!"Prepares Regula {tag} for Lean {toolchain.spelling} (`leanprover/lean4:{toolchain.tag}`)\
       {replaced}: lists it with its toolchain in `Regula.releases`, sets `lakefile.lean`'s \
       `version` to `{v.spelling}`, adds it to the compatibility table of the adoption guide, \
-      sets each requirement of Regula in the tracked Markdown documents to `{tag}` and stamps \
-      it into each `.unreleased` on a `lifecycle :=` line. `Regula.installed` stays \
+      sets each requirement of Regula in the tracked Markdown documents to `{tag}`, sets each \
+      mention of a release in `README.md` to `{tag}` or `leanprover/lean4:{toolchain.tag}`, and \
+      stamps it into each `.unreleased` on a `lifecycle :=` line. `Regula.installed` stays \
       `.unreleased`: `main` never carries a release label. Of the tracked Markdown documents, \
       it changes {changed}.\n\n\
       The Release workflow derived the version from the {messages.length} commits of `main` \
@@ -1743,9 +1941,10 @@ def requireUnreleased : IO Unit := do
 /-- Refuse release data that what adopters read contradicts: unless the version Lake reads from
 `lakefile.lean` (`lake reservoir-config`) is the one the latest listed release declares
 (`Version.declared`), the adoption guide's compatibility table is `compatibilityTable` of
-`Regula.releases`, each of `pinnedDocuments` has a pin of Regula of each form (`unpinned`), and
-the pins of Regula in the tracked Markdown documents (`setPins`) agree with the latest listed
-release (`pinsAgree`). -/
+`Regula.releases`, each of `pinnedDocuments` has a pin of Regula of each form (`unpinned`), the
+pins of Regula in the tracked Markdown documents (`setPins`) agree with the latest listed release
+(`pinsAgree`), each of `mentionedDocuments` has a mention of each kind (`unmentioned`), and those
+mentions (`setMentions`) name the latest listed release or its toolchain (`mentionsAgree`). -/
 def agree : IO Unit := do
   let listed ← IO.ofExcept (releasesOf (← IO.FS.readFile editionFile))
   let some latest := listed.getLast? | fail "RegulaCore/Edition.lean lists no release"
@@ -1772,10 +1971,26 @@ def agree : IO Unit := do
     fail s!"each requirement of Regula ({gitUrl}) in the tracked Markdown documents names the \
       latest listed release, {tag}, which the release pull request sets; these name a different \
       release:\n{"\n".intercalate ((pins.filter (·.rev != tag)).map (·.spelling))}"
+  let toolchain := latest.toolchain.tag
+  let mentions := (← mentionedDocuments.mapM fun (path : String) => do
+    IO.ofExcept (mentionsOf path (← IO.FS.readFile ⟨path⟩))).flatten
+  let unstated := unmentioned mentions mentionedDocuments
+  unless unstated.isEmpty do
+    fail s!"each of {", ".intercalate mentionedDocuments} states the latest listed release, \
+      written {Named.marker .regula}<version>`, and its toolchain, written \
+      {Named.marker .lean}<release>; these lack a statement:\n\
+      {"\n".intercalate (unstated.map fun (file, k) => s!"{file}: no {k.marker}")}"
+  let stale := (mentions.filter fun m => m.release != m.named.of latest).map (·.spelling)
+  unless mentionsAgree mentions latest do
+    fail s!"each mention of a release in {", ".intercalate mentionedDocuments} names the latest \
+      listed release, {tag}, or its toolchain, leanprover/lean4:{toolchain}, which the release \
+      pull request sets; these name a different release:\n{"\n".intercalate stale}"
   IO.println s!"lakefile.lean declares {lake.spelling}, the version of {tag}, the compatibility \
-    table lists the {listed.length} listed releases, and the {pins.length} requirements of \
+    table lists the {listed.length} listed releases, the {pins.length} requirements of \
     Regula in the tracked Markdown documents name {tag}: \
-    {", ".intercalate (pins.map fun p => s!"{p.file}:{p.line}")}"
+    {", ".intercalate (pins.map fun p => s!"{p.file}:{p.line}")}, and the {mentions.length} \
+    mentions of a release name {tag} or leanprover/lean4:{toolchain}: \
+    {", ".intercalate (mentions.map fun m => s!"{m.file}:{m.line}")}"
 
 /-- The title of the pull request the `title` step checks: `TITLE`, the title the `pull_request`
 event it runs on carries. Refused on any other event. -/

@@ -1,105 +1,101 @@
-# Regula for Lean
+# Regula
 
-A strict linter for Lean: no holes, no hidden axioms, no unstated trust, and a fix for every finding.
+A strict linter for Lean projects. `lake lint` does not accept a theorem that depends on an `axiom` of your project, on `native_decide` or on a `sorry`, also through its imports.
 
-*Public review draft; not affiliated with the Lean FRO or Mathlib.*
+Lean accepts such a theorem. It gives no warning for an `axiom` or for `native_decide`, and `lake build` succeeds. It warns about a `sorry` only at the declaration that contains the `sorry`. `#print axioms` shows these problems, but for one declaration at a time. Regula examines each declaration of the libraries that you claim, with the axioms that the declaration gets through its imports.
 
-`lake build` can succeed while a theorem still rests on a `sorry` behind an import, a helper
-`axiom` or a `native_decide`, and while the code that actually runs is an `implemented_by`
-replacement your proofs never mention. `#print axioms` shows this one declaration at a time.
-Regula checks every declaration of the libraries you claim, on every run of `lake lint`:
+For example, `lake build` accepts this module with no warning:
 
-- It rejects proof holes, project axioms, compiler-trusting proofs and any axiom outside the
-  foundation you chose, found transitively, so "proved" means proved from Lean's kernel, your
-  stated hypotheses and that foundation.
-- It names every `extern` and `implemented_by` boundary your executables reach and refuses a
-  path it cannot resolve; in `checked` mode it also rejects any boundary of your project or its
-  dependencies whose correspondence you haven't proved, while the Lean toolchain's own are
-  listed once as its trusted base. Code a program loads or evaluates by name at runtime is
-  outside that account.
+```lean
+/-! # Shortcut
 
-Every finding states what is wrong, where and how to fix it, in the terminal, the editor and
-versioned JSON, and `lake lint` adds, once per fired rule, why it matters and a checked
-example of the fix (or, where the checked files are qualification inputs, the correction they
-demonstrate). The same guidance is a briefing for the coding agents that increasingly
-write Lean, installed with the package and read before they write a line. A pass is
-mechanical: whether each theorem states what you meant is still your review, and Regula says
-so.
+A theorem that depends on an axiom, and a fact that compiled code checks. -/
 
-**Use it when** Lean code you rely on is written or changed by someone you don't review line by
-line (a coding agent, a new contributor, you in six months), or when you publish results as
-proved and want others to see exactly what they rest on.
-**Don't use it** as a Mathlib PR check (Mathlib's CI is the authority), to judge an untrusted
-proof against a fixed statement (comparator does that), or while exploring a proof. It
-complements [comparator](https://github.com/leanprover/comparator): comparator checks
-a proof against the statement its challenge fixes, and Regula gates the whole project. In the
-terms of [Validating a Lean Proof](https://lean-lang.org/doc/reference/latest/ValidatingProofs/),
-Regula runs the `#print axioms` step over every declaration you claim; run `lean4checker` or
-comparator beside it for the later steps. It also complements Lean's own warnings and the
-Mathlib and Batteries linters, which it requires or recommends rather than replaces.
+/-- A shortcut that nobody proved. -/
+axiom add_swap (a b : Nat) : a + b = b + a
 
-## What it checks, and what it doesn't
+/-- Addition commutes. -/
+theorem swap (a b : Nat) : a + b = b + a := add_swap a b
 
-| `lake lint` does not accept | Left to your review, or trusted |
-| --- | --- |
-| `sorry` and `admit`, project `axiom`s and unknown axioms, anywhere in a declaration's transitive dependencies ([RG1001]–[RG1003]) | Whether each theorem states what you meant |
-| Compiler-trusting proofs: `native_decide`, `decide +native`, `bv_decide` ([RG1004]) | Whether your invariants cover every write path |
-| Axioms beyond the foundation each library claims: kernel-only (none), choice-free (`propext`, `Quot.sound`) or standard-logical (adds `Classical.choice`) ([RG1005]) | Whether your documentation describes the formal claim faithfully |
-| `partial` or `unsafe` declarations you write ([RG1006]); unresolved `extern`/`implemented_by` paths ([RG3001]) and, in `checked` mode, unproved boundaries ([RG3002]) | Lean's kernel, compiler and runtime; Lake; the operating system |
-| Build warnings ([RG2003]), modules outside the manifest ([RG2004]), automatic implicits or a missing `linter.missingDocs` ([RG2006]), modules without a module docstring ([RG5001]) | The packages you require from outside your Git work tree: Regula does not replay their declarations through Lean's kernel, and its account names them. A path dependency in that work tree is your own code. Regula replays and checks each of its modules that your claimed modules import, except Regula's own. The account also names such a dependency that holds Regula's own modules, for example Regula itself. The contract of a `@[regula_decision]` function in it must be in a module that your claimed modules import ([RG1008]) |
-| | Code that deliberately changes Lean's environment, compiler or build to make a check pass, where no rule or section checks the mechanism (see the [scope](SECURITY.md#scope) of the security policy) |
+/-- A fact that compiled code checks, not Lean's kernel. -/
+theorem big : 2 ^ 20 = 1048576 := by native_decide
+```
 
-The [rule reference](https://rbeauchamp.github.io/regula/rules/) lists every rule, each
-with a checked violating and corrected example.
+Regula gives these findings for it (shortened):
+
+```text
+RG1001 [violation; …; Shortcut.lean:6:6]: add_swap: … axioms=["add_swap"] -> unknown-axiom
+  fix: Turn the assumption into a hypothesis (a binder or a proof-bearing structure field) of the results that need it, or replace the axiom with a proof.
+  rule: …/rules/RG1001/ (offline: lake exe regula explain RG1001)
+RG1003 [violation; …; Shortcut.lean:9:8]: swap: … axioms=["add_swap"] -> unknown-axiom
+  fix: Find where the axiom enters (often an imported dependency), and replace that dependency or its axiom with a proof or a hypothesis.
+RG1004 [violation; …; Shortcut.lean:12:8]: big: … -> compiler-trusting
+  fix: Prove the same statement with a kernel-checked proof, for example `decide` (kernel reduction), `rfl` or an ordinary proof.
+```
+
+Each finding gives the rule, the location, the fix and a link to the page of the rule. The [rule reference](https://rbeauchamp.github.io/regula/rules/) has a page for each rule, with an example that the checker rejects and its correction.
+
+**Use Regula** when you depend on Lean code that you do not read line by line, or when you publish results as proved.
+
+**Do not use Regula** for these jobs:
+
+- To explore a proof. Regula accepts no `sorry`.
+- To check a pull request to Mathlib. Mathlib's CI decides there.
+- To judge a proof of a fixed statement from a source that you do not trust. [Comparator](https://github.com/leanprover/comparator) does that job.
+
+Regula adds to the usual checks of a Lean project:
+
+- Lean's warnings stay on. In a project with Mathlib, Regula also requires the Mathlib linters ([RG2006]).
+- For an imported declaration, `#print axioms` reads a table that can omit axioms. Regula calculates the axioms from the declarations that Lean's kernel replayed.
+- `lake env leanchecker` replays your compiled modules in Lean's kernel. Run it beside Regula. [Validating a Lean Proof](https://lean-lang.org/doc/reference/latest/ValidatingProofs/) gives each step.
+
+Regula is before version 1.0. A minor release can add a rule or make a rule stricter. Each release supports one Lean toolchain.
 
 ## Try it
 
-Regula is a Lake package with its own semantic versions, tagged `v<version>`. Each release
-supports exactly one Lean toolchain. Require the newest release for your `lean-toolchain` from
-the [compatibility table](docs/guides/adoption.md#1-require-regula). The step below requires the
-latest release of that table, and CI refuses a change that makes it require a different release.
-When no release matches your toolchain, see
-[when your Lean release has no Regula release](docs/guides/adoption.md#when-your-lean-release-has-no-regula-release).
+Regula `v0.11.0` is for the Lean toolchain `leanprover/lean4:v4.34.1`. These commands use [elan](https://lean-lang.org/install/) to make a new project for that toolchain, and add Regula to it:
 
-The first release, `v4.34.0`, is a legacy release for `leanprover/lean4:v4.34.0`. Its tag is the
-number of its Lean release, not a version of Regula. Thus in version order, its tag is above the
-tag of each later release, for example `v0.10.0`. `git tag --sort=-v:refname` and the tag list of
-GitHub show it first. Do not select a release by its position in such a list of tags.
+```sh
+lake +leanprover/lean4:v4.34.1 new demo
+cd demo
+cat >> lakefile.toml <<'EOF'
 
-1. **Require it** in `lakefile.toml`
-   (`lakefile.lean`: `require regula from git "https://github.com/rbeauchamp/regula" @ "v0.11.0"`):
-   ```toml
-   [[require]]
-   name = "regula"
-   git = "https://github.com/rbeauchamp/regula"
-   rev = "v0.11.0"
-   ```
-2. **Set it up and run it:**
+[[require]]
+name = "regula"
+git = "https://github.com/rbeauchamp/regula"
+rev = "v0.11.0"
+EOF
+lake update regula
+```
+
+Save the module of the example above as `Shortcut.lean` in `demo`. Then examine it:
+
+```sh
+lake exe axiomGate --file Shortcut.lean   # exit 1, with the findings above
+```
+
+The first command that runs Regula compiles it. On a laptop with 14 cores, that took 40 seconds. For the full text of a rule without a network, use `lake exe regula explain RG1001`.
+
+## Add it to your project
+
+Regula `v0.11.0` supports only the Lean toolchain `leanprover/lean4:v4.34.1`. For a different Lean release, use the [compatibility table](docs/guides/adoption.md#1-require-regula).
+
+1. Add the `[[require]]` table above to `lakefile.toml`. For `lakefile.lean`, add `require regula from git "https://github.com/rbeauchamp/regula" @ "v0.11.0"`.
+2. Get Regula, set up the project and run the linter:
    ```sh
    lake update regula
    lake exe regula init   # lint driver, leanOptions, foundation_manifest.json, AGENTS.md section
    lake lint              # 0 accepted · 1 violation · 2 invalid configuration · 3 incomplete
    ```
-   `init` writes only what is missing, in either lakefile format, and never changes a value you
-   set; running it again writes nothing. `lake exe regula doctor` reports anything missing or
-   wrong with its exact fix.
-3. **Review `foundation_manifest.json`.** The starter claims every library as
-   `standard-logical`, which admits ordinary classical proofs; strengthen a claim where you can,
-   and give each library a glob covering all its modules (`globs = ["MyLib", "MyLib.+"]`), which
-   `doctor` reports when a module is left out.
+3. Correct each finding, and run `lake lint` again.
 
-**To update**, change the tag, and `lean-toolchain` when the new release supports another
-toolchain, then run `lake update regula` and `lake exe regula init` again.
+`init` writes only the items that are missing, and it does not change a value that you set. Then it runs `lake exe regula doctor`, which tells each missing item and its fix. On a project from `lake new`, `doctor` asks for `globs = ["Demo", "Demo.+"]` in the `[[lean_lib]]` table, so that the library contains each module.
 
-**Why your first `sorry` shows [RG2003] and INCOMPLETE.** Lean warns `declaration uses 'sorry'`,
-and `lake lint` inspects its rules only after a build without warnings ([RG2003]). A warning
-stops the audit before that inspection, so the evidence the proof rules need is missing and
-the result is INCOMPLETE (exit 3), not a [RG1002] violation. Neither is accepted, and silencing
-the warning does not help: the hole is then reported as [RG1002]. For the same reason, a first run
-on an existing project usually reports build warnings, such as missing docstrings, before any
-foundation rule.
+`lake lint` examines its rules only after a build with no warnings. `init` turns on `linter.missingDocs`, thus the first run often stops at missing docstrings ([RG2003], exit 3). A `sorry` also gives a warning, thus it shows first as [RG2003] and not as [RG1002].
 
-The [adoption guide](docs/guides/adoption.md) covers fresh runs, CI and editor diagnostics.
+`foundation_manifest.json` claims each library as `standard-logical`, which permits `propext`, `Quot.sound` and `Classical.choice`. Where a library uses fewer axioms, change its claim to `choice-free` or `kernel-only` ([RG1005]).
+
+The [adoption guide](docs/guides/adoption.md) tells how to read a finding, how to run Regula in CI and in the editor, and how to update Regula.
 
 ## For coding agents
 
@@ -124,28 +120,16 @@ The [adoption guide](docs/guides/adoption.md) covers fresh runs, CI and editor d
   [compliance checklist](https://rbeauchamp.github.io/regula/standard/8-compliance-audit/),
   which includes semantic review.
 - [The roadmap](https://github.com/users/rbeauchamp/projects/8): where Regula is going, with no dates.
-- [Standalone examples](examples/README.md), the [documentation index](docs/README.md), the
-  [Lean module map](lean/README.md) and the
+- [Standalone examples](examples/README.md), the [documentation index](docs/README.md) with the
+  map of this repository, the [Lean module map](lean/README.md) and the
   [contributor guide](docs/guides/contributing.md#develop-and-verify).
 
-**Challenge it.** This is a public review draft.
+**Challenge it.**
 [Open an issue](https://github.com/rbeauchamp/regula/issues) for checker false positives or
 omissions, unclear or unnecessarily restrictive requirements, incorrect Lean claims or
 adoption difficulties. Cite the rule or section, and include a small Lean example and your
 toolchain version where useful. Report a security vulnerability privately instead, for example
 honest code that makes a violating project pass, as the [security policy](SECURITY.md) tells.
-
-## Repository map
-
-| Area | Purpose |
-| --- | --- |
-| [docs/](docs/README.md) | The guides, and where the standard's source lives. |
-| [lean/](lean/README.md) | The `regula` package adopters require, with no dependency beyond the Lean toolchain: the linter, its rule registry and proofs, and checked examples. |
-| [audit/](audit/lakefile.lean) | The package of the standard's example library (`Audit`), which imports only Lean's core libraries and requires `regula` by relative path as an adopter does. |
-| [integration/mathlib/](integration/mathlib/lakefile.lean) | The Mathlib integration package (`MathlibAudit`): a Mathlib adopter of `regula` that checks the Mathlib-specific behaviour Regula supports. Only `./scripts/verify.sh mathlib` and its CI job use it. |
-| [markdown/](markdown/lakefile.toml) | The package of the checks of the tracked Markdown documents. The checks are for the rule IDs in prose, for the writing rules with the baseline `prose-baseline.json`, and for the vocabulary [`CONTEXT.md`](CONTEXT.md). One more check is for the links of this file to the rule reference. Only `./scripts/verify.sh docs` uses it. |
-| [examples/](examples/README.md) | Adopting projects and the rule-example sources. |
-| [website/](docs/guides/website.md) | The standard's Verso source and the rule-reference site builder. |
 
 ## Supported toolchain
 
@@ -162,16 +146,7 @@ Each release supports only the Lean toolchain pinned in its `lean-toolchain`; th
 `lean/Regula/Checker/PolicyCodec.lean`, which keeps its upstream Apache 2.0 notice
 ([license text](LICENSES/Apache-2.0.txt); see [design influences](docs/guides/design-influences.md#adapted-code-and-licenses)).
 
-[RG1001]: https://rbeauchamp.github.io/regula/rules/RG1001/
 [RG1002]: https://rbeauchamp.github.io/regula/rules/RG1002/
-[RG1003]: https://rbeauchamp.github.io/regula/rules/RG1003/
-[RG1004]: https://rbeauchamp.github.io/regula/rules/RG1004/
 [RG1005]: https://rbeauchamp.github.io/regula/rules/RG1005/
-[RG1006]: https://rbeauchamp.github.io/regula/rules/RG1006/
-[RG1008]: https://rbeauchamp.github.io/regula/rules/RG1008/
 [RG2003]: https://rbeauchamp.github.io/regula/rules/RG2003/
-[RG2004]: https://rbeauchamp.github.io/regula/rules/RG2004/
 [RG2006]: https://rbeauchamp.github.io/regula/rules/RG2006/
-[RG3001]: https://rbeauchamp.github.io/regula/rules/RG3001/
-[RG3002]: https://rbeauchamp.github.io/regula/rules/RG3002/
-[RG5001]: https://rbeauchamp.github.io/regula/rules/RG5001/

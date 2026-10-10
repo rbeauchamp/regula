@@ -796,6 +796,8 @@ release. It also refuses a different use of that address in quotation marks. The
 and the adoption guide must each have a `require` of each form, or the step refuses. The release
 pull request sets each `require` to its release, and reads its edit back.
 
+The same step reads each mention of a release in the root `README.md`. The text ``Regula `v<version>` `` is a mention of a release of Regula, and the text `leanprover/lean4:<release>` is a mention of a Lean toolchain. The step refuses a mention that does not name the latest listed release or the toolchain of that release. It also refuses a `README.md` without a mention of each kind, and a mention without its version or its closing backtick. The release pull request sets each mention to its release or to the toolchain of the release, and reads its edit back. The theorems `mentionsAgree_iff` and `unmentioned_eq_nil_iff` state the two decisions.
+
 `main` never carries a release label: `Regula.installed`
 ([`RegulaCore.Edition`](../../lean/RegulaCore/Edition.lean)) is `.unreleased` on every commit of
 `main` and of a pull request, which the first step of the required `verify` check enforces
@@ -808,7 +810,8 @@ until the release commit has passed the same checks as `main`:
    creates the commit of the release pull request, a child of the `main` commit the workflow runs
    on that appends the release with its toolchain to `Regula.releases`, sets `lakefile.lean`'s
    `version` to it, adds its row to the adoption guide's compatibility table, sets each
-   `require` of Regula in the tracked Markdown documents to it, and stamps it into
+   `require` of Regula in the tracked Markdown documents and each mention of a release in
+   `README.md` to it or to its toolchain, and stamps it into
    rule lifecycle positions still `.unreleased`
    ([`RegulaCore.Rule`](../../lean/RegulaCore/Rule.lean)): each `.unreleased` on a line that
    starts `lifecycle :=`. `.unreleased` is the placeholder for both positions: a new rule states

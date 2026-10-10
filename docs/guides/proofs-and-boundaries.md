@@ -3769,8 +3769,9 @@ patch `0` exactly when it starts a new line (`follows_startsLine_iff`). The rest
 and of the edited files, its check that a commit of `main` or of a pull request is unreleased,
 `agree`, and `adopt`, which checks, with `git` trusted, that the release commit is the content CI
 derived from `main`'s commit before CI records it as that commit. Its edits of
-`RegulaCore/Edition.lean`, `lakefile.lean`, the adoption guide's compatibility table and each
-`require` of Regula in the tracked Markdown documents are read back before use; its stamps of
+`RegulaCore/Edition.lean`, `lakefile.lean`, the adoption guide's compatibility table, each
+`require` of Regula in the tracked Markdown documents and each mention of a release in the root
+`README.md` are read back before use; its stamps of
 `RegulaCore/Rule.lean` are a convenience that reads text. `agree`,
 a step of `verify` before acceptance, refuses a `lakefile.lean` version, as Lake reads it
 (`lake reservoir-config`), other than the latest listed release's, a compatibility table
@@ -3779,7 +3780,7 @@ document that names a different release than the latest listed one, as the text 
 `setPins` reads it (`pinsAgree_iff`). That reading finds a `require` only on a line with the
 repository's address in quotation marks, exactly as `gitUrl` writes it. Thus `agree` also refuses
 unless the root `README.md` and the adoption guide each have a `require` of each form
-(`unpinned_eq_nil_iff`). The kernel checks the edited modules' theorems when
+(`unpinned_eq_nil_iff`). `agree` also reads each mention of a release in the root `README.md` with the text reading `setMentions`. It refuses a mention that names a different release than the latest listed one or its toolchain (`mentionsAgree_iff`). It also refuses a `README.md` without a mention of each kind (`unmentioned_eq_nil_iff`). The kernel checks the edited modules' theorems when
 the release pull request's checks and CI's checks of the release commit build them:
 `releases_ascending`, `releases_follow`, `installed_listed`, `release_attributes_rules` (when
 `installed` is a release, no lifecycle position of any rule is `.unreleased`; on the release

@@ -1,15 +1,10 @@
 # Adopt Regula
 
-Regula checks the mechanical requirements of the
-[standard](https://rbeauchamp.github.io/regula/dev/standard/) in your own Lean project: `lake lint`
-rejects holes, project axioms, compiler-trusting proofs and axioms beyond the foundation you
-claim, and names every compiled boundary your executables reach. Conformance additionally needs
-the semantic review of the [compliance checklist](https://rbeauchamp.github.io/regula/dev/standard/8-compliance-audit/),
-which a passing run does not replace ([semantic review](#complete-semantic-review)).
+Regula is a strict linter for Lean projects. `lake lint` does not accept a theorem that depends on an `axiom` of your project, on `native_decide` or on a `sorry`, also through its imports. This guide is the full procedure to adopt Regula. For a first try on one module, see [Try it](../../README.md#try-it) in the README.
 
-The first four steps take a project from `require` to its first `lake lint`. They use your own
-layout, module names and lakefile format; nothing named `Audit`, `Fixtures` or `tmp` from this
-repository is required. The normative definitions behind them are in
+The four steps below take a project from `require` to its first `lake lint`. They use the layout, the module names and the lakefile format of your project. A pass of `lake lint` does not replace the semantic review of the [compliance checklist](https://rbeauchamp.github.io/regula/dev/standard/8-compliance-audit/) (see [semantic review](#complete-semantic-review)).
+
+The normative definitions behind the steps are in
 [standard §7.10](https://rbeauchamp.github.io/regula/dev/standard/7-tooling-and-machine-audit/#710-adopting-the-checker-in-another-project).
 
 ## 1. Require Regula
@@ -83,8 +78,14 @@ keeps the Mathlib revision it pins.
 
 ### When your Lean release has no Regula release
 
-Each Regula release supports exactly one Lean release, the one in its `lean-toolchain`; a Lean
-patch release such as `v4.34.1` is another release. Lake loads Regula with the Lean your project
+Each Regula release supports one Lean release. A patch release of Lean, for example `v4.34.1`, is a different release. Do one of these:
+
+- Move your project to the Lean release of a Regula release. Set `lean-toolchain`, move Mathlib to a revision for that release if you use it, and run `lake update`.
+- Require an older Regula release that supports your Lean release, from the [compatibility table](#1-require-regula).
+
+If the two Lean releases are different, the `lakefile.lean` of this release of Regula stops before it compiles the checker, with the message `Regula's compiler guard stopped`. Older releases give a different message, or have no such guard. The text below gives the details.
+
+Lake loads Regula with the Lean your project
 runs. Regula `v0.2.0` through `v0.5.0` stop in Regula's `lakefile.lean` before anything compiles
 when that Lean's version differs, naming both releases; they compare only the version, not the
 compiler's commit, and the earlier `v4.34.0` tag has no such guard:
@@ -113,10 +114,7 @@ selects, whichever compiler an override runs. For a Lean too old to run its iden
 instead reports that the pin selects no installed compiler that reports its identity, with the
 probe's error.
 
-Move your project to the supported Lean release first: set `lean-toolchain`, move Mathlib (if you
-use it) to a revision for that release the usual way, and run `lake update`. Otherwise require a
-Regula release that supports your Lean from the [compatibility table](#1-require-regula), if there
-is one. When no other dependency pins a
+When no other dependency pins a
 toolchain, `lake update` itself moves an older `lean-toolchain` to Regula's release and restarts.
 When Mathlib pins another one, `lake update` prints `toolchain not updated; multiple toolchain
 candidates` and keeps yours, so the stop above follows.
@@ -138,6 +136,8 @@ lake exe regula init            # or: lake exe regula init --skill
 | Options | The `leanOptions` the rules require for every claimed target, each only where neither the package nor the target gives it a value and no `-D` in the target's `weakLeanArgs` or `moreLeanArgs` (its own or the package's) sets it: in the package's configuration when every root target is claimed (as the starter manifest claims them all) and no claimed target's `-D` sets the option, and otherwise in each claimed target's own `[[lean_lib]]`/`[[lean_exe]]` table or `lean_lib`/`lean_exe` declaration, so no option reaches a target the manifest excludes or a target whose `-D` sets it; while an existing manifest does not load or classify every root target, none, until `doctor`'s [RG2002] finding is fixed. They are `autoImplicit` and `relaxedAutoImplicit` false and `linter.missingDocs` true, and, when your workspace contains Mathlib, Mathlib's standard linter set with its three exclusions ([community linters](#community-conventions-and-linters)). |
 | Manifest | A starter `foundation_manifest.json` that claims every `lean_lib` as `standard-logical` with `report` execution and lists every `lean_exe` with the first library that contains its root module, or with the first library when none does ([step 3](#3-review-the-claimed-surface)). A manifest claims each surface per library, a `lean_exe` belonging to a library's surface, so a package with no `lean_lib` (such as Lake's `exe` template) gets none: `init` writes the other pieces and `doctor` asks you to add a library, after which `init` writes the starter. |
 | Agent guidance | A short `## Lean standard: Regula` section in your repository's `AGENTS.md`, or with `--skill` the briefing as `.agents/skills/regula/SKILL.md` at the repository root: the root of the Git repository that contains the Lake project (the nearest directory holding `.git`), or the Lake project outside a Git repository. `init` looks for `AGENTS.md` from the Lake project's directory up to the repository root and adds the section to the nearest one, so a Lake project in a subdirectory such as `lean/` without its own `AGENTS.md` uses the repository's root one; there the section ends by naming the directory its `lake` commands run in. When there is none, it creates `AGENTS.md` at the repository root and says so. `doctor` and `init` print each path relative to the Lake project, such as `../AGENTS.md` or `../.agents/skills/regula/SKILL.md`. A section already in a nearer `AGENTS.md` counts; if an earlier `init` created `lean/AGENTS.md` with only the section, or `lean/.agents/skills/regula/SKILL.md`, delete that file and run `init` again. In a repository with several Lake projects, the first to run `init` adds the section; name the other projects' directories in it by hand. `init` also rewrites `.claude/skills/regula/SKILL.md` at the repository root, where Claude Code discovers project skills, whenever that file exists and differs from the installed briefing, but never creates it (copy the `.agents` file there for Claude Code). Both files are generated and owned by `init`: re-running it replaces local edits and prints each file it replaced. |
+
+On a project from `lake new`, `init` ends with one problem from `doctor`: the library does not include a module that a claimed module imports. Add `globs = ["Demo", "Demo.+"]` to the `[[lean_lib]]` table, with the name of your library ([step 3](#3-review-the-claimed-surface)).
 
 It never changes a value you set: a lint driver of your own, an option with another value and an
 existing manifest stay as they are, and `lake exe regula doctor` reports each with its fix. A
@@ -301,6 +301,8 @@ and the toolchain's own library code remain trusted in every mode; the checker v
 source, not the compiler or the machine.
 
 ## 4. Run `lake lint`
+
+**The first runs.** `lake lint` examines its rules only after a build with no warnings. Thus on a new project, the first run usually reports missing docstrings as [RG2003], with exit 3. When you add them, the next run reports each module without a module docstring as [RG5001], with exit 1. A `sorry` also gives a warning. Thus it shows as [RG2003], and the other findings stay hidden until you remove it.
 
 From the project root:
 
