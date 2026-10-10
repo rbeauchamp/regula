@@ -40,32 +40,33 @@ inductive CodeStatus where
   | missing
   deriving Repr, DecidableEq, Inhabited
 
-/-- The part of a name's record that the pass observes: its module, the constants its value uses,
-the simplification candidates the search finds and the compiled recursion helper. The marks
-`@[extern]` and `@[implemented_by]` decide whether the pass reads the value at all, and where it
-does, these are the constants of the value. -/
+/-- The part of a name's record that no mark decides: the module that the environment attributes to
+the name, and the simplification candidates at it. `Probe.observeNode` reads the candidates before
+any attribute test, from a search over constant types alone. -/
 structure NodeRecord.ToolchainObserved where
   /-- The module that declares the name, when the environment attributes one. -/
   moduleName : Option Name := none
-  /-- The names that the logical value of this name uses. -/
-  logicalTargets : Array Name := #[]
-  /-- The targets of the simplification candidates of this name: declarations whose type is an
-  equality with this name, registered with `@[csimp]` or not. -/
+  /-- The targets of the simplification candidates of this name: constants whose type is an
+  equality of this name and another constant with the same list of distinct universe parameters,
+  registered with `@[csimp]` or not. -/
   candidateTargets : Array Name := #[]
-  /-- The compiled recursion helper of this name. -/
-  helperTargets : Array Name := #[]
   deriving Inhabited
 
-/-- The part of a name's record that marks an audited project writes decide: the calls of its
-retained compiler body, which include the initializers that `@[init]` names, the status of that
-body, which reads `@[extern]`, the targets of its replacement history, of its current
-`@[implemented_by]` replacement and of its active `@[csimp]` simplification, the replacement targets
-of the cycle search, and its unresolved paths, which include those of its replacement history. -/
+/-- The part of a name's record that marks an audited project writes decide. `@[extern]` and
+`@[implemented_by]` decide whether the pass reads the value at all, so they decide the constants its
+value uses and its compiled recursion helper. The retained calls include the initializers that
+`@[init]` names, and the status of the compiler body reads `@[extern]`. The replacement, history and
+simplification targets are the data of `@[implemented_by]`, of the replacement history and of
+`@[csimp]`, and the unresolved paths include those of the replacement history. -/
 structure NodeRecord.ProjectWritten where
   /-- The names that the retained compiler body of this name calls or names as initializers. -/
   compilerDependencies : Array Name := #[]
   /-- The retained compiler body of this name. -/
   code : CodeStatus := .missing
+  /-- The names that the logical value of this name uses. -/
+  logicalTargets : Array Name := #[]
+  /-- The compiled recursion helper of this name. -/
+  helperTargets : Array Name := #[]
   /-- The targets that the replacement history of this name records. -/
   historyTargets : Array Name := #[]
   /-- The current replacement target of this name. -/
