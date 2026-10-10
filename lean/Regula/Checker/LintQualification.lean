@@ -770,9 +770,11 @@ loaded by the fresh copy too. A configuration that computes from its own directo
 or which of its libraries provides a module, makes the fresh copy's Lake load differ, which is
 refused. A package that provides `Regula.Contract` with a source other than the checker's own is
 refused before any environment loads: a dependency required after the checker or before it, and a
-vendored package that Lake loads under the name `regula`. A module name that two packages provide,
-an executable root `Main` of the root package and of the dependency, or `Support` of the dependency
-and of a second owned one, is refused before the driver builds its audit worker. An override in
+vendored package that Lake loads under the name `regula`. An executable root `Main` of the root
+package is accepted beside `regula`'s own, since a trusted package's executable roots are not
+counted. A module name that two packages provide, an executable root `Main` of the root package and
+of the dependency, or `Support` of the dependency and of a second owned one, is refused before the
+driver builds its audit worker. An override in
 `.lake/package-overrides.json` that selects the dependency
 in place of one elsewhere is owned in the fresh copy too, and of two override entries the fresh
 copy loads the last, as Lake does. As a Git work tree of its own it is trusted: the forged theorem
@@ -942,25 +944,29 @@ private def pathDependency (repo adopter : FilePath) : IO (Array String) := do
   IO.FS.writeFile adopterLakefile adopterConfiguration
   writeJson vendorManifestPath vendorManifest
   IO.FS.removeDirAll vendor
-  -- An executable of the root package and an unused one of the owned dependency, each with a root
-  -- module `Main` of its own package: one module name with two providers, which every audit
-  -- refuses before any build, whichever environment would load either.
+  -- An executable of the root package with root module `Main`, which the executable `auditApp` of
+  -- the trusted `regula` also has: a trusted package's executable roots are not counted, so the
+  -- incremental audit accepts it. An unused executable of the owned dependency with root module
+  -- `Main` of its own package is a second provider, which every audit refuses before any build,
+  -- whichever environment would load either.
   let ambiguous (label name : String) : Expectation := {
     label, exitCode := 3,
     contains := #["lake-query-malformed", s!"module {name} is provided by package",
-      "one provider for each module name", unbuiltWorker, "regula lint: INCOMPLETE (exit 3)"] }
+      "package 'build_lint_support'", "one provider for each module name", unbuiltWorker,
+      "regula lint: INCOMPLETE (exit 3)"] }
   let manifestFile := adopter / "foundation_manifest.json"
   let adopterManifest ← IO.FS.readFile manifestFile
   let mainSource := "/-! An entry point. -/\n\n/-- Runs nothing. -/\ndef main : IO Unit := pure ()\n"
   IO.FS.writeFile (adopter / "Main.lean") mainSource
-  IO.FS.writeFile (support / "Main.lean") mainSource
   IO.FS.writeFile adopterLakefile <| adopterConfiguration ++
     "\nlean_exe widgetMain where\n  root := `Main\n"
-  IO.FS.writeFile supportLakefile <| supportConfiguration ++
-    "[[lean_exe]]\nname = \"supportUtil\"\nroot = \"Main\"\n"
   mutate manifestFile "\"excluded-executables\": []"
     "\"excluded-executables\": [{\"executable\": \"widgetMain\", \"rationale\": \"An entry point \
       outside the claimed surface.\"}]"
+  failures := failures ++ (← expect adopter (owned "path/root-executable-main"))
+  IO.FS.writeFile (support / "Main.lean") mainSource
+  IO.FS.writeFile supportLakefile <| supportConfiguration ++
+    "[[lean_exe]]\nname = \"supportUtil\"\nroot = \"Main\"\n"
   failures := failures ++ (← expect adopter (ambiguous "path/owned-executable-names" "Main"))
   IO.FS.writeFile adopterLakefile adopterConfiguration
   IO.FS.writeFile manifestFile adopterManifest

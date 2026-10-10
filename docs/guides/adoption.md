@@ -362,11 +362,15 @@ the audit replays, or from Lean's own library.
 
 Your root package and each owned path dependency must keep Lake's default output layout, in each
 audit. The audit refuses a `buildDir`, `leanLibDir`, `nativeLibDir`, `binDir` or `irDir` other
-than Lake's default before it builds your project, as `lake-workspace-load-failed`. Each module name
-of your workspace must have one provider. The audit refuses a name that two packages provide, for
-example an executable root `Main` in your package and in a dependency, as `lake-query-malformed`.
-The prefixes `Regula` and `RegulaPolicy` belong to Regula: each audit refuses a module under them
-that does not have Regula's own source text.
+than Lake's default before it builds your project, as `lake-workspace-load-failed`. The prefixes
+`Regula` and `RegulaPolicy` belong to Regula: each audit refuses a module under them that does not
+have Regula's own source text.
+
+Each module name of your workspace must have one provider. The audit counts the library modules of
+each package, and the executable roots of your package and of each owned path dependency. It
+refuses a name that two of them provide, as `lake-query-malformed`. For example, it refuses an
+executable root `Main` in your package and in an owned path dependency. The executable roots of a
+trusted dependency are not counted, thus your `Main` can be beside the `Main` of Regula.
 
 While the claimed targets build, the driver shows Lake's own progress line for each job that
 does work (`✔ [3/10] Built Widget (1.2s)`), including a cached module whose warnings Lake

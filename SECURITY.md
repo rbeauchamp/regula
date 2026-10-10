@@ -74,9 +74,11 @@ a source that you do not trust, use [comparator](https://github.com/leanprover/c
 
 Regula owns the path dependencies in the Git work tree of the project only in a supported
 workspace. In it, each owned package, the root package included, keeps Lake's default output
-layout, and no two packages provide a module of the same name. Regula refuses any other workspace
-before it builds the project or a copy of it. Lake builds the program that runs the audit before
-that check, for example the `lake lint` driver. The verification driver of this repository also
+layout. Also, no two packages provide a module of the same name. For this condition, Regula counts
+the library modules of each package and the executable roots of each owned package. Regula refuses
+any other workspace before it builds the project or a copy of it.
+
+Lake builds the program that runs the audit before that check, for example the `lake lint` driver. The verification driver of this repository also
 builds its own copy first. These two builds are of Regula's own package.
 
 Regula reserves the module name prefixes `Regula` and `RegulaPolicy` to itself. In each audit, only

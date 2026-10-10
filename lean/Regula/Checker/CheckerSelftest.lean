@@ -2719,8 +2719,10 @@ private def adopterLakeManifest (repo : FilePath) (checkerDir : String) : IO Jso
 
 /-- External adopter qualification: a scratch project that requires the
 checker package by local path in each lakefile format, with one conforming
-library, a standalone `Main` executable root, and empty exclusion arrays. The
-scratch projects contain nothing named `Audit` or `Fixtures` and share only
+library, a standalone `Main` executable root, and empty exclusion arrays. Each
+scratch project is a Git repository of its own, so the checker package is a
+trusted dependency whose own `Main` executable root is not a second provider.
+The scratch projects contain nothing named `Audit` or `Fixtures` and share only
 the pinned dependency checkouts. The `relative` variant requires the checker
 by a relative path (the form a project nested inside another repository
 uses), which the §7.3 isolated copy must re-anchor to the original project;
@@ -2762,6 +2764,11 @@ private unsafe def adopterQualification (repo scratch : FilePath) : IO (Array St
       (adopter / ".lake" / "packages").toString]
     if !link.succeeded then
       throw <| IO.userError s!"could not link pinned Lake packages: {link.output}"
+    -- An adopter is a repository of its own, so `regula`, which it requires from this checkout, is
+    -- a dependency in a different Git work tree, which the audit trusts, as an adopter's is.
+    let initialized ← runProcess adopter "git" #["init", "-q"]
+    if !initialized.succeeded then
+      throw <| IO.userError s!"adopter/{label}/setup: git init failed: {initialized.output}"
     let gate (args : Array String := #[]) :=
       runBinaryFrom repo adopter "axiomGate" args
     let positive ← gate #["--verbose"]

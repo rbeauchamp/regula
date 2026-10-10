@@ -156,9 +156,11 @@ def buildableModules (library : _root_.Lake.LeanLib) : IO (Array Name) := do
   names.get
 
 /-- Each library and executable of `package`, with the modules it provides by the package's own
-module resolution (`buildableModules`, each once in `Name.quickLt` order, and an executable's root) and the options it builds them with
-(`libraryOptions`, `executableOptions`); and each of those modules with its source path as the
-package's configuration gives it, before Lake resolves each name to one package of the workspace.
+module resolution (`buildableModules`, each once in `Name.quickLt` order, and an executable's
+root) and the options it builds them with (`libraryOptions`, `executableOptions`); and each of
+those modules with its source path as the package's configuration gives it, before Lake resolves
+each name to one package of the workspace. `checkOneProvider` counts a library's modules of each
+package, and an executable's root only of the root package and an owned dependency.
 -/
 def packageModules (package : _root_.Lake.Package) :
     IO (Array TargetInventory × Array (Name × FilePath)) := do
@@ -178,14 +180,20 @@ def packageModules (package : _root_.Lake.Package) :
   return (targets, sources)
 
 /-- Refuse a module name that more than one package of the workspace provides by its own module
-resolution (`TargetInventory.modules`). `packages` gives each package's name with its targets, the
-root package first. An audit supports one provider for each module name: Lake refuses an import of
-a name with two providers only when it finds their definitions distinct, and which one's artifact an
-environment loads otherwise follows the search path, not the package. -/
-def checkOneProvider (packages : Array (String × Array TargetInventory)) : IO Unit := do
+resolution (`TargetInventory.modules`), counting each package's library modules and the executable
+roots of the root package and of each owned dependency. `packages` gives each package's name,
+whether the audit owns it, and its targets, the root package first. An audit supports one provider
+for each such name: Lake refuses an import of a name with two providers only when it finds their
+definitions distinct, and which one's artifact an environment loads otherwise follows the search
+path, not the package. A trusted package's executable roots are not counted: Lake resolves an
+import only to a library module (`Lake.Package.findModule?`), and a loaded module that an owned
+package provides is attributed only to that package's own artifact (`Environment.attributeLoaded`).
+-/
+def checkOneProvider (packages : Array (String × Bool × Array TargetInventory)) : IO Unit := do
   let mut providers : Std.HashMap Name String := {}
-  for (package, targets) in packages do
+  for (package, owned, targets) in packages do
     for target in targets do
+      unless owned || target.target.startsWith "lean_lib " do continue
       for name in target.modules do
         match providers[name]? with
         | some other =>
@@ -307,9 +315,11 @@ def surfaceInventory (repo : FilePath) : IO SurfaceInventory :=
              configuration := ← IO.FS.readFile package.configFile
              outputDirectories := packageOutputDirectories package, targets } :
               DependencyInventory)
-    -- One provider for each module name of the workspace, by each package's own resolution.
-    checkOneProvider (#[(pkg.baseName.toString, targets)] ++
-      dependencies.map fun dependency => (dependency.package, dependency.targets))
+    -- One provider for each library module of the workspace and each executable root of an owned
+    -- package, by each package's own resolution.
+    checkOneProvider (#[(pkg.baseName.toString, true, targets)] ++
+      dependencies.map fun dependency =>
+        (dependency.package, dependency.owned, dependency.targets))
     let root ← IO.FS.realPath repo
     let inventory : SurfaceInventory := {
       root, package := pkg.baseName.toString, outputDirectories := packageOutputDirectories pkg

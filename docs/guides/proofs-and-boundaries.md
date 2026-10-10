@@ -2425,10 +2425,14 @@ neither is owned.
 Ownership has a supported scope. Each audit, incremental or fresh, refuses two things before it
 builds the project or a copy. `checkDefaultLayout` refuses an owned package, the root package included, that sets an
 output directory other than Lake's default. It compares the configured values, with no path
-resolved. `checkOneProvider` refuses a module name that two packages of the workspace provide, by
-each package's own libraries and executable roots, as `lake-query-malformed`. Lake refuses an
-import of such a name only when it finds the two definitions distinct, and otherwise the search
-path decides which artifact loads.
+resolved.
+
+`checkOneProvider` refuses a module name that two packages of the workspace provide, as
+`lake-query-malformed`. It counts the library modules of each package, and the executable roots of
+the root package and of each owned dependency. Lake refuses an import of such a name only when it
+finds the two definitions distinct, and otherwise the search path decides which artifact loads.
+Lake resolves an import only to a library module, thus the executable roots of a trusted package
+are not counted.
 
 Two builds of Regula's own package come before these checks. Lake builds the program
 that runs the audit, such as the `lake lint` driver, before it starts that program. The
