@@ -566,8 +566,8 @@ def descriptor : (id : RuleId) → RuleDescriptor id
       applicability := "escape-hatch"
       evidenceModes := .editorSnapshot :: declarationModes
       requirement := "Claimed modules declare nothing `unsafe` or `partial`, authored or \
-        generated, except a generated recursion or constructor-index helper passing its exact \
-        §7.4 authentication."
+        generated, except a generated recursion helper passing its exact §7.4 \
+        authentication."
       rationale := "A positive proof surface must consist of kernel-checked definitions. Unsafe \
         and partial code can be executed, but it cannot serve as logical evidence, and reasoning \
         about it silently depends on its runtime behavior."

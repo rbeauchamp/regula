@@ -158,13 +158,12 @@ proofs, and the origin-checked boundaries of the toolchain's trusted base. The p
 execution parsers stay the configuration authority: claim text in a diagnostic describes that
 context and is not an independent policy decision.
 
-`Roles` recomputes native axioms, recursion helpers and constructor-index wrappers separately
-for each inventory, and the implementations its decision contracts decide (`decided`,
-`Roles.decided_iff`), which [RG1008] reads. Declaration safety uses the union of the two helper families;
-`Roles.safetyHelpers_iff` states that a name is in it exactly when one of the two full relations
-holds for it, and the separate fields keep the families apart. Finding attribution still uses
-only the recursion-helper relation, while reports expose constructor-index membership separately.
-Neither family changes the original unsafe/partial fields or execution-boundary correspondence.
+`Roles` recomputes native axioms and recursion helpers separately for each inventory, and the
+implementations its decision contracts decide (`decided`, `Roles.decided_iff`), which [RG1008]
+reads. Declaration safety uses the recursion helpers; `Roles.safetyHelpers_iff` states that a name
+is one exactly when the full recursion-helper relation holds for it. No unsafe constructor-index
+wrapper is admitted. Neither family changes the original unsafe/partial fields or
+execution-boundary correspondence.
 
 `Location` is a source range (exact text with byte offsets for full and selection ranges), a
 module, or a project/configuration scope. `admitSource` (claimed `RegulaCore.Source`) checks

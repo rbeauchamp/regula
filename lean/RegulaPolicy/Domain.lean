@@ -1323,9 +1323,9 @@ writes. State a project writes can still enter an observation, and each field sa
 `prettyType` and `isProp` are Lean's own answers, which read the notations and the reducibility
 statuses in force; `nativeReplay` runs compiled code; and what a project writes selects which
 regeneration `unsafeRecRegenerated` reports, while the pure comparison and the kernel decide it.
-The three observations that a project-written mark does decide, `constructorIndex`,
-`executableContract` and `tableOmissions`, are fields of `Declaration.ProjectWritten`. No policy
-theorem proves an observation truthful. -/
+The two observations that a project-written mark does decide, `executableContract` and
+`tableOmissions`, are fields of `Declaration.ProjectWritten`. No policy theorem proves an
+observation truthful. -/
 structure Declaration.ToolchainObserved where
   /-- The module that declares the constant, as Lean's import record of the inspected
   environment gives it. Structural original Name for new diagnostic transport; absent legacy
@@ -1371,9 +1371,9 @@ def tableOmissionText (axioms omissions : Array Lean.Name) : String :=
 
 /-- The part of a declaration's record that is read from environment state an audited project
 can write, or that such state decides: an environment extension's entry, an attribute, a
-declaration range, and the three observations of the checker that read such marks directly
-(`constructorIndex`, `executableContract`, `tableOmissions`). Lean's own commands write this state
-for the declarations they add, and a metaprogram of the audited project can write it for any
+declaration range, and the two observations of the checker that read such marks directly
+(`executableContract`, `tableOmissions`). Lean's own commands write this state for the
+declarations they add, and a metaprogram of the audited project can write it for any
 declaration. A decision that reads one of these fields rests on what the project recorded, so no
 field here is evidence that a declaration is what the record says. -/
 structure Declaration.ProjectWritten where
@@ -1400,16 +1400,6 @@ structure Declaration.ProjectWritten where
   constructor, a recursor's or equation lemma's declaration, and so on; `none` when Lean did not
   generate it from another declaration. -/
   generatedFrom : Option Lean.Name
-  /-- For a replay candidate matching the pinned constructor-index generator: its inductive
-  parent and safe base. The observer (`Collect.constructorIndexObservation`) checks the
-  kernel-generated eliminator, the base's exact alternatives, and the closed `getObjTagNat` wrapper
-  without compiling any declaration. This records a structural observation, not native execution
-  correspondence. It is a field of this part because marks a project writes decide it: the
-  observer requires that the base's replacement (`@[implemented_by]`) is the helper, that the
-  helper has no replacement and no recorded declaration range, that neither has an `extern`
-  implementation, that the eliminator has no replacement and no `extern` implementation, and that
-  `getObjTagNat` has no replacement. -/
-  constructorIndex : Option (Lean.Name × Lean.Name)
   /-- The collector's observation when the constant registers an executable contract: its type
   reduced to an `ExecutableContract`, with the refusals the collector finds. It is a field of this
   part because a mark a project writes decides one refusal: the collector reads whether Lean
@@ -1486,8 +1476,8 @@ instance : Coe Declaration Declaration.Registration := ⟨Declaration.registrati
 
 /-- What the role validators read of a declaration's record, and nothing else: the inspected part
 (kernel-checked declaration data and toolchain observations), and the attribute and range marks
-that the project writes. The marks are the replacement (`@[implemented_by]`), the `extern` mark,
-the recorded declaration ranges and the constructor-index observation, which such marks decide. -/
+that the project writes: the replacement (`@[implemented_by]`), the `extern` mark and the recorded
+declaration ranges. -/
 structure Declaration.Role extends Declaration.Inspected where
   /-- The constant the compiler runs in its place (`Declaration.ProjectWritten.implementedBy`). -/
   implementedBy : Option Lean.Name
@@ -1496,18 +1486,15 @@ structure Declaration.Role extends Declaration.Inspected where
   /-- Lean's declaration ranges as it recorded them (`Declaration.ProjectWritten.recordedRanges`).
   -/
   recordedRanges : Option Ranges
-  /-- The constructor-index observation (`Declaration.ProjectWritten.constructorIndex`). -/
-  constructorIndex : Option (Lean.Name × Lean.Name)
   deriving Repr, DecidableEq
 
-/-- The role part of a declaration's record: the inspected part and the four marks, each read
+/-- The role part of a declaration's record: the inspected part and the three marks, each read
 through the part that declares it, so a move of a mark to another part fails here. -/
 def Declaration.role (d : Declaration) : Declaration.Role :=
   { d.toInspected with
     implementedBy := d.toProjectWritten.implementedBy
     «extern» := d.toProjectWritten.extern
-    recordedRanges := d.toProjectWritten.recordedRanges
-    constructorIndex := d.toProjectWritten.constructorIndex }
+    recordedRanges := d.toProjectWritten.recordedRanges }
 
 /-- The inspected part of the role part is the inspected part of the record. -/
 @[simp] theorem Declaration.role_toInspected (d : Declaration) :
@@ -1524,9 +1511,15 @@ def Declaration.role (d : Declaration) : Declaration.Role :=
 @[simp] theorem Declaration.role_recordedRanges (d : Declaration) :
     d.role.recordedRanges = d.recordedRanges := rfl
 
-/-- The constructor-index observation of the role part is the observation of the record. -/
-@[simp] theorem Declaration.role_constructorIndex (d : Declaration) :
-    d.role.constructorIndex = d.constructorIndex := rfl
+/-- The role part with each project-written mark at its neutral value: no replacement, no `extern`
+implementation and no recorded range. The narrowing theorems compare a validator's answer on a
+record with its answer on this (`NativeTeachingOK.neutral`, `RecursiveHelperOK.neutral`). -/
+def Declaration.Role.neutral (r : Declaration.Role) : Declaration.Role :=
+  { r with implementedBy := none, «extern» := false, recordedRanges := none }
+
+/-- The neutral form keeps the inspected part. -/
+@[simp] theorem Declaration.Role.neutral_toInspected (r : Declaration.Role) :
+    r.neutral.toInspected = r.toInspected := rfl
 
 /-- The role parts of an inventory's records, in inventory order. -/
 def roleRecords (ds : Array Declaration) : Array Declaration.Role :=
@@ -1569,11 +1562,16 @@ coercion leaves the assessed part: a requirement over a narrower part names the 
 record reaches each narrower part along one path only. -/
 instance : Coe Declaration Declaration.Assessed := ⟨Declaration.assessed⟩
 
-/-- A constructor-index helper spelling selects a candidate parent and base; it authorizes
-neither declaration. The replay observer and inventory relation establish its role. -/
-def constructorIndexOrigin? : Lean.Name → Option (Lean.Name × Lean.Name)
-  | .str (.str parent "ctorIdx") "_impl" => some (parent, parent.str "ctorIdx")
-  | _ => none
+/-- The assessed part with its recorded contract refusing nothing: no refusal (`failure`) and no
+shared test (`shared`). The narrowing theorems compare a decision's answer on a record with its
+answer on this (`DeclarationOK.neutral`, `OperationalOK.neutral`). -/
+def Declaration.Assessed.neutral (d : Declaration.Assessed) : Declaration.Assessed :=
+  { d with executableContract := d.executableContract.map fun c =>
+      { c with failure := none, shared := {} } }
+
+/-- The neutral form keeps the inspected part. -/
+@[simp] theorem Declaration.Assessed.neutral_toInspected (d : Declaration.Assessed) :
+    d.neutral.toInspected = d.toInspected := rfl
 
 /-- The roots of the library packages the Lean toolchain ships as its own code: `Init`, `Std`
 and `Lean`. A module under one of them is toolchain code only with an admitted origin

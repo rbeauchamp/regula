@@ -1,4 +1,6 @@
-/-! Constructor-index admission for parameters, indices, an empty type, and private types. -/
+/-! Lean's generated constructor-index constructions (`T.ctorIdx`) for parameters, indices, an empty
+type and private types pass: the pinned compiler builds each by `casesOn`, safe, with no unsafe
+helper. -/
 
 universe u
 

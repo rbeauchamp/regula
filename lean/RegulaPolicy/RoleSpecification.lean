@@ -7,11 +7,12 @@ public import RegulaPolicy.NativeAxiom
 Generated-role relations over the complete observation inventory. A native-proof axiom needs
 exact metadata, replay and command provenance; a recursion helper needs exact metadata and the
 observation that Lean's own recursion compiler regenerates its base from it and that Lean's kernel
-checks the base's recursion equation for it. A constructor-index wrapper has a separate structural
-observation linked to an owned safe parent and base. These finite decidable relations do not attest
-that an observation is truthful. They take the role part of each record (`Declaration.Role`): the
-inspected part and the four project-written marks they read, the replacement, the `extern` mark,
-the recorded ranges and the constructor-index observation, and no other field. -/
+checks the base's recursion equation for it. No unsafe constructor-index wrapper is a role: the
+pinned compiler generates none, and the exception for one was removed until a port to a compiler
+that generates it. These finite decidable relations do not attest that an observation is truthful.
+They take the role part of each record (`Declaration.Role`): the inspected part and the three
+project-written marks they read, the replacement, the `extern` mark and the recorded ranges, and no
+other field. -/
 
 @[expose] public section
 
@@ -151,40 +152,27 @@ instance (ds : Array Declaration.Role) (h : Declaration.Role) :
     Decidable (RecursiveHelperOK ds h) := by
   unfold RecursiveHelperOK; infer_instance
 
-/-- A constructor-index implementation retains its unsafe status. Its observation names a
-safe inductive parent and safe base in the same inventory and module. The base replaces its
-runtime implementation with precisely this closed wrapper; neither may add another replacement
-or an external implementation. The observed structural comparison is a trusted producer boundary. -/
-def ConstructorIndexHelperOK (ds : Array Declaration.Role) (h : Declaration.Role) : Prop :=
-  h.kind = .definition ∧ h.internal = true ∧ h.recordedRanges = none ∧
-  h.isUnsafe = true ∧ h.isPartial = false ∧ h.hints = some .opaque ∧
-  h.implementedBy = none ∧ h.extern = false ∧ h.all = #[h.name] ∧ h ∈ ds ∧
-  ∃ t ∈ ds, ∃ b ∈ ds,
-    h.constructorIndex = some (t.name, b.name) ∧
-    b.name = t.name.str "ctorIdx" ∧ h.name = b.name.str "_impl" ∧
-    t.kind = .inductive ∧ t.isUnsafe = false ∧ t.isPartial = false ∧
-    t.module = h.module ∧ b.module = h.module ∧ b.kind = .definition ∧
-    b.isUnsafe = false ∧ b.isPartial = false ∧ b.implementedBy = some h.name ∧
-    b.extern = false ∧ b.all = #[b.name] ∧ b.hints = some .regular ∧
-    h.type = b.type ∧ h.levelParams = b.levelParams ∧
-    (∀ a ∈ h.axioms, a ∈ b.axioms) ∧ ∀ a ∈ b.axioms, Permitted .standardLogical a
+/-- The marks of a native-proof axiom can refuse its role but never grant it: a role that holds
+in an inventory holds for the axiom's neutral form in the inventory of neutral forms
+(`Declaration.Role.neutral`), where no record has a replacement, an `extern` implementation or
+a recorded range. -/
+theorem NativeTeachingOK.neutral {ds : Array Declaration.Role} {ts : Array Transcript}
+    {a : Declaration.Role} (ok : NativeTeachingOK ds ts a) :
+    NativeTeachingOK (ds.map Declaration.Role.neutral) ts a.neutral := by
+  obtain ⟨⟨s1, s2, s3, s4, s5, -, -, s8, s9, s10, s11⟩, ha, p, hp, o, ho, hmodule, hprefix,
+    hone⟩ := ok
+  exact ⟨⟨s1, s2, s3, s4, s5, rfl, rfl, s8, s9, s10, s11⟩, Array.mem_map_of_mem ha, p.neutral,
+    Array.mem_map_of_mem hp, o, ho, hmodule, hprefix, hone⟩
 
-/-- The observed parent rejects unrelated records before searching for the base. -/
-theorem constructorIndex_search_iff (ds : Array Declaration.Role)
-    (observed : Option (Name × Name)) (relation : Declaration.Role → Declaration.Role → Prop) :
-    (∃ t ∈ ds, ∃ b ∈ ds, observed = some (t.name, b.name) ∧ relation t b) ↔
-      ∃ t ∈ ds, observed.map Prod.fst = some t.name ∧
-        ∃ b ∈ ds, observed = some (t.name, b.name) ∧ relation t b := by
-  constructor
-  · rintro ⟨t, ht, b, hb, pair, related⟩
-    exact ⟨t, ht, by simp [pair], b, hb, pair, related⟩
-  · rintro ⟨t, ht, _, b, hb, pair, related⟩
-    exact ⟨t, ht, b, hb, pair, related⟩
-
-instance (ds : Array Declaration.Role) (h : Declaration.Role) :
-    Decidable (ConstructorIndexHelperOK ds h) := by
-  unfold ConstructorIndexHelperOK
-  rw [constructorIndex_search_iff]
-  infer_instance
+/-- The marks of a recursion helper and of its base can refuse the helper's role but never grant
+it: a role that holds in an inventory holds for the helper's neutral form in the inventory of
+neutral forms (`Declaration.Role.neutral`). -/
+theorem RecursiveHelperOK.neutral {ds : Array Declaration.Role} {h : Declaration.Role}
+    (ok : RecursiveHelperOK ds h) :
+    RecursiveHelperOK (ds.map Declaration.Role.neutral) h.neutral := by
+  obtain ⟨⟨s1, s2, -, s4, s5, s6, -, -, s9⟩, hh, b, hb, hbase,
+    ⟨b1, b2, b3, b4, -, -, b7, b8, b9, b10⟩, group⟩ := ok
+  exact ⟨⟨s1, s2, rfl, s4, s5, s6, rfl, rfl, s9⟩, Array.mem_map_of_mem hh, b.neutral,
+    Array.mem_map_of_mem hb, hbase, ⟨b1, b2, b3, b4, rfl, rfl, b7, b8, b9, b10⟩, group⟩
 
 end RegulaPolicy

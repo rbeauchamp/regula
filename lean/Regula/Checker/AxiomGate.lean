@@ -857,7 +857,6 @@ private unsafe def auditSurfaceAt (repo manifestPath : FilePath)
           ("modules", toJson info.modules),
           ("authorizedNativeAxioms", toJson native),
           ("authorizedUnsafeRecHelpers", toJson unsafeHelpers),
-          ("authorizedConstructorIndexHelpers", toJson scope.constructorHelpers),
           ("frontendTranscripts", Json.arr <| transcripts.map
             (Frontend.transcriptResultJson · withKernelTypes)),
           ("report", report)
@@ -1317,7 +1316,6 @@ private unsafe def auditFile (repo path : FilePath) (claim : Option Profile)
                   ("toolchainBase", Policy.toolchainBaseJson toolchainBase),
                   ("authorizedNativeAxioms", toJson native),
                   ("authorizedUnsafeRecHelpers", toJson unsafeHelpers),
-                  ("authorizedConstructorIndexHelpers", toJson scope.constructorHelpers),
                   ("frontendTranscripts",
                     toJson (inspected.transcripts.map
                       (Frontend.transcriptResultJson · withKernelTypes))),

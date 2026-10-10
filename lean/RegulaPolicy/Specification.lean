@@ -45,8 +45,8 @@ instance (d : Declaration.ToolchainObserved) (native : Array Name) :
     Decidable (KnownDependencies d native) := by
   unfold KnownDependencies; infer_instance
 
-/-- Authored unsafe/partial code is refused; the data-level exceptions are inventory-validated
-recursion and constructor-index helpers. The public theorem substitutes authenticated roles. -/
+/-- Authored unsafe/partial code is refused; the data-level exception is the inventory-validated
+recursion helpers. The public theorem substitutes authenticated roles. -/
 def SafetyOK (d : Declaration.KernelChecked) (helpers : Array Name) : Prop :=
   (d.isUnsafe = false ∧ d.isPartial = false) ∨ d.name ∈ helpers
 instance (d : Declaration.KernelChecked) (helpers : Array Name) :
@@ -120,6 +120,66 @@ def DeclarationOK (d : Declaration.Assessed) (request : InspectionRequest)
     SafetyOK d.toKernelChecked helpers ∧ CompilerPolicyOK d.toToolchainObserved request native ∧
     ContractOK d.executableContract ∧ SharedTestOK d.executableContract ∧
     ProfileOK d.toToolchainObserved request native)
+
+/-- A recorded contract refusing nothing passes: no refusal and no shared test. -/
+theorem ContractOK.neutral (contract : RecordedContract) :
+    ContractOK (contract.map fun c => { c with failure := none, shared := {} }) := by
+  cases contract <;> simp [ContractOK]
+
+/-- A recorded contract refusing nothing shares no test. -/
+theorem SharedTestOK.neutral (contract : RecordedContract) :
+    SharedTestOK (contract.map fun c => { c with failure := none, shared := {} }) := by
+  cases contract <;> simp [SharedTestOK]
+
+/-- Compiler trust grows with the native set. -/
+theorem CompilerAxiom.mono {native native' : Array Name} {n : Name}
+    (sub : ∀ m ∈ native', m ∈ native) (hc : CompilerAxiom native' n) : CompilerAxiom native n :=
+  Or.imp_right (sub n) hc
+
+/-- A compiler-trusting axiom is no Standard-Logical axiom when the native set names none. -/
+theorem CompilerAxiom.not_logical {native : Array Name} {n : Name}
+    (logical : ∀ m ∈ native, ¬ Permitted .standardLogical m) (hc : CompilerAxiom native n) :
+    ¬ Permitted .standardLogical n := by
+  rcases hc with ⟨_, hc | hc | hc⟩ | hc
+  · subst n; simp [Permitted]
+  · subst n; simp [Permitted]
+  · subst n; simp [Permitted]
+  · exact logical n hc
+
+/-- The refusals of the recorded contract can refuse a declaration but never admit one: whatever
+`DeclarationOK` admits, it admits with the contract refusing nothing
+(`Declaration.Assessed.neutral`). -/
+theorem DeclarationOK.neutral {d : Declaration.Assessed} {request : InspectionRequest}
+    {native helpers : Array Name} (ok : DeclarationOK d request native helpers) :
+    DeclarationOK d.neutral request native helpers := by
+  rcases ok with ⟨hk, hmem, hreq⟩ | ⟨hk, hsorry, hknown, hsafe, hcomp, -, -, hprofile⟩
+  · exact Or.inl ⟨hk, hmem, hreq⟩
+  · exact Or.inr ⟨hk, hsorry, hknown, hsafe, hcomp, ContractOK.neutral _, SharedTestOK.neutral _,
+      hprofile⟩
+
+/-- Smaller role sets admit nothing more: whatever `DeclarationOK` admits with `native'` and
+`helpers'`, it admits with any larger sets, provided the larger native set names no
+Standard-Logical axiom, as no authenticated native role does. A role a mark removes can therefore
+only refuse. -/
+theorem DeclarationOK.of_subset {d : Declaration.Assessed} {request : InspectionRequest}
+    {native native' helpers helpers' : Array Name}
+    (ok : DeclarationOK d request native' helpers') (hn : ∀ n ∈ native', n ∈ native)
+    (hh : ∀ n ∈ helpers', n ∈ helpers) (logical : ∀ n ∈ native, ¬ Permitted .standardLogical n) :
+    DeclarationOK d request native helpers := by
+  rcases ok with ⟨hk, hmem, hreq⟩ | ⟨hk, hsorry, hknown, hsafe, hcomp, hcontract, hshared, hprofile⟩
+  · exact Or.inl ⟨hk, hn _ hmem, hreq⟩
+  · refine Or.inr ⟨hk, hsorry, fun n hax => (hknown n hax).imp_right (CompilerAxiom.mono hn),
+      ?_, ?_, hcontract, hshared, ?_⟩
+    · exact Or.imp_right (hh _) hsafe
+    · rcases hcomp with teaching | free
+      · exact Or.inl teaching
+      · refine Or.inr fun n hax hc => ?_
+        rcases hknown n hax with permitted | compiler
+        · exact CompilerAxiom.not_logical logical hc permitted
+        · exact free n hax compiler
+    · cases request with
+      | conforming p => exact fun n hax => (hprofile n hax).imp_left (CompilerAxiom.mono hn)
+      | _ => trivial
 
 /-- Positive logical foundation: no project axiom, hole, unknown or compiler axiom;
 the selected permitted set contains every observed transitive dependency. -/

@@ -72,8 +72,7 @@ declarations are reported by this account without becoming owned.
 
 Generated-role metadata is descriptive, not provenance. A recursion helper requires
 regeneration by the pinned recursion compiler and the kernel's check of its base's
-recursion equation; a constructor-index wrapper requires
-its separate generator-derived structural comparison. A native-proof axiom requires
+recursion equation; no unsafe constructor-index wrapper is admitted. A native-proof axiom requires
 native replay and fresh exact-source frontend provenance. Names, ranges, and extension
 tags alone never waive a rule. Every declaration is still emitted and checked.
 

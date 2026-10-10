@@ -21,8 +21,8 @@ inductive DeclarationFailure where
   | proofHole
   /-- A transitive axiom is neither Standard-Logical nor compiler-trusting. -/
   | unknownAxiom
-  /-- The declaration is `unsafe` or `partial` and is not an admitted generated recursion or
-  constructor-index helper (`Roles.safetyHelpers`). -/
+  /-- The declaration is `unsafe` or `partial` and is not an admitted generated recursion helper
+  (`Roles.safetyHelpers`). -/
   | escapeHatch
   /-- Outside the teaching request, the declaration depends on a compiler-trusting axiom or is
   an admitted generated native-proof axiom. -/

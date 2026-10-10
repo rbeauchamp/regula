@@ -85,9 +85,6 @@ structure PolicyScope where
 def PolicyScope.native (s : PolicyScope) : Array Lean.Name := s.roles.native
 /-- The `_unsafe_rec` helpers admitted as generated roles (`Roles.helpers`). -/
 def PolicyScope.helpers (s : PolicyScope) : Array Lean.Name := s.roles.helpers
-/-- The separately authenticated unsafe constructor-index wrappers. -/
-def PolicyScope.constructorHelpers (s : PolicyScope) : Array Lean.Name :=
-  s.roles.constructorHelpers
 
 /-- A transcript-coordinate check over the declaration inventory. The operational
 adapter supplies `Frontend.validateCoordinates`, which runs `checked_coordinates`. -/
