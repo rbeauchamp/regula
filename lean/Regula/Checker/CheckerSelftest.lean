@@ -2981,20 +2981,14 @@ private def libraryCycleControl (repo : FilePath) : IO (Array String) :=
       the key of its reused module Right.Base"
   return failures
 
-/-- External-boundary control for a decision registration that one claimed surface counts toward
-a registered function of another (standard §7.11). The manifest field, the freeze of the counted
-records, the account and the public gate are the external mechanism;
-`RegulaPolicy.census_decided_iff` states the decided implementations over the census, and
-`RegulaPolicy.accepted_counted_judgment` that each counted registration met its own requirements.
-The project requires the checker by path and has two libraries. `Exec` imports only
-`Regula.Decision` and declares `crossCheck`, registered with `@[regula_decision]`. `Proofs` imports
-`Exec` and `Regula.Contract` and holds the only decision registration of `crossCheck`. With the
-relation (`Proofs` decides `Exec`) the audit must accept, and the account must name `Proofs` as
-the surface of the counted registration. Without the relation, and with the relation but without
-the registration, it must report `crossCheck` under RG1008. -/
-private def crossSurfaceDecisionControl (repo : FilePath) : IO (Array String) :=
-  withScratch repo "cross-surface-control" fun project =>
-    withScratch repo "cross-surface-result" fun output => do
+/-- Writes the project of `crossSurfaceDecisionControl` into the empty directory `project`. It
+requires the checker at `repo` by path and has two libraries. `Exec` imports only
+`Regula.Decision` and declares `crossCheck`, registered with `@[regula_decision]`. `Proofs`
+imports `Exec`, and with `decided` it imports `Regula.Contract` and holds the only decision
+registration of `crossCheck`; without it, it holds an unrelated theorem. With `relation` the
+manifest names `Exec` in the `decides` of `Proofs`. -/
+private def writeCrossSurfaceProject (repo project : FilePath) (relation decided : Bool) :
+    IO Unit := do
   IO.FS.writeFile (project / "lean-toolchain") (← IO.FS.readFile (repo / "lean-toolchain"))
   IO.FS.writeFile (project / "lakefile.toml") <|
     "name = \"cross_surface_control\"\n[leanOptions]\nautoImplicit = false\n" ++
@@ -3010,57 +3004,67 @@ private def crossSurfaceDecisionControl (repo : FilePath) : IO (Array String) :=
     "import Regula.Decision\n\n/-! A decision whose kind another library states. -/\n\n" ++
       "/-- Whether `n` is positive. -/\n@[regula_decision]\n" ++
       "def crossCheck (n : Nat) : Bool := decide (0 < n)\n"
-  let kind := project / "Proofs" / "Kind.lean"
-  let decided :=
-    "import Exec.Check\nimport Regula.Contract\n\n/-! The decision kind of `crossCheck`. -/\n\n" ++
-      "/-- `crossCheck` accepts exactly the positive numbers. -/\n" ++
-      "theorem crossCheck_decides :\n" ++
-      "    Regula.ExecutableContract crossCheck\n" ++
-      "      (Regula.Decides (· = true) fun n => 0 < n) :=\n" ++
-      "  ⟨{ sound := fun _ accepted => of_decide_eq_true accepted\n" ++
-      "     accepted := ⟨1, by decide⟩\n" ++
-      "     complete := fun _ holds => decide_eq_true holds\n" ++
-      "     refused := ⟨0, by decide⟩ }⟩\n"
-  IO.FS.writeFile kind decided
+  IO.FS.writeFile (project / "Proofs" / "Kind.lean") <| if decided then
+      "import Exec.Check\nimport Regula.Contract\n\n/-! The decision kind of `crossCheck`. -/\n\n" ++
+        "/-- `crossCheck` accepts exactly the positive numbers. -/\n" ++
+        "theorem crossCheck_decides :\n" ++
+        "    Regula.ExecutableContract crossCheck\n" ++
+        "      (Regula.Decides (· = true) fun n => 0 < n) :=\n" ++
+        "  ⟨{ sound := fun _ accepted => of_decide_eq_true accepted\n" ++
+        "     accepted := ⟨1, by decide⟩\n" ++
+        "     complete := fun _ holds => decide_eq_true holds\n" ++
+        "     refused := ⟨0, by decide⟩ }⟩\n"
+    else
+      "import Exec.Check\n\n/-! No decision kind of `crossCheck`. -/\n\n" ++
+        "/-- A fact of the proof library. -/\ntheorem kindAbsent : True := True.intro\n"
   let surface (library decides : String) : String :=
     "{\"library\":\"" ++ library ++ "\",\"claim\":\"standard-logical\"," ++ decides ++
       "\"rationale\":\"Cross-surface decision control\"}"
-  let manifest (relation : Bool) : String :=
+  IO.FS.writeFile (Manifest.defaultPath project) <|
     "{\"schema-version\":2,\"surfaces\":[" ++ surface "Exec" "" ++ "," ++
       surface "Proofs" (if relation then "\"decides\":[\"Exec\"]," else "") ++
       "],\"excluded-libraries\":[],\"excluded-executables\":[]}"
-  IO.FS.writeFile (Manifest.defaultPath project) (manifest true)
-  let unrelated := output / "unrelated.json"
-  IO.FS.writeFile unrelated (manifest false)
-  let result := output / "result.json"
-  let gate (args : Array String) := do
+
+/-- External-boundary control for a decision registration that one claimed surface counts toward
+a registered function of another (standard §7.11). The manifest field, the freeze of the counted
+records, the account and the public gate are the external mechanism;
+`RegulaPolicy.census_decided_iff` states the decided implementations over the census, and
+`RegulaPolicy.accepted_counted_judgment` that each counted registration met its own requirements.
+Each case runs in a fresh disposable project of its own (`writeCrossSurfaceProject`), so no
+mutation shares a workspace or a build artifact with the green control (standard §7.8). The green
+control has the relation and the registration: the audit must accept, and the account must name
+`Proofs` as the surface of the one counted registration. One mutation removes the relation and
+the other the registration: each must report `crossCheck` under RG1008. -/
+private def crossSurfaceDecisionControl (repo : FilePath) : IO (Array String) := do
+  let gate (project : FilePath) (args : Array String) := do
     runProcess project (← toolPath repo "axiomGate").toString
       (#["--project", project.toString, "--incremental"] ++ args) scrubbedLeanPathEnv
   let mut failures := #[]
-  let accepted ← gate #["--json-out", result.toString]
-  if !accepted.succeeded then
-    failures := failures.push s!"cross-surface/related: expected PASS:\n{accepted.output}"
-  else
-    let json ← requireAuditDocument (← IO.ofExcept (Json.parse (← IO.FS.readFile result)))
-    let counted ← IO.ofExcept <| (json.getObjVal? "acceptance").bind fun acceptance =>
-      (acceptance.getObjVal? "account").bind (·.getObjValAs? (Array Json) "countedContracts")
-    let named (entry : Json) : Bool :=
-      (entry.getObjValAs? String "surface").toOption == some "Exec" &&
-        (entry.getObjValAs? String "source").toOption == some "Proofs" &&
-        (entry.getObjValAs? String "registration").toOption == some "crossCheck_decides" &&
-        (entry.getObjValAs? String "implementation").toOption == some "crossCheck"
-    unless counted.size == 1 && counted.all named do
-      failures := failures.push s!"cross-surface/account: expected one counted registration of \
-        Proofs for crossCheck of Exec, found {(Json.arr counted).compress}"
-  if let some failure := expectedFailure "cross-surface/unrelated"
-      (← gate #["--manifest", unrelated.toString]) #["RG1008", "crossCheck (def)"] then
-    failures := failures.push failure
-  IO.FS.writeFile kind <|
-    "import Exec.Check\n\n/-! No decision kind of `crossCheck`. -/\n\n" ++
-      "/-- A fact of the proof library. -/\ntheorem kindAbsent : True := True.intro\n"
-  if let some failure := expectedFailure "cross-surface/removed" (← gate #[])
-      #["RG1008", "crossCheck (def)"] then
-    failures := failures.push failure
+  let green ← withScratch repo "cross-surface-green" fun project =>
+    withScratch repo "cross-surface-result" fun output => do
+      writeCrossSurfaceProject repo project true true
+      let result := output / "result.json"
+      let accepted ← gate project #["--json-out", result.toString]
+      if !accepted.succeeded then
+        return some s!"cross-surface/related: expected PASS:\n{accepted.output}"
+      let json ← requireAuditDocument (← IO.ofExcept (Json.parse (← IO.FS.readFile result)))
+      let counted ← IO.ofExcept <| (json.getObjVal? "acceptance").bind fun acceptance =>
+        (acceptance.getObjVal? "account").bind (·.getObjValAs? (Array Json) "countedContracts")
+      let named (entry : Json) : Bool :=
+        (entry.getObjValAs? String "surface").toOption == some "Exec" &&
+          (entry.getObjValAs? String "source").toOption == some "Proofs" &&
+          (entry.getObjValAs? String "registration").toOption == some "crossCheck_decides" &&
+          (entry.getObjValAs? String "implementation").toOption == some "crossCheck"
+      if counted.size == 1 && counted.all named then return none
+      return some s!"cross-surface/account: expected one counted registration of Proofs for \
+        crossCheck of Exec, found {(Json.arr counted).compress}"
+  if let some failure := green then failures := failures.push failure
+  for (name, relation, decided) in #[("unrelated", false, true), ("removed", true, false)] do
+    let refused ← withScratch repo s!"cross-surface-{name}" fun project => do
+      writeCrossSurfaceProject repo project relation decided
+      return expectedFailure s!"cross-surface/{name}" (← gate project #[])
+        #["RG1008", "crossCheck (def)"]
+    if let some failure := refused then failures := failures.push failure
   return failures
 
 /-- External-boundary controls of the copy that the verification driver makes for the first
