@@ -474,17 +474,17 @@ def copyProject (repo target exclude : FilePath) : IO ProjectCopy := do
   let prunedAnywhere := fun (component : String) =>
     component == ".git" || component == _root_.Lake.defaultLakeDir.toString ||
       component == ".cache" || component == Regula.Scratch.legacyDirName
-  let tmpDirectories := directories.map fun dir => dir.normalize.components ++ ["tmp"]
   -- Each directory is walked on its own, and a walk skips the others below it: one of them can
   -- lie in a directory that the walk prunes, as a project in the scratch area of a repository
   -- that is its own path dependency does.
   for top in directories do
     let sourceComponents := top.normalize.components
+    let tmpDirectory := sourceComponents ++ ["tmp"]
     let others := (directories.filter (· != top)).map (·.normalize.components)
     let includePath := fun (path : FilePath) =>
       let components := path.normalize.components
       !excludeComponents.isPrefixOf components && !excludeReal.isPrefixOf components &&
-        !tmpDirectories.any (·.isPrefixOf components) &&
+        !tmpDirectory.isPrefixOf components &&
         !others.any (fun other => other.length > sourceComponents.length &&
           other.isPrefixOf components) &&
         !(components.drop sourceComponents.length).any prunedAnywhere

@@ -172,8 +172,9 @@ def check (group : String) (evidence : FilePath) (attempt : Option String := non
 
 /-- Documentation dependency-freeze control, run in a scratch project that requires a local
 `dep` package. The project is a Git repository of its own, so `dep` lies in a different Git work
-tree and is a trusted dependency, which no isolated copy relocates. Through both `docFenceAudit` and `ruleExamples` it checks that a fence over
-`Dep` passes when the dependency is unchanged, is refused with "dependency snapshot changed:"
+tree and is a trusted dependency: each isolated copy loads it from its original directory
+(`Lake.relocateDependencies`) instead of copying it. Through both `docFenceAudit` and
+`ruleExamples` it checks that a fence over `Dep` passes when the dependency is unchanged, is refused with "dependency snapshot changed:"
 and no acceptance when the build itself rewrites `Dep.lean`, and passes again once restored;
 then a combined `--with-docs` run must accept both code and documentation on one snapshot.
 Any failed check throws. -/
