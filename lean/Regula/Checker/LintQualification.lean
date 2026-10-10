@@ -1206,19 +1206,20 @@ private def compilerGuard (repo project : FilePath) : IO (Array String) := do
     (← assess { label := "guard/restored", exitCode := 0 } (← load #[]))
 
 /-- The absent-worker control first, alone, since the adopters share the checker's binaries;
-then both independent adopters, the path-dependency adopter, the owned-checker adopter, the cold
-compiler guard, the artifact-cache controls and `escapedNameWarning`, each in its own disposable
-workspace. The
+then the path-dependency adopter, both independent adopters, the owned-checker adopter, the
+artifact-cache controls, `escapedNameWarning` and the cold compiler guard, each in its own
+disposable workspace. `mapConcurrent` joins each batch of `jobs` controls before it starts the
+next, so the longest controls come first, and with four jobs share the first batch. The
 adopters' decision probes load their workspaces one at a time (`probe`). -/
 def qualify (repo scratch : FilePath) (jobs : Nat) : IO (Array String) := do
   let absent ← withScratch scratch "lake-lint-worker" fun adopter => absentWorker repo adopter
   if !absent.isEmpty then return absent
   let probes ← Std.Mutex.new ()
   let results ← mapConcurrent jobs
-    #[("lean", leanAdopter probes), ("toml", tomlAdopter probes), ("guard", compilerGuard),
-      ("cache", cachedWarning), ("dependency-cache", dependencyCachedWarning),
-      ("empty-facets", emptyFacetsWarning), ("escaped-name", escapedNameWarning),
-      ("path", pathDependency), ("owned-checker", ownedChecker)]
+    #[("path", pathDependency), ("lean", leanAdopter probes), ("toml", tomlAdopter probes),
+      ("owned-checker", ownedChecker), ("cache", cachedWarning),
+      ("dependency-cache", dependencyCachedWarning), ("empty-facets", emptyFacetsWarning),
+      ("escaped-name", escapedNameWarning), ("guard", compilerGuard)]
     fun (name, control) => withScratch scratch s!"lake-lint-{name}" fun adopter =>
                             control repo adopter
   return results.foldl (· ++ ·) #[]
