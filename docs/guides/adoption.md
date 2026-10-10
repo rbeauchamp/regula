@@ -23,6 +23,7 @@ supports. This table lists every release, newest first, with its one toolchain:
 
 | Regula tag | Lean toolchain | Rule reference |
 | --- | --- | --- |
+| `v0.11.0` | `leanprover/lean4:v4.34.1` | [v/0.11.0/](https://rbeauchamp.github.io/regula/v/0.11.0/) |
 | `v0.10.0` | `leanprover/lean4:v4.34.1` | [v/0.10.0/](https://rbeauchamp.github.io/regula/v/0.10.0/) |
 | `v0.9.0` | `leanprover/lean4:v4.34.1` | [v/0.9.0/](https://rbeauchamp.github.io/regula/v/0.9.0/) |
 | `v0.8.0` | `leanprover/lean4:v4.34.0` | [v/0.8.0/](https://rbeauchamp.github.io/regula/v/0.8.0/) |
@@ -59,14 +60,14 @@ a different release.
 [[require]]
 name = "regula"
 git = "https://github.com/rbeauchamp/regula"
-rev = "v0.10.0"
+rev = "v0.11.0"
 ```
 
 `lakefile.lean`:
 
 ```text
 require regula from git
-  "https://github.com/rbeauchamp/regula" @ "v0.10.0"
+  "https://github.com/rbeauchamp/regula" @ "v0.11.0"
 ```
 
 Then fetch it:

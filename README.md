@@ -67,12 +67,12 @@ tag of each later release, for example `v0.10.0`. `git tag --sort=-v:refname` an
 GitHub show it first. Do not select a release by its position in such a list of tags.
 
 1. **Require it** in `lakefile.toml`
-   (`lakefile.lean`: `require regula from git "https://github.com/rbeauchamp/regula" @ "v0.10.0"`):
+   (`lakefile.lean`: `require regula from git "https://github.com/rbeauchamp/regula" @ "v0.11.0"`):
    ```toml
    [[require]]
    name = "regula"
    git = "https://github.com/rbeauchamp/regula"
-   rev = "v0.10.0"
+   rev = "v0.11.0"
    ```
 2. **Set it up and run it:**
    ```sh
