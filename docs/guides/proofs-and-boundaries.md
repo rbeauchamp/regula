@@ -1094,11 +1094,14 @@ files and for `module`s, where the registering module imports the declaring one 
 Lean saves the registration with that module's private data.
 
 In a project audit a registration also counts the decision contracts of each claimed surface that
-names its surface in `decides`. Thus a library that imports only the toolchain can hold the
-function, and a library that imports a proof library can state its kind. The census binds the
-counted contracts of each inventory to the records of those environments in the same run. It
-counts a record only if the other environment loaded the module of the function with the same
-origin. `census_decided_iff` states the decided implementations over exactly those records.
+names its surface in `decides`. Thus a library that imports only the toolchain and
+`Regula.Decision` can hold the function, and a library with a proof dependency can state its kind.
+In a file that is a `module`, that import can be `meta import Regula.Decision`, an
+elaboration-time import.
+
+The census binds the counted contracts of each inventory to the records of those environments in
+the same run. It counts a record only if the other environment loaded the module of the function
+with the same origin. `census_decided_iff` states the decided implementations over exactly those records.
 `accepted_counted_judgment` proves that each counted registration met its own requirements in its
 own environment of the accepted run.
 

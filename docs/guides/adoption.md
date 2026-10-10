@@ -864,10 +864,12 @@ because a registration normally follows its function. Which functions you mark, 
 The [RG1008] page shows a marked function with and without its registration.
 
 A project can keep its executing definitions free of a proof dependency. One library holds the
-functions and imports only the toolchain. A second library imports the first library and a proof
-library such as Mathlib, and it holds the theorems. If the proof of a kind uses the proof library,
-you can write the kind only in the second library. Keep the mark on the function in the first
-library, and name that library in the `decides` of the second surface:
+functions and does not import a proof library such as Mathlib. To carry the mark, it imports only
+the toolchain and `Regula.Decision`, as an elaboration-time `meta import` in a file that is a
+`module`. A second library imports the first library and a proof library, and it holds the
+theorems. If the proof of a kind uses the proof library, you can write the kind only in the second
+library. Keep the mark on the function in the first library, and name that library in the
+`decides` of the second surface:
 
 ```json
 { "library": "WidgetProofs", "claim": "standard-logical", "decides": ["Widget"],

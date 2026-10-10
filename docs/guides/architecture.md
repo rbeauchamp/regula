@@ -170,7 +170,7 @@ other surfaces, which `Inventory.counted` holds. Inventory admission gives no co
 a project census, `countedFor` gives the counted contracts of an environment. They are the records
 of the environments of each surface that names its surface in `decides`. Also, the other
 environment must load the module of the function with the same origin. `census_decided_iff`
-states this result, `Assembly.countFrozen` sets the contracts, and plan admission checks them with
+states this result, `Acceptance.countFrozen` sets the contracts, and plan admission checks them with
 `EnvironmentCensusOK`.
 
 `Location` is a source range (exact text with byte offsets for full and selection ranges), a
