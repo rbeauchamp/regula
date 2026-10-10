@@ -658,21 +658,25 @@ source left kernel checking on, and the transcript does not replay it. The nativ
 and `validCoordinates` take the observed parts alone, and admission and the coordinate check read
 the source text only for comparison.
 
-**Execution records.** A boundary's record, a closure and the walk's record of a name split the
-same way. The kind of a boundary, its evidence and its replacement are in
-`ExecutionBoundary.ProjectWritten`, because `@[implemented_by]`, `@[extern]` and `@[csimp]` decide
-the kind where present. The replacement, history and simplification edges of a closure and of a
-name's record are in their `ProjectWritten` parts. The other fields are observations of the walk
-and of the retained compiler IR. The walk follows the project-written edges as the compiled code
-does, and the [RG3001] and [RG3002] decisions read the two parts.
+**Execution records.** A boundary's record, a closure, a root's account and the walk's record of a
+name split the same way. A field is in its `ProjectWritten` part where the data of a mark enters its
+value. Such fields are the replacement, history and simplification edges, the boundary's kind and
+callers, the retained calls, the code status and the unresolved paths. The reached names, the
+visits and the boundaries are the walk's result over the two parts, so they are fields of the
+combined records.
+
+A declaration with an equality of constants as its type makes a candidate boundary, registered
+with `@[csimp]` or not. The walk follows each recorded historical replacement conservatively, including
+one that the compiled code no longer runs. The [RG3001] and [RG3002] decisions read the two parts.
 
 **Limits.** The parts classify the source of a value but do not make an observation truthful.
-That `Collect.declaration` and `Frontend.buildCore` fill each field from the source its part names
-is by inspection of those functions, not proved. State a project writes can still enter a toolchain
-observation, and the docstring of each such field says how: `isProp` is Lean's answer, which does
-not unfold an irreducible definition; `prettyType` is Lean's printer, which uses the notations in
-force; `nativeReplay` runs compiled code; and what a project writes selects which regeneration
-`unsafeRecRegenerated` reports, while the pure comparison and the kernel decide it. The two
+That `Collect.declaration`, `Frontend.buildCore` and `Probe.observeNode` fill each field from the
+source its part names is by inspection of those functions, not proved. State a project writes can
+still enter a toolchain observation, and the docstring of each such field says how: `isProp` is
+Lean's answer, which does not unfold an irreducible definition; `prettyType` is Lean's printer,
+which uses the notations in force; `nativeReplay` runs compiled code; and what a project writes
+selects which regeneration `unsafeRecRegenerated` reports, while the pure comparison and the kernel
+decide it. The two
 observations of the checker that a project-written mark decides are fields of
 `Declaration.ProjectWritten` for that reason. `executableContract` reads Lean's `noncomputable`
 mark for one refusal. `tableOmissions` compares the axioms of Lean's module table, which a

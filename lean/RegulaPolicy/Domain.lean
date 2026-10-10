@@ -1890,7 +1890,7 @@ theorem toolchainOrigin_roundtrip (o : ToolchainOrigin) :
     simp [admitToolchainOrigin, hm, hn]
 
 /-- The part of a boundary's record that the walk observes: its position, the constant, its module
-and whether that module is owned, and the callers in retained compiler code. -/
+and whether that module is owned. -/
 structure ExecutionBoundary.ToolchainObserved where
   /-- The boundary's position in its root's boundary list. -/
   occurrence : Nat
@@ -1900,13 +1900,14 @@ structure ExecutionBoundary.ToolchainObserved where
   «module» : Lean.Name
   /-- The constant's module is one of the audited, owned modules. -/
   owned : Bool
-  /-- The constants whose retained compiler IR calls this one directly. -/
-  compilerCallers : Array Lean.Name := #[]
   deriving Repr, DecidableEq
 
 /-- The part of a boundary's record that marks an audited project writes can decide: its kind, its
-evidence and the constant run in its place. `@[implemented_by]`, `@[extern]` and `@[csimp]` decide
-the kind where the constant has one of them, and its safety and value decide it otherwise. -/
+evidence, the constant run in its place and its callers in retained compiler code.
+`@[implemented_by]` and `@[extern]` decide the kind where the constant has one of them. An
+equality-shaped declaration type makes a `compiler-simplification` boundary, registered with
+`@[csimp]` or not. The constant's safety and value decide the other kinds. Its callers include each
+declaration whose `@[init]` names it. -/
 structure ExecutionBoundary.ProjectWritten where
   /-- What kind of boundary it is. -/
   boundary : BoundaryKind
@@ -1914,6 +1915,9 @@ structure ExecutionBoundary.ProjectWritten where
   account : BoundaryEvidence boundary
   /-- For a runtime replacement or compiler simplification, the constant run in its place. -/
   replacement : Option Lean.Name
+  /-- The constants whose retained compiler IR calls this one directly, or names it as an
+  initializer. -/
+  compilerCallers : Array Lean.Name := #[]
   deriving Repr, DecidableEq
 
 /-- One boundary in the conservative compiler/source closure of an
@@ -1991,29 +1995,25 @@ structure ExecutionVisit where
   parent : Option Nat
   deriving Repr, DecidableEq
 
-/-- The part of a closure that the walk observes: the names it reached and their first visits, the
-constants that values mention, the simplification candidates its search found, the compiled
-recursion helpers, and the code the retained compiler IR requires and lacks. -/
+/-- The part of a closure that the walk observes: the constants that values mention, the
+simplification candidates its search found and the compiled recursion helpers. The marks
+`@[extern]` and `@[implemented_by]` decide whether the pass reads a name's value at all, and where
+it does, these are the constants of the value. -/
 structure ExecutionClosure.ToolchainObserved where
-  /-- Every name the walk reached, sorted and without duplicates. -/
-  nodes : Array Lean.Name
-  /-- Each name's first visit, in walk order. -/
-  visits : Array ExecutionVisit
   /-- From a constant to each constant its value mentions, where the walk follows the value. -/
   logicalEdges : Array (Lean.Name × Lean.Name) := #[]
-  /-- From a constant to the target of each `@[csimp]`-shaped simplification candidate. -/
+  /-- From a constant to the target of each simplification candidate: a declaration whose type
+  is an equality of constants, registered with `@[csimp]` or not. -/
   candidateEdges : Array (Lean.Name × Lean.Name) := #[]
   /-- From an opaque constant to the partial `_unsafe_rec` helper it is compiled through. -/
   helperEdges : Array (Lean.Name × Lean.Name) := #[]
-  /-- Names for which retained code is required, including the root when applicable. -/
-  requiredCode : Array Lean.Name := #[]
-  /-- Required names whose body is absent or an unauthenticated extern placeholder. -/
-  unavailableCode : Array Lean.Name := #[]
   deriving Repr, DecidableEq
 
 /-- The part of a closure that marks an audited project writes decide: the edges of the
 replacement history its source recorded, of its current `@[implemented_by]` replacements and of
-its active `@[csimp]` simplifications. -/
+its active `@[csimp]` simplifications, and the code it requires and lacks. Whether the root
+requires code reads `@[implemented_by]` and `@[macro_inline]`, the retained calls include the
+initializers that `@[init]` names, and whether a body is an export placeholder reads `@[extern]`. -/
 structure ExecutionClosure.ProjectWritten where
   /-- From a constant to each replacement target its source replacement history records. -/
   historyEdges : Array (Lean.Name × Lean.Name) := #[]
@@ -2021,15 +2021,25 @@ structure ExecutionClosure.ProjectWritten where
   currentReplacementEdges : Array (Lean.Name × Lean.Name) := #[]
   /-- From a constant to the target of its active `@[csimp]` simplification. -/
   activeSimplificationEdges : Array (Lean.Name × Lean.Name) := #[]
+  /-- Names for which retained code is required, including the root when applicable. -/
+  requiredCode : Array Lean.Name := #[]
+  /-- Required names whose body is absent or an unauthenticated extern placeholder. -/
+  unavailableCode : Array Lean.Name := #[]
   deriving Repr, DecidableEq
 
 /-- The walk's complete reached-name census and separately attributed edge sets.
 These are observations of the pinned collector, not a minimal runtime call graph.
 Current replacements remain distinct from successfully observed historical choices;
-active simplifications are used for cycle detection, not claimed compiler calls. Each field is
-declared in the part that says where its value comes from. -/
+active simplifications are used for cycle detection, not claimed compiler calls. Each edge set and
+code set is declared in the part that says where its value comes from. The reached names and their
+visits are the walk's result over the edges of the two parts, so they are fields of the closure
+itself. -/
 structure ExecutionClosure extends ExecutionClosure.ToolchainObserved,
-    ExecutionClosure.ProjectWritten
+    ExecutionClosure.ProjectWritten where
+  /-- Every name the walk reached, sorted and without duplicates. -/
+  nodes : Array Lean.Name
+  /-- Each name's first visit, in walk order. -/
+  visits : Array ExecutionVisit
   deriving Repr, DecidableEq
 
 /-- Traversal edges, retaining the distinct acquisition channels in the stored fields. -/
@@ -2038,22 +2048,34 @@ def ExecutionClosure.edges (c : ExecutionClosure) (compilerEdges : Array (Lean.N
   compilerEdges ++ c.logicalEdges ++ c.candidateEdges ++ c.historyEdges ++
     c.currentReplacementEdges ++ c.helperEdges
 
-/-- The execution account of one owned executable root: the boundaries and unresolved paths its
-closure reaches, its compiled edges and the closure itself. Its own fields are observations of the
-walk and of the retained compiler IR, and its boundaries and its closure declare each of their
-fields in the part that says where its value comes from. -/
-structure ExecutionRoot where
+/-- The part of a root's account that the walk observes: the root constant and its module. -/
+structure ExecutionRoot.ToolchainObserved where
   /-- The root constant. -/
   name : Lean.Name
   /-- Its declaring module. -/
   «module» : Lean.Name
-  /-- Every boundary the closure reaches, in the order the walk found them. -/
-  boundaries : Array ExecutionBoundary
+  deriving Repr, DecidableEq
+
+/-- The part of a root's account that marks an audited project writes decide: the paths the
+analysis could not resolve, which include those of the replacement history and of export
+placeholders, and the retained compiled edges, which include the initializers that `@[init]`
+names. -/
+structure ExecutionRoot.ProjectWritten where
   /-- A description of each dependency path the analysis could not resolve. -/
   unresolved : Array String
   /-- Direct calls/closures/initializers retained in the pinned compiler IR;
   unlike the boundary candidate closure, these record compiled edges. -/
   compilerEdges : Array (Lean.Name × Lean.Name) := #[]
+  deriving Repr, DecidableEq
+
+/-- The execution account of one owned executable root: the boundaries and unresolved paths its
+closure reaches, its compiled edges and the closure itself. Its own fields are declared in the
+part that says where their values come from. Its boundaries and its closure are the walk's result
+over the two parts, so they are fields of the account itself, and each declares its fields in its
+own parts. -/
+structure ExecutionRoot extends ExecutionRoot.ToolchainObserved, ExecutionRoot.ProjectWritten where
+  /-- Every boundary the closure reaches, in the order the walk found them. -/
+  boundaries : Array ExecutionBoundary
   /-- The walk's reached names and attributed edge sets. -/
   closure : ExecutionClosure
   deriving Repr, DecidableEq
