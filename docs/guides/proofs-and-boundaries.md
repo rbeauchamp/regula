@@ -1006,8 +1006,13 @@ The probe ran on the first, broader reading of this change. The final reading re
 side as before #270. That is the implementation by the rule of a function and the acceptance
 predicate by the rule of a statement. The rule reach `withTypes` of the specification reaches at
 most what the specification reached before #270. So each test that the final reading shares, by
-the reading or by the rule, the search shared before #270. The `main` branch accepted the 110, so
-none of them names a shared test or a test shared only through the input type.
+the reading or by the rule, the search shared before #270.
+
+The `main` branch accepted the 109 kinded registrations that it has. So none of them names a
+shared test or a test shared only through the input type. This change adds one more,
+`RegulaPolicy.StatementReading.reads` with the kind `checked_reads`. Its acceptance predicate
+`(· = true)` reaches nothing outside Lean's own library. The acceptance check of this change
+claims `RegulaPolicy`, so it decides [RG1009] for that registration too.
 
 ### Decisions not registered with `regula_decision`
 
