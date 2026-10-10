@@ -587,7 +587,7 @@ and each field is declared in the part that says where its value comes from
 | --- | --- | --- |
 | `Declaration.KernelChecked` | Kernel-checked declaration data: a field of the constant's `ConstantInfo`, or a pure function of such fields. | `name`, `kind`, `type`, `isUnsafe`, `isPartial`, `safety`, `internal`, `private`, `unsafeRecBase`, `levelParams`, `all`, `hints`, `valueConstants`, `nativeStatement` |
 | `Declaration.ToolchainObserved` | A toolchain observation: the answer of Lean's elaborator, compiler or kernel, or of the checker's own observing code, at inspection. No mark a project writes decides one of these fields. | `module`, `prettyType`, `isProp`, `axioms`, `unsafeRecRegenerated`, `nativeReplay` |
-| `Declaration.ProjectWritten` | Environment state an audited project can write, or an observation such state decides: an extension's entry, an attribute, a declaration range, and the two observations of the checker that read such marks directly. | `instance`, `noncomputable`, `implementedBy`, `extern`, `projection`, `matcher`, `recursive`, `recordedRanges`, `generatedFrom`, `constructorIndex`, `executableContract`, `decisionResult`, `tableOmissions` |
+| `Declaration.ProjectWritten` | Environment state an audited project can write, or an observation such state decides: an extension's entry, an attribute, a declaration range, and the three observations of the checker that read such marks directly. | `instance`, `noncomputable`, `implementedBy`, `extern`, `projection`, `matcher`, `recursive`, `recordedRanges`, `generatedFrom`, `constructorIndex`, `executableContract`, `decisionResult`, `tableOmissions` |
 
 `Declaration.Inspected` is the first two parts, and `Declaration` adds the third. A decision or a
 relation takes the part whose fields it reads, so its signature shows where its inputs come from:
@@ -606,7 +606,7 @@ use that takes a narrower part. What takes which part:
 | `NativeStatement.recognize?` ([below](#the-native-axiom-statement-decision-and-observing-pass)) | No record: a `NativeStatement.Candidate` | The tactic and the prefix that `nativeAxiomOrigin?` reads from the name, and the kernel-checked type. |
 | `declarationFailure`, `DeclarationOK`, `declarationRequirements` and their theorems | `Declaration` | Every part: they join the relations above, so through `ContractOK` and `SharedTestOK` they read the recorded contract. |
 | `decisionFailure`, `DecisionOK` | `Declaration.Registration` | The name and `decisionResult`, the project's own registration, alone. |
-| `NativeTeachingOK`, `RecursiveHelperOK`, `ConstructorIndexHelperOK` and the `authorized…` validators | `Declaration` | Every part. Each also requires values of project-written fields. A native-proof axiom must have no replacement and no `extern` implementation. A recursion helper and a constructor-index helper must have no replacement, no `extern` implementation and no recorded range. A recursion base must have no replacement and no `extern` implementation. A constructor-index base must have the helper as its replacement and no `extern` implementation. These conditions narrow what is admitted and authenticate nothing. |
+| `NativeTeachingOK`, `RecursiveHelperOK`, `ConstructorIndexHelperOK` and the `authorized…` validators | `Declaration.Role`, and the role parts of an inventory (`roleRecords`) | The inspected part and four project-written marks: the replacement, the `extern` mark, the recorded ranges and the constructor-index observation. Each requires values of these marks. A native-proof axiom must have no replacement and no `extern` implementation. A recursion helper and a constructor-index helper must have no replacement, no `extern` implementation and no recorded range. A recursion base must have no replacement and no `extern` implementation. A constructor-index base must have the helper as its replacement and no `extern` implementation. These conditions narrow what is admitted and authenticate nothing. |
 | `policyFor`, `memberFailure`, the editor decision | `Declaration` | Every part, through the decisions above. |
 | `operationalFailure`, `OperationalOK`, `operationalView`, `operationalAxioms` | `Declaration` | `kind`, `isProp`, `axioms` and, through `ContractOK` and `SharedTestOK`, the recorded contract. The view also clears `isUnsafe` and `isPartial`. |
 
@@ -616,19 +616,22 @@ that function, not proved. State a project writes can still enter a toolchain ob
 docstring of each such field says how: `isProp` is Lean's answer, which does not unfold an
 irreducible definition; `prettyType` is Lean's printer, which uses the notations in force;
 `nativeReplay` runs compiled code; and what a project writes selects which regeneration
-`unsafeRecRegenerated` reports, while the pure comparison and the kernel decide it. The two
+`unsafeRecRegenerated` reports, while the pure comparison and the kernel decide it. The three
 observations of the checker that a project-written mark decides are fields of
-`Declaration.ProjectWritten` for that reason: `executableContract` reads Lean's `noncomputable`
-mark for one refusal, and `constructorIndex` requires that the base's replacement
-(`@[implemented_by]`) is the helper, that the helper has no replacement and no recorded declaration
-range, that neither has an `extern` implementation, that the eliminator has no replacement and no
-`extern` implementation, and that `getObjTagNat` has no replacement. The decisions of [RG1007]
+`Declaration.ProjectWritten` for that reason. `executableContract` reads Lean's `noncomputable`
+mark for one refusal. `tableOmissions` compares the axioms of Lean's module table, which a
+project can write, with the axioms that the replayed kernel gives. `constructorIndex` requires
+that the base's replacement (`@[implemented_by]`) is the helper, that the helper has no
+replacement and no recorded declaration range, that neither has an `extern` implementation, that
+the eliminator has no replacement and no `extern` implementation, and that `getObjTagNat` has no
+replacement. The decisions of [RG1007]
 and [RG1009] take the recorded contract and no other field, so they read the `noncomputable` mark
 only through it. The decision requirement of [RG1008] takes the name and the registration alone
-(`Declaration.Registration`). The declaration decision, the role validators and the other
-decisions that take the whole `Declaration` still read project-written fields. The rest of this
-part of [#199](https://github.com/rbeauchamp/regula/issues/199) is to give the role validators
-those fields through a typed record.
+(`Declaration.Registration`). The role validators take the role part (`Declaration.Role`):
+the inspected part and the four marks that they read. The declaration decision and the other
+decisions that join the decisions above still take the whole `Declaration`. The rest of this part
+of [#199](https://github.com/rbeauchamp/regula/issues/199) is that each of them takes only the
+parts that the decisions it joins take.
 
 **Consumers** (paths from `lean/Regula/`):
 
