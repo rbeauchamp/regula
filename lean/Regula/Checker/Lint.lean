@@ -219,19 +219,31 @@ private unsafe def lint (args : List String) : IO Outcome := do
         s!"regula lint: enforcing all manifested Lake surfaces; mode {modeText options.fresh}\
           {if options.ordinaryLakefiles then ownerAssertion else ""}"
     (← IO.getStdout).flush
-    -- The workspace's supported scope (`Lake.surfaceInventory`: Lake's default output layout of
-    -- each owned package and one provider for each module name of an owned package) is decided
-    -- before this driver builds its audit worker. Outside it the worker is not built, and the
-    -- audit, which decides the same scope from Lake's load before its first build and needs no
-    -- worker for that, reports the refusal.
-    if (← (Lake.surfaceInventory (← repoRoot)).toBaseIO) matches .ok _ then
-      let worker ← Lake.buildTargetsShowing (← repoRoot) #[.spec workerTarget]
+    -- The supported scope (`Lake.surfaceInventory`: Lake's default output layout of each owned
+    -- package and one provider for each module name of an owned package) of the dispatching
+    -- workspace, which builds the audit worker, is decided before this driver builds it. Outside
+    -- it the worker is not built. When that workspace is the audited project, the audit, which
+    -- decides the same scope from Lake's load before its first build and needs no worker for
+    -- that, reports the refusal; when `--project` names another project, whose audit would need
+    -- the worker, the driver refuses here with the dispatching workspace's refusal.
+    let dispatching ← repoRoot
+    match ← (Lake.surfaceInventory dispatching).toBaseIO with
+    | .ok _ =>
+      let worker ← Lake.buildTargetsShowing dispatching #[.spec workerTarget]
       unless worker.succeeded && (← (← workerBinary).pathExists) do
         IO.eprintln worker.output
         IO.eprintln s!"regula lint: {Outcome.incomplete.label}: audit worker {workerTarget} did \
           not build"
         return .incomplete
-    else
+    | .error refusal =>
+      let audited ← match options.project with
+        | some dir => try some <$> findRepoRoot dir catch _ => pure none
+        | none => pure (some dispatching)
+      unless audited == some dispatching do
+        IO.eprintln s!"regula lint: the workspace {dispatching} that lake lint was dispatched \
+          from, which builds the audit worker, is outside the supported scope: {refusal}"
+        IO.println s!"regula lint: {Outcome.incomplete.label} (exit {Outcome.incomplete.exitCode})"
+        return .incomplete
       IO.println "regula lint: the workspace is outside the supported scope, so the audit worker \
         is not built"
     AxiomGate.claimedBuild.set (Lake.buildAuditTargets options.ordinaryLakefiles)

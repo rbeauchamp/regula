@@ -784,7 +784,9 @@ owned one, is refused before the driver builds its audit worker. So is a library
 `Regula.«<directory>/Payload»` that a claimed module imports, whose absolute component would put
 its source and artifact outside the
 dependency's directories, and so is the root `Regula.«../Payload»`, whose `..` segment would leave
-them. A claimed module's import of `Widget.«<adopter directory>/Payload»`, which Lake builds under
+them. A `lake lint -- --project` from such a workspace for another project is refused with the
+workspace's own refusal before any audit (`Lint.lint`), though no control here runs that case. A
+claimed module's import of `Widget.«<adopter directory>/Payload»`, which Lake builds under
 the claimed library's glob outside every output directory, is refused once the module is loaded.
 An override in `.lake/package-overrides.json` that selects the dependency in place of one
 elsewhere is owned in the fresh copy too, and of two override entries the fresh copy loads the
