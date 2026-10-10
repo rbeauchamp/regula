@@ -22,8 +22,8 @@ open Frontend
 /-- Execute the finite independent native relation; preserve inventory order. It takes the role
 parts of the records (`roleRecords`), so it reads no project-written field but the three marks of
 `Declaration.Role`. -/
-def authorizedNativeAxioms (ds : Array Declaration.Role) (ts : Array Transcript := #[]) :
-    Array Name :=
+def authorizedNativeAxioms (ds : Array Declaration.Role)
+    (ts : Array Transcript.ToolchainObserved := #[]) : Array Name :=
   (ds.filter (fun a => decide (NativeTeachingOK ds ts a))).map (·.name)
 
 /-- Execute the finite independent recursive-helper relation; no caller whitelist. It takes the
@@ -32,8 +32,8 @@ def authorizedUnsafeRecHelpers (ds : Array Declaration.Role) : Array Name :=
   (ds.filter (fun h => decide (RecursiveHelperOK ds h))).map (·.name)
 
 /-- Authorization is equivalent to existence of the complete native relation at this name. -/
-theorem authorizedNativeAxioms_iff (ds : Array Declaration.Role) (ts : Array Transcript)
-    (n : Name) :
+theorem authorizedNativeAxioms_iff (ds : Array Declaration.Role)
+    (ts : Array Transcript.ToolchainObserved) (n : Name) :
     n ∈ authorizedNativeAxioms ds ts ↔ ∃ a ∈ ds, a.name = n ∧ NativeTeachingOK ds ts a := by
   simp [authorizedNativeAxioms, Array.mem_map, Array.mem_filter, and_left_comm, and_comm]
 
@@ -44,8 +44,8 @@ theorem authorizedUnsafeRecHelpers_iff (ds : Array Declaration.Role) (n : Name) 
 
 /-- The marks of an inventory can remove a native role but never add one: every name the executed
 validator admits, it admits with every mark of the inventory at its neutral value. -/
-theorem authorizedNativeAxioms_neutral {ds : Array Declaration.Role} {ts : Array Transcript}
-    {n : Name} (hn : n ∈ authorizedNativeAxioms ds ts) :
+theorem authorizedNativeAxioms_neutral {ds : Array Declaration.Role}
+    {ts : Array Transcript.ToolchainObserved} {n : Name} (hn : n ∈ authorizedNativeAxioms ds ts) :
     n ∈ authorizedNativeAxioms (ds.map Declaration.Role.neutral) ts := by
   obtain ⟨a, ha, rfl, ok⟩ := (authorizedNativeAxioms_iff ds ts n).mp hn
   exact (authorizedNativeAxioms_iff _ ts _).mpr
@@ -61,8 +61,9 @@ theorem authorizedUnsafeRecHelpers_neutral {ds : Array Declaration.Role} {n : Na
     ⟨h.neutral, Array.mem_map_of_mem hh, rfl, ok.neutral⟩
 
 /-- No name the native validator admits is a Standard-Logical axiom, for any inventory. -/
-theorem authorizedNativeAxioms_not_logical (ds : Array Declaration.Role) (ts : Array Transcript)
-    (n : Name) (hn : n ∈ authorizedNativeAxioms ds ts) : ¬ Permitted .standardLogical n := by
+theorem authorizedNativeAxioms_not_logical (ds : Array Declaration.Role)
+    (ts : Array Transcript.ToolchainObserved) (n : Name) (hn : n ∈ authorizedNativeAxioms ds ts) :
+    ¬ Permitted .standardLogical n := by
   rw [authorizedNativeAxioms_iff] at hn
   rcases hn with ⟨a, _, ha, hrole⟩
   rcases hrole.2.2 with ⟨_, _, _, hparent, _⟩
@@ -336,7 +337,8 @@ structure Roles (inventory : Inventory) where
   decided : Array Name
   /-- `native` is what `authorizedNativeAxioms` computes from this inventory. -/
   native_exact :
-    native = authorizedNativeAxioms (roleRecords inventory.declarations) inventory.transcripts
+    native = authorizedNativeAxioms (roleRecords inventory.declarations)
+      (observedTranscripts inventory.transcripts)
   /-- `helpers` is what `authorizedUnsafeRecHelpers` computes from this inventory. -/
   helpers_exact : helpers = authorizedUnsafeRecHelpers (roleRecords inventory.declarations)
   /-- `decided` is what `decidedImplementations` computes from this inventory. -/
@@ -369,7 +371,7 @@ theorem Roles.partialParent_not_safetyHelper {i : Inventory} (roles : Roles i)
 
 /-- Recompute every validator from the admitted data; no serialized proof is trusted. -/
 def authorize (i : Inventory) : Roles i :=
-  ⟨authorizedNativeAxioms (roleRecords i.declarations) i.transcripts,
+  ⟨authorizedNativeAxioms (roleRecords i.declarations) (observedTranscripts i.transcripts),
    authorizedUnsafeRecHelpers (roleRecords i.declarations),
    decidedImplementations (recordedContracts i.declarations), rfl, rfl, rfl⟩
 
@@ -625,7 +627,7 @@ inventory's validators compute. The decision also passes the record with its con
 nothing. It does so under the roles computed with all marks of the inventory at their neutral
 values. The decision requirement of RG1008 is `decisionFailure_marks_refuse_only`. -/
 theorem declarationFailure_marks_refuse_only (ds : Array Declaration.Role)
-    (ts : Array Transcript) {d : Declaration.Assessed} {r : InspectionRequest}
+    (ts : Array Transcript.ToolchainObserved) {d : Declaration.Assessed} {r : InspectionRequest}
     (h : declarationFailure d r (authorizedNativeAxioms ds ts) (authorizedUnsafeRecHelpers ds) =
       none) :
     declarationFailure d.neutral r (authorizedNativeAxioms (ds.map Declaration.Role.neutral) ts)
@@ -991,14 +993,14 @@ the same generated origin and statement while no `axiom` declaration occurs in i
 syntax. -/
 theorem native_provenance (i : Inventory) (roles : Roles i) (n : Name) (hn : n ∈ roles.native) :
     ∃ a ∈ i.declarations, a.name = n ∧ a.nativeReplay = some true ∧
-      ∃ c ∈ moduleCommands i.transcripts a.module,
+      ∃ c ∈ moduleCommands (observedTranscripts i.transcripts) a.module,
         (∃ d ∈ c.addedDeclarations, nativeAxiomOrigin? d.name = nativeAxiomOrigin? n ∧
           d.kind = .«axiom» ∧ d.nativeStatement = a.nativeStatement) ∧
         c.declaresAxiom = false := by
   rw [roles.native_exact, authorizedNativeAxioms_iff] at hn
   rcases hn with ⟨a, ha, rfl, hshape, _, _, _, o, ho, _, _, c, _, hintro, hundecl⟩
   obtain ⟨-, -, -, -, -, -, -, -, hreplay, -⟩ := hshape
-  have hc : c ∈ (moduleCommands i.transcripts a.module).filter (fun cmd =>
+  have hc : c ∈ (moduleCommands (observedTranscripts i.transcripts) a.module).filter (fun cmd =>
       cmd.addedDeclarations.any (fun d => nativeAxiomOrigin? d.name == some (o.1, o.2) &&
         d.kind == .«axiom» && d.nativeStatement == a.nativeStatement)) := by
     rw [hintro]; simp

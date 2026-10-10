@@ -515,7 +515,8 @@ theorem checked_admitInventory : Regula.ExecutableContract admitInventory (fun a
     ⟨((⟨Compiler.legacyCompilerTrust, rfl⟩, #[]), #[]),
       (admitInventory_isOk_iff _ _ _).mpr (by simp [InventoryValid, UniqueNames])⟩
     ⟨((⟨Compiler.legacyCompilerTrust, rfl⟩, #[]),
-        #[⟨.anonymous, "", 0, "", "", "", #[], #[], #[], #[]⟩]),
+        #[{ «module» := .anonymous, source := "", sourceBytes := 0, sourceContent := "",
+            leanVersion := "", leanGitHash := "", imports := #[], commands := #[] }]),
       fun accepted =>
         (((admitInventory_isOk_iff _ _ _).mp accepted).2.2.2 _ (Array.mem_singleton.mpr rfl)).1
           rfl⟩⟩

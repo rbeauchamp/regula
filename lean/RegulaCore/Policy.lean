@@ -189,7 +189,8 @@ theorem checked_scopeAdmission : Regula.ExecutableContract admitScopeImpl (fun a
       (accepts _ _ _ _).mpr
         ⟨by simp, by simp [RegulaPolicy.InventoryValid, RegulaPolicy.UniqueNames]⟩⟩
     ⟨(((⟨RegulaPolicy.Compiler.legacyCompilerTrust, rfl⟩, fun _ _ => .ok ()), #[]),
-        #[⟨.anonymous, "", 0, "", "", "", #[], #[], #[], #[]⟩]),
+        #[{ «module» := .anonymous, source := "", sourceBytes := 0, sourceContent := "",
+            leanVersion := "", leanGitHash := "", imports := #[], commands := #[] }]),
       fun accepted =>
         ((((accepts _ _ _ _).mp accepted).2.2.2.2 _ (Array.mem_singleton.mpr rfl)).1 rfl)⟩⟩
 
