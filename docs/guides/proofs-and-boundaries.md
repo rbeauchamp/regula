@@ -4130,21 +4130,32 @@ controls run `axiomGate` on the repository with a manifest it refuses before any
 structural baseline is `axiomGate`, `docFenceAudit` and `freshChecker` (its first shard, whose
 controls run `axiomGate` alone, names only that; its second keeps the partition's baseline),
 the execution baseline is `axiomGate` alone, and neither builds the
-repository's claimed surface; the other partitions keep the complete baseline. That is a
-reading of the controls' code, not a theorem. Two guards bound it: after the baseline build,
+repository's claimed surface; the lint-driver baseline is `axiomGate` and `lint`, and the other
+partitions keep the complete baseline. That is a reading of the controls' code, not a theorem.
+For the structural and execution partitions, two guards bound it: after the baseline build,
 `toolPath` refuses an executable that build did not name (for every checker executable the
 self-test's own module runs, other than itself), and `baselineOf_axiomGate` proves that every
 baseline names `axiomGate`, which `CompilerPaths` and `PolicyQualification` run by its path. A
-claimed-surface `.olean` that a control read from the repository's build without the baseline
-naming it would be absent on a clean checkout and fail that control there; on a warm local
-build it is not detected. `scripts/verify.sh` builds the self-test, `axiomGate` and, for a
-structural selection, the other checker executables its baseline names (none for the first
-shard) in one Lake invocation
+claimed-surface `.olean` that a control of these two partitions read from the repository's build
+without the baseline naming it would be absent on a clean checkout and fail that control there;
+on a warm local build it is not detected. `scripts/verify.sh` builds the self-test, `axiomGate`
+and, for a structural or lint-driver selection, the other checker executables its baseline names
+(none for the first shard) in one Lake invocation
 (`RegulaVerification.commands`), so the gate's own modules compile beside the self-test's last
 ones instead of after its link; that command selects nothing, and the baseline build still
 names and builds its targets. The frozen-artifact, cross-surface decision, library cycle, driver
 copy and manifest controls run in the structural clusters' queue, so no more of them run at
 once than the queue has workers.
+
+The lint-driver controls run `lake lint` in adopters of their own, which require `regula` as a
+Lake path dependency of the checkout. The two guards and the clean-checkout argument above do not
+cover the modules that these adopters read from the repository's build. If the baseline did not
+build such a module, an adopter's Lake builds it there instead of a refusal, possibly in several
+concurrent groups. No guard detects that. Each module that the adopters import is one that
+`axiomGate` or `lint` imports, apart from `Regula.Linter` and `Regula.Linter.Rules`, by a reading
+of import lines. The control `toml/absent-worker` runs alone before the other controls, and it
+builds those two because its adopter's `examples/lake-lint-toml/Gadget/Double.lean` imports
+`Regula.Linter`.
 
 The controls of each of these two partitions are divided into two shards, `1/2` and `2/2`
 (`--shard`), which the diagnostics workflow runs as separate jobs. Every control carries its one
@@ -4171,6 +4182,78 @@ a bound: the deadline itself is what refuses a slower run. The `structural` run 
 partition's frozen-artifact and library-cycle controls (the admission reuse rows of the table
 above); with them, one run the same day on that machine, at a load average of 7 to 11, passed
 in 85 s.
+
+The lint-driver partition runs the control `toml/absent-worker` first and alone, because it
+removes the `axiomGate` of the repository's build. Then four workers run the other controls in
+groups, and each worker takes the next group when it is free (`LintQualification.qualify`). The
+groups are listed longest first, by the times below. Each group writes its start and its time to
+the job log. The path-dependency controls are one chain in one adopter, which the queue runs as
+three groups.
+
+Each of these three groups starts from the same files of the adopter. The chain is cut at the
+two points where it has restored each file that it changed. At these points, the files differ
+from the start only in build output and in one module that the next control writes again. Thus
+each control reads the files that it read in the chain. Only the first control of a later group
+that builds starts with no build output. In the chain, it started with the output of the
+controls before it.
+
+On the slower hosted runners, the timed step of `diagnostics lint-driver` reached its
+420-second deadline after the path-dependency and owned-checker controls were added
+(Diagnostics runs 38073121895, 38074694772 and 38077207189, jobs 114274540988, 114279196648 and
+114289264598). In these job logs, the prologue from the start of the deadline to the build took
+about 3.5 s. Then the build of the self-test took 160 to 169 s, the baseline build 42 to 46 s and
+`toml/absent-worker` 10 to 12 s. That baseline build also built the fixtures, the claimed
+surface, `docFenceAudit` and `freshChecker`, which no lint-driver control reads.
+
+From the end of `toml/absent-worker`, where the groups start, `lean` took 140 to 153 s and `toml`
+121 to 133 s. The group `owned-checker` took 84 to 93 s, and the part of the path chain that is
+now `path-owned` 85 to 93 s (up to `path/owned-standard-logical`). The deadline killed each run
+190 to 202 s after the groups started, while the path chain was still running. Its last complete
+control was `path/override-last-fresh` in run 38073121895 and `path/owned-override` in the other
+two. The groups `cache`, `empty-facets`, `dependency-cache`, `escaped-name` and `guard` did not
+start in these runs.
+
+Two faster runs passed under the old schedule (Diagnostics runs 38071832852 and 38077102864, jobs
+114270714472 and 114289843134). Their builds of the self-test took 110 and 135 s. There, `lean`
+took 105 and 118 s and the whole path chain 162 and 179 s. After the chain, in later batches,
+`cache` took 18.7 and 20.7 s and `empty-facets` 17.1 and 19.2 s. Also, `dependency-cache` took
+14.9 and 17.1 s, `escaped-name` 14.7 and 16.5 s and `guard` 3.1 and 3.5 s.
+
+The next numbers are derived, not logged. In the faster runs, the chain took 1.52 to 1.54 times
+as long as `lean`. With that ratio, the times of `lean` in the runs that reached the deadline give
+a chain of about 213 to 236 s. Thus `path-names` and `path-layout` share about 120 to 151 s. The
+time of `lean` in the runs that reached the deadline is 1.19 to 1.46 times that of the faster
+runs. Scaled by that factor, `cache` takes at most about 30 s, `empty-facets` 28 s,
+`dependency-cache` 25 s, `escaped-name` 24 s and `guard` 5 s.
+
+The order of the first four groups comes from the runs that reached the deadline. The order of
+the five short groups comes from the faster runs. The order of `path-names` and `path-layout`
+comes from local runs on a developer machine. In these local runs, `path-names` took a half to
+three fifths of the time of the two. No other source gives that division.
+
+No worker of the queue is idle while a group waits. Thus a group starts not later than a quarter
+of the summed times of the groups listed before it. It ends not later than that time plus its own
+time. The four groups listed first start together. No schedule of four workers ends before the
+longest group or before a quarter of the total time of the groups.
+
+With these inputs, the groups take about 640 to 727 s together. Thus the lower end is about 160
+to 182 s, more than the time of `lean`. At the upper inputs, each group listed after the three
+path groups ends by about 199 s. The two later path groups end by about 261 s at most, and by
+about 208 s with the division of the local runs. At the lower inputs, the groups end by about
+188 s with that division.
+
+Before the groups, the timed step has about 3.5 s of prologue and the build of the self-test, 160
+to 169 s. Then the baseline build takes about 0.5 s, because the build of the self-test also made
+its targets. That time comes from local runs of the new schedule. The control
+`toml/absent-worker` takes 10 to 12 s. With the groups, the prediction for the timed step is
+about 362 to 393 s.
+
+The times other than that of the baseline build are from the old schedule. Thus the result is an
+estimate, not a bound on the new schedule. The target is a timed step of at most 390 s on three
+runs on the slower hosted runners, 30 s under the deadline. The prediction straddles that target,
+thus the margin rests on the CI observations of this change. The job logs of these runs print the
+start and the time of each group. That is a target, not a bound, and the deadline alone refuses a
+run.
 
 **Other proved oracles.** Quantifiers range over supplied Lean values; the IO drivers call each
 `ExecutableContract.run`, so the evidence is required by their source linkage and erased at
