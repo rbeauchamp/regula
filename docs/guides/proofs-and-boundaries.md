@@ -672,14 +672,20 @@ checks it at the admission boundary `recordFailure`, and the other two take a pr
 part. The editor decision reads only the assessed part: it joins the declaration decision with
 `needsRoleEvidence`, which takes `Declaration.Inspected`.
 
-**No project-written mark admits.** Each project-written input of a decision can refuse but does
-not admit, and a theorem says so for each. `NativeTeachingOK.neutral` and
+**No project-written mark admits.** The marks of the role part and the refusals of the recorded
+contract can refuse but do not admit. `NativeTeachingOK.neutral` and
 `RecursiveHelperOK.neutral` show that a role still holds with all marks of the inventory at their
 neutral values. The `_neutral` theorems of the two validators carry that to the executed
 functions. For the refusals of the recorded contract, `DeclarationOK.neutral` and
-`OperationalOK.neutral` show the same.
-`declarationFailure_marks_refuse_only` joins them through `DeclarationOK.of_subset`: a role that a
-mark removes can only refuse.
+`OperationalOK.neutral` show the same. `declarationFailure_neutral` and
+`operationalFailure_neutral` carry it to the executed declaration and operational decisions.
+
+`declarationFailure_marks_refuse_only` joins the role validators and the declaration decision
+through `DeclarationOK.of_subset`: a role that a mark removes can only refuse.
+`decidedImplementations_neutral` shows that the refusal of a contract can remove a decided
+implementation but does not add one. `decisionFailure_marks_refuse_only` carries that to the
+executed decision requirement of [RG1008] through `DecisionOK.of_subset`. No theorem states this
+for `policyFor`, `policyForName` or `memberFailure`, which take an inventory.
 
 `policyFor` is the admission boundary `recordFailure` followed by `policyForName`, the policy
 decision on the record's name. The boundary refuses a record that is not one of the inventory's

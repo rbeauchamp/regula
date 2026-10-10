@@ -149,7 +149,8 @@ theorem operationalFailure_none_iff (t : ToolchainAxioms) (d : Declaration.Asses
 admit one: whatever `OperationalOK` admits, it admits with the contract refusing nothing. -/
 theorem OperationalOK.neutral {t : ToolchainAxioms} {d : Declaration.Assessed}
     (ok : OperationalOK t d) : OperationalOK t d.neutral :=
-  ⟨ok.1, ok.2.1, ContractOK.neutral _, SharedTestOK.neutral _⟩
+  ⟨ok.1, ok.2.1, ContractOK.neutral d.executableContract,
+    SharedTestOK.neutral d.executableContract⟩
 
 /-- Whatever the executed operational decision passes, it passes with the contract refusing
 nothing (`OperationalOK.neutral`). -/

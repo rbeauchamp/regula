@@ -96,6 +96,16 @@ theorem decidedImplementations_iff (contracts : Array RecordedContract) (n : Nam
   · rintro ⟨r, hr, c, contract, root, kind, failure⟩
     exact ⟨r, hr, by simp [contract, kind, failure, root]⟩
 
+/-- The refusals of the recorded contracts can remove a decided implementation but do not add one:
+each name the executed function gives, it gives with each contract refusing nothing. -/
+theorem decidedImplementations_neutral {cs : Array RecordedContract} {n : Name}
+    (hn : n ∈ decidedImplementations cs) :
+    n ∈ decidedImplementations (cs.map RecordedContract.neutral) := by
+  obtain ⟨r, hr, c, hc, root, kind, -⟩ := (decidedImplementations_iff cs n).mp hn
+  exact (decidedImplementations_iff _ n).mpr
+    ⟨RecordedContract.neutral r, Array.mem_map_of_mem hr, { c with failure := none, shared := {} },
+      by simp [RecordedContract.neutral, Option.mem_def.mp hc], root, kind, rfl⟩
+
 /-- Every name `authorizedUnsafeRecHelpers` admits is a helper for which the checker recorded that
 Lean's own recursion compiler regenerated its base and that Lean's kernel checked the base's
 recursion equation for the helper's value (`Declaration.unsafeRecRegenerated`), and whose
@@ -609,9 +619,11 @@ theorem declarationFailure_of_subset {d : Declaration.Assessed} {r : InspectionR
   (declarationFailure_none_iff _ _ _ _).mpr
     (((declarationFailure_none_iff _ _ _ _).mp h).of_subset hn hh logical)
 
-/-- No project-written mark admits a declaration. If the executed decision passes a record under
-the roles that an inventory's validators compute, it passes the record with its contract refusing
-nothing under the roles computed with every mark of the inventory at its neutral value. -/
+/-- No mark of the role part and no refusal of the recorded contract admits a declaration under
+the executed declaration decision. Take a record that the decision passes under the roles that an
+inventory's validators compute. The decision also passes the record with its contract refusing
+nothing. It does so under the roles computed with all marks of the inventory at their neutral
+values. The decision requirement of RG1008 is `decisionFailure_marks_refuse_only`. -/
 theorem declarationFailure_marks_refuse_only (ds : Array Declaration.Role)
     (ts : Array Transcript) {d : Declaration.Assessed} {r : InspectionRequest}
     (h : declarationFailure d r (authorizedNativeAxioms ds ts) (authorizedUnsafeRecHelpers ds) =
@@ -621,6 +633,22 @@ theorem declarationFailure_marks_refuse_only (ds : Array Declaration.Role)
   declarationFailure_neutral <| declarationFailure_of_subset h
     (fun _ => authorizedNativeAxioms_neutral) (fun _ => authorizedUnsafeRecHelpers_neutral)
     (authorizedNativeAxioms_not_logical _ _)
+
+/-- A smaller decided set makes the executed decision requirement pass nothing more
+(`DecisionOK.of_subset`). -/
+theorem decisionFailure_of_subset {d : Declaration.Registration} {decided decided' : Array Name}
+    (h : decisionFailure d decided' = none) (sub : ∀ n ∈ decided', n ∈ decided) :
+    decisionFailure d decided = none :=
+  (decisionFailure_none_iff _ _).mpr (((decisionFailure_none_iff _ _).mp h).of_subset sub)
+
+/-- No refusal of a recorded contract admits a declaration under the executed decision requirement
+of RG1008. Take a registration that the requirement passes under the implementations that the
+contracts decide. The requirement also passes it with each contract refusing nothing
+(`decidedImplementations_neutral`). -/
+theorem decisionFailure_marks_refuse_only (cs : Array RecordedContract)
+    {d : Declaration.Registration} (h : decisionFailure d (decidedImplementations cs) = none) :
+    decisionFailure d (decidedImplementations (cs.map RecordedContract.neutral)) = none :=
+  decisionFailure_of_subset h fun _ => decidedImplementations_neutral
 
 /-- The policy decision takes the identity alone: two records with one name get one decision, so
 no field of a record, project-written or not, changes it. -/

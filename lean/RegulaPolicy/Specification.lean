@@ -123,13 +123,13 @@ def DeclarationOK (d : Declaration.Assessed) (request : InspectionRequest)
 
 /-- A recorded contract refusing nothing passes: no refusal and no shared test. -/
 theorem ContractOK.neutral (contract : RecordedContract) :
-    ContractOK (contract.map fun c => { c with failure := none, shared := {} }) := by
-  cases contract <;> simp [ContractOK]
+    ContractOK (RecordedContract.neutral contract) := by
+  cases contract <;> simp [ContractOK, RecordedContract.neutral]
 
 /-- A recorded contract refusing nothing shares no test. -/
 theorem SharedTestOK.neutral (contract : RecordedContract) :
-    SharedTestOK (contract.map fun c => { c with failure := none, shared := {} }) := by
-  cases contract <;> simp [SharedTestOK]
+    SharedTestOK (RecordedContract.neutral contract) := by
+  cases contract <;> simp [SharedTestOK, RecordedContract.neutral]
 
 /-- Compiler trust grows with the native set. -/
 theorem CompilerAxiom.mono {native native' : Array Name} {n : Name}
@@ -154,8 +154,8 @@ theorem DeclarationOK.neutral {d : Declaration.Assessed} {request : InspectionRe
     DeclarationOK d.neutral request native helpers := by
   rcases ok with ⟨hk, hmem, hreq⟩ | ⟨hk, hsorry, hknown, hsafe, hcomp, -, -, hprofile⟩
   · exact Or.inl ⟨hk, hmem, hreq⟩
-  · exact Or.inr ⟨hk, hsorry, hknown, hsafe, hcomp, ContractOK.neutral _, SharedTestOK.neutral _,
-      hprofile⟩
+  · exact Or.inr ⟨hk, hsorry, hknown, hsafe, hcomp, ContractOK.neutral d.executableContract,
+      SharedTestOK.neutral d.executableContract, hprofile⟩
 
 /-- Smaller role sets admit nothing more: whatever `DeclarationOK` admits with `native'` and
 `helpers'`, it admits with any larger sets, provided the larger native set names no
@@ -180,6 +180,12 @@ theorem DeclarationOK.of_subset {d : Declaration.Assessed} {request : Inspection
     · cases request with
       | conforming p => exact fun n hax => (hprofile n hax).imp_left (CompilerAxiom.mono hn)
       | _ => trivial
+
+/-- A smaller set of decided implementations admits nothing more: whatever `DecisionOK` admits
+with `decided'`, it admits with any larger set. -/
+theorem DecisionOK.of_subset {d : Declaration.Registration} {decided decided' : Array Name}
+    (ok : DecisionOK d decided') (sub : ∀ n ∈ decided', n ∈ decided) : DecisionOK d decided :=
+  fun registered => sub _ (ok registered)
 
 /-- Positive logical foundation: no project axiom, hole, unknown or compiler axiom;
 the selected permitted set contains every observed transitive dependency. -/

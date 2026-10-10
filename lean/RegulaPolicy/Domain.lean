@@ -1272,6 +1272,12 @@ decides one of its refusals: the collector reads whether Lean marks the implemen
 so they read what a project writes only through it. -/
 abbrev RecordedContract := Option ExecutableContract
 
+/-- The recorded contract refusing nothing: no refusal (`failure`) and no shared test (`shared`).
+The narrowing theorems compare a decision's answer on a recorded contract with its answer on this
+(`DeclarationOK.neutral`, `OperationalOK.neutral`, `decidedImplementations_neutral`). -/
+def RecordedContract.neutral (contract : RecordedContract) : RecordedContract :=
+  contract.map fun c => { c with failure := none, shared := {} }
+
 /-- The part of a declaration's record that is kernel-checked declaration data: a field of the
 constant's `ConstantInfo`, which Lean's kernel admitted with the declaration, or a value computed
 from such fields alone by a pure function. The gate replays the owned declarations of an
@@ -1562,12 +1568,11 @@ coercion leaves the assessed part: a requirement over a narrower part names the 
 record reaches each narrower part along one path only. -/
 instance : Coe Declaration Declaration.Assessed := ⟨Declaration.assessed⟩
 
-/-- The assessed part with its recorded contract refusing nothing: no refusal (`failure`) and no
-shared test (`shared`). The narrowing theorems compare a decision's answer on a record with its
-answer on this (`DeclarationOK.neutral`, `OperationalOK.neutral`). -/
+/-- The assessed part with its recorded contract refusing nothing (`RecordedContract.neutral`).
+The narrowing theorems compare a decision's answer on a record with its answer on this
+(`DeclarationOK.neutral`, `OperationalOK.neutral`). -/
 def Declaration.Assessed.neutral (d : Declaration.Assessed) : Declaration.Assessed :=
-  { d with executableContract := d.executableContract.map fun c =>
-      { c with failure := none, shared := {} } }
+  { d with executableContract := RecordedContract.neutral d.executableContract }
 
 /-- The neutral form keeps the inspected part. -/
 @[simp] theorem Declaration.Assessed.neutral_toInspected (d : Declaration.Assessed) :
