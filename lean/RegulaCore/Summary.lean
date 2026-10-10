@@ -4,9 +4,9 @@
 home page shows `summary` (`RegulaCore/SiteDocs.lean`) and its link previews show
 `plainText summary` (`Regula.Site.tagline`), so those two cannot differ from it. The Markdown check
 of acceptance (`markdown/MarkdownMain.lean`) refuses the root `README.md` and the adoption guide
-unless the first block after the title of each is a paragraph that md4c reads as it reads
-`summary` (`Regula.Markdown.summaryErrors`), and it refuses the `description` of `lakefile.lean`,
-as Lake reads it, unless that description is `plainText summary`.
+unless each starts with a title of level 1 and the first block after it is a paragraph that md4c
+reads as it reads `summary` (`Regula.Markdown.summaryErrors`), and it refuses the `description` of
+`lakefile.lean`, as Lake reads it, unless that description is `plainText summary`.
 
 This module imports nothing, so each of those users can import it.
 -/
@@ -18,9 +18,10 @@ project chooses, also through imports, and the cases that `lake build` accepts a
 refuses. Its plain text is at most 350 characters, the limit of the description of a GitHub
 repository. -/
 def summary : String :=
-  "A strict linter for Lean. It checks that each theorem of your project depends only on the \
-    axioms of the foundation that you choose, also through its imports. Thus `lake lint` refuses \
-    a `sorry`, an `axiom` of your project and `native_decide`, which `lake build` accepts."
+  "A strict linter for Lean. It checks that each theorem of the libraries that you claim depends \
+    only on the axioms of the foundation that you choose, also through imports. Thus \
+    `lake lint` refuses a `sorry`, an `axiom` of those libraries and `native_decide`, which \
+    `lake build` accepts."
 
 /-- Markdown text without its backticks: the plain text of Markdown whose only markup is code
 spans, as the summary is. -/

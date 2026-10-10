@@ -1,6 +1,6 @@
 # Regula
 
-A strict linter for Lean. It checks that each theorem of your project depends only on the axioms of the foundation that you choose, also through its imports. Thus `lake lint` refuses a `sorry`, an `axiom` of your project and `native_decide`, which `lake build` accepts.
+A strict linter for Lean. It checks that each theorem of the libraries that you claim depends only on the axioms of the foundation that you choose, also through imports. Thus `lake lint` refuses a `sorry`, an `axiom` of those libraries and `native_decide`, which `lake build` accepts.
 
 Lean gives no warning for an `axiom` or for `native_decide`, and it warns about a `sorry` only at the declaration that contains the `sorry`. `#print axioms` shows these problems, but for one declaration at a time. Regula examines each declaration of the libraries that you claim, with the axioms that the declaration gets through its imports.
 
@@ -44,13 +44,15 @@ Each finding gives the rule, the location and the fix. The first finding of each
 
 | `lake lint` refuses | Your review, or trusted |
 | --- | --- |
-| A `sorry` or `admit`, an `axiom` of your project, or an axiom other than `propext`, `Quot.sound` and `Classical.choice`, through each import ([RG1001]–[RG1003]) | If each theorem states what you mean |
+| A `sorry` or `admit`, an `axiom` of a claimed library, or an axiom other than `propext`, `Quot.sound` and `Classical.choice`, through each import ([RG1001]–[RG1003]) | If each theorem states what you mean |
 | A proof that trusts the compiler: `native_decide`, `decide +native` or `bv_decide` ([RG1004]) | If your invariants cover each path that writes the state |
 | An axiom beyond the foundation that the library claims: `kernel-only`, `choice-free` or `standard-logical` ([RG1005]) | If your documentation describes the formal claim correctly |
 | A `partial` or `unsafe` declaration that you write ([RG1006]). A contract of a registered function that is missing or that the rules refuse ([RG1007]–[RG1009]). | Lean's kernel, compiler and runtime, Lake and the operating system |
-| An `extern` or `implemented_by` path that Regula cannot resolve ([RG3001]), and in `checked` mode a boundary with no proof of correspondence ([RG3002]) | The packages that you require from outside your Git work tree. Regula names them as trusted, and it does not replay them in Lean's kernel. A path dependency in your work tree is your own code, and Regula examines it. |
-| A build with a warning ([RG2003]), a manifest that does not classify each target ([RG2002]), and a module outside each library ([RG2004]) | Code that deliberately changes Lean's environment, compiler or build to make a check pass, where no rule examines the mechanism (see the [scope](SECURITY.md#scope) of the security policy) |
+| An `extern` or `implemented_by` path that Regula cannot resolve ([RG3001]). In `checked` mode, a boundary outside the code of the Lean toolchain with no proof of correspondence ([RG3002]). | The packages that you require from outside your Git work tree. Regula names them as trusted, and it does not replay them in Lean's kernel. A path dependency in your work tree is your own code, and Regula examines it. |
+| A build with a warning ([RG2003]), and a manifest that does not classify each target ([RG2002]) | Code that deliberately changes Lean's environment, compiler or build to make a check pass, where no rule examines the mechanism (see the [scope](SECURITY.md#scope) of the security policy) |
+| A claimed import of an excluded module, or of a module outside the libraries and executable roots of the manifest ([RG2004]) | |
 | Missing evidence, for example of kernel admission ([RG2005]), and options other than the community configuration ([RG2006]) | |
+| A workspace that Lake cannot load with its toolchain and dependencies, or an environment that the audit cannot inspect ([RG2001]) | |
 | A module without a module docstring ([RG5001]), and a registered material declaration without its docstring or its Intent section ([RG5002], [RG5003]) | |
 
 **Use Regula** when you depend on Lean code that you do not read line by line, or when you publish results as proved.
@@ -172,6 +174,7 @@ Each release supports only the Lean toolchain pinned in its `lean-toolchain`; th
 [RG1006]: https://rbeauchamp.github.io/regula/rules/RG1006/
 [RG1007]: https://rbeauchamp.github.io/regula/rules/RG1007/
 [RG1009]: https://rbeauchamp.github.io/regula/rules/RG1009/
+[RG2001]: https://rbeauchamp.github.io/regula/rules/RG2001/
 [RG2002]: https://rbeauchamp.github.io/regula/rules/RG2002/
 [RG2003]: https://rbeauchamp.github.io/regula/rules/RG2003/
 [RG2004]: https://rbeauchamp.github.io/regula/rules/RG2004/

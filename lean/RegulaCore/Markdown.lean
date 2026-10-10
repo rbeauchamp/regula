@@ -93,8 +93,8 @@ open Regula.Prose
 /-- The kind of a block of a document, as far as the checks of its prose tell blocks apart
 (`RegulaCore/ControlledProse.lean`). The rule-ID check does not read it. -/
 inductive Kind where
-  /-- A heading. -/
-  | heading
+  /-- A heading of level `level`: 1 for a title (`#`), up to 6. -/
+  | heading (level : Nat)
   /-- A paragraph that is in no list item: also such a paragraph of a block quote. -/
   | paragraph
   /-- A paragraph in an item of an ordered list, at each depth: also in an unordered list or a
@@ -1794,8 +1794,8 @@ theorem checked_siteLinkErrors : Regula.ExecutableContract siteLinkErrors (fun r
 
 The root `README.md` and the adoption guide open with the summary of Regula
 (`Regula.Site.summary`, `RegulaCore/Summary.lean`): md4c reads the first block after the title of
-each as it reads the summary alone, one paragraph. The statement compares the pieces of the
-two readings, so it reads no Markdown syntax itself. A summary in a code block, in a list item, in
+each as it reads the summary alone, one paragraph, and the title is a heading of level 1. The
+statement compares the pieces of the two readings, so it reads no Markdown syntax itself. A summary in a code block, in a list item, in
 two paragraphs or on two lines, or with a different text, is not that paragraph. -/
 
 /-- The documents that open with the summary of Regula, by their paths in the repository. -/
@@ -1808,11 +1808,11 @@ def NoStart (pieces : List Piece) : Prop := ∀ kind, Piece.start kind ∉ piece
 def BlockEnd (pieces : List Piece) : Prop := ∀ piece ∈ pieces.head?, ∃ kind, piece = .start kind
 
 /-- The document `doc` opens with the paragraph `summary`, as the parser reads each: `summary` is
-one paragraph, and `doc` is a heading, the title, then exactly the pieces of `summary`, then the
-end of the document or the start of a different block. -/
+one paragraph, and `doc` is a heading of level 1, the title, then exactly the pieces of `summary`,
+then the end of the document or the start of a different block. -/
 def OpensWith (summary doc : List Piece) : Prop :=
   ∃ body title rest, summary = .start .paragraph :: body ∧ NoStart body ∧ NoStart title ∧
-    BlockEnd rest ∧ doc = .start .heading :: (title ++ (summary ++ rest))
+    BlockEnd rest ∧ doc = .start (.heading 1) :: (title ++ (summary ++ rest))
 
 /-- Whether `piece` starts a block. -/
 def Piece.isStart : Piece → Bool
@@ -1902,7 +1902,7 @@ theorem afterTitle_iff {summary : List Piece} (starts : ∃ kind body, summary =
 /-- Whether the document `doc` opens with the paragraph `summary` (`OpensWith`). -/
 def opensWith (summary doc : List Piece) : Bool :=
   match summary, doc with
-  | .start .paragraph :: body, .start .heading :: after =>
+  | .start .paragraph :: body, .start (.heading 1) :: after =>
     !body.any Piece.isStart && afterTitle summary after
   | _, _ => false
 

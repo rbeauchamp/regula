@@ -333,7 +333,7 @@ unless it is a fence marker of the documentation audit (`auditMarker`). -/
 def block (list : Option Bool) (b : Block) : List Piece :=
   match b with
   | .p texts => .start (paragraphKind list) :: .line :: inlines false texts
-  | .header _ texts => .start .heading :: .line :: inlines false texts
+  | .header level texts => .start (.heading level) :: .line :: inlines false texts
   | .ul _ _ items =>
     items.attach.toList.flatMap fun ⟨item, _⟩ =>
       item.contents.attach.toList.flatMap fun ⟨inner, _⟩ =>
@@ -631,9 +631,9 @@ private def bodyless : String :=
 -- The opening of `README.md` and of the adoption guide, as md4c reports it (`checkSummary`): the
 -- summary as the paragraph right after the title is accepted, and a different document is not
 -- examined. The summary in a code block after a different first paragraph, in a fenced block
--- alone, on two lines, with more text in its paragraph, in a list item or after a block before
--- the title is refused. A changed summary that a document still opens with in its old words is
--- refused too.
+-- alone, on two lines, with more text in its paragraph, in a list item, after a block before
+-- the title, or after a title of level 2, also when a title of level 1 follows, is refused. A
+-- changed summary that a document still opens with in its old words is refused too.
 private def summary : String := Regula.Site.summary
 
 private def unsummarized : List String := [unsummarizedReason "README.md"]
@@ -651,7 +651,9 @@ private def unsummarized : List String := [unsummarizedReason "README.md"]
   checkSummary "README.md"
     s!"# Regula\n\n{summary.replace ". " ".\n"}\n" == unsummarized &&
   checkSummary "README.md" s!"# Regula\n\n- {summary}\n" == unsummarized &&
-  checkSummary "README.md" s!"Before.\n\n# Regula\n\n{summary}\n" == unsummarized
+  checkSummary "README.md" s!"Before.\n\n# Regula\n\n{summary}\n" == unsummarized &&
+  checkSummary "README.md" s!"## Regula\n\n{summary}\n" == unsummarized &&
+  checkSummary "README.md" s!"## Intro\n\n{summary}\n\n# Regula\n\n{summary}\n" == unsummarized
 -- Compiled-evaluation observation at build time, not a kernel-checked proof.
 #guard checkSummary "README.md" s!"# Regula\n\n{summary}\n" ("Regula accepts holes. " ++ summary) ==
   unsummarized
@@ -675,7 +677,7 @@ private def kinds (source : String) : List Kind :=
 -- Compiled-evaluation observation at build time, not a kernel-checked proof.
 #guard kinds ("# T\n\nP one.\n\n- a\n- b\n\n1. c\n2. d\n\n> q\n\n| h |\n| --- |\n| x |\n\n" ++
   "```\ncode\n```\n") ==
-  [.heading, .paragraph, .bullet, .bullet, .step, .step, .paragraph, .cell, .cell, .code]
+  [.heading 1, .paragraph, .bullet, .bullet, .step, .step, .paragraph, .cell, .cell, .code]
 -- A block in an item of an ordered list is a step at each depth: a paragraph of an unordered
 -- list there, a paragraph of a block quote there and the cells of a table there.
 -- Compiled-evaluation observation at build time, not a kernel-checked proof.
