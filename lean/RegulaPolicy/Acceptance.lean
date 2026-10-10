@@ -537,7 +537,8 @@ theorem declarationOK_conforming_needsTranscript {d : Declaration} {profile : Co
     declarationNeedsTranscript d.kind d.name = false := by
   rcases judgment with ⟨_, _, impossible⟩ | ⟨kind, _⟩
   · cases impossible
-  · simp [declarationNeedsTranscript, kind]
+  · have kind : d.kind ≠ .«axiom» := kind
+    simp [declarationNeedsTranscript, kind]
 
 /-- The observation a declaration-policy job accepts is a declaration of the environment's
 inventory with the job's name, judged under a conforming profile. -/
