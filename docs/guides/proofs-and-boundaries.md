@@ -1855,8 +1855,8 @@ decision with a kind.
 - **The observing pass** is `Collect.readStatement`. It starts at the constants of the term. It
   reads each constant outside Lean's own library that the reading with the types reaches,
   `StatementReading.Observed.withTypes`. For each such constant it gives a record,
-  `StatementReading.Observed`. The record holds the kind and the form of the result type, and the
-  constants of the type, of the value, of the body of the value and of the declaration.
+  `StatementReading.Observed`. The record holds the kind and the form of the result type. It also
+  holds the constants of the type, of the value, of the body and of the declaration.
 - **The body** of a term or a value is the part under its leading variables, from
   `StatementReading.lambdaParts`. `Collect.readConstants` reads its constants with
   `Lean.Expr.forEach'` and `StatementReading.readStep` at each subterm. The parameters of an
@@ -1881,8 +1881,10 @@ decision with a kind.
 
 **The argument.** A kind compares `accepts (f x)` with `spec x` for each input `x`. The truth of
 `spec x` at a given `x` depends on the body of `spec` at `x`, and on the definitions that the body
-names. The type of a leading variable is a domain. A change of its declaration changes which
-values the variable can have, not the value of the body at a given value. A projection of a field
+names.
+
+The type of a leading variable is a domain. A change of its declaration changes which values the
+variable can have, not the value of the body at a given value. A projection of a field
 gives the field of its value, so the parameters of its structure are domains too. The value of a
 definition determines it, so its type adds nothing to what the value states.
 
