@@ -1183,16 +1183,37 @@ reserved modules, it reported RG1008 for `admitIdentity`, and before that, the a
 `RegulaPolicy.Codec`, which the reporter loads under `--fresh`, as an unreplayed module that
 imports a replayed one. Its account must name `regula` alone as a trusted dependency, as it names a
 `regula` outside the work tree, since `regula` provides modules under those prefixes
-(`RegulaPolicy.DependencyState.reserved`). -/
+(`RegulaPolicy.DependencyState.reserved`). That line does not tell an owned `regula` from a trusted
+one, so the same run's result document must record `regula` in `snapshot.dependencies` with
+`owned: true` and `RegulaCore.EditorPolicy` among the `dependencyModules` of an environment. -/
 private def ownedChecker (repo adopter : FilePath) : IO (Array String) := do
   BuildLintQualification.setup repo adopter
   IO.FS.removeDirAll (adopter / ".git")
   mutate (adopter / "Widget.lean") "import Regula.Contract\n"
     "import Regula.Contract\nimport Regula.Linter\n"
-  let positive := accepted "owned-checker/fresh" (fresh := true)
+  let label := "owned-checker/fresh"
+  let positive := accepted label (fresh := true)
   let onlyRegula := "trusted dependencies, not wholly replayed through Lean's kernel: regula\n"
-  expect adopter { positive with contains := positive.contains.push onlyRegula }
-    #["--", "--fresh"]
+  let resultFile := adopter / "owned-checker.json"
+  let mut failures ← expect adopter
+    { positive with contains := positive.contains.push onlyRegula }
+    #["--", "--fresh", "--json-out", "owned-checker.json"]
+  unless failures.isEmpty do return failures
+  let acceptance := (← readJson resultFile).getObjValD "acceptance"
+  IO.FS.removeFile resultFile
+  let entries (value : Json) : Array Json := value.getArr?.toOption.getD #[]
+  let dependencies := entries ((acceptance.getObjValD "snapshot").getObjValD "dependencies")
+  unless dependencies.any (fun dependency => dependency.getObjValD "package" == toJson "regula" &&
+      dependency.getObjValD "owned" == toJson true) do
+    failures := failures.push s!"lake-lint/{label}: snapshot.dependencies has no owned regula: \
+      {(Json.arr dependencies).compress}"
+  let inspected := Regula.RegistryCodec.printedNameJson `RegulaCore.EditorPolicy
+  let environments := entries (acceptance.getObjValD "environments")
+  let dependencyModules := environments.map (·.getObjValD "dependencyModules")
+  unless dependencyModules.any (fun modules => (entries modules).contains inspected) do
+    failures := failures.push s!"lake-lint/{label}: no environment's dependencyModules holds \
+      {inspected.compress}: {(Json.arr dependencyModules).compress}"
+  return failures
 
 /-- With the checker's `axiomGate` worker binary removed, `lake lint` builds it and still
 reaches the accepted result: Lake's lint dispatch itself builds only the driver. -/
