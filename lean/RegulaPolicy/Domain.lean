@@ -1323,9 +1323,9 @@ writes. State a project writes can still enter an observation, and each field sa
 `prettyType` and `isProp` are Lean's own answers, which read the notations and the reducibility
 statuses in force; `nativeReplay` runs compiled code; and what a project writes selects which
 regeneration `unsafeRecRegenerated` reports, while the pure comparison and the kernel decide it.
-The two observations that a project-written mark does decide, `constructorIndex` and
-`executableContract`, are fields of `Declaration.ProjectWritten`. No policy theorem proves an
-observation truthful. -/
+The three observations that a project-written mark does decide, `constructorIndex`,
+`executableContract` and `tableOmissions`, are fields of `Declaration.ProjectWritten`. No policy
+theorem proves an observation truthful. -/
 structure Declaration.ToolchainObserved where
   /-- The module that declares the constant, as Lean's import record of the inspected
   environment gives it. Structural original Name for new diagnostic transport; absent legacy
@@ -1371,11 +1371,11 @@ def tableOmissionText (axioms omissions : Array Lean.Name) : String :=
 
 /-- The part of a declaration's record that is read from environment state an audited project
 can write, or that such state decides: an environment extension's entry, an attribute, a
-declaration range, and the two observations of the checker that read such marks directly
-(`constructorIndex`, `executableContract`). Lean's own commands write this state for the
-declarations they add, and a metaprogram of the audited project can write it for any declaration.
-A decision that reads one of these fields rests on what the project recorded, so no field here is
-evidence that a declaration is what the record says. -/
+declaration range, and the three observations of the checker that read such marks directly
+(`constructorIndex`, `executableContract`, `tableOmissions`). Lean's own commands write this state
+for the declarations they add, and a metaprogram of the audited project can write it for any
+declaration. A decision that reads one of these fields rests on what the project recorded, so no
+field here is evidence that a declaration is what the record says. -/
 structure Declaration.ProjectWritten where
   /-- The constant is registered as a type-class instance. -/
   «instance» : Bool
@@ -1448,10 +1448,6 @@ structure Declaration extends Declaration.Inspected, Declaration.ProjectWritten
 decision takes only that part. Nothing is computed: the other part is dropped. -/
 instance : Coe Declaration Declaration.Inspected := ⟨Declaration.toInspected⟩
 
-/-- A declaration's record is read as its project-written part wherever a decision takes only
-that part. -/
-instance : Coe Declaration Declaration.ProjectWritten := ⟨Declaration.toProjectWritten⟩
-
 /-- The inspected part is read as its kernel-checked data wherever a decision takes only that. -/
 instance : Coe Declaration.Inspected Declaration.KernelChecked :=
   ⟨Declaration.Inspected.toKernelChecked⟩
@@ -1460,6 +1456,86 @@ instance : Coe Declaration.Inspected Declaration.KernelChecked :=
 those. -/
 instance : Coe Declaration.Inspected Declaration.ToolchainObserved :=
   ⟨Declaration.Inspected.toToolchainObserved⟩
+
+/-- What the decision requirement of RG1008 reads of a declaration's record, and nothing else: the
+constant's name, kernel-checked declaration data, and the collector's observation of its
+`@[regula_decision]` registration, which the project writes. -/
+structure Declaration.Registration where
+  /-- The constant's name (`Declaration.KernelChecked.name`). -/
+  name : Lean.Name
+  /-- For a constant registered with `@[regula_decision]`: whether its result type is
+  `Decidable _`; `none` without the registration (`Declaration.ProjectWritten.decisionResult`). -/
+  decisionResult : Option DecisionResult
+  deriving Repr, DecidableEq
+
+/-- The registration part of a declaration's record: its name and its registration, each read
+through the part that declares it, so a move of either field to another part fails here. -/
+def Declaration.registration (d : Declaration) : Declaration.Registration :=
+  ⟨d.toInspected.toKernelChecked.name, d.toProjectWritten.decisionResult⟩
+
+/-- The name of the registration part is the name of the record. -/
+@[simp] theorem Declaration.registration_name (d : Declaration) :
+    d.registration.name = d.name := rfl
+
+/-- The registration of the registration part is the registration of the record. -/
+@[simp] theorem Declaration.registration_decisionResult (d : Declaration) :
+    d.registration.decisionResult = d.decisionResult := rfl
+
+/-- A declaration's record is read as its registration part wherever a decision takes only that. -/
+instance : Coe Declaration Declaration.Registration := ⟨Declaration.registration⟩
+
+/-- What the role validators read of a declaration's record, and nothing else: the inspected part
+(kernel-checked declaration data and toolchain observations), and the attribute and range marks
+that the project writes. The marks are the replacement (`@[implemented_by]`), the `extern` mark,
+the recorded declaration ranges and the constructor-index observation, which such marks decide. -/
+structure Declaration.Role extends Declaration.Inspected where
+  /-- The constant the compiler runs in its place (`Declaration.ProjectWritten.implementedBy`). -/
+  implementedBy : Option Lean.Name
+  /-- The constant has an `@[extern]` implementation (`Declaration.ProjectWritten.extern`). -/
+  «extern» : Bool
+  /-- Lean's declaration ranges as it recorded them (`Declaration.ProjectWritten.recordedRanges`).
+  -/
+  recordedRanges : Option Ranges
+  /-- The constructor-index observation (`Declaration.ProjectWritten.constructorIndex`). -/
+  constructorIndex : Option (Lean.Name × Lean.Name)
+  deriving Repr, DecidableEq
+
+/-- The role part of a declaration's record: the inspected part and the four marks, each read
+through the part that declares it, so a move of a mark to another part fails here. -/
+def Declaration.role (d : Declaration) : Declaration.Role :=
+  { d.toInspected with
+    implementedBy := d.toProjectWritten.implementedBy
+    «extern» := d.toProjectWritten.extern
+    recordedRanges := d.toProjectWritten.recordedRanges
+    constructorIndex := d.toProjectWritten.constructorIndex }
+
+/-- The inspected part of the role part is the inspected part of the record. -/
+@[simp] theorem Declaration.role_toInspected (d : Declaration) :
+    d.role.toInspected = d.toInspected := rfl
+
+/-- The replacement of the role part is the replacement of the record. -/
+@[simp] theorem Declaration.role_implementedBy (d : Declaration) :
+    d.role.implementedBy = d.implementedBy := rfl
+
+/-- The `extern` mark of the role part is the mark of the record. -/
+@[simp] theorem Declaration.role_extern (d : Declaration) : d.role.extern = d.extern := rfl
+
+/-- The recorded ranges of the role part are the recorded ranges of the record. -/
+@[simp] theorem Declaration.role_recordedRanges (d : Declaration) :
+    d.role.recordedRanges = d.recordedRanges := rfl
+
+/-- The constructor-index observation of the role part is the observation of the record. -/
+@[simp] theorem Declaration.role_constructorIndex (d : Declaration) :
+    d.role.constructorIndex = d.constructorIndex := rfl
+
+/-- The role parts of an inventory's records, in inventory order. -/
+def roleRecords (ds : Array Declaration) : Array Declaration.Role :=
+  ds.map (·.role)
+
+/-- The role parts of an inventory are the role parts of its records. -/
+theorem mem_roleRecords {ds : Array Declaration} {r : Declaration.Role} :
+    r ∈ roleRecords ds ↔ ∃ d ∈ ds, d.role = r := by
+  simp [roleRecords, Array.mem_map]
 
 /-- The declaration's admitted ranges: the pair Lean recorded (`recordedRanges`) when its
 selection range lies within its full range, and otherwise that full range as its own selection

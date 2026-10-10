@@ -160,6 +160,11 @@ showing Lake's progress line for each job as it runs (`Lake.buildTargetsShowing`
 `Lake.Build`, so it runs without Lake's artifact cache (`Lake.Build.run`). -/
 initialize claimedBuild : IO.Ref Lake.Build ← IO.mkRef Lake.buildTargetsShowing
 
+/-- Whether the workspace owner asserted that the workspace's lakefiles are ordinary configuration
+(`lake lint -- --ordinary-lakefiles`), set by the `lint` driver for its own audit. The project
+result records it as `scope.ordinaryLakefiles`. -/
+initialize ordinaryLakefiles : IO.Ref Bool ← IO.mkRef false
+
 /-- Record the invocation's result and return the status it decides, for the result output. -/
 private def record (observation : Lint.Observation) : IO ResultProtocol.Status := do
   terminalObservation.set (some observation)
@@ -935,6 +940,7 @@ private unsafe def auditSurfaceAt (repo manifestPath : FilePath)
             ("toolchainBase", Policy.toolchainBaseJson toolchainBase),
             ("configuration", toJson configuration), ("configurationRoot", toJson repo.toString),
             ("buildOrigin", toJson origin.spelling),
+            ("ordinaryLakefiles", toJson (← ordinaryLakefiles.get)),
             ("libraries", toJson (libraries.map libraryInfoJson)),
             ("completedStages", toJson
                 #["claimedSourceBuild", "ownedAdmission", "declarationPolicy",

@@ -19,31 +19,37 @@ universe u
 open Lean (Name)
 open Frontend
 
-/-- Execute the finite independent native relation; preserve inventory order. -/
-def authorizedNativeAxioms (ds : Array Declaration) (ts : Array Transcript := #[]) : Array Name :=
+/-- Execute the finite independent native relation; preserve inventory order. It takes the role
+parts of the records (`roleRecords`), so it reads no project-written field but the four marks of
+`Declaration.Role`. -/
+def authorizedNativeAxioms (ds : Array Declaration.Role) (ts : Array Transcript := #[]) :
+    Array Name :=
   (ds.filter (fun a => decide (NativeTeachingOK ds ts a))).map (·.name)
 
-/-- Execute the finite independent recursive-helper relation; no caller whitelist. -/
-def authorizedUnsafeRecHelpers (ds : Array Declaration) : Array Name :=
+/-- Execute the finite independent recursive-helper relation; no caller whitelist. It takes the
+role parts of the records. -/
+def authorizedUnsafeRecHelpers (ds : Array Declaration.Role) : Array Name :=
   (ds.filter (fun h => decide (RecursiveHelperOK ds h))).map (·.name)
 
-/-- Execute the separate constructor-index relation over the complete inventory. -/
-def authorizedConstructorIndexHelpers (ds : Array Declaration) : Array Name :=
+/-- Execute the separate constructor-index relation over the complete inventory. It takes the role
+parts of the records. -/
+def authorizedConstructorIndexHelpers (ds : Array Declaration.Role) : Array Name :=
   (ds.filter (fun h => decide (ConstructorIndexHelperOK ds h))).map (·.name)
 
 /-- Every admitted constructor-index name has its full relation in this inventory. -/
-theorem authorizedConstructorIndexHelpers_iff (ds : Array Declaration) (n : Name) :
+theorem authorizedConstructorIndexHelpers_iff (ds : Array Declaration.Role) (n : Name) :
     n ∈ authorizedConstructorIndexHelpers ds ↔
       ∃ h ∈ ds, h.name = n ∧ ConstructorIndexHelperOK ds h := by
   simp [authorizedConstructorIndexHelpers, Array.mem_map, Array.mem_filter, and_left_comm, and_comm]
 
 /-- Authorization is equivalent to existence of the complete native relation at this name. -/
-theorem authorizedNativeAxioms_iff (ds : Array Declaration) (ts : Array Transcript) (n : Name) :
+theorem authorizedNativeAxioms_iff (ds : Array Declaration.Role) (ts : Array Transcript)
+    (n : Name) :
     n ∈ authorizedNativeAxioms ds ts ↔ ∃ a ∈ ds, a.name = n ∧ NativeTeachingOK ds ts a := by
   simp [authorizedNativeAxioms, Array.mem_map, Array.mem_filter, and_left_comm, and_comm]
 
 /-- Authorization is equivalent to existence of the complete helper relation at this name. -/
-theorem authorizedUnsafeRecHelpers_iff (ds : Array Declaration) (n : Name) :
+theorem authorizedUnsafeRecHelpers_iff (ds : Array Declaration.Role) (n : Name) :
     n ∈ authorizedUnsafeRecHelpers ds ↔ ∃ h ∈ ds, h.name = n ∧ RecursiveHelperOK ds h := by
   simp [authorizedUnsafeRecHelpers, Array.mem_map, Array.mem_filter, and_left_comm, and_comm]
 
@@ -83,7 +89,7 @@ well-founded preprocessing; those proofs rest on no `sorryAx` or project axiom. 
 the recorded observations and nothing more: it does not prove the regeneration, its comparison or
 the kernel's check of the recursion equation truthful, and it does not relate compiled code to
 kernel values. -/
-theorem authorizedUnsafeRecHelpers_base (ds : Array Declaration) (n : Name)
+theorem authorizedUnsafeRecHelpers_base (ds : Array Declaration.Role) (n : Name)
     (hn : n ∈ authorizedUnsafeRecHelpers ds) :
     ∃ h ∈ ds, h.name = n ∧ h.unsafeRecRegenerated.isSome = true ∧ ∃ b ∈ ds,
       h.unsafeRecBase = some b.name ∧ b.kind = .definition ∧ b.module = h.module ∧
@@ -154,13 +160,17 @@ it belongs to the declaration the author wrote (or derived). Its base is that op
 while an authorized helper's base is a definition (`authorizedUnsafeRecHelpers_base`). -/
 theorem partialParent_not_authorized {ds : Array Declaration}
     (unique : UniqueNames (ds.map (·.name))) {h p : Declaration} (hh : h ∈ ds) (hp : p ∈ ds)
-    (parent : PartialParent h p) : h.name ∉ authorizedUnsafeRecHelpers ds := by
+    (parent : PartialParent h p) : h.name ∉ authorizedUnsafeRecHelpers (roleRecords ds) := by
   intro authorized
   obtain ⟨h', hh', hname, _, b, hb, hbase, hkind, _⟩ :=
-    authorizedUnsafeRecHelpers_base ds h.name authorized
-  cases eq_of_name_eq unique hh' hh hname
-  have hbp : b.name = p.name := Option.some.inj (hbase.symm.trans parent.2.1)
-  cases eq_of_name_eq unique hb hp hbp
+    authorizedUnsafeRecHelpers_base (roleRecords ds) h.name authorized
+  obtain ⟨dh, hdh, rfl⟩ := mem_roleRecords.mp hh'
+  obtain ⟨db, hdb, rfl⟩ := mem_roleRecords.mp hb
+  have hname : dh.name = h.name := hname
+  have hkind : db.kind = .definition := hkind
+  cases eq_of_name_eq unique hdh hh hname
+  have hbp : db.name = p.name := Option.some.inj (hbase.symm.trans parent.2.1)
+  cases eq_of_name_eq unique hdb hp hbp
   exact absurd (hkind.symm.trans parent.2.2.2) (by decide)
 
 /-- Raw membership calculation over a caller-supplied set; it authorizes no role. -/
@@ -254,9 +264,10 @@ def declarationFailure (decl : Declaration) (claim : InspectionRequest)
 /-- Raw decision requirement over a supplied set of decided implementations: the failure of a
 declaration registered as a decision whose result type is not `Decidable _` and whose name is
 not in the set, and nothing otherwise. Callers can supply an arbitrary set here; production
-decisions use `policyFor`, whose `Roles` argument binds the set to the inventory. -/
+decisions use `policyFor`, whose `Roles` argument binds the set to the inventory. It takes the
+registration part of the record (`Declaration.Registration`) and no other field. -/
 @[regula_decision]
-def decisionFailure (decl : Declaration) (decided : Array Name) :
+def decisionFailure (decl : Declaration.Registration) (decided : Array Name) :
     Option DeclarationFailure :=
   if decl.decisionResult == some .«other» && !decided.contains decl.name then
     some .decisionContract
@@ -264,14 +275,14 @@ def decisionFailure (decl : Declaration) (decided : Array Name) :
 
 /-- Exact success relation of the executed decision requirement, for every observation and
 supplied set. -/
-theorem decisionFailure_none_iff (d : Declaration) (decided : Array Name) :
+theorem decisionFailure_none_iff (d : Declaration.Registration) (decided : Array Name) :
     decisionFailure d decided = none ↔ DecisionOK d decided := by
   unfold decisionFailure DecisionOK
   by_cases registered : d.decisionResult = some .«other» <;>
     by_cases member : d.name ∈ decided <;> simp [registered, member]
 
 /-- The decision requirement has one failure, reported exactly where the requirement is unmet. -/
-theorem decisionFailure_eq_some_iff (d : Declaration) (decided : Array Name)
+theorem decisionFailure_eq_some_iff (d : Declaration.Registration) (decided : Array Name)
     (failure : DeclarationFailure) :
     decisionFailure d decided = some failure ↔
       failure = .decisionContract ∧ ¬ DecisionOK d decided := by
@@ -296,12 +307,13 @@ structure Roles (inventory : Inventory) where
   inventory order. -/
   decided : Array Name
   /-- `native` is what `authorizedNativeAxioms` computes from this inventory. -/
-  native_exact : native = authorizedNativeAxioms inventory.declarations inventory.transcripts
+  native_exact :
+    native = authorizedNativeAxioms (roleRecords inventory.declarations) inventory.transcripts
   /-- `helpers` is what `authorizedUnsafeRecHelpers` computes from this inventory. -/
-  helpers_exact : helpers = authorizedUnsafeRecHelpers inventory.declarations
+  helpers_exact : helpers = authorizedUnsafeRecHelpers (roleRecords inventory.declarations)
   /-- The constructor wrappers are recomputed from this same inventory. -/
   constructorHelpers_exact :
-    constructorHelpers = authorizedConstructorIndexHelpers inventory.declarations
+    constructorHelpers = authorizedConstructorIndexHelpers (roleRecords inventory.declarations)
   /-- `decided` is what `decidedImplementations` computes from this inventory. -/
   decided_exact : decided = decidedImplementations (recordedContracts inventory.declarations)
 
@@ -318,8 +330,10 @@ def Roles.safetyHelpers {i : Inventory} (roles : Roles i) : Array Name :=
 /-- Safety membership retains the relation of whichever family authorized it. -/
 theorem Roles.safetyHelpers_iff {i : Inventory} (roles : Roles i) (n : Name) :
     n ∈ roles.safetyHelpers ↔
-      (∃ h ∈ i.declarations, h.name = n ∧ RecursiveHelperOK i.declarations h) ∨
-      (∃ h ∈ i.declarations, h.name = n ∧ ConstructorIndexHelperOK i.declarations h) := by
+      (∃ h ∈ roleRecords i.declarations, h.name = n ∧
+        RecursiveHelperOK (roleRecords i.declarations) h) ∨
+      (∃ h ∈ roleRecords i.declarations, h.name = n ∧
+        ConstructorIndexHelperOK (roleRecords i.declarations) h) := by
   simp only [Roles.safetyHelpers, Array.mem_append, roles.helpers_exact,
     roles.constructorHelpers_exact, authorizedUnsafeRecHelpers_iff,
     authorizedConstructorIndexHelpers_iff]
@@ -334,13 +348,17 @@ theorem Roles.partialParent_not_safetyHelper {i : Inventory} (roles : Roles i)
   · exact partialParent_not_authorized i.valid.1 hh hp parent recursive
   · obtain ⟨h', hh', name, shape⟩ :=
       (authorizedConstructorIndexHelpers_iff _ _).mp constructor
-    cases eq_of_name_eq i.valid.1 hh' hh name
-    exact absurd parent.1 (by simp [shape.2.2.2.2.1])
+    obtain ⟨d, hd, rfl⟩ := mem_roleRecords.mp hh'
+    have name : d.name = h.name := name
+    have notPartial : d.isPartial = false := shape.2.2.2.2.1
+    cases eq_of_name_eq i.valid.1 hd hh name
+    exact absurd parent.1 (by simp [notPartial])
 
 /-- Recompute every validator from the admitted data; no serialized proof is trusted. -/
 def authorize (i : Inventory) : Roles i :=
-  ⟨authorizedNativeAxioms i.declarations i.transcripts,
-   authorizedUnsafeRecHelpers i.declarations, authorizedConstructorIndexHelpers i.declarations,
+  ⟨authorizedNativeAxioms (roleRecords i.declarations) i.transcripts,
+   authorizedUnsafeRecHelpers (roleRecords i.declarations),
+   authorizedConstructorIndexHelpers (roleRecords i.declarations),
    decidedImplementations (recordedContracts i.declarations), rfl, rfl, rfl, rfl⟩
 
 /-- Any role receipt for this exact inventory equals recomputation of every validator.
@@ -470,29 +488,20 @@ theorem checked_declarationFailure : Regula.ExecutableContract @declarationFailu
     ⟨(((recorded .«axiom», .conforming .«kernelOnly»), #[]), #[]),
       by simp [Function.uncurry, declarationFailure, recorded]⟩⟩
 
-/-- `decisionFailure` reports nothing exactly when the recorded declaration meets `DecisionOK`
-for the supplied set (`decisionFailure_none_iff`): nothing for a declaration that is not
-registered as a decision, and a failure for a registered one whose result type is not
-`Decidable _` and that no supplied name decides. The decision is over the recorded declaration
-and the supplied set. That the record is what Lean holds is the collector's, and that the set is
-the inventory's decided implementations is `policyFor`'s `Roles` argument. -/
+/-- `decisionFailure` reports nothing exactly when the registration part of a record meets
+`DecisionOK` for the supplied set (`decisionFailure_none_iff`): nothing for a declaration that is
+not registered as a decision, and a failure for a registered one whose result type is not
+`Decidable _` and that no supplied name decides. The decision is over the name, the recorded
+registration and the supplied set. That the record is what Lean holds is the collector's, and
+that the set is the inventory's decided implementations is `policyFor`'s `Roles` argument. -/
 theorem checked_decisionFailure : Regula.ExecutableContract @decisionFailure
-    (fun (failure : Declaration → Array Name → Option DeclarationFailure) =>
+    (fun (failure : Declaration.Registration → Array Name → Option DeclarationFailure) =>
     Regula.Decides (· = none)
-      (fun input : Declaration × Array Name => DecisionOK input.1 input.2)
+      (fun input : Declaration.Registration × Array Name => DecisionOK input.1 input.2)
       (Function.uncurry failure)) :=
-  let recorded (decisionResult : Option DecisionResult) : Declaration :=
-    { name := `subject, «module» := `Module, kind := .«definition», «type» := "", prettyType := ""
-      isProp := false, isUnsafe := false, isPartial := false, safety := none, «instance» := false
-      «noncomputable» := false, implementedBy := none, «extern» := false, internal := false
-      «private» := false, projection := false, matcher := false, recursive := false
-      unsafeRecBase := none, levelParams := #[], all := #[], hints := none, valueConstants := #[]
-      unsafeRecRegenerated := none, constructorIndex := none, nativeStatement := none
-      nativeReplay := none, recordedRanges := none, generatedFrom := none, axioms := #[]
-      decisionResult }
   ⟨.of_iff (fun input => decisionFailure_none_iff input.1 input.2)
-    ⟨(recorded none, #[]), by simp [Function.uncurry, decisionFailure, recorded]⟩
-    ⟨(recorded (some .«other»), #[]), by simp [Function.uncurry, decisionFailure, recorded]⟩⟩
+    ⟨(⟨`subject, none⟩, #[]), by simp [Function.uncurry, decisionFailure]⟩
+    ⟨(⟨`subject, some .«other»⟩, #[]), by simp [Function.uncurry, decisionFailure]⟩⟩
 
 /-- The declaration's own requirements never report the decision failure: `decisionFailure` is
 its only source. -/
@@ -757,7 +766,8 @@ theorem native_generated (i : Inventory) (roles : Roles i) (n : Name) (hn : n �
   rcases hn with ⟨a, _, rfl, hrole⟩
   rcases hrole.2.2 with ⟨p, hp, ⟨pfx, t⟩, hparent, _, hprefix, _⟩
   obtain ⟨idxs, hg, h⟩ := nativeAxiomOrigin?_sound hparent
-  exact ⟨p, hp, pfx, t, idxs, hprefix, hg, h⟩
+  obtain ⟨dp, hdp, rfl⟩ := mem_roleRecords.mp hp
+  exact ⟨dp, hdp, pfx, t, idxs, hprefix, hg, h⟩
 
 /-- The execution probe's name-level classification agrees on every authenticated native role. -/
 theorem native_compilerTrustingAxiomName (i : Inventory) (roles : Roles i) (n : Name)
@@ -788,7 +798,8 @@ theorem native_provenance (i : Inventory) (roles : Roles i) (n : Name) (hn : n �
   obtain ⟨d, hd, hmatch⟩ := Array.any_eq_true'.mp hany
   simp only [Bool.and_eq_true, beq_iff_eq] at hmatch
   have ho' : nativeAxiomOrigin? a.name = some (o.1, o.2) := Option.mem_def.mp ho
-  refine ⟨a, ha, rfl, hreplay, c, hmem, ⟨d, hd, ?_, hmatch.1.2, hmatch.2⟩, hundecl⟩
+  obtain ⟨da, hda, rfl⟩ := mem_roleRecords.mp ha
+  refine ⟨da, hda, rfl, hreplay, c, hmem, ⟨d, hd, ?_, hmatch.1.2, hmatch.2⟩, hundecl⟩
   rw [hmatch.1.1, ho']
 
 /-- The compiler-trusting and logical sets are disjoint for actual inventory-bound roles. -/

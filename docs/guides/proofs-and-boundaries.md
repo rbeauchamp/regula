@@ -160,9 +160,10 @@ workspace, each package and each package that it records as a dependency has the
 its own configuration.
 
 The checker starts Lake as a process only for `lake env` and for `lake query` of transitive
-imports. That query reads module headers and builds no module. The documentation audit does not
-use `lake exe` to run the Verso renderer. It runs the renderer that its own build made, with the
-environment that Lake gives the uncached workspace.
+imports. That query reads module headers and builds no module, as does the query of the lint
+driver's marker decision (`Lake.moduleImports`), which runs in its process. The documentation
+audit does not use `lake exe` to run the Verso renderer. It runs the renderer that its own build
+made, with the environment that Lake gives the uncached workspace.
 
 `uncachedWorkspace_unreadable` and `uncachedWorkspace_unwritable` prove that Lake's predicates
 `Package.isArtifactCacheReadable` and `isArtifactCacheWritable` then give `false` for these
@@ -208,10 +209,85 @@ directory, and passes the dispatching workspace's package library directories, t
 the working-directory workspace's library directories and that directory to begin it
 (`Regula.Checker.Lint.dispatchedFrom_iff`) and otherwise refuses with exit 2, so a driver started
 outside Lake, by a Lake not collocated with the toolchain, or with `-d` from another project is
-refused. The claimed targets are built with the audit-build marker `weak.regula.auditBuild`
-([editor feedback](#editor-feedback)); Lake scopes it to the whole package in its module trace, so
-modules last built with ordinary options are rebuilt for the audit and their replayed logs never
-enter its warning check.
+refused. The driver builds the claimed targets with the audit-build marker
+`weak.regula.auditBuild` ([editor feedback](#editor-feedback)), except in the case below.
+
+Lake scopes the marker to the whole package in its module trace. Thus with the marker, the audit
+rebuilds the modules that an ordinary build made, and their replayed logs do not enter its
+warning check. The driver omits the marker only for a workspace of the plain shape. It omits it
+only if the owner of the workspace asks for it with `lake lint -- --ordinary-lakefiles`. Without
+the option, the driver always builds with the marker.
+
+With the option, the owner asserts that the lakefiles of the workspace are ordinary configuration.
+The plain shape is a conservative guard under that assertion. It is not a guarantee against a
+lakefile that someone wrote to defeat it. The verification of Regula uses the option in the timed
+check of its own code (`diagnostics self-lint`). A nightly check of its root package,
+`diagnostics self-lint-default`, runs without the option.
+
+The driver takes the option only from the command line. It refuses the option in the
+`lintDriverArgs` of a package, because the audited project could give it there. The banner of the
+run names the assertion, and the JSON result records it (`scope.ordinaryLakefiles`). Before the
+build, the run prints if the build omits the marker, or keeps it and why.
+
+In the plain shape, each package declares only `lean_lib`, `lean_exe`, `input_file` and
+`input_dir` targets. Each field of the configuration of a package or a target has the default
+value of Lake, except for a short list of fields. Lake gives the fields of each type of
+configuration (`Lake.ConfigFields`). Thus a field that a different release of Lake adds keeps the
+marker.
+
+A library can change its source directory, roots, globs, `needs` and Lean options. An executable
+can also change its root, its file name and its interpreter support. An input target can change
+its path and its text mode. Each `needs` entry must name an `input_file` or an `input_dir` of the
+same package. A package can change its source directory, its Lean options, its lint and test
+drivers and its metadata.
+
+Lake runs no code from these fields in a build. The function `nativeFacets` of a library or an
+executable and the filter of an `input_dir` are also fields. Regula reads them from the compiled
+configuration file in `.lake/config/` (`leanConfigReading`). Each must be the whole default term
+of Lake, for the filter `Pattern.star`, except for its proofs. Any other term keeps the marker.
+
+The compiled configuration file also records each facet that the file declares, new or in place
+of a facet of Lake. The driver counts these declarations, and it keeps the marker if there is
+one. A file `lakefile.toml` declares no facet and cannot set `nativeFacets`. Its filter of an
+`input_dir` is the default only if it omits the filter or writes `"*"`. Lake only reads and hashes
+an input target. Thus a build in the plain shape runs no custom build step.
+
+A file `lakefile.lean` must also declare only what the commands of Lake generate. These are the
+definitions of the package, its targets and their configurations, `require` and the name of the
+package. The commands link each of them in a fixed form (`configurationNames`). The others are
+theorems and axioms that state a `Lake.FamilyDef` or an equation between types.
+
+The entries of the file itself must be in a list of extensions that the commands of Lake and their
+compilation fill (`configExtensions`). Its entries of the attribute `inline` must be the same as
+the entries that the commands give. Thus a compiler replacement (`csimp`), `implemented_by`,
+`extern`, `init` or `noinline` keeps the marker.
+
+The file must import only modules of Lean and of Lake. Its syntax must have no `attribute` command
+and no local or scoped attribute. A local registration leaves no entry, so the syntax is the place
+to find it.
+
+The driver also reads each buildable module of the root package and each executable root, with
+the imports from Lake's `transImports` facet (`markerInputs`). Each name must have one source
+file, and Lake must resolve the name to that file (`ModuleEntry.Resolved`). The driver omits the
+marker only if none of these modules imports `Regula.Linter`, directly or transitively.
+
+Then the build compiles no module that loads the only reader of the marker in Regula. Thus the
+marker can change no elaboration, if no module of the project reads the marker itself. The driver
+then reuses the modules that an ordinary build made, for example the modules of the driver itself
+in this repository.
+
+The decision is `Regula.Checker.Lake.auditMarkerNeeded`, two-way against its specification
+(`checked_auditMarkerNeeded`). The specification is the negation of the plain shape
+(`PackageShape.Plain`), or a module that is not resolved or that has `Regula.Linter` among its
+imports. The driver keeps the marker if it cannot read the workspace, by an exception or an
+unknown. The same verdict with and without the marker is a claim for the plain shape only.
+
+That `Regula.Linter` is the only reader of the marker in Regula is by inspection. That no module
+of the project reads the marker itself is an assumption. That Lake runs no code from the fields
+of the list is read from the source of Lake. The source of Lake also shows that a build in the
+plain shape runs no custom build step. That the listed declarations and extensions add no code to
+a build is read from the source of Lean and of Lake. Lake's discovery of the modules and of their
+imports, and its compiled configuration files, are trusted.
 
 The command `./scripts/verify.sh` makes one copy of the checkout, and its first step operates in
 that copy. The driver of that command, `lean/RegulaVerification.lean`, makes the copy before it
@@ -550,7 +626,7 @@ and each field is declared in the part that says where its value comes from
 | --- | --- | --- |
 | `Declaration.KernelChecked` | Kernel-checked declaration data: a field of the constant's `ConstantInfo`, or a pure function of such fields. | `name`, `kind`, `type`, `isUnsafe`, `isPartial`, `safety`, `internal`, `private`, `unsafeRecBase`, `levelParams`, `all`, `hints`, `valueConstants`, `nativeStatement` |
 | `Declaration.ToolchainObserved` | A toolchain observation: the answer of Lean's elaborator, compiler or kernel, or of the checker's own observing code, at inspection. No mark a project writes decides one of these fields. | `module`, `prettyType`, `isProp`, `axioms`, `unsafeRecRegenerated`, `nativeReplay` |
-| `Declaration.ProjectWritten` | Environment state an audited project can write, or an observation such state decides: an extension's entry, an attribute, a declaration range, and the two observations of the checker that read such marks directly. | `instance`, `noncomputable`, `implementedBy`, `extern`, `projection`, `matcher`, `recursive`, `recordedRanges`, `generatedFrom`, `constructorIndex`, `executableContract`, `decisionResult` |
+| `Declaration.ProjectWritten` | Environment state an audited project can write, or an observation such state decides: an extension's entry, an attribute, a declaration range, and the three observations of the checker that read such marks directly. | `instance`, `noncomputable`, `implementedBy`, `extern`, `projection`, `matcher`, `recursive`, `recordedRanges`, `generatedFrom`, `constructorIndex`, `executableContract`, `decisionResult`, `tableOmissions` |
 
 `Declaration.Inspected` is the first two parts, and `Declaration` adds the third. A decision or a
 relation takes the part whose fields it reads, so its signature shows where its inputs come from:
@@ -568,10 +644,10 @@ use that takes a narrower part. What takes which part:
 | `Erasure.reproduces` ([below](#the-recursion-helper-comparison-decision-and-observing-pass)) | No record: two values, `Erasure.Observations` and whether the pass finished | Toolchain observations of the terms of the two values, and the pass's report of its own run. |
 | `NativeStatement.recognize?` ([below](#the-native-axiom-statement-decision-and-observing-pass)) | No record: a `NativeStatement.Candidate` | The tactic and the prefix that `nativeAxiomOrigin?` reads from the name, and the kernel-checked type. |
 | `declarationFailure`, `DeclarationOK`, `declarationRequirements` and their theorems | `Declaration` | Every part: they join the relations above, so through `ContractOK` and `SharedTestOK` they read the recorded contract. |
-| `decisionFailure`, `DecisionOK` | `Declaration` | `decisionResult`, the project's own registration, and `name`. |
-| `NativeTeachingOK`, `RecursiveHelperOK`, `ConstructorIndexHelperOK` and the `authorized…` validators | `Declaration` | Every part. Each also requires values of project-written fields. A native-proof axiom must have no replacement and no `extern` implementation. A recursion helper and a constructor-index helper must have no replacement, no `extern` implementation and no recorded range. A recursion base must have no replacement and no `extern` implementation. A constructor-index base must have the helper as its replacement and no `extern` implementation. These conditions narrow what is admitted and authenticate nothing. |
+| `decisionFailure`, `DecisionOK` | `Declaration.Registration` | The name and `decisionResult`, the project's own registration, alone. |
+| `NativeTeachingOK`, `RecursiveHelperOK`, `ConstructorIndexHelperOK` and the `authorized…` validators | `Declaration.Role`, and the role parts of an inventory (`roleRecords`) | The inspected part and four project-written marks: the replacement, the `extern` mark, the recorded ranges and the constructor-index observation. Each requires values of these marks. A native-proof axiom must have no replacement and no `extern` implementation. A recursion helper and a constructor-index helper must have no replacement, no `extern` implementation and no recorded range. A recursion base must have no replacement and no `extern` implementation. A constructor-index base must have the helper as its replacement and no `extern` implementation. These conditions narrow what is admitted and authenticate nothing. |
 | `policyFor`, `memberFailure`, the editor decision | `Declaration` | Every part, through the decisions above. |
-| `operationalFailure`, `OperationalOK`, `operationalView`, `operationalAxioms` | `Declaration` | `kind`, `isProp`, `axioms` and, through `ContractOK`, the recorded contract. The view also clears `isUnsafe` and `isPartial`. |
+| `operationalFailure`, `OperationalOK`, `operationalView`, `operationalAxioms` | `Declaration` | `kind`, `isProp`, `axioms` and, through `ContractOK` and `SharedTestOK`, the recorded contract. The view also clears `isUnsafe` and `isPartial`. |
 
 **Limits.** The parts classify the source of a value. They do not make an observation truthful,
 and that `Collect.declaration` fills each field from the source its part names is by inspection of
@@ -579,18 +655,22 @@ that function, not proved. State a project writes can still enter a toolchain ob
 docstring of each such field says how: `isProp` is Lean's answer, which does not unfold an
 irreducible definition; `prettyType` is Lean's printer, which uses the notations in force;
 `nativeReplay` runs compiled code; and what a project writes selects which regeneration
-`unsafeRecRegenerated` reports, while the pure comparison and the kernel decide it. The two
+`unsafeRecRegenerated` reports, while the pure comparison and the kernel decide it. The three
 observations of the checker that a project-written mark decides are fields of
-`Declaration.ProjectWritten` for that reason: `executableContract` reads Lean's `noncomputable`
-mark for one refusal, and `constructorIndex` requires that the base's replacement
-(`@[implemented_by]`) is the helper, that the helper has no replacement and no recorded declaration
-range, that neither has an `extern` implementation, that the eliminator has no replacement and no
-`extern` implementation, and that `getObjTagNat` has no replacement. The decisions of [RG1007]
+`Declaration.ProjectWritten` for that reason. `executableContract` reads Lean's `noncomputable`
+mark for one refusal. `tableOmissions` compares the axioms of Lean's module table, which a
+project can write, with the axioms that the replayed kernel gives. `constructorIndex` requires
+that the base's replacement (`@[implemented_by]`) is the helper, that the helper has no
+replacement and no recorded declaration range, that neither has an `extern` implementation, that
+the eliminator has no replacement and no `extern` implementation, and that `getObjTagNat` has no
+replacement. The decisions of [RG1007]
 and [RG1009] take the recorded contract and no other field, so they read the `noncomputable` mark
-only through it. The declaration decision, the decision requirement, the role validators and the
-other decisions that take the whole `Declaration` still read project-written fields. The rest of
-this part of [#199](https://github.com/rbeauchamp/regula/issues/199) is to give the decision
-requirement and the role validators those fields through typed records.
+only through it. The decision requirement of [RG1008] takes the name and the registration alone
+(`Declaration.Registration`). The role validators take the role part (`Declaration.Role`):
+the inspected part and the four marks that they read. The declaration decision and the other
+decisions that join the decisions above still take the whole `Declaration`. The rest of this part
+of [#199](https://github.com/rbeauchamp/regula/issues/199) is that each of them takes only the
+parts that the decisions it joins take.
 
 **Consumers** (paths from `lean/Regula/`):
 
@@ -757,16 +837,17 @@ Which report states a kind depends on the library that holds the registration:
   registrations are contracts of the accepted inventory, so an accepted account of Regula states
   the kind of each and, for a one-way kind, the direction it leaves open.
 - **The excluded `Regula` library.** Acceptance does not report its declarations, so no report
-  states the kind of its twenty-three registrations, named here with their modules: `checked_same`
+  states the kind of its twenty-five registrations, named here with their modules: `checked_same`
   and `checked_read` (`Regula.SharedExecution`), `checked_intern` and `checked_expand`
   (`Regula.SourceTexts`), `checked_agrees` and `checked_canonical` (`Regula.JsonAgreement`),
   `checked_parseLocation` and `checked_parseDiagnostic` (`Regula.DiagnosticCodec`),
   `checked_exactFields` (`Regula.Checker.PolicyCodec`), `checked_scanLines` and
   `checked_scanVersoLines` (`Regula.Checker.FenceScan`), `checked_parseMode` and `checked_parseRule`
   (`Regula.RegistryCodec`), `checked_parseName` and `checked_parsePrintedNameJson`
-  (`Regula.StructuralName`), `checked_checkCopies`, `checked_checkHeader` and
-  `checked_admitReplay` (`Regula.Checker.Admission`),
-  `checked_parseValue` (`Regula.Checker.Manifest`), `checked_validate`
+  (`Regula.StructuralName`), `checked_checkCopies`, `checked_checkHeader`,
+  `checked_admitReplay` and `checked_checkTable` (`Regula.Checker.Admission`),
+  `checked_parseValue` (`Regula.Checker.Manifest`), `checked_auditMarkerNeeded`
+  (`Regula.Checker.LintBuild`), `checked_validate`
   (`Regula.Checker.ProducerReport`), and `checked_admitExampleRequest`,
   `checked_admitExampleSources` and `checked_admitDemonstration` (`Regula.Website`). Lean's kernel checks each kind's proof in the library's
   warning-free build, and the `self-audit` diagnostic holds each registration to [RG1007],
@@ -792,7 +873,7 @@ Two-way decisions (`Regula.Decides`), each with an accepted and a refused input:
 
 | Decision | Specification | Used by |
 | --- | --- | --- |
-| `RegulaPolicy.declarationFailure`, `decisionFailure`, `operationalFailure` (accept on `none`) | `DeclarationOK`, `DecisionOK`, `OperationalOK` | The declaration decision of [RG1001]–[RG1007] and [RG1009], over the recorded declaration and the supplied role sets; the decision requirement of [RG1008], over the recorded declaration and a supplied set of decided implementations; and the operational self-audit's. |
+| `RegulaPolicy.declarationFailure`, `decisionFailure`, `operationalFailure` (accept on `none`) | `DeclarationOK`, `DecisionOK`, `OperationalOK` | The declaration decision of [RG1001]–[RG1007] and [RG1009], over the recorded declaration and the supplied role sets; the decision requirement of [RG1008], over the name and registration of the recorded declaration (`Declaration.Registration`) and a supplied set of decided implementations; and the operational self-audit's. |
 | `RegulaPolicy.sharedTestFailure` (accepts on `none`) | `SharedTestOK`: the record of each contract names no function of the class `boolean` (`sharedTestFailure_none_iff`) | The requirement of [RG1009], over the recorded contract of a declaration. It accepts a declaration with no recorded contract, and it refuses the record of a decision registration that names one test. `declarationFailure` runs it after the recorded refusals of the contract. |
 | `RegulaPolicy.boundaryFailures`, `executionFailureRecords`, `executionFindings` (accept on `#[]`) | `BoundaryOK`, `ExecutionOK` | [RG3001], [RG3002], for one supplied boundary and for an admitted inventory. |
 | `RegulaPolicy.Intent.hasIntentSection`, `RegulaPolicy.materialDocumentationFailure` | `IntentSection`, `MaterialDocumentationOK` | [RG5002], [RG5003]. |
@@ -806,6 +887,7 @@ Two-way decisions (`Regula.Decides`), each with an accepted and a refused input:
 | `Regula.JsonAgreement.agrees` | `JsonAgreement.Agree` (`agrees_iff`). The two values have one constructor and equal scalars. The elements of two arrays agree in order. Two objects have the same number of members. Each member of the first is found by its name in the second, with a value that it agrees with. | The comparison of an input with the encoding of the decoded value ([below](#the-diagnostic-and-policy-codecs-decisions-and-observing-pass)). |
 | `Regula.JsonAgreement.canonical` (accepts on `.ok`) | The reader returns a value, and the input agrees with the encoding of that value (`canonical_eq_ok_iff`). | The decoders `DiagnosticCodec.parseLocation` and `parseDiagnostic`. The reader and the encoder are arguments, so the kind is about each reader and each encoder. |
 | `Regula.Checker.PolicyCodec.exactFields` (accepts on `.ok`) | `ExactFields` (`exactFields_iff`). The value is an object, and its member names are the expected names in some order. | The decoders of the worker protocol and of the producer reports. The proof that the expected names are distinct is an argument of the function. |
+| `Regula.Checker.Lake.auditMarkerNeeded` (accepts on `true`) | A package is not `PackageShape.Plain`, or some entry is not `ModuleEntry.Resolved` or has `Regula.Linter` among its imports (`auditMarkerNeeded_iff`). | The choice of the `lake lint` driver's claimed build, with or without the audit-build marker, when the owner passes `--ordinary-lakefiles` ([acceptance boundary](#the-acceptance-boundary)). The shape of each package is read from the configuration of Lake and from its compiled configuration file. Each entry is a module of the root package with its source files and the modules that Lake's `transImports` facet reports it imports (`markerInputs`). That `Regula.Linter` is the only reader of the marker in Regula is by inspection. That no module of the project reads the marker itself is an assumption. |
 | `Regula.Checker.Documentation.scanLines`, `scanVersoLines` (accept on a result with no violation) | `Clean`, `VersoClean`: the lines are a run of transitions from the first line to the end of the document. The fence protocol permits each transition, and each keeps the shape rule (`scanLines_problems_eq_empty_iff`, `scanVersoLines_problems_eq_empty_iff`). | The fence protocol and the shape rule of [RG4001] ([below](#the-fence-scanners-decisions-and-observing-pass)). The input is a `Source`: a document with the lines of its text. The kinds say nothing about the fences of a result. |
 | `Regula.Checker.Admission.checkHeader` (accepts on `.ok ()`) | `HeaderOK` (`checkHeader_eq_ok_iff`). Each replayed or reported module lists its constants under their own names. No module of the replay base imports a replayed module. | The decision on the header of [RG2005] ([below](#receipt-validation-decisions-and-observing-pass)). |
 | `Regula.Checker.Admission.checkTable` (accepts on `.ok ()`) | `TableWithin` (`checkTable_eq_ok_iff`). Each axiom that `collectAxioms` gives for a declaration is an axiom that the declaration reaches in the replayed kernel. | The decision on the axiom tables of [RG2005] ([below](#receipt-validation-decisions-and-observing-pass)). |
@@ -875,7 +957,7 @@ Decisions with no kind, and what stands instead:
 Every decision of the three tables with a kind is registered with `@[regula_decision]`, so
 [RG1008] requires its contract: 56 functions of `RegulaPolicy`, 28 of `RegulaCore`, 9 of
 `RegulaQualification`, 3 of `AuditApp`, 8 of `RegulaProvision`, 6 of `RegulaVerification` and
-23 of the excluded `Regula` library, where the `self-audit` diagnostic decides the rule. Sixteen
+25 of the excluded `Regula` library, where the `self-audit` diagnostic decides the rule. Sixteen
 of them are registered from another module of their library, with
 `attribute [regula_decision]` beside their contracts, because the module that declares them
 imports only the toolchain:
@@ -2881,9 +2963,12 @@ Lean language frontend's preceding-command array, and the low-level
 import-time marker the feedback switch is off whatever a command scope sets `linter.regula` to;
 that every local finding is gated by that switch is checked by inspection. Disabling local
 feedback cannot disable a mandatory project predicate. Enabling it cannot reach a project audit's
-own build: `lake lint`'s claimed build and the audit's fresh elaboration pass the unregistered
-command-line marker `weak.regula.auditBuild`, which the linter reads only from a module's
-import-time options and under which it emits nothing.
+own build. The audit's fresh elaboration passes the unregistered command-line marker
+`weak.regula.auditBuild`. The linter reads the marker only from the import-time options of a
+module, and under it the linter emits nothing. `lake lint`'s claimed build also passes the marker,
+except under the owner's `--ordinary-lakefiles` for a workspace of the plain shape
+([acceptance boundary](#the-acceptance-boundary)). There no module of the root package imports
+`Regula.Linter`, so the linter runs on none of them.
 
 **Documentation presence.** `Lean.findDocString?` accepts ordinary, Verso and inherited
 docstrings; private names follow Lean's visibility and never enter the public `@[regula_material]`
@@ -3440,7 +3525,7 @@ not yet proved, and are labelled so at their definition; they are not correctnes
 | checkerSelftest structural | a lemma realized in a claimed module and the toolchain, in both import orders; unchecked, circular, `sorry` and kept-cycle copies of one name | Lean's realization, import, kept copy and kernel check of several copies of one name | External | observed; the copies are checked by `Admission.checkCopies` (`checkCopies_sound`) in the decision `admitReplay` (`admitReplay_eq_ok`), over the replayed constants of `replayMap` (`replayMap_sound`, `replayMap_complete`) |
 | checkerSelftest structural | a function declared in one claimed module and registered with `attribute [regula_decision]` in another, without and with its decision contract, as plain files and as `module`s | Lean's saving and loading of the registration, and the collector's reading of it | External | observed; the decision over the recorded declaration is `policyFor_decisionContract_iff` |
 | checkerSelftest execution | each compiler-path mutation and correspondence control, with its positive and fresh restoration | compiler-derived execution coverage and correspondence evidence through the public gate; the emitted-C check of reachable code on the pin | External | observed |
-| checkerSelftest cli, environments, build-policy, lint-driver | CLI sweep, adopters, clean checkout, ordinary build, `lake lint` exit classes, cold compiler guard refusal of a failing and of a successful unidentified child process with its restored load | packaging, Lake and build integration | External | observed |
+| checkerSelftest cli, environments, build-policy, lint-driver | CLI sweep, adopters, clean checkout, ordinary build, `lake lint` exit classes, its claimed build with and without the audit-build marker, cold compiler guard refusal of a failing and of a successful unidentified child process with its restored load | packaging, Lake and build integration | External | observed |
 | ordinary | `qualify registry`, `qualify native` | CLI output invalidation, registry and site validators; compiler messages and ranges | External | observed |
 | ordinary | `RegistryChecks` codec, source and execution-account cases | registry, diagnostic and source codecs; the result file's shared execution form | Proved in part | round-trip theorems of `Json` values, with those of each finding and each location (`parseDiagnostic_roundtrip`, `parseLocation_roundtrip`); that the shared form is kept, and that a parsed shared form reads back to the built account, are observed; open: state the remaining refusals as theorems |
 | standalone | `qualify environments` finalize mutations | `finalize` refusals | Proved relation | `finalize_iff`; instance membership sampled; no transcript substitution: an accepted run has no transcript job (`accepted_no_transcript_subjects`) |
@@ -3639,22 +3724,25 @@ outside the toolchain is a `RegulaPolicy` module or one of
 `RegulaPolicy.infrastructureModuleNames` (the command beside `probeModuleNames`, whose docstring
 states what it does not see). The controls are two clusters, both in the first shard, whose
 queue runs them beside one another.
-`structuralSelfHosted` builds the copy and runs the incremental gate on each of the three
-contaminations, restoring each before the next. It then checks the restored copy's fresh input
-against that of a copy prepared anew, and runs an accepting fresh gate on the restored copy
-itself, whose `.lake` still holds what the setup build and the incremental gates left.
-`freshInput` takes what the gate's copy operation copies from each of the two copies, and any
-differing path or byte fails the cluster. `structuralSelfHostedPositive` runs the accepting
-fresh gate on another copy prepared the same way (`prepareSelfHosted`), with no setup build and
-no mutation: it is the accepting gate on the unmutated copy, outside the first cluster's serial
-chain. Neither accepting gate depends on the other shard. Nothing compares the positive's copy
-with the first cluster's; that `prepareSelfHosted` gives both the same content is a reading of
-its code, not a theorem. That equal fresh input gives the same gate run, so that the restored
-gate audits what a copy prepared anew gives, rests on a fact that is not a theorem either: a
-fresh gate reads the audited project only through `copyProject`, which prunes the project's
-`.lake`, and builds that copy from empty output; without `--with-docs`, as here, it reads no
-other file of the project, and the packages directory it links is the repository's for every
-copy.
+
+`structuralSelfHosted` builds its copy and runs the incremental gate on each of the three
+contaminations. It restores each contamination before the next. Then it records the fresh input
+of the restored copy with `freshInput`: the files that the copy operation of a fresh gate copies
+from it. `structuralSelfHostedPositive` prepares a different copy with `prepareSelfHosted`,
+records its fresh input and then runs the accepting fresh gate on that copy.
+
+After the queue of the first shard stops, `selfHostedIdentity` compares the two fresh inputs
+path by path and byte by byte. A difference fails the shard. This comparison takes the place of
+an accepting fresh gate on the restored copy. It shows that the restorations gave the copy the
+same fresh input as the copy that the positive gate accepted.
+
+The comparison does not prove that a fresh gate accepts the restored copy. That result also
+rests on a fact that is not a theorem. A fresh gate reads the audited project only through
+`copyProject` and builds that copy from empty output. `copyProject` does not copy `.lake`, so
+the gate does not read the output of the setup build, of the seed or of the incremental gates.
+Without `--with-docs`, as here, the gate reads no other file of the project, and it links the
+packages directory of the repository for each copy. The restored fresh gates of the clusters in
+the structural project run the same path on a project with such output in its `.lake`.
 
 The copy of the first cluster starts with the module artifacts of the build of the repository
 (`seedModuleArtifacts`). Thus its contamination gates do not build `RegulaPolicy` and the probe
@@ -3670,15 +3758,14 @@ the module build of Lake, not a theorem. The fresh gates do not read the seed, b
 `copyProject` does not copy `.lake`.
 
 A fresh gate on a self-hosted copy builds and inspects `RegulaPolicy` from empty output, and
-the first cluster is a serial chain, the first shard's longest item, so each fresh gate in it
-adds its whole duration to that shard. With an accepting fresh gate before the mutations and
+the first cluster is a serial chain, which was the first shard's longest item, so each fresh gate
+in it added its whole duration to that shard. With an accepting fresh gate before the mutations and
 another after their restoration both in that chain, in one instrumented local run (2026-10-03,
 14 cores) those two gates took 47 s and 43 s of the cluster's 117 s and the three contamination
 gates 23 s, and on the slower hosted runners the cluster took 262 to 266 s beside 100 to 108 s
 for cluster `a`, so that the shard's timed step took 394 to 414 s and once reached its
 420-second deadline. The
-gate on the unmutated copy therefore runs as the positive cluster, beside the chain; the gate
-on the restored copy has to follow the contamination gates and stays in it; and the four
+gate on the unmutated copy therefore runs as the positive cluster, beside the chain, and the four
 clusters in the structural project (`a`, `b`, `c` and `d`) run in the second shard, which no
 longer holds the positive. With cluster `a` still in the first shard, beside the chain and the
 positive, that shard's timed step took 354 s and 362 s on the slower hosted runners
@@ -3690,6 +3777,11 @@ That step includes the build of the self-test and its checker executables: on th
 hosted runners (Diagnostics runs 37170060453 and 37171425583, both shards), 147 to 157 s of it
 had passed when the first control started. That is a target, not a bound, and the timings above
 are observations: the deadline alone refuses a run.
+
+On the slower hosted runners, the timed step of the first shard took 397 s at commit `e6c4c996`,
+with 242 s for the chain. With the seed, Diagnostics run 37979063520 took 361 s, with 198 s for
+the chain and 156 s for its restored fresh gate. The chain now holds no fresh gate, so the
+positive is the longest item of the first shard.
 
 Each partition's baseline build names what its controls read from the repository's own build
 (`Partition.baseline`, and `baselineOf` for a shard). The gates of these two partitions run in

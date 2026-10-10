@@ -58,6 +58,21 @@ def libraryOptions (lib : _root_.Lake.LeanLib) : RegulaPolicy.Community.BuildOpt
 def executableOptions (exe : _root_.Lake.LeanExe) : RegulaPolicy.Community.BuildOptions :=
   buildOptions exe.root.leanOptions exe.root.weakLeanArgs exe.root.leanArgs
 
+/-- The modules Lake can build as part of `library`, found in its source directory with Lake's
+glob reader: those its globs match, and the submodules of each root that a glob matches, which
+is the set `LeanLibConfig.isBuildableModule` admits among the module files. A module may occur
+twice. -/
+def buildableModules (library : _root_.Lake.LeanLib) : IO (Array Name) := do
+  let names ← IO.mkRef (#[] : Array Name)
+  let mut globs := library.config.globs
+  for root in library.roots do
+    if library.config.globs.any (·.matches root) &&
+        (← (Lean.modToFilePath library.srcDir root "").isDir) then
+      globs := globs.push (.submodules root)
+  for glob in globs do
+    glob.forEachModuleIn library.srcDir fun name => names.modify (·.push name)
+  names.get
+
 /-- Obtain every root-package Lean library and executable, exact module, and
 exact source from Lake's own elaborated package model. This loads the checked
 project's workspace in-process, so `lakefile.lean` and `lakefile.toml`
@@ -106,14 +121,8 @@ def surfaceInventory (repo : FilePath) : IO SurfaceInventory :=
     let dependencies ← (ws.packages.extract 1 ws.packages.size).mapM fun package => do
       let names ← IO.mkRef ({} : NameSet)
       for library in package.leanLibs do
-        let mut globs := library.config.globs
-        for root in library.roots do
-          if library.config.globs.any (·.matches root) &&
-              (← (Lean.modToFilePath library.srcDir root "").isDir) then
-            globs := globs.push (.submodules root)
-        for glob in globs do
-          glob.forEachModuleIn library.srcDir fun name => do
-            names.modify (·.insert name)
+        for name in ← buildableModules library do
+          names.modify (·.insert name)
       let mut sources := #[]
       for name in (← names.get).toArray.qsort Name.quickLt do
         let some resolved := ws.findModule? name
@@ -215,8 +224,10 @@ private def surfaceRequest (ws : _root_.Lake.Workspace) (target : SurfaceTarget)
 of its output it also shows as it runs. A `Build` holds no way to run it other than `Build.run`,
 so every checker build runs as `Build.run` describes. -/
 structure Build where
-  /-- The Lean options set on the root package, over its own, or none. -/
-  rootOptions : Option LeanOptions := none
+  /-- The Lean options set on the root package, over its own, or none, chosen from the workspace as
+  Lake loads it, before `Build.run` turns off its artifact cache. It runs before the build, and an
+  exception fails the build. -/
+  rootOptions : _root_.Lake.Workspace → IO (Option LeanOptions) := fun _ => pure none
   /-- Selects the output lines also printed to standard output as the build writes them. -/
   display : String → Bool := fun _ => false
   deriving Inhabited
@@ -264,8 +275,9 @@ def Build.run (build : Build) (repo : FilePath) (targets : Array Target) : IO Pr
             | .error error => throw <| IO.userError (toString error)
         if let some spec := specs.find? (!·.buildable) then
           throw <| IO.userError s!"'{spec.info.key.toSimpleString}' is not a buildable target"
+        let rootOptions ← build.rootOptions loaded
         Workspace.dropRestoredTraces ws
-        let leanOptOverrides := match build.rootOptions with
+        let leanOptOverrides := match rootOptions with
           | some options => ({} : NameMap LeanOptions).insert ws.root.baseName options
           | none => {}
         ws.runBuild (_root_.Lake.buildSpecs specs) {
@@ -321,17 +333,15 @@ imports `Regula.Linter` whatever its source sets `linter.regula` to (`liveFeedba
 The marker is unregistered and `weak.`, so every module's command scopes ignore it and
 elaborate exactly as without it. The audit's own policy stages report Regula findings; the
 warning-free check then measures only other warnings. The option enters Lake's module trace,
-so a module built with local feedback, for example by an ordinary `lake build`, is rebuilt:
-its replayed log can neither add Regula warnings nor stand in for this configuration's
+so with it a module built with local feedback, for example by an ordinary `lake build`, is
+rebuilt: its replayed log can neither add Regula warnings nor stand in for this configuration's
 warnings. Lake scopes Lean options by package and library, not by module, so the trace change
-reaches every root-package module; `axiomGate` and the build-lint target therefore keep
-ordinary options (`AxiomGate.claimedBuild`). -/
+reaches every root-package module that the claimed build compiles. `buildAuditTargets`
+therefore omits it only for a workspace of the plain shape in which each module of the root
+package resolves to its one source and none imports the marker's reader
+(`auditMarkerNeeded`); `axiomGate` and the build-lint target keep ordinary options
+(`AxiomGate.claimedBuild`). -/
 def auditLeanOptions : LeanOptions := .ofArray #[⟨Regula.Linter.auditBuildOption, .ofBool true⟩]
-
-/-- `buildTargetsShowing` with `auditLeanOptions` on the root package, which the `lake build`
-command line cannot set. -/
-def buildAuditTargets : Build :=
-  { rootOptions := some auditLeanOptions, display := isLakeProgressLine }
 
 /-- Build the claimed Lake targets and require success with no warnings.
 Returns the diagnostic lines to report on failure. -/

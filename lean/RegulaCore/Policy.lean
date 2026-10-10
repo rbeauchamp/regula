@@ -359,8 +359,11 @@ theorem partialParent_rule (decl : Declaration) (claim : Option Profile) (scope 
   · rw [scope.roles.native_exact] at native
     obtain ⟨a, ha, hname, shape, _⟩ :=
       (RegulaPolicy.authorizedNativeAxioms_iff _ _ _).mp native
-    cases RegulaPolicy.eq_of_name_eq unique ha member hname
-    exact absurd parent.1 (by simp [shape.2.2.2.2.1])
+    obtain ⟨da, hda, rfl⟩ := RegulaPolicy.mem_roleRecords.mp ha
+    have hname : da.name = decl.name := hname
+    have notPartial : da.isPartial = false := shape.2.2.2.2.1
+    cases RegulaPolicy.eq_of_name_eq unique hda member hname
+    exact absurd parent.1 (by simp [notPartial])
   · rcases safety with ⟨_, hpartial⟩ | helper
     · exact absurd parent.1 (by simp [hpartial])
     · exact notHelper helper

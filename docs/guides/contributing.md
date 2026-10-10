@@ -227,10 +227,11 @@ checker behavior:
 | `cli` | Command-line behavior and diagnostics. |
 | `environments` | Isolated environments, documentation scanning, and external adopters. |
 | `build-policy` | Enforcement through the example's ordinary Lake build. |
-| `lint-driver` | `lake lint` dispatch and exit classes in both shipped adopters, and the cold compiler guard of `lakefile.lean`: refusal of an inherited `LEAN_SYSROOT` child that fails and of one that succeeds without reporting the running compiler's identity, then a restored load. Lake's artifact cache is on in a private directory, and a claimed module warns. Then two identical `--fresh` runs and an incremental audit of the module that Lake restored from the cache each report [RG2003]. The same holds when only a path dependency turns the cache on in its own configuration, and its module warns. It also holds when the claimed library builds no module by default, and the module was elaborated or restored by an ordinary build. The claimed library can also have the name `foo/bar`, and Lake target syntax reads its spelling `«foo/bar»` as a library of a dependency. Then an incremental audit also reports it. Without the warning, a fresh run is accepted. |
+| `lint-driver` | `lake lint` dispatch and exit classes in both shipped adopters, and the cold compiler guard of `lakefile.lean`: refusal of an inherited `LEAN_SYSROOT` child that fails and of one that succeeds without reporting the running compiler's identity, then a restored load. In a plain workspace the driver keeps the audit-build marker without `--ordinary-lakefiles`, and with it omits the marker, reports it and reuses the ordinary build. Under the option, an import of `Regula.Linter` keeps the marker, and the driver reports the reason. Decision probes of the guard load a changed adopter in the process and check its decision and reason without an audit. A custom target, a library in `needs`, a facet of Lake declared again and a library field outside the list keep the marker. So do a different `nativeFacets`, a lakefile declaration, a theorem that equates two functions, a TOML filter other than `"*"` and an import of `Regula.Linter`. An input file in `needs` and the filter `"*"` keep the plain shape. Lake's artifact cache is on in a private directory, and a claimed module warns. Then two identical `--fresh` runs and an incremental audit of the module that Lake restored from the cache each report [RG2003]. The same holds when only a path dependency turns the cache on in its own configuration, and its module warns. It also holds when the claimed library builds no module by default, and the module was elaborated or restored by an ordinary build. The claimed library can also have the name `foo/bar`, and Lake target syntax reads its spelling `«foo/bar»` as a library of a dependency. Then an incremental audit also reports it. Without the warning, a fresh run is accepted. |
 | `producers` | [Project producer and documentation qualification](proofs-and-boundaries.md#producers). |
 | `history` | [Source-bound replacement history qualification](proofs-and-boundaries.md#producers). |
-| `self-lint` | This repository's own `lake lint` through the `regula/lint` driver, in the root and `audit/` packages ([repository conformance](#repository-conformance)). |
+| `self-lint` | This repository's own `lake lint -- --ordinary-lakefiles` through the `regula/lint` driver, in the root and `audit/` packages ([repository conformance](#repository-conformance)). |
+| `self-lint-default` | The root package's `lake lint` without `--ordinary-lakefiles`, so with the audit-build marker that an adopter gets by default ([repository conformance](#repository-conformance)). |
 | `self-audit` | Operational self-audit of the excluded `Regula` library ([repository conformance](#repository-conformance)). |
 | `rule-examples`, `rule-examples 1/2`, `rule-examples 2/2` | [Source-owned corpus and diagnostic demonstrations](architecture.md#rule-examples); a shard runs half of the rules. |
 
@@ -283,6 +284,7 @@ capability-triggered diagnostics (standard §7.8), not a partition of ordinary a
 The [dogfood workflow](../../.github/workflows/dogfood.yml) runs `self-lint` and `self-audit`
 as parallel jobs under the same limit when Lean sources, Lake configuration, manifests or
 that compiler and dependency setup change, on every push to `main`, and nightly. They are not part of acceptance.
+It runs `self-lint-default` only nightly and on dispatch, as one more job under the same limit. It is not a check of a pull request or of a push.
 
 ## Implementation and qualification layout
 
@@ -340,12 +342,15 @@ audits the first two freshly, with every target built under the options of
   checking, it runs a fresh `leanchecker` pass over every declared root needed for complete module
   coverage.
 
-Two diagnostics apply Regula to the rest of its own code base; neither is part of acceptance.
-`./scripts/verify.sh diagnostics self-lint` runs `lake lint` through the `regula/lint` driver in
-the root package and then in `audit/`, exactly as an adopter does. Both packages set
+Three diagnostics apply Regula to the rest of its own code base; none is part of acceptance.
+`./scripts/verify.sh diagnostics self-lint` runs `lake lint -- --ordinary-lakefiles` through the
+`regula/lint` driver in the root package and then in `audit/`, as the owner of the two packages. Both packages set
 `lintDriver := "regula/lint"`, so it runs over each package's `foundation_manifest.json` in
 incremental mode and checks the same claimed surfaces as acceptance, through the driver's
-dispatch and exit classes. `./scripts/verify.sh
+dispatch and exit classes. `./scripts/verify.sh diagnostics self-lint-default` runs the root
+package's `lake lint` without `--ordinary-lakefiles`, so with the audit-build marker that an
+adopter gets by default. It leaves out the `audit/` package, which runs the same driver code.
+Its default path only adds the rebuild that made the old step exceed its limit. `./scripts/verify.sh
 diagnostics self-audit` checks the excluded operational `Regula` library: `lake build Regula`
 builds every module warning-free ([RG2003], because the package sets `warningAsError`), then
 `qualify self-audit` inspects each module of the library as Lake discovers it, each in its own

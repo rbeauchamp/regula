@@ -152,14 +152,23 @@ was observed to regenerate `d` (`RegulaPolicy.authorizedUnsafeRecHelpers_base`);
 not the name `f._unsafe_rec`, is what makes `f` the declaration Lean generated `d` from. -/
 theorem helperStep_base {ds : Array RegulaPolicy.Declaration}
     (unique : RegulaPolicy.UniqueNames (ds.map (·.name))) {d : RegulaPolicy.Declaration}
-    (hd : d ∈ ds) (hn : d.name ∈ RegulaPolicy.authorizedUnsafeRecHelpers ds) {b : Name}
-    (hb : d.unsafeRecBase = some b) :
+    (hd : d ∈ ds)
+    (hn : d.name ∈ RegulaPolicy.authorizedUnsafeRecHelpers (RegulaPolicy.roleRecords ds))
+    {b : Name} (hb : d.unsafeRecBase = some b) :
     d.unsafeRecRegenerated.isSome = true ∧ ∃ base ∈ ds, base.name = b ∧
       base.kind = .definition ∧ base.module = d.module ∧ base.type = d.type := by
   obtain ⟨h, hh, hname, hregen, base, hbase, hub, hkind, hmod, htype, -⟩ :=
-    RegulaPolicy.authorizedUnsafeRecHelpers_base ds d.name hn
-  obtain rfl := RegulaPolicy.eq_of_name_eq unique hh hd hname
-  refine ⟨hregen, base, hbase, ?_, hkind, hmod, htype⟩
+    RegulaPolicy.authorizedUnsafeRecHelpers_base (RegulaPolicy.roleRecords ds) d.name hn
+  obtain ⟨dh, hdh, rfl⟩ := RegulaPolicy.mem_roleRecords.mp hh
+  obtain ⟨db, hdb, rfl⟩ := RegulaPolicy.mem_roleRecords.mp hbase
+  have hname : dh.name = d.name := hname
+  have hregen : dh.unsafeRecRegenerated.isSome = true := hregen
+  have hub : dh.unsafeRecBase = some db.name := hub
+  have hkind : db.kind = .definition := hkind
+  have hmod : db.module = dh.module := hmod
+  have htype : db.type = dh.type := htype
+  obtain rfl := RegulaPolicy.eq_of_name_eq unique hdh hd hname
+  refine ⟨hregen, db, hdb, ?_, hkind, hmod, htype⟩
   rw [hb] at hub
   exact (Option.some.inj hub).symm
 
