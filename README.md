@@ -21,19 +21,24 @@ theorem swap (a b : Nat) : a + b = b + a := add_swap a b
 theorem big : 2 ^ 20 = 1048576 := by native_decide
 ```
 
-Regula gives these findings for it (shortened):
+Regula gives these findings for it. Each `…` marks text that this copy leaves out:
 
 ```text
-RG1001 [violation; …; Shortcut.lean:6:6]: add_swap: … axioms=["add_swap"] -> unknown-axiom
+…
+RG1001 [violation; freshFile; claim=classification-only; …/Shortcut.lean:6:6]: add_swap: … axioms=["add_swap"] -> unknown-axiom
   fix: Turn the assumption into a hypothesis (a binder or a proof-bearing structure field) of the results that need it, or replace the axiom with a proof.
   rule: …/rules/RG1001/ (offline: lake exe regula explain RG1001)
-RG1003 [violation; …; Shortcut.lean:9:8]: swap: … axioms=["add_swap"] -> unknown-axiom
+…
+RG1003 [violation; freshFile; claim=classification-only; …/Shortcut.lean:9:8]: swap: … axioms=["add_swap"] -> unknown-axiom
   fix: Find where the axiom enters (often an imported dependency), and replace that dependency or its axiom with a proof or a hypothesis.
-RG1004 [violation; …; Shortcut.lean:12:8]: big: … -> compiler-trusting
+…
+RG1004 [violation; freshFile; claim=classification-only; …/Shortcut.lean:12:8]: big: … -> compiler-trusting
   fix: Prove the same statement with a kernel-checked proof, for example `decide` (kernel reduction), `rfl` or an ordinary proof.
+…
+file audit: FAIL (4 violation(s), 0 incomplete finding(s))
 ```
 
-Each finding gives the rule, the location, the fix and a link to the page of the rule. The [rule reference](https://rbeauchamp.github.io/regula/rules/) has a page for each rule, with an example that the checker rejects and its correction.
+Each finding gives the rule, the location and the fix. The first finding of each rule in a run also links the page of the rule. Later findings of that rule refer to the first. The [rule reference](https://rbeauchamp.github.io/regula/rules/) has a page for each rule, with an example that the checker rejects and its correction.
 
 **Use Regula** when you depend on Lean code that you do not read line by line, or when you publish results as proved.
 

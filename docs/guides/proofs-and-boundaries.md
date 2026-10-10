@@ -3780,7 +3780,7 @@ document that names a different release than the latest listed one, as the text 
 `setPins` reads it (`pinsAgree_iff`). That reading finds a `require` only on a line with the
 repository's address in quotation marks, exactly as `gitUrl` writes it. Thus `agree` also refuses
 unless the root `README.md` and the adoption guide each have a `require` of each form
-(`unpinned_eq_nil_iff`). `agree` also reads each mention of a release in the root `README.md` with the text reading `setMentions`. It refuses a mention that names a different release than the latest listed one or its toolchain (`mentionsAgree_iff`). It also refuses a `README.md` without a mention of each kind (`unmentioned_eq_nil_iff`). The kernel checks the edited modules' theorems when
+(`unpinned_eq_nil_iff`). `agree` also reads each mention of a release in the root `README.md` with the text reading `setMentions`. It refuses a mention that names a different release than the latest listed one or its toolchain (`mentionsAgree_iff`). It also refuses a `README.md` without a mention of each kind (`unmentioned_eq_nil_iff`). It refuses the root `README.md` or the adoption guide without the summary that `RegulaCore/Site.lean` defines (`unsummarized_eq_nil_iff`). It also refuses a `description` of `lakefile.lean` that is not the plain text of that summary. The kernel checks the edited modules' theorems when
 the release pull request's checks and CI's checks of the release commit build them:
 `releases_ascending`, `releases_follow`, `installed_listed`, `release_attributes_rules` (when
 `installed` is a release, no lifecycle position of any rule is `.unreleased`; on the release

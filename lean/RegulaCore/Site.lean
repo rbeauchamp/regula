@@ -76,10 +76,21 @@ open Regula.Checker.Account (Residual)
 /-- The repository whose sources the site documents. -/
 def repository : String := "https://github.com/rbeauchamp/regula"
 
-/-- The one-line description of Regula that link previews show. -/
-def tagline : String :=
-  "A strict linter for Lean projects. lake lint does not accept a theorem that depends on an \
-    axiom of your project, on native_decide or on a sorry, also through its imports."
+/-- The summary of Regula, in Markdown: the opening sentences of the root `README.md`, of the
+adoption guide and of the site's home page. `lean --run lean/Regula/Release.lean agree` reads this
+definition as text (`Regula.Release.summaryOf`), so its value stays one string literal on the line
+after the `def` line, with no escape. It refuses the root `README.md` and the adoption guide unless
+each contains the summary, and the `description` of `lakefile.lean` unless it is the summary's
+`plainText`. -/
+def summary : String :=
+  "A strict linter for Lean projects. `lake lint` does not accept a theorem that depends on an `axiom` of your project, on `native_decide` or on a `sorry`, also through its imports."
+
+/-- Markdown text without its backticks: the plain text of Markdown whose only markup is code
+spans. -/
+def plainText (markdown : String) : String := markdown.replace "`" ""
+
+/-- The one-line description of Regula that link previews show: the summary as plain text. -/
+def tagline : String := plainText summary
 
 /-- The URL path of the project site. Absolute links in the output must start with it. -/
 def basePath : String := "/regula/"

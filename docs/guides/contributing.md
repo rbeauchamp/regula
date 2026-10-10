@@ -798,6 +798,8 @@ pull request sets each `require` to its release, and reads its edit back.
 
 The same step reads each mention of a release in the root `README.md`. The text ``Regula `v<version>` `` is a mention of a release of Regula, and the text `leanprover/lean4:<release>` is a mention of a Lean toolchain. The step refuses a mention that does not name the latest listed release or the toolchain of that release. It also refuses a `README.md` without a mention of each kind, and a mention without its version or its closing backtick. The release pull request sets each mention to its release or to the toolchain of the release, and reads its edit back. The theorems `mentionsAgree_iff` and `unmentioned_eq_nil_iff` state the two decisions.
 
+The same step reads the summary of Regula, the string literal of `Regula.Site.summary` in `lean/RegulaCore/Site.lean`. It refuses the root `README.md` or the adoption guide if the document does not contain that text on one line (`unsummarized_eq_nil_iff`). It also refuses a `description` of `lakefile.lean` that is not the summary without its backticks, as Lake reads it. The home page of the site and its link previews use the definition itself.
+
 `main` never carries a release label: `Regula.installed`
 ([`RegulaCore.Edition`](../../lean/RegulaCore/Edition.lean)) is `.unreleased` on every commit of
 `main` and of a pull request, which the first step of the required `verify` check enforces

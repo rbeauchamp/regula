@@ -1,6 +1,6 @@
 # Adopt Regula
 
-Regula is a strict linter for Lean projects. `lake lint` does not accept a theorem that depends on an `axiom` of your project, on `native_decide` or on a `sorry`, also through its imports. This guide is the full procedure to adopt Regula. For a first try on one module, see [Try it](../../README.md#try-it) in the README.
+**Regula.** A strict linter for Lean projects. `lake lint` does not accept a theorem that depends on an `axiom` of your project, on `native_decide` or on a `sorry`, also through its imports. This guide is the full procedure to adopt Regula. For a first try on one module, see [Try it](../../README.md#try-it) in the README.
 
 The four steps below take a project from `require` to its first `lake lint`. They use the layout, the module names and the lakefile format of your project. A pass of `lake lint` does not replace the semantic review of the [compliance checklist](https://rbeauchamp.github.io/regula/dev/standard/8-compliance-audit/) (see [semantic review](#complete-semantic-review)).
 

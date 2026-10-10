@@ -57,7 +57,7 @@ private def subsection (tag heading : String) : String :=
   "# " ++ heading ++ "\n%%%\ntag := \"" ++ tag ++ "\"\nnumber := false\n%%%\n\n"
 
 /-- The site's home page (the edition root): what Regula rejects, in the words of the root
-`README.md`, and where a newcomer starts, then the four things a reader comes to do. -/
+`README.md` (`summary`), and where a newcomer starts, then the four things a reader comes to do. -/
 def homePage (ident : Identity) : Except String String := do
   let notice ← htmlBlock (pageAnchor "regula" ++ editionHtml ident)
   let doc (path text : String) := "[" ++ text ++ "](" ++ blobUrl ident path ++ ")"
@@ -65,15 +65,15 @@ def homePage (ident : Identity) : Except String String := do
       "RegulaStandard", "Generated.Versions", "Generated.Credits"]
       "Regula rule reference" "regula" none ++
     notice ++ "\n" ++
-    "**Regula** is a strict linter for Lean projects. `lake lint` does not accept a theorem that \
-      depends on an `axiom` of your project, on `native_decide` or on a `sorry`, also through its \
-      imports. This site is the reference of the Regula release above: a page for each rule, and \
-      the standard that the rules come from. **New here?** " ++
+    "**Regula.** " ++ summary ++ " This site is the reference of the Regula edition above: a page \
+      for each rule, and the standard that the rules come from. **New here?** " ++
         doc "README.md#try-it" "Try it" ++ " on one module, then " ++
         doc "README.md#add-it-to-your-project" "add it to your project" ++ ".\n\n" ++
-    "1. **Look up a rule.** Each finding names a rule ID and ends with the address of the page of \
-      that rule. A rule page starts with the problem, the fix and an example that the checker \
-      rejects. Open the [rule index](rules/), or push `/` to search.\n" ++
+    "1. **Look up a rule.** Each finding names a rule ID. In the terminal, the first finding of each \
+      rule in a run links the page of the rule, and later findings of that rule refer to it. The \
+      editor and the JSON report link the page with each finding. A rule page starts with the \
+      problem, the fix and an example that the checker rejects. Open the [rule index](rules/), or \
+      push `/` to search.\n" ++
     "2. **Adopt Regula.** The " ++ doc "docs/guides/adoption.md" "adoption guide" ++
       " tells how to install and run Regula, in the terminal, in the editor and in CI.\n" ++
     "3. **Review a pass.** A pass is mechanical. Each rule page tells what the check shows and \
