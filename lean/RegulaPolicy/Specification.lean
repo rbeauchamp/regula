@@ -15,7 +15,8 @@ where its inputs come from: `SafetyOK` takes `Declaration.KernelChecked`; `Known
 other field, because a mark a project writes decides one refusal of that contract, as does
 `SharedTestOK`, which reads the names that the collector recorded with it, and as does
 `DecisionRegistered`, which reads the recorded contracts of an inventory. `DeclarationOK` and
-`declarationRequirements` join them and take the whole record. The decision requirement
+`declarationRequirements` join them and take the inspected part with the recorded contract
+(`Declaration.Assessed`), the parts that those requirements take. The decision requirement
 (`DecisionOK`) takes the registration part (`Declaration.Registration`): the name and the
 project's own registration. -/
 
@@ -110,13 +111,15 @@ instance (d : Declaration.ToolchainObserved) (r : InspectionRequest) (native : A
     Decidable (ProfileOK d r native) := by cases r <;> unfold ProfileOK <;> infer_instance
 
 /-- Inspection success. An owned axiom has only the independently authenticated teaching
-case; positive conformance always requires a non-axiom and all remaining conjuncts. -/
-def DeclarationOK (d : Declaration) (request : InspectionRequest)
+case; positive conformance always requires a non-axiom and all remaining conjuncts. It takes the
+assessed part of the record (`Declaration.Assessed`). -/
+def DeclarationOK (d : Declaration.Assessed) (request : InspectionRequest)
     (native helpers : Array Name) : Prop :=
   (d.kind = .«axiom» ∧ d.name ∈ native ∧ request = .teaching) ∨
-  (d.kind ≠ .«axiom» ∧ `sorryAx ∉ d.axioms ∧ KnownDependencies d native ∧
-    SafetyOK d helpers ∧ CompilerPolicyOK d request native ∧ ContractOK d.executableContract ∧
-    SharedTestOK d.executableContract ∧ ProfileOK d request native)
+  (d.kind ≠ .«axiom» ∧ `sorryAx ∉ d.axioms ∧ KnownDependencies d.toToolchainObserved native ∧
+    SafetyOK d.toKernelChecked helpers ∧ CompilerPolicyOK d.toToolchainObserved request native ∧
+    ContractOK d.executableContract ∧ SharedTestOK d.executableContract ∧
+    ProfileOK d.toToolchainObserved request native)
 
 /-- Positive logical foundation: no project axiom, hole, unknown or compiler axiom;
 the selected permitted set contains every observed transitive dependency. -/
@@ -186,18 +189,21 @@ theorem OrderedDecision.unique {requirements : List (DeclarationFailure × Prop)
       | next _ hr => exact ih hr
 
 /-- Normative diagnostic priority. Owned axioms have only the authenticated teaching case;
-other declarations must meet each obligation in this explicit order. -/
-def declarationRequirements (d : Declaration) (r : InspectionRequest)
+other declarations must meet each obligation in this explicit order. It takes the assessed part
+of the record (`Declaration.Assessed`). -/
+def declarationRequirements (d : Declaration.Assessed) (r : InspectionRequest)
     (native helpers : Array Name) :
     List (DeclarationFailure × Prop) :=
   if d.kind = .«axiom» then
     [(.projectAxiom, d.name ∈ native), (.compilerTrusting, r = .teaching)]
   else
-    [(.proofHole, `sorryAx ∉ d.axioms), (.unknownAxiom, KnownDependencies d native),
-     (.escapeHatch, SafetyOK d helpers), (.compilerTrusting, CompilerPolicyOK d r native),
+    [(.proofHole, `sorryAx ∉ d.axioms),
+     (.unknownAxiom, KnownDependencies d.toToolchainObserved native),
+     (.escapeHatch, SafetyOK d.toKernelChecked helpers),
+     (.compilerTrusting, CompilerPolicyOK d.toToolchainObserved r native),
      (.executableContract, ContractOK d.executableContract),
      (.sharedTest, SharedTestOK d.executableContract),
-     (.profileExceeded, ProfileOK d r native)]
+     (.profileExceeded, ProfileOK d.toToolchainObserved r native)]
 
 /-- A requirement appended to an ordered list is decided only where every earlier one is met:
 an earlier failure is the outcome whatever the appended requirement, and otherwise the outcome is

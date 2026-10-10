@@ -365,7 +365,8 @@ theorem partialParent_rule (decl : Declaration) (claim : Option Profile) (scope 
     cases RegulaPolicy.eq_of_name_eq unique hda member hname
     exact absurd parent.1 (by simp [notPartial])
   · rcases safety with ⟨_, hpartial⟩ | helper
-    · exact absurd parent.1 (by simp [hpartial])
+    · have hpartial : decl.isPartial = false := hpartial
+      exact absurd parent.1 (by simp [hpartial])
     · exact notHelper helper
 
 /-- The editor's request domain is the project request's without teaching: every value the
