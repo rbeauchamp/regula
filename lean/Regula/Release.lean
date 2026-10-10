@@ -1722,7 +1722,8 @@ def openRelease : IO Unit := do
       `v/{v.spelling}/`, rendered from this branch, which carries no release label; the \
       release's own edition exists only once CI builds it from the release commit, and no \
       artifact with a preview is deployed. The required checks are `verify`, `title`, \
-      `diagnostics` and code scanning's `CodeQL` and `Analyze (actions)`.\n\n\
+      `diagnostics`, `diagnostics rule-examples 1/2`, `diagnostics rule-examples 2/2`, `site`, \
+      `mathlib integration` and code scanning's `CodeQL` and `Analyze (actions)`.\n\n\
       The Release workflow created this signed branch, which is named after its commit, and a \
       maintainer opened this pull request from the link in the job summary, which started its \
       checks. The workflow writes a branch only by creating a new one and moves none, so it \

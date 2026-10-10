@@ -757,9 +757,49 @@ private def supportSource (forged : Bool) : String :=
     correspondence ++ ["/-- A caller of the reference. -/",
       "def Support.caller (n : Nat) : Nat := Support.reference n", ""]
 
-/-- A path dependency of an adopter that is a repository of its own
-(`BuildLintQualification.setup`, `BuildLintQualification.addSupport`), which a claimed module
-imports, under the claimed checked execution of `examples/build-lint`. In the adopter's Git work
+/-- The adopter of the path-dependency controls: `examples/build-lint` with the path dependency
+`build_lint_support` in its Git work tree (`BuildLintQualification.addSupport`), whose honest
+module a claimed module imports, under the claimed checked execution of the adopter. The three
+parts of these controls (`pathOwned`, `pathLayout`, `pathNames`) are one chain of controls in its
+order, cut at the two points where the chain has restored every file it changed, apart from the
+dependency's module, which the control after the first cut writes again, and from build output.
+Each part starts from this adopter in a workspace of its own, so each control reads the files it
+read in the chain. The first control of a later part that builds starts from no build output,
+where in the chain it started from the output of the controls before it. -/
+private def pathSetup (repo adopter : FilePath) : IO Unit := do
+  BuildLintQualification.setup repo adopter
+  BuildLintQualification.addSupport adopter (supportSource false) (owned := true)
+  mutate (adopter / "Widget.lean") "import Regula.Contract\n"
+    "import Regula.Contract\nimport Support\n"
+  mutate (adopter / "Widget.lean") "end Widget"
+    "/-- Runs the dependency's caller. -/\ndef useCaller (n : Nat) : Nat := Support.caller n\n\
+      \nend Widget"
+
+/-- An accepted run of the path-dependency adopter whose account trusts `regula` alone and never
+names the owned dependency. -/
+private def ownedAccepted (label : String) (fresh : Bool := false) : Expectation :=
+  let positive := accepted label fresh
+  { positive with
+      contains := positive.contains.push
+        "trusted dependencies, not wholly replayed through Lean's kernel: regula\n",
+      excludes := positive.excludes.push "build_lint_support" }
+
+/-- The driver's own line when it refuses to build its audit worker for a workspace outside the
+supported scope (`Lint.lint`). -/
+private def unbuiltWorker :=
+  "regula lint: the workspace is outside the supported scope, so the audit worker is not built"
+
+/-- A workspace in which `name` has a second provider beside the owned dependency, which every
+audit refuses before the driver builds its audit worker. -/
+private def ambiguous (label name : String) : Expectation := {
+  label, exitCode := 3,
+  contains := #["lake-query-malformed", s!"module {name} is provided by package",
+    "package 'build_lint_support'", "one provider for each module name", unbuiltWorker,
+    "regula lint: INCOMPLETE (exit 3)"] }
+
+/-- The path-dependency controls (`pathSetup`): a path dependency of an adopter that is a
+repository of its own, which a claimed module imports, under the claimed checked execution of
+`examples/build-lint`. In the adopter's Git work
 tree the dependency is owned: the account trusts only `regula`; the fresh audit builds it in the
 copy and writes nothing to the original's build output; an axiom it declares that nothing uses is
 refused (RG1001); a theorem it declares that uses `Classical.choice` meets its own module's
@@ -794,27 +834,19 @@ last, as Lake does. As a Git work tree of its own it is trusted: the forged theo
 supplies no correspondence, so the boundary it was to prove is rejected (RG3002), and with an
 honest module the account names it. These observe Git's work-tree discovery, Lake's path
 dependencies and overrides and the fresh copy, which the ownership theorems (`sameWorkTree_iff`,
-`contains_ownedModuleSet`) take as given. -/
-private def pathDependency (repo adopter : FilePath) : IO (Array String) := do
-  BuildLintQualification.setup repo adopter
-  BuildLintQualification.addSupport adopter (supportSource false) (owned := true)
+`contains_ownedModuleSet`) take as given.
+
+This first part holds the accepted owned dependency, incremental and fresh, its unused axiom and
+its Standard-Logical theorem. -/
+private def pathOwned (repo adopter : FilePath) : IO (Array String) := do
+  pathSetup repo adopter
   let support := adopter / "support"
-  mutate (adopter / "Widget.lean") "import Regula.Contract\n"
-    "import Regula.Contract\nimport Support\n"
-  mutate (adopter / "Widget.lean") "end Widget"
-    "/-- Runs the dependency's caller. -/\ndef useCaller (n : Nat) : Nat := Support.caller n\n\
-      \nend Widget"
-  let onlyRegula := "trusted dependencies, not wholly replayed through Lean's kernel: regula\n"
-  let owned (label : String) (fresh : Bool := false) : Expectation :=
-    let positive := accepted label fresh
-    { positive with contains := positive.contains.push onlyRegula,
-                    excludes := positive.excludes.push "build_lint_support" }
-  let mut failures ← expect adopter (owned "path/owned")
+  let mut failures ← expect adopter (ownedAccepted "path/owned")
   if !failures.isEmpty then return failures
   -- The fresh audit builds the owned dependency in its copy: the original's output stays absent.
   IO.FS.removeDirAll (support / ".lake" / "build")
   failures := failures ++
-    (← expect adopter (owned "path/owned-fresh" (fresh := true)) #["--", "--fresh"])
+    (← expect adopter (ownedAccepted "path/owned-fresh" (fresh := true)) #["--", "--fresh"])
   if ← (support / ".lake" / "build").pathExists then
     failures := failures.push "lake-lint/path/owned-fresh: the fresh audit wrote the original \
       dependency's build output"
@@ -828,12 +860,21 @@ private def pathDependency (repo adopter : FilePath) : IO (Array String) := do
   IO.FS.writeFile (support / "Support.lean") <| supportSource false ++
     "/-- Excluded middle, which nothing uses. -/\ntheorem Support.excluded (p : Prop) : p ∨ ¬p := \
       Classical.em p\n"
-  failures := failures ++ (← expect adopter (owned "path/owned-standard-logical"))
+  failures := failures ++ (← expect adopter (ownedAccepted "path/owned-standard-logical"))
+  return failures
+
+/-- The second part of the path-dependency controls (`pathSetup`, `pathOwned`): the owned
+dependency's forged correspondence theorem, its output directories and the root's, an override
+that selects another configuration file, the names reserved to the checker, and an executable
+root `Main` of the root package and of the dependency. -/
+private def pathLayout (repo adopter : FilePath) : IO (Array String) := do
+  pathSetup repo adopter
+  let support := adopter / "support"
   IO.FS.writeFile (support / "Support.lean") (supportSource true)
   let refused (label : String) : Expectation := {
     label, exitCode := 3,
     contains := #["RG2005", "kernel-admission", "regula lint: INCOMPLETE (exit 3)"] }
-  failures := failures ++ (← expect adopter (refused "path/owned-forged"))
+  let mut failures ← expect adopter (refused "path/owned-forged")
   failures := failures ++
     (← expect adopter (refused "path/owned-forged-fresh") #["--", "--fresh"])
   IO.FS.writeFile (support / "Support.lean") (supportSource false)
@@ -843,10 +884,6 @@ private def pathDependency (repo adopter : FilePath) : IO (Array String) := do
   -- absent.
   let supportLakefile := support / "lakefile.toml"
   let supportConfiguration ← IO.FS.readFile supportLakefile
-  -- The driver's own line when it refuses to build its audit worker for a workspace outside the
-  -- supported scope (`Lint.lint`).
-  let unbuiltWorker :=
-    "regula lint: the workspace is outside the supported scope, so the audit worker is not built"
   let layout (label : String) : Expectation := {
     label, exitCode := 3,
     contains := #["lake-workspace-load-failed", "default output layout", unbuiltWorker,
@@ -962,11 +999,6 @@ private def pathDependency (repo adopter : FilePath) : IO (Array String) := do
   -- incremental audit accepts it. An unused executable of the owned dependency with root module
   -- `Main` of its own package is a second provider, which every audit refuses before any build,
   -- whichever environment would load either.
-  let ambiguous (label name : String) : Expectation := {
-    label, exitCode := 3,
-    contains := #["lake-query-malformed", s!"module {name} is provided by package",
-      "package 'build_lint_support'", "one provider for each module name", unbuiltWorker,
-      "regula lint: INCOMPLETE (exit 3)"] }
   let manifestFile := adopter / "foundation_manifest.json"
   let adopterManifest ← IO.FS.readFile manifestFile
   let mainSource := "/-! An entry point. -/\n\n/-- Runs nothing. -/\ndef main : IO Unit := pure ()\n"
@@ -976,7 +1008,7 @@ private def pathDependency (repo adopter : FilePath) : IO (Array String) := do
   mutate manifestFile "\"excluded-executables\": []"
     "\"excluded-executables\": [{\"executable\": \"widgetMain\", \"rationale\": \"An entry point \
       outside the claimed surface.\"}]"
-  failures := failures ++ (← expect adopter (owned "path/root-executable-main"))
+  failures := failures ++ (← expect adopter (ownedAccepted "path/root-executable-main"))
   IO.FS.writeFile (support / "Main.lean") mainSource
   IO.FS.writeFile supportLakefile <| supportConfiguration ++
     "[[lean_exe]]\nname = \"supportUtil\"\nroot = \"Main\"\n"
@@ -986,6 +1018,20 @@ private def pathDependency (repo adopter : FilePath) : IO (Array String) := do
   IO.FS.writeFile supportLakefile supportConfiguration
   IO.FS.removeFile (adopter / "Main.lean")
   IO.FS.removeFile (support / "Main.lean")
+  return failures
+
+/-- The third part of the path-dependency controls (`pathSetup`, `pathOwned`): a second owned
+provider of `Support`, configurations computed from the dependency's own directory, module names
+that would leave its directories, a library of no module, overrides of the dependency, and the
+dependency as a Git work tree of its own. -/
+private def pathNames (repo adopter : FilePath) : IO (Array String) := do
+  pathSetup repo adopter
+  let support := adopter / "support"
+  let supportLakefile := support / "lakefile.toml"
+  let supportConfiguration ← IO.FS.readFile supportLakefile
+  let adopterLakefile := adopter / "lakefile.lean"
+  let adopterConfiguration ← IO.FS.readFile adopterLakefile
+  let mut failures : Array String := #[]
   -- A second owned path dependency that provides `Support` with the same source: the audit refuses
   -- the name before any build, where Lake's build would refuse the import as ambiguous.
   let second := adopter / "support2"
@@ -1131,9 +1177,10 @@ private def pathDependency (repo adopter : FilePath) : IO (Array String) := do
   let override ← IO.ofExcept <| _root_.Lake.PackageEntry.fromJson?
     (entry.setObjVal! "dir" (toJson "support"))
   _root_.Lake.Manifest.saveEntries (adopter / ".lake" / "package-overrides.json") #[override]
-  failures := failures ++ (← expect adopter (owned "path/owned-override"))
+  failures := failures ++ (← expect adopter (ownedAccepted "path/owned-override"))
   failures := failures ++
-    (← expect adopter (owned "path/owned-override-fresh" (fresh := true)) #["--", "--fresh"])
+    (← expect adopter (ownedAccepted "path/owned-override-fresh" (fresh := true))
+      #["--", "--fresh"])
   -- Of two override entries of the dependency, Lake keeps the last, the honest repository
   -- elsewhere; the fresh copy loads that one too, not the first, whose correspondence is forged.
   let first := adopter / "external-first"
@@ -1256,23 +1303,35 @@ private def compilerGuard (repo project : FilePath) : IO (Array String) := do
   return failing ++ unidentified ++
     (← assess { label := "guard/restored", exitCode := 0 } (← load #[]))
 
-/-- The absent-worker control first, alone, since the adopters share the checker's binaries;
-then the path-dependency adopter, both independent adopters, the owned-checker adopter, the
-artifact-cache controls, `escapedNameWarning` and the cold compiler guard, each in its own
-disposable workspace. `mapConcurrent` joins each batch of `jobs` controls before it starts the
-next, so the longest controls come first, and with four jobs share the first batch. The
-adopters' decision probes load their workspaces one at a time (`probe`). -/
+/-- Run the control group `name` in its own disposable workspace, printing when it starts and how
+long it took (`loggedPhase`), so that the job log shows the schedule. -/
+private def runGroup (repo scratch : FilePath) (name : String)
+    (control : FilePath → FilePath → IO (Array String)) : IO (Array String) :=
+  loggedPhase s!"lake lint {name}" <|
+    withScratch scratch s!"lake-lint-{name}" fun adopter => control repo adopter
+
+/-- The absent-worker control first, alone, since the adopters share the checker's binaries; then
+the other groups on `jobs` workers, each of which takes the next waiting group as soon as it is
+free (`mapWorkQueue`), so no worker idles while a group waits and no batch boundary holds a group
+back. `mapWorkQueue` returns one result for each group, in this order (`checked_indexedResults`).
+The groups are listed longest first, so the shorter ones fill the workers that the longer ones
+free: the first four by their times in the CI runs on the slower hosted runners that reached the
+deadline under the old schedule, the two later path groups by local runs on a developer machine,
+and the short groups by two faster CI runs that passed under the old schedule
+(`docs/guides/proofs-and-boundaries.md` names the runs). The path-dependency controls are one
+chain in one workspace, split into three groups (`pathSetup`). The adopters' decision probes load
+their workspaces one at a time (`probe`). -/
 def qualify (repo scratch : FilePath) (jobs : Nat) : IO (Array String) := do
   let absent ← withScratch scratch "lake-lint-worker" fun adopter => absentWorker repo adopter
   if !absent.isEmpty then return absent
   let probes ← Std.Mutex.new ()
-  let results ← mapConcurrent jobs
-    #[("path", pathDependency), ("lean", leanAdopter probes), ("toml", tomlAdopter probes),
-      ("owned-checker", ownedChecker), ("cache", cachedWarning),
-      ("dependency-cache", dependencyCachedWarning), ("empty-facets", emptyFacetsWarning),
-      ("escaped-name", escapedNameWarning), ("guard", compilerGuard)]
-    fun (name, control) => withScratch scratch s!"lake-lint-{name}" fun adopter =>
-                            control repo adopter
+  let results ← mapWorkQueue jobs
+    #[("lean", leanAdopter probes), ("toml", tomlAdopter probes), ("owned-checker", ownedChecker),
+      ("path-owned", pathOwned), ("path-names", pathNames), ("path-layout", pathLayout),
+      ("cache", cachedWarning), ("empty-facets", emptyFacetsWarning),
+      ("dependency-cache", dependencyCachedWarning), ("escaped-name", escapedNameWarning),
+      ("guard", compilerGuard)]
+    fun (name, control) => runGroup repo scratch name control
   return results.foldl (· ++ ·) #[]
 
 end Regula.Checker.LintQualification

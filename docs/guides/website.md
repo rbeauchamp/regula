@@ -226,12 +226,12 @@ CI runs on every pull request and on `main`:
 Each run on `main` cancels older runs of `main`, the deploy job refuses to publish a revision
 that is no longer the head of `main` (for example a manual re-run of an older run, which
 re-checks because the check is part of that job), and deployments are serialized in the
-`github-pages` concurrency group. The `site` job and the corpus shards are not yet required
-status checks (the required checks are `verify`, `title`, `diagnostics` and code scanning's
-`CodeQL` and `Analyze (actions)`); until the operator adds them, a change that breaks the site
-can merge and `main` stops deploying until it is fixed. The site can lag `main`
-while checks run or after they fail; each page states its commit. Repository Pages settings use
-**GitHub Actions** as the source. There is no custom domain or paid hosting. Actions are pinned by commit SHA.
+`github-pages` concurrency group. The ruleset of `main` requires the `site` check and the two corpus
+shards. A pull request does not merge if its site build or check fails. The required checks are
+`verify`, `title`, `diagnostics`, `diagnostics rule-examples 1/2`, `diagnostics rule-examples 2/2`,
+`site`, `mathlib integration` and code scanning's `CodeQL` and `Analyze (actions)`. The site can
+lag `main` while checks run or after they fail; each page states its commit. Repository Pages
+settings use **GitHub Actions** as the source. There is no custom domain or paid hosting. Actions are pinned by commit SHA.
 
 ## Versions and routes
 
