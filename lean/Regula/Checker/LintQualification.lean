@@ -778,7 +778,10 @@ vendored package that Lake loads under the name `regula`. An executable root `Ma
 package is accepted beside `regula`'s own, since a trusted package's executable roots are not
 counted. A module name that two packages provide, an executable root `Main` of the root package and
 of the dependency, or `Support` of the dependency and of a second owned one, is refused before the
-driver builds its audit worker. An override in
+driver builds its audit worker. So is a library root `Regula.«<directory>/Payload»` that a claimed
+module imports, whose absolute component would put its source and artifact outside the
+dependency's directories, and so is the root `Regula.«../Payload»`, whose `..` segment would leave
+them. An override in
 `.lake/package-overrides.json` that selects the dependency
 in place of one elsewhere is owned in the fresh copy too, and of two override entries the fresh
 copy loads the last, as Lake does. As a Git work tree of its own it is trusted: the forged theorem
@@ -1036,6 +1039,39 @@ private def pathDependency (repo adopter : FilePath) : IO (Array String) := do
     (← expect adopter (differs "path/owned-target-swap-fresh") #["--", "--fresh"])
   restore
   IO.FS.removeFile (support / "Aux.lean")
+  -- An owned dependency whose library root is `Regula.«<its own directory>/Payload»`, which a
+  -- claimed module imports, with an axiom that nothing uses. The second component is an absolute
+  -- path, so `Lean.modToFilePath` places the module's source and artifact at
+  -- `<its own directory>/Payload`, outside its source and output directories, and the checker's
+  -- source of that name would be the dependency's own file. Every audit refuses the name before
+  -- any path is built from it (`Lake.checkModuleNames`).
+  IO.FS.writeFile (support / "Payload.lean")
+    "/-! A payload. -/\n\n/-- An axiom that nothing uses. -/\naxiom Payload.bad : False\n"
+  asLean "import Lake\nopen Lake DSL\n\npackage build_lint_support\n\nlean_lib Support\n\n\
+    lean_lib Payload where\n  roots := #[.str `Regula ((__dir__) / \"Payload\").toString]\n"
+  let claimed := adopter / "Widget.lean"
+  let claimedSource ← IO.FS.readFile claimed
+  mutate claimed "import Support\n" s!"import Support\nimport Regula.«{(support / "Payload").toString}»\n"
+  failures := failures ++ (← expect adopter {
+      label := "path/owned-escaping-name", exitCode := 3,
+      contains := #["lake-query-malformed", "is an absolute path",
+        "regula lint: INCOMPLETE (exit 3)"] })
+  IO.FS.writeFile claimed claimedSource
+  restore
+  -- The same payload under the library root `Regula.«../Payload»`, whose `..` segment would leave
+  -- the source directory below `Regula`: refused the same way.
+  asLean "import Lake\nopen Lake DSL\n\npackage build_lint_support\n\nlean_lib Support\n\n\
+    lean_lib Payload where\n  roots := #[.str `Regula \"../Payload\"]\n"
+  mutate claimed "import Support\n" "import Support\nimport Regula.«../Payload»\n"
+  failures := failures ++ (← expect adopter {
+      label := "path/owned-traversing-name", exitCode := 3,
+      contains := #["lake-query-malformed", "segment between path separators",
+        "regula lint: INCOMPLETE (exit 3)"] })
+  IO.FS.writeFile claimed claimedSource
+  restore
+  -- The payload's source, and any compiled part a build left beside it.
+  for entry in ← support.readDir do
+    if entry.fileName.startsWith "Payload." then IO.FS.removeFile entry.path
   -- The manifest names a copy elsewhere, and an override selects the one in the work tree.
   let external := adopter / "external"
   IO.FS.createDirAll external

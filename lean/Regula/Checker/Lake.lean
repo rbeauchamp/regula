@@ -69,9 +69,28 @@ def checkerPackageDir : IO (Option FilePath) := do
   return some (System.mkFilePath (components.take (components.length - layout.length)))
 
 /-- The source of module `name` in the running checker's own package at `checker`: its libraries
-keep their sources below `lean`. -/
-def checkerSource (checker : FilePath) (name : Name) : FilePath :=
-  Lean.modToFilePath (checker / "lean") name "lean"
+keep their sources below `lean` (`modulePath?`, so `none` for a name that is not safe). -/
+def checkerSource (checker : FilePath) (name : Name) : Option FilePath :=
+  modulePath? (checker / "lean") name "lean"
+
+/-- The module names that the configuration of `package` gives: the roots and the glob names of
+each library and the root of each executable, before any module is resolved or any path is built
+from them. -/
+def configuredModuleNames (package : _root_.Lake.Package) : Array Name :=
+  package.leanLibs.flatMap (fun library => library.roots ++ library.config.globs.map fun
+      | .one name | .submodules name | .andSubmodules name => name) ++
+    package.leanExes.map (·.config.root)
+
+/-- Refuse a module name of package `package` that `modulePath?` cannot place below a directory
+(`safeModuleComponents?`): a component that is an absolute path or has an empty, `.` or `..`
+segment between path separators, or a numeric component. `Lean.modToFilePath` joins each component with
+`FilePath.join`, which discards its base for an absolute component, so such a name could resolve a
+checker source or an owned artifact outside the directory it belongs to. -/
+def checkModuleNames (package : String) (names : Array Name) : IO Unit := do
+  if let some name := names.find? (safeModuleComponents? · |>.isNone) then
+    throw <| IO.userError s!"lake-query-malformed: package '{package}' names module {name}, whose \
+      name has a component that is an absolute path, has an empty, `.` or `..` segment between path \
+      separators, or is a number"
 
 /-- Refuse a module that package `package` provides under a prefix reserved to the checker
 (`reservedModule`) unless its source `source` holds exactly the text of the running checker's own
@@ -90,7 +109,8 @@ def checkReservedModules (checker : Option FilePath) (package : String)
         {reason}"
     let some checker := checker
       | refuse "and the running checker's own package cannot be located"
-    let own := checkerSource checker name
+    let some own := checkerSource checker name
+      | refuse "with a name that is not a safe module name"
     let same ← try
         pure ((← IO.FS.readBinFile source) == (← IO.FS.readBinFile own))
       catch _ => pure false
@@ -170,13 +190,19 @@ def packageModules (package : _root_.Lake.Package) :
     let modules := ((← buildableModules library).foldl NameSet.insert {}).toArray.qsort Name.quickLt
     targets := targets.push
       { target := s!"lean_lib {library.name}", modules, options := libraryOptions library }
-    sources := sources ++ modules.map fun name =>
-      (name, Lean.modToFilePath library.srcDir name "lean")
+    for name in modules do
+      let some source := modulePath? library.srcDir name "lean"
+        | throw <| IO.userError s!"lake-query-malformed: package '{package.baseName}' provides \
+            module {name}, whose name is not a safe module name"
+      sources := sources.push (name, source)
   for exe in package.leanExes do
     targets := targets.push
       { target := s!"lean_exe {exe.name}", modules := #[exe.root.name]
         options := executableOptions exe }
-    sources := sources.push (exe.root.name, exe.root.leanFile)
+    let some source := modulePath? exe.root.lib.srcDir exe.root.name "lean"
+      | throw <| IO.userError s!"lake-query-malformed: package '{package.baseName}' roots executable \
+          {exe.name} at {exe.root.name}, which is not a safe module name"
+    sources := sources.push (exe.root.name, source)
   return (targets, sources)
 
 /-- Refuse a module name that more than one package of the workspace provides by its own module
@@ -230,6 +256,10 @@ projects share one discovery path and need no custom Lake facets. -/
 def surfaceInventory (repo : FilePath) : IO SurfaceInventory :=
   Workspace.withRootWorkspace repo fun ws => do
     let pkg := ws.root
+    -- No path is built from a module name before each name that a package's configuration gives is
+    -- a safe module name (`checkModuleNames`); a resolved module is placed by `modulePath?`.
+    for package in ws.packages do
+      checkModuleNames package.baseName.toString (configuredModuleNames package)
     -- Modules under the checker's reserved prefixes must hold the running checker's own source
     -- text, whatever package provides them (`checkReservedModules`).
     let checker ← checkerPackageDir

@@ -338,6 +338,98 @@ def reservedPrefixes : Array String := #["Regula", "RegulaPolicy"]
 def reservedModule (name : Name) : Bool :=
   reservedPrefixes.contains name.getRoot.toString
 
+/-- Whether `segment`, a part of a path between separators, names one entry directly below a
+directory: it is not empty, not `.` or `..`, and holds no path separator
+(`FilePath.pathSeparators`). -/
+def safeSegment (segment : String) : Bool :=
+  !segment.isEmpty && segment != "." && segment != ".." &&
+    !segment.any (FilePath.pathSeparators.contains ·)
+
+/-- The segments of `part` between path separators (`FilePath.pathSeparators`). -/
+def pathSegments (part : String) : List String :=
+  part.splitToList (FilePath.pathSeparators.contains ·)
+
+/-- Whether `part`, one component of a module name, names entries below a directory: it is not an
+absolute path (`FilePath.isAbsolute`, so on Windows also a drive such as `C:`), and each of its
+segments between path separators is a `safeSegment`, so it is not empty and has no `.` or `..`
+segment. A relative component with separators, such as `foo/bar` of a library named `foo/bar`,
+names `foo/bar` below the directory. `FilePath.join` discards its base for an absolute right
+operand, so `Lean.modToFilePath` puts a module with an absolute component outside its directory,
+and a `..` segment leaves it. -/
+def safeModuleComponent (part : String) : Bool :=
+  !(FilePath.mk part).isAbsolute && (pathSegments part).all safeSegment
+
+/-- The string components of module name `name`, root first, when there is at least one and each
+is a `safeModuleComponent`; `none` for the anonymous name, a numeric component or an unsafe one. -/
+def safeModuleComponents? : Name → Option (List String)
+  | .anonymous => none
+  | .num .. => none
+  | .str p s =>
+    if safeModuleComponent s then
+      match p with
+      | .anonymous => some [s]
+      | p => (safeModuleComponents? p).map (· ++ [s])
+    else none
+
+/-- The path segments of the file of module `name` with extension `ext`, below the directory it
+belongs to: the segments of each component of `name` (`safeModuleComponents?`, `pathSegments`), the
+last one with `.` and `ext` appended; `none` unless `name` is admitted and every resulting segment
+is a `safeSegment`. -/
+def moduleSegments? (name : Name) (ext : String) : Option (List String) :=
+  match safeModuleComponents? name with
+  | none => none
+  | some parts =>
+    let segments := parts.flatMap pathSegments
+    let withExtension := segments.dropLast ++ segments.getLast?.toList.map (· ++ "." ++ ext)
+    if !withExtension.isEmpty && withExtension.all safeSegment then some withExtension else none
+
+/-- The path of `segments` below the directory `dir`: the text of `dir`, then the path separator
+and each segment. -/
+def pathBelow (dir : FilePath) (segments : List String) : FilePath :=
+  ⟨dir.toString ++ String.join (segments.map (FilePath.pathSeparator.toString ++ ·))⟩
+
+/-- The file of module `name` with extension `ext` below the directory `dir`, the path of its
+segments (`moduleSegments?`, `pathBelow`); `none` for a name that `safeModuleComponents?` does not
+admit. Every module-to-path construction of the ownership audit goes through this one function
+(`Lake.checkerSource`, `Lake.packageModules`, `Environment.attributeLoaded`), and
+`Lake.surfaceInventory` refuses every package that configures or provides a module whose name it
+does not admit, before any path is built from it. `modulePath?_below` states that the path lies
+below `dir`. -/
+def modulePath? (dir : FilePath) (name : Name) (ext : String) : Option FilePath :=
+  (moduleSegments? name ext).map (pathBelow dir)
+
+/-- For every admitted module name, the path `modulePath?` builds lies below the base directory: its
+text is the text of `dir`, then the path separator and each of a nonempty list of segments, none of
+which is empty, `.` or `..` or holds a path separator. So the components of `dir` are a prefix of
+its components, each further component names one entry directly below the previous one, and none
+climbs out of `dir`. -/
+theorem modulePath?_below {dir : FilePath} {name : Name} {ext : String} {path : FilePath}
+    (h : modulePath? dir name ext = some path) :
+    ∃ segments : List String, segments ≠ [] ∧ (∀ s ∈ segments, safeSegment s = true) ∧
+      path = pathBelow dir segments ∧
+      path.toString = dir.toString ++
+        String.join (segments.map (FilePath.pathSeparator.toString ++ ·)) := by
+  unfold modulePath? at h
+  obtain ⟨segments, hsegments, rfl⟩ := Option.map_eq_some_iff.mp h
+  unfold moduleSegments? at hsegments
+  split at hsegments
+  · cases hsegments
+  · dsimp only at hsegments
+    split at hsegments
+    · rename_i hsafe
+      cases hsegments
+      simp only [Bool.and_eq_true, Bool.not_eq_true', List.isEmpty_eq_false_iff,
+        List.all_eq_true] at hsafe
+      exact ⟨_, hsafe.1, hsafe.2, rfl, rfl⟩
+    · cases hsegments
+
+/-- The text of the base directory is a prefix of the text of each path `modulePath?` builds. -/
+theorem modulePath?_prefix {dir : FilePath} {name : Name} {ext : String} {path : FilePath}
+    (h : modulePath? dir name ext = some path) :
+    ∃ rest, path.toString = dir.toString ++ rest := by
+  obtain ⟨segments, -, -, -, htext⟩ := modulePath?_below h
+  exact ⟨_, htext⟩
+
 /-- One owned package, the root package or an owned dependency, as the audit passes it to each
 environment: its compiled-module output directory, Lake's default `.lake/build/lib/lean` of the
 package (`Lake.checkDefaultLayout`), and the modules its own libraries and executables provide. -/

@@ -2436,6 +2436,14 @@ finds the two definitions distinct, and otherwise the search path decides which 
 Lake resolves an import only to a library module, thus the executable roots of a trusted package
 are not counted.
 
+`checkModuleNames` refuses, before any path is built, a module name that a package configures or
+provides with an unsafe component. A component is unsafe when it is an absolute path, or when
+a segment of it between path separators is empty, `.` or `..`. `FilePath.join` discards its base
+for an absolute component, so such a name could put a checker source or an owned artifact outside
+its directory. Each path that the ownership audit builds from a module name comes from
+`modulePath?`. **Proved:** `modulePath?_below`, the path is the directory followed by separated
+safe segments, so it lies below the directory.
+
 Two builds of Regula's own package come before these checks. Lake builds the program
 that runs the audit, such as the `lake lint` driver, before it starts that program. The
 verification driver of this repository builds its own copy before the gate audits it with

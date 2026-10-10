@@ -461,8 +461,11 @@ def attributeLoaded (origins : Array Regula.Report.ModuleOrigin) (ownership : Ow
   let packages := ownership.root.toArray ++ ownership.dependencies
   let offset := ownership.root.toArray.size
   let provided := packages.map fun package => NameSet.ofArray package.modules
+  -- An artifact is placed by `modulePath?` alone, so a name that is not a safe module name has
+  -- none and matches no loaded module.
   let artifact (output : FilePath) (name : Name) : IO (Option FilePath) := do
-    try some <$> IO.FS.realPath (Lean.modToFilePath output name "olean") catch _ => pure none
+    let some path := modulePath? output name "olean" | return none
+    try some <$> IO.FS.realPath path catch _ => pure none
   let checker ← do
     let some lib ← checkerPackageLibDir | pure none
     try some <$> IO.FS.realPath lib catch _ => pure none
