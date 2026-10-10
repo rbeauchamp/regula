@@ -32,7 +32,8 @@ structure DependencyState where
   files : Array SourceSnapshot
   /-- Whether the request owns the dependency, as the collector classified it: the checker's own
   collector owns a path dependency in the root package's Git work tree and replays through Lean's
-  kernel each module of it that a requested module imports. A dependency that is not owned is
+  kernel each module of it that a requested module imports, except modules under the checker's
+  reserved prefixes, which are the checker's own code. A dependency that is not owned is
   trusted: its declarations are not replayed. -/
   owned : Bool
   deriving Repr, DecidableEq

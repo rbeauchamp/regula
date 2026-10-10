@@ -322,7 +322,8 @@ theorem contains_ownedModuleSet {origins : Array Regula.Report.ModuleOrigin}
 /-- What one environment owns, computed once from its module origins, its requested modules, its
 source bindings and the modules of the owned dependencies (`EnvironmentOwnership.of`, from
 `ownedModuleSet`). Every per-module job takes its modules from this one value, so no job selects
-another set: kernel admission replays `modules`; the unowned-output refusal exempts
+another set: kernel admission replays `modules`, and of `reporterOnly` each module under the
+checker's reserved prefixes that imports a replayed module; the unowned-output refusal exempts
 `reporterOnly`; declaration and root inspection, documentation, the census sources and the
 transcripts cover the requested modules and then `dependencies`; and under `--fresh` each loaded
 module of `modules` must resolve inside the copy (`ModuleGraph.outsideCopy`). The project
@@ -338,8 +339,9 @@ structure EnvironmentOwnership where
   dependencies : Array Name
   /-- The modules of the owned dependencies that the environment does not own: the checker's own
   modules under its reserved prefixes (`projectModules`), and those that no requested module
-  imports and that import no owned module. Kernel admission replays each of them that imports a
-  replayed module (`Admission.replaySet`). -/
+  imports and that import no owned module. Kernel admission replays each of them under the
+  reserved prefixes that imports a replayed module (`Admission.replaySet`), and refuses any other
+  that imports one (`Admission.validate`). -/
   reporterOnly : Array Name
   deriving Repr
 
@@ -766,7 +768,8 @@ private unsafe def loadReportCoreAtSearchPath (modules : Array Name)
     let reused := if priors.isEmpty then #[] else
       Admission.reusedModules env origins ownedModules priors
     let admissionResult ← timedPhase "kernel admission" <|
-      Admission.validate env ownedModules reused requested owned.reporterOnly
+      Admission.validate env ownedModules reused requested
+        (owned.reporterOnly.filter reservedModule)
     if let .error failure := admissionResult then return .error (.admission failure)
     let .ok admitted := admissionResult
       | throw <| IO.userError "unreachable admission outcome"

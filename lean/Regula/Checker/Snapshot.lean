@@ -75,7 +75,7 @@ structure DependencyCaptures where
   dirty : Bool
   /-- Whether the audit owns the dependency (`DependencyInventory.owned`): a path dependency in the
   root package's Git work tree, each module of which it replays where a requested module imports
-  it. -/
+  it, except modules under the checker's reserved prefixes, which are the checker's own code. -/
   owned : Bool
   /-- The requested source files: each module with its path as Lake resolved it. -/
   sourcePaths : Array (Name × FilePath)
@@ -104,7 +104,7 @@ structure DependencyObservation where
   dirty : Bool
   /-- Whether the audit owns the dependency (`DependencyInventory.owned`): a path dependency in the
   root package's Git work tree, each module of which it replays where a requested module imports
-  it. -/
+  it, except modules under the checker's reserved prefixes, which are the checker's own code. -/
   owned : Bool
   /-- The requested source files: each module with its path as Lake resolved it. -/
   sourcePaths : Array (Name × FilePath)

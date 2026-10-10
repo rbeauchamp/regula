@@ -1489,8 +1489,8 @@ def addReporters (candidates : Array (Name × ModuleData)) (replay : Array Name)
 
 /-- The modules `validate` replays in an environment that loaded `loaded`: every `owned` module
 that is not `reused`, then every reporter module and every module of `checker`, the modules of
-the owned packages that the environment does not own (`EnvironmentOwnership.reporterOnly`), that
-imports one of them, directly or through other such modules. Each pass over those candidates that
+the owned dependencies under the checker's reserved prefixes that the environment does not own
+(`EnvironmentOwnership.reporterOnly`), that imports one of them, directly or through other such modules. Each pass over those candidates that
 changes the set adds one of them, so as many passes as there are candidates reach every such
 importer. -/
 def replaySet (loaded : Array (Name × ModuleData)) (owned reused : Array Name)
@@ -2028,8 +2028,9 @@ the `ownedModules`' declarations (`Probe.ownedConstants`) reaches in the replaye
 admitted those of the owned declarations against the axioms Lean's `collectAxioms` reports, and,
 for each owned declaration, the axioms `collectAxioms` omits. The original environment is retained
 for compiler metadata only after replay succeeds. This is not a fresh replay of the imported dependency graph.
-The modules of `checker`, those of the owned packages that the environment does not own, are
-replayed only where one imports a replayed module (`replaySet`). -/
+The modules of `checker`, those of the owned dependencies under the checker's reserved prefixes
+that the environment does not own, are replayed only where one imports a replayed module
+(`replaySet`). -/
 unsafe def validate (env : Environment) (ownedModules : Array Name) (reused : Array Name := #[])
     (requested : Array Name := #[]) (checker : Array Name := #[]) :
     IO (Except ProducerReport.AdmissionFailure Admitted) := do

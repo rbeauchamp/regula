@@ -135,8 +135,9 @@ structure DependencyInventory where
   sources : Array SourceEntry
   /-- Whether the audit owns the package: its directory is in the Git work tree of the root
   package, so it is a path dependency in the project's own repository. The audit replays through
-  Lean's kernel each module of an owned package that a requested module imports, and trusts every
-  other package. -/
+  Lean's kernel each module of an owned package that a requested module imports, except modules
+  under the checker's reserved prefixes, which are the checker's own code, and trusts every other
+  package. -/
   owned : Bool
   /-- The package's compiled-module output directory (Lake's `leanLibDir`). -/
   leanLibDir : FilePath

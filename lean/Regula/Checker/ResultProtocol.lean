@@ -21,7 +21,8 @@ abbrev producer := Regula.Checker.Producer.identity
 
 /-- Result schema 14 records which dependencies the audit owns: each dependency of a rendered
 snapshot carries `owned`, `true` for a path dependency in the root package's Git work tree, each
-module of which the audit replays where a requested module imports it (`snapshotJson`), and the
+module of which the audit replays where a requested module imports it, except modules under the
+checker's reserved prefixes, which are the checker's own code (`snapshotJson`), and the
 acceptance account carries `trustedDependencies`, the packages of the dependencies that are not
 owned, which the audit trusts (`accountJson`), and each environment of the acceptance carries
 `dependencyModules`, the modules of owned dependencies whose declarations it inspects

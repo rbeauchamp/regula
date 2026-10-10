@@ -1349,6 +1349,10 @@ def guide : RuleId → Guide
           work tree, are not replayed; they remain the declared trusted base, and the account \
           names each of them. The axioms a declaration reaches through them are read from their \
           constants as imported.",
+        "Modules under the checker's reserved prefixes (`Regula`, `RegulaPolicy`) in an owned \
+          path dependency are the checker's own code, whose source is the checker's own text: \
+          the audit does not inspect them and replays one only where it imports a replayed \
+          module, and the account does not name them.",
         "Incremental admission does not establish fresh source elaboration."]
       configuration := [
         "No option waives admission. A failed generated-role authentication cannot waive RG1001 or \
