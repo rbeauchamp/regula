@@ -30,6 +30,11 @@ structure DependencyState where
   dirty : Bool
   /-- The dependency's captured files with their exact text. -/
   files : Array SourceSnapshot
+  /-- Whether the request owns the dependency, as the collector classified it: the checker's own
+  collector owns a path dependency in the root package's Git work tree and replays through Lean's
+  kernel each module of it that a requested module imports. A dependency that is not owned is
+  trusted: its declarations are not replayed. -/
+  owned : Bool
   deriving Repr, DecidableEq
 
 /-- The exact inputs a request is about: source texts, configuration, toolchain and
@@ -304,6 +309,12 @@ structure ClaimCandidate where
   /-- The claimed surfaces; `ClaimCandidate.Valid` requires some for a project scope and none
   for the other scopes. -/
   surfaces : Array SurfaceAssignment
+  /-- The modules of the dependencies the request owns, path dependencies in the root package's
+  Git work tree, that its environments import. Their declarations are checked under
+  Standard-Logical and their executable roots in report mode (`profileForModule`,
+  `executionForModule`); `ClaimCandidate.Valid` allows them only in a project scope, outside every
+  surface. -/
+  dependencies : Array Identity := #[]
   deriving Repr, DecidableEq
 
 attribute [-instance] instDecidableEqClaimCandidate
@@ -334,7 +345,8 @@ instance (scope : Scope) (mode : EvidenceMode) : Decidable (ScopeModeCompatible 
 
 /-- Functional source maps and disjoint positive module ownership; an empty library environment,
 including a library whose modules are all its claimed executables' roots, remains
-unsupported. This does not assert completeness of an external Lake inventory. -/
+unsupported. The owned dependency modules are distinct, outside every surface, and only in a
+project scope. This does not assert completeness of an external Lake inventory. -/
 def ClaimCandidate.Valid (c : ClaimCandidate) : Prop :=
   ScopeModeCompatible c.scope c.mode ∧
   c.snapshot.Valid ∧
@@ -347,7 +359,12 @@ def ClaimCandidate.Valid (c : ClaimCandidate) : Prop :=
                         source ∈ c.snapshot.sources ∧ c.surfaces.isEmpty = true
    | .documentation documents =>
        documents.size > 0 ∧ documents.toList.Pairwise (fun a b => a.uri ≠ b.uri) ∧
-       (∀ d ∈ documents, d ∈ c.snapshot.sources) ∧ c.surfaces.isEmpty = true)
+       (∀ d ∈ documents, d ∈ c.snapshot.sources) ∧ c.surfaces.isEmpty = true) ∧
+  c.dependencies.toList.Pairwise (fun a b => a.name ≠ b.name) ∧
+  (∀ d ∈ c.dependencies, ∀ s ∈ c.surfaces, ∀ m ∈ s.modules, m.name ≠ d.name) ∧
+  (match c.scope with
+   | .project => True
+   | .file .. | .editor .. | .documentation _ => c.dependencies.isEmpty = true)
 instance instDecidableClaimValid (c : ClaimCandidate) : Decidable c.Valid := by
   unfold ClaimCandidate.Valid
   cases c.scope <;> infer_instance
@@ -377,9 +394,9 @@ theorem checked_admitClaim : Regula.ExecutableContract admitClaim
     (Regula.Decides (·.isOk = true) ClaimCandidate.Valid) :=
   ⟨.of_iff admitClaim_isOk_iff
     ⟨⟨.file ⟨"Example.lean", ""⟩ .kernelOnly .report, .freshFile,
-        ⟨#[⟨"Example.lean", ""⟩], ⟨"lakefile", ""⟩, ⟨"lean", "commit", "revision"⟩, #[]⟩, #[]⟩,
+        ⟨#[⟨"Example.lean", ""⟩], ⟨"lakefile", ""⟩, ⟨"lean", "commit", "revision"⟩, #[]⟩, #[], #[]⟩,
       (admitClaim_isOk_iff _).mpr (by decide +kernel)⟩
-    ⟨⟨.project, .freshFile, ⟨#[], ⟨"", ""⟩, ⟨"", "", ""⟩, #[]⟩, #[]⟩,
+    ⟨⟨.project, .freshFile, ⟨#[], ⟨"", ""⟩, ⟨"", "", ""⟩, #[]⟩, #[], #[]⟩,
       fun accepted => absurd ((admitClaim_isOk_iff _).mp accepted).1 (by decide)⟩⟩
 
 /-- Whole-project mandatory stages are derived; callers cannot select a shorter list. -/
@@ -410,6 +427,9 @@ structure EnvironmentRequest where
   key : EnvironmentKey
   /-- The claimed modules assigned to the environment. -/
   modules : Array ModuleKey
+  /-- The modules of the owned dependencies that the environment's claimed modules import, as the
+  coordinator found them: their declarations are inspected in this environment. -/
+  dependencies : Array ModuleKey := #[]
   deriving Repr, DecidableEq
 
 /-- What a job inside one environment is about. -/
@@ -514,7 +534,7 @@ theorem admitJobKey_exact (key : JobKey) :
 `checked_admitJobKey`. -/
 private def fileClaim : Claim :=
   ⟨⟨.file ⟨"Example.lean", ""⟩ .kernelOnly .report, .freshFile,
-      ⟨#[⟨"Example.lean", ""⟩], ⟨"lakefile", ""⟩, ⟨"lean", "commit", "revision"⟩, #[]⟩, #[]⟩,
+      ⟨#[⟨"Example.lean", ""⟩], ⟨"lakefile", ""⟩, ⟨"lean", "commit", "revision"⟩, #[]⟩, #[], #[]⟩,
     by decide +kernel⟩
 
 /-- Job-key admission succeeds exactly for a stage the claim's mode requires, with a compatible

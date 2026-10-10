@@ -1457,7 +1457,7 @@ private def appendFailure (failures : IO.Ref (Array String)) (value : Option Str
 /-- Preserve project-relative source and asset locations using the same fresh
 copy operation as the public gate, rather than a second fixed source list. -/
 private def prepareScratchRepo (repo scratch : FilePath) : IO Unit :=
-  copyProject repo scratch scratch
+  discard <| Lake.copyProject repo scratch scratch
 
 /-- Flush phase boundaries so CI timestamps and elapsed times identify the
 actual work, even when stdout is redirected. Timings are observations only. -/

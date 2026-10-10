@@ -802,6 +802,15 @@ kernel result to the outcome (`kernelExhausted` for an incomplete comparison, a 
 beyond Standard-Logical for a completed negative one) is checked by inspection, and the kernel
 decision itself is trusted.
 
+**Correspondence theorems from replayed modules.** `Probe.replacementCorrespondence` tries a
+theorem only when the predicate `admits` of `Probe.environmentReport` accepts it. `admits` accepts
+a theorem of a module that the admission of the environment replayed or reused, or of an
+origin-checked module of the toolchain. Thus the kernel checked the theorem in this audit, or the
+theorem is part of the trusted base of the toolchain. A theorem of a dependency that the audit
+does not own supplies no evidence, so its boundary falls to the kernel comparison. That `admits`
+is applied to each candidate is read from the code, and the module of a name is the one Lean
+records for it.
+
 ## Decision kinds of Regula's own decisions
 
 A decision kind (`Regula.DecidesSoundly`, `Regula.DecidesCompletely`, `Regula.Decides`, standard
@@ -2217,7 +2226,8 @@ inferred from any pure proof.
   in that environment's own replay set, or in the replay set, and not among the reused modules,
   of a completed admission whose environment loaded it, so no accepted report rests on a module
   no environment replayed; a receipt's `modules` alone does not show a replay, since it lists
-  every owned module the environment did not reuse, loaded or not);
+  every owned module the environment did not reuse, loaded or not, and the modules the
+  environment owns by `Environment.ownedModuleSet` can differ from those the offers were made over);
   `ProducerReport.validate_sound`
   (an admitted report's receipt requires the key of every safe, total declaration it reports, in
   a module it lists as replayed or reused, never both); and `Inspection.prerequisites_earlier`
@@ -2402,6 +2412,101 @@ replacement capture and rechecks the supplied observation before finalization. S
 keep exact snapshot bytes and logical URI; a digest may index storage, but digest equality alone
 is not byte equality. Dependency Git pins do not prove an unmodified checkout, so the actual
 dirty and path state is recorded as an observation.
+
+The audit owns a dependency when its directory is in the Git work tree of the root package.
+`Lake.surfaceInventory` decides it with `ownedDirectory`: `git rev-parse --show-toplevel`, run
+without `GIT_DIR` and `GIT_WORK_TREE`, gives the same real directory for the two. **Proved:**
+`sameWorkTree_iff` (owned exactly when one known work tree holds the root package and the
+dependency), so a dependency in an unknown work tree, or of a root package outside each work tree,
+is not owned. **Trusted:** Git finds that work tree, and the filesystem resolves the real paths.
+A Git dependency that Lake clones has a work tree of its own, and so does a submodule, thus
+neither is owned.
+
+Ownership has a supported scope. Each audit, incremental or fresh, refuses two things before it
+builds the project or a copy. `checkDefaultLayout` refuses an owned package, the root package included, that sets an
+output directory other than Lake's default. It compares the configured values, with no path
+resolved. `checkOneProvider` refuses a module name that two packages of the workspace provide, by
+each package's own libraries and executable roots, as `lake-query-malformed`. Lake refuses an
+import of such a name only when it finds the two definitions distinct, and otherwise the search
+path decides which artifact loads.
+
+Two builds of Regula's own package come before these checks. Lake builds the program
+that runs the audit, such as the `lake lint` driver, before it starts that program. The
+verification driver of this repository builds its own copy before the gate audits it with
+`--driver-copy`. The `lake lint` driver builds its audit worker only after `surfaceInventory`
+accepts the workspace.
+
+A loaded module belongs to an owned package only if its `.olean` is exactly that package's
+artifact of it below `.lake/build/lib/lean`, on real paths. `Environment.attributeLoaded` decides
+it, and the module then binds that package's source. It refuses a loaded module that an owned
+package provides and that is no such artifact. A module of the prefixes `Regula` or `RegulaPolicy`
+that is the checker's own artifact is the one exception.
+
+An owned dependency is audited like the root package. Each environment computes what it owns one
+time, in `Environment.EnvironmentOwnership.of`, and each job that works module by module takes its
+modules from that value. It owns and replays each module of an owned dependency that a requested
+module imports, directly or not, or that imports an owned module. `contains_ownedModuleSet` proves
+that it owns each module of the root package that is not infrastructure.
+
+The checker's infrastructure modules are not owned, because the gate authenticates them as the
+running checker's own. `Admission.replaySet` replays each of them that imports a replayed module.
+A module of a dependency's build output that no library of the package has is refused as
+[RG2004]. The account names each dependency that is not owned, and the snapshot records `owned`
+for each dependency.
+
+A project audit also inspects each module of an owned dependency that its environment owns and
+loads, as `EnvironmentOwnership.mem_dependencies` states. It inspects their declarations,
+executable roots and documentation, and the census binds their sources through
+`EnvironmentCensus.inspectedModules`. `EnvironmentOwnership.dependencies_replayed` proves that
+each of them is replayed when the source bindings hold the modules of the owned dependencies, as
+the inventory's do. The coordinator and the declaration worker compute the ownership from the same
+inputs, and the worker must report the same modules. The claim lists them as
+`ClaimCandidate.dependencies`, so `profileForModule` gives them Standard-Logical and
+`executionForModule` gives them report. Thus a project axiom, a hole or authored `unsafe` code in
+such a module is refused, but `Classical.choice` is permitted.
+
+The coordinator's findings use the claim's own assignments, from the same surfaces and
+dependencies that the claim admits. A declaration meets `projectProfile` of its own module. A root
+meets the strongest execution claim that `rootRequestsAmong` finds for it. In a project claim,
+`profileForModule_project` and `executionForModule_project` prove that these are the claim's
+assignments. With each root requested, `executionFindingsFor_empty_iff` proves that the execution
+findings are empty exactly when each root meets each claim requested of it. A declaration of a
+dependency that two environments inspect is reported one time, and file and fence audits do not
+inspect these modules.
+
+Under `--fresh`, `copyProject` copies each owned dependency with the project, at its place
+relative to the project, and the copy builds it. It takes what Lake's own load of the project
+selects for each dependency, through `surfaceInventory`. Lake keeps the last entry of a name in
+`.lake/package-overrides.json` over the manifest's entry. `relocateDependencies` gives an override
+to each dependency that the copy's manifest would load from a different directory or through
+different configuration or manifest files.
+
+`Lake.checkCopiedWorkspace` then compares the copy's Lake load with the original's, so a mistake
+in the overrides is refused, not trusted. Each dependency must have the same files, configuration
+text, output directories, module sources and ownership. Each library and executable of each
+package, the root package included, must have the same modules, Lean options and arguments. With
+the default layout required, no build of the copy reads or writes a directory elsewhere.
+
+`checkReservedModules` refuses a package module under the prefixes `Regula` or `RegulaPolicy` unless
+its source is byte-identical to the running checker's own source of that module. It reads each
+package's own library and executable modules before Lake resolves a name to one package. So the
+artifact that the overlay loads in place of such a module is compiled from the same text.
+
+The copy holds no compiled module until it builds one, and each owned module of a fresh audit must
+resolve inside it on real paths. `ModuleGraph.outsideCopy` finds each one that does not, whatever
+directory a configuration gives for build output, and the reporter's overlay cannot serve one. The
+coordinator builds each such module in the copy, and the worker refuses one that still resolves
+elsewhere. No build of the copy uses Lake's artifact cache, so Lake does not restore a module into
+the copy without compiling its source. **Trusted:** the filesystem resolves the real paths, and
+only the copy's build writes compiled modules into the copy.
+
+The force-imported reporter loads modules of the prefixes `Regula` and `RegulaPolicy`, and Lean
+resolves a whole prefix at the first search directory that has it. So a copy that builds a part of
+an owned package with these prefixes could hide the checker's other modules.
+`Environment.withProbeSearch` therefore puts an overlay first that links each such module from one
+directory. An infrastructure module comes from the checker's library, and each other module from
+the first search directory that holds it. That the overlay holds each module that the reporter
+loads is read from the code.
 
 A dependency's Git revision is observed once, and its dirty bit is decided from one
 unrestricted `git status --porcelain=v1 -z --untracked-files=all --ignored=matching` by the pure
@@ -3691,7 +3796,7 @@ not yet proved, and are labelled so at their definition; they are not correctnes
 | checkerSelftest structural | a lemma realized in a claimed module and the toolchain, in both import orders; unchecked, circular, `sorry` and kept-cycle copies of one name | Lean's realization, import, kept copy and kernel check of several copies of one name | External | observed; the copies are checked by `Admission.checkCopies` (`checkCopies_sound`) in the decision `admitReplay` (`admitReplay_eq_ok`), over the replayed constants of `replayMap` (`replayMap_sound`, `replayMap_complete`) |
 | checkerSelftest structural | a function declared in one claimed module and registered with `attribute [regula_decision]` in another, without and with its decision contract, as plain files and as `module`s | Lean's saving and loading of the registration, and the collector's reading of it | External | observed; the decision over the recorded declaration is `policyFor_decisionContract_iff` |
 | checkerSelftest execution | each compiler-path mutation and correspondence control, with its positive and fresh restoration | compiler-derived execution coverage and correspondence evidence through the public gate; the emitted-C check of reachable code on the pin | External | observed |
-| checkerSelftest cli, environments, build-policy, lint-driver | CLI sweep, adopters, clean checkout, ordinary build, `lake lint` exit classes, its claimed build with and without the audit-build marker, cold compiler guard refusal of a failing and of a successful unidentified child process with its restored load | packaging, Lake and build integration | External | observed |
+| checkerSelftest cli, environments, build-policy, lint-driver | CLI sweep, adopters, clean checkout, ordinary build, `lake lint` exit classes, its claimed build with and without the audit-build marker, cold compiler guard refusal of a failing and of a successful unidentified child process with its restored load, a forged correspondence theorem of an owned path dependency refused by replay and one of a dependency in a Git work tree of its own refused as evidence ([RG3002]) | packaging, Lake and build integration | External | observed |
 | ordinary | `qualify registry`, `qualify native` | CLI output invalidation, registry and site validators; compiler messages and ranges | External | observed |
 | ordinary | `RegistryChecks` codec, source and execution-account cases | registry, diagnostic and source codecs; the result file's shared execution form | Proved in part | round-trip theorems of `Json` values, with those of each finding and each location (`parseDiagnostic_roundtrip`, `parseLocation_roundtrip`); that the shared form is kept, and that a parsed shared form reads back to the built account, are observed; open: state the remaining refusals as theorems |
 | standalone | `qualify environments` finalize mutations | `finalize` refusals | Proved relation | `finalize_iff`; instance membership sampled; no transcript substitution: an accepted run has no transcript job (`accepted_no_transcript_subjects`) |
@@ -4091,8 +4196,8 @@ account or of the two:
   [Admission](#producers) replays the owned declarations that are not `unsafe` or `partial`
   through the kernel. It refuses such a declaration that the kernel does not accept, and the control
   `Fixtures.Mutations.LocalUncheckedAdmission` is an observation of one refusal. Admission does
-  not replay an `unsafe` or `partial` declaration or a declaration of a dependency. The axiom
-  collection trusts each declaration that admission does not replay.
+  not replay an `unsafe` or `partial` declaration or a declaration of a dependency that the audit
+  does not own. The axiom collection trusts each declaration that admission does not replay.
 - **A user compiler pass, or a direct write that stores a compiled body that Lean's compiler did
   not make.** A declaration with the attribute `@[cpass]` can add, remove or replace a pass of
   Lean's compiler. A direct write to the IR or LCNF extensions can store a body that the compiler

@@ -283,8 +283,15 @@ private def produce (ctx : Context) (slot : Slot.ProducerSlot) (rule phase : Str
       IO.FS.writeFile config ((← IO.FS.readFile (folder / s!"{case}.lean")) ++ "\n" ++
         "\n".intercalate require ++ "\n")
     else if rule == "RG1003" then
+      -- A dependency in a Git repository of its own, so outside the project's work tree and
+      -- trusted wherever the corpus scratch lies: its axiom enters the claimed theorem
+      -- (RG1003), but its own declarations are not inspected. It lies in the project directory
+      -- so that the rule page shows its corrected source.
       let vendor := project / "vendor"
       IO.FS.createDir vendor
+      let initialized ← Regula.Checker.runProcess vendor "git" #["init", "-q"]
+      requireChecks [⟨s!"RG1003 dependency repository: {initialized.stderr}",
+          initialized.exitCode == 0⟩]
       IO.FS.writeBinFile (vendor / "Dependency.lean")
           (← IO.FS.readBinFile (folder / s!"{case}.lean"))
       IO.FS.writeBinFile (vendor / "lean-toolchain") (← IO.FS.readBinFile (root / "lean-toolchain"))

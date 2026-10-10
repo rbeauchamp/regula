@@ -37,8 +37,10 @@ abbrev Census := Regula.Report.Census
 deriving instance ToJson for Regula.Report.Census
 
 instance : FromJson Census := ⟨fun j => do
-  exactFields j ["modules", "declarations", "executionRoots", "historyRequests"]
+  exactFields j ["modules", "dependencyModules", "declarations", "executionRoots",
+    "historyRequests"]
   return { modules := ← j.getObjValAs? _ "modules"
+           dependencyModules := ← j.getObjValAs? _ "dependencyModules"
            declarations := ← j.getObjValAs? _ "declarations"
            executionRoots := ← j.getObjValAs? _ "executionRoots"
            historyRequests := ← j.getObjValAs? _ "historyRequests" }⟩
@@ -262,11 +264,11 @@ def Environment.censusModulesOK (r : Environment) : Bool :=
     r.census.modules.all r.modules.contains
 
 /-- The declaration census is unique, exactly the reported declaration keys in order,
-and owned by claimed modules. -/
+and owned by claimed modules or by modules of owned dependencies. -/
 def Environment.censusDeclarationsOK (r : Environment) : Bool :=
   (canonicalEdges r.census.declarations).size == r.census.declarations.size &&
     r.census.declarations == r.declarations.map (fun d => (d.module, d.name)) &&
-    r.census.declarations.all (fun k => r.census.modules.contains k.1)
+    r.census.declarations.all (fun k => r.census.inspectedModules.contains k.1)
 
 /-- Execution results are present exactly for the requested unique roots, in order. -/
 def Environment.validateExecutionCensus (r : Environment) : Except String Unit :=
@@ -280,8 +282,8 @@ def Environment.validateExecutionCensus (r : Environment) : Except String Unit :
 
 /-- The replay receipt covers unique modules and requirements, admits exactly what it
 requires, requires only keys of replayed or reused modules, replays or reuses every claimed
-module, requires every safe total declaration, and lists no module as both replayed and
-reused. -/
+module and every module of an owned dependency, requires every safe total declaration, and lists
+no module as both replayed and reused. -/
 def Environment.receiptOK (r : Environment) (receipt : AdmissionReceipt) : Bool :=
   let requiredSet := receipt.required.foldl (fun s k => s.insert k)
     ({} : Std.HashSet (Name × Name))
@@ -289,15 +291,17 @@ def Environment.receiptOK (r : Environment) (receipt : AdmissionReceipt) : Bool 
     (canonicalEdges receipt.required).size == receipt.required.size &&
     receipt.admitted == receipt.required &&
     receipt.required.all (fun k => receipt.modules.contains k.1 || receipt.reused.contains k.1) &&
-    r.census.modules.all (fun m => receipt.modules.contains m || receipt.reused.contains m) &&
+    r.census.inspectedModules.all
+      (fun m => receipt.modules.contains m || receipt.reused.contains m) &&
     r.declarations.all (fun d => d.isUnsafe || d.isPartial ||
       requiredSet.contains (d.module, d.name)) &&
     receipt.reused.all (fun m => !receipt.modules.contains m)
 
-/-- Documentation observations cover exactly the claimed modules, and exactly the
-unique material declarations the census contains, in order. -/
+/-- Documentation observations cover exactly the inspected modules
+(`Census.inspectedModules`), and exactly the unique material declarations the census contains, in
+order. -/
 def Environment.documentationOK (r : Environment) (docs : DocumentationObservation) : Bool :=
-  docs.modules.map (·.1) == r.census.modules &&
+  docs.modules.map (·.1) == r.census.inspectedModules &&
     (canonicalEdges docs.materialDeclarations).size == docs.materialDeclarations.size &&
     docs.materialDeclarations.all r.census.declarations.contains &&
     docs.declarations.map (·.1) == docs.materialDeclarations
@@ -448,13 +452,14 @@ theorem validate_eq_ok (r : Environment) :
     simp [forM_eq_ok]
 
 /-- Claimed modules are nonempty, unique and loaded; the declaration census is exactly
-the reported declaration keys in order, unique, and owned by claimed modules. -/
+the reported declaration keys in order, unique, and owned by claimed modules or by modules of
+owned dependencies. -/
 def Environment.CensusSound (r : Environment) : Prop :=
   r.census.modules ≠ #[] ∧ r.census.modules.toList.Nodup ∧
   (∀ m ∈ r.census.modules, m ∈ r.modules) ∧
   r.census.declarations = r.declarations.map (fun d => (d.module, d.name)) ∧
   r.census.declarations.toList.Nodup ∧
-  (∀ k ∈ r.census.declarations, k.1 ∈ r.census.modules)
+  (∀ k ∈ r.census.declarations, k.1 ∈ r.census.inspectedModules)
 
 /-- Execution results exist only when requested, and then exactly for the unique
 requested roots, in order, from loaded modules. -/
@@ -484,7 +489,8 @@ def Environment.RecordedRangesSound (r : Environment) : Prop :=
       range.range.ValidFor s.content ∧ range.selectionRange.ValidFor s.content
 
 /-- The replay receipt exists, admits exactly its unique requirements, each a key of one of its
-unique replayed modules or of a reused module, replays or reuses every claimed module, requires
+unique replayed modules or of a reused module, replays or reuses every claimed module and every
+module of an owned dependency, requires
 every safe total declaration, and lists no module as both replayed and reused. That a key of a
 reused module was admitted by the environment that replayed the module is the coordinator's
 check (`Admission.reuseJustified_admitted`), not this one. -/
@@ -492,15 +498,16 @@ def Environment.AdmissionSound (r : Environment) : Prop :=
   ∃ receipt, r.admission = some receipt ∧ receipt.admitted = receipt.required ∧
     receipt.modules.toList.Nodup ∧ receipt.required.toList.Nodup ∧
     (∀ k ∈ receipt.required, k.1 ∈ receipt.modules ∨ k.1 ∈ receipt.reused) ∧
-    (∀ m ∈ r.census.modules, m ∈ receipt.modules ∨ m ∈ receipt.reused) ∧
+    (∀ m ∈ r.census.inspectedModules, m ∈ receipt.modules ∨
+      m ∈ receipt.reused) ∧
     (∀ d ∈ r.declarations,
       d.isUnsafe = true ∨ d.isPartial = true ∨ (d.module, d.name) ∈ receipt.required) ∧
     ∀ m ∈ receipt.reused, m ∉ receipt.modules
 
-/-- Documentation observations exist, cover exactly the claimed modules in order, and
+/-- Documentation observations exist, cover exactly the inspected modules in order, and
 record exactly the unique census-declared material selection in order. -/
 def Environment.DocumentationSound (r : Environment) : Prop :=
-  ∃ docs, r.documentation = some docs ∧ docs.modules.map (·.1) = r.census.modules ∧
+  ∃ docs, r.documentation = some docs ∧ docs.modules.map (·.1) = r.census.inspectedModules ∧
     docs.materialDeclarations.toList.Nodup ∧
     (∀ k ∈ docs.materialDeclarations, k ∈ r.census.declarations) ∧
     docs.declarations.map (·.1) = docs.materialDeclarations
@@ -588,7 +595,7 @@ theorem censusSound_of (r : Environment) (h₁ : r.censusModulesOK = true)
   obtain ⟨m₁, m₂, m₃⟩ := h₁
   obtain ⟨d₁, d₂, d₃⟩ := h₂
   exact ⟨m₁, nodup_of_canonicalNames_size _ m₂, m₃, d₂,
-    nodup_of_canonicalEdges_size _ d₁, fun k hk => d₃ k.1 k.2 hk⟩
+    nodup_of_canonicalEdges_size _ d₁, fun k hk => by simpa using d₃ k.1 k.2 hk⟩
 
 
 theorem executionCensusSound_of (r : Environment) (h : r.validateExecutionCensus = .ok ()) :
@@ -992,11 +999,12 @@ instance : FromJson UnownedModule := ⟨fun j => do
   return {
     «module» := ← j.getObjValAs? _ "module", importers := ← j.getObjValAs? _ "importers" }⟩
 
-/-- The RG2004 detail of one unowned module: the module and the modules that import it, each
-named by `importer` (its module name unless given). -/
+/-- The RG2004 detail of one unowned module, loaded from the build output of the root package or
+of an owned dependency: the module and the modules that import it, each named by `importer` (its
+module name unless given). -/
 def UnownedModule.detail (unowned : UnownedModule) (importer : Name → String := toString) :
     String :=
-  s!"unexpected-project-module: root-owned module {unowned.module} is outside every Lake \
+  s!"unexpected-project-module: project-output module {unowned.module} is outside every Lake \
     library" ++
   (if unowned.importers.isEmpty then ""
   else s!"; imported by {", ".intercalate (unowned.importers.map importer).toList}")

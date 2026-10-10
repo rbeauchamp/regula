@@ -1345,9 +1345,10 @@ def guide : RuleId → Guide
           of omissions is exactly the inventory's declarations that record one \
           (`Account.checked_account`)."]
       notEstablished := [
-        "Imported, unowned dependencies are not replayed; they remain the declared trusted base. \
-          The axioms a declaration reaches through them are read from their constants as \
-          imported.",
+        "Imported dependencies that the audit does not own, those outside the root package's Git \
+          work tree, are not replayed; they remain the declared trusted base, and the account \
+          names each of them. The axioms a declaration reaches through them are read from their \
+          constants as imported.",
         "Incremental admission does not establish fresh source elaboration."]
       configuration := [
         "No option waives admission. A failed generated-role authentication cannot waive RG1001 or \
@@ -1557,7 +1558,12 @@ def guide : RuleId → Guide
           `restated`.",
         "A correspondence is checked only when a closed proof of `∀ xs, f xs = g xs` over the \
           reference's complete elaborated domain passes kernel admission, with only standard \
-          logical axioms and no extra premises."]
+          logical axioms and no extra premises.",
+        "A theorem that supplies such a proof counts only from a module whose declarations the \
+          audit replayed through Lean's kernel (the root package's, or a path dependency's in its \
+          Git work tree) or from an origin-checked toolchain module. A theorem of a dependency \
+          the audit does not own supplies no evidence: only that dependency's build vouches for \
+          it."]
       rationaleDetail := []
       proofShape := [
         "`∀ xs, f.{us} xs = g.{us} xs` over the reference's complete dependent domain, closed, \

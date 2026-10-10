@@ -7,7 +7,7 @@ import Regula.Checker.Inspection
 Native, source-bound environment composition qualification. Every environment's packet is
 written before the census's own admission checks: its admitted report and transcripts, with a
 refusal when frontend attribution failed, or only the refusal detail for an inspection that
-`Inspection.inspect` refused (report admission, root-package output outside every owned module,
+`Inspection.inspect` refused (report admission, owned-package output outside every owned module,
 source binding, admission reuse or transcript binding) or failed. Observed
 process/filesystem/compiler behavior is not a universal proof; the separate shared-name theorem
 establishes the pure collision class. -/
@@ -84,7 +84,8 @@ private unsafe def checkCore (attempt : String) (path : FilePath) : IO Unit := d
       match outcome with
       | .ok (.ok inspected) =>
           let requested : Acceptance.RequestedInspection :=
-            ⟨environment.info.modules, inspected.admitted, inspected.transcripts⟩
+            ⟨environment.info.modules, inspected.admitted, inspected.transcripts,
+              environment.dependencies, environment.dependencySources⟩
           if inspected.frontendFailures.isEmpty then (toJson requested, .ok requested)
           else
             let detail := "; ".intercalate inspected.frontendFailures.toList

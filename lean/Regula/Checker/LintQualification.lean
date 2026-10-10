@@ -723,6 +723,367 @@ private def escapedNameWarning (repo adopter : FilePath) : IO (Array String) := 
     (← runProcess adopter "lake" #["lint", "--", "--fresh"] scrubbedLeanPathEnv))
   return failures
 
+/-- The module of the adopter's path dependency `build_lint_support` for the path-dependency
+controls: a reference computation, the replacement a `csimp` theorem makes the compiler run, and
+a caller of the reference. Honest, the replacement equals the reference and the theorem is
+proved. Forged, the replacement differs and the theorem is a declaration that the kernel does not
+accept, added with `debug.skipKernelTC` as in `Fixtures.Mutations.ForgedAdmissionCorrespondence`. -/
+private def supportSource (forged : Bool) : String :=
+  let correspondence := if forged then [
+      "open Lean Elab Command in",
+      "set_option debug.skipKernelTC true in",
+      "run_cmd liftCoreM do",
+      "  let proposition := mkApp3 (mkConst ``Eq [.succ .zero])",
+      "    (mkForall .anonymous .default (mkConst ``Nat) (mkConst ``Nat))",
+      "    (mkConst `Support.reference) (mkConst `Support.replacement)",
+      "  Lean.addDecl (.thmDecl {",
+      "    name := `Support.correspondence",
+      "    levelParams := []",
+      "    type := proposition",
+      "    value := mkConst ``True.intro })",
+      "attribute [csimp] Support.correspondence"]
+    else [
+      "/-- The replacement is the reference. -/",
+      "@[csimp] theorem Support.correspondence :",
+      "    @Support.reference = @Support.replacement := rfl"]
+  "\n".intercalate <| ["import Lean", "/-! A path dependency of the adopter. -/",
+    "/-- The reference computation. -/", "def Support.reference (n : Nat) : Nat := n",
+    "/-- The replacement the compiler runs. -/",
+    s!"def Support.replacement (n : Nat) : Nat := {if forged then "n + 1" else "n"}"] ++
+    correspondence ++ ["/-- A caller of the reference. -/",
+      "def Support.caller (n : Nat) : Nat := Support.reference n", ""]
+
+/-- A path dependency of an adopter that is a repository of its own
+(`BuildLintQualification.setup`, `BuildLintQualification.addSupport`), which a claimed module
+imports, under the claimed checked execution of `examples/build-lint`. In the adopter's Git work
+tree the dependency is owned: the account trusts only `regula`; the fresh audit builds it in the
+copy and writes nothing to the original's build output; an axiom it declares that nothing uses is
+refused (RG1001); a theorem it declares that uses `Classical.choice` meets its own module's
+Standard-Logical profile, not the kernel-only claim of the library importing it; its forged
+correspondence theorem is refused by kernel replay as incomplete (RG2005) in the incremental and
+the fresh audit. A build or library directory other than Lake's default that it configures is
+refused from its loaded configuration before the driver builds its audit worker, under `--fresh`
+and in an incremental audit, and so is a root `buildDir` that names the original checkout's own
+build output; the fresh audit leaves the original's build output absent; these controls do not reach
+the origin check that follows a build. An override that selects another configuration file is
+loaded by the fresh copy too. A configuration that computes from its own directory a Lean option,
+or which of its libraries provides a module, makes the fresh copy's Lake load differ, which is
+refused. A package that provides `Regula.Contract` with a source other than the checker's own is
+refused before any environment loads: a dependency required after the checker or before it, and a
+vendored package that Lake loads under the name `regula`. A module name that two packages provide,
+an executable root `Main` of the root package and of the dependency, or `Support` of the dependency
+and of a second owned one, is refused before the driver builds its audit worker. An override in
+`.lake/package-overrides.json` that selects the dependency
+in place of one elsewhere is owned in the fresh copy too, and of two override entries the fresh
+copy loads the last, as Lake does. As a Git work tree of its own it is trusted: the forged theorem
+supplies no correspondence, so the boundary it was to prove is rejected (RG3002), and with an
+honest module the account names it. These observe Git's work-tree discovery, Lake's path
+dependencies and overrides and the fresh copy, which the ownership theorems (`sameWorkTree_iff`,
+`contains_ownedModuleSet`) take as given. -/
+private def pathDependency (repo adopter : FilePath) : IO (Array String) := do
+  BuildLintQualification.setup repo adopter
+  BuildLintQualification.addSupport adopter (supportSource false) (owned := true)
+  let support := adopter / "support"
+  mutate (adopter / "Widget.lean") "import Regula.Contract\n"
+    "import Regula.Contract\nimport Support\n"
+  mutate (adopter / "Widget.lean") "end Widget"
+    "/-- Runs the dependency's caller. -/\ndef useCaller (n : Nat) : Nat := Support.caller n\n\
+      \nend Widget"
+  let onlyRegula := "trusted dependencies, not replayed through Lean's kernel: regula\n"
+  let owned (label : String) (fresh : Bool := false) : Expectation :=
+    let positive := accepted label fresh
+    { positive with contains := positive.contains.push onlyRegula,
+                    excludes := positive.excludes.push "build_lint_support" }
+  let mut failures ← expect adopter (owned "path/owned")
+  if !failures.isEmpty then return failures
+  -- The fresh audit builds the owned dependency in its copy: the original's output stays absent.
+  IO.FS.removeDirAll (support / ".lake" / "build")
+  failures := failures ++
+    (← expect adopter (owned "path/owned-fresh" (fresh := true)) #["--", "--fresh"])
+  if ← (support / ".lake" / "build").pathExists then
+    failures := failures.push "lake-lint/path/owned-fresh: the fresh audit wrote the original \
+      dependency's build output"
+  IO.FS.writeFile (support / "Support.lean") <| supportSource false ++
+    "/-- An axiom that nothing uses. -/\naxiom Support.unused : False\n"
+  failures := failures ++ (← expect adopter {
+      label := "path/owned-axiom", exitCode := 1,
+      contains := #["RG1001", "Support.unused", "regula lint: VIOLATION (exit 1)"] })
+  -- A declaration of an owned dependency meets its own module's profile, Standard-Logical, not
+  -- the kernel-only profile of the library that imports it.
+  IO.FS.writeFile (support / "Support.lean") <| supportSource false ++
+    "/-- Excluded middle, which nothing uses. -/\ntheorem Support.excluded (p : Prop) : p ∨ ¬p := \
+      Classical.em p\n"
+  failures := failures ++ (← expect adopter (owned "path/owned-standard-logical"))
+  IO.FS.writeFile (support / "Support.lean") (supportSource true)
+  let refused (label : String) : Expectation := {
+    label, exitCode := 3,
+    contains := #["RG2005", "kernel-admission", "regula lint: INCOMPLETE (exit 3)"] }
+  failures := failures ++ (← expect adopter (refused "path/owned-forged"))
+  failures := failures ++
+    (← expect adopter (refused "path/owned-forged-fresh") #["--", "--fresh"])
+  IO.FS.writeFile (support / "Support.lean") (supportSource false)
+  -- Every audit refuses, before any build, an owned package that sets an output directory other
+  -- than Lake's default: a build directory or a library directory in the original checkout, under
+  -- `--fresh` and in an incremental audit. The fresh audit leaves the original's build output
+  -- absent.
+  let supportLakefile := support / "lakefile.toml"
+  let supportConfiguration ← IO.FS.readFile supportLakefile
+  -- The driver's own line when it refuses to build its audit worker for a workspace outside the
+  -- supported scope (`Lint.lint`).
+  let unbuiltWorker :=
+    "regula lint: the workspace is outside the supported scope, so the audit worker is not built"
+  let layout (label : String) : Expectation := {
+    label, exitCode := 3,
+    contains := #["lake-workspace-load-failed", "default output layout", unbuiltWorker,
+      "regula lint: INCOMPLETE (exit 3)"] }
+  IO.FS.writeFile supportLakefile <| supportConfiguration.replace "[[lean_lib]]"
+    s!"buildDir = {toJson (support / ".lake" / "build").toString |>.compress}\n[[lean_lib]]"
+  failures := failures ++ (← expect adopter (layout "path/owned-build-outside") #["--", "--fresh"])
+  IO.FS.writeFile supportLakefile <| supportConfiguration.replace "[[lean_lib]]"
+    s!"leanLibDir = {toJson (support / ".lake" / "build" / "lib" / "lean").toString |>.compress}\n\
+      [[lean_lib]]"
+  if ← (support / ".lake" / "build").pathExists then
+    IO.FS.removeDirAll (support / ".lake" / "build")
+  failures := failures ++ (← expect adopter (layout "path/owned-libdir-outside") #["--", "--fresh"])
+  if ← (support / ".lake" / "build").pathExists then
+    failures := failures.push "lake-lint/path/owned-libdir-outside: the fresh audit wrote the \
+      original dependency's build output"
+  failures := failures ++ (← expect adopter (layout "path/owned-libdir-incremental"))
+  IO.FS.writeFile supportLakefile supportConfiguration
+  -- The root package's `buildDir` as an absolute path to its own build output in the original
+  -- checkout: the driver refuses before it builds its audit worker, and the fresh audit before it
+  -- copies or builds.
+  let rootLakefile := adopter / "lakefile.lean"
+  let rootConfiguration ← IO.FS.readFile rootLakefile
+  let rootBuild := (toJson (adopter / ".lake" / "build").toString).compress
+  IO.FS.writeFile rootLakefile <| rootConfiguration.replace "  lintDriver := \"regula/lint\"\n"
+    s!"  lintDriver := \"regula/lint\"\n  buildDir := {rootBuild}\n"
+  failures := failures ++ (← expect adopter (layout "path/root-build-outside") #["--", "--fresh"])
+  IO.FS.writeFile rootLakefile rootConfiguration
+  -- An override that keeps the dependency's directory but selects another configuration file,
+  -- whose source directory holds a module with an axiom that nothing uses: the fresh copy loads
+  -- the configuration the original's Lake load selects, so both audits refuse the axiom.
+  IO.FS.writeFile (support / "alt.toml")
+    "name = \"build_lint_support\"\nsrcDir = \"actual\"\n[[lean_lib]]\nname = \"Support\"\n"
+  IO.FS.createDirAll (support / "actual")
+  IO.FS.writeFile (support / "actual" / "Support.lean") <| supportSource false ++
+    "/-- An axiom that nothing uses. -/\naxiom Support.unused : False\n"
+  let configManifestPath := adopter / "lake-manifest.json"
+  let configManifest ← readJson configManifestPath
+  let configEntries ← IO.ofExcept <| configManifest.getObjValAs? (Array Json) "packages"
+  let some configEntry := configEntries.find? (·.getObjValD "name" == toJson "build_lint_support")
+    | return failures.push "lake-lint/path: the manifest has no build_lint_support entry"
+  let relative := configEntry.setObjVal! "dir" (toJson "support")
+  writeJson configManifestPath <| configManifest.setObjVal! "packages" <| toJson <|
+    configEntries.map fun item => if item == configEntry then relative else item
+  let alternative ← IO.ofExcept <| _root_.Lake.PackageEntry.fromJson?
+    (relative.setObjVal! "configFile" (toJson "alt.toml"))
+  _root_.Lake.Manifest.saveEntries (adopter / ".lake" / "package-overrides.json") #[alternative]
+  let configured (label : String) : Expectation := {
+    label, exitCode := 1,
+    contains := #["RG1001", "Support.unused", "regula lint: VIOLATION (exit 1)"] }
+  failures := failures ++ (← expect adopter (configured "path/owned-config"))
+  failures := failures ++
+    (← expect adopter (configured "path/owned-config-fresh") #["--", "--fresh"])
+  IO.FS.removeFile (adopter / ".lake" / "package-overrides.json")
+  writeJson configManifestPath configManifest
+  IO.FS.removeFile (support / "alt.toml")
+  IO.FS.removeDirAll (support / "actual")
+  -- A package that provides a module under a prefix reserved to the checker with a source other
+  -- than the checker's own, here `Regula.Contract` with an axiom that nothing uses, is refused
+  -- before any environment loads, whichever package Lake resolves the name to. Lake itself refuses
+  -- to build the checker in this workspace (it cannot disambiguate the two `Regula.Contract`), so
+  -- these controls run the checker built in this repository.
+  let gate (label : String) : IO (Array String) := do
+    assess {
+        label, exitCode := 3,
+        contains := #["Regula.Contract", "reserved to the checker", "not the text"] }
+      (← runProcess adopter (repo / ".lake" / "build" / "bin" / "axiomGate").toString
+        #["--incremental", "--project", adopter.toString] scrubbedLeanPathEnv)
+  let contract := (← IO.FS.readFile (repo / "lean" / "Regula" / "Contract.lean")) ++
+    "\n/-- An axiom that nothing uses. -/\naxiom Regula.Contract.unused : False\n"
+  IO.FS.createDirAll (support / "Regula")
+  IO.FS.writeFile (support / "Regula" / "Contract.lean") contract
+  IO.FS.writeFile supportLakefile <| supportConfiguration ++
+    "[[lean_lib]]\nname = \"SupportContract\"\nroots = [\"Regula.Contract\"]\n"
+  failures := failures ++ (← gate "path/owned-reserved-name")
+  -- The same with the dependency required before the checker, so that Lake resolves the name to
+  -- the checker: the dependency's own modules are still checked.
+  let adopterLakefile := adopter / "lakefile.lean"
+  let adopterConfiguration ← IO.FS.readFile adopterLakefile
+  let supportRequire := "\nrequire build_lint_support from \"support\"\n"
+  let some regulaRequire := (adopterConfiguration.splitOn "\n").find? (·.startsWith "require regula")
+    | return failures.push "lake-lint/path: the adopter does not require regula"
+  IO.FS.writeFile adopterLakefile <| (adopterConfiguration.replace supportRequire "\n").replace
+    regulaRequire ("require build_lint_support from \"support\"\n" ++ regulaRequire)
+  failures := failures ++ (← gate "path/owned-reserved-name-first")
+  IO.FS.writeFile adopterLakefile adopterConfiguration
+  IO.FS.writeFile supportLakefile supportConfiguration
+  IO.FS.removeDirAll (support / "Regula")
+  -- A vendored package in the adopter's work tree that Lake loads under the checker's package name
+  -- `regula`, with the same modified `Regula.Contract`: the name grants nothing.
+  let vendor := adopter / "vendor"
+  IO.FS.createDirAll (vendor / "lean" / "Regula")
+  IO.FS.writeFile (vendor / "lean" / "Regula" / "Contract.lean") contract
+  IO.FS.writeFile (vendor / "lean-toolchain") (← IO.FS.readFile (adopter / "lean-toolchain"))
+  IO.FS.writeFile (vendor / "lakefile.toml")
+    "name = \"regula\"\n[[lean_lib]]\nname = \"Regula\"\nsrcDir = \"lean\"\nroots = [\"Regula.Contract\"]\n"
+  let vendorManifestPath := adopter / "lake-manifest.json"
+  let vendorManifest ← readJson vendorManifestPath
+  let vendorEntries ← IO.ofExcept <| vendorManifest.getObjValAs? (Array Json) "packages"
+  writeJson vendorManifestPath <| vendorManifest.setObjVal! "packages" <| toJson <|
+    vendorEntries.map fun item =>
+      if item.getObjValD "name" == toJson "regula" then
+        (item.setObjVal! "dir" (toJson "vendor")).setObjVal! "configFile" (toJson "lakefile.toml")
+      else item
+  IO.FS.writeFile adopterLakefile <|
+    adopterConfiguration.replace regulaRequire "require regula from \"vendor\""
+  failures := failures ++ (← gate "path/vendored-regula-name")
+  IO.FS.writeFile adopterLakefile adopterConfiguration
+  writeJson vendorManifestPath vendorManifest
+  IO.FS.removeDirAll vendor
+  -- An executable of the root package and an unused one of the owned dependency, each with a root
+  -- module `Main` of its own package: one module name with two providers, which every audit
+  -- refuses before any build, whichever environment would load either.
+  let ambiguous (label name : String) : Expectation := {
+    label, exitCode := 3,
+    contains := #["lake-query-malformed", s!"module {name} is provided by package",
+      "one provider for each module name", unbuiltWorker, "regula lint: INCOMPLETE (exit 3)"] }
+  let manifestFile := adopter / "foundation_manifest.json"
+  let adopterManifest ← IO.FS.readFile manifestFile
+  let mainSource := "/-! An entry point. -/\n\n/-- Runs nothing. -/\ndef main : IO Unit := pure ()\n"
+  IO.FS.writeFile (adopter / "Main.lean") mainSource
+  IO.FS.writeFile (support / "Main.lean") mainSource
+  IO.FS.writeFile adopterLakefile <| adopterConfiguration ++
+    "\nlean_exe widgetMain where\n  root := `Main\n"
+  IO.FS.writeFile supportLakefile <| supportConfiguration ++
+    "[[lean_exe]]\nname = \"supportUtil\"\nroot = \"Main\"\n"
+  mutate manifestFile "\"excluded-executables\": []"
+    "\"excluded-executables\": [{\"executable\": \"widgetMain\", \"rationale\": \"An entry point \
+      outside the claimed surface.\"}]"
+  failures := failures ++ (← expect adopter (ambiguous "path/owned-executable-names" "Main"))
+  IO.FS.writeFile adopterLakefile adopterConfiguration
+  IO.FS.writeFile manifestFile adopterManifest
+  IO.FS.writeFile supportLakefile supportConfiguration
+  IO.FS.removeFile (adopter / "Main.lean")
+  IO.FS.removeFile (support / "Main.lean")
+  -- A second owned path dependency that provides `Support` with the same source: the audit refuses
+  -- the name before any build, where Lake's build would refuse the import as ambiguous.
+  let second := adopter / "support2"
+  IO.FS.createDirAll second
+  IO.FS.writeFile (second / "Support.lean") (← IO.FS.readFile (support / "Support.lean"))
+  IO.FS.writeFile (second / "lean-toolchain") (← IO.FS.readFile (adopter / "lean-toolchain"))
+  IO.FS.writeFile (second / "lakefile.toml")
+    "name = \"build_lint_support_two\"\n[[lean_lib]]\nname = \"Support\"\n"
+  let manifestPath := adopter / "lake-manifest.json"
+  let projectManifest ← readJson manifestPath
+  let entries ← IO.ofExcept <| projectManifest.getObjValAs? (Array Json) "packages"
+  let some supportEntry := entries.find? (·.getObjValD "name" == toJson "build_lint_support")
+    | return failures.push "lake-lint/path: the manifest has no build_lint_support entry"
+  writeJson manifestPath <| projectManifest.setObjVal! "packages" <| toJson <| entries.push <|
+    (supportEntry.setObjVal! "name" (toJson "build_lint_support_two")).setObjVal! "dir"
+      (toJson second.toString)
+  IO.FS.writeFile adopterLakefile <| adopterConfiguration ++
+    "\nrequire build_lint_support_two from \"support2\"\n"
+  failures := failures ++ (← expect adopter (ambiguous "path/owned-duplicate-provider" "Support"))
+  IO.FS.writeFile adopterLakefile adopterConfiguration
+  writeJson manifestPath projectManifest
+  IO.FS.removeDirAll second
+  -- The owned dependency's configuration as a `lakefile.lean`, for the two controls below.
+  let asLean (configuration : String) : IO Unit := do
+    writeJson manifestPath <| projectManifest.setObjVal! "packages" <| toJson <|
+      entries.map fun item =>
+        if item.getObjValD "name" == toJson "build_lint_support" then
+          item.setObjVal! "configFile" (toJson "lakefile.lean")
+        else item
+    IO.FS.removeFile supportLakefile
+    IO.FS.writeFile (support / "lakefile.lean") configuration
+  let restore : IO Unit := do
+    IO.FS.removeFile (support / "lakefile.lean")
+    IO.FS.writeFile supportLakefile supportConfiguration
+    writeJson manifestPath projectManifest
+  let differs (label : String) : Expectation := {
+    label, exitCode := 3,
+    contains := #["lake-workspace-load-failed", "differs", "regula lint: INCOMPLETE (exit 3)"] }
+  -- An owned dependency whose `lakefile.lean` computes a Lean option from its own directory: the
+  -- fresh copy's Lake load resolves another option for it, and the copy is refused.
+  asLean "import Lake\nopen Lake DSL\n\npackage build_lint_support where\n  leanOptions := \
+    #[⟨`maxRecDepth, .ofNat (512 + (__dir__).toString.length)⟩]\n\nlean_lib Support\n"
+  failures := failures ++ (← expect adopter (differs "path/owned-options-fresh") #["--", "--fresh"])
+  restore
+  -- An owned dependency whose `lakefile.lean` gives its modules `Support` and `Aux` to libraries
+  -- `Low` and `High`, with fixed options, by the length of its own directory: the fresh copy's
+  -- longer directory swaps them, so Lake builds `Support` there with the other option, although
+  -- each library's name and options and each module's source stay the same. The copy is refused.
+  IO.FS.writeFile (support / "Aux.lean") "/-! An auxiliary module. -/\n"
+  asLean s!"import Lake\nopen Lake DSL\n\npackage build_lint_support\n\n\
+    def swapped : Bool := (__dir__).toString.length > {support.toString.length + 20}\n\n\
+    lean_lib Low where\n  roots := if swapped then #[`Aux] else #[`Support]\n  \
+    leanOptions := #[⟨`maxRecDepth, .ofNat 512⟩]\n\n\
+    lean_lib High where\n  roots := if swapped then #[`Support] else #[`Aux]\n  \
+    leanOptions := #[⟨`maxRecDepth, .ofNat 1024⟩]\n"
+  failures := failures ++
+    (← expect adopter (differs "path/owned-target-swap-fresh") #["--", "--fresh"])
+  restore
+  IO.FS.removeFile (support / "Aux.lean")
+  -- The manifest names a copy elsewhere, and an override selects the one in the work tree.
+  let external := adopter / "external"
+  IO.FS.createDirAll external
+  for name in #["Support.lean", "lakefile.toml", "lean-toolchain"] do
+    IO.FS.writeFile (external / name) (← IO.FS.readFile (support / name))
+  let initialized ← runProcess external "git" #["init", "-q"]
+  unless initialized.succeeded do
+    return failures.push s!"lake-lint/path: git init failed: {initialized.output}"
+  let manifestPath := adopter / "lake-manifest.json"
+  let manifest ← readJson manifestPath
+  let entries ← IO.ofExcept <| manifest.getObjValAs? (Array Json) "packages"
+  let some entry := entries.find? (·.getObjValD "name" == toJson "build_lint_support")
+    | return failures.push "lake-lint/path: the manifest has no build_lint_support entry"
+  writeJson manifestPath <| manifest.setObjVal! "packages" <| toJson <| entries.map fun item =>
+    if item == entry then item.setObjVal! "dir" (toJson external.toString) else item
+  let override ← IO.ofExcept <| _root_.Lake.PackageEntry.fromJson?
+    (entry.setObjVal! "dir" (toJson "support"))
+  _root_.Lake.Manifest.saveEntries (adopter / ".lake" / "package-overrides.json") #[override]
+  failures := failures ++ (← expect adopter (owned "path/owned-override"))
+  failures := failures ++
+    (← expect adopter (owned "path/owned-override-fresh" (fresh := true)) #["--", "--fresh"])
+  -- Of two override entries of the dependency, Lake keeps the last, the honest repository
+  -- elsewhere; the fresh copy loads that one too, not the first, whose correspondence is forged.
+  let first := adopter / "external-first"
+  IO.FS.createDirAll first
+  for name in #["lakefile.toml", "lean-toolchain"] do
+    IO.FS.writeFile (first / name) (← IO.FS.readFile (external / name))
+  IO.FS.writeFile (first / "Support.lean") (supportSource true)
+  let initializedFirst ← runProcess first "git" #["init", "-q"]
+  unless initializedFirst.succeeded do
+    return failures.push s!"lake-lint/path: git init failed: {initializedFirst.output}"
+  let overrides ← [first, external].mapM fun dir => IO.ofExcept <|
+    _root_.Lake.PackageEntry.fromJson? (entry.setObjVal! "dir" (toJson dir.toString))
+  _root_.Lake.Manifest.saveEntries (adopter / ".lake" / "package-overrides.json")
+    overrides.toArray
+  let lastFresh := accepted "path/override-last-fresh" (fresh := true)
+  failures := failures ++ (← expect adopter { lastFresh with
+    contains := lastFresh.contains ++
+      #["trusted dependencies, not replayed through Lean's kernel:", "build_lint_support"] }
+    #["--", "--fresh"])
+  IO.FS.removeFile (adopter / ".lake" / "package-overrides.json")
+  writeJson manifestPath manifest
+  -- A repository of its own makes the dependency a Git work tree other than the adopter's.
+  let initialized ← runProcess support "git" #["init", "-q"]
+  unless initialized.succeeded do
+    return failures.push s!"lake-lint/path: git init failed: {initialized.output}"
+  IO.FS.writeFile (support / "Support.lean") (supportSource true)
+  failures := failures ++ (← expect adopter {
+      label := "path/trusted-forged", exitCode := 1,
+      contains := #["RG3002", "Support.reference", "regula lint: VIOLATION (exit 1)"],
+      excludes := #["kernel-admission"] })
+  IO.FS.writeFile (support / "Support.lean") (supportSource false)
+  let trustedPositive := accepted "path/trusted"
+  failures := failures ++ (← expect adopter { trustedPositive with
+    contains := trustedPositive.contains ++
+      #["trusted dependencies, not replayed through Lean's kernel:", "build_lint_support"] })
+  return failures
+
 /-- With the checker's `axiomGate` worker binary removed, `lake lint` builds it and still
 reaches the accepted result: Lake's lint dispatch itself builds only the driver. -/
 private def absentWorker (repo adopter : FilePath) : IO (Array String) := do
@@ -763,9 +1124,9 @@ private def compilerGuard (repo project : FilePath) : IO (Array String) := do
     (← assess { label := "guard/restored", exitCode := 0 } (← load #[]))
 
 /-- The absent-worker control first, alone, since the adopters share the checker's binaries;
-then both independent adopters, the cold compiler guard, the artifact-cache controls and
-`escapedNameWarning`, each in its own disposable workspace. The adopters' decision probes load
-their workspaces one at a time (`probe`). -/
+then both independent adopters, the path-dependency adopter, the cold compiler guard, the
+artifact-cache controls and `escapedNameWarning`, each in its own disposable workspace. The
+adopters' decision probes load their workspaces one at a time (`probe`). -/
 def qualify (repo scratch : FilePath) (jobs : Nat) : IO (Array String) := do
   let absent ← withScratch scratch "lake-lint-worker" fun adopter => absentWorker repo adopter
   if !absent.isEmpty then return absent
@@ -773,7 +1134,8 @@ def qualify (repo scratch : FilePath) (jobs : Nat) : IO (Array String) := do
   let results ← mapConcurrent jobs
     #[("lean", leanAdopter probes), ("toml", tomlAdopter probes), ("guard", compilerGuard),
       ("cache", cachedWarning), ("dependency-cache", dependencyCachedWarning),
-      ("empty-facets", emptyFacetsWarning), ("escaped-name", escapedNameWarning)]
+      ("empty-facets", emptyFacetsWarning), ("escaped-name", escapedNameWarning),
+      ("path", pathDependency)]
     fun (name, control) => withScratch scratch s!"lake-lint-{name}" fun adopter =>
                             control repo adopter
   return results.foldl (· ++ ·) #[]

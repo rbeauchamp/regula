@@ -219,12 +219,21 @@ private unsafe def lint (args : List String) : IO Outcome := do
         s!"regula lint: enforcing all manifested Lake surfaces; mode {modeText options.fresh}\
           {if options.ordinaryLakefiles then ownerAssertion else ""}"
     (← IO.getStdout).flush
-    let worker ← Lake.buildTargetsShowing (← repoRoot) #[.spec workerTarget]
-    unless worker.succeeded && (← (← workerBinary).pathExists) do
-      IO.eprintln worker.output
-      IO.eprintln s!"regula lint: {Outcome.incomplete.label}: audit worker {workerTarget} did not \
-        build"
-      return .incomplete
+    -- The workspace's supported scope (`Lake.surfaceInventory`: Lake's default output layout of
+    -- each owned package and one provider for each module name) is decided before this driver
+    -- builds its audit worker. Outside it the worker is not built, and the audit, which decides the
+    -- same scope from Lake's load before its first build and needs no worker for that, reports the
+    -- refusal.
+    if (← (Lake.surfaceInventory (← repoRoot)).toBaseIO) matches .ok _ then
+      let worker ← Lake.buildTargetsShowing (← repoRoot) #[.spec workerTarget]
+      unless worker.succeeded && (← (← workerBinary).pathExists) do
+        IO.eprintln worker.output
+        IO.eprintln s!"regula lint: {Outcome.incomplete.label}: audit worker {workerTarget} did \
+          not build"
+        return .incomplete
+    else
+      IO.println "regula lint: the workspace is outside the supported scope, so the audit worker \
+        is not built"
     AxiomGate.claimedBuild.set (Lake.buildAuditTargets options.ordinaryLakefiles)
     AxiomGate.ordinaryLakefiles.set options.ordinaryLakefiles
     let code ← AxiomGate.entry (gateArgs options)

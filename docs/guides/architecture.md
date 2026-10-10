@@ -243,7 +243,7 @@ lake exe axiomGate --with-docs --json-out tmp/result.json
 ```
 
 Each export is versioned on its own: the surface manifest is schema 2, the registry schema 4, the
-result schema 13, the worker packet schema 1, the rule-example corpus export schema 1, the
+result schema 14, the worker packet schema 1, the rule-example corpus export schema 1, the
 acceptance link schema 1 and the site's `build.json` schema 2. Registry and result envelopes carry
 `schemaVersion`, `producerVersion`, `toolchain` and `sourceRevision` from
 `Regula.Checker.Producer.identity`: `producerVersion` is the installed release's spelling
@@ -258,7 +258,7 @@ metadata, not authenticated binary identity.
   re-encoding, refusing unknown or missing fields, changed routes and stale lifecycle data.
   Registry admission rejects duplicate external IDs, missing clauses, pages or examples, unknown
   JSON fields or versions, and invalid lifecycle references.
-- **Result, schema 13:** `scope`, `mode`, `status`, `stages` (the stages
+- **Result, schema 14:** `scope`, `mode`, `status`, `stages` (the stages
   `RegulaPolicy.requiredStages` requires for the mode, plus the documentation stages of a
   `--with-docs` run), `stagesCompleted`, `complete`, `stagesNotRun`, `diagnostics` (each with its
   `remedy`, in run order), `rules` (the guidance of every rule that fired, once each, in registry
@@ -466,7 +466,8 @@ metadata, not authenticated binary identity.
   boundary and a `partial` implementation reported with the boundary that runs it are counted
   with that boundary, not again, `RegulaPolicy.checked_summary`),
   `fences` by expectation,
-  `trusted` mechanisms and the run's `unresolvedReview` identifiers. A completed envelope's
+  `trusted` mechanisms, since schema 14 `trustedDependencies`, the packages of the dependencies
+  that the audit does not own, and the run's `unresolvedReview` identifiers. A completed envelope's
   `mode` is the account's, and a listed identifier names an open obligation, not a completed
   review.
 - **Shared definitions:** since schema 11 each `contracts` entry of the account carries
@@ -488,10 +489,13 @@ metadata, not authenticated binary identity.
   identity). It omits `acceptance.environments[*].importedModules` and the report's `modules`
   and `moduleOrigins` import-closure lists; owned modules remain in `census.modules`. The run
   still freezes and rechecks every captured byte in memory; only the serialization is bounded,
-  so a result's size follows the audited project, not its dependencies.
+  so a result's size follows the audited project, not its dependencies. Since schema 14 each
+  dependency also carries `owned`, which is `true` for a path dependency in the Git work tree of
+  the root package.
 - **Environments:** the rendered `acceptance.environments` array keeps each environment's
-  ordinal, module assignment, infrastructure modules, declaration/root/replay inventory and
-  optional file binding, not the modules it merely imports. Local job subjects contain that
+  ordinal, module assignment, the modules of owned dependencies it inspects (`dependencyModules`,
+  since schema 14), infrastructure modules, declaration/root/replay inventory and optional file
+  binding, not the modules it merely imports. Local job subjects contain that
   ordinal and their local subject, and the common snapshot is rendered once.
 
 - **Worker transport:** a separate protocol with its own version, request identity and

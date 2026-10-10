@@ -249,7 +249,7 @@ checked project, ahead of any inherited search path. -/
 unsafe def auditTasks (repo scratch : FilePath) (jobs : Nat)
     (tasks : Array Task) (sourceBindings : Array ProducerReport.SourceBinding)
     (configuration : Array (FilePath × Option String))
-    (extraSearchRoots : Array FilePath := #[]) (ownedOutput : Option FilePath := none) : IO
+    (extraSearchRoots : Array FilePath := #[]) (ownership : Ownership := {}) : IO
     (Array Result) := do
   withSourceEvidence tasks sourceBindings configuration do
     SourceBinding.unchanged sourceBindings
@@ -317,7 +317,7 @@ unsafe def auditTasks (repo scratch : FilePath) (jobs : Nat)
               (group.items.map fun item =>
                   (item.compilation.spec.«module».toName, item.compilation.sourcePath))
               (sourceBindings.map fun source => (source.moduleName, FilePath.mk source.path))
-              ownedOutput (includeExecution := false) (includeModuleOrigins := false)
+              ownership (includeExecution := false) (includeModuleOrigins := false)
               (compiledSources := sourceBindings ++ group.items.map fun item => {
                 moduleName := item.compilation.spec.module.toName
                 path := item.compilation.sourcePath.toString
@@ -786,7 +786,7 @@ unsafe def auditBuiltProject (repo docsRoot : FilePath) (inventory : Lake.Surfac
       let audit : IO (Array Result) := do
         IO.FS.createDirAll fenceScratch
         auditTasks fenceWorkspace fenceScratch jobs tasks ownedBindings configuration
-          fenceSearchPath (some inventory.leanLibDir)
+          fenceSearchPath inventory.ownership
       let audited ← audit.toBaseIO
       let recheck : IO (Option (RegulaPolicy.AcceptedRun claim)) := do
         let results ← MonadExcept.ofExcept audited

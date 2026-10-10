@@ -377,15 +377,22 @@ or one that the verification driver made and that passed what this process can o
 ones that give a value. -/
 structure Copied where
   private mk ::
-  /-- The root of the copy. -/
+  /-- The root of the copied project. -/
   project : FilePath
+  /-- The real directory of the copy, below which every owned module must resolve
+  (`Lake.ProjectCopy.root`). -/
+  root : FilePath
+  /-- What the copy's Lake load must select (`Lake.ProjectCopy.selection`): the root package's
+  targets and where each dependency package is loaded from, or `none` for a copy the verification
+  driver made, which must own no dependency. -/
+  selection : Option Lake.CopySelection
 
-/-- Copy the project at `repo` into the new scratch directory `scratch`, which holds no build
-output. -/
+/-- Copy the project at `repo`, with each path dependency it owns, into the new scratch directory
+`scratch`, which holds no build output (`copyProject`). -/
 private def isolatedCopy (repo scratch : FilePath) : IO Copied := do
-  let copy := scratch / "project"
-  timedPhase "isolated source copy" <| copyProject repo copy scratch
-  return ⟨copy⟩
+  let copy ← timedPhase "isolated source copy" <| Lake.copyProject repo (scratch / "project")
+    scratch
+  return ⟨copy.project, copy.root, some copy.selection⟩
 
 /-- The copy of the project at `repo` that the verification driver made at `path`
 (`RegulaVerification.makeCopy`), admitted by what this process can observe of it:
@@ -424,7 +431,7 @@ private def driverCopy (repo path : FilePath) : IO Copied := do
   let own ← IO.FS.realPath (← IO.appPath)
   unless ScratchCopy.inside build.normalize.components own.normalize.components do
     refuse s!"did not build this gate: {own} is not below {build}"
-  return ⟨copy⟩
+  return ⟨copy, copy, none⟩
 
 /-- Where the root-package build output that a project audit inspects comes from. A project audit
 reports the fresh mode only for the first two (`Origin.mode_fresh_iff`), and each of those two
@@ -500,8 +507,21 @@ private unsafe def auditSurfaceAt (repo manifestPath : FilePath)
   let configuration ← SourceBinding.configuration repo manifestPath
   withSourceEvidence #[] configuration reportRoot.toString
       origin.mode composed resultOut do
-    let inventory ← Lake.surfaceInventory repo
+    -- A copy loads each dependency from where the original's Lake load requires, and each owned
+    -- module that an environment loads must come from the copy's own build
+    -- (`Environment.ModuleGraph.outsideCopy`).
+    let inventory ← match origin with
+      | .copied copy | .driverCopy copy =>
+          Lake.checkCopiedWorkspace copy.root copy.selection (← Lake.surfaceInventory repo)
+      | .incremental => Lake.surfaceInventory repo
     let sourceBindings ← SourceBinding.capture inventory.moduleSources observeSources
+    -- Each owned dependency's sources are captured with its package, since two packages can give
+    -- one module name different sources; each environment binds those it loads
+    -- (`Environment.dependencyBindings`).
+    let packageBindings ← (inventory.dependencies.filter (·.owned)).mapM fun dependency => do
+      return (dependency.leanLibDir, ← SourceBinding.capture
+        (dependency.sources.map fun source => (source.«module», source.source)))
+    let allBindings := sourceBindings ++ packageBindings.flatMap (·.2)
     let manifest ← Manifest.loadFor manifestPath inventory
     let assignments ← IO.ofExcept <| Acceptance.surfaceAssignments manifest inventory
     let dependencies ← Snapshot.dependencies inventory
@@ -516,14 +536,12 @@ private unsafe def auditSurfaceAt (repo manifestPath : FilePath)
     let environments ← surfaceEnvironments manifest inventory assignments libraries
     withSourceEvidence sourceBindings configuration reportRoot.toString
         origin.mode composed resultOut do
-      let snapshotFor (name : Name) : Option Regula.SourceSnapshot :=
-        (sourceBindings.find? (·.moduleName == name)).map fun s => ⟨s.path, s.content⟩
       SourceBinding.configurationUnchanged configuration
       let buildPlan := Lake.claimedBuildPlan manifest inventory
       let (initialBuild, buildResult) ← timedPhase "claimed-source build" <|
           Lake.buildCheckedObservation repo buildPlan.initialTargets
               origin.label (← claimedBuild.get)
-      SourceBinding.unchanged sourceBindings
+      SourceBinding.unchanged allBindings
       SourceBinding.configurationUnchanged configuration
       if let some lines := buildResult then
         reportContextFailure .sourceBuild reportRoot.toString
@@ -531,7 +549,7 @@ private unsafe def auditSurfaceAt (repo manifestPath : FilePath)
               [.configuration, .discovery]
           ("\n".intercalate lines.toList) composed resultOut sourceBindings
         return 1
-      SourceBinding.unchanged sourceBindings
+      SourceBinding.unchanged allBindings
       SourceBinding.configurationUnchanged configuration
       let excludedModules := Id.run do
         let mut result : Array Name := #[]
@@ -554,6 +572,8 @@ private unsafe def auditSurfaceAt (repo manifestPath : FilePath)
       let positiveModules := environments.flatMap (·.info.modules)
       let mut scopeFindings : Array Regula.Finding := #[]
       let mut scopeUnowned : Array ProducerReport.UnownedModule := #[]
+      -- Each environment with the modules of owned dependencies it inspects, from its graph.
+      let mut graphedEnvironments : Array SurfaceEnvironment := #[]
       for environment in environments do
         let request : ModuleGraphRequest := {
           modules := environment.info.modules
@@ -561,22 +581,76 @@ private unsafe def auditSurfaceAt (repo manifestPath : FilePath)
           sourceBindings
         }
         let observed ← (do
-          let graph : Environment.ModuleGraph ← timedPhase s!"module scope {environment.label}" <|
-            runTypedWorker "--module-graph-worker" request
+          let observe : IO Environment.ModuleGraph :=
+            timedPhase s!"module scope {environment.label}" <|
+              runTypedWorker "--module-graph-worker" request
+          -- The declaration worker's ownership, from the same inputs
+          -- (`Environment.EnvironmentOwnership.of`).
+          let ownership := inventory.ownership
+          let bound := request.sourceBindings.map ProducerReport.SourceBinding.moduleName
+          let ownedIn (graph : Environment.ModuleGraph) :
+              IO (Environment.EnvironmentOwnership × Array (Lean.Name × Nat)) := do
+            -- A loaded module of an owned package that is not its artifact fails this
+            -- environment's scope (`Environment.attributeLoaded`).
+            let loaded ← IO.ofExcept (← Environment.attributeLoaded graph.moduleOrigins ownership)
+            return (Environment.EnvironmentOwnership.of graph.moduleOrigins request.modules bound
+              (loaded.map Prod.fst), loaded)
+          let mut graph ← observe
+          let mut fresh : Array String := #[]
+          if let some copy := ownership.copy then
+            -- In a copy, an owned module that the claimed build did not build, such as one that
+            -- only the force-loaded reporter imports, resolves elsewhere: the copy builds each
+            -- such module once, and the graph is observed again. One that still resolves outside
+            -- the copy is refused.
+            let mut built : Array Name := #[]
+            repeat
+              let current ← ownedIn graph
+              let outside : Array (Lean.Name × String) ← graph.outsideCopy current.1 copy
+              let pending := outside.filter fun (entry : Lean.Name × String) =>
+                !built.contains entry.1
+              if pending.isEmpty then
+                fresh := outside.map (Environment.outsideCopyDetail copy)
+                break
+              built := built ++ pending.map (fun (entry : Lean.Name × String) => entry.1)
+              let (_, failed) ← timedPhase s!"owned module build {environment.label}" <|
+                Lake.buildCheckedObservation repo
+                  (pending.map fun (entry : Lean.Name × String) => .moduleArtifacts entry.1)
+                  origin.label (← claimedBuild.get)
+              if let some lines := failed then
+                fresh := #[s!"surface-not-fresh: the copy did not build the owned modules \
+                  {pending.map (fun (entry : Lean.Name × String) => entry.1)}: \
+                  {"\n".intercalate lines.toList}"]
+                break
+              graph ← observe
+          unless fresh.isEmpty do
+            return (fresh, (#[] : Array ProducerReport.UnownedModule), (#[] : Array String),
+              (#[] : Array Name), (#[] : Array ProducerReport.SourceBinding))
           let ordinary ← graph.ordinaryModules
           let failures ← graph.requestedFailures ordinary
             (graph.scopeRequests request.modules positiveModules) inventory.leanLibDir
           unless failures.isEmpty do
-            return (failures, (#[] : Array ProducerReport.UnownedModule), (#[] : Array String))
-          let owned := request.modules ++ request.sourceBindings.map
-            ProducerReport.SourceBinding.moduleName
-          let unowned ← graph.unownedModules owned inventory.leanLibDir
-          unless unowned.isEmpty do return (#[], unowned, #[])
+            return (failures, (#[] : Array ProducerReport.UnownedModule), (#[] : Array String),
+              (#[] : Array Name), (#[] : Array ProducerReport.SourceBinding))
+          let (owned, loaded) ← ownedIn graph
+          -- The sources of the dependency modules it inspects, each from the package it loads the
+          -- module from.
+          let (dependencySources, unbound) :=
+            Environment.dependencyBindings owned loaded (packageBindings.map Prod.snd)
+          unless unbound.isEmpty do
+            return (unbound.map (fun (name : Lean.Name) => s!"surface-omission: owned dependency \
+                module {name} has no single owned package whose source it loads"),
+              (#[] : Array ProducerReport.UnownedModule), (#[] : Array String),
+              (#[] : Array Name), (#[] : Array ProducerReport.SourceBinding))
+          let unowned ← graph.unownedModules owned ownership.outputs
+          unless unowned.isEmpty do
+            return (#[], unowned, #[], owned.dependencies, dependencySources)
           let details ← graph.importDetails ordinary excludedModules configuredModules
             inventory.leanLibDir environment.surface.library
-          return (#[], #[], details)).toBaseIO
+          return (#[], #[], details, owned.dependencies, dependencySources)).toBaseIO
         match observed with
-          | .ok (failures, unowned, details) =>
+          | .ok (failures, unowned, details, dependencies, dependencySources) =>
+            graphedEnvironments :=
+              graphedEnvironments.push { environment with dependencies, dependencySources }
             scopeUnowned := mergeUnowned scopeUnowned unowned
             for detail in failures do
               scopeFindings := gather scopeFindings (← IO.ofExcept <|
@@ -590,10 +664,12 @@ private unsafe def auditSurfaceAt (repo manifestPath : FilePath)
               s!"declaration inspection of {environment.label} failed: module scope: {error}"
               mode .incomplete
             scopeFindings := gather scopeFindings finding
+            graphedEnvironments := graphedEnvironments.push environment
+      let environments := graphedEnvironments
       for unowned in scopeUnowned do
         scopeFindings := scopeFindings.push (← IO.ofExcept <|
           RuleDiagnostics.contextFinding .coverage reportRoot.toString unowned.detail mode .violation)
-      SourceBinding.unchanged sourceBindings
+      SourceBinding.unchanged allBindings
       SourceBinding.configurationUnchanged configuration
       if let some name ← changedArtifact? graphArtifacts then
         reportContextFailure .admission reportRoot.toString mode .incomplete
@@ -615,7 +691,7 @@ private unsafe def auditSurfaceAt (repo manifestPath : FilePath)
             let build ← claimedBuild.get
             timedPhase "deferred claimed-source build" (Lake.buildCheckedObservation repo targets
               origin.label build)
-      SourceBinding.unchanged sourceBindings
+      SourceBinding.unchanged allBindings
       SourceBinding.configurationUnchanged configuration
       if let some lines := buildResult then
         reportContextFailure .sourceBuild reportRoot.toString mode .incomplete
@@ -632,7 +708,7 @@ private unsafe def auditSurfaceAt (repo manifestPath : FilePath)
       -- Each environment's report comes from its own worker process (`Inspection.inspect`).
       let (frozenArtifacts, inspections) ←
         Inspection.inspect inventory sourceBindings assignments environments
-      SourceBinding.unchanged sourceBindings
+      SourceBinding.unchanged allBindings
       SourceBinding.configurationUnchanged configuration
       if let some name ← changedArtifact? frozenArtifacts then
         reportContextFailure .admission reportRoot.toString
@@ -677,15 +753,31 @@ private unsafe def auditSurfaceAt (repo manifestPath : FilePath)
         let inspected ← IO.ofExcept <| response.mapError (·.detail)
         pure ({
           expectedModules := environment.info.modules, admitted := inspected.admitted,
-          transcripts := inspected.transcripts } : Acceptance.RequestedInspection)
+          transcripts := inspected.transcripts, expectedDependencies := environment.dependencies
+          dependencySources := environment.dependencySources } :
+            Acceptance.RequestedInspection)
+      -- The claim owns each dependency module some environment inspects, once.
+      let dependencyNames := environments.foldl (fun names environment =>
+        names ++ environment.dependencies.filter (!names.contains ·)) (#[] : Array Lean.Name)
+      let ownedDependencies := dependencyNames.mapM RegulaPolicy.admitIdentity
+      -- Each declaration's profile and each root's requests come from its own module's assignment
+      -- in the claim, from the same values the claim admits (`RegulaPolicy.profileForModule_project`,
+      -- `RegulaPolicy.executionForModule_project`), never from the surface that imports it.
+      let assignedDependencies := match ownedDependencies with
+        | .ok identities => identities
+        | .error _ => #[]
+      let profileOf (moduleName : Lean.Name) : Option Policy.Profile :=
+        (RegulaPolicy.projectProfile assignments assignedDependencies moduleName).map
+          Policy.Profile.ofConforming
       let freezeRequest : IO (RegulaPolicy.AdmittedSnapshot ×
           ((c : RegulaPolicy.Claim) × Acceptance.Frozen c)) := do
         let histories ← IO.ofExcept <| Acceptance.historyObservations rawInspections
-        let snapshotSources ← Acceptance.sourceSnapshots sourceBindings histories documents
+        let snapshotSources ← Acceptance.sourceSnapshots allBindings histories documents
         let snapshot ← IO.ofExcept <| Snapshot.make repo configuration snapshotSources dependencies
+        let ownedDependencies ← IO.ofExcept ownedDependencies
         let request ← IO.ofExcept <| RegulaPolicy.admitClaim {
           scope := .project, mode := origin.mode,
-          snapshot := snapshot.val, surfaces := assignments }
+          snapshot := snapshot.val, surfaces := assignments, dependencies := ownedDependencies }
         let frozen ← Acceptance.freeze request (environments.map (·.info.modules))
           (Acceptance.configuredTargets manifest) (Acceptance.discoveredTargets inventory)
           sourceBindings inventory.leanLibDir rawInspections
@@ -713,6 +805,11 @@ private unsafe def auditSurfaceAt (repo manifestPath : FilePath)
         | _ => none
       for (environment, outcome) in inspections do
         let surface := environment.surface
+        -- Locations come from this environment's own bindings, those of the dependency modules it
+        -- inspects included.
+        let snapshotFor (name : Name) : Option Regula.SourceSnapshot :=
+          ((sourceBindings ++ environment.dependencySources).find? (·.moduleName == name)).map
+            fun s => ⟨s.path, s.content⟩
         -- Every stopped inspection was reported above.
         let .ok (.ok inspected) := outcome
           | throw <| IO.userError "unreachable inspection outcome"
@@ -737,7 +834,9 @@ private unsafe def auditSurfaceAt (repo manifestPath : FilePath)
             findings := findings.push (← IO.ofExcept <| RuleDiagnostics.contextFinding .coverage
               reportRoot.toString detail origin.mode
                 .violation)
-        if report.declarations.any fun decl => !info.modules.contains decl.«module» then
+        -- A declaration belongs to a requested module or to an inspected dependency module.
+        if report.declarations.any fun decl => !info.modules.contains decl.«module» &&
+            !environment.dependencies.contains decl.«module» then
           failures := failures.push s!"declaration-attribution-mismatch: {environment.label}"
           findings := findings.push (← IO.ofExcept <| RuleDiagnostics.contextFinding .coverage
             reportRoot.toString (s!"declaration-attribution-mismatch: {environment.label}")
@@ -757,10 +856,13 @@ private unsafe def auditSurfaceAt (repo manifestPath : FilePath)
           | throw <| IO.userError "producer-documentation: project observations unavailable"
         -- RG5001: the proved `RegulaPolicy.ModuleHeader.failures` decides each module's header
         -- observation (documentation present, first after the imports, no repeated import).
+        -- A module of an owned dependency, which several environments can inspect, is reported
+        -- once, under its own profile.
         for (moduleName, observation) in documentation.modules do
           let moduleFindings ← IO.ofExcept <| Regula.Linter.Documentation.moduleFindings
-            moduleName observation mode (some surface.claim.toString)
+            moduleName observation mode ((profileOf moduleName).map (·.toString))
           for finding in moduleFindings do
+            if findings.any (·.entry == finding.entry) then continue
             findings := findings.push finding
             let detail := (Regula.argumentParts finding.1 finding.2.arguments).2
             failures := failures.push s!"{detail} ({moduleName})"
@@ -792,9 +894,11 @@ private unsafe def auditSurfaceAt (repo manifestPath : FilePath)
             | throw <| IO.userError "producer-documentation: selected declaration missing"
           let snapshot := snapshotFor key.1
           let location ← IO.ofExcept <| RuleDiagnostics.declarationLocation decl snapshot
-          findings := findings.push (← IO.ofExcept <| RuleDiagnostics.declarationFinding
+          let finding ← IO.ofExcept <| RuleDiagnostics.declarationFinding
             id key.2 (Regula.materialDocumentationDetail failure)
-            location mode (some surface.claim.toString))
+            location mode ((profileOf key.1).map (·.toString))
+          if findings.any (·.entry == finding.entry) then continue
+          findings := findings.push finding
           failures := failures.push s!"{(Regula.descriptor id).applicability}: {key.2}"
         -- A declaration Lean generated, or an admitted recursion helper, names the declaration it
         -- was generated from (`Findings.sourceName?_eq_some_iff`), and is located at it when it
@@ -803,37 +907,51 @@ private unsafe def auditSurfaceAt (repo manifestPath : FilePath)
         -- `ScopeContract` retains `report.declarations` as the inventory, so iterating the
         -- inventory visits the same sequence and supplies each membership proof.
         for h : decl in scope.inventory.declarations do
-          if let some id := Policy.ruleForMember decl (some surface.claim) scope h then
+          let profile := profileOf decl.module
+          if let some id := Policy.ruleForMember decl profile scope h then
             let reason := (Regula.descriptor id).applicability
             -- The finding names the declaration the author wrote (`Policy.subject_contract`).
             let named := Policy.subject decl scope h
             let classification := Policy.subjectDetail decl scope h
             let (sourceDeclaration, related) :=
               Regula.Findings.attribution index unsafeHelpers named
-            if id == .profileExceeded && sourceDeclaration.isSome then
-              attributedFailures := attributedFailures.insert failures.size
-            failures :=
-                failures.push s!"{reason}: {named.name} [claim: {surface.claim}] {classification}"
             let location ← IO.ofExcept <|
               Regula.Findings.findingLocation index unsafeHelpers named snapshotFor
             let finding ← IO.ofExcept <| RuleDiagnostics.declarationFinding id
                 (← IO.ofExcept (RuleDiagnostics.declarationName named))
               classification location
-              origin.mode (some surface.claim.toString)
+              origin.mode (profile.map (·.toString))
               sourceDeclaration related
+            -- A declaration of an owned dependency that several environments inspect is
+            -- reported once.
+            if findings.any (·.entry == finding.entry) then continue
+            if id == .profileExceeded && sourceDeclaration.isSome then
+              attributedFailures := attributedFailures.insert failures.size
+            let claimText := (profile.map (·.toString)).getD "none"
+            failures :=
+                failures.push s!"{reason}: {named.name} [claim: {claimText}] {classification}"
             findings := findings.push finding
         -- Equal to `Policy.admitExecution report.execution` (`Admitted.admitExecution_eq`).
         let executionInventory := admitted.execution
-        failures := failures ++ Policy.executionFailures executionInventory surface.execution
-        for failure in Policy.executionFindings executionInventory surface.execution do
+        -- Each root is held to the strongest execution claim that the modules of the declarations
+        -- naming it request (`RegulaPolicy.rootRequestsAmong`, as `RegulaPolicy.rootRequests`
+        -- asks them of the claim); `RegulaPolicy.executionFindingsFor_empty_iff` relates these
+        -- findings to acceptance's execution condition.
+        let requestsOf (root : RegulaPolicy.ExecutionRoot) : Array RegulaPolicy.ExecutionClaim :=
+          RegulaPolicy.rootRequestsAmong
+            (RegulaPolicy.projectExecution assignments assignedDependencies)
+            scope.inventory.declarations root.name
+        for failure in RegulaPolicy.executionFindingsFor executionInventory requestsOf do
           let location ← match report.declarations.find? (·.name == failure.root.name) with
             | some decl => do
                 let snapshot := snapshotFor decl.module
                 IO.ofExcept <| RuleDiagnostics.declarationLocation decl snapshot
             | none => pure (Regula.Location.module failure.root.module)
-          findings := findings.push
-              (← IO.ofExcept <| RuleDiagnostics.executionFinding failure location
-            origin.mode surface.execution)
+          let finding ← IO.ofExcept <| RuleDiagnostics.executionFinding failure location
+            origin.mode (RegulaPolicy.strongestClaim (requestsOf failure.root))
+          if findings.any (·.entry == finding.entry) then continue
+          failures := failures.push (Policy.executionFailureLine failure)
+          findings := findings.push finding
         if verbose then
           for moduleName in info.modules do
             IO.println s!"module {moduleName} [claimed: {surface.claim}]"
@@ -897,7 +1015,7 @@ private unsafe def auditSurfaceAt (repo manifestPath : FilePath)
         IO.println s!"excluded library {excluded.library}: {count} module(s)"
       for excluded in manifest.excludedExecutables do
         IO.println s!"excluded executable {excluded.executable}"
-      SourceBinding.unchanged sourceBindings
+      SourceBinding.unchanged allBindings
       SourceBinding.configurationUnchanged configuration
       unless documentationPending do Snapshot.inputsUnchanged inventory dependencies
       for document in documents do
@@ -1163,7 +1281,7 @@ private unsafe def auditFile (repo path : FilePath) (claim : Option Profile)
           if !SourceAudit.compilationPassed compilation then pure none
           else try
             pure (some (.ok (← SourceAudit.inspectOutcome compilation inventory.leanPath
-              inventory.leanSrcPath inventory.moduleSources (some inventory.leanLibDir))))
+              inventory.leanSrcPath inventory.moduleSources inventory.ownership)))
           catch error => pure (some (.error error.toString))
         SourceBinding.unchanged dependencySources
         SourceBinding.configurationUnchanged configuration
@@ -1481,9 +1599,9 @@ unsafe def run (args : List String) : IO UInt32 := do
       let outcome ← Environment.loadReportOutcome request.modules
         (request.searchRoots.map FilePath.mk) (request.sourceRoots.map FilePath.mk)
         (request.sourceBindings.map fun source => (source.moduleName, FilePath.mk source.path))
-        (some (FilePath.mk request.ownedOutput)) (validateReport := false)
+        request.ownership (validateReport := false)
         (historyMemo := some (FilePath.mk request.historyMemo)) (priors := request.priors)
-        (publish := some (FilePath.mk request.publish))
+        (publish := some (FilePath.mk request.publish)) (inspectDependencies := true)
       if let .ok report := outcome then
         if let .error failure := SourceBinding.validateAgainst request.sourceBindings report then
           return .error (.admission failure)

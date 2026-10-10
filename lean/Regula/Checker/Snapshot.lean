@@ -73,6 +73,10 @@ structure DependencyCaptures where
   /-- `true` when there is no revision, or when `git status` reports a declared source or
   configuration input (`dirtyOf`). -/
   dirty : Bool
+  /-- Whether the audit owns the dependency (`DependencyInventory.owned`): a path dependency in the
+  root package's Git work tree, each module of which it replays where a requested module imports
+  it. -/
+  owned : Bool
   /-- The requested source files: each module with its path as Lake resolved it. -/
   sourcePaths : Array (Name × FilePath)
   /-- Each source read: module, requested path, canonical path and UTF-8 text. -/
@@ -98,6 +102,10 @@ structure DependencyObservation where
   /-- `true` when there is no revision, or when `git status` reports a declared source or
   configuration input (`dirtyOf`). -/
   dirty : Bool
+  /-- Whether the audit owns the dependency (`DependencyInventory.owned`): a path dependency in the
+  root package's Git work tree, each module of which it replays where a requested module imports
+  it. -/
+  owned : Bool
   /-- The requested source files: each module with its path as Lake resolved it. -/
   sourcePaths : Array (Name × FilePath)
   /-- Each source read: module, requested path, canonical path and UTF-8 text. -/
@@ -124,6 +132,7 @@ def observe (fresh : DependencyCaptures) : DependencyObservation where
   root := fresh.root
   revision := fresh.revision
   dirty := fresh.dirty
+  owned := fresh.owned
   sourcePaths := fresh.sourcePaths
   sourceCaptures := fresh.sourceCaptures
   configurationCaptures := fresh.configurationCaptures
@@ -142,14 +151,16 @@ def completeObservation (before : DependencyObservation) (fresh : DependencyCapt
       before.sourceCaptures = fresh.sourceCaptures ∧
       before.configurationCaptures = fresh.configurationCaptures then
     { project := fresh.project, package := fresh.package, root := fresh.root,
-      revision := fresh.revision, dirty := fresh.dirty, sourcePaths := fresh.sourcePaths,
+      revision := fresh.revision, dirty := fresh.dirty, owned := fresh.owned,
+      sourcePaths := fresh.sourcePaths,
       sourceCaptures := fresh.sourceCaptures,
       configurationCaptures := fresh.configurationCaptures,
       state := before.state,
       state_sound := by rw [← h.1, ← h.2.1, ← h.2.2.1, ← h.2.2.2]; exact before.state_sound }
   else
     { project := fresh.project, package := fresh.package, root := fresh.root,
-      revision := fresh.revision, dirty := fresh.dirty, sourcePaths := fresh.sourcePaths,
+      revision := fresh.revision, dirty := fresh.dirty, owned := fresh.owned,
+      sourcePaths := fresh.sourcePaths,
       sourceCaptures := fresh.sourceCaptures,
       configurationCaptures := fresh.configurationCaptures,
       state := stateOfCore fresh.root.toString fresh.revision fresh.sourceCaptures
@@ -178,12 +189,14 @@ theorem stateOfCore_reuse_eq {before : DependencyObservation} {fresh : Dependenc
       fresh.configurationCaptures := by
   rw [before.state_sound, h.1, h.2.1, h.2.2.1, h.2.2.2]
 
-/-- The retained complete observation/state `BEq` decision: exactly the retired
-structural `BEq` chain, same field set and order, over the carried request-state
+/-- The retained complete observation/state `BEq` decision: the retired
+structural `BEq` chain, in the same field order, with the ownership classification after `dirty`,
+over the carried request-state
 values. This predicate always executes; nothing is substituted for its result. -/
 def legacyBeq (a b : DependencyObservation) : Bool :=
   (a.project == b.project) && (a.package == b.package) && (a.root == b.root) &&
-    (a.revision == b.revision) && (a.dirty == b.dirty) && (a.state == b.state) &&
+    (a.revision == b.revision) && (a.dirty == b.dirty) && (a.owned == b.owned) &&
+    (a.state == b.state) &&
     (a.sourcePaths == b.sourcePaths)
 
 /-- The retained terminal decision over observation arrays: the retired
@@ -438,13 +451,13 @@ def GitFacts.answers (facts : GitFacts) (package : String) (root : FilePath)
     facts.configurationPaths == configurationPaths.map (·.toString)
 
 /-- Pure assembly of one capture from its fresh reads and its Git facts. -/
-def assemble (project : FilePath) (package : String) (root : FilePath)
+def assemble (project : FilePath) (package : String) (root : FilePath) (owned : Bool)
     (sourcePaths : Array (Name × FilePath))
     (sourceCaptures : Array (Name × String × String × String))
     (configurationCaptures : Array (String × Option (String × ByteArray)))
     (facts : Option String × Bool) : DependencyCaptures :=
   { project := project, package := package, root := root, sourcePaths := sourcePaths,
-    revision := facts.1, dirty := facts.2,
+    revision := facts.1, dirty := facts.2, owned,
     sourceCaptures := sourceCaptures, configurationCaptures := configurationCaptures }
 
 /-- Capture-once equality: with the same request and the same fresh reads, an
@@ -453,13 +466,13 @@ yields the identical capture, hence (`stateOfCore_congruence`) identical request
 state and request/report bytes. The premise — equal Git facts — is the
 no-writer invariant of the qualification window (equal content identity and
 the runner's terminal recheck), not a theorem about Git. -/
-theorem assemble_facts_eq {project : FilePath} {package : String} {root : FilePath}
+theorem assemble_facts_eq {project : FilePath} {package : String} {root : FilePath} {owned : Bool}
     {sourcePaths : Array (Name × FilePath)}
     {sourceCaptures : Array (Name × String × String × String)}
     {configurationCaptures : Array (String × Option (String × ByteArray))}
     {injected observed : Option String × Bool} (h : injected = observed) :
-    assemble project package root sourcePaths sourceCaptures configurationCaptures injected
-      = assemble project package root sourcePaths sourceCaptures configurationCaptures
+    assemble project package root owned sourcePaths sourceCaptures configurationCaptures injected
+      = assemble project package root owned sourcePaths sourceCaptures configurationCaptures
           observed := by
   rw [h]
 
@@ -467,7 +480,7 @@ theorem assemble_facts_eq {project : FilePath} {package : String} {root : FilePa
 read here. The Git facts are observed here too, unless the internal
 qualification table holds an entry answering exactly this request, in which case
 that once-captured pair is used (`assemble_facts_eq`). -/
-def captureDependency (project : FilePath) (package : String) (root : FilePath)
+def captureDependency (project : FilePath) (package : String) (root : FilePath) (owned : Bool)
     (sourcePaths : Array (Name × FilePath)) (configurationPaths : Array FilePath) :
     IO DependencyCaptures := do
   let root ← IO.FS.realPath root
@@ -486,7 +499,8 @@ def captureDependency (project : FilePath) (package : String) (root : FilePath)
     | none =>
       unless table.isEmpty do IO.println s!"injected git facts: {package} observed"
       observeGitFacts package root sourcePaths configurationPaths
-  return assemble project package root sourcePaths sourceCaptures configurationCaptures facts
+  return assemble project package root owned sourcePaths sourceCaptures configurationCaptures
+    facts
 
 /-- The Git facts a completed capture answers, for export by the corpus runner. -/
 def DependencyCaptures.gitFacts (c : DependencyCaptures) : GitFacts where
@@ -502,7 +516,7 @@ discovery. Every read and Git observation is taken here on every call. -/
 def dependenciesCaptures (inventory : Lake.SurfaceInventory) :
     IO (Array DependencyCaptures) :=
   timedPhase "dependency snapshot capture" <| inventory.dependencies.mapM fun entry =>
-    captureDependency inventory.root entry.package entry.root
+    captureDependency inventory.root entry.package entry.root entry.owned
       (entry.sources.map fun source => (source.module, source.source))
       entry.configurationPaths
 
@@ -534,13 +548,13 @@ def inputsUnchanged (inventory : Lake.SurfaceInventory)
   let unchanged ← if table.isEmpty then do
       pure (terminalBeq (← dependenciesCaptures current) before)
     else do
-      let owned := (current.dependencies.zip before).filter fun (_, o) => !injectedFor table o
-      let fresh ← timedPhase "dependency snapshot capture" <| owned.mapM fun (entry, _) =>
-        captureDependency current.root entry.package entry.root
+      let observed := (current.dependencies.zip before).filter fun (_, o) => !injectedFor table o
+      let fresh ← timedPhase "dependency snapshot capture" <| observed.mapM fun (entry, _) =>
+        captureDependency current.root entry.package entry.root entry.owned
           (entry.sources.map fun source => (source.module, source.source)) entry.configurationPaths
       pure (current.dependencies == inventory.dependencies && current.dependencies.size ==
           before.size &&
-        terminalBeq fresh (owned.map (·.2)))
+        terminalBeq fresh (observed.map (·.2)))
   unless unchanged do
     throw <|
         IO.userError "dependency snapshot changed: Lake inventory or source/configuration state"
@@ -559,6 +573,7 @@ def make (root : FilePath) (configuration : Array (FilePath × Option String))
         ("package", toJson dep.package), ("state", dep.state)]))]).compress⟩
     toolchain := ⟨Lean.versionString, Lean.githash, Producer.identity.sourceRevision⟩
     dependencies := deps.map fun dep => {
-      package := dep.package, nominalRevision := dep.revision, dirty := dep.dirty, files := #[] } }
+      package := dep.package, nominalRevision := dep.revision, dirty := dep.dirty, files := #[]
+      owned := dep.owned } }
 
 end Regula.Checker.Snapshot

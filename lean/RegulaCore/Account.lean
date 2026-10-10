@@ -357,6 +357,10 @@ structure AccountData where
   fences : FenceAccount
   /-- The mechanisms the run relies on without verifying. -/
   trusted : List Trusted
+  /-- The dependencies of the claim's snapshot that the run does not own, by package name, in
+  the snapshot's order: their declarations are not replayed through Lean's kernel, so the run
+  trusts them. -/
+  trustedDependencies : Array String
   /-- The semantic-review obligations left open. -/
   unresolved : List Residual
   /-- Each owned declaration of the accepted inventory for which Lean's `collectAxioms` omits axioms
@@ -385,9 +389,10 @@ contracts are exactly the inventory's
 registrations, each with the decision kind and the shared functions the collector recorded.
 Execution counts are
 `executionSummary` of each accepted environment, in order. The fence counts partition the
-accepted fences by expectation. Every residual obligation stays unresolved, R-GRAPH exactly
-when a serialized graph is claimed. The omissions are exactly the inventory's declarations that
-record one, each with its module, axioms and omissions. -/
+accepted fences by expectation. The trusted dependencies are the packages of the claim's
+snapshot dependencies that are not owned, in order. Every residual obligation stays unresolved,
+R-GRAPH exactly when a serialized graph is claimed. The omissions are exactly the inventory's
+declarations that record one, each with its module, axioms and omissions. -/
 def AccountContract (project : {c : Claim} → AcceptedRun c → AccountData) : Prop :=
   ∀ (c : Claim) (run : AcceptedRun c),
     (project run).mode = c.val.mode ∧ (project run).scope = c.val.scope ∧
@@ -411,6 +416,8 @@ def AccountContract (project : {c : Claim} → AcceptedRun c → AccountData) : 
         (project run).fences.policyRejection + (project run).fences.trustedTeaching =
         run.report.census.fences.size) ∧
     (project run).trusted = Trusted.all ∧
+    (∀ p, p ∈ (project run).trustedDependencies ↔
+      ∃ d ∈ c.val.snapshot.dependencies, d.owned = false ∧ d.package = p) ∧
     (∀ r, r ∈ (project run).unresolved ↔ (r = .graph → c.val.mode = .serializedGraph)) ∧
     (∀ x, x ∈ (project run).omissions ↔
       ∃ e ∈ run.report.census.environments, ∃ d ∈ e.policy.declarations,
@@ -427,6 +434,8 @@ private def accountImpl {c : Claim} (run : AcceptedRun c) : AccountData :=
     fences := ⟨fences.countP isPositive, fences.countP isCompilerRejection,
       fences.countP isPolicyRejection, fences.countP isTrustedTeaching⟩
     trusted := Trusted.all
+    trustedDependencies :=
+      (report.claim.val.snapshot.dependencies.filter (!·.owned)).map (·.package)
     unresolved := Residual.all.filter fun r => r != .graph || report.claim.val.mode ==
                                                 .serializedGraph
     omissions := omissionsOf report.census }
@@ -450,7 +459,7 @@ theorem coverageOf_fresh_iff (m : EvidenceMode) :
 /-- Registers `AccountContract` about the executed projection. -/
 theorem checked_account : Regula.ExecutableContract @accountImpl AccountContract := by
   refine ⟨fun c run => ?_⟩
-  refine ⟨rfl, rfl, rfl, rfl, rfl, rfl, ?_, rfl, ?_, rfl, ?_, ?_⟩
+  refine ⟨rfl, rfl, rfl, rfl, rfl, rfl, ?_, rfl, ?_, rfl, ?_, ?_, ?_⟩
   · intro x
     simp only [accountImpl, contractsOf, Array.mem_flatMap, Array.mem_filterMap,
       Option.map_eq_some_iff]
@@ -461,6 +470,13 @@ theorem checked_account : Regula.ExecutableContract @accountImpl AccountContract
       exact ⟨e, he, d, hd, k, hk, rfl⟩
   · exact ⟨Array.countP_eq_size_filter .., Array.countP_eq_size_filter ..,
       Array.countP_eq_size_filter .., Array.countP_eq_size_filter .., fence_partition _⟩
+  · intro p
+    simp only [accountImpl, Array.mem_map, Array.mem_filter, Bool.not_eq_eq_eq_not, Bool.not_true]
+    constructor
+    · rintro ⟨d, ⟨hd, ho⟩, rfl⟩
+      exact ⟨d, hd, ho, rfl⟩
+    · rintro ⟨d, hd, ho, rfl⟩
+      exact ⟨d, ⟨hd, ho⟩, rfl⟩
   · intro r
     simp only [accountImpl, List.mem_filter, Residual.mem_all, true_and, Bool.or_eq_true,
       bne_iff_ne, ne_eq, beq_iff_eq]
@@ -543,8 +559,8 @@ def pass (label : String) (a : Account) : String :=
 /-- Human account lines: the checked relation, each contract with its decision kind
 (`ContractAccount.decision`), its shared functions (`ContractAccount.sharing`) and its open
 review, the execution counts, fence kinds, the count of declarations whose axiom tables omit
-axioms (the `--verbose` line of each lists its omissions), trusted mechanisms, and the unresolved
-review identifiers. -/
+axioms (the `--verbose` line of each lists its omissions), trusted mechanisms, the trusted
+dependencies (or `none`), and the unresolved review identifiers. -/
 def lines (a : Account) : Array String :=
   let d := a.val
   let checked :=
@@ -570,6 +586,10 @@ def lines (a : Account) : Array String :=
   let trusted :=
       s!"trusted, not verified: Lean {d.toolchain.leanVersion} ({d.toolchain.compilerCommit}); " ++
     "; ".intercalate (d.trusted.map (·.detail))
+  let dependencies :=
+    "trusted dependencies, not replayed through Lean's kernel: " ++
+      (if d.trustedDependencies.isEmpty then "none"
+      else ", ".intercalate d.trustedDependencies.toList)
   let unresolved :=
       s!"unresolved semantic review, where applicable: {residualList d.unresolved}. " ++
     "These identifiers name open obligations, not completed reviews."
@@ -577,6 +597,6 @@ def lines (a : Account) : Array String :=
     #[s!"axiom tables: {d.omissions.size} declaration(s) for which Lean's collectAxioms omits \
       axioms they reach in the replayed kernel; reported, not failed (listed with --verbose and \
       in --json-out)"]
-  #[checked] ++ contracts ++ execution ++ fences ++ omissions ++ #[trusted, unresolved]
+  #[checked] ++ contracts ++ execution ++ fences ++ omissions ++ #[trusted, dependencies, unresolved]
 
 end Regula.Checker.Account

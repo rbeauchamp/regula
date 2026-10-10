@@ -239,32 +239,39 @@ def withScratch {α : Type} (repo : FilePath) (stem : String)
     (action : FilePath → IO α) : IO α :=
   return (← Regula.Scratch.withScratch repo stem action).1
 
-/-- Lake resolves a manifest `path` dependency relative to the workspace
-root, so a relative `dir` copied verbatim would name a different directory
-under the scratch area. Record every relative `path` entry of the copied Lake
-manifest as an absolute workspace override for the copy (Lake reads
-`.lake/package-overrides.json` on every workspace load); git entries and
-absolute paths are left as pinned. A referenced directory that does not
-exist fails closed here with the Lake load-failure prefix. -/
-def relocatePathDependencies (repo target : FilePath) : IO Unit := do
-  let some manifest ← _root_.Lake.Manifest.load? (target / "lake-manifest.json") | return
-  let mut overrides : Array _root_.Lake.PackageEntry := #[]
-  for entry in manifest.packages do
-    if let .path (dir := dir) .. := entry.src then
-      if !dir.isAbsolute then
-        let source := repo / dir
-        if !(← source.isDir) then
-          throw <| IO.userError <|
-            s!"lake-workspace-load-failed: path dependency '{entry.name}' at {source} is not a \
-              directory"
-        -- Lake 4.35 adds a copy flag to path entries. Its codec preserves that flag and any
-        -- other version-specific fields while only the directory is relocated.
-        let relocated ← IO.ofExcept <| _root_.Lake.PackageEntry.fromJson?
-          ((toJson entry).setObjVal! "dir" (toJson (← IO.FS.realPath source)))
-        overrides := overrides.push relocated
-  if overrides.isEmpty then return
-  IO.FS.createDirAll (target / ".lake")
-  _root_.Lake.Manifest.saveEntries (target / ".lake" / "package-overrides.json") overrides
+/-- The real path of the top level of the Git work tree that holds the directory `dir`, as
+`git rev-parse --show-toplevel` run in `dir` prints it, or `none` when that command fails, for
+example where Git finds no work tree, or when `dir` or the printed path cannot be resolved. Git
+runs without `GIT_DIR` and `GIT_WORK_TREE`, so the work tree is the one Git finds from `dir`
+itself. Git and the filesystem are trusted. -/
+def gitWorkTree (dir : FilePath) : IO (Option FilePath) := do
+  let result ← try
+      runProcess dir "git" #["rev-parse", "--show-toplevel"]
+        #[("GIT_DIR", none), ("GIT_WORK_TREE", none)]
+    catch _ => return none
+  let top := result.stdout.trimAscii.toString
+  if !result.succeeded || top.isEmpty then return none
+  try some <$> IO.FS.realPath (FilePath.mk top) catch _ => return none
+
+/-- Whether a dependency whose directory is in the Git work tree `dependency` is in the work tree
+`root` of the root package: both are known and they are the same directory. -/
+def sameWorkTree (root dependency : Option FilePath) : Bool :=
+  match root, dependency with
+  | some root, some dependency => decide (root = dependency)
+  | _, _ => false
+
+/-- `sameWorkTree` holds exactly when one known work tree holds the two directories, so a
+dependency is never in an unknown work tree of the root package, and a root package outside every
+work tree has no dependency in its work tree. -/
+theorem sameWorkTree_iff (root dependency : Option FilePath) :
+    sameWorkTree root dependency = true ↔ ∃ tree, root = some tree ∧ dependency = some tree := by
+  cases root <;> cases dependency <;> simp [sameWorkTree, eq_comm]
+
+/-- Whether the directory `dir` of a dependency is in the Git work tree `root` of the root
+package (`gitWorkTree`, `sameWorkTree`). The audit owns such a dependency: it is a path
+dependency in the project's own repository. -/
+def ownedDirectory (root : Option FilePath) (dir : FilePath) : IO Bool :=
+  return sameWorkTree root (← gitWorkTree dir)
 
 /-- One component of `joinWithin`'s lexical join below `base`: `.` and empty components are
 dropped, `..` removes the last component unless that would leave `base`, and any other
@@ -321,70 +328,91 @@ theorem joinWithin_extends (base relative result : List String)
     (h : joinWithin base relative = some result) : base <+: result :=
   foldlM_joinStep_extends base relative base result (List.prefix_refl base) h
 
-/-- Copy a checked project into `target`, skipping VCS data, Lake build
-state, machine artifact caches, the checker's scratch areas, and the `exclude`
-path that receives the copy. Dependency checkouts are shared through a link at
-the copy's packages directory, so a fresh build in the copy does not refetch or
-rebuild dependencies while the copy's own build output starts empty, and
-relative `path` dependencies are re-anchored to the original project
-(`relocatePathDependencies`). The packages directory is the one the project's
-manifest records, `.lake/packages` by default; a relative one outside the
-project, such as a nested package's `../.lake/packages`, is linked at the same
-relative place from the copy, which must lie inside `exclude`. -/
-def copyProject (repo target exclude : FilePath) : IO Unit := do
-  IO.FS.createDirAll target
-  let sourceComponents := repo.normalize.components
-  let excludeComponents := exclude.normalize.components
-  -- Exclusion is closed under descendants. Prune before traversal: filtering
-  -- afterwards still visits dependency checkouts and every prior scratch copy.
-  -- VCS data, Lake build state, artifact caches and the checker's scratch
-  -- directories are pruned at every depth (a nested Lake workspace such as a
-  -- committed example adopter carries its own `.lake` with full dependency
-  -- checkouts, and a nested package audited on its own keeps its scratch under
-  -- its own `.lake`, or under its own `tmp/` when an older Regula audited it);
-  -- the rest of the root `tmp/` is pruned only at the project root, where it
-  -- lives.
-  let prunedAnywhere := fun (component : String) =>
-    component == ".git" || component == _root_.Lake.defaultLakeDir.toString ||
-      component == ".cache" || component == Regula.Scratch.legacyDirName
-  let includePath := fun (path : FilePath) =>
-    let components := path.normalize.components
-    !excludeComponents.isPrefixOf components &&
-      (match components.drop sourceComponents.length with
-        | "tmp" :: _ => false
-        | relative => !relative.any prunedAnywhere)
-  for path in ← repo.walkDir (fun path => pure (includePath path)) do
-    let components := path.normalize.components
-    if components == sourceComponents || !includePath path then
-      continue
-    let relative := components.drop sourceComponents.length
-    let destination := relative.foldl (· / FilePath.mk ·) target
-    if ← path.isDir then
-      IO.FS.createDirAll destination
-    else
-      if let some parent := destination.parent then IO.FS.createDirAll parent
-      IO.FS.writeBinFile destination (← IO.FS.readBinFile path)
-  let packagesDir := ((← _root_.Lake.Manifest.load? (repo / "lake-manifest.json")).bind
-    (·.packagesDir?)).getD _root_.Lake.defaultPackagesDir
-  let packages := repo / packagesDir
-  if ← packages.isDir then
-    let targetComponents := target.normalize.components
-    unless excludeComponents.isPrefixOf targetComponents do
-      throw <| IO.userError s!"could not link pinned Lake packages: the copy {target} is not \
-        inside {exclude}"
-    -- `joinWithin_extends`: the link lies inside `exclude`, which the caller removes.
-    let some linkComponents := if packagesDir.isAbsolute then none else
-        joinWithin excludeComponents (targetComponents.drop excludeComponents.length ++
-          packagesDir.normalize.components)
-      | throw <| IO.userError s!"could not link pinned Lake packages: the packages directory \
-          {packagesDir} is not a relative path that stays inside {exclude} from the copy"
-    let link : FilePath := System.mkFilePath linkComponents
-    if let some parent := link.parent then IO.FS.createDirAll parent
-    let linked ← runProcess target "ln" #["-s", (← IO.FS.realPath packages).toString,
-      link.toString]
-    if !linked.succeeded then
-      throw <| IO.userError s!"could not link pinned Lake packages: {linked.output}"
-  relocatePathDependencies repo target
+/-- The module name prefixes reserved to the checker: those of its force-loaded reporter's import
+closure outside the toolchain, which the reporter's overlay serves (`Environment.probePrefixes`).
+A package other than the checker's own may provide a module under them only with the checker's
+own source text (`Lake.surfaceInventory`). -/
+def reservedPrefixes : Array String := #["Regula", "RegulaPolicy"]
+
+/-- Whether module `name` lies under a prefix reserved to the checker (`reservedPrefixes`). -/
+def reservedModule (name : Name) : Bool :=
+  reservedPrefixes.contains name.getRoot.toString
+
+/-- One owned package, the root package or an owned dependency, as the audit passes it to each
+environment: its compiled-module output directory, Lake's default `.lake/build/lib/lean` of the
+package (`Lake.checkDefaultLayout`), and the modules its own libraries and executables provide. -/
+structure OwnedPackage where
+  /-- The package's name. -/
+  package : String := ""
+  /-- The package's compiled-module output directory. -/
+  output : FilePath
+  /-- The modules of the package. -/
+  modules : Array Name
+  deriving Inhabited, Repr
+
+/-- The modules of an owned package as they cross the worker boundary: each in the exact encoding
+of `RegistryCodec.printedNameJson`. A package's configuration can give a module a name, such as
+`bar»`, whose printed text Lean's parser does not read back. -/
+def OwnedPackage.modulesJson (modules : Array Name) : Array Json :=
+  modules.map RegistryCodec.printedNameJson
+
+/-- Every module list survives its written form (`RegistryCodec.printedNameJson_roundtrip`). -/
+theorem OwnedPackage.modulesJson_roundtrip (modules : Array Name) :
+    (OwnedPackage.modulesJson modules).mapM RegistryCodec.parsePrintedNameJson = .ok modules := by
+  rcases modules with ⟨modules⟩
+  simp only [OwnedPackage.modulesJson, List.map_toArray, List.mapM_toArray]
+  induction modules with
+  | nil => rfl
+  | cons name rest ih =>
+    simp only [List.map_cons, List.mapM_cons, RegistryCodec.printedNameJson_roundtrip]
+    revert ih
+    cases List.mapM RegistryCodec.parsePrintedNameJson (List.map RegistryCodec.printedNameJson rest)
+      <;> simp_all [bind, Except.bind, pure, Except.pure, Functor.map, Except.map]
+
+instance : ToJson OwnedPackage := ⟨fun p => Json.mkObj [("package", toJson p.package),
+  ("output", toJson p.output), ("modules", toJson (OwnedPackage.modulesJson p.modules))]⟩
+
+instance : FromJson OwnedPackage := ⟨fun j => do
+  let modules ← j.getObjValAs? (Array Json) "modules"
+  return {
+    package := ← j.getObjValAs? String "package"
+    output := ← j.getObjValAs? FilePath "output"
+    modules := ← modules.mapM RegistryCodec.parsePrintedNameJson }⟩
+
+/-- What an audit owns beyond the modules it requests, as it passes that to each environment it
+loads (`Lake.SurfaceInventory.ownership`). -/
+structure Ownership where
+  /-- The compiled-module output directories of the owned packages: the root package's, then each
+  owned dependency's. -/
+  outputs : Array FilePath := #[]
+  /-- The root package, by the same record as an owned dependency. A loaded module that is its
+  artifact belongs to it (`Environment.attributeLoaded`). -/
+  root : Option OwnedPackage := none
+  /-- The owned dependency packages. A module an environment loads is one of theirs when the
+  `.olean` it loaded is exactly the artifact of that module in the package's output directory
+  (`Environment.attributeLoaded`); an environment owns such a module only when the import
+  closure of a module it requests contains it, or it imports an owned module
+  (`Environment.ownedModuleSet`). -/
+  dependencies : Array OwnedPackage := #[]
+  /-- In a copy that the audit made, the copy's real directory (`Lake.SurfaceInventory.copy`):
+  every owned module an environment loads must resolve below it
+  (`Environment.ModuleGraph.outsideCopy`). -/
+  copy : Option FilePath := none
+  deriving ToJson, FromJson, Inhabited, Repr
+
+/-- The parts of a compiled module that Lean's import reads, by extension: the module data of each
+level, and the compiled code and its signature. -/
+def moduleParts : Array String :=
+  #["olean", "olean.server", "olean.private", "ir", "ir.sig"]
+
+/-- Whether a file named `name` is a part of a compiled module (`moduleParts`). -/
+def isModulePart (name : String) : Bool :=
+  moduleParts.any fun part => name.endsWith ("." ++ part)
+
+/-- The longest common prefix of two component lists. -/
+def commonPrefix : List String → List String → List String
+  | a :: as, b :: bs => if a = b then a :: commonPrefix as bs else []
+  | _, _ => []
 
 /-- Refuse historical development observations rather than treating them as audit evidence. -/
 def requireAuditDocument (value : Json) : IO Json := do

@@ -205,7 +205,8 @@ private def cases : Array Case := #[
 
 /-- Use the checked-in public recipe verbatim apart from the local dependency
 path. Dependencies are inherited exactly as Lake resolves the pinned package;
-only their already-built checkouts are shared across isolated controls. -/
+only their already-built checkouts are shared across isolated controls. The adopter is a Git
+repository of its own, as an adopter is, so the audit trusts `regula` instead of owning it. -/
 def setup (repo adopter : FilePath) (exampleDir : String := "build-lint")
     (sources : Array String := #["Widget.lean", "Widget/Additional.lean"])
     (lakefileName : String := "lakefile.lean") : IO Unit := do
@@ -228,6 +229,10 @@ def setup (repo adopter : FilePath) (exampleDir : String := "build-lint")
   let linked ← runProcess adopter "ln" #["-s", (repo / ".lake" / "packages").toString,
     (adopter / ".lake" / "packages").toString]
   if !linked.succeeded then throw <| IO.userError linked.output
+  -- An adopter is a repository of its own, so `regula`, which it requires from this checkout, is
+  -- a dependency in a different Git work tree, which the audit trusts, as an adopter's is.
+  let initialized ← runProcess adopter "git" #["init", "-q"]
+  if !initialized.succeeded then throw <| IO.userError initialized.output
 
 private def build (adopter : FilePath) : IO ProcessResult :=
   runProcess adopter "lake" #["build"] scrubbedLeanPathEnv
@@ -243,9 +248,16 @@ private def negative (test : Case) (result : ProcessResult) : Array String :=
     #[s!"build-lint/{test.name}: missing intended diagnostic {missing}:\n{result.output}"]
   else #[]
 
-private def addSupport (adopter : FilePath) (source : String) : IO Unit := do
+/-- Add the path dependency `build_lint_support` at `support/` of the adopter, whose library
+`Support` has the one module `source`, to the adopter's Lake configuration and manifest. Unless
+`owned`, `support/` is a Git repository of its own, so the audit trusts the dependency as it
+trusts an imported third-party package; otherwise it is in the adopter's Git work tree and owned. -/
+def addSupport (adopter : FilePath) (source : String) (owned : Bool := false) : IO Unit := do
   let support := adopter / "support"
   IO.FS.createDirAll support
+  unless owned do
+    let initialized ← runProcess support "git" #["init", "-q"]
+    if !initialized.succeeded then throw <| IO.userError initialized.output
   IO.FS.writeFile (support / "Support.lean") source
   IO.FS.writeFile (support / "lean-toolchain") (← IO.FS.readFile (adopter / "lean-toolchain"))
   IO.FS.writeFile (support / "lakefile.toml")

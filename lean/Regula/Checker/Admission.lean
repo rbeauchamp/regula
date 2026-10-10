@@ -996,11 +996,14 @@ its environment loaded is in its own replay set (its receipt's `modules`), so th
 replays it, or is one that a completed admission lists as replayed, not as reused, in an
 environment that loaded it (it has an import closure there, which `importClosure` gives only for
 a module with an origin). A receipt's `modules` alone does not show a replay: it lists every
-owned module the environment did not reuse, whether or not it loaded the module. -/
-theorem replayed_of_loaded {owned : NameSet} {readings : Array Reading}
+owned module the environment did not reuse, whether or not it loaded the module. The modules the
+environment owns (`owned`) need not be those the offers were made over (`offered`): the project
+audit offers over every source-bound module and checks each report against the modules its own
+environment owns. -/
+theorem replayed_of_loaded {owned offered : NameSet} {readings : Array Reading}
     {completed : Array Completed} {report : ProducerReport.Environment}
     (hc : accountsFor owned report = true)
-    (hj : reuseJustified (currentOffers owned readings completed) report = true)
+    (hj : reuseJustified (currentOffers offered readings completed) report = true)
     {m : Name} (hm : m ∈ report.modules) (ho : owned.contains m = true) :
     (∃ receipt, report.admission = some receipt ∧ m ∈ receipt.modules) ∨
       ∃ source ∈ completed, m ∈ source.receipt.modules ∧ m ∉ source.receipt.reused ∧
@@ -1471,10 +1474,11 @@ def CopyFailure.describe : CopyFailure → IO String
 claim incomplete (RG2005), so the tag does not call it a violation. -/
 def failureTag : String := "[INCOMPLETE[kernel-admission]]"
 
-/-- The checker's own reporter modules that the force-loaded reporter brings into every audited
-environment and that depend on the positive policy library. -/
+/-- The checker's infrastructure modules (`RegulaPolicy.infrastructureModuleNames`), which the
+force-loaded reporter brings into every audited environment. An environment owns none of them,
+so `replaySet` replays each one that imports a replayed module. -/
 def reporterModules : Array Name :=
-  #[`Regula.Probe, `Regula.Report, `Regula.Checker.PolicyCodec, `Regula.StructuralName]
+  RegulaPolicy.infrastructureModuleNames
 
 /-- One pass over the `loaded` modules, adding each reporter module that imports a module of
 `replay`. -/

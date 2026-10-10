@@ -224,6 +224,18 @@ def request (claim : Option Profile) : RegulaPolicy.InspectionRequest :=
 theorem request_contract : RequestContract request :=
   checked_request.evidence
 
+/-- The profile of the same spelling as a conforming profile, as a project audit gives each
+declaration the profile its module is assigned (`RegulaPolicy.projectProfile`). -/
+def Profile.ofConforming : RegulaPolicy.ConformingProfile → Profile
+  | .kernelOnly => .kernelOnly
+  | .choiceFree => .choiceFree
+  | .standardLogical => .standardLogical
+
+/-- The profile of a conforming profile selects that conforming profile's inspection. -/
+theorem request_ofConforming (conforming : RegulaPolicy.ConformingProfile) :
+    request (some (Profile.ofConforming conforming)) = .conforming conforming :=
+  ((request_contract.2 _).2 conforming).mpr (by cases conforming <;> rfl)
+
 /-- Required declaration projection: no rule exactly when the inventory-bound policy decision
 for the selected request succeeds, and otherwise the registry rule of that decision's failure.
 With `ruleForFailure_injective`, the rule identifies the first failed requirement proved by

@@ -75,7 +75,8 @@ def requirements (report : Json) (code : Nat) (rule mode source : String)
     ⟨"exact mode", (← text report "mode") == mode⟩,
     ⟨"no unresolved evidence", (← array report "unresolved").isEmpty⟩,
     ⟨"exact census", (← field account "census") == Json.mkObj [
-      ("modules", toJson #[nameJson "Example"]), ("declarations", toJson #[key]),
+      ("modules", toJson #[nameJson "Example"]),
+      ("dependencyModules", toJson (#[] : Array Json)), ("declarations", toJson #[key]),
       ("executionRoots", toJson (#[] : Array Json)),
       ("historyRequests", toJson (#[] : Array Json))]⟩,
     ⟨"reflexivity admitted", required.contains key⟩,

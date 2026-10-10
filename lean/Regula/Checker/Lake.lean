@@ -23,12 +23,94 @@ structure RootInventory where
   leanLibDir : FilePath
   deriving Repr, BEq
 
-/-- Exact source locations already discovered through Lake for root-package
-modules. Reuse these for frontend history instead of a module-prefix search. -/
+/-- The root package's source-bound modules with the exact source Lake resolves for each: every
+module of its libraries and its executable roots. The audit binds these sources, and replays a
+root-package module wherever an environment loads it. An owned dependency's sources stay with its
+package (`DependencyInventory.sources`), since two packages can give one module name different
+sources; a project audit binds those that each environment loads
+(`Environment.dependencyBindings`). Reuse them for frontend history instead of a module-prefix
+search. -/
 def SurfaceInventory.moduleSources (inventory : SurfaceInventory) : Array (Name × FilePath) :=
   inventory.libraries.flatMap (fun library => library.sources.map fun source =>
     (source.«module», source.source)) ++
     inventory.executables.map (fun executable => (executable.root, executable.source))
+
+/-- What the audit owns beyond the requested modules: the compiled-module output directories of
+the owned packages (the root package's, then each owned dependency's), the root package and the
+owned dependencies with the modules each provides by its own module resolution
+(`TargetInventory.modules`) and, in a copy, the copy's directory. A module loaded from below one of
+those directories is the project's own output, so an environment that loads such a module without
+owning it is refused (`unownedModules`); a loaded module is attributed to an owned package only
+when its `.olean` is exactly that package's artifact of it (`Environment.attributeLoaded`); and in
+a copy an owned module that resolves elsewhere is refused (`outsideCopy`). -/
+def SurfaceInventory.ownership (inventory : SurfaceInventory) : Ownership :=
+  let owned := inventory.dependencies.filter (·.owned)
+  let provided (targets : Array TargetInventory) : Array Name :=
+    (targets.flatMap (·.modules)).foldl (fun names name =>
+      if names.contains name then names else names.push name) #[]
+  { outputs := #[inventory.leanLibDir] ++ owned.map (·.leanLibDir)
+    root := some { package := inventory.package, output := inventory.leanLibDir
+                   modules := provided inventory.targets }
+    dependencies := owned.map fun dependency =>
+      { package := dependency.package, output := dependency.leanLibDir
+        modules := provided dependency.targets }
+    copy := inventory.copy }
+
+/-- The directory of the running checker's own package: the one whose Lake build holds the
+library the running checker loads its infrastructure from (`checkerPackageLibDir`), under Lake's
+default layout (`<package>/.lake/build/lib/lean`), on real paths. It is `none` when that library
+is not found or does not lie at that place. The checker's own build is Lake's default layout. -/
+def checkerPackageDir : IO (Option FilePath) := do
+  let some lib ← checkerPackageLibDir | return none
+  let lib ← try IO.FS.realPath lib catch _ => return none
+  let components := lib.components
+  let layout := [_root_.Lake.defaultLakeDir.toString, "build", "lib", "lean"]
+  unless layout.isSuffixOf components do return none
+  return some (System.mkFilePath (components.take (components.length - layout.length)))
+
+/-- The source of module `name` in the running checker's own package at `checker`: its libraries
+keep their sources below `lean`. -/
+def checkerSource (checker : FilePath) (name : Name) : FilePath :=
+  Lean.modToFilePath (checker / "lean") name "lean"
+
+/-- Refuse a module that package `package` provides under a prefix reserved to the checker
+(`reservedModule`) unless its source `source` holds exactly the text of the running checker's own
+source of that module (`checkerSource` of `checker`). `modules` are the package's own library and
+executable modules with their sources, as the package's configuration gives them, before Lake
+resolves each name to one package of the workspace. A module that the package provides with that
+text is compiled from the same text as the checker's own artifact of that name, which the reporter's
+overlay loads in its place. -/
+def checkReservedModules (checker : Option FilePath) (package : String)
+    (modules : Array (Name × FilePath)) : IO Unit := do
+  for (name, source) in modules do
+    unless reservedModule name do continue
+    let refuse {α : Type} (reason : String) : IO α :=
+      throw <| IO.userError s!"lake-query-malformed: package '{package}' provides module {name} \
+        under a prefix reserved to the checker ({", ".intercalate reservedPrefixes.toList}), \
+        {reason}"
+    let some checker := checker
+      | refuse "and the running checker's own package cannot be located"
+    let own := checkerSource checker name
+    let same ← try
+        pure ((← IO.FS.readBinFile source) == (← IO.FS.readBinFile own))
+      catch _ => pure false
+    unless same do
+      refuse s!"with a source {source} that is not the text of the running checker's own source \
+        {own}"
+
+/-- Lake's default output directories of a package, by configuration field: `buildDir`,
+`leanLibDir`, `nativeLibDir`, `binDir` and `irDir`, with Lake's own default values. -/
+def defaultOutputDirectories : Array (String × FilePath) :=
+  #[("buildDir", _root_.Lake.defaultBuildDir), ("leanLibDir", _root_.Lake.defaultLeanLibDir),
+    ("nativeLibDir", _root_.Lake.defaultNativeLibDir), ("binDir", _root_.Lake.defaultBinDir),
+    ("irDir", _root_.Lake.defaultIrDir)]
+
+/-- The output directories of a package as its loaded configuration sets them, in the fields and
+order of `defaultOutputDirectories`, with no path resolved. -/
+def packageOutputDirectories (package : _root_.Lake.Package) : Array (String × FilePath) :=
+  #[("buildDir", package.config.buildDir), ("leanLibDir", package.config.leanLibDir),
+    ("nativeLibDir", package.config.nativeLibDir), ("binDir", package.config.binDir),
+    ("irDir", package.config.irDir)]
 
 private def checkSource (repo : FilePath) (what : String)
     (moduleName sourceRaw : String) : IO FilePath := do
@@ -73,6 +155,66 @@ def buildableModules (library : _root_.Lake.LeanLib) : IO (Array Name) := do
     glob.forEachModuleIn library.srcDir fun name => names.modify (·.push name)
   names.get
 
+/-- Each library and executable of `package`, with the modules it provides by the package's own
+module resolution (`buildableModules`, each once in `Name.quickLt` order, and an executable's root) and the options it builds them with
+(`libraryOptions`, `executableOptions`); and each of those modules with its source path as the
+package's configuration gives it, before Lake resolves each name to one package of the workspace.
+-/
+def packageModules (package : _root_.Lake.Package) :
+    IO (Array TargetInventory × Array (Name × FilePath)) := do
+  let mut targets : Array TargetInventory := #[]
+  let mut sources : Array (Name × FilePath) := #[]
+  for library in package.leanLibs do
+    let modules := ((← buildableModules library).foldl NameSet.insert {}).toArray.qsort Name.quickLt
+    targets := targets.push
+      { target := s!"lean_lib {library.name}", modules, options := libraryOptions library }
+    sources := sources ++ modules.map fun name =>
+      (name, Lean.modToFilePath library.srcDir name "lean")
+  for exe in package.leanExes do
+    targets := targets.push
+      { target := s!"lean_exe {exe.name}", modules := #[exe.root.name]
+        options := executableOptions exe }
+    sources := sources.push (exe.root.name, exe.root.leanFile)
+  return (targets, sources)
+
+/-- Refuse a module name that more than one package of the workspace provides by its own module
+resolution (`TargetInventory.modules`). `packages` gives each package's name with its targets, the
+root package first. An audit supports one provider for each module name: Lake refuses an import of
+a name with two providers only when it finds their definitions distinct, and which one's artifact an
+environment loads otherwise follows the search path, not the package. -/
+def checkOneProvider (packages : Array (String × Array TargetInventory)) : IO Unit := do
+  let mut providers : Std.HashMap Name String := {}
+  for (package, targets) in packages do
+    for target in targets do
+      for name in target.modules do
+        match providers[name]? with
+        | some other =>
+          unless other == package do
+            throw <| IO.userError s!"lake-query-malformed: module {name} is provided by package \
+              '{other}' and by package '{package}'; an audit supports one provider for each \
+              module name of the workspace"
+        | none => providers := providers.insert name package
+
+/-- Refuse the root package or an owned dependency of the inventory whose loaded configuration sets
+an output directory other than Lake's default (`defaultOutputDirectories`), compared by value with
+no path resolved. Every audit decides this from Lake's load of the workspace (`surfaceInventory`),
+incremental or fresh, before it builds the project or a copy, and the `lake lint` driver before it
+builds its audit worker (`Lint.lint`); Lake's build of the program that runs the audit, of the
+checker's own package, comes first. An owned package's compiled modules are then exactly at
+`.lake/build/lib/lean` below its directory, where each loaded artifact is attributed
+(`Environment.attributeLoaded`), and no build of a copy reads or writes a directory that its
+configuration puts elsewhere. -/
+def checkDefaultLayout (inventory : SurfaceInventory) : IO Unit := do
+  let packages := #[(inventory.package, inventory.outputDirectories)] ++
+    (inventory.dependencies.filter (·.owned)).map fun dependency =>
+      (dependency.package, dependency.outputDirectories)
+  for (package, directories) in packages do
+    for (field, value) in directories do
+      unless defaultOutputDirectories.contains (field, value) do
+        throw <| IO.userError s!"lake-workspace-load-failed: an audit requires Lake's default \
+          output layout of the root package and each owned dependency, but package \
+          '{package}' sets {field} = {value}"
+
 /-- Obtain every root-package Lean library and executable, exact module, and
 exact source from Lake's own elaborated package model. This loads the checked
 project's workspace in-process, so `lakefile.lean` and `lakefile.toml`
@@ -80,6 +222,9 @@ projects share one discovery path and need no custom Lake facets. -/
 def surfaceInventory (repo : FilePath) : IO SurfaceInventory :=
   Workspace.withRootWorkspace repo fun ws => do
     let pkg := ws.root
+    -- Modules under the checker's reserved prefixes must hold the running checker's own source
+    -- text, whatever package provides them (`checkReservedModules`).
+    let checker ← checkerPackageDir
     let leanLibDir := pkg.leanLibDir
     if leanLibDir.toString.isEmpty then
       throw <| IO.userError "lake-query-malformed: root leanLibDir is empty"
@@ -116,15 +261,22 @@ def surfaceInventory (repo : FilePath) : IO SurfaceInventory :=
       executables := executables.push {
         executable, root, source
         options := executableOptions exe }
+    -- The root package's own library and executable modules, as each dependency's below.
+    let (targets, own) ← packageModules pkg
+    checkReservedModules checker pkg.baseName.toString own
     let leanPath := #[leanLibDir] ++ ws.leanPath.toArray
     let leanSrcPath := ws.leanSrcPath.toArray
+    -- A dependency is owned when its directory is in the root package's Git work tree.
+    let rootTree ← gitWorkTree repo
     let dependencies ← (ws.packages.extract 1 ws.packages.size).mapM fun package => do
-      let names ← IO.mkRef ({} : NameSet)
-      for library in package.leanLibs do
-        for name in ← buildableModules library do
-          names.modify (·.insert name)
+      -- The package's own library and executable modules, before Lake resolves each name to one
+      -- package of the workspace.
+      let (targets, own) ← packageModules package
+      checkReservedModules checker package.baseName.toString own
+      let names := (targets.filter (·.target.startsWith "lean_lib ")).foldl
+        (fun names target => target.modules.foldl NameSet.insert names) ({} : NameSet)
       let mut sources := #[]
-      for name in (← names.get).toArray.qsort Name.quickLt do
+      for name in names.toArray.qsort Name.quickLt do
         let some resolved := ws.findModule? name
           | throw <| IO.userError s!"lake-query-malformed: dependency module {name} is unresolved"
         if resolved.pkg.keyName != package.keyName then continue
@@ -145,15 +297,275 @@ def surfaceInventory (repo : FilePath) : IO SurfaceInventory :=
         package.dir / "lean-toolchain", package.dir / "lakefile.lean",
             package.dir / "lakefile.toml"]
         |>.toList.eraseDups.toArray
+      let owned ← ownedDirectory rootTree root
+      if owned && package.leanLibDir.toString.isEmpty then
+        throw <| IO.userError s!"lake-query-malformed: {package.baseName} leanLibDir is empty"
       pure
-          ({ package := package.baseName.toString, root, sources, configurationPaths } :
+          ({ package := package.baseName.toString, root, sources, configurationPaths, owned
+             leanLibDir := package.leanLibDir, scope := package.scope
+             configFile := package.relConfigFile, manifestFile := package.relManifestFile
+             configuration := ← IO.FS.readFile package.configFile
+             outputDirectories := packageOutputDirectories package, targets } :
               DependencyInventory)
+    -- One provider for each module name of the workspace, by each package's own resolution.
+    checkOneProvider (#[(pkg.baseName.toString, targets)] ++
+      dependencies.map fun dependency => (dependency.package, dependency.targets))
     let root ← IO.FS.realPath repo
-    return { root, leanLibDir, leanPath, leanSrcPath, libraries, executables, dependencies }
+    let inventory : SurfaceInventory := {
+      root, package := pkg.baseName.toString, outputDirectories := packageOutputDirectories pkg
+      leanLibDir, leanPath, leanSrcPath, libraries, executables, targets, dependencies }
+    -- Every audit, incremental or fresh, requires Lake's default layout of each owned package.
+    checkDefaultLayout inventory
+    return inventory
+
+/-- What Lake's load of a workspace selects for one dependency package: its name, directory and
+ownership, the configuration and manifest files it reads, the text of that configuration, the
+output directories the configuration sets, each library and executable with the modules it
+provides and the Lean options and arguments it builds them with, and the source of each module, by
+its path components below the directory. A copy of the project must select the same for each
+package, with an owned package's directory relocated into the copy (`checkCopiedWorkspace`). -/
+structure PackageSelection where
+  /-- The package's name. -/
+  package : String
+  /-- The package's real directory. -/
+  dir : FilePath
+  /-- Whether the audit owns the package. -/
+  owned : Bool
+  /-- The configuration file, relative to `dir`. -/
+  configFile : FilePath
+  /-- The manifest file, relative to `dir`. -/
+  manifestFile : FilePath
+  /-- The text of the configuration file. -/
+  configuration : String
+  /-- The output directories the configuration sets (`packageOutputDirectories`). -/
+  outputDirectories : Array (String × FilePath)
+  /-- Each library and executable of the package with the modules it provides and the Lean options
+  and extra `lean` arguments it builds them with (`packageModules`). -/
+  targets : Array TargetInventory
+  /-- Each module with the path components of its source below `dir`. -/
+  sources : Array (Name × List String)
+  deriving BEq, Repr
+
+/-- The selection that an inventory records for a dependency package. -/
+def DependencyInventory.selection (dependency : DependencyInventory) : PackageSelection :=
+  let base := dependency.root.normalize.components.length
+  { package := dependency.package, dir := dependency.root, owned := dependency.owned
+    configFile := dependency.configFile, manifestFile := dependency.manifestFile
+    configuration := dependency.configuration, outputDirectories := dependency.outputDirectories
+    targets := dependency.targets
+    sources := dependency.sources.map fun source =>
+      (source.«module», source.source.normalize.components.drop base) }
+
+/-- What Lake's load of a copy of the project must select: for the root package, each library and
+executable with its modules and options, and for each dependency package its selection, with an
+owned package's directory relocated into the copy. -/
+structure CopySelection where
+  /-- The root package's targets (`SurfaceInventory.targets`). -/
+  root : Array TargetInventory
+  /-- Each dependency package's selection. -/
+  dependencies : Array PackageSelection
+
+/-- A copy of a project made by `copyProject`. -/
+structure ProjectCopy where
+  /-- The root of the copied project. -/
+  project : FilePath
+  /-- The real directory of the copy, which holds the copied project and each copied owned path
+  dependency. -/
+  root : FilePath
+  /-- What the copy's Lake load must select: the original's selection, with an owned package's
+  directory relocated into the copy. -/
+  selection : CopySelection
+
+/-- The real directory that Lake's load of the copy at `project` gives the manifest entry `entry`
+when no override replaces it, as `Lake.PackageEntry.materialize` computes it (Lake
+`Load/Materialize.lean`, v4.34.1): a `path` entry's directory from the workspace's, and a Git
+entry's checkout in the packages directory `packagesDir`, below its subdirectory if it names one;
+`none` when that directory does not exist. -/
+def manifestDirectory (project packagesDir : FilePath) (entry : _root_.Lake.PackageEntry) :
+    IO (Option FilePath) := do
+  let dir := match entry.src with
+    | .path dir => project / dir
+    | .git (subDir? := subDir?) .. =>
+      let checkout := project / packagesDir / entry.dirName
+      match subDir? with
+      | some subDir => checkout / subDir
+      | none => checkout
+  try some <$> IO.FS.realPath dir catch _ => pure none
+
+/-- Lake reads `.lake/package-overrides.json` on every workspace load, and the copy at `project`
+holds the project's manifest but no `.lake` (`copyProject`). Record there an override entry for
+each pair of `dependencies` whose dependency the copy's manifest entry of its name would not load
+as the pair requires: from the directory of the pair, through the same configuration file and
+manifest file as the original's load. The entry is a `path` entry to that directory with those
+files. So the copy's configuration stays the project's when no dependency needs one.
+`checkCopiedWorkspace` compares Lake's load of the copy with the original's, so an entry that this
+decides wrongly is refused there, not trusted. -/
+def relocateDependencies (project : FilePath)
+    (dependencies : Array (DependencyInventory × FilePath)) : IO Unit := do
+  let manifest ← _root_.Lake.Manifest.load? (project / "lake-manifest.json")
+  let packagesDir := (manifest.bind (·.packagesDir?)).getD _root_.Lake.defaultPackagesDir
+  let entries := (manifest.map (·.packages)).getD #[]
+  let mut overrides : Array _root_.Lake.PackageEntry := #[]
+  for (dependency, dir) in dependencies do
+    let entry := entries.find? (·.name.toString == dependency.package)
+    let same ← match entry with
+      | some entry =>
+          pure ((← manifestDirectory project packagesDir entry) == some dir &&
+            entry.configFile == dependency.configFile &&
+            entry.manifestFile? == some dependency.manifestFile)
+      | none => pure false
+    unless same do
+      overrides := overrides.push {
+        name := (entry.map (·.name)).getD dependency.package.toName, scope := dependency.scope
+        inherited := false
+        configFile := dependency.configFile, manifestFile? := some dependency.manifestFile
+        src := .path dir }
+  if overrides.isEmpty then return
+  IO.FS.createDirAll (project / ".lake")
+  _root_.Lake.Manifest.saveEntries (project / ".lake" / "package-overrides.json") overrides
+
+/-- Copy a checked project into `target`, skipping VCS data, Lake build state, machine artifact
+caches, the checker's scratch areas, the `exclude` path that receives the copy, and every part of a
+compiled module (`isModulePart`), so the copy holds no compiled module until it builds one. Each
+dependency the audit owns, as Lake's own load of the project selects it (`surfaceInventory`), is
+copied too, and the copy builds it: the project and those dependencies keep their places relative
+to the deepest directory that holds them all, which `target` stands for, so the copy of a project
+in `audit/` of a repository whose root its path dependency is holds the repository with the project
+at `target/audit`. Dependency checkouts are shared through a link at the copy's packages directory,
+so a fresh build in the copy does not refetch or rebuild dependencies, and each dependency that the
+copy's manifest would not load as the original's load does is given an override
+(`relocateDependencies`). The packages directory is the one the project's manifest records,
+`.lake/packages` by default; a relative one outside the project, such as a nested package's
+`../.lake/packages`, is linked at the same relative place from the copied project, which must lie
+inside `exclude`. -/
+def copyProject (repo target exclude : FilePath) : IO ProjectCopy := do
+  IO.FS.createDirAll target
+  let root ← IO.FS.realPath repo
+  let original ← surfaceInventory repo
+  let owned := (original.dependencies.filter (·.owned)).foldl (fun dirs dependency =>
+    if dependency.root == root || dirs.contains dependency.root then dirs
+    else dirs.push dependency.root) #[]
+  let directories := #[root] ++ owned
+  let base := directories.foldl (fun acc dir => commonPrefix acc dir.normalize.components)
+    root.normalize.components
+  let place := fun (dir : FilePath) =>
+    (dir.normalize.components.drop base.length).foldl (· / FilePath.mk ·) target
+  let excludeComponents := exclude.normalize.components
+  let excludeReal := (← IO.FS.realPath exclude).normalize.components
+  -- Exclusion is closed under descendants. Prune before traversal: filtering
+  -- afterwards still visits dependency checkouts and every prior scratch copy.
+  -- VCS data, Lake build state, artifact caches and the checker's scratch
+  -- directories are pruned at every depth (a nested Lake workspace such as a
+  -- committed example adopter carries its own `.lake` with full dependency
+  -- checkouts, and a nested package audited on its own keeps its scratch under
+  -- its own `.lake`, or under its own `tmp/` when an older Regula audited it);
+  -- the rest of the `tmp/` directory is pruned only at the project root and at the root of each
+  -- owned path dependency, where it lives.
+  let prunedAnywhere := fun (component : String) =>
+    component == ".git" || component == _root_.Lake.defaultLakeDir.toString ||
+      component == ".cache" || component == Regula.Scratch.legacyDirName
+  let tmpDirectories := directories.map fun dir => dir.normalize.components ++ ["tmp"]
+  -- Each directory is walked on its own, and a walk skips the others below it: one of them can
+  -- lie in a directory that the walk prunes, as a project in the scratch area of a repository
+  -- that is its own path dependency does.
+  for top in directories do
+    let sourceComponents := top.normalize.components
+    let others := (directories.filter (· != top)).map (·.normalize.components)
+    let includePath := fun (path : FilePath) =>
+      let components := path.normalize.components
+      !excludeComponents.isPrefixOf components && !excludeReal.isPrefixOf components &&
+        !tmpDirectories.any (·.isPrefixOf components) &&
+        !others.any (fun other => other.length > sourceComponents.length &&
+          other.isPrefixOf components) &&
+        !(components.drop sourceComponents.length).any prunedAnywhere
+    for path in ← top.walkDir (fun path => pure (includePath path)) do
+      let components := path.normalize.components
+      if components == sourceComponents || !includePath path then
+        continue
+      let relative := components.drop sourceComponents.length
+      let destination := relative.foldl (· / FilePath.mk ·) (place top)
+      if ← path.isDir then
+        IO.FS.createDirAll destination
+      else if !isModulePart (path.fileName.getD "") then
+        if let some parent := destination.parent then IO.FS.createDirAll parent
+        IO.FS.writeBinFile destination (← IO.FS.readBinFile path)
+  let project := place root
+  IO.FS.createDirAll project
+  let packagesDir := ((← _root_.Lake.Manifest.load? (repo / "lake-manifest.json")).bind
+    (·.packagesDir?)).getD _root_.Lake.defaultPackagesDir
+  let packages := repo / packagesDir
+  if ← packages.isDir then
+    let projectComponents := project.normalize.components
+    unless excludeComponents.isPrefixOf projectComponents do
+      throw <| IO.userError s!"could not link pinned Lake packages: the copy {project} is not \
+        inside {exclude}"
+    -- `joinWithin_extends`: the link lies inside `exclude`, which the caller removes.
+    let some linkComponents := if packagesDir.isAbsolute then none else
+        joinWithin excludeComponents (projectComponents.drop excludeComponents.length ++
+          packagesDir.normalize.components)
+      | throw <| IO.userError s!"could not link pinned Lake packages: the packages directory \
+          {packagesDir} is not a relative path that stays inside {exclude} from the copy"
+    let link : FilePath := System.mkFilePath linkComponents
+    if let some parent := link.parent then IO.FS.createDirAll parent
+    let linked ← runProcess project "ln" #["-s", (← IO.FS.realPath packages).toString,
+      link.toString]
+    if !linked.succeeded then
+      throw <| IO.userError s!"could not link pinned Lake packages: {linked.output}"
+  let placeOf (dir : FilePath) : IO FilePath := do
+    IO.FS.createDirAll (place dir)
+    IO.FS.realPath (place dir)
+  let dependencies ← original.dependencies.mapM fun dependency => do
+    return (dependency, ← if dependency.owned then placeOf dependency.root else pure dependency.root)
+  relocateDependencies project dependencies
+  return { project, root := ← IO.FS.realPath target
+           selection := {
+             root := original.targets
+             dependencies := dependencies.map fun (dependency, dir) =>
+               { dependency.selection with dir } } }
+
+/-- Admit the inventory of a copy whose real directory is `root` and mark it as that copy
+(`SurfaceInventory.copy`), so that each environment refuses an owned module that the copy's own
+build did not produce (`Environment.ModuleGraph.outsideCopy`). The copy's inventory already keeps
+Lake's default output layout of each owned package and one provider for each module name
+(`surfaceInventory`). Lake's own load of the copy must select exactly what `expected` gives
+(`ProjectCopy.selection`): for the root package the same targets, each with the same modules and
+options, and the same dependency packages, each with the same selection. With no `expected`, for a
+copy that the verification driver made, the copy must own no dependency. -/
+def checkCopiedWorkspace (root : FilePath) (expected : Option CopySelection)
+    (inventory : SurfaceInventory) : IO SurfaceInventory := do
+  let refuse {α : Type} (detail : String) : IO α :=
+    throw <| IO.userError s!"lake-workspace-load-failed: in the copy of the project, {detail}"
+  match expected with
+  | none =>
+    for dependency in inventory.dependencies do
+      if dependency.owned then
+        refuse s!"path dependency '{dependency.package}' at {dependency.root} is owned there but \
+          was not copied"
+  | some expected =>
+    unless inventory.targets == expected.root do
+      refuse s!"Lake loads the root package '{inventory.package}' with libraries and executables, \
+        their modules or their Lean options and arguments that differ from what it loads for the \
+        project"
+    for dependency in inventory.dependencies do
+      let some wanted := expected.dependencies.find? (·.package == dependency.package)
+        | refuse s!"dependency '{dependency.package}' at {dependency.root} is not one of the \
+            project's"
+      unless dependency.selection == wanted do
+        refuse s!"Lake loads dependency '{dependency.package}' from {dependency.root} with \
+          configuration {dependency.configFile} and manifest {dependency.manifestFile}, which \
+          differs from what it loads for the project: from {wanted.dir} with configuration \
+          {wanted.configFile} and manifest {wanted.manifestFile}, and the same configuration text, \
+          output directories, libraries and executables with their modules, Lean options and \
+          arguments, ownership and module sources"
+    for wanted in expected.dependencies do
+      unless inventory.dependencies.any (·.package == wanted.package) do
+        refuse s!"the project's dependency '{wanted.package}' is missing"
+  return { inventory with copy := some root }
 
 /-- A target of the claimed surface that a checker build requests: a library or an executable of
 the root package, by a spelling that names it, or the Lean artifacts of a module of the root
-package. `Build.run` finds each among the root package's own targets; it never reads a spelling
+package or of a library of the workspace. `Build.run` finds each among the root package's own
+targets, and a module otherwise among the workspace's library modules; it never reads a spelling
 as Lake target syntax, in which a `/` would name a package. -/
 inductive SurfaceTarget where
   /-- The library of the root package whose recorded spelling (`Manifest.targetSpelling` of its
@@ -162,7 +574,9 @@ inductive SurfaceTarget where
   | library (spelling : String)
   /-- The executable of the root package that `spelling` names, as for `library`. -/
   | executable (spelling : String)
-  /-- The Lean artifacts (`leanArts`) of the module `name` of a target of the root package. -/
+  /-- The Lean artifacts (`leanArts`) of the module `name` of a target of the root package, or else
+  of the library module `name` of the workspace (`Lake.Workspace.findModule?`), of which
+  `surfaceInventory` admits one provider, as a fresh audit builds an owned dependency's module. -/
   | moduleArtifacts (name : Name)
   deriving Inhabited, BEq, Repr
 
@@ -185,8 +599,8 @@ itself: for a library, its default facets, as `lake build` builds a library, and
 each of its modules, as Lake's globs give them; for an executable, its default facet and the
 artifacts of its root module; for a module, its artifacts. Each request is made of Lake's own
 target and facet objects as Lake's target resolution makes it (`mkConfigBuildSpec`). A spelling
-that names no library or executable of the root package, a module of none of its targets, and a
-library without a module refuse. -/
+that names no library or executable of the root package, a module of none of its targets and of no
+library of the workspace, and a library without a module refuse. -/
 private def surfaceRequest (ws : _root_.Lake.Workspace) (target : SurfaceTarget) :
     IO (Array _root_.Lake.BuildSpec × Array _root_.Lake.Module) := do
   let artifacts (mod : _root_.Lake.Module) : IO _root_.Lake.BuildSpec := do
@@ -216,8 +630,9 @@ private def surfaceRequest (ws : _root_.Lake.Workspace) (target : SurfaceTarget)
       { info := exe.facetCore config.name, buildable := config.buildable }
     return (#[executable, ← artifacts exe.root], #[exe.root])
   | .moduleArtifacts name =>
-    let some mod := ws.root.findTargetModule? name
-      | throw <| IO.userError s!"{name} is a module of no target of the root package"
+    let some mod := ws.root.findTargetModule? name <|> ws.findModule? name
+      | throw <| IO.userError s!"{name} is a module of no target of the root package and of no \
+          library of the workspace"
     return (#[← artifacts mod], #[mod])
 
 /-- A build the checker runs: the Lean options it sets on the root package, if any, and the lines
@@ -238,7 +653,8 @@ exits 1. The inherited `LEAN_PATH` and `LEAN_SRC_PATH` are ignored, so the build
 only through that workspace. No package reads or writes Lake's artifact cache
 (`Workspace.uncachedWorkspace`), and no module of the root package keeps a trace that records a
 restore from it (`Workspace.dropRestoredTraces`). A target of the claimed surface is found among
-the root package's own libraries, executables and modules (`surfaceRequest`), or the build fails.
+the root package's own libraries, executables and modules, or a module among the workspace's
+library modules (`surfaceRequest`), or the build fails.
 For each, the build also requests the Lean artifacts of each of its modules, whatever the
 library's default facets, so Lake elaborates each such module or replays the log of the
 elaboration that wrote its trace, and its warnings are in the output. Afterwards each such

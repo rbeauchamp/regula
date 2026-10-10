@@ -67,8 +67,8 @@ structure ReportWorkerRequest where
   sourceRoots : Array String
   /-- The coordinator's captured sources, which must stay unchanged and bind the report. -/
   sourceBindings : Array ProducerReport.SourceBinding
-  /-- The root package's compiled-module output directory. -/
-  ownedOutput : String
+  /-- What the audit owns beyond the requested modules (`SurfaceInventory.ownership`). -/
+  ownership : Ownership
   /-- Directory the coordinator owns for this audit, where surface workers share
   replacement-history worker output (`Environment.historyWorkerOutput`). -/
   historyMemo : String
@@ -84,14 +84,14 @@ structure ReportWorkerRequest where
 
 instance : FromJson ReportWorkerRequest := ⟨fun j => do
   Regula.Checker.PolicyCodec.exactFields j
-      ["modules", "searchRoots", "sourceRoots", "sourceBindings", "ownedOutput",
+      ["modules", "searchRoots", "sourceRoots", "sourceBindings", "ownership",
     "historyMemo", "priors", "publish"]
   return {
     modules := ← j.getObjValAs? _ "modules"
     searchRoots := ← j.getObjValAs? _ "searchRoots"
     sourceRoots := ← j.getObjValAs? _ "sourceRoots"
     sourceBindings := ← j.getObjValAs? _ "sourceBindings"
-    ownedOutput := ← j.getObjValAs? _ "ownedOutput"
+    ownership := ← j.getObjValAs? _ "ownership"
     historyMemo := ← j.getObjValAs? _ "historyMemo"
     priors := ← j.getObjValAs? _ "priors"
     publish := ← j.getObjValAs? _ "publish"
@@ -126,6 +126,13 @@ structure SurfaceEnvironment where
   executable : Option Lake.ExecutableInventory
   /-- The environment's owned modules, as the claim assigns them, and their source files. -/
   info : LibraryInfo
+  /-- The modules of owned dependencies that the environment inspects with its own
+  (`Environment.EnvironmentOwnership.dependencies`), as the coordinator's module-graph pass found
+  them. -/
+  dependencies : Array Name := #[]
+  /-- The source bindings of `dependencies`, each from the owned package the environment loads it
+  from (`Environment.dependencyBindings`). -/
+  dependencySources : Array ProducerReport.SourceBinding := #[]
 
 /-- The environment's name in progress lines and findings: the surface's library, followed by
 the executable's name for an executable's environment. -/
@@ -340,7 +347,7 @@ caller compares every frozen part again after the inspections (`changedArtifact?
 worker publishes its admission as soon as kernel admission succeeds, before it builds its report,
 and its report is accepted only when it records that same admission, reuses nothing its offers
 do not justify (`Admission.reuseJustified`) and leaves no owned module it loaded unreplayed
-(`Admission.accountsFor`). A refusal (an admission failure, or root-package output outside every
+(`Admission.accountsFor`). A refusal (an admission failure, or owned-package output outside every
 owned module) is an `.error` outcome; an IO failure is kept as a value, so every started worker
 is joined. -/
 def inspect (inventory : Lake.SurfaceInventory)
@@ -372,12 +379,15 @@ def inspect (inventory : Lake.SurfaceInventory)
       (priors : Array Admission.PriorAdmission) (environment : SurfaceEnvironment) :
       IO (Except ProducerReport.Refusal SurfaceInspection) := do
     let info := environment.info
+    -- The root package's bindings, then those of the dependency modules this environment
+    -- inspects, each from the package it loads the module from.
+    let bindings := sourceBindings ++ environment.dependencySources
     let request : ReportWorkerRequest := {
       modules := info.modules
       searchRoots := inventory.leanPath.map (·.toString)
       sourceRoots := inventory.leanSrcPath.map (·.toString)
-      sourceBindings
-      ownedOutput := inventory.leanLibDir.toString
+      sourceBindings := bindings
+      ownership := inventory.ownership
       historyMemo := historyMemo.toString
       -- The worker selects modules by the offered modules and origins; the admitted keys are
       -- the coordinator's own check of the report (`Admission.reuseJustified`).
@@ -392,12 +402,25 @@ def inspect (inventory : Lake.SurfaceInventory)
     let .ok admitted := outcome
       | throw <| IO.userError "unreachable admission outcome"
     let report := admitted.report
-    if let .error failure := SourceBinding.validateAgainst sourceBindings report then
+    if let .error failure := SourceBinding.validateAgainst bindings report then
       return .error (.admission failure)
+    -- The worker inspected exactly the dependency modules the coordinator found.
+    unless report.census.dependencyModules == environment.dependencies do
+      return .error (.admission ⟨s!"{Admission.failureTag} {environment.label} inspected other \
+        modules of owned dependencies than its module graph imports"⟩)
     unless Admission.reuseJustified priors report do
       return .error (.admission ⟨s!"{Admission.failureTag} {environment.label} reused an \
         admission no earlier environment offered over the same import closure"⟩)
-    unless Admission.accountsFor owned report do
+    -- The modules this environment owns, by the decision its worker made
+    -- (`Environment.EnvironmentOwnership.of`): an owned dependency's module only where a requested
+    -- module imports it or it imports an owned module.
+    let mut loaded : Array (Lean.Name × Nat) := #[]
+    match ← Environment.attributeLoaded report.moduleOrigins inventory.ownership with
+    | .ok attributed => loaded := attributed
+    | .error detail => return .error (.admission ⟨detail⟩)
+    let ownedHere := NameSet.ofArray (Environment.EnvironmentOwnership.of report.moduleOrigins
+      report.census.modules (bindings.map (·.moduleName)) (loaded.map Prod.fst)).modules
+    unless Admission.accountsFor ownedHere report do
       return .error (.admission ⟨s!"{Admission.failureTag} {environment.label} loaded an owned \
         module that its admission neither replayed nor reused"⟩)
     -- Later environments started from the published admission, so it must be the report's.
@@ -408,11 +431,14 @@ def inspect (inventory : Lake.SurfaceInventory)
     -- keep the order of the former sequential loop.
     let modules := candidateModules report.declarations
     let attempts ← mapWorkQueue 3 modules fun moduleName => do
-      let some source := info.sources.find? (·.«module» == moduleName)
+      -- A module of an owned dependency has its source among this environment's bindings.
+      let some source := (info.sources.find? (·.«module» == moduleName)).map (·.source) <|>
+          (environment.dependencySources.find? (·.moduleName == moduleName)).map
+            (FilePath.mk ·.path)
         | return Sum.inl s!"frontend-source-missing: {moduleName}"
       try
         return Sum.inr (← withSlot slots <| timedPhase s!"frontend attribution {moduleName}" <|
-          Frontend.buildIsolated moduleName source.source inventory.leanPath)
+          Frontend.buildIsolated moduleName source inventory.leanPath)
       catch error =>
         return Sum.inl s!"frontend-transcript-failed: {moduleName}: {error}"
     let mut frontendFailures : Array String := #[]
@@ -421,7 +447,7 @@ def inspect (inventory : Lake.SurfaceInventory)
       match attempt with
       | .inl failure => frontendFailures := frontendFailures.push failure
       | .inr transcript => transcripts := transcripts.push transcript
-    if let .error failure := SourceBinding.transcriptsMatch sourceBindings transcripts then
+    if let .error failure := SourceBinding.transcriptsMatch bindings transcripts then
       return .error (.admission failure)
     return .ok { info, admitted, transcripts, frontendFailures }
   let count := environments.size

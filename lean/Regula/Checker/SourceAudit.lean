@@ -89,9 +89,10 @@ structure GroupRequest where
   /-- The captured source of each module; the worker refuses if any changes or the report
   disagrees with it. -/
   sourceBindings : Array ProducerReport.SourceBinding
-  /-- A build-output directory whose modules must all be requested or sourced; an imported
-  module found there otherwise is refused as `unexpected-project-module`. -/
-  ownedOutput : Option String := none
+  /-- What the audit owns (`Ownership`): build-output directories whose loaded modules must all be
+  requested or sourced, an imported module found there otherwise being refused as
+  `unexpected-project-module`, and the modules of the owned dependencies. -/
+  ownership : Ownership := {}
   /-- Also report execution roots and the execution closure. -/
   includeExecution : Bool := true
   /-- Report each loaded module's `.olean` origin and imports; they are also reported whenever
@@ -101,11 +102,11 @@ structure GroupRequest where
 
 instance : FromJson GroupRequest := ⟨fun j => do
   Regula.Checker.PolicyCodec.exactFields j
-      ["modules", "sourceBindings", "ownedOutput", "includeExecution", "includeModuleOrigins"]
+      ["modules", "sourceBindings", "ownership", "includeExecution", "includeModuleOrigins"]
   return {
     modules := ← j.getObjValAs? _ "modules"
     sourceBindings := ← j.getObjValAs? _ "sourceBindings"
-    ownedOutput := ← j.getObjValAs? _ "ownedOutput"
+    ownership := ← j.getObjValAs? _ "ownership"
     includeExecution := ← j.getObjValAs? _ "includeExecution"
     includeModuleOrigins := ← j.getObjValAs? _ "includeModuleOrigins"
   }⟩
@@ -127,7 +128,7 @@ unsafe def inspectGroupWorker (request : GroupRequest) : IO ProducerReport.Outco
     let moduleSources := request.sourceBindings.map fun source =>
       (source.moduleName, FilePath.mk source.path)
     let outcome ← Environment.loadReportCurrentSearchPathOutcome request.modules moduleSources
-      (request.ownedOutput.map FilePath.mk) request.includeExecution request.includeModuleOrigins
+      request.ownership request.includeExecution request.includeModuleOrigins
     if let .ok report := outcome then
       if let .error failure := SourceBinding.validateAgainst request.sourceBindings report then
         return .error (.admission failure)
@@ -141,7 +142,7 @@ a source changes, a compiled source differs from the captured one, or the report
 sources disagree with the request. -/
 def inspectGroupCurrentSearchPath (modules : Array Name)
     (transcriptSources : Array (Name × FilePath) := #[])
-    (moduleSources : Array (Name × FilePath) := #[]) (ownedOutput : Option FilePath := none)
+    (moduleSources : Array (Name × FilePath) := #[]) (ownership : Ownership := {})
     (includeExecution : Bool := true) (includeModuleOrigins : Bool := true)
     (compiledSources : Array ProducerReport.SourceBinding := #[]) :
     IO (Except ProducerReport.Refusal GroupReport) := do
@@ -164,7 +165,7 @@ def inspectGroupCurrentSearchPath (modules : Array Name)
         let request : GroupRequest := {
           modules
           sourceBindings
-          ownedOutput := ownedOutput.map (·.toString)
+          ownership
           includeExecution
           includeModuleOrigins
         }
@@ -339,7 +340,7 @@ its source stays unchanged; throws when the compilation did not pass, and return
 admission failure or unowned imported modules) as `.error`. -/
 unsafe def inspectOutcome (value : Compilation) (extraSearchRoots : Array FilePath := #[])
     (sourceRoots : Array FilePath := #[])
-    (moduleSources : Array (Name × FilePath) := #[]) (ownedOutput : Option FilePath := none) :
+    (moduleSources : Array (Name × FilePath) := #[]) (ownership : Ownership := {}) :
     IO (Except ProducerReport.Refusal Inspected) := do
   if !compilationPassed value then
     throw <| IO.userError s!"source did not elaborate: {value.spec.«module»}"
@@ -356,7 +357,7 @@ unsafe def inspectOutcome (value : Compilation) (extraSearchRoots : Array FilePa
         sources #[] do
       let reportResult ← Environment.loadReportOutcome #[value.spec.«module».toName]
           (#[scratch] ++ extraSearchRoots) sourceRoots
-        (sources.map fun s => (s.moduleName, FilePath.mk s.path)) ownedOutput
+        (sources.map fun s => (s.moduleName, FilePath.mk s.path)) ownership
       if let .error failure := reportResult then return .error failure
       let .ok report := reportResult
         | throw <| IO.userError "unreachable admission outcome"
@@ -378,15 +379,15 @@ unsafe def inspectOutcome (value : Compilation) (extraSearchRoots : Array FilePa
 /-- `inspectOutcome` with a refusal raised as an `IO` error carrying its detail. -/
 unsafe def inspect (value : Compilation) (extraSearchRoots : Array FilePath := #[])
     (sourceRoots : Array FilePath := #[])
-    (moduleSources : Array (Name × FilePath) := #[]) (ownedOutput : Option FilePath := none) :
+    (moduleSources : Array (Name × FilePath) := #[]) (ownership : Ownership := {}) :
     IO Inspected := do
   IO.ofExcept <|
-      (← inspectOutcome value extraSearchRoots sourceRoots moduleSources ownedOutput).mapError
+      (← inspectOutcome value extraSearchRoots sourceRoots moduleSources ownership).mapError
       (·.detail)
 
 /-- Inspect with a caller-owned, already configured Lean search path. -/
 unsafe def inspectCurrentSearchPath (value : Compilation)
-    (moduleSources : Array (Name × FilePath) := #[]) (ownedOutput : Option FilePath := none) :
+    (moduleSources : Array (Name × FilePath) := #[]) (ownership : Ownership := {}) :
         IO Inspected := do
   if !compilationPassed value then
     throw <| IO.userError s!"source did not elaborate: {value.spec.«module»}"
@@ -398,7 +399,7 @@ unsafe def inspectCurrentSearchPath (value : Compilation)
     let sources ← SourceBinding.capture (moduleSources.push (source.moduleName, value.sourcePath))
     let outcome ← SourceBinding.withUnchanged sources #[] do
       let report ← Environment.loadReportCurrentSearchPath #[value.spec.«module».toName]
-        (sources.map fun s => (s.moduleName, FilePath.mk s.path)) ownedOutput
+        (sources.map fun s => (s.moduleName, FilePath.mk s.path)) ownership
       IO.ofExcept <| (SourceBinding.validateAgainst sources report).mapError (·.detail)
       let declarations := report.declarations
       let transcripts : Array Frontend.Transcript ←
@@ -416,13 +417,13 @@ unsafe def inspectCurrentSearchPath (value : Compilation)
 when compilation does not pass, or the inspection error followed by that output. -/
 unsafe def compileAndInspect (repo scratch : FilePath) (spec : SourceSpec)
     (extraSearchRoots : Array FilePath := #[]) (sourceRoots : Array FilePath := #[])
-    (moduleSources : Array (Name × FilePath) := #[]) (ownedOutput : Option FilePath := none) :
+    (moduleSources : Array (Name × FilePath) := #[]) (ownership : Ownership := {}) :
     IO (Except String Inspected) := do
   let compilation ← IO.ofExcept <| (← compile repo scratch spec).mapError (·.detail)
   if !compilationPassed compilation then
     return .error compilation.process.output
   try
-    return .ok (← inspect compilation extraSearchRoots sourceRoots moduleSources ownedOutput)
+    return .ok (← inspect compilation extraSearchRoots sourceRoots moduleSources ownership)
   catch error =>
     return .error s!"{error}\n{compilation.process.output}"
 
