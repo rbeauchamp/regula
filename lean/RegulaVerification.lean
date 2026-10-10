@@ -5,11 +5,14 @@ import Lean
 Cold-start verification plan and operational interpreter. This module imports only
 the pinned toolchain, so it can run before any root-package artifacts exist. Argument
 selection has soundness and round-trip proofs; the interpreter consumes its proof-bearing
-selection. Recipes name Lake targets, not a source-file census. The interpreter runs the
-commands of the selected recipe one after another, starts a command only while every end known
-so far passed, and reports success only when `passed` accepts how each command ended
-(`passed_covers`). The first acceptance step makes its one build in a private copy of the
-project that this driver makes, and the acceptance gate audits that copy (`makeCopy`).
+selection. Recipes name Lake targets, not a source-file census. The interpreter schedules every
+command of the selected recipe (`inOrder_append_beside`), starts a command only while every end
+known so far passed, waits for each command it started, and reports success only when `passed`
+accepts how each scheduled command and each prebuild ended (`passed_covers`). The first
+acceptance step makes its builds in a private copy of the project that this driver makes, and
+the acceptance gate audits that copy (`makeCopy`). That step first builds what the gate audits
+and runs (`prebuild`), then runs the gate beside the rest of the step (`beside`), whose commands
+it starts at low scheduling priority (`Priority`).
 Process effects remain trusted IO under the shell's single 420-second process-group deadline. -/
 namespace RegulaVerification
 
@@ -17,7 +20,8 @@ namespace RegulaVerification
 inductive Mode where
   /-- No argument: the first acceptance step, which makes a private copy of the project, builds
   the acceptance executables and the claimed surfaces of the root package there, runs the
-  registry checks and combined qualification, and audits those surfaces in that copy. -/
+  registry checks and combined qualification, and audits those surfaces in that copy; the audit
+  runs beside the rest of the step once what it audits is built (`beside`). -/
   | ordinary
   /-- `docs`: the second acceptance step: the rule-ID check of every tracked Markdown document,
   the checks C1 to C8 of their prose with the baseline (checks B1 and B2, of which B2 reads the
@@ -212,27 +216,38 @@ private def selftest (selection : Array String) (tools : Array String := #[]) : 
   lake (#["build", "checkerSelftest", "axiomGate"] ++ tools),
   lake (#["exe", "checkerSelftest", "--build-bound"] ++ selection ++ #["--jobs", "4"])]
 
+/-- The targets of the first acceptance step's build that its gate audits or runs: every target
+the surface manifest `foundation_manifest.json` claims (`prebuildCovers`) and the gate's own
+executable. The driver builds them first (`prebuild`), so the gate can start before the rest of
+that build ends. -/
+def gateTargets : List String :=
+  ["RegulaPolicy", "RegulaVerification", "RegulaProvision", "RegulaQualification", "RegulaCore",
+    "AuditApp", "auditApp", "axiomGate"]
+
+/-- The other targets of the first acceptance step's build: the acceptance executables of the
+documentation step and of the qualification controls, and the modules the step type-checks. -/
+def otherTargets : List String :=
+  ["docFenceAudit", "qualify",
+    "+Regula.Checker.CheckerSelftest:olean", "+Regula.Checker.FreshChecker:olean",
+    "+Regula.RegistryChecks:olean", "+Regula.Linter:olean", "+Regula.Checker.LintMain:olean",
+    "+Regula.Checker.RuleExamples:olean", "+Regula.Checker.RuleExampleQualificationMain:olean",
+    "+Regula.Cli.Main:olean", "+Regula.Release:olean", "+Regula.DiagnosticsGate:olean"]
+
 /-- Existing acceptance and diagnostic recipes, executed inside the outer deadline.
 Qualification's private flag retains the already timed process group. `copy` is the root of the
 copy that the first acceptance step builds in, and `pending` the pending record of that run,
 which its gate writes (`makeCopy`); no other mode uses them. -/
 def commands (copy pending : String) : Mode → List Command
   | .ordinary => [
-      -- The one build of the step, in the copy, which has no build output: the acceptance
-      -- executables, the modules the step type-checks, and every claimed target of the root
-      -- package, which the gate then audits in this build output.
-      lakeIn copy
-          #["build", "RegulaPolicy", "RegulaVerification", "RegulaProvision",
-              "RegulaQualification", "RegulaCore", "AuditApp", "auditApp", "axiomGate",
-              "docFenceAudit", "qualify",
-        "+Regula.Checker.CheckerSelftest:olean", "+Regula.Checker.FreshChecker:olean",
-        "+Regula.RegistryChecks:olean", "+Regula.Linter:olean", "+Regula.Checker.LintMain:olean",
-        "+Regula.Checker.RuleExamples:olean", "+Regula.Checker.RuleExampleQualificationMain:olean",
-        "+Regula.Cli.Main:olean", "+Regula.Release:olean", "+Regula.DiagnosticsGate:olean"],
+      -- The build of the step, in the copy: the acceptance executables, the modules the step
+      -- type-checks, and every claimed target of the root package, which the gate audits in
+      -- this build output. The prebuild built the gate's targets before it (`prebuild_named`).
+      lakeIn copy ("build" :: gateTargets ++ otherTargets).toArray,
       lakeIn copy #["env", "lean", "--run", "lean/Regula/RegistryChecks.lean"],
       lakeIn copy #["exe", "qualify", "--under-deadline", "combined"],
       -- Last, and from the repository root: the gate of the copy audits the copy, reads the
       -- linked documents of the checkout and writes the pending record of the run (`pending`).
+      -- It runs beside the three commands above (`beside`).
       lake #["-d", copy, "exe", "axiomGate", "--acceptance-link", pending, "--verso",
           versoStandard, "--driver-copy", copy]]
   | .docs => [
@@ -326,6 +341,93 @@ command of the step that runs in the checkout. -/
 theorem ordinary_places (copy pending : String) :
     (commands copy pending .ordinary).map (·.dir) = [copy, copy, copy, "."] := rfl
 
+/-! ## The schedule of the first acceptance step
+
+The gate of the first acceptance step reads only what it audits and runs: the claimed targets
+and its own executable. So the driver builds those first, in the copy (`prebuild`), and then runs
+the gate beside the rest of the step (`beside`): the step's build, which builds the targets the
+prebuild did not, the registry checks and the combined qualification, one after another and at
+low scheduling priority (`Priority`). Meanwhile the rest of the step's build writes the build
+output of the other targets, and the gate reads that of its own targets, which the prebuild
+completed. A claimed target the prebuild does not name refuses the step (`prebuildCovers`), so
+two Lake processes cannot build one target at the same time. That Lake rebuilds
+nothing the prebuild built, because each of its traces is unchanged, is Lake's behaviour, not a
+theorem; the gate compares the `.olean` parts of every claimed module before and after its
+inspections, so a change to one fails the audit (`Inspection.changedArtifact?`). The step's
+commands are the same in each schedule (`inOrder_append_beside`), and every target of the
+prebuild is a target of the step's build (`prebuild_named`). -/
+
+/-- The targets a command builds: the arguments after `build` of a `lake build`, and none for any
+other command. -/
+def buildTargets (command : Command) : List String :=
+  if command.program = "lake" ∧ command.args[0]? = some "build" then command.args.toList.drop 1
+  else []
+
+/-- Builds the driver runs in the copy before a mode's `commands`, at the driver's own priority.
+They decide time, never results: each is a `lake build` (`prebuild_builds`), and every target one
+names is named again by a build among those commands in the same directory (`prebuild_named`),
+which builds whatever is missing. The first acceptance step builds the gate's targets, so the
+gate can start before the rest of the step's build has ended. -/
+def prebuild (copy : String) : Mode → List Command
+  | .ordinary => [lakeIn copy ("build" :: gateTargets).toArray]
+  | _ => []
+
+/-- A prebuild only builds: it has a target, which `buildTargets` gives only to a `lake build`. -/
+theorem prebuild_builds (copy : String) (mode : Mode) (command : Command)
+    (h : command ∈ prebuild copy mode) : buildTargets command ≠ [] := by
+  cases mode <;> simp [prebuild] at h
+  subst h
+  simp [buildTargets, lakeIn, gateTargets]
+
+/-- A prebuild selects nothing: each target it names is a target of a build among the mode's own
+commands, in the same directory, which runs to completion before any success report. -/
+theorem prebuild_named (copy pending : String) (mode : Mode) (command : Command) (target : String)
+    (h : command ∈ prebuild copy mode) (named : target ∈ buildTargets command) :
+    ∃ later ∈ commands copy pending mode,
+      later.dir = command.dir ∧ target ∈ buildTargets later := by
+  cases mode <;> simp [prebuild] at h
+  subst h
+  refine ⟨_, List.mem_cons_self, rfl, ?_⟩
+  simp only [buildTargets, lakeIn, List.toList_toArray, List.getElem?_toArray,
+    List.getElem?_cons_zero, and_self, ite_true, List.drop_succ_cons] at named ⊢
+  exact List.mem_append_left _ named
+
+/-- How many of a mode's last `commands` run beside the others (`beside`). The first acceptance
+step runs its gate so; every other mode runs its commands one after another. -/
+def besideCount : Mode → Nat
+  | .ordinary => 1
+  | _ => 0
+
+/-- The commands of `mode` that run one after another: all but its last `besideCount`. -/
+def inOrder (copy pending : String) (mode : Mode) : List Command :=
+  (commands copy pending mode).take ((commands copy pending mode).length - besideCount mode)
+
+/-- The commands of `mode` that each run as a process of their own, started before `inOrder` and
+joined after it: its last `besideCount`. -/
+def beside (copy pending : String) (mode : Mode) : List Command :=
+  (commands copy pending mode).drop ((commands copy pending mode).length - besideCount mode)
+
+/-- The two groups are the mode's commands, each once and in their order, whatever `besideCount`
+is: the schedule drops no command and adds none. -/
+theorem inOrder_append_beside (copy pending : String) (mode : Mode) :
+    inOrder copy pending mode ++ beside copy pending mode = commands copy pending mode :=
+  List.take_append_drop _ _
+
+/-- The command that runs beside the others is the gate of the copy, `lake -d COPY exe
+axiomGate`, and a prebuild in `COPY` names `axiomGate` and every claimed target the gate builds
+(`gateTargets`). That the prebuild has ended before the gate starts is the driver's order (`run`),
+and that Lake then builds nothing for the gate is Lake's behaviour; neither is this theorem. -/
+theorem beside_prebuilt (copy pending : String) (mode : Mode) (command : Command)
+    (h : command ∈ beside copy pending mode) :
+    command.program = "lake" ∧ command.dir = "." ∧
+      command.args.toList.take 4 = ["-d", copy, "exe", "axiomGate"] ∧
+        ∃ early ∈ prebuild copy mode, early.dir = copy ∧
+          ∀ target ∈ gateTargets, target ∈ buildTargets early := by
+  cases mode <;> simp [beside, besideCount, commands, ruleExampleShard, selftest] at h
+  subst h
+  refine ⟨rfl, rfl, rfl, _, List.mem_singleton_self _, rfl, fun target member => ?_⟩
+  simpa [buildTargets, lakeIn] using member
+
 /-- Whether a step passed, from how its commands ended. An end is `some status` for a command
 that ran to its end with that exit status, and `none` for one that was not run, could not be
 started, or whose end could not be observed. A step passes exactly when every command ended with
@@ -394,19 +496,50 @@ def describe : Option UInt32 → String
 /-- The standard streams of every command: no input, and the driver's own output. -/
 def stdio : IO.Process.StdioConfig := { stdin := .null, stdout := .inherit, stderr := .inherit }
 
-/-- Start `command` without waiting for it; `none`, with a report, when it could not be started.
-It cannot raise. The child stays in the driver's process group, so the outer deadline's kill
-reaches it. The inherited Lean search paths are removed, so a Lake command resolves modules only
-through the workspace it runs in. `LAKE_ARTIFACT_CACHE` is `false`, so Lake's artifact cache is
-off for each package whose own configuration does not turn it on. These builds are not the
-checker's: the gate's own build of the claimed surface uses no artifact cache whatever the
-configuration says (`Regula.Checker.Lake.Build.run`). Process execution and signal delivery
-remain trusted. -/
-def start (command : Command) : BaseIO (Option (IO.Process.Child stdio)) := do
-  announce s!"start {command.display}"
+/-- The scheduling priority the driver asks of the operating system for a command. It changes
+when a command gets a processor, never which command runs or what the driver does with its
+end. -/
+inductive Priority where
+  /-- The driver's own priority. -/
+  | normal
+  /-- The lowest priority, for a command that runs while a command of `beside` runs: the
+  scheduler is asked to prefer the command of `beside` whenever both ask for a processor. A
+  command keeps this priority to its end, also after the command of `beside` ended, and the
+  scheduler is asked to prefer any other work at normal priority in the same way. So on a machine
+  that such other work fills, a command at low priority can get little processor time, and the
+  schedule can then take longer than the same commands one after another. -/
+  | low
+
+/-- How the progress line of a start names a priority: nothing for the driver's own. -/
+def Priority.display : Priority → String
+  | .normal => ""
+  | .low => "at low priority: "
+
+/-- The program and the arguments that start `command` at `priority`. At low priority the program
+is the POSIX utility `nice`, which is given the command's own program and arguments, unchanged
+and in their order, after `-n 19`. That `nice` then runs exactly that program with those
+arguments at that priority, and ends with the status the program ends with, is the utility's
+behaviour and is trusted, as is the scheduler's use of the priority. POSIX gives `nice` a status
+other than 0 when it could not run the program. -/
+def Command.launch (command : Command) : Priority → String × Array String
+  | .normal => (command.program, command.args)
+  | .low => ("nice", #["-n", "19", command.program] ++ command.args)
+
+/-- Start `command` at `priority` without waiting for it; `none`, with a report, when it could not
+be started. It cannot raise. The child stays in the driver's process group, so the outer
+deadline's kill reaches it. The inherited Lean search paths are removed, so a Lake command
+resolves modules only through the workspace it runs in. `LAKE_ARTIFACT_CACHE` is `false`, so
+Lake's artifact cache is off for each package whose own configuration does not turn it on. These
+builds are not the checker's: the gate's own build of the claimed surface uses no artifact cache
+whatever the configuration says (`Regula.Checker.Lake.Build.run`). Process execution and signal
+delivery remain trusted. -/
+def start (priority : Priority) (command : Command) :
+    BaseIO (Option (IO.Process.Child stdio)) := do
+  announce s!"start {priority.display}{command.display}"
+  let (program, args) := command.launch priority
   let spawn : IO (IO.Process.Child stdio) := IO.Process.spawn {
     stdio with
-    cmd := command.program, args := command.args, cwd := some command.dir,
+    cmd := program, args := args, cwd := some command.dir,
     env := #[("GHCR_TOKEN", none), ("LEAN_PATH", none), ("LEAN_SRC_PATH", none),
       ("LAKE_ARTIFACT_CACHE", some "false")] }
   match ← spawn.toBaseIO with
@@ -424,26 +557,60 @@ def await (command : Command) (child : IO.Process.Child stdio) : BaseIO (Option 
       announce s!"could not wait for {command.display}: {error}"
       return none
 
-/-- Run one command to its end and return how it ended. It cannot raise. -/
-def execute (command : Command) : BaseIO (Option UInt32) := do
+/-- Run one command at `priority` to its end and return how it ended. It cannot raise. -/
+def execute (priority : Priority) (command : Command) : BaseIO (Option UInt32) := do
   let started ← IO.monoMsNow
-  let some child ← start command | return none
+  let some child ← start priority command | return none
   let ended ← await command child
   let seconds := ((← IO.monoMsNow) - started) / 1000
   if passed [ended] then announce s!"done in {seconds} s: {command.display}"
   else announce s!"failed in {seconds} s ({describe ended}): {command.display}"
   return ended
 
-/-- Run `commands` one after another and return how each ended. A command runs only while
-everything that has ended so far passed: `known` holds the ends known before it. A command after
-a failure is not run and has no end. It cannot raise. -/
-def executeInOrder : (known : List (Option UInt32)) → (commands : List Command) →
-    BaseIO (Ends commands)
+/-- Run `commands` one after another, each at `priority`, and return how each ended. A command
+runs only while everything that has ended so far passed: `known` holds the ends known before it.
+A command after a failure is not run and has no end. It cannot raise. -/
+def executeInOrder (priority : Priority) : (known : List (Option UInt32)) →
+    (commands : List Command) → BaseIO (Ends commands)
   | _, [] => return ⟨[], rfl⟩
   | known, command :: rest => do
-      let ended ← if passed known then execute command else pure none
-      let later ← executeInOrder (ended :: known) rest
+      let ended ← if passed known then execute priority command else pure none
+      let later ← executeInOrder priority (ended :: known) rest
       return ⟨(command, ended) :: later.ends, by simp [later.complete]⟩
+
+/-- Start each of `beside` as a process of its own, run `inOrder` one after another meanwhile,
+then wait for each started command, and return how the commands of each side ended. Nothing is
+started once something has failed (`known`); a command of `inOrder` does not see how a command
+of `beside` ends, since it ends later. This is a `BaseIO` action, which has no exception, so
+nothing can leave between a start and the wait for it: every started command is joined, also when
+another command failed. The driver never kills a child, because that would not stop the child's
+own descendants.
+
+`priority` is the priority of the commands of `inOrder`. Each command of `beside` starts at the
+driver's own priority, and the commands of `inOrder` then run at low priority, because they run
+while it does. With no command in `beside`, they run at the priority the caller gives. That
+priority is chosen once, before the first command of `inOrder`, and a command of `inOrder` keeps
+it to its end, also after every command of `beside` ended. -/
+def executeBeside (priority : Priority) : (known : List (Option UInt32)) →
+    (beside inOrder : List Command) → BaseIO (Ends inOrder × Ends beside)
+  | known, [], inOrder => return (← executeInOrder priority known inOrder, ⟨[], rfl⟩)
+  | known, command :: rest, inOrder => do
+      let started ← IO.monoMsNow
+      let child ← if passed known then start .normal command else pure none
+      let (others, later) ←
+        executeBeside .low (if child.isSome then known else none :: known) rest inOrder
+      let ended ← match child with
+        | none => pure none
+        | some child => do
+            unless passed (others.statuses ++ later.statuses) do
+              announce s!"a command failed; waiting for {command.display}"
+            let waited ← IO.monoMsNow
+            let ended ← await command child
+            let now ← IO.monoMsNow
+            announce s!"joined ({describe ended}) in {(now - started) / 1000} s, \
+              {(now - waited) / 1000} s after the other commands ended: {command.display}"
+            pure ended
+      return (others, ⟨(command, ended) :: later.ends, by simp [later.complete]⟩)
 
 /-! ## Places the driver removes
 
@@ -768,6 +935,40 @@ theorem dependencyFree_packages (manifest : Lean.Json) (h : dependencyFree manif
     rw [hp, Array.isEmpty_iff.mp h]
   · simp at h
 
+/-- The targets a surface manifest claims, read from its JSON: each surface's `library` and each
+name of its `executables`, in the manifest's order; `none` for a manifest without that shape. A
+surface without `executables` claims none; one with a field of another shape gives `none`. -/
+def claimedTargets (manifest : Lean.Json) : Option (List String) := do
+  let surfaces ← (manifest.getObjValAs? (Array Lean.Json) "surfaces").toOption
+  let named ← surfaces.toList.mapM fun surface => do
+    let library ← (surface.getObjValAs? String "library").toOption
+    let executables ← match surface.getObjVal? "executables" with
+      | .error _ => pure #[]
+      | .ok value => (Lean.fromJson? value : Except String (Array String)).toOption
+    pure (library :: executables.toList)
+  pure named.flatten
+
+/-- Whether the prebuild of the first acceptance step builds every target the surface manifest
+claims (`prebuildCovers_iff`). The gate builds a claimed target that is not yet built itself,
+and the rest of the step's build runs beside the gate in the same build output, so a claimed
+target the prebuild does not name could be built by two Lake processes at once. The driver
+refuses the step when this is `false`. -/
+def prebuildCovers (manifest : Lean.Json) : Bool :=
+  match claimedTargets manifest with
+  | some targets => targets.all gateTargets.contains
+  | none => false
+
+/-- `prebuildCovers` accepts exactly a manifest of the shape `claimedTargets` reads all of whose
+claimed targets are targets of the prebuild. -/
+theorem prebuildCovers_iff (manifest : Lean.Json) :
+    prebuildCovers manifest = true ↔
+      ∃ targets, claimedTargets manifest = some targets ∧
+        ∀ target ∈ targets, target ∈ gateTargets := by
+  unfold prebuildCovers
+  split
+  · next targets h => simp [h, List.all_eq_true]
+  · next h => simp [h]
+
 /-- Begin an attempt: invalidate the selected mode's earlier PASS or accepted link, and remove
 an earlier site artifact. `scripts/verify.sh` runs this toolchain-only step before provisioning
 and before any checker is built, so a failed setup or build cannot leave either in place. The
@@ -782,14 +983,16 @@ def beginAttempt (args : List String) : IO Unit := do
     removeOwn ((← IO.FS.realPath ".") / siteOutput)
 
 /-- Cold-start driver; all builds and checks stay within the inherited outer deadline. After the
-preliminary checks it runs the commands of the mode one after another, starts one only while
-every end known so far passed, and reports success only when `passed` accepts how every one of
-those commands ended (`passed_covers`). The first acceptance step promotes the pending record of
-its own gate to the accepted link only then, before the removal of its copy and before the
-success line. It makes its copy
-after the preliminary checks (`makeCopy`), runs its commands for that copy (`ordinary_places`),
-gives the copy's build output to a project that has none when the step passed (`Copy.adopt`),
-and removes the copy in each case (`Copy.remove`). -/
+preliminary checks and the mode's `prebuild`, it schedules every command of the mode
+(`inOrder_append_beside`), starts one only while every end known so far passed, waits for each
+one it started, and reports success only when `passed` accepts how every one of those commands
+and of the prebuilds ended (`passed_covers`). The first acceptance step promotes the pending
+record of its own gate to the accepted link only then, before the removal of its copy and before
+the success line. It refuses a surface manifest that claims a target its prebuild does not build
+(`prebuildCovers`), makes its copy after the preliminary checks (`makeCopy`), runs its prebuild
+and its commands for that copy (`ordinary_places`), gives the copy's build output to a project
+that has none when the step passed (`Copy.adopt`), and removes the copy in each case
+(`Copy.remove`). -/
 def run (args : List String) : IO Unit := do
   let some selection := select args | throw <| IO.userError usage
   if selection.val == .ordinary then
@@ -798,7 +1001,13 @@ def run (args : List String) : IO Unit := do
       throw <| IO.userError "lake-manifest.json records a dependency: the regula package must \
         require nothing beyond the Lean toolchain (a Mathlib-dependent module belongs in \
         integration/mathlib/)"
-  let early ← executeInOrder []
+    let surfaces ← IO.ofExcept (Lean.Json.parse (← IO.FS.readFile "foundation_manifest.json"))
+    unless prebuildCovers surfaces do
+      throw <| IO.userError s!"foundation_manifest.json claims a target that the prebuild of \
+        the first acceptance step does not build, or its surfaces cannot be read: the gate would \
+        build that target beside the rest of the step's build; add it to \
+        RegulaVerification.gateTargets (the prebuild builds {gateTargets})"
+  let early ← executeInOrder .normal []
     [({ program := "git", args := #["diff", "--check"] } : Command),
       { program := "git", args := #["diff", "--cached", "--check"] },
       { program := "shellcheck", args := #["scripts/verify.sh", "scripts/provision.sh"] }]
@@ -806,10 +1015,12 @@ def run (args : List String) : IO Unit := do
   let copy ← if selection.val == .ordinary && passed early.statuses then
       some <$> makeCopy root
     else pure none
-  let later ← executeInOrder early.statuses
-    (commands ((copy.map (·.project.toString)).getD ".")
-      ((copy.map (·.pending.toString)).getD "") selection.val)
-  let all := early.append later
+  let place := (copy.map (·.project.toString)).getD "."
+  let pending := (copy.map (·.pending.toString)).getD ""
+  let prebuilt ← executeInOrder .normal early.statuses (prebuild place selection.val)
+  let (others, gates) ← executeBeside .normal (early.statuses ++ prebuilt.statuses)
+    (beside place pending selection.val) (inOrder place pending selection.val)
+  let all := ((early.append prebuilt).append others).append gates
   if let some copy := copy then
     -- The pending record is in the scratch directory of the copy, so the promotion is before
     -- the removal of the copy, which follows in each case.

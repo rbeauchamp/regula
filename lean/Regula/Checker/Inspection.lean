@@ -268,19 +268,26 @@ def libraryNeeds (requests : Array (Array Name)) (loads : Array (Option NameSet)
     | some loaded => libraries.filter fun other =>
         other != index && (requests.getD other #[]).any loaded.contains
 
-/-- The order in which the environments become eligible to start: repeatedly the first
-environment, in claim order, every one of whose `needs` is already placed. Where none is left,
-because the remaining environments need one another, the first of them in claim order that
-another of them needs is placed, so an environment nothing waits for (an executable's) still
-comes after the libraries it needs. -/
-def startOrder (needs : Array (Array Nat)) : Array Nat := Id.run do
+/-- The order in which the environments become eligible to start: repeatedly, of the
+environments every one of whose `needs` is already placed, the one with the most owned modules
+(`sizes`), and of those with as many the first in claim order. An environment with more modules
+usually takes longer, so starting it first lets the smaller ones fill the other slots while it
+runs; the order decides only when an environment starts, never what it may reuse
+(`prerequisites_earlier` holds for every order). Where none is left, because the remaining
+environments need one another, the first of them in claim order that another of them needs is
+placed, so an environment nothing waits for (an executable's) still comes after the libraries it
+needs. -/
+def startOrder (needs : Array (Array Nat)) (sizes : Array Nat) : Array Nat := Id.run do
   let count := needs.size
   let mut placed := Array.replicate count false
   let mut order : Array Nat := #[]
   for _ in [:count] do
     let unplaced := (Array.range count).filter fun index => !placed.getD index true
-    let ready := unplaced.find? fun index =>
-      (needs.getD index #[]).all fun needed => needed == index || placed.getD needed true
+    let ready := (unplaced.filter fun index =>
+        (needs.getD index #[]).all fun needed => needed == index || placed.getD needed true).foldl
+      (fun best index => match best with
+        | some chosen => if sizes.getD chosen 0 < sizes.getD index 0 then some index else best
+        | none => some index) none
     let needed := unplaced.find? fun index => unplaced.any fun other =>
       other != index && (needs.getD other #[]).contains index
     let some next := ready <|> needed <|> unplaced[0]? | break
@@ -375,7 +382,7 @@ def inspect (inventory : Lake.SurfaceInventory)
     else pure #[]
   let loads ← environmentLoads sourceBindings environments
   let requests := environments.map (·.info.modules)
-  let order := startOrder (libraryNeeds requests loads)
+  let order := startOrder (libraryNeeds requests loads) (requests.map (·.size))
   let needs := replayers order requests loads
   let inspectEnvironment (historyMemo publication : FilePath)
       (priors : Array Admission.PriorAdmission) (environment : SurfaceEnvironment) :

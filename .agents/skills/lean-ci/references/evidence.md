@@ -300,6 +300,69 @@ observations at two times, and each correction added one more such comparison. T
 the copy has no such comparison of the audited inputs. The gate reads the copy that the driver
 built, and the result names the one statement that the gate cannot read.
 
+## Regula: the gate beside the rest of the first step, after a prebuild (2026-10-10)
+
+Issue [#324](https://github.com/rbeauchamp/regula/issues/324) asked for a margin of the first
+step again. The part of the step under the deadline is the window from `verification: start git
+diff --check` to `local verification: PASS`. On the slow runner class, that window took 372 s to
+394 s in the five CI runs of `main` from `b2215df3` to `8e11edb4`. The documentation step took
+271 s to 286 s in the same runs.
+
+The job logs give the parts of the window in those runs. The build took 207 s to 222 s, the
+registry checks 2 s and the qualification controls 26 s to 29 s. The gate took 135 s to
+139 s. The build is processor-bound. Lake logged 798 s to 853 s of jobs for each build, on 4
+processors. In each 10 s of the build of `8e11edb4`, approximately four jobs ran, except in the
+last 10 s.
+
+The ratio of the first step to the documentation step was 1.35 to 1.45 in 24 runs of `main`.
+Those runs are from `0464b88e` to `8e11edb4`, on the two runner classes. Thus that ratio
+measures the step and not the runner. On the slow class, the window grew from 344 s at
+`0464b88e` to 394 s at `64fe9908`. The jobs of the build grew from 691 s to 853 s, and the gate
+from 129 s to 139 s.
+
+The gate prints no time spans on CI. One local run with `REGULA_TIMING=1` gave these parts of a
+gate of 80 s:
+
+- Before its audit: 12.4 s. That run also cloned the Verso packages, which CI provisions before
+  the step.
+- The module-scope preflight: 5.6 s, seven workers one after the other.
+- The inspections: 46.8 s. `RegulaPolicy` took 35.3 s, and `RegulaCore` 34.5 s.
+- The freeze and the acceptance of the results: 12.1 s.
+
+In that run, `RegulaCore` started 12.3 s after the inspections started, because three smaller
+environments came before it in claim order. Its inspection ended last. The gate does no work two
+times that this change can remove. The preflight imports each environment, and the inspection
+imports it again, but the preflight must refuse before the inspections start.
+
+Lake logged 655 s to 664 s of jobs for the targets of the gate and their imports. A schedule of
+the logged jobs over their imports, on four processors, gave 213 s to 217 s for the complete
+build. The logs gave 218 s to 222 s. The same schedule gave 181 s to 186 s for the targets of the
+gate alone.
+
+This change has three parts:
+
+- The driver builds the targets of the gate first. The gate then runs beside the rest of the
+  step, which runs at low priority.
+- The inspection starts the environment with the most owned modules first, of those that can
+  start.
+- The preflight runs three workers at a time.
+
+The prediction for the slow class is a window of 306 s to 345 s. The lower value adds no time
+for the commands at low priority. The higher value adds 20 percent to the gate. A previous note
+above shows that the hosted gain of such a schedule was less than half of its prediction. Thus
+the criterion was set before a hosted run.
+
+Three slow-class runs with a window of 360 s or less
+confirm the target of a margin of 60 s. A slow-class run with a window of more than 375 s refutes
+the prediction. A slow-class run has a documentation step of 255 s or more.
+
+One local run of this change on 14 processors took 114 s for the window. The local profile of
+`e0232383` took 130 s without its clone of Verso. In that run the gate took 75 s, and it ended
+36 s after the commands at low priority. During the gate, the build wrote only the outputs of
+other modules, the C objects for `qualify` and `docFenceAudit`, and those two executables. It
+wrote no `.olean`, trace or hash file of a claimed module, and no C object that `axiomGate` or
+`auditApp` links. That is an observation of one run, not a proof.
+
 ## Regula: Veil scout for the corpus harness (2026-09-23)
 
 On 2026-09-23, Veil ([verse-lab/veil](https://github.com/verse-lab/veil), main `517f2ba`)
