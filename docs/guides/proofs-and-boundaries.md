@@ -668,9 +668,8 @@ data of a mark enters is project-written, as a boundary's kind and replacement.
 A visit's parent, the closure's other fields and a boundary's position are computed by the walk on
 the combined record. `ExecutionWalk.assemble` also takes `rootCompiled`, the root's compiled-code
 requirement. When it holds, the root is required code, and missing code of the root is reported as
-unavailable. `Probe.executionWalk` computes it from the root's marks, tags and IR, so it is
-project-written. Its `brecOn` condition also reads kernel-checked data and module attribution. The
-`ExecutionClosure` docstring lists each condition.
+unavailable. The root's marks and tags enter it, so it is project-written. The `ExecutionClosure`
+docstring lists each condition.
 
 A candidate boundary comes from a constant of an equality type, registered with `@[csimp]` or not.
 The two sides are constants with the same list of distinct universe parameters. An attribute such as

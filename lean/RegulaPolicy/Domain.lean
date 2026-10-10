@@ -2032,9 +2032,7 @@ required only as a compiled dependency of a reached name. `rootCompiled` is proj
 the root's marks and tags enter it. `Probe.executionWalk` computes it as false exactly when the root
 has an `@[implemented_by]` or `@[macro_inline]` mark; when the root is a projection function, with
 or without IR; when it has no IR and is an auxiliary recursor, a `noConfusion` or a matcher; or when
-it has no IR and is a `brecOn` helper. `brecOnHelpers` finds such a helper by its structure, from
-kernel-checked declaration data and the observed module attribution of the helper, its parent and
-its inductive type. -/
+it has no IR and is a `brecOn` helper that `brecOnHelpers` finds by its structure. -/
 structure ExecutionClosure where
   /-- Every name the walk reached, sorted and without duplicates. -/
   nodes : Array Lean.Name
