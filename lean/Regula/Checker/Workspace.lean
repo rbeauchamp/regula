@@ -145,11 +145,12 @@ def uncachedWorkspace (ws : _root_.Lake.Workspace) : _root_.Lake.Workspace :=
       rw [uncachedPackage_depIdxs] at hi
       simpa [packages] using ws.depIdxs_packages q hq i hi }
 
-/-- Lake v4.34.1 consults `Package.isArtifactCacheReadable` before every read of its artifact
-cache in a build and `Package.isArtifactCacheWritable` before every write (`fetchCore` in
-`Lake/Build/Module.lean`, `Module.packLtar`, and `buildArtifactUnlessUpToDate` in
-`Lake/Build/Common.lean`). For every package that a package of `uncachedWorkspace` reaches, the
-first returns `false` whatever the workspace, the environment or the package's own lakefile say. -/
+/-- Lake v4.34.1 reaches each read of its artifact cache in a build only when
+`Package.isArtifactCacheWritable` or `Package.isArtifactCacheReadable` returns `true`, and each
+write only when `Package.isArtifactCacheWritable` does (`fetchCore` in `Lake/Build/Module.lean`,
+`Module.packLtar`, and `buildArtifactUnlessUpToDate` in `Lake/Build/Common.lean`). For every
+package that a package of `uncachedWorkspace` reaches, `Package.isArtifactCacheReadable` returns
+`false` whatever the workspace, the environment or the package's own lakefile say. -/
 theorem uncachedWorkspace_unreadable {ws : _root_.Lake.Workspace}
     {pkg target : _root_.Lake.Package} (mem : pkg ∈ (uncachedWorkspace ws).packages)
     (reach : Reaches pkg target) {m : Type → Type} [Monad m] [_root_.Lake.MonadWorkspace m] :
