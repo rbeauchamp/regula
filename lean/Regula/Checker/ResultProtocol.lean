@@ -19,7 +19,17 @@ open Lean
 /-- This checker build's producer identity, written into every result envelope. -/
 abbrev producer := Regula.Checker.Producer.identity
 
-/-- Result schema 13 records the functions with a result of `Bool` or `BEq` that the two sides of
+/-- Result schema 14 records which dependencies the audit owns: each dependency of a rendered
+snapshot carries `owned`, `true` for a path dependency in the root package's Git work tree, each
+module of which the audit replays where a requested module imports it, except modules under the
+checker's reserved prefixes, which are the checker's own code (`snapshotJson`), and the
+acceptance account carries `trustedDependencies`, the packages of the dependencies that are not
+owned or that provide a module under those prefixes, which the audit trusts (`accountJson`), and
+each environment of the acceptance carries
+`dependencyModules`, the modules of owned dependencies whose declarations it inspects
+(`environmentJson`). Earlier schemas wrote none of these members, and the audit then owned no
+dependency.
+Schema 13 records the functions with a result of `Bool` or `BEq` that the two sides of
 each decision registration share only through the declaration of the input type of the kind
 (`RegulaPolicy.SharedNames.throughTypes`, `RegulaPolicy.StatementReading`): the
 `shared` object of a declaration's `executableContract` and the `sharedDefinitions` object of each
@@ -115,7 +125,7 @@ frozen configuration and dependency text from the snapshot (`snapshotJson`: a cl
 dependency is identified by its pinned revision, a dirty one only by package and `dirty`
 status) and imported-environment module lists (`acceptedJson`,
 `ProducerReport.Environment.resultJson`); schema 1 embedded them. -/
-def schemaVersion : Nat := 13
+def schemaVersion : Nat := 14
 
 /-- Envelope identity of every result file. -/
 def identityFields : List (String × Json) := RegistryCodec.identityFields producer schemaVersion
@@ -466,7 +476,10 @@ function in `booleans`, which is named at any depth, so an accepted registration
 function in `others` is named where the specification reaches it first. The kind does not
 establish that it is the intended one, and no entry is refused for it. A function in
 `throughTypes` has a result of `Bool` or `BEq` and is shared only through the declaration of the
-input type; no entry is refused for it. -/
+input type; no entry is refused for it. Since schema 14 the account carries
+`trustedDependencies`, the packages of the snapshot dependencies that are not owned, whose
+declarations the audit does not replay, or that provide a module under the checker's reserved
+prefixes, which the audit does not own (`RegulaPolicy.DependencyState.reserved`). -/
 def accountJson (account : Regula.Checker.Account) : Json :=
   let a := account.val
   let residuals (rs : List Regula.Checker.Account.Residual) := toJson (rs.map (·.spelling))
@@ -499,10 +512,12 @@ def accountJson (account : Regula.Checker.Account) : Json :=
       ("trustedTeaching", toJson a.fences.trustedTeaching)]),
     ("trusted", toJson (a.trusted.map fun boundary => Json.mkObj [
       ("boundary", toJson boundary.spelling), ("detail", toJson boundary.detail)])),
+    ("trustedDependencies", toJson a.trustedDependencies),
     ("unresolvedReview", residuals a.unresolved)]
 
 /-- Result rendering of a frozen snapshot: the audited sources in full, the configuration
-by URI, and each dependency by package, nominal revision and input-scoped `dirty` status.
+by URI, and each dependency by package, nominal revision, input-scoped `dirty` status and
+`owned` (since schema 14).
 Each source's text is a `sourceText` member (`sourceJson`): a result file stores it once
 (`writeDocument`), and the freshChecker serialized-graph output, which is not a result document,
 keeps it in the member.
@@ -514,15 +529,16 @@ rendered in full as `scope.configuration` only by axiomGate and ruleExamples res
 freshChecker serialized-graph output has no `scope`, so it carries no configuration text,
 and no consumer reads it there. A clean dependency is identified by its pinned revision. A
 dirty dependency, including any path dependency without its own Git revision, is rendered
-only as package, revision and `dirty: true`: it carries no content identity, and its frozen
-text is not recorded. -/
+only as package, revision, `dirty: true` and `owned`: it carries no content identity, and its
+frozen text is not recorded. An owned dependency's module sources are among the audited
+sources. -/
 def snapshotJson (snapshot : RegulaPolicy.Snapshot) : Json :=
   Json.mkObj [("sources", toJson (snapshot.sources.map sourceJson)),
     ("configuration", Json.mkObj [("uri", toJson snapshot.configuration.uri)]),
     ("toolchain", toJson (reprStr snapshot.toolchain)),
     ("dependencies", toJson (snapshot.dependencies.map fun dependency => Json.mkObj [
       ("package", toJson dependency.package), ("revision", toJson dependency.nominalRevision),
-      ("dirty", toJson dependency.dirty)]))]
+      ("dirty", toJson dependency.dirty), ("owned", toJson dependency.owned)]))]
 
 /-- The rendering is independent of the serialized configuration and dependency text, so
 its size is independent of the dependencies' content (kernel-checked by `rfl`). -/
@@ -539,6 +555,8 @@ def environmentJson (environment : RegulaPolicy.EnvironmentCensus) : Json :=
     ("index", toJson environment.request.key.index),
     ("modules", toJson
         (environment.request.modules.map fun key => RegistryCodec.printedNameJson key.name.name)),
+    ("dependencyModules", toJson (environment.dependencyModules.map fun key =>
+        RegistryCodec.printedNameJson key.name.name)),
     ("infrastructureModules", toJson (environment.infrastructureModules.map fun key =>
         RegistryCodec.printedNameJson key.name.name)),
     ("admissionModules", toJson

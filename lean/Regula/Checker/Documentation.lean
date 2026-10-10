@@ -249,7 +249,7 @@ checked project, ahead of any inherited search path. -/
 unsafe def auditTasks (repo scratch : FilePath) (jobs : Nat)
     (tasks : Array Task) (sourceBindings : Array ProducerReport.SourceBinding)
     (configuration : Array (FilePath × Option String))
-    (extraSearchRoots : Array FilePath := #[]) (ownedOutput : Option FilePath := none) : IO
+    (extraSearchRoots : Array FilePath := #[]) (ownership : Ownership := {}) : IO
     (Array Result) := do
   withSourceEvidence tasks sourceBindings configuration do
     SourceBinding.unchanged sourceBindings
@@ -317,7 +317,7 @@ unsafe def auditTasks (repo scratch : FilePath) (jobs : Nat)
               (group.items.map fun item =>
                   (item.compilation.spec.«module».toName, item.compilation.sourcePath))
               (sourceBindings.map fun source => (source.moduleName, FilePath.mk source.path))
-              ownedOutput (includeExecution := false) (includeModuleOrigins := false)
+              ownership (includeExecution := false) (includeModuleOrigins := false)
               (compiledSources := sourceBindings ++ group.items.map fun item => {
                 moduleName := item.compilation.spec.module.toName
                 path := item.compilation.sourcePath.toString
@@ -528,6 +528,7 @@ elaborated package model, in path order. -/
 def captureVerso (verso : VersoPackage) : IO (Array RegulaPolicy.SourceSnapshot) := do
   let dir := verso.dir
   let paths ← Workspace.withRootWorkspace dir fun ws => do
+    Lake.checkWorkspaceModuleNames ws
     let some lib := ws.root.leanLibs.find? (·.name == verso.library)
       | throw <| IO.userError s!"Verso package {dir} has no library {verso.library}"
     let modules ← lib.getModuleArray
@@ -575,6 +576,8 @@ private def localClosure (ws : _root_.Lake.Workspace) (captured : _root_.Lake.Pa
     seen := seen.insert m.name
     closure := closure.push m
     let header ← Lean.parseImports' (← IO.FS.readFile m.leanFile) m.leanFile.toString
+    -- An entry of module names: the import lines of a Verso package source.
+    requireSafeModuleNames s!"the imports of {m.leanFile}" (header.imports.map (·.module))
     for i in header.imports do
       if let some imported := ws.findModule? i.module then
         if captured imported.pkg then pending := imported :: pending
@@ -603,6 +606,7 @@ import and pass kernel admission with it. -/
 def versoLocalModules (project : FilePath) (verso : VersoPackage) :
     IO (Array (Name × FilePath)) := do
   Workspace.withRootWorkspace verso.dir fun ws => do
+    Lake.checkWorkspaceModuleNames ws
     let locals ← localPackages project verso.dir ws
     let mut modules := #[]
     for (name, _) in locals do
@@ -629,6 +633,7 @@ def captureVersoPackage (project : FilePath) (verso : VersoPackage) :
     IO (Array RegulaPolicy.SourceSnapshot) := do
   let dir := verso.dir
   let (locals, modules) ← Workspace.withRootWorkspace dir fun ws => do
+    Lake.checkWorkspaceModuleNames ws
     let locals ← localPackages project dir ws
     let some lib := ws.root.leanLibs.find? (·.name == verso.library)
       | throw <| IO.userError s!"Verso package {dir} has no library {verso.library}"
@@ -786,7 +791,7 @@ unsafe def auditBuiltProject (repo docsRoot : FilePath) (inventory : Lake.Surfac
       let audit : IO (Array Result) := do
         IO.FS.createDirAll fenceScratch
         auditTasks fenceWorkspace fenceScratch jobs tasks ownedBindings configuration
-          fenceSearchPath (some inventory.leanLibDir)
+          fenceSearchPath inventory.ownership
       let audited ← audit.toBaseIO
       let recheck : IO (Option (RegulaPolicy.AcceptedRun claim)) := do
         let results ← MonadExcept.ofExcept audited

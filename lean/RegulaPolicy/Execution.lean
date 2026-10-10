@@ -543,6 +543,81 @@ theorem checked_executionFindings :
       (((executionFindings_empty_iff _ _).mp accepted) _ (Array.mem_singleton.mpr rfl)).1
       (by simp [unresolvedRoot])⟩⟩
 
+/-- A root's findings are none exactly when it has no unresolved path and each of its boundaries
+meets the claim (`BoundaryOK`). -/
+theorem rootFindings_empty_iff (r : ExecutionRoot) (c : ExecutionClaim) :
+    rootFindings r c = #[] ↔ r.unresolved = #[] ∧ ∀ b ∈ r.boundaries, BoundaryOK c b := by
+  simp only [rootFindings, Array.flatMap_eq_empty_iff, Array.append_eq_empty_iff,
+    Array.map_eq_empty_iff]
+  constructor
+  · intro h
+    exact ⟨h.1, fun b hb =>
+      (boundaryFailures_empty_iff r c b).mp (boundaryFailures_empty_of_findings h.2 hb)⟩
+  · intro h
+    exact ⟨h.1, fun b hb => by
+      simp [boundaryFindings, (boundaryFailures_empty_iff r c b).mpr (h.2 b hb)]⟩
+
+/-- The strongest of the execution claims `requests`: checked when one of them is, and report
+otherwise. -/
+def strongestClaim (requests : Array ExecutionClaim) : ExecutionClaim :=
+  if ExecutionClaim.checked ∈ requests then .checked else .report
+
+/-- A boundary meets the strongest of some execution claims exactly when it meets each of them:
+a boundary that meets checked meets report (`BoundaryOK`). -/
+theorem boundaryOK_strongestClaim {requests : Array ExecutionClaim} (nonempty : requests ≠ #[])
+    (b : ExecutionBoundary) :
+    BoundaryOK (strongestClaim requests) b ↔ ∀ request ∈ requests, BoundaryOK request b := by
+  unfold strongestClaim
+  split
+  · rename_i checked
+    refine ⟨fun ok request _ => ?_, fun all => all _ checked⟩
+    cases request
+    · exact ⟨ok.1, .inl rfl⟩
+    · exact ok
+  · rename_i unchecked
+    have report : ∀ request ∈ requests, request = .report := by
+      intro request member
+      cases request
+      · rfl
+      · exact absurd member unchecked
+    refine ⟨fun ok request member => by rw [report request member]; exact ok, fun all => ?_⟩
+    obtain ⟨request, member⟩ : ∃ request, request ∈ requests := by
+      rcases requests with ⟨_ | ⟨request, _⟩⟩
+      · exact absurd rfl nonempty
+      · exact ⟨request, by simp⟩
+    have ok := all request member
+    rwa [report request member] at ok
+
+/-- The findings the gate reports for the inventory when each root is held to the strongest of
+the execution claims that `requests` asks of it (`strongestClaim`, `rootFindings`), as a project
+audit asks each root's requests of its declarations' modules (`rootRequestsAmong`). -/
+def executionFindingsFor (inventory : ExecutionInventory)
+    (requests : ExecutionRoot → Array ExecutionClaim) : Array ExecutionFailure :=
+  inventory.roots.flatMap fun root => rootFindings root (strongestClaim (requests root))
+
+/-- With each root's requests nonempty, `executionFindingsFor` reports nothing exactly when each
+root has no unresolved path and each of its boundaries meets each claim requested of it, the
+execution condition of a project's acceptance (`LocalStageOK`). -/
+theorem executionFindingsFor_empty_iff (inventory : ExecutionInventory)
+    (requests : ExecutionRoot → Array ExecutionClaim)
+    (nonempty : ∀ r ∈ inventory.roots, requests r ≠ #[]) :
+    executionFindingsFor inventory requests = #[] ↔
+      ∀ r ∈ inventory.roots, ∀ request ∈ requests r,
+        r.unresolved = #[] ∧ ∀ b ∈ r.boundaries, BoundaryOK request b := by
+  simp only [executionFindingsFor, Array.flatMap_eq_empty_iff, rootFindings_empty_iff]
+  constructor
+  · intro h r hr request member
+    exact ⟨(h r hr).1, fun b hb =>
+      (boundaryOK_strongestClaim (nonempty r hr) b).mp ((h r hr).2 b hb) request member⟩
+  · intro h r hr
+    obtain ⟨request, member⟩ : ∃ request, request ∈ requests r := by
+      rcases hreq : requests r with ⟨_ | ⟨request, _⟩⟩
+      · exact absurd hreq (nonempty r hr)
+      · exact ⟨request, by simp⟩
+    exact ⟨(h r hr request member).1, fun b hb =>
+      (boundaryOK_strongestClaim (nonempty r hr) b).mpr fun other otherMember =>
+        (h r hr other otherMember).2 b hb⟩
+
 /-- A boundary's failures name its root. -/
 theorem boundaryFailures_root {r : ExecutionRoot} {c : ExecutionClaim} {b : ExecutionBoundary}
     {f : ExecutionFailure} (hf : f ∈ boundaryFailures r c b) : f.root = r := by

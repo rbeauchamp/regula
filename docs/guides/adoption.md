@@ -353,6 +353,35 @@ counts (`Observation.exitCode_incomplete`), and `VIOLATION` requires a violation
 finding (`Observation.exitCode_violation`). A run that fails before recording a result, such as a
 failed audit-worker build or an invalid argument, prints its error and the outcome line only.
 
+A path dependency in the Git work tree of your project is your own code. The audit replays each
+of its modules that your claimed modules import, other than Regula's own, as it replays your
+libraries. It checks their declarations under Standard-Logical. With `--fresh`, the isolated copy
+holds it and builds it. A dependency outside that work tree, for example Mathlib, is trusted, and
+the account names it on the line `trusted dependencies`. A correspondence proof for [RG3002]
+counts only from a module that the audit replays, or from Lean's own library.
+
+The audit checks a decision function of an owned path dependency, with `@[regula_decision]`, in
+each environment that inspects it. So its contract must be in a module that your claimed modules
+import. If the contract is only in a different module of the dependency's library, the audit
+reports [RG1008]. [Issue #318](https://github.com/rbeauchamp/regula/issues/318) proposes to count
+the contracts of the whole library.
+
+Your root package and each owned path dependency must keep Lake's default output layout, in each
+audit. The audit refuses a `buildDir`, `leanLibDir`, `nativeLibDir`, `binDir` or `irDir` other
+than Lake's default before it builds your project, as `lake-workspace-load-failed`. The prefixes
+`Regula` and `RegulaPolicy` belong to Regula: each audit refuses a module under them that does not
+have Regula's own source text. In a path dependency, such a module is Regula's own code, and the
+audit does not own it. Thus the account names a path dependency with such modules as trusted, as
+it names Regula from outside your work tree.
+
+Each module name of your package and of each owned path dependency must have one provider. The
+audit counts the library modules of each package, and the executable roots of your package and of
+each owned path dependency. It refuses a name that two of them provide if one of the two is your
+package or an owned path dependency, as `lake-query-malformed`. For example, it refuses an
+executable root `Main` in your package and in an owned path dependency. Two trusted dependencies
+can provide the same name. The executable roots of a trusted dependency are not counted, thus your
+`Main` can be beside the `Main` of Regula.
+
 While the claimed targets build, the driver shows Lake's own progress line for each job that
 does work (`✔ [3/10] Built Widget (1.2s)`), including a cached module whose warnings Lake
 replays; an up-to-date module without warnings prints nothing. `--verbose` adds every classified
@@ -517,13 +546,13 @@ relation between it and the type.
 
 ## Machine-readable report
 
-`lake lint -- --json-out PATH` writes one JSON document, result schema 13, whatever the outcome;
+`lake lint -- --json-out PATH` writes one JSON document, result schema 14, whatever the outcome;
 the path is first written as an incomplete result, so a stale report is never mistaken for this
 run's. Its main members:
 
 | Member | Meaning |
 | --- | --- |
-| `schemaVersion` | `13`. Also `producerVersion`, `toolchain` and `sourceRevision` of the Regula build. |
+| `schemaVersion` | `14`. Also `producerVersion`, `toolchain` and `sourceRevision` of the Regula build. |
 | `status` | `completed` (accepted), `rejected` (a violation was established and no finding is incomplete), `incomplete` (evidence was missing) or `classified` (a file inspection with no conforming claim). For an audit that recorded its result and then finished, it and the diagnostics determine the exit code. |
 | `stages`, `stagesCompleted`, `stagesNotRun`, `complete` | The run's required stages and which completed, including the stages that finished before the run stopped. `complete` is `false` when the run stopped early, so fixing the reported findings can reveal more. |
 | `diagnostics` | Every finding in printed order, one per declaration even where the text groups them, with `id`, `impact`, `severity`, `mode`, `claim`, `location` (for source, its `uri`, byte and LSP ranges and its `sourceText`, an index into `sourceTexts`; for a module, its `name`), `arguments`, `text`, `remedy` and `helpUrl`. `arguments.declaration` (or `root` for an execution finding) is the name as Lean prints it, such as `"Widget.countdown.eq_1"`. For a declaration-policy finding of a project or file audit or of a rule example ([RG1005] and the other rules decided per audited declaration), `arguments.sourceDeclaration` names the declaration Lean generated the declaration from, at the end of that chain, or is `null` for a declaration Lean did not generate from another; for a generated declaration, `location` is its own range when Lean recorded one, and otherwise that source declaration's range when Lean recorded one, with `related` naming the declaration's own module. Other declaration findings carry no attribution: a documentation example's, a material-documentation one ([RG5002], [RG5003]) and the editor linter's record `null` and the declaration's own location. A declaration whose recorded selection range leaves its recorded range, as Lean records for the definitions of a `macro_rules` command over several syntax kinds, is located at its range, which is then its selection range too. |

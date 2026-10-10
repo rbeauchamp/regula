@@ -109,6 +109,18 @@ structure ExecutableInventory where
   options : RegulaPolicy.Community.BuildOptions
   deriving Repr, BEq
 
+/-- One library or executable of a package, as Lake's load of the package resolves it: the modules
+it provides by the package's own module resolution (a library's modules, an executable's root) and
+the Lean options and extra `lean` arguments it builds them with. -/
+structure TargetInventory where
+  /-- The target's kind and name: `lean_lib NAME` or `lean_exe NAME`. -/
+  target : String
+  /-- The modules the target provides, in `Name.quickLt` order. -/
+  modules : Array Name
+  /-- The Lean options and extra `lean` arguments Lake builds the target's modules with. -/
+  options : RegulaPolicy.Community.BuildOptions
+  deriving Repr, BEq
+
 /-- One dependency package of the workspace, with the files its source state is read from. -/
 structure DependencyInventory where
   /-- The package's name. -/
@@ -121,6 +133,28 @@ structure DependencyInventory where
   /-- The source file of each of its modules that its library globs select, and of each
   executable root whose source exists. -/
   sources : Array SourceEntry
+  /-- Whether the audit owns the package: its directory is in the Git work tree of the root
+  package, so it is a path dependency in the project's own repository. The audit replays through
+  Lean's kernel each module of an owned package that a requested module imports, except modules
+  under the checker's reserved prefixes, which are the checker's own code, and trusts every other
+  package. -/
+  owned : Bool
+  /-- The package's compiled-module output directory (Lake's `leanLibDir`). -/
+  leanLibDir : FilePath
+  /-- The package's scope, from the manifest or override entry Lake loaded it by. -/
+  scope : String := ""
+  /-- The configuration file Lake loaded the package from, relative to `root`. -/
+  configFile : FilePath := ""
+  /-- The manifest file Lake reads for the package, relative to `root`. -/
+  manifestFile : FilePath := ""
+  /-- The text of the package's configuration file `configFile`. -/
+  configuration : String := ""
+  /-- The package's output directories as its loaded configuration sets them, by field, with no
+  path resolved: `buildDir`, `leanLibDir`, `nativeLibDir`, `binDir` and `irDir`. -/
+  outputDirectories : Array (String × FilePath) := #[]
+  /-- Each of the package's libraries and executables with the modules it provides and the options
+  it builds them with. -/
+  targets : Array TargetInventory := #[]
   deriving Repr, BEq
 
 /-- The Lake workspace of a checked project: its root package's targets, search paths and
@@ -128,6 +162,11 @@ dependency packages, from Lake's own package model. -/
 structure SurfaceInventory where
   /-- The project's root directory. -/
   root : FilePath
+  /-- The root package's name. -/
+  package : String := ""
+  /-- The root package's output directories as its loaded configuration sets them
+  (`DependencyInventory.outputDirectories`). -/
+  outputDirectories : Array (String × FilePath) := #[]
   /-- The root package's compiled-module output directory (Lake's `leanLibDir`). -/
   leanLibDir : FilePath
   /-- The module search path: `leanLibDir`, then the workspace's `leanPath`. -/
@@ -138,8 +177,15 @@ structure SurfaceInventory where
   libraries : Array LibraryInventory
   /-- Every root-package executable. -/
   executables : Array ExecutableInventory
+  /-- Each root-package library and executable with the modules it provides by the package's own
+  module resolution and the options it builds them with (`DependencyInventory.targets`). -/
+  targets : Array TargetInventory := #[]
   /-- Every package of the workspace except the root. -/
   dependencies : Array DependencyInventory
+  /-- When the workspace is a copy that the audit made of the project, the copy's real
+  directory (`Lake.checkCopiedWorkspace`): every owned module that an audited environment loads
+  must then resolve below it (`Environment.ModuleGraph.outsideCopy`). -/
+  copy : Option FilePath := none
   deriving Repr, BEq
 
 end Regula.Checker.Lake

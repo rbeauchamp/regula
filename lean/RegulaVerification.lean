@@ -563,10 +563,13 @@ observe that this driver made the copy new in this run; that statement rests on 
 
 /-- Whether a path below the project root, given by its components from the root, is part of
 the copy. It is the rule by which the checker makes an isolated copy of a project
-(`Regula.Checker.copyProject`): VCS data, Lake's directory, artifact caches and the checker's old
+(`Regula.Checker.Lake.copyProject`): VCS data, Lake's directory, artifact caches and the checker's old
 scratch directory are left out at every depth, and so is the root `tmp` directory. The two
-modules cannot import one another, so the rule is written twice. The copy is the project that the
-gate audits, whatever this rule copied, and a missing file fails the build. -/
+modules cannot import one another, so the rule is written twice. The checker's copy also leaves
+out every compiled module part; this one copies any outside Lake's directory, and that the copy
+held no build output before the driver's build is what a driver-copy audit trusts
+(`AxiomGate.driverCopy`). The copy is the project that the gate audits, whatever this rule copied,
+and a missing file fails the build. -/
 def walked : List String → Bool
   | "tmp" :: _ => false
   | relative => relative.all fun component =>
@@ -592,7 +595,7 @@ theorem walked_iff (relative : List String) :
     simp [head]
 
 /-- Copy each walked entry of the project at `root` (`walked`) to the same place below `target`.
-A file's bytes are copied; a symbolic link is followed, as `Regula.Checker.copyProject` follows
+A file's bytes are copied; a symbolic link is followed, as `Regula.Checker.Lake.copyProject` follows
 it. Every write is below `target`. -/
 def copyTree (root target : System.FilePath) : IO Unit := do
   let rootComponents := root.normalize.components

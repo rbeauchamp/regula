@@ -161,6 +161,10 @@ private def setup (repo adopter : FilePath) : IO Unit := do
   let linked ← runProcess adopter "ln" #["-s", (repo / ".lake" / "packages").toString,
     (adopter / ".lake" / "packages").toString]
   unless linked.succeeded do throw <| IO.userError linked.output
+  -- An adopter is a repository of its own, so `regula`, which it requires from this checkout, is
+  -- a dependency in a different Git work tree, which the audit trusts, as an adopter's is.
+  let initialized ← runProcess adopter "git" #["init", "-q"]
+  unless initialized.succeeded do throw <| IO.userError initialized.output
 
 /-- Actual external adopter, single-fault mutations, and fresh source restoration.
 No mutation executes the fabricated extern body. -/

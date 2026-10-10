@@ -191,6 +191,8 @@ private unsafe def freezeGraph (plan : Plan) (snapshot : RegulaPolicy.AdmittedSn
     let [source] := (sources.filter (·.moduleName == key.name.name)).toList
       | throw <| IO.userError "missing or duplicate graph source binding"
     pure (key, (⟨source.path, source.content⟩ : RegulaPolicy.SourceSnapshot))
+  -- An entry of module names: the modules of the serialized graph.
+  requireSafeModuleNames "the serialized graph" (modules.map (·.name.name))
   let previous ← Lean.searchPathRef.get
   let origins ← try
       Lean.searchPathRef.set inventory.leanPath.toList

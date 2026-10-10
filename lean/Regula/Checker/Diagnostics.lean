@@ -1,4 +1,5 @@
 import Lean
+import Regula.Checker.ModuleName
 
 /-! # Frontend rejection diagnostics
 
@@ -59,6 +60,8 @@ unsafe def errors (moduleName : Name) (source : System.FilePath) : IO (Array Str
         return .error ({
           diagnostics := ← Language.Snapshot.Diagnostics.ofMessageLog messages
           result? := none, metaSnap := default } : Language.Lean.HeaderProcessedSnapshot)
+      -- An entry of module names: the import lines of the source.
+      requireSafeModuleNames "the imports of the source" (stx.imports.map (·.module))
       -- A missing implicit Init is an installation failure, not a source error.
       for imp in stx.imports (includeInit := false) do
         let some path ← sourceImportPath? imp.module

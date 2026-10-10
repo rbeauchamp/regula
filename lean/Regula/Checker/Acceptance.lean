@@ -26,6 +26,12 @@ structure RequestedInspection where
   admitted : ProducerReport.Admitted
   /-- The frontend transcripts the producer recorded while elaborating those modules. -/
   transcripts : Array RegulaPolicy.Frontend.Transcript
+  /-- The modules of owned dependencies the coordinator's module graph shows this report must
+  inspect with its own (`Environment.EnvironmentOwnership.dependencies`). -/
+  expectedDependencies : Array Name := #[]
+  /-- The source bindings of those modules, each from the owned package the environment loads it
+  from (`Environment.dependencyBindings`). -/
+  dependencySources : Array ProducerReport.SourceBinding := #[]
 
 /-- The admitted report itself. -/
 abbrev RequestedInspection.report (inspection : RequestedInspection) : ProducerReport.Environment :=
@@ -33,14 +39,19 @@ abbrev RequestedInspection.report (inspection : RequestedInspection) : ProducerR
 
 instance : ToJson RequestedInspection := ⟨fun value => Json.mkObj [
   ("expectedModules", toJson value.expectedModules), ("report", toJson value.report),
-  ("transcripts", toJson value.transcripts)]⟩
+  ("transcripts", toJson value.transcripts),
+  ("expectedDependencies", toJson value.expectedDependencies),
+  ("dependencySources", toJson value.dependencySources)]⟩
 
 instance : FromJson RequestedInspection := ⟨fun value => do
-  PolicyCodec.exactFields value ["expectedModules", "report", "transcripts"]
+  PolicyCodec.exactFields value
+    ["expectedModules", "report", "transcripts", "expectedDependencies", "dependencySources"]
   return {
     expectedModules := ← value.getObjValAs? _ "expectedModules",
     admitted := ← value.getObjValAs? _ "report", transcripts :=
-        ← value.getObjValAs? _ "transcripts" }⟩
+        ← value.getObjValAs? _ "transcripts"
+    expectedDependencies := ← value.getObjValAs? _ "expectedDependencies"
+    dependencySources := ← value.getObjValAs? _ "dependencySources" }⟩
 
 /-- Retain one exact source per URI; repeated identical file observations are shared,
 while conflicting bytes are refused. This normalizes source maps, never job results. -/
@@ -85,10 +96,15 @@ private def freezeEnvironment (claim : Claim) (request : EnvironmentRequest)
     (sources : Array ProducerReport.SourceBinding) (ownedOutput : FilePath)
     (inspected : RequestedInspection) (fileSource : Option FileSourceBinding := none) :
         IO FrozenEnvironment := do
+  -- This environment's sources: the root package's, then those of the dependency modules it
+  -- inspects, each from the package it loads the module from.
+  let sources := sources ++ inspected.dependencySources
   let snapshot : AdmittedSnapshot := ⟨claim.val.snapshot, claim.property.2.1⟩
   let positive := request.modules.map (·.name.name)
   let report := inspected.report
+  let dependencyNames := request.dependencies.map (·.name.name)
   unless inspected.expectedModules == positive && report.census.modules == positive &&
+      report.census.dependencyModules == dependencyNames &&
       report.census.executionRoots.isSome do
     throw <| IO.userError "producer census differs from independently requested environment"
   -- `inspected.admitted.valid` proves `checked_validate` (which includes the source-evidence
@@ -113,7 +129,7 @@ private def freezeEnvironment (claim : Claim) (request : EnvironmentRequest)
   let modules := request.modules
   let infrastructureNames := infrastructure.map (·.moduleKey.name.name)
   let importedNames := origins.map (·.name) |>.filter fun name =>
-    !positive.contains name && !infrastructureNames.contains name
+    !positive.contains name && !dependencyNames.contains name && !infrastructureNames.contains name
   let importedModules ← IO.ofExcept <| importedNames.mapM (moduleKey snapshot)
   let mut allSources := sources
   for history in histories do
@@ -126,7 +142,9 @@ private def freezeEnvironment (claim : Claim) (request : EnvironmentRequest)
     let some source := allSources.find? (·.moduleName == key.name.name)
       | throw <| IO.userError s!"missing independently captured source: {key.name.name}"
     return (key, ⟨source.path, source.content⟩)
-  let moduleSources ← modules.mapM sourceFor
+  -- The census binds the source of each module it inspects: the requested ones, then those of
+  -- owned dependencies (`EnvironmentCensus.inspectedModules`).
+  let moduleSources ← (modules ++ request.dependencies).mapM sourceFor
   let importedSources
       ← (importedModules.filter (fun m => allSources.any (·.moduleName == m.name.name))).mapM
           sourceFor
@@ -154,7 +172,8 @@ private def freezeEnvironment (claim : Claim) (request : EnvironmentRequest)
       unclassifiedRootImports := unclassifiedRootImports.push
         (← IO.ofExcept (moduleKey snapshot origin.name))
   let census : EnvironmentCensus := {
-    request, policy := scope.inventory, execution, modules, importedModules,
+    request, policy := scope.inventory, execution, modules,
+    dependencyModules := request.dependencies, importedModules,
         infrastructure, origins,
     moduleSources, fileSource, importedSources, infrastructureSources, unclassifiedRootImports,
     admissionModules := replayModules, admissionDeclarations := required, declarations,
@@ -179,7 +198,10 @@ def freeze (claim : Claim) (expected : Array (Array Name))
     throw <| IO.userError "missing, duplicate or unrequested environment inspection"
   let requests ← expected.mapIdxM fun index names => do
     let modules ← IO.ofExcept <| names.mapM (moduleKey snapshot)
-    pure ({ key := ⟨snapshot, index⟩, modules } : EnvironmentRequest)
+    -- The dependency modules of the request are the coordinator's own, from its module graph.
+    let dependencies ← IO.ofExcept <|
+      ((reports[index]?.map (·.expectedDependencies)).getD #[]).mapM (moduleKey snapshot)
+    pure ({ key := ⟨snapshot, index⟩, modules, dependencies } : EnvironmentRequest)
   let environments ← requests.mapIdxM fun index request => do
     let some inspected := reports[index]?
       | throw <| IO.userError "missing requested environment inspection"

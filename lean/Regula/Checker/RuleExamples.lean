@@ -40,7 +40,7 @@ unsafe def inspectNegative (repo path output : FilePath) : IO UInt32 := do
               IO.userError
                   "policy example did not elaborate; compiler failure is not policy rejection"
         let inspected ← IO.ofExcept <| (← SourceAudit.inspectOutcome compilation inventory.leanPath
-          inventory.leanSrcPath inventory.moduleSources (some inventory.leanLibDir)).mapError
+          inventory.leanSrcPath inventory.moduleSources inventory.ownership).mapError
               (·.detail)
         let declarations := inspected.report.declarations.qsort fun a b =>
             Name.quickLt a.name b.name
@@ -88,11 +88,12 @@ unsafe def documentation (repo docsRoot output : FilePath) : IO UInt32 := do
   let sources := documents.map fun document => (FilePath.mk document.uri, document.source)
   let outcome ← (stable #[] requestedConfiguration <| withScratch repo "rule-document-example"
       fun scratch => do
-    let copy := scratch / "project"
-    copyProject repo copy scratch
+    let copied ← Lake.copyProject repo (scratch / "project") scratch
+    let copy := copied.project
     let configuration ← SourceBinding.configuration copy (Manifest.defaultPath copy)
     stable #[] configuration do
-      let inventory ← Lake.surfaceInventory copy
+      let inventory ← Lake.checkCopiedWorkspace copied.root (some copied.selection)
+        (← Lake.surfaceInventory copy)
       let manifest ← Manifest.loadFor (Manifest.defaultPath copy) inventory
       let projectSources ← SourceBinding.capture inventory.moduleSources
       let dependencies ← Snapshot.dependencies inventory

@@ -171,6 +171,9 @@ structure EnvironmentCensus where
   execution : ExecutionInventory
   /-- The positive (owned) modules the request assigns to this environment. -/
   modules : Array ModuleKey
+  /-- The modules of the owned dependencies that this environment's positive modules import
+  (`EnvironmentRequest.dependencies`); their declarations are inspected here too. -/
+  dependencyModules : Array ModuleKey := #[]
   /-- Loaded modules that are neither owned nor infrastructure: the import closure. -/
   importedModules : Array ModuleKey
   /-- Origin receipts of the loaded checker infrastructure modules. -/
@@ -179,7 +182,7 @@ structure EnvironmentCensus where
   origins : Array ModuleOrigin := #[]
   /-- Captured source snapshots of infrastructure modules, where a source was captured. -/
   infrastructureSources : Array (ModuleKey × SourceSnapshot) := #[]
-  /-- The captured source snapshot of each owned module, in `modules` order. -/
+  /-- The captured source snapshot of each inspected module, in `inspectedModules` order. -/
   moduleSources : Array (ModuleKey × SourceSnapshot)
   /-- For a single-file audit, the binding of the requested file to its compiled copy. -/
   fileSource : Option FileSourceBinding := none
@@ -205,9 +208,18 @@ structure EnvironmentCensus where
 def EnvironmentCensus.infrastructureModules (i : EnvironmentCensus) : Array ModuleKey :=
     i.infrastructure.map (·.moduleKey)
 
-/-- Every module of the environment: owned, then imported, then infrastructure. -/
+/-- The modules whose declarations, executable roots, sources and documentation the environment
+inspects: its positive modules, then the modules of owned dependencies that it owns
+(`EnvironmentRequest.dependencies`). Every per-module job of the plan takes its modules from here:
+the captured sources (`EnvironmentCensusOK`), the declarations, the transcripts and the
+documentation (`localStageSubjects`). -/
+def EnvironmentCensus.inspectedModules (i : EnvironmentCensus) : Array ModuleKey :=
+  i.modules ++ i.dependencyModules
+
+/-- Every module of the environment: owned, then of owned dependencies, then imported, then
+infrastructure. -/
 def EnvironmentCensus.allModules (i : EnvironmentCensus) : Array ModuleKey :=
-  i.modules ++ i.importedModules ++ i.infrastructureModules
+  i.modules ++ i.dependencyModules ++ i.importedModules ++ i.infrastructureModules
 
 /-- Every captured source of the environment: owned, then imported, then infrastructure. -/
 def EnvironmentCensus.allModuleSources (i : EnvironmentCensus) : Array
@@ -222,7 +234,7 @@ structure Census where
   environments : Array EnvironmentCensus
   /-- Every positive (owned) module of the run, over all environments. -/
   modules : Array ModuleKey
-  /-- The captured source of every positive module, over all environments. -/
+  /-- The captured source of every inspected module, over all environments. -/
   moduleSources : Array (ModuleKey × SourceSnapshot)
   /-- The manifest's classification of each Lake target. -/
   configuredTargets : Array TargetAssignment
@@ -355,7 +367,7 @@ def EnvironmentCensusOK (c : Claim) (global : Census) (i : EnvironmentCensus) : 
   InfrastructureOK c i ∧
   UniqueNames (moduleNames i.allModules) ∧
   (∀ m ∈ i.allModules, m.snapshot.val = c.val.snapshot) ∧
-  i.moduleSources.map (·.1) = i.modules ∧
+  i.moduleSources.map (·.1) = i.inspectedModules ∧
   (∀ entry ∈ i.moduleSources, entry.2 ∈ c.val.snapshot.sources) ∧
   i.importedSources.toList.Pairwise (fun a b => a.1 ≠ b.1) ∧
   (∀ entry ∈ i.importedSources, entry.1 ∈ i.importedModules ∧ entry.2 ∈ snapshotSources c) ∧
@@ -371,7 +383,7 @@ def EnvironmentCensusOK (c : Claim) (global : Census) (i : EnvironmentCensus) : 
     (d.module, d.name) ∈ declarationNames i.admissionDeclarations) ∧
   declarationNames i.declarations = i.policy.declarations.map (fun d => (d.module, d.name)) ∧
   declarationNames i.roots = i.execution.roots.map (fun r => (r.module, r.name)) ∧
-  (∀ d ∈ i.declarations, d.moduleKey ∈ i.modules) ∧
+  (∀ d ∈ i.declarations, d.moduleKey ∈ i.inspectedModules) ∧
   (∀ r ∈ i.roots, r.moduleKey ∈ i.allModules) ∧
   (∀ d ∈ i.materialDeclarations, d ∈ i.declarations) ∧
   i.materialDeclarations.toList.Pairwise (· ≠ ·) ∧
@@ -383,7 +395,9 @@ def EnvironmentCensusOK (c : Claim) (global : Census) (i : EnvironmentCensus) : 
            #[binding.compiled]
    | .editor n source .. => moduleNames i.modules = #[n.name] ∧
        i.moduleSources.map (·.2) = #[source]
-   | .documentation _ => False)
+   | .documentation _ => False) ∧
+  i.request.dependencies = i.dependencyModules ∧
+  (∀ m ∈ i.dependencyModules, m.name ∈ c.val.dependencies)
 set_option synthInstance.maxSize 1024 in
 instance (c : Claim) (global : Census) (i : EnvironmentCensus) : Decidable
     (EnvironmentCensusOK c global i) := by
@@ -529,30 +543,67 @@ theorem census_covers_claimed_targets (c : Claim) (i : Census) (h : CensusOK c i
   rw [← mem_canonicalNames, hmodules, mem_canonicalNames]
   exact Array.mem_flatMap.mpr ⟨s, hs, hsurface⟩
 
-/-- A module's profile is derived from its positive assignment, never a result payload. -/
+/-- A project module's profile, from the claimed surfaces and the modules of the owned
+dependencies of a project claim (`ClaimCandidate.surfaces`, `ClaimCandidate.dependencies`):
+that of the surface owning the module, or Standard-Logical for a module of an owned dependency,
+none for any other module. The coordinator gives each declaration's findings this profile from
+the same values it admits as the claim, so they agree with `profileForModule`
+(`profileForModule_project`). -/
+def projectProfile (surfaces : Array SurfaceAssignment) (dependencies : Array Identity)
+    (m : Name) : Option ConformingProfile :=
+  ((surfaces.find? (fun s => s.modules.any (fun n => n.name == m))).map (·.profile)).or
+    (if dependencies.any (·.name == m) then some .standardLogical else none)
+
+/-- A project module's execution claim, from the same values as `projectProfile`: that of the
+surface owning the module, report for a module of an owned dependency, none for any other
+module. -/
+def projectExecution (surfaces : Array SurfaceAssignment) (dependencies : Array Identity)
+    (m : Name) : Option ExecutionClaim :=
+  ((surfaces.find? (fun s => s.modules.any (fun n => n.name == m))).map (·.execution)).or
+    (if dependencies.any (·.name == m) then some .report else none)
+
+/-- A module's profile is derived from its positive assignment, never a result payload: in a
+project, `projectProfile` of the claim's surfaces and owned dependencies. -/
 def profileForModule (c : Claim) (m : Name) : Option ConformingProfile :=
   match c.val.scope with
-  | .project => (c.val.surfaces.find? (fun s => s.modules.any (fun n => n.name == m))).map
-                 (·.profile)
+  | .project => projectProfile c.val.surfaces c.val.dependencies m
   | .file _ p _ | .editor _ _ p _ => some p
   | .documentation _ => some .standardLogical
 
-/-- A module's execution claim, derived from the claim: in a project, that of the surface
-owning the module (none when no surface does); in a file or editor audit, the requested one;
-none for documentation. -/
+/-- A module's execution claim, derived from the claim: in a project, `projectExecution` of the
+claim's surfaces and owned dependencies; in a file or editor audit, the requested one; none for
+documentation. -/
 def executionForModule (c : Claim) (m : Name) : Option ExecutionClaim :=
   match c.val.scope with
-  | .project => (c.val.surfaces.find? (fun s => s.modules.any (fun n => n.name == m))).map
-                 (·.execution)
+  | .project => projectExecution c.val.surfaces c.val.dependencies m
   | .file _ _ e | .editor _ _ _ e => some e
   | .documentation _ => none
+
+/-- In a project claim, a module's profile is `projectProfile` of the claim's own surfaces and
+owned dependencies. -/
+theorem profileForModule_project {c : Claim} (h : c.val.scope = .project) (m : Name) :
+    profileForModule c m = projectProfile c.val.surfaces c.val.dependencies m := by
+  simp [profileForModule, h]
+
+/-- In a project claim, a module's execution claim is `projectExecution` of the claim's own
+surfaces and owned dependencies. -/
+theorem executionForModule_project {c : Claim} (h : c.val.scope = .project) (m : Name) :
+    executionForModule c m = projectExecution c.val.surfaces c.val.dependencies m := by
+  simp [executionForModule, h]
+
+/-- The execution claims that `declarations` request of the root `root` under the module
+assignment `execution`: that of the module of each declaration named `root` or registering an
+executable contract whose root is `root`, in order. -/
+def rootRequestsAmong (execution : Name → Option ExecutionClaim) (declarations : Array Declaration)
+    (root : Name) : Array ExecutionClaim :=
+  (declarations.filter (fun d => d.name == root ||
+    d.executableContract.any (fun contract => contract.root == root))).filterMap
+      (fun d => execution d.module)
 
 /-- A shared root must meet each requesting surface's execution obligation. The requests
 come from the owned ordinary declaration or each retained executable-contract registration. -/
 def rootRequests (c : Claim) (i : EnvironmentCensus) (root : Name) : Array ExecutionClaim :=
-  (i.policy.declarations.filter (fun d => d.name == root ||
-    d.executableContract.any (fun contract => contract.root == root))).filterMap
-      (fun d => executionForModule c d.module)
+  rootRequestsAmong (executionForModule c) i.policy.declarations root
 
 /-- Jobs use the existing stage/subject vocabulary; this pair is a projection of JobKey,
 not a second identity scheme. Fixed array order supplies deterministic result slots. -/
@@ -560,13 +611,15 @@ def localStageSubjects (i : EnvironmentCensus) : Stage → Array LocalJobSubject
   | .admission => #[.scope]
   | .declarationPolicy => i.declarations.map .declaration
   | .execution => i.roots.map .root
-  | .transcript => (i.modules.filter (fun m => i.policy.declarations.any (fun d =>
+  | .transcript => (i.inspectedModules.filter (fun m =>
+      i.policy.declarations.any (fun d =>
       d.module == m.name.name && decide (NeedsTranscript d.kind d.name)))).map .module
   | .history => (i.allModules.filter (fun m => i.execution.roots.any (fun r => r.boundaries.any
       (fun b => b.module == m.name.name && decide b.NeedsHistory)))).map .module
   | .origin => (i.allModules.filter (fun m => i.execution.roots.any (fun r => r.boundaries.any
       (fun b => b.module == m.name.name && decide b.ClaimsToolchain)))).map .module
-  | .documentationPresence => i.modules.map .module ++ i.materialDeclarations.map .declaration
+  | .documentationPresence => i.inspectedModules.map .module ++
+      i.materialDeclarations.map .declaration
   | _ => #[]
 
 /-- The subjects of a stage's jobs over the whole census: the scope for a whole-run stage, each
@@ -761,7 +814,7 @@ compiled policy: the claim of the witnesses of `checked_admitPlan`, `checked_acc
 def witnessClaim : Claim :=
   ⟨⟨.documentation #[⟨"README.md", ""⟩], .documentationExample,
       ⟨#[⟨"README.md", ""⟩], ⟨"lakefile", ""⟩, ⟨Compiler.version, Compiler.commit, "revision"⟩,
-        #[]⟩, #[]⟩,
+        #[]⟩, #[], #[]⟩,
     by decide +kernel⟩
 
 /-- The census of no environment and no fence, whose plan for `witnessClaim` is valid

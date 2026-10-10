@@ -66,7 +66,8 @@ followed through its current target without source history or correspondence. An
 constant whose type Lean's `Meta.isProp` finds to be a proposition, such as `lcProof`, is a
 proof the compiler erases and is no boundary. Each
 boundary is marked `checked` (kernel-definitional equality, a standard-logical
-correspondence theorem, or a kernel-checked opaque body), `trusted`, or
+correspondence theorem of a module that the audit replays or of the toolchain, or a
+kernel-checked opaque body), `trusted`, or
 `unresolved`; unresolved paths are listed per root. Imported boundary
 declarations are reported by this account without becoming owned.
 
@@ -347,14 +348,20 @@ compiler's positional universe substitution must type-check at those same
 levels. Both definitional and theorem-backed evidence pass the same kernel gate.
 Theorem candidates, supplied then discovered, are tried before definitional
 unfolding, so a kernel-exhausting unfolding cannot consume the memory limit a
-supplied proof needs. The definitional fallback returns
+supplied proof needs. A theorem is tried only when `admits` accepts it, which `environmentReport`
+gives for a theorem of a module that the environment's admission replayed or reused, or of an
+origin-checked module of the toolchain: the kernel then checked the theorem itself in this audit,
+or it is part of the toolchain's trusted base. A theorem of a dependency that the audit does not
+own is never tried, since only that dependency's build vouches for it. The definitional fallback
+returns
 `DefeqComparison.classify` of the comparison its attempt records (`comparison`): the kernel's
 answer completes it, and an attempt the kernel did not decide, or one that raised an error while
 it built the reflexivity proof or read the answer, is unresolved, never trusted (standard §7.6).
 An elaborator resource limit reached while constructing the correspondence is rethrown rather
 than recorded as unresolved. -/
 private def replacementCorrespondence (env : Environment) (cached : Std.HashMap Name (Array Name))
-    (prepared : Thunk (PreparedTheorems env)) (reference replacement : Name)
+    (prepared : Thunk (PreparedTheorems env)) (admits : Name → Bool)
+    (reference replacement : Name)
     (proofCandidates : Array Name := #[]) :
     CommandElabM (Correspondence × Option String) :=
   liftTermElabM <| Meta.withoutModifyingMCtx do
@@ -374,12 +381,14 @@ private def replacementCorrespondence (env : Environment) (cached : Std.HashMap 
         let rhs := mkAppN impl domain
         let required ← Meta.mkForallFVars domain (← Meta.mkEq lhs rhs)
         for name in proofCandidates do
+          if !admits name then continue
           let evidence? ← theoremCorrespondence? cached levels ref impl domain required name
           if let some evidence := evidence? then
             return (.checked, some evidence)
         for (name, used) in prepared.get.entries do
           let some name := correspondenceCandidate reference replacement (name, used.get)
             | continue
+          if !admits name then continue
           let evidence? ← theoremCorrespondence? cached levels ref impl domain required name
           if let some evidence := evidence? then
             return (.checked, some evidence)
@@ -517,7 +526,8 @@ private def observeNode (env : Environment) (ownedModules : List Name)
     (candidates : NameMap (Array Lean.Compiler.CSimp.Entry))
     (proofCache : IO.Ref (Std.HashMap (Name × Name) (Correspondence × Option String)))
     (dependencyCache : IO.Ref (CompilerDependenciesCache env))
-    (preparedTheorems : Thunk (PreparedTheorems env)) (root : Name) (timing : Bool)
+    (preparedTheorems : Thunk (PreparedTheorems env)) (admits : Name → Bool) (root : Name)
+    (timing : Bool)
     (name : Name) : CommandElabM (RegulaPolicy.ExecutionWalk.NodeRecord name) := do
   let moduleOf (name : Name) : Option Name :=
     (env.getModuleIdxFor? name).map fun idx => env.header.modules[(idx : Nat)]!.module
@@ -526,7 +536,7 @@ private def observeNode (env : Environment) (ownedModules : List Name)
     let proofs := ((candidates.find? reference).getD #[]).filterMap fun candidate =>
       if candidate.toDeclName == target then some candidate.thmName else none
     let result ← reportPhase timing s!"correspondence {reference} -> {target}" <|
-      replacementCorrespondence env cached preparedTheorems reference target proofs
+      replacementCorrespondence env cached preparedTheorems admits reference target proofs
     liftIO <| proofCache.modify (·.insert (reference, target) result)
     return result
   let code : RegulaPolicy.ExecutionWalk.CodeStatus := match Lean.IR.findEnvDecl env name with
@@ -688,7 +698,7 @@ private def executionWalk (env : Environment) (ownedModules : List Name)
     (candidates : NameMap (Array Lean.Compiler.CSimp.Entry))
     (proofCache : IO.Ref (Std.HashMap (Name × Name) (Correspondence × Option String)))
     (dependencyCache : IO.Ref (CompilerDependenciesCache env))
-    (preparedTheorems : Thunk (PreparedTheorems env))
+    (preparedTheorems : Thunk (PreparedTheorems env)) (admits : Name → Bool)
     (recursorHelpers : Array Name) (root : Name) (timing : Bool) : CommandElabM
     (Array Regula.Report.ExecutionBoundary ×
       Array String × Array (Name × Name) × RegulaPolicy.ExecutionClosure) := do
@@ -713,8 +723,7 @@ private def executionWalk (env : Environment) (ownedModules : List Name)
     queue := queue.pop
     if records.contains name then continue
     let record ← observeNode env ownedModules toolchainModules cached loadReplacementHistory
-      candidates
-      proofCache dependencyCache preparedTheorems root timing name
+      candidates proofCache dependencyCache preparedTheorems admits root timing name
     records := records.insert name record
     queue := queue ++ record.successors
   let request : RegulaPolicy.ExecutionWalk.WalkRequest := { records, root }
@@ -778,12 +787,18 @@ module's frontend extension environment. Each declaration record has the axioms 
 for it, those it reaches in the kernel that replayed it (`Admission.validate`), with the axioms
 Lean's `collectAxioms` omits of them, or, with no `replayed`, those `collectAxioms` reports. The
 kernel walks of the correspondence proofs the execution account builds stop at the names
-`replayed` holds (`kernelAnswer`). -/
+`replayed` holds (`kernelAnswer`). `replayedModules` names the modules whose declarations the
+kernel checked in this audit, those the environment's admission replayed or reused: the execution
+account accepts a correspondence theorem only from one of them or from an origin-checked toolchain
+module (`replacementCorrespondence`). `dependencies` names the modules of owned dependencies that
+`modules` import: the report records their declarations and executable roots too, and its census
+lists them apart (`Census.dependencyModules`). -/
 def environmentReport (modules : List Name)
     (loadReplacementHistory : Name → IO (Except String (Array (Name × Name))) :=
       fun _ => pure (.error "trusted source-history loader was not supplied"))
     (includeExecution : Bool := true) (includeModuleOrigins : Bool := true)
-    (replayed : Option Regula.Collect.Replayed := none) :
+    (replayed : Option Regula.Collect.Replayed := none) (replayedModules : NameSet := {})
+    (dependencies : List Name := []) :
     CommandElabM Regula.Report.Collected := do
   let timing := (← IO.getEnv "REGULA_TIMING") == some "1"
   let label := String.intercalate ", " (modules.map toString)
@@ -799,8 +814,10 @@ def environmentReport (modules : List Name)
   let moduleOrigins ← if includeExecution || includeModuleOrigins then
       liftIO <| loadedModuleOrigins env
     else pure #[]
-  IO.ofExcept (Regula.Collect.ownedDecisionRegistrations env modules)
-  let own ← ownedDecls env modules
+  -- The modules of owned dependencies that `modules` import are inspected with them.
+  let inspected := modules ++ dependencies
+  IO.ofExcept (Regula.Collect.ownedDecisionRegistrations env inspected)
+  let own ← ownedDecls env inspected
   let declarationKeys ← own.mapM fun (name, _) => do
     let some idx := env.getModuleIdxFor? name
       | throwError "declaration census has no owner for {name}"
@@ -811,7 +828,7 @@ def environmentReport (modules : List Name)
     observing env name "declaration record"
       (Regula.Collect.declaration name .replayCandidate scope replayed)
   let roots ← reportPhase timing s!"execution root census [{label}]" <| if includeExecution then do
-    let mut roots ← executableRoots env modules own
+    let mut roots ← executableRoots env inspected own
     for entry in entries do
       if let some contract := entry.executableContract then
         if contract.failure.isNone && !roots.contains contract.root then
@@ -849,14 +866,21 @@ def environmentReport (modules : List Name)
         ({} : Std.HashMap (Name × Name) (Correspondence × Option String))
     let dependencyCache ← liftIO <| IO.mkRef ({} : CompilerDependenciesCache env)
     let preparedTheorems := Thunk.mk fun _ => prepareTheorems env
+    -- A correspondence theorem counts only from a module whose declarations the kernel checked
+    -- in this audit (`replayedModules`) or from an origin-checked toolchain module.
+    let admits (candidate : Name) : Bool := match env.getModuleIdxFor? candidate with
+      | some idx =>
+          let moduleName := env.header.modules[(idx : Nat)]!.module
+          replayedModules.contains moduleName || toolchainModules.contains moduleName
+      | none => false
     roots.mapM fun (moduleName, root) => do
       let (boundaries, unresolved, compilerEdges, closure) ←
         reportPhase timing s!"execution walk {root}" <| observing env root "execution walk" <|
-          executionWalk env modules toolchainModules cached (fun name => do
+          executionWalk env inspected toolchainModules cached (fun name => do
             historyRequests.modify fun requests =>
               if requests.contains (root, name) then requests else requests.push (root, name)
             loadReplacementHistory name) candidates proofCache dependencyCache preparedTheorems
-            recursorHelpers root timing
+            admits recursorHelpers root timing
       return ({
         name := root
         «module» := moduleName
@@ -870,7 +894,8 @@ def environmentReport (modules : List Name)
     moduleOrigins
     declarations := entries
     execution
-    census := { modules := modules.toArray, declarations := declarationKeys
+    census := { modules := modules.toArray, dependencyModules := dependencies.toArray
+                declarations := declarationKeys
                 executionRoots := if includeExecution then some roots else none
                 historyRequests := ← liftIO historyRequests.get }
   }
@@ -886,6 +911,7 @@ elab (name := auditDumpJsonCmd) "audit_dump_json" : command => do
     |>.filterMap fun t =>
       let t := t.trimAscii.toString
       if t.isEmpty then none else some t.toName
+  -- No admission runs here, so only a toolchain theorem can prove a correspondence.
   let report ← environmentReport modules
   liftIO <| IO.FS.writeFile (System.FilePath.mk pathStr) (Json.pretty (toJson report.toEnvironment))
 

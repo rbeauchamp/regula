@@ -38,6 +38,7 @@ def identityJson (projectRoot docsRoot : FilePath)
     ("dependencies", toJson (dependencies.map fun dependency => Json.mkObj [
       ("package", toJson dependency.package), ("root", toJson (rel dependency.root.toString)),
       ("revision", toJson dependency.revision), ("dirty", toJson dependency.dirty),
+      ("owned", toJson dependency.owned),
       ("sources", toJson (dependency.sourceCaptures.map fun (name, path, canonical, text) =>
         (name.toString, rel path, rel canonical, text))),
       ("configuration", toJson (dependency.configurationCaptures.map fun (path, entry) =>

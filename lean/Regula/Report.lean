@@ -362,8 +362,11 @@ These are unbound operational inputs to POLICY-04's claim-indexed `Census`, not 
 structure Census where
   /-- The owned modules the report was requested for. -/
   modules : Array Name
-  /-- The `(module, declaration)` key of every owned declaration, frozen before its record was
-  collected. -/
+  /-- The modules of the owned dependencies that the requested modules import, whose
+  declarations and executable roots the report also records. -/
+  dependencyModules : Array Name := #[]
+  /-- The `(module, declaration)` key of every owned declaration, of `modules` and of
+  `dependencyModules`, frozen before its record was collected. -/
   declarations : Array (Name × Name)
   /-- The `(module, root)` key of every executable root, when execution was inspected;
   `none` otherwise. -/
@@ -371,6 +374,11 @@ structure Census where
   /-- (execution root, module) requests registered before consulting history results. -/
   historyRequests : Array (Name × Name)
   deriving Repr
+
+/-- The modules whose declarations, executable roots and documentation the report records: the
+requested modules, then the modules of owned dependencies. -/
+def Census.inspectedModules (c : Census) : Array Name :=
+  c.modules ++ c.dependencyModules
 
 /-- Extraction keys alongside the original pure policy report. Operational transport
 and receipt validation live in the checker layer, outside the force-loaded replay closure. -/

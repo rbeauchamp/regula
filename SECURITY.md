@@ -54,8 +54,10 @@ them. Code that makes one of these changes to make a check pass is not honest co
 Regula checks for some changes of this kind, where the standard or a rule page states the check.
 For example, it replays the declarations of the project that are not `unsafe` or `partial` through
 Lean's kernel. It calculates the axioms of each declaration of the project from that kernel, not
-from the axiom table `exportedAxiomsExt` that Lean writes for each module. But a pass makes no claim
-that the project has none of the changes in the list.
+from the axiom table `exportedAxiomsExt` that Lean writes for each module. It also replays and
+checks the modules of a path dependency in the project's Git work tree that the claimed modules
+import, except Regula's own. But a pass makes no claim that the project has none of the changes in
+the list.
 The [README](README.md) puts Regula at the `#print axioms` step of
 [Validating a Lean Proof](https://lean-lang.org/doc/reference/latest/ValidatingProofs/).
 
@@ -70,6 +72,28 @@ write that stores a compiled body that Lean's compiler did not make and a native
 `_unsafe_rec` companion that Regula does not inspect is also such a change. The checks of Regula
 that read compiled code trust that the project makes none of these changes. To check a proof from
 a source that you do not trust, use [comparator](https://github.com/leanprover/comparator).
+
+Regula owns the path dependencies in the Git work tree of the project only in a supported
+workspace. In it, each owned package, the root package included, keeps Lake's default output
+layout. Also, no different package provides a module name that the root package or an owned
+package provides. For this condition, Regula counts the library modules of each package and the
+executable roots of each owned package. Two trusted packages can provide the same module name.
+Regula refuses any other workspace before it builds the project or a copy of it.
+
+Lake builds the program that runs the audit before that check, for example the `lake lint` driver.
+The verification driver of this repository also builds its own copy first. These two builds are of
+Regula's own package.
+
+Regula reserves the module name prefixes `Regula` and `RegulaPolicy` to itself. In each audit, only
+the running checker's own package can provide a module under them with any source. A different
+package can provide one only with a source that is byte-identical to the checker's source of that
+module. Thus the module that Regula loads in its place is compiled from the same text. This check
+assumes that the package's Lean options for the module do not change what the text elaborates to.
+
+A module under these prefixes in a package other than the root package is Regula's own code, also
+in an owned path dependency. No audit owns it or inspects it as project code. Regula's own audit
+checks it with its whole library. Thus the account names each dependency that provides such a
+module as a trusted package, also an owned path dependency.
 
 ## What counts as a vulnerability
 
@@ -101,10 +125,10 @@ A vulnerability is a way to break one of these guarantees on purpose:
   Thus code that attacks the checker process or your computer in this way is outside that
   boundary. Audit only code that you would build.
 - **What Regula trusts.** Regula trusts Lean's kernel, elaborator, compiler and runtime, Lake, Git,
-  the filesystem, the operating system and GNU timeout. It also trusts the packages that the
-  project requires, for example Mathlib, and a path dependency in the same repository is one of
-  them. Regula does not replay the declarations of a dependency through Lean's kernel, and it
-  reads their axioms from the data that the build of the dependency wrote. Report a vulnerability
+  the filesystem, the operating system and GNU timeout. It also trusts each package that the
+  project requires from outside its Git work tree, for example Mathlib, and the account names each
+  of them. Regula does not replay the declarations of these packages through Lean's kernel, and it
+  reads their axioms from the data that their builds wrote. Report a vulnerability
   of one of these items to its maintainers. Regula also trusts the GitHub services that a release
   uses: Actions, commit-signature verification, tags and immutable releases.
 - **Semantic review.** Whether a theorem states what you meant, and the other

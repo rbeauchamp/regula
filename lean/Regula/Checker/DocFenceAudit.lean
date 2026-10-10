@@ -197,12 +197,13 @@ unsafe def run (args : List String) : IO UInt32 := do
   -- The linked identity also brackets the Verso package's inputs.
   let linked ← sources.captureLinked repo
   withScratch repo "doc-fence-audit" fun scratch => do
-    let copy := scratch / "project"
-    copyProject repo copy scratch
+    let copied ← Lake.copyProject repo (scratch / "project") scratch
+    let copy := copied.project
     let manifestPath := options.manifest.map (resolve repo) |>.getD (Manifest.defaultPath copy)
     let configuration ← SourceBinding.configuration copy manifestPath
     let outcome ← SourceBinding.withUnchanged #[] configuration do
-      let inventory ← Lake.surfaceInventory copy
+      let inventory ← Lake.checkCopiedWorkspace copied.root (some copied.selection)
+        (← Lake.surfaceInventory copy)
       let manifest ← Manifest.loadFor manifestPath inventory
       let sources ← SourceBinding.capture inventory.moduleSources
       let dependencies ← Snapshot.dependencies inventory

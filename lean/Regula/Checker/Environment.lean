@@ -183,19 +183,349 @@ def ModuleGraph.requestedFailures (graph : ModuleGraph) (ordinary requested : Ar
         s!"surface-not-fresh: {name} did not resolve from the fresh Lake output"
   return failures
 
-/-- Root-output modules outside the requested or source-bound ownership, retaining every
-direct importer in header order. The metadata phase and full loader share this refusal. -/
-def ModuleGraph.unownedModules (graph : ModuleGraph) (owned : Array Name)
-    (ownedOutput : FilePath) : IO (Array ProducerReport.UnownedModule) := do
+/-- The modules that the import closure of a requested module contains in one environment, by
+its module origins (`Admission.importClosure`), or `none` when one of those closures cannot be
+built because a module it reaches has no origin. -/
+def claimedClosure (origins : Array Regula.Report.ModuleOrigin) (requested : Array Name) :
+    Option NameSet :=
+  let index := Admission.originIndex origins
+  requested.foldlM (init := {}) fun closure m =>
+    (Admission.importClosure index m).map fun reached =>
+      reached.foldl (fun closure origin => closure.insert origin.name) closure
+
+/-- Whether `m` is one of the checker's infrastructure modules
+(`RegulaPolicy.infrastructureModuleNames`): the force-loaded reporter, its published interfaces
+and its observers. `infrastructureOrigins` authenticates each one loaded as the running
+checker's own artifact, so an environment never owns one, whichever package holds its source;
+`Admission.replaySet` replays one that imports a replayed module. -/
+def isInfrastructure (m : Name) : Bool :=
+  RegulaPolicy.infrastructureModuleNames.contains m
+
+/-- One pass over an environment's module origins, in their order, adding to `owned` each module
+of `dependencies` outside the infrastructure modules that imports a module of `owned`. -/
+def ownImporters (origins : Array Regula.Report.ModuleOrigin) (dependencies : Array Name)
+    (owned : Std.HashSet Name) : Std.HashSet Name :=
+  origins.foldl (fun owned origin =>
+    if !owned.contains origin.name && dependencies.contains origin.name &&
+        !isInfrastructure origin.name && origin.imports.any owned.contains then
+      owned.insert origin.name
+    else owned) owned
+
+/-- `ownImporters` until a pass adds nothing, for at most `fuel` passes. Lean records a module's
+imports before the module, so in that order one pass adds every importer and the next adds none.
+That this reaches every importer is not proved: `Admission.validate` refuses a module it does not
+replay that imports one it replays, so a missed importer leaves the audit incomplete. -/
+def ownImportersUpTo (origins : Array Regula.Report.ModuleOrigin) (dependencies : Array Name) :
+    Nat → Std.HashSet Name → Std.HashSet Name
+  | 0, owned => owned
+  | fuel + 1, owned =>
+    let next := ownImporters origins dependencies owned
+    if next.size == owned.size then owned else ownImportersUpTo origins dependencies fuel next
+
+/-- The modules an environment owns, from its module origins, its requested modules, its source
+bindings `bound` and the modules `dependencies` of the owned dependencies, none of them an
+infrastructure module (`isInfrastructure`): each requested module and each source binding outside
+`dependencies`; each module of `dependencies` that the import closure of a requested module
+contains (`claimedClosure`); and each module of `dependencies` that imports a module the
+environment owns, since `Admission.validate` refuses a module it does not replay that imports one
+it replays. When a requested module's closure cannot be built, every module of `dependencies` is
+owned. -/
+def ownedModuleSet (origins : Array Regula.Report.ModuleOrigin)
+    (requested bound dependencies : Array Name) : Std.HashSet Name :=
+  let listed := requested ++ bound ++ dependencies
+  match claimedClosure origins requested with
+  | none => listed.foldl (fun owned m =>
+      if isInfrastructure m then owned else owned.insert m) {}
+  | some closure =>
+    let roots := listed.foldl (fun owned m =>
+      if isInfrastructure m || (dependencies.contains m && !closure.contains m)
+      then owned else owned.insert m) {}
+    ownImportersUpTo origins dependencies (origins.size + 1) roots
+
+/-- A pass of `ownImporters` keeps every module already owned. -/
+private theorem contains_ownImporters {origins : Array Regula.Report.ModuleOrigin}
+    {dependencies : Array Name} {owned : Std.HashSet Name} {m : Name}
+    (h : owned.contains m = true) : (ownImporters origins dependencies owned).contains m = true := by
+  unfold ownImporters
+  rw [← Array.foldl_toList]
+  generalize origins.toList = rest at *
+  induction rest generalizing owned with
+  | nil => exact h
+  | cons origin rest ih =>
+    simp only [List.foldl_cons]
+    apply ih
+    split
+    · simp [Std.HashSet.contains_insert, h]
+    · exact h
+
+/-- `ownImportersUpTo` keeps every module already owned. -/
+private theorem contains_ownImportersUpTo {origins : Array Regula.Report.ModuleOrigin}
+    {dependencies : Array Name} :
+    ∀ (fuel : Nat) {owned : Std.HashSet Name} {m : Name}, owned.contains m = true →
+      (ownImportersUpTo origins dependencies fuel owned).contains m = true
+  | 0, _, _, h => h
+  | fuel + 1, owned, m, h => by
+    simp only [ownImportersUpTo]
+    split
+    · exact h
+    · exact contains_ownImportersUpTo fuel (contains_ownImporters h)
+
+/-- Inserting each listed module that `skip` rejects keeps every module already present and adds
+each listed module that `skip` does not reject. -/
+private theorem contains_foldl_insert {skip : Name → Bool} {m : Name} :
+    ∀ (listed : List Name) (owned : Std.HashSet Name),
+      ((m ∈ listed ∧ skip m = false) ∨ owned.contains m = true) →
+      (listed.foldl (fun owned x => if skip x then owned else owned.insert x) owned).contains m =
+        true
+  | [], _, h => by simpa using h
+  | x :: rest, owned, h => by
+    simp only [List.foldl_cons]
+    apply contains_foldl_insert rest
+    rcases h with ⟨hm, hs⟩ | h
+    · rcases List.mem_cons.mp hm with rfl | hm
+      · right
+        simp [hs, Std.HashSet.contains_insert]
+      · left
+        exact ⟨hm, hs⟩
+    · right
+      split
+      · exact h
+      · simp [Std.HashSet.contains_insert, h]
+
+/-- An environment owns each requested module and source binding that is not an infrastructure
+module and either is not a module of an owned dependency, such as a module of the root package, or
+is one that the import closure of a requested module contains, or the environment's closures
+cannot be built. So the root package's modules are owned wherever they are loaded, as before owned
+dependencies, and owning a dependency never replays less. -/
+theorem contains_ownedModuleSet {origins : Array Regula.Report.ModuleOrigin}
+    {requested bound dependencies : Array Name} {m : Name} (listed : m ∈ requested ++ bound)
+    (infrastructure : m ∉ RegulaPolicy.infrastructureModuleNames)
+    (claimed : m ∉ dependencies ∨
+      ∀ reached, claimedClosure origins requested = some reached → reached.contains m = true) :
+    (ownedModuleSet origins requested bound dependencies).contains m = true := by
+  have notInfrastructure : isInfrastructure m = false := by
+    simpa [isInfrastructure, Array.contains_eq_mem] using infrastructure
+  have inListed : m ∈ (requested ++ bound ++ dependencies).toList := by
+    rcases Array.mem_append.mp listed with h | h <;> simp [h]
+  unfold ownedModuleSet
+  split
+  · rw [← Array.foldl_toList]
+    exact contains_foldl_insert _ _ (.inl ⟨inListed, notInfrastructure⟩)
+  · rename_i closure hclosure
+    apply contains_ownImportersUpTo
+    rw [← Array.foldl_toList]
+    refine contains_foldl_insert _ _ (.inl ⟨inListed, ?_⟩)
+    rcases claimed with outside | inside
+    · simp [Array.contains_eq_mem, outside, notInfrastructure]
+    · simp [inside closure hclosure, notInfrastructure]
+
+/-- What one environment owns, computed once from its module origins, its requested modules, its
+source bindings and the modules of the owned dependencies (`EnvironmentOwnership.of`, from
+`ownedModuleSet`). Every per-module job takes its modules from this one value, so no job selects
+another set: kernel admission replays `modules`, and of `reporterOnly` each module under the
+checker's reserved prefixes that imports a replayed module; the unowned-output refusal exempts
+`reporterOnly`; declaration and root inspection, documentation, the census sources and the
+transcripts cover the requested modules and then `dependencies`; and under `--fresh` each loaded
+module of `modules` must resolve inside the copy (`ModuleGraph.outsideCopy`). The project
+coordinator computes it from its module-graph pass and each worker from its loaded environment,
+from the same inputs. -/
+structure EnvironmentOwnership where
+  /-- The modules the environment owns (`ownedModuleSet`), in the order of the requested modules,
+  the source bindings and the owned dependency modules. -/
+  modules : Array Name
+  /-- The modules of the owned dependencies that the environment owns and loads, other than the
+  requested ones, in the order of the dependency modules: it inspects them with the requested
+  modules. -/
+  dependencies : Array Name
+  /-- The modules of the owned dependencies that the environment does not own: the checker's own
+  modules under its reserved prefixes (`projectModules`), and those that no requested module
+  imports and that import no owned module. Kernel admission replays each of them under the
+  reserved prefixes that imports a replayed module (`Admission.replaySet`), and refuses any other
+  that imports one (`Admission.validate`). -/
+  reporterOnly : Array Name
+  deriving Repr
+
+/-- The modules of the owned dependencies `dependencies` that an environment can own: those
+outside the checker's reserved prefixes (`reservedModule`). A module under them in a package other
+than the root package is the checker's own code, whose source is the checker's own text
+(`Lake.checkReservedModules`), and the checker's own audit inspects it with its whole library; no
+environment of another project owns it, as none owns an infrastructure module. -/
+def projectModules (dependencies : Array Name) : Array Name :=
+  dependencies.filter (!reservedModule ·)
+
+/-- The ownership of the environment with module origins `origins`, requested modules
+`requested`, source bindings `bound` and owned dependency modules `dependencies`, of which it can
+own the `projectModules`. -/
+def EnvironmentOwnership.of (origins : Array Regula.Report.ModuleOrigin)
+    (requested bound dependencies : Array Name) : EnvironmentOwnership :=
+  let project := projectModules dependencies
+  let owned := ownedModuleSet origins requested bound project
+  let loaded := origins.map (·.name)
+  { modules := (requested ++ bound ++ project).filter owned.contains
+    dependencies := project.filter fun m =>
+      owned.contains m && loaded.contains m && !requested.contains m
+    reporterOnly := dependencies.filter (!owned.contains ·) }
+
+/-- The inspected dependency modules are exactly the loaded dependency modules outside the
+checker's reserved prefixes that the environment owns (`ownedModuleSet`, with its importers) and
+does not request. -/
+theorem EnvironmentOwnership.mem_dependencies {origins : Array Regula.Report.ModuleOrigin}
+    {requested bound dependencies : Array Name} {m : Name} :
+    m ∈ (EnvironmentOwnership.of origins requested bound dependencies).dependencies ↔
+      m ∈ projectModules dependencies ∧
+        (ownedModuleSet origins requested bound (projectModules dependencies)).contains m ∧
+        m ∈ origins.map (·.name) ∧ m ∉ requested := by
+  simp [EnvironmentOwnership.of, Array.mem_filter, Array.contains_eq_mem, and_assoc]
+
+/-- No environment owns a module of an owned dependency under the checker's reserved prefixes
+unless it requests it or binds its source, which only the root package's modules are. -/
+theorem EnvironmentOwnership.reserved_not_owned {origins : Array Regula.Report.ModuleOrigin}
+    {requested bound dependencies : Array Name} {m : Name} (reserved : reservedModule m = true)
+    (outside : m ∉ requested ++ bound) :
+    m ∉ (EnvironmentOwnership.of origins requested bound dependencies).modules := by
+  simp only [EnvironmentOwnership.of, projectModules, Array.mem_filter, Array.mem_append]
+  rintro ⟨(listed | ⟨-, hm⟩), -⟩
+  · exact outside (Array.mem_append.mpr listed)
+  · simp [reserved] at hm
+
+/-- Every inspected dependency module is one of the modules the environment owns
+(`EnvironmentOwnership.modules`), which `Admission.validate` replays unless it reuses the module
+(`Admission.mem_replaySet`). -/
+theorem EnvironmentOwnership.dependencies_replayed {origins : Array Regula.Report.ModuleOrigin}
+    {requested bound dependencies : Array Name} {m : Name}
+    (h : m ∈ (EnvironmentOwnership.of origins requested bound dependencies).dependencies) :
+    m ∈ (EnvironmentOwnership.of origins requested bound dependencies).modules := by
+  obtain ⟨dependency, owned, -, -⟩ := EnvironmentOwnership.mem_dependencies.mp h
+  simp only [EnvironmentOwnership.of, Array.mem_filter, Array.mem_append]
+  exact ⟨.inr dependency, owned⟩
+
+/-- Modules loaded from an owned package's output (`Ownership.outputs`: the root package's, then
+each owned dependency's) that the environment neither owns (`EnvironmentOwnership.modules`) nor
+exempts (`EnvironmentOwnership.reporterOnly` and the infrastructure modules), retaining every
+direct importer in header order. An output directory that does not exist holds no loaded module. The
+metadata phase and full loader share this refusal. -/
+def ModuleGraph.unownedModules (graph : ModuleGraph) (ownership : EnvironmentOwnership)
+    (outputs : Array FilePath) : IO (Array ProducerReport.UnownedModule) := do
+  let outputs ← outputs.filterM (·.pathExists)
   let mut unowned := #[]
   for origin in graph.moduleOrigins do
-    if !owned.contains origin.name && !probeModuleNames.contains origin.name.toString then
-      if ← pathWithin (FilePath.mk origin.olean) ownedOutput then
+    if !ownership.modules.contains origin.name && !ownership.reporterOnly.contains origin.name &&
+        !isInfrastructure origin.name then
+      if ← outputs.anyM (pathWithin (FilePath.mk origin.olean)) then
         unowned := unowned.push origin.name
   return unowned.map fun name => {
     «module» := name
     importers := graph.moduleOrigins.filterMap fun origin =>
       if origin.imports.any (· == name) then some origin.name else none }
+
+/-- Under `--fresh`, each module the environment owns (`EnvironmentOwnership.modules`) that it
+loaded from outside the copy at `copy`, with the `.olean` it was loaded from: one whose `.olean`,
+on real paths, does not lie below `copy`. The copy is made with no compiled module
+(`copyProject`), so an owned module that resolves below it was compiled by the copy's own build;
+one that resolves elsewhere, such as an artifact of the original checkout, a configured build
+directory outside the copy or the reporter's overlay of the checker's library, was not. An
+`.olean` that cannot be resolved counts as outside. -/
+def ModuleGraph.outsideCopy (graph : ModuleGraph) (ownership : EnvironmentOwnership)
+    (copy : FilePath) : IO (Array (Name × String)) := do
+  let mut outside := #[]
+  for origin in graph.moduleOrigins do
+    if ownership.modules.contains origin.name then
+      let inside ← try pathWithin (FilePath.mk origin.olean) copy catch _ => pure false
+      unless inside do outside := outside.push (origin.name, origin.olean)
+  return outside
+
+/-- The text of the refusal of an owned module that a fresh audit loaded from outside its copy
+(`ModuleGraph.outsideCopy`). -/
+def outsideCopyDetail (copy : FilePath) (entry : Name × String) : String :=
+  s!"surface-not-fresh: owned module {entry.1} resolved from {entry.2}, outside the copy {copy}, \
+    so the copy's build did not produce it"
+
+/-- The owned package that each module an environment loaded belongs to, by its artifact. Each
+loaded module whose name `safeModuleComponents?` does not admit is refused first, whoever provides
+it: Lake builds a module of any name under a library's root or glob, such as one that only an
+import names, and `Lean.modToFilePath` places its source and artifact outside the package's
+directories for an absolute component or a `..` segment, where no output check sees them. The
+owned packages are the root package and the owned dependencies (`Ownership.root`,
+`Ownership.dependencies`); each keeps Lake's default layout (`Lake.checkDefaultLayout`), so its
+artifact of module `m` is `m`'s `.olean` below its output directory. A loaded module, other than an
+infrastructure module (`isInfrastructure`), belongs to an owned package when the package provides it
+by its own module resolution and the `.olean` the environment loaded is, on real paths, exactly that
+package's artifact of it. The module is refused when an owned package provides it and it is no such
+package's artifact, or the artifact of more than one, except a module under the checker's reserved
+prefixes (`reservedModule`) that is the checker's own artifact, which the reporter's overlay serves
+from the checker's library and whose source in any package is the checker's own text
+(`Lake.checkReservedModules`). Such a module belongs to the owned dependency that alone provides it;
+one that the root package provides belongs to none, since the root package's modules are owned
+through their source bindings. No environment owns a module under those prefixes that belongs to
+an owned dependency (`EnvironmentOwnership.of`, `projectModules`): it is the checker's own code. A
+module that no owned package provides belongs to none. The result
+lists each loaded module that belongs to an owned dependency, in the order of the module origins,
+with its index in `Ownership.dependencies`, so dependency membership and each source bound for a
+module follow the artifact the environment loaded, not the name. -/
+def attributeLoaded (origins : Array Regula.Report.ModuleOrigin) (ownership : Ownership) :
+    IO (Except String (Array (Name × Nat))) := do
+  let packages := ownership.root.toArray ++ ownership.dependencies
+  let offset := ownership.root.toArray.size
+  let provided := packages.map fun package => NameSet.ofArray package.modules
+  -- An artifact is placed by `modulePath?` alone, for a name that the loop below has admitted.
+  let artifact (output : FilePath) (name : Name) : IO (Option FilePath) := do
+    let some path := modulePath? output name "olean" | return none
+    try some <$> IO.FS.realPath path catch _ => pure none
+  let checker ← do
+    let some lib ← checkerPackageLibDir | pure none
+    try some <$> IO.FS.realPath lib catch _ => pure none
+  let mut attributed := #[]
+  for origin in origins do
+    if (safeModuleComponents? origin.name).isNone then
+      return .error s!"surface-attribution: module {origin.name} was loaded from {origin.olean}, \
+        and its name has a component that is an absolute path, has an empty, `.` or `..` segment \
+        between path separators, or is a number, so a path built from it can leave its directory"
+    if isInfrastructure origin.name then continue
+    let providers := (List.range packages.size).filter fun index =>
+      (provided[index]?.map (·.contains origin.name)).getD false
+    if providers.isEmpty then continue
+    let loaded := FilePath.mk origin.olean
+    let mut matched : Array Nat := #[]
+    for index in providers do
+      if let some package := packages[index]? then
+        if (← artifact package.output origin.name) == some loaded then
+          matched := matched.push index
+    let named := ", ".intercalate (providers.filterMap fun index =>
+      packages[index]?.map fun package => s!"'{package.package}'")
+    match matched with
+    | #[index] =>
+      if index ≥ offset then attributed := attributed.push (origin.name, index - offset)
+    | #[] =>
+      if reservedModule origin.name then
+        if let some lib := checker then
+          if (← artifact lib origin.name) == some loaded then
+            if let [index] := providers then
+              if index ≥ offset then attributed := attributed.push (origin.name, index - offset)
+            continue
+      return .error s!"surface-attribution: module {origin.name}, which the owned package {named} \
+        provides, was loaded from {loaded}, which is not that package's artifact of it"
+    | _ =>
+      return .error s!"surface-attribution: module {origin.name} was loaded from {loaded}, which \
+        is the artifact of more than one owned package: {named}"
+  return .ok attributed
+
+/-- The source bindings of the owned dependency modules that an environment inspects
+(`EnvironmentOwnership.dependencies`), each from the package that the environment loaded it from
+(`attributeLoaded`): `packages` gives the bindings of each owned package's own sources, in
+the order of `Ownership.dependencies`. The second component lists each inspected module that has
+no binding in its package. -/
+def dependencyBindings (ownership : EnvironmentOwnership) (loaded : Array (Name × Nat))
+    (packages : Array (Array ProducerReport.SourceBinding)) :
+    Array ProducerReport.SourceBinding × Array Name := Id.run do
+  let mut bindings := #[]
+  let mut unbound := #[]
+  for name in ownership.dependencies do
+    let binding := (loaded.find? (·.1 == name)).bind fun (_, index) =>
+      (packages[index]?).bind fun sources => sources.find? (·.moduleName == name)
+    match binding with
+    | some binding => bindings := bindings.push binding
+    | none => unbound := unbound.push name
+  return (bindings, unbound)
 
 /-- A forbidden edge retained with its exact membership in the observed import graph. -/
 private structure ReporterImport (origins : Array Regula.Report.ModuleOrigin) where
@@ -387,28 +717,37 @@ private def replacementHistory (sourceRoots : Array FilePath)
       return .completed source.toString sourceBefore sourceAfter edges
   catch error => return .unavailable error.toString
 
-/-- The import operation shared by metadata refusal and full declaration reporting. -/
+/-- The import operation shared by metadata refusal and full declaration reporting: every audit
+worker loads its environment through it. Two entries of module names: the requested modules, and
+every module of the loaded environment (the requested ones and all their imports, from the import
+lines the toolchain resolved). Each must pass `safeModuleComponents?` (`requireSafeModuleNames`)
+before the audit builds a path from it or attributes it. -/
 private unsafe def importReportEnvironment (modules : Array Name) : IO Lean.Environment := do
   if modules.isEmpty || modules.toList.eraseDups.length != modules.size then
     throw <| IO.userError "environment report requires unique nonempty modules"
+  requireSafeModuleNames "the requested modules" modules
   Lean.enableInitializersExecution
   let importNames :=
     if modules.contains probeModuleName.toName then modules
     else modules.push probeModuleName.toName
   let imports := importNames.map fun module => ({ module, importAll := true } : Import)
-  timedPhase "environment imports" <| importModules imports {} 0 (loadExts := true)
+  let env ← timedPhase "environment imports" <| importModules imports {} 0 (loadExts := true)
     (level := .private)
+  requireSafeModuleNames "the loaded environment" env.header.moduleNames
+  return env
 
 private unsafe def loadReportCoreAtSearchPath (modules : Array Name)
     (sourceRoots : Array FilePath := #[])
-    (moduleSources : Array (Name × FilePath) := #[]) (ownedOutput : Option FilePath := none)
+    (moduleSources : Array (Name × FilePath) := #[]) (ownership : Ownership := {})
     (includeExecution : Bool := true) (includeModuleOrigins : Bool := true)
     (validateReport : Bool := true) (historyMemo : Option (FilePath × String) := none)
     (priors : Array Admission.PriorAdmission := #[])
-    (publish : Option FilePath := none) :
+    (publish : Option FilePath := none) (inspectDependencies : Bool := false) :
     IO (Except ProducerReport.Refusal ProducerReport.Environment) := do
   if modules.isEmpty || modules.toList.eraseDups.length != modules.size then
     throw <| IO.userError "environment report requires unique nonempty modules"
+  -- No source is looked up for a name before it is admitted (`importReportEnvironment`).
+  requireSafeModuleNames "the requested modules" (modules ++ moduleSources.map (·.1))
   let mut resolvedSources := moduleSources
   for name in modules do
     if !resolvedSources.any (·.1 == name) then
@@ -421,22 +760,37 @@ private unsafe def loadReportCoreAtSearchPath (modules : Array Name)
       (α := Except ProducerReport.Refusal ProducerReport.Environment) sourceBindings #[] do
     let requested := modules
     let env ← importReportEnvironment requested
-    let ownedModules := requested ++ moduleSources.map (·.1) |>.filter
-      (fun name => !probeModuleNames.contains name.toString)
     let loadedOrigins ← Regula.Probe.loadedModuleOrigins env
     let graph : ModuleGraph := ⟨RegulaPolicy.canonicalNames env.header.moduleNames, loadedOrigins⟩
-    -- Kernel admission cannot classify a module loaded from the owned output that no requested
+    -- What this environment owns, computed once (`EnvironmentOwnership.of`); every per-module job
+    -- below takes its modules from it.
+    let bound := moduleSources.map (·.1)
+    -- Each loaded module of an owned package is that package's artifact (`attributeLoaded`).
+    let mut dependencyModules : Array (Name × Nat) := #[]
+    match ← attributeLoaded loadedOrigins ownership with
+    | .ok attributed => dependencyModules := attributed
+    | .error detail => return .error (.admission ⟨detail⟩)
+    let owned := EnvironmentOwnership.of loadedOrigins requested bound
+      (dependencyModules.map Prod.fst)
+    let ownedModules := owned.modules
+    -- Kernel admission cannot classify a module loaded from an owned output that no requested
     -- module or source binding owns, so the environment is refused with those modules and their
     -- direct importers: a coverage violation, not a failed inspection.
-    if let some root := ownedOutput then
-      let unowned ← graph.unownedModules ownedModules root
+    unless ownership.outputs.isEmpty do
+      let unowned ← graph.unownedModules owned ownership.outputs
       unless unowned.isEmpty do
         return .error (.unowned unowned)
+    -- In a copy, every owned module must come from the copy's own build.
+    if let some copy := ownership.copy then
+      let outside ← graph.outsideCopy owned copy
+      unless outside.isEmpty do
+        return .error (.admission ⟨"; ".intercalate (outside.map (outsideCopyDetail copy)).toList⟩)
     let origins := if priors.isEmpty && publish.isNone then #[] else loadedOrigins
     let reused := if priors.isEmpty then #[] else
       Admission.reusedModules env origins ownedModules priors
     let admissionResult ← timedPhase "kernel admission" <|
       Admission.validate env ownedModules reused requested
+        (owned.reporterOnly.filter reservedModule)
     if let .error failure := admissionResult then return .error (.admission failure)
     let .ok admitted := admissionResult
       | throw <| IO.userError "unreachable admission outcome"
@@ -449,9 +803,14 @@ private unsafe def loadReportCoreAtSearchPath (modules : Array Name)
       IO.FS.writeFile staged
         (toJson ({ receipt := admission, origins } : Admission.Completed)).compress
       IO.FS.rename staged path
+    -- In a project audit, the modules of owned dependencies that the environment owns are
+    -- inspected with the requested ones (`EnvironmentOwnership.dependencies`), each of them owned
+    -- and so replayed above: their declarations, roots, documentation and sources.
+    let dependencies := if inspectDependencies then owned.dependencies else #[]
+    let inspected := requested ++ dependencies
     -- Freeze the selector from the completed environment before reading docstrings.
     -- Loading server/private data above is necessary for both Lean doc formats.
-    let own := Regula.Probe.ownedConstants env requested.toList
+    let own := Regula.Probe.ownedConstants env inspected.toList
     let mut selected := #[]
     for (name, _) in own do
       if Regula.Linter.Documentation.selected env name then
@@ -460,7 +819,7 @@ private unsafe def loadReportCoreAtSearchPath (modules : Array Name)
         selected := selected.push (env.header.modules[(idx : Nat)]!.module, name)
     let documentation : Regula.Checker.ProducerReport.DocumentationObservation := {
       -- RG5001 reads each module's header from the exact bound source text.
-      modules := ← requested.mapM fun name => do
+      modules := ← inspected.mapM fun name => do
         let some binding := sourceBindings.find? (·.moduleName == name)
           | throw <| IO.userError s!"module-header: no bound source for {name}"
         return (name, ← Regula.Linter.Documentation.moduleObservation env name binding.content
@@ -482,9 +841,14 @@ private unsafe def loadReportCoreAtSearchPath (modules : Array Name)
       cancelTk? := none
     }
     let state := Elab.Command.mkState env
+    -- The modules whose declarations this audit checked with the kernel: those this admission
+    -- replayed and those it reused from an earlier environment's. A correspondence theorem is
+    -- accepted only from one of them or from the toolchain's own library.
+    let replayedModules := NameSet.ofArray (admission.modules ++ admission.reused)
     match ← timedPhase "declaration report" <| EIO.toIO' <|
         (Regula.Probe.environmentReport requested.toList loadHistory includeExecution
-            includeModuleOrigins (some admitted.replayed)).run ctx |>.run state with
+            includeModuleOrigins (some admitted.replayed) replayedModules dependencies.toList).run
+            ctx |>.run state with
     | .error ex => throw <| IO.userError (← ex.toMessageData.toString)
     | .ok (report, _) =>
       let historyTable ← histories.get
@@ -509,37 +873,94 @@ private unsafe def loadReportCoreAtSearchPath (modules : Array Name)
       return .ok report
   ).mapError ProducerReport.Refusal.admission |>.bind id
 
-/-- Lean resolves a whole module prefix at the first matching directory.
-A fresh project that builds only `Contract` must not mask the trusted probe,
-and putting the entire checker output first would mask fresh audited modules.
-Expose only the checker-owned prefix ahead of the audited search roots. -/
+/-- The module prefixes of the force-imported reporter's import closure outside the toolchain: the
+checker's own `Regula` modules and the policy library (the command at the top of this module
+refuses any other). -/
+def probePrefixes : Array String := reservedPrefixes
+
+/-- The compiled modules of the prefix `pre` in `dir`: the module `pre` itself, at `dir`, and those
+below `dir / pre`, each by its path components below `dir` without the `.olean` extension. -/
+private def compiledModules (dir : FilePath) (pre : String) : IO (Array (List String)) := do
+  let root := if ← ((dir / pre).addExtension "olean").pathExists then #[[pre]] else #[]
+  unless ← (dir / pre).isDir do return root
+  let base := dir.normalize.components.length
+  return root ++ (← (dir / pre).walkDir).filterMap fun path =>
+    if path.extension == some "olean" then
+      some (((path.withExtension "").normalize.components.drop base))
+    else none
+
+/-- Lean resolves a whole module prefix at the first search-path directory that has it, so a
+fresh project that builds only `Contract`, or a copy that builds part of an owned package of the
+checker's prefixes, must not hide the checker's other modules. The overlay merges, module by
+module, the modules of `probePrefixes`: the infrastructure modules
+(`RegulaPolicy.infrastructureModuleNames`) are linked from the checker's library `selfLib`, and
+every other module from the first directory of `searchPath` that holds its `.olean`, else from
+`selfLib`. Each module's parts all come from one directory. Returns the identity of that mapping:
+each module with the directory it is linked from, in order. -/
+private def linkProbeOverlay (overlay selfLib : FilePath) (searchPath : List FilePath) :
+    IO String := do
+  let mut sources : Std.HashMap (List String) FilePath := {}
+  let mut order : Array (List String) := #[]
+  for pre in probePrefixes do
+    for dir in searchPath ++ [selfLib] do
+      for module in ← compiledModules dir pre do
+        if sources.contains module then continue
+        let name := module.foldl (fun name part => Name.mkStr name part) .anonymous
+        let pinned := RegulaPolicy.infrastructureModuleNames.contains name
+        let source := if pinned then selfLib else dir
+        if pinned && !(← (selfLib / System.mkFilePath module).addExtension "olean" |>.pathExists)
+        then continue
+        sources := sources.insert module source
+        order := order.push module
+  -- One `ln` for each destination directory links every part there.
+  let mut byDirectory : Std.HashMap FilePath (Array String) := {}
+  for module in order do
+    let some source := sources[module]? | continue
+    let relative := System.mkFilePath module
+    for part in moduleParts do
+      let file := (source / relative).addExtension part
+      if ← file.pathExists then
+        let some parent := (overlay / relative).parent | continue
+        byDirectory := byDirectory.insert parent
+          ((byDirectory.getD parent #[]).push file.toString)
+  for (directory, files) in byDirectory.toArray do
+    IO.FS.createDirAll directory
+    let linked ← runProcess overlay "ln" (#["-s"] ++ files ++ #[directory.toString])
+    if !linked.succeeded then
+      throw <| IO.userError s!"could not expose trusted probe modules: {linked.output}"
+  let canonical := (order.map fun module =>
+    s!"{".".intercalate module}={(sources.getD module selfLib)}").qsort (· < ·)
+  return ";".intercalate canonical.toList
+
+/-- Search through the overlay of the reporter's modules (`linkProbeOverlay`) ahead of the
+current search path, restored afterwards. -/
 private def withProbeSearch {α : Type} (action : String → IO α) : IO α := do
   let some selfLib ← checkerPackageLibDir
     | throw <| IO.userError "trusted checker library directory unavailable"
+  let selfLib ← IO.FS.realPath selfLib
   withScratch (← IO.currentDir) "probe-search" fun overlay => do
-    let probeDirectory ← IO.FS.realPath (selfLib / "Regula")
-    let linked ← runProcess overlay "ln" #["-s", probeDirectory.toString,
-      (overlay / "Regula").toString]
-    if !linked.succeeded then
-      throw <| IO.userError s!"could not expose trusted probe prefix: {linked.output}"
     let oldSearchPath ← Lean.searchPathRef.get
+    let mapping ← linkProbeOverlay overlay selfLib oldSearchPath
     Lean.searchPathRef.set (overlay :: oldSearchPath)
-    -- The overlay holds only the `Regula` link to `probeDirectory`, so the effective search
-    -- path is determined by that directory and the search path below it. Shared history
-    -- worker output is keyed on this identity, not on the per-worker overlay name.
-    let searchIdentity := s!"probe={probeDirectory};path={System.SearchPath.toString oldSearchPath}"
+    -- The overlay holds only links whose targets `mapping` names, so the effective search path
+    -- is determined by that mapping and the search path below it. Shared history worker output
+    -- is keyed on this identity, not on the per-worker overlay name.
+    let searchIdentity :=
+      s!"probe={selfLib};modules={mapping};path={System.SearchPath.toString oldSearchPath}"
     try action searchIdentity
     finally Lean.searchPathRef.set oldSearchPath
 
 private unsafe def loadReportCore (modules : Array Name) (sourceRoots : Array FilePath := #[])
-    (moduleSources : Array (Name × FilePath) := #[]) (ownedOutput : Option FilePath := none)
+    (moduleSources : Array (Name × FilePath) := #[]) (ownership : Ownership := {})
     (includeExecution : Bool := true) (includeModuleOrigins : Bool := true)
     (validateReport : Bool := true) (historyMemo : Option FilePath := none)
-    (priors : Array Admission.PriorAdmission := #[]) (publish : Option FilePath := none) :
+    (priors : Array Admission.PriorAdmission := #[]) (publish : Option FilePath := none)
+    (inspectDependencies : Bool := false) :
     IO (Except ProducerReport.Refusal ProducerReport.Environment) :=
   withProbeSearch fun searchIdentity =>
-    loadReportCoreAtSearchPath modules sourceRoots moduleSources ownedOutput includeExecution
+    loadReportCoreAtSearchPath modules sourceRoots moduleSources ownership includeExecution
       includeModuleOrigins validateReport (historyMemo.map (·, searchIdentity)) priors publish
+      inspectDependencies
 
 private def withReportSearchRoots {α : Type} (extraSearchRoots : Array FilePath)
     (action : IO α) : IO α := do
@@ -561,10 +982,10 @@ unsafe def loadModuleGraph (modules : Array Name) (searchRoots : Array FilePath)
 supports bounded parallel, read-only imports while a caller owns the global
 search-path scope. -/
 unsafe def loadReportCurrentSearchPathOutcome (modules : Array Name)
-    (moduleSources : Array (Name × FilePath) := #[]) (ownedOutput : Option FilePath := none)
+    (moduleSources : Array (Name × FilePath) := #[]) (ownership : Ownership := {})
     (includeExecution : Bool := true) (includeModuleOrigins : Bool := true) :
     IO (Except ProducerReport.Refusal ProducerReport.Environment) :=
-  loadReportCore modules #[] moduleSources ownedOutput includeExecution includeModuleOrigins
+  loadReportCore modules #[] moduleSources ownership includeExecution includeModuleOrigins
 
 /-- Load exact modules through Lean's import semantics and return their typed
 declaration report. Extra search roots are temporary and restored afterward. Kernel admission
@@ -573,31 +994,33 @@ receipt and module origins are written to `publish` (`Admission.Completed`) as s
 succeeds. -/
 unsafe def loadReportOutcome (modules : Array Name)
     (extraSearchRoots : Array FilePath := #[]) (sourceRoots : Array FilePath := #[])
-    (moduleSources : Array (Name × FilePath) := #[]) (ownedOutput : Option FilePath := none)
+    (moduleSources : Array (Name × FilePath) := #[]) (ownership : Ownership := {})
     (includeExecution : Bool := true) (includeModuleOrigins : Bool := true)
     (validateReport : Bool := true) (historyMemo : Option FilePath := none)
-    (priors : Array Admission.PriorAdmission := #[]) (publish : Option FilePath := none) :
+    (priors : Array Admission.PriorAdmission := #[]) (publish : Option FilePath := none)
+    (inspectDependencies : Bool := false) :
     IO (Except ProducerReport.Refusal ProducerReport.Environment) :=
   withReportSearchRoots extraSearchRoots <|
-    loadReportCore modules sourceRoots moduleSources ownedOutput includeExecution
+    loadReportCore modules sourceRoots moduleSources ownership includeExecution
       includeModuleOrigins validateReport historyMemo priors publish
+      inspectDependencies
 
 /-- Compatibility wrapper for callers that report every refusal as an inspection failure at their
 own stage. Public rule adapters use the typed outcome variant above. -/
 unsafe def loadReportCurrentSearchPath (modules : Array Name)
-    (moduleSources : Array (Name × FilePath) := #[]) (ownedOutput : Option FilePath := none)
+    (moduleSources : Array (Name × FilePath) := #[]) (ownership : Ownership := {})
     (includeExecution : Bool := true) (includeModuleOrigins : Bool := true) :
     IO ProducerReport.Environment := do
-  IO.ofExcept <| (← loadReportCurrentSearchPathOutcome modules moduleSources ownedOutput
+  IO.ofExcept <| (← loadReportCurrentSearchPathOutcome modules moduleSources ownership
     includeExecution includeModuleOrigins).mapError (·.detail)
 
 /-- `loadReportOutcome` with any refusal raised as an `IO` error carrying its detail. -/
 unsafe def loadReport (modules : Array Name)
     (extraSearchRoots : Array FilePath := #[]) (sourceRoots : Array FilePath := #[])
-    (moduleSources : Array (Name × FilePath) := #[]) (ownedOutput : Option FilePath := none)
+    (moduleSources : Array (Name × FilePath) := #[]) (ownership : Ownership := {})
     (includeExecution : Bool := true) (includeModuleOrigins : Bool := true) :
     IO ProducerReport.Environment := do
-  IO.ofExcept <| (← loadReportOutcome modules extraSearchRoots sourceRoots moduleSources ownedOutput
+  IO.ofExcept <| (← loadReportOutcome modules extraSearchRoots sourceRoots moduleSources ownership
     includeExecution includeModuleOrigins).mapError (·.detail)
 
 end Regula.Checker.Environment
