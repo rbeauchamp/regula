@@ -9,7 +9,7 @@ The steps of a Regula release, run with the pinned toolchain alone, so they need
 ```text
 lean --run lean/Regula/Release.lean open        # create the branch of the release pull request
 lean --run lean/Regula/Release.lean unreleased  # refuse a release label on main or a pull request
-lean --run lean/Regula/Release.lean agree       # refuse a lakefile or table the releases contradict
+lean --run lean/Regula/Release.lean agree       # refuse a stale lakefile version, table or pin
 lean --run lean/Regula/Release.lean title       # refuse a pull request title that is not a header
 lean --run lean/Regula/Release.lean candidate   # create the release commit for CI to check
 lean --run lean/Regula/Release.lean adopt       # derive it on main's commit, check it, adopt it
@@ -41,9 +41,9 @@ raise the bump and never lowers it (`nextBump_ge_called`, `nextBump_ge_requested
 later, a patch release keeps its predecessor's toolchain, and a release that starts a new line
 resets the lower components. `main`'s `lakefile.lean` declares the version of the latest listed
 release, the adoption guide's compatibility table lists every listed release with its
-toolchain, and each requirement of Regula in a tracked Markdown document (`setPins`), such as the
-snippets of the root `README.md` and the adoption guide, names the latest listed release;
-`agree` checks the three on every commit, the version as Lake itself reads it
+toolchain, each requirement of Regula in a tracked Markdown document (`setPins`) names the latest
+listed release, and the root `README.md` and the adoption guide each require it in each form
+(`unpinned`); `agree` checks these on every commit, the version as Lake itself reads it
 (`lake reservoir-config`).
 
 ## Steps
@@ -935,12 +935,35 @@ def tomlRequire (url tag : String) : String :=
 repository `url`. -/
 def leanRequire (url tag : String) : String := s!"require regula from git \"{url}\" @ \"{tag}\""
 
+/-- The form of a requirement of Regula: the table of a `lakefile.toml` (`tomlRequire`) or the
+`require` of a `lakefile.lean` (`leanRequire`). -/
+inductive Form where
+  /-- The table of a `lakefile.toml`: the line `rev = "<release>"` after the line
+  `git = "<url>"`. -/
+  | toml
+  /-- The `require` of a `lakefile.lean`: the text `"<url>" @ "<release>"`. -/
+  | lean
+  deriving DecidableEq, Repr
+
+/-- The forms of a requirement, each once. -/
+def Form.all : List Form := [.toml, .lean]
+
+/-- `Form.all` lists each form. -/
+theorem Form.mem_all (k : Form) : k ∈ Form.all := by cases k <;> simp [Form.all]
+
+/-- The form as the refusal of `agree` names it: the file it requires Regula in. -/
+def Form.spelling : Form → String
+  | .toml => "lakefile.toml"
+  | .lean => "lakefile.lean"
+
 /-- A pin of Regula in a document: the release that one requirement of Regula names. -/
 structure Pin where
   /-- The document, by its path in the repository. -/
   file : String
   /-- The line of the document, counted from 1, that names the release. -/
   line : Nat
+  /-- The form of the requirement. -/
+  form : Form
   /-- The release the pin names, as written: a tag such as `v0.10.0`. -/
   rev : String
   deriving DecidableEq, Repr
@@ -949,11 +972,12 @@ structure Pin where
 def Pin.spelling (p : Pin) : String := s!"{p.file}:{p.line}: {p.rev}"
 
 /-- The pins of Regula's git repository `url` in document `doc` at path `file`, in order, and
-`doc` with each pin set to release `tag` when `tag` is given, or `doc` itself. A pin has one of
-the two forms `tomlRequire` and `leanRequire` write, with the spaces around a line kept: the line
-`rev = "<release>"` right after the line `git = "<url>"`, or the text `"<url>" @ "<release>"`
-in a line. Refuses any other line with `"<url>"` in it, so that no requirement of the repository
-escapes the reading. -/
+`doc` with each pin set to release `tag` when `tag` is given, or `doc` itself. It reads only the
+lines that contain `"<url>"` exactly, and the line after the line `git = "<url>"`: a requirement
+that spells the repository otherwise, for example with `.git` or `http`, is no pin. A pin has one
+of the two forms `tomlRequire` and `leanRequire` write (`Form`), with the spaces around a line
+kept: the line `rev = "<release>"` right after the line `git = "<url>"`, or the text
+`"<url>" @ "<release>"` in a line. Refuses any other line with `"<url>"` in it. -/
 def setPins (url file doc : String) (tag : Option String) :
     Except String (String × List Pin) := do
   let quoted := "\"" ++ url ++ "\""
@@ -969,7 +993,7 @@ def setPins (url file doc : String) (tag : Option String) :
           (·.toString.dropSuffix? "\"") |>.map (·.toString)
         | throw s!"{here}: the line after `{gitLine}` is not `rev = \"<release>\"`"
       if rev.any (· == '"') then throw s!"{here}: `{line.trimAscii}` names no one release"
-      pins := pins.push ⟨file, i + 1, rev⟩
+      pins := pins.push ⟨file, i + 1, .toml, rev⟩
       let indent := String.ofList (line.toList.takeWhile (· == ' '))
       out := out.push (match tag with | some t => indent ++ "rev = \"" ++ t ++ "\"" | none => line)
     else
@@ -988,7 +1012,7 @@ def setPins (url file doc : String) (tag : Option String) :
             let rev := String.ofList (after.toList.takeWhile (· != '"'))
             unless rev.length < after.length do
               throw s!"{here}: the release after `{quoted} @ \"` has no closing `\"`"
-            pins := pins.push ⟨file, i + 1, rev⟩
+            pins := pins.push ⟨file, i + 1, .lean, rev⟩
             pieces := pieces.push
               (" @ \"" ++ tag.getD rev ++ String.ofList (after.toList.drop rev.length))
           out := out.push (if tag.isSome then quoted.intercalate pieces.toList else line)
@@ -1008,26 +1032,49 @@ def withPins (url file doc tag : String) : Except String String := do
     throw s!"the edited {file} does not read back as intended"
   return result
 
-/-- Whether pins `pins` agree with the latest listed release, whose tag is `tag`: there is a pin,
-and each names `tag`. -/
-def pinsAgree (pins : List Pin) (tag : String) : Bool := !pins.isEmpty && pins.all (·.rev == tag)
+/-- Whether pins `pins` agree with the latest listed release, whose tag is `tag`: each names
+`tag`. -/
+def pinsAgree (pins : List Pin) (tag : String) : Bool := pins.all (·.rev == tag)
 
-/-- The pins agree with `tag` exactly when there is one at least and each names `tag`. -/
+/-- The pins agree with `tag` exactly when each names `tag`. -/
 theorem pinsAgree_iff (pins : List Pin) (tag : String) :
-    pinsAgree pins tag = true ↔ pins ≠ [] ∧ ∀ p ∈ pins, p.rev = tag := by
-  cases pins <;> simp [pinsAgree]
+    pinsAgree pins tag = true ↔ ∀ p ∈ pins, p.rev = tag := by
+  simp [pinsAgree]
+
+/-- Each document of `files`, in order, with each form that no pin of `pins` in that document
+has: the requirements of Regula that those documents lack. -/
+def unpinned (pins : List Pin) (files : List String) : List (String × Form) :=
+  files.flatMap fun file =>
+    (Form.all.filter fun k => !pins.any fun p => p.file == file && p.form == k).map (file, ·)
+
+/-- `unpinned` names a document with a form exactly when the document is one of `files` and no pin
+of `pins` in it has that form. -/
+theorem mem_unpinned (pins : List Pin) (files : List String) (file : String) (k : Form) :
+    (file, k) ∈ unpinned pins files ↔
+      file ∈ files ∧ ¬∃ p ∈ pins, p.file = file ∧ p.form = k := by
+  simp [unpinned, Form.mem_all]
+
+/-- `unpinned` names nothing exactly when each document of `files` has a pin of each form. -/
+theorem unpinned_eq_nil_iff (pins : List Pin) (files : List String) :
+    unpinned pins files = [] ↔
+      ∀ file ∈ files, ∀ k : Form, ∃ p ∈ pins, p.file = file ∧ p.form = k := by
+  simp [unpinned, Form.mem_all]
 
 -- Controls of the text reading, which are samples and not proofs: the snippets the generators
--- write read back as their pins, an edit sets each pin and keeps the indentation, and a `rev` line
--- out of place or another use of the quoted repository is refused.
+-- write read back as their pins with their forms, an edit sets each pin and keeps the
+-- indentation, a `rev` line out of place or another use of the quoted repository is refused, and
+-- a document whose other requirement spells the repository otherwise lacks that form.
 #guard (pinsOf gitUrl "f" (tomlRequire gitUrl "v0.9.0" ++ "\n" ++ leanRequire gitUrl "v0.9.0")
-  |>.toOption) == some [⟨"f", 4, "v0.9.0"⟩, ⟨"f", 5, "v0.9.0"⟩]
+  |>.toOption) == some [⟨"f", 4, .toml, "v0.9.0"⟩, ⟨"f", 5, .lean, "v0.9.0"⟩]
 #guard (withPins gitUrl "f" ("   git = \"" ++ gitUrl ++ "\"\n   rev = \"v4.34.0\"\n  \"" ++
     gitUrl ++ "\" @ \"v4.34.0\"`):") "v0.10.0" |>.toOption) ==
   some ("   git = \"" ++ gitUrl ++ "\"\n   rev = \"v0.10.0\"\n  \"" ++ gitUrl ++
     "\" @ \"v0.10.0\"`):")
 #guard pinsOf gitUrl "f" ("rev = \"v0.9.0\"\ngit = \"" ++ gitUrl ++ "\"") matches .error _
 #guard pinsOf gitUrl "f" ("see \"" ++ gitUrl ++ "\" for releases") matches .error _
+#guard (pinsOf gitUrl "f" (tomlRequire (gitUrl ++ ".git") "v0.9.0" ++ "\n" ++
+    leanRequire gitUrl "v0.10.0") |>.toOption).map (unpinned · ["f", "g"]) ==
+  some [("f", .toml), ("g", .toml), ("g", .lean)]
 
 /-! ## The release decision
 
@@ -1508,6 +1555,10 @@ private def markdownDocuments : IO (List (String × String)) := do
     fail s!"git ls-files lists no {guideFile} among the tracked Markdown documents"
   paths.mapM fun (path : String) => return (path, ← IO.FS.readFile path)
 
+/-- The documents whose snippets adopters copy, the root `README.md` and the adoption guide:
+`agree` refuses unless each has a pin of Regula of each form (`unpinned`). -/
+private def pinnedDocuments : List String := ["README.md", guideFile.toString]
+
 /-- The release the checked-out commit installs; `none` when it is unreleased. -/
 private def installedHere : IO (Option Version) := do
   IO.ofExcept (installedOf (← IO.FS.readFile editionFile))
@@ -1618,6 +1669,7 @@ def openRelease : IO Unit := do
   let replaced := match pending with
     | some p => if p.version == v then "" else s!" in place of {p.version.tag}, not yet published,"
     | none => ""
+  let changed := if documents.isEmpty then "none" else ", ".intercalate (documents.map (·.1))
   let title := s!"chore(release): Regula {tag} for Lean {toolchain.spelling}"
   let commit ← filesCommit repo head
     ([(editionFile.toString, ready), (rulesFile.toString, stamped),
@@ -1626,7 +1678,8 @@ def openRelease : IO Unit := do
       the lakefile's version to {v.spelling}, adds it to the adoption guide's compatibility \
       table, sets each requirement of Regula in the tracked Markdown documents to it and \
       stamps it into each .unreleased on a `lifecycle :=` line; Regula.installed \
-      stays unreleased. Once this is on main, CI creates the release commit, which sets \
+      stays unreleased. Of the tracked Markdown documents, it changes {changed}. \
+      Once this is on main, CI creates the release commit, which sets \
       Regula.installed to the release, runs main's checks on it and, once they pass, publishes \
       the release, which tags it {tag}."
   let releasedNow ← publishedVersions repo
@@ -1637,10 +1690,10 @@ def openRelease : IO Unit := do
     s!"Prepares Regula {tag} for Lean {toolchain.spelling} (`leanprover/lean4:{toolchain.tag}`)\
       {replaced}: lists it with its toolchain in `Regula.releases`, sets `lakefile.lean`'s \
       `version` to `{v.spelling}`, adds it to the compatibility table of the adoption guide, \
-      sets each requirement of Regula in the tracked Markdown documents (the root `README.md` \
-      and the adoption guide) to `{tag}` and stamps it into each `.unreleased` on a \
-      `lifecycle :=` line. `Regula.installed` stays \
-      `.unreleased`: `main` never carries a release label.\n\n\
+      sets each requirement of Regula in the tracked Markdown documents to `{tag}` and stamps \
+      it into each `.unreleased` on a `lifecycle :=` line. `Regula.installed` stays \
+      `.unreleased`: `main` never carries a release label. Of the tracked Markdown documents, \
+      it changes {changed}.\n\n\
       The Release workflow derived the version from the {messages.length} commits of `main` \
       since {prev.version.tag} (derived bump {derivedText}, \
       requested {(requested.map (·.spelling)).getD "none"}); its job summary lists each \
@@ -1689,8 +1742,9 @@ def requireUnreleased : IO Unit := do
 /-- Refuse release data that what adopters read contradicts: unless the version Lake reads from
 `lakefile.lean` (`lake reservoir-config`) is the one the latest listed release declares
 (`Version.declared`), the adoption guide's compatibility table is `compatibilityTable` of
-`Regula.releases`, and the pins of Regula in the tracked Markdown documents (`setPins`) agree with
-the latest listed release (`pinsAgree`). -/
+`Regula.releases`, each of `pinnedDocuments` has a pin of Regula of each form (`unpinned`), and
+the pins of Regula in the tracked Markdown documents (`setPins`) agree with the latest listed
+release (`pinsAgree`). -/
 def agree : IO Unit := do
   let listed ← IO.ofExcept (releasesOf (← IO.FS.readFile editionFile))
   let some latest := listed.getLast? | fail "RegulaCore/Edition.lean lists no release"
@@ -1707,12 +1761,16 @@ def agree : IO Unit := do
   let tag := latest.version.tag
   let pins := (← (← markdownDocuments).mapM fun (path, content) =>
     IO.ofExcept (pinsOf gitUrl path content)).flatten
+  let lacking := unpinned pins pinnedDocuments
+  unless lacking.isEmpty do
+    fail s!"each of {", ".intercalate pinnedDocuments} requires Regula from \"{gitUrl}\", \
+      written exactly so, in each form, the lakefile.toml table and the lakefile.lean require; \
+      these lack a form:\n\
+      {"\n".intercalate (lacking.map fun (file, k) => s!"{file}: no {k.spelling} requirement")}"
   unless pinsAgree pins tag do
     fail s!"each requirement of Regula ({gitUrl}) in the tracked Markdown documents names the \
-      latest listed release, {tag}, which the release pull request sets; {if pins.isEmpty then
-        "these documents have none, but the root README.md and the adoption guide require it"
-      else "these name a different release:\n" ++
-        "\n".intercalate ((pins.filter (·.rev != tag)).map (·.spelling))}"
+      latest listed release, {tag}, which the release pull request sets; these name a different \
+      release:\n{"\n".intercalate ((pins.filter (·.rev != tag)).map (·.spelling))}"
   IO.println s!"lakefile.lean declares {lake.spelling}, the version of {tag}, the compatibility \
     table lists the {listed.length} listed releases, and the {pins.length} requirements of \
     Regula in the tracked Markdown documents name {tag}: \

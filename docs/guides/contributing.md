@@ -784,10 +784,11 @@ the one `Regula.releases` gives.
 
 The same step reads each requirement of Regula in the tracked Markdown documents: the line
 `rev = "<tag>"` after the line `git = "<url>"`, or the text `"<url>" @ "<tag>"`. In these forms,
-`<url>` is `https://github.com/rbeauchamp/regula`. It refuses a requirement that names a release
-other than the latest listed release. It also refuses a different use of that address in
-quotation marks, and a run that finds no requirement. The release pull request sets each requirement to
-its release, and reads its edit back.
+`<url>` is `https://github.com/rbeauchamp/regula`, and the step reads only the lines that contain
+it in quotation marks. It refuses a requirement that names a release other than the latest listed
+release. It also refuses a different use of that address in quotation marks. The root `README.md`
+and the adoption guide must each have a requirement of each form, or the step refuses. The release
+pull request sets each requirement to its release, and reads its edit back.
 
 `main` never carries a release label: `Regula.installed`
 ([`RegulaCore.Edition`](../../lean/RegulaCore/Edition.lean)) is `.unreleased` on every commit of

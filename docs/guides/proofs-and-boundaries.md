@@ -3390,7 +3390,10 @@ a step of `verify` before acceptance, refuses a `lakefile.lean` version, as Lake
 (`lake reservoir-config`), other than the latest listed release's, a compatibility table
 other than the one `Regula.releases` gives, and a requirement of Regula in a tracked Markdown
 document that names a different release than the latest listed one, as the text reading
-`setPins` reads it (`pinsAgree_iff`). The kernel checks the edited modules' theorems when
+`setPins` reads it (`pinsAgree_iff`). That reading finds a requirement only on a line with the
+repository's address in quotation marks, exactly as `gitUrl` writes it. Thus `agree` also refuses
+unless the root `README.md` and the adoption guide each have a requirement of each form
+(`unpinned_eq_nil_iff`). The kernel checks the edited modules' theorems when
 the release pull request's checks and CI's checks of the release commit build them:
 `releases_ascending`, `releases_follow`, `installed_listed`, `release_attributes_rules` (when
 `installed` is a release, no lifecycle position of any rule is `.unreleased`; on the release
