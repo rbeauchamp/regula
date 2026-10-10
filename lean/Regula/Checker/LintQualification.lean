@@ -781,7 +781,9 @@ of the dependency, or `Support` of the dependency and of a second owned one, is 
 driver builds its audit worker. So is a library root `Regula.«<directory>/Payload»` that a claimed
 module imports, whose absolute component would put its source and artifact outside the
 dependency's directories, and so is the root `Regula.«../Payload»`, whose `..` segment would leave
-them. An override in
+them. A claimed module's import of `Widget.«<directory>/Payload»`, which Lake builds under the
+claimed library's glob outside every output directory, is refused once the module is loaded. An
+override in
 `.lake/package-overrides.json` that selects the dependency
 in place of one elsewhere is owned in the fresh copy too, and of two override entries the fresh
 copy loads the last, as Lake does. As a Git work tree of its own it is trusted: the forged theorem
@@ -1069,9 +1071,23 @@ private def pathDependency (repo adopter : FilePath) : IO (Array String) := do
         "regula lint: INCOMPLETE (exit 3)"] })
   IO.FS.writeFile claimed claimedSource
   restore
-  -- The payload's source, and any compiled part a build left beside it.
-  for entry in ← support.readDir do
-    if entry.fileName.startsWith "Payload." then IO.FS.removeFile entry.path
+  -- A claimed module that imports `Widget.«<adopter directory>/Payload»`, with an axiom that
+  -- nothing uses. No configuration or file walk gives the name, but Lake builds it under the
+  -- `Widget` library's glob, with its source and artifact at `<adopter directory>/Payload`, outside
+  -- every output directory. Every audit refuses the loaded module's name
+  -- (`Environment.attributeLoaded`).
+  IO.FS.writeFile (adopter / "Payload.lean")
+    "/-! A payload. -/\n\n/-- An axiom that nothing uses. -/\naxiom Payload.bad : False\n"
+  mutate claimed "import Support\n" s!"import Support\nimport Widget.«{(adopter / "Payload").toString}»\n"
+  failures := failures ++ (← expect adopter {
+      label := "path/imported-escaping-name", exitCode := 3,
+      contains := #["surface-attribution", "is an absolute path",
+        "regula lint: INCOMPLETE (exit 3)"] })
+  IO.FS.writeFile claimed claimedSource
+  -- The payloads' sources, and any compiled part a build left beside them.
+  for directory in #[support, adopter] do
+    for entry in ← directory.readDir do
+      if entry.fileName.startsWith "Payload." then IO.FS.removeFile entry.path
   -- The manifest names a copy elsewhere, and an override selects the one in the work tree.
   let external := adopter / "external"
   IO.FS.createDirAll external

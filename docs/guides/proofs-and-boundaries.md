@@ -2444,6 +2444,11 @@ its directory. Each path that the ownership audit builds from a module name come
 `modulePath?`. **Proved:** `modulePath?_below`, the path is the directory followed by separated
 safe segments, so it lies below the directory.
 
+Lake builds a module of any name below the root or a glob of a library. Thus an import alone can
+name a module that no configuration or file walk gives. `attributeLoaded` refuses each loaded
+module with an unsafe component too, whatever package provides it. It does this in each environment
+that the reporter loads.
+
 Two builds of Regula's own package come before these checks. Lake builds the program
 that runs the audit, such as the `lake lint` driver, before it starts that program. The
 verification driver of this repository builds its own copy before the gate audits it with

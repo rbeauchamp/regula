@@ -438,7 +438,11 @@ def outsideCopyDetail (copy : FilePath) (entry : Name × String) : String :=
   s!"surface-not-fresh: owned module {entry.1} resolved from {entry.2}, outside the copy {copy}, \
     so the copy's build did not produce it"
 
-/-- The owned package that each module an environment loaded belongs to, by its artifact. The
+/-- The owned package that each module an environment loaded belongs to, by its artifact. Each
+loaded module whose name `safeModuleComponents?` does not admit is refused first, whoever provides
+it: Lake builds a module of any name under a library's root or glob, such as one that only an
+import names, and `Lean.modToFilePath` places its source and artifact outside the package's
+directories for an absolute component or a `..` segment, where no output check sees them. The
 owned packages are the root package and the owned dependencies (`Ownership.root`,
 `Ownership.dependencies`); each keeps Lake's default layout (`Lake.checkDefaultLayout`), so its
 artifact of module `m` is `m`'s `.olean` below its output directory. A loaded module, other than an
@@ -461,8 +465,7 @@ def attributeLoaded (origins : Array Regula.Report.ModuleOrigin) (ownership : Ow
   let packages := ownership.root.toArray ++ ownership.dependencies
   let offset := ownership.root.toArray.size
   let provided := packages.map fun package => NameSet.ofArray package.modules
-  -- An artifact is placed by `modulePath?` alone, so a name that is not a safe module name has
-  -- none and matches no loaded module.
+  -- An artifact is placed by `modulePath?` alone, for a name that the loop below has admitted.
   let artifact (output : FilePath) (name : Name) : IO (Option FilePath) := do
     let some path := modulePath? output name "olean" | return none
     try some <$> IO.FS.realPath path catch _ => pure none
@@ -471,6 +474,10 @@ def attributeLoaded (origins : Array Regula.Report.ModuleOrigin) (ownership : Ow
     try some <$> IO.FS.realPath lib catch _ => pure none
   let mut attributed := #[]
   for origin in origins do
+    if (safeModuleComponents? origin.name).isNone then
+      return .error s!"surface-attribution: module {origin.name} was loaded from {origin.olean}, \
+        and its name has a component that is an absolute path, has an empty, `.` or `..` segment \
+        between path separators, or is a number, so a path built from it can leave its directory"
     if isInfrastructure origin.name then continue
     let providers := (List.range packages.size).filter fun index =>
       (provided[index]?.map (·.contains origin.name)).getD false

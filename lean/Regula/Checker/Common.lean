@@ -393,8 +393,10 @@ segments (`moduleSegments?`, `pathBelow`); `none` for a name that `safeModuleCom
 admit. Every module-to-path construction of the ownership audit goes through this one function
 (`Lake.checkerSource`, `Lake.packageModules`, `Environment.attributeLoaded`), and
 `Lake.surfaceInventory` refuses every package that configures or provides a module whose name it
-does not admit, before any path is built from it. `modulePath?_below` states that the path lies
-below `dir`. -/
+does not admit, before any path is built from it. `Environment.attributeLoaded` refuses every loaded
+module whose name it does not admit, whoever provides it, such as one that Lake builds under a
+library's root or glob because only an import names it. `modulePath?_below` states that the path
+lies below `dir`. -/
 def modulePath? (dir : FilePath) (name : Name) (ext : String) : Option FilePath :=
   (moduleSegments? name ext).map (pathBelow dir)
 
