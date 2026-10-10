@@ -1304,25 +1304,20 @@ private def compilerGuard (repo project : FilePath) : IO (Array String) := do
     (← assess { label := "guard/restored", exitCode := 0 } (← load #[]))
 
 /-- Run the control group `name` in its own disposable workspace, printing when it starts and how
-long it took, so that the job log shows the schedule. The times are observations only. -/
+long it took (`loggedPhase`), so that the job log shows the schedule. -/
 private def runGroup (repo scratch : FilePath) (name : String)
-    (control : FilePath → FilePath → IO (Array String)) : IO (Array String) := do
-  IO.println s!"phase lake lint {name}: start"
-  (← IO.getStdout).flush
-  let started ← IO.monoNanosNow
-  try withScratch scratch s!"lake-lint-{name}" fun adopter => control repo adopter
-  finally
-    IO.println s!"phase lake lint {name}: {((← IO.monoNanosNow) - started) / 1000000}ms"
-    (← IO.getStdout).flush
+    (control : FilePath → FilePath → IO (Array String)) : IO (Array String) :=
+  loggedPhase s!"lake lint {name}" <|
+    withScratch scratch s!"lake-lint-{name}" fun adopter => control repo adopter
 
 /-- The absent-worker control first, alone, since the adopters share the checker's binaries; then
 the other groups on `jobs` workers, each of which takes the next waiting group as soon as it is
-free (`mapWorkQueue`), so that no group waits for an unrelated one to end. `mapWorkQueue` returns
-one result for each group, in this order (`checked_indexedResults`). The groups are listed longest
-first, by their times in the CI job logs on the slower hosted runners, so the shorter ones fill
-the workers that the longer ones free. The path-dependency controls are one chain in one
-workspace, split into three groups (`pathSetup`). The adopters' decision probes load their
-workspaces one at a time (`probe`). -/
+free (`mapWorkQueue`), so no worker idles while a group waits and no batch boundary holds a group
+back. `mapWorkQueue` returns one result for each group, in this order (`checked_indexedResults`).
+The groups are listed longest first, by their times in the CI job logs on the slower hosted
+runners, so the shorter ones fill the workers that the longer ones free. The path-dependency
+controls are one chain in one workspace, split into three groups (`pathSetup`). The adopters'
+decision probes load their workspaces one at a time (`probe`). -/
 def qualify (repo scratch : FilePath) (jobs : Nat) : IO (Array String) := do
   let absent ← withScratch scratch "lake-lint-worker" fun adopter => absentWorker repo adopter
   if !absent.isEmpty then return absent
