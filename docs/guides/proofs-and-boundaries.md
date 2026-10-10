@@ -146,10 +146,8 @@ build's successful, warning-free process observation reaches `Acceptance.buildOb
 `Lake.ClaimedBuildPlan.completionTargets_exact` binds the deferred build to the original
 target array; `build_completed_iff` records the build stage before preflight exactly when no
 target build remains. A library-only claim keeps one original build
-(`claimedBuildPlan_without_executables`). For an executable root that cannot be spelled
-faithfully with Lake's `+module:leanArts` syntax, the plan also keeps the original full build;
-`moduleArtifactsTarget?_sound` proves the selected text retains the root name and introduces
-no extra facet separator. Both phases use the selected build adapter and warning checks,
+(`claimedBuildPlan_without_executables`). The plan names each executable root by its module,
+not by Lake target syntax. Both phases use the selected build adapter and warning checks,
 including the lint driver's options. A deferred build is followed by the source,
 configuration and frozen-artifact checks before the unchanged full inspection and terminal
 freshness checks.
@@ -182,10 +180,12 @@ names. It also requests the artifacts of the root module of each executable that
 After the build, the trace of each of these modules must record an elaboration, or the build
 fails.
 
-These libraries and executables are those of the root package (`Workspace.namedModules`). The
-check of a trace is `Workspace.elaborationTrace`. The audit's build names each claimed library
-and each claimed executable. Thus its output holds the messages of the elaboration of each
-claimed module.
+`Lake.Build.run` finds each claimed library and executable among the root package's own
+targets, with the relation that checks the names of the manifest. It does not read a name as Lake
+target syntax, in which a `/` names a package. A name of no such target, and a library with no
+module, make the build fail. The check of a trace is `Workspace.elaborationTrace`. The audit's
+build names each claimed library and each claimed executable, so its output holds the messages of
+the elaboration of each claimed module.
 
 The repository's verification driver, `lean/RegulaVerification.lean`, is not the checker. It
 starts its Lake commands with `LAKE_ARTIFACT_CACHE=false`, and a package's own configuration can

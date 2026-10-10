@@ -8,10 +8,10 @@ Qualification of the `lake lint` driver path. Each control copies a shipped adop
 `lakefile.toml` format), establishes a green `lake lint`, applies one intended
 mutation, and re-establishes the green control after removing all build output.
 The artifact-cache controls (`cachedWarning`, `dependencyCachedWarning`, `emptyFacetsWarning`)
-start from their mutation and end with their green control. The driver reuses the build-policy
-audit body, whose detectors the build-policy partition qualifies; these controls establish Lake's
-dispatch, the exit classes, and the editor/builtin boundaries of this invocation path. They are
-diagnostics, not proofs of the driver or of Lake.
+and `escapedNameWarning` start from their mutation and end with their green control. The driver
+reuses the build-policy audit body, whose detectors the build-policy partition qualifies; these
+controls establish Lake's dispatch, the exit classes, and the editor/builtin boundaries of this
+invocation path. They are diagnostics, not proofs of the driver or of Lake.
 -/
 
 namespace Regula.Checker.LintQualification
@@ -481,6 +481,58 @@ private def emptyFacetsWarning (repo adopter : FilePath) : IO (Array String) := 
     (← runProcess adopter "lake" #["lint", "--", "--fresh"] env))
   return failures
 
+/-- Counterexample control for the class the second review of issue 291 found: a claimed name
+that the audit's build read as Lake target syntax, in which a `/` names a package. The
+`lakefile.toml` adopter's claimed library is named `foo/bar`, and a path dependency `foo` has a
+library `bar` that builds no module by default, which Lake's command line reads `foo/bar` as.
+Lake's ordinary `lake build +Gadget:leanArts` elaborates the claimed root module, which warns, and
+the incremental `axiomGate` audit must find the claimed library itself and report RG2003; without
+the warning, a fresh run is accepted. When the build read the claimed name, which the manifest
+records as `«foo/bar»`, as target syntax, it refused this project as naming an unknown package
+`«foo`. Lake's manifest cannot record a package of that name, which would have had its library
+built in place of the claimed one. -/
+private def escapedNameWarning (repo adopter : FilePath) : IO (Array String) := do
+  BuildLintQualification.setup repo adopter "lake-lint-toml" #["Gadget.lean", "Gadget/Double.lean"]
+    "lakefile.toml"
+  let lakefile := adopter / "lakefile.toml"
+  mutate lakefile "defaultTargets = [\"Gadget\"]\n" ""
+  mutate lakefile "name = \"Gadget\"" "name = \"foo/bar\""
+  mutate lakefile "[[require]]\nname = \"regula\""
+    "[[require]]\nname = \"foo\"\npath = \"dep\"\n\n[[require]]\nname = \"regula\""
+  let dependency := adopter / "dep"
+  IO.FS.createDirAll dependency
+  IO.FS.writeFile (dependency / "lakefile.toml")
+    "name = \"foo\"\n\n[[lean_lib]]\nname = \"bar\"\ndefaultFacets = []\n"
+  IO.FS.writeFile (dependency / "bar.lean") "/-! A dependency module that no build needs. -/\n"
+  let lakeManifest ← readJson (adopter / "lake-manifest.json")
+  let packages : Array Json ← IO.ofExcept <| lakeManifest.getObjValAs? (Array Json) "packages"
+  writeJson (adopter / "lake-manifest.json") <| lakeManifest.setObjVal! "packages" <|
+    toJson (#[Json.mkObj [
+      ("name", toJson "foo"), ("scope", toJson ""), ("configFile", toJson "lakefile.toml"),
+      ("manifestFile", toJson "lake-manifest.json"), ("inherited", toJson false),
+      ("type", toJson "path"), ("dir", toJson "dep")]] ++ packages)
+  mutate (adopter / "foundation_manifest.json") "\"library\": \"Gadget\""
+    "\"library\": \"foo/bar\""
+  let gadget := adopter / "Gadget.lean"
+  let original ← IO.FS.readFile gadget
+  IO.FS.writeFile gadget <| original ++
+    "\n/-- A claimed theorem whose proof leaves an unused `have`. -/\n" ++
+    "theorem withUnused (n : Nat) : n = n :=\n  have unused : 0 = 0 := rfl\n  rfl\n"
+  let warning := "Variable name `unused` is not explicitly referenced"
+  let built ← runProcess adopter "lake" #["build", "+Gadget:leanArts"] scrubbedLeanPathEnv
+  let mut failures : Array String := #[]
+  unless built.succeeded && built.output.contains warning do
+    failures := failures.push s!"lake-lint/escaped-name/build: {built.output}"
+  failures := failures ++ (← assess {
+      label := "escaped-name/incremental", exitCode := 3, contains := #["RG2003", warning],
+      excludes := #["axiom gate: PASS"] }
+    (← runProcess adopter "lake" #["exe", "axiomGate", "--incremental"] scrubbedLeanPathEnv))
+  -- The positive control: without the warning, the claimed library is found and accepted.
+  IO.FS.writeFile gadget original
+  failures := failures ++ (← assess (accepted "escaped-name/fresh-restored" (fresh := true))
+    (← runProcess adopter "lake" #["lint", "--", "--fresh"] scrubbedLeanPathEnv))
+  return failures
+
 /-- With the checker's `axiomGate` worker binary removed, `lake lint` builds it and still
 reaches the accepted result: Lake's lint dispatch itself builds only the driver. -/
 private def absentWorker (repo adopter : FilePath) : IO (Array String) := do
@@ -529,7 +581,7 @@ def qualify (repo scratch : FilePath) (jobs : Nat) : IO (Array String) := do
   let results ← mapConcurrent jobs
     #[("lean", leanAdopter), ("toml", tomlAdopter), ("guard", compilerGuard),
       ("cache", cachedWarning), ("dependency-cache", dependencyCachedWarning),
-      ("empty-facets", emptyFacetsWarning)]
+      ("empty-facets", emptyFacetsWarning), ("escaped-name", escapedNameWarning)]
     fun (name, control) => withScratch scratch s!"lake-lint-{name}" fun adopter =>
                             control repo adopter
   return results.foldl (· ++ ·) #[]

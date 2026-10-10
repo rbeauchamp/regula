@@ -122,7 +122,8 @@ private def prepareVerso (repo copy : FilePath) (verso : VersoPackage)
       original.all linked.contains do
     return some "the isolated copy's Verso sources and package inputs are not the audited ones"
   let (_, failure) ← timedPhase "Verso documentation build" <|
-    Lake.buildCheckedObservation package #[verso.library.toString, verso.render] "fresh"
+    Lake.buildCheckedObservation package
+      #[.library (Manifest.targetSpelling verso.library), .executable verso.render] "fresh"
   if let some lines := failure then return some ("\n".intercalate lines.toList)
   return none
 
@@ -215,7 +216,7 @@ unsafe def run (args : List String) : IO UInt32 := do
       SourceBinding.withUnchanged sources configuration do
         SourceBinding.configurationUnchanged configuration
         let (buildProcess, buildResult) ← Lake.buildCheckedObservation copy
-            (Manifest.positiveTargets manifest) "fresh"
+            (Lake.claimedTargets manifest) "fresh"
         SourceBinding.unchanged sources
         SourceBinding.configurationUnchanged configuration
         if let some lines := buildResult then

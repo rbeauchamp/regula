@@ -54,12 +54,12 @@ private unsafe def checkCore (attempt : String) (path : FilePath) : IO Unit := d
   let dependencies ← Snapshot.dependencies inventory
   -- The report workers run the `axiomGate` binary beside this one (`workerBinary`); build it
   -- from the same sources first, so the census never runs a stale worker.
-  let worker ← Lake.buildTargets root #["axiomGate"]
+  let worker ← Lake.buildTargets root #[.surface (.executable "axiomGate")]
   let mut records :=
     #[Json.mkObj [("case", toJson "worker-build"), ("observation", toJson worker)]]
   save attempt path #[] records "incomplete"
   requireChecks [⟨"report worker builds", worker.succeeded⟩]
-  let targets := manifest.surfaces.flatMap fun s => #[s.library] ++ s.executables
+  let targets := Lake.claimedTargets manifest
   let (build, failure) ← Lake.buildCheckedObservation root targets
       "incrementally for environment qualification"
   records := records.push <| Json.mkObj [("case", toJson "build"), ("observation", toJson build)]

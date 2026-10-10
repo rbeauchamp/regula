@@ -1131,7 +1131,7 @@ private unsafe def auditFile (repo path : FilePath) (claim : Option Profile)
       if manifest.isSome || (← manifestPath.pathExists) then
         let claimed ← Manifest.loadFor manifestPath inventory
         let (_, buildResult) ← Lake.buildCheckedObservation repo
-          (Manifest.positiveTargets claimed) "incrementally" Lake.buildTargetsShowing
+          (Lake.claimedTargets claimed) "incrementally" Lake.buildTargetsShowing
         SourceBinding.unchanged sources
         SourceBinding.configurationUnchanged configuration
         if let some lines := buildResult then

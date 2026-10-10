@@ -1105,7 +1105,11 @@ def guide : RuleId → Guide
           the root module of each claimed executable, whatever the library's default facets, so \
           Lake elaborates each claimed module or replays the messages its build trace records. \
           After the build, each claimed module's trace must record an elaboration; a claimed \
-          module without one fails the build, and the finding is incomplete.",
+          module without one fails the build, and the finding is incomplete. The build finds each \
+          claimed library and executable among the root package's own targets by the name the \
+          manifest checks, not by reading that name as Lake target syntax, in which a `/` names \
+          a package; a name that matches none of them, or a library without a module, fails the \
+          build.",
         "In project runs (`lake lint`, `axiomGate`, the build-lint `policy` target) a warning or \
           failed build stops the audit before policy inspection, so the finding is incomplete and \
           the result INCOMPLETE (`lake lint` exit 3). A single-file `axiomGate --file F --claim P` \

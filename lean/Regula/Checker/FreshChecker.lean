@@ -300,7 +300,7 @@ unsafe def run (args : List String) : IO UInt32 := do
   if !options.planOnly then
     let manifest ← Manifest.loadFor manifestPath inventory
     let (build, buildResult) ← Lake.buildCheckedObservation repo
-        (Manifest.positiveTargets manifest) "incrementally"
+        (Lake.claimedTargets manifest) "incrementally"
     if let some lines := buildResult then
       for line in lines do IO.println s!"    {line}"
       return 1
