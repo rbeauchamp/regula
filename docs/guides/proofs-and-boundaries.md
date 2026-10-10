@@ -1000,10 +1000,14 @@ A probe of the collector read the 57 modules of Regula that hold registrations:
   `ruleForMemberImpl` selects a rule, and it reduces to `memberFailure`, which has a kind.
 
 So this change makes no new kind of Regula possible. Before it, [RG1009] refused no kind of
-Regula for this reason. The probe ran on the first, broader reading of this change. The final
-reading leaves out only steps that the first reading also left out. So it reaches at least as
-much, and it names no more tests shared only through the input type. Which registrations have no
-kind does not depend on the reading.
+Regula for this reason. Which registrations have no kind does not depend on the reading.
+
+The probe ran on the first, broader reading of this change. The final reading reads the other
+side as before #270. That is the implementation by the rule of a function and the acceptance
+predicate by the rule of a statement. The rule reach `withTypes` of the specification reaches at
+most what the specification reached before #270. So each test that the final reading shares, by
+the reading or by the rule, the search shared before #270. The `main` branch accepted the 110, so
+none of them names a shared test or a test shared only through the input type.
 
 ### Decisions not registered with `regula_decision`
 

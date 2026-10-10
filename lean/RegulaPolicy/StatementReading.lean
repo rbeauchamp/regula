@@ -237,9 +237,10 @@ library that the term reaches by the rule of a statement, the constants of the i
 the constants of the body of the term under the variable of the input. A constant with no record
 is not followed: a constant of Lean's own library, one that the environment does not have, or, in
 the editor snapshot of a file with a `module` header, a specification that is an imported
-definition with no exported value. The pass gives that definition no record and the caller
-reports the reading as incomplete for it (`Regula.Collect.readStatement`). The acceptance
-predicate is read by the rule of a statement alone, with no request.
+definition with no exported value. The pass gives that definition no record, and the caller
+reports the reading as incomplete for it where a shared test could be below it
+(`Regula.Collect.readStatement`, and the three cases of `Regula.Collect.sharedReading`). The
+acceptance predicate is read by the rule of a statement alone, with no request.
 
 The pass (`Regula.Collect.readStatement`) builds the domain and the body in three forms:
 

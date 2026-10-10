@@ -672,8 +672,8 @@ def guide : RuleId → Guide
           specification reaches it first, and no registration is refused for it. The search \
           for that class stops at each named function, so a function of that class that only \
           a named function calls is not named. A function with a result of `Bool` or `BEq` \
-          that the two sides share only through the declaration of the input type or of the \
-          result type is named apart, and no registration is refused for it."]
+          that the two sides share only through the declaration of the input type is named \
+          apart, and no registration is refused for it."]
       notEstablished := [
         "That `R` expresses the intended behavior (R-INTENT) and that every caller uses the \
           contracted implementation (R-INVARIANT). Every accepted account lists these as open for \
