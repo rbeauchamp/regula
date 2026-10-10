@@ -222,7 +222,7 @@ checker behavior:
 | Partition | Focus |
 | --- | --- |
 | `fixtures` | Positive controls and intentionally invalid Lean declarations. |
-| `structural`, `structural 1/2`, `structural 2/2` | Surface discovery, ownership, contamination, required application contracts, and admission reuse between environments; a shard runs part of the controls, and the two together run all of them. |
+| `structural`, `structural 1/2`, `structural 2/2` | Surface discovery, ownership, contamination, required application contracts, decision contracts that one surface counts for a different surface, and admission reuse between environments; a shard runs part of the controls, and the two together run all of them. |
 | `execution`, `execution 1/2`, `execution 2/2` | Execution evidence: each compiler-path mutation and correspondence control with its positive and fresh restoration; a shard runs part of the controls, and the two together run all of them. |
 | `cli` | Command-line behavior and diagnostics. |
 | `environments` | Isolated environments, documentation scanning, and external adopters. |

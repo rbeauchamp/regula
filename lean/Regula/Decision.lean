@@ -7,7 +7,8 @@ public import Lean.Attributes
 Explicit selection of the functions a project declares to be decisions: a parser, decoder,
 validator or admission function whose result accepts or refuses its input.
 Registration identifies the RG1008 obligation: the function is the implementation of a decision
-contract of its inventory (an `ExecutableContract` whose requirement is a `Regula.DecidesSoundly`,
+contract of its inventory or, in a project audit, of a claimed surface whose `decides` names its
+library (an `ExecutableContract` whose requirement is a `Regula.DecidesSoundly`,
 `Regula.DecidesCompletely` or `Regula.Decides`), or its result type is `Decidable _`.
 A registration adds that requirement and waives nothing. It does not certify that every function
 that acts as a checker is registered, or that a registered contract's specification is the

@@ -552,11 +552,101 @@ private theorem localDeclarationPolicy_judgment {c : Claim} {e : EnvironmentCens
   obtain ⟨member, name, _, judgment, _⟩ := accepted
   exact ⟨_, member, name, judgment⟩
 
+/-- In an accepted run of a claim whose mode requires declaration policy, every declaration of
+every environment's inventory meets its own requirements under a conforming profile of its
+module, with the roles of its environment. Every inventory declaration names a key of the
+environment (`EnvironmentCensusOK`), so the plan holds its declaration-policy job; and the
+observation that job accepts is the declaration itself, since the inventory's names are unique
+(`InventoryValid`). -/
+theorem accepted_declaration_judgment {c : Claim} {i : Census} {p : Plan c i}
+    {roles : CensusRoles i} {s : ResultTable p} (accepted : Accepted p roles s)
+    (required : Stage.declarationPolicy ∈ requiredStages c)
+    (slot : Fin i.environments.size) {d : Declaration}
+    (inventory : d ∈ i.environments[slot].policy.declarations) :
+    ∃ profile ∈ profileForModule c d.module,
+      DeclarationOK d (.conforming profile) (roles slot).native (roles slot).safetyHelpers := by
+  have census := p.valid.2.2.1
+  have member : i.environments[slot] ∈ i.environments := Array.getElem_mem slot.isLt
+  have environmentOK : EnvironmentCensusOK c i i.environments[slot] := census.2.2.1 _ member
+  unfold EnvironmentCensusOK at environmentOK
+  obtain ⟨-, -, -, -, -, -, -, -, -, -, -, -, -, -, -, -, -, names, -⟩ := environmentOK
+  have named : (d.module, d.name) ∈ declarationNames i.environments[slot].declarations := by
+    rw [names]
+    exact Array.mem_map.mpr ⟨d, inventory, rfl⟩
+  obtain ⟨key, keyMember, keyNames⟩ := Array.mem_map.mp named
+  have keyName : key.name.name = d.name := (Prod.mk.inj keyNames).2
+  -- The plan holds the declaration-policy job of that key.
+  have job : (Stage.declarationPolicy,
+      JobSubject.environment i.environments[slot].request.key (.declaration key)) ∈
+      requiredJobs c i := by
+    have subject : LocalJobSubject.declaration key ∈
+        localStageSubjects i.environments[slot] .declarationPolicy :=
+      Array.mem_map.mpr ⟨key, keyMember, rfl⟩
+    have hin := stageSubjects_environment i _ member .declarationPolicy _ subject
+    simp only [requiredJobs, Array.mem_flatMap, List.mem_toArray, Array.mem_map]
+    exact ⟨.declarationPolicy, required, _, hin, rfl⟩
+  rw [← p.exactJobs] at job
+  obtain ⟨jobKey, jobMember, jobEq⟩ := Array.mem_map.mp job
+  have jobPair : (jobKey.stage, jobKey.subject) = (Stage.declarationPolicy,
+      JobSubject.environment i.environments[slot].request.key (.declaration key)) := jobEq
+  obtain ⟨index, bound, lookup⟩ := Array.mem_iff_getElem.mp jobMember
+  obtain ⟨o, _, planned, policy, _⟩ := accepted_covers_slot accepted index bound
+  have keyEq : o.key = jobKey := by
+    rw [Array.getElem?_eq_getElem bound, lookup] at planned
+    exact (Option.some.inj planned).symm
+  have stageEq : o.key.stage = .declarationPolicy := by rw [keyEq]; exact (Prod.mk.inj jobPair).1
+  have subjectEq : o.key.subject =
+      .environment i.environments[slot].request.key (.declaration key) := by
+    rw [keyEq]; exact (Prod.mk.inj jobPair).2
+  have stageOK := policy.2.2.2
+  simp only [StageOK, subjectEq] at stageOK
+  obtain ⟨localSlot, _, identity, localOK⟩ :=
+    environmentStageOK_resolves c i roles _ _ _ _ stageOK
+  rw [stageEq] at localOK
+  obtain ⟨d', member', name', judgment⟩ := localDeclarationPolicy_judgment localOK
+  -- The environment the job resolves to is `slot`: request keys identify environments.
+  have sameSlot : localSlot = slot := census_environment_unique c i census localSlot slot identity
+  subst sameSlot
+  have sameDeclaration : d' = d :=
+    eq_of_name_eq i.environments[localSlot].policy.valid.1 member' inventory (name'.trans keyName)
+  subst sameDeclaration
+  exact judgment
+
+/-- In an accepted run of a claim whose mode requires declaration policy, every contract that an
+environment counts from another surface is the recorded contract of a declaration of an
+environment of the same run, a declaration of the surface that the contract names, and that
+declaration met its own requirements there under a conforming profile of its module, with the
+roles of its own environment (`accepted_declaration_judgment`): its foundation, its safety and the
+refusals of its contract (`ContractOK`, `SharedTestOK`) were decided by its own surface's audit in
+this run. The kernel replay of that declaration is the admission stage of its own environment;
+this theorem does not restate it. -/
+theorem accepted_counted_judgment {c : Claim} {i : Census} {p : Plan c i}
+    {roles : CensusRoles i} {s : ResultTable p} (accepted : Accepted p roles s)
+    (required : Stage.declarationPolicy ∈ requiredStages c)
+    {e : EnvironmentCensus} (member : e ∈ i.environments)
+    {counted : CountedContract} (hc : counted ∈ e.policy.counted) :
+    ∃ slot : Fin i.environments.size, ∃ d ∈ i.environments[slot].policy.declarations,
+      d.name = counted.registration ∧ d.module = counted.module ∧
+      d.executableContract = some counted.contract ∧
+      (∃ s, surfaceOwning c.val.surfaces d.module = some s ∧ s.target = counted.surface) ∧
+      ∃ profile ∈ profileForModule c d.module,
+        DeclarationOK d (.conforming profile) (roles slot).native (roles slot).safetyHelpers := by
+  rw [census_counted c i p.valid.2.2.1 member] at hc
+  unfold countedFor at hc
+  split at hc
+  · obtain ⟨_, hpair, d, hd, k, hk, s, hs, -, -, rfl⟩ := mem_countedContracts.mp hc
+    obtain ⟨e', he', rfl⟩ := Array.mem_map.mp hpair
+    obtain ⟨index, bound, atIndex⟩ := Array.mem_iff_getElem.mp he'
+    have hd' : d ∈ i.environments[(⟨index, bound⟩ : Fin i.environments.size)].policy.declarations :=
+      by simpa [atIndex] using hd
+    exact ⟨⟨index, bound⟩, d, hd', rfl, rfl, hk, ⟨s, hs, rfl⟩,
+      accepted_declaration_judgment accepted required ⟨index, bound⟩ hd'⟩
+  · simp at hc
+
 /-- An accepted run of a claim whose mode requires declaration policy has no declaration that
 needs a frontend transcript (a native-proof axiom) in any environment's inventory. Every inventory
-declaration names a key of the environment (`EnvironmentCensusOK`), so the plan holds its
-declaration-policy job; the observation that job accepts is the declaration itself, since the
-inventory's names are unique (`InventoryValid`); and no conforming profile admits it
+declaration meets its own requirements under a conforming profile
+(`accepted_declaration_judgment`), and no conforming profile admits one that needs a transcript
 (`declarationOK_conforming_needsTranscript`). -/
 theorem accepted_no_transcript_declaration {c : Claim} {i : Census} {p : Plan c i}
     {roles : CensusRoles i} {s : ResultTable p} (accepted : Accepted p roles s)
@@ -564,53 +654,9 @@ theorem accepted_no_transcript_declaration {c : Claim} {i : Census} {p : Plan c 
     {e : EnvironmentCensus} (member : e ∈ i.environments)
     {d : Declaration} (inventory : d ∈ e.policy.declarations) :
     declarationNeedsTranscript d.kind d.name = false := by
-  have census := p.valid.2.2.1
-  have environmentOK : EnvironmentCensusOK c i e := census.2.2.1 e member
-  unfold EnvironmentCensusOK at environmentOK
-  obtain ⟨-, -, -, -, -, -, -, -, -, -, -, -, -, -, -, -, names, -⟩ := environmentOK
-  have named : (d.module, d.name) ∈ declarationNames e.declarations := by
-    rw [names]
-    exact Array.mem_map.mpr ⟨d, inventory, rfl⟩
-  obtain ⟨key, keyMember, keyNames⟩ := Array.mem_map.mp named
-  have keyName : key.name.name = d.name := (Prod.mk.inj keyNames).2
-  -- The plan holds the declaration-policy job of that key.
-  have job : (Stage.declarationPolicy, JobSubject.environment e.request.key (.declaration key)) ∈
-      requiredJobs c i := by
-    have subject : LocalJobSubject.declaration key ∈ localStageSubjects e .declarationPolicy :=
-      Array.mem_map.mpr ⟨key, keyMember, rfl⟩
-    have hin := stageSubjects_environment i e member .declarationPolicy _ subject
-    simp only [requiredJobs, Array.mem_flatMap, List.mem_toArray, Array.mem_map]
-    exact ⟨.declarationPolicy, required, _, hin, rfl⟩
-  rw [← p.exactJobs] at job
-  obtain ⟨jobKey, jobMember, jobEq⟩ := Array.mem_map.mp job
-  have jobPair : (jobKey.stage, jobKey.subject) =
-      (Stage.declarationPolicy, JobSubject.environment e.request.key (.declaration key)) := jobEq
-  obtain ⟨slot, bound, lookup⟩ := Array.mem_iff_getElem.mp jobMember
-  obtain ⟨o, _, planned, policy, _⟩ := accepted_covers_slot accepted slot bound
-  have keyEq : o.key = jobKey := by
-    rw [Array.getElem?_eq_getElem bound, lookup] at planned
-    exact (Option.some.inj planned).symm
-  have stageEq : o.key.stage = .declarationPolicy := by rw [keyEq]; exact (Prod.mk.inj jobPair).1
-  have subjectEq : o.key.subject = .environment e.request.key (.declaration key) := by
-    rw [keyEq]; exact (Prod.mk.inj jobPair).2
-  have stageOK := policy.2.2.2
-  simp only [StageOK, subjectEq] at stageOK
-  obtain ⟨localSlot, _, identity, localOK⟩ :=
-    environmentStageOK_resolves c i roles _ _ _ _ stageOK
-  rw [stageEq] at localOK
-  obtain ⟨d', member', name', _, _, judgment⟩ := localDeclarationPolicy_judgment localOK
-  -- The environment the job resolves to is `e`: request keys identify environments.
-  obtain ⟨index, indexBound, atIndex⟩ := Array.mem_iff_getElem.mp member
-  have sameSlot : localSlot = ⟨index, indexBound⟩ :=
-    census_environment_unique c i census localSlot ⟨index, indexBound⟩
-      (by simpa [atIndex] using identity)
-  have retained : d' ∈ e.policy.declarations := by
-    subst sameSlot
-    rw [← atIndex]
-    exact member'
-  have sameDeclaration : d' = d :=
-    eq_of_name_eq e.policy.valid.1 retained inventory (name'.trans keyName)
-  rw [← sameDeclaration]
+  obtain ⟨index, bound, atIndex⟩ := Array.mem_iff_getElem.mp member
+  obtain ⟨_, _, judgment⟩ := accepted_declaration_judgment accepted required ⟨index, bound⟩
+    (d := d) (by simpa [atIndex] using inventory)
   exact declarationOK_conforming_needsTranscript judgment
 
 /-- Hence an accepted run of such a claim plans no transcript job: `localStageSubjects` derives a

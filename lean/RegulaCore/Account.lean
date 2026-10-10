@@ -322,6 +322,25 @@ def isPolicyRejection (f : FenceKey) : Bool := f.expectation matches .policyReje
 /-- The fence is a trusted-compiler teaching example. -/
 def isTrustedTeaching (f : FenceKey) : Bool := f.expectation matches .trustedTeaching
 
+/-- A decision registration of one claimed surface that the manifest counts toward a registered
+function of another (`decides`), where it states a decision kind and was not refused: the surface
+that owns the function, the surface that declares the registration, the registration, its module
+and the function. The registration's own entry is among the contracts (`ContractAccount`), with
+its kind and requirement; this entry names the surface the counted contract comes from. -/
+structure CountedAccount where
+  /-- The claimed surface, by its library's name, whose registered function the contract
+  decides. -/
+  surface : String
+  /-- The claimed surface, by its library's name, whose environment declares the registration. -/
+  source : String
+  /-- The declaration that registers the contract. -/
+  registration : Lean.Name
+  /-- The module that declares the registration. -/
+  «module» : Lean.Name
+  /-- The registered function the contract decides. -/
+  implementation : Lean.Name
+  deriving Repr, DecidableEq
+
 /-- An owned declaration for which Lean's `collectAxioms` omits axioms that it reaches in the
 replayed kernel: its name and module, its axioms and the omissions
 (`RegulaPolicy.Declaration.tableOmissions`). The audit reports it and does not fail it. -/
@@ -351,6 +370,9 @@ structure AccountData where
   coverage : Coverage
   /-- Every `ExecutableContract` registration of the accepted inventory. -/
   contracts : Array ContractAccount
+  /-- Every decision registration an environment counts from another surface toward a function
+  it registers as a decision, with the surface it comes from. -/
+  counted : Array CountedAccount
   /-- The execution counts of each accepted environment, in order. -/
   execution : Array ExecutionSummary
   /-- The accepted fences counted by expectation. -/
@@ -376,6 +398,54 @@ def contractsOf (i : Census) : Array ContractAccount :=
     d.executableContract.map fun k =>
       ⟨d.name, d.module, k.root, k.requirement, k.kind, k.shared⟩
 
+/-- Every recorded contract that an environment of the census counts from another surface, states a
+decision kind, was not refused and names a function the environment registers as a decision,
+with the environment's surface (`RegulaPolicy.environmentTarget`) and the surface it comes from,
+environment by environment. -/
+def countedOf (c : Claim) (i : Census) : Array CountedAccount :=
+  i.environments.flatMap fun e =>
+    match environmentTarget c.val.surfaces e.modules with
+    | none => #[]
+    | some target => e.policy.counted.filterMap fun k =>
+        if k.contract.kind.isSome && k.contract.failure.isNone &&
+            e.policy.declarations.any (fun d =>
+              d.name == k.contract.root && d.decisionResult.isSome)
+        then some ⟨target, k.surface, k.registration, k.module, k.contract.root⟩ else none
+
+/-- An entry of `countedOf` is a recorded contract that an environment of the census counts from
+another surface, states a decision kind, was not refused and names a declaration of the
+environment registered as a decision, with the environment's surface and the surface it comes
+from. -/
+theorem mem_countedOf {c : Claim} {i : Census} {x : CountedAccount} :
+    x ∈ countedOf c i ↔
+      ∃ e ∈ i.environments, ∃ target, environmentTarget c.val.surfaces e.modules = some target ∧
+        ∃ k ∈ e.policy.counted, k.contract.kind.isSome = true ∧ k.contract.failure = none ∧
+          (∃ d ∈ e.policy.declarations, d.name = k.contract.root ∧
+            d.decisionResult.isSome = true) ∧
+          x = ⟨target, k.surface, k.registration, k.module, k.contract.root⟩ := by
+  simp only [countedOf, Array.mem_flatMap]
+  apply exists_congr; intro e; apply and_congr_right; intro _
+  cases environmentTarget c.val.surfaces e.modules with
+  | none => simp
+  | some target =>
+    simp only [Array.mem_filterMap, Option.some.injEq, exists_eq_left']
+    constructor
+    · rintro ⟨k, hk, hx⟩
+      split at hx
+      · rename_i hcond
+        simp only [Bool.and_eq_true, Option.isNone_iff_eq_none, Array.any_eq_true', beq_iff_eq]
+          at hcond
+        obtain ⟨⟨hkind, hfailure⟩, d, hd, hname, hregistered⟩ := hcond
+        exact ⟨k, hk, hkind, hfailure, ⟨d, hd, hname, hregistered⟩, (Option.some.inj hx).symm⟩
+      · cases hx
+    · rintro ⟨k, hk, hkind, hfailure, ⟨d, hd, hname, hregistered⟩, rfl⟩
+      have hcond : (k.contract.kind.isSome && k.contract.failure.isNone &&
+          e.policy.declarations.any (fun d =>
+            d.name == k.contract.root && d.decisionResult.isSome)) = true := by
+        simp only [Bool.and_eq_true, Option.isNone_iff_eq_none, Array.any_eq_true', beq_iff_eq]
+        exact ⟨⟨hkind, hfailure⟩, d, hd, hname, hregistered⟩
+      exact ⟨k, hk, by simp only [hcond, ↓reduceIte]⟩
+
 /-- Every declaration among the census's declarations that records an omission of Lean's
 `collectAxioms`, with its module, axioms and omissions, environment by environment. -/
 def omissionsOf (i : Census) : Array OmissionAccount :=
@@ -387,8 +457,10 @@ def omissionsOf (i : Census) : Array OmissionAccount :=
 surfaces, toolchain and job count are the accepted report's own. Coverage is `coverageOf` the
 claim's mode (`coverage_fresh_iff`: fresh whole-project exactly for a fresh project claim). The
 contracts are exactly the inventory's
-registrations, each with the decision kind and the shared functions the collector recorded.
-Execution counts are
+registrations, each with the decision kind and the shared functions the collector recorded. The
+counted entries are exactly the recorded contracts each environment counts from another surface
+that state a kind, were not refused and name a function the environment registers as a decision,
+each with the environment's surface and the surface it comes from. Execution counts are
 `executionSummary` of each accepted environment, in order. The fence counts partition the
 accepted fences by expectation. The trusted dependencies are the packages of the claim's
 snapshot dependencies that are not owned or that provide a module under the checker's reserved
@@ -406,6 +478,13 @@ def AccountContract (project : {c : Claim} → AcceptedRun c → AccountData) : 
       ∃ e ∈ run.report.census.environments, ∃ d ∈ e.policy.declarations,
         ∃ k, d.executableContract = some k ∧
           x = ⟨d.name, d.module, k.root, k.requirement, k.kind, k.shared⟩) ∧
+    (∀ x, x ∈ (project run).counted ↔
+      ∃ e ∈ run.report.census.environments, ∃ target,
+        environmentTarget c.val.surfaces e.modules = some target ∧
+        ∃ k ∈ e.policy.counted, k.contract.kind.isSome = true ∧ k.contract.failure = none ∧
+          (∃ d ∈ e.policy.declarations, d.name = k.contract.root ∧
+            d.decisionResult.isSome = true) ∧
+          x = ⟨target, k.surface, k.registration, k.module, k.contract.root⟩) ∧
     (project run).execution = run.report.census.environments.map (executionSummary ·.execution) ∧
     ((project run).fences.positive = (run.report.census.fences.filter isPositive).size ∧
       (project run).fences.compilerRejection =
@@ -433,6 +512,7 @@ private def accountImpl {c : Claim} (run : AcceptedRun c) : AccountData :=
     surfaces := report.claim.val.surfaces, toolchain := report.claim.val.snapshot.toolchain
     jobs := report.jobs.size, coverage := coverageOf report.claim.val.mode
     contracts := contractsOf report.census
+    counted := countedOf report.claim report.census
     execution := report.census.environments.map (checked_summary.run ·.execution)
     fences := ⟨fences.countP isPositive, fences.countP isCompilerRejection,
       fences.countP isPolicyRejection, fences.countP isTrustedTeaching⟩
@@ -463,7 +543,7 @@ theorem coverageOf_fresh_iff (m : EvidenceMode) :
 /-- Registers `AccountContract` about the executed projection. -/
 theorem checked_account : Regula.ExecutableContract @accountImpl AccountContract := by
   refine ⟨fun c run => ?_⟩
-  refine ⟨rfl, rfl, rfl, rfl, rfl, rfl, ?_, rfl, ?_, rfl, ?_, ?_, ?_⟩
+  refine ⟨rfl, rfl, rfl, rfl, rfl, rfl, ?_, ?_, rfl, ?_, rfl, ?_, ?_, ?_⟩
   · intro x
     simp only [accountImpl, contractsOf, Array.mem_flatMap, Array.mem_filterMap,
       Option.map_eq_some_iff]
@@ -472,6 +552,8 @@ theorem checked_account : Regula.ExecutableContract @accountImpl AccountContract
       exact ⟨e, he, d, hd, k, hk, rfl⟩
     · rintro ⟨e, he, d, hd, k, hk, rfl⟩
       exact ⟨e, he, d, hd, k, hk, rfl⟩
+  · intro x
+    exact mem_countedOf
   · exact ⟨Array.countP_eq_size_filter .., Array.countP_eq_size_filter ..,
       Array.countP_eq_size_filter .., Array.countP_eq_size_filter .., fence_partition _⟩
   · intro p
@@ -563,9 +645,10 @@ def pass (label : String) (a : Account) : String :=
 
 /-- Human account lines: the checked relation, each contract with its decision kind
 (`ContractAccount.decision`), its shared functions (`ContractAccount.sharing`) and its open
-review, the execution counts, fence kinds, the count of declarations whose axiom tables omit
-axioms (the `--verbose` line of each lists its omissions), trusted mechanisms, the trusted
-dependencies (or `none`), and the unresolved review identifiers. -/
+review, each decision registration counted from another surface with the surface it comes from
+(`CountedAccount`), the execution counts, fence kinds, the count of declarations whose axiom
+tables omit axioms (the `--verbose` line of each lists its omissions), trusted mechanisms, the
+trusted dependencies (or `none`), and the unresolved review identifiers. -/
 def lines (a : Account) : Array String :=
   let d := a.val
   let checked :=
@@ -576,6 +659,10 @@ def lines (a : Account) : Array String :=
       requirement about implementation " ++
       s!"{k.implementation}: {k.requirement}{k.decision}{k.sharing}; unresolved review: " ++
       s!"{residualList ContractAccount.unresolved} (adequacy of the requirement, caller coverage)"
+  let counted := d.counted.map fun k =>
+    s!"{RuleId.decisionContract.spelling} surface {k.surface}: the registered decision " ++
+      s!"{k.implementation} is decided by the decision registration {k.registration} of surface " ++
+      s!"{k.source} (module {k.module}), which the manifest counts toward it"
   let execution := d.execution.mapIdx fun i s =>
     s!"execution environment {i}: {s.roots} root(s), {s.boundaries} boundary observation(s) " ++
       s!"({s.checked} checked, {s.trusted} trusted and reported, not verified), {s.unresolved} \
@@ -602,6 +689,7 @@ def lines (a : Account) : Array String :=
     #[s!"axiom tables: {d.omissions.size} declaration(s) for which Lean's collectAxioms omits \
       axioms they reach in the replayed kernel; reported, not failed (listed with --verbose and \
       in --json-out)"]
-  #[checked] ++ contracts ++ execution ++ fences ++ omissions ++ #[trusted, dependencies, unresolved]
+  #[checked] ++ contracts ++ counted ++ execution ++ fences ++ omissions ++
+    #[trusted, dependencies, unresolved]
 
 end Regula.Checker.Account

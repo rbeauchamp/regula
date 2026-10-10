@@ -805,7 +805,8 @@ def guide : RuleId → Guide
               "lean/RegulaCore/Policy.lean"] }
   | .decisionContract => {
       problem := "A function registered as a decision with `@[regula_decision]` has no decision \
-        contract in its inventory, and its result type is not `Decidable _`. Nothing then states \
+        contract in its inventory or in a surface whose `decides` names its library, and its \
+        result type is not `Decidable _`. Nothing then states \
         whether the function accepts only what its specification allows, everything its \
         specification allows, or both."
       trigger := [
@@ -820,6 +821,10 @@ def guide : RuleId → Guide
           refused under RG1007. The inventory is the declarations of the audited environment that \
           owns the function: its library, an executable root inspected alone, a file, or a group \
           of documentation fences.",
+        "In a project audit, a contract of another claimed surface counts too when the manifest \
+          names the function's library in that surface's `decides`. It is the record that \
+          surface's environment holds in the same run, and that environment loaded the \
+          function's module from the same `.olean` file with the same imports.",
         "Every registered declaration has the requirement, whatever else the checker records of \
           it: one a project registers explicitly, such as a structure projection, and one named \
           like a generated declaration. Lean applies the registration after compilation, so it \
@@ -843,12 +848,14 @@ def guide : RuleId → Guide
           declares `f`. RG1007 gives the supported shape of the registration, with a structure \
           of the arguments for a function with a dependent argument type or a type argument, \
           and an erasure of the result (`Regula.Dependent.isSome` or `isOk`) for one with a \
-          dependent result type.",
+          dependent result type. The registration may also be in a claimed surface whose \
+          `decides` names the library of `f`.",
         "Or a result type `Decidable (spec x)`, as a `DecidablePred spec` instance has."]
       established := [
         "Every owned declaration registered with `@[regula_decision]` whose result type is not \
           `Decidable _` is the implementation of an accepted decision contract of its inventory, \
-          whose kind the account reports.",
+          or of a surface that the manifest relates to its own in the same run. The account \
+          reports its kind, and for a contract of another surface, that surface.",
         "Removing that contract while the registration stays is rejected."]
       notEstablished := [
         "That every function that acts as a checker is registered: the registration is the \
@@ -857,17 +864,25 @@ def guide : RuleId → Guide
           should have been two-way, or which value an accepting result carries.",
         "For a `Decidable` result: that the decided proposition is the intended one, that both \
           outcomes occur, or that the instance is computable.",
-        "That callers act on the function's verdict (R-INVARIANT)."]
+        "That callers act on the function's verdict (R-INVARIANT).",
+        "That a relation the manifest declares between two surfaces is the intended one: the \
+          manifest is the project's configuration."]
       configuration := [
         "`@[regula_decision]` is declared in `Regula.Decision`, a published checker interface a \
           claimed module may import: `import Regula.Decision`, or `meta import Regula.Decision` \
           in a file that is a `module`. Write it on the definition (`@[regula_decision] def \
           f`), or with `attribute [regula_decision] f` in a module of the same library that \
-          imports `f`, for a function whose own module cannot import `Regula.Decision`."]
+          imports `f`, for a function whose own module cannot import `Regula.Decision`.",
+        "A claimed surface of the manifest may list other claimed surfaces in `decides`. The \
+          recorded contracts of its declarations then count toward the registered decisions of \
+          each surface it names. The function stays registered in its own library."]
       limitations := [
-        "A contract in another library, executable root or file of the project does not count: \
-          the inventory is that of the audited environment that owns the function. Register the \
-          contract in the function's library.",
+        "A contract in another library, executable root or file of the project does not count \
+          unless the manifest relates the two surfaces: the inventory is that of the audited \
+          environment that owns the function. Register the contract in the function's \
+          library, or name that library in the `decides` of the surface that holds the \
+          contract. A file or a group of documentation fences has no manifest that relates \
+          surfaces.",
         "A registration that an audited module writes for a declaration outside its inventory \
           stops the audit without a verdict, naming the module and the declaration: that \
           inventory records no declaration to decide the requirement for. Register a function \
@@ -889,15 +904,21 @@ def guide : RuleId → Guide
         result type other than `Decidable _`, and is the implementation of no accepted decision \
         contract of the inventory (`DecisionRegistered`); `policyFor_ordered` gives its place \
         after the other failures, and `Roles.decided_iff` ties the decided implementations to \
-        the inventory. Project, file and documentation audits run it through \
+        the contracts the inventory counts (`Inventory.decisionContracts`). In a project \
+        census `census_decided_iff` states those contracts: the inventory's own and those of the \
+        surfaces the claim relates to its own (`countedContracts`), only its own where none is related \
+        (`census_decided_iff_of_unrelated`), and \
+        `accepted_counted_judgment` that each counted contract's registration met its own \
+        requirements in its own environment of the same accepted run. Project, file and \
+        documentation audits run it through \
         `Regula.Checker.Policy.checked_memberRule` (`ruleForMember_eq`). The editor's decision \
         does not run it (`Regula.Checker.Policy.editor_decision_ne_decisionContract`). Reading \
         the registration and the result type (`Regula.Collect`) is operational, and so is each \
         recorded contract."
       sources :=
           ["lean/Regula/Decision.lean", "lean/RegulaPolicy/Decision.lean",
-              "lean/RegulaPolicy/Specification.lean", "lean/Regula/Collect.lean",
-              "lean/RegulaCore/Policy.lean"] }
+              "lean/RegulaPolicy/Specification.lean", "lean/RegulaPolicy/Plan.lean",
+              "lean/Regula/Collect.lean", "lean/RegulaCore/Policy.lean"] }
   | .sharedTest => {
       problem := "The specification of a decision contract and its implementation, or its \
         acceptance predicate, both reach one function with a result of `Bool` or `BEq`. The \

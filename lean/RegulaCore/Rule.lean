@@ -640,16 +640,17 @@ def descriptor : (id : RuleId) → RuleDescriptor id
       normativeClauses := [.enforcingBuildLinter, .proofCompleteness]
       applicability := "decision-contract"
       evidenceModes := declarationModes
-      requirement := "Each `@[regula_decision]` function has a decision contract in its \
-        inventory (`DecidesSoundly`, `DecidesCompletely` or `Decides`) or a `Decidable` result \
-        type."
+      requirement := "Each `@[regula_decision]` function has a `Decides`, `DecidesSoundly` or \
+        `DecidesCompletely` contract in its inventory or a surface whose `decides` names its \
+        library, or a `Decidable` result type."
       rationale := "A checker with no stated direction can refuse every input or accept every \
         input, and an unstated one-way guarantee cannot be told from an omission. The tag makes \
         the contract a requirement of the function itself, so deleting the contract while the \
         function stays tagged fails the gate instead of removing the requirement with it."
       remedy := "Register `theorem c : ExecutableContract f (Decides accepts Spec)` in the \
-        function's library, with `DecidesSoundly` or `DecidesCompletely` for a one-way guarantee, \
-        or return `Decidable (Spec x)`."
+        function's library or in a surface whose `decides` names that library, with \
+        `DecidesSoundly` or `DecidesCompletely` for a one-way guarantee, or return \
+        `Decidable (Spec x)`."
       rewrites := [
         "Prove both directions and a witness of each outcome: `ExecutableContract f (Decides (· = \
           true) Spec)`, from an existing equivalence by `Decides.of_iff`.",
