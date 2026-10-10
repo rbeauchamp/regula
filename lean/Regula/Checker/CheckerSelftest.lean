@@ -152,12 +152,18 @@ projects of their own (the structural project, a copy of the repository, a scrat
 where the gate builds and inspects that project's targets itself; the manifest controls run
 `axiomGate` on the repository with a manifest it refuses before any build. So from the
 repository's build they read only the executables they run: `axiomGate` in both partitions, and
-in the structural clusters `docFenceAudit` and `freshChecker`. The other partitions keep the
-complete baseline. -/
+in the structural clusters `docFenceAudit` and `freshChecker`. The lint-driver controls run
+adopters of their own, which import `Regula.Contract` or `Regula.Linter`, and a fresh audit
+builds in a copy of its own. From the repository's build they read `lint`, the driver that Lake
+runs for `lake lint`, `axiomGate`, which that driver and some controls run, and the modules the
+adopters import. `axiomGate` or `lint` imports each of those modules, apart from `Regula.Linter`
+and `Regula.Linter.Rules`, which no baseline builds and the first control builds while it runs
+alone (`LintQualification.qualify`). The other partitions keep the complete baseline. -/
 private def Partition.baseline : Partition → Baseline
   | .structural => ⟨["axiomGate", "docFenceAudit", "freshChecker"], false⟩
   | .execution => ⟨["axiomGate"], false⟩
-  | .fixtures | .cli | .environments | .buildPolicy | .lintDriver => ⟨checkerTools, true⟩
+  | .lintDriver => ⟨["axiomGate", "lint"], false⟩
+  | .fixtures | .cli | .environments | .buildPolicy => ⟨checkerTools, true⟩
 
 /-- Every partition's baseline build names `axiomGate`: the executable that controls of every
 partition run, some by its path in the repository's build instead of through `toolPath`

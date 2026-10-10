@@ -4130,16 +4130,19 @@ controls run `axiomGate` on the repository with a manifest it refuses before any
 structural baseline is `axiomGate`, `docFenceAudit` and `freshChecker` (its first shard, whose
 controls run `axiomGate` alone, names only that; its second keeps the partition's baseline),
 the execution baseline is `axiomGate` alone, and neither builds the
-repository's claimed surface; the other partitions keep the complete baseline. That is a
-reading of the controls' code, not a theorem. Two guards bound it: after the baseline build,
-`toolPath` refuses an executable that build did not name (for every checker executable the
-self-test's own module runs, other than itself), and `baselineOf_axiomGate` proves that every
+repository's claimed surface; the lint-driver baseline is `axiomGate` and `lint`, and the other
+partitions keep the complete baseline. The lint-driver controls run `lake lint` in adopters of
+their own. Each module that these adopters import is a module that `axiomGate` or `lint` imports,
+apart from `Regula.Linter` and `Regula.Linter.Rules`. The first control, which runs alone, builds
+those two. That is a reading of the controls' code, not a theorem. Two guards bound it: after the
+baseline build, `toolPath` refuses an executable that build did not name (for every checker
+executable the self-test's own module runs, other than itself), and `baselineOf_axiomGate` proves that every
 baseline names `axiomGate`, which `CompilerPaths` and `PolicyQualification` run by its path. A
 claimed-surface `.olean` that a control read from the repository's build without the baseline
 naming it would be absent on a clean checkout and fail that control there; on a warm local
 build it is not detected. `scripts/verify.sh` builds the self-test, `axiomGate` and, for a
-structural selection, the other checker executables its baseline names (none for the first
-shard) in one Lake invocation
+structural or lint-driver selection, the other checker executables its baseline names (none for
+the first shard) in one Lake invocation
 (`RegulaVerification.commands`), so the gate's own modules compile beside the self-test's last
 ones instead of after its link; that command selects nothing, and the baseline build still
 names and builds its targets. The frozen-artifact, cross-surface decision, library cycle, driver
@@ -4171,6 +4174,34 @@ a bound: the deadline itself is what refuses a slower run. The `structural` run 
 partition's frozen-artifact and library-cycle controls (the admission reuse rows of the table
 above); with them, one run the same day on that machine, at a load average of 7 to 11, passed
 in 85 s.
+
+The lint-driver partition runs the control `toml/absent-worker` first and alone, because it
+removes the `axiomGate` of the repository's build. Then four workers run the other controls in
+groups, and each worker takes the next group when it is free (`LintQualification.qualify`). The
+groups start longest first, in the sequence of their times in the CI job logs. Each group writes
+its start and its time to the job log. The path-dependency controls are one chain in one adopter,
+which the queue runs as three groups.
+
+Each of these three groups starts from the same files of the adopter. The chain is cut at the
+two points where it has restored each file that it changed. At these points, the files differ
+from the start only in build output and in one module that the next control writes again. Thus
+each control reads the files that it read in the chain. Only the first control of a later group
+that builds starts with no build output. In the chain, it started with the output of the
+controls before it.
+
+On the slower hosted runners, the timed step of `diagnostics lint-driver` reached its
+420-second deadline after the path-dependency and owned-checker controls were added
+(Diagnostics runs 38073121895, 38074694772 and 38077207189). In these job logs, the build of the
+self-test took 160 to 169 s and the baseline build 42 to 46 s. That baseline build also built the
+fixtures, the claimed surface, `docFenceAudit` and `freshChecker`, which no lint-driver control
+reads. The path chain had run for more than 186 s when the deadline stopped the run. The cache
+controls and the guard waited for it in later batches of four.
+
+From these logs, the groups took about 720 s together while four of them ran at the same time.
+Thus four workers take about 180 s for them, if no group waits for a different one. The
+prediction for the timed step on these runners is 365 to 385 s. The target is a timed step of at
+most 390 s on three runs on the slower hosted runners, 30 s under the deadline. That is a target,
+not a bound, and the deadline alone refuses a run.
 
 **Other proved oracles.** Quantifiers range over supplied Lean values; the IO drivers call each
 `ExecutableContract.run`, so the evidence is required by their source linkage and erased at
