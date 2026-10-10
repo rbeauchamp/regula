@@ -500,10 +500,7 @@
  },
  "Fixtures.Mutations.CommandElaboratorInstaller": {
   "expect": "fail",
-  "reasons": {
-   "constructor-index": ["escape-hatch", "execution-unresolved"],
-   "no-constructor-index": ["escape-hatch"]
-  },
+  "reason": "escape-hatch",
   "output": [
    "[VIOLATION[escape-hatch]] fixtures_forged_by_command._unsafe_rec"
   ]
@@ -708,6 +705,10 @@
   "reason": "escape-hatch"
  },
  "Fixtures.Mutations.AuxiliaryLookingUnsafe": {
+  "expect": "fail",
+  "reason": "escape-hatch"
+ },
+ "Fixtures.Mutations.ConstructorIndexHelperForge": {
   "expect": "fail",
   "reason": "escape-hatch"
  },

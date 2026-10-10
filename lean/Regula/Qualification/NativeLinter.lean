@@ -325,10 +325,6 @@ def checkAt (root scratch : FilePath) (launcher : Launcher.State) (jobs : Nat :=
     -- One environment capture for the imported controls, before they run concurrently.
     let _ ← Launcher.environment root launcher env
     let dependent : Array (Control × Array (String × Option String)) := #[
-      ({ label := "ConstructorIndexObserver", source :=
-          "import Regula.Collect\nimport Regula.Report\nimport RegulaPolicy.Decision\n" ++
-          (← IO.FS.readFile (root / "lean/Fixtures/Positive/ConstructorIndex.lean")) ++ "\n" ++
-          (← IO.FS.readFile (root / "examples/qualification/ConstructorIndex.lean")) }, env),
       ({ label := "Imported", source := observer }, env),
       ({ label := "ImportedVerso", source := observer.replace "Control" "Verso" }, env),
       ({ label := "ImportedMissing", source := ((observer.replace "Control" "Missing").replace

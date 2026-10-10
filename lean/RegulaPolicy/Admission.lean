@@ -60,7 +60,6 @@ def Declaration.Valid (d : Declaration) : Prop :=
   (∀ n ∈ d.axioms, Named n) ∧ (∀ n ∈ d.valueConstants, Named n) ∧
   (∀ n ∈ d.all, Named n) ∧
   (∀ n ∈ d.implementedBy, Named n) ∧ (∀ n ∈ d.unsafeRecBase, Named n) ∧
-  (∀ pair ∈ d.constructorIndex, Named pair.1 ∧ Named pair.2) ∧
   (∀ c ∈ d.executableContract, c.failure.isSome = true ∨ Named c.root) ∧
   (∀ a ∈ d.tableOmissions, a ∈ d.axioms)
 instance instDecidableDeclarationValid (d : Declaration) : Decidable d.Valid := by

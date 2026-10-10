@@ -371,9 +371,9 @@ def guide : RuleId → Guide
               "lean/RegulaPolicy/KernelAxioms.lean",
               "website/RegulaStandard/MathematicalFoundations.lean"] }
   | .escapeHatch => {
-      problem := "An owned declaration is marked `unsafe` or `partial` and satisfies neither \
+      problem := "An owned declaration is marked `unsafe` or `partial` and does not satisfy \
         the recursion-helper relation (regeneration of its base together with the base's \
-        kernel-checked recursion equation) nor the constructor-index structural relation."
+        kernel-checked recursion equation)."
       trigger := [
         "Authored `unsafe` and `partial` declarations are escape hatches: an unsafe declaration is \
           checked only in Lean's unsafe mode, cannot be used by safe declarations or proofs and is \
@@ -429,10 +429,10 @@ def guide : RuleId → Guide
           this leaves out. The regeneration and the comparison \
           run with Lean's smart unfolding off, so no declaration named `g._sunfold` is read for \
           the unfolding of `g`.",
-        "The separate constructor-index exception requires an owned safe inductive and safe \
-          base, the kernel-generated eliminator, exact constructor-index alternatives, and the \
-          closed `getObjTagNat` wrapper with matching types, levels and metadata. It retains \
-          unsafe and runtime-replacement boundaries with trusted execution correspondence.",
+        "No unsafe constructor-index helper (`T.ctorIdx._impl`) is admitted. The pinned compiler \
+          generates none, and the exception for one was removed until a port to a compiler that \
+          generates it; such a port must establish the helper's admission from kernel-checked \
+          data and toolchain observations alone.",
         "A `partial def` is an opaque declaration that Lean runs through its generated helper. \
           The finding names the `partial def`, at its source range, not the helper; this includes \
           the `partial def` functions that deriving `BEq`, `Hashable`, `Repr` or `Ord` generates \
@@ -455,9 +455,7 @@ def guide : RuleId → Guide
           statuses the audited module wrote. From that equation it is argued, not \
           kernel-checked, that whenever the helper returns, it returns the base's value: by \
           induction on the helper's evaluation, each recursive call that returns having \
-          returned the base's value.",
-        "Every admitted constructor-index wrapper has the recorded structural relation to its \
-          owned safe parent and base. This observation does not prove native correspondence."]
+          returned the base's value."]
       notEstablished := [
         "That unsafe or partial code elsewhere is logically unsound; the rule concerns evidence, \
           not a claim that such code is wrong.",
@@ -549,7 +547,7 @@ def guide : RuleId → Guide
           (`fixtures_forged_measured_bare` of `Fixtures.Mutations.MeasuredMatchUnsafeRecForge`); \
           such a metaprogram adds `f.eq_def` too, copied from Lean's theorem or proved itself.",
         "Editor feedback may be pending until the project command completes the relevant \
-          regeneration or constructor-index comparison."]
+          regeneration."]
       residuals := [.qualify, .cost, .intent]
       checklist := ["COMP-02", "THEOREM-05", "THEOREM-01", "DECL-03", "BUILD-01"]
       linkage := declarationLinkage ++ " `RegulaPolicy.authorizedUnsafeRecHelpers_iff` \
@@ -559,8 +557,7 @@ def guide : RuleId → Guide
         (neither proves the observation truthful), and \
         `Regula.Checker.Policy.partialParent_rule` with `subject_contract` reports a \
         `partial def`'s helper under the `partial def`. \
-        `authorizedConstructorIndexHelpers_iff` characterizes the separate constructor relation, \
-        and `Roles.safetyHelpers_iff` binds both families to the same inventory. The comparison \
+        `Roles.safetyHelpers_iff` binds the admitted helpers to the same inventory. The comparison \
         that records a recursion helper's observation is the pure decision \
         `RegulaPolicy.Erasure.reproduces` over the regenerated and the observed values, the \
         observations of their terms and whether the observing pass finished. \

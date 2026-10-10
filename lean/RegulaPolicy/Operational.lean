@@ -145,6 +145,19 @@ theorem operationalFailure_none_iff (t : ToolchainAxioms) (d : Declaration.Asses
     have hs := hlog _ h
     simp [Permitted] at hs
 
+/-- The refusals of the recorded contract can refuse a declaration in the self-audit but never
+admit one: whatever `OperationalOK` admits, it admits with the contract refusing nothing. -/
+theorem OperationalOK.neutral {t : ToolchainAxioms} {d : Declaration.Assessed}
+    (ok : OperationalOK t d) : OperationalOK t d.neutral :=
+  ⟨ok.1, ok.2.1, ContractOK.neutral d.executableContract,
+    SharedTestOK.neutral d.executableContract⟩
+
+/-- Whatever the executed operational decision passes, it passes with the contract refusing
+nothing (`OperationalOK.neutral`). -/
+theorem operationalFailure_neutral {t : ToolchainAxioms} {d : Declaration.Assessed}
+    (h : operationalFailure t d = none) : operationalFailure t d.neutral = none :=
+  (operationalFailure_none_iff t _).mpr ((operationalFailure_none_iff t d).mp h).neutral
+
 /-- An escape hatch is never the operational failure. -/
 theorem operationalFailure_ne_escapeHatch (t : ToolchainAxioms) (d : Declaration.Assessed) :
     operationalFailure t d ≠ some .escapeHatch := by

@@ -56,15 +56,15 @@ def editorRequest (value : String) : Option InspectionRequest :=
 theorem editorRequest_contract : EditorRequestContract editorRequest :=
   checked_editorRequest.evidence
 
-/-- Missing replay-stage role evidence (a fresh transcript for a native-proof axiom, recursion
-regeneration or constructor-index comparison) cannot turn a possible generated-role exception into either
-authorization or a definitive role-related violation. Other failures retain the pure
-policy's precedence. It takes the inspected part of the record (`Declaration.Inspected`), so it
-reads no project-written field. -/
+/-- Missing replay-stage role evidence (a fresh transcript for a native-proof axiom, or a recursion
+regeneration) cannot turn a possible generated-role exception into either authorization or a
+definitive role-related violation. Other failures retain the pure policy's precedence. It takes
+the inspected part of the record (`Declaration.Inspected`), so it reads no project-written field.
+-/
 def needsRoleEvidence (d : Declaration.Inspected) : DeclarationFailure → Bool
   | .projectAxiom => (nativeParent? d.name).isSome
   | .unknownAxiom => d.axioms.any fun name => (nativeParent? name).isSome
-  | .escapeHatch => d.unsafeRecBase.isSome || (constructorIndexOrigin? d.name).isSome
+  | .escapeHatch => d.unsafeRecBase.isSome
   | _ => false
 
 /-- Local outcome of a failed declaration: pending fresh role evidence, or a rule. -/
@@ -104,13 +104,21 @@ def editorDecisionImpl (i : Inventory) (roles : Roles i) (d : Declaration)
   (declarationFailure d request roles.native roles.safetyHelpers).map fun f =>
     if needsRoleEvidence d f then .pending else .rule (ruleForFailure f)
 
+/-- The editor decision depends on the member only through its name. -/
+theorem editorDecisionImpl_identity (i : Inventory) (roles : Roles i) {d d' : Declaration}
+    (hd : d ∈ i.declarations) (hd' : d' ∈ i.declarations) (name : d'.name = d.name)
+    (request : InspectionRequest) :
+    editorDecisionImpl i roles d' hd' request = editorDecisionImpl i roles d hd request := by
+  cases eq_of_name_eq i.valid.1 hd' hd name
+  rfl
+
 /-- Registers `EditorDecisionContract` about the executed editor decision. -/
 theorem checked_editorDecision :
     Regula.ExecutableContract editorDecisionImpl EditorDecisionContract :=
   ⟨fun i roles d member request => by
     have distinct := declarationFailure_ne_decisionContract d request roles.native
       roles.safetyHelpers
-    simp only [editorDecisionImpl, policyFor, member, ↓reduceIte]
+    simp only [editorDecisionImpl, policyFor_eq, member, ↓reduceIte]
     cases own : declarationFailure d request roles.native roles.safetyHelpers with
     | none =>
       have only (f : DeclarationFailure) : decisionFailure d roles.decided = some f →
