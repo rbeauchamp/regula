@@ -651,19 +651,19 @@ use that takes a narrower part. What takes which part:
 
 **Transcripts.** `Transcript.ToolchainObserved` holds the module and the source file that Lake
 resolves, the toolchain's identity, the imports and the commands. `Transcript.ProjectWritten` holds
-the source text and the runtime replacements that its commands recorded. A command's record splits
-into the records of the constants it added and what the frontend observed of it,
-`Command.KernelChecked` and `Command.ToolchainObserved`. The native role validator takes the
-observed parts alone, through `observedTranscripts`, so it reads no source text and no
-replacement. `validCoordinates` takes the observed part too, and admission and the coordinate check
-read the source text only to compare it with the records.
+the source text and the runtime replacements that its commands recorded. The frontend observes each
+field of a command's record, `Command`, in the fresh elaboration, and the records of added
+constants copy fields of their `ConstantInfo`. Lean's kernel admitted such a constant only if the
+source left kernel checking on, and the transcript does not replay it. The native role validator
+and `validCoordinates` take the observed parts alone, and admission and the coordinate check read
+the source text only for comparison.
 
-**Limits.** The parts classify the source of a value. They do not make an observation truthful,
-and that `Collect.declaration` fills each field from the source its part names is by inspection of
-that function, not proved. State a project writes can still enter a toolchain observation, and the
-docstring of each such field says how: `isProp` is Lean's answer, which does not unfold an
-irreducible definition; `prettyType` is Lean's printer, which uses the notations in force;
-`nativeReplay` runs compiled code; and what a project writes selects which regeneration
+**Limits.** The parts classify the source of a value but do not make an observation truthful.
+That `Collect.declaration` and `Frontend.buildCore` fill each field from the source its part names
+is by inspection of those functions, not proved. State a project writes can still enter a toolchain
+observation, and the docstring of each such field says how: `isProp` is Lean's answer, which does
+not unfold an irreducible definition; `prettyType` is Lean's printer, which uses the notations in
+force; `nativeReplay` runs compiled code; and what a project writes selects which regeneration
 `unsafeRecRegenerated` reports, while the pure comparison and the kernel decide it. The two
 observations of the checker that a project-written mark decides are fields of
 `Declaration.ProjectWritten` for that reason. `executableContract` reads Lean's `noncomputable`

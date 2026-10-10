@@ -2043,8 +2043,10 @@ structure ImportRecord where
   isMeta : Bool
   deriving Repr, DecidableEq
 
-/-- One constant a command added to the environment. Every field is kernel-checked declaration data:
-a field of the constant's `ConstantInfo`, or a pure function of such fields. -/
+/-- One constant a command added to the environment. Its fields are fields of the constant's
+`ConstantInfo` in the fresh elaboration's environment, or a pure function of such fields. Lean's
+kernel admitted that constant only if the source left kernel checking on, and the transcript does
+not replay it. -/
 structure AddedDeclaration where
   /-- The constant's name. -/
   name : Lean.Name
@@ -2057,28 +2059,18 @@ structure AddedDeclaration where
   nativeStatement : Option String := none
   deriving Repr, DecidableEq
 
-/-- The part of a command's record that is kernel-checked declaration data: the records of the
-constants it added. -/
-structure Command.KernelChecked where
-  /-- A record of each added constant. -/
-  addedDeclarations : Array AddedDeclaration
-  deriving Repr, DecidableEq
-
-/-- The part of a command's record that the frontend observes: which constants the command added,
-as the environment before and after it shows, and what its syntax declares. -/
-structure Command.ToolchainObserved where
+/-- One command that added constants: what it added and whether it declares an axiom, the
+provenance a native-proof axiom's authentication reads (`NativeTeachingOK`). Each field is the
+frontend's observation of the fresh elaboration. -/
+structure Command where
   /-- The names of the constants the command added. -/
   added : Array Lean.Name
+  /-- A record of each added constant. -/
+  addedDeclarations : Array AddedDeclaration
   /-- Whether the command's syntax, a command its information tree records, or the output of a
   macro expansion there contains an `axiom` declaration node, quoted syntax included. It is read
   from syntax, so it holds even when elaborating that declaration failed. -/
   declaresAxiom : Bool
-  deriving Repr, DecidableEq
-
-/-- One command that added constants: what it added and whether it declares an axiom, the
-provenance a native-proof axiom's authentication reads (`NativeTeachingOK`). Each field is
-declared in the part that says where its value comes from. -/
-structure Command extends Command.KernelChecked, Command.ToolchainObserved
   deriving Repr, DecidableEq
 
 /-- The part of a transcript that the toolchain observes: the module and source file that Lake
