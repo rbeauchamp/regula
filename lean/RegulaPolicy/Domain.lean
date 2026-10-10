@@ -1889,29 +1889,41 @@ theorem toolchainOrigin_roundtrip (o : ToolchainOrigin) :
     cases he
     simp [admitToolchainOrigin, hm, hn]
 
-/-- One boundary in the conservative compiler/source closure of an
-executable root. `boundary` is one of `runtime-replacement`, `compiler-simplification`,
-`native-runtime`,
-`external`, `unsafe-computation`, `partial-computation`, `opaque-computation`,
-or `compiler-trusted-proof`; `correspondence` is `checked`, `trusted`, or
-`unresolved`. -/
-structure ExecutionBoundary where
+/-- The part of a boundary's record that the walk observes: its position, the constant, its module
+and whether that module is owned, and the callers in retained compiler code. -/
+structure ExecutionBoundary.ToolchainObserved where
   /-- The boundary's position in its root's boundary list. -/
   occurrence : Nat
   /-- The constant at the boundary. -/
   name : Lean.Name
   /-- The module that declares it. -/
   «module» : Lean.Name
+  /-- The constant's module is one of the audited, owned modules. -/
+  owned : Bool
+  /-- The constants whose retained compiler IR calls this one directly. -/
+  compilerCallers : Array Lean.Name := #[]
+  deriving Repr, DecidableEq
+
+/-- The part of a boundary's record that marks an audited project writes can decide: its kind, its
+evidence and the constant run in its place. `@[implemented_by]`, `@[extern]` and `@[csimp]` decide
+the kind where the constant has one of them, and its safety and value decide it otherwise. -/
+structure ExecutionBoundary.ProjectWritten where
   /-- What kind of boundary it is. -/
   boundary : BoundaryKind
   /-- The correspondence evidence, of a form the kind admits. -/
   account : BoundaryEvidence boundary
-  /-- The constant's module is one of the audited, owned modules. -/
-  owned : Bool
   /-- For a runtime replacement or compiler simplification, the constant run in its place. -/
   replacement : Option Lean.Name
-  /-- The constants whose retained compiler IR calls this one directly. -/
-  compilerCallers : Array Lean.Name := #[]
+  deriving Repr, DecidableEq
+
+/-- One boundary in the conservative compiler/source closure of an
+executable root. `boundary` is one of `runtime-replacement`, `compiler-simplification`,
+`native-runtime`,
+`external`, `unsafe-computation`, `partial-computation`, `opaque-computation`,
+or `compiler-trusted-proof`; `correspondence` is `checked`, `trusted`, or
+`unresolved`. Each field is declared in the part that says where its value comes from. -/
+structure ExecutionBoundary extends ExecutionBoundary.ToolchainObserved,
+    ExecutionBoundary.ProjectWritten
   deriving Repr, DecidableEq
 
 /-- Execution coverage for one owned executable root: every boundary its
@@ -1979,11 +1991,10 @@ structure ExecutionVisit where
   parent : Option Nat
   deriving Repr, DecidableEq
 
-/-- The walk's complete reached-name census and separately attributed edge sets.
-These are observations of the pinned collector, not a minimal runtime call graph.
-Current replacements remain distinct from successfully observed historical choices;
-active simplifications are used for cycle detection, not claimed compiler calls. -/
-structure ExecutionClosure where
+/-- The part of a closure that the walk observes: the names it reached and their first visits, the
+constants that values mention, the simplification candidates its search found, the compiled
+recursion helpers, and the code the retained compiler IR requires and lacks. -/
+structure ExecutionClosure.ToolchainObserved where
   /-- Every name the walk reached, sorted and without duplicates. -/
   nodes : Array Lean.Name
   /-- Each name's first visit, in walk order. -/
@@ -1992,18 +2003,33 @@ structure ExecutionClosure where
   logicalEdges : Array (Lean.Name × Lean.Name) := #[]
   /-- From a constant to the target of each `@[csimp]`-shaped simplification candidate. -/
   candidateEdges : Array (Lean.Name × Lean.Name) := #[]
-  /-- From a constant to each replacement target its source replacement history records. -/
-  historyEdges : Array (Lean.Name × Lean.Name) := #[]
-  /-- From a constant to its current `@[implemented_by]` target. -/
-  currentReplacementEdges : Array (Lean.Name × Lean.Name) := #[]
-  /-- From a constant to the target of its active `@[csimp]` simplification. -/
-  activeSimplificationEdges : Array (Lean.Name × Lean.Name) := #[]
   /-- From an opaque constant to the partial `_unsafe_rec` helper it is compiled through. -/
   helperEdges : Array (Lean.Name × Lean.Name) := #[]
   /-- Names for which retained code is required, including the root when applicable. -/
   requiredCode : Array Lean.Name := #[]
   /-- Required names whose body is absent or an unauthenticated extern placeholder. -/
   unavailableCode : Array Lean.Name := #[]
+  deriving Repr, DecidableEq
+
+/-- The part of a closure that marks an audited project writes decide: the edges of the
+replacement history its source recorded, of its current `@[implemented_by]` replacements and of
+its active `@[csimp]` simplifications. -/
+structure ExecutionClosure.ProjectWritten where
+  /-- From a constant to each replacement target its source replacement history records. -/
+  historyEdges : Array (Lean.Name × Lean.Name) := #[]
+  /-- From a constant to its current `@[implemented_by]` target. -/
+  currentReplacementEdges : Array (Lean.Name × Lean.Name) := #[]
+  /-- From a constant to the target of its active `@[csimp]` simplification. -/
+  activeSimplificationEdges : Array (Lean.Name × Lean.Name) := #[]
+  deriving Repr, DecidableEq
+
+/-- The walk's complete reached-name census and separately attributed edge sets.
+These are observations of the pinned collector, not a minimal runtime call graph.
+Current replacements remain distinct from successfully observed historical choices;
+active simplifications are used for cycle detection, not claimed compiler calls. Each field is
+declared in the part that says where its value comes from. -/
+structure ExecutionClosure extends ExecutionClosure.ToolchainObserved,
+    ExecutionClosure.ProjectWritten
   deriving Repr, DecidableEq
 
 /-- Traversal edges, retaining the distinct acquisition channels in the stored fields. -/
@@ -2013,7 +2039,9 @@ def ExecutionClosure.edges (c : ExecutionClosure) (compilerEdges : Array (Lean.N
     c.currentReplacementEdges ++ c.helperEdges
 
 /-- The execution account of one owned executable root: the boundaries and unresolved paths its
-closure reaches, its compiled edges and the closure itself. -/
+closure reaches, its compiled edges and the closure itself. Its own fields are observations of the
+walk and of the retained compiler IR, and its boundaries and its closure declare each of their
+fields in the part that says where its value comes from. -/
 structure ExecutionRoot where
   /-- The root constant. -/
   name : Lean.Name

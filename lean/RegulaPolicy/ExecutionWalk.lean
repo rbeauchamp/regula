@@ -40,11 +40,10 @@ inductive CodeStatus where
   | missing
   deriving Repr, DecidableEq, Inhabited
 
-/-- What the observing pass records of the name `name` that the walk reaches. The type is indexed by
-the name, so the map of records (`Records`) holds the record of a name only under that name. The
-record holds the targets of the edges from the name and not the edges, so each edge that
-`assemble` builds from a record starts at the name of its visit. -/
-structure NodeRecord (name : Name) where
+/-- The part of a name's record that the pass observes: its module, the calls of its retained
+compiler body, the constants its value uses, the simplification candidates and the compiled
+recursion helper the search finds, its boundaries, its unresolved paths and its compiler body. -/
+structure NodeRecord.ToolchainObserved where
   /-- The module that declares the name, when the environment attributes one. -/
   moduleName : Option Name := none
   /-- The names that the retained compiler body of this name calls. -/
@@ -53,22 +52,36 @@ structure NodeRecord (name : Name) where
   logicalTargets : Array Name := #[]
   /-- The targets of the simplification candidates of this name. -/
   candidateTargets : Array Name := #[]
-  /-- The targets that the replacement history of this name records. -/
-  historyTargets : Array Name := #[]
-  /-- The current replacement target of this name. -/
-  currentReplacementTargets : Array Name := #[]
-  /-- The target of the active simplification of this name. -/
-  activeSimplificationTargets : Array Name := #[]
   /-- The compiled recursion helper of this name. -/
   helperTargets : Array Name := #[]
-  /-- The replacement targets of this name, for the search of replacement-only cycles. -/
-  replacementTargets : Array Name := #[]
   /-- The boundaries at this name, each with the occurrence `0`. -/
   boundaries : Array RegulaPolicy.ExecutionBoundary := #[]
   /-- The paths at this name that the pass could not resolve. -/
   unresolved : Array String := #[]
   /-- The retained compiler body of this name. -/
   code : CodeStatus := .missing
+  deriving Inhabited
+
+/-- The part of a name's record that marks an audited project writes decide: the targets of its
+replacement history, of its current `@[implemented_by]` replacement and of its active `@[csimp]`
+simplification, and the replacement targets that the search of replacement-only cycles reads. -/
+structure NodeRecord.ProjectWritten where
+  /-- The targets that the replacement history of this name records. -/
+  historyTargets : Array Name := #[]
+  /-- The current replacement target of this name. -/
+  currentReplacementTargets : Array Name := #[]
+  /-- The target of the active simplification of this name. -/
+  activeSimplificationTargets : Array Name := #[]
+  /-- The replacement targets of this name, for the search of replacement-only cycles. -/
+  replacementTargets : Array Name := #[]
+  deriving Inhabited
+
+/-- What the observing pass records of the name `name` that the walk reaches. The type is indexed by
+the name, so the map of records (`Records`) holds the record of a name only under that name. The
+record holds the targets of the edges from the name and not the edges, so each edge that
+`assemble` builds from a record starts at the name of its visit. Each field is
+declared in the part that says where its value comes from. -/
+structure NodeRecord (name : Name) extends NodeRecord.ToolchainObserved, NodeRecord.ProjectWritten
   deriving Inhabited
 
 /-- The names that the walk queues after the name of `record`, in the order of the queue: the

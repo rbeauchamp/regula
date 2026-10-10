@@ -658,6 +658,14 @@ source left kernel checking on, and the transcript does not replay it. The nativ
 and `validCoordinates` take the observed parts alone, and admission and the coordinate check read
 the source text only for comparison.
 
+**Execution records.** A boundary's record, a closure and the walk's record of a name split the
+same way. The kind of a boundary, its evidence and its replacement are in
+`ExecutionBoundary.ProjectWritten`, because `@[implemented_by]`, `@[extern]` and `@[csimp]` decide
+the kind where present. The replacement, history and simplification edges of a closure and of a
+name's record are in their `ProjectWritten` parts. The other fields are observations of the walk
+and of the retained compiler IR. The walk follows the project-written edges as the compiled code
+does, and the [RG3001] and [RG3002] decisions read the two parts.
+
 **Limits.** The parts classify the source of a value but do not make an observation truthful.
 That `Collect.declaration` and `Frontend.buildCore` fill each field from the source its part names
 is by inspection of those functions, not proved. State a project writes can still enter a toolchain
