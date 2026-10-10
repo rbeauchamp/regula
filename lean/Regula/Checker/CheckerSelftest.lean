@@ -1385,8 +1385,8 @@ private def expectManifestPublicFailure (repo : FilePath) (name : String)
   return some s!"manifest/public/{name}: wrong diagnostic:\n{result.output}"
 
 /-- External manifest controls only: the real repository manifest, and the public `axiomGate`
-CLI rendering the missing-file, malformed, incomplete, wrong-version, unknown-key and
-bad-execution refusal classes and a Lake-inventory refusal. The pure parser is proved for every
+CLI rendering the missing-file, malformed, incomplete, wrong-version, unknown-key,
+bad-execution and unknown-`decides` refusal classes and a Lake-inventory refusal. The pure parser is proved for every
 input instead of sampled in process: `Manifest.parse_sound` and `Manifest.parse_input` for what
 it accepts, `Manifest.parseValue_ok` for exactly which JSON values its value stage accepts,
 `Manifest.parse_emptyExclusions` for empty exclusions, and the refusal-class
@@ -1436,6 +1436,13 @@ private def manifestQualification (repo scratch : FilePath) : IO (Array String) 
     "\"excluded-libraries\":[],\"excluded-executables\":[]}"
   if let some failure ← expectManifestPublicFailure repo "bad-execution" badExecution
       "manifest-schema: surfaces[0].execution must be \"report\" or \"checked\"" then
+    failures := failures.push failure
+  let unknownDecides := scratch / "unknown-decides.json"
+  IO.FS.writeFile unknownDecides <| "{\"schema-version\":2,\"surfaces\":[{" ++
+    "\"library\":\"AuditApp\",\"claim\":\"standard-logical\",\"rationale\":\"control\"," ++
+    "\"decides\":[\"NoSuchLibrary\"]}],\"excluded-libraries\":[],\"excluded-executables\":[]}"
+  if let some failure ← expectManifestPublicFailure repo "unknown-decides" unknownDecides
+      "manifest-schema: surface 'AuditApp' decides 'NoSuchLibrary', which is not a claimed" then
     failures := failures.push failure
   let unknownLibrary := scratch / "unknown-library.json"
   IO.FS.writeFile unknownLibrary <| "{\"schema-version\":2,\"surfaces\":[{" ++
@@ -2974,6 +2981,92 @@ private def libraryCycleControl (repo : FilePath) : IO (Array String) :=
       the key of its reused module Right.Base"
   return failures
 
+/-- Writes the project of `crossSurfaceDecisionControl` into the empty directory `project`. It
+requires the checker at `repo` by path and has two libraries. `Exec` imports only
+`Regula.Decision` and declares `crossCheck`, registered with `@[regula_decision]`. `Proofs`
+imports `Exec`, and with `decided` it imports `Regula.Contract` and holds the only decision
+registration of `crossCheck`; without it, it holds an unrelated theorem. With `relation` the
+manifest names `Exec` in the `decides` of `Proofs`. -/
+private def writeCrossSurfaceProject (repo project : FilePath) (relation decided : Bool) :
+    IO Unit := do
+  IO.FS.writeFile (project / "lean-toolchain") (← IO.FS.readFile (repo / "lean-toolchain"))
+  IO.FS.writeFile (project / "lakefile.toml") <|
+    "name = \"cross_surface_control\"\n[leanOptions]\nautoImplicit = false\n" ++
+      "relaxedAutoImplicit = false\nlinter.missingDocs = true\n" ++
+      s!"[[require]]\nname = \"regula\"\npath = {(Json.str repo.toString).compress}\n" ++
+      "[[lean_lib]]\nname = \"Exec\"\nglobs = [\"Exec.+\"]\n" ++
+      "[[lean_lib]]\nname = \"Proofs\"\nglobs = [\"Proofs.+\"]\n"
+  writeJson (project / "lake-manifest.json") <|
+    (← adopterLakeManifest repo repo.toString).setObjVal! "name" (Json.str "cross_surface_control")
+  IO.FS.createDirAll (project / "Exec")
+  IO.FS.createDirAll (project / "Proofs")
+  IO.FS.writeFile (project / "Exec" / "Check.lean") <|
+    "import Regula.Decision\n\n/-! A decision whose kind another library states. -/\n\n" ++
+      "/-- Whether `n` is positive. -/\n@[regula_decision]\n" ++
+      "def crossCheck (n : Nat) : Bool := decide (0 < n)\n"
+  IO.FS.writeFile (project / "Proofs" / "Kind.lean") <| if decided then
+      "import Exec.Check\nimport Regula.Contract\n\n/-! The decision kind of `crossCheck`. -/\n\n" ++
+        "/-- `crossCheck` accepts exactly the positive numbers. -/\n" ++
+        "theorem crossCheck_decides :\n" ++
+        "    Regula.ExecutableContract crossCheck\n" ++
+        "      (Regula.Decides (· = true) fun n => 0 < n) :=\n" ++
+        "  ⟨{ sound := fun _ accepted => of_decide_eq_true accepted\n" ++
+        "     accepted := ⟨1, by decide⟩\n" ++
+        "     complete := fun _ holds => decide_eq_true holds\n" ++
+        "     refused := ⟨0, by decide⟩ }⟩\n"
+    else
+      "import Exec.Check\n\n/-! No decision kind of `crossCheck`. -/\n\n" ++
+        "/-- A fact of the proof library. -/\ntheorem kindAbsent : True := True.intro\n"
+  let surface (library decides : String) : String :=
+    "{\"library\":\"" ++ library ++ "\",\"claim\":\"standard-logical\"," ++ decides ++
+      "\"rationale\":\"Cross-surface decision control\"}"
+  IO.FS.writeFile (Manifest.defaultPath project) <|
+    "{\"schema-version\":2,\"surfaces\":[" ++ surface "Exec" "" ++ "," ++
+      surface "Proofs" (if relation then "\"decides\":[\"Exec\"]," else "") ++
+      "],\"excluded-libraries\":[],\"excluded-executables\":[]}"
+
+/-- External-boundary control for a decision registration that one claimed surface counts toward
+a registered function of another (standard §7.11). The manifest field, the freeze of the counted
+records, the account and the public gate are the external mechanism;
+`RegulaPolicy.census_decided_iff` states the decided implementations over the census, and
+`RegulaPolicy.accepted_counted_judgment` that each counted registration met its own requirements.
+Each case runs in a fresh disposable project of its own (`writeCrossSurfaceProject`), so no
+mutation shares a workspace or a build artifact with the green control (standard §7.8). The green
+control has the relation and the registration: the audit must accept, and the account must name
+`Proofs` as the surface of the one counted registration. One mutation removes the relation and
+the other the registration: each must report `crossCheck` under RG1008. -/
+private def crossSurfaceDecisionControl (repo : FilePath) : IO (Array String) := do
+  let gate (project : FilePath) (args : Array String) := do
+    runProcess project (← toolPath repo "axiomGate").toString
+      (#["--project", project.toString, "--incremental"] ++ args) scrubbedLeanPathEnv
+  let mut failures := #[]
+  let green ← withScratch repo "cross-surface-green" fun project =>
+    withScratch repo "cross-surface-result" fun output => do
+      writeCrossSurfaceProject repo project true true
+      let result := output / "result.json"
+      let accepted ← gate project #["--json-out", result.toString]
+      if !accepted.succeeded then
+        return some s!"cross-surface/related: expected PASS:\n{accepted.output}"
+      let json ← requireAuditDocument (← IO.ofExcept (Json.parse (← IO.FS.readFile result)))
+      let counted ← IO.ofExcept <| (json.getObjVal? "acceptance").bind fun acceptance =>
+        (acceptance.getObjVal? "account").bind (·.getObjValAs? (Array Json) "countedContracts")
+      let named (entry : Json) : Bool :=
+        (entry.getObjValAs? String "surface").toOption == some "Exec" &&
+          (entry.getObjValAs? String "source").toOption == some "Proofs" &&
+          (entry.getObjValAs? String "registration").toOption == some "crossCheck_decides" &&
+          (entry.getObjValAs? String "implementation").toOption == some "crossCheck"
+      if counted.size == 1 && counted.all named then return none
+      return some s!"cross-surface/account: expected one counted registration of Proofs for \
+        crossCheck of Exec, found {(Json.arr counted).compress}"
+  if let some failure := green then failures := failures.push failure
+  for (name, relation, decided) in #[("unrelated", false, true), ("removed", true, false)] do
+    let refused ← withScratch repo s!"cross-surface-{name}" fun project => do
+      writeCrossSurfaceProject repo project relation decided
+      return expectedFailure s!"cross-surface/{name}" (← gate project #[])
+        #["RG1008", "crossCheck (def)"]
+    if let some failure := refused then failures := failures.push failure
+  return failures
+
 /-- External-boundary controls of the copy that the verification driver makes for the first
 acceptance step (`RegulaVerification.makeCopy`) and of the gate's admission of such a copy
 (`AxiomGate.driverCopy`). The boundary is the driver's own code for the copy, the lock and the
@@ -3180,6 +3273,7 @@ private inductive StructuralGroup where
   | frozen
   | clusters
   | cycle
+  | crossSurface
   | driverCopy
   | manifest
   deriving BEq
@@ -3191,7 +3285,8 @@ private def shardDescription (shard : Shard) (names : Array String) : String :=
 
 /-- Structural mutations and manifest controls retain their isolated projects, worker joins,
 and complete failure accumulation. The frozen-artifact controls, the mutation clusters, the
-library cycle control, the driver copy control and the manifest controls share one queue of
+cross-surface decision control, the library cycle control, the driver copy control and the
+manifest controls share one queue of
 `jobs` workers, so no more than `jobs` of them run at once. The short controls wait behind the
 clusters and take the
 workers the first clusters free, instead of competing with the first clusters for the
@@ -3210,7 +3305,9 @@ private unsafe def runStructural (layout : SourceLayout) (repo : FilePath) (jobs
               withScratch repo "checker-frozen-artifacts" frozenArtifactControls)] ++
           (structuralClusters layout repo scratch inputs).map (fun (assigned, name, run) =>
             (assigned, StructuralGroup.clusters, s!"structural {name}", run)) ++
-          [(Shard.second, StructuralGroup.cycle, "library cycle control", libraryCycleControl repo),
+          [(Shard.first, StructuralGroup.crossSurface, "cross-surface decision control",
+              crossSurfaceDecisionControl repo),
+            (Shard.second, StructuralGroup.cycle, "library cycle control", libraryCycleControl repo),
             (Shard.second, StructuralGroup.driverCopy, "driver copy control",
               driverCopyControl repo),
             (Shard.second, StructuralGroup.manifest, "manifest controls",
@@ -3237,7 +3334,8 @@ private unsafe def runStructural (layout : SourceLayout) (repo : FilePath) (jobs
         added .olean, .olean.server or .olean.private; restored parts are offered again)"
   if ran .manifest then
     IO.println "self-test manifest: completed (valid in-process; missing, malformed, \
-      incomplete, wrong-version, unknown-key, bad-execution and unknown-library public cases)"
+      incomplete, wrong-version, unknown-key, bad-execution, unknown-decides and unknown-library \
+      public cases)"
   if ran .clusters then
     IO.println <| "self-test structural: " ++ verdict .clusters ++ match shard with
       | none =>
@@ -3252,6 +3350,11 @@ private unsafe def runStructural (layout : SourceLayout) (repo : FilePath) (jobs
     IO.println <| "self-test library cycle: " ++ verdict .cycle ++
       " (two claimed libraries that import one another: accepted, each module replayed in one \
         environment, a requested module reused with its keys)"
+  if ran .crossSurface then
+    IO.println <| "self-test cross-surface decisions: " ++ verdict .crossSurface ++
+      " (a registered function whose only decision registration is in another claimed library: \
+        accepted with the manifest relation and named with that surface in the account, RG1008 \
+        without the relation and without the registration)"
   if ran .driverCopy then
     IO.println <| "self-test driver copy: " ++ verdict .driverCopy ++
       " (the driver's copy holds the project and no build output, and the checker's reclamation \
