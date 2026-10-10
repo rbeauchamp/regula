@@ -157,16 +157,20 @@ Lake's build API, as `lake build` does: its build monitor's text is the output, 
 exits 1. The inherited `LEAN_PATH` and `LEAN_SRC_PATH` are ignored, so the build resolves modules
 only through that workspace. No package reads or writes Lake's artifact cache
 (`Workspace.uncachedWorkspace`), and no module of the root package keeps a trace that records a
-restore from it (`Workspace.dropRestoredTraces`). So Lake elaborates each root-package module the
-build needs, or replays the log of the elaboration that wrote its trace; a module restored from
-the cache has no such log, so its warnings would be missing from the output. The `lean`
-processes Lake starts inherit this process's working directory, which a module's elaboration can
-read (`IO.currentDir`), so the build runs with the root package's directory as the working
-directory, as a `lake build` run there does. Lake's loader sets this process's Lean search path
-(`Lean.searchPathRef`), which the checker's workers inherit. The run restores both, so like a
-child `lake build` it leaves the checker's own state as it was. Both are process-wide, so no other
-task of the process may build or read them while it runs; the checker runs its builds one at a
-time. -/
+restore from it (`Workspace.dropRestoredTraces`). The build also requests the Lean artifacts of
+each module of a root-package library or executable that a target names
+(`Workspace.namedModules`), whatever the library's default facets, so Lake elaborates each such
+module or replays the log of the elaboration that wrote its trace, and its warnings are in the
+output. Afterwards each such module's trace must record an elaboration
+(`Workspace.elaborationTrace`), or the build fails: a module restored from the cache has no log
+of its elaboration, so its warnings would be missing from the output. The `lean` processes Lake
+starts inherit this process's working directory, which a module's elaboration can read
+(`IO.currentDir`), and Lake reads a target that names a path from it, so the build runs with the
+root package's directory as the working directory, as a `lake build` run there does. Lake's
+loader sets this process's Lean search path (`Lean.searchPathRef`), which the checker's workers
+inherit. The run restores both, so like a child `lake build` it leaves the checker's own state as
+it was. Both are process-wide, so no other task of the process may build or read them while it
+runs; the checker runs its builds one at a time. -/
 def Build.run (build : Build) (repo : FilePath) (targets : Array String) : IO ProcessResult := do
   let buffer ← IO.mkRef ({} : IO.FS.Stream.Buffer)
   let out ← showingStream (IO.FS.Stream.ofBuffer buffer) build.display
@@ -175,18 +179,29 @@ def Build.run (build : Build) (repo : FilePath) (targets : Array String) : IO Pr
   let exitCode ← try
       Workspace.withRootWorkspace repo (scrubSearchPath := true) fun loaded => do
         let ws := Workspace.uncachedWorkspace loaded
+        IO.Process.setCurrentDir ws.root.dir
         let specs ← match ← (_root_.Lake.parseTargetSpecs ws targets.toList).toBaseIO with
           | .ok specs => pure specs
           | .error error => throw <| IO.userError (toString error)
         if let some spec := specs.find? (!·.buildable) then
           throw <| IO.userError s!"'{spec.info.key.toSimpleString}' is not a buildable target"
+        let modules ← Workspace.namedModules ws targets
         Workspace.dropRestoredTraces ws
         let leanOptOverrides := match build.rootOptions with
           | some options => ({} : NameMap LeanOptions).insert ws.root.baseName options
           | none => {}
-        IO.Process.setCurrentDir ws.root.dir
-        ws.runBuild (_root_.Lake.buildSpecs specs) {
+        ws.runBuild (do
+            let requested ← _root_.Lake.buildSpecs specs
+            let elaborated ← modules.mapM (·.leanArts.fetch)
+            return requested.mix (_root_.Lake.Job.mixArray elaborated)) {
           out := .stream out, ansiMode := .noAnsi, showSuccess := true, leanOptOverrides }
+        for mod in modules do
+          let recorded ← match ← (IO.FS.readFile mod.traceFile).toBaseIO with
+            | .ok text => pure (Workspace.elaborationTrace text)
+            | .error _ => pure false
+          unless recorded do
+            throw <| IO.userError s!"the build left no trace of an elaboration of {mod.name}, \
+              so its messages were not observed"
       pure (0 : UInt32)
     catch error =>
       out.putStrLn s!"error: {error}"
@@ -199,6 +214,23 @@ def Build.run (build : Build) (repo : FilePath) (targets : Array String) : IO Pr
   return { exitCode, stdout, stderr := "" }
 
 instance : CoeFun Build (fun _ => FilePath → Array String → IO ProcessResult) := ⟨Build.run⟩
+
+/-- Run the executable `exe` of the workspace at `repo` with `args`, as `lake exe` runs it once it
+is built: in `repo`, with the environment Lake gives the programs it starts
+(`Workspace.augmentedEnvVars`), here that of `Workspace.uncachedWorkspace`, without the inherited
+`LEAN_PATH` and `LEAN_SRC_PATH`. Unlike `lake exe` it builds nothing, so no build that ignores
+`uncachedWorkspace` precedes it: the caller builds `exe` first with `Build.run`, and a missing
+executable fails. -/
+def runBuiltExecutable (repo : FilePath) (exe : String) (args : Array String) :
+    IO ProcessResult := do
+  let (file, env) ← Workspace.withRootWorkspace repo (scrubSearchPath := true) fun loaded => do
+    let ws := Workspace.uncachedWorkspace loaded
+    match _root_.Lake.parseExeTargetSpec ws exe with
+    | .ok target => pure (target.file, ws.augmentedEnvVars)
+    | .error error => throw <| IO.userError (toString error)
+  unless ← file.pathExists do
+    throw <| IO.userError s!"executable {exe} was not built: {file}"
+  runProcess repo file.toString args env
 
 /-- Build the targets with the root package's own options, printing nothing as it runs. -/
 def buildTargets : Build := {}

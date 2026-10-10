@@ -143,9 +143,10 @@ private def renderVerso (repo copy scratch : FilePath) (verso : VersoPackage)
   let package := copy / verso.dir.toString
   let library ← captureVerso { verso with dir := repo / verso.dir.toString }
   let output := scratch / "verso-render"
+  -- `prepareVerso` built the renderer without Lake's artifact cache; `lake exe` would build it
+  -- again in a workspace that uses the cache.
   let rendered ← timedPhase "Verso documentation rendering" <|
-    runProcess package "lake" #["exe", verso.render, "--output", output.toString]
-        scrubbedLeanPathEnv
+    Lake.runBuiltExecutable package verso.render #["--output", output.toString]
   unless rendered.succeeded do
     return some s!"Verso rendering failed ({rendered.exitCode}): {rendered.output}"
   let html := output / "html-multi"

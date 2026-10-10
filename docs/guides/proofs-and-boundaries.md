@@ -161,6 +161,11 @@ would accept such a module. Each checker build is a `Lake.Build`, and its only r
 workspace, each package and each package that it records as a dependency has the cache off in
 its own configuration.
 
+The checker starts Lake as a process only for `lake env` and for `lake query` of transitive
+imports. That query reads module headers and builds no module. The documentation audit does not
+use `lake exe` to run the Verso renderer. It runs the renderer that its own build made, with the
+environment that Lake gives the uncached workspace.
+
 `uncachedWorkspace_unreadable` and `uncachedWorkspace_unwritable` prove that Lake's predicates
 `Package.isArtifactCacheReadable` and `isArtifactCacheWritable` then give `false` for these
 packages. The settings of the workspace and `LAKE_ARTIFACT_CACHE` do not change this result.
@@ -169,6 +174,23 @@ finds its packages only through the workspace and these dependency records. Thes
 facts come from the source code of Lake, not from a proof. Before the build,
 `dropRestoredTraces` removes the trace of each root-package module that records a restore from
 the cache, so Lake elaborates that module again.
+
+**Each claimed module has messages from the audit's build.** A library's default facets can
+leave its modules out of a build of the library. Then the build replays none of their messages.
+Thus `Lake.Build.run` also requests the Lean artifacts of each module of a library that a target
+names. It also requests the artifacts of the root module of each executable that a target names.
+After the build, the trace of each of these modules must record an elaboration, or the build
+fails.
+
+These libraries and executables are those of the root package (`Workspace.namedModules`). The
+check of a trace is `Workspace.elaborationTrace`. The audit's build names each claimed library
+and each claimed executable. Thus its output holds the messages of the elaboration of each
+claimed module.
+
+The repository's verification driver, `lean/RegulaVerification.lean`, is not the checker. It
+starts its Lake commands with `LAKE_ARTIFACT_CACHE=false`, and a package's own configuration can
+override that setting. The gate's own build of the driver's copy is a `Lake.Build`. Thus that
+build elaborates again each claimed module that a driver build restored from the cache.
 
 Preflight can now report an excluded-module violation before a native link that would fail;
 that run can therefore report [RG2004]/exit 1 instead of the later [RG2003]/incomplete/exit 3.

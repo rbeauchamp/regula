@@ -1101,6 +1101,11 @@ def guide : RuleId → Guide
           claimed module whose build trace records a restore from that cache is elaborated again. \
           The trace Lake writes for a module it restores from the cache holds no compiler \
           messages, so such a module could not show its warnings.",
+        "The audit's build requests the Lean artifacts of every module of each claimed library and \
+          the root module of each claimed executable, whatever the library's default facets, so \
+          Lake elaborates each claimed module or replays the messages its build trace records. \
+          After the build, each claimed module's trace must record an elaboration; a claimed \
+          module without one fails the build, and the finding is incomplete.",
         "In project runs (`lake lint`, `axiomGate`, the build-lint `policy` target) a warning or \
           failed build stops the audit before policy inspection, so the finding is incomplete and \
           the result INCOMPLETE (`lake lint` exit 3). A single-file `axiomGate --file F --claim P` \
@@ -1116,8 +1121,8 @@ def guide : RuleId → Guide
       established := [
         "Every claimed module elaborated from source without errors or warnings under the audit's \
           build: the build elaborated it, or, in an incremental run, replayed the messages of the \
-          elaboration that wrote its build trace. No claimed module was restored from Lake's \
-          artifact cache."]
+          elaboration that wrote its build trace. The build requested each claimed module's \
+          artifacts itself, and no claimed module was restored from Lake's artifact cache."]
       notEstablished := [
         "Fresh source elaboration unless the run is fresh: `lake lint` without `--fresh` is \
           incremental and trusts the build traces Lake recorded in the project's build directory \
@@ -1149,7 +1154,10 @@ def guide : RuleId → Guide
         Lake's build result is operational. That the audit's builds keep Lake's artifact cache \
         off is proved of Lake's own cache predicates for every package of the build's workspace \
         (`Workspace.uncachedWorkspace_unreadable`, `uncachedWorkspace_unwritable`); that Lake \
-        consults them before each access to the cache is read from Lake's source."
+        consults them before each access to the cache is read from Lake's source. That each \
+        claimed module's trace records an elaboration is checked of the trace file after the \
+        build (`Workspace.elaborationTrace`); that Lake replays the messages such a trace holds \
+        is read from Lake's source."
       sources :=
           ["lean/Regula/Checker/Lake.lean", "lean/Regula/Checker/Workspace.lean",
               "lean/Regula/Checker/Diagnostics.lean", "lean/Regula/Checker/ResultProtocol.lean"] }

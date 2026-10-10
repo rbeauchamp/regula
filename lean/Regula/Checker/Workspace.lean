@@ -54,7 +54,9 @@ def withRootWorkspace {α : Type} (repo : FilePath) (action : _root_.Lake.Worksp
 A module that Lake restores from its artifact cache gets a trace with an empty log, so a build
 that restores it reports none of its warnings, and the warning-free build check (RG2003) would
 pass it. A checker build therefore runs on `uncachedWorkspace`, where no package reads or writes
-the cache, after `dropRestoredTraces`, so no root-package module keeps a restored trace. -/
+the cache, after `dropRestoredTraces`, so no root-package module keeps a restored trace. It also
+requests the artifacts of each module that its targets name (`namedModules`), whose traces must
+then record an elaboration (`elaborationTrace`). -/
 
 /-- `pkg` with Lake's artifact cache turned off by its own configuration
 (`enableArtifactCache? := some false`), and so every package it records as a dependency
@@ -195,5 +197,39 @@ def dropRestoredTraces (ws : _root_.Lake.Workspace) : IO Unit := do
     if let .ok modules ← lib.getModuleArray.toBaseIO then
       for mod in modules do drop mod
   for exe in ws.root.leanExes do drop exe.root
+
+/-- Whether `text`, the content of a module's Lake trace file, records an elaboration: Lake can
+read it as a trace, and it does not record a restore from the artifact cache. Lake v4.34.1 writes
+such a trace with the log of the elaboration that produced the module's artifacts, and replays
+that log while the trace's input hash matches. -/
+def elaborationTrace (text : String) : Bool :=
+  match _root_.Lake.BuildMetadata.parse text with
+  | .ok data => !data.synthetic
+  | .error _ => false
+
+/-- A trace that records an elaboration is not one that `dropRestoredTraces` removes. -/
+theorem restoredTrace_eq_false_of_elaborationTrace {text : String}
+    (h : elaborationTrace text = true) : restoredTrace text = false := by
+  cases parsed : _root_.Lake.BuildMetadata.parse text <;>
+    simp_all [elaborationTrace, restoredTrace]
+
+/-- The modules whose Lean artifacts a build of `targets` in `ws` requests itself
+(`Lake.Build.run`), whatever the default facets of their library: every module of each library of
+the root package that a target names, as Lake's globs give them, and the root module of each
+executable of the root package that a target names. A target names a library or an executable as
+Lake reads a plain target name (`stringToLegalOrSimpleName`); a target with a package, module or
+facet part names none here. A library whose modules Lake cannot list fails, as its build would. -/
+def namedModules (ws : _root_.Lake.Workspace) (targets : Array String) :
+    IO (Array _root_.Lake.Module) := do
+  let mut modules := #[]
+  for target in targets do
+    unless target.startsWith "+" || target.startsWith "@" || target.contains '/' ||
+        target.contains ':' do
+      let name := _root_.Lake.stringToLegalOrSimpleName target
+      if let some lib := ws.root.findLeanLib? name then
+        modules := modules ++ (← lib.getModuleArray)
+      else if let some exe := ws.root.findLeanExe? name then
+        modules := modules.push exe.root
+  return modules
 
 end Regula.Checker.Workspace

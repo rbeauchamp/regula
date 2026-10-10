@@ -7,10 +7,10 @@ Qualification of the `lake lint` driver path. Each control copies a shipped adop
 (`examples/build-lint` in `lakefile.lean` format, `examples/lake-lint-toml` in
 `lakefile.toml` format), establishes a green `lake lint`, applies one intended
 mutation, and re-establishes the green control after removing all build output.
-The artifact-cache controls (`cachedWarning`, `dependencyCachedWarning`) start from their
-mutation and end with their green control. The driver reuses the build-policy audit body,
-whose detectors the build-policy partition qualifies; these controls establish Lake's dispatch,
-the exit classes, and the editor/builtin boundaries of this invocation path. They are
+The artifact-cache controls (`cachedWarning`, `dependencyCachedWarning`, `emptyFacetsWarning`)
+start from their mutation and end with their green control. The driver reuses the build-policy
+audit body, whose detectors the build-policy partition qualifies; these controls establish Lake's
+dispatch, the exit classes, and the editor/builtin boundaries of this invocation path. They are
 diagnostics, not proofs of the driver or of Lake.
 -/
 
@@ -425,6 +425,62 @@ private def dependencyCachedWarning (repo adopter : FilePath) : IO (Array String
     (← assess (accepted "dependency-cache/fresh-restored" (fresh := true)) (← fresh))
   return failures
 
+/-- Counterexample control for the class the first review of issue 291 found: a claimed module
+whose elaboration the audit's build neither performs nor replays. The `lakefile.lean` adopter's
+claimed library builds no module by default (`defaultFacets := #[]`), the artifact cache is on as
+in `cachedWarning`, and a claimed module warns. Lake's ordinary `lake build Widget:leanArts`
+elaborates the modules and fills the cache, and the incremental `axiomGate` audit must replay the
+module's warning and report RG2003: when the audit built only the library's default facets, it
+built nothing, observed no warning and was accepted. Lake's build then restores the module from
+the cache into a removed build output, and the incremental audit must elaborate it again and
+report RG2003, as must a fresh `lake lint`. Without the warning, a fresh run is accepted. -/
+private def emptyFacetsWarning (repo adopter : FilePath) : IO (Array String) := do
+  BuildLintQualification.setup repo adopter
+  mutate (adopter / "lakefile.lean") "lintDriver := \"regula/lint\""
+    "lintDriver := \"regula/lint\"\n  enableArtifactCache := true\n  restoreAllArtifacts := true"
+  mutate (adopter / "lakefile.lean") "globs := #[.andSubmodules `Widget]"
+    "globs := #[.andSubmodules `Widget]\n  defaultFacets := #[]"
+  let additional := adopter / "Widget" / "Additional.lean"
+  let original ← IO.FS.readFile additional
+  mutate additional "end Widget.Additional" <|
+    "/-- A claimed theorem whose proof leaves an unused `have`. -/\n" ++
+      "theorem withUnused (n : Nat) : n = n :=\n  have unused : 0 = 0 := rfl\n  rfl\n\n" ++
+      "end Widget.Additional"
+  let env := scrubbedLeanPathEnv ++ #[("LAKE_CACHE_DIR", some (adopter / "lake-cache").toString)]
+  let warning := "Variable name `unused` is not explicitly referenced"
+  let reported (label : String) : Expectation := {
+    label, exitCode := 3, contains := #["RG2003", warning], excludes := #["axiom gate: PASS"] }
+  let incremental := runProcess adopter "lake" #["exe", "axiomGate", "--incremental"] env
+  let build := runProcess adopter "lake" #["build", "Widget:leanArts"] env
+  let built ← build
+  let mut failures : Array String := #[]
+  unless built.succeeded && built.output.contains warning do
+    failures := failures.push s!"lake-lint/empty-facets/build: {built.output}"
+  failures := failures ++ (← assess (reported "empty-facets/incremental") (← incremental))
+  IO.FS.removeDirAll (adopter / ".lake" / "build")
+  let restored ← build
+  let trace := adopter / ".lake" / "build" / "lib" / "lean" / "Widget" / "Additional.trace"
+  let synthetic := match ← (IO.FS.readFile trace).toBaseIO with
+    | .ok text => (Json.parse text).toOption.bind fun json =>
+        (json.getObjValAs? Bool "synthetic").toOption
+    | .error _ => none
+  unless restored.succeeded && !restored.output.contains warning && synthetic == some true do
+    failures := failures.push
+      s!"lake-lint/empty-facets/restore: no warning-free restore of the module:\n\
+        {restored.output}"
+  failures := failures ++
+    (← assess (reported "empty-facets/incremental-restored") (← incremental))
+  failures := failures ++ (← assess {
+      label := "empty-facets/fresh", exitCode := 3,
+      contains := #["RG2003", warning, "regula lint: INCOMPLETE (exit 3)"],
+      excludes := #[s!"regula lint: {acceptanceLabel}"] }
+    (← runProcess adopter "lake" #["lint", "--", "--fresh"] env))
+  -- The positive control: without the warning, the audit builds the modules itself.
+  IO.FS.writeFile additional original
+  failures := failures ++ (← assess (accepted "empty-facets/fresh-restored" (fresh := true))
+    (← runProcess adopter "lake" #["lint", "--", "--fresh"] env))
+  return failures
+
 /-- With the checker's `axiomGate` worker binary removed, `lake lint` builds it and still
 reaches the accepted result: Lake's lint dispatch itself builds only the driver. -/
 private def absentWorker (repo adopter : FilePath) : IO (Array String) := do
@@ -472,7 +528,8 @@ def qualify (repo scratch : FilePath) (jobs : Nat) : IO (Array String) := do
   if !absent.isEmpty then return absent
   let results ← mapConcurrent jobs
     #[("lean", leanAdopter), ("toml", tomlAdopter), ("guard", compilerGuard),
-      ("cache", cachedWarning), ("dependency-cache", dependencyCachedWarning)]
+      ("cache", cachedWarning), ("dependency-cache", dependencyCachedWarning),
+      ("empty-facets", emptyFacetsWarning)]
     fun (name, control) => withScratch scratch s!"lake-lint-{name}" fun adopter =>
                             control repo adopter
   return results.foldl (· ++ ·) #[]
