@@ -154,7 +154,8 @@ freshness checks.
 
 The preflight reads the first module graphs of three environments at a time, each in a worker
 process of its own. The rest of each environment's scope, which in a copy can build owned modules
-there, runs one environment at a time in claim order. Thus the builds, the findings and their
+there, runs one environment at a time in claim order. After an environment asked for such a
+build, each later environment reads its graph again. Thus the builds, the findings and their
 order do not change.
 
 **No build uses Lake's artifact cache.** Lake writes no compiler messages in the build trace of
@@ -475,6 +476,11 @@ The gate and the step's build operate in the same copy at the same time. The res
 build writes only the build output of the targets that the prebuild did not build. The gate
 reads the build output of its own targets, which the prebuild completed. The `lake exe` that
 starts the gate and the gate's own builds find those targets built, and they build nothing.
+
+In a copy, the gate also builds an owned module that an environment loads and that no build
+made. The environments load the claimed modules and the modules of the reporter. The executable
+`axiomGate` imports the reporter, so the prebuild built each of those modules, and the gate asks
+for no such build.
 
 That Lake then writes none of their files is read from the source of Lake, not proved. Lake
 compares the trace of each target, and it writes a hash file only when the file is not there.

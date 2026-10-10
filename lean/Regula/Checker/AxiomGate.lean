@@ -584,10 +584,15 @@ private unsafe def auditSurfaceAt (repo manifestPath : FilePath)
       -- Each environment's first graph comes from its own worker process, which reads only the
       -- environment's imports, so three run at once, as the inspections do. Each outcome, an
       -- error included, is kept as a value. The rest of each scope, which in a copy can build
-      -- owned modules there, runs below one environment at a time in claim order: the builds,
-      -- the findings and their order are those of observing the environments one by one.
+      -- owned modules there, runs below one environment at a time in claim order. A first graph
+      -- read before an earlier environment's build is read again (`builtEarlier`), so the
+      -- builds, the findings and their order are those of observing the environments one by
+      -- one.
       let firstGraphs ← mapWorkQueue 3 environments fun environment =>
         (observeOf environment).toBaseIO
+      -- Whether an environment observed earlier below asked for an owned-module build in the
+      -- copy.
+      let builtEarlier ← IO.mkRef false
       -- Each environment with the modules of owned dependencies it inspects, from its graph.
       let mut graphedEnvironments : Array SurfaceEnvironment := #[]
       for (environment, firstGraph) in environments.zip firstGraphs do
@@ -605,7 +610,7 @@ private unsafe def auditSurfaceAt (repo manifestPath : FilePath)
             let loaded ← IO.ofExcept (← Environment.attributeLoaded graph.moduleOrigins ownership)
             return (Environment.EnvironmentOwnership.of graph.moduleOrigins request.modules bound
               (loaded.map Prod.fst), loaded)
-          let mut graph ← IO.ofExcept firstGraph
+          let mut graph ← if ← builtEarlier.get then observe else IO.ofExcept firstGraph
           let mut fresh : Array String := #[]
           if let some copy := ownership.copy then
             -- In a copy, an owned module that the claimed build did not build, such as one that
@@ -622,6 +627,7 @@ private unsafe def auditSurfaceAt (repo manifestPath : FilePath)
                 fresh := outside.map (Environment.outsideCopyDetail copy)
                 break
               built := built ++ pending.map (fun (entry : Lean.Name × String) => entry.1)
+              builtEarlier.set true
               let (_, failed) ← timedPhase s!"owned module build {environment.label}" <|
                 Lake.buildCheckedObservation repo
                   (pending.map fun (entry : Lean.Name × String) => .moduleArtifacts entry.1)
