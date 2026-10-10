@@ -284,8 +284,8 @@ is `target`. `environments` gives, for each environment, its policy declarations
 of the modules it loaded. A contract counts when it is the recorded contract of a declaration of
 one of them, the claimed surface that owns that declaration's module names `target` among the
 surfaces it decides (`SurfaceAssignment.decides`), and its implementation is an owned
-declaration whose module that environment loaded with an origin, `.olean` path and imports, equal
-to one of `origins`. Lean refuses an environment that holds two declarations of one name, so the
+declaration of a module of the surface `target` itself, not of an owned dependency, whose module
+that environment loaded with an origin, `.olean` path and imports, equal to one of `origins`. Lean refuses an environment that holds two declarations of one name, so the
 implementation that contract names is the owned declaration. Each counted contract carries the
 surface, the declaration and the module that record it, in the order of `environments` and of
 their declarations. -/
@@ -296,31 +296,37 @@ def countedContracts (surfaces : Array SurfaceAssignment)
     d.executableContract.bind fun k =>
       (surfaceOwning surfaces d.module).bind fun s =>
         if s.decides.contains target && owned.any (fun o => o.name == k.root &&
+            (surfaceOwning surfaces o.module).any (·.target == target) &&
             loaded.any fun m => m.name == o.module && origins.contains m)
         then some ⟨s.target, d.name, d.module, k⟩ else none
 
 /-- A contract counts toward an environment's registered decisions exactly when it is the recorded
 contract of a declaration of one of `environments` whose module a claimed surface owns that names
-`target` among those it decides, and it names an owned declaration whose module that environment
-loaded with an origin of `origins`; it carries that surface, declaration and module. -/
+`target` among those it decides, and it names an owned declaration of a module of the surface
+`target` whose module that environment loaded with an origin of `origins`; it carries that surface,
+declaration and module. -/
 theorem mem_countedContracts {surfaces : Array SurfaceAssignment}
     {environments : Array (Array Declaration × Array ModuleOrigin)} {target : String}
     {owned : Array Declaration} {origins : Array ModuleOrigin} {c : CountedContract} :
     c ∈ countedContracts surfaces environments target owned origins ↔
       ∃ e ∈ environments, ∃ d ∈ e.1, ∃ k, d.executableContract = some k ∧
         ∃ s, surfaceOwning surfaces d.module = some s ∧ target ∈ s.decides ∧
-          (∃ o ∈ owned, o.name = k.root ∧ ∃ m ∈ e.2, m.name = o.module ∧ m ∈ origins) ∧
+          (∃ o ∈ owned, o.name = k.root ∧
+            (∃ so, surfaceOwning surfaces o.module = some so ∧ so.target = target) ∧
+            ∃ m ∈ e.2, m.name = o.module ∧ m ∈ origins) ∧
           c = ⟨s.target, d.name, d.module, k⟩ := by
   simp only [countedContracts, Array.mem_flatMap, Array.mem_filterMap, Option.bind_eq_some_iff,
     Bool.and_eq_true, Array.contains_iff_mem, Array.any_eq_true', beq_iff_eq,
-    Option.ite_none_right_eq_some, Option.some.injEq]
+    Option.ite_none_right_eq_some, Option.some.injEq, Option.any_eq_true]
   constructor
-  · rintro ⟨⟨declarations, loaded⟩, he, d, hd, k, hk, s, hs, ⟨hdecides, o, ho, hname, m, hm, hmodule,
-      horigin⟩, rfl⟩
-    exact ⟨_, he, d, hd, k, hk, s, hs, hdecides, ⟨o, ho, hname, m, hm, hmodule, horigin⟩, rfl⟩
-  · rintro ⟨⟨declarations, loaded⟩, he, d, hd, k, hk, s, hs, hdecides, ⟨o, ho, hname, m, hm,
-      hmodule, horigin⟩, rfl⟩
-    exact ⟨_, he, d, hd, k, hk, s, hs, ⟨hdecides, o, ho, hname, m, hm, hmodule, horigin⟩, rfl⟩
+  · rintro ⟨⟨declarations, loaded⟩, he, d, hd, k, hk, s, hs, ⟨hdecides, o, ho, ⟨hname, so, hso,
+      htarget⟩, m, hm, hmodule, horigin⟩, rfl⟩
+    exact ⟨_, he, d, hd, k, hk, s, hs, hdecides,
+      ⟨o, ho, hname, ⟨so, hso, htarget⟩, m, hm, hmodule, horigin⟩, rfl⟩
+  · rintro ⟨⟨declarations, loaded⟩, he, d, hd, k, hk, s, hs, hdecides, ⟨o, ho, hname,
+      ⟨so, hso, htarget⟩, m, hm, hmodule, horigin⟩, rfl⟩
+    exact ⟨_, he, d, hd, k, hk, s, hs,
+      ⟨hdecides, o, ho, ⟨hname, so, hso, htarget⟩, m, hm, hmodule, horigin⟩, rfl⟩
 
 /-- The recorded contracts that the census `environments` count toward the registered decisions
 of environment `i` under the claim `c` (`countedContracts`): for the surface that owns `i`'s
@@ -580,8 +586,9 @@ when a decision contract of the environment's own declarations decides it, or wh
 environment of the same census has a declaration whose recorded contract states a decision kind,
 was not refused and names it as its implementation, where the claimed surface that owns that
 declaration's module names the environment's surface among those it decides
-(`SurfaceAssignment.decides`), and the name is an owned declaration of the environment whose
-module the other environment loaded with an origin equal to one the environment loaded. The
+(`SurfaceAssignment.decides`), and the name is an owned declaration of a module of the
+environment's surface, which the other environment loaded with an origin equal to one the
+environment loaded. The
 records are those the census holds, so no contract of another run or of an environment the census
 does not hold counts. -/
 theorem census_decided_iff (c : Claim) (i : Census) (h : CensusOK c i) {e : EnvironmentCensus}
@@ -593,6 +600,7 @@ theorem census_decided_iff (c : Claim) (i : Census) (h : CensusOK c i) {e : Envi
           d.executableContract = some k ∧
           (∃ s, surfaceOwning c.val.surfaces d.module = some s ∧ target ∈ s.decides) ∧
           (∃ o ∈ e.policy.declarations, o.name = n ∧
+            (∃ so, surfaceOwning c.val.surfaces o.module = some so ∧ so.target = target) ∧
             ∃ m ∈ e'.origins, m.name = o.module ∧ m ∈ e.origins) ∧
           k.root = n ∧ k.kind.isSome = true ∧ k.failure = none := by
   rw [roles.decided_iff, Inventory.decisionContracts_iff, census_counted c i h he]
@@ -603,14 +611,15 @@ theorem census_decided_iff (c : Claim) (i : Census) (h : CensusOK c i) {e : Envi
   | some target =>
     simp only [mem_countedContracts, Array.mem_map, Option.some.injEq, exists_eq_left']
     constructor
-    · rintro ⟨_, ⟨_, ⟨e', he', rfl⟩, d, hd, k, hk, s, hs, hdecides, ⟨o, ho, hname, m, hm, hmodule,
-        horigin⟩, rfl⟩, hroot, hkind, hfailure⟩
+    · rintro ⟨_, ⟨_, ⟨e', he', rfl⟩, d, hd, k, hk, s, hs, hdecides, ⟨o, ho, hname, hsurface, m,
+        hm, hmodule, horigin⟩, rfl⟩, hroot, hkind, hfailure⟩
       exact ⟨e', he', d, hd, k, hk, ⟨s, hs, hdecides⟩,
-        ⟨o, ho, hname.trans hroot, m, hm, hmodule, horigin⟩, hroot, hkind, hfailure⟩
-    · rintro ⟨e', he', d, hd, k, hk, ⟨s, hs, hdecides⟩, ⟨o, ho, hname, m, hm, hmodule, horigin⟩,
-        hroot, hkind, hfailure⟩
+        ⟨o, ho, hname.trans hroot, hsurface, m, hm, hmodule, horigin⟩, hroot, hkind, hfailure⟩
+    · rintro ⟨e', he', d, hd, k, hk, ⟨s, hs, hdecides⟩, ⟨o, ho, hname, hsurface, m, hm, hmodule,
+        horigin⟩, hroot, hkind, hfailure⟩
       exact ⟨_, ⟨_, ⟨e', he', rfl⟩, d, hd, k, hk, s, hs, hdecides,
-        ⟨o, ho, hname.trans hroot.symm, m, hm, hmodule, horigin⟩, rfl⟩, hroot, hkind, hfailure⟩
+        ⟨o, ho, hname.trans hroot.symm, hsurface, m, hm, hmodule, horigin⟩, rfl⟩, hroot, hkind,
+        hfailure⟩
 
 /-- Where no claimed surface names an environment's surface among those it decides, such as in a
 claim whose surfaces decide none, the decision requirement of a valid census reads the recorded
