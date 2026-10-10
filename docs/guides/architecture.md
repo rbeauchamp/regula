@@ -168,8 +168,9 @@ execution-boundary correspondence.
 An inventory decides with its own decision contracts and with the contracts that it counts from
 other surfaces, which `Inventory.counted` holds. Inventory admission gives no counted contracts. In
 a project census, `countedFor` gives the counted contracts of an environment. They are the records
-of the environments of each surface that names its surface in `decides`. Also, the other
-environment must load the module of the function with the same origin. `census_decided_iff`
+of the environments of each surface that names its surface in `decides`. Also, the function must
+be in a module of the environment's surface, and the other environment must load this module with
+the same origin. `census_decided_iff`
 states this result, `Acceptance.countFrozen` sets the contracts, and plan admission checks them with
 `EnvironmentCensusOK`.
 
