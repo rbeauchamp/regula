@@ -87,7 +87,7 @@ def PolicyScope.native (s : PolicyScope) : Array Lean.Name := s.roles.native
 def PolicyScope.helpers (s : PolicyScope) : Array Lean.Name := s.roles.helpers
 
 /-- `s` with its inventory counting `counted`, the recorded contracts of other surfaces that the
-manifest counts toward its decision registrations (`RegulaPolicy.Inventory.withCounted`), and the
+manifest counts toward its registered decisions (`RegulaPolicy.Inventory.withCounted`), and the
 roles recomputed for that inventory (`RegulaPolicy.Roles.withCounted`). -/
 def PolicyScope.counting (s : PolicyScope) (counted : Array RegulaPolicy.CountedContract) :
     PolicyScope :=

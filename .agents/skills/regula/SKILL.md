@@ -172,8 +172,8 @@ theorem contract : Regula.ExecutableContract identity (fun f => ∀ n, f n = n) 
 
 ### [RG1008](https://rbeauchamp.github.io/regula/dev/rules/RG1008/) Registered decision functions require a decision contract
 
-Each `@[regula_decision]` function has a decision contract in its inventory (`DecidesSoundly`, `DecidesCompletely` or `Decides`) or a `Decidable` result type.
-Fix: Register `theorem c : ExecutableContract f (Decides accepts Spec)` in the function's library, with `DecidesSoundly` or `DecidesCompletely` for a one-way guarantee, or return `Decidable (Spec x)`.
+Each `@[regula_decision]` function has a `Decides`, `DecidesSoundly` or `DecidesCompletely` contract in its inventory or a surface whose `decides` names its library, or a `Decidable` result type.
+Fix: Register `theorem c : ExecutableContract f (Decides accepts Spec)` in the function's library or in a surface whose `decides` names that library, with `DecidesSoundly` or `DecidesCompletely` for a one-way guarantee, or return `Decidable (Spec x)`.
 
 ```lean
 import Regula.Contract

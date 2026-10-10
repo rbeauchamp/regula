@@ -455,8 +455,8 @@ theorem addDecided_sound {location : String} :
       · exact (targetName_sound hname).2
       · exact hnames n hmem
 
-/-- A surface's optional `decides`: the other claimed surfaces, by library name, whose decision
-registrations the recorded contracts of its declarations count toward, defaulting to none. Each
+/-- A surface's optional `decides`: the other claimed surfaces, by library name, whose registered
+decisions the recorded contracts of its declarations count toward, defaulting to none. Each
 must be a well-formed library name, named once; that each names another claimed surface is
 decided once every name is recorded (`RelationsNamed`). -/
 def surfaceDecides (item : Json) (location : String) : Except String (Array String) :=

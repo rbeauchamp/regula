@@ -319,7 +319,7 @@ theorem inventoryValid_append_false_of_shared_name
   exact (List.pairwise_append.mp distinct).2.2 a.name leftMember b.name rightMember sameName
 
 /-- A recorded contract of a declaration of another claimed surface of the same project, which the
-project's manifest counts toward the decision registrations of an inventory (RG1008): the surface
+project's manifest counts toward the registered decisions of an inventory (RG1008): the surface
 whose environment declares the registration, the registration, its module and its recorded
 contract. A project census admits it only as the record that surface's own environment holds in
 the same run (`EnvironmentCensusOK`, `countedContracts`). -/
@@ -346,11 +346,10 @@ structure Inventory where
   /-- Proof that the declarations and transcripts satisfy `InventoryValid`. -/
   valid : InventoryValid declarations transcripts
   /-- The recorded contracts of other claimed surfaces that the manifest counts toward the
-  decision registrations of this inventory, each with the surface that declares it. Admission
+  registered decisions of this inventory, each with the surface that declares it. Admission
   gives none (`admitInventory`); a project census binds them to the records of the related
   surfaces' environments (`EnvironmentCensusOK`). No other field reads them, and they enter only
-  the implementations the inventory's decision registrations count as decided
-  (`Roles.decided`). -/
+  the implementations the inventory counts as decided (`Roles.decided`). -/
   counted : Array CountedContract := #[]
   deriving DecidableEq
 

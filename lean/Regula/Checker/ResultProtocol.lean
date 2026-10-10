@@ -21,7 +21,7 @@ abbrev producer := Regula.Checker.Producer.identity
 
 /-- Result schema 15 records the relation between surfaces that the manifest declares for RG1008:
 each `surfaces` entry of an accepted project, and each surface of the manifest a project result
-renders in `scope`, carries `decides`, the claimed surfaces whose decision registrations its
+renders in `scope`, carries `decides`, the claimed surfaces whose registered decisions its
 recorded contracts count toward, and the acceptance account carries
 `countedContracts`, each recorded contract that an environment counts from another surface and
 that decides a function it registers as a decision, with the surface of the function (`surface`)

@@ -278,7 +278,7 @@ def environmentTarget (surfaces : Array SurfaceAssignment) (modules : Array Modu
     Option String :=
   (modules[0]?.bind fun m => surfaceOwning surfaces m.name.name).map (·.target)
 
-/-- The recorded contracts that count toward the decision registrations of the environment whose
+/-- The recorded contracts that count toward the registered decisions of the environment whose
 own declarations are `owned`, whose loaded modules have the origins `origins` and whose surface
 is `target`. `environments` gives, for each environment, its policy declarations and the origins
 of the modules it loaded. A contract counts when it is the recorded contract of a declaration of
@@ -299,7 +299,7 @@ def countedContracts (surfaces : Array SurfaceAssignment)
             loaded.any fun m => m.name == o.module && origins.contains m)
         then some ⟨s.target, d.name, d.module, k⟩ else none
 
-/-- A contract counts toward an environment's registrations exactly when it is the recorded
+/-- A contract counts toward an environment's registered decisions exactly when it is the recorded
 contract of a declaration of one of `environments` whose module a claimed surface owns that names
 `target` among those it decides, and it names an owned declaration whose module that environment
 loaded with an origin of `origins`; it carries that surface, declaration and module. -/
@@ -322,7 +322,7 @@ theorem mem_countedContracts {surfaces : Array SurfaceAssignment}
       hmodule, horigin⟩, rfl⟩
     exact ⟨_, he, d, hd, k, hk, s, hs, ⟨hdecides, o, ho, hname, m, hm, hmodule, horigin⟩, rfl⟩
 
-/-- The recorded contracts that the census `environments` count toward the decision registrations
+/-- The recorded contracts that the census `environments` count toward the registered decisions
 of environment `i` under the claim `c` (`countedContracts`): for the surface that owns `i`'s
 modules (`environmentTarget`), over the policy declarations and module origins of every
 environment, and none for an environment that no claimed surface owns, such as every environment

@@ -804,8 +804,8 @@ private unsafe def auditSurfaceAt (repo manifestPath : FilePath)
               some environment.surface.library
             else none
         | _ => none
-      -- RG1008 counts, toward each environment's registrations, the recorded contracts of the
-      -- surfaces the manifest relates to its own, from the declarations and module origins of
+      -- RG1008 counts, toward each environment's registered decisions, the recorded contracts of
+      -- the surfaces the manifest relates to its own, from the declarations and module origins of
       -- every environment, as the census binds them (`RegulaPolicy.countedFor`).
       let countedInputs := inspections.filterMap fun (_, outcome) =>
         match outcome with

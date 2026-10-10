@@ -805,7 +805,8 @@ def guide : RuleId → Guide
               "lean/RegulaCore/Policy.lean"] }
   | .decisionContract => {
       problem := "A function registered as a decision with `@[regula_decision]` has no decision \
-        contract in its inventory, and its result type is not `Decidable _`. Nothing then states \
+        contract in its inventory or in a surface whose `decides` names its library, and its \
+        result type is not `Decidable _`. Nothing then states \
         whether the function accepts only what its specification allows, everything its \
         specification allows, or both."
       trigger := [
@@ -873,8 +874,8 @@ def guide : RuleId → Guide
           f`), or with `attribute [regula_decision] f` in a module of the same library that \
           imports `f`, for a function whose own module cannot import `Regula.Decision`.",
         "A claimed surface of the manifest may list other claimed surfaces in `decides`. The \
-          recorded contracts of its declarations then count toward the registrations of each \
-          surface it names. The function stays registered in its own library."]
+          recorded contracts of its declarations then count toward the registered decisions of \
+          each surface it names. The function stays registered in its own library."]
       limitations := [
         "A contract in another library, executable root or file of the project does not count \
           unless the manifest relates the two surfaces: the inventory is that of the audited \

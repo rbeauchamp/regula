@@ -37,7 +37,7 @@ structure Surface where
   execution : RegulaPolicy.ExecutionClaim
   /-- The manifest's stated reason for the claim. -/
   rationale : String
-  /-- The other claimed surfaces, by their libraries' names, whose decision registrations the
+  /-- The other claimed surfaces, by their libraries' names, whose registered decisions the
   recorded contracts of this surface's declarations count toward (RG1008). Each names another
   claimed surface of the manifest. -/
   decides : Array String := #[]
@@ -615,8 +615,8 @@ structure FrozenEnvironment where
   /-- The completed elaboration histories of the environment's modules. -/
   histories : Array HistoryObservation
 
-/-- `e` counting `counted`, recorded contracts of other surfaces, toward its decision
-registrations: its census's inventory counts them (`Inventory.withCounted`) and its role receipt
+/-- `e` counting `counted`, recorded contracts of other surfaces, toward its registered
+decisions: its census's inventory counts them (`Inventory.withCounted`) and its role receipt
 is the one for that inventory (`Roles.withCounted`); every other observation is unchanged. -/
 def FrozenEnvironment.counting (e : FrozenEnvironment) (counted : Array CountedContract) :
     FrozenEnvironment :=

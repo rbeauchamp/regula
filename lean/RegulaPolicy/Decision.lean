@@ -107,7 +107,7 @@ theorem decidedImplementations_neutral {cs : Array RecordedContract} {n : Name}
     ⟨RecordedContract.neutral r, Array.mem_map_of_mem hr, { c with failure := none, shared := {} },
       by simp [RecordedContract.neutral, Option.mem_def.mp hc], root, kind, rfl⟩
 
-/-- The recorded contracts whose decisions count toward the decision registrations of an
+/-- The recorded contracts whose decisions count toward the registered decisions of an
 inventory: those of its own declarations (`recordedContracts`), then those it counts from other
 claimed surfaces (`Inventory.counted`). -/
 def Inventory.decisionContracts (i : Inventory) : Array RecordedContract :=
