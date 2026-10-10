@@ -14,7 +14,9 @@ off because it also enforces Mathlib's copyright header.
 ## Main declarations
 
 - `Observation`: what the adapter reads of a module: whether it has module documentation, whether
-  the first command after its header is a module docstring, and its header imports in order.
+  the first command after its header is a module docstring, and its header imports in order. The
+  first is project-written (`Observation.ProjectWritten`), and the other two are Lean's parsers'
+  reading of the source (`Observation.ToolchainObserved`).
 - `failures`: the executed decision, every failure of one observation in a fixed order.
 - `failures_eq_nil_iff`: no failure exactly when `OK` holds.
 - `checked_failures`: that equivalence registered as a two-way decision (`Regula.Decides`), with
@@ -47,14 +49,28 @@ structure ImportSpec where
   isMeta : Bool
   deriving DecidableEq, Repr
 
-/-- What the RG5001 decision reads of one claimed module. -/
-structure Observation where
+/-- The part of a module's header observation that Lean's parsers give: their reading of the
+module's source text. No mark the project writes beside that text is a field here. -/
+structure Observation.ToolchainObserved where
+  /-- The first command after the module header is a module docstring (`/-! … -/`), as Lean's
+  command parser reads it. The parser uses the parser tables of the module's environment, which
+  the syntax that the project declares extends. -/
+  documentationFirst : Bool
+  /-- The header's imports, in source order, as Lean's header parser reads them. -/
+  imports : List ImportSpec
+  deriving DecidableEq, Repr
+
+/-- The part of a module's header observation that the project writes: whether Lean's
+environment holds module documentation for the module, an entry that a module docstring or a
+command of the project adds. -/
+structure Observation.ProjectWritten where
   /-- The module has a module docstring, in either of Lean's documentation formats. -/
   documented : Bool
-  /-- The first command after the module header is a module docstring (`/-! … -/`). -/
-  documentationFirst : Bool
-  /-- The header's imports, in source order. -/
-  imports : List ImportSpec
+  deriving DecidableEq, Repr
+
+/-- What the RG5001 decision reads of one claimed module. Each field is declared in the part that
+says where its value comes from. -/
+structure Observation extends Observation.ToolchainObserved, Observation.ProjectWritten
   deriving DecidableEq, Repr
 
 /-- One way a module header fails RG5001. -/
@@ -124,6 +140,8 @@ theorem failures_documentation (o : Observation) :
 nothing for a documented header with no import, and a failure for an undocumented one. -/
 theorem checked_failures :
     Regula.ExecutableContract failures (Regula.Decides (· = []) OK) :=
-  ⟨.of_iff failures_eq_nil_iff ⟨⟨true, true, []⟩, by decide⟩ ⟨⟨false, false, []⟩, by decide⟩⟩
+  ⟨.of_iff failures_eq_nil_iff
+    ⟨{ documented := true, documentationFirst := true, imports := [] }, by decide⟩
+    ⟨{ documented := false, documentationFirst := false, imports := [] }, by decide⟩⟩
 
 end RegulaPolicy.ModuleHeader

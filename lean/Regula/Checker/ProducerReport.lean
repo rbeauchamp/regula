@@ -98,8 +98,9 @@ instance : ToJson ModuleHeader.Observation := ⟨fun o => Json.mkObj [
 
 instance : FromJson ModuleHeader.Observation := ⟨fun j => do
   exactFields j ["documented", "documentationFirst", "imports"]
-  return ⟨← j.getObjValAs? _ "documented", ← j.getObjValAs? _ "documentationFirst",
-    ← j.getObjValAs? _ "imports"⟩⟩
+  return { documented := ← j.getObjValAs? _ "documented"
+           documentationFirst := ← j.getObjValAs? _ "documentationFirst"
+           imports := ← j.getObjValAs? _ "imports" }⟩
 
 /-- Metadata presence is deliberately separate from prose adequacy. The material selector
 is frozen before docstring lookup and retains exact owning modules, including empty modules.
@@ -877,7 +878,8 @@ theorem validate_nonvacuous : ∃ r : Environment, r.validate = .ok () := by
     admission := some
       { modules := #[`A], required := #[], admitted := #[], reused := #[], shared := #[] }
     documentation := some {
-      modules := #[(`A, ⟨true, true, []⟩)], materialDeclarations := #[], declarations := #[] }
+      modules := #[(`A, { documented := true, documentationFirst := true, imports := [] })],
+      materialDeclarations := #[], declarations := #[] }
     sourceBindings := #[{ moduleName := `A, path := "A.lean", content := "" }] }
   refine ⟨r, (validate_eq_ok r).mpr ⟨rfl, by decide +kernel, by decide +kernel, rfl,
     ⟨_, admitExecution_exact _ (by decide +kernel)⟩, ?_, ⟨_, rfl, by decide +kernel⟩,

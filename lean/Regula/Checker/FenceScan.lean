@@ -596,7 +596,8 @@ theorem toList_linesOf (text : String) :
   simp
 
 /-- A document with its lines. The field `divided` binds the lines to the text of the document,
-so no value of this type has the lines of a different text. -/
+so no value of this type has the lines of a different text. The record has no parts: the document
+is project-written, and the name and the lines come from its path and its text. -/
 structure Source where
   /-- The document: its URI and its full text. Each fence records it. -/
   document : RegulaPolicy.SourceSnapshot

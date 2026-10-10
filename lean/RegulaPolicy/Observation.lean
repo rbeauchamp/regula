@@ -81,21 +81,33 @@ inductive ExampleOutcome where
   (`incomplete_example_refused`). -/
   | incomplete (detail : String)
 
-/-- Explicit temporary-unit mapping permits grouped inspection without conflating its
-source units. Each unit retains the original fence identity and exact compiler source. -/
-structure ExampleUnit where
+/-- The part of a compilation unit that the checker observes: the temporary module and source
+file it compiled. The checker chooses the module's name and the file's path, and writes the file;
+`ExampleSourceOK` compares the file's text with the fence's body. -/
+structure ExampleUnit.ToolchainObserved where
   /-- The temporary module the unit was compiled as. -/
   moduleName : Name
-  /-- The documentation fence the unit's source comes from. -/
-  fence : FenceKey
   /-- The unit's compiled source file path and text. -/
   source : SourceSnapshot
   deriving Repr, DecidableEq
 
-/-- The observed production of one documentation example fence. -/
-structure ExampleObservation where
-  /-- The fence this observation is for. -/
+/-- The part of a compilation unit that the project writes: the fence of its document. -/
+structure ExampleUnit.ProjectWritten where
+  /-- The documentation fence the unit's source comes from. -/
   fence : FenceKey
+  deriving Repr, DecidableEq
+
+/-- Explicit temporary-unit mapping permits grouped inspection without conflating its
+source units. Each unit retains the original fence identity and exact compiler source. Each field
+is declared in the part that says where its value comes from. -/
+structure ExampleUnit extends ExampleUnit.ToolchainObserved, ExampleUnit.ProjectWritten
+  deriving Repr, DecidableEq
+
+/-- The part of an example's production that the checker and Lean observe: the temporary module
+and compilation group the checker chose, the source text it wrote for the compiler and read back,
+and what the compiler and the checker's inspection report. Compiling the example runs its
+commands, which can write its source file, so `after` holds what that compilation left there. -/
+structure ExampleObservation.ToolchainObserved where
   /-- The temporary module the fence was compiled as. -/
   unitName : Name
   /-- Every unit of the compilation group the fence was inspected with. -/
@@ -112,7 +124,20 @@ structure ExampleObservation where
   /-- How the example's production ended. -/
   outcome : ExampleOutcome
 
-/-- Complete scan of the exact document domain, including no-fence files. -/
+/-- The part of an example's production that the project writes: the fence of its document. -/
+structure ExampleObservation.ProjectWritten where
+  /-- The fence this observation is for. -/
+  fence : FenceKey
+
+/-- The observed production of one documentation example fence. Each field is declared in the
+part that says where its value comes from. `ExampleExpectationOK` and `ExampleSourceOK` compare
+the source texts of the observed part with the body of the fence. -/
+structure ExampleObservation extends ExampleObservation.ToolchainObserved,
+    ExampleObservation.ProjectWritten
+
+/-- Complete scan of the exact document domain, including no-fence files. The record has no
+parts: every field is project-written, the documents and what the scanner computes from
+them. -/
 structure DocumentObservation where
   /-- The documents scanned, with their exact text. -/
   documents : Array SourceSnapshot

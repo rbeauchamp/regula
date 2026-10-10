@@ -183,7 +183,11 @@ inductive FenceExpectation where
   | trustedTeaching
   deriving Repr, DecidableEq
 
-/-- Rule identity tokens in policy-negative expectations must be validated by the sole
+/-- One documentation fence: its document, the byte ranges of its lines and what its example is
+declared to do. The record has no parts: every field is project-written, the document and what
+the scanner computes from it, with the expectation that the document declares for the fence.
+
+Rule identity tokens in policy-negative expectations must be validated by the sole
 registry adapter. The policy library deliberately defines no second RuleId enumeration. -/
 structure FenceKey where
   /-- The document that contains the fence, with its exact text. -/

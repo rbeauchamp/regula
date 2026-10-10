@@ -715,14 +715,41 @@ The two sides are constants with the same list of distinct universe parameters. 
 historical replacement conservatively, including one that the compiled code no longer runs. The
 [RG3001] and [RG3002] decisions read the two parts.
 
+**Documentation records.** The rules [RG4001] to [RG4004] and [RG5001] to [RG5003] examine text
+that a project writes. In a documentation record, a field is project-written where it holds text
+of a project file or data of a mark that the project writes. A field that the scanner
+computes from the document is also project-written. A field is observed where it is the answer
+of Lean's parsers or compiler, or of the checker's observing code, about that text.
+
+`ModuleHeader.Observation` has two parts. Lean's environment holds module documentation for the
+module, an entry that a module docstring or a command adds, so `documented` is project-written.
+`documentationFirst` and `imports` are what Lean's parsers read in the source, so they are
+observed. The command parser uses the parser tables of the module's environment, which the syntax
+that the project declares extends.
+
+`FenceKey` and `DocumentObservation` have no parts. Each field is a document or what the scanner
+computes from it, and the expectation is what the document declares for the fence. An
+`ExampleObservation` and each of its units have two parts: the fence is project-written, and the
+other fields are observed. The checker chooses the temporary module and the group, and it writes
+the source text that the compiler reads. Compiling the example runs its commands, which can write
+that file, so the text that the checker reads back is what the compilation left there.
+`ExampleExpectationOK` and `ExampleSourceOK` compare these texts with the body of the fence.
+
+The decisions of [RG5002] and [RG5003] take no record. They take the docstring that Lean's lookup
+gives (`findDocString?`), which is project-written. In the documentation rules, a project-written
+field can admit, for example a docstring, `documented` or the expectation of a fence. Such a field
+is the subject of the rule, as the registration is for [RG1008].
+
 **Limits.** The parts classify the source of a value but do not make an observation truthful. That
-`Collect.declaration`, `Frontend.buildCore`, `Probe.observeNode` and `Probe.environmentReport` fill
-each field from the source its part names is by inspection of those functions, not proved. State a
+`Collect.declaration`, `Frontend.buildCore`, `Probe.observeNode`, `Probe.environmentReport`,
+`moduleObservation` and `exampleObservation` fill each field from the source its part names is by
+inspection of those functions, not proved. State a
 project writes can still enter a toolchain observation, and the docstring of each such field says
 how: `isProp` is Lean's answer, which does not unfold an irreducible definition; `prettyType` is
 Lean's printer, which uses the notations in force; `nativeReplay` runs compiled code; and what a
 project writes selects which regeneration `unsafeRecRegenerated` reports, while the pure comparison
-and the kernel decide it. The two observations of the checker that a project-written mark decides
+and the kernel decide it. In the documentation records, `documentationFirst` and `after` are such
+observations. The two observations of the checker that a project-written mark decides
 are fields of `Declaration.ProjectWritten` for that reason. `executableContract` reads Lean's
 `noncomputable` mark for one refusal. `tableOmissions` compares the axioms of Lean's module table,
 which a project can write, with the axioms that the replayed kernel gives. The decisions of [RG1007]
