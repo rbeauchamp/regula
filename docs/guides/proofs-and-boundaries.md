@@ -671,28 +671,27 @@ as `@[simp]` can make Lean generate such a constant, an equation lemma. The walk
 each recorded historical replacement conservatively, including one that the compiled code no longer
 runs. The [RG3001] and [RG3002] decisions read the two parts.
 
-**Limits.** The parts classify the source of a value but do not make an observation truthful.
-That `Collect.declaration`, `Frontend.buildCore`, `Probe.observeNode` and `Probe.environmentReport`
-fill each field from the source its part names is by inspection of those functions, not proved. State a project writes can
-still enter a toolchain observation, and the docstring of each such field says how: `isProp` is
-Lean's answer, which does not unfold an irreducible definition; `prettyType` is Lean's printer,
-which uses the notations in force; `nativeReplay` runs compiled code; and what a project writes
-selects which regeneration `unsafeRecRegenerated` reports, while the pure comparison and the kernel
-decide it. The two
-observations of the checker that a project-written mark decides are fields of
-`Declaration.ProjectWritten` for that reason. `executableContract` reads Lean's `noncomputable`
-mark for one refusal. `tableOmissions` compares the axioms of Lean's module table, which a
-project can write, with the axioms that the replayed kernel gives. The decisions of [RG1007]
+**Limits.** The parts classify the source of a value but do not make an observation truthful. That
+`Collect.declaration`, `Frontend.buildCore`, `Probe.observeNode` and `Probe.environmentReport` fill
+each field from the source its part names is by inspection of those functions, not proved. State a
+project writes can still enter a toolchain observation, and the docstring of each such field says
+how: `isProp` is Lean's answer, which does not unfold an irreducible definition; `prettyType` is
+Lean's printer, which uses the notations in force; `nativeReplay` runs compiled code; and what a
+project writes selects which regeneration `unsafeRecRegenerated` reports, while the pure comparison
+and the kernel decide it. The two observations of the checker that a project-written mark decides
+are fields of `Declaration.ProjectWritten` for that reason. `executableContract` reads Lean's
+`noncomputable` mark for one refusal. `tableOmissions` compares the axioms of Lean's module table,
+which a project can write, with the axioms that the replayed kernel gives. The decisions of [RG1007]
 and [RG1009] take the recorded contract and no other field, so they read the `noncomputable` mark
 only through it. The decision requirement of [RG1008] takes the name and the registration alone
-(`Declaration.Registration`). The role validators take the role part (`Declaration.Role`):
-the inspected part and the three marks that they read. The declaration decision and the
-operational decision take the assessed part (`Declaration.Assessed`): the inspected part and the
-recorded contract. `policyFor`, `memberFailure` and the editor decision take the whole
-`Declaration` because membership of the inventory is a property of the whole record. `policyFor`
-checks it at the admission boundary `recordFailure`, and the other two take a proof of it.
-`policyFor`, `memberFailure` and `policyRequirements` join the assessed part and the registration
-part. The editor decision reads only the assessed part: it joins the declaration decision with
+(`Declaration.Registration`). The role validators take the role part (`Declaration.Role`): the
+inspected part and the three marks that they read. The declaration decision and the operational
+decision take the assessed part (`Declaration.Assessed`): the inspected part and the recorded
+contract. `policyFor`, `memberFailure` and the editor decision take the whole `Declaration` because
+membership of the inventory is a property of the whole record. `policyFor` checks it at the
+admission boundary `recordFailure`, and the other two take a proof of it. `policyFor`,
+`memberFailure` and `policyRequirements` join the assessed part and the registration part. The
+editor decision reads only the assessed part: it joins the declaration decision with
 `needsRoleEvidence`, which takes `Declaration.Inspected`.
 
 **No project-written mark admits.** The marks of the role part and the refusals of the recorded

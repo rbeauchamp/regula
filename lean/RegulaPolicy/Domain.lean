@@ -1909,7 +1909,9 @@ evidence and the constant run in its place. `@[implemented_by]` and `@[extern]` 
 where the constant has one of them. A constant whose type is an equality of two constants with the
 same list of distinct universe parameters makes a `compiler-simplification` boundary, registered
 with `@[csimp]` or not, and an attribute such as `@[simp]` makes Lean generate equation lemmas of
-that shape. The constant's safety and value decide the other kinds. -/
+that shape. The name of an axiom decides the `compiler-trusted-proof` kind
+(`RegulaPolicy.compilerTrustingAxiomName`), and the constant's safety and value decide the other
+kinds. -/
 structure ExecutionBoundary.ProjectWritten where
   /-- What kind of boundary it is. -/
   boundary : BoundaryKind
@@ -2043,9 +2045,10 @@ def ExecutionClosure.edges (c : ExecutionClosure) (compilerEdges : Array (Lean.N
 constant the account is made at, which are that constant and its module. Authored marks and
 traversal through project-written edges decide which records exist. A field that the data of a mark
 enters is project-written, as a boundary's kind and replacement. `Probe.environmentReport` makes a
-root record for each name of `executableRoots` (each eligible owned definition and each `@[init]` or
-`@[builtin_init]` action) and each root of a registered contract with no refusal, with the name set
-to that constant and the module to the environment's attribution of it. -/
+root record for each name of `executableRoots` (each eligible owned definition or opaque constant
+and each `@[init]` or `@[builtin_init]` action) and each root of a registered contract with no
+refusal, with the name set to that constant and the module to the environment's attribution of
+it. -/
 structure ExecutionRoot.ToolchainObserved where
   /-- The root constant. -/
   name : Lean.Name
