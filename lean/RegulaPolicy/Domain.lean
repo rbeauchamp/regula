@@ -2028,10 +2028,11 @@ over the names that the walk reached through the edges of the project-written pa
 targets it copies. Beside the records, `ExecutionWalk.assemble` takes `rootCompiled`, the root's own
 compiled-code requirement. When it holds, the root is in `requiredCode`, and so in `unavailableCode`
 with a reported unavailable-code path when its compiler body is unavailable; without it, the root is
-required only as a compiled dependency of a reached name. `Probe.executionWalk` computes it from the
-root's `@[implemented_by]` and `@[macro_inline]` marks, which are project-written, and from whether
-the root is a projection, auxiliary recursor, `noConfusion`, matcher or `brecOn` helper without IR.
--/
+required only as a compiled dependency of a reached name. `Probe.executionWalk` computes it as false
+exactly when the root has an `@[implemented_by]` or `@[macro_inline]` mark, which are
+project-written; when the root is a projection function, with or without IR; when it has no IR and
+is an auxiliary recursor, a `noConfusion` or a matcher; or when it has no IR and is a `brecOn`
+helper that `brecOnHelpers` finds by its structure. -/
 structure ExecutionClosure where
   /-- Every name the walk reached, sorted and without duplicates. -/
   nodes : Array Lean.Name

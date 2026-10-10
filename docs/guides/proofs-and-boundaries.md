@@ -669,7 +669,8 @@ A visit's parent, the closure's other fields and a boundary's position are compu
 the combined record. `ExecutionWalk.assemble` also takes `rootCompiled`, the root's compiled-code
 requirement. When it holds, the root is required code, and missing code of the root is reported as
 unavailable. `Probe.executionWalk` computes it from the root's `@[implemented_by]` and
-`@[macro_inline]` marks, which are project-written, its tags as generated machinery and its IR.
+`@[macro_inline]` marks, which are project-written, and from the environment's entries for the root
+and its IR. The `ExecutionClosure` docstring lists each condition.
 
 A candidate boundary comes from a constant of an equality type, registered with `@[csimp]` or not.
 The two sides are constants with the same list of distinct universe parameters. An attribute such as
