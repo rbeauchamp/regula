@@ -235,13 +235,18 @@ theorem checked_coordinateCheck : Regula.ExecutableContract coordinateCheck (fun
         CoordinatesAgree input.1.1 input.1.2 input.2)
       (Function.uncurry (Function.uncurry check))) :=
   let transcript (commands : Array Command) : Transcript :=
-    ⟨`Module, "", 0, "", "", "", #[], commands, #[], #[]⟩
+    { «module» := `Module, source := "", sourceBytes := 0, sourceContent := "", leanVersion := ""
+      leanGitHash := "", imports := #[], commands, runtimeReplacements := #[]
+      replacementHistoryUnsupported := #[] }
   ⟨.of_iff (fun input => (checked_coordinates.evidence input.1.1 input.1.2 input.2).1)
     ⟨((fun _ _ => 0, #[]), transcript #[]),
       (checked_coordinates.evidence _ _ _).1.mpr ⟨by simp [transcript], by simp⟩⟩
-    ⟨((fun _ _ => 0, #[]), transcript #[⟨#[`added], #[], false⟩]), fun accepted => by
-      have agree := ((checked_coordinates.evidence _ _ _).1.mp accepted).1
-        ⟨#[`added], #[], false⟩ (by simp [transcript])
-      simp at agree⟩⟩
+    ⟨((fun _ _ => 0, #[]),
+        transcript #[{ added := #[`added], addedDeclarations := #[], declaresAxiom := false }]),
+      fun accepted => by
+        have agree := ((checked_coordinates.evidence _ _ _).1.mp accepted).1
+          { added := #[`added], addedDeclarations := #[], declaresAxiom := false }
+          (by simp [transcript])
+        simp at agree⟩⟩
 
 end Regula.Checker.Frontend

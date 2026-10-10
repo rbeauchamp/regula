@@ -2099,7 +2099,10 @@ structure ImportRecord where
   isMeta : Bool
   deriving Repr, DecidableEq
 
-/-- One constant a command added to the environment. -/
+/-- One constant a command added to the environment. Its fields are fields of the constant's
+`ConstantInfo` in the fresh elaboration's environment, or a pure function of such fields. Lean's
+kernel admitted that constant only if the source left kernel checking on, and the transcript does
+not replay it. -/
 structure AddedDeclaration where
   /-- The constant's name. -/
   name : Lean.Name
@@ -2113,7 +2116,8 @@ structure AddedDeclaration where
   deriving Repr, DecidableEq
 
 /-- One command that added constants: what it added and whether it declares an axiom, the
-provenance a native-proof axiom's authentication reads (`NativeTeachingOK`). -/
+provenance a native-proof axiom's authentication reads (`NativeTeachingOK`). Each field is the
+frontend's observation of the fresh elaboration. -/
 structure Command where
   /-- The names of the constants the command added. -/
   added : Array Lean.Name
@@ -2125,16 +2129,15 @@ structure Command where
   declaresAxiom : Bool
   deriving Repr, DecidableEq
 
-/-- The record of one fresh frontend elaboration of a module's exact source. -/
-structure Transcript where
+/-- The part of a transcript that the toolchain observes: the module and source file that Lake
+resolves, the elaborating toolchain's identity, the header's imports as Lean's parser reads them,
+and each command as the frontend records it. The project's configuration and source decide what
+these observe, and no field here is a mark the project writes beside them. -/
+structure Transcript.ToolchainObserved where
   /-- The elaborated module. -/
   «module» : Lean.Name
   /-- The path of its source file. -/
   source : String
-  /-- The source's size in UTF-8 bytes. -/
-  sourceBytes : Nat
-  /-- The exact source text that was elaborated. -/
-  sourceContent : String
   /-- The Lean version string of the elaborating toolchain. -/
   leanVersion : String
   /-- The Git commit of the elaborating toolchain. -/
@@ -2143,13 +2146,33 @@ structure Transcript where
   imports : Array ImportRecord
   /-- Each command that added constants, in source order. -/
   commands : Array Command
+  /-- Evaluators under which the replacement history
+  (`Transcript.ProjectWritten.runtimeReplacements`) cannot be certified, such as `run_cmd` or a
+  source-local elaborator. -/
+  replacementHistoryUnsupported : Array String := #[]
+  deriving Repr, DecidableEq
+
+/-- The part of a transcript that the project writes: the source text it elaborated, and the
+runtime replacements (`@[implemented_by]`) that the source's commands recorded. A decision that
+reads one of these fields rests on what the project wrote. -/
+structure Transcript.ProjectWritten where
+  /-- The source's size in UTF-8 bytes. -/
+  sourceBytes : Nat
+  /-- The exact source text that was elaborated. -/
+  sourceContent : String
   /-- Every `@[implemented_by]` pair (reference, target) seen in any command's environment, when
   replacement history was requested. -/
   runtimeReplacements : Array (Lean.Name × Lean.Name) := #[]
-  /-- Evaluators under which that replacement history cannot be certified, such as `run_cmd` or
-  a source-local elaborator. -/
-  replacementHistoryUnsupported : Array String := #[]
   deriving Repr, DecidableEq
+
+/-- The record of one fresh frontend elaboration of a module's exact source. Each field is declared
+in the part that says where its value comes from. -/
+structure Transcript extends Transcript.ToolchainObserved, Transcript.ProjectWritten
+  deriving Repr, DecidableEq
+
+/-- The observed parts of transcripts, in order: what the role validators read of them. -/
+def observedTranscripts (ts : Array Transcript) : Array Transcript.ToolchainObserved :=
+  ts.map (·.toToolchainObserved)
 
 end Frontend
 

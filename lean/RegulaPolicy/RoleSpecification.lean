@@ -48,7 +48,7 @@ def needsFrontendTranscript (decls : Array Declaration) : Bool :=
     declarationNeedsTranscript decl.kind decl.name
 
 /-- Preserve command occurrence order and multiplicity, including duplicate observations. -/
-def moduleCommands (ts : Array Transcript) (m : Name) : Array Command :=
+def moduleCommands (ts : Array Transcript.ToolchainObserved) (m : Name) : Array Command :=
   (ts.filter (fun t => t.module == m)).flatMap (·.commands)
 
 /-- `c` is the one command of `a`'s module that adds an axiom of the generated origin `(pfx, t)`
@@ -56,13 +56,13 @@ def moduleCommands (ts : Array Transcript) (m : Name) : Array Command :=
 match is by origin and statement, never by exact name: the statement names the tactic run's own
 auxiliary definitions by their unindexed base (`nativeStatement`), since a fresh transcript and an
 asynchronous build can index generated names differently. -/
-def NativeIntroducingCommand (ts : Array Transcript) (a : Declaration.Role) (t : NativeTactic)
-    (pfx : Name) (c : Command) : Prop :=
+def NativeIntroducingCommand (ts : Array Transcript.ToolchainObserved) (a : Declaration.Role)
+    (t : NativeTactic) (pfx : Name) (c : Command) : Prop :=
   (moduleCommands ts a.module).filter (fun cmd =>
     cmd.addedDeclarations.any (fun d => nativeAxiomOrigin? d.name == some (pfx, t) &&
       d.kind == .«axiom» && d.nativeStatement == a.nativeStatement)) = #[c]
-instance (ts : Array Transcript) (a : Declaration.Role) (t : NativeTactic) (pfx : Name)
-    (c : Command) : Decidable (NativeIntroducingCommand ts a t pfx c) := by
+instance (ts : Array Transcript.ToolchainObserved) (a : Declaration.Role) (t : NativeTactic)
+    (pfx : Name) (c : Command) : Decidable (NativeIntroducingCommand ts a t pfx c) := by
         unfold NativeIntroducingCommand; infer_instance
 
 /-- Native axiom shape, the asserted statement of its tactic and successful independent replay
@@ -104,14 +104,15 @@ is required beyond (1)-(3), so wrappers (namespaced names, attributes, `set_opti
 clauses, parameters, `grind =>` and `sym =>` blocks, module-private names) do not change the
 classification. `native_provenance` states what an authenticated role extracts from these
 observations; it does not make them truthful. -/
-def NativeTeachingOK (ds : Array Declaration.Role) (ts : Array Transcript) (a : Declaration.Role) :
-    Prop :=
+def NativeTeachingOK (ds : Array Declaration.Role) (ts : Array Transcript.ToolchainObserved)
+    (a : Declaration.Role) : Prop :=
   NativeAxiomShape a ∧ a ∈ ds ∧ ∃ p ∈ ds, ∃ o ∈ nativeAxiomOrigin? a.name,
     p.module = a.module ∧ GeneratedPrefix p.module p.name o.1 ∧
     ExactlyOne ((moduleCommands ts p.module).filter (fun c => c.added.contains p.name)) (fun c =>
       NativeIntroducingCommand ts a o.2 o.1 c ∧ c.declaresAxiom = false)
-instance (ds : Array Declaration.Role) (ts : Array Transcript) (a : Declaration.Role) :
-    Decidable (NativeTeachingOK ds ts a) := by unfold NativeTeachingOK; infer_instance
+instance (ds : Array Declaration.Role) (ts : Array Transcript.ToolchainObserved)
+    (a : Declaration.Role) : Decidable (NativeTeachingOK ds ts a) := by
+  unfold NativeTeachingOK; infer_instance
 
 /-- Range-less generated partial helper whose group Lean's own recursion compiler regenerates into
 the observed base and its auxiliary definitions, and for which Lean's kernel checks the recursion
@@ -156,8 +157,9 @@ instance (ds : Array Declaration.Role) (h : Declaration.Role) :
 in an inventory holds for the axiom's neutral form in the inventory of neutral forms
 (`Declaration.Role.neutral`), where no record has a replacement, an `extern` implementation or
 a recorded range. -/
-theorem NativeTeachingOK.neutral {ds : Array Declaration.Role} {ts : Array Transcript}
-    {a : Declaration.Role} (ok : NativeTeachingOK ds ts a) :
+theorem NativeTeachingOK.neutral {ds : Array Declaration.Role}
+    {ts : Array Transcript.ToolchainObserved} {a : Declaration.Role}
+    (ok : NativeTeachingOK ds ts a) :
     NativeTeachingOK (ds.map Declaration.Role.neutral) ts a.neutral := by
   obtain ⟨⟨s1, s2, s3, s4, s5, -, -, s8, s9, s10, s11⟩, ha, p, hp, o, ho, hmodule, hprefix,
     hone⟩ := ok

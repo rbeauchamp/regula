@@ -645,16 +645,25 @@ use that takes a narrower part. What takes which part:
 | `NativeStatement.recognize?` ([below](#the-native-axiom-statement-decision-and-observing-pass)) | No record: a `NativeStatement.Candidate` | The tactic and the prefix that `nativeAxiomOrigin?` reads from the name, and the kernel-checked type. |
 | `declarationFailure`, `DeclarationOK`, `declarationRequirements` and their theorems | `Declaration.Assessed` | The inspected part and the recorded contract: they join the relations above, so through `ContractOK` and `SharedTestOK` they read the recorded contract. |
 | `decisionFailure`, `DecisionOK` | `Declaration.Registration` | The name and `decisionResult`, the project's own registration, alone. |
-| `NativeTeachingOK`, `RecursiveHelperOK` and the `authorized…` validators | `Declaration.Role`, and the role parts of an inventory (`roleRecords`) | The inspected part and three project-written marks: the replacement, the `extern` mark and the recorded ranges. A native-proof axiom must have no replacement and no `extern` implementation. A recursion helper must have no replacement, no `extern` implementation and no recorded range, and its base no replacement and no `extern` implementation. These marks can refuse a role but do not grant one: `authorizedNativeAxioms_neutral` and `authorizedUnsafeRecHelpers_neutral` prove that each name the executed validator admits is admitted with all marks of the inventory at their neutral values (`Declaration.Role.neutral`). |
+| `NativeTeachingOK`, `RecursiveHelperOK` and the `authorized…` validators | `Declaration.Role`, and the role parts of an inventory (`roleRecords`), with the observed parts of its transcripts (`observedTranscripts`) | The inspected part and three project-written marks: the replacement, the `extern` mark and the recorded ranges. A native-proof axiom must have no replacement and no `extern` implementation. A recursion helper must have no replacement, no `extern` implementation and no recorded range, and its base no replacement and no `extern` implementation. These marks can refuse a role but do not grant one: `authorizedNativeAxioms_neutral` and `authorizedUnsafeRecHelpers_neutral` prove that each name the executed validator admits is admitted with all marks of the inventory at their neutral values (`Declaration.Role.neutral`). |
 | `policyFor`, `memberFailure`, the editor decision, `policyRequirements` | `Declaration` | Membership of the inventory, which is of the whole record. `policyFor` checks it at its admission boundary (`recordFailure`), and `memberFailure` and the editor decision take a proof of it. The decision on an admitted record is `policyForName`, which takes its name alone. `policyFor`, `memberFailure` and `policyRequirements` join the assessed part and the registration part. The editor decision reads only the assessed part: `declarationFailure` takes `Declaration.Assessed` and `needsRoleEvidence` takes `Declaration.Inspected`. |
 | `operationalFailure`, `OperationalOK`, `operationalView`, `operationalAxioms` | `Declaration.Assessed` | `kind`, `isProp`, `axioms` and, through `ContractOK` and `SharedTestOK`, the recorded contract. The view also clears `isUnsafe` and `isPartial`. |
 
-**Limits.** The parts classify the source of a value. They do not make an observation truthful,
-and that `Collect.declaration` fills each field from the source its part names is by inspection of
-that function, not proved. State a project writes can still enter a toolchain observation, and the
-docstring of each such field says how: `isProp` is Lean's answer, which does not unfold an
-irreducible definition; `prettyType` is Lean's printer, which uses the notations in force;
-`nativeReplay` runs compiled code; and what a project writes selects which regeneration
+**Transcripts.** `Transcript.ToolchainObserved` holds the module and the source file that Lake
+resolves, the toolchain's identity, the imports and the commands. `Transcript.ProjectWritten` holds
+the source text and the runtime replacements that its commands recorded. The frontend observes each
+field of a command's record, `Command`, in the fresh elaboration, and the records of added
+constants copy fields of their `ConstantInfo`. Lean's kernel admitted such a constant only if the
+source left kernel checking on, and the transcript does not replay it. The native role validator
+and `validCoordinates` take the observed parts alone, and admission and the coordinate check read
+the source text only for comparison.
+
+**Limits.** The parts classify the source of a value but do not make an observation truthful.
+That `Collect.declaration` and `Frontend.buildCore` fill each field from the source its part names
+is by inspection of those functions, not proved. State a project writes can still enter a toolchain
+observation, and the docstring of each such field says how: `isProp` is Lean's answer, which does
+not unfold an irreducible definition; `prettyType` is Lean's printer, which uses the notations in
+force; `nativeReplay` runs compiled code; and what a project writes selects which regeneration
 `unsafeRecRegenerated` reports, while the pure comparison and the kernel decide it. The two
 observations of the checker that a project-written mark decides are fields of
 `Declaration.ProjectWritten` for that reason. `executableContract` reads Lean's `noncomputable`
