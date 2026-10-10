@@ -390,9 +390,9 @@ structure Ownership where
   root : Option OwnedPackage := none
   /-- The owned dependency packages. A module an environment loads is one of theirs when the
   `.olean` it loaded is exactly the artifact of that module in the package's output directory
-  (`Environment.attributeLoaded`); an environment owns such a module only when the import
-  closure of a module it requests contains it, or it imports an owned module
-  (`Environment.ownedModuleSet`). -/
+  (`Environment.attributeLoaded`); an environment owns such a module only when it lies outside the
+  checker's reserved prefixes (`Environment.projectModules`) and the import closure of a module it
+  requests contains it, or it imports an owned module (`Environment.ownedModuleSet`). -/
   dependencies : Array OwnedPackage := #[]
   /-- In a copy that the audit made, the copy's real directory (`Lake.SurfaceInventory.copy`):
   every owned module an environment loads must resolve below it

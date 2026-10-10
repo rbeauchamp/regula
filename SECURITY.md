@@ -55,7 +55,7 @@ Regula checks for some changes of this kind, where the standard or a rule page s
 For example, it replays the declarations of the project that are not `unsafe` or `partial` through
 Lean's kernel. It calculates the axioms of each declaration of the project from that kernel, not
 from the axiom table `exportedAxiomsExt` that Lean writes for each module. It also replays and checks
-those that the claimed modules import from a path dependency in the Git work tree of the project.
+the modules of a path dependency in the project's Git work tree that the claimed modules import, except Regula's own.
 But a pass makes no claim that the project has none of the changes in the list.
 The [README](README.md) puts Regula at the `#print axioms` step of
 [Validating a Lean Proof](https://lean-lang.org/doc/reference/latest/ValidatingProofs/).
@@ -86,6 +86,10 @@ the running checker's own package can provide a module under them with any sourc
 package can provide one only with a source that is byte-identical to the checker's source of that
 module. Thus the module that Regula loads in its place is compiled from the same text. This check
 assumes that the package's Lean options for the module do not change what the text elaborates to.
+
+A module under these prefixes in a package other than the root package is Regula's own code, also
+in an owned path dependency. No audit owns it or inspects it as project code. Regula's own audit
+checks it with its whole library.
 
 ## What counts as a vulnerability
 

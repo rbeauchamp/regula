@@ -1095,21 +1095,21 @@ private def pathDependency (repo adopter : FilePath) : IO (Array String) := do
   return failures
 
 /-- The `lakefile.lean` adopter in the checker's own Git work tree, so `regula` is an owned
-dependency, with a claimed import of `RegulaPolicy.Claim`. The force-imported reporter loads
-checker modules outside the claimed closure that import an owned one, such as `RegulaPolicy.Codec`,
-which imports `RegulaPolicy.Domain`, and under `--fresh` the overlay serves them from the
-checker's library. Such a module belongs to `regula` (`Environment.attributeLoaded`), so the
-environment owns it and the fresh copy builds it; when it belonged to no package, the admission
-refused it as an unreplayed module that imports a replayed one. A `lake lint -- --fresh` must
-accept the adopter and name no trusted dependency. The claimed import is `RegulaPolicy.Claim`, not
-`Regula.Linter`, since the decision contracts of `RegulaPolicy.admitIdentity` and
-`RegulaPolicy.admitToolchainOrigin` lie in `RegulaPolicy.Claim`, and RG1008 requires them in the
-environment that owns those functions. -/
+dependency, with a claimed import of `Regula.Linter`, as the adoption guide recommends. Its closure
+holds modules of `regula` under the checker's reserved prefixes, such as `RegulaPolicy.Identity`,
+whose decision contract lies in `RegulaPolicy.Claim`, which no claimed module imports, and modules
+outside them, such as `RegulaCore.EditorPolicy`. A module under those prefixes is the checker's own
+code, which no environment owns (`Environment.projectModules`); the audit owns and replays the
+others, and replays each reserved module that imports one of them, such as `Regula.Linter.Rules`
+(`Admission.replaySet`). A `lake lint -- --fresh` must accept the adopter and name no trusted
+dependency: when the audit owned the reserved modules, it reported RG1008 for `admitIdentity`, and
+before that, the admission refused `RegulaPolicy.Codec`, which the reporter loads under `--fresh`,
+as an unreplayed module that imports a replayed one. -/
 private def ownedChecker (repo adopter : FilePath) : IO (Array String) := do
   BuildLintQualification.setup repo adopter
   IO.FS.removeDirAll (adopter / ".git")
   mutate (adopter / "Widget.lean") "import Regula.Contract\n"
-    "import Regula.Contract\nimport RegulaPolicy.Claim\n"
+    "import Regula.Contract\nimport Regula.Linter\n"
   let positive := accepted "owned-checker/fresh" (fresh := true)
   let noneTrusted := "trusted dependencies, not replayed through Lean's kernel: none\n"
   expect adopter { positive with contains := positive.contains.push noneTrusted }

@@ -16,6 +16,11 @@ lake update
 lake lint
 ```
 
+Run in place, inside this repository, `regula` is an owned path dependency, since it is in the
+same Git work tree. Its `Regula` and `RegulaPolicy` modules are the checker's own code, and the
+audit does not own them. It replays and checks the other modules of `regula` that `Gadget`
+imports, for example `RegulaCore.EditorPolicy`.
+
 To use it elsewhere, replace `path = "../.."` with the git form in the
 [adoption guide](../../docs/guides/adoption.md#1-require-regula).
 `lakefile.toml` cannot declare the custom `policy` target of

@@ -354,17 +354,25 @@ finding (`Observation.exitCode_violation`). A run that fails before recording a 
 failed audit-worker build or an invalid argument, prints its error and the outcome line only.
 
 A path dependency in the Git work tree of your project is your own code. The audit replays each
-of its modules that your claimed modules import, as it replays your libraries, and checks their
-declarations under Standard-Logical. With `--fresh`, the isolated copy holds it and builds it. A
+of its modules that your claimed modules import, other than Regula's own, as it replays your
+libraries. It checks their declarations under Standard-Logical. With `--fresh`, the isolated copy
+holds it and builds it. A
 dependency outside that work tree, for example Mathlib, is trusted, and the account names it on
 the line `trusted dependencies`. A correspondence proof for [RG3002] counts only from a module that
 the audit replays, or from Lean's own library.
+
+The audit checks a decision function of an owned path dependency, with `@[regula_decision]`, in
+each environment that inspects it. So its contract must be in a module that your claimed modules
+import. If the contract is only in a different module of the dependency's library, the audit
+reports [RG1008]. [Issue #318](https://github.com/rbeauchamp/regula/issues/318) proposes to count
+the contracts of the whole library.
 
 Your root package and each owned path dependency must keep Lake's default output layout, in each
 audit. The audit refuses a `buildDir`, `leanLibDir`, `nativeLibDir`, `binDir` or `irDir` other
 than Lake's default before it builds your project, as `lake-workspace-load-failed`. The prefixes
 `Regula` and `RegulaPolicy` belong to Regula: each audit refuses a module under them that does not
-have Regula's own source text.
+have Regula's own source text. In a path dependency, such a module is Regula's own code, and the
+audit does not own it.
 
 Each module name of your workspace must have one provider. The audit counts the library modules of
 each package, and the executable roots of your package and of each owned path dependency. It

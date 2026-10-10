@@ -1480,19 +1480,24 @@ so `replaySet` replays each one that imports a replayed module. -/
 def reporterModules : Array Name :=
   RegulaPolicy.infrastructureModuleNames
 
-/-- One pass over the `loaded` modules, adding each reporter module that imports a module of
-`replay`. -/
-def addReporters (loaded : Array (Name × ModuleData)) (replay : Array Name) : Array Name :=
-  loaded.foldl (fun replay entry =>
-    if reporterModules.contains entry.1 && !replay.contains entry.1 &&
+/-- One pass over the `candidates`, adding each one that imports a module of `replay`. -/
+def addReporters (candidates : Array (Name × ModuleData)) (replay : Array Name) : Array Name :=
+  candidates.foldl (fun replay entry =>
+    if !replay.contains entry.1 &&
         entry.2.imports.any (fun imp => replay.contains imp.module) then replay.push entry.1
     else replay) replay
 
 /-- The modules `validate` replays in an environment that loaded `loaded`: every `owned` module
-that is not `reused`, then every reporter module that imports one of them, directly or through
-other reporter modules. -/
-def replaySet (loaded : Array (Name × ModuleData)) (owned reused : Array Name) : Array Name :=
-  (List.range reporterModules.size).foldl (fun replay _ => addReporters loaded replay)
+that is not `reused`, then every reporter module and every module of `checker`, the modules of
+the owned packages that the environment does not own (`EnvironmentOwnership.reporterOnly`), that
+imports one of them, directly or through other such modules. Each pass over those candidates that
+changes the set adds one of them, so as many passes as there are candidates reach every such
+importer. -/
+def replaySet (loaded : Array (Name × ModuleData)) (owned reused : Array Name)
+    (checker : Array Name := #[]) : Array Name :=
+  let candidates := loaded.filter fun entry =>
+    reporterModules.contains entry.1 || checker.contains entry.1
+  (List.range candidates.size).foldl (fun replay _ => addReporters candidates replay)
     (owned.filter (!reused.contains ·))
 
 /-- A pass of `addReporters` keeps every module already replayed. -/
@@ -1512,29 +1517,29 @@ private theorem mem_addReporters {loaded : Array (Name × ModuleData)} {replay :
 
 /-- Every owned module that is not reused is replayed. With `mem_reusedModules`, an owned module
 is therefore kept out of the replay only under the reuse contract. -/
-theorem mem_replaySet {loaded : Array (Name × ModuleData)} {owned reused : Array Name} {m : Name}
-    (ho : m ∈ owned) (hr : m ∉ reused) : m ∈ replaySet loaded owned reused := by
-  unfold replaySet
+theorem mem_replaySet {loaded : Array (Name × ModuleData)} {owned reused checker : Array Name}
+    {m : Name} (ho : m ∈ owned) (hr : m ∉ reused) : m ∈ replaySet loaded owned reused checker := by
   have start : m ∈ owned.filter (!reused.contains ·) := by
     simp [Array.mem_filter, Array.contains_eq_mem, ho, hr]
-  generalize owned.filter (!reused.contains ·) = replay at start ⊢
-  generalize List.range reporterModules.size = passes
-  induction passes generalizing replay with
-  | nil => simpa using start
-  | cons _ rest ih =>
-    simp only [List.foldl_cons]
-    exact ih _ (mem_addReporters start)
+  have passes : ∀ (candidates : Array (Name × ModuleData)) (passes : List Nat)
+      (replay : Array Name), m ∈ replay →
+        m ∈ passes.foldl (fun replay _ => addReporters candidates replay) replay := by
+    intro candidates passes
+    induction passes with
+    | nil => exact fun _ h => h
+    | cons _ rest ih => exact fun _ h => ih _ (mem_addReporters h)
+  exact passes _ _ _ start
 
 /-- A changed import forces a replay: an owned module is replayed unless an offer covers it over
 exactly the import closure it has here, that is, the same modules below it, loaded from the same
 canonical `.olean` paths, with the same import edges (`importClosure`). -/
 theorem replayed_unless_offered {env : Environment} {origins : Array RegulaPolicy.ModuleOrigin}
     {owned : Array Name} {priors : Array PriorAdmission}
-    {loaded : Array (Name × ModuleData)} {m : Name} (ho : m ∈ owned)
+    {loaded : Array (Name × ModuleData)} {checker : Array Name} {m : Name} (ho : m ∈ owned)
     (h : ∀ closure, importClosure (originIndex origins) m = some closure →
       ∀ prior ∈ priors, m ∈ prior.modules →
         importClosure (originIndex prior.origins) m ≠ some closure) :
-    m ∈ replaySet loaded owned (reusedModules env origins owned priors) :=
+    m ∈ replaySet loaded owned (reusedModules env origins owned priors) checker :=
   mem_replaySet ho fun hr => by
     obtain ⟨_, closure, hc, _, _, ⟨prior, hp, hm, hpc⟩, _⟩ := mem_reusedModules hr
     exact h closure hc prior hp hm hpc
@@ -1544,11 +1549,12 @@ replayed when every reading of its artifact, taken as the environment starts, di
 frozen parts or failed (`Inspection.readings`), whatever was completed. -/
 theorem replayed_of_changed {env : Environment} {origins : Array RegulaPolicy.ModuleOrigin}
     {owned : Array Name} {ownedSet : NameSet} {readings : Array Reading}
-    {completed : Array Completed} {loaded : Array (Name × ModuleData)} {m : Name}
+    {completed : Array Completed} {loaded : Array (Name × ModuleData)} {checker : Array Name}
+    {m : Name}
     (ho : m ∈ owned)
     (h : ∀ reading ∈ readings, reading.1.moduleName = m → reading.2 ≠ some reading.1.parts) :
     m ∈ replaySet loaded owned (reusedModules env origins owned
-      (currentOffers ownedSet readings completed)) :=
+      (currentOffers ownedSet readings completed)) checker :=
   mem_replaySet ho fun hr => by
     obtain ⟨_, _, _, _, _, ⟨prior, hp, hm, _⟩, _⟩ := mem_reusedModules hr
     obtain ⟨_, _, _, _, hmodules⟩ := mem_offers hp
@@ -1562,14 +1568,14 @@ differs from the frozen parts or failed. -/
 theorem replayed_of_changed_import {env : Environment}
     {origins : Array RegulaPolicy.ModuleOrigin} {owned : Array Name}
     {ownedSet : NameSet} {readings : Array Reading} {completed : Array Completed}
-    {loaded : Array (Name × ModuleData)} {m : Name} (ho : m ∈ owned)
+    {loaded : Array (Name × ModuleData)} {checker : Array Name} {m : Name} (ho : m ∈ owned)
     (h : ∀ source ∈ completed, ∀ closure,
       importClosure (originIndex source.origins) m = some closure →
       ∃ origin ∈ closure, ownedSet.contains origin.name = true ∧
         ∀ reading ∈ readings, reading.1.moduleName = origin.name →
           reading.2 ≠ some reading.1.parts) :
     m ∈ replaySet loaded owned (reusedModules env origins owned
-      (currentOffers ownedSet readings completed)) :=
+      (currentOffers ownedSet readings completed)) checker :=
   mem_replaySet ho fun hr => by
     obtain ⟨_, _, _, _, _, ⟨prior, hp, hm, _⟩, _⟩ := mem_reusedModules hr
     obtain ⟨source, hsource, _, _, hmodules⟩ := mem_offers hp
@@ -2021,16 +2027,18 @@ the `ownedModules`' declarations (`Probe.ownedConstants`) reaches in the replaye
 (`KernelAxioms.axiomTable` over `walkFind`, `KernelAxioms.axiomTable_some`), after `checkTable`
 admitted those of the owned declarations against the axioms Lean's `collectAxioms` reports, and,
 for each owned declaration, the axioms `collectAxioms` omits. The original environment is retained
-for compiler metadata only after replay succeeds. This is not a fresh replay of the imported dependency graph. -/
+for compiler metadata only after replay succeeds. This is not a fresh replay of the imported dependency graph.
+The modules of `checker`, those of the owned packages that the environment does not own, are
+replayed only where one imports a replayed module (`replaySet`). -/
 unsafe def validate (env : Environment) (ownedModules : Array Name) (reused : Array Name := #[])
-    (requested : Array Name := #[]) :
+    (requested : Array Name := #[]) (checker : Array Name := #[]) :
     IO (Except ProducerReport.AdmissionFailure Admitted) := do
   -- The force-loaded reporter now depends on the positive policy library.
   -- Replay these exact checker implementation modules too; importing them into
   -- the base would reintroduce unchecked owned policy declarations. They do not
   -- become claimed surfaces, and arbitrary reverse imports remain forbidden.
   let modules := env.header.moduleNames.zip env.header.moduleData
-  let replay := replaySet modules ownedModules reused
+  let replay := replaySet modules ownedModules reused checker
   let request : ReplayRequest :=
     { modules, replay
       reported := reused.filter fun name => requested.contains name && !replay.contains name }

@@ -2445,17 +2445,22 @@ artifact of it below `.lake/build/lib/lean`, on real paths. `Environment.attribu
 it, and the module then binds that package's source. It refuses a loaded module that an owned
 package provides and that is no such artifact. A module of the prefixes `Regula` or `RegulaPolicy`
 that is the checker's own artifact is the one exception. It belongs to the owned dependency that
-alone provides it, and to no package if the root package provides it. So an environment owns it
-when it imports an owned module, and a fresh copy then builds it.
+alone provides it, and to no package if the root package provides it.
 
 An owned dependency is audited like the root package. Each environment computes what it owns one
 time, in `Environment.EnvironmentOwnership.of`, and each job that works module by module takes its
 modules from that value. It owns and replays each module of an owned dependency that a requested
-module imports, directly or not, or that imports an owned module. `contains_ownedModuleSet` proves
-that it owns each module of the root package that is not infrastructure.
+module imports, directly or not, or that imports an owned module. The modules of an owned
+dependency with the prefix `Regula` or `RegulaPolicy` are not in that set (`projectModules`).
+`EnvironmentOwnership.reserved_not_owned` proves that it does not own them, and
+`contains_ownedModuleSet` proves that it owns each module of the root package that is not
+infrastructure.
 
 The checker's infrastructure modules are not owned, because the gate authenticates them as the
-running checker's own. `Admission.replaySet` replays each of them that imports a replayed module.
+running checker's own. A module of an owned dependency with the prefix `Regula` or `RegulaPolicy`
+is not owned either. It is the checker's own code: its source is the checker's own text, and
+Regula's own audit checks it with its whole library. `Admission.replaySet` replays each of these
+modules that imports a replayed module, such as an owned `RegulaCore` module of `regula`.
 A module of a dependency's build output that no library of the package has is refused as
 [RG2004]. The account names each dependency that is not owned, and the snapshot records `owned`
 for each dependency.

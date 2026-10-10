@@ -337,29 +337,54 @@ structure EnvironmentOwnership where
   modules. -/
   dependencies : Array Name
   /-- The modules of the owned dependencies that the environment does not own: the checker's own
-  modules that only the force-imported reporter loads, and the infrastructure modules. -/
+  modules under its reserved prefixes (`projectModules`), and those that no requested module
+  imports and that import no owned module. Kernel admission replays each of them that imports a
+  replayed module (`Admission.replaySet`). -/
   reporterOnly : Array Name
   deriving Repr
 
+/-- The modules of the owned dependencies `dependencies` that an environment can own: those
+outside the checker's reserved prefixes (`reservedModule`). A module under them in a package other
+than the root package is the checker's own code, whose source is the checker's own text
+(`Lake.checkReservedModules`), and the checker's own audit inspects it with its whole library; no
+environment of another project owns it, as none owns an infrastructure module. -/
+def projectModules (dependencies : Array Name) : Array Name :=
+  dependencies.filter (!reservedModule ·)
+
 /-- The ownership of the environment with module origins `origins`, requested modules
-`requested`, source bindings `bound` and owned dependency modules `dependencies`. -/
+`requested`, source bindings `bound` and owned dependency modules `dependencies`, of which it can
+own the `projectModules`. -/
 def EnvironmentOwnership.of (origins : Array Regula.Report.ModuleOrigin)
     (requested bound dependencies : Array Name) : EnvironmentOwnership :=
-  let owned := ownedModuleSet origins requested bound dependencies
+  let project := projectModules dependencies
+  let owned := ownedModuleSet origins requested bound project
   let loaded := origins.map (·.name)
-  { modules := (requested ++ bound ++ dependencies).filter owned.contains
-    dependencies := dependencies.filter fun m =>
+  { modules := (requested ++ bound ++ project).filter owned.contains
+    dependencies := project.filter fun m =>
       owned.contains m && loaded.contains m && !requested.contains m
     reporterOnly := dependencies.filter (!owned.contains ·) }
 
-/-- The inspected dependency modules are exactly the loaded dependency modules that the
-environment owns (`ownedModuleSet`, with its importers) and does not request. -/
+/-- The inspected dependency modules are exactly the loaded dependency modules outside the
+checker's reserved prefixes that the environment owns (`ownedModuleSet`, with its importers) and
+does not request. -/
 theorem EnvironmentOwnership.mem_dependencies {origins : Array Regula.Report.ModuleOrigin}
     {requested bound dependencies : Array Name} {m : Name} :
     m ∈ (EnvironmentOwnership.of origins requested bound dependencies).dependencies ↔
-      m ∈ dependencies ∧ (ownedModuleSet origins requested bound dependencies).contains m ∧
+      m ∈ projectModules dependencies ∧
+        (ownedModuleSet origins requested bound (projectModules dependencies)).contains m ∧
         m ∈ origins.map (·.name) ∧ m ∉ requested := by
   simp [EnvironmentOwnership.of, Array.mem_filter, Array.contains_eq_mem, and_assoc]
+
+/-- No environment owns a module of an owned dependency under the checker's reserved prefixes
+unless it requests it or binds its source, which only the root package's modules are. -/
+theorem EnvironmentOwnership.reserved_not_owned {origins : Array Regula.Report.ModuleOrigin}
+    {requested bound dependencies : Array Name} {m : Name} (reserved : reservedModule m = true)
+    (outside : m ∉ requested ++ bound) :
+    m ∉ (EnvironmentOwnership.of origins requested bound dependencies).modules := by
+  simp only [EnvironmentOwnership.of, projectModules, Array.mem_filter, Array.mem_append]
+  rintro ⟨(listed | ⟨-, hm⟩), -⟩
+  · exact outside (Array.mem_append.mpr listed)
+  · simp [reserved] at hm
 
 /-- Every inspected dependency module is one of the modules the environment owns and replays. -/
 theorem EnvironmentOwnership.dependencies_replayed {origins : Array Regula.Report.ModuleOrigin}
@@ -421,11 +446,11 @@ package's artifact of it. The module is refused when an owned package provides i
 package's artifact, or the artifact of more than one, except a module under the checker's reserved
 prefixes (`reservedModule`) that is the checker's own artifact, which the reporter's overlay serves
 from the checker's library and whose source in any package is the checker's own text
-(`Lake.checkReservedModules`). Such a module belongs to the owned dependency that alone provides it,
-so an environment owns it when it imports an owned module (`EnvironmentOwnership.of`), and a copy
-then builds it; one that the root package provides belongs to none, since the root package's
-modules are owned through their source bindings. A module that no owned package provides belongs
-to none. The result
+(`Lake.checkReservedModules`). Such a module belongs to the owned dependency that alone provides it;
+one that the root package provides belongs to none, since the root package's modules are owned
+through their source bindings. No environment owns a module under those prefixes that belongs to
+an owned dependency (`EnvironmentOwnership.of`, `projectModules`): it is the checker's own code. A
+module that no owned package provides belongs to none. The result
 lists each loaded module that belongs to an owned dependency, in the order of the module origins,
 with its index in `Ownership.dependencies`, so dependency membership and each source bound for a
 module follow the artifact the environment loaded, not the name. -/
@@ -741,7 +766,7 @@ private unsafe def loadReportCoreAtSearchPath (modules : Array Name)
     let reused := if priors.isEmpty then #[] else
       Admission.reusedModules env origins ownedModules priors
     let admissionResult ← timedPhase "kernel admission" <|
-      Admission.validate env ownedModules reused requested
+      Admission.validate env ownedModules reused requested owned.reporterOnly
     if let .error failure := admissionResult then return .error (.admission failure)
     let .ok admitted := admissionResult
       | throw <| IO.userError "unreachable admission outcome"

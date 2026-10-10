@@ -46,7 +46,7 @@ Mathlib and Batteries linters, which it requires or recommends rather than repla
 | Compiler-trusting proofs: `native_decide`, `decide +native`, `bv_decide` ([RG1004]) | Whether your invariants cover every write path |
 | Axioms beyond the foundation each library claims: kernel-only (none), choice-free (`propext`, `Quot.sound`) or standard-logical (adds `Classical.choice`) ([RG1005]) | Whether your documentation describes the formal claim faithfully |
 | `partial` or `unsafe` declarations you write ([RG1006]); unresolved `extern`/`implemented_by` paths ([RG3001]) and, in `checked` mode, unproved boundaries ([RG3002]) | Lean's kernel, compiler and runtime; Lake; the operating system |
-| Build warnings ([RG2003]), modules outside the manifest ([RG2004]), automatic implicits or a missing `linter.missingDocs` ([RG2006]), modules without a module docstring ([RG5001]) | The packages you require from outside your Git work tree: Regula does not replay their declarations through Lean's kernel, and its account names them. A path dependency in that work tree is your own code: Regula replays and checks each of its modules that your claimed modules import |
+| Build warnings ([RG2003]), modules outside the manifest ([RG2004]), automatic implicits or a missing `linter.missingDocs` ([RG2006]), modules without a module docstring ([RG5001]) | The packages you require from outside your Git work tree: Regula does not replay their declarations through Lean's kernel, and its account names them. A path dependency in that work tree is your own code. Regula replays and checks each of its modules that your claimed modules import, except Regula's own. The contract of a `@[regula_decision]` function in it must be in a module that your claimed modules import ([RG1008]) |
 | | Code that deliberately changes Lean's environment, compiler or build to make a check pass, where no rule or section checks the mechanism (see the [scope](SECURITY.md#scope) of the security policy) |
 
 The [rule reference](https://rbeauchamp.github.io/regula/rules/) lists every rule, each
@@ -168,6 +168,7 @@ Each release supports only the Lean toolchain pinned in its `lean-toolchain`; th
 [RG1004]: https://rbeauchamp.github.io/regula/rules/RG1004/
 [RG1005]: https://rbeauchamp.github.io/regula/rules/RG1005/
 [RG1006]: https://rbeauchamp.github.io/regula/rules/RG1006/
+[RG1008]: https://rbeauchamp.github.io/regula/rules/RG1008/
 [RG2003]: https://rbeauchamp.github.io/regula/rules/RG2003/
 [RG2004]: https://rbeauchamp.github.io/regula/rules/RG2004/
 [RG2006]: https://rbeauchamp.github.io/regula/rules/RG2006/
