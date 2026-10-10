@@ -112,7 +112,10 @@ theorem DefeqComparison.ofAttempt_checked_iff_containsFoundation
     DefeqComparison.ofAttempt attempt = .completed (some detail) ↔
       ∃ axioms, attempt = .ok (.admitted axioms detail) ∧
         ContainsFoundation .standardLogical axioms := by
-  simp [DefeqComparison.ofAttempt_checked_iff, standardLogicalAxiom, ContainsFoundation]
+  rw [DefeqComparison.ofAttempt_checked_iff]
+  refine exists_congr fun axioms => and_congr_right fun _ => ?_
+  rw [Array.all_eq_true', ContainsFoundation]
+  exact forall₂_congr fun n _ => permits_iff .standardLogical n
 
 /-- Executable least-label selection, defined over set membership with no enumeration
 of programs or axiom subsets. The caller separately classifies forbidden axioms. -/
