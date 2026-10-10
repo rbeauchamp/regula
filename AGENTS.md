@@ -179,8 +179,8 @@ semantic conformance.
 Checker changes receive focused qualification for affected capabilities and invocation
 paths under standard §7.8. Long mutation, external-adopter, build-integration,
 and optional serialized-graph campaigns are diagnostics, not automatic merge gates, except
-those the diagnostics workflow runs and the required CI checks (`diagnostics rule-examples 1/2`,
-`2/2`, `site`, `mathlib integration`): its required `diagnostics` check refuses a merge unless
+the required CI checks (`diagnostics rule-examples 1/2`, `2/2`, `site`, `mathlib integration`)
+and those the diagnostics workflow runs: its required `diagnostics` check refuses a merge unless
 each of them that applies passed.
 Retain their controls and applicable evidence; never relabel an unrun campaign PASS.
 `./scripts/verify.sh diagnostics [partition]` runs a selected existing campaign under
