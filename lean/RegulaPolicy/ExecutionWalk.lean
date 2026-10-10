@@ -40,8 +40,8 @@ inductive CodeStatus where
   | missing
   deriving Repr, DecidableEq, Inhabited
 
-/-- The part of a name's record that no mark decides: the module that the environment attributes to
-the name. -/
+/-- The observed part of a name's record: the field whose value the environment fixes for the name
+the record is made at, which is the module that the environment attributes to the name. -/
 structure NodeRecord.ToolchainObserved where
   /-- The module that declares the name, when the environment attributes one. -/
   moduleName : Option Name := none

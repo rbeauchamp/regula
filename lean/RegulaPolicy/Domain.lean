@@ -1889,10 +1889,12 @@ theorem toolchainOrigin_roundtrip (o : ToolchainOrigin) :
     cases he
     simp [admitToolchainOrigin, hm, hn]
 
-/-- The part of a boundary's record that no mark and no traversal decides: the constant at which the
-pass made the record, its module and whether that module is owned. `Probe.observeNode` sets the
-name to the observed constant, the module to the environment's attribution of it, and ownership to
-membership in the claim's owned modules. -/
+/-- The observed part of a boundary's record: the fields whose value the environment fixes for the
+constant the record is made at, which are that constant, its module and whether that module is
+owned. Authored marks and traversal through project-written edges decide which records exist. A
+field that the data of a mark enters is project-written (`ExecutionBoundary.ProjectWritten`).
+`Probe.observeNode` sets the name to the observed constant, the module to the environment's
+attribution of it, and ownership to membership in the claim's owned modules. -/
 structure ExecutionBoundary.ToolchainObserved where
   /-- The constant at the boundary. -/
   name : Lean.Name
@@ -2037,10 +2039,14 @@ def ExecutionClosure.edges (c : ExecutionClosure) (compilerEdges : Array (Lean.N
   compilerEdges ++ c.logicalEdges ++ c.candidateEdges ++ c.historyEdges ++
     c.currentReplacementEdges ++ c.helperEdges
 
-/-- The part of a root's account that marks an audited project writes can decide: the root constant
-and its module. An initializer that `@[init]` or `@[builtin_init]` names is a root, so the data of
-that attribute can supply the name. -/
-structure ExecutionRoot.ProjectWritten where
+/-- The observed part of a root's account: the fields whose value the environment fixes for the
+constant the account is made at, which are that constant and its module. Authored marks and
+traversal through project-written edges decide which records exist. A field that the data of a mark
+enters is project-written, as a boundary's kind and replacement. `Probe.environmentReport` makes a
+root record for each name of `executableRoots` (each eligible owned definition and each `@[init]` or
+`@[builtin_init]` action) and each root of a registered contract with no refusal, with the name set
+to that constant and the module to the environment's attribution of it. -/
+structure ExecutionRoot.ToolchainObserved where
   /-- The root constant. -/
   name : Lean.Name
   /-- Its declaring module. -/
@@ -2048,10 +2054,11 @@ structure ExecutionRoot.ProjectWritten where
   deriving Repr, DecidableEq
 
 /-- The execution account of one owned executable root: the boundaries and unresolved paths its
-closure reaches, its compiled edges and the closure itself. Its name and module are in the part that
-says where they come from. The other fields are computed over the walk of the root, through the
-edges of the two parts of the records it reads, so they are fields of the account itself. -/
-structure ExecutionRoot extends ExecutionRoot.ProjectWritten where
+closure reaches, its compiled edges and the closure itself. Its name and module are in the observed
+part (`ExecutionRoot.ToolchainObserved`). The other fields are computed over the walk of the root,
+through the edges of the two parts of the records it reads, so they are fields of the account
+itself. -/
+structure ExecutionRoot extends ExecutionRoot.ToolchainObserved where
   /-- Every boundary the closure reaches, in the order the walk found them. -/
   boundaries : Array ExecutionBoundary
   /-- A description of each dependency path the analysis could not resolve. -/

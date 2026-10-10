@@ -658,12 +658,12 @@ source left kernel checking on, and the transcript does not replay it. The nativ
 and `validCoordinates` take the observed parts alone, and admission and the coordinate check read
 the source text only for comparison.
 
-**Execution records.** The execution records are shaped by authored marks, and only a few of their
-fields are observed. A field stays observed only where no mark and no traversal through a
-project-written edge can change its value. That holds for the module of a name and for a boundary's
-constant, module and ownership. A field that the data of a mark enters
-is project-written, as the root's name, which `@[init]` can supply. What the walk computes over the
-reached names sits on the combined record, as the closure and a boundary's position do.
+**Execution records.** Authored marks and traversal through project-written edges decide which
+execution records exist. In a record, a field is observed where the environment fixes its value for
+the constant the record is made at. That holds for the module of a name, for a boundary's constant,
+module and ownership, and for a root's constant and module. A field that the data of a mark enters
+is project-written, as a boundary's kind and replacement. What the walk computes over the reached
+names sits on the combined record, as the closure and a boundary's position do.
 
 A candidate boundary comes from a constant of an equality type, registered with `@[csimp]` or not.
 The two sides are constants with the same list of distinct universe parameters. An attribute such
@@ -672,8 +672,8 @@ each recorded historical replacement conservatively, including one that the comp
 runs. The [RG3001] and [RG3002] decisions read the two parts.
 
 **Limits.** The parts classify the source of a value but do not make an observation truthful.
-That `Collect.declaration`, `Frontend.buildCore` and `Probe.observeNode` fill each field from the
-source its part names is by inspection of those functions, not proved. State a project writes can
+That `Collect.declaration`, `Frontend.buildCore`, `Probe.observeNode` and `Probe.environmentReport`
+fill each field from the source its part names is by inspection of those functions, not proved. State a project writes can
 still enter a toolchain observation, and the docstring of each such field says how: `isProp` is
 Lean's answer, which does not unfold an irreducible definition; `prettyType` is Lean's printer,
 which uses the notations in force; `nativeReplay` runs compiled code; and what a project writes
