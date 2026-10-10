@@ -19,7 +19,13 @@ open Lean
 /-- This checker build's producer identity, written into every result envelope. -/
 abbrev producer := Regula.Checker.Producer.identity
 
-/-- Result schema 12 records the axioms that Lean's `collectAxioms` omits for each declaration: a
+/-- Result schema 13 records the functions with a result of `Bool` or `BEq` that the two sides of
+each decision registration share only through a type that the reading of a statement does not
+follow (`RegulaPolicy.SharedNames.throughTypes`, `RegulaPolicy.StatementReading`): the `shared`
+object of a declaration's `executableContract` and the `sharedDefinitions` object of each
+`contracts` entry of the acceptance account carry the member `throughTypes`. Earlier schemas did not
+write the member.
+Schema 12 records the axioms that Lean's `collectAxioms` omits for each declaration: a
 declaration record carries `tableOmissions`, the axioms that the declaration reaches in the
 replayed kernel and `collectAxioms` does not report. Earlier schemas did not write the member.
 Schema 11 records the functions that the specification of each decision registration
@@ -109,7 +115,7 @@ frozen configuration and dependency text from the snapshot (`snapshotJson`: a cl
 dependency is identified by its pinned revision, a dirty one only by package and `dirty`
 status) and imported-environment module lists (`acceptedJson`,
 `ProducerReport.Environment.resultJson`); schema 1 embedded them. -/
-def schemaVersion : Nat := 12
+def schemaVersion : Nat := 13
 
 /-- Envelope identity of every result file. -/
 def identityFields : List (String × Json) := RegistryCodec.identityFields producer schemaVersion
@@ -454,11 +460,14 @@ schema 9 each entry also carries `decisionKind`, the spelling of the decision ki
 requirement states or `null` for a requirement that states none, and `notEstablished`, the
 direction a one-way kind leaves open or `null` (`RegulaPolicy.DecisionKind.leavesOpen`). Since
 schema 11 each entry carries `sharedDefinitions`, an object with the members `booleans` and
-`others`: the functions that its specification shares with its implementation or its acceptance
-predicate, by class. A registration is refused for a function in `booleans`, which is named at
-any depth, so an accepted registration has none. A function in `others` is named where the
-specification reaches it first. The kind does not establish that it is the intended one, and no
-entry is refused for it. -/
+`others`, and since schema 13 also `throughTypes`: the functions that its specification shares
+with its implementation or its acceptance predicate, by class. A registration is refused for a
+function in `booleans`, which is named at any depth, so an accepted registration has none. A
+function in `others` is named where the specification reaches it first. The kind does not
+establish that it is the intended one, and no entry is refused for it. A function in
+`throughTypes` has a result of `Bool` or `BEq` and is shared only through a type that the reading
+of a statement does not follow, such as the declaration of the input type; no entry is refused
+for it. -/
 def accountJson (account : Regula.Checker.Account) : Json :=
   let a := account.val
   let residuals (rs : List Regula.Checker.Account.Residual) := toJson (rs.map (·.spelling))
@@ -477,7 +486,9 @@ def accountJson (account : Regula.Checker.Account) : Json :=
       ("notEstablished", toJson (contract.kind.bind (·.leavesOpen))),
       ("sharedDefinitions", Json.mkObj [
         ("booleans", toJson (contract.shared.booleans.map RegistryCodec.printedNameJson)),
-        ("others", toJson (contract.shared.others.map RegistryCodec.printedNameJson))]),
+        ("others", toJson (contract.shared.others.map RegistryCodec.printedNameJson)),
+        ("throughTypes",
+          toJson (contract.shared.throughTypes.map RegistryCodec.printedNameJson))]),
       ("unresolvedReview", residuals Regula.Checker.Account.ContractAccount.unresolved)])),
     ("executionSummary", toJson (a.execution.mapIdx fun environment summary => Json.mkObj [
       ("environment", toJson environment), ("roots", toJson summary.roots),

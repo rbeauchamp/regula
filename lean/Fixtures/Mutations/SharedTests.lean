@@ -28,6 +28,16 @@ controls.
   the first in the class `other`.
 * `deepOdd_decides`: the wrapper at a second level. The helper with a result of `Bool` is two
   shared functions of the other class below the specification.
+* `admit_named_decides`, `admit_through_decides` and `admit_every_decides`: the input holds a
+  panel, which holds a meter whose invariant is stated with the test `settled`, and the function
+  runs `settled`. The first specification names `settled` itself. The second names a definition
+  of a proposition that is stated with `settled`, and the search reads its value. The third states
+  a property of every meter, so it is about the values of the meter type, and the search reads
+  the declaration of that type, whose invariant names `settled`.
+* `admitAt_decides`: a limit of the search. The specification reads a meter of an array of the
+  input by its index. The instance of `GetElem` for an array takes the meter type as an
+  argument, and the search reads the arguments of every function that is no projection of a
+  field, so it reads the declaration of the meter type.
 -/
 import Regula.Contract
 
@@ -152,3 +162,89 @@ theorem deepOdd_decides :
     Regula.ExecutableContract deepOdd
       (Regula.Decides (· = true) fun numbers => oddsLast numbers = []) :=
   ⟨.of_iff (fun numbers => by simp [deepOdd]) ⟨[2], by decide⟩ ⟨[1], by decide⟩⟩
+
+/-- A fifth helper with a result of `Bool`. -/
+def settled (n : Nat) : Bool := decide (n < 10)
+
+/-- A meter whose invariant is stated with the test `settled`. -/
+structure Meter where
+  /-- The reading. -/
+  level : Nat
+  /-- The reading is settled. -/
+  settled_level : settled level = true
+
+/-- A panel that holds a meter. -/
+structure Panel where
+  /-- The meter. -/
+  meter : Meter
+
+/-- The arguments of `admit`, in order. -/
+structure AdmitInput where
+  /-- The panel. -/
+  panel : Panel
+  /-- The requested amount. -/
+  amount : Nat
+
+/-- Whether the amount is below the reading of the meter. It runs the test `settled`. -/
+def admit (panel : Panel) (amount : Nat) : Bool :=
+  settled panel.meter.level && decide (amount < panel.meter.level)
+
+/-- The function accepts exactly an amount below the reading: the invariant gives `settled`. -/
+theorem admit_iff (panel : Panel) (amount : Nat) :
+    admit panel amount = true ↔ amount < panel.meter.level := by
+  simp [admit, panel.meter.settled_level]
+
+theorem admit_named_decides : Regula.ExecutableContract admit (fun run =>
+    Regula.Decides (· = true)
+      (fun input : AdmitInput =>
+        settled input.panel.meter.level = true ∧ input.amount < input.panel.meter.level)
+      (fun input : AdmitInput => run input.panel input.amount)) :=
+  ⟨.of_iff (fun input => by simp [admit_iff, input.panel.meter.settled_level])
+    ⟨⟨⟨⟨5, by decide⟩⟩, 1⟩, by decide⟩ ⟨⟨⟨⟨5, by decide⟩⟩, 7⟩, by decide⟩⟩
+
+/-- A statement that is stated with the helper `settled`. -/
+def Settled (meter : Meter) : Prop := settled meter.level = true
+
+theorem admit_through_decides : Regula.ExecutableContract admit (fun run =>
+    Regula.Decides (· = true)
+      (fun input : AdmitInput => Settled input.panel.meter ∧ input.amount < input.panel.meter.level)
+      (fun input : AdmitInput => run input.panel input.amount)) :=
+  ⟨.of_iff (fun input => by simp [admit_iff, Settled, input.panel.meter.settled_level])
+    ⟨⟨⟨⟨5, by decide⟩⟩, 1⟩, by decide⟩ ⟨⟨⟨⟨5, by decide⟩⟩, 7⟩, by decide⟩⟩
+
+theorem admit_every_decides : Regula.ExecutableContract admit (fun run =>
+    Regula.Decides (· = true)
+      (fun input : AdmitInput =>
+        input.amount < input.panel.meter.level ∧ ∀ meter : Meter, meter.level < 10)
+      (fun input : AdmitInput => run input.panel input.amount)) :=
+  ⟨.of_iff (fun input => by
+      rw [admit_iff]
+      exact ⟨fun below => ⟨below, fun meter => by simpa [settled] using meter.settled_level⟩,
+        And.left⟩)
+    ⟨⟨⟨⟨5, by decide⟩⟩, 1⟩, (admit_iff _ _).mpr (by decide)⟩
+    ⟨⟨⟨⟨5, by decide⟩⟩, 7⟩, fun accepted => absurd ((admit_iff _ _).mp accepted) (by decide)⟩⟩
+
+/-- An array of meters with the index of one of them. -/
+structure Bank where
+  /-- The meters. -/
+  meters : Array Meter
+  /-- The index of a meter. -/
+  index : Fin meters.size
+
+/-- Whether the amount is below the reading of the meter at the index. It runs `settled`. -/
+def admitAt (bank : Bank) (amount : Nat) : Bool := admit ⟨bank.meters[bank.index]⟩ amount
+
+/-- The arguments of `admitAt`, in order. -/
+structure AtInput where
+  /-- The bank. -/
+  bank : Bank
+  /-- The requested amount. -/
+  amount : Nat
+
+theorem admitAt_decides : Regula.ExecutableContract admitAt (fun run =>
+    Regula.Decides (· = true)
+      (fun input : AtInput => input.amount < input.bank.meters[input.bank.index].level)
+      (fun input : AtInput => run input.bank input.amount)) :=
+  ⟨.of_iff (fun input => admit_iff _ _)
+    ⟨⟨⟨#[⟨5, by decide⟩], ⟨0, by decide⟩⟩, 1⟩, by decide⟩
+    ⟨⟨⟨#[⟨5, by decide⟩], ⟨0, by decide⟩⟩, 7⟩, by decide⟩⟩

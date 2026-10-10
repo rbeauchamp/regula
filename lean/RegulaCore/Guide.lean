@@ -671,7 +671,9 @@ def guide : RuleId → Guide
           RG1009 refuses the registration for it. Each other function is named where the \
           specification reaches it first, and no registration is refused for it. The search \
           for that class stops at each named function, so a function of that class that only \
-          a named function calls is not named."]
+          a named function calls is not named. A function with a result of `Bool` or `BEq` \
+          that the two sides share only through a type that the reading of the specification \
+          leaves out is named apart, and no registration is refused for it."]
       notEstablished := [
         "That `R` expresses the intended behavior (R-INTENT) and that every caller uses the \
           contracted implementation (R-INVARIANT). Every accepted account lists these as open for \
@@ -911,6 +913,17 @@ def guide : RuleId → Guide
           that the other side reaches too. The search for such a function reads at any depth: \
           also below a function of another result type that the two sides share. The finding \
           names each such function after `shared-booleans=`.",
+        "The checker reads the specification and the acceptance predicate for what each states \
+          at a given input and a given result (`RegulaPolicy.StatementReading.reads`). It reads \
+          the body of the term under its variables and the body of the value of each \
+          definition whose value it reads. It does not read the type of such a definition, the \
+          types of the variables of a function, or the parameters of the structure in an \
+          application of a field's projection function. So it does not read the declaration \
+          of the input type through the variable of the specification or through a projection \
+          of a field of the input, at any depth.",
+        "A test that the two sides share only through what this reading leaves out, such as a \
+          test that an invariant of a field of the input states, is not counted. The report \
+          names it after `shared-through-types=`.",
         "A function of Lean's own library is not counted, and no module of that library is \
           read. A structure projection is not counted. A definition with a result of \
           `Decidable p` is not counted, and the specification's side does not read its value.",
@@ -927,7 +940,13 @@ def guide : RuleId → Guide
           quantifier, an order relation or an equation in place of a fold, a comparison \
           function or a `BEq`. The theorem that the test decides the proposition, or the \
           `Decidable` instance that the function runs, is then a proof that connects two \
-          statements."]
+          statements.",
+        "A test that only the declaration of the input type names is no part of the \
+          specification at any input. A kind compares `accepts (f x)` with `spec x` for each \
+          `x`. A change of the test changes which inputs there are, on the two sides together, \
+          and the comparison at an input is the one that it was. A specification that states \
+          the invariant names the test, or a definition that names it, and the test is \
+          counted."]
       proofShape := [
         "`def P (x : α) : Prop := …`, `instance (x : α) : Decidable (P x) := …`, a function \
           that runs `decide (P x)` or `if P x then … else …`, and `ExecutableContract f \
@@ -940,7 +959,7 @@ def guide : RuleId → Guide
       established := [
         "The record of every accepted decision registration names no function with a result of \
           `Bool` or `BEq`, outside Lean's own library, that the specification and the other \
-          side both reach, at any depth of the specification.",
+          side both reach by the reading of a statement, at any depth of the specification.",
         "The account still names each other function that the two sides share, where the \
           specification reaches it first (`shared-others=`)."]
       notEstablished := [
@@ -954,18 +973,22 @@ def guide : RuleId → Guide
           it. Whether the specification is about that function, as it is about an encoding or \
           a state transition, remains review (R-INTENT).",
         "Anything about a test of Lean's own library, which the two sides can both call.",
+        "Anything about a test that the two sides share only through a type that the reading \
+          leaves out (`shared-through-types=`), such as a test that an invariant of the input \
+          states. Whether the invariant is the intended one remains review.",
         "A test that only a runtime replacement runs (`implemented_by`, `extern`, `csimp`): the \
           search reads kernel-checked values. RG3001 and RG3002 account for the replacement."]
       configuration := []
       limitations := [
-        "The search compares constants by name. It follows the types of constants, the \
-          unfoldable values of definitions and the constructors of inductive types from the \
-          specification and the acceptance predicate, and the unfoldable values of definitions \
-          from the implementation. It does not read the body of a named proof declaration, \
-          and it reads no value of a `Decidable` instance on the specification's side \
-          (limitations of RG1007). A proof term that is written inline in a specification is a \
-          part of that term, so a test that it names is counted and the registration is \
-          refused, which is the safe side.",
+        "The search compares constants by name. From the specification and the acceptance \
+          predicate it follows the bodies that the reading reads, the types of proofs and of \
+          `Decidable` definitions, and the constructors of inductive types. From the \
+          implementation it follows the types of constants and the unfoldable values of \
+          definitions. It does not read the body of a named proof declaration, and it reads no \
+          value of a `Decidable` instance on the specification's side (limitations of RG1007). \
+          A proof term that is written inline in a specification is a part of that term, so a \
+          test that it names is counted and the registration is refused, which is the safe \
+          side.",
         "In a file with a `module` header, the editor has an imported function as an axiom \
           when its module does not export the value. The class of such a function is read from \
           its type, so the editor refuses a registration that shares one with a result of \
@@ -979,6 +1002,12 @@ def guide : RuleId → Guide
         "Whether a definition is a function is read from its type alone: it takes an argument, \
           or its result is a structure with a field that takes one. A constant of type `Bool` \
           is not a function and is not counted.",
+        "A type that the specification passes to a function that is no projection of a field is \
+          read, with its declaration: the reading cannot tell a function that quantifies over \
+          its type argument from one that does not. So `xs[i]` reads the element type of an \
+          array, which it passes to the instance of `GetElem`. A registration whose \
+          specification indexes a collection of a type whose invariant names a test of the \
+          implementation is refused.",
         "A registration that RG1007 refuses, and one with no decision kind, has no search and \
           names no function."]
       residuals := [.intent, .qualify]
@@ -990,13 +1019,22 @@ def guide : RuleId → Guide
         (`RegulaPolicy.SharedTestOK`). A name is in that class of the record exactly when the \
         search read a definition of that class with that name \
         (`RegulaPolicy.mem_sharedNames_booleans`), and the class is a stated condition on what \
-        was read of the definition (`RegulaPolicy.SharedDefinition.class_eq_boolean_iff`). The \
-        search that finds the definitions (`Regula.Collect`), and the reading of each, are \
-        operational."
+        was read of the definition (`RegulaPolicy.SharedDefinition.class_eq_boolean_iff`). What \
+        the search follows from each constant of the specification and of the acceptance \
+        predicate is the decision `RegulaPolicy.StatementReading.reads`, with the two-way kind \
+        `RegulaPolicy.StatementReading.checked_reads`, and `RegulaPolicy.StatementReading.reading` \
+        closes it over the records of the observing pass (`reading_some`). It reaches only what \
+        the reading with the types reaches (`read_subset_withTypes`), so it refuses no \
+        registration that the earlier reading accepted, and a name is shared only through types \
+        exactly as `RegulaPolicy.mem_sharedNames_throughTypes` states. A record that names no \
+        test has no test that the reading of the specification and the implementation reach \
+        (`RegulaPolicy.StatementReading.no_shared_test`). The observing pass, the \
+        search for the implementation and the reading of each definition (`Regula.Collect`) \
+        are operational."
       sources :=
           ["lean/RegulaPolicy/Decision.lean", "lean/RegulaPolicy/Specification.lean",
-              "lean/RegulaPolicy/Domain.lean", "lean/Regula/Collect.lean",
-              "lean/Regula/Contract.lean"] }
+              "lean/RegulaPolicy/Domain.lean", "lean/RegulaPolicy/StatementReading.lean",
+              "lean/Regula/Collect.lean", "lean/Regula/Contract.lean"] }
   | .environment => {
       problem := "The declared Lean environment could not be loaded or identified, so the \
         requested audit could not run. The result is INCOMPLETE, not a violation of the source."

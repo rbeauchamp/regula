@@ -517,7 +517,7 @@ relation between it and the type.
 
 ## Machine-readable report
 
-`lake lint -- --json-out PATH` writes one JSON document, result schema 12, whatever the outcome;
+`lake lint -- --json-out PATH` writes one JSON document, result schema 13, whatever the outcome;
 the path is first written as an incomplete result, so a stale report is never mistaken for this
 run's. Its main members:
 
@@ -756,6 +756,11 @@ and, for a one-way kind, the direction it leaves open.
 depth. State that condition as a proposition in `Spec`, and let `check` decide it. The rule
 compares names. A copy of a test under a second name passes, and so does a test of Lean's own
 library.
+
+The search reads what `Spec` states at a given input. It does not read the type of the input
+through the variable of `Spec`, or the type of a structure through a projection of its field. So
+a test that only an invariant of the input type names is not counted, and the account names it
+apart. A `Spec` that quantifies over such a type, or that states the invariant, reads the test.
 
 The account names each other function that `Spec` reaches first and that `check` or the
 acceptance predicate also reaches. The kind does not establish that such a function is the
