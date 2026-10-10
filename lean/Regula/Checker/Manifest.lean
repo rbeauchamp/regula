@@ -2226,5 +2226,5 @@ run_cmd do
       ``Regula.Checker.Manifest.restrict_valid,
       ``Regula.Checker.Manifest.restrict_roundtrip] do
     let axioms ← Lean.collectAxioms name
-    unless axioms.all (fun ax => #[`propext, `Quot.sound, `Classical.choice].contains ax) do
+    unless axioms.all RegulaPolicy.standardLogicalAxiom do
       throwError "manifest theorem {name} exceeds Standard-Logical: {axioms}"

@@ -202,6 +202,59 @@ theorem Correspondence.canonical (s : String) (x : Correspondence) (h : parse? s
   unfold parse? at h
   split at h <;> cases h <;> rfl
 
+/-- Supported ConformingProfile values; parsing cannot manufacture an unknown constructor. -/
+inductive ConformingProfile where
+  /-- No axiom is permitted. -/
+  | «kernelOnly»
+  /-- `propext` and `Quot.sound` are permitted. -/
+  | «choiceFree»
+  /-- `propext`, `Quot.sound` and `Classical.choice` are permitted. -/
+  | «standardLogical»
+  deriving Repr, DecidableEq, Inhabited
+
+/-- The profile's text in manifests and reports (`kernel-only`, `choice-free` or
+`standard-logical`); `parse?` reads it back (`ConformingProfile.roundtrip`). -/
+def ConformingProfile.spelling : ConformingProfile → String
+  | .«kernelOnly» => "kernel-only"
+  | .«choiceFree» => "choice-free"
+  | .«standardLogical» => "standard-logical"
+
+/-- The profile a text names; `none` for any text that is not a `spelling`
+(`ConformingProfile.canonical`). -/
+@[regula_decision]
+def ConformingProfile.parse? : String → Option ConformingProfile
+  | "kernel-only" => some .«kernelOnly»
+  | "choice-free" => some .«choiceFree»
+  | "standard-logical" => some .«standardLogical»
+  | _ => none
+
+instance : ToString ConformingProfile := ⟨ConformingProfile.spelling⟩
+
+/-- Every value survives its actual spelling parser. -/
+@[simp] theorem ConformingProfile.roundtrip (x : ConformingProfile) : parse? x.spelling =
+    some x := by
+  cases x <;> rfl
+
+/-- The parser accepts only the canonical spelling of its result. -/
+theorem ConformingProfile.canonical (s : String) (x : ConformingProfile) (h : parse? s = some x) :
+    x.spelling = s := by
+  unfold parse? at h
+  split at h <;> cases h <;> rfl
+
+/-- Whether `profile` permits axiom `n`: no axiom for Kernel-only, `propext` and `Quot.sound`
+for Choice-Free, and additionally `Classical.choice` for Standard-Logical (`permits_iff`). This is
+the one statement of the three axiom sets: the profile check, the correspondence check of a
+runtime replacement (`DefeqComparison.ofAttempt`) and the checker's own Standard-Logical bounds
+all read it, here below `RegulaPolicy.Foundation` so that every module of the policy can. -/
+def ConformingProfile.permits : ConformingProfile → Lean.Name → Bool
+  | .kernelOnly, _ => false
+  | .choiceFree, n => n == `propext || n == `Quot.sound
+  | .standardLogical, n => n == `propext || n == `Quot.sound || n == `Classical.choice
+
+/-- `name` is `propext`, `Quot.sound` or `Classical.choice`. -/
+def standardLogicalAxiom (name : Lean.Name) : Bool :=
+  ConformingProfile.permits .standardLogical name
+
 /-- The kernel's answer to the theorem the checker declares, without adding it, to compare a
 runtime replacement with its reference: a closed proof, checked against the exact required
 proposition (`Probe.kernelAnswer`). Only the result of the kernel's own check selects the
@@ -215,11 +268,6 @@ inductive KernelAnswer where
   /-- The kernel stopped before it decided: it exhausted its resources or was interrupted. -/
   | exhausted
   deriving Repr, DecidableEq
-
-/-- Each axiom is one of the Standard-Logical foundations: `propext`, `Quot.sound` or
-`Classical.choice`. -/
-def KernelAnswer.withinStandardLogical (axioms : Array Lean.Name) : Bool :=
-  axioms.all fun ax => ax == `propext || ax == `Quot.sound || ax == `Classical.choice
 
 /-- Outcome of the checker's kernel check of one closed correspondence proof between a runtime
 replacement and its reference: the reflexivity proof of the definitional comparison, or a proof
@@ -251,7 +299,7 @@ decided completes a comparison, so an attempt that raised an error is incomplete
 error (`ofAttempt_error`). -/
 def DefeqComparison.ofAttempt : Except String KernelAnswer → DefeqComparison
   | .ok (.admitted axioms detail) =>
-      .completed (if KernelAnswer.withinStandardLogical axioms then some detail else none)
+      .completed (if axioms.all standardLogicalAxiom then some detail else none)
   | .ok .refused => .completed none
   | .ok .exhausted =>
       .incomplete "kernel resources exhausted before deciding definitional correspondence"
@@ -289,11 +337,11 @@ theorem DefeqComparison.ofAttempt_checked_iff (attempt : Except String KernelAns
     (detail : String) :
     ofAttempt attempt = .completed (some detail) ↔
       ∃ axioms, attempt = .ok (.admitted axioms detail) ∧
-        KernelAnswer.withinStandardLogical axioms = true := by
+        axioms.all standardLogicalAxiom = true := by
   rcases attempt with error | (⟨axioms, admitted⟩ | _ | _)
   · simp [ofAttempt]
-  · cases h : KernelAnswer.withinStandardLogical axioms
-    · simp [ofAttempt, h]
+  · cases h : axioms.all standardLogicalAxiom
+    · simp [ofAttempt, h, -Array.all_eq_true, -Array.all_eq_false]
     · simp only [ofAttempt, h, ite_true, completed.injEq, Option.some.injEq, Except.ok.injEq,
         KernelAnswer.admitted.injEq]
       exact ⟨fun same => ⟨axioms, ⟨rfl, same⟩, h⟩, fun ⟨_, ⟨_, same⟩, _⟩ => same⟩
@@ -306,10 +354,11 @@ foundations. -/
 theorem DefeqComparison.ofAttempt_negative_iff (attempt : Except String KernelAnswer) :
     ofAttempt attempt = .completed none ↔
       attempt = .ok .refused ∨ ∃ axioms detail, attempt = .ok (.admitted axioms detail) ∧
-        KernelAnswer.withinStandardLogical axioms = false := by
+        axioms.all standardLogicalAxiom = false := by
   rcases attempt with error | (⟨axioms, detail⟩ | _ | _)
   · simp [ofAttempt]
-  · cases h : KernelAnswer.withinStandardLogical axioms <;> simp [ofAttempt, h]
+  · cases h : axioms.all standardLogicalAxiom <;>
+      simp [ofAttempt, h, -Array.all_eq_true, -Array.all_eq_false]
   · simp [ofAttempt]
   · simp [ofAttempt]
 
@@ -372,45 +421,6 @@ instance : ToString FoundationClass := ⟨FoundationClass.spelling⟩
 
 /-- The parser accepts only the canonical spelling of its result. -/
 theorem FoundationClass.canonical (s : String) (x : FoundationClass) (h : parse? s = some x) :
-    x.spelling = s := by
-  unfold parse? at h
-  split at h <;> cases h <;> rfl
-
-/-- Supported ConformingProfile values; parsing cannot manufacture an unknown constructor. -/
-inductive ConformingProfile where
-  /-- No axiom is permitted. -/
-  | «kernelOnly»
-  /-- `propext` and `Quot.sound` are permitted. -/
-  | «choiceFree»
-  /-- `propext`, `Quot.sound` and `Classical.choice` are permitted. -/
-  | «standardLogical»
-  deriving Repr, DecidableEq, Inhabited
-
-/-- The profile's text in manifests and reports (`kernel-only`, `choice-free` or
-`standard-logical`); `parse?` reads it back (`ConformingProfile.roundtrip`). -/
-def ConformingProfile.spelling : ConformingProfile → String
-  | .«kernelOnly» => "kernel-only"
-  | .«choiceFree» => "choice-free"
-  | .«standardLogical» => "standard-logical"
-
-/-- The profile a text names; `none` for any text that is not a `spelling`
-(`ConformingProfile.canonical`). -/
-@[regula_decision]
-def ConformingProfile.parse? : String → Option ConformingProfile
-  | "kernel-only" => some .«kernelOnly»
-  | "choice-free" => some .«choiceFree»
-  | "standard-logical" => some .«standardLogical»
-  | _ => none
-
-instance : ToString ConformingProfile := ⟨ConformingProfile.spelling⟩
-
-/-- Every value survives its actual spelling parser. -/
-@[simp] theorem ConformingProfile.roundtrip (x : ConformingProfile) : parse? x.spelling =
-    some x := by
-  cases x <;> rfl
-
-/-- The parser accepts only the canonical spelling of its result. -/
-theorem ConformingProfile.canonical (s : String) (x : ConformingProfile) (h : parse? s = some x) :
     x.spelling = s := by
   unfold parse? at h
   split at h <;> cases h <;> rfl

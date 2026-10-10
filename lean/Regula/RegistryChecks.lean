@@ -41,7 +41,7 @@ run_cmd do
       ``Regula.SharedExecution.slots_intern, ``Regula.SharedExecution.read_write,
       ``Regula.Checker.ResultProtocol.resultJson_slots] do
     let axioms ← Lean.collectAxioms name
-    unless axioms.all (fun ax => #[`propext, `Quot.sound, `Classical.choice].contains ax) do
+    unless axioms.all RegulaPolicy.standardLogicalAxiom do
       throwError "registry theorem {name} exceeds Standard-Logical: {axioms}"
 
 private def require (ok : Bool) (claim : String) : IO Unit :=

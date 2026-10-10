@@ -231,7 +231,8 @@ def guide : RuleId → Guide
       checklist := ["FOUND-03", "TYPE-04", "THEOREM-01", "THEOREM-09", "BUILD-01"]
       linkage := declarationLinkage
       sources :=
-          ["lean/RegulaCore/Policy.lean", "lean/RegulaPolicy/Foundation.lean",
+          ["lean/RegulaCore/Policy.lean", "lean/RegulaPolicy/Domain.lean",
+              "lean/RegulaPolicy/Foundation.lean",
               "lean/RegulaPolicy/Decision.lean"] }
   | .compilerTrusting => {
       problem := "A declaration on a positive surface depends on a compiler-trusting axiom: a \
@@ -367,7 +368,8 @@ def guide : RuleId → Guide
       checklist := ["FOUND-03", "FOUND-04", "BUILD-02", "THEOREM-01", "THEOREM-10", "BUILD-01"]
       linkage := declarationLinkage
       sources :=
-          ["lean/RegulaPolicy/Foundation.lean", "lean/RegulaCore/Policy.lean",
+          ["lean/RegulaPolicy/Domain.lean", "lean/RegulaPolicy/Foundation.lean",
+              "lean/RegulaCore/Policy.lean",
               "lean/RegulaPolicy/KernelAxioms.lean",
               "website/RegulaStandard/MathematicalFoundations.lean"] }
   | .escapeHatch => {
