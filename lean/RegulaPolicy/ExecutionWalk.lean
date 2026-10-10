@@ -62,8 +62,8 @@ structure NodeRecord.ProjectWritten where
   /-- The retained compiler body of this name. -/
   code : CodeStatus := .missing
   /-- The targets of the simplification candidates of this name: constants whose type is an
-  equality of this name and another constant with the same list of distinct universe parameters,
-  registered with `@[csimp]` or not. -/
+  equality of this name and a constant, possibly itself, with the same list of distinct universe
+  parameters, registered with `@[csimp]` or not. -/
   candidateTargets : Array Name := #[]
   /-- The names that the logical value of this name uses. -/
   logicalTargets : Array Name := #[]

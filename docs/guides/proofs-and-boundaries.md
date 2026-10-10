@@ -666,11 +666,16 @@ modules: the environment's module and the claim fix it, and no mark decides it. 
 data of a mark enters is project-written, as a boundary's kind and replacement.
 
 A visit's parent, the closure's other fields and a boundary's position are computed by the walk on
-the combined record. A candidate boundary comes from a constant of an equality type, registered with
-`@[csimp]` or not. The two sides are constants with the same list of distinct universe parameters.
-An attribute such as `@[simp]` can make Lean generate such a constant, an equation lemma. The walk
-follows each recorded historical replacement conservatively, including one that the compiled code no
-longer runs. The [RG3001] and [RG3002] decisions read the two parts.
+the combined record. `ExecutionWalk.assemble` also takes `rootCompiled`, the root's compiled-code
+requirement. When it holds, the root is required code, and missing code of the root is reported as
+unavailable. `Probe.executionWalk` computes it from the root's `@[implemented_by]` and
+`@[macro_inline]` marks, which are project-written, its tags as generated machinery and its IR.
+
+A candidate boundary comes from a constant of an equality type, registered with `@[csimp]` or not.
+The two sides are constants with the same list of distinct universe parameters. An attribute such as
+`@[simp]` can make Lean generate such a constant, an equation lemma. The walk follows each recorded
+historical replacement conservatively, including one that the compiled code no longer runs. The
+[RG3001] and [RG3002] decisions read the two parts.
 
 **Limits.** The parts classify the source of a value but do not make an observation truthful. That
 `Collect.declaration`, `Frontend.buildCore`, `Probe.observeNode` and `Probe.environmentReport` fill

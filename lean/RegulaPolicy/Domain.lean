@@ -2025,7 +2025,13 @@ parts of its own: each visit carries the observed part of its name
 (`ExecutionVisit.ToolchainObserved`), and its parent and the closure's other fields are computed
 over the names that the walk reached through the edges of the project-written part of their records
 (`ExecutionWalk.NodeRecord.ProjectWritten`). Each edge set is named for the record field whose
-targets it copies. -/
+targets it copies. Beside the records, `ExecutionWalk.assemble` takes `rootCompiled`, the root's own
+compiled-code requirement. When it holds, the root is in `requiredCode`, and so in `unavailableCode`
+with a reported unavailable-code path when its compiler body is unavailable; without it, the root is
+required only as a compiled dependency of a reached name. `Probe.executionWalk` computes it from the
+root's `@[implemented_by]` and `@[macro_inline]` marks, which are project-written, and from whether
+the root is a projection, auxiliary recursor, `noConfusion`, matcher or `brecOn` helper without IR.
+-/
 structure ExecutionClosure where
   /-- Every name the walk reached, sorted and without duplicates. -/
   nodes : Array Lean.Name
@@ -2076,7 +2082,9 @@ structure ExecutionRoot.ToolchainObserved where
 closure reaches, its compiled edges and the closure itself. Its name and module are in the observed
 part (`ExecutionRoot.ToolchainObserved`). The other fields are computed over the walk of the root,
 through the edges of the project-written part of the name records it reads
-(`ExecutionWalk.NodeRecord.ProjectWritten`), so they are fields of the account itself. -/
+(`ExecutionWalk.NodeRecord.ProjectWritten`), and from the root's own compiled-code requirement
+(`rootCompiled`, described at `ExecutionClosure`), which can add the root's unavailable-code path to
+`unresolved`. So they are fields of the account itself. -/
 structure ExecutionRoot extends ExecutionRoot.ToolchainObserved where
   /-- Every boundary the closure reaches, in the order the walk found them. -/
   boundaries : Array ExecutionBoundary
