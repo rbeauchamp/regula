@@ -284,6 +284,7 @@ capability-triggered diagnostics (standard §7.8), not a partition of ordinary a
 The [dogfood workflow](../../.github/workflows/dogfood.yml) runs `self-lint` and `self-audit`
 as parallel jobs under the same limit when Lean sources, Lake configuration, manifests or
 that compiler and dependency setup change, on every push to `main`, and nightly. They are not part of acceptance.
+Neither is a required check of the ruleset of `main`. The workflow runs on a pull request only when those paths change. A required check from it does not report on a different pull request, so that pull request cannot merge.
 It runs `self-lint-default` only nightly and on dispatch, as one more job under the same limit. It is not a check of a pull request or of a push.
 
 ## Implementation and qualification layout
@@ -832,8 +833,9 @@ until the release commit has passed the same checks as `main`:
    and checks the artifact with a preview of the release's edition, rendered from that commit
    without a release label ([versions](website.md#versions-and-routes)): the release's own
    edition exists only once CI builds it from the release commit, and an artifact with a preview
-   is never deployed. The required checks are `verify`, `title`, `diagnostics` and code
-   scanning's `CodeQL` and `Analyze (actions)`.
+   is never deployed. The required checks are `verify`, `title`, `diagnostics`,
+   `diagnostics rule-examples 1/2`, `diagnostics rule-examples 2/2`, `site`, `mathlib integration`
+   and code scanning's `CodeQL` and `Analyze (actions)`.
 2. **candidate** (`ci.yml`, the `candidate` job on `main`): once acceptance and both rule-example
    shards pass on a commit of `main` that lists a release not yet published, it refuses unless
    the releases GitHub reports published are exactly the releases listed before it
