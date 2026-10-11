@@ -1733,8 +1733,10 @@ def guide : RuleId → Guide
         returned fence for each line of Lean shape (`fence_of_leanShaped`, \
         `example_of_leanShaped`), and a Markdown document is clean exactly when its lines \
         without the carriage return of a line ending have no carriage return left and are \
-        clean (`clean_iff_withoutReturn`). \
-        The body and the byte ranges of a returned fence are not proved."
+        clean (`clean_iff_withoutReturn`). In each document, each returned fence lies at its lines \
+        (`scanLines_fence`, `scanVersoLines_fence`). Its body is its body lines joined by line \
+        feeds, and its byte ranges hold its lines and its body (`Scanned.bytes`). A Markdown body \
+        drops a carriage return at its end."
       sources := ["lean/Regula/Checker/FenceScan.lean", "lean/Regula/Checker/Documentation.lean",
           "lean/Regula/Checker/Diagnostics.lean", "lean/RegulaPolicy/Pattern.lean"] }
   | .positiveExample => {
