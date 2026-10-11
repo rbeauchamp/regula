@@ -1569,8 +1569,8 @@ second step is pure decisions with a kind.
   which are `partial`. It refuses an object that gives one name twice, and it builds each object
   with `Json.mkObj`. `Json.parse` of Lean runs parsers that are `partial`, and it does not refuse
   a repeated name. It starts each object from the empty tree and adds each member with `insert`.
-- **Between the two steps**, a reader of a result file gives the value to `SharedExecution.read`.
-  That function puts the source texts and the execution accounts back in the document. It
+- **Between the two steps**, a reader of a result file gives the value to
+  `ResultProtocol.admitDocument`, which runs `SharedExecution.read`. That function puts the source texts and the execution accounts back in the document. It
   rebuilds the objects of the document with maps that keep each name and the shape of each tree.
   The maps replace only the value of a member `sourceText`, `sourceTexts` or `execution`.
 - **The decisions**, each registered with `@[regula_decision]`, read the `Json` value that a caller
