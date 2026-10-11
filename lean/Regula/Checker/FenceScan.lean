@@ -43,7 +43,8 @@ run of blocks of the protocol (`BlockStep`, `VersoBlockStep`): its opening line,
 its closing line, its body, its byte ranges and, when a Markdown fence has a marker, the line of
 that marker. One opening line gives one place (`MarkdownFence.unique`, `VersoFence.unique`).
 `Scanned.bytes` states that its byte ranges hold its lines and its body in the text of the
-document.
+document. In a clean Markdown document, `scanLines_marker` states that a Lean fence after a marker
+line carries that marker.
 
 Expected-failure markers use a deliberately small diagnostic pattern language:
 `|` separates alternatives and `.*` separates ordered literal substrings. This
@@ -4676,7 +4677,7 @@ end (`DropsReturn`). Its opening range, its body range and its closing range eac
 the lines before that part, each with its line feed, and span that part. When the fence has a
 marker, the marker is the line before the opening line, and the fence has the pattern or the trust
 of that marker. Without one, it has neither. The relation does not say that a fence after a marker
-line has that marker. -/
+line has that marker. `scanLines_marker` says it for a clean document. -/
 def MarkdownFence (lines : List String) (fence : Fence) : Prop :=
   ∃ (before body after : List String) (opening closing : String) (character : Char)
     (count : Nat) (info : String),
@@ -5426,5 +5427,323 @@ theorem Scanned.bytes (scan : Scanned) {fence : Fence} (member : fence ∈ scan.
     · rw [document, openRange]; exact openBytes
     · rw [document, bodyRange]; exact bodyBytes
     · rw [document, closeRange]; exact closeBytes
+
+/-! ## The marker of a fence in a clean document
+
+In a clean Markdown document, a Lean fence after a marker line carries that marker: its marker
+line and its pattern or its trust. Each line of a clean document keeps the violations, so each is
+a transition that the protocol permits (`permitted_of_quiet`). The protocol permits no marker after
+a waiting marker and no marker before a fence of another language, so a marker waits for the
+next line and stays with the Lean fence that it opens. -/
+
+/-- The fence carries the marker of the kind `kind` on the line `line`. -/
+def CarriesMarker (fence : Fence) (line : Nat) : MarkerKind → Prop
+  | .trusted => fence.markerLine = some line ∧ fence.failPattern = none ∧ fence.trusted = true
+  | .fail pattern =>
+      fence.markerLine = some line ∧ fence.failPattern = some pattern ∧ fence.trusted = false
+
+/-- The first character after whitespace: two divisions of a text, each into whitespace and a
+character that is not whitespace, have the same character. -/
+private theorem first_after_whitespace :
+    ∀ {lead lead' rest rest' : List Char} {first first' : Char},
+      lead ++ first :: rest = lead' ++ first' :: rest' →
+      (∀ c ∈ lead, c.isWhitespace = true) → (∀ c ∈ lead', c.isWhitespace = true) →
+      first.isWhitespace = false → first'.isWhitespace = false → first = first' := by
+  intro lead
+  induction lead with
+  | nil =>
+    intro lead' rest rest' first first' same _ white' visible _
+    cases lead' with
+    | nil => exact (List.cons.inj same).1
+    | cons c cs =>
+      obtain ⟨rfl, -⟩ := List.cons.inj same
+      have := white' first List.mem_cons_self
+      rw [visible] at this
+      cases this
+  | cons c cs ih =>
+    intro lead' rest rest' first first' same white white' visible visible'
+    cases lead' with
+    | nil =>
+      obtain ⟨equal, -⟩ := List.cons.inj same
+      have := white c List.mem_cons_self
+      rw [equal, visible'] at this
+      cases this
+    | cons c' cs' =>
+      obtain ⟨-, tail⟩ := List.cons.inj same
+      exact ih tail (fun x member => white x (List.mem_cons_of_mem _ member))
+        (fun x member => white' x (List.mem_cons_of_mem _ member)) visible visible'
+
+/-- A line with a fence run is no marker: after its whitespace comes the run, not `<`. -/
+private theorem fenceLine_not_marker {line : String} {character : Char} {count : Nat}
+    {info : String} (fence : FenceLine line character count info) {kind : MarkerKind}
+    (marker : MarkerOf line kind) : False := by
+  obtain ⟨indent, rest, whole, white, run, long, -, -⟩ := fence
+  have visible : character.isWhitespace = false := by
+    rcases run with rfl | rfl <;> decide
+  have notAngle : ∀ {inner : List Char}, ¬ Trimmed line.toList ('<' :: inner) := by
+    intro inner trimmed
+    obtain ⟨lead, trail, text, leading, -, -, -⟩ := trimmed
+    obtain ⟨more, rfl⟩ : ∃ more, count = more + 1 := ⟨count - 1, by omega⟩
+    have same : lead ++ '<' :: (inner ++ trail) =
+        indent ++ character :: (List.replicate more character ++ rest) := by
+      have := text.symm.trans whole
+      simpa [List.replicate_succ, List.append_assoc] using this
+    have := first_after_whitespace same leading white (by decide) visible
+    rcases run with rfl | rfl <;> cases this
+  cases kind with
+  | fail pattern =>
+    obtain ⟨inner, trimmed, -⟩ := marker
+    exact notAngle trimmed
+  | trusted => exact notAngle marker.2
+
+/-- What the Markdown scanner keeps of markers after the lines `done` of a run that adds no
+violation. A waiting marker is on the last line read, and a marker line read outside a fence
+waits. An open fence keeps the marker of the line before its opening line, and each returned
+fence carries that marker. -/
+private def MarkersKept (done : List String) (state : Scan) : Prop :=
+  (state.opened = none → ∀ marker, state.pending = some marker → marker.line = done.length) ∧
+  (state.opened = none → ∀ previous kind, done.getLast? = some previous →
+    MarkerOf previous kind →
+      ∃ marker, state.pending = some marker ∧ marker.kind = kind ∧ marker.line = done.length) ∧
+  (∀ fence, state.opened = some fence → fence.line ≤ done.length ∧
+    ∀ previous kind, 2 ≤ fence.line → done[fence.line - 2]? = some previous →
+      MarkerOf previous kind →
+        ∃ marker, state.pending = some marker ∧ marker.kind = kind ∧
+          marker.line = fence.line - 1) ∧
+  (∀ fence ∈ state.fences, fence.line < done.length ∧
+    ∀ previous kind, 2 ≤ fence.line → done[fence.line - 2]? = some previous →
+      MarkerOf previous kind → CarriesMarker fence (fence.line - 1) kind)
+
+/-- A line that the scanner reads outside a fence, adding no violation, keeps the markers. -/
+private theorem markersKept_outside (origin : String) {done : List String} {text : String}
+    {state : Scan} {next : Nat} (outside : state.opened = none) (kept : MarkersKept done state)
+    (quiet : (stepOutside origin state (lineAfter done text next)).problems = state.problems) :
+    MarkersKept (done ++ [text]) (stepOutside origin state (lineAfter done text next)) := by
+  obtain ⟨lines, waits, -, fences⟩ := kept
+  obtain ⟨target, permitted⟩ : ∃ target, Permitted (fun _ => True) state.mode
+      (lineAfter done text next).number (lineAfter done text next).text target :=
+    ⟨_, permitted_of_quiet_outside (fun _ _ => trivial) origin (lineAfter done text next) outside
+      quiet⟩
+  have adj := adjacent_lineAfter origin state (text := text) (next := next) (lines outside)
+  have keptFences : ∀ kind problems pending,
+      (onClass origin state (lineAfter done text next) kind problems pending).fences =
+        state.fences := by
+    intro kind problems pending
+    cases kind <;> cases pending <;> simp only [onClass] <;> split <;> rfl
+  have is := lineIs_classify text
+  have named : (lineAfter done text next).text = text := rfl
+  have numbered : (lineAfter done text next).number = done.length + 1 := rfl
+  have mode : state.mode = .outside (state.pending.map (·.line)) := by
+    simp [Scan.mode, outside]
+  unfold stepOutside
+  rw [adj]
+  rw [named, numbered, mode] at permitted
+  rw [named]
+  refine ⟨?_, ?_, ?_, ?_⟩
+  · intro closed marker pend
+    revert is closed pend permitted
+    generalize classify text = kind
+    intro permitted is closed pend
+    cases waiting : state.pending <;> cases kind <;> simp only [onClass, waiting] at closed pend ⊢
+    all_goals first
+      | (cases pend <;> simp [lineAfter])
+      | (split at closed <;> simp at closed)
+      | simp at closed
+  · intro closed previous kind last marked
+    obtain rfl : previous = text := by simpa using last.symm
+    revert permitted is closed
+    generalize classify previous = cls
+    intro permitted is closed
+    cases kind with
+    | fail pattern =>
+      have same : cls = .fail pattern := lineIs_unique is marked
+      subst same
+      cases waiting : state.pending with
+      | none =>
+        simp only [onClass, waiting] at closed ⊢
+        exact ⟨_, rfl, rfl, by simp [lineAfter]⟩
+      | some m =>
+        rw [waiting] at permitted
+        cases permitted with
+        | marked opens _ _ => exact nomatch lineIs_unique is opens
+    | trusted =>
+      have same : cls = .trusted := lineIs_unique is marked
+      subst same
+      cases waiting : state.pending with
+      | none =>
+        simp only [onClass, waiting] at closed ⊢
+        exact ⟨_, rfl, rfl, by simp [lineAfter]⟩
+      | some m =>
+        rw [waiting] at permitted
+        cases permitted with
+        | marked opens _ _ => exact nomatch lineIs_unique is opens
+  · intro fence opens
+    have before : ∀ {previous : String}, 2 ≤ done.length + 1 →
+        (done ++ [text])[done.length + 1 - 2]? = some previous → done.getLast? = some previous := by
+      intro previous two at'
+      rw [List.getElem?_append_left (by omega)] at at'
+      rw [List.getLast?_eq_getElem?]
+      simpa using at'
+    revert permitted is opens
+    generalize classify text = cls
+    intro permitted is opens
+    cases cls with
+    | opener character count info =>
+      cases waiting : state.pending with
+      | none =>
+        simp only [onClass, waiting] at opens
+        cases opens
+        refine ⟨by simp [lineAfter], fun previous kind two at' marked => ?_⟩
+        obtain ⟨m, has, -, -⟩ := waits outside previous kind (before two at') marked
+        rw [waiting] at has
+        cases has
+      | some m =>
+        rw [waiting] at permitted
+        cases permitted with
+        | marked opens' _ word =>
+          cases lineIs_unique is opens'
+          have lean : (firstWord info != "lean") = false := by
+            simp [(firstWord_eq_iff info (by decide)).mpr word]
+          simp only [onClass, waiting, lean, Bool.false_eq_true, ↓reduceIte] at opens ⊢
+          cases opens
+          refine ⟨by simp [lineAfter], fun previous kind two at' marked => ?_⟩
+          obtain ⟨m', has, sameKind, sameLine⟩ :=
+            waits outside previous kind (before two at') marked
+          rw [waiting] at has
+          cases has
+          exact ⟨_, rfl, sameKind, by simp [lineAfter, sameLine]⟩
+    | _ =>
+      cases waiting : state.pending <;> simp [onClass, waiting, outside] at opens
+  · intro f member
+    rw [keptFences] at member
+    obtain ⟨bound, carries⟩ := fences f member
+    refine ⟨by simp; omega, fun previous kind two at' marked => carries previous kind two ?_ marked⟩
+    rwa [List.getElem?_append_left (by omega)] at at'
+
+/-- A line that the scanner reads inside a fence keeps the markers. -/
+private theorem markersKept_inside (document : RegulaPolicy.SourceSnapshot) (origin : String)
+    {done : List String} {text : String} {state : Scan} {fence : OpenFence} {next : Nat}
+    (inside : state.opened = some fence) (kept : MarkersKept done state) :
+    MarkersKept (done ++ [text])
+      (stepInside document origin state fence (lineAfter done text next)) := by
+  obtain ⟨-, -, opened, fences⟩ := kept
+  obtain ⟨bound, keeps⟩ := opened fence inside
+  have old : ∀ f ∈ state.fences, f.line < (done ++ [text]).length ∧
+      ∀ previous kind, 2 ≤ f.line → (done ++ [text])[f.line - 2]? = some previous →
+        MarkerOf previous kind → CarriesMarker f (f.line - 1) kind := by
+    intro f member
+    obtain ⟨below, carries⟩ := fences f member
+    refine ⟨by simp; omega, fun previous kind two at' marked => carries previous kind two ?_ marked⟩
+    rwa [List.getElem?_append_left (by omega)] at at'
+  have named : (lineAfter done text next).text = text := rfl
+  unfold stepInside
+  rw [named]
+  by_cases closes : closingFence text fence.character fence.length = true
+  · have lastNot : ∀ previous kind, (done ++ [text]).getLast? = some previous →
+        MarkerOf previous kind → False := by
+      intro previous kind last marked
+      obtain rfl : previous = text := by simpa using last.symm
+      obtain ⟨count, fenceLine, -⟩ := (closingFence_iff _ _ _).mp closes
+      exact fenceLine_not_marker fenceLine marked
+    by_cases lean : (firstWord fence.info == "lean") = true
+    · simp only [closes, lean, ↓reduceIte]
+      refine ⟨(fun _ _ none' => nomatch none'),
+        (fun _ previous kind last marked => (lastNot previous kind last marked).elim),
+        (fun _ none' => nomatch none'), fun f member => ?_⟩
+      rcases Array.mem_push.mp member with found | rfl
+      · exact old f found
+      · simp only [closedFence]
+        refine ⟨by simp; omega, fun previous kind two at' marked => ?_⟩
+        rw [List.getElem?_append_left (by omega)] at at'
+        obtain ⟨m, has, sameKind, sameLine⟩ := keeps previous kind two at' marked
+        rw [has]
+        obtain ⟨kind', line'⟩ := m
+        simp only at sameKind sameLine
+        subst sameKind sameLine
+        cases kind' <;> simp [CarriesMarker]
+    · have other : (firstWord fence.info == "lean") = false := by simpa using lean
+      simp only [closes, other, Bool.false_eq_true, ↓reduceIte]
+      split <;> exact ⟨(fun _ _ none' => nomatch none'),
+        (fun _ previous kind last marked => (lastNot previous kind last marked).elim),
+        (fun _ none' => nomatch none'), old⟩
+  · have stays : closingFence text fence.character fence.length = false := by simpa using closes
+    simp only [stays, Bool.false_eq_true, ↓reduceIte]
+    refine ⟨(fun none' => nomatch none'), (fun none' => nomatch none'), fun f opens' => ?_, old⟩
+    cases opens'
+    simp only
+    refine ⟨by simp; omega, fun previous kind two at' marked => keeps previous kind two ?_ marked⟩
+    rwa [List.getElem?_append_left (by omega)] at at'
+
+/-- One line of a Markdown document that adds no violation keeps the markers. -/
+private theorem markersKept_step (document : RegulaPolicy.SourceSnapshot) (origin : String)
+    {done : List String} {text : String} {state : Scan} {next : Nat}
+    (kept : MarkersKept done state)
+    (quiet : (shapedStep document origin state (lineAfter done text next)).problems =
+      state.problems) :
+    MarkersKept (done ++ [text]) (shapedStep document origin state (lineAfter done text next)) := by
+  have stepQuiet := ((shapedStep_quiet_iff document origin state _).mp quiet).1
+  have result : MarkersKept (done ++ [text])
+      (step document origin state (lineAfter done text next)) := by
+    unfold step at stepQuiet ⊢
+    cases open' : state.opened with
+    | none =>
+      rw [open'] at stepQuiet
+      exact markersKept_outside origin open' kept stepQuiet
+    | some fence => exact markersKept_inside document origin open' kept
+  obtain ⟨opened, pending, fences⟩ :=
+    shapedStep_opened document origin state (lineAfter done text next)
+  unfold MarkersKept at result ⊢
+  rw [opened, pending, fences]
+  exact result
+
+/-- The lines after `done` of a run that adds no violation keep the markers. -/
+private theorem markersKept_run (document : RegulaPolicy.SourceSnapshot) (origin : String) :
+    ∀ (texts done : List String) (state : Scan), MarkersKept done state →
+      (finish origin ((layoutFrom (done.length + 1) (textBefore done).utf8ByteSize texts).foldl
+        (shapedStep document origin) state)).problems = state.problems →
+      MarkersKept (done ++ texts)
+        ((layoutFrom (done.length + 1) (textBefore done).utf8ByteSize texts).foldl
+          (shapedStep document origin) state) := by
+  intro texts
+  induction texts with
+  | nil =>
+    intro done state kept _
+    simpa [layoutFrom] using kept
+  | cons text rest ih =>
+    intro done state kept same
+    rw [layoutFrom_cons_eq, List.foldl_cons] at same ⊢
+    have quiet : (shapedStep document origin state (lineAfter done text
+        ((textBefore done).utf8ByteSize + text.utf8ByteSize + if rest = [] then 0 else 1))).problems
+        = state.problems := by
+      rcases shapedStep_quiet_or_loud document origin state (lineAfter done text
+          ((textBefore done).utf8ByteSize + text.utf8ByteSize + if rest = [] then 0 else 1))
+        with quiet | loud
+      · exact quiet
+      · exact absurd same (ne_of_size_lt (Nat.lt_of_lt_of_le loud
+          (size_le_shapedRun document origin _ _)))
+    have stepped := markersKept_step document origin kept quiet
+    have := ih (done ++ [text]) _ stepped
+    rw [List.length_append, List.length_singleton, utf8ByteSize_textBefore_snoc,
+      List.append_assoc, List.singleton_append] at this
+    exact this (same.trans quiet.symm)
+
+/-- **In a clean Markdown document, a Lean fence after a marker line carries that marker.** When
+the line before the opening line of a returned fence is a `lean-fail` marker or the trusted
+marker, the fence has that line as its marker line, and the pattern or the trust of that marker.
+With `scanLines_fence`, the marker of a fence in a clean document is exactly the marker on the
+line before its opening line. In a document that is not clean the converse can fail: a marker
+after a waiting marker is a violation, and neither waits. -/
+theorem scanLines_marker (source : Source) (clean : (scanLines source).problems = #[])
+    {fence : Fence} (member : fence ∈ (scanLines source).fences) {previous : String}
+    {kind : MarkerKind} (two : 2 ≤ fence.line)
+    (before : source.lines[fence.line - 2]? = some previous) (marked : MarkerOf previous kind) :
+    CarriesMarker fence (fence.line - 1) kind := by
+  unfold scanLines at clean member
+  rw [layout_eq] at clean member
+  unfold finish at member
+  have kept := markersKept_run source.document source.origin source.lines [] {}
+    ⟨(fun _ _ none' => nomatch none'), (fun _ _ _ last _ => by simp at last),
+      (fun _ none' => nomatch none'), fun _ member => by simp at member⟩ clean
+  exact (kept.2.2.2 fence member).2 previous kind two (by simpa using before) marked
 
 end Regula.Checker.Documentation

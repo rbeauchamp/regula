@@ -1736,7 +1736,8 @@ def guide : RuleId → Guide
         clean (`clean_iff_withoutReturn`). In each document, each returned fence lies at its lines \
         (`scanLines_fence`, `scanVersoLines_fence`). Its body is its body lines joined by line \
         feeds, and its byte ranges hold its lines and its body (`Scanned.bytes`). A Markdown body \
-        drops a carriage return at its end."
+        drops a carriage return at its end. In a clean Markdown document, a Lean fence after a \
+        marker line carries that marker (`scanLines_marker`)."
       sources := ["lean/Regula/Checker/FenceScan.lean", "lean/Regula/Checker/Documentation.lean",
           "lean/Regula/Checker/Diagnostics.lean", "lean/RegulaPolicy/Pattern.lean"] }
   | .positiveExample => {
