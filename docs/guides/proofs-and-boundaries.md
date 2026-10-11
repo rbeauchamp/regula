@@ -621,8 +621,10 @@ census); `admitExecution` requires unique roots and boundary occurrences with va
 bindings; `BoundaryEvidence kind` keeps replacement equality, simplification equality and
 opaque-body admission distinct, a trusted native-runtime observation carries matching origin
 data, and only a trusted replacement or unsafe or partial computation can also carry one
-(`TrustedEvidence`, `correspondence_of_toolchainOrigin`); `admitBoundaryEvidence` preserves
-correspondence, detail and toolchain origin, refuses
+(`TrustedEvidence`, `correspondence_of_toolchainOrigin`). Checked replacement and simplification
+evidence holds the proof the kernel admitted and its required proposition as exact terms
+(`CorrespondenceTerms`). `admitBoundaryEvidence` preserves
+correspondence, detail, toolchain origin and the exact correspondence terms, refuses
 incompatible extra evidence, and every representable value round-trips. Accepted canonical
 external spellings re-encode identically. The pure codec proves
 `decode (encode x) = ok x` over a tagged tree; that is not a theorem about JSON text. Worker
@@ -2050,8 +2052,8 @@ have, which lead to no target.
 ### The law observer: decisions and observing pass
 
 [RG1007] also reports what each closed registration of a decision kind or of the law
-`Regula.DecisionEquivalence` establishes. It refuses no registration, and no rule's decision
-takes the report.
+`Regula.DecisionEquivalence` establishes. It refuses no registration. No part of a record that a
+rule's decision takes holds the report, but `recordFailure` compares whole records.
 
 - **The observing pass** is `Collect.contractEvidence?`. It reduces the requirement only when
   `ContractScope.mayReachCarrier` admits that the reduction can produce one of the four

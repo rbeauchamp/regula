@@ -381,6 +381,14 @@ instance : FromJson RegulaPolicy.Declaration := ⟨fun j => do
     contractEvidence := ← j.getObjValAs? _ "contractEvidence"
   }⟩
 
+/-- The proof and the required proposition of a checked correspondence
+(`RegulaPolicy.CorrespondenceTerms`): `proof` and `required`, each an expression of a report. -/
+instance : ToJson RegulaPolicy.CorrespondenceTerms := ⟨fun t => Json.mkObj [
+  ("proof", toJson t.proof), ("required", toJson t.required)]⟩
+instance : FromJson RegulaPolicy.CorrespondenceTerms := ⟨fun j => do
+  exactFields j ["proof", "required"]
+  return { proof := ← j.getObjValAs? _ "proof", required := ← j.getObjValAs? _ "required" }⟩
+
 /-- One execution boundary a root's closure reaches (`RegulaPolicy.ExecutionBoundary`), with a
 JSON codec whose decoder admits the boundary evidence through `admitBoundaryEvidence` and
 refuses a noncanonical payload. -/
@@ -400,19 +408,21 @@ import the reader. -/
 instance : ToJson ExecutionBoundary := ⟨fun b => Json.mkObj [
   ("boundary", toJson b.boundary), ("compilerCallers", toJson b.compilerCallers),
   ("correspondence", toJson b.correspondence), ("evidence", toJson b.evidence),
-  ("module", toJson b.module), ("name", toJson b.name), ("occurrence", toJson b.occurrence),
+  ("exact", toJson b.terms?), ("module", toJson b.module), ("name", toJson b.name), ("occurrence", toJson b.occurrence),
   ("owned", toJson b.owned), ("replacement", toJson b.replacement),
   ("toolchainOrigin", toJson b.toolchainOrigin?)]⟩
 instance : FromJson ExecutionBoundary := ⟨fun j => do
   exactFields j
       ["occurrence", "name", "module", "boundary", "correspondence", "owned", "replacement",
-          "evidence", "compilerCallers", "toolchainOrigin"]
+          "evidence", "exact", "compilerCallers", "toolchainOrigin"]
   let boundary ← j.getObjValAs? BoundaryKind "boundary"
   let state ← j.getObjValAs? Correspondence "correspondence"
   let detail ← j.getObjValAs? (Option String) "evidence"
   let origin ← j.getObjValAs? (Option ToolchainOrigin) "toolchainOrigin"
-  let account ← admitBoundaryEvidence boundary state detail origin
-  unless account.detail == detail && account.toolchainOrigin? == origin do
+  let terms ← j.getObjValAs? (Option RegulaPolicy.CorrespondenceTerms) "exact"
+  let account ← admitBoundaryEvidence boundary state detail origin terms
+  unless account.detail == detail && account.toolchainOrigin? == origin &&
+      account.terms? == terms do
     throw "noncanonical boundary evidence payload"
   return {
     occurrence := ← j.getObjValAs? Nat "occurrence"

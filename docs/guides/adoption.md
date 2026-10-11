@@ -611,7 +611,7 @@ short entry:
   "boundaries": [
     { "node": 0, "name": "Nat.add", "module": "Init.Prelude", "boundary": "native-runtime",
       "correspondence": "trusted", "owned": false, "replacement": null, "evidence": null,
-      "toolchainOrigin": { "module": "Init.Prelude", "actual": "…", "expected": "…" } } ],
+      "exact": null, "toolchainOrigin": { "module": "Init.Prelude", "actual": "…", "expected": "…" } } ],
   "unavailableCode": [],
   "roots": [
     { "name": 1, "module": "Widget.Basic", "unresolved": [], "requiresCode": true },

@@ -370,8 +370,9 @@ metadata, not authenticated binary identity.
   `Regula.DecidesSoundly`, `Regula.DecidesCompletely`, `Regula.Decides` or
   `Regula.DecisionEquivalence`. Its entry gives the carrier, the linkage and the parts of the
   relation, each with its `exact` term and its `display`. Only a `linked` entry has `laws` and
-  `outcomes`, each with its proposition in the same form. No rule's decision takes the member,
-  but admission of a supplied record refuses a report that differs from the inventory's.
+  `outcomes`, each with its proposition in the same form. No part of a record that a rule's
+  decision takes holds the member. The admission of a supplied record,
+  `RegulaPolicy.recordFailure`, refuses a report that differs from the inventory's.
 - **Axiom-table omissions:** since schema 12 a declaration record carries `tableOmissions`. Each
   entry is an axiom that the declaration reaches in the replayed kernel and that Lean's
   `collectAxioms` does not report. The rules decide on `axioms`, and the omissions are reported,

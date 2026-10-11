@@ -20,7 +20,10 @@ open Lean
 abbrev producer := Regula.Checker.Producer.identity
 
 /-- Result schema 16 adds the acceptance account's `contractEvidence`, the law observer's report
-of each registration whose requirement reduces to a decision carrier (`accountJson`).
+of each registration whose requirement reduces to a decision carrier (`accountJson`), and each
+execution boundary's `exact`: the proof and the required proposition of its checked
+correspondence, each as its exact term beside a display (`RegulaPolicy.CorrespondenceTerms`),
+or `null`.
 Schema 15 records the relation between surfaces that the manifest declares for RG1008:
 each `surfaces` entry of an accepted project, and each surface of the manifest a project result
 renders in `scope`, carries `decides`, the claimed surfaces whose registered decisions its

@@ -693,8 +693,9 @@ def guide : RuleId → Guide
           recorded as its exact term beside Lean's display of it (`RegulaPolicy.Shown`). The \
           roles and the name-keyed decision ignore the report, and so does the decision on a \
           member when the inventory's reports and the member's change together \
-          (`RegulaPolicy.policyFor_withEvidence`); the admission boundary of a supplied record \
-          compares whole records and refuses one whose report differs from the inventory's. The \
+          (`RegulaPolicy.policyFor_withEvidence`). The admission boundary of a supplied record \
+          (`RegulaPolicy.recordFailure`) compares whole records and refuses one whose report \
+          differs from the inventory's. The \
           account lists one entry for each observed registration \
           (`Regula.Checker.Account.mem_evidenceOf`)."]
       notEstablished := [

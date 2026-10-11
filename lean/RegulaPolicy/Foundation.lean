@@ -109,9 +109,9 @@ def LeastFoundation (a : Array Name) (p : ConformingProfile) : Prop :=
 admission of the proof with an axiom set that the Standard-Logical profile contains: the same
 permitted set as the profile check (`DefeqComparison.ofAttempt_checked_iff`, `permits_iff`). -/
 theorem DefeqComparison.ofAttempt_checked_iff_containsFoundation
-    (attempt : Except String KernelAnswer) (detail : String) :
-    DefeqComparison.ofAttempt attempt = .completed (some detail) ↔
-      ∃ axioms, attempt = .ok (.admitted axioms detail) ∧
+    (attempt : Except String KernelAnswer) (terms : CorrespondenceTerms) :
+    DefeqComparison.ofAttempt attempt = .completed (some terms) ↔
+      ∃ axioms, attempt = .ok (.admitted axioms terms) ∧
         ContainsFoundation .standardLogical axioms := by
   rw [DefeqComparison.ofAttempt_checked_iff]
   refine exists_congr fun axioms => and_congr_right fun _ => ?_

@@ -2471,21 +2471,14 @@ private def uncurriedCore : Expr → Nat × Expr
       else (0, decided.eta)
   | decided => (0, decided.eta)
 
-/-- A term compared by `Expr.equal`, which takes binder names and annotations into account, and
-not by Lean's `BEq Expr`, which ignores them. -/
-private structure StrictExpr where
-  expr : Expr
-
-private instance : BEq StrictExpr := ⟨fun a b => a.expr.equal b.expr⟩
-private instance : Hashable StrictExpr := ⟨fun a => a.expr.hash⟩
-
 /-- The tables that `termPosition` fills: the levels and the subterms it has recorded, and the
-position of each. -/
+position of each. Subterms are keyed by Lean's `ExprStructEq`, which compares by `Expr.equal`, so
+binder names and annotations count, unlike Lean's `BEq Expr`, which ignores them. -/
 private structure TermTables where
   levels : Array RegulaPolicy.LevelNode := #[]
   levelPositions : Std.HashMap Level Nat := {}
   nodes : Array RegulaPolicy.TermNode := #[]
-  nodePositions : Std.HashMap StrictExpr Nat := {}
+  nodePositions : ExprStructMap Nat := {}
 
 /-- The position of `level` in the table of levels, with `node` recorded for it the first time;
 `node` is run only then, so each distinct level is read once. -/
@@ -2519,11 +2512,11 @@ private def bindingOf : BinderInfo → RegulaPolicy.Binding
 `node` is run only then, so each distinct subterm is read once. -/
 private def rememberTerm (e : Expr) (node : StateM TermTables RegulaPolicy.TermNode) :
     StateM TermTables Nat := do
-  if let some position := (← get).nodePositions[StrictExpr.mk e]? then return position
+  if let some position := (← get).nodePositions[ExprStructEq.mk e]? then return position
   let node ← node
   modifyGet fun t => (t.nodes.size,
     { t with nodes := t.nodes.push node,
-             nodePositions := t.nodePositions.insert ⟨e⟩ t.nodes.size })
+             nodePositions := t.nodePositions.insert (ExprStructEq.mk e) t.nodes.size })
 
 /-- The position of `e` in the table of subterms, after the subterms it contains. Metadata is
 passed through: a subterm with metadata has the position of the subterm under it. -/
@@ -2550,12 +2543,13 @@ private def termPosition : Expr → StateM TermTables Nat
 /-- The exact term of `e` (`RegulaPolicy.Term`): its levels and its subterms, each distinct one
 once, the last subterm being `e` without metadata. It reads every node of the term, with no
 limit, so nothing of the term is left out but its metadata. -/
-private def exactTerm (e : Expr) : RegulaPolicy.Term :=
+def exactTerm (e : Expr) : RegulaPolicy.Term :=
   let tables := ((termPosition e).run {}).2
   { levels := tables.levels, nodes := tables.nodes }
 
-/-- `e` as a report shows it: its exact term, and Lean's display of it for a reader. -/
-private def shownTerm (e : Expr) : MetaM RegulaPolicy.Shown :=
+/-- `e` as a report shows it: its exact term (`exactTerm`), and Lean's display of it for a reader,
+under the caller's options, which may elide or abbreviate it. -/
+def shownTerm (e : Expr) : MetaM RegulaPolicy.Shown :=
   return { exact := exactTerm e, display := toString (← Meta.ppExpr e) }
 
 /-- The proposition that `fact` states (`RegulaPolicy.Fact.Holds`) of the acceptance predicate
@@ -2681,7 +2675,9 @@ The third component is the statement of a decision registration that was read an
 (`sharedReading`), and the record names them.
 The fourth is the law observer's report of a closed registration whose requirement reduces to a
 decision carrier (`contractEvidence?`), which the caller records in the reported part of the
-record (`RegulaPolicy.Declaration.Reported`), which no rule's decision takes.
+record (`RegulaPolicy.Declaration.Reported`), which no part that a rule's decision takes includes;
+the admission boundary of a supplied record (`RegulaPolicy.recordFailure`) compares whole records,
+that part included.
 -/
 private def executableContract? (env : Environment) (scope : ContractScope) (stage : Stage)
     (info : ConstantInfo) :
