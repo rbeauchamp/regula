@@ -24,9 +24,10 @@ constants, not definitional equality. A theorem whose proof proves an assumption
 model also lists it.
 
 `table` computes, for every claim at once, the declarations with a role (`leaf`) that each one
-reaches, with one forward search from all the claims and one backward search from each such
-declaration (`KernelAxioms.leafTable`). `table_some` states that each claim's entry holds exactly
-the declarations with a role that it reaches (`RestsOn`).
+reaches, from one forward search from all the claims (`KernelAxioms.searchEdges`), the one that
+`KernelAxioms.axiomTable` reads too, with one backward search from each such declaration
+(`KernelAxioms.leafTable`). `table_some` states that each claim's entry holds exactly the
+declarations with a role that it reaches (`RestsOn`).
 
 ## Boundaries
 
@@ -71,22 +72,26 @@ theorem leaf_iff (role : Name → Option Role) (d : Name) :
   | none => simp
   | some r => cases r <;> simp [restable]
 
-/-- For every claim of `claims`, the assumptions and checked operations it rests on, under its name:
-the `leafTable` of the walk of the constants it uses, with those declarations as its leaves. `none`
-when a search runs out of `fuel`. -/
-def table (find : Name → Option ConstantInfo) (role : Name → Option Role) (fuel : Nat)
-    (claims : Array Name) : Option (Std.HashMap Name (Array Name)) :=
-  leafTable (successors find) (leaf role) fuel claims
+/-- For every claim of the forward search `forward`, the assumptions and checked operations it
+rests on, under its name: the `leafTable` of the search, with those declarations as its leaves.
+`forward` is the walk of the constants that the claims use (`table_some`). `none` when a search back
+runs out of `fuel`. -/
+def table (role : Name → Option Role) (fuel : Nat)
+    (forward : Std.HashSet Name × List (Name × Array Name)) :
+    Option (Std.HashMap Name (Array Name)) :=
+  leafTable (leaf role) fuel forward
 
-/-- **`table` holds every claim, and gives each claim exactly the declarations it rests on**
-(`RestsOn`). -/
+/-- **`table` of the walk of the constants that `claims` use holds every claim, and gives each
+claim exactly the declarations it rests on** (`RestsOn`). -/
 theorem table_some {find : Name → Option ConstantInfo} {role : Name → Option Role} {fuel : Nat}
-    {claims : Array Name} {result : Std.HashMap Name (Array Name)}
-    (h : table find role fuel claims = some result) :
+    {claims : Array Name} {forward : Std.HashSet Name × List (Name × Array Name)}
+    {result : Std.HashMap Name (Array Name)}
+    (hs : searchEdges (successors find) fuel claims.toList = some forward)
+    (h : table role fuel forward = some result) :
     (∀ claim ∈ claims, ∃ rested, result[claim]? = some rested) ∧
       ∀ claim rested, result[claim]? = some rested →
         ∀ d, d ∈ rested ↔ RestsOn find role claim d :=
-  have ⟨holds, exact⟩ := leafTable_some h
+  have ⟨holds, exact⟩ := leafTable_some hs h
   ⟨holds, fun claim rested found d => (exact claim rested found d).trans
     ⟨fun ⟨reach, isLeaf⟩ => ⟨reach, (leaf_iff role d).mp isLeaf⟩,
       fun ⟨reach, rests⟩ => ⟨reach, (leaf_iff role d).mpr rests⟩⟩⟩

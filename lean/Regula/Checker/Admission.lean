@@ -2026,12 +2026,13 @@ module's own data as for a replayed module (`mem_required`), and the coordinator
 keys only when the earlier environment that replayed the module admitted them
 (`reuseJustified`). With the receipt, `validate` returns the axioms that each name of the closure of
 the `ownedModules`' declarations (`Probe.ownedConstants`) reaches in the replayed kernel
-(`KernelAxioms.axiomTable` over `walkFind`, `KernelAxioms.axiomTable_some`), after `checkTable`
-admitted those of the owned declarations against the axioms Lean's `collectAxioms` reports,
-for each owned declaration, the axioms `collectAxioms` omits, and for each owned declaration, the
-assumptions and checked operations that the walk of the constants it uses reaches from it in
-the same kernel (`RegulaPolicy.Assumptions.table_some`), with the roles `Regula.Assumption.roles`
-reads from the environment. The original environment is retained
+(`KernelAxioms.axiomTable` over the forward search `KernelAxioms.searchEdges` of `walkFind`,
+`KernelAxioms.axiomTable_some`), after `checkTable` admitted those of the owned declarations against
+the axioms Lean's `collectAxioms` reports, for each owned declaration, the axioms `collectAxioms`
+omits, and for each owned declaration, the assumptions and checked operations that the walk of the
+constants it uses reaches from it in the same kernel, read from the same forward search
+(`RegulaPolicy.Assumptions.table_some`), with the roles `Regula.Assumption.roles` reads from the
+environment. The original environment is retained
 for compiler metadata only after replay succeeds. This is not a fresh replay of the imported dependency graph.
 The modules of `checker`, those of the owned dependencies under the checker's reserved prefixes
 that the environment does not own, are replayed only where one imports a replayed module
@@ -2066,9 +2067,14 @@ unsafe def validate (env : Environment) (ownedModules : Array Name) (reused : Ar
       | .ok receipt =>
         let roots := (Regula.Probe.ownedConstants env ownedModules.toList).map (·.1)
         let walk := walkFind checked replayed
-        let some table := axiomTable walk (fuel + roots.size) roots
-          | throw <| IO.userError "the search of the axioms that the owned declarations reach \
-              in the replayed kernel ran out of fuel"
+        let exhausted := IO.userError "the search of the axioms that the owned declarations reach \
+          in the replayed kernel ran out of fuel"
+        -- One forward search from the owned declarations, which the axiom table and the table of
+        -- assumptions both read (`KernelAxioms.leafTable`).
+        let some forward := searchEdges (successors walk) (fuel + roots.size) roots.toList
+          | throw exhausted
+        let some table := axiomTable walk (fuel + roots.size) forward
+          | throw exhausted
         -- The names the search found belong to the replay base's regions, which are released
         -- below, so each name is kept as the audited environment names it.
         let own (n : Name) : IO Name := match env.find? n with
@@ -2091,7 +2097,7 @@ unsafe def validate (env : Environment) (ownedModules : Array Name) (reused : Ar
         -- The assumptions and checked operations each owned declaration rests on, read from the
         -- types and values it reaches, proofs included, in the same kernel
         -- (`RegulaPolicy.Assumptions.table_some`). With no role in the environment, no declaration
-        -- rests on one, so there is nothing to search.
+        -- rests on one, so there is nothing to search back from.
         let roles : Std.HashMap Name RegulaPolicy.External.Role :=
           (Regula.Assumption.roles env).foldl (init := {}) fun roles (n, role) =>
             roles.insert n role
@@ -2099,7 +2105,7 @@ unsafe def validate (env : Environment) (ownedModules : Array Name) (reused : Ar
         let mut checkedOperations : Std.HashMap Name (Array Name) := {}
         unless roles.isEmpty do
           let some rests :=
-              RegulaPolicy.Assumptions.table walk (roles[·]?) (fuel + roots.size) roots
+              RegulaPolicy.Assumptions.table (roles[·]?) (fuel + roots.size) forward
             | throw <| IO.userError "the search of the assumptions that the owned declarations \
                 rest on in the replayed kernel ran out of fuel"
           for root in roots do

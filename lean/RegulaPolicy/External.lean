@@ -13,8 +13,7 @@ system, outside the logic.
 
 Each such fact is a declaration (`Role.assumption`): a predicate over a model of the system, which
 the theorems that rest on the fact take as a hypothesis, never an `axiom`. Such a predicate is
-the contract of one operation of the model, a `Std.Do` triple whose postcondition is the property,
-or states that the operations that run correspond to the model.
+the contract of one operation of the model, a `Std.Do` triple whose postcondition is the property.
 Each assumption names its sources (`Source`): a file of the Lean 4 repository at a release
 tag, a document, or the reason it is trusted when no source states it. A property that the
 observer tests on each result it gets, refusing the result when the test fails, is not an

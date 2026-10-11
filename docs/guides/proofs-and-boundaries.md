@@ -2390,7 +2390,8 @@ inferred from any pure proof.
 - **Axioms.** The record of an owned declaration has the axioms that the declaration reaches in the
   replayed kernel. It does not have the axioms of the table that Lean writes for each module, which
   `collectAxioms` reads first for an imported name. After the replay, `Admission.validate` starts
-  the search `KernelAxioms.axiomTable` from the owned declarations of `Probe.ownedConstants`. A step
+  the search `KernelAxioms.searchEdges` from the owned declarations of `Probe.ownedConstants`, and
+  `KernelAxioms.axiomTable` reads the axioms from it. A step
   of the search `KernelAxioms.successors` goes from a constant to each constant of its type and its
   value. A step also goes from an inductive type to its constructors, and from a recursor to its inductive
   types.
@@ -4709,8 +4710,8 @@ file system has contracts.
 
 The module of an external system gives its operations as the structure `Ops` and a model of the
 system as the structure `Model`. A model gives each operation as an action on a state. An
-assumption is a predicate over a model. Most assumptions are the contract of one operation, as a
-`Std.Do` triple. The attribute `@[regula_assumption]` of `Regula.Assumption` gives the system and
+assumption is a predicate over a model. Each assumption of the file system is the contract of one
+operation, as a `Std.Do` triple. The attribute `@[regula_assumption]` of `Regula.Assumption` gives the system and
 the sources of the assumption. An assumption is not an `axiom`: each theorem that uses it has it
 as a hypothesis.
 
@@ -4725,8 +4726,9 @@ attribute `@[regula_observer]` marks it.
 
 Each attribute is checked where it is written. An assumption must be a definition or an inductive
 type, and its type must end in `Prop`. The check reduces the type, thus it also accepts a different
-name of `Prop`. A role is given only in the module that declares the constant, and only one time.
-Thus no import can give a second role to a constant.
+name of `Prop`. The contract of a checked operation must be a theorem, and its statement must use
+the checked operation. A role is given only in the module that declares the constant, and only one
+time. Thus no import can give a second role to a constant.
 
 ### From a model to the real system
 
@@ -4768,7 +4770,9 @@ reference that names such a place with a different text.
 The controls `Fixtures.Mutations.StaleAssumptionSource` and
 `Fixtures.Mutations.UnpinnedAssumptionSource` show these refusals. The controls
 `Fixtures.Mutations.ImportedRoleTarget` and `Fixtures.Mutations.NonPredicateAssumption` show the
-refusals of a role for an imported constant and of an assumption that is not a predicate.
+refusals of a role for an imported constant and of an assumption that is not a predicate. The
+control `Fixtures.Mutations.UnrelatedCheckedContract` shows the refusal of a contract with a
+statement that does not use its checked operation.
 
 ### The file system
 
@@ -4780,8 +4784,8 @@ below is a file of the Lean 4 repository at `v4.34.1`, below `src`.
 | --- | --- | --- | --- |
 | `ReadsEntry` | trusted | `symlinkMetadata` gives the type of the entry at a path and changes nothing. It fails with `noFileOrDirectory` only when no entry is at the path. | [`Init/System/IO.lean#L1151-L1156`](https://github.com/leanprover/lean4/blob/v4.34.1/src/Init/System/IO.lean#L1151-L1156), [`runtime/io.cpp#L1160-L1179`](https://github.com/leanprover/lean4/blob/v4.34.1/src/runtime/io.cpp#L1160-L1179), [`runtime/io.cpp#L276-L279`](https://github.com/leanprover/lean4/blob/v4.34.1/src/runtime/io.cpp#L276-L279), POSIX.1-2024 `lstat()` |
 | `ReadsReal` | trusted | `realPath` gives the real path of a path and changes nothing. It fails only when there is no real path. | [`Init/System/IO.lean#L873-L879`](https://github.com/leanprover/lean4/blob/v4.34.1/src/Init/System/IO.lean#L873-L879), [`runtime/io.cpp#L1054-L1066`](https://github.com/leanprover/lean4/blob/v4.34.1/src/runtime/io.cpp#L1054-L1066), POSIX.1-2024 `realpath()` |
-| `RemovesTree` | trusted | `removeDirAll` of a directory at its real path keeps the type of each entry outside the directory, when it succeeds and when it fails. | [`Init/System/IO.lean#L1330-L1342`](https://github.com/leanprover/lean4/blob/v4.34.1/src/Init/System/IO.lean#L1330-L1342), [`runtime/io.cpp#L1160-L1179`](https://github.com/leanprover/lean4/blob/v4.34.1/src/runtime/io.cpp#L1160-L1179), [`runtime/io.cpp#L1197-L1207`](https://github.com/leanprover/lean4/blob/v4.34.1/src/runtime/io.cpp#L1197-L1207), [`runtime/io.cpp#L1351-L1364`](https://github.com/leanprover/lean4/blob/v4.34.1/src/runtime/io.cpp#L1351-L1364), POSIX.1-2024 `lstat()`, `unlink()` and `rmdir()` |
-| `RemovesEntry` | trusted | `removeFile` of a path at its real path keeps the type of each entry outside the path, when it succeeds and when it fails. | [`Init/System/IO.lean#L881-L886`](https://github.com/leanprover/lean4/blob/v4.34.1/src/Init/System/IO.lean#L881-L886), [`runtime/io.cpp#L1351-L1364`](https://github.com/leanprover/lean4/blob/v4.34.1/src/runtime/io.cpp#L1351-L1364), POSIX.1-2024 `unlink()` |
+| `RemovesTree` | trusted | `removeDirAll` of a directory at its real path keeps the type of each entry outside the directory, when it succeeds and when it fails. | [`Init/System/IO.lean#L1330-L1342`](https://github.com/leanprover/lean4/blob/v4.34.1/src/Init/System/IO.lean#L1330-L1342), [`runtime/io.cpp#L1160-L1179`](https://github.com/leanprover/lean4/blob/v4.34.1/src/runtime/io.cpp#L1160-L1179), [`runtime/io.cpp#L1197-L1207`](https://github.com/leanprover/lean4/blob/v4.34.1/src/runtime/io.cpp#L1197-L1207), [`runtime/io.cpp#L1351-L1364`](https://github.com/leanprover/lean4/blob/v4.34.1/src/runtime/io.cpp#L1351-L1364), POSIX.1-2024 `lstat()`, `unlink()` and `rmdir()`, Apple Libc-1752.120.2 `stdlib/FreeBSD/realpath.c#L216-L243` and `#L348-L358` |
+| `RemovesEntry` | trusted | `removeFile` of a path at its real path keeps the type of each entry outside the path, when it succeeds and when it fails. | [`Init/System/IO.lean#L881-L886`](https://github.com/leanprover/lean4/blob/v4.34.1/src/Init/System/IO.lean#L881-L886), [`runtime/io.cpp#L1351-L1364`](https://github.com/leanprover/lean4/blob/v4.34.1/src/runtime/io.cpp#L1351-L1364), POSIX.1-2024 `unlink()`, Apple Libc-1752.120.2 `stdlib/FreeBSD/realpath.c#L216-L243` and `#L348-L358` |
 | `removeDirectory` | checked | After a removal that succeeds, no entry is at the path: `removeDirectory_gone`, which uses only `ReadsEntry`. | [`Init/System/IO.lean#L1330-L1342`](https://github.com/leanprover/lean4/blob/v4.34.1/src/Init/System/IO.lean#L1330-L1342) |
 | `removeEntry` | checked | After a removal that succeeds, no entry is at the path: `removeEntry_gone`, which uses only `ReadsEntry`. | [`Init/System/IO.lean#L881-L886`](https://github.com/leanprover/lean4/blob/v4.34.1/src/Init/System/IO.lean#L881-L886) |
 
@@ -4794,8 +4798,21 @@ hypothesis. `Regula.Filesystem` gives them for the observer at the model of the 
 `corresponds_ofIO` proves `Corresponds`.
 
 `Model.Unchanged` gives what is outside a path. It is each path with a file name, not in the path,
-if the real path of its parent is that parent before the operation. For each such path, the entry
-after the operation has the same type as before, or no entry is at the path before and after.
+if the real path of its parent is that parent before the operation. Before the operation, the path
+must also be its own real path, or no entry is at it. For each such path, the entry after the
+operation has the same type as before, or no entry is at the path before and after.
+
+A second name of an entry is not its own real path. An example is the same name in a different
+case, on a volume that ignores case or Unicode normalization. Thus `Model.Unchanged` does not
+include such a name. A symbolic link is also not its own real path, thus `Model.Unchanged` does not
+include it. A path with no entry is in `Model.Unchanged`, thus no entry appears outside the path.
+
+Some volumes ignore case or Unicode normalization. On such a volume, the two removal assumptions
+are correct only if `realpath(3)` gives the name that the volume keeps for each component. The
+`realpath(3)` of
+Darwin does this, as Apple Libc-1752.120.2 `stdlib/FreeBSD/realpath.c#L216-L243` and `#L348-L358`
+show. This was observed one time on macOS 27.0.1 with APFS: `realpath dir/FILE` printed
+`.../Dir/file`.
 
 The assumptions are for a POSIX system. On Windows, `symlinkMetadata` of Lean 4.34.1 follows a
 symbolic link. Also, `realPath` gives the path that it got when it cannot find the real path
@@ -4807,9 +4824,9 @@ Thus the observer refuses these two reads and each removal of a directory on Win
 The checker walks the constants from each declaration in the kernel that replayed it. It records
 the assumptions and the checked operations that the walk reaches. Result schema 17 gives them as
 `assumptions` and `checkedOperations`. The `--verbose` output gives them as `assumptions=` and
-`checked=`. The walk goes into the type and the value of each constant, thus also into each proof,
-as the table of axioms does. The theorem `RegulaPolicy.Assumptions.table_some` proves that the
-table of the checker gives this walk.
+`checked=`. The walk is the search forward of the table of axioms, into the type and the value of
+each constant, thus also into each proof. The theorem `RegulaPolicy.Assumptions.table_some` proves
+that the table of the checker gives this walk.
 
 A hypothesis can write out the predicate of an assumption, with no name of a declaration with a
 role. The walk does not find an assumption in such a hypothesis. It finds the assumption only
@@ -4827,6 +4844,16 @@ This section does not establish these properties:
 - That no directory below a removed directory is also mounted at a different place, for example by
   a bind mount. `RemovesTree` is false for such a directory, because its entries also have names
   outside the removed directory.
+- That no ancestor of a removed path is also reached through a second mount, for example a bind
+  mount. `realpath(3)` does not resolve a mount. Thus each entry below such an ancestor has a
+  second name that is its own real path, and `RemovesTree` and `RemovesEntry` are false.
+- That `realpath(3)` gives the name that the volume keeps for each component. Two cases keep the
+  name as it is written, and there `RemovesTree` and `RemovesEntry` are false. The first case is
+  Darwin, on a volume that does not support `getattrlist(2)`. There `realpath(3)` uses `lstat(2)`
+  (`realpath.c#L238-L243`). The second case is the `realpath(3)` of glibc, in a Linux directory
+  that ignores case.
+- That a symbolic link outside a removed path stays. `Model.Unchanged` does not include a symbolic
+  link, because a symbolic link is not its own real path.
 - That an entry outside a removed path is the same file, with the same contents, after the
   removal. The model gives only the type of each entry.
 - That each call of an operation of an external system is in an observer. Regula's code also calls

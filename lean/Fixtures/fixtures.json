@@ -929,6 +929,11 @@
   "reason": "compile-error",
   "pattern": "is not a predicate: an assumption is a definition or an inductive type whose type ends in `Prop`"
  },
+ "Fixtures.Mutations.UnrelatedCheckedContract": {
+  "expect": "fail",
+  "reason": "compile-error",
+  "pattern": "the statement of `Fixtures.UnrelatedCheckedContract.other_bounded` does not use `Fixtures.UnrelatedCheckedContract.step`: the contract of a checked operation must state the postcondition of that operation"
+ },
  "Fixtures.Mutations.ForgedAxiomTableOmission": {
   "expect": "fail",
   "reason": "label-exceeds-claim",

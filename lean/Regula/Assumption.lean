@@ -30,7 +30,8 @@ refused (`RegulaPolicy.External.Source.unpinned`), so a fact about Lean or Lake 
 
 Each attribute is checked where it is written: an assumption is a definition or an inductive type
 whose type ends in `Prop`, read with Lean's reduction; a checked operation is a definition, and its
-contract a theorem; an observer is a definition or an opaque constant. A role is given in the
+contract a theorem whose statement uses the operation; an observer is a definition or an opaque
+constant. A role is given in the
 module that declares the constant, and once. Each constant is declared by one module, so no import
 can carry a second role for it, and `roles` meets each constant at most once.
 
@@ -153,9 +154,13 @@ private def role (declaration : Name) (stx : Syntax) : CoreM Role := do
       throwError "`{shown}` is not a definition: a checked operation is a definition that runs \
         an operation of the system and tests its result"
     let contract ← resolveGlobalConstNoOverload stx[2]
-    unless (← getConstInfo contract) matches .thmInfo _ do
+    let stated ← getConstInfo contract
+    unless stated matches .thmInfo _ do
       throwErrorAt stx[2] "`{contract}` is not a theorem: the contract of a checked operation \
         is the theorem that states its postcondition"
+    unless stated.type.getUsedConstants.contains declaration do
+      throwErrorAt stx[2] "the statement of `{contract}` does not use `{shown}`: the contract of \
+        a checked operation must state the postcondition of that operation"
     return .checked (← system stx[1]) contract (← stx[3].getArgs.toList.mapM source)
   | ``regula_observer =>
     unless info matches .defnInfo _ | .opaqueInfo _ do
