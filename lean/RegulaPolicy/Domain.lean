@@ -2208,9 +2208,9 @@ structure Command where
   deriving Repr, DecidableEq
 
 /-- The part of a transcript that the toolchain observes: the module and source file that Lake
-resolves, the elaborating toolchain's identity, the header's imports as Lean's parser reads them,
-and each command as the frontend records it. The project's configuration and source decide what
-these observe, and no field here is a mark the project writes beside them. -/
+resolves, the elaborating toolchain's identity, and each command as the frontend records it. The
+project's configuration and source decide what these observe, and no field here is a mark the
+project writes beside them. -/
 structure Transcript.ToolchainObserved where
   /-- The elaborated module. -/
   «module» : Lean.Name
@@ -2220,8 +2220,6 @@ structure Transcript.ToolchainObserved where
   leanVersion : String
   /-- The Git commit of the elaborating toolchain. -/
   leanGitHash : String
-  /-- The source header's imports. -/
-  imports : Array ImportRecord
   /-- Each command that added constants, in source order. -/
   commands : Array Command
   /-- Evaluators under which the replacement history
@@ -2230,7 +2228,8 @@ structure Transcript.ToolchainObserved where
   replacementHistoryUnsupported : Array String := #[]
   deriving Repr, DecidableEq
 
-/-- The part of a transcript that the project writes: the source text it elaborated, and the
+/-- The part of a transcript that the project writes: the source text it elaborated, the header's
+imports, a copy of the module and the `all`, `public` and `meta` marks of each `import`, and the
 runtime replacements (`@[implemented_by]`) that the source's commands recorded. A decision that
 reads one of these fields rests on what the project wrote. -/
 structure Transcript.ProjectWritten where
@@ -2238,6 +2237,8 @@ structure Transcript.ProjectWritten where
   sourceBytes : Nat
   /-- The exact source text that was elaborated. -/
   sourceContent : String
+  /-- The source header's imports. -/
+  imports : Array ImportRecord
   /-- Every `@[implemented_by]` pair (reference, target) seen in any command's environment, when
   replacement history was requested. -/
   runtimeReplacements : Array (Lean.Name × Lean.Name) := #[]
