@@ -358,6 +358,14 @@ private def stream (cwd : FilePath) (cmd : String) (args : Array String)
 
 private def say (line : String) : IO Unit := IO.println s!"provisioning: {line}"
 
+/-- The toolchain program `name` by its path beside the `lean` that runs this program
+(`IO.appDir`), never one that `PATH` resolves first. The `lean --githash` checks
+(`requireCompiler` and the staged workspace's) are the exception: they ask the `lean` that the
+directory's toolchain selection puts on `PATH` for its commit, and refuse unless it is the commit
+of the `lean` running this program. -/
+private def toolchain (name : String) : IO String :=
+  return ((← IO.appDir) / name).toString
+
 private def nonce : IO String := do
   let bytes ← IO.getRandomBytes 8
   return s!"{← IO.Process.getPID}-{bytes.foldl (fun value byte => value * 256 + byte.toNat) 0}"
@@ -365,7 +373,7 @@ private def nonce : IO String := do
 /-- Execute the released Mathlib plan in the workspace whose packages receive the artifacts. -/
 private def buildMathlib (cwd : FilePath) (readOnly : Bool) : IO Unit := do
   for command in mathlibCommands readOnly do
-    stream cwd "lake" command
+    stream cwd (← toolchain "lake") command
 
 private def admitComponent (what text : String) : IO Component := do
   let some name := component? text
@@ -838,13 +846,13 @@ def provisionVerso (repo : FilePath) : IO Unit := do
     throw <| IO.userError s!"provisioning: markdown/lake-manifest.json pins MD4Lean {reader} \
       and website/lake-manifest.json pins MD4Lean {verso}; the two packages keep one checkout, \
       so pin the same commit in the two manifests"
-  stream (repo / "website") "lake" #["build", "verso/VersoManual"]
+  stream (repo / "website") (← toolchain "lake") #["build", "verso/VersoManual"]
 
 /-- Check the exact supported compiler before provisioning any dependency artifacts. -/
 def requireReleasedCompiler (repo : FilePath) : IO Unit := do
   requireCompiler repo
   let out ← IO.Process.output {
-    cmd := "lean", args := #["lean/RegulaPolicy/Compiler.lean"], cwd := some repo,
+    cmd := ← toolchain "lean", args := #["lean/RegulaPolicy/Compiler.lean"], cwd := some repo,
     env := #[("REGULA_COMPILER_GUARD", some "1"), ("GHCR_TOKEN", none)], stdin := .null }
   unless out.exitCode == 0 do
     throw <| IO.userError s!"provisioning: released compiler guard failed:\n{out.stdout}{out.stderr}"

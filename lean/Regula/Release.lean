@@ -1770,10 +1770,12 @@ private def messagesSince (prev : Version) : IO (List String) := do
     let m := m.trimAscii.toString
     if m.isEmpty then none else some m
 
-/-- The version Lake reads from `lakefile.lean`: `lake reservoir-config`, whose `version` is what
-Reservoir indexes a version tag with. -/
+/-- The version Lake reads from `lakefile.lean`: `lake reservoir-config`, whose `version`
+is what Reservoir indexes a version tag with. That `lake` is the one beside the `lean` that runs
+this program, by its path, so no `lake` that `PATH` resolves first is run. -/
 private def lakeVersion : IO Version := do
-  let out ← IO.Process.output { cmd := "lake", args := #["reservoir-config"] }
+  let out ← IO.Process.output {
+    cmd := ((← IO.appDir) / "lake").toString, args := #["reservoir-config"] }
   unless out.exitCode == 0 do fail s!"lake reservoir-config: {out.stderr}"
   let json ← IO.ofExcept (Json.parse out.stdout)
   let text ← IO.ofExcept (json.getObjValAs? String "version")

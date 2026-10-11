@@ -213,7 +213,7 @@ private def compileIn (repo scratch : FilePath) (spec : SourceSpec)
     (insideLakeEnv : Bool) : IO (Except ProducerReport.AdmissionFailure Compilation) := do
   let spawn := fun cmd args =>
     if insideLakeEnv then runProcess repo cmd args
-    else runProcess repo "lake" (#["env", cmd] ++ args) scrubbedLeanPathEnv
+    else runLake repo (#["env", cmd] ++ args) scrubbedLeanPathEnv
   let sourcePath := scratch / s!"{spec.«module»}.lean"
   let oleanPath := scratch / s!"{spec.«module»}.olean"
   let ileanPath := scratch / s!"{spec.«module»}.ilean"
@@ -255,7 +255,7 @@ private def compileIn (repo scratch : FilePath) (spec : SourceSpec)
         if path.isEmpty || !(FilePath.mk path).isAbsolute then
           throw <| IO.userError "Lake batch LEAN executable must be absolute"
         pure path
-      else pure "lean"
+      else toolchainProgram "lean"
     let compileStart ← IO.monoMsNow
     let process ← spawn compiler args
     timingSpan s!"diagnostic span: compileIn compile: {(← IO.monoMsNow) - compileStart}ms"
@@ -307,7 +307,7 @@ def compileBatch (repo scratch : FilePath) (jobs : Nat) (specs : Array SourceSpe
       let input := work / "request.json"
       let output := work / "result.json"
       writeJson input (toJson ({ scratch, jobs, specs } : CompileBatch))
-      let result ← runProcess repo "lake"
+      let result ← runLake repo
         #["env", binary.toString, "--compile-batch-worker", input.toString, output.toString]
         scrubbedLeanPathEnv
       if !result.succeeded then throw <| IO.userError result.output

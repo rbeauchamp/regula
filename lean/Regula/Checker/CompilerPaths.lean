@@ -266,7 +266,7 @@ private def phase (repo scratch : FilePath) (test : Case) (negative : Bool) : IO
   -- Resolve configuration before the checker captures its immutable source
   -- binding. A later first Lake invocation would otherwise create the manifest
   -- inside the checked interval, correctly invalidating that binding.
-  let configured ← runProcess scratch "lake" #["update"]
+  let configured ← runLake scratch #["update"]
   if !configured.succeeded then
     return #[s!"{test.name}: configuration setup failed:\n{configured.output}"]
   -- Lean resolves an entire module prefix from one search directory. Supply the unchanged
@@ -317,8 +317,8 @@ private def phase (repo scratch : FilePath) (test : Case) (negative : Bool) : IO
   if negative then
     if let some symbol := test.emittedSymbol then
       let cFile := scratch / "wrapper.c"
-      let compiled ← runProcess scratch "lake"
-          #["env", "lean", "-c", cFile.toString, "Wrapper.lean"]
+      let compiled ← runLake scratch
+          #["env", (← toolchainProgram "lean"), "-c", cFile.toString, "Wrapper.lean"]
       if !compiled.succeeded then
         failures :=
             failures.push s!"{test.name}: C diagnostic compilation failed:\n{compiled.output}"

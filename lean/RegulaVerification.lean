@@ -169,7 +169,8 @@ theorem select_exact (args : List String) : (select args).map Subtype.val = pars
 
 /-- One argv invocation; there is no shell source in the recipe. -/
 structure Command where
-  /-- The program to run, found on `PATH`. -/
+  /-- The program to run: a program of the Lean toolchain (`toolchainPrograms`) runs by its path
+  beside the `lean` that runs this driver (`Command.resolve`), and any other is found on `PATH`. -/
   program : String
   /-- Its arguments, passed as they are. -/
   args : Array String
@@ -586,26 +587,46 @@ def Command.launch (command : Command) : Priority → String × Array String
   | .normal => (command.program, command.args)
   | .low => ("nice", #["-n", "19", command.program] ++ command.args)
 
+/-- The programs of the Lean toolchain that the recipes name. `lake env`, which a recipe uses, puts
+the binary directory of every package of the workspace before the toolchain's on the `PATH` of the
+program it starts, so such a program runs by its path in the toolchain's binary directory. -/
+def toolchainPrograms : List String := ["lake", "lean"]
+
+/-- `program` by its path in the binary directory `bin` when it is a toolchain program
+(`toolchainPrograms`), and unchanged otherwise. -/
+def toolchainPath (bin : System.FilePath) (program : String) : String :=
+  if toolchainPrograms.contains program then (bin / program).toString else program
+
+/-- `command` with each toolchain program it starts by its path in the binary directory `bin`
+(`toolchainPath`): its own program, and, when that is `lake` and its arguments start with `env`,
+the program that `lake env` starts. -/
+def Command.resolve (bin : System.FilePath) (command : Command) : Command :=
+  let args := if command.program = "lake" ∧ command.args[0]? = some "env" then
+      command.args.modify 1 (toolchainPath bin) else command.args
+  { command with program := toolchainPath bin command.program, args }
+
 /-- Start `command` at `priority` without waiting for it; `none`, with a report, when it could not
 be started. It cannot raise. The child stays in the driver's process group, so the outer
 deadline's kill reaches it. The inherited Lean search paths are removed, so a Lake command
 resolves modules only through the workspace it runs in. `LAKE_ARTIFACT_CACHE` is `false`, so
 Lake's artifact cache is off for each package whose own configuration does not turn it on. These
 builds are not the checker's: the gate's own build of the claimed surface uses no artifact cache
-whatever the configuration says (`Regula.Checker.Lake.Build.run`). An inherited
-`REGULA_ORDINARY_LAKEFILES` is removed, so only a command that gives it (`ownerAssertion`) runs
-with the owner's assertion; each variable of the command's `env` is set last. Process execution
-and signal delivery remain trusted. -/
+whatever the configuration says (`Regula.Checker.Lake.Build.run`). Its toolchain programs run from
+the directory of the `lean` that runs this driver (`IO.appDir`, `Command.resolve`), the toolchain
+the repository selects. An inherited `REGULA_ORDINARY_LAKEFILES` is removed, so only a command that
+gives it (`ownerAssertion`) runs with the owner's assertion; each variable of the command's `env`
+is set last. Process execution and signal delivery remain trusted. -/
 def start (priority : Priority) (command : Command) :
     BaseIO (Option (IO.Process.Child stdio)) := do
   announce s!"start {priority.display}{command.display}"
-  let (program, args) := command.launch priority
-  let spawn : IO (IO.Process.Child stdio) := IO.Process.spawn {
-    stdio with
-    cmd := program, args := args, cwd := some command.dir,
-    env := #[("GHCR_TOKEN", none), ("LEAN_PATH", none), ("LEAN_SRC_PATH", none),
-      ("LAKE_ARTIFACT_CACHE", some "false"), ("REGULA_ORDINARY_LAKEFILES", none)] ++
-      command.env.map fun (name, value) => (name, some value) }
+  let spawn : IO (IO.Process.Child stdio) := do
+    let (program, args) := (command.resolve (← IO.appDir)).launch priority
+    IO.Process.spawn {
+      stdio with
+      cmd := program, args := args, cwd := some command.dir,
+      env := #[("GHCR_TOKEN", none), ("LEAN_PATH", none), ("LEAN_SRC_PATH", none),
+        ("LAKE_ARTIFACT_CACHE", some "false"), ("REGULA_ORDINARY_LAKEFILES", none)] ++
+        command.env.map fun (name, value) => (name, some value) }
   match ← spawn.toBaseIO with
   | .ok child => return some child
   | .error error =>

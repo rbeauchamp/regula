@@ -208,7 +208,7 @@ def documentationDependencies : IO Unit := do
     IO.FS.writeFile (project / "Example.lean") source
     IO.FS.writeFile
         (project / "docs/control.md") "```lean\nimport Dep\nexample : Dep.n = 1 := rfl\n```\n"
-    success (← run project "lake" #["update"] cleanEnv)
+    success (← runLake project #["update"] cleanEnv)
     for route in #["docFenceAudit", "ruleExamples"] do
       for phase in #["positive", "changed-during-build", "restored"] do
         if phase != "changed-during-build" then

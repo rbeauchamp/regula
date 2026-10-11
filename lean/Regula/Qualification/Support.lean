@@ -34,15 +34,23 @@ def timeoutCommand : IO String := do
   throw <| IO.userError "qualification requires GNU coreutils timeout"
 
 /-- Run within the public entrypoint's timed process group. Do not detach a nested
-process group: the enclosing deadline must kill descendants holding output pipes too. -/
+process group: the enclosing deadline must kill descendants holding output pipes too. Throws
+without starting it when it would run a toolchain program by its bare name
+(`Regula.Toolchain.refuseBareName`). -/
 def run (root : FilePath) (command : String) (args : Array String)
     (env : Array (String × Option String) := #[]) : IO IO.Process.Output := do
+  Regula.Toolchain.refuseBareName command args
   let result ← IO.Process.output { cmd := command, args, cwd := some root, env }
   if #[124, 125, 126, 127, 137].contains result.exitCode then
     throw <|
         IO.userError s!"qualification process failed/timed \
           out: {command} {args}\n{result.stdout}{result.stderr}"
   return result
+
+/-- `run` of the toolchain's `lake`, by its path (`Regula.Checker.toolchainProgram`). -/
+def runLake (root : FilePath) (args : Array String) (env : Array (String × Option String) := #[]) :
+    IO IO.Process.Output := do
+  run root (← Regula.Checker.toolchainProgram "lake") args env
 
 /-- One group-wide deadline for a standalone public entrypoint. This is only used at
 the outer boundary, never for commands already under acceptance. SIGKILL terminates

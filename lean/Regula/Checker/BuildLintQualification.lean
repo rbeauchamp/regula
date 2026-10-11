@@ -240,7 +240,7 @@ def setup (repo adopter : FilePath) (exampleDir : String := "build-lint")
   requireCheckout repo adopter
 
 private def build (adopter : FilePath) : IO ProcessResult :=
-  runProcess adopter "lake" #["build"] scrubbedLeanPathEnv
+  runLake adopter #["build"] scrubbedLeanPathEnv
 
 private def positive (name : String) (result : ProcessResult) : Array String :=
   let label := "PASS"
