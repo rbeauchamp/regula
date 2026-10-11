@@ -17,9 +17,14 @@ planted declaration below is linked into a program, and its planted initializer 
   that the compiler made of it are admitted (`decidedVariants`).
 - A removal in an initializer: `rawRemovals` starts at each initializer that an executable runs
   (`initializers`), so it finds a removal that no call from `main` reaches.
-- A declaration of another name bound to a C function of the runtime that removes: it is a raw
-  removal (`removalSymbols`).
-- An absent output below a linked ancestor: `ownPath` refuses it before anything is made. -/
+- A declaration of another name bound to a C function of the runtime that removes: a call of it is
+  a raw removal (`removalSymbols`).
+- A rename and the writing of a module, which replace an entry: each call is a raw removal
+  (`primitives`).
+- An absent output below a linked ancestor, and an output with a `.` or `..` component: `ownPath`
+  refuses each before anything is made.
+- A symbolic link, a path through one and a file where a directory is checked:
+  `requireOwnDirectory` refuses each, and accepts a directory at its own place and an absent path. -/
 
 namespace Regula.RemovalControls
 
@@ -46,6 +51,17 @@ run_cmd do
       throwError "ownPath accepted an absent path below a linked component"
     unless (← Regula.Removal.ownPath (base / "target" / "new")) == base / "target" / "new" do
       throwError "ownPath changed a path below its own place"
+    unless (← (Regula.Removal.ownPath (base / "fresh" / "." / "out")).toBaseIO)
+        matches .error _ do
+      throwError "ownPath accepted a path with a `.` component"
+    unless (← (Regula.Removal.ownPath (base / "target" / ".." / "linked")).toBaseIO)
+        matches .error _ do
+      throwError "ownPath accepted a path with a `..` component"
+    for refused in [base / "linked", base / "linked" / "out", base / "target" / "out" / "keep"] do
+      unless (← (Regula.Removal.requireOwnDirectory refused).toBaseIO) matches .error _ do
+        throwError "requireOwnDirectory accepted {refused}"
+    Regula.Removal.requireOwnDirectory (base / "target" / "out")
+    Regula.Removal.requireOwnDirectory (base / "absent")
     unless ← (base / "target" / "out" / "keep").pathExists do
       throwError "removeOwn removed an entry below a linked component"
     Regula.Removal.removeOwn .directory (base / "target" / "out")
@@ -77,11 +93,29 @@ opaque plantedRemoval (path : @& FilePath) : IO Unit
 /-- A caller of `plantedRemoval`, the root of its control. -/
 def callsPlantedRemoval (path : FilePath) : IO Unit := plantedRemoval path
 
--- A declaration bound to a removal symbol of the runtime is a raw removal, whatever its name.
+-- A call of a declaration bound to a removal symbol of the runtime is a raw removal, whatever the
+-- declaration's name, and so is the declaration as a root.
 run_cmd do
   let (raw, unknown) := Regula.Removal.rawRemovalsFrom (← getEnv) #[``callsPlantedRemoval]
-  unless raw == #[(``plantedRemoval, `lean_io_remove_file)] && unknown.isEmpty do
-    throwError "the planted binding is not a raw removal: {raw}, unknown {unknown}"
+  unless raw == #[(``callsPlantedRemoval, ``plantedRemoval)] && unknown.isEmpty do
+    throwError "the call of the planted binding is not a raw removal: {raw}, unknown {unknown}"
+  let (raw, _) := Regula.Removal.rawRemovalsFrom (← getEnv) #[``plantedRemoval]
+  unless raw == #[(``plantedRemoval, `lean_io_remove_file)] do
+    throwError "the planted binding is not a raw removal as a root: {raw}"
+
+/-- A caller of the library's operations that replace an entry: a rename and the writing of a
+module. No program calls it. -/
+def callsReplacements (env : Environment) (source target : FilePath) : IO Unit := do
+  IO.FS.rename source target
+  Lean.writeModule env target
+
+-- A rename and the writing of a module are removals that the check finds.
+run_cmd do
+  let (raw, unknown) := Regula.Removal.rawRemovalsFrom (← getEnv) #[``callsReplacements]
+  let replacements := [``IO.FS.rename, ``Lean.writeModule]
+  unless raw.size == 2 && replacements.all (fun replacement => raw.contains
+      (``callsReplacements, replacement)) && unknown.isEmpty do
+    throwError "the planted replacements are not raw removals: {raw}, unknown {unknown}"
 
 -- The planted initializer is found, and no other initializer of this module's imports removes.
 run_cmd do

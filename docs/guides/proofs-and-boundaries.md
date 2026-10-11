@@ -425,9 +425,13 @@ Before this decision, the site executable removed its output directory, `tmp/sit
 `tmp/site-releases` and `website/Generated` with no such read. With a link at one of these
 paths, it deleted the content of the target of the link
 ([issue 261](https://github.com/rbeauchamp/regula/issues/261)). At this time, it stops there
-and removes nothing. A relative `--out` is joined to the real path of the working directory, and
-no component that it gives is resolved. Before it makes anything, the build refuses a link, `.`
-or `..` among the present components of `--out`.
+and removes nothing.
+
+A relative `--out` is joined to the real path of the working directory, and no component that it
+gives is resolved. Before it reads anything, the build refuses a `.` or `..` component of `--out`. Before it makes anything, it refuses a link among the present components.
+
+On Windows, the site executable removes nothing and refuses each `--out`. There the runtime reads
+a link's target when asked to read the link itself, so no read that follows no link is available.
 
 The driver cannot import `RegulaCore.Removal`, because `scripts/verify.sh` operates the driver
 before the build. The site executable cannot import the driver, because each of the two programs
@@ -442,14 +446,19 @@ variants of it that the compiler made can call a removal function of the Lean li
 that `Regula.Removal.libraryRemovals` gives are the only other calls that the check permits. The
 build fails for each different call.
 
-Each call on that list is a call of `IO.FS.removeFile` in Lake or in the tactic `bv_decide`.
-Each one removes one file that the library manages. A removal of a directory in a library is not
-on the list. Each entry rests on an assumption, and `libraryRemovals` gives it with a source line
-of the library. For example, Lake removes its stale compiled configuration in the workspace that
-it loads, as each `lake` command does.
+Each call on that list removes one file that the library manages, or writes the compiled
+configuration of Lake. A removal of a directory in a library is not on the list. Each entry rests
+on an assumption, and `libraryRemovals` gives it with a source line of the library.
 
-A declaration that `extern` binds to `lean_io_remove_file` or `lean_io_remove_dir` is also a
-removal function, whatever its name. The check finds such a declaration.
+For example, Lake removes and writes its compiled configuration in `.lake/config/0`. Before Lake
+loads the package, the site executable stops if `.lake`, `.lake/config` or `.lake/config/0` is a
+link. It also stops if one of them is a file or is not at its own place. Thus the files that
+Lake removes and writes there are files of the checkout.
+
+A removal function removes or replaces an entry, as a rename and the writing of a module do. A
+declaration that `extern` binds to `lean_io_remove_file`, `lean_io_remove_dir`, `lean_io_rename`
+or `lean_compacted_region_save` is also a removal function, whatever its name. These are the C
+functions of the runtime that remove or replace an entry. The check finds such a declaration.
 
 The criterion of the check is honest code, as `SECURITY.md` defines it. Honest code in the site
 executable cannot reach a removal outside `Regula.Removal`, except the calls on the list.
@@ -468,7 +477,8 @@ removal by a different program, for example `rm`, is not a call that this check 
 
 The deployment program `lean/Regula/Site/Deployment.lean` imports only the Lean core, thus it
 cannot use the decision. It reads each page from the output of `curl` and writes no file. Thus it
-removes nothing.
+removes nothing. It starts `curl` with no variable of its environment except `PATH`. Thus no
+variable, for example `SSLKEYLOGFILE`, can make `curl` write a file.
 
 The driver moves the pending record to `tmp/acceptance-link.json` only if
 `RegulaVerification.passed` accepts the exit status of each command. The driver does that move

@@ -1,6 +1,7 @@
 import Lake
 import Lake.Load
 import Regula.Checker.Common
+import Regula.Removal
 
 /-!
 # In-process Lake workspace loading
@@ -64,11 +65,22 @@ def withRootWorkspace {α : Type} (repo : FilePath) (action : _root_.Lake.Worksp
 to `action`, after refusing a root package that declares a dependency. For a root that declares
 none, `Lake.loadWorkspace` loads no other package, so `action` gets the packages that
 `withRootWorkspace` gives it. The compiled code of this function calls no loader that resolves or
-materializes a dependency, which removes directories (`Regula.Removal.rawRemovals`). -/
+materializes a dependency, which removes directories (`Regula.Removal.rawRemovals`).
+
+Its prerequisite: before the loader runs, it refuses when `.lake`, `.lake/config` or the directory
+of the root package's compiled configuration below the checkout (`Lake.LoadConfig.configDir`,
+`.lake/config/0`) is there and is not a directory at its own place
+(`Regula.Removal.requireOwnDirectory`). The loader removes and writes files in that directory
+(`Lake/Load/Lean/Elab.lean:244`), so with this check they are the checkout's own. -/
 def withRootPackage {α : Type} (repo : FilePath) (action : _root_.Lake.Workspace → IO α) :
     IO α := do
-  let load : _root_.Lake.LoggerIO _root_.Lake.Workspace :=
-    _root_.Lake.loadWorkspaceRoot (← loadConfig repo false)
+  let config ← loadConfig repo false
+  let lake := config.wsDir / _root_.Lake.defaultLakeDir
+  for directory in [lake, lake / "config", config.configDir] do
+    try Regula.Removal.requireOwnDirectory directory
+    catch error => throw <| IO.userError s!"lake-workspace-load-failed: nothing was loaded: \
+      {error}"
+  let load : _root_.Lake.LoggerIO _root_.Lake.Workspace := _root_.Lake.loadWorkspaceRoot config
   let (ws?, log) ← load.captureLog
   withLoaded ws? log fun ws => do
     unless ws.root.depConfigs.isEmpty do

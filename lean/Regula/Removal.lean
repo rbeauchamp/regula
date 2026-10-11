@@ -7,9 +7,12 @@ import Lean.Compiler.InitAttr
 The operations by which the site executable removes a directory or a file. The exported ones,
 `removeOwn` and `removeEntry`, each observe the place themselves, without following a symbolic
 link at it, and remove only when the decision `Regula.Removal.removal` decided to remove
-(`removal_remove_iff`). The observation (`Observation`) and every operation that takes an
+(`removal_remove_iff`). `requireOwnDirectory` stops unless a directory is at its own place or
+nothing is there, by the same observation; the site checks Lake's directories with it before Lake
+loads the checkout's package. The observation (`Observation`) and every operation that takes an
 observation or a decision are private to this module. `removeDecided` is the one operation of
-the site executable that calls a removal primitive of Lean's library. `rawRemovals` finds each
+the site executable that calls a removal primitive of Lean's library, an operation that removes or
+replaces an entry (`primitives`, `removalSymbols`). `rawRemovals` finds each
 call of a removal primitive that an executable reaches other than through it or
 `libraryRemovals`.
 
@@ -30,7 +33,9 @@ removal primitives are trusted. That no process changes the place between the ob
 removal is trusted. A process that replaces an entry below a directory with a symbolic link while
 `IO.FS.removeDirAll` removes the directory is outside this module: that function examines each
 entry and then opens it by its path. A removal by another program that an executable starts, such
-as `rm`, is not a call that `rawRemovals` finds. -/
+as `rm`, is not a call that `rawRemovals` finds. On Windows every operation of this module stops
+before it reads or removes anything (`refuseOnWindows`): the runtime has no read there that
+follows no link. -/
 
 namespace Regula.Removal
 
@@ -41,8 +46,19 @@ def Kind.noun : Kind → String
   | .directory => "directory"
   | .file => "file"
 
-/-- What is at `path`, by a read that does not follow a symbolic link at `path` itself. -/
+/-- Stop on Windows, where no read follows no link. Assumes: there, the runtime of Lean
+4.34.1 reads `System.FilePath.symlinkMetadata` with the read that follows a link
+(`src/runtime/io.cpp:1160`, where `lean_io_symlink_metadata` returns `lean_io_metadata` on
+Windows). -/
+private def refuseOnWindows (path : FilePath) : IO Unit := do
+  if System.Platform.isWindows then
+    throw <| IO.userError s!"nothing was made or removed: {path} cannot be read without following \
+      a symbolic link on Windows, so no removal and no path of an output is accepted there"
+
+/-- What is at `path`, by a read that does not follow a symbolic link at `path` itself. It stops
+on Windows (`refuseOnWindows`). -/
 private def place (path : FilePath) : IO Place := do
+  refuseOnWindows path
   match ← path.symlinkMetadata.toBaseIO with
   | .ok metadata => return match metadata.type with
     | .dir => .present .directory
@@ -69,10 +85,12 @@ private def observe (path : FilePath) : IO (Observation path) := do
 
 /-- Remove the entry of `kind` at `path`, given an observation of `path` and the proof that
 `removal` decided to remove on it. It is not inlined, so a removal primitive is called only in its
-own compiled code (`decidedVariants`). -/
+own compiled code (`decidedVariants`). It stops on Windows (`refuseOnWindows`), where no
+observation is made either. -/
 @[noinline]
 private def removeDecided (path : FilePath) (kind : Kind) (observation : Observation path)
-    (_decided : removal kind observation.observed = .remove) : IO Unit :=
+    (_decided : removal kind observation.observed = .remove) : IO Unit := do
+  refuseOnWindows path
   match kind with
   | .directory => IO.FS.removeDirAll path
   | .file => IO.FS.removeFile path
@@ -105,18 +123,32 @@ def removeEntry (path : FilePath) : IO Unit := do
     | _ => .directory
   removeObserved kind path observation
 
-/-- `path` as an absolute path whose present ancestors are at their own place. A relative path is
-joined to the real path of the working directory, and no component that `path` gives is
-resolved. It refuses when the nearest ancestor of `path` that is present, by a read that follows
-no link, is not its own real path: a symbolic link, `.` or `..` is among the components up to it.
-An absent ancestor is made later by `IO.FS.createDirAll` as a directory, so no link is among them
-when no process makes one after this check, which is trusted. -/
+/-- Stop unless nothing is at `path` or a directory is there at its own place, by the observation
+that `removeOwn` makes. These are the places on which `removal .directory` does not refuse
+(`removal_remove_iff`, `removal_nothing_iff`), so a symbolic link, a file and a path through a
+symbolic link at `path` make it stop. -/
+def requireOwnDirectory (path : FilePath) : IO Unit := do
+  let observation ← observe path
+  if removal .directory observation.observed == .refuse then
+    throw <| IO.userError s!"{path} is not a directory at its own place (a symbolic link, a file, \
+      or a path through a symbolic link is there)"
+
+/-- `path` as an absolute path whose present ancestors are at their own place. It refuses a path
+with a `.` or `..` component before it reads anything. A relative path is joined to the real path
+of the working directory, and no component that `path` gives is resolved. It refuses when the
+nearest ancestor of `path` that is present, by a read that follows no link, is not its own real
+path: a symbolic link is among the components up to it. An absent ancestor is made later by
+`IO.FS.createDirAll` as a directory, so no link is among them when no process makes one after this
+check, which is trusted. It stops on Windows (`refuseOnWindows`). -/
 def ownPath (path : FilePath) : IO FilePath := do
+  refuseOnWindows path
+  if path.components.any (fun component => component == "." || component == "..") then
+    throw <| IO.userError s!"nothing was made or removed: {path} has a `.` or `..` component"
   let path ← if path.isAbsolute then pure path
     else pure ((← IO.FS.realPath (← IO.currentDir)) / path)
   let refuse {α : Type} (ancestor : FilePath) : IO α := throw <| IO.userError
     s!"nothing was made or removed: {ancestor}, an ancestor of {path}, is not at its own place \
-      (a symbolic link, `.` or `..` is among its components)"
+      (a symbolic link is among its components)"
   let mut ancestor := path.parent
   for _ in [:path.components.length] do
     let some current := ancestor | break
@@ -133,14 +165,23 @@ open Lean IR
 /-- The bound on the number of declarations that `rawRemovalsFrom` reads. -/
 def maxDeclarations : Nat := 10_000_000
 
-/-- The removal primitives of Lean's library: each removes a file or a directory. -/
+/-- The removal primitives of Lean's library, each of which removes or replaces a file or a
+directory: the three removals, `IO.FS.rename`, which replaces the entry at its destination, and the
+three writers of a module. Each file of a module is written to a temporary file, renamed over the
+file, and the temporary file is removed when the write fails (`src/library/module.cpp:403` and
+`:408`). -/
 def primitives : List Name :=
-  [``IO.FS.removeFile, ``IO.FS.removeDir, ``IO.FS.removeDirAll]
+  [``IO.FS.removeFile, ``IO.FS.removeDir, ``IO.FS.removeDirAll, ``IO.FS.rename,
+    ``Lean.writeModule, ``Lean.saveModuleData, ``Lean.saveModuleDataParts]
 
-/-- The C functions of the Lean 4.34.1 runtime that remove an entry: those that `IO.FS.removeFile`
-and `IO.FS.removeDir` are bound to (`Init/System/IO.lean`). A declaration of any name that is
-bound to one of them is a removal primitive. -/
-def removalSymbols : List String := ["lean_io_remove_file", "lean_io_remove_dir"]
+/-- The C functions of the Lean 4.34.1 runtime that remove or replace an entry, by a search of its
+sources (`src/runtime`, `src/library`) for `unlink`, `rmdir`, `rename` and `remove`. They are the
+functions that `IO.FS.removeFile`, `IO.FS.removeDir` and `IO.FS.rename` are bound to
+(`Init/System/IO.lean`), and the one that `Lean.CompactedRegion.save` is bound to, which writes a
+module. A declaration of any name that is bound to one of them is a removal primitive. A C function
+that writes to a file or makes an entry, without removing or replacing one, is not on this list. -/
+def removalSymbols : List String :=
+  ["lean_io_remove_file", "lean_io_remove_dir", "lean_io_rename", "lean_compacted_region_save"]
 
 /-- Whether the entry of an `extern` attribute calls the C function `symbol`: by its name, or in
 the C text of an inline entry. -/
@@ -148,6 +189,14 @@ def bindsTo (symbol : String) : ExternEntry → Bool
   | .standard _ fn => fn == symbol
   | .inline _ pattern => (pattern.splitOn symbol).length > 1
   | _ => false
+
+/-- The C function of `removalSymbols` that `name` is bound to, when it is an `extern`
+declaration bound to one. -/
+def boundRemoval (env : Environment) (name : Name) : Option String :=
+  match findEnvDecl env name with
+  | some (.extern _ _ _ data) =>
+    removalSymbols.find? fun symbol => data.entries.any (bindsTo symbol)
+  | _ => none
 
 /-- The suffixes that Lean's compiler appends to the name of a declaration for the compiled
 variants it makes of it: one without its irrelevant arguments, and the boxed form of each. -/
@@ -167,13 +216,18 @@ def decidedVariants (env : Environment) (name : Name) : Bool :=
 
 /-- The calls of a removal primitive in Lean's library that the site executable reaches, each
 with the declaration that makes it, for Lean 4.34.1. Each one calls `IO.FS.removeFile` on one file
-that the library itself manages; a removal of a directory is never on this list. Each rests on an
-assumption, which the check does not establish:
+that the library itself manages, or `Lean.writeModule`; a removal of a directory is never on this
+list. Each rests on an assumption, which the check does not establish:
 
-- `Lake.importConfigFile`. Assumes: Lake removes only its own stale compiled configuration of the
-  workspace it loads, a `lakefile.olean` below `.lake/config` and its trace, as every `lake`
-  command in that workspace does (`Lake/Load/Lean/Elab.lean:244` and `:262`). The site loads only
-  the root package of the checkout it builds (`Workspace.withRootPackage`).
+- `Lake.importConfigFile`, with `IO.FS.removeFile` and with `Lean.writeModule`. Assumes: these
+  remove and write only files in the directory of the root package's compiled configuration,
+  `.lake/config/0` below the checkout. It removes the stale `lakefile.olean` and its trace
+  (`Lake/Load/Lean/Elab.lean:244` and `:262`). It writes the new `lakefile.olean` and its
+  siblings (`:256`), each through a temporary file that it renames over the file and removes when
+  the write fails (`src/library/module.cpp:403` and `:408`). That directory is the checkout's own:
+  before the loader runs, `Workspace.withRootPackage` refuses when `.lake`, `.lake/config` or
+  `.lake/config/0` is there and is not a directory at its own place (`requireOwnDirectory`). That
+  check is the loader's prerequisite. The site loads only the root package of the checkout.
 - `Lake.removeFileIfExists`, `Lake.downloadArtifactCore`, `Lake.download`. Assumes: the site runs
   no Lake build and no download of Lake's artifact cache in its own process, so these, which the
   build functions of Lake's facets reach (`Lake/Util/IO.lean:23`, `Lake/Config/Cache.lean:558`,
@@ -183,6 +237,7 @@ assumption, which the check does not establish:
   temporary file that `withTempFile` made (`Init/System/IO.lean:1353`). -/
 def libraryRemovals : List (Name × Name) :=
   [(`Lake.importConfigFile, ``IO.FS.removeFile),
+    (`Lake.importConfigFile, ``Lean.writeModule),
     (`Lake.removeFileIfExists, ``IO.FS.removeFile),
     (`Lake.downloadArtifactCore, ``IO.FS.removeFile),
     (`Lake.download, ``IO.FS.removeFile),
@@ -214,8 +269,9 @@ def initializers (env : Environment) : Array Name := Id.run do
 
 /-- Each call of a removal primitive that the compiled code of `roots` reaches and that
 `admitted` does not admit, with the declaration that makes it; and each reached declaration whose
-compiled body `env` does not hold, so that what it calls is unknown. A reached `extern` declaration
-bound to a C function of `removalSymbols` is a raw removal, whatever its name. Every compiled
+compiled body `env` does not hold, so that what it calls is unknown. An `extern` declaration bound
+to a C function of `removalSymbols` (`boundRemoval`) is a removal primitive, whatever its name: a
+call of it is admitted or raw as a call of `primitives` is, and as a root it is raw. Every compiled
 declaration is followed, of this package, of Lean's library and of each other package; a C function
 of the runtime is not. -/
 def rawRemovalsFrom (env : Environment) (roots : Array Name) :
@@ -235,15 +291,14 @@ def rawRemovalsFrom (env : Environment) (roots : Array Name) :
     | some decl@(.fdecl ..) =>
       for used in collectUsedDecls env [decl] do
         if used == name then continue
-        if primitives.contains used then
+        if primitives.contains used || (boundRemoval env used).isSome then
           unless admitted env name used do raw := raw.push (name, used)
         else if !seen.contains used then
           seen := seen.insert used
           work := work.push used
     | some (.extern _ _ _ data) =>
       if data.entries.any (· matches .opaque) then unknown := unknown.push name
-      for symbol in removalSymbols do
-        if data.entries.any (bindsTo symbol) then raw := raw.push (name, Name.mkSimple symbol)
+      if let some symbol := boundRemoval env name then raw := raw.push (name, Name.mkSimple symbol)
     | none => unknown := unknown.push name
   return (raw, unknown ++ work)
 

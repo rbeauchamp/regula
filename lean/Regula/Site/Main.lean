@@ -19,10 +19,11 @@ def main (args : List String) : IO UInt32 := do
 -- Each removal of a directory or file that the compiled code of `main` and of the initializers of
 -- the linked modules reaches is in `Regula.Removal.removeDecided`, which removes only what the
 -- decision `Regula.Removal.removal` decided to remove (`removal_remove_iff`), or is one of the
--- single-file removals of Lean's library that `Regula.Removal.libraryRemovals` lists. The check
--- follows every compiled declaration, of this package and of the libraries, and the build of this
--- module fails when it finds another call of a removal primitive or a declaration whose compiled
--- code it cannot read.
+-- single-file removals and the writing of Lake's compiled configuration that
+-- `Regula.Removal.libraryRemovals` lists. A removal primitive removes or replaces an entry.
+-- The check follows every compiled declaration, of this package and of the libraries, and the
+-- build of this module fails when it finds another call of a removal primitive or a declaration
+-- whose compiled code it cannot read.
 run_cmd do
   let (raw, unknown) := Regula.Removal.rawRemovals (← Lean.getEnv) ``main
   unless raw.isEmpty do

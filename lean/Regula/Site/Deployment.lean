@@ -47,14 +47,18 @@ private def fail {α : Type} (message : String) : IO α := throw <|
 
 /-- Fetch `url`: return the HTTP status (0 when no response) and the bytes of the body. curl
 writes the body and then the three digits of the status to its standard output, which this
-process reads from a pipe. Assumes: with `--disable` as its first argument, curl reads no `.curlrc`
-(curl manual, `-q, --disable`: "If used as the first parameter on the command line, the curlrc
-config file is not read or used"), so no configuration file can make it write the body to a file;
-with the other arguments it writes no file. -/
+process reads from a pipe. curl starts with an environment that has only `PATH`, by which the
+child finds it (`inheritEnv := false`, `Init/System/IO.lean:1450`), so no variable of this
+process, such as `SSLKEYLOGFILE`, can make it write a file. Assumes: with `--disable` as its first
+argument, curl reads no `.curlrc` (curl manual, `-q, --disable`: "If used as the first parameter
+on the command line, the curlrc config file is not read or used"), so no configuration file can
+make it write the body to a file; with the other arguments and no other variable it writes no
+file. -/
 def fetch (url : String) : IO (Nat × ByteArray) := do
   let child ← IO.Process.spawn
       { cmd := "curl", args := #["--disable", "--silent", "--show-error", "--max-time", "60",
-    "--write-out", "%{http_code}", url], stdin := .null, stdout := .piped, stderr := .inherit }
+    "--write-out", "%{http_code}", url], stdin := .null, stdout := .piped, stderr := .inherit
+        inheritEnv := false, env := #[("PATH", ← IO.getEnv "PATH")] }
   let out ← child.stdout.readBinToEnd
   let _ ← child.wait
   let body := out.extract 0 (out.size - 3)

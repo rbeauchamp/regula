@@ -33,7 +33,8 @@ Each directory or file that the builder removes is removed by `Regula.Removal.re
 `removeEntry`, only when a read that follows no link finds an entry of its kind at its own place
 (`Regula.Removal.removal_remove_iff`); in every other case the build stops with nothing removed.
 `Regula.Site.Main` fails to build when its `main` or an initializer reaches another removal than
-the single-file removals of the libraries that `Regula.Removal.libraryRemovals` lists
+the single-file removals of the libraries and the writing of Lake's compiled configuration that
+`Regula.Removal.libraryRemovals` lists, a removal being a call that removes or replaces an entry
 (`Regula.Removal.rawRemovals`).
 Workspace paths of the
 disposable qualification projects are displayed as `<example>`, `<scratch>` and `<regula>`; the
