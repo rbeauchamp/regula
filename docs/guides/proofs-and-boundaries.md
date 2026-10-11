@@ -717,30 +717,24 @@ historical replacement conservatively, including one that the compiled code no l
 
 **Documentation records.** The rules [RG4001] to [RG4004] and [RG5001] to [RG5003] examine text
 that a project writes. In these records, a mark is what the project writes to classify that text
-or to change how Lean reads it. Examples are a module docstring, a fence's marker or language
-word, a syntax declaration, and the elaborators, macros, linters and attributes of imported
-modules. A field is project-written where it holds bytes of a project file or a copy of them or
-where a mark's data enters it. A field is observed where the checker chooses its value, or where
-a fixed reader gives it from the text and no mark enters it.
+or to change how Lean reads it. Examples are a module docstring, the modifiers of an `import`, a
+fence's marker or language word and a syntax declaration. The elaborators, macros, linters and
+attributes of imported modules are marks too. A field is project-written where it holds a project
+file's path or bytes, a copy of them, or a value that a mark's data enters.
 
-`ModuleHeader.Observation` has two parts. Lean's header parser is fixed, so the `imports` that it
-reads are observed. A module docstring or a command adds the module documentation that
-`documented` reads, so that field is project-written. Lean's command parser gives
-`documentationFirst` with parser tables that the project's syntax declarations extend, so it is
-project-written too.
+By this criterion each field of these records is project-written, so the records have no parts.
+`ModuleHeader.Observation` copies the modifiers of each `import`, and the parser tables that read
+its first command come from the project's syntax declarations. The byte ranges and line numbers
+of a fence count the bytes and lines before it, markers included. The checker names an example's
+temporary module and file after the example's place among the Lean fences, which the language
+words of earlier fences decide. Compiling an example runs the code of the modules that it imports,
+so marks can enter the group, the warnings, the declarations and the outcome. The commands of an
+example can also write its source file.
 
-`FenceKey` and `FenceScan.Source` have two parts. The places of a fence's lines, which the scanner
-reads, and the name of a document in a violation, which the checker makes, are observed. Marks
-decide which fences exist but not where their lines are. The document, its lines and the
-expectation, the data of the fence's marker or language word, are project-written.
-`DocumentObservation` has no parts: the marks of the documents decide its fences and violations.
-
-In an `ExampleObservation` and its units, the observed part holds only the names and paths that
-the checker chooses. The source texts that the checker gives the compiler and reads back come from
-the fence's body. Compiling an example runs its commands and the code of the modules that it
-imports. Their marks can enter the group, the warnings, the declarations and the outcome, and the
-commands can write the source file. Thus all these fields are project-written.
-`ExampleExpectationOK` and `ExampleSourceOK` compare the source texts with the body of the fence.
+The inventory of an elaborated example holds declaration records, which keep their own parts.
+`ExampleExpectationOK` and `ExampleSourceOK` compare the source texts that the checker gives the
+compiler and reads back with the body of the fence. That `moduleObservation`, `exampleObservation`
+and the scanner fill each field as their docstrings state is by reading those functions.
 
 The decisions of [RG5002] and [RG5003] take no record. They take the docstring that Lean's lookup
 gives (`findDocString?`), which is project-written. In the documentation rules, a project-written
@@ -748,9 +742,8 @@ field can admit, for example a docstring, `documented` or the expectation of a f
 is the subject of the rule, as the registration is for [RG1008].
 
 **Limits.** The parts classify the source of a value but do not make an observation truthful. That
-`Collect.declaration`, `Frontend.buildCore`, `Probe.observeNode`, `Probe.environmentReport`,
-`moduleObservation` and `exampleObservation` fill each field from the source its part names is by
-inspection of those functions, not proved. State a
+`Collect.declaration`, `Frontend.buildCore`, `Probe.observeNode` and `Probe.environmentReport` fill
+each field from the source its part names is by inspection of those functions, not proved. State a
 project writes can still enter a toolchain observation, and the docstring of each such field says
 how: `isProp` is Lean's answer, which does not unfold an irreducible definition; `prettyType` is
 Lean's printer, which uses the notations in force; `nativeReplay` runs compiled code; and what a

@@ -183,34 +183,24 @@ inductive FenceExpectation where
   | trustedTeaching
   deriving Repr, DecidableEq
 
-/-- The part of a fence key that the checker observes: the places of the fence's lines in its
-document, as the scanner reads them. The scanner is fixed, and the marks of the document decide
-which fences exist, not where a fence's lines are. -/
-structure FenceKey.ToolchainObserved where
+/-- One documentation fence: its document, the byte ranges of its lines and what its example is
+declared to do. The record has no parts: each field is project-written. The document is a project
+file. The byte ranges count the bytes of the document before them, its markers included, and the
+expectation is the data of the fence's marker or language word.
+
+Rule identity tokens in policy-negative expectations must be validated by the sole
+registry adapter. The policy library deliberately defines no second RuleId enumeration. -/
+structure FenceKey where
+  /-- The document that contains the fence, with its exact text. -/
+  document : SourceSnapshot
   /-- The byte range of the fence's opening delimiter line. -/
   opening : ByteRange
   /-- The byte range of the fence's body, the example source. -/
   body : ByteRange
   /-- The byte range of the fence's closing delimiter line. -/
   closing : ByteRange
-  deriving Repr, DecidableEq
-
-/-- The part of a fence key that the project writes: the document, a project file with its exact
-text, and the expectation, the data of the fence's marker or language word. -/
-structure FenceKey.ProjectWritten where
-  /-- The document that contains the fence, with its exact text. -/
-  document : SourceSnapshot
   /-- What the fence's example is declared to do. -/
   expectation : FenceExpectation
-  deriving Repr, DecidableEq
-
-/-- One documentation fence: its document, the byte ranges of its lines and what its example is
-declared to do. Each field is declared in the part that says where its value comes from, and the
-three proofs relate the two parts.
-
-Rule identity tokens in policy-negative expectations must be validated by the sole
-registry adapter. The policy library deliberately defines no second RuleId enumeration. -/
-structure FenceKey extends FenceKey.ToolchainObserved, FenceKey.ProjectWritten where
   /-- The document has a URI. -/
   nonemptyURI : document.uri ≠ ""
   /-- The opening line, body and closing line follow each other in the document. -/

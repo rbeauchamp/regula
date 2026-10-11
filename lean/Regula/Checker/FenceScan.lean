@@ -65,7 +65,9 @@ structure PendingMarker where
   line : Nat
   deriving Repr
 
-/-- One Lean code fence found by `scan` or `scanVerso`, with its exact location. -/
+/-- One Lean code fence found by `scan` or `scanVerso`, with its exact location. The record has no
+parts: each field is project-written, the document, a copy of its text, or a value that its text
+and markers decide. -/
 structure Fence where
   /-- The scanned document: its URI and full text. -/
   document : RegulaPolicy.SourceSnapshot
@@ -88,7 +90,8 @@ structure Fence where
   markerLine : Option Nat
   deriving Repr, DecidableEq
 
-/-- The outcome of scanning one document. -/
+/-- The outcome of scanning one document. The record has no parts: the text and the markers of the
+document decide its fences and its violations, and a violation names the document. -/
 structure ScanResult where
   /-- The Lean fences found, in document order. -/
   fences : Array Fence
@@ -595,26 +598,19 @@ theorem toList_linesOf (text : String) :
   rw [String.toList_split_char, List.map_map]
   simp
 
-/-- The part of a scanned document that the checker gives: the name of the document in the text
-of a violation, which the checker makes from the document's path. -/
-structure Source.ToolchainObserved where
-  /-- The name of the document in the text of a violation. -/
-  origin : String
-
-/-- The part of a scanned document that the project writes: a project file with its exact text,
-and the lines of that text. The field `divided` binds the lines to the text of the document, so
-no value of this type has the lines of a different text. -/
-structure Source.ProjectWritten where
+/-- A document with its lines. The field `divided` binds the lines to the text of the document,
+so no value of this type has the lines of a different text. The record has no parts: the document
+is a project file, its lines copy its text, and `origin` is its path, relative to the root that
+the checker reads. -/
+structure Source where
   /-- The document: its URI and its full text. Each fence records it. -/
   document : RegulaPolicy.SourceSnapshot
+  /-- The name of the document in the text of a violation. -/
+  origin : String
   /-- The lines of the document. -/
   lines : List String
   /-- The lines are the characters of the text of the document, divided at each line break. -/
   divided : lines.map String.toList = document.source.toList.splitOn '\n'
-
-/-- A document with its lines. Each field is declared in the part that says where its value comes
-from. -/
-structure Source extends Source.ToolchainObserved, Source.ProjectWritten
 
 /-- The document of a text, with the lines of that text. -/
 def Source.of (text origin : String) (sourceURI : Option String := none) : Source where
@@ -844,7 +840,8 @@ def Source.scanned (source : Source) : Format → ScanResult
 /-- The result of a scan, with its input. The field `executed` binds the result to the scanner:
 no value of this type has the result of a different document, or a result that the scanner of
 its form did not return. The documentation audit takes its fences and its violations from a
-value of this type. -/
+value of this type. The record has no parts: the form follows from the extension of the
+document's path, and the source and the result are project-written. -/
 structure Scanned where
   /-- The form of the document. -/
   format : Format
@@ -3309,12 +3306,11 @@ theorem checked_scanLines : Regula.ExecutableContract scanLines
       (fun source : Source =>
         Clean RegulaPolicy.PatternValid (.outside none) false 1 source.lines)) :=
   ⟨Regula.Decides.of_iff scanLines_problems_eq_empty_iff
-    ⟨{ document := ⟨"", ""⟩, origin := "", lines := [""], divided := by decide },
+    ⟨⟨⟨"", ""⟩, "", [""], by decide⟩,
       (scanLines_problems_eq_empty_iff _).mpr
         (.line (.plain plain_empty) (shapeRule_empty none false) rfl .done)⟩
-    ⟨{ document := ⟨"", "```"⟩, origin := "", lines := ["```"], divided := by decide },
-      fun accepted =>
-        not_clean_open _ ((scanLines_problems_eq_empty_iff _).mp accepted)⟩⟩
+    ⟨⟨⟨"", "```"⟩, "", ["```"], by decide⟩, fun accepted =>
+      not_clean_open _ ((scanLines_problems_eq_empty_iff _).mp accepted)⟩⟩
 
 /-! ## Each line of Lean shape is a returned fence
 
@@ -4349,12 +4345,11 @@ theorem checked_scanVersoLines : Regula.ExecutableContract scanVersoLines
     (Regula.Decides (fun result : ScanResult => result.problems = #[])
       (fun source : Source => VersoClean .outside false source.lines)) :=
   ⟨Regula.Decides.of_iff scanVersoLines_problems_eq_empty_iff
-    ⟨{ document := ⟨"", ""⟩, origin := "", lines := [""], divided := by decide },
+    ⟨⟨⟨"", ""⟩, "", [""], by decide⟩,
       (scanVersoLines_problems_eq_empty_iff _).mpr
         (.line (.text no_fence_empty)
           ⟨by decide, by decide, (shapeRule_empty none false).2.2.2⟩ rfl .done)⟩
-    ⟨{ document := ⟨"", "```"⟩, origin := "", lines := ["```"], divided := by decide },
-      fun accepted =>
-        not_versoClean_open ((scanVersoLines_problems_eq_empty_iff _).mp accepted)⟩⟩
+    ⟨⟨⟨"", "```"⟩, "", ["```"], by decide⟩, fun accepted =>
+      not_versoClean_open ((scanVersoLines_problems_eq_empty_iff _).mp accepted)⟩⟩
 
 end Regula.Checker.Documentation
