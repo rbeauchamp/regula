@@ -603,7 +603,7 @@ The root `README.md` shows the module [`markdown/Readme/Shortcut.lean`](../../ma
 `./scripts/verify.sh docs` makes a new Lake project in a temporary directory. The project has the `lean-toolchain` of the repository, and it requires the root package by its path. In that project, the step runs `lean --json` and `lake exe axiomGate --file` on the module. It refuses the `README.md` unless these conditions are true (`Regula.Markdown.demonstrationErrors`, `demonstrationErrors_nil_iff`):
 
 - Its one `lean` code block is the text of the module, byte for byte.
-- Lean gives no message for the module.
+- Lean gives only the warning that the `README.md` states for the module (`demonstrationMessages`).
 - `axiomGate --file` exits with 1.
 - The output of `axiomGate --file` fits the one `text` code block. A line that is `…` alone stands for any sequence of lines, also for no line. A `…` in a different line stands for any text in that line. Each other character must be equal (`lineFits_plain`).
 

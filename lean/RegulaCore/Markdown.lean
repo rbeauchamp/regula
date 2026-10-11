@@ -49,11 +49,12 @@ md4c's decision, and which piece each becomes is that module's (see Boundaries).
   document of `summarizedDocuments`: its first top-level block is a heading of level 1, and its
   second is the paragraph that the summary of Regula alone is, as the parser reads each
   (`Regula.Site.summary`).
-- `demonstrationModule`, `LineFits`, `BlockFits`, `lineFits_plain`, `Pat`, `Fits`, `fits_iff`,
-  `fits_blockPattern`, `Demonstration`, `Demonstrates`, `demonstrationErrors`,
-  `demonstrationErrors_nil_iff`, `checked_demonstrationErrors`: the executed check of the example of the root `README.md`: its
-  `lean` block is the file `demonstrationModule`, Lean gives no message for that file, and the
-  output of `axiomGate --file` for it fits the `text` block, where `…` marks omitted text.
+- `demonstrationModule`, `demonstrationMessages`, `LineFits`, `BlockFits`, `lineFits_plain`, `Pat`,
+  `Fits`, `fits_iff`, `fits_blockPattern`, `Demonstration`, `Demonstrates`, `demonstrationErrors`,
+  `demonstrationErrors_nil_iff`, `checked_demonstrationErrors`: the executed check of the example
+  of the root `README.md`: its `lean` block is the file `demonstrationModule`, Lean gives exactly
+  the messages `demonstrationMessages` for that file, and the output of `axiomGate --file` for it
+  fits the `text` block, where `…` marks omitted text.
 
 ## What prose is
 
@@ -1938,21 +1939,22 @@ theorem checked_summaryErrors : Regula.ExecutableContract summaryErrors (fun run
 
 The root `README.md` shows a module in its one code block with the info string `lean`, and what
 `axiomGate --file` prints for that module in its one code block with the info string `text`. It
-states that Lean elaborates the module with no warning, and that `axiomGate --file` exits with 1
-for it. The module is the file `demonstrationModule`, which no Lake library of the repository
-contains. The check accepts the `README.md` exactly when its `lean` block is the text of that
-file, Lean's elaboration of the file gives no message, `axiomGate --file` exits with 1 for the
-file, and the output of `axiomGate --file` fits its `text` block (`Demonstrates`).
+states that Lean gives one warning for the module, at the theorem that contains the `sorry`, and
+that `axiomGate --file` exits with 1 for it. The module is the file `demonstrationModule`, which
+no Lake library of the repository contains. The check accepts the `README.md` exactly when its
+`lean` block is the text of that file, Lean's elaboration of the file gives exactly the messages
+`demonstrationMessages`, `axiomGate --file` exits with 1 for the file, and the output of
+`axiomGate --file` fits its `text` block (`Demonstrates`).
 
 The output fits the `text` block when its lines fit the lines of the block (`BlockFits`). A line
 of the block that is `…` alone stands for any run of lines of the output, also none. A `…` in a
 different line stands for any text in one line of the output, also none (`LineFits`). Each other
 character of the block must be the same character of the output, in the same place
 (`lineFits_plain`). The check decides the fit with the patterns `blockPattern` and `linePattern`
-(`fits_iff`, `fits_blockPattern`), which the statement does not use. The executed program (`markdown/MarkdownMain.lean`) gives this check the
-text of the file, the messages of Lean (`lean --json`) and the output and exit code of
-`axiomGate --file`, which it runs in a new Lake project that requires the root package by its
-path. -/
+(`fits_iff`, `fits_blockPattern`), which the statement does not use. The executed program
+(`markdown/MarkdownMain.lean`) gives this check the text of the file, the messages of Lean
+(`lean --json`) and the output and exit code of `axiomGate --file`, which it runs in a new Lake
+project that requires the root package by its path. -/
 
 /-- The file of the module that the root `README.md` shows, by its path in the repository. It is
 in no Lake library, so no target of the repository builds it. -/
@@ -1961,6 +1963,11 @@ def demonstrationModule : String := "markdown/Readme/Shortcut.lean"
 /-- The exit code of `axiomGate --file` that the root `README.md` states for its module: 1, a
 violation. -/
 def demonstrationExit : Nat := 1
+
+/-- The messages of Lean's elaboration of `demonstrationModule` that the root `README.md` states,
+each as `line:column: severity: text`: one warning, at the name of the theorem `double`, which
+contains the `sorry`. Lean gives no message for the theorem that uses `double`. -/
+def demonstrationMessages : List String := ["12:8: warning: declaration uses `sorry`"]
 
 /-- One element of a pattern over elements of `α`: one element that a test accepts, or omitted
 elements. -/
@@ -2150,11 +2157,12 @@ def codeBlocks (info : String) (doc : List Top) : List String :=
     | _ => none
 
 /-- The `README.md` with the top-level blocks `doc` shows the module of `o` and what Lean and
-`axiomGate --file` give for it: its one `lean` block is the module, Lean gives no message for the
-module, `axiomGate --file` exits with `demonstrationExit`, and the lines of its output fit the
-pattern of the one `text` block. -/
+`axiomGate --file` give for it: its one `lean` block is the module, Lean gives exactly the
+messages `demonstrationMessages` for the module, `axiomGate --file` exits with
+`demonstrationExit`, and the lines of its output fit the pattern of the one `text` block. -/
 def Demonstrates (doc : List Top) (o : Demonstration) : Prop :=
-  codeBlocks "lean" doc = [o.module] ∧ o.messages = [] ∧ o.exit = demonstrationExit ∧
+  codeBlocks "lean" doc = [o.module] ∧ o.messages = demonstrationMessages ∧
+    o.exit = demonstrationExit ∧
     ∃ block, codeBlocks "text" doc = [block] ∧
       BlockFits (splitLines block.toList) (splitLines o.output.toList)
 
@@ -2202,9 +2210,9 @@ def demonstrationErrors (doc : Outline) (o : Demonstration) : List String :=
     (if codeBlocks "lean" blocks = [o.module] then [] else
       [s!"README.md: it must have exactly one code block with the info string `lean`, and its \
         text must be the text of {demonstrationModule}"]) ++
-    (if o.messages = [] then [] else
-      [s!"README.md: it states that Lean elaborates {demonstrationModule} with no warning, but \
-        Lean gives:\n{"\n".intercalate o.messages}"]) ++
+    (if o.messages = demonstrationMessages then [] else
+      [s!"README.md: it states that Lean gives exactly these messages for {demonstrationModule}:\n\
+        {"\n".intercalate demonstrationMessages}\nLean gives:\n{"\n".intercalate o.messages}"]) ++
     (if o.exit = demonstrationExit then [] else
       [s!"README.md: it states that `axiomGate --file` exits with {demonstrationExit} for \
         {demonstrationModule}, but it exits with {o.exit}. Its standard error:\n{o.errors}"]) ++
@@ -2230,7 +2238,7 @@ theorem checked_demonstrationErrors : Regula.ExecutableContract demonstrationErr
         ∀ blocks, input.1 = .read blocks → Demonstrates blocks input.2)
       (Function.uncurry run)) :=
   ⟨.of_iff (fun input => demonstrationErrors_nil_iff input.1 input.2)
-    ⟨(.read [.code "lean" "m", .code "text" ""], ⟨"m", [], "", 1, ""⟩),
+    ⟨(.read [.code "lean" "m", .code "text" ""], ⟨"m", demonstrationMessages, "", 1, ""⟩),
       (demonstrationErrors_nil_iff _ _).mpr fun blocks read => by
         simp only [Outline.read.injEq] at read
         subst read
@@ -2357,22 +2365,23 @@ private def fitsBlock (block output : String) : Bool :=
   !fitsBlock "…\nend\n" "end" &&
   !fitsBlock "a\nb\n" "a\n"
 
-/-- An observation that the `README.md` `readme` shows: its module `m`, no message, exit code 1
-and the output `out`. -/
-private def shown (out : String) : Demonstration := ⟨"m", [], out, 1, ""⟩
+/-- An observation that the `README.md` `readme` shows: its module `m`, the messages
+`demonstrationMessages`, exit code 1 and the output `out`. -/
+private def shown (out : String) : Demonstration := ⟨"m", demonstrationMessages, out, 1, ""⟩
 
 /-- A `README.md` with the module `m` and the `text` block `block`. -/
 private def readme (block : String) : Outline := .read [.code "lean" "m", .code "text" block]
 
 -- The check of the example: a `README.md` that shows the observation is accepted, and one whose
--- `lean` block is a different module, one with a message of Lean that it does not state, a
--- different exit code, a changed finding line or a second `text` block are refused, each for its
--- reason.
+-- `lean` block is a different module, one with a message of Lean that it does not state, one
+-- without the message that it states, a different exit code, a changed finding line or a second
+-- `text` block are refused, each for its reason.
 -- Compiled-evaluation observation at build time, not a kernel-checked proof.
 #guard demonstrationErrors (readme "…\nRG1 [x…]\n…\n") (shown "b\nRG1 [x1]\nc\n") == [] &&
   (demonstrationErrors (.read [.code "lean" "n", .code "text" "o\n"]) (shown "o\n")).length == 1 &&
-  (demonstrationErrors (readme "o\n") { shown "o\n" with messages := ["1:0: warning: w"] }).length ==
-    1 &&
+  (demonstrationErrors (readme "o\n") { shown "o\n" with
+    messages := demonstrationMessages ++ ["1:0: warning: w"] }).length == 1 &&
+  (demonstrationErrors (readme "o\n") { shown "o\n" with messages := [] }).length == 1 &&
   (demonstrationErrors (readme "o\n") { shown "o\n" with exit := 0 }).length == 1 &&
   (demonstrationErrors (readme "…\nRG1 [x…]\n…\n") (shown "b\nRG2 [x1]\nc\n")).length == 1 &&
   (demonstrationErrors (.read [.code "lean" "m", .code "text" "o\n", .code "text" "o\n"])

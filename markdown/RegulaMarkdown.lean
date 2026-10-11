@@ -713,7 +713,8 @@ private def shortcut : String := "/-! # S -/\n\n/-- An axiom. -/\naxiom a : 1 = 
 private def withExample (lean text : String) : String :=
   s!"# Regula\n\nThe module:\n\n```lean\n{lean}```\n\nIts findings:\n\n```text\n{text}```\n"
 
-private def observedFor (module output : String) : Demonstration := ⟨module, [], output, 1, ""⟩
+private def observedFor (module output : String) : Demonstration :=
+  ⟨module, demonstrationMessages, output, 1, ""⟩
 
 -- Compiled-evaluation observation at build time, not a kernel-checked proof.
 #guard checkDemonstration (withExample shortcut "…\nRG1001 [violation; …/S.lean:4:6]: a\n…\n")
@@ -722,7 +723,8 @@ private def observedFor (module output : String) : Demonstration := ⟨module, [
     (observedFor shortcut "out\n")).length == 1 &&
   (checkDemonstration (withExample shortcut "…\n")
     { observedFor shortcut "out\n" with
-      messages := ["4:6: warning: declaration uses `sorry`"] }).length == 1 &&
+      messages := demonstrationMessages ++ ["4:6: warning: declaration uses `sorry`"] }).length ==
+    1 &&
   (checkDemonstration (withExample shortcut "…\nRG1001 [violation; …/S.lean:4:6]: a\n…\n")
     (observedFor shortcut "built\nRG1002 [violation; /tmp/x/S.lean:4:6]: a\nFAIL\n")).length == 1 &&
   (checkDemonstration "# Regula\n\n    axiom a : 1 = 1\n\n```text\n…\n```\n"

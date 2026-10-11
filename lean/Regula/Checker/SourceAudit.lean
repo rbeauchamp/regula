@@ -341,9 +341,10 @@ def sourceDiagnosticFailure (value : Compilation) : Bool :=
   value.process.exitCode ≤ 1 && (outputLines value.process.output).any (fun line =>
     line.startsWith (value.sourcePath.toString ++ ":") && (isErrorLine line || isWarningLine line))
 
-/-- Reads the typed report of a compiled source (and its frontend transcript when needed) while
-its source stays unchanged; throws when the compilation did not pass, and returns a refusal (an
-admission failure or unowned imported modules) as `.error`. -/
+/-- Reads the typed report of a compiled source (and its frontend transcript when needed, which
+refuses a warning exactly when the compilation does) while its source stays unchanged; throws
+when the compilation did not pass, and returns a refusal (an admission failure or unowned
+imported modules) as `.error`. -/
 unsafe def inspectOutcome (value : Compilation) (extraSearchRoots : Array FilePath := #[])
     (sourceRoots : Array FilePath := #[])
     (moduleSources : Array (Name × FilePath) := #[]) (ownership : Ownership := {}) :
@@ -372,7 +373,8 @@ unsafe def inspectOutcome (value : Compilation) (extraSearchRoots : Array FilePa
       let declarations := report.declarations
       let transcripts : Array Frontend.Transcript ←
         if Policy.needsFrontendTranscript declarations then
-          pure #[← Frontend.build value.spec.«module».toName value.sourcePath extraSearchRoots]
+          pure #[← Frontend.build value.spec.«module».toName value.sourcePath extraSearchRoots
+            value.spec.rejectWarnings]
         else pure #[]
       if let .error failure := SourceBinding.transcriptsMatch sources transcripts then
         return .error (.admission failure)
@@ -410,7 +412,8 @@ unsafe def inspectCurrentSearchPath (value : Compilation)
       let declarations := report.declarations
       let transcripts : Array Frontend.Transcript ←
         if Policy.needsFrontendTranscript declarations then
-          pure #[← Frontend.buildCurrentSearchPath value.spec.«module».toName value.sourcePath]
+          pure #[← Frontend.buildCurrentSearchPath value.spec.«module».toName value.sourcePath
+            value.spec.rejectWarnings]
         else pure #[]
       IO.ofExcept <| (SourceBinding.transcriptsMatch sources transcripts).mapError (·.detail)
       SourceBinding.unchanged sources

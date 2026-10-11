@@ -504,7 +504,8 @@ def demonstrationRefusals (root : System.FilePath) (documents : List Document) :
   let controls := [
     ("a changed `lean` block", demonstrationErrors fence observed),
     ("a warning of Lean that README.md does not state", demonstrationErrors outlined
-      { observed with messages := observed.messages ++ ["1:0: warning: declaration uses `sorry`"] }),
+      { observed with
+        messages := observed.messages ++ ["15:8: warning: declaration uses `sorry`"] }),
     ("a changed finding line", demonstrationErrors outlined { observed with output := changed })]
   let accepted := controls.filterMap fun (control, result) =>
     if result.isEmpty then some s!"README.md: the check of its example accepts {control}" else none
@@ -598,9 +599,9 @@ def check (options : Options) : IO UInt32 := do
     every rule ID in their prose links to its rule page; every link of {stableDocuments} to the \
     rule reference is a stable address, which names no edition; {summarizedDocuments} open with \
     the summary of Regula (Regula.Site.summary), and the description of lakefile.lean is its \
-    plain text; the lean block of README.md is {demonstrationModule}, Lean gives no message for \
-    it, and axiomGate --file exits with {demonstrationExit} for it and prints an output that fits \
-    the text block of README.md; {outcome.summary}"
+    plain text; the lean block of README.md is {demonstrationModule}, Lean gives exactly the \
+    messages of demonstrationMessages for it, and axiomGate --file exits with {demonstrationExit} \
+    for it and prints an output that fits the text block of README.md; {outcome.summary}"
   IO.println ("The check of the example of README.md refuses each changed copy of its input:\n" ++
     "\n".intercalate controls)
   return 0

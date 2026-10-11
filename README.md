@@ -4,18 +4,24 @@ A strict linter for Lean. It checks that each theorem of the libraries that you 
 
 Lean gives no warning for an `axiom` or for `native_decide`, and it warns about a `sorry` only at the declaration that contains the `sorry`. `#print axioms` shows these problems, but for one declaration at a time. Regula examines each declaration of the libraries that you claim, with the axioms that the declaration gets through its imports.
 
-For example, `lake build` accepts this module with no warning:
+For example, `lake build` builds this module. Its only warning is at `double`, which contains the `sorry`:
 
 ```lean
 /-! # Shortcut
 
-A theorem that depends on an axiom, and a fact that compiled code checks. -/
+Theorems that depend on an axiom and on a `sorry`, and a fact that compiled code checks. -/
 
 /-- A shortcut that nobody proved. -/
 axiom add_swap (a b : Nat) : a + b = b + a
 
 /-- Addition commutes. -/
 theorem swap (a b : Nat) : a + b = b + a := add_swap a b
+
+/-- A lemma that nobody proved yet. -/
+theorem double (n : Nat) : n + n = 2 * n := by sorry
+
+/-- A theorem that uses the lemma. -/
+theorem twice (n : Nat) : 2 * n = n + n := (double n).symm
 
 /-- A fact that compiled code checks, not Lean's kernel. -/
 theorem big : 2 ^ 20 = 1048576 := by native_decide
@@ -32,11 +38,20 @@ RG1001 [violation; freshFile; claim=classification-only; …/Shortcut.lean:6:6]:
 RG1003 [violation; freshFile; claim=classification-only; …/Shortcut.lean:9:8]: swap: … axioms=["add_swap"] -> unknown-axiom
   fix: Find where the axiom enters (often an imported dependency), and replace that dependency or its axiom with a proof or a hypothesis.
 …
-RG1004 [violation; freshFile; claim=classification-only; …/Shortcut.lean:12:8]: big: … -> compiler-trusting
+RG1002 [violation; freshFile; claim=classification-only; …/Shortcut.lean:12:8]: double: … axioms=["sorryAx"] -> hole
+  fix: Complete the proof. If the statement is an open problem, define it as a `Prop` and state results conditionally on it instead of asserting it.
+…
+RG1002 [violation; freshFile; claim=classification-only; …/Shortcut.lean:15:8]: twice: … axioms=["sorryAx"] -> hole
+…
+RG1004 [violation; freshFile; claim=classification-only; …/Shortcut.lean:18:8]: big: … -> compiler-trusting
   fix: Prove the same statement with a kernel-checked proof, for example `decide` (kernel reduction), `rfl` or an ordinary proof.
 …
-file audit: FAIL (4 violation(s), 0 incomplete finding(s))
+RG1004 [violation; freshFile; claim=classification-only; …/Shortcut.lean:18:37]: big._native.native_decide.ax_1_1: … -> compiler-trusting
+…
+file audit: FAIL (6 violation(s), 0 incomplete finding(s))
 ```
+
+Lean gives no warning for `twice`, but Regula refuses it, because it uses `double`. Here, `swap` and `twice` use declarations of the same module. Regula examines the declarations of each import in the same way.
 
 Each finding gives the rule, the location and the fix. The first finding of each rule in a run also links the page of the rule. Later findings of that rule refer to the first. The [rule reference](https://rbeauchamp.github.io/regula/rules/) has a page for each rule, with an example that the checker rejects and its correction.
 
