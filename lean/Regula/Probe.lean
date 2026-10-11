@@ -689,8 +689,9 @@ private def observeNode (env : Environment) (ownedModules : List Name)
 whose replacement history it loaded, in order. `observeNode` reads the root only in the note of a
 name the environment does not have, so every other record is the one the next root's pass makes
 of the name; such a note is never kept here. Each later root loads the same histories again, so it
-records the same history requests. This cache is invocation-local operational state, never worker
-evidence. -/
+records the same history requests, and `environmentReport` answers each module's history request
+once for each report, so every request gets the answer the kept record was made from, whatever
+the loader. This cache is invocation-local operational state, never worker evidence. -/
 private abbrev NodeRecordCache :=
   Std.DHashMap Name fun name => RegulaPolicy.ExecutionWalk.NodeRecord name × Array Name
 
@@ -732,6 +733,9 @@ private def executionWalk (env : Environment) (ownedModules : List Name)
     let name := queue.back!
     queue := queue.pop
     if records.contains name then continue
+    -- A kept record equals the record the pass would make again: the loader `environmentReport`
+    -- passes gives one answer for each module in a report, so these requests get the answers
+    -- the record was made from.
     let record ← match (← liftIO recordCache.get).get? name with
       | some (record, histories) =>
           for moduleName in histories do
@@ -816,7 +820,10 @@ kernel checked in this audit, those the environment's admission replayed or reus
 account accepts a correspondence theorem only from one of them or from an origin-checked toolchain
 module (`replacementCorrespondence`). `dependencies` names the modules of owned dependencies that
 `modules` import: the report records their declarations and executable roots too, and its census
-lists them apart (`Census.dependencyModules`). -/
+lists them apart (`Census.dependencyModules`). One report keeps the first answer that
+`loadReplacementHistory` returns for each module and gives it to every later history request of
+the report, from any root, so a node record kept for a later root is the record its pass would
+make again. A loader that throws returns no answer, and no record is kept from that request. -/
 def environmentReport (modules : List Name)
     (loadReplacementHistory : Name → IO (Except String (Array (Name × Name))) :=
       fun _ => pure (.error "trusted source-history loader was not supplied"))
@@ -890,6 +897,15 @@ def environmentReport (modules : List Name)
         ({} : Std.HashMap (Name × Name) (Correspondence × Option String))
     let dependencyCache ← liftIO <| IO.mkRef ({} : CompilerDependenciesCache env)
     let recordCache ← liftIO <| IO.mkRef ({} : NodeRecordCache)
+    -- One answer for each module in this report: every history request, from any root's walk
+    -- and from a kept record (`NodeRecordCache`), gets the loader's first answer for the module.
+    let historyAnswers ← liftIO <| IO.mkRef
+        ({} : Std.HashMap Name (Except String (Array (Name × Name))))
+    let loadHistoryOnce (name : Name) : IO (Except String (Array (Name × Name))) := do
+      if let some answer := (← historyAnswers.get)[name]? then return answer
+      let answer ← loadReplacementHistory name
+      historyAnswers.modify (·.insert name answer)
+      return answer
     let preparedTheorems := Thunk.mk fun _ => prepareTheorems env
     -- A correspondence theorem counts only from a module whose declarations the kernel checked
     -- in this audit (`replayedModules`) or from an origin-checked toolchain module.
@@ -904,7 +920,7 @@ def environmentReport (modules : List Name)
           executionWalk env inspected toolchainModules cached (fun name => do
             historyRequests.modify fun requests =>
               if requests.contains (root, name) then requests else requests.push (root, name)
-            loadReplacementHistory name) candidates proofCache dependencyCache recordCache
+            loadHistoryOnce name) candidates proofCache dependencyCache recordCache
             preparedTheorems admits recursorHelpers root timing
       return ({
         name := root
