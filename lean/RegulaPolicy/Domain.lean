@@ -101,7 +101,7 @@ inductive BoundaryKind where
   compiler-trust family or a name the `nativeEqTrue` scheme generates for
   `native_decide`, `decide +native` or `bv_decide` (`compilerTrustingAxiomName`). -/
   | «compilerTrustedProof»
-  deriving Repr, DecidableEq, Inhabited
+  deriving Repr, DecidableEq, Hashable, Inhabited
 
 /-- The kind's kebab-case text in reports and diagnostics, such as `runtime-replacement`;
 `parse?` reads it back (`BoundaryKind.roundtrip`). -/

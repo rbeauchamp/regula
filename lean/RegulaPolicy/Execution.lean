@@ -968,25 +968,78 @@ def canonicalToolchainReaches (reaches : Array ToolchainReach) : Array Toolchain
   let : Ord ToolchainReach := lexOrd
   simp [canonicalToolchainReaches, Std.ExtTreeSet.mem_toList]
 
-/-- The report entry of one key: the constant, module, kind, replacement and origin of the
-key's first observation, with every environment and root that reaches the key; `none` when
-nothing is observed under the key. -/
-def toolchainEntry (observations : Array (ToolchainReach × ExecutionBoundary × ToolchainOrigin))
-    (key : ToolchainKey) : Option ToolchainBoundary :=
-  let reaching := observations.filter (·.2.1.toolchainKey == key)
+/-- The report entry of the observations `reaching` under one key: the constant, module, kind,
+replacement and origin of the first, with every environment and root among them; `none` when
+there is none. -/
+def toolchainEntryOf (reaching : Array (ToolchainReach × ExecutionBoundary × ToolchainOrigin)) :
+    Option ToolchainBoundary :=
   reaching[0]?.map fun (_, b, origin) =>
     { name := b.name, «module» := b.module, boundary := b.boundary
       replacement := b.replacement, origin
       reachedBy := canonicalToolchainReaches (reaching.map (·.1)) }
 
+/-- The report entry of one key: the constant, module, kind, replacement and origin of the
+key's first observation, with every environment and root that reaches the key; `none` when
+nothing is observed under the key. -/
+def toolchainEntry (observations : Array (ToolchainReach × ExecutionBoundary × ToolchainOrigin))
+    (key : ToolchainKey) : Option ToolchainBoundary :=
+  toolchainEntryOf (observations.filter (·.2.1.toolchainKey == key))
+
+/-- The observations under each key, in their order (`observationsByKey_getD`), gathered in one
+pass instead of one pass for each key, each key's array updated in place. -/
+def observationsByKey
+    (observations : Array (ToolchainReach × ExecutionBoundary × ToolchainOrigin)) :
+    Std.HashMap ToolchainKey (Array (ToolchainReach × ExecutionBoundary × ToolchainOrigin)) :=
+  observations.foldl (init := {}) fun byKey x =>
+    byKey.alter x.2.1.toolchainKey fun a? => some ((a?.getD #[]).push x)
+
+private theorem foldl_observationsByKey_getD
+    (l : List (ToolchainReach × ExecutionBoundary × ToolchainOrigin))
+    (byKey : Std.HashMap ToolchainKey
+      (Array (ToolchainReach × ExecutionBoundary × ToolchainOrigin)))
+    (key : ToolchainKey) :
+    (l.foldl (fun byKey x =>
+        byKey.alter x.2.1.toolchainKey fun a? => some ((a?.getD #[]).push x)) byKey).getD
+          key #[] =
+      byKey.getD key #[] ++ (l.filter (·.2.1.toolchainKey == key)).toArray := by
+  induction l generalizing byKey with
+  | nil => simp
+  | cons x l ih =>
+    rw [List.foldl_cons, ih, Std.HashMap.getD_alter]
+    by_cases same : x.2.1.toolchainKey = key
+    · subst same
+      simp [Std.HashMap.getD_eq_getD_getElem?]
+    · simp [same]
+
+/-- The observations `observationsByKey` gathers under a key are exactly those under it, in
+their order. -/
+theorem observationsByKey_getD
+    (observations : Array (ToolchainReach × ExecutionBoundary × ToolchainOrigin))
+    (key : ToolchainKey) :
+    (observationsByKey observations).getD key #[] =
+      observations.filter (·.2.1.toolchainKey == key) := by
+  rw [observationsByKey, ← Array.foldl_toList, foldl_observationsByKey_getD]
+  rw [Std.HashMap.getD_empty, Array.empty_append, ← Array.toList_filter, Array.toArray_toList]
+
 /-- The toolchain trusted base of the labeled execution accounts of one audit: each
 toolchain-owned boundary once, in key order, with every environment and root that reaches it
-(`checked_toolchainBase`). -/
+(`checked_toolchainBase`). Each key's entry is built from the observations gathered under it
+(`toolchainBase_eq`). -/
 def toolchainBase (environments : Array (String × ExecutionInventory)) :
     Array ToolchainBoundary :=
   let observations := toolchainObservations environments
-  (canonicalToolchainKeys (observations.map (·.2.1.toolchainKey))).filterMap
-    (toolchainEntry observations)
+  let byKey := observationsByKey observations
+  (canonicalToolchainKeys (observations.map (·.2.1.toolchainKey))).filterMap fun key =>
+    toolchainEntryOf (byKey.getD key #[])
+
+/-- Each entry of `toolchainBase` is `toolchainEntry` of its key over all the observations. -/
+theorem toolchainBase_eq (environments : Array (String × ExecutionInventory)) :
+    toolchainBase environments =
+      (canonicalToolchainKeys
+        ((toolchainObservations environments).map (·.2.1.toolchainKey))).filterMap
+        (toolchainEntry (toolchainObservations environments)) := by
+  simp only [toolchainBase, observationsByKey_getD]
+  rfl
 
 theorem mem_toolchainObservations {environments : Array (String × ExecutionInventory)}
     {x : ToolchainReach × ExecutionBoundary × ToolchainOrigin} :
@@ -1011,7 +1064,7 @@ theorem toolchainEntry_sound {observations : Array (ToolchainReach × ExecutionB
       (∃ x ∈ observations, x.2.1.toolchainKey = key ∧ t.module = x.2.1.module ∧
         t.replacement = x.2.1.replacement ∧ t.origin = x.2.2) ∧
       ∀ reach ∈ t.reachedBy, ∃ y ∈ observations, y.1 = reach ∧ y.2.1.toolchainKey = key := by
-  unfold toolchainEntry at h
+  unfold toolchainEntry toolchainEntryOf at h
   simp only [Option.map_eq_some_iff] at h
   obtain ⟨⟨n, b, o⟩, hfirst, rfl⟩ := h
   have hmem := Array.mem_filter.mp (Array.mem_of_getElem? hfirst)
@@ -1038,7 +1091,7 @@ theorem toolchainEntry_complete {observations : Array (ToolchainReach × Executi
         have := Array.size_pos_of_mem hreach
         omega
     | some y => exact ⟨y, rfl⟩
-  refine ⟨_, by simp only [toolchainEntry, hfirst, Option.map_some]; rfl, ?_⟩
+  refine ⟨_, by simp only [toolchainEntry, toolchainEntryOf, hfirst, Option.map_some]; rfl, ?_⟩
   exact (mem_canonicalToolchainReaches _ _).mpr (Array.mem_map.mpr ⟨x, hreach, rfl⟩)
 
 private theorem nodup_map_filterMap {α β : Type} {f : α → Option β} {g : β → α} {l : List α}
@@ -1073,7 +1126,7 @@ private theorem eq_of_nodup_map {α β : Type} {f : α → β} {l : List α} (h 
 /-- No two entries of the toolchain trusted base share a constant and kind. -/
 theorem toolchainBase_keys_nodup (environments : Array (String × ExecutionInventory)) :
     ((toolchainBase environments).map (·.key)).toList.Nodup := by
-  simp only [toolchainBase, Array.toList_map, Array.toList_filterMap]
+  simp only [toolchainBase_eq, Array.toList_map, Array.toList_filterMap]
   exact nodup_map_filterMap (canonicalToolchainKeys_nodup _)
     (fun _ _ h => (toolchainEntry_sound h).1)
 
@@ -1107,7 +1160,7 @@ theorem checked_toolchainBase : Regula.ExecutableContract toolchainBase Toolchai
     obtain ⟨t, ht, hreach⟩ := toolchainEntry_complete hx
     have hkey := (toolchainEntry_sound ht).1
     have hmem : t ∈ toolchainBase environments :=
-      Array.mem_filterMap.mpr ⟨b.toolchainKey,
+      toolchainBase_eq environments ▸ Array.mem_filterMap.mpr ⟨b.toolchainKey,
         (mem_canonicalToolchainKeys _ _).mpr (Array.mem_map.mpr ⟨_, hx, rfl⟩), ht⟩
     refine ⟨t, hmem, hkey, hreach, fun t' ht' hkey' => ?_⟩
     have nodup := toolchainBase_keys_nodup environments
@@ -1115,13 +1168,13 @@ theorem checked_toolchainBase : Regula.ExecutableContract toolchainBase Toolchai
     exact eq_of_nodup_map nodup (Array.mem_toList_iff.mpr ht') (Array.mem_toList_iff.mpr hmem)
       (hkey'.trans hkey.symm)
   · intro t ht
-    obtain ⟨key, -, hentry⟩ := Array.mem_filterMap.mp ht
+    obtain ⟨key, -, hentry⟩ := Array.mem_filterMap.mp (toolchainBase_eq environments ▸ ht)
     obtain ⟨hkey, ⟨x, hx, hxkey, hmodule, hreplacement, horigin⟩, -⟩ := toolchainEntry_sound hentry
     obtain ⟨e, he, r, hr, -, hb, ho⟩ := mem_toolchainObservations.mp hx
     exact ⟨e, he, r, hr, x.2.1, hb, hxkey.trans hkey.symm, hmodule.symm, hreplacement.symm,
       horigin ▸ ho⟩
   · intro t ht reach hreach
-    obtain ⟨key, -, hentry⟩ := Array.mem_filterMap.mp ht
+    obtain ⟨key, -, hentry⟩ := Array.mem_filterMap.mp (toolchainBase_eq environments ▸ ht)
     obtain ⟨hkey, -, hreaches⟩ := toolchainEntry_sound hentry
     obtain ⟨y, hy, rfl, hykey⟩ := hreaches reach hreach
     obtain ⟨e, he, r, hr, hname, hb, ho⟩ := mem_toolchainObservations.mp hy

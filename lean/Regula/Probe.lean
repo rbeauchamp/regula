@@ -511,9 +511,11 @@ private theorem compilerDependenciesLookup_frame (env : Environment) (name other
   cases h : cache.get? name <;>
     simp [compilerDependenciesLookup, h, Std.DHashMap.get?_insert, different]
 
-/-- What the walk of `root` observes of one name `name`: the targets of the edges from the name,
-its boundaries and unresolved paths, and its retained compiler body
-(`RegulaPolicy.ExecutionWalk.NodeRecord`). The names that the walk queues after it are a
+/-- What a walk observes of one name `name`: the targets of the edges from the name, its
+boundaries and unresolved paths, and its retained compiler body
+(`RegulaPolicy.ExecutionWalk.NodeRecord`). It does not receive the walk's root, so the record is
+the same for every root; the walk adds the one note that names its root, for a name with neither
+a constant nor compiled code. The names that the walk queues after it are a
 definition of the targets (`NodeRecord.successors`). The record reads source values, retained
 compiler IR, all supported equality candidates, and observed implementation choices. Compiler
 metadata supplements source dependencies; neither alone retains all earlier replacements after
@@ -526,7 +528,7 @@ private def observeNode (env : Environment) (ownedModules : List Name)
     (candidates : NameMap (Array Lean.Compiler.CSimp.Entry))
     (proofCache : IO.Ref (Std.HashMap (Name × Name) (Correspondence × Option String)))
     (dependencyCache : IO.Ref (CompilerDependenciesCache env))
-    (preparedTheorems : Thunk (PreparedTheorems env)) (admits : Name → Bool) (root : Name)
+    (preparedTheorems : Thunk (PreparedTheorems env)) (admits : Name → Bool)
     (timing : Bool)
     (name : Name) : CommandElabM (RegulaPolicy.ExecutionWalk.NodeRecord name) := do
   let moduleOf (name : Name) : Option Name :=
@@ -554,11 +556,10 @@ private def observeNode (env : Environment) (ownedModules : List Name)
   let dependencies ← liftIO <| dependencyCache.modifyGet (compilerDependenciesLookup env name)
   if let some dependencies := dependencies.val then
     record := { record with compilerDependencies := dependencies }
+  -- A name with neither a constant nor compiled code gets its note from the walk, which names
+  -- the root (`executionWalk`).
   let some info := env.find? name
-  | do
-      if (Lean.IR.findEnvDecl env name).isNone then
-        record := note record s!"{name}: constant used by {root} is not in the environment"
-      return record
+  | return record
   let some moduleName := moduleOf name
   | return note record s!"{name}: module attribution is unavailable"
   let owned := ownedModules.contains moduleName
@@ -685,6 +686,16 @@ private def observeNode (env : Environment) (ownedModules : List Name)
       return record
   | .thmInfo _ | .ctorInfo _ | .inductInfo _ | .recInfo _ | .quotInfo _ => return record
 
+/-- The record `observeNode` made of each name an earlier root's walk reached, with the modules
+whose replacement history it loaded, in order. `observeNode` does not receive the root, and the
+walk adds the root's note after the cache, so a kept record never holds a root. Each later root
+loads the same histories again, so it records the same history requests, and `environmentReport`
+answers each module's history request once for each report, so every request gets the answer the
+kept record was made from, whatever the loader. This cache is invocation-local operational state,
+never worker evidence. -/
+private abbrev NodeRecordCache :=
+  Std.DHashMap Name fun name => RegulaPolicy.ExecutionWalk.NodeRecord name × Array Name
+
 /-- The account of one executable root: the observing pass reads each name that the walk reaches
 (`observeNode`), in the order of the walk, and the decision `RegulaPolicy.ExecutionWalk.walk`
 gives the visits from those records (`walk_sound`, `walk_complete`).
@@ -698,6 +709,7 @@ private def executionWalk (env : Environment) (ownedModules : List Name)
     (candidates : NameMap (Array Lean.Compiler.CSimp.Entry))
     (proofCache : IO.Ref (Std.HashMap (Name × Name) (Correspondence × Option String)))
     (dependencyCache : IO.Ref (CompilerDependenciesCache env))
+    (recordCache : IO.Ref NodeRecordCache)
     (preparedTheorems : Thunk (PreparedTheorems env)) (admits : Name → Bool)
     (recursorHelpers : Array Name) (root : Name) (timing : Bool) : CommandElabM
     (Array Regula.Report.ExecutionBoundary ×
@@ -722,8 +734,30 @@ private def executionWalk (env : Environment) (ownedModules : List Name)
     let name := queue.back!
     queue := queue.pop
     if records.contains name then continue
-    let record ← observeNode env ownedModules toolchainModules cached loadReplacementHistory
-      candidates proofCache dependencyCache preparedTheorems admits root timing name
+    -- A kept record equals the record the pass would make again: the loader `environmentReport`
+    -- passes gives one answer for each module in a report, so these requests get the answers
+    -- the record was made from.
+    let observed ← match (← liftIO recordCache.get).get? name with
+      | some (record, histories) =>
+          for moduleName in histories do
+            discard <| liftIO <| loadReplacementHistory moduleName
+          pure record
+      | none =>
+          let loaded ← liftIO <| IO.mkRef (#[] : Array Name)
+          let load (moduleName : Name) := do
+            loaded.modify (·.push moduleName)
+            loadReplacementHistory moduleName
+          let record ← observeNode env ownedModules toolchainModules cached load
+            candidates proofCache dependencyCache preparedTheorems admits timing name
+          let histories ← liftIO loaded.get
+          liftIO <| recordCache.modify (·.insert name (record, histories))
+          pure record
+    -- The one part of a record that names the root, added after the cache: a name with neither a
+    -- constant nor compiled code. `observeNode` returns that record with no other unresolved path.
+    let record := if (env.find? name).isNone && (Lean.IR.findEnvDecl env name).isNone then
+        { observed with unresolved := observed.unresolved.push <|
+            s!"{name}: constant used by {root} is not in the environment" }
+      else observed
     records := records.insert name record
     queue := queue ++ record.successors
   let request : RegulaPolicy.ExecutionWalk.WalkRequest := { records, root }
@@ -792,7 +826,10 @@ kernel checked in this audit, those the environment's admission replayed or reus
 account accepts a correspondence theorem only from one of them or from an origin-checked toolchain
 module (`replacementCorrespondence`). `dependencies` names the modules of owned dependencies that
 `modules` import: the report records their declarations and executable roots too, and its census
-lists them apart (`Census.dependencyModules`). -/
+lists them apart (`Census.dependencyModules`). One report keeps the first answer that
+`loadReplacementHistory` returns for each module and gives it to every later history request of
+the report, from any root, so a node record kept for a later root is the record its pass would
+make again. A loader that throws returns no answer, and no record is kept from that request. -/
 def environmentReport (modules : List Name)
     (loadReplacementHistory : Name → IO (Except String (Array (Name × Name))) :=
       fun _ => pure (.error "trusted source-history loader was not supplied"))
@@ -865,6 +902,16 @@ def environmentReport (modules : List Name)
     let proofCache ← liftIO <| IO.mkRef
         ({} : Std.HashMap (Name × Name) (Correspondence × Option String))
     let dependencyCache ← liftIO <| IO.mkRef ({} : CompilerDependenciesCache env)
+    let recordCache ← liftIO <| IO.mkRef ({} : NodeRecordCache)
+    -- One answer for each module in this report: every history request, from any root's walk
+    -- and from a kept record (`NodeRecordCache`), gets the loader's first answer for the module.
+    let historyAnswers ← liftIO <| IO.mkRef
+        ({} : Std.HashMap Name (Except String (Array (Name × Name))))
+    let loadHistoryOnce (name : Name) : IO (Except String (Array (Name × Name))) := do
+      if let some answer := (← historyAnswers.get)[name]? then return answer
+      let answer ← loadReplacementHistory name
+      historyAnswers.modify (·.insert name answer)
+      return answer
     let preparedTheorems := Thunk.mk fun _ => prepareTheorems env
     -- A correspondence theorem counts only from a module whose declarations the kernel checked
     -- in this audit (`replayedModules`) or from an origin-checked toolchain module.
@@ -879,8 +926,8 @@ def environmentReport (modules : List Name)
           executionWalk env inspected toolchainModules cached (fun name => do
             historyRequests.modify fun requests =>
               if requests.contains (root, name) then requests else requests.push (root, name)
-            loadReplacementHistory name) candidates proofCache dependencyCache preparedTheorems
-            admits recursorHelpers root timing
+            loadHistoryOnce name) candidates proofCache dependencyCache recordCache
+            preparedTheorems admits recursorHelpers root timing
       return ({
         name := root
         «module» := moduleName
