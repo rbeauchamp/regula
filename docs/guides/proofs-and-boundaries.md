@@ -4580,8 +4580,6 @@ That shard builds only `axiomGate` and the self-test. Its criterion was fixed be
 run. The time of its own build in the job, plus 4 s, plus 1.10 times the time of the positive, is
 at most 315 s.
 
-
-
 Before the structural project, every cluster ran in a copy of the whole repository claiming
 `RegulaPolicy`, and one partition held the structural, correspondence and compiler-path
 controls: an instrumented run took 513 s, in which 21 gate runs each inspected the unchanged

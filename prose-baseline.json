@@ -6,7 +6,7 @@
     [".agents/skills/lean-ci/references/evidence.md", "3", "0", "2", "13", "0", "1", "7", "0"],
     [".agents/skills/pr-review-toolkit/SKILL.md", "0", "0", "0", "5", "0", "0", "4", "0"],
     [".agents/skills/pr-review-toolkit/references/lean-lens-contracts.md", "9", "0", "0", "19", "0", "0", "18", "0"],
-    [".agents/skills/pr-review-toolkit/references/review-workflow.md", "7", "0", "2", "15", "0", "0", "11", "0"],
+    [".agents/skills/pr-review-toolkit/references/review-workflow.md", "7", "0", "2", "15", "0", "0", "10", "0"],
     [".agents/skills/regula/SKILL.md", "generated", "lake exe regula skill"],
     ["AGENTS.md", "10", "0", "4", "31", "0", "1", "22", "0"],
     ["SECURITY.md", "3", "0", "0", "5", "0", "0", "4", "0"],
