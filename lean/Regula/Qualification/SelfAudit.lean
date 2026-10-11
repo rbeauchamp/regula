@@ -99,22 +99,27 @@ def jsonAgreementModule : Name := `RegulaCore.JsonAgreement
 /-- The answers `rendersIn` and `comparesJsonIn` have given, by question, term and the part of the
 binder context that the term can read. Lean shares subterms, so a term without this table is a tree
 far larger than the term itself. -/
-abbrev ComparisonTable := Std.HashMap (Bool × Expr × List Bool) Bool
+abbrev ComparisonTable := Std.HashMap (Bool × Expr × List Nat) Bool
 
-/-- Whether `e` contains `Json.compress`, directly or through a bound variable: `carries` says,
-for each loose bound variable by its de Bruijn index, whether it is `let`-bound to such a term. -/
-def rendersIn (carries : List Bool) (e : Expr) : StateM ComparisonTable Bool := do
-  let key := (false, e, carries.take e.looseBVarRange)
+/-- The rendering indices under one more binder, which renders when `bound` holds. -/
+def underBinder (bound : Bool) (carries : List Nat) : List Nat :=
+  let shifted := carries.map (· + 1)
+  if bound then 0 :: shifted else shifted
+
+/-- Whether `e` contains `Json.compress`, directly or through a bound variable: `carries` lists the
+de Bruijn indices of the loose bound variables that are `let`-bound to such a term, usually none. -/
+def rendersIn (carries : List Nat) (e : Expr) : StateM ComparisonTable Bool := do
+  let key := (false, e, carries.filter (· < e.looseBVarRange))
   if let some known := (← get)[key]? then return known
   let answer ← match e with
     | .const name _ => pure (name == ``Lean.Json.compress)
-    | .bvar index => pure (carries.getD index false)
+    | .bvar index => pure (carries.contains index)
     | .app f a => return (← rendersIn carries f) || (← rendersIn carries a)
     | .lam _ type body _ | .forallE _ type body _ =>
-      return (← rendersIn carries type) || (← rendersIn (false :: carries) body)
+      return (← rendersIn carries type) || (← rendersIn (carries.map (· + 1)) body)
     | .letE _ type value body _ =>
       let bound ← rendersIn carries value
-      return (← rendersIn carries type) || bound || (← rendersIn (bound :: carries) body)
+      return (← rendersIn carries type) || bound || (← rendersIn (underBinder bound carries) body)
     | .mdata _ e | .proj _ _ e => rendersIn carries e
     | _ => pure false
   modify (·.insert key answer)
@@ -122,8 +127,8 @@ def rendersIn (carries : List Bool) (e : Expr) : StateM ComparisonTable Bool := 
 
 /-- Whether `e` compares `Json` values with Lean's equality: it names the `BEq Json` instance, or it
 applies `BEq.beq`, `bne` or `Eq` to an operand that `rendersIn`; `carries` is as for `rendersIn`. -/
-def comparesJsonIn (carries : List Bool) (e : Expr) : StateM ComparisonTable Bool := do
-  let key := (true, e, carries.take e.looseBVarRange)
+def comparesJsonIn (carries : List Nat) (e : Expr) : StateM ComparisonTable Bool := do
+  let key := (true, e, carries.filter (· < e.looseBVarRange))
   if let some known := (← get)[key]? then return known
   let answer ← match e with
     | .const name _ => pure (name == ``Lean.Json.instBEq)
@@ -137,18 +142,22 @@ def comparesJsonIn (carries : List Bool) (e : Expr) : StateM ComparisonTable Boo
       return comparison && operands || (← comparesJsonIn carries f) ||
         (← comparesJsonIn carries a)
     | .lam _ type body _ | .forallE _ type body _ =>
-      return (← comparesJsonIn carries type) || (← comparesJsonIn (false :: carries) body)
+      return (← comparesJsonIn carries type) || (← comparesJsonIn (carries.map (· + 1)) body)
     | .letE _ type value body _ =>
       let bound ← rendersIn carries value
       return (← comparesJsonIn carries type) || (← comparesJsonIn carries value) ||
-        (← comparesJsonIn (bound :: carries) body)
+        (← comparesJsonIn (underBinder bound carries) body)
     | .mdata _ e | .proj _ _ e => comparesJsonIn carries e
     | _ => pure false
   modify (·.insert key answer)
   return answer
 
-/-- Whether the closed term `e` compares `Json` values (`comparesJsonIn`). -/
-def comparesJson (e : Expr) : Bool := (comparesJsonIn [] e).run' {}
+/-- Whether the closed term `e` compares `Json` values (`comparesJsonIn`). Lean's `Expr.find?`, which
+visits each shared subterm one time, finds a use of the instance and decides if `e` mentions
+`Json.compress` at all; only then does `comparesJsonIn` follow the `let` bindings. -/
+def comparesJson (e : Expr) : Bool :=
+  (e.find? (·.isConstOf ``Lean.Json.instBEq)).isSome ||
+    (e.find? (·.isConstOf ``Lean.Json.compress)).isSome && (comparesJsonIn [] e).run' {}
 
 /-- The declarations of `owned`, of the module `moduleName`, whose type or value compares `Json`
 values (`comparesJson`), outside the module `jsonAgreementModule` and `jsonComparisonAllowlist`.
