@@ -1,5 +1,6 @@
-import Regula.SourceTexts
-import Regula.Checker.PolicyCodec
+import Lean.Data.Json
+import Std.Data.TreeMap.Raw.AdditionalOperations
+import RegulaPolicy.Codec
 import Regula.Contract
 import Regula.Decision
 
@@ -35,10 +36,71 @@ of each is. `Shaped.of_members` proves it for an object that an encoder builds,
 `Shaped.agree_of_members` proves that a value of the form agrees with such an object,
 `Shaped.regular` proves that it has search trees, and `Shaped.of_agree` proves the converse for
 a value whose object trees are search trees. `get?_of_mem` is the lemma about Lean's lookup
-that these use: in a search tree, each member is found by its name. -/
+that these use: in a search tree, each member is found by its name.
+
+The module is in the claimed library `RegulaCore`, so the claimed checks of
+`RegulaQualification` can run `conforms` too. `Fields` and `Cases`, the induction over a value and
+the object trees inside it, are here for the same reason; `Regula.SourceTexts` and
+`Regula.SharedExecution` use them as well. -/
 namespace Regula.JsonAgreement
 open Lean
-open Regula.SourceTexts (Fields Cases)
+open Std.DTreeMap.Internal (Impl)
+
+/-- The fields of a JSON object, as `Json.obj` stores them. -/
+abbrev Fields := Impl String (fun _ => Json)
+
+private theorem sizeOf_lt_arr {value : Json} {elems : Array Json} (h : value ∈ elems) :
+    sizeOf value < sizeOf (Json.arr elems) := by
+  have := Array.sizeOf_lt_of_mem h
+  simp only [Json.arr.sizeOf_spec]
+  omega
+
+/-- The cases of an induction over a JSON value and the object trees inside it. -/
+structure Cases (motive : Json → Prop) (fieldsMotive : Fields → Prop) : Prop where
+  /-- `null`. -/
+  null : motive .null
+  /-- A boolean. -/
+  bool : ∀ b, motive (.bool b)
+  /-- A number. -/
+  num : ∀ n, motive (.num n)
+  /-- A string. -/
+  str : ∀ s, motive (.str s)
+  /-- An array whose elements have the property. -/
+  arr : ∀ elems : Array Json, (∀ value ∈ elems, motive value) → motive (.arr elems)
+  /-- An object whose fields have the property. -/
+  obj : ∀ fields : Fields, fieldsMotive fields → motive (.obj ⟨⟨fields⟩⟩)
+  /-- The empty tree. -/
+  leaf : fieldsMotive .leaf
+  /-- A tree node whose value and subtrees have the property. -/
+  inner : ∀ size key value left right, motive value → fieldsMotive left → fieldsMotive right →
+    fieldsMotive (.inner size key value left right)
+
+mutual
+/-- Induction over a JSON value, through the object trees inside it. -/
+theorem Cases.value {motive : Json → Prop} {fieldsMotive : Fields → Prop}
+    (cases : Cases motive fieldsMotive) : ∀ value : Json, motive value
+  | .null => cases.null
+  | .bool b => cases.bool b
+  | .num n => cases.num n
+  | .str s => cases.str s
+  | .arr elems => cases.arr elems fun value _ => cases.value value
+  | .obj ⟨⟨fields⟩⟩ => cases.obj fields (cases.fields fields)
+termination_by value => sizeOf value
+decreasing_by
+  · exact sizeOf_lt_arr ‹_›
+  · simp only [Json.obj.sizeOf_spec, Std.TreeMap.Raw.mk.sizeOf_spec,
+      Std.DTreeMap.Raw.mk.sizeOf_spec]
+    omega
+/-- Induction over an object tree, through the JSON values inside it. -/
+theorem Cases.fields {motive : Json → Prop} {fieldsMotive : Fields → Prop}
+    (cases : Cases motive fieldsMotive) : ∀ fields : Fields, fieldsMotive fields
+  | .leaf => cases.leaf
+  | .inner size key value left right =>
+      cases.inner size key value left right (cases.value value) (cases.fields left)
+        (cases.fields right)
+termination_by fields => sizeOf fields
+end
+
 
 /-- The members of an object tree in the order of the tree: the left subtree, the node, the right
 subtree. -/
@@ -399,6 +461,12 @@ def conforms (a b : Json) : Bool := regular a && agrees a b
 agrees with the second. -/
 theorem conforms_iff (a b : Json) : conforms a b = true ↔ Regular a ∧ Agree a b := by
   simp only [conforms, Bool.and_eq_true, regular_iff, agrees_iff]
+
+/-- The first value has search trees, and it agrees with the second. `conforms` decides it, so a
+check can state this proposition and run `decide`, whose instance runs `conforms`. -/
+def Conforms (a b : Json) : Prop := Regular a ∧ Agree a b
+
+instance (a b : Json) : Decidable (Conforms a b) := decidable_of_iff _ (conforms_iff a b)
 
 /-- `conforms` is a sound and complete decision (`conforms_iff`): it accepts `null` with `null`,
 and it refuses `null` with a Boolean. The specification names the relations `Regular` and
@@ -792,7 +860,7 @@ theorem Shaped.of_agree {schema : List Entry} {j : Json}
         rw [← aligned_names meanings]
         exact nodup_of_increasing increasing
       have same : (schema.map (·.name)).Perm ((members tree).map (·.1)) :=
-        Regula.Checker.PolicyCodec.perm_of_length_of_mem treeNames
+        RegulaPolicy.Codec.perm_of_length_of_mem treeNames
           (by rw [List.length_map, List.length_map, ← length, count_eq_length])
           fun name inTree => by
             obtain ⟨member, memberPresent, rfl⟩ := List.mem_map.mp inTree

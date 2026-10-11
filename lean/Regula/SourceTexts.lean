@@ -2,6 +2,7 @@ import Lean.Data.Json
 import Regula.Contract
 import Std.Data.TreeMap.Raw.AdditionalOperations
 import Regula.Decision
+import RegulaCore.JsonAgreement
 
 /-! # Source texts of a result document, stored once
 
@@ -18,9 +19,7 @@ document. -/
 namespace Regula.SourceTexts
 open Lean
 open Std.DTreeMap.Internal (Impl)
-
-/-- The fields of a JSON object, as `Json.obj` stores them. -/
-abbrev Fields := Impl String (fun _ => Json)
+open Regula.JsonAgreement (Fields Cases)
 
 /-- The member whose value is a source text (logical document) or its index (written document). -/
 def textKey : String := "sourceText"
@@ -176,58 +175,6 @@ def expand (written : Json) : Except String Json :=
   | _ => .error "result document: expected one top-level sourceTexts member"
 
 /-! ### Laws -/
-
-private theorem sizeOf_lt_arr {value : Json} {elems : Array Json} (h : value ∈ elems) :
-    sizeOf value < sizeOf (Json.arr elems) := by
-  have := Array.sizeOf_lt_of_mem h
-  simp only [Json.arr.sizeOf_spec]
-  omega
-
-/-- The cases of an induction over a JSON value and the object trees inside it. -/
-structure Cases (motive : Json → Prop) (fieldsMotive : Fields → Prop) : Prop where
-  /-- `null`. -/
-  null : motive .null
-  /-- A boolean. -/
-  bool : ∀ b, motive (.bool b)
-  /-- A number. -/
-  num : ∀ n, motive (.num n)
-  /-- A string. -/
-  str : ∀ s, motive (.str s)
-  /-- An array whose elements have the property. -/
-  arr : ∀ elems : Array Json, (∀ value ∈ elems, motive value) → motive (.arr elems)
-  /-- An object whose fields have the property. -/
-  obj : ∀ fields : Fields, fieldsMotive fields → motive (.obj ⟨⟨fields⟩⟩)
-  /-- The empty tree. -/
-  leaf : fieldsMotive .leaf
-  /-- A tree node whose value and subtrees have the property. -/
-  inner : ∀ size key value left right, motive value → fieldsMotive left → fieldsMotive right →
-    fieldsMotive (.inner size key value left right)
-
-mutual
-/-- Induction over a JSON value, through the object trees inside it. -/
-theorem Cases.value {motive : Json → Prop} {fieldsMotive : Fields → Prop}
-    (cases : Cases motive fieldsMotive) : ∀ value : Json, motive value
-  | .null => cases.null
-  | .bool b => cases.bool b
-  | .num n => cases.num n
-  | .str s => cases.str s
-  | .arr elems => cases.arr elems fun value _ => cases.value value
-  | .obj ⟨⟨fields⟩⟩ => cases.obj fields (cases.fields fields)
-termination_by value => sizeOf value
-decreasing_by
-  · exact sizeOf_lt_arr ‹_›
-  · simp only [Json.obj.sizeOf_spec, Std.TreeMap.Raw.mk.sizeOf_spec,
-      Std.DTreeMap.Raw.mk.sizeOf_spec]
-    omega
-/-- Induction over an object tree, through the JSON values inside it. -/
-theorem Cases.fields {motive : Json → Prop} {fieldsMotive : Fields → Prop}
-    (cases : Cases motive fieldsMotive) : ∀ fields : Fields, fieldsMotive fields
-  | .leaf => cases.leaf
-  | .inner size key value left right =>
-      cases.inner size key value left right (cases.value value) (cases.fields left)
-        (cases.fields right)
-termination_by fields => sizeOf fields
-end
 
 theorem textKey_ne_tableKey : (tableKey == textKey) = false := by decide
 

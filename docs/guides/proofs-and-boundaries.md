@@ -977,8 +977,7 @@ Which report states a kind depends on the library that holds the registration:
 - **The excluded `Regula` library.** Acceptance does not report its declarations, so no report
   states the kind of its registrations, named here with their modules: `checked_same`
   and `checked_read` (`Regula.SharedExecution`), `checked_intern` and `checked_expand`
-  (`Regula.SourceTexts`), `checked_regular`, `checked_agrees`, `checked_conforms` and
-  `checked_canonical` (`Regula.JsonAgreement`), `checked_parseLocation` and
+  (`Regula.SourceTexts`), `checked_parseLocation` and
   `checked_parseDiagnostic` (`Regula.DiagnosticCodec`),
   `checked_exactFields` (`Regula.Checker.PolicyCodec`), `checked_scanLines` and
   `checked_scanVersoLines` (`Regula.Checker.FenceScan`), `checked_parseMode` and `checked_parseRule`
@@ -1475,8 +1474,10 @@ A finding is an object with eleven members. Eight members carry the finding: `id
 `location`, `related`, `mode`, `claim`, `impact` and `severity`. Three members are redundant:
 `text`, `remedy` and `helpUrl`.
 
-**Proved**, about the functions that the checker runs. Lean's kernel checked each theorem in the
-build of the excluded `Regula` library, with `propext`, `Classical.choice` and `Quot.sound` only.
+**Proved**, about the functions that the checker runs. The theorems of `JsonAgreement` are in the
+claimed module `RegulaCore.JsonAgreement`, which acceptance elaborates fresh and the kernel admits.
+Lean's kernel checked the others in the build of the excluded `Regula` library. Each uses
+`propext`, `Classical.choice` and `Quot.sound` only.
 
 | Property | Declarations | Meaning and limit |
 | --- | --- | --- |
@@ -1491,6 +1492,7 @@ build of the excluded `Regula` library, with `propext`, `Classical.choice` and `
 | An accepted value conforms to its encoding | `parseLocation_canonical`, `parseDiagnostic_canonical` | The input has search trees and agrees with the encoding. The theorem is for each `Json` value. It names the encoder that the decoder runs. |
 | The registry decoders conform | `RegistryCodec.parseDescriptor_eq_ok_iff`, `validateRegistry_eq_ok_iff` | `parseDescriptor` returns a rule exactly when the member `id` names it and the input conforms to the descriptor of that rule. `validateRegistry` accepts exactly a value that conforms to the registry of the producer. |
 | The other readers conform | `Checker.readWorkerPacket_eq_ok_iff`, `Website.parsePage_eq_ok_iff`, `Website.validateArtifact_regular` | `readWorkerPacket` returns a payload exactly when the packet has its four members and schema 1, and two members conform. The member `producer` conforms to the producer of this checker, and the member `request` to the request. `parsePage` returns a page exactly when its members read as the page and the record conforms to `pageJson` of it. `validateArtifact` accepts only an artifact list with search trees. |
+| The producer checks conform | `RegulaQualification.Producer.requirements_census_type`, `validate_census_type` | An admitted requirement list holds the census check and the theorem-type check. Each decides `JsonAgreement.Conforms` with `conforms`, with the received value first. An admitted report's census conforms to `censusJson`, and the `type` of its first declaration conforms to `theoremType`. Its other object checks decide `Conforms` too, and no theorem names them. |
 | In a search tree, each member is found by its name | `JsonAgreement.get?_of_mem`, `mem_of_get?` | The first theorem is about `Std.TreeMap.Raw.get?`, the lookup that `Json.getObjVal?` runs. The second is for each tree: a name that is found is the name of a member. |
 | Exact members | `PolicyCodec.exactFields_iff`, `checked_exactFields` | `exactFields` accepts exactly an object that has the expected names as its member names, in some order (`ExactFields`). The proof that the expected names are distinct is an argument. Thus Lean rejects a call with a list that gives one name twice. |
 
@@ -1514,11 +1516,10 @@ these items:
 - What the other comparisons of `Json` values accept. These functions run `conforms`, with the
   input first: `RegistryCodec.parseDescriptor`, `validateRegistry`, `Website.parsePage`,
   `validateArtifact` and `Checker.readWorkerPacket`. The guidance members of
-  `ResultProtocol.admitGuidance` and some checks of the qualification run it too. Other
-  comparisons put the encoding first, compare with an encoding that has no object, or compare two
-  inputs or two encodings. The producer checks of the claimed library `RegulaQualification` cannot
-  import `JsonAgreement`, and they put the report first. This item is not a complete list, and no
-  theorem says what one of these comparisons accepts.
+  `ResultProtocol.admitGuidance` and the checks of report objects in the qualification run it too.
+  Other comparisons put the encoding first, compare with an encoding that has no object, or
+  compare two inputs or two encodings. This item is not a complete list, and no theorem says what
+  one of these comparisons accepts.
 
 **The callers.** These paths give a value to the diagnostic decoder. They are read from the code
 of the callers.

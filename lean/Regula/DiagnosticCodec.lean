@@ -1,5 +1,5 @@
 import Regula.RegistryCodec
-import Regula.JsonAgreement
+import RegulaCore.JsonAgreement
 
 /-! # Fail-closed diagnostic transport
 

@@ -1,7 +1,7 @@
 import Regula.Checker.ModuleName
 import Regula.Checker.Producer
 import Regula.Checker.PolicyCodec
-import Regula.JsonAgreement
+import RegulaCore.JsonAgreement
 import Regula.Scratch
 import RegulaPolicy.ResultState
 import RegulaPolicy.Guards

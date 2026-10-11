@@ -2,7 +2,7 @@ import Regula.Diagnostic
 import Regula.StructuralName
 import Regula.SourceTexts
 import Regula.Decision
-import Regula.JsonAgreement
+import RegulaCore.JsonAgreement
 
 /-! # Registry transport codec
 
