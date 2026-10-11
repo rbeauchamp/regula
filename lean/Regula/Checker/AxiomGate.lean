@@ -380,11 +380,22 @@ private def retainSourceAccount (resultOut : Option FilePath)
         let value ← ResultProtocol.readDocument output
         ResultProtocol.writeDocument output (value.setObjVal! "sourceAccount" captured)
 
+/-- `cleanup`, run after the run failed with `failure`: an error it throws is replaced by one
+error whose text names `failure` first and then that error. -/
+private def afterFailure {α : Type} (failure : IO.Error) (cleanup : IO α) : IO α :=
+  try cleanup
+  catch refusal => throw <| IO.userError s!"{failure}; then: {refusal}"
+
+/-- `action`, then `retainSourceAccount`. When `action` throws, its error is rethrown, with any
+error of `retainSourceAccount` added after it (`afterFailure`). -/
 private def withRetainedSources {α : Type} (resultOut : Option FilePath)
     (composed : IO.Ref (Option Json))
     (captured : IO.Ref (Array ProducerReport.SourceBinding)) (action : IO α) : IO α := do
-  try action
-  finally retainSourceAccount resultOut composed (← captured.get)
+  let value ← try action catch failure => do
+    afterFailure failure (retainSourceAccount resultOut composed (← captured.get))
+    throw failure
+  retainSourceAccount resultOut composed (← captured.get)
+  return value
 
 /-- Stop the run with `findings`: print them and the summary, record the result they decide and
 write it, with the stages the call site completed. -/
@@ -1847,10 +1858,11 @@ unsafe def run (args : List String) : IO UInt32 := do
     let status ← record observation
     printSummary observation
     if let some output := resultOut then
-      let captured ← capturedSourceAccount resultOut (← capturedSources.get)
-      ResultProtocol.writeDocument output <|
-        (ResultProtocol.resultJson (Json.str repo.toString) mode status #[finding]
-          (← expectedStages.get) [] #[error.toString]).setObjVal! "sourceAccount" captured
+      afterFailure error do
+        let captured ← capturedSourceAccount resultOut (← capturedSources.get)
+        ResultProtocol.writeDocument output <|
+          (ResultProtocol.resultJson (Json.str repo.toString) mode status #[finding]
+            (← expectedStages.get) [] #[error.toString]).setObjVal! "sourceAccount" captured
     return 1
   let action : IO (UInt32 × Option AcceptanceLink.Pending) := do
     try

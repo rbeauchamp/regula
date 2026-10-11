@@ -762,6 +762,29 @@ theorem Agree.obj_self (fields : Std.TreeMap.Raw String Json compare)
   exact ⟨member.2, get?_of_mem (.of_members sorted increasing) present,
     each member (sorted ▸ present)⟩
 
+/-- A list of values each of which agrees with itself agrees with itself. -/
+theorem agreeAll_self {elements : List Json} (each : ∀ value ∈ elements, Agree value value) :
+    AgreeAll elements elements := by
+  induction elements with
+  | nil => exact .nil
+  | cons head rest step =>
+    exact .cons (each head (by simp)) (step fun value inside => each value (by simp [inside]))
+
+/-- **A value whose object trees are search trees agrees with itself**: each member of each of
+its trees is found by its name (`get?_of_mem`). -/
+theorem Regular.agree_self {j : Json} (regular : Regular j) : Agree j j := by
+  induction regular with
+  | null => exact .null
+  | bool value => exact .bool value
+  | num value => exact .num value
+  | str value => exact .str value
+  | @arr elements _ step =>
+    obtain ⟨elements⟩ := elements
+    exact .arr (agreeAll_self fun value inside => step value (Array.mem_def.mpr inside))
+  | @obj fields ordered _ step =>
+    exact .obj rfl ((agreeFields_iff _ _).mpr fun member present =>
+      ⟨member.2, get?_of_mem ordered present, step member present⟩)
+
 /-! ### From an agreement to the members
 
 `Shaped.of_agree` is the converse of `Shaped.agree_of_members`, for a value whose object trees

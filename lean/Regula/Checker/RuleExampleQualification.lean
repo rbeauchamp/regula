@@ -305,9 +305,12 @@ def qualifyKind (record result : Json) (bound : ExampleBinding) (observedRequest
   | _ => throw "unknown example or demonstration kind"
 
 /-- Validate an actual subprocess record. A normal terminal exit, bound canonical result,
-exact expectation list and source stability are jointly required. No exit-only acceptance. -/
+exact expectation list and source stability are jointly required. No exit-only acceptance. The
+members of the result that `ResultProtocol.admitGuidance` reads must pass it
+(`ResultProtocol.guidanceInput`), as the result did when the producer read it. -/
 def qualify (record : Json) : Except String Unit := do
   let result ← field record "result"
+  ResultProtocol.admitGuidance (ResultProtocol.guidanceInput result)
   ResultProtocol.identityFields.forM (checkIdentity result)
   let mode ← RegistryCodec.parseMode (← string record "mode")
   unless (← string result "mode") == mode.spelling do throw "wrong example evidence mode"
@@ -328,6 +331,7 @@ open RegulaPolicy.Guards
 theorem qualify_parts (record : Json) (h : qualify record = .ok ()) :
     ∃ result mode bound observedRequest code actual status kind displayed,
       field record "result" = .ok result ∧
+      ResultProtocol.admitGuidance (ResultProtocol.guidanceInput result) = .ok () ∧
       (∀ entry ∈ ResultProtocol.identityFields, checkIdentity result entry = .ok ()) ∧
       (string record "mode" >>= RegistryCodec.parseMode) = .ok mode ∧
       string result "mode" = .ok mode.spelling ∧
@@ -342,13 +346,13 @@ theorem qualify_parts (record : Json) (h : qualify record = .ok ()) :
       qualifyKind record result bound observedRequest mode code status kind actual = .ok () := by
   unfold qualify at h
   simp only [bind_eq_ok] at h
-  obtain ⟨result, hr, _, hid, ms, hms, mode, hmode, rm, hrm, h⟩ := h
+  obtain ⟨result, hr, ⟨⟩, hadm, _, hid, ms, hms, mode, hmode, rm, hrm, h⟩ := h
   simp only [ite_throw_eq_ok, bind_eq_ok, throw_bind, beq_iff_eq] at h
   obtain ⟨hrm2, bound, hb, req, hreq, hmm, ec, hec, code, hcode, hle, actual, ha, status, hs, kind,
       hk, src, hsrc, ⟨⟩, hsa, hq⟩ := h
   subst hrm2
   refine
-      ⟨result, mode, bound, req, code, actual, status, kind, src, hr, ?_, by simp
+      ⟨result, mode, bound, req, code, actual, status, kind, src, hr, hadm, ?_, by simp
           [bind_eq_ok, hms, hmode], hrm, hb, hreq, hmm, by simp [bind_eq_ok, hec, hcode], hle, ha,
               hs, hk, hsrc, hsa, hq⟩
   exact listForM_eq_ok.mp hid
@@ -471,6 +475,9 @@ theorem qualifyKind_sound {record result : Json} {bound : ExampleBinding} {req :
 def RecordAdmissible (record : Json) : Prop :=
   ∃ result mode bound code displayed kind actual,
     field record "result" = .ok result ∧
+    (JsonAgreement.Regular (ResultProtocol.guidanceInput result) ∧ ∃ guidance,
+      ResultProtocol.readGuidance (ResultProtocol.guidanceInput result) = .ok guidance ∧
+      ResultProtocol.guidanceVerdict guidance = .ok ()) ∧
     (∀ entry ∈ ResultProtocol.identityFields,
       ∃ value, field result entry.1 = .ok value ∧ JsonAgreement.Regular value ∧
         JsonAgreement.Agree value entry.2) ∧
@@ -500,14 +507,15 @@ def RecordAdmissible (record : Json) : Prop :=
       DemonstrationOK ⟨bound, rule, actual⟩ ⟨bound, .completed, .checked actual false⟩)
 
 theorem qualify_sound (record : Json) (h : qualify record = .ok ()) : RecordAdmissible record := by
-  obtain ⟨result, mode, bound, req, code, actual, status, kind, displayed, hr, hid, hmode,
+  obtain ⟨result, mode, bound, req, code, actual, status, kind, displayed, hr, hadm, hid, hmode,
       hrm, hb, hreq,
     _, hcode, hle, hfind, _, hk, hsrc, hsa, hq⟩ := qualify_parts record h
   obtain ⟨before, after, hbefore, hafter, hregular, hstable, _, rj, hrj, hbreq⟩ := binding_sound hb
   obtain ⟨rfl, oj, hoj, horeq⟩ := requestAccount_sound hreq
   obtain ⟨hsources, hpresent⟩ := sourceAccount_sound hsa
   obtain ⟨hkind, hdemo⟩ := qualifyKind_sound hq
-  refine ⟨result, mode, bound, code, displayed, kind, actual, hr, fun e he => checkIdentity_sound
+  refine ⟨result, mode, bound, code, displayed, kind, actual, hr,
+    (ResultProtocol.admitGuidance_eq_ok_iff _).mp hadm, fun e he => checkIdentity_sound
                                                                                (hid e he),
     hmode, hrm, ⟨before, after, hbefore, hafter, hregular, hstable⟩, hb, ⟨rj, hrj, hbreq⟩,
     ⟨oj, hoj, horeq⟩,
