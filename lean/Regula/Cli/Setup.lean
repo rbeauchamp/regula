@@ -45,10 +45,11 @@ writing and refuses, restoring the files it wrote, unless the plan of the new ob
 empty. `init` never changes a value the project already gives: it inserts text only, into the
 package's configuration and each claimed target's as the plan decides, and a `globs` setting into
 the library of `Regula.Setup.Observation.globCase`, located the same way. That case is read from
-Lake: the package's only library, its globs Lake's default, declared as `soleDeclared` reads the
-configuration file, whose glob, Lake's own over its source directory, adds only source files the
-import closure of the claimed modules, the claimed roots included, already reached under the same
-name. That closure reads the headers of its own files alone. A
+Lake: the package's only library, with one root and its globs Lake's default, declared as
+`soleDeclared` reads the configuration file, whose glob, Lake's own over its source directory, adds
+only source files the import closure of the claimed modules, the claimed roots included, already
+read under the same name, compared by canonical path (`IO.FS.realPath`). That closure reads the
+headers of its own files alone. A
 `.git` entry marks the repository root for the agent guidance; Git itself is not run. RG2006 in
 `doctor` applies Mathlib's options when the workspace contains Mathlib, where the linter applies
 them to a target whose modules import Mathlib; by
@@ -553,10 +554,10 @@ Mathlib, the compiler its `lean-toolchain` selects (`pinned`), the manifest and 
 files, the
 modules below a library root that no library includes, split by whether a claimed module imports
 them, and the facts of `Regula.Setup.Observation.globCase`: the package's only `lean_lib` when
-Lake reports its globs as its roots alone and `soleDeclared` holds, the modules Lake's glob of the
-submodules of its roots finds in its source directory, and which of those have as their source,
-`Module.leanFile` once the library includes them, the file the import closure of the claimed
-modules, the claimed roots included, reached under their name. -/
+it has one root, Lake reports its globs as that root alone and `soleDeclared` holds, each module
+Lake's glob of the root's submodules finds in its source directory with its `Module.leanFile`, and
+the file the import closure of the claimed modules, the claimed roots included, read under each
+of those names, every file by its canonical path. -/
 def observe (root : FilePath) : IO Project := do
   -- Without a manifest every root target is claimed, as in the starter `init` writes; a target the
   -- manifest that loads excludes is not. A manifest that does not load or classify every root
@@ -575,7 +576,7 @@ def observe (root : FilePath) : IO Project := do
   let excludedLibraries := (manifest.map (·.excludedLibraries.map (·.library))).getD #[]
   let excludedExecutables := (manifest.map (·.excludedExecutables.map (·.executable))).getD #[]
   let (lakefile, configFile, driver, options, targets, allClaimed, libraries, mathlib,
-      uncovered, unimported, candidate, added, reached) ←
+      uncovered, unimported, candidate, added, read) ←
       Workspace.withRootWorkspace root fun ws => do
       -- An entry of module names: the configuration of each package of the workspace, before
       -- any module is resolved or any path is built from a name (`Lake.checkModuleNames`).
@@ -611,23 +612,21 @@ def observe (root : FilePath) : IO Project := do
               sources := sources.insert name path
         unless missed.isEmpty do
           missedBy := missedBy.push (lib.name.toString, lib.roots.toList.map toString, missed)
-      -- The package's only library when Lake reports its globs as its roots alone, and the
-      -- modules its glob would add: Lake's own glob of the submodules of each root.
-      let mut candidate : Option (String × List String) := none
-      let mut added : Array Name := #[]
-      let mut globFile : Name → FilePath := fun _ => ""
+      -- The package's only library when it has one root and Lake reports its globs as that root
+      -- alone, and the modules its glob would add: Lake's own glob of the root's submodules, each
+      -- with the file Lake gives a module of the library, `Module.leanFile`.
+      let mut candidate : Option (String × String) := none
+      let mut added : Array (Name × FilePath) := #[]
       if let #[lib] := pkg.leanLibs then
-        if lib.config.globs == lib.config.roots.map .one then
-          candidate := some (lib.name.toString, lib.roots.toList.map toString)
-          let found ← IO.mkRef (#[] : Array Name)
-          for r in lib.roots do
+        if let #[r] := lib.roots then
+          if lib.config.globs == #[.one r] then
+            candidate := some (lib.name.toString, r.toString)
             if ← (Lean.modToFilePath lib.srcDir r "").isDir then
+              let found ← IO.mkRef (#[] : Array Name)
               (Lake.Glob.submodules r).forEachModuleIn lib.srcDir fun m => found.modify (·.push m)
-          added ← found.get
-          -- The file Lake gives a module of the library, `Module.leanFile`.
-          globFile := fun m => Lean.modToFilePath lib.srcDir m "lean"
-          for m in added do
-            unless sources.contains m do sources := sources.insert m (globFile m)
+              added := (← found.get).map fun m => (m, Lean.modToFilePath lib.srcDir m "lean")
+              for (m, file) in added do
+                unless sources.contains m do sources := sources.insert m file
       let imported ← importClosure sources claimed
       let sorted (names : Array Name) := ((names.map toString).qsort (· < ·)).toList
       let mut uncovered := []
@@ -658,16 +657,30 @@ def observe (root : FilePath) : IO Project := do
         !invalid && libs.size == pkg.leanLibs.size && exes.size == pkg.leanExes.size,
         !pkg.leanLibs.isEmpty,
         ws.packages.any (·.baseName == `mathlib), uncovered, unimported, candidate,
-        sorted added,
-        sorted (added.filter fun m => imported.contains m && sources.find? m == some (globFile m)))
+        added.toList,
+        (added.filterMap fun (m, _) =>
+          if imported.contains m then (sources.find? m).map (m, ·) else none).toList)
   -- The configuration file is read only when the glob could apply: a library with modules for its
   -- glob to add.
   let sole ← match candidate with
-    | some (name, roots) =>
-      if !added.isEmpty && (← soleDeclared lakefile configFile name) then
-        pure (some (name, roots))
+    | some (name, r) =>
+      if !added.isEmpty && (← soleDeclared lakefile configFile name) then pure (some (name, r))
       else pure none
     | none => pure none
+  -- Each file by its canonical path, `IO.FS.realPath`, so two spellings of one file agree; a file
+  -- it cannot resolve leaves the glob case.
+  let canonical (pairs : List (Name × FilePath)) : IO (Option (List (String × String))) := do
+    let mut out := []
+    for (m, file) in pairs do
+      let path ← try IO.FS.realPath file catch _ => return none
+      out := out ++ [(m.toString, path.toString)]
+    return some out
+  let (sole, added, read) ← match sole with
+    | some s => do
+      match ← canonical added, ← canonical read with
+      | some a, some r => pure (some s, a, r)
+      | _, _ => pure (none, [], [])
+    | none => pure (none, [], [])
   let guidance ← guidanceFile root
   let skills ← skillPaths.filterMapM fun (p : String) => do
     let name := guidance.up ++ p
@@ -683,8 +696,7 @@ def observe (root : FilePath) : IO Project := do
       skillFile := guidance.up ++ skillPath, skills
       pin := ← pinned root
       uncovered, unimported
-      sole, added := if sole.isSome then added else []
-      reached := if sole.isSome then reached else [] } }
+      sole, added, read } }
 
 /-! ## The starter manifest -/
 
