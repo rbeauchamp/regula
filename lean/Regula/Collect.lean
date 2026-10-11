@@ -78,6 +78,48 @@ private def loadedFromLibrary (library : System.FilePath) (moduleName : Name) : 
   unless ← expected.pathExists do return false
   return (← IO.FS.realPath (← Lean.findOLean moduleName)) == (← IO.FS.realPath expected)
 
+/-- What `env` holds under each name of `RegulaPolicy.foundationStatements`, for each such name it
+holds: the module it holds the constant from (the current module for one declared here), the
+canonical paths of the parts of that module Lean resolves (`Lean.findOLean`; empty for the current
+module or when none resolves) and of the same parts in the toolchain library, whether the constant
+is an axiom, and its universe parameters and type. The parts are the `.olean` and, beside it, the
+`.olean.server` and `.olean.private` that exist, one canonical path per line, so the two texts are
+equal exactly when the same parts exist and each resolves to the library's file. A name `env`
+does not hold has no observation, and no declaration of `env` reaches it.
+
+Assumes: Lean 4.34.1 loads each imported module from the `.olean` that `findOLean` resolves on the
+search path and, for a module of the module system, the `.olean.server` and `.olean.private` beside
+it (`Lean/Environment.lean:2077-2090`, `Lean/Util/Path.lean:117-125`), the files this reads. -/
+def foundationObservations (env : Environment) : IO (Array RegulaPolicy.FoundationObservation) := do
+  let library ← toolchainLibraryDirectory
+  RegulaPolicy.foundationStatements.filterMapM fun statement => do
+    let some info := env.find? statement.name | return none
+    let (module, imported) := match env.getModuleIdxFor? statement.name with
+      | some idx => (env.header.moduleNames[idx.toNat]!, true)
+      | none => (env.mainModule, false)
+    let parts (olean : System.FilePath) : IO String := do
+      let files := #[olean, Lean.OLeanLevel.server.adjustFileName olean,
+        Lean.OLeanLevel.private.adjustFileName olean]
+      let found ← files.filterMapM fun file => do
+        if ← file.pathExists then return some (← IO.FS.realPath file).toString else return none
+      return "\n".intercalate found.toList
+    let actual ← if imported then
+        try parts (← Lean.findOLean module) catch _ => pure ""
+      else pure ""
+    return some { name := statement.name, module, actual
+                  expected := ← parts (Lean.modToFilePath library module "olean")
+                  isAxiom := info matches .axiomInfo _, levels := info.levelParams
+                  type := info.type }
+
+/-- Refuse `env` unless each constant it holds under the name of a foundation axiom is the
+toolchain's (`RegulaPolicy.admitFoundation`, exact by `RegulaPolicy.admitFoundation_isOk_iff`), so
+that the profiles, which permit those axioms by name (`RegulaPolicy.ConformingProfile.permits`),
+decide only on the toolchain's `propext`, `Quot.sound` and `Classical.choice`. -/
+def authenticateFoundation (env : Environment) : IO Unit := do
+  match RegulaPolicy.admitFoundation (← foundationObservations env) with
+  | .ok () => pure ()
+  | .error message => throw <| IO.userError message
+
 /-- Memoize the Core capability after independently confirming the resolved compiler's
 identity (`Regula.CompilerObservation.identifiedRoot`). Installation contents and process execution
 remain trusted. -/
@@ -3634,7 +3676,9 @@ private def declarationReading (name : Name) (stage : Stage) (scope? : Option Co
   let env ← getEnv
   let scope ← match scope? with
     | some scope => pure scope
-    | none => ContractScope.new env
+    | none =>
+      liftIO <| authenticateFoundation env
+      ContractScope.new env
   let some info := env.find? name | throwError "declaration {name} is unavailable"
   let moduleName ← IO.ofExcept (moduleOf env name)
   let axioms ← match replayed with
@@ -3745,6 +3789,7 @@ Uses Lean's own local constant map through its environment-linter API. The calle
 must separately establish completion of elaboration before claiming completion. -/
 def currentModule (stage : Stage := .snapshot) : CommandElabM (Array RegulaPolicy.Declaration) := do
   let env ← getEnv
+  liftIO <| authenticateFoundation env
   let scope ← ContractScope.new env
   let names ← liftCoreM Lean.Linter.EnvLinter.getDeclsInCurrModule
   let editor := (RegulaPolicy.KernelAxioms.reachedAxiomTable env names).getD {}
@@ -3768,6 +3813,7 @@ def commandDeclarations :
       if (env.getModuleIdxFor? name).isNone && (env.find? name).isSome &&
           !names.contains name then names := names.push name
   if names.isEmpty then return (#[], #[])
+  liftIO <| authenticateFoundation env
   let scope ← ContractScope.new env
   let editor := (RegulaPolicy.KernelAxioms.reachedAxiomTable env names).getD {}
   let readings ← names.mapM (declarationReading · .snapshot scope none editor)

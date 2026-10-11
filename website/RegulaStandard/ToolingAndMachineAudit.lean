@@ -110,7 +110,7 @@ Each record MUST include at least:
 * instance and `noncomputable` metadata;
 * `ConstantInfo.isUnsafe` and `ConstantInfo.isPartial` information;
 * runtime replacement and external-code metadata (`@[implemented_by]`, `@[extern]`);
-* the exact transitive axiom set, computed from the declarations that §7.3 admitted through the kernel and from their imported dependencies, not from the axiom table that a module records when it is compiled, which `Lean.collectAxioms` reads for an imported declaration; and
+* the exact transitive axiom set, computed from the declarations that §7.3 admitted through the kernel and from their imported dependencies, not from the axiom table that a module records when it is compiled, which `Lean.collectAxioms` reads for an imported declaration, in which `propext`, `Quot.sound` and `Classical.choice` name the pinned toolchain's axioms only: the checker MUST refuse an environment that holds a constant of one of those names from another module, from a file other than the toolchain library's, or with another type; and
 * Lean-native generated-role metadata, such as projection, matcher, recursor, or compiler-generated partial helper.
 
 The policy applies to public, protected, private, internal-looking, authored, and generated declarations. Final-`Environment` role metadata is descriptive: public metaprogramming APIs can synthesize names, ranges, declarations, and extension tags. Such metadata may explain a declaration; it MUST NOT by itself waive a project axiom, `sorryAx`, unknown axiom, or authored unsafe/partial declaration, and it MUST NOT hide a runtime replacement or external declaration from the §7.6 execution account.

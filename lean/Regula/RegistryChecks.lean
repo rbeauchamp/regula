@@ -82,6 +82,17 @@ run_cmd do
     unless axioms.all RegulaPolicy.standardLogicalAxiom do
       throwError "registry theorem {name} exceeds Standard-Logical: {axioms}"
 
+-- The statements of the foundation axioms are the toolchain's: the constants this module was
+-- compiled against, loaded from the toolchain's library, are admitted (`admitFoundation`), and
+-- each of the three is observed.
+run_cmd do
+  let observed ← Regula.Collect.foundationObservations (← Lean.getEnv)
+  unless observed.size == RegulaPolicy.foundationStatements.size do
+    throwError "foundation observations: {observed.size} of {RegulaPolicy.foundationStatements.size}"
+  match RegulaPolicy.admitFoundation observed with
+  | .ok () => pure ()
+  | .error message => throwError message
+
 private def require (ok : Bool) (claim : String) : IO Unit :=
   unless ok do throw <| IO.userError s!"registry qualification failed: {claim}"
 

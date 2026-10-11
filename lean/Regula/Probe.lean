@@ -920,7 +920,9 @@ module (`replacementCorrespondence`). `dependencies` names the modules of owned 
 lists them apart (`Census.dependencyModules`). One report keeps the first answer that
 `loadReplacementHistory` returns for each module and gives it to every later history request of
 the report, from any root, so a node record kept for a later root is the record its pass would
-make again. A loader that throws returns no answer, and no record is kept from that request. -/
+make again. A loader that throws returns no answer, and no record is kept from that request. The
+report refuses an environment whose `propext`, `Quot.sound` or `Classical.choice` is not the
+toolchain's (`Collect.authenticateFoundation`). -/
 def environmentReport (modules : List Name)
     (loadReplacementHistory : Name → IO (Except String (Array (Name × Name))) :=
       fun _ => pure (.error "trusted source-history loader was not supplied"))
@@ -937,6 +939,9 @@ def environmentReport (modules : List Name)
   let compilerCapability ← liftIO Regula.Collect.compilerCapability
   let _ ← IO.ofExcept (RegulaPolicy.Compiler.admitCapability compilerCapability)
   let env ← getEnv
+  -- The profiles permit `propext`, `Quot.sound` and `Classical.choice` by name: refuse an
+  -- environment whose constants of those names are not the toolchain's.
+  liftIO <| Regula.Collect.authenticateFoundation env
   -- Execution trust checks always need canonical origins. Logical-only
   -- documentation inspection may omit this otherwise unused report payload.
   let moduleOrigins ← if includeExecution || includeModuleOrigins then

@@ -664,6 +664,22 @@ theorem checked_admitToolchainOrigin :
     ⟨((.anonymous, ""), ""),
       fun accepted => ((admitToolchainOrigin_isOk_iff .anonymous "" "").mp accepted).2.1 rfl⟩⟩
 
+/-- `admitFoundation` accepts exactly the observations that are all authentic
+(`FoundationAuthentic`): it accepts none and refuses an observation of an `Init.Core` constant
+named `propext` that is not an axiom. -/
+theorem checked_admitFoundation :
+    Regula.ExecutableContract admitFoundation (fun admit =>
+      Regula.Decides (·.isOk = true)
+        (fun observed : Array FoundationObservation => ∀ o ∈ observed, FoundationAuthentic o)
+        admit) :=
+  ⟨.of_iff admitFoundation_isOk_iff
+    ⟨#[], (admitFoundation_isOk_iff #[]).mpr (by simp)⟩
+    ⟨#[{ name := `propext, module := `Init.Core, actual := "", expected := "", isAxiom := false
+         levels := [], type := .bvar 0 }], fun accepted => by
+      obtain ⟨_, _, _, _, ha, _⟩ := (admitFoundation_isOk_iff _).mp accepted _
+        (Array.mem_singleton.mpr rfl)
+      exact Bool.false_ne_true ha⟩⟩
+
 end
 
 namespace Community

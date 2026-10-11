@@ -2512,6 +2512,13 @@ inferred from any pure proof.
   definition that a `module` dependency exports without its body it reads the axioms that the
   dependency's table records, a trusted input.
 
+  The profiles permit `propext`, `Quot.sound` and `Classical.choice` by name, so the report and the
+  editor first refuse an environment whose constant of one of those names is not the toolchain's
+  (`Collect.authenticateFoundation`). `RegulaPolicy.admitFoundation_isOk_iff` states that the
+  decision accepts exactly when each such constant is an axiom with the toolchain's universe
+  parameters and type, from the toolchain's declaring module, loaded from that module's files in
+  the toolchain library. **Trusted:** that the observed canonical paths are the files Lean loaded.
+
   The checks of proofs that the checker makes use `KernelAxioms.axiomsWith`: the recursion equation
   of a recursion helper and an execution correspondence. It starts at the new theorem, stops at
   each name of the table that admission calculated and reads the entry of that name. With a correct

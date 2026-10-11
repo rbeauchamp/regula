@@ -78,6 +78,40 @@ private def check (root scratch : FilePath) (launcher : Launcher.State) (control
       throw <| IO.userError s!"{control.label}: {detail}\n{result.stdout}{result.stderr}"
   return messages
 
+/-- A library directory below `scratch` whose `Init` is the toolchain's except `Init.Prelude`: a
+symbolic link to each other `Init` artifact of the toolchain library, beside a prelude compiled
+from the toolchain's source with a `Classical.choice` of type `α`, from which `False` follows. A
+search path that starts with it gives an importer that prelude in place of the toolchain's. -/
+private def forgedPrelude (root scratch : FilePath) (launcher : Launcher.State) :
+    IO FilePath := do
+  let sysroot ← Lean.findSysroot
+  let library ← Lean.getLibDir sysroot
+  let forged := scratch / "forged-foundation"
+  let lib := forged / "lib"
+  let source := forged / "src" / "Init" / "Prelude.lean"
+  IO.FS.createDirAll (lib / "Init")
+  IO.FS.createDirAll (forged / "src" / "Init")
+  let original ← IO.FS.readFile (sysroot / "src" / "lean" / "Init" / "Prelude.lean")
+  let statement := "axiom Classical.choice {α : Sort u} : Nonempty α → α\n"
+  let use := "  Classical.choice inferInstance\n"
+  requireChecks [⟨"forged prelude: one toolchain statement and one use of Classical.choice",
+    (original.splitOn statement).length == 2 && (original.splitOn use).length == 2⟩]
+  IO.FS.writeFile source ((original.replace statement
+      "axiom Classical.choice {α : Sort u} : α\n").replace use "  Classical.choice\n")
+  let link (sources : Array FilePath) (directory : FilePath) : IO Unit := do
+    let output ← IO.Process.output
+      { cmd := "ln", args := #["-s"] ++ sources.map (·.toString) ++ #[directory.toString] }
+    requireChecks [⟨s!"forged prelude: link toolchain artifacts into {directory}",
+      output.exitCode == 0⟩]
+  link (((← library.readDir).filter (·.fileName.startsWith "Init.")).map (·.path)) lib
+  link (((← (library / "Init").readDir).filter (!·.fileName.startsWith "Prelude.")).map (·.path))
+    (lib / "Init")
+  let compiled ← Launcher.runLean root launcher
+    #["-R", (forged / "src").toString, "-o", (lib / "Init" / "Prelude.olean").toString,
+      source.toString] #[]
+  requireChecks [⟨"forged prelude compiles", compiled.exitCode == 0⟩]
+  return lib
+
 private def position (messages : List Json) (id : String) : IO Json := do
   let some message := messages.find? (fun message =>
     (message.getObjValAs? String "kind").toOption == some s!"Regula.{id}._namedError")
@@ -374,8 +408,22 @@ def checkAt (root scratch : FilePath) (launcher : Launcher.State) (jobs : Nat :=
           s!"theorem retiredDependency : True := {name}\n", ids := ["RG1003"] }, env)
     let _ ← Regula.Checker.mapWorkQueue jobs dependent fun (control, env) =>
       NativeLinter.check root scratch launcher control env
-    IO.println s!"native bridge qualification: PASS ({1 + retired.size + independent.size + dependent.size} \
-      actual Lean source controls)"
+    -- The profiles permit `Classical.choice` by name. With a prelude that is not the toolchain's
+    -- first on the search path, the editor refuses the environment (`authenticateFoundation`)
+    -- instead of deciding `False` by that prelude's `Classical.choice` as Standard-Logical; both
+    -- of its linters report the refusal.
+    let forged := #[("LEAN_PATH",
+      some (SearchPath.toString ((← forgedPrelude root scratch launcher) :: search)))]
+    let _ ← NativeLinter.check root scratch launcher
+      { label := "ForgedFoundation"
+        source := "import Regula.Linter\n" ++
+          "/-! A theorem of `False` from a prelude that is not the toolchain's. -/\n" ++
+          "/-- `False`, by that prelude's `Classical.choice`. -/\n" ++
+          "theorem forgedChoice : False := Classical.choice\n"
+        ids := ["RG2005", "RG2005"]
+        detail := some "is not the toolchain's foundation axiom" } forged
+    IO.println s!"native bridge qualification: PASS \
+      ({2 + retired.size + independent.size + dependent.size} actual Lean source controls)"
 
 /-- Normal acceptance uses the cached actual Lake environment, never a cached verdict. -/
 def checkAll : IO Unit := do
