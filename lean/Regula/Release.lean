@@ -1772,10 +1772,15 @@ private def messagesSince (prev : Version) : IO (List String) := do
 
 /-- The version Lake reads from `lakefile.lean`: `lake reservoir-config`, whose `version`
 is what Reservoir indexes a version tag with. That `lake` is the one beside the `lean` that runs
-this program, by its path, so no `lake` that `PATH` resolves first is run. -/
+this program, by its path, so no `lake` that `PATH` resolves first is run. It gets the installation
+of that `lean` as `LEAN_SYSROOT`, without `LAKE_OVERRIDE_LEAN`, so it reads no `lean` that `PATH`
+resolves to find its installation. -/
 private def lakeVersion : IO Version := do
+  let some root := (← IO.appDir).parent
+    | fail "the lean that runs this program has no installation directory"
   let out ← IO.Process.output {
-    cmd := ((← IO.appDir) / "lake").toString, args := #["reservoir-config"] }
+    cmd := ((← IO.appDir) / "lake").toString, args := #["reservoir-config"]
+    env := #[("LEAN_SYSROOT", some root.toString), ("LAKE_OVERRIDE_LEAN", none)] }
   unless out.exitCode == 0 do fail s!"lake reservoir-config: {out.stderr}"
   let json ← IO.ofExcept (Json.parse out.stdout)
   let text ← IO.ofExcept (json.getObjValAs? String "version")

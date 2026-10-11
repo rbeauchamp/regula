@@ -16,8 +16,13 @@ printf '{"outcome":"INCOMPLETE","phase":"setup"}\n' > tmp/rule-examples.json
 # binary directories first on the PATH of the programs it starts. The driver it runs first refuses
 # any compiler but the pinned version and commit.
 toolchain=$(<lean-toolchain)
+# Without its surrounding blanks, CR included, as Lake reads it (ToolchainVer.ofFile?).
+toolchain=${toolchain#"${toolchain%%[![:space:]]*}"}
+toolchain=${toolchain%"${toolchain##*[![:space:]]}"}
 toolchain=${toolchain//\//--}
-lean=${ELAN_HOME:-$HOME/.elan}/toolchains/${toolchain//:/---}/bin/lean
+elan_home=${ELAN_HOME:-$HOME/.elan}
+[[ $elan_home == /* ]] || { echo "verification requires an absolute ELAN_HOME, not $elan_home" >&2; exit 127; }
+lean=$elan_home/toolchains/${toolchain//:/---}/bin/lean
 [[ -x $lean ]] || { echo "verification requires the Elan toolchain $(<lean-toolchain) at $lean" >&2; exit 127; }
 # The toolchain-only driver invalidates the selected mode's earlier verdicts before setup,
 # so a failed or timed-out provisioning cannot leave an accepted one in place.

@@ -41,7 +41,10 @@ commands below downloads, caches, imports or builds Mathlib; the
 
 `scripts/verify.sh` and `scripts/provision.sh` run the `lean` of the toolchain that `lean-toolchain`
 names by its path in Elan's toolchain directory, under `$ELAN_HOME` or else `~/.elan`. They stop
-when it is not installed there.
+when `ELAN_HOME` is relative or the toolchain is not installed there.
+The verification driver refuses a script that names `lean`, `lake` or `leanchecker` literally and
+bare. A quoted or computed command name is outside that check. The guarantee is the construction:
+each script starts a toolchain program only through that resolved path.
 
 ```sh
 lake build                         # incremental development check (the regula package)
@@ -431,8 +434,10 @@ must be an entry of `Regula.Qualification.ProcessStarts.allowed`. That entry say
 is chosen.
 
 No declaration may refer to a function that finds a toolchain program through `PATH`. An entry
-that the audit does not find also fails (`violations_eq_empty`). A process started through a
-different library function, such as Lake's build API, is not a reference that this check sees.
+that the audit does not find also fails (`violations_eq_empty`). The check is a tripwire for direct
+references to the listed starters only. A process started through a different function, such as
+Lake's build API, is not one. Following references into dependencies is the reach check of issue
+#362.
 
 The shards of the self-audit also deal out these libraries and executable roots. A shard reports an
 unfound entry only for a module that it audits. An entry in a module that the campaign does not

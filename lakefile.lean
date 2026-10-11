@@ -4,7 +4,8 @@ open Lake DSL
 -- Execute the same source guard used by compiled policy. A fresh dependency has no Regula
 -- artifacts yet, so a child `lean` elaborates the policy source, which imports only Init, checks
 -- that child's own identity and, asked by `REGULA_COMPILER_GUARD`, prints it. The child is the
--- `bin/lean` of `LEAN_SYSROOT` or, when it is unset, the `lean` beside the running Lake, as Lake
+-- `bin/lean` of `LEAN_SYSROOT`, which must be an absolute path, or, when it is unset, the `lean`
+-- beside the running Lake, as Lake
 -- finds its own Lean (`Lake.findLakeLeanJointHome?`); no `lean` that `PATH` resolves is run. The
 -- guard passes only when the child accepts itself and reports
 -- the version and commit of the Lean elaborating this file. Any other child is refused.
@@ -12,7 +13,10 @@ run_cmd do
   let running := s!"{Lean.versionString}\n{Lean.githash}\n"
   let refusal : IO (Option String) := do
     let lean ← match ← IO.getEnv "LEAN_SYSROOT" with
-      | some root => pure (System.FilePath.mk root / "bin" / "lean").toString
+      | some root => do
+        unless (System.FilePath.mk root).isAbsolute do
+          throw <| IO.userError s!"LEAN_SYSROOT is the relative path {root}, not an absolute one"
+        pure (System.FilePath.mk root / "bin" / "lean").toString
       | none => do pure ((← IO.appDir) / "lean").toString
     let child ← IO.Process.output {
       cmd := lean, args := #[(__dir__ / "lean/RegulaPolicy/Compiler.lean").toString]

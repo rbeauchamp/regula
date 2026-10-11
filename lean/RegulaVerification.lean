@@ -603,6 +603,15 @@ def toolchainPath (bin : System.FilePath) (program : String) : String :=
 `Regula.Toolchain.programOverrides` lists them. Lake runs the value of each as it is. -/
 def programOverrides : List String := ["LEAN_AR", "AR", "LEAN_CC", "CC"]
 
+/-- The environment changes that each Lake process this program starts gets, as
+`Regula.Toolchain.lakeChildEnv` gives them: `LEAN_SYSROOT` is the installation of the `lean` that
+runs this program (`IO.appDir`), and `LAKE_OVERRIDE_LEAN` is unset, so a child `lake` reads no
+`lean` that `PATH` resolves to find its installation. -/
+def lakeChildEnv : IO (Array (String × Option String)) := do
+  let some root := (← IO.appDir).parent
+    | throw <| IO.userError "the lean that runs this program has no installation directory"
+  return #[("LEAN_SYSROOT", some root.toString), ("LAKE_OVERRIDE_LEAN", none)]
+
 /-- Throws when a variable of `programOverrides` is set, in this driver's environment, which the
 commands it starts inherit, to a path that is not absolute, so `PATH` could resolve it. -/
 def refuseRelativeOverrides : IO Unit := do
@@ -618,8 +627,8 @@ def scriptToolchainNames : List String := ["lake", "lean", "leanchecker"]
 
 /-- The words of one line of shell source that could name a program: the text before a `#` that
 starts a word, without parameter expansions (`$name` and `${…}`), split at blanks, quotes and the
-characters `;|&()<>`. A lexical over-approximation of the line's command words, not a parse of
-the shell's grammar: a name assembled by quoting, escapes or expansion is not seen. -/
+characters `;|&()<>`. A lexical reading, not a parse of the shell's grammar: a command name that
+quoting, escapes or an expansion assembles, such as `le"an"` or `"$cmd"`, is not seen. -/
 def shellWords (line : String) : Array String := Id.run do
   let mut words := #[]
   let mut word := ""
@@ -661,7 +670,9 @@ def bareWords (text : String) : List (Nat × String) :=
 
 /-- Throws when a file of the repository's `scripts` directory holds a word that names a toolchain
 program (`bareWords`), which `PATH` would resolve, Lake putting a workspace's binary directories
-first. -/
+first. It is a tripwire for literal bare names only: a quoted or computed command name is outside
+it. The guarantee is the scripts' construction: each starts a toolchain program only through the
+absolute path it resolved, `"$lean"`. -/
 def refuseBareScriptWords : IO Unit := do
   for entry in ← System.FilePath.readDir "scripts" do
     let found := bareWords (← IO.FS.readFile entry.path)
@@ -704,9 +715,10 @@ whatever the configuration says (`Regula.Checker.Lake.Build.run`). Its toolchain
 the directory of the `lean` that runs this driver (`IO.appDir`, `Command.resolve`), the toolchain
 the repository selects. `ELAN_TOOLCHAIN` is the repository's `lean-toolchain`, as the Elan proxy
 that started a `lean` by its bare name gave it, so Lake names that toolchain where it writes one
-(`lake new`). An inherited `REGULA_ORDINARY_LAKEFILES` is removed, so only a command that gives it
-(`ownerAssertion`) runs with the owner's assertion; each variable of the command's `env` is set
-last. Process execution and signal delivery remain trusted. -/
+(`lake new`). Each command also gets `lakeChildEnv`. An inherited `REGULA_ORDINARY_LAKEFILES` is
+removed, so only a command that gives it (`ownerAssertion`) runs with the owner's assertion; each
+variable of the command's `env` is set last. Process execution and signal delivery remain
+trusted. -/
 def start (priority : Priority) (command : Command) :
     BaseIO (Option (IO.Process.Child stdio)) := do
   announce s!"start {priority.display}{command.display}"
@@ -716,9 +728,9 @@ def start (priority : Priority) (command : Command) :
     IO.Process.spawn {
       stdio with
       cmd := program, args := args, cwd := some command.dir,
-      env := #[("GHCR_TOKEN", none), ("LEAN_PATH", none), ("LEAN_SRC_PATH", none),
-        ("LAKE_ARTIFACT_CACHE", some "false"), ("ELAN_TOOLCHAIN", some toolchain),
-        ("REGULA_ORDINARY_LAKEFILES", none)] ++
+      env := (← lakeChildEnv) ++ #[("GHCR_TOKEN", none), ("LEAN_PATH", none),
+        ("LEAN_SRC_PATH", none), ("LAKE_ARTIFACT_CACHE", some "false"),
+        ("ELAN_TOOLCHAIN", some toolchain), ("REGULA_ORDINARY_LAKEFILES", none)] ++
         command.env.map fun (name, value) => (name, some value) }
   match ← spawn.toBaseIO with
   | .ok child => return some child

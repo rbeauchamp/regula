@@ -348,10 +348,19 @@ private def refuseBareName (cmd : String) : IO Unit := do
     throw <| IO.userError s!"provisioning: the toolchain's {cmd} runs by its path (`toolchain`), \
       not by a bare name that PATH resolves"
 
+/-- The environment changes that each Lake process this program starts gets, as
+`Regula.Toolchain.lakeChildEnv` gives them: `LEAN_SYSROOT` is the installation of the `lean` that
+runs this program (`IO.appDir`), and `LAKE_OVERRIDE_LEAN` is unset, so a child `lake` reads no
+`lean` that `PATH` resolves to find its installation. -/
+def lakeChildEnv : IO (Array (String × Option String)) := do
+  let some root := (← IO.appDir).parent
+    | throw <| IO.userError "the lean that runs this program has no installation directory"
+  return #[("LEAN_SYSROOT", some root.toString), ("LAKE_OVERRIDE_LEAN", none)]
+
 private def run (cwd : FilePath) (cmd : String) (args : Array String) : IO Ran := do
   refuseBareName cmd
   let out ← IO.Process.output {
-    cmd, args, cwd := some cwd, env := #[("GHCR_TOKEN", none)], stdin := .null }
+    cmd, args, cwd := some cwd, env := (← lakeChildEnv).push ("GHCR_TOKEN", none), stdin := .null }
   return ⟨out.exitCode, out.stdout, out.stderr⟩
 
 private def require (cwd : FilePath) (cmd : String) (args : Array String) : IO String := do
@@ -366,7 +375,7 @@ private def stream (cwd : FilePath) (cmd : String) (args : Array String)
     (env : Array (String × Option String) := #[]) : IO Unit := do
   refuseBareName cmd
   let child ← IO.Process.spawn {
-    cmd, args, env := env.push ("GHCR_TOKEN", none), cwd := some cwd,
+    cmd, args, env := ((← lakeChildEnv) ++ env).push ("GHCR_TOKEN", none), cwd := some cwd,
     stdin := .null, stdout := .inherit, stderr := .inherit }
   let exit ← child.wait
   unless exit == 0 do

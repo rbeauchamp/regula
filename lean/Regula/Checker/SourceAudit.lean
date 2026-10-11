@@ -249,13 +249,9 @@ private def compileIn (repo scratch : FilePath) (spec : SourceSpec)
     -- The worker sees only the workspace's own search path: an import that the
     -- fresh claimed-surface build did not produce fails here instead of
     -- resolving from the invoking checkout's inherited `LEAN_PATH`.
-    let compiler ← if insideLakeEnv then do
-        let some path ← IO.getEnv "LEAN"
-          | throw <| IO.userError "Lake batch environment has no LEAN executable"
-        if path.isEmpty || !(FilePath.mk path).isAbsolute then
-          throw <| IO.userError "Lake batch LEAN executable must be absolute"
-        pure path
-      else toolchainProgram "lean"
+    -- The toolchain's own `lean`, inside a Lake batch environment too: the inherited `LEAN`
+    -- names whatever compiler that environment was given, which nothing here identity-checks.
+    let compiler ← toolchainProgram "lean"
     let compileStart ← IO.monoMsNow
     let process ← spawn compiler args
     timingSpan s!"diagnostic span: compileIn compile: {(← IO.monoMsNow) - compileStart}ms"
