@@ -152,16 +152,34 @@ unsafe def documentation (repo docsRoot output : FilePath) : IO UInt32 := do
     (Json.mkObj [("root", toJson configurationRoot), ("configuration", toJson configuration)]))
   return code
 
-/-- Run one rule-example production and return its exit code: `--policy-negative PROJECT
-SOURCE OUTPUT` runs `inspectNegative`, `--documentation PROJECT DOCS OUTPUT` runs
-`documentation`, and any other arguments throw the usage text. -/
-unsafe def run (args : List String) : IO UInt32 := do
-  match args with
-  | ["--policy-negative", repo, source, output] =>
+/-- One rule-example production, as `Production.parse?` reads its arguments. -/
+inductive Production where
+  /-- `--policy-negative PROJECT SOURCE OUTPUT`. -/
+  | policyNegative (repo source output : String)
+  /-- `--documentation PROJECT DOCS OUTPUT`. -/
+  | documentation (repo docs output : String)
+
+/-- The production the arguments name, read from their whole shape, or none. -/
+def Production.parse? : List String → Option Production
+  | ["--policy-negative", repo, source, output] => some (.policyNegative repo source output)
+  | ["--documentation", repo, docs, output] => some (.documentation repo docs output)
+  | _ => none
+
+/-- The result file a production writes. -/
+def Production.output : Production → String
+  | .policyNegative _ _ output | .documentation _ _ output => output
+
+/-- Run one rule-example production, as the caller parsed it one time (`Production.parse?`), and
+return its exit code: `--policy-negative PROJECT SOURCE OUTPUT` runs `inspectNegative`,
+`--documentation PROJECT DOCS OUTPUT` runs `documentation`, and arguments that name no production
+(`none`) throw the usage text. -/
+unsafe def run (production : Option Production) : IO UInt32 := do
+  match production with
+  | some (.policyNegative repo source output) =>
       inspectNegative ⟨repo⟩ ⟨source⟩ ⟨output⟩
-  | ["--documentation", repo, docs, output] =>
+  | some (.documentation repo docs output) =>
       documentation ⟨repo⟩ ⟨docs⟩ ⟨output⟩
-  | _ =>
+  | none =>
       throw <| IO.userError "usage: ruleExamples (--policy-negative PROJECT SOURCE | \
         --documentation PROJECT DOCS) OUTPUT"
 end Regula.Checker.RuleExamples
@@ -171,10 +189,11 @@ qualifier (`RuleExampleQualification.qualify`, which admits only 0 to 3) never m
 audit's own result. -/
 private def productionIncomplete : UInt32 := 4
 
-private unsafe def ruleExamplesEntry (args : List String) : IO UInt32 := do
+private unsafe def ruleExamplesEntry (production : Option Regula.Checker.RuleExamples.Production) :
+    IO UInt32 := do
   try
     Regula.Checker.initializeLeanSearchPath
-    Regula.Checker.RuleExamples.run args
+    Regula.Checker.RuleExamples.run production
   catch error =>
     IO.eprintln s!"rule example production incomplete: {error}"
     return productionIncomplete
@@ -202,12 +221,17 @@ unsafe def main (args : List String) : IO UInt32 := do
       Regula.Checker.Snapshot.injectedGitFacts.set table
       let (code, output) ← match rest with
         | "axiomGate" :: gateArgs =>
-          pure (← Regula.Checker.AxiomGate.entry gateArgs,
-            (gateArgs.dropWhile (· != "--json-out")).drop 1 |>.head?)
+          -- The result destination the audit's own plan resolved and marked, whatever the working
+          -- directory, read after the audit ran.
+          let code ← Regula.Checker.AxiomGate.entry gateArgs
+          pure (code, (← Regula.Checker.AxiomGate.resultTarget.get).map (·.toString))
         | "--injected-git-facts" :: _ =>
           IO.eprintln "rule example production incomplete: repeated injected git facts"
           return productionIncomplete
-        | _ => pure (← ruleExamplesEntry rest, rest.getLast?)
+        | _ =>
+          -- One parse of the production, which both the run and the marker take.
+          let production := Regula.Checker.RuleExamples.Production.parse? rest
+          pure (← ruleExamplesEntry production, production.map (·.output))
       -- Mark the result so it cannot be mistaken for Git-observed output. The
       -- qualification-only result view keeps this field and admission ignores it.
       if let some path := output.filter (· != "") then
@@ -220,4 +244,4 @@ unsafe def main (args : List String) : IO UInt32 := do
           IO.eprintln s!"rule example production incomplete: injected-facts marker: {error}"
           return productionIncomplete
       return code
-  | _ => ruleExamplesEntry args
+  | _ => ruleExamplesEntry (Regula.Checker.RuleExamples.Production.parse? args)

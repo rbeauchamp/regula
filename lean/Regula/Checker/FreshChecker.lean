@@ -1,5 +1,6 @@
 import Regula.Checker.Acceptance
 import Regula.Checker.ResultProtocol
+import RegulaCore.Lint
 
 /-!
 # Serialized-environment qualification
@@ -76,21 +77,70 @@ private def usage : String :=
   "usage: lake exe freshChecker -- [--project DIR] [--manifest PATH] [--json-out PATH] " ++
   "[--plan-only] [--fail-fast] [--verbose]"
 
-private def parseArgs : List String → Options → IO Options
-  | [], options => return options
-  | "--" :: rest, options => parseArgs rest options
-  | "--manifest" :: value :: rest, options =>
+/-- The options of `freshChecker`. -/
+inductive Setting where
+  /-- `--manifest PATH`. -/
+  | manifest
+  /-- `--project DIR`. -/
+  | project
+  /-- `--json-out PATH`. -/
+  | jsonOut
+  /-- `--plan-only`. -/
+  | planOnly
+  /-- `--fail-fast`. -/
+  | failFast
+  /-- `--verbose`. -/
+  | verbose
+  /-- `--help` or `-h`. -/
+  | help
+
+/-- The option an argument spells, and whether it takes a value. -/
+private def Setting.ofSpelling : String → Option (Setting × Bool)
+  | "--manifest" => some (.manifest, true)
+  | "--project" => some (.project, true)
+  | "--json-out" => some (.jsonOut, true)
+  | "--plan-only" => some (.planOnly, false)
+  | "--fail-fast" => some (.failFast, false)
+  | "--verbose" => some (.verbose, false)
+  | "--help" | "-h" => some (.help, false)
+  | _ => none
+
+/-- `freshChecker`'s one reading of its arguments (`Lint.tokenize`): an option's value is never
+read as an option, and both the options (`parseArgs`) and the destinations it marks incomplete
+(`destinations`) come from it. -/
+private def arguments (args : List String) : List (Lint.Arg Setting) :=
+  Lint.tokenize Setting.ofSpelling args
+
+/-- Apply each argument in order; a later value of an option replaces an earlier one, and an
+unknown or incomplete argument is refused. -/
+private def parseArgs : List (Lint.Arg Setting) → Options → Except String Options
+  | [], options => .ok options
+  | .separator :: rest, options => parseArgs rest options
+  | .value .manifest value :: rest, options =>
       parseArgs rest { options with manifest := some (FilePath.mk value) }
-  | "--project" :: value :: rest, options =>
+  | .value .project value :: rest, options =>
       parseArgs rest { options with project := some (FilePath.mk value) }
-  | "--json-out" :: value :: rest, options =>
+  | .value .jsonOut value :: rest, options =>
       parseArgs rest { options with jsonOut := some (FilePath.mk value) }
-  | "--plan-only" :: rest, options => parseArgs rest { options with planOnly := true }
-  | "--fail-fast" :: rest, options => parseArgs rest { options with failFast := true }
-  | "--verbose" :: rest, options => parseArgs rest { options with verbose := true }
-  | "--help" :: rest, options | "-h" :: rest, options =>
-      parseArgs rest { options with help := true }
-  | flag :: _, _ => throw <| IO.userError s!"unknown or incomplete argument: {flag}"
+  | .flag .planOnly :: rest, options => parseArgs rest { options with planOnly := true }
+  | .flag .failFast :: rest, options => parseArgs rest { options with failFast := true }
+  | .flag .verbose :: rest, options => parseArgs rest { options with verbose := true }
+  | .flag .help :: rest, options => parseArgs rest { options with help := true }
+  | .unknown argument :: _, _ => .error s!"unknown or incomplete argument: {argument}"
+  | .value _ _ :: _, _ | .flag _ :: _, _ => .error "unknown or incomplete argument"
+
+/-- Every `--json-out` destination of a reading, whether or not it parses. -/
+private def destinations (read : List (Lint.Arg Setting)) : List FilePath :=
+  read.filterMap fun
+    | .value .jsonOut path => some (FilePath.mk path)
+    | _ => none
+
+/-- The project root of a reading's last `--project`, as `parseArgs` keeps it, or of the working
+directory: `run` resolves a relative destination against it and audits it. -/
+private def rootOf (read : List (Lint.Arg Setting)) : IO FilePath :=
+  match (read.filterMap fun | .value .project dir => some dir | _ => none).getLast? with
+  | some dir => findRepoRoot dir
+  | none => repoRoot
 
 private def resolve (repo path : FilePath) : FilePath :=
   if path.isAbsolute then path else repo / path.toString
@@ -257,37 +307,35 @@ private def finishGraph (frozen : FrozenGraph) (build : ProcessResult) (checks :
     (fun failure => s!"graph acceptance refused: {repr failure}")
   return ⟨frozen.census, frozen.plan, frozen.roles, inputs.toList, result⟩
 
-private def optionValues (flag : String) : List String → List String
-  | option :: value :: rest =>
-      if option == flag then value :: optionValues flag rest
-      else optionValues flag (value :: rest)
-  | _ => []
-
-/-- Runs the serialized-graph qualification: invalidates every `--json-out` destination, builds
-the plan, and unless `--plan-only` builds the positive targets, runs
+/-- Runs the serialized-graph qualification: reads its arguments once, marks every `--json-out`
+destination of that reading incomplete, each on its own, and then refuses arguments that do not
+parse; otherwise it builds the plan, and unless `--plan-only` builds the positive targets, runs
 `lake env leanchecker --fresh` on each root, rechecks the captured inputs and admits the result
 through `RegulaPolicy.finalize`, then writes the JSON result when requested. Returns `1` when the
 build or a check fails and `0` otherwise. -/
 unsafe def run (args : List String) : IO UInt32 := do
-  let destinations := (optionValues "--json-out" args).eraseDups.map FilePath.mk
+  let read := arguments args
+  let parsed := parseArgs read {}
+  let root ← (rootOf read).toBaseIO
+  -- Each destination of the one reading, resolved against the one root.
+  let targets := (destinations read).eraseDups.map fun path =>
+    (path, if path.isAbsolute then .ok path else root.map (resolve · path))
   let invalidate (path : FilePath) :=
     writeJson path (Json.mkObj [("mode", .str "serializedGraph"),
       ("status", .str "incomplete"), ("unresolved", toJson #["graph audit has not completed"])])
-  -- Invalidate recognizable outputs before parsing; absolute paths do not need
-  -- valid project discovery. Relative paths retain the public repo-root meaning.
-  for path in destinations.filter (·.isAbsolute) do invalidate path
-  let relative := destinations.filter (!·.isAbsolute)
-  if !relative.isEmpty then
-    let root ← match optionValues "--project" args with
-      | [dir] => findRepoRoot dir
-      | [] => repoRoot
-      | _ => throw <| IO.userError "duplicate --project option"
-    for path in relative do invalidate (resolve root path)
-  let options ← parseArgs args {}
+  -- An absolute destination does not need project discovery; a relative one keeps the public
+  -- repo-root meaning. Each is marked on its own, so one failure leaves no other unmarked.
+  let mut failed := #[]
+  for (path, target) in targets do
+    let result ← match target with
+      | .ok target => (invalidate target).toBaseIO
+      | .error error => pure (.error error)
+    if let .error error := result then failed := failed.push s!"{path}: {error}"
+  let options ← IO.ofExcept (parsed.mapError IO.userError)
+  unless failed.isEmpty do
+    throw <| IO.userError s!"could not mark incomplete: {"; ".intercalate failed.toList}"
   if options.help then IO.println usage; return 0
-  let repo ← match options.project with
-    | some dir => findRepoRoot dir
-    | none => repoRoot
+  let repo ← IO.ofExcept root
   let manifestPath := options.manifest.map (resolve repo) |>.getD (Manifest.defaultPath repo)
   let configuration ← SourceBinding.configuration repo manifestPath
   let inventory ← Lake.surfaceInventory repo
@@ -330,7 +378,10 @@ unsafe def run (args : List String) : IO UInt32 := do
           "acceptance" (ResultProtocol.acceptedJson receipt)
       | none =>
           value.setObjVal! "status" (.str (if options.planOnly then "planned" else "incomplete"))
-    writeJson (resolve repo path) value
+    -- The last destination of the reading, as `parseArgs` keeps it, where it was marked.
+    match targets.find? (·.1 == path) with
+    | some (_, target) => writeJson (← IO.ofExcept target) value
+    | none => throw <| IO.userError s!"{path} was not marked incomplete"
   IO.println
       s!"Lake modules: {plan.modules.size}   fresh roots: {", ".intercalate plan.roots.toList}"
   if !failures.isEmpty then

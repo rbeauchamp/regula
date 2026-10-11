@@ -1,5 +1,6 @@
 import Regula.Checker.BuildLintQualification
 import Regula.Checker.LintBuild
+import RegulaCore.Lint
 
 /-!
 # Lake lint driver qualification
@@ -13,8 +14,9 @@ and `escapedNameWarning` start from their mutation and end with their green cont
 reuses the build-policy audit body, whose detectors the build-policy partition qualifies; these
 controls establish Lake's dispatch, the exit classes, and the editor/builtin boundaries of this
 invocation path. Decision probes load a changed adopter's workspace in-process, as the driver
-does, and check the decision of its claimed build under the owner's `--ordinary-lakefiles` without
-running an audit. They are diagnostics, not proofs of the driver or of Lake.
+does, and check the decision of its claimed build under the owner's assertion of ordinary
+lakefiles (`REGULA_ORDINARY_LAKEFILES=1` in the environment of `lake lint`) without running an
+audit. They are diagnostics, not proofs of the driver or of Lake.
 -/
 
 namespace Regula.Checker.LintQualification
@@ -28,8 +30,12 @@ received value, conforms to that string (`JsonAgreement.conforms`). -/
 private def isSupportEntry (entry : Json) : Bool :=
   JsonAgreement.conforms (entry.getObjValD "name") (toJson "build_lint_support")
 
-private def lint (cwd : FilePath) (args : Array String := #[]) : IO ProcessResult :=
-  runProcess cwd "lake" (#["lint"] ++ args) scrubbedLeanPathEnv
+/-- `lake lint` in `cwd` with `args` after `lake lint`, and the environment changes `env` after an
+inherited owner's assertion is removed. -/
+private def lint (cwd : FilePath) (args : Array String := #[])
+    (env : Array (String × Option String) := #[]) : IO ProcessResult :=
+  runProcess cwd "lake" (#["lint"] ++ args)
+    (scrubbedLeanPathEnv ++ #[(Lint.ordinaryLakefilesVariable, none)] ++ env)
 
 /-- One invocation's required exit code and required/forbidden output fragments. -/
 private structure Expectation where
@@ -52,9 +58,9 @@ private def assess (e : Expectation) (result : ProcessResult) : IO (Array String
   (← IO.getStdout).flush
   return failures
 
-private def expect (cwd : FilePath) (e : Expectation) (args : Array String := #[]) :
-    IO (Array String) := do
-  assess e (← lint cwd args)
+private def expect (cwd : FilePath) (e : Expectation) (args : Array String := #[])
+    (env : Array (String × Option String) := #[]) : IO (Array String) := do
+  assess e (← lint cwd args env)
 
 /-- The adopter's `axiomGate --file` audit of `file` against kernel-only, run through Lake. -/
 private def fileAudit (cwd : FilePath) (file : String) (args : Array String := #[]) :
@@ -84,7 +90,7 @@ private def restore (adopter : FilePath) (files : Array (FilePath × String)) : 
 
 /-- A decision probe: after an ordinary `lake build` of `targets`, which leaves the compiled
 lakefile under `.lake/config`, the workspace at `adopter` is loaded in-process as the driver loads
-it, and the decision of the driver's claimed build under the owner's `--ordinary-lakefiles`
+it, and the decision of the driver's claimed build under the owner's assertion
 (`Lake.markerInputs`, `Lake.checked_auditMarkerNeeded`) must be `expected`: `none` omits the
 audit-build marker, and `some cause` keeps it with a reason (`Lake.markerReason`) that contains
 `cause`, so a probe whose change does not decide fails. The loads share the process's search
@@ -115,11 +121,12 @@ private def probe (probes : Std.Mutex Unit) (adopter : FilePath) (label : String
   (← IO.getStdout).flush
   return failures
 
-/-- The driver arguments of the workspace owner's assertion that the lakefiles are ordinary
+/-- The environment of the workspace owner's assertion that the lakefiles are ordinary
 configuration. -/
-private def optIn : Array String := #["--", "--ordinary-lakefiles"]
+private def optIn : Array (String × Option String) :=
+  #[(Lint.ordinaryLakefilesVariable, some "1")]
 
-/-- The line of the driver's claimed build under the owner's `--ordinary-lakefiles` that omits the
+/-- The line of the driver's claimed build under the owner's assertion that omits the
 audit-build marker, and the start of the line that keeps it (`Lake.buildAuditTargets`). -/
 private def markerOmitted := "the claimed build omits the audit-build marker"
 private def markerKept := "the claimed build keeps the audit-build marker: "
@@ -129,13 +136,21 @@ a claimed import outside every library (RG2004) in the driver and the file audit
 worker reported with its own error, Lake's builtin-only and combined dispatch, and the read-only
 configuration explanation. Default output shows Lake's build progress and no timing span; the
 file audit lists every classified declaration only with `--verbose`. Without the custom `policy`
-target the workspace has the plain shape: without the owner's `--ordinary-lakefiles` the driver
-keeps the audit-build marker and prints no decision, so an ordinary build after it rebuilds; with
-it the driver prints that it omits the marker, and an ordinary `lake build` and the driver reuse
-each other's build output. The banner names the option and the result records it as
-`scope.ordinaryLakefiles`; a `lintDriverArgs` entry that gives it is refused. Decision probes of
-the guard (`probe`), each with one change to the plain shape and the reason that decides: an
-`input_file` in `needs` keeps the plain shape, and each of these keeps the marker: a custom target,
+target the workspace has the plain shape: without the owner's assertion the driver keeps the
+audit-build marker and prints no decision, so an ordinary build after it rebuilds; with it the
+driver prints that it omits the marker, and an ordinary `lake build` and the driver reuse each
+other's build output. The banner names the assertion and the result records it as
+`scope.ordinaryLakefiles`; the success line and the result (`scope.project`,
+`scope.manifestPath`) name the audited project and manifest. The assertion as a driver argument
+or with a value other than `1` is refused, and so is a `--project` for another project on the
+command line. A `lintDriverArgs` entry that gives `--project`, an unwritable `--json-out` or a
+`--manifest` whose value looks like an option is refused by the extra check of the default
+configuration, the last after the command line's destination is marked incomplete. A refusal
+keeps the configuration class though a destination cannot be written, each destination is marked
+on its own, and a manifest named `--json-out` is read as the manifest, not written. Decision
+probes of the guard (`probe`), each with one change to the plain shape and the reason that
+decides: an `input_file` in `needs` keeps the plain shape, and each of these keeps the marker: a
+custom target,
 a library in `needs`, Lake's `ilean` facet declared again with Lake's own configuration, a
 library field outside the plain shape's list (`libName`), a `nativeFacets` that is not Lake's
 whole default term, a lakefile declaration beside Lake's configuration declarations, and a theorem
@@ -189,7 +204,7 @@ private def leanAdopter (probes : Std.Mutex Unit) (repo adopter : FilePath) :
   failures := failures ++ (← probe probes adopter "lean/needed-library-marked" #["Widget"]
     (some "target Widget needs a target of kind lean_lib"))
   IO.FS.removeFile tooling
-  -- Without the owner's `--ordinary-lakefiles` the driver keeps the marker, as before the plain
+  -- Without the owner's assertion the driver keeps the marker, as before the plain
   -- shape existed, and prints no decision, so an ordinary build after it rebuilds. With it the
   -- driver builds without the marker and says so, and an ordinary build and the driver reuse each
   -- other's output.
@@ -201,32 +216,163 @@ private def leanAdopter (probes : Std.Mutex Unit) (repo adopter : FilePath) :
     failures := failures.push s!"lake-lint/lean/plain-default-marked: the ordinary build reused \
       the driver's build: {ordinary.output}"
   failures := failures ++ (← expect adopter { positive with
-    label := "lean/plain-reused", contains := positive.contains.push markerOmitted } optIn)
+    label := "lean/plain-reused", contains := positive.contains.push markerOmitted }
+    (env := optIn))
   let ordinary ← runProcess adopter "lake" #["build", "Widget"] scrubbedLeanPathEnv
   unless ordinary.succeeded && !ordinary.output.contains "] Built Widget" do
     failures := failures.push s!"lake-lint/lean/plain-reused: the ordinary build rebuilt a module: \
       {ordinary.output}"
   failures := failures ++ (← expect adopter { positive with
-    label := "lean/plain-reused-again", excludes := positive.excludes.push "] Built" } optIn)
+    label := "lean/plain-reused-again", excludes := positive.excludes.push "] Built" }
+    (env := optIn))
   -- The banner names the owner's assertion, and the result records it as
-  -- `scope.ordinaryLakefiles`.
+  -- `scope.ordinaryLakefiles`. The success line and the result name the audited project and
+  -- manifest.
+  let project ← IO.FS.realPath adopter
+  let projectManifest := project / "foundation_manifest.json"
   failures := failures ++ (← expect adopter { positive with
       label := "lean/opt-in-reported"
-      contains := positive.contains.push "the workspace owner asserts ordinary lakefiles" }
-    (optIn ++ #["--json-out", "opt-in.json"]))
-  let recorded := ((← readJson (adopter / "opt-in.json")).getObjValD "scope").getObjValD
-    "ordinaryLakefiles"
+      contains := positive.contains ++ #["the workspace owner asserts ordinary lakefiles",
+        s!"— project {project}, manifest {projectManifest}"] }
+    #["--", "--json-out", "opt-in.json"] optIn)
+  let scope := (← readJson (adopter / "opt-in.json")).getObjValD "scope"
+  let recorded := scope.getObjValD "ordinaryLakefiles"
   unless JsonAgreement.conforms recorded (toJson true) do
     failures := failures.push s!"lake-lint/lean/opt-in-reported: scope.ordinaryLakefiles is \
       {recorded.compress}"
+  unless JsonAgreement.conforms (scope.getObjValD "project") (toJson project.toString) &&
+      JsonAgreement.conforms (scope.getObjValD "manifestPath")
+        (toJson projectManifest.toString) do
+    failures := failures.push s!"lake-lint/lean/opt-in-reported: scope.project is \
+      {(scope.getObjValD "project").compress} and scope.manifestPath is \
+      {(scope.getObjValD "manifestPath").compress}"
   IO.FS.removeFile (adopter / "opt-in.json")
-  -- A package's `lintDriverArgs` cannot give the owner's assertion: the driver refuses it.
-  IO.FS.writeFile lakefile (plain.replace "lintDriver := \"regula/lint\""
-    "lintDriver := \"regula/lint\"\n  lintDriverArgs := #[\"--ordinary-lakefiles\"]")
+  -- The owner's assertion comes only from the caller's environment, which no package
+  -- configuration sets: as a driver argument it is refused, and so is a value other than `1`.
   failures := failures ++ (← expect adopter {
-      label := "lean/opt-in-configured-refused", exitCode := 2,
-      contains := #["lintDriverArgs cannot give it", "regula lint: INVALID CONFIGURATION"],
+      label := "lean/opt-in-argument-refused", exitCode := 2,
+      contains := #["unknown or incomplete argument: --ordinary-lakefiles",
+        s!"{Lint.ordinaryLakefilesVariable}=1", "regula lint: INVALID CONFIGURATION"],
+      excludes := #[s!"regula lint: {acceptanceLabel}"] } #["--", "--ordinary-lakefiles"])
+  failures := failures ++ (← expect adopter {
+      label := "lean/opt-in-value-refused", exitCode := 2,
+      contains := #[s!"{Lint.ordinaryLakefilesVariable} must be 1 or unset",
+        "regula lint: INVALID CONFIGURATION"],
+      excludes := #[s!"regula lint: {acceptanceLabel}"] }
+    (env := #[(Lint.ordinaryLakefilesVariable, some "yes")]))
+  -- The audited project is the dispatching workspace whatever gives `--project` (#292): another
+  -- project on the command line is refused, and so, by the extra check of the default
+  -- configuration, is a `--project` in the package's `lintDriverArgs`.
+  failures := failures ++ (← expect adopter {
+      label := "lean/other-project-refused", exitCode := 2,
+      contains := #["is not the project lake lint runs in", "regula lint: INVALID CONFIGURATION"],
+      excludes := #[s!"regula lint: {acceptanceLabel}"] } #["--", "--project", repo.toString])
+  IO.FS.writeFile lakefile (plain.replace "lintDriver := \"regula/lint\""
+    "lintDriver := \"regula/lint\"\n  lintDriverArgs := #[\"--project\", \"vendor/clean\"]")
+  failures := failures ++ (← expect adopter {
+      label := "lean/project-configured-refused", exitCode := 2,
+      contains := #["the package's lintDriverArgs give --project",
+        "regula lint: INVALID CONFIGURATION"],
       excludes := #[s!"regula lint: {acceptanceLabel}"] })
+  -- A configured destination that cannot be written is still a configuration refusal, not an
+  -- incomplete run.
+  IO.FS.writeFile lakefile (plain.replace "lintDriver := \"regula/lint\""
+    "lintDriver := \"regula/lint\"\n  lintDriverArgs := #[\"--json-out\", \"/\"]")
+  failures := failures ++ (← expect adopter {
+      label := "lean/unwritable-destination-configured-refused", exitCode := 2,
+      contains := #["the package's lintDriverArgs give --json-out",
+        "regula lint: INVALID CONFIGURATION"],
+      excludes := #[s!"regula lint: {acceptanceLabel}"] })
+  -- A configured value that looks like an option is not a destination: the command line's
+  -- `--json-out` is the one marked incomplete before the refusal.
+  IO.FS.writeFile lakefile (plain.replace "lintDriver := \"regula/lint\""
+    "lintDriver := \"regula/lint\"\n  lintDriverArgs := #[\"--manifest\", \"--json-out\"]")
+  IO.FS.writeFile (adopter / "stale.json") "{\"status\":\"completed\"}\n"
+  failures := failures ++ (← expect adopter {
+      label := "lean/option-like-value-refused", exitCode := 2,
+      contains := #["the package's lintDriverArgs give --manifest",
+        "regula lint: INVALID CONFIGURATION"],
+      excludes := #[s!"regula lint: {acceptanceLabel}"] } #["--", "--json-out", "stale.json"])
+  let stale := (← readJson (adopter / "stale.json")).getObjValD "status"
+  unless JsonAgreement.conforms stale (toJson "incomplete") do
+    failures := failures.push s!"lake-lint/lean/option-like-value-refused: stale.json has status \
+      {stale.compress}"
+  if ← (adopter / "--json-out").pathExists then
+    failures := failures.push "lake-lint/lean/option-like-value-refused: the configured value \
+      --json-out was written as a destination"
+  IO.FS.removeFile (adopter / "stale.json")
+  -- The driver decides before it marks a destination, and a refusal keeps the configuration
+  -- class though a destination cannot be written: for another project, for `--help`, and for a
+  -- configured destination beside the command line's, each of which is marked on its own.
+  IO.FS.writeFile lakefile plain
+  failures := failures ++ (← expect adopter {
+      label := "lean/other-project-unwritable-refused", exitCode := 2,
+      contains := #["is not the project lake lint runs in",
+        "could not mark the result destination /", "regula lint: INVALID CONFIGURATION"],
+      excludes := #[s!"regula lint: {acceptanceLabel}"] }
+    #["--", "--project", repo.toString, "--json-out", "/"])
+  failures := failures ++ (← expect adopter {
+      label := "lean/help-unwritable-refused", exitCode := 2,
+      contains := #["--json-out and --verbose apply only to an audit",
+        "regula lint: INVALID CONFIGURATION"],
+      excludes := #[s!"regula lint: {acceptanceLabel}"] } #["--", "--help", "--json-out", "/"])
+  IO.FS.writeFile lakefile (plain.replace "lintDriver := \"regula/lint\""
+    "lintDriver := \"regula/lint\"\n  lintDriverArgs := #[\"--json-out\", \"/\"]")
+  IO.FS.writeFile (adopter / "stale.json") "{\"status\":\"completed\"}\n"
+  failures := failures ++ (← expect adopter {
+      label := "lean/each-destination-marked", exitCode := 2,
+      contains := #["duplicate --json-out option", "regula lint: INVALID CONFIGURATION"],
+      excludes := #[s!"regula lint: {acceptanceLabel}"] } #["--", "--json-out", "stale.json"])
+  let stale := (← readJson (adopter / "stale.json")).getObjValD "status"
+  unless JsonAgreement.conforms stale (toJson "incomplete") do
+    failures := failures.push s!"lake-lint/lean/each-destination-marked: stale.json has status \
+      {stale.compress}"
+  IO.FS.removeFile (adopter / "stale.json")
+  -- The audit reads its arguments once too: a manifest named `--json-out` is the manifest, not
+  -- a destination, so the run reads it and writes only the command line's `--json-out`.
+  IO.FS.writeFile lakefile plain
+  let manifestText ← IO.FS.readFile (adopter / "foundation_manifest.json")
+  IO.FS.writeFile (adopter / "--json-out") manifestText
+  failures := failures ++ (← expect adopter { positive with
+      label := "lean/option-like-manifest-read"
+      contains := positive.contains.push s!"manifest {project / "--json-out"}" }
+    #["--", "--manifest", "--json-out", "--json-out", "named.json"] optIn)
+  unless (← IO.FS.readFile (adopter / "--json-out")) == manifestText do
+    failures := failures.push "lake-lint/lean/option-like-manifest-read: the manifest named \
+      --json-out was overwritten"
+  let named := (← readJson (adopter / "named.json")).getObjValD "status"
+  unless JsonAgreement.conforms named (toJson "completed") do
+    failures := failures.push s!"lake-lint/lean/option-like-manifest-read: named.json has status \
+      {named.compress}"
+  IO.FS.removeFile (adopter / "--json-out")
+  IO.FS.removeFile (adopter / "named.json")
+  -- The corpus producer marks the result where the audit's own plan resolved it: from another
+  -- directory, a relative `--json-out` with `--project` is the project's file, and a stale file of
+  -- the same name in the working directory is left as it was.
+  let elsewhere := adopter / "elsewhere"
+  IO.FS.createDirAll elsewhere
+  IO.FS.writeFile (elsewhere / "facts.json") "[]\n"
+  IO.FS.writeFile (elsewhere / "result.json") "{\"status\":\"completed\"}\n"
+  failures := failures ++
+    (← assess { label := "lean/rule-examples-project-marked", exitCode := 0 }
+    (← runProcess elsewhere (repo / ".lake" / "build" / "bin" / "ruleExamples").toString
+      #["--injected-git-facts", "facts.json", "axiomGate", "--project", adopter.toString,
+        "--json-out", "result.json", "--help"]))
+  unless (← IO.FS.readFile (elsewhere / "result.json")) == "{\"status\":\"completed\"}\n" do
+    failures := failures.push "lake-lint/lean/rule-examples-project-marked: the working \
+      directory's result.json was changed"
+  match Json.parse (← IO.FS.readFile (adopter / "result.json")) with
+  | .ok marked =>
+    unless JsonAgreement.conforms (marked.getObjValD "status") (toJson "incomplete") &&
+        JsonAgreement.conforms (marked.getObjValD "gitFacts") (toJson "injected") do
+      failures := failures.push s!"lake-lint/lean/rule-examples-project-marked: the project's \
+        result.json has status {(marked.getObjValD "status").compress} and gitFacts \
+        {(marked.getObjValD "gitFacts").compress}"
+  | .error error =>
+    failures := failures.push s!"lake-lint/lean/rule-examples-project-marked: the project's \
+      result.json: {error}"
+  IO.FS.removeDirAll elsewhere
+  IO.FS.removeFile (adopter / "result.json")
   -- An `input_file` in `needs` keeps the plain shape.
   let notes := adopter / "notes.txt"
   IO.FS.writeFile notes "Widget notes.\n"
@@ -342,7 +488,7 @@ one target under both is a configuration refusal, and so is a library or executa
 claimed or excluded, that names no root target of its kind: one refusal that quotes the entry as
 the manifest writes it and lists the root targets of that kind by Lake target name, in the driver
 and, for an executable entry, in the adopter's `axiomGate --file` audit, which reads the manifest
-through the same loader. Under the owner's `--ordinary-lakefiles` the driver keeps the audit-build
+through the same loader. Under the owner's assertion the driver keeps the audit-build
 marker for the live finding, whose module imports `Regula.Linter`, and prints why. Without that
 import, an `input_dir` filter `"*"` keeps the plain shape: the driver prints that it omits the
 marker, and an ordinary build reuses its output. Decision probes of the guard (`probe`), each with
@@ -361,6 +507,25 @@ private def tomlAdopter (probes : Std.Mutex Unit) (repo adopter : FilePath) :
       label := "toml/foreign-dir", exitCode := 2,
       contains := #["without -d/--dir", "regula lint: INVALID CONFIGURATION"],
       excludes := #[s!"regula lint: {acceptanceLabel}"] } #["-d", adopter.toString])
+  -- The same from a project with no manifest and a refused argument: the driver loads only that
+  -- project's root configuration, so it writes no manifest there and, for a `lakefile.toml`,
+  -- nothing at all.
+  let foreign := adopter / "foreign"
+  IO.FS.createDirAll foreign
+  IO.FS.writeFile (foreign / "lakefile.toml") "name = \"foreign\"\n"
+  IO.FS.writeFile (foreign / "lean-toolchain") (← IO.FS.readFile (adopter / "lean-toolchain"))
+  failures := failures ++ (← expect foreign {
+      label := "toml/foreign-dir-unwritten", exitCode := 2,
+      contains := #["unknown or incomplete argument: --bogus",
+        "regula lint: INVALID CONFIGURATION"],
+      excludes := #[s!"regula lint: {acceptanceLabel}"] }
+    #["-d", adopter.toString, "--", "--bogus"])
+  let written := (← foreign.readDir).map (·.fileName) |>.filter
+    (· ∉ ["lakefile.toml", "lean-toolchain"])
+  unless written.isEmpty do
+    failures := failures.push s!"lake-lint/toml/foreign-dir-unwritten: the driver wrote {written} \
+      in the working directory's project"
+  IO.FS.removeDirAll foreign
   mutate double "end Gadget" <|
     "set_option linter.regula false in\n/-- A control assumption. -/\n" ++
       "axiom optedOut : True\nend Gadget"
@@ -381,14 +546,14 @@ private def tomlAdopter (probes : Std.Mutex Unit) (repo adopter : FilePath) :
   let ordinary ← runProcess adopter "lake" #["build"] scrubbedLeanPathEnv
   unless ordinary.succeeded && ordinary.output.contains "RG1001 [violation; editorSnapshot" do
     failures := failures.push s!"lake-lint/toml/live-build: {ordinary.output}"
-  -- `Gadget.Double` imports `Regula.Linter`, so even under the owner's `--ordinary-lakefiles` the
+  -- `Gadget.Double` imports `Regula.Linter`, so even under the owner's assertion the
   -- driver builds with the audit-build marker (`Lake.auditMarkerNeeded`), says why, and rebuilds
   -- the module that the ordinary build made.
   failures := failures ++ (← expect adopter {
       label := "toml/live-finding", exitCode := 1,
       contains := #["RG1001", "liveFinding", "regula lint: VIOLATION (exit 1)",
         "] Built Gadget.Double", markerKept, "imports Regula.Linter"],
-      excludes := #["build-failed", "editorSnapshot"] } optIn)
+      excludes := #["build-failed", "editorSnapshot"] } (env := optIn))
   restore adopter originals
   -- A `lean_lib` and a `lean_exe` whose Lake target names are not Lean identifiers (#163, #166).
   -- The manifest names each by that name or as Lean prints it; both are one claim, naming both
@@ -481,7 +646,7 @@ private def tomlAdopter (probes : Std.Mutex Unit) (repo adopter : FilePath) :
   restore adopter targetOriginals
   -- Without the `Regula.Linter` import the workspace can have the plain shape. A `lakefile.toml`
   -- `input_dir` filter is Lake's default only when it is omitted or `"*"`: then the driver omits
-  -- the marker under the owner's `--ordinary-lakefiles`, and an ordinary build reuses its output.
+  -- the marker under the owner's assertion, and an ordinary build reuses its output.
   -- With any other filter, or with the import, the driver keeps the marker.
   let doubleSource ← IO.FS.readFile double
   mutate double "import Regula.Linter\n\n" ""
@@ -496,7 +661,7 @@ private def tomlAdopter (probes : Std.Mutex Unit) (repo adopter : FilePath) :
   withFilter "filter = \"*\""
   failures := failures ++ (← expect adopter
     { accepted "toml/star-reused" with
-      contains := (accepted "toml/star-reused").contains.push markerOmitted } optIn)
+      contains := (accepted "toml/star-reused").contains.push markerOmitted } (env := optIn))
   let ordinary ← runProcess adopter "lake" #["build"] scrubbedLeanPathEnv
   unless ordinary.succeeded && !ordinary.output.contains "] Built Gadget" do
     failures := failures.push s!"lake-lint/toml/star-reused: the ordinary build rebuilt a module: \
@@ -829,8 +994,9 @@ owned one, is refused before the driver builds its audit worker. So is a library
 `Regula.«<directory>/Payload»` that a claimed module imports, whose absolute component would put
 its source and artifact outside the
 dependency's directories, and so is the root `Regula.«../Payload»`, whose `..` segment would leave
-them. A `lake lint -- --project` from such a workspace for another project is refused with the
-workspace's own refusal before any audit (`Lint.lint`), though no control here runs that case. A
+them. A `lake lint -- --project` from such a workspace for another project is refused before any
+audit, since the driver audits only the dispatching workspace (`Lint.lint`), though no control
+here runs that case. A
 claimed module's import of `Widget.«<adopter directory>/Payload»`, which Lake builds under
 the claimed library's glob outside every output directory, is refused once the module is loaded.
 An override in `.lake/package-overrides.json` that selects the dependency in place of one
