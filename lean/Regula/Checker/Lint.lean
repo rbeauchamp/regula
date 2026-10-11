@@ -12,11 +12,16 @@ claimed `RegulaCore.Lint.classify`. It adds no detector, policy or acceptance pa
 success line is `Account.pass` of the accepted account the audit recorded, followed by the
 project and manifest the audit resolved. `--explain-config` is a read-only account of the
 configuration an audit would use; it runs no audit and, like `--help`, exits with the non-success
-configuration class. A package's `lintDriverArgs`, which Lake places before the command line's
-arguments, may give only those two, `--fresh` and `--verbose` (`Options.packageConfigurable`);
-the claimed `configuredRefusal` refuses any other option there with the configuration class, so
-the project, manifest and result destination come from the command line alone
-(`configuredRefusal_eq_none`), and a `lintDriverArgs` entry cannot make every `lake lint` succeed.
+configuration class.
+
+What the driver audits and where its result goes do not depend on which configuration Lake
+loaded, which Lake does not tell the driver (`configuredRefusal`). The audited project is always
+the workspace `lake lint` was dispatched from: a `--project` naming another one is refused with
+the configuration class. A relative `--json-out` names a path in that workspace, and the success
+line and the result name the manifest. The workspace owner's assertion of ordinary lakefiles
+comes from the caller's environment (`ownerAssertion`), not from an argument. In addition,
+`configuredRefusal` refuses `lintDriverArgs` of the default configuration that give an option
+outside `Options.packageConfigurable`.
 -/
 
 namespace Regula.Checker.Lint
@@ -25,27 +30,28 @@ open Lean System
 
 /-- The usage text: the accepted arguments and the meaning of each exit code. -/
 def usage : String :=
-  "usage: lake lint [-- [--fresh] [--project DIR] [--manifest PATH] [--json-out PATH] \
-    [--verbose] [--ordinary-lakefiles]]\n" ++
-  "       lake lint -- --explain-config [--fresh] [--project DIR] [--manifest PATH]\n" ++
-  "Checks every manifested Lake surface: incremental elaboration with current policy\n" ++
+  "usage: lake lint [-- [--fresh] [--manifest PATH] [--json-out PATH] [--verbose]]\n" ++
+  "       lake lint -- --explain-config [--fresh] [--manifest PATH]\n" ++
+  "Checks every manifested Lake surface of the project lake lint runs in: incremental \
+    elaboration with current policy\n" ++
   "inspection by default, or an isolated fresh build with --fresh.\n" ++
   "--verbose also prints every classified declaration, timing spans, each execution root with a \
     boundary the toolchain does not own or an unresolved path and every entry of the toolchain \
     trusted base.\n" ++
-  "--ordinary-lakefiles asserts that the workspace's lakefiles are ordinary configuration: the \
-    claimed build then omits the audit-build marker when a conservative guard admits the \
-    workspace, and reuses the ordinary build output; the driver prints whether it omits the \
-    marker or keeps it and why.\n" ++
-  "A relative --json-out names a path in the project lake lint runs in, also with --project. \
-    The package's lintDriverArgs may give only --fresh, --verbose, --explain-config and --help.\n" ++
+  s!"{ordinaryLakefilesVariable}=1 in the environment asserts that the workspace's lakefiles are \
+    ordinary configuration: the claimed build then omits the audit-build marker when a \
+    conservative guard admits the workspace, and reuses the ordinary build output; the driver \
+    prints whether it omits the marker or keeps it and why.\n" ++
+  "A relative --json-out names a path in the project lake lint runs in. --project, if given, \
+    must name that project; `lake exe axiomGate --project DIR` audits another one. The \
+    package's lintDriverArgs may give only --fresh, --verbose, --explain-config and --help.\n" ++
   "exit codes: 0 accepted, 1 violation, 2 invalid configuration or invocation, 3 incomplete\n" ++
   "--explain-config and --help run no audit, establish no result and exit 2."
 
-/-- The audit invocation: the same `axiomGate` project body and options. -/
+/-- The audit invocation: the same `axiomGate` project body and options. It passes no
+`--project`, so the audit's project is the working directory's, the dispatching workspace. -/
 def gateArgs (options : Options) : List String :=
   (if options.fresh then [] else ["--incremental"]) ++
-  (options.project.map (["--project", ·])).getD [] ++
   (options.manifest.map (["--manifest", ·])).getD [] ++
   (options.jsonOut.map (["--json-out", ·])).getD [] ++
   (if options.verbose then ["--verbose"] else [])
@@ -62,9 +68,7 @@ private def modeText (fresh : Bool) : String :=
 prints what an audit would check. It never constructs or reports a result. -/
 private def explain (options : Options) : IO Outcome := do
   Regula.Checker.initializeLeanSearchPath
-  let repo ← match options.project with
-    | some dir => findRepoRoot dir
-    | none => repoRoot
+  let repo ← repoRoot
   let manifestPath := match options.manifest with
     | some path => if (FilePath.mk path).isAbsolute then FilePath.mk path else repo / path
     | none => Manifest.defaultPath repo
@@ -105,26 +109,23 @@ private def refuse (message : String) : IO Outcome := do
 
 /-- The Lake target of `workerBinary`, which the audit spawns as its worker. Lake's lint
 dispatch builds only the driver, so the driver builds this sibling target before the audit,
-in the workspace `lake lint` was dispatched from (`repoRoot`, never `--project`). That
-workspace built the running driver, whether `regula` is a path dependency, a git dependency
+in the workspace `lake lint` was dispatched from (`repoRoot`), which is also the audited project.
+That workspace built the running driver, whether `regula` is a path dependency, a git dependency
 under `.lake/packages`, any custom `packagesDir` or the root, so it resolves `regula` to the
 same package, dependencies and toolchain, and its `regula/axiomGate` is `workerBinary`. -/
 def workerTarget : String := "regula/axiomGate"
 
 /-- Refuses unless the workspace at the working directory (`repoRoot`, which builds the worker
-and is the default audited project) is the one `lake lint` was dispatched from, and unless that
-workspace's root package's `lintDriverArgs` are admitted for `args` (`configuredRefusal`). Lake
-v4.34.0 runs the driver without changing its working directory, so `lake -d DIR lint` from another
-project would otherwise build and audit that project. `Package.lint` spawns it through `env`
-with `Workspace.augmentedEnvVars`: `LEAN_PATH` is the dispatching workspace's `leanPath`, then
-the library directory of the toolchain-collocated Lake (`LakeInstall.ofLean`, so
-`LEAN_SYSROOT/lib/lean`), then any inherited `LEAN_PATH`. `dispatchedFrom_iff` shows the check
-holds exactly when the working-directory workspace, loaded by the same Lake, has the same
-package library directories, whatever was inherited. Any other Lake layout, or a driver run
-outside Lake, fails the check and is refused. `Package.lint` of that workspace's root package,
-the one `lake lint` runs, passes its `lintDriverArgs` before the command line's arguments, so
-`configuredRefusal_eq_none` gives that an admitted run audits the project and manifest and
-writes the result that the command line names. -/
+and is the audited project) is the one `lake lint` was dispatched from, and, as an extra refusal,
+unless the `lintDriverArgs` of that workspace's default configuration are admitted for `args`
+(`configuredRefusal`). Lake v4.34.0 runs the driver without changing its working directory, so
+`lake -d DIR lint` from another project would otherwise build and audit that project.
+`Package.lint` spawns it through `env` with `Workspace.augmentedEnvVars`: `LEAN_PATH` is the
+dispatching workspace's `leanPath`, then the library directory of the toolchain-collocated Lake
+(`LakeInstall.ofLean`, so `LEAN_SYSROOT/lib/lean`), then any inherited `LEAN_PATH`.
+`dispatchedFrom_iff` shows the check holds exactly when the working-directory workspace, loaded by
+the same Lake, has the same package library directories, whatever was inherited. Any other Lake
+layout, or a driver run outside Lake, fails the check and is refused. -/
 private def dispatchRefusal (args : List String) : IO (Option String) := do
   let message := "the working directory is not the workspace `lake lint` was dispatched from; " ++
     "run lake lint from the project root without -d/--dir"
@@ -136,40 +137,79 @@ private def dispatchRefusal (args : List String) : IO (Option String) := do
     return some message
   return configuredRefusal configured args
 
-/-- The banner's note of the workspace owner's assertion. -/
-private def ownerAssertion : String :=
-  "; the workspace owner asserts ordinary lakefiles (--ordinary-lakefiles)"
+/-- The refusal, if any, of a `--project`: whatever gave it, it must name the project root of the
+dispatching workspace `dispatching`, which the driver audits. -/
+private def projectRefusal (dispatching : FilePath) (project : Option String) :
+    IO (Option String) := do
+  let some dir := project | return none
+  let named ← try some <$> findRepoRoot dir catch _ => pure none
+  if named == some dispatching then return none
+  return some s!"--project {dir} is not the project lake lint runs in ({dispatching}); lake lint \
+    audits only that project, and `lake exe axiomGate --project DIR` audits another one"
 
-/-- Every path but the audit's `classify` returns a non-accepted class. A relative `--json-out`
-names a path in the workspace `lake lint` was dispatched from, also with `--project`, and is
-invalidated there before any other check. -/
+/-- The banner's note of the workspace owner's assertion. -/
+private def ownerAssertionNote : String :=
+  s!"; the workspace owner asserts ordinary lakefiles ({ordinaryLakefilesVariable}=1)"
+
+/-- A destination as the driver resolves it: a relative path names a path in the dispatching
+workspace `root`. -/
+private def inWorkspace (root : FilePath) (path : String) : FilePath :=
+  if (FilePath.mk path).isAbsolute then path else root / path
+
+/-- Mark every result destination of `args` incomplete (`resultDestinations`, the parsed
+`--json-out` when the arguments parse), each where the audit would write it. An absolute one is
+marked even when the working directory is outside any Lean project. -/
+private def invalidateDestinations (args : List String) : IO Unit := do
+  let destinations := (resultDestinations args).eraseDups
+  for path in destinations.filter (FilePath.mk · |>.isAbsolute) do
+    AxiomGate.invalidateResult path
+  let relative := destinations.filter fun path => !(FilePath.mk path).isAbsolute
+  unless relative.isEmpty do
+    let root ← repoRoot
+    for path in relative do AxiomGate.invalidateResult (inWorkspace root path)
+
+/-- Every path but the audit's `classify` returns a non-accepted class. Before any other check
+the driver decides the dispatch refusal, which includes the package's `lintDriverArgs`, and marks
+every result destination incomplete. A failed mark is reported as such only when neither the
+arguments nor the dispatch is refused, so a refused option keeps the configuration class. -/
 private unsafe def lint (args : List String) : IO Outcome := do
   let parsed := parseArgs args {}
-  try AxiomGate.invalidateResults [.result] args (some repoRoot)
-  catch error => if let .error message := parsed then return ← refuse message else throw error
+  let dispatch ← (dispatchRefusal args).toBaseIO
+  if let .error error ← (invalidateDestinations args).toBaseIO then
+    if let .error message := parsed then return ← refuse message
+    if let .ok (some message) := dispatch then return ← refuse message
+    throw error
   match parsed with
-  | .error message => refuse message
+  | .error message =>
+    refuse <| if args.contains "--ordinary-lakefiles" then
+        s!"{message}; the workspace owner gives that assertion as {ordinaryLakefilesVariable}=1 \
+          in the environment of lake lint"
+      else message
   | .ok options =>
     if options.help || options.explain then
-      if options.jsonOut.isSome || options.verbose || options.ordinaryLakefiles then
-        return ← refuse "--json-out, --verbose and --ordinary-lakefiles apply only to an audit"
+      if options.jsonOut.isSome || options.verbose then
+        return ← refuse "--json-out and --verbose apply only to an audit"
       if options.help then
         IO.println usage
         return .configuration
-    if let some message ← dispatchRefusal args then return ← refuse message
+    if let some message ← IO.ofExcept dispatch then return ← refuse message
+    let dispatching ← repoRoot
+    if let some message ← projectRefusal dispatching options.project then
+      return ← refuse message
     if options.explain then return ← explain options
+    let ordinary ← match ownerAssertion (← IO.getEnv ordinaryLakefilesVariable) with
+      | .ok asserted => pure asserted
+      | .error message => return ← refuse message
     IO.println
         s!"regula lint: enforcing all manifested Lake surfaces; mode {modeText options.fresh}\
-          {if options.ordinaryLakefiles then ownerAssertion else ""}"
+          {if ordinary then ownerAssertionNote else ""}"
     (← IO.getStdout).flush
     -- The supported scope (`Lake.surfaceInventory`: Lake's default output layout of each owned
     -- package and one provider for each module name of an owned package) of the dispatching
-    -- workspace, which builds the audit worker, is decided before this driver builds it. Outside
-    -- it the worker is not built. When that workspace is the audited project, the audit, which
+    -- workspace, which builds the audit worker and is the audited project, is decided before
+    -- this driver builds the worker. Outside it the worker is not built, and the audit, which
     -- decides the same scope from Lake's load before its first build and needs no worker for
-    -- that, reports the refusal; when `--project` names another project, whose audit would need
-    -- the worker, the driver refuses here with the dispatching workspace's refusal.
-    let dispatching ← repoRoot
+    -- that, reports the refusal.
     match ← (Lake.surfaceInventory dispatching).toBaseIO with
     | .ok _ =>
       let worker ← Lake.buildTargetsShowing dispatching #[.spec workerTarget]
@@ -178,22 +218,13 @@ private unsafe def lint (args : List String) : IO Outcome := do
         IO.eprintln s!"regula lint: {Outcome.incomplete.label}: audit worker {workerTarget} did \
           not build"
         return .incomplete
-    | .error refusal =>
-      let audited ← match options.project with
-        | some dir => try some <$> findRepoRoot dir catch _ => pure none
-        | none => pure (some dispatching)
-      unless audited == some dispatching do
-        IO.eprintln s!"regula lint: the workspace {dispatching} that lake lint was dispatched \
-          from, which builds the audit worker, is outside the supported scope: {refusal}"
-        IO.println s!"regula lint: {Outcome.incomplete.label} (exit {Outcome.incomplete.exitCode})"
-        return .incomplete
+    | .error _ =>
       IO.println "regula lint: the workspace is outside the supported scope, so the audit worker \
         is not built"
-    AxiomGate.claimedBuild.set (Lake.buildAuditTargets options.ordinaryLakefiles)
-    AxiomGate.ordinaryLakefiles.set options.ordinaryLakefiles
+    AxiomGate.claimedBuild.set (Lake.buildAuditTargets ordinary)
+    AxiomGate.ordinaryLakefiles.set ordinary
     -- The destination invalidated above: a relative path is resolved in the dispatching workspace.
-    let jsonOut := options.jsonOut.map fun path =>
-      if (FilePath.mk path).isAbsolute then path else (dispatching / path).toString
+    let jsonOut := options.jsonOut.map fun path => (inWorkspace dispatching path).toString
     let code ← AxiomGate.entry (gateArgs { options with jsonOut })
     let observed ← AxiomGate.terminalObservation.get
     let audited ← AxiomGate.auditedTarget.get

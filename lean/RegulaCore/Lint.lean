@@ -19,9 +19,12 @@ audit returned (`classify_gateExitCode`). The observation's authenticity, that i
 invocation's audit rather than another's, is the driver's binding, checked by inspection.
 
 The driver's arguments (`parseArgs`) begin with the package's `lintDriverArgs`, which Lake
-prepends. `configuredRefusal` admits those only when they give no option outside
-`Options.packageConfigurable`, and then the project, manifest and result destination come from
-the `lake lint` command line alone (`configuredRefusal_eq_none`). -/
+prepends. `resultDestinations` reads the result destinations they name, without mistaking the
+value of another option for one (`resultDestinations_of_parse`). `configuredRefusal` is an extra
+refusal of `lintDriverArgs` that give an option outside `Options.packageConfigurable`, read from
+the default configuration (`configuredRefusal_eq_none`); the driver does not rely on it for what
+it audits. The workspace owner's assertion of ordinary lakefiles comes from the caller's
+environment (`ownerAssertion`), which no package configuration sets. -/
 
 namespace Regula.Checker.Lint
 
@@ -453,11 +456,6 @@ structure Options where
   declaration, the execution roots and toolchain trusted-base entries it lists on request, and
   its timing spans. -/
   verbose : Bool := false
-  /-- `--ordinary-lakefiles`: the workspace owner asserts that the workspace's lakefiles are
-  ordinary configuration. The claimed build then omits the audit-build marker when the plain-shape
-  guard `Lake.auditMarkerNeeded` admits the workspace, and prints whether it omits the marker or
-  keeps it and why (`Lake.buildAuditTargets`); without it the build always has the marker. -/
-  ordinaryLakefiles : Bool := false
   /-- `--explain-config`: print the configuration an audit would use, run no audit and exit
   with the configuration class. -/
   explain : Bool := false
@@ -489,14 +487,40 @@ def parseArgs : List String → Options → Except String Options
       parseArgs rest { options with fresh := ← setFlag "--fresh" options.fresh }
   | "--verbose" :: rest, options => do
       parseArgs rest { options with verbose := ← setFlag "--verbose" options.verbose }
-  | "--ordinary-lakefiles" :: rest, options => do
-      parseArgs rest { options with
-        ordinaryLakefiles := ← setFlag "--ordinary-lakefiles" options.ordinaryLakefiles }
   | "--explain-config" :: rest, options => do
       parseArgs rest { options with explain := ← setFlag "--explain-config" options.explain }
   | "--help" :: rest, options | "-h" :: rest, options =>
       parseArgs rest { options with help := true }
   | flag :: _, _ => .error s!"unknown or incomplete argument: {flag}"
+
+/-- `parseArgs` reads `flag` as an option that takes a value: alone it is refused, and followed by
+a value it parses. Derived from `parseArgs` itself, so it names the same options. -/
+def takesValue (flag : String) : Bool :=
+  (parseArgs [flag] {}).toOption.isNone && (parseArgs [flag, "value"] {}).toOption.isSome
+
+/-- The values that `parseArgs` would read as the `--json-out` destination at each place of
+`args`, skipping the value of every option that takes one (`takesValue`). -/
+def scanDestinations : List String → List String
+  | flag :: value :: rest =>
+    if takesValue flag then
+      ((parseArgs [flag, value] {}).toOption.bind (·.jsonOut)).toList ++ scanDestinations rest
+    else scanDestinations (value :: rest)
+  | _ => []
+termination_by args => args.length
+
+/-- The result destinations an invocation names, which the driver marks incomplete before any
+other check: the parsed `--json-out` when `args` parse (`resultDestinations_of_parse`), and
+otherwise every value `scanDestinations` finds. -/
+def resultDestinations (args : List String) : List String :=
+  match parseArgs args {} with
+  | .ok options => options.jsonOut.toList
+  | .error _ => scanDestinations args
+
+/-- When the arguments parse, the destinations are exactly the parsed `--json-out`, never a value
+of another option that looks like one. -/
+theorem resultDestinations_of_parse {args : List String} {options : Options}
+    (h : parseArgs args {} = .ok options) : resultDestinations args = options.jsonOut.toList := by
+  simp [resultDestinations, h]
 
 /-- The options a package's `lintDriverArgs` may give: the evidence mode, `--verbose`,
 `--explain-config` and `--help`. Every other field has its default here, including a field added
@@ -514,11 +538,31 @@ of their own: `--` and the flags of `packageConfigurable`. -/
 def configurableArguments : List String :=
   ["--", "--fresh", "--verbose", "--explain-config", "--help", "-h"]
 
-/-- The refusal, if any, of the package's `lintDriverArgs` `configured` for the arguments `args`
+/-- The options in `args` outside `configurableArguments`, each without its value (`takesValue`),
+for the refusal message. -/
+def namedOptions : List String → List String
+  | flag :: rest =>
+    let others := if takesValue flag then namedOptions rest.tail else namedOptions rest
+    if configurableArguments.contains flag then others else flag :: others
+  | [] => []
+termination_by args => args.length
+
+/-- An extra refusal, for the package's `lintDriverArgs` `configured` as the driver reads them
+from the default configuration of the working-directory workspace, given the arguments `args`
 the driver received. Lake v4.34.1 (`Package.lint`) passes `configured ++ caller`, where `caller`
 holds the arguments after `--` on the `lake lint` command line. The configured arguments must
 begin `args`, parse alone, and give only options of `packageConfigurable`
-(`configuredRefusal_eq_none`). -/
+(`configuredRefusal_eq_none`). It is not what makes the audited project, manifest and result
+destination hold: the driver decides those whatever the configuration gives (`--project` must be
+the dispatching workspace, a relative `--json-out` resolves there, and the success line and the
+result name the manifest).
+
+Assumes: Lake loaded the default configuration file of that workspace, without `-f`/`--file`
+or `-K` options. Lake v4.34.1 passes neither to the driver: `CLI/Main.lean:214` and `:342-344`
+set `configFile` only for the load (`:123`, `:1076-1089`), `CLI/Actions.lean:20-21` spawns the
+driver with the augmented environment of `Config/Workspace.lean:417-431` and
+`Config/Env.lean:287-305`, which names no package configuration, and `CLI/Main.lean:346-348`
+drops the `--` separator. -/
 def configuredRefusal (configured args : List String) : Option String :=
   if !configured.isPrefixOf args then
     some "the arguments do not begin with the package's lintDriverArgs, so Lake did not \
@@ -528,9 +572,8 @@ def configuredRefusal (configured args : List String) : Option String :=
     | .ok given =>
       if given = given.packageConfigurable then none
       else
-        let named := configured.filter fun a => a.startsWith "-" && !configurableArguments.contains a
-        some s!"the package's lintDriverArgs give {" ".intercalate named}: the project, manifest, \
-          result destination and --ordinary-lakefiles come only from the lake lint command \
+        some s!"the package's lintDriverArgs give {" ".intercalate (namedOptions configured)}: \
+          the project, manifest and result destination come only from the lake lint command \
           line, and lintDriverArgs cannot give them"
 
 /-- Parsing continues from the options of a prefix that parses alone. -/
@@ -540,14 +583,14 @@ theorem parseArgs_append {l : List String} {o o' : Options} (r : List String)
   | case1 o => simp only [parseArgs, Except.ok.injEq] at h; subst h; rfl
   | case2 rest o ih => simp only [parseArgs] at h; simpa [parseArgs] using ih h
   | case3 _ _ _ ih | case4 _ _ _ ih | case5 _ _ _ ih | case6 _ _ ih | case7 _ _ ih
-    | case8 _ _ ih | case9 _ _ ih =>
+    | case8 _ _ ih =>
     simp only [List.cons_append, parseArgs, bind, Except.bind] at h ⊢
     split at h
     · simp at h
     · exact ih _ h
-  | case10 _ _ ih | case11 _ _ ih =>
+  | case9 _ _ ih | case10 _ _ ih =>
     simp only [List.cons_append, parseArgs] at h ⊢; exact ih h
-  | case12 =>
+  | case11 =>
     unfold parseArgs at h; split at h <;> simp_all
 
 /-- From two option sets that give the same `target`, where the second sets no flag of
@@ -624,17 +667,6 @@ theorem parseArgs_target {args : List String} {s t o : Options}
       exact ih true (t := { t with verbose := true })
         (by cases s; cases t; simp_all [Options.target]) hfresh (fun _ => rfl) hexplain h
   | case8 rest s ih =>
-    have hp : s.ordinaryLakefiles = t.ordinaryLakefiles :=
-      congrArg (·.ordinaryLakefiles) htarget
-    cases hs : s.ordinaryLakefiles with
-    | true => simp [parseArgs, bind, Except.bind, setFlag, hs] at h
-    | false =>
-      simp only [parseArgs, bind, Except.bind, setFlag, hs, Bool.false_eq_true, ↓reduceIte] at h
-      simp only [parseArgs, bind, Except.bind, setFlag, ← hp, hs, Bool.false_eq_true,
-        ↓reduceIte]
-      exact ih true (t := { t with ordinaryLakefiles := true })
-        (by cases s; cases t; simp_all [Options.target]) hfresh hverbose hexplain h
-  | case9 rest s ih =>
     cases hs : s.explain with
     | true => simp [parseArgs, bind, Except.bind, setFlag, hs] at h
     | false =>
@@ -646,20 +678,20 @@ theorem parseArgs_target {args : List String} {s t o : Options}
       simp only [parseArgs, bind, Except.bind, setFlag, ht, Bool.false_eq_true, ↓reduceIte]
       exact ih true (t := { t with explain := true })
         (by cases s; cases t; simp_all [Options.target]) hfresh hverbose (fun _ => rfl) h
-  | case10 rest s ih | case11 rest s ih =>
+  | case9 rest s ih | case10 rest s ih =>
     simp only [parseArgs] at h ⊢
     exact ih (t := { t with help := true })
       (by cases s; cases t; simp_all [Options.target]) hfresh hverbose hexplain h
-  | case12 =>
+  | case11 =>
     unfold parseArgs at h
     split at h <;> simp_all
 
 /-- When `configuredRefusal` admits the package's `lintDriverArgs` `configured`, and the arguments
 Lake composes from them and the command line's `caller` (`configured ++ caller`) parse, then
 `caller` alone parses too, and to the same `Options.target`: the project, the manifest, the
-`--json-out` destination, `--ordinary-lakefiles` and every option outside `packageConfigurable`
-come from the command line alone. That the driver receives `configured ++ caller` is Lake's
-composition, read from its source, not proved here. -/
+`--json-out` destination and every option outside `packageConfigurable` come from the command
+line alone. That the driver receives `configured ++ caller`, with `configured` from the default
+configuration, is Lake's composition as `configuredRefusal` assumes, not proved here. -/
 theorem configuredRefusal_eq_none {configured caller : List String} {o : Options}
     (h : configuredRefusal configured (configured ++ caller) = none)
     (hparse : parseArgs (configured ++ caller) {} = .ok o) :
@@ -678,5 +710,32 @@ theorem configuredRefusal_eq_none {configured caller : List String} {o : Options
       rw [hconfigurable]
       rfl
     · simp at h
+
+/-- The environment variable that carries the workspace owner's assertion that the workspace's
+lakefiles are ordinary configuration. -/
+def ordinaryLakefilesVariable : String := "REGULA_ORDINARY_LAKEFILES"
+
+/-- The owner's assertion, read from the value of `ordinaryLakefilesVariable` in the environment
+the driver received: unset is no assertion, `1` asserts, and any other value is refused. With it
+the claimed build omits the audit-build marker when the plain-shape guard
+`Lake.auditMarkerNeeded` admits the workspace, and prints whether it omits the marker or keeps it
+and why (`Lake.buildAuditTargets`); without it the build always has the marker.
+
+Assumes: the variable comes from the caller of `lake lint`, never from a package configuration.
+Lake v4.34.1 spawns the driver with `IO.Process.spawn` and `env := ← getAugmentedEnv`
+(`CLI/Actions.lean:20-21`), which keeps the environment Lake received and sets only the
+variables of `Config/Workspace.lean:417-431` and `Config/Env.lean:287-305`, none of them this
+one. Configuration code that changes the Lake process's own environment is outside this boundary,
+as is any other deliberate manipulation of the build. -/
+def ownerAssertion : Option String → Except String Bool
+  | none => .ok false
+  | some "1" => .ok true
+  | some other => .error s!"{ordinaryLakefilesVariable} must be 1 or unset, not '{other}'"
+
+/-- The owner asserts ordinary lakefiles exactly when the variable is `1`. -/
+theorem ownerAssertion_eq_true_iff (value : Option String) :
+    ownerAssertion value = .ok true ↔ value = some "1" := by
+  unfold ownerAssertion
+  split <;> simp_all
 
 end Regula.Checker.Lint

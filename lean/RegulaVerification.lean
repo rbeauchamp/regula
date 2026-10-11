@@ -150,8 +150,10 @@ structure Command where
   args : Array String
   /-- Its working directory, relative to the repository root; the root itself by default. -/
   dir : String := "."
+  /-- Environment variables it receives in addition to the driver's own settings (`start`). -/
+  env : Array (String × String) := #[]
 
-private def lake (args : Array String) : Command := ⟨"lake", args, "."⟩
+private def lake (args : Array String) : Command := { program := "lake", args }
 
 /-- The package of the standard's example library (`Audit`), which imports only Lean's core
 libraries and adopts the root `regula` package by relative path, as an adopting project would.
@@ -164,7 +166,13 @@ package by relative path, holding the Mathlib-specific behaviour Regula supports
 Mathlib. -/
 def mathlibPackage : String := "integration/mathlib"
 
-private def lakeIn (dir : String) (args : Array String) : Command := ⟨"lake", args, dir⟩
+private def lakeIn (dir : String) (args : Array String) : Command :=
+  { program := "lake", args, dir }
+
+/-- The workspace owner's assertion that the lakefiles are ordinary configuration, as the `lint`
+driver reads it from its environment. The name is `Regula.Checker.Lint.ordinaryLakefilesVariable`,
+written again here because this driver imports only the toolchain. -/
+def ownerAssertion : Array (String × String) := #[("REGULA_ORDINARY_LAKEFILES", "1")]
 
 /-- Ordinary acceptance records its accepted input identity here; the separately timed
 documentation step refuses unless its own identity is equal. The driver puts the record here
@@ -290,10 +298,11 @@ def commands (copy pending : String) : Mode → List Command
   -- Regula on its own code base: the repository's own `lake lint` through `regula/lint` in both
   -- packages, and the operational self-audit of the excluded `Regula` library after its
   -- warning-free build. As the owner of both packages, the repository asserts that their lakefiles
-  -- are ordinary configuration (`--ordinary-lakefiles`), so the driver can reuse ordinary build
-  -- output when the plain-shape guard admits the workspace.
-  | .selfLint => [lake #["lint", "--", "--ordinary-lakefiles"],
-      lakeIn auditPackage #["lint", "--", "--ordinary-lakefiles"]]
+  -- are ordinary configuration (`REGULA_ORDINARY_LAKEFILES=1`, which the driver reads only from
+  -- its environment), so the driver can reuse ordinary build output when the plain-shape guard
+  -- admits the workspace.
+  | .selfLint => [{ lake #["lint"] with env := ownerAssertion },
+      { lakeIn auditPackage #["lint"] with env := ownerAssertion }]
   -- The root package's run on the default path that an adopter gets, without the owner's
   -- assertion, so with the audit-build marker. The `audit/` package runs the same driver code, and
   -- its default path would only add the rebuild that made the old step exceed its limit.
@@ -488,7 +497,8 @@ def announce (line : String) : BaseIO Unit := do
 
 /-- A command as the progress lines show it. -/
 def Command.display (command : Command) : String :=
-  " ".intercalate (command.program :: command.args.toList) ++
+  " ".intercalate ((command.env.map fun (name, value) => s!"{name}={value}").toList ++
+    command.program :: command.args.toList) ++
     (if command.dir = "." then "" else s!" (in {command.dir})")
 
 /-- An end as the progress lines and the failure report show it. No end has one label for its
@@ -536,8 +546,10 @@ deadline's kill reaches it. The inherited Lean search paths are removed, so a La
 resolves modules only through the workspace it runs in. `LAKE_ARTIFACT_CACHE` is `false`, so
 Lake's artifact cache is off for each package whose own configuration does not turn it on. These
 builds are not the checker's: the gate's own build of the claimed surface uses no artifact cache
-whatever the configuration says (`Regula.Checker.Lake.Build.run`). Process execution and signal
-delivery remain trusted. -/
+whatever the configuration says (`Regula.Checker.Lake.Build.run`). An inherited
+`REGULA_ORDINARY_LAKEFILES` is removed, so only a command that gives it (`ownerAssertion`) runs
+with the owner's assertion; each variable of the command's `env` is set last. Process execution
+and signal delivery remain trusted. -/
 def start (priority : Priority) (command : Command) :
     BaseIO (Option (IO.Process.Child stdio)) := do
   announce s!"start {priority.display}{command.display}"
@@ -546,7 +558,8 @@ def start (priority : Priority) (command : Command) :
     stdio with
     cmd := program, args := args, cwd := some command.dir,
     env := #[("GHCR_TOKEN", none), ("LEAN_PATH", none), ("LEAN_SRC_PATH", none),
-      ("LAKE_ARTIFACT_CACHE", some "false")] }
+      ("LAKE_ARTIFACT_CACHE", some "false"), ("REGULA_ORDINARY_LAKEFILES", none)] ++
+      command.env.map fun (name, value) => (name, some value) }
   match ← spawn.toBaseIO with
   | .ok child => return some child
   | .error error =>

@@ -315,19 +315,19 @@ lake lint                                  # incremental elaboration + current p
 lake lint -- --fresh                       # isolated copy built from empty output
 lake lint -- --json-out tmp/regula.json    # also write the JSON report
 lake lint -- --explain-config              # read-only: manifest, scope, profiles, stages
-lake lint -- --ordinary-lakefiles          # you assert your lakefiles are ordinary configuration
+REGULA_ORDINARY_LAKEFILES=1 lake lint      # you assert your lakefiles are ordinary configuration
 ```
 
-With `--ordinary-lakefiles` you, as the owner of the workspace, assert that its lakefiles are
-ordinary configuration. The driver then omits its audit-build marker for a workspace of the plain
-shape, and it reuses your ordinary build output. The plain shape is a conservative guard under
-your assertion. It is not a guarantee against a lakefile that someone wrote to defeat it. Without
-the option the driver always builds with the marker ([details](proofs-and-boundaries.md#the-acceptance-boundary)).
+With `REGULA_ORDINARY_LAKEFILES=1` you, as the owner of the workspace, assert that its lakefiles
+are ordinary configuration. The driver then omits its audit-build marker for a workspace of the
+plain shape, and it reuses your ordinary build output. The plain shape is a conservative guard
+under your assertion. It is not a guarantee against a lakefile that someone wrote to defeat it.
+Without the assertion the driver always builds with the marker ([details](proofs-and-boundaries.md#the-acceptance-boundary)).
 
-Give the option on the command line. The driver refuses it in `lintDriverArgs`, which your
-lakefile could set for each run. The banner of the run names your assertion, and the JSON report
-records it as `scope.ordinaryLakefiles`. Before the build, the run prints if the build omits the
-marker, or keeps it and why.
+Give the assertion in the environment of `lake lint`, which no lakefile sets. The driver refuses
+any value other than `1`. The banner of the run names your assertion, and the JSON report records
+it as `scope.ordinaryLakefiles`. Before the build, the run prints if the build omits the marker,
+or keeps it and why.
 
 The driver builds every manifested library and executable by its explicit Lake target, with
 warnings as failures, and inspects the completed environments: each library in one, and each
@@ -431,10 +431,11 @@ Lake details that affect what ran:
 
 - Arguments for the driver follow `--`; Lake prepends `lintDriverArgs`. Positional module
   arguments before `--` affect only Lake's builtin linters.
-- `lintDriverArgs` may give only `--fresh`, `--verbose`, `--help` and `--explain-config`. The
-  driver refuses any other option there with exit 2, so the project, the manifest and
-  `--json-out` come from your command line. A relative `--json-out` path is in the project where
-  you run `lake lint`, also with `--project`.
+- `lake lint` audits the project where you run it. A `--project` that names a different project is
+  refused with exit 2, and `lake exe axiomGate --project DIR` audits a different one. A relative
+  `--json-out` path is in the project where you run `lake lint`.
+- The `lintDriverArgs` of your default lakefile may give only `--fresh`, `--verbose`, `--help`
+  and `--explain-config`. The driver refuses any other option there with exit 2.
 - The success line names the project and manifest that the audit checked. The JSON report
   records them as `scope.project` and `scope.manifestPath`.
 - `lake lint --builtin-only` skips the driver and is **not** Regula enforcement: it exits 0 with
@@ -461,9 +462,9 @@ Lake details that affect what ran:
   when it recorded none, failed after recording a success (`Regula.Checker.Lint.gateExitCode`) or
   stopped on an error; `lake lint` reports the code its own audit returned
   (`Regula.Checker.Lint.classify_gateExitCode`). That audit builds with the driver's audit-build
-  marker, except when you pass `--ordinary-lakefiles` and your workspace has the plain shape. So a
-  standalone `axiomGate` run can differ: there a live Regula finding stops the warning-free build
-  check as incomplete (3).
+  marker, except when you set `REGULA_ORDINARY_LAKEFILES=1` and your workspace has the plain
+  shape. So a standalone `axiomGate` run can differ: there a live Regula finding stops the
+  warning-free build check as incomplete (3).
   `--file` prints only the declarations with a finding; `--verbose` lists every classified
   declaration. `lake exe docFenceAudit` checks Lean
   examples you keep in Markdown under `docs/` with the [fence protocol](https://rbeauchamp.github.io/regula/dev/standard/7-tooling-and-machine-audit/#77-check-lean-documentation-verbatim).

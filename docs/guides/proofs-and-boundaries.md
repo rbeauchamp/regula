@@ -130,7 +130,7 @@ or an INCOMPLETE diagnostic demonstration is not an audit-success certificate.
 | Route | Accepted value and remaining boundary |
 | --- | --- |
 | `AxiomGate.auditSurfaceAt` (fresh, `--driver-copy`, `--incremental`, `--build-lint`) | `Acceptance.freeze` reconciles Lake modules, sources, configuration, dependencies, reports, replay inventories and origins; `Acceptance.finish` returns `AcceptedRun` with checked equality to `finalize` (`finalize_collection_error`, `finalize_of_collected`). Cached build artifacts never cache a policy decision, and build-lint has no second exit-code-only PASS branch. |
-| `Lint.run` (`lake lint`) | The same project audit; exit 0 only through the claimed `Lint.classify` (`checked_classify`, `accepted_sound`): a zero audit exit and a recorded `completed` account of the requested mode. Exits 1, 2, 3 classify rejected, configuration-only and incomplete statuses; a missing or disagreeing status is 3. The audit's own exit code is the recorded `Lint.Observation`'s, or 3 when it recorded none or failed after recording a success (`gateExitCode`, `gateExitCode_some`, `gateExitCode_eq_zero`); an error escaping the audit discards any recorded result, so both sides are 3 (`AxiomGate.entry`). The driver reports the code the audit returned for its recorded result (`classify_gateExitCode`); the observation also decides the result status and the summary counts, each the number of findings of its impact (`Observation.status`, `Observation.tally`, `tally_eq`), and an incomplete finding exits 3 (`exitCode_incomplete`). Which findings a run records is operational. That the recorded observation is this invocation's audit is checked by inspection. `--explain-config` validates the manifest and Lake scope with the audit's own functions (`Manifest.loadFor`, `Acceptance.surfaceAssignments`, `AxiomGate.checkClassification`) and issues no audit certificate; it and `--help` are read-only, exit 2, refuse `--json-out` and `--verbose`, and first invalidate any recognizable `--json-out` destination. A package's `lintDriverArgs` that give an option outside `Options.packageConfigurable` are refused with exit 2. For admitted ones, the project, the manifest and the result destination are those of the command line alone (`configuredRefusal_eq_none`). An error escaping `Lint.run` is exit 3, or 2 for a `manifest-` refusal, never 0 or 1. |
+| `Lint.run` (`lake lint`) | The same project audit; exit 0 only through the claimed `Lint.classify` (`checked_classify`, `accepted_sound`): a zero audit exit and a recorded `completed` account of the requested mode. Exits 1, 2, 3 classify rejected, configuration-only and incomplete statuses; a missing or disagreeing status is 3. The audit's own exit code is the recorded `Lint.Observation`'s, or 3 when it recorded none or failed after recording a success (`gateExitCode`, `gateExitCode_some`, `gateExitCode_eq_zero`); an error escaping the audit discards any recorded result, so both sides are 3 (`AxiomGate.entry`). The driver reports the code the audit returned for its recorded result (`classify_gateExitCode`); the observation also decides the result status and the summary counts, each the number of findings of its impact (`Observation.status`, `Observation.tally`, `tally_eq`), and an incomplete finding exits 3 (`exitCode_incomplete`). Which findings a run records is operational. That the recorded observation is this invocation's audit is checked by inspection. `--explain-config` validates the manifest and Lake scope with the audit's own functions (`Manifest.loadFor`, `Acceptance.surfaceAssignments`, `AxiomGate.checkClassification`) and issues no audit certificate; it and `--help` are read-only, exit 2, refuse `--json-out` and `--verbose`, and first invalidate any recognizable `--json-out` destination. The audited project is the dispatching workspace, and a `--project` naming a different root is exit 2. A relative `--json-out` is in that workspace. The success line and `scope.project`, `scope.manifestPath` name the audited project and manifest. As an extra refusal, default-configuration `lintDriverArgs` that give an option outside `Options.packageConfigurable` are exit 2 (`configuredRefusal_eq_none`, assuming Lake loaded that configuration). An error escaping `Lint.run` is exit 3, or 2 for a `manifest-` refusal, never 0 or 1. |
 | `AxiomGate.auditSurface --with-docs` | One process: the project plan and the documentation plan over the same snapshot and build, joined by `combineAccepted`; no evidence crosses a process boundary between the stages. The documentation stage runs inside the project's frozen-input guard (`withSourceEvidenceOr`): a source or configuration change during it is the project's [RG2005] refusal, which replaces the stage's result. |
 | `--acceptance-link PATH` (`axiomGate`, `docFenceAudit`) | `axiomGate` records the link for fresh project success only (no `--with-docs`): after `AcceptedRun`, the SHA-256 of the copy-relative accepted sources, configuration, dependency captures, `docs/` Markdown and, with `--verso`, the Verso library's inputs; `docFenceAudit` computes the same identity from its own fresh capture before building and refuses unless it is equal. `axiomGate` invalidates PATH before the audit starts and records the identity only after its outer configuration recheck passes, so any refusal leaves it incomplete. Equality establishes identical captured inputs; `shasum` and the filesystem are trusted. |
 | `--driver-copy DIR` (`axiomGate`, internal to `scripts/verify.sh`) | The gate audits the build output of `DIR` and makes no copy of its own. It admits `DIR` only by the facts that [the acceptance boundary](#the-acceptance-boundary) gives. The result names that origin, and the statement that the copy was new rests on the driver. |
@@ -222,30 +222,41 @@ refused. The driver builds the claimed targets with the audit-build marker
 Lake scopes the marker to the whole package in its module trace. Thus with the marker, the audit
 rebuilds the modules that an ordinary build made, and their replayed logs do not enter its
 warning check. The driver omits the marker only for a workspace of the plain shape. It omits it
-only if the owner of the workspace asks for it with `lake lint -- --ordinary-lakefiles`. Without
-the option, the driver always builds with the marker.
+only if the owner of the workspace sets `REGULA_ORDINARY_LAKEFILES=1` in the environment of
+`lake lint`. Without that assertion, the driver always builds with the marker.
 
-With the option, the owner asserts that the lakefiles of the workspace are ordinary configuration.
-The plain shape is a conservative guard under that assertion. It is not a guarantee against a
-lakefile that someone wrote to defeat it. The verification of Regula uses the option in the timed
-check of its own code (`diagnostics self-lint`). A nightly check of its root package,
-`diagnostics self-lint-default`, runs without the option.
+With the assertion, the owner states that the lakefiles of the workspace are ordinary
+configuration. The plain shape is a conservative guard under that assertion. It is not a
+guarantee against a lakefile that someone wrote to defeat it. The verification of Regula makes
+the assertion in the timed check of its own code (`diagnostics self-lint`). A nightly check of
+its root package, `diagnostics self-lint-default`, runs without it.
 
-The driver takes the option only from the command line. The banner of the run names the
-assertion, and the JSON result records it (`scope.ordinaryLakefiles`). Before the build, the run
-prints if the build omits the marker, or keeps it and why.
+The driver reads the assertion only from its environment, and any value other than `1` is
+refused with exit 2 (`Regula.Checker.Lint.ownerAssertion_eq_true_iff`). Lake v4.34.1 runs the
+driver with its own environment plus variables of the workspace that no package configuration
+sets. That is read from Lake's `CLI/Actions.lean:20-21`, `Config/Workspace.lean:417-431` and
+`Config/Env.lean:287-305`.
 
-Lake places the `lintDriverArgs` of the package before the arguments of the command line, and the
-audited project could set them. The driver admits only `--fresh`, `--verbose`, `--help` and
-`--explain-config` there, and it refuses any other option with exit 2. The claimed decision
-`Regula.Checker.Lint.configuredRefusal` decides this. For an admitted run,
-`configuredRefusal_eq_none` proves that the project, the manifest, the result destination and
-`--ordinary-lakefiles` come from the command line alone. That Lake composes the arguments in
-this order is read from the source of Lake.
+The banner of the run names the assertion, and the JSON result records it
+(`scope.ordinaryLakefiles`). Before the build, the run prints if the build omits the marker, or
+keeps it and why.
 
-A relative `--json-out` names a path in the dispatching workspace, also with `--project`, and the
-driver first marks that path incomplete. The success line names the project and manifest that
-the audit resolved. The JSON result records them as `scope.project` and `scope.manifestPath`.
+Lake places the `lintDriverArgs` of the package before the arguments of the command line. The
+driver cannot tell which configuration Lake loaded them from, since `-f` and `-K` reach only
+Lake's load. So the guarantees below hold whatever configuration gave the arguments. The audited
+project is the dispatching workspace, and a `--project` that names a different root is refused with
+exit 2. A relative `--json-out` names a path in the dispatching workspace, and the driver first
+marks that path incomplete. The success line names the project and manifest that the audit
+resolved, which the JSON result records as `scope.project` and `scope.manifestPath`.
+
+As an extra refusal, the driver reads the `lintDriverArgs` of the workspace's default
+configuration. It admits only `--fresh`, `--verbose`, `--help` and `--explain-config` there,
+and it refuses any other option with exit 2 (`Regula.Checker.Lint.configuredRefusal`). It
+decides that refusal before it marks any destination, so a failed mark keeps exit 2.
+
+Assume that Lake loaded that default configuration, without `-f` or `-K`. Then an admitted run takes
+the project, the manifest and the result destination from the command line alone
+(`configuredRefusal_eq_none`). The driver does not check that assumption.
 
 
 In the plain shape, each package declares only `lean_lib`, `lean_exe`, `input_file` and
@@ -1043,7 +1054,7 @@ Two-way decisions (`Regula.Decides`), each with an accepted and a refused input:
 | `Regula.JsonAgreement.canonical` (accepts on `.ok`) | The reader returns a value, the input has search trees, and the input agrees with the encoding of that value (`canonical_eq_ok_iff`). | The decoders `DiagnosticCodec.parseLocation` and `parseDiagnostic`. The reader and the encoder are arguments, so the kind is about each reader and each encoder. |
 | `Regula.DiagnosticCodec.parseLocation`, `parseDiagnostic` (accept on `.ok`) | `LocationWire`, `FindingWire` (`parseLocation_iff`, `parseDiagnostic_iff`). Each object is a search tree. The object has the members of a location, or of a finding, and each member has its meaning. | The readers of a location and of a finding in a result file. |
 | `Regula.Checker.PolicyCodec.exactFields` (accepts on `.ok`) | `ExactFields` (`exactFields_iff`). The value is an object, and its member names are the expected names in some order. | The decoders of the worker protocol and of the producer reports. The proof that the expected names are distinct is an argument of the function. |
-| `Regula.Checker.Lake.auditMarkerNeeded` (accepts on `true`) | A package is not `PackageShape.Plain`, or some entry is not `ModuleEntry.Resolved` or has `Regula.Linter` among its imports (`auditMarkerNeeded_iff`). | The choice of the `lake lint` driver's claimed build, with or without the audit-build marker, when the owner passes `--ordinary-lakefiles` ([acceptance boundary](#the-acceptance-boundary)). The shape of each package is read from the configuration of Lake and from its compiled configuration file. Each entry is a module of the root package with its source files and the modules that Lake's `transImports` facet reports it imports (`markerInputs`). That `Regula.Linter` is the only reader of the marker in Regula is by inspection. That no module of the project reads the marker itself is an assumption. |
+| `Regula.Checker.Lake.auditMarkerNeeded` (accepts on `true`) | A package is not `PackageShape.Plain`, or some entry is not `ModuleEntry.Resolved` or has `Regula.Linter` among its imports (`auditMarkerNeeded_iff`). | The choice of the `lake lint` driver's claimed build, with or without the audit-build marker, when the owner sets `REGULA_ORDINARY_LAKEFILES=1` ([acceptance boundary](#the-acceptance-boundary)). The shape of each package is read from the configuration of Lake and from its compiled configuration file. Each entry is a module of the root package with its source files and the modules that Lake's `transImports` facet reports it imports (`markerInputs`). That `Regula.Linter` is the only reader of the marker in Regula is by inspection. That no module of the project reads the marker itself is an assumption. |
 | `Regula.Checker.Documentation.scanLines`, `scanVersoLines` (accept on a result with no violation) | `Clean`, `VersoClean`: the lines are a run of transitions from the first line to the end of the document. The fence protocol permits each transition, and each keeps the shape rule (`scanLines_problems_eq_empty_iff`, `scanVersoLines_problems_eq_empty_iff`). | The fence protocol and the shape rule of [RG4001] ([below](#the-fence-scanners-decisions-and-observing-pass)). The input is a `Source`: a document with the lines of its text. The kinds say nothing about the fences of a result. |
 | `Regula.Checker.Admission.checkHeader` (accepts on `.ok ()`) | `HeaderOK` (`checkHeader_eq_ok_iff`). Each replayed or reported module lists its constants under their own names. No module of the replay base imports a replayed module. | The decision on the header of [RG2005] ([below](#receipt-validation-decisions-and-observing-pass)). |
 | `Regula.Checker.Admission.checkTable` (accepts on `.ok ()`) | `TableWithin` (`checkTable_eq_ok_iff`). Each axiom that `collectAxioms` gives for a declaration is an axiom that the declaration reaches in the replayed kernel. | The decision on the axiom tables of [RG2005] ([below](#receipt-validation-decisions-and-observing-pass)). |
@@ -3507,7 +3518,7 @@ feedback cannot disable a mandatory project predicate. Enabling it cannot reach 
 own build. The audit's fresh elaboration passes the unregistered command-line marker
 `weak.regula.auditBuild`. The linter reads the marker only from the import-time options of a
 module, and under it the linter emits nothing. `lake lint`'s claimed build also passes the marker,
-except under the owner's `--ordinary-lakefiles` for a workspace of the plain shape
+except under the owner's `REGULA_ORDINARY_LAKEFILES=1` for a workspace of the plain shape
 ([acceptance boundary](#the-acceptance-boundary)). There no module of the root package imports
 `Regula.Linter`, so the linter runs on none of them.
 

@@ -148,7 +148,8 @@ initialize terminalObservation : IO.Ref (Option Lint.Observation) ← IO.mkRef n
 /-- The project root and manifest path the current invocation audits, set when its options are
 admitted (`none` until then): the root of `--project` or of the working directory, and
 `--manifest` resolved against that root or the root's `foundation_manifest.json`. A fresh audit
-reads the manifest from its isolated copy of that root. `lint` names them in its success line. -/
+reads the default manifest from its isolated copy of that root, and an explicit `--manifest` at
+that resolved path. `lint` names them in its success line. -/
 initialize auditedTarget : IO.Ref (Option (FilePath × FilePath)) ← IO.mkRef none
 
 /-- The stages the current invocation performs, set when its options are admitted; until then
@@ -167,8 +168,8 @@ showing Lake's progress line for each job as it runs (`Lake.buildTargetsShowing`
 initialize claimedBuild : IO.Ref Lake.Build ← IO.mkRef Lake.buildTargetsShowing
 
 /-- Whether the workspace owner asserted that the workspace's lakefiles are ordinary configuration
-(`lake lint -- --ordinary-lakefiles`), set by the `lint` driver for its own audit. The project
-result records it as `scope.ordinaryLakefiles`. -/
+(`REGULA_ORDINARY_LAKEFILES=1` in the environment of `lake lint`), set by the `lint` driver for
+its own audit. The project result records it as `scope.ordinaryLakefiles`. -/
 initialize ordinaryLakefiles : IO.Ref Bool ← IO.mkRef false
 
 /-- Record the invocation's result and return the status it decides, for the result output. -/
@@ -1523,33 +1524,33 @@ def Destination.flag : Destination → String
   | .result => "--json-out"
   | .acceptanceLink => "--acceptance-link"
 
+/-- Mark the result document at `path` incomplete, so an earlier completed result there cannot be
+mistaken for the current attempt's. -/
+def invalidateResult (path : FilePath) : IO Unit :=
+  ResultProtocol.writeDocument path (Json.mkObj (ResultProtocol.identityFields ++ [
+    ("scope", Json.null), ("mode", Json.null), ("status", .str "incomplete"),
+    ("diagnostics", toJson (#[] : Array Json)),
+    ("unresolved", toJson #["configuration has not been validated"]),
+    ResultProtocol.sourceTextsField] ++
+    ResultProtocol.guidanceFields false ResultProtocol.allStages [] []))
+
 /-- Before any argument validation, mark every recognisable destination of the `kinds` the calling
 interface accepts incomplete, so an earlier completed result cannot be mistaken for this
-attempt's. A destination of another kind is left untouched: that interface refuses its option.
-A relative destination is resolved against `root` when the caller gives it, and otherwise against
-the root of `--project` or of the working directory, as `run` resolves it. -/
-def invalidateResults (kinds : List Destination) (args : List String)
-    (root : Option (IO FilePath) := none) : IO Unit := do
+attempt's. A destination of another kind is left untouched: that interface refuses its option. -/
+def invalidateResults (kinds : List Destination) (args : List String) : IO Unit := do
   let destinations := kinds.flatMap fun kind =>
     (optionValues kind.flag args).eraseDups.map fun path =>
       (FilePath.mk path, kind == .acceptanceLink)
   let invalidate (path : FilePath) (link : Bool) :=
-    if link then AcceptanceLink.invalidate path else
-    ResultProtocol.writeDocument path (Json.mkObj (ResultProtocol.identityFields ++ [
-      ("scope", Json.null), ("mode", Json.null), ("status", .str "incomplete"),
-      ("diagnostics", toJson (#[] : Array Json)),
-      ("unresolved", toJson #["configuration has not been validated"]),
-      ResultProtocol.sourceTextsField] ++
-      ResultProtocol.guidanceFields false ResultProtocol.allStages [] []))
+    if link then AcceptanceLink.invalidate path else invalidateResult path
   -- Absolute destinations do not depend on project configuration being valid.
   for (path, link) in destinations.filter (·.1.isAbsolute) do invalidate path link
   let relative := destinations.filter (!·.1.isAbsolute)
   if !relative.isEmpty then
-    let root ← match root, optionValues "--project" args with
-      | some root, _ => root
-      | none, [dir] => findRepoRoot dir
-      | none, [] => repoRoot
-      | none, _ => throw <| IO.userError "duplicate --project option"
+    let root ← match optionValues "--project" args with
+      | [dir] => findRepoRoot dir
+      | [] => repoRoot
+      | _ => throw <| IO.userError "duplicate --project option"
     for (path, link) in relative do invalidate (resolve root path) link
 
 /-- The options of an audit invocation: parsed, without a duplicated option, and in a
