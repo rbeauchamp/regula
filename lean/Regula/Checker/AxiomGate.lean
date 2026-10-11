@@ -28,7 +28,7 @@ open Regula.Checker
 open Regula.Checker.Policy
 open Regula.Checker.Inspection
 
-/-- The command-line options of one `axiomGate` invocation, as `parseArgs` reads them; `run`
+/-- The command-line options of one `axiomGate` invocation, as `admit` reads them; `admit`
 rejects the combinations the usage text does not allow. -/
 structure Options where
   /-- `--file FILE`: audit this one source file instead of the manifested project surfaces. -/
@@ -95,45 +95,103 @@ private def usage : String :=
     2 invalid configuration or invocation, 3 incomplete; --help exits 0 unless another argument \
     fails"
 
-private def parseArgs : List String → Options → IO Options
-  | [], options => return options
-  | "--" :: rest, options => parseArgs rest options
-  | "--file" :: value :: rest, options =>
-      parseArgs rest { options with file := some (FilePath.mk value) }
-  | "--claim" :: value :: rest, options => do
-      let some claim := Profile.parse? value
-        | throw <| IO.userError s!"unknown foundation profile: {value}"
-      parseArgs rest { options with claim := some claim }
-  | "--execution" :: value :: rest, options => do
-      let some mode := ExecutionClaim.parse? value
-        | throw <| IO.userError s!"unknown execution mode: {value}"
-      parseArgs rest { options with execution := mode }
-  | "--manifest" :: value :: rest, options =>
-      parseArgs rest { options with manifest := some (FilePath.mk value) }
-  | "--project" :: value :: rest, options =>
-      parseArgs rest { options with project := some (FilePath.mk value) }
-  | "--json-out" :: value :: rest, options =>
-      parseArgs rest { options with resultOut := some (FilePath.mk value) }
-  | "--acceptance-link" :: value :: rest, options =>
-      parseArgs rest { options with acceptanceLink := some (FilePath.mk value) }
-  | "--verso" :: value :: rest, options => do
-      parseArgs rest
-          { options with verso := some (← IO.ofExcept (Documentation.parseVersoOption value)) }
-  | "--with-docs" :: rest, options =>
-      parseArgs rest { options with withDocs := true }
-  | "--incremental" :: rest, options =>
-      parseArgs rest { options with incremental := true }
-  | "--build-lint" :: rest, options =>
-      parseArgs rest { options with buildLint := true, incremental := true }
-  | "--driver-copy" :: value :: rest, options =>
-      parseArgs rest { options with driverCopy := some (FilePath.mk value) }
-  | "--verbose" :: rest, options =>
-      parseArgs rest { options with verbose := true }
-  | "--kernel-types" :: rest, options =>
-      parseArgs rest { options with kernelTypes := true }
-  | "--help" :: rest, options => parseArgs rest { options with help := true }
-  | "-h" :: rest, options => parseArgs rest { options with help := true }
-  | flag :: _, _ => throw <| IO.userError s!"unknown or incomplete argument: {flag}"
+/-- The options of `axiomGate`, as its one reading of its arguments (`arguments`) names them. -/
+inductive Setting where
+  /-- `--file FILE`. -/
+  | file
+  /-- `--claim PROFILE`. -/
+  | claim
+  /-- `--execution MODE`. -/
+  | execution
+  /-- `--manifest PATH`. -/
+  | manifest
+  /-- `--project DIR`. -/
+  | project
+  /-- `--json-out PATH`. -/
+  | jsonOut
+  /-- `--acceptance-link PATH`. -/
+  | acceptanceLink
+  /-- `--verso DIR:LIBRARY:RENDER`. -/
+  | verso
+  /-- `--driver-copy PATH`. -/
+  | driverCopy
+  /-- `--with-docs`. -/
+  | withDocs
+  /-- `--incremental`. -/
+  | incremental
+  /-- `--build-lint`. -/
+  | buildLint
+  /-- `--verbose`. -/
+  | verbose
+  /-- `--kernel-types`. -/
+  | kernelTypes
+  /-- `--help` or `-h`. -/
+  | help
+  deriving DecidableEq
+
+/-- Every option of `axiomGate`. -/
+def Setting.all : List Setting :=
+  [.file, .claim, .execution, .manifest, .project, .jsonOut, .acceptanceLink, .verso, .driverCopy,
+    .withDocs, .incremental, .buildLint, .verbose, .kernelTypes, .help]
+
+/-- How `axiomGate` spells each option. -/
+def Setting.spelling : Setting → String
+  | .file => "--file" | .claim => "--claim" | .execution => "--execution"
+  | .manifest => "--manifest" | .project => "--project" | .jsonOut => "--json-out"
+  | .acceptanceLink => "--acceptance-link" | .verso => "--verso" | .driverCopy => "--driver-copy"
+  | .withDocs => "--with-docs" | .incremental => "--incremental" | .buildLint => "--build-lint"
+  | .verbose => "--verbose" | .kernelTypes => "--kernel-types" | .help => "--help"
+
+/-- Whether an option takes a value. -/
+def Setting.takesValue : Setting → Bool
+  | .file | .claim | .execution | .manifest | .project | .jsonOut | .acceptanceLink | .verso
+    | .driverCopy => true
+  | .withDocs | .incremental | .buildLint | .verbose | .kernelTypes | .help => false
+
+/-- The option an argument spells, and whether it takes a value. -/
+def Setting.ofSpelling (argument : String) : Option (Setting × Bool) :=
+  if argument = "-h" then some (.help, false)
+  else (Setting.all.find? (·.spelling == argument)).map fun setting =>
+    (setting, setting.takesValue)
+
+/-- `axiomGate`'s one reading of its arguments (`Lint.tokenize`): an option's value is never read
+as an option, and both the options (`admit`) and every destination the audit writes
+(`destinations`) come from it. -/
+def arguments (args : List String) : List (Lint.Arg Setting) :=
+  Lint.tokenize Setting.ofSpelling args
+
+/-- Apply one argument. An unknown or incomplete argument, a profile or execution mode that does
+not parse and a malformed `--verso` are refused. The destinations of `--json-out` and
+`--acceptance-link` are taken from `destinations`, not here. -/
+private def Options.apply (o : Options) : Lint.Arg Setting → Except String Options
+  | .separator => .ok o
+  | .value .file value => .ok { o with file := some (FilePath.mk value) }
+  | .value .claim value => match Profile.parse? value with
+    | some claim => .ok { o with claim := some claim }
+    | none => .error s!"unknown foundation profile: {value}"
+  | .value .execution value => match ExecutionClaim.parse? value with
+    | some mode => .ok { o with execution := mode }
+    | none => .error s!"unknown execution mode: {value}"
+  | .value .manifest value => .ok { o with manifest := some (FilePath.mk value) }
+  | .value .project value => .ok { o with project := some (FilePath.mk value) }
+  | .value .jsonOut _ | .value .acceptanceLink _ => .ok o
+  | .value .verso value => (Documentation.parseVersoOption value).map fun verso =>
+    { o with verso := some verso }
+  | .value .driverCopy value => .ok { o with driverCopy := some (FilePath.mk value) }
+  | .flag .withDocs => .ok { o with withDocs := true }
+  | .flag .incremental => .ok { o with incremental := true }
+  | .flag .buildLint => .ok { o with buildLint := true, incremental := true }
+  | .flag .verbose => .ok { o with verbose := true }
+  | .flag .kernelTypes => .ok { o with kernelTypes := true }
+  | .flag .help => .ok { o with help := true }
+  | .value setting _ | .flag setting =>
+    .error s!"unknown or incomplete argument: {setting.spelling}"
+  | .unknown argument => .error s!"unknown or incomplete argument: {argument}"
+
+/-- Apply each argument in order, stopping at the first refusal. -/
+private def Options.applyAll : List (Lint.Arg Setting) → Options → Except String Options
+  | [], o => .ok o
+  | a :: rest, o => do Options.applyAll rest (← o.apply a)
 
 private def resolve (repo path : FilePath) : FilePath :=
   if path.isAbsolute then path else repo / path.toString
@@ -1504,12 +1562,6 @@ private unsafe def auditFile (repo path : FilePath) (claim : Option Profile)
                   jobs, {account.val.mode.spelling})"
             return 0
 
-private def optionValues (flag : String) : List String → List String
-  | option :: value :: rest =>
-      if option == flag then value :: optionValues flag rest
-      else optionValues flag (value :: rest)
-  | _ => []
-
 /-- A kind of output destination an invocation may name: a result document (`--json-out`) or an
 acceptance link (`--acceptance-link`). -/
 inductive Destination where
@@ -1517,12 +1569,91 @@ inductive Destination where
   | result
   /-- An acceptance link, named by `--acceptance-link`. -/
   | acceptanceLink
-  deriving BEq
+  deriving BEq, DecidableEq
 
-/-- The option that names a destination of this kind. -/
-def Destination.flag : Destination → String
-  | .result => "--json-out"
-  | .acceptanceLink => "--acceptance-link"
+/-- Each output destination of `axiomGate`'s one reading of `args`, with its kind, in order,
+whether or not the arguments are admitted. -/
+def destinations (args : List String) : List (Destination × FilePath) :=
+  (arguments args).filterMap fun
+    | .value .jsonOut path => some (.result, FilePath.mk path)
+    | .value .acceptanceLink path => some (.acceptanceLink, FilePath.mk path)
+    | _ => none
+
+/-- The first destination of `kind` that `args` name. -/
+def destinationOf (kind : Destination) (args : List String) : Option FilePath :=
+  ((destinations args).find? (decide <| ·.1 = kind)).map (·.2)
+
+/-- The option that `read` gives a value more than once, if any. -/
+private def duplicated (read : List (Lint.Arg Setting)) : Option Setting :=
+  let given := read.filterMap fun
+    | .value setting _ => some setting
+    | _ => none
+  Setting.all.find? fun setting => given.count setting > 1
+
+/-- The reason the usage text does not allow these options together, if any. `--help` is
+admitted with any. The usage text does not list the internal `--driver-copy`, which is admitted
+only in the fresh surface mode of the current project, without `--with-docs` and `--project`. -/
+private def combinationRefusal (options : Options) : Option String :=
+  if options.help then none
+  else if options.file.isNone && options.claim.isSome then some "--claim requires --file"
+  else if options.file.isNone && options.execution != .report then
+    some "--execution requires --file (surface mode uses the manifest)"
+  else if options.file.isSome && options.incremental then
+    some "--incremental applies only to surface mode"
+  else if options.withDocs && (options.file.isSome || options.incremental) then
+    some "--with-docs requires fresh surface mode"
+  else if options.acceptanceLink.isSome &&
+      (options.file.isSome || options.incremental || options.withDocs) then
+    some "--acceptance-link requires fresh surface mode without --with-docs"
+  else if options.driverCopy.isSome &&
+      (options.file.isSome || options.incremental || options.withDocs || options.project.isSome) then
+    some "--driver-copy applies only to the fresh surface mode of the current project, without \
+      --with-docs and --project"
+  else if options.verso.isSome && options.acceptanceLink.isNone then
+    some "--verso applies only to --acceptance-link"
+  else if options.kernelTypes && options.resultOut.isNone then
+    some "--kernel-types applies only to --json-out"
+  else none
+
+/-- The options of an audit invocation, from its one reading (`arguments`): without an option
+given a value twice, each argument applied, its result and acceptance-link destinations those of
+`destinations`, and in a combination the usage text allows; otherwise the reason for refusing it.
+-/
+def admit (args : List String) : Except String Options :=
+  match duplicated (arguments args) with
+  | some setting => .error s!"duplicate {setting.spelling} option"
+  | none => match Options.applyAll (arguments args) {} with
+    | .error reason => .error reason
+    | .ok options =>
+      let options := { options with
+        resultOut := destinationOf .result args
+        acceptanceLink := destinationOf .acceptanceLink args }
+      match combinationRefusal options with
+      | some reason => .error reason
+      | none => .ok options
+
+/-- An admitted invocation writes its result document and acceptance link only where its one
+reading of the arguments names them: each is a member of `destinations`. -/
+theorem admit_destinations {args : List String} {options : Options}
+    (h : admit args = .ok options) :
+    (∀ path, options.resultOut = some path → (Destination.result, path) ∈ destinations args) ∧
+    (∀ path, options.acceptanceLink = some path →
+      (Destination.acceptanceLink, path) ∈ destinations args) := by
+  unfold admit at h
+  split at h
+  · simp at h
+  · split at h
+    · simp at h
+    · dsimp only at h
+      split at h
+      · simp at h
+      · simp only [Except.ok.injEq] at h
+        subst h
+        constructor <;> intro path hpath <;>
+          simp only [destinationOf, Option.map_eq_some_iff] at hpath <;>
+          obtain ⟨⟨kind, found⟩, hfind, rfl⟩ := hpath <;>
+          have hkind := List.find?_some hfind <;> have hmem := List.mem_of_find?_eq_some hfind <;>
+          simp_all
 
 /-- Mark the result document at `path` incomplete, so an earlier completed result there cannot be
 mistaken for the current attempt's. -/
@@ -1534,56 +1665,29 @@ def invalidateResult (path : FilePath) : IO Unit :=
     ResultProtocol.sourceTextsField] ++
     ResultProtocol.guidanceFields false ResultProtocol.allStages [] []))
 
-/-- Before any argument validation, mark every recognisable destination of the `kinds` the calling
-interface accepts incomplete, so an earlier completed result cannot be mistaken for this
-attempt's. A destination of another kind is left untouched: that interface refuses its option. -/
-def invalidateResults (kinds : List Destination) (args : List String) : IO Unit := do
-  let destinations := kinds.flatMap fun kind =>
-    (optionValues kind.flag args).eraseDups.map fun path =>
-      (FilePath.mk path, kind == .acceptanceLink)
-  let invalidate (path : FilePath) (link : Bool) :=
-    if link then AcceptanceLink.invalidate path else invalidateResult path
-  -- Absolute destinations do not depend on project configuration being valid.
-  for (path, link) in destinations.filter (·.1.isAbsolute) do invalidate path link
-  let relative := destinations.filter (!·.1.isAbsolute)
-  if !relative.isEmpty then
-    let root ← match optionValues "--project" args with
-      | [dir] => findRepoRoot dir
-      | [] => repoRoot
-      | _ => throw <| IO.userError "duplicate --project option"
-    for (path, link) in relative do invalidate (resolve root path) link
+/-- The project root an invocation's one reading names: that of its `--project`, or of the working
+directory. The audit resolves a relative destination against it, as `run` does. -/
+private def readRoot (args : List String) : IO FilePath :=
+  match (arguments args).filterMap (fun | .value .project dir => some dir | _ => none) with
+  | [dir] => findRepoRoot dir
+  | [] => repoRoot
+  | _ => throw <| IO.userError "duplicate --project option"
 
-/-- The options of an audit invocation: parsed, without a duplicated option, and in a
-combination the usage text allows; otherwise an error naming the problem. The usage text does
-not list the internal `--driver-copy`, which is admitted only in the fresh surface mode of the
-current project, without `--with-docs` and `--project`. -/
-private def admitOptions (args : List String) : IO Options := do
-  for flag in #["--json-out", "--acceptance-link", "--project", "--file",
-      "--manifest", "--claim", "--execution", "--driver-copy"] do
-    if (optionValues flag args).length > 1 then
-      throw <| IO.userError s!"duplicate {flag} option"
-  let options ← parseArgs args {}
-  if options.help then return options
-  if options.file.isNone && options.claim.isSome then
-    throw <| IO.userError "--claim requires --file"
-  if options.file.isNone && options.execution != .report then
-    throw <| IO.userError "--execution requires --file (surface mode uses the manifest)"
-  if options.file.isSome && options.incremental then
-    throw <| IO.userError "--incremental applies only to surface mode"
-  if options.withDocs && (options.file.isSome || options.incremental) then
-    throw <| IO.userError "--with-docs requires fresh surface mode"
-  if options.acceptanceLink.isSome &&
-      (options.file.isSome || options.incremental || options.withDocs) then
-    throw <| IO.userError "--acceptance-link requires fresh surface mode without --with-docs"
-  if options.driverCopy.isSome &&
-      (options.file.isSome || options.incremental || options.withDocs || options.project.isSome) then
-    throw <| IO.userError "--driver-copy applies only to the fresh surface mode of the current \
-      project, without --with-docs and --project"
-  if options.verso.isSome && options.acceptanceLink.isNone then
-    throw <| IO.userError "--verso applies only to --acceptance-link"
-  if options.kernelTypes && options.resultOut.isNone then
-    throw <| IO.userError "--kernel-types applies only to --json-out"
-  return options
+/-- Mark each destination of the one reading of `args` (`destinations`) incomplete, each on its
+own, whether or not the invocation is admitted, so an earlier completed result cannot be mistaken
+for this attempt's; return a line for each that could not be marked. -/
+private def markIncomplete (args : List String) : IO (List String) := do
+  let marked := (destinations args).eraseDups
+  let root ← if marked.all (·.2.isAbsolute) then pure (.ok ".") else (readRoot args).toBaseIO
+  let mut failed := []
+  for (kind, path) in marked do
+    let target := if path.isAbsolute then .ok path else root.map (resolve · path)
+    let result ← match target with
+      | .ok target => (if kind == .acceptanceLink then AcceptanceLink.invalidate target
+          else invalidateResult target).toBaseIO
+      | .error error => pure (.error error)
+    if let .error error := result then failed := failed ++ [s!"{path}: {error}"]
+  return failed
 
 /-- Refuse an invalid invocation: the usage text and the problem, and the invalid-configuration
 exit code, since no audit ran and no result was recorded. -/
@@ -1594,8 +1698,9 @@ private def refuseInvocation (message : String) : IO UInt32 := do
 
 /-- Run one `axiomGate` invocation and return its exit code. The internal forms
 `--validate-site`, `--registry-out`, `--validate-registry` and `--replacement-history-worker`
-do only that job; otherwise it invalidates earlier results at the requested output paths,
-parses and checks the options, audits the single file or the manifested project surfaces, and
+do only that job; otherwise it reads its arguments once (`arguments`), decides whether to admit
+them (`admit`), marks every destination of that reading incomplete, refuses an invalid invocation
+whatever marking failed, audits the single file or the manifested project surfaces, and
 writes the result JSON and the acceptance link that were requested. An audit returns the exit code
 of the result it recorded (`Lint.gateExitCode`): 0 accepted or classified, 1 violation, 2 invalid
 configuration, 3 incomplete; an invalid invocation returns 2, and `--help` and the internal forms
@@ -1605,12 +1710,6 @@ unsafe def run (args : List String) : IO UInt32 := do
   auditedTarget.set none
   RunFeedback.reset
   expectedStages.set ResultProtocol.allStages
-  -- An invalid invocation is refused as one, though its destinations could not be invalidated.
-  try invalidateResults [.result, .acceptanceLink] args
-  catch error =>
-    let admitted ← (admitOptions args).toBaseIO
-    if let .error invalid := admitted then return ← refuseInvocation invalid.toString
-    throw error
   if let ["--validate-site", registryPath, artifactPath] := args then
     let registry ← IO.ofExcept <| Regula.Checker.PolicyCodec.parse (← IO.FS.readFile registryPath)
     let artifact ← IO.ofExcept <| Regula.Checker.PolicyCodec.parse (← IO.FS.readFile artifactPath)
@@ -1689,9 +1788,17 @@ unsafe def run (args : List String) : IO UInt32 := do
         (workerPacket (sourceWorkerRequest "history" moduleName source transcript.sourceContent)
       (toJson transcript.runtimeReplacements))
     return 0
-  let admitted ← (admitOptions args).toBaseIO
-  if let .error error := admitted then return ← refuseInvocation error.toString
-  let .ok options := admitted | return Lint.Outcome.configuration.exitCode
+  -- Decide before the first write, then mark every destination of the one reading incomplete,
+  -- admitted or not: a refused invocation keeps its class whatever marking failed.
+  let admitted := admit args
+  let failed ← markIncomplete args
+  for line in failed do
+    IO.eprintln s!"axiom gate: could not mark the destination {line} incomplete"
+  let options ← match admitted with
+    | .error reason => return ← refuseInvocation reason
+    | .ok options => pure options
+  unless failed.isEmpty do
+    throw <| IO.userError "a destination could not be marked incomplete"
   if options.help then IO.println usage; return 0
   if options.verbose then timing.set true
   kernelTypes.set options.kernelTypes

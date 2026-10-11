@@ -152,16 +152,33 @@ unsafe def documentation (repo docsRoot output : FilePath) : IO UInt32 := do
     (Json.mkObj [("root", toJson configurationRoot), ("configuration", toJson configuration)]))
   return code
 
+/-- One rule-example production, as `Production.parse?` reads its arguments. -/
+inductive Production where
+  /-- `--policy-negative PROJECT SOURCE OUTPUT`. -/
+  | policyNegative (repo source output : String)
+  /-- `--documentation PROJECT DOCS OUTPUT`. -/
+  | documentation (repo docs output : String)
+
+/-- The production the arguments name, read from their whole shape, or none. -/
+def Production.parse? : List String → Option Production
+  | ["--policy-negative", repo, source, output] => some (.policyNegative repo source output)
+  | ["--documentation", repo, docs, output] => some (.documentation repo docs output)
+  | _ => none
+
+/-- The result file a production writes. -/
+def Production.output : Production → String
+  | .policyNegative _ _ output | .documentation _ _ output => output
+
 /-- Run one rule-example production and return its exit code: `--policy-negative PROJECT
 SOURCE OUTPUT` runs `inspectNegative`, `--documentation PROJECT DOCS OUTPUT` runs
 `documentation`, and any other arguments throw the usage text. -/
 unsafe def run (args : List String) : IO UInt32 := do
-  match args with
-  | ["--policy-negative", repo, source, output] =>
+  match Production.parse? args with
+  | some (.policyNegative repo source output) =>
       inspectNegative ⟨repo⟩ ⟨source⟩ ⟨output⟩
-  | ["--documentation", repo, docs, output] =>
+  | some (.documentation repo docs output) =>
       documentation ⟨repo⟩ ⟨docs⟩ ⟨output⟩
-  | _ =>
+  | none =>
       throw <| IO.userError "usage: ruleExamples (--policy-negative PROJECT SOURCE | \
         --documentation PROJECT DOCS) OUTPUT"
 end Regula.Checker.RuleExamples
@@ -202,12 +219,15 @@ unsafe def main (args : List String) : IO UInt32 := do
       Regula.Checker.Snapshot.injectedGitFacts.set table
       let (code, output) ← match rest with
         | "axiomGate" :: gateArgs =>
+          -- The result the audit writes, from its own one reading of its arguments.
           pure (← Regula.Checker.AxiomGate.entry gateArgs,
-            (gateArgs.dropWhile (· != "--json-out")).drop 1 |>.head?)
+            ((Regula.Checker.AxiomGate.admit gateArgs).toOption.bind (·.resultOut)).map
+              (·.toString))
         | "--injected-git-facts" :: _ =>
           IO.eprintln "rule example production incomplete: repeated injected git facts"
           return productionIncomplete
-        | _ => pure (← ruleExamplesEntry rest, rest.getLast?)
+        | _ => pure (← ruleExamplesEntry rest,
+            (Regula.Checker.RuleExamples.Production.parse? rest).map (·.output))
       -- Mark the result so it cannot be mistaken for Git-observed output. The
       -- qualification-only result view keeps this field and admission ignores it.
       if let some path := output.filter (· != "") then

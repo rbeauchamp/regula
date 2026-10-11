@@ -130,7 +130,7 @@ or an INCOMPLETE diagnostic demonstration is not an audit-success certificate.
 | Route | Accepted value and remaining boundary |
 | --- | --- |
 | `AxiomGate.auditSurfaceAt` (fresh, `--driver-copy`, `--incremental`, `--build-lint`) | `Acceptance.freeze` reconciles Lake modules, sources, configuration, dependencies, reports, replay inventories and origins; `Acceptance.finish` returns `AcceptedRun` with checked equality to `finalize` (`finalize_collection_error`, `finalize_of_collected`). Cached build artifacts never cache a policy decision, and build-lint has no second exit-code-only PASS branch. |
-| `Lint.run` (`lake lint`) | The same project audit; exit 0 only through the claimed `Lint.classify` (`checked_classify`, `accepted_sound`): a zero audit exit and a recorded `completed` account of the requested mode. Exits 1, 2, 3 classify rejected, configuration-only and incomplete statuses; a missing or disagreeing status is 3. The audit's own exit code is the recorded `Lint.Observation`'s, or 3 when it recorded none or failed after recording a success (`gateExitCode`, `gateExitCode_some`, `gateExitCode_eq_zero`); an error escaping the audit discards any recorded result, so both sides are 3 (`AxiomGate.entry`). The driver reports the code the audit returned for its recorded result (`classify_gateExitCode`); the observation also decides the result status and the summary counts, each the number of findings of its impact (`Observation.status`, `Observation.tally`, `tally_eq`), and an incomplete finding exits 3 (`exitCode_incomplete`). Which findings a run records is operational. That the recorded observation is this invocation's audit is checked by inspection. `--explain-config` validates the manifest and Lake scope with the audit's own functions (`Manifest.loadFor`, `Acceptance.surfaceAssignments`, `AxiomGate.checkClassification`) and issues no audit certificate; it and `--help` are read-only, exit 2, refuse `--json-out` and `--verbose`, and first invalidate any recognizable `--json-out` destination. The audited project is the dispatching workspace, and a `--project` naming a different root is exit 2. A relative `--json-out` is in that workspace. The success line and `scope.project`, `scope.manifestPath` name the audited project and manifest. As an extra refusal, default-configuration `lintDriverArgs` that give an option outside `Options.packageConfigurable` are exit 2 (`configuredRefusal_eq_none`, assuming Lake loaded that configuration). An error escaping `Lint.run` is exit 3, or 2 for a `manifest-` refusal, never 0 or 1. |
+| `Lint.run` (`lake lint`) | The same project audit; exit 0 only through the claimed `Lint.classify` (`checked_classify`, `accepted_sound`): a zero audit exit and a recorded `completed` account of the requested mode. Exits 1, 2, 3 classify rejected, configuration-only and incomplete statuses; a missing or disagreeing status is 3. The audit's own exit code is the recorded `Lint.Observation`'s, or 3 when it recorded none or failed after recording a success (`gateExitCode`, `gateExitCode_some`, `gateExitCode_eq_zero`); an error escaping the audit discards any recorded result, so both sides are 3 (`AxiomGate.entry`). The driver reports the code the audit returned for its recorded result (`classify_gateExitCode`); the observation also decides the result status and the summary counts, each the number of findings of its impact (`Observation.status`, `Observation.tally`, `tally_eq`), and an incomplete finding exits 3 (`exitCode_incomplete`). Which findings a run records is operational. That the recorded observation is this invocation's audit is checked by inspection. `--explain-config` validates the manifest and Lake scope with the audit's own functions (`Manifest.loadFor`, `Acceptance.surfaceAssignments`, `AxiomGate.checkClassification`) and issues no audit certificate; it and `--help` are read-only, exit 2, and refuse `--json-out` and `--verbose`. The driver reads its arguments one time (`arguments`). It decides before its first write (`decision`, `decision_of_parse_error`, `decision_run`). Then it marks each parsed `--json-out` incomplete on its own. A refusal keeps exit 2 whatever marking failed (`Decision.settled`, `settled_refuse`). The audited project is the dispatching workspace, and a `--project` naming a different root is exit 2. A relative `--json-out` is in that workspace. The success line and `scope.project`, `scope.manifestPath` name the audited project and manifest. As an extra refusal, default-configuration `lintDriverArgs` that give an option outside `Options.packageConfigurable` are exit 2 (`configuredRefusal_eq_none`, under assumptions that no guarantee here rests on). An error escaping `Lint.run` is exit 3, or 2 for a `manifest-` refusal, never 0 or 1. |
 | `AxiomGate.auditSurface --with-docs` | One process: the project plan and the documentation plan over the same snapshot and build, joined by `combineAccepted`; no evidence crosses a process boundary between the stages. The documentation stage runs inside the project's frozen-input guard (`withSourceEvidenceOr`): a source or configuration change during it is the project's [RG2005] refusal, which replaces the stage's result. |
 | `--acceptance-link PATH` (`axiomGate`, `docFenceAudit`) | `axiomGate` records the link for fresh project success only (no `--with-docs`): after `AcceptedRun`, the SHA-256 of the copy-relative accepted sources, configuration, dependency captures, `docs/` Markdown and, with `--verso`, the Verso library's inputs; `docFenceAudit` computes the same identity from its own fresh capture before building and refuses unless it is equal. `axiomGate` invalidates PATH before the audit starts and records the identity only after its outer configuration recheck passes, so any refusal leaves it incomplete. Equality establishes identical captured inputs; `shasum` and the filesystem are trusted. |
 | `--driver-copy DIR` (`axiomGate`, internal to `scripts/verify.sh`) | The gate audits the build output of `DIR` and makes no copy of its own. It admits `DIR` only by the facts that [the acceptance boundary](#the-acceptance-boundary) gives. The result names that origin, and the statement that the copy was new rests on the driver. |
@@ -233,8 +233,10 @@ its root package, `diagnostics self-lint-default`, runs without it.
 
 The driver reads the assertion only from its environment, and any value other than `1` is
 refused with exit 2 (`Regula.Checker.Lint.ownerAssertion_eq_true_iff`). Lake v4.34.1 runs the
-driver with its own environment plus variables of the workspace that no package configuration
-sets. That is read from Lake's `CLI/Actions.lean:20-21`, `Config/Workspace.lean:417-431` and
+driver with its own environment plus variables of the workspace, and none of them is
+`REGULA_ORDINARY_LAKEFILES`. A package configuration can decide some of those variables, such as
+`LAKE_ARTIFACT_CACHE`, but it cannot set or override this one. That is read from Lake's
+`CLI/Actions.lean:20-21`, `Config/Workspace.lean:133-134` and `:417-431`, and
 `Config/Env.lean:287-305`.
 
 The banner of the run names the assertion, and the JSON result records it
@@ -243,20 +245,46 @@ keeps it and why.
 
 Lake places the `lintDriverArgs` of the package before the arguments of the command line. The
 driver cannot tell which configuration Lake loaded them from, since `-f` and `-K` reach only
-Lake's load. So the guarantees below hold whatever configuration gave the arguments. The audited
-project is the dispatching workspace, and a `--project` that names a different root is refused with
-exit 2. A relative `--json-out` names a path in the dispatching workspace, and the driver first
-marks that path incomplete. The success line names the project and manifest that the audit
-resolved, which the JSON result records as `scope.project` and `scope.manifestPath`.
+Lake's load. So the guarantees below hold whatever configuration gave the arguments.
+
+The driver reads its arguments one time (`Regula.Checker.Lint.arguments`). An option that takes
+a value always consumes the next argument, so a value is not read as an option
+(`tokenize_value`). Its options and the result destinations it marks come from that one reading
+(`parseArgs`, `resultDestinations`).
+
+Before its first write, the driver decides what it does (`Regula.Checker.Lint.decision`) from the
+parse and what it read without writing. An argument refusal depends on the parse alone
+(`decision_of_parse_error`). A run audits the dispatching workspace with the parsed options, and
+its result destinations are exactly the parsed `--json-out` (`decision_run`).
+
+A `--project` that names a different root is refused with exit 2.
+
+After the decision, the driver marks each result destination incomplete on its own, refused or
+not. A relative `--json-out` names a path in the dispatching workspace. A refusal keeps exit 2
+whatever marking failed (`Decision.settled`, `settled_refuse`, `settled_of_parse_error`). The
+success line names the project and manifest that the audit resolved, which the JSON result
+records as `scope.project` and `scope.manifestPath`.
+
+The audit reads its own arguments one time in the same way
+(`Regula.Checker.AxiomGate.arguments`). Its options, its duplicate refusals and the destinations
+it marks come from that reading (`admit`, `destinations`).
+
+The audit writes its result and its acceptance link only where that reading names them
+(`admit_destinations`). That each write of a result uses those admitted fields is read from the
+source.
 
 As an extra refusal, the driver reads the `lintDriverArgs` of the workspace's default
 configuration. It admits only `--fresh`, `--verbose`, `--help` and `--explain-config` there,
-and it refuses any other option with exit 2 (`Regula.Checker.Lint.configuredRefusal`). It
-decides that refusal before it marks any destination, so a failed mark keeps exit 2.
+and it refuses any other option with exit 2 (`Regula.Checker.Lint.configuredRefusal`). None of
+the guarantees above rests on this refusal.
 
-Assume that Lake loaded that default configuration, without `-f` or `-K`. Then an admitted run takes
-the project, the manifest and the result destination from the command line alone
-(`configuredRefusal_eq_none`). The driver does not check that assumption.
+Assume that Lake loaded that default configuration, without `-f` or `-K`. Assume also that the
+file gives the same `lintDriverArgs` when the driver loads it again. Lake hashes the file at each
+load and releases its lock between loads, so the file can change between them
+(`Load/Lean/Elab.lean:231-281`). Under these assumptions an admitted run takes the project, the
+manifest and the result destination from the command line alone (`configuredRefusal_eq_none`).
+
+The driver does not check these assumptions.
 
 
 In the plain shape, each package declares only `lean_lib`, `lean_exe`, `input_file` and

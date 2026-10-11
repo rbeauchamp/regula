@@ -145,7 +145,9 @@ other's build output. The banner names the assertion and the result records it a
 or with a value other than `1` is refused, and so is a `--project` for another project on the
 command line. A `lintDriverArgs` entry that gives `--project`, an unwritable `--json-out` or a
 `--manifest` whose value looks like an option is refused by the extra check of the default
-configuration, the last after the command line's destination is marked incomplete. Decision
+configuration, the last after the command line's destination is marked incomplete. A refusal
+keeps the configuration class though a destination cannot be written, each destination is marked
+on its own, and a manifest named `--json-out` is read as the manifest, not written. Decision
 probes of the guard (`probe`), each with one change to the plain shape and the reason that
 decides: an `input_file` in `needs` keeps the plain shape, and each of these keeps the marker: a
 custom target,
@@ -299,6 +301,51 @@ private def leanAdopter (probes : Std.Mutex Unit) (repo adopter : FilePath) :
     failures := failures.push "lake-lint/lean/option-like-value-refused: the configured value \
       --json-out was written as a destination"
   IO.FS.removeFile (adopter / "stale.json")
+  -- The driver decides before it marks a destination, and a refusal keeps the configuration
+  -- class though a destination cannot be written: for another project, for `--help`, and for a
+  -- configured destination beside the command line's, each of which is marked on its own.
+  IO.FS.writeFile lakefile plain
+  failures := failures ++ (← expect adopter {
+      label := "lean/other-project-unwritable-refused", exitCode := 2,
+      contains := #["is not the project lake lint runs in",
+        "could not mark the result destination /", "regula lint: INVALID CONFIGURATION"],
+      excludes := #[s!"regula lint: {acceptanceLabel}"] }
+    #["--", "--project", repo.toString, "--json-out", "/"])
+  failures := failures ++ (← expect adopter {
+      label := "lean/help-unwritable-refused", exitCode := 2,
+      contains := #["--json-out and --verbose apply only to an audit",
+        "regula lint: INVALID CONFIGURATION"],
+      excludes := #[s!"regula lint: {acceptanceLabel}"] } #["--", "--help", "--json-out", "/"])
+  IO.FS.writeFile lakefile (plain.replace "lintDriver := \"regula/lint\""
+    "lintDriver := \"regula/lint\"\n  lintDriverArgs := #[\"--json-out\", \"/\"]")
+  IO.FS.writeFile (adopter / "stale.json") "{\"status\":\"completed\"}\n"
+  failures := failures ++ (← expect adopter {
+      label := "lean/each-destination-marked", exitCode := 2,
+      contains := #["duplicate --json-out option", "regula lint: INVALID CONFIGURATION"],
+      excludes := #[s!"regula lint: {acceptanceLabel}"] } #["--", "--json-out", "stale.json"])
+  let stale := (← readJson (adopter / "stale.json")).getObjValD "status"
+  unless stale == toJson "incomplete" do
+    failures := failures.push s!"lake-lint/lean/each-destination-marked: stale.json has status \
+      {stale.compress}"
+  IO.FS.removeFile (adopter / "stale.json")
+  -- The audit reads its arguments once too: a manifest named `--json-out` is the manifest, not
+  -- a destination, so the run reads it and writes only the command line's `--json-out`.
+  IO.FS.writeFile lakefile plain
+  let manifestText ← IO.FS.readFile (adopter / "foundation_manifest.json")
+  IO.FS.writeFile (adopter / "--json-out") manifestText
+  failures := failures ++ (← expect adopter { positive with
+      label := "lean/option-like-manifest-read"
+      contains := positive.contains.push s!"manifest {project / "--json-out"}" }
+    #["--", "--manifest", "--json-out", "--json-out", "named.json"] optIn)
+  unless (← IO.FS.readFile (adopter / "--json-out")) == manifestText do
+    failures := failures.push "lake-lint/lean/option-like-manifest-read: the manifest named \
+      --json-out was overwritten"
+  let named := (← readJson (adopter / "named.json")).getObjValD "status"
+  unless named == toJson "completed" do
+    failures := failures.push s!"lake-lint/lean/option-like-manifest-read: named.json has status \
+      {named.compress}"
+  IO.FS.removeFile (adopter / "--json-out")
+  IO.FS.removeFile (adopter / "named.json")
   -- An `input_file` in `needs` keeps the plain shape.
   let notes := adopter / "notes.txt"
   IO.FS.writeFile notes "Widget notes.\n"
