@@ -13,13 +13,17 @@ hypotheses of a theorem are exactly the assumptions it rests on.
 
 ## The model
 
-A model has a type of states, two reads that give the vocabulary of the assumptions, and the
+A model has a type of states, three reads that give the vocabulary of the assumptions, and the
 operations as actions on the state:
 
 * `Model.entry`: the type of the entry that a path names, as `lstat(2)` reports it, which does
   not follow a symbolic link at the path's last component;
 * `Model.real`: what `realpath(3)` resolves a path to, which is absolute and has no `.` or `..`
-  component and no symbolic link.
+  component and no symbolic link;
+* `Model.ident`: the file that a path names (`FileId`), its device and its number on the device,
+  as `lstat(2)` reports them. Lean 4.34.1's `IO.FS.Metadata` has neither
+  (`Init/System/IO.lean#L1115-L1129`), so no operation reads it and no decision depends on it: it
+  names the files that the frame of a removal speaks about (`Model.Unchanged`).
 
 ## The assumptions
 
@@ -30,18 +34,20 @@ the contracts of the operations, each a `Std.Do` triple whose postcondition is t
   `noFileOrDirectory` only when nothing is there.
 * `ReadsReal`: `realPath` gives what `realpath(3)` gives, changes nothing, and fails exactly when
   `realpath(3)` fails.
-* `RemovesTree`: `removeDirAll` of a directory at its own place keeps the type of each entry
-  outside the directory (`Model.Unchanged`), whether it succeeds or fails.
-* `RemovesEntry`: `removeFile` of a path at its own place keeps the type of each entry outside the
-  path.
+* `RemovesTree`: `removeDirAll` of a directory at its own place keeps the entry at each path of
+  its frame (`Model.Unchanged`), each path below a parent at its own real path whose file before
+  is not one within the directory, whether it succeeds or fails.
+* `RemovesEntry`: `removeFile` of a path at its own place keeps the entry at each path of its
+  frame, each path below a parent at its own real path whose file before is not the removed one.
 
 Each is a statement about every run from every state, so together they carry "no other process
-changes the filesystem while the code runs", which none states alone. In `IO`, the world that one
-operation ends in is the world that the next starts from, so a change that another process makes
-between them is part of one of the two runs. A read changes nothing, and a removal keeps the type
-of each entry outside its path. So the change makes one of the assumptions false, unless the first
-operation is a removal and the change is within its path, and the theorems that rest on a false
-assumption say nothing.
+changes the filesystem while the code runs, except at the paths that the frame of a removal leaves
+out", which none states alone. In `IO`, the world that one operation ends in is the world that the
+next starts from, so a change that another process makes between them is part of one of the two
+runs. A read changes nothing, and a removal keeps the entry at each path of its frame. So the
+change makes one of the assumptions false, unless the first operation is a removal and the change
+is at a path that its frame leaves out, such as one that names a file within the removed path, and
+the theorems that rest on a false assumption say nothing.
 
 That a removal removes the path is not assumed. `removeDirectory` and `removeEntry` read the path
 again after the removal and fail when something is still there, so their contracts
@@ -66,21 +72,18 @@ The assumptions are stated for a POSIX system, where `symlinkMetadata` calls `ls
 `removeDirAll` reads each entry without following a symbolic link, and `realPath` calls
 `realpath`. In Lean 4.34.1 on Windows, `symlinkMetadata` follows a link and `realPath` can give a
 path it did not resolve, so the observer refuses those reads and every directory removal there.
-The model reads the type of an entry, not which file it is or what it holds: an entry outside a
-removed path that is replaced by another entry of the same type is not a change the frame sees.
 
-The frame (`Model.Unchanged`) leaves out each path that names an entry but is not its own real
-path. On a volume that ignores case or Unicode normalization, the removal assumptions rest on
-`realpath(3)` giving the name the volume stores for each component, so that another spelling of a
-removed name is not its own real path. Darwin's `realpath(3)` does this (`RemovesTree` and
-`RemovesEntry` cite its source), and it was observed once on macOS 27.0.1 (APFS), where
-`realpath dir/FILE` printed `.../Dir/file`. The removal assumptions are false where `realpath(3)` keeps a name as written:
-Darwin's on a volume where `getattrlist(2)` is not supported, which falls back to `lstat(2)`
-(`realpath.c#L238-L243`), and glibc's in a Linux directory that folds case. They are also false
-when an ancestor of the removed path is also reached through a second mount, such as a bind mount,
-which `realpath(3)` does not resolve: the entries below it then have a second name that is its own
-real path. `RemovesTree` is false, too, for a directory below the path that is also mounted at
-another place. -/
+The frame of a removal (`Model.Unchanged`) leaves out each path that names, before the removal,
+the file of a path within the removed path: the same device and file number, which together
+identify a file within the system (POSIX.1-2024 `<sys/stat.h>`). So it leaves out every second
+name of such a file, whatever gives it: another case or Unicode normalization of a name on a
+volume that ignores those, an APFS firmlink, a bind mount, or a second hard link. It also leaves
+out each path whose parent is not its own real path, such as one through a symbolic link or with a
+`..` component, since such a path can pass through the removed path. The removal assumptions are
+false where two names of one file report different devices, such as two mounts of one network or
+FUSE file system, and on a file system whose file numbers are not stable. The frame compares the
+type of an entry, not which file it is after the removal or what it holds: an entry outside a
+removed path that is replaced by another entry of the same type is not a change the frame sees. -/
 
 namespace Regula.Filesystem
 
@@ -99,7 +102,16 @@ structure Ops (m : Type → Type) where
   /-- Remove the entry that a path names, which is not a directory: `IO.FS.removeFile`. -/
   removeFile : FilePath → m Unit
 
-/-- A model of the filesystem: its states, what the two reads report in each state, and the
+/-- The identity of a file: the device that holds it and its number on that device, the fields
+`st_dev` and `st_ino` that `lstat(2)` reports. POSIX.1-2024 `<sys/stat.h>` states that the two
+together identify the file within the system. -/
+structure FileId where
+  /-- The device that holds the file: `st_dev`. -/
+  device : Nat
+  /-- The number of the file on its device: `st_ino`. -/
+  inode : Nat
+
+/-- A model of the filesystem: its states, what the three reads report in each state, and the
 operations as actions on the state that can fail with an `IO.Error`. -/
 structure Model where
   /-- The states of the filesystem. -/
@@ -111,6 +123,12 @@ structure Model where
   component and no symbolic link. `none` when `realpath(3)` fails, such as when nothing is
   there. -/
   real : World → FilePath → Option FilePath
+  /-- The file that a path names in a state, as `lstat(2)` reports its device and number: a
+  symbolic link at the path's last component is the file, not followed. `none` when nothing is
+  there. Lean 4.34.1's `IO.FS.Metadata` has no device or inode field
+  (`Init/System/IO.lean#L1115-L1129`), so no operation reads it and no decision depends on it: it
+  names the files that the frame of a removal speaks about (`Model.Unchanged`). -/
+  ident : World → FilePath → Option FileId
   /-- The operations, as actions on the state. -/
   ops : Ops (EStateM IO.Error World)
 
@@ -123,21 +141,25 @@ inductive Within (directory : FilePath) : FilePath → Prop where
   | entry {path parent : FilePath} :
       Within directory parent → path.parent = some parent → Within directory path
 
-/-- From the state `before` to the state `after`, each entry outside `directory` kept its type. The
-frame is each path that is not within `directory`, whose parent is its own real path in `before`,
-whose last component is a name, not `.` or `..`, and that in `before` is its own real path or
-names nothing. Each such path names an entry of the same type in both states, or nothing in both.
+/-- From the state `before` to the state `after`, the entry at each path of the frame of
+`directory` kept its type. The frame is each path that is not within `directory`, whose parent is
+its own real path in `before`, whose last component is a name, not `.` or `..`, and that in
+`before` names nothing or names a file (`Model.ident`) that no path within `directory` names. Each
+such path names an entry of the same type in both states, or nothing in both.
 
-A path that names an entry but is not its own real path is outside the frame: a second spelling
-of the entry's name, such as another case or another Unicode normalization of it on a volume that
-ignores those, and a symbolic link, whose real path is not the link. A path that names nothing is
-in the frame, so nothing appears outside `directory`. Which file the entry is, and what it holds,
-is not part of the model. -/
+A path that names, in `before`, the file of a path within `directory` is outside the frame: a
+second name of that file, such as another case or Unicode normalization of a name on a volume
+that ignores those, a name through an APFS firmlink or a bind mount, or a second hard link. A path
+whose parent is not its own real path is outside the frame too, since it can pass through
+`directory`: one through a symbolic link, or with a `.` or `..` component. A path that names
+nothing is in the frame, so nothing appears outside `directory`. The frame compares the type of
+each entry, not which file it is in `after` or what it holds. -/
 def Model.Unchanged (M : Model) (directory : FilePath) (before after : M.World) : Prop :=
   ∀ path parent, path.parent = some parent → path.fileName.isSome = true →
     M.real before parent = some parent →
-    (M.entry before path = none ∨ M.real before path = some path) → ¬ Within directory path →
-      M.entry after path = M.entry before path
+    (M.entry before path = none ∨ ∃ file, M.ident before path = some file ∧
+      ∀ inner, Within directory inner → M.ident before inner ≠ some file) →
+    ¬ Within directory path → M.entry after path = M.entry before path
 
 /-- Nothing changes from a state to itself. -/
 theorem Model.unchanged_refl (M : Model) (directory : FilePath) (w : M.World) :
@@ -164,67 +186,68 @@ def ReadsEntry (M : Model) : Prop :=
 
 /-- `realPath` gives what `realpath(3)` resolves the path to and changes nothing. It fails exactly
 when `realpath(3)` fails. On Windows, Lean 4.34.1's `realPath` gives the path itself when it cannot
-resolve it (`runtime/io.cpp#L1032-L1033`), so the observer refuses it there. -/
+resolve it (`runtime/io.cpp#L1032-L1033`), so the observer refuses it there.
+
+On a volume that ignores case or Unicode normalization, Darwin's `realpath(3)` gives the name that
+the volume stores for each component, as its source below states, and it was observed once on
+macOS 27.0.1 (APFS), where `realpath dir/FILE` printed `.../Dir/file`. It keeps a name as written
+on a volume where `getattrlist(2)` is not supported, where it falls back to `lstat(2)`
+(`realpath.c#L238-L243`), and glibc's keeps it in a Linux directory that folds case. -/
 @[regula_assumption filesystem
   (lean "v4.34.1" "Init/System/IO.lean#L873-L879")
   (lean "v4.34.1" "runtime/io.cpp#L1054-L1066")
-  (document filesystem "POSIX.1-2024, realpath()")]
+  (document filesystem "POSIX.1-2024, realpath()")
+  (document filesystem "Apple Libc-1752.120.2, stdlib/FreeBSD/realpath.c#L216-L243 and \
+    #L348-L358: Darwin's realpath(3) replaces each path component with the name that \
+    getattrlist(2) reads from the volume")]
 def ReadsReal (M : Model) : Prop :=
   ∀ path before, ⦃fun w => ⌜w = before⌝⦄ M.ops.realPath path
     ⦃post⟨fun real w => ⌜w = before ∧ M.real before path = some real⌝,
       fun _ w => ⌜w = before ∧ M.real before path = none⌝⟩⦄
 
-/-- `removeDirAll` of a directory at its own place, whose real path is the path, keeps the type of
-each entry outside the directory (`Model.Unchanged`), whether it succeeds or fails. On a POSIX
-system it reads each entry with `lstat`, so it removes a symbolic link below the directory and not
-the link's target. That it removes the directory is not assumed (`removeDirectory_gone`).
+/-- `removeDirAll` of a directory at its own place, whose real path is the path, keeps the entry at
+each path of its frame (`Model.Unchanged`), each path below a parent at its own real path whose
+file before is not one within the directory, whether it succeeds or fails. On a POSIX system it
+reads each entry with `lstat`, so it removes a symbolic link below the directory and not the
+link's target. That it removes the directory is not assumed (`removeDirectory_gone`).
 
-On a volume that ignores case or Unicode normalization, the assumption rests on `realpath(3)`
-giving the name the volume stores for each component, so that another spelling of the directory's
-name is not its own real path and is outside the frame. Darwin's libc does this, as its source
-below states, and it was observed once on macOS 27.0.1 (APFS), where `realpath dir/FILE` printed
-`.../Dir/file`. The assumption is false where `realpath(3)` keeps a name as written: Darwin's on a
-volume where `getattrlist(2)` is not supported, which falls back to `lstat(2)`
-(`realpath.c#L238-L243`), and glibc's in a Linux directory that folds case. It is also false for a
-directory below the path that is also mounted at another place, such as by a bind mount, whose
-entries also have names outside the path, and when an ancestor of the path is also reached through
-a second mount, which `realpath(3)` does not resolve: the entries below it then have a second name
-that is its own real path. -/
+The frame leaves out each second name of a file within the directory, by the device and file
+number that identify a file within the system (POSIX.1-2024 `<sys/stat.h>`): another spelling on a
+volume that ignores case or Unicode normalization, a name through an APFS firmlink, a bind mount
+of the directory or of a directory around it, a mount at another place of a directory below it,
+and a second hard link to a file below it. The assumption is false where two names of one file
+report different devices, such as two mounts of one network or FUSE file system, and on a file
+system whose file numbers are not stable. -/
 @[regula_assumption filesystem
   (lean "v4.34.1" "Init/System/IO.lean#L1330-L1342")
   (lean "v4.34.1" "runtime/io.cpp#L1160-L1179")
   (lean "v4.34.1" "runtime/io.cpp#L1197-L1207")
   (lean "v4.34.1" "runtime/io.cpp#L1351-L1364")
   (document filesystem "POSIX.1-2024, lstat(), unlink() and rmdir()")
-  (document filesystem "Apple Libc-1752.120.2, stdlib/FreeBSD/realpath.c#L216-L243 and \
-    #L348-L358: Darwin's realpath(3) replaces each path component with the name that \
-    getattrlist(2) reads from the volume")]
+  (document filesystem "POSIX.1-2024, <sys/stat.h>: st_ino and st_dev taken together uniquely \
+    identify the file within the system")]
 def RemovesTree (M : Model) : Prop :=
   ∀ path before, M.entry before path = some .dir → M.real before path = some path →
     ⦃fun w => ⌜w = before⌝⦄ M.ops.removeDirAll path
       ⦃post⟨fun _ w => ⌜M.Unchanged path before w⌝, fun _ w => ⌜M.Unchanged path before w⌝⟩⦄
 
-/-- `removeFile` of a path at its own place, whose real path is the path, keeps the type of each
-entry outside the path (`Model.Unchanged`), whether it succeeds or fails. That it removes the entry
-is not assumed (`removeEntry_gone`).
+/-- `removeFile` of a path at its own place, whose real path is the path, keeps the entry at each
+path of its frame (`Model.Unchanged`), each path below a parent at its own real path whose file
+before is not the removed one, whether it succeeds or fails. That it removes the entry is not
+assumed (`removeEntry_gone`).
 
-On a volume that ignores case or Unicode normalization, the assumption rests on `realpath(3)`
-giving the name the volume stores for each component, so that another spelling of the entry's name
-is not its own real path and is outside the frame. Darwin's libc does this, as its source below
-states, and it was observed once on macOS 27.0.1 (APFS), where `realpath dir/FILE` printed
-`.../Dir/file`. The assumption is false where `realpath(3)` keeps a name as written: Darwin's on a
-volume where `getattrlist(2)` is not supported, which falls back to `lstat(2)`
-(`realpath.c#L238-L243`), and glibc's in a Linux directory that folds case. It is also false when
-an ancestor of the path is also reached through a second mount, such as a bind mount, which
-`realpath(3)` does not resolve: the entries below it then have a second name that is its own real
-path. -/
+The frame leaves out each second name of the removed file, by the device and file number that
+identify a file within the system (POSIX.1-2024 `<sys/stat.h>`): another spelling on a volume that
+ignores case or Unicode normalization, a name through an APFS firmlink or a bind mount, and a
+second hard link. The assumption is false where two names of one file report different devices,
+such as two mounts of one network or FUSE file system, and on a file system whose file numbers are
+not stable. -/
 @[regula_assumption filesystem
   (lean "v4.34.1" "Init/System/IO.lean#L881-L886")
   (lean "v4.34.1" "runtime/io.cpp#L1351-L1364")
   (document filesystem "POSIX.1-2024, unlink()")
-  (document filesystem "Apple Libc-1752.120.2, stdlib/FreeBSD/realpath.c#L216-L243 and \
-    #L348-L358: Darwin's realpath(3) replaces each path component with the name that \
-    getattrlist(2) reads from the volume")]
+  (document filesystem "POSIX.1-2024, <sys/stat.h>: st_ino and st_dev taken together uniquely \
+    identify the file within the system")]
 def RemovesEntry (M : Model) : Prop :=
   ∀ path before, M.real before path = some path →
     ⦃fun w => ⌜w = before⌝⦄ M.ops.removeFile path
@@ -254,12 +277,14 @@ def ofEIO {ε α : Type} (x : EIO ε α) : EStateM ε (Void IO.RealWorld) α := 
   | .error e w' => .error e w'
 
 /-- The model whose states are the worlds of `IO`, whose operations are those of `ops` run over
-them, and whose reads are `entry` and `real`. -/
+them, and whose reads are `entry`, `real` and `ident`. -/
 def Model.ofIO (ops : Ops IO) (entry : Void IO.RealWorld → FilePath → Option IO.FS.FileType)
-    (real : Void IO.RealWorld → FilePath → Option FilePath) : Model where
+    (real : Void IO.RealWorld → FilePath → Option FilePath)
+    (ident : Void IO.RealWorld → FilePath → Option FileId) : Model where
   World := Void IO.RealWorld
   entry := entry
   real := real
+  ident := ident
   ops := {
     symlinkMetadata := fun path => ofEIO (ops.symlinkMetadata path)
     realPath := fun path => ofEIO (ops.realPath path)
@@ -279,8 +304,9 @@ only on the assumptions it names at it: that the operations satisfy them is the 
 trusted. -/
 theorem corresponds_ofIO (ops : Ops IO)
     (entry : Void IO.RealWorld → FilePath → Option IO.FS.FileType)
-    (real : Void IO.RealWorld → FilePath → Option FilePath) :
-    Corresponds ops (Model.ofIO ops entry real) id :=
+    (real : Void IO.RealWorld → FilePath → Option FilePath)
+    (ident : Void IO.RealWorld → FilePath → Option FileId) :
+    Corresponds ops (Model.ofIO ops entry real ident) id :=
   ⟨fun _ => ofEIO_agrees _, fun _ => ofEIO_agrees _, fun _ => ofEIO_agrees _,
     fun _ => ofEIO_agrees _⟩
 
@@ -297,8 +323,11 @@ def entryType {m : Type → Type} [Monad m] [MonadExceptOf IO.Error m] (ops : Op
     | error => throw error
 
 /-- Whether the real path of `path` is `path` itself: `false` when it is another path, and when
-`path` has none. No code that Regula runs calls it yet: the next stage of issue #362 replaces it by
-writing the operations of `Regula.Removal` over `Ops`. -/
+`path` has none. On a volume that ignores case or Unicode normalization, it is `false` for another
+spelling of a stored name where `realpath(3)` gives the stored name, as Darwin's does, and `true`
+where `realpath(3)` keeps the name as written (`ReadsReal`). No code that Regula runs calls it
+yet: the next stage of issue #362 replaces it by writing the operations of `Regula.Removal` over
+`Ops`. -/
 def atOwnPlace {m : Type → Type} [Monad m] [MonadExceptOf IO.Error m] (ops : Ops m)
     (path : FilePath) : m Bool :=
   tryCatchThe IO.Error (do return (← ops.realPath path) == path) fun _ => pure false
@@ -441,8 +470,9 @@ attribute [regula_checked filesystem removeDirectory_gone
 attribute [regula_checked filesystem removeEntry_gone
   (lean "v4.34.1" "Init/System/IO.lean#L881-L886")] removeEntry
 
-/-- `removeDirectory` of a directory at its own place removes it and keeps the type of each entry
-outside it; when it fails, it kept the type of each entry outside it. -/
+/-- `removeDirectory` of a directory at its own place removes it and keeps the entry at each path
+of its frame (`Model.Unchanged`), each path below a parent at its own real path whose file before
+is not one within the directory; when it fails, it kept them. -/
 theorem removeDirectory_spec (M : Model) (reads : ReadsEntry M) (removes : RemovesTree M)
     (path : FilePath) (before : M.World) (directory : M.entry before path = some .dir)
     (own : M.real before path = some path) :
@@ -460,8 +490,9 @@ theorem removeDirectory_spec (M : Model) (reads : ReadsEntry M) (removes : Remov
     · exact id
     · exact fun h => h.elim id id
 
-/-- `removeEntry` of a path at its own place removes it and keeps the type of each entry outside
-it; when it fails, it kept the type of each entry outside it. -/
+/-- `removeEntry` of a path at its own place removes it and keeps the entry at each path of its
+frame (`Model.Unchanged`), each path below a parent at its own real path whose file before is not
+the removed one; when it fails, it kept them. -/
 theorem removeEntry_spec (M : Model) (reads : ReadsEntry M) (removes : RemovesEntry M)
     (path : FilePath) (before : M.World) (own : M.real before path = some path) :
     ⦃fun w => ⌜w = before⌝⦄ removeEntry M.ops path
@@ -532,8 +563,9 @@ theorem removeEntry_gone_io (corresponds : Corresponds ops M view) (reads : Read
     ((triple_iff _ _ _ _).mp (removeEntry_gone M reads path) (view w) trivial)
 
 /-- `removeDirectory` in `IO`, at operations that correspond to a model, of a directory at its own
-place removes it and keeps the type of each entry outside it; when it fails, it kept the type of
-each entry outside it (`removeDirectory_spec`). -/
+place removes it and keeps the entry at each path of its frame (`Model.Unchanged`), each path below
+a parent at its own real path whose file before is not one within the directory; when it fails, it
+kept them (`removeDirectory_spec`). -/
 theorem removeDirectory_io (corresponds : Corresponds ops M view) (reads : ReadsEntry M)
     (removes : RemovesTree M) (path : FilePath) (w : Void IO.RealWorld)
     (directory : M.entry (view w) path = some .dir) (own : M.real (view w) path = some path) :
@@ -545,8 +577,9 @@ theorem removeDirectory_io (corresponds : Corresponds ops M view) (reads : Reads
       (removeDirectory_spec M reads removes path (view w) directory own) (view w) rfl)
 
 /-- `removeEntry` in `IO`, at operations that correspond to a model, of a path at its own place
-removes it and keeps the type of each entry outside it; when it fails, it kept the type of each
-entry outside it (`removeEntry_spec`). -/
+removes it and keeps the entry at each path of its frame (`Model.Unchanged`), each path below a
+parent at its own real path whose file before is not the removed one; when it fails, it kept them
+(`removeEntry_spec`). -/
 theorem removeEntry_io (corresponds : Corresponds ops M view) (reads : ReadsEntry M)
     (removes : RemovesEntry M) (path : FilePath) (w : Void IO.RealWorld)
     (own : M.real (view w) path = some path) :

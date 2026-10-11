@@ -65,62 +65,67 @@ def observer : Ops IO where
 /-! ## The removals at the observer -/
 
 /-- The model of the filesystem that the observer's runs are: its states are the worlds of `IO`,
-its operations are the observer's, and `entry` and `real` give what `lstat(2)` and `realpath(3)`
-report at each world. The observer corresponds to it (`corresponds_ofIO`), so the theorems below
-rest only on the assumptions they name at it. -/
+its operations are the observer's, and `entry`, `real` and `ident` give what `lstat(2)` and
+`realpath(3)` report at each world. No operation reads `ident` (`Model.ident`): the theorems below
+hold for every `ident`. The observer corresponds to the model (`corresponds_ofIO`), so the theorems
+below rest only on the assumptions they name at it. -/
 abbrev observed (entry : Void IO.RealWorld → FilePath → Option IO.FS.FileType)
-    (real : Void IO.RealWorld → FilePath → Option FilePath) : Model :=
-  Model.ofIO observer entry real
+    (real : Void IO.RealWorld → FilePath → Option FilePath)
+    (ident : Void IO.RealWorld → FilePath → Option FileId) : Model :=
+  Model.ofIO observer entry real ident
 
 section Observer
 
 variable {entry : Void IO.RealWorld → FilePath → Option IO.FS.FileType}
   {real : Void IO.RealWorld → FilePath → Option FilePath}
+  {ident : Void IO.RealWorld → FilePath → Option FileId}
 
 /-- **Checked, at the observer:** when `removeDirectory observer` succeeds from a world, nothing is
 at the path at the world it ends in, when the observer satisfies `ReadsEntry`. -/
-theorem observer_removeDirectory_gone (reads : ReadsEntry (observed entry real)) (path : FilePath)
-    (w : Void IO.RealWorld) :
+theorem observer_removeDirectory_gone (reads : ReadsEntry (observed entry real ident))
+    (path : FilePath) (w : Void IO.RealWorld) :
     RunsTo id (removeDirectory observer path w) (fun _ s => entry s path = none)
       (fun _ _ => True) :=
-  removeDirectory_gone_io (corresponds_ofIO observer entry real) reads path w
+  removeDirectory_gone_io (corresponds_ofIO observer entry real ident) reads path w
 
 /-- **Checked, at the observer:** when `removeEntry observer` succeeds from a world, nothing is at
 the path at the world it ends in, when the observer satisfies `ReadsEntry`. -/
-theorem observer_removeEntry_gone (reads : ReadsEntry (observed entry real)) (path : FilePath)
-    (w : Void IO.RealWorld) :
+theorem observer_removeEntry_gone (reads : ReadsEntry (observed entry real ident))
+    (path : FilePath) (w : Void IO.RealWorld) :
     RunsTo id (removeEntry observer path w) (fun _ s => entry s path = none) (fun _ _ => True) :=
-  removeEntry_gone_io (corresponds_ofIO observer entry real) reads path w
+  removeEntry_gone_io (corresponds_ofIO observer entry real ident) reads path w
 
-/-- `removeDirectory observer` of a directory at its own place removes it and keeps the type of
-each entry outside it, and when it fails it kept them, when the observer satisfies `ReadsEntry` and
-`RemovesTree`. -/
-theorem observer_removeDirectory (reads : ReadsEntry (observed entry real))
-    (removes : RemovesTree (observed entry real)) (path : FilePath) (w : Void IO.RealWorld)
+/-- `removeDirectory observer` of a directory at its own place removes it and keeps the entry at
+each path of its frame (`Model.Unchanged`), each path below a parent at its own real path whose
+file before is not one within the directory, and when it fails it kept them, when the observer
+satisfies `ReadsEntry` and `RemovesTree`. -/
+theorem observer_removeDirectory (reads : ReadsEntry (observed entry real ident))
+    (removes : RemovesTree (observed entry real ident)) (path : FilePath) (w : Void IO.RealWorld)
     (directory : entry w path = some .dir) (own : real w path = some path) :
     RunsTo id (removeDirectory observer path w)
-      (fun _ s => entry s path = none ∧ (observed entry real).Unchanged path w s)
-      (fun _ s => (observed entry real).Unchanged path w s) :=
-  removeDirectory_io (corresponds_ofIO observer entry real) reads removes path w directory own
+      (fun _ s => entry s path = none ∧ (observed entry real ident).Unchanged path w s)
+      (fun _ s => (observed entry real ident).Unchanged path w s) :=
+  removeDirectory_io (corresponds_ofIO observer entry real ident) reads removes path w directory own
 
-/-- `removeEntry observer` of a path at its own place removes it and keeps the type of each entry
-outside it, and when it fails it kept them, when the observer satisfies `ReadsEntry` and
+/-- `removeEntry observer` of a path at its own place removes it and keeps the entry at each path of
+its frame (`Model.Unchanged`), each path below a parent at its own real path whose file before is
+not the removed one, and when it fails it kept them, when the observer satisfies `ReadsEntry` and
 `RemovesEntry`. -/
-theorem observer_removeEntry (reads : ReadsEntry (observed entry real))
-    (removes : RemovesEntry (observed entry real)) (path : FilePath) (w : Void IO.RealWorld)
+theorem observer_removeEntry (reads : ReadsEntry (observed entry real ident))
+    (removes : RemovesEntry (observed entry real ident)) (path : FilePath) (w : Void IO.RealWorld)
     (own : real w path = some path) :
     RunsTo id (removeEntry observer path w)
-      (fun _ s => entry s path = none ∧ (observed entry real).Unchanged path w s)
-      (fun _ s => (observed entry real).Unchanged path w s) :=
-  removeEntry_io (corresponds_ofIO observer entry real) reads removes path w own
+      (fun _ s => entry s path = none ∧ (observed entry real ident).Unchanged path w s)
+      (fun _ s => (observed entry real ident).Unchanged path w s) :=
+  removeEntry_io (corresponds_ofIO observer entry real ident) reads removes path w own
 
 /-- `atOwnPlace observer` never fails, ends in the world it starts from, and gives `true` exactly
 when the real path of the path is the path, when the observer satisfies `ReadsReal`. -/
-theorem observer_atOwnPlace (reads : ReadsReal (observed entry real)) (path : FilePath)
-    (w : Void IO.RealWorld) :
+theorem observer_atOwnPlace (reads : ReadsReal (observed entry real ident))
+    (path : FilePath) (w : Void IO.RealWorld) :
     RunsTo id (atOwnPlace observer path w)
       (fun same s => s = w ∧ (same = true ↔ real w path = some path)) (fun _ _ => False) :=
-  atOwnPlace_io (corresponds_ofIO observer entry real) reads path w
+  atOwnPlace_io (corresponds_ofIO observer entry real ident) reads path w
 
 end Observer
 

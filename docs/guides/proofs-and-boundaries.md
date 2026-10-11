@@ -4748,9 +4748,9 @@ system at that model. Each assumption is a statement about each run from each wo
 
 In `IO`, the world at the end of an operation is the world at the start of the next operation.
 Thus a change by a different process between two operations is a part of one of the two runs. A
-read changes nothing, and a removal keeps the type of each entry outside its path. Thus such a
-change makes an assumption false, if it is not in the path that the first of the two operations
-removes. The theorems that use a false assumption give no result.
+read changes nothing, and a removal keeps the entry at each path in its frame. Thus such a change
+makes an assumption false. The only exception is a change after a removal, at a path that the
+frame of the removal does not include. The theorems that use a false assumption give no result.
 
 ### The sources of an assumption
 
@@ -4783,36 +4783,46 @@ below is a file of the Lean 4 repository at `v4.34.1`, below `src`.
 | Declaration | Status | Contract | Sources |
 | --- | --- | --- | --- |
 | `ReadsEntry` | trusted | `symlinkMetadata` gives the type of the entry at a path and changes nothing. It fails with `noFileOrDirectory` only when no entry is at the path. | [`Init/System/IO.lean#L1151-L1156`](https://github.com/leanprover/lean4/blob/v4.34.1/src/Init/System/IO.lean#L1151-L1156), [`runtime/io.cpp#L1160-L1179`](https://github.com/leanprover/lean4/blob/v4.34.1/src/runtime/io.cpp#L1160-L1179), [`runtime/io.cpp#L276-L279`](https://github.com/leanprover/lean4/blob/v4.34.1/src/runtime/io.cpp#L276-L279), POSIX.1-2024 `lstat()` |
-| `ReadsReal` | trusted | `realPath` gives the real path of a path and changes nothing. It fails only when there is no real path. | [`Init/System/IO.lean#L873-L879`](https://github.com/leanprover/lean4/blob/v4.34.1/src/Init/System/IO.lean#L873-L879), [`runtime/io.cpp#L1054-L1066`](https://github.com/leanprover/lean4/blob/v4.34.1/src/runtime/io.cpp#L1054-L1066), POSIX.1-2024 `realpath()` |
-| `RemovesTree` | trusted | `removeDirAll` of a directory at its real path keeps the type of each entry outside the directory, when it succeeds and when it fails. | [`Init/System/IO.lean#L1330-L1342`](https://github.com/leanprover/lean4/blob/v4.34.1/src/Init/System/IO.lean#L1330-L1342), [`runtime/io.cpp#L1160-L1179`](https://github.com/leanprover/lean4/blob/v4.34.1/src/runtime/io.cpp#L1160-L1179), [`runtime/io.cpp#L1197-L1207`](https://github.com/leanprover/lean4/blob/v4.34.1/src/runtime/io.cpp#L1197-L1207), [`runtime/io.cpp#L1351-L1364`](https://github.com/leanprover/lean4/blob/v4.34.1/src/runtime/io.cpp#L1351-L1364), POSIX.1-2024 `lstat()`, `unlink()` and `rmdir()`, Apple Libc-1752.120.2 `stdlib/FreeBSD/realpath.c#L216-L243` and `#L348-L358` |
-| `RemovesEntry` | trusted | `removeFile` of a path at its real path keeps the type of each entry outside the path, when it succeeds and when it fails. | [`Init/System/IO.lean#L881-L886`](https://github.com/leanprover/lean4/blob/v4.34.1/src/Init/System/IO.lean#L881-L886), [`runtime/io.cpp#L1351-L1364`](https://github.com/leanprover/lean4/blob/v4.34.1/src/runtime/io.cpp#L1351-L1364), POSIX.1-2024 `unlink()`, Apple Libc-1752.120.2 `stdlib/FreeBSD/realpath.c#L216-L243` and `#L348-L358` |
+| `ReadsReal` | trusted | `realPath` gives the real path of a path and changes nothing. It fails only when there is no real path. | [`Init/System/IO.lean#L873-L879`](https://github.com/leanprover/lean4/blob/v4.34.1/src/Init/System/IO.lean#L873-L879), [`runtime/io.cpp#L1054-L1066`](https://github.com/leanprover/lean4/blob/v4.34.1/src/runtime/io.cpp#L1054-L1066), POSIX.1-2024 `realpath()`, Apple Libc-1752.120.2 `stdlib/FreeBSD/realpath.c#L216-L243` and `#L348-L358` |
+| `RemovesTree` | trusted | `removeDirAll` of a directory at its real path keeps the entry at each path in its frame (`Model.Unchanged`), when it succeeds and when it fails. | [`Init/System/IO.lean#L1330-L1342`](https://github.com/leanprover/lean4/blob/v4.34.1/src/Init/System/IO.lean#L1330-L1342), [`runtime/io.cpp#L1160-L1179`](https://github.com/leanprover/lean4/blob/v4.34.1/src/runtime/io.cpp#L1160-L1179), [`runtime/io.cpp#L1197-L1207`](https://github.com/leanprover/lean4/blob/v4.34.1/src/runtime/io.cpp#L1197-L1207), [`runtime/io.cpp#L1351-L1364`](https://github.com/leanprover/lean4/blob/v4.34.1/src/runtime/io.cpp#L1351-L1364), POSIX.1-2024 `lstat()`, `unlink()` and `rmdir()`, POSIX.1-2024 `<sys/stat.h>` |
+| `RemovesEntry` | trusted | `removeFile` of a path at its real path keeps the entry at each path in its frame (`Model.Unchanged`), when it succeeds and when it fails. | [`Init/System/IO.lean#L881-L886`](https://github.com/leanprover/lean4/blob/v4.34.1/src/Init/System/IO.lean#L881-L886), [`runtime/io.cpp#L1351-L1364`](https://github.com/leanprover/lean4/blob/v4.34.1/src/runtime/io.cpp#L1351-L1364), POSIX.1-2024 `unlink()`, POSIX.1-2024 `<sys/stat.h>` |
 | `removeDirectory` | checked | After a removal that succeeds, no entry is at the path: `removeDirectory_gone`, which uses only `ReadsEntry`. | [`Init/System/IO.lean#L1330-L1342`](https://github.com/leanprover/lean4/blob/v4.34.1/src/Init/System/IO.lean#L1330-L1342) |
 | `removeEntry` | checked | After a removal that succeeds, no entry is at the path: `removeEntry_gone`, which uses only `ReadsEntry`. | [`Init/System/IO.lean#L881-L886`](https://github.com/leanprover/lean4/blob/v4.34.1/src/Init/System/IO.lean#L881-L886) |
 
 The theorems `removeDirectory_spec` and `removeEntry_spec` are about the removal of a directory or
 of a file at its real path, in a model. After a removal that succeeds, no entry is at the path. A
-removal keeps the type of each entry outside the path, when it succeeds and when it fails. Their
+removal keeps the entry at each path in its frame, when it succeeds and when it fails. Their
 hypotheses are the assumptions that they use. The theorems `removeDirectory_io` and
 `removeEntry_io` give the same result for the code in `IO`, with `Corresponds` as one more
 hypothesis. `Regula.Filesystem` gives them for the observer at the model of the worlds, where
 `corresponds_ofIO` proves `Corresponds`.
 
-`Model.Unchanged` gives what is outside a path. It is each path with a file name, not in the path,
-if the real path of its parent is that parent before the operation. Before the operation, the path
-must also be its own real path, or no entry is at it. For each such path, the entry after the
-operation has the same type as before, or no entry is at the path before and after.
+`Model.Unchanged` gives the frame of a removal. It is each path with a file name, not in the
+removed path, if its parent is its own real path before the removal. Before the removal, also no
+entry is at the path, or the path names a file that no path in the removed path names. For each
+such path, the entry after the removal has the same type as before, or no entry is at the path
+before and after.
 
-A second name of an entry is not its own real path. An example is the same name in a different
-case, on a volume that ignores case or Unicode normalization. Thus `Model.Unchanged` does not
-include such a name. A symbolic link is also not its own real path, thus `Model.Unchanged` does not
-include it. A path with no entry is in `Model.Unchanged`, thus no entry appears outside the path.
+`Model.ident` gives the file that a path names. It is the device and the number of the file, the
+values `st_dev` and `st_ino` of `lstat(2)`. POSIX.1-2024 `<sys/stat.h>` states that these two
+values identify a file in the system. A second name of a file has the same identity. Examples are a
+different case of a name on a volume that ignores case, an APFS firmlink, a bind mount and a hard
+link. Thus the frame does not include a second name of a file in the removed path.
 
-Some volumes ignore case or Unicode normalization. On such a volume, the two removal assumptions
-are correct only if `realpath(3)` gives the name that the volume keeps for each component. The
-`realpath(3)` of
-Darwin does this, as Apple Libc-1752.120.2 `stdlib/FreeBSD/realpath.c#L216-L243` and `#L348-L358`
-show. This was observed one time on macOS 27.0.1 with APFS: `realpath dir/FILE` printed
-`.../Dir/file`.
+The `IO.FS.Metadata` of Lean 4.34.1 has no device and no file number
+([`Init/System/IO.lean#L1115-L1129`](https://github.com/leanprover/lean4/blob/v4.34.1/src/Init/System/IO.lean#L1115-L1129)).
+Thus no observer reads `Model.ident`, and no decision uses it. It only identifies the files that
+the frame is about.
+
+The frame also does not include a path if the real path of its parent is not that parent. Such a
+path can go through the removed path, for example through a symbolic link or with `..`. A path
+with no entry is in the frame, thus no entry appears outside the removed path.
+
+Some volumes ignore case or Unicode normalization. On such a volume, the `realpath(3)` of Darwin
+gives the name that the volume keeps for each component. Apple Libc-1752.120.2
+`stdlib/FreeBSD/realpath.c#L216-L243` and `#L348-L358` show this. This was observed one time on
+macOS 27.0.1 with APFS: `realpath dir/FILE` printed `.../Dir/file`. Thus `atOwnPlace` gives
+`false` for a different case of such a name. `ReadsReal` gives this source.
 
 The assumptions are for a POSIX system. On Windows, `symlinkMetadata` of Lean 4.34.1 follows a
 symbolic link. Also, `realPath` gives the path that it got when it cannot find the real path
@@ -4841,21 +4851,14 @@ This section does not establish these properties:
 - That no different process changes the file system while the code runs. Such a process can make
   an assumption false, as "From a model to the real system" shows. Regula does not examine the
   other processes.
-- That no directory below a removed directory is also mounted at a different place, for example by
-  a bind mount. `RemovesTree` is false for such a directory, because its entries also have names
-  outside the removed directory.
-- That no ancestor of a removed path is also reached through a second mount, for example a bind
-  mount. `realpath(3)` does not resolve a mount. Thus each entry below such an ancestor has a
-  second name that is its own real path, and `RemovesTree` and `RemovesEntry` are false.
-- That `realpath(3)` gives the name that the volume keeps for each component. Two cases keep the
-  name as it is written, and there `RemovesTree` and `RemovesEntry` are false. The first case is
-  Darwin, on a volume that does not support `getattrlist(2)`. There `realpath(3)` uses `lstat(2)`
-  (`realpath.c#L238-L243`). The second case is the `realpath(3)` of glibc, in a Linux directory
-  that ignores case.
-- That a symbolic link outside a removed path stays. `Model.Unchanged` does not include a symbolic
-  link, because a symbolic link is not its own real path.
+- That two names of one file give the same device. Two mounts of one network or FUSE file system
+  can give two devices for one file. There `RemovesTree` and `RemovesEntry` are false.
+- That the file numbers of a file system are stable. On a file system with file numbers that
+  change, `RemovesTree` and `RemovesEntry` can be false.
+- That a second name of a file in a removed path stays, for example a second hard link. The frame
+  does not include such a name.
 - That an entry outside a removed path is the same file, with the same contents, after the
-  removal. The model gives only the type of each entry.
+  removal. The frame compares only the type of each entry.
 - That each call of an operation of an external system is in an observer. Regula's code also calls
   these operations in other places.
 
