@@ -416,6 +416,75 @@ link during the removal. `IO.FS.removeDirAll` examines an entry and then opens i
 Thus it can then remove the entries of a different directory. The checker removes its own
 scratch directories with the same function.
 
+The site executable removes a directory or a file only by the decision `Regula.Removal.removal`
+of `RegulaCore.Removal`. That decision uses the same read and the same comparison as the
+decision of the driver. It also gets the kind of entry that the caller removes: a directory or a
+file. It removes the place only if an entry of that kind is there at its own place
+(`removal_remove_iff`). The theorem `checked_removal` is the decision contract of that function.
+
+Before this decision, the site executable removed its output directory, `tmp/site-render`,
+`tmp/site-releases` and `website/Generated` with no such read. With a link at one of these
+paths, it deleted the content of the target of the link
+([issue 261](https://github.com/rbeauchamp/regula/issues/261)). At this time, it stops there
+and removes nothing.
+
+A relative `--out` is joined to the real path of the working directory, and no component that it
+gives is resolved. Before it reads anything, the build refuses a `.` or `..` component of
+`--out`. Before it makes anything, it refuses a link among the present components.
+
+On Windows, the site executable removes nothing and refuses each `--out`. There the runtime reads
+a link's target when asked to read the link itself, so no read that follows no link is available.
+
+The driver cannot import `RegulaCore.Removal`, because `scripts/verify.sh` operates the driver
+before the build. The site executable cannot import the driver, because each of the two programs
+declares `main`. Thus the decision has two implementations. The theorem
+`RegulaVerification.removal_shared` shows that the two implementations give the same result for a
+directory.
+
+The build of `Regula.Site.Main` reads the compiled code of `main` and of each initializer of the
+modules that the executable links. It also reads the compiled code of each declaration that this
+code calls, in this package and in the libraries. Only `Regula.Removal.removeDecided` and the
+variants of it that the compiler made can call a removal function of the Lean library. The calls
+that `Regula.Removal.libraryRemovals` gives are the only other calls that the check permits. The
+build fails for each different call.
+
+Each call on that list removes one file that the library manages, or writes the compiled
+configuration of Lake. A removal of a directory in a library is not on the list. Each entry rests
+on an assumption, and `libraryRemovals` gives it with a source line of the library.
+
+For example, Lake removes and writes its compiled configuration in `.lake/config/0`. Before Lake
+loads the package, the site executable stops if `.lake`, `.lake/config` or `.lake/config/0` is a
+link. It also stops if one of them is a file or is not at its own place. It also stops if an entry
+of `.lake/config/0` is a link, because Lake and Lean open their files there for writing by name.
+Thus the files that Lake removes and writes there are files of the checkout.
+
+A removal function removes or replaces an entry, as a rename and the writing of a module do. A
+declaration that `extern` binds to `lean_io_remove_file`, `lean_io_remove_dir`, `lean_io_rename`
+or `lean_compacted_region_save` is also a removal function, whatever its name. These are the C
+functions of the runtime that remove or replace an entry. The check finds such a declaration.
+
+The criterion of the check is honest code, as `SECURITY.md` defines it. Honest code in the site
+executable cannot reach a removal outside `Regula.Removal`, except the calls on the list.
+Deliberate circumvention by the authors of Regula is outside the check
+([issue 286](https://github.com/rbeauchamp/regula/issues/286)). An example is an `extern` binding
+to a different C function that removes. A different example is an observation that the tactic
+`constructor` makes with the private constructor.
+
+The loader of the dependencies of Lake can remove a directory. Thus the site executable loads
+only the root package of the workspace (`withRootPackage`). It refuses a root package that
+declares a dependency.
+
+The build also fails if such a declaration has no compiled code that the check can read. A
+removal by a different program, for example `rm`, is not a call that this check finds. The module
+`Regula.RemovalControls` has controls of the check. The first acceptance step builds that module.
+
+The deployment program `lean/Regula/Site/Deployment.lean` imports only the Lean core, thus it
+cannot use the decision. It reads each page from the output of `curl` and writes no file. Thus it
+removes nothing. It passes to `curl` only `PATH` and the proxy and certificate variables that
+`fetch` lists, none of which makes `curl` write a file. Thus a variable such as `SSLKEYLOGFILE`
+does not reach `curl`. The URL is the value of the option `--url`, thus a URL that starts with
+`-` is not an option.
+
 The driver moves the pending record to `tmp/acceptance-link.json` only if
 `RegulaVerification.passed` accepts the exit status of each command. The driver does that move
 before it removes its copy and before the success line. The command `./scripts/verify.sh docs` operates `docFenceAudit --acceptance-link
@@ -1061,6 +1130,7 @@ Two-way decisions (`Regula.Decides`), each with an accepted and a refused input:
 | `RegulaVerification.passed` | Each command of a step ended with exit status 0 (`passed_iff`). | The driver of `scripts/verify.sh` uses it before it operates one more command, before its success line and before it moves the acceptance record. |
 | `RegulaVerification.walked` | The path does not start with `tmp`, and no component of it is `.git`, `.lake`, `.cache` or `.regula-scratch` (`walked_iff`). | The files that the driver copies for the first acceptance step. No theorem relates it to the rule of the isolated copy of the checker. |
 | `RegulaVerification.removal` (accepts on `.remove`) | A directory is at the place by a read that follows no link, and its real path is the place (`removal_remove_iff`). | The driver removes its copy and the `_site` directory only by this decision. The two reads of the file system are trusted. |
+| `Regula.Removal.removal` (accepts on `.remove`) | A read that follows no link finds an entry of the given kind at the place, and its real path is the place (`removal_remove_iff`). | The site executable removes a directory or a file only by this decision. The two reads of the file system are trusted. |
 | `RegulaVerification.prebuildCovers` | The surface manifest has the shape that `claimedTargets` reads, and each target it claims is in `gateTargets` (`prebuildCovers_iff`). | The driver runs the first acceptance step only on such a manifest. Thus the gate does not build a claimed target beside the step's build. No theorem relates `claimedTargets` to the manifest reader of the checker. |
 | `ScratchCopy.name?` (accepts on `some`) | The path is the scratch area, then one name, then `project` (`name?_eq_some_iff`). | The gate admits a copy of the driver only at such a path. The components come from real paths, which the file system gives. |
 | `ScratchCopy.inside` | The path is the directory with one or more components after it (`inside_iff`). | The gate requires its own executable in the build directory of a copy of the driver. |
@@ -4545,8 +4615,10 @@ execution, and calling a proved oracle does not prove the driver or its IO effec
 - The theorems `walked_iff`, `removal_remove_iff` and `removal_nothing_iff` of
   `RegulaVerification` state the decisions of the copy and of the removal. The theorems
   `ScratchCopy.name?_eq_some_iff` and `ScratchCopy.inside_iff` state the two decisions with which
-  the gate admits a copy of the driver. The reads of the file system that give their arguments
-  are trusted.
+  the gate admits a copy of the driver. The theorems `Regula.Removal.removal_remove_iff` and
+  `removal_nothing_iff` state the decision of the removals of the site executable, and
+  `RegulaVerification.removal_shared` relates it to the decision of the driver. The reads of the
+  file system that give their arguments are trusted.
 - The theorems `RegulaVerification.passed_iff` and `passed_covers` are about the function
   `passed`. If `passed` accepts the entries of the commands of a step, each command has an entry
   with exit status 0. The driver reports success only after `passed` accepts. That

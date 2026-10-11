@@ -62,12 +62,12 @@ example is elaborated again. Repository links of the standard name `revision`. -
 def render (root : FilePath) (destination : FilePath) (revision : String) : IO
     (List (String × ByteArray)) := do
   let website := root / "website"
-  if ← destination.pathExists then IO.FS.removeDirAll destination
+  Regula.Removal.removeOwn .directory destination
   for dir in [website / ".lake/build/lib/lean", website / ".lake/build/ir"] do
     if ← dir.pathExists then
       for entry in ← dir.readDir do
         if entry.fileName.startsWith "RegulaStandard" then
-          if ← entry.path.isDir then IO.FS.removeDirAll entry.path else IO.FS.removeFile entry.path
+          Regula.Removal.removeEntry entry.path
   let built ← run website "lake" #["build"] cleanEnv
   requireChecks [⟨s!"Verso site build\n{built.stdout}{built.stderr}", built.exitCode == 0⟩]
   let rendered ← run website "lake" #["exe", "regula-site", "--output", destination.toString]
@@ -241,7 +241,7 @@ def assemble (out : FilePath) (g : Generated) (tag : TagState)
     (sources : List (ReleaseVersion × ReleaseSource)) (edition : List (String × ByteArray))
     (editions : List (ReleaseVersion × List (String × ByteArray)))
     (stable : List (String × ByteArray)) : IO Unit := do
-  if ← out.pathExists then IO.FS.removeDirAll out
+  Regula.Removal.removeOwn .directory out
   IO.FS.createDirAll out
   writeTree (out / Edition.dev.root) edition
   for (v, files) in editions do
@@ -362,8 +362,8 @@ def checkArtifact (root out : FilePath) (g : Generated) (tag : TagState)
   requireChecks
       [⟨s!"registry site validation\n{validated.stdout}{validated.stderr}",
           validated.exitCode == 0⟩]
-  IO.FS.removeFile registry
-  IO.FS.removeFile artifact
+  Regula.Removal.removeOwn .file registry
+  Regula.Removal.removeOwn .file artifact
   let recorded ← IO.FS.readFile (out / "build.json")
   requireChecks [⟨"build identity",
     recorded == (buildJson g tag sources (stable.map (·.1))).pretty ++ "\n"⟩]
@@ -377,10 +377,13 @@ edition's source, admit evidence, generate, render, collect the release editions
 check. A clean build that rendered its release's edition, the release commit's before its
 release is published, also writes that edition as the release asset. An unreleased build that
 previews a release not yet published, the release pull request's, writes no asset and says that
-its artifact is not publishable. -/
+its artifact is not publishable. A relative `out` is taken from the real path of the working
+directory, and a link, `.` or `..` among its components stops the build before it makes or removes
+anything (`Regula.Removal.ownPath`). -/
 def build (evidencePaths : List FilePath) (out : FilePath) : IO Unit := do
   -- Invalidate an earlier artifact before any step can fail.
-  if ← out.pathExists then IO.FS.removeDirAll out
+  let out ← Regula.Removal.ownPath out
+  Regula.Removal.removeOwn .directory out
   let root ← rootDirectory
   let ident ← identity root
   let tags ← remoteTags root
@@ -403,10 +406,10 @@ def build (evidencePaths : List FilePath) (out : FilePath) : IO Unit := do
     checkArtifact root out g tag sources edition editions
   catch error =>
     -- An unchecked artifact never remains where it could be served or uploaded.
-    if ← out.pathExists then IO.FS.removeDirAll out
+    Regula.Removal.removeOwn .directory out
     throw error
-  IO.FS.removeDirAll (root / "tmp/site-render")
-  if ← (releaseDirectory root).pathExists then IO.FS.removeDirAll (releaseDirectory root)
+  Regula.Removal.removeOwn .directory (root / "tmp/site-render")
+  Regula.Removal.removeOwn .directory (releaseDirectory root)
   if let .release v := installed then
     if sources.any (·.2 == .render) then
       if !ident.dirty then

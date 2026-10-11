@@ -1,15 +1,17 @@
 import RegulaVerification
 import Regula.Contract
 import Regula.Decision
+import RegulaCore.Removal
 
 /-! # Decision contracts of the verification driver
 
 The decision kind of each pure decision `RegulaVerification` runs, with its
 `@[regula_decision]` registration. The driver imports only the toolchain, because
 `scripts/verify.sh` runs it with `lean --run` before the package is built. This second module of
-its library imports it together with the two checker interfaces, and nothing the driver runs
-imports this module. Each kind restates theorems of the driver about the same definition and adds
-the witnesses a kind requires. -/
+its library imports it together with the two checker interfaces and the removal decision of the
+site executable (`RegulaCore.Removal`), and nothing the driver runs imports this module. Each
+kind restates theorems of the driver about the same definition and adds the witnesses a kind
+requires. -/
 namespace RegulaVerification
 
 /-- `parseMode` accepts exactly the argument lists of the supported invocations
@@ -70,6 +72,32 @@ theorem checked_removal : Regula.ExecutableContract removal
     (Regula.Decides (· = .remove) (fun observed =>
       observed.place = .directory ∧ observed.sameLocation = true)) :=
   ⟨.of_iff removal_remove_iff ⟨⟨.directory, true⟩, rfl⟩ ⟨⟨.absent, false⟩, by decide⟩⟩
+
+/-- The place of the site executable's decision (`Regula.Removal.Place`) that a place of the
+driver is. The driver does not tell a file from another entry that is not a directory, so its
+`other` is that decision's `other`; that decision refuses both for a directory. -/
+def Place.shared : Place → Regula.Removal.Place
+  | .absent => .absent
+  | .directory => .present .directory
+  | .other => .other
+
+/-- The result of the site executable's decision (`Regula.Removal.Removal`) that a result of the
+driver's decision is. -/
+def Removal.shared : Removal → Regula.Removal.Removal
+  | .nothing => .nothing
+  | .remove => .remove
+  | .refuse => .refuse
+
+/-- The driver's decision is the decision of the site executable for a directory,
+`Regula.Removal.removal .directory`, on the same observation. The driver cannot import that
+decision, because `scripts/verify.sh` runs it with `lean --run` before the package is built, and
+the site executable cannot import the driver, because both programs declare `main`. So the
+decision is written twice, and this theorem relates the two. -/
+theorem removal_shared (observed : Observed) :
+    (removal observed).shared =
+      Regula.Removal.removal .directory ⟨observed.place.shared, observed.sameLocation⟩ := by
+  obtain ⟨place, sameLocation⟩ := observed
+  cases place <;> cases sameLocation <;> decide
 
 /-- `prebuildCovers` accepts exactly a surface manifest of the shape `claimedTargets` reads all of
 whose claimed targets are targets of the prebuild (`prebuildCovers_iff`). It accepts a manifest
