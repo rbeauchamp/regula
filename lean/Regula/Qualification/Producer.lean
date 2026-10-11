@@ -39,15 +39,30 @@ private structure Observation where
   /-- The result document the reader rebuilt. -/
   report : Json
 
-/-- The workspace of `invocation` and `rule`: Fixed, then Violation over that Fixed build, then
-Fixed again from a cleared build, in order; `first` numbers its result files. -/
+/-- The rules whose documented examples the chains audit, one chain for each invocation. -/
+private def rules : Array String := #["RG5001", "RG5002"]
+
+/-- The examples a chain audits, in order: Fixed, then Violation over that Fixed build, then Fixed
+again from a cleared build. -/
+private def chainKinds : Array String := #["Fixed", "Violation", "Fixed"]
+
+/-- The path below the repository of the example `kind` of `rule`. -/
+private def examplePath (rule kind : String) : String := s!"examples/rules/{rule}/{kind}.lean"
+
+/-- The examples the chains audit (`rules`, `chainKinds`), by their paths below the
+repository. -/
+private def examples : Array String :=
+  rules.flatMap fun rule => chainKinds.map (examplePath rule)
+
+/-- The workspace of `invocation` and `rule`: the examples of `chainKinds`, in order; `first`
+numbers its result files. -/
 private def chain (root : FilePath) (fresh : String → IO FilePath)
     (invocation : String) (flags : Array String) (mode rule : String) (first : Nat) :
     IO (Array Observation) := do
   let project ← fresh s!"{invocation}-{rule}"
   let mut observations := #[]
-  for kind in #["Fixed", "Violation", "Fixed"] do
-    let relative := s!"examples/rules/{rule}/{kind}.lean"
+  for kind in chainKinds do
+    let relative := examplePath rule kind
     let bytes ← IO.FS.readBinFile (root / relative)
     let some source := String.fromUTF8? bytes | throw <|
                                                  IO.userError "fixture must be valid UTF-8"
@@ -69,17 +84,15 @@ private def mainSource : String :=
   "/-! Standalone no-effect IO entrypoint. -/\n/-- Does nothing. -/\ndef main \
     : IO Unit := pure ()\n"
 
-/-- The documented-source examples the chains audit, by their paths below the repository. -/
-private def examples : Array String :=
-  #["RG5001", "RG5002"].flatMap fun rule =>
-    #["Fixed", "Violation"].map fun kind => s!"examples/rules/{rule}/{kind}.lean"
+/-- The example that the library of a standalone control holds beside its executable root. -/
+private def standaloneExample : String := examplePath "RG5002" "Fixed"
 
 /-- The standalone executable control `phase` in a fresh workspace of its own. -/
 private def standalone (root : FilePath) (fresh : String → IO FilePath) (phase : String) :
     IO Unit := do
   let project ← fresh s!"standalone-{phase}"
   IO.FS.writeBinFile (project / "Example.lean")
-      (← IO.FS.readBinFile (root / "examples/rules/RG5002/Fixed.lean"))
+      (← IO.FS.readBinFile (root / standaloneExample))
   let config := project / "lakefile.lean"
   IO.FS.writeFile config
       ((← IO.FS.readFile config) ++ "\nlean_exe sampleTool where\n  root := `SelftestMain\n")
@@ -110,7 +123,8 @@ documented-source observations are then validated in the order of one workspace 
 each against the theorem type of the first, as when the workspaces ran in turn. -/
 def check (evidence : Option FilePath) (jobs : Nat := 4) : IO Unit := do
   let root ← rootDirectory
-  let sources := (← examples.mapM fun (relative : String) => IO.FS.readFile (root / relative)).push
+  let sources := (← (examples.push standaloneExample).mapM fun (relative : String) =>
+    IO.FS.readFile (root / relative)).push
     mainSource
   requireRootImportsBuilt root sources
   let records ← withScratch root "producer-controls" fun scratch => do
@@ -122,7 +136,7 @@ def check (evidence : Option FilePath) (jobs : Nat := 4) : IO Unit := do
       return project
     let chains := #[("incremental", #["--incremental"], "incrementalProject"),
         ("build-lint", #["--build-lint"], "incrementalProject")].flatMap fun (invocation, flags,
-          mode) => #["RG5001", "RG5002"].map fun rule => (invocation, flags, mode, rule)
+          mode) => rules.map fun rule => (invocation, flags, mode, rule)
     let workspaces : Array (IO (Array Observation)) :=
       chains.mapIdx (fun index (invocation, flags, mode, rule) =>
         chain root fresh invocation flags mode rule (3 * index)) ++
