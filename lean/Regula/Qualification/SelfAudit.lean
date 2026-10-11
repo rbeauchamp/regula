@@ -38,6 +38,64 @@ def library : String := "Regula"
 /-- The report claim label: the operational decision, never a conforming profile. -/
 def claim : String := "operational"
 
+/-! ### Shards
+
+`qualify self-audit --shard i/4` audits the modules of the `i`th of four shards, and the dogfood
+workflow runs each shard as a job of its own, under the deadline of its own invocation. Each list
+of modules the campaign inspects is sorted by name and dealt in turn: the module at position `i`,
+counted from 0, is in shard `i % shards`. So the shard of a module depends on the set of modules
+alone, not on the order Lake discovers them in, and each shard gets a quarter of each list. -/
+
+/-- The number of shards of the campaign (`RegulaVerification.selfAuditShards` repeats it). -/
+def shards : Nat := 4
+
+/-- The items of `items`, each with its shard: the item at position `i`, counted from 0, is in
+shard `i % shards`. -/
+def dealt {α : Type} (items : List α) : List (Fin shards × α) :=
+  items.mapIdx fun index item => (⟨index % shards, Nat.mod_lt _ (by decide)⟩, item)
+
+/-- The items that `shard` audits: those `dealt` to it, or every item without a shard
+(`Checker.inShard`). -/
+def selected {α : Type} (shard : Option (Fin shards)) (items : List α) : List α :=
+  (Checker.inShard shard (dealt items)).map (·.2)
+
+/-- Without a shard the campaign audits every item, in its order. -/
+theorem selected_none {α : Type} (items : List α) : selected none items = items := by
+  apply List.ext_getElem <;> simp [selected, Checker.inShard, dealt]
+
+/-- Every item is audited in exactly one shard: the selections of the four shards, in their order,
+are together a rearrangement of the items, which an unsharded run audits (`Checker.inShard_cover`).
+This is a statement about the selection; that the shards' jobs select from the same list rests on
+their discovering the same modules from the same sources, which it does not state. -/
+theorem selected_cover {α : Type} (items : List α) :
+    ((List.finRange shards).flatMap fun shard => selected (some shard) items).Perm items := by
+  have cover := (Checker.inShard_cover _ (List.nodup_finRange shards) List.mem_finRange
+    (dealt items)).map Prod.snd
+  have none_eq : (Checker.inShard none (dealt items)).map Prod.snd = items := selected_none items
+  rw [List.map_flatMap, none_eq] at cover
+  exact cover
+
+/-- The spelling of a shard on the command line: `INDEX/4`, `INDEX` counted from 1. -/
+def shardLabel (shard : Fin shards) : String := s!"{shard.val + 1}/{shards}"
+
+/-- The shard that `--shard spec` selects: exactly one of the four labels, so `01/4` and `5/4` are
+refused (`shardOf?_sound`, `shardOf?_label`). -/
+def shardOf? (spec : String) : Option (Fin shards) :=
+  (List.finRange shards).find? fun shard => spec == shardLabel shard
+
+/-- A selected shard is the one whose label the argument is. -/
+theorem shardOf?_sound (spec : String) (shard : Fin shards) (h : shardOf? spec = some shard) :
+    spec = shardLabel shard := by
+  simpa using List.find?_some h
+
+/-- Every shard is selected by its label. -/
+theorem shardOf?_label (shard : Fin shards) : shardOf? (shardLabel shard) = some shard := by
+  revert shard; decide
+
+/-- The names of `modules` in order of their text, which `dealt` deals. -/
+def byName (modules : Array Name) : List Name :=
+  (modules.qsort (·.toString < ·.toString)).toList
+
 /-- Observations of one module in its own imported environment. -/
 structure ModuleObservation where
   /-- The observed module. -/
@@ -389,17 +447,26 @@ unsafe def jsonWorker (moduleName : String) : IO Unit := do
     jsonFindings moduleName.toName (Regula.Probe.ownedConstants env [moduleName.toName])
   IO.println (toJson found).compress
 
-/-- Run the campaign: one fresh worker process per Lake-discovered module of the library.
-Any violation or incomplete module refuses after the full report. -/
-def check (jobs : Nat := 4) : IO Unit := do
+/-- Run the campaign, or the part of it that `shard` selects (`selected`, `selected_cover`): one
+fresh worker process per Lake-discovered module of the library that the shard selects, and one per
+selected module of the other libraries and executable roots. Any violation or incomplete module
+refuses after the full report. -/
+def check (shard : Option (Fin shards) := none) (jobs : Nat := 4) : IO Unit := do
   let repo ← Checker.repoRoot
   let inventory ← Checker.Lake.surfaceInventory repo
   let some info := inventory.libraries.find? (·.library == library)
     | throw <| IO.userError s!"self-audit: Lake discovered no root library {library}"
   if info.modules.isEmpty then
     throw <| IO.userError s!"self-audit: Lake discovered no modules of {library}"
+  let scope := match shard with
+    | some shard => s!" (shard {shardLabel shard})"
+    | none => ""
+  let modules := selected shard (byName info.modules)
+  if modules.isEmpty then
+    throw <| IO.userError s!"self-audit{scope}: the shard selects no module of {library}"
   let self := (← IO.appPath).toString
-  let outcomes ← Checker.mapWorkQueue jobs info.modules fun moduleName =>
+  let outcomes ← Checker.loggedPhase s!"self-audit modules of {library}{scope}" <|
+      Checker.mapWorkQueue jobs modules.toArray fun moduleName =>
     show IO (Except String ModuleResult) from do
     let result ← Checker.runProcess repo self
       #["--under-deadline", "self-audit-module", moduleName.toString,
@@ -414,16 +481,19 @@ def check (jobs : Nat := 4) : IO Unit := do
   -- The other libraries of the package, other than the intended-failure controls, and the root
   -- modules of executables that no library contains are held to the comparison rule alone: each
   -- module in a worker of its own, after Lake builds them, since a worker imports built modules.
+  -- A shard builds and inspects only the modules it selects.
   let others := inventory.libraries.filter fun l => l.library != library && l.library != "Fixtures"
   let inLibrary (m : Name) : Bool := inventory.libraries.any (·.modules.contains m)
   let roots := (inventory.executables.map (·.root)).filter (!inLibrary ·)
-  let guarded := others.flatMap (·.modules) ++ roots
-  let build ← Checker.runProcess repo "lake"
-    (#["build"] ++ others.map (·.library) ++ roots.map (s!"+{·}"))
-  if build.exitCode != 0 then
-    throw <| IO.userError s!"self-audit: lake build of the guarded modules failed: \
-      {build.stdout.trimAscii} {build.stderr.trimAscii}"
-  let jsonOutcomes ← Checker.mapWorkQueue jobs guarded fun moduleName =>
+  let guarded := selected shard (byName (others.flatMap (·.modules) ++ roots))
+  unless guarded.isEmpty do
+    let build ← Checker.loggedPhase s!"self-audit build of the guarded modules{scope}" <|
+      Checker.runProcess repo "lake" (#["build"] ++ guarded.toArray.map (s!"+{·}"))
+    if build.exitCode != 0 then
+      throw <| IO.userError s!"self-audit: lake build of the guarded modules failed: \
+        {build.stdout.trimAscii} {build.stderr.trimAscii}"
+  let jsonOutcomes ← Checker.loggedPhase s!"self-audit Json comparisons{scope}" <|
+      Checker.mapWorkQueue jobs guarded.toArray fun moduleName =>
     show IO (Except String (Array String)) from do
     let result ← Checker.runProcess repo self
       #["--under-deadline", "self-audit-json-module", moduleName.toString]
@@ -450,12 +520,14 @@ def check (jobs : Nat := 4) : IO Unit := do
   let unsafeDeclarations := union (·.unsafeDeclarations)
   let partialDefinitions := union (·.partialDefinitions)
   let dependents := union (·.toolchainDependents)
-  IO.println s!"operational self-audit of library {library}: {results.size}/{info.modules.size} \
-    module(s), {declarations} declaration(s) inspected, {admitted} constant(s) of the \
+  IO.println s!"operational self-audit of library {library}{scope}: \
+    {results.size}/{modules.length} module(s) of the {info.modules.size} the library has, \
+    {declarations} declaration(s) inspected, {admitted} constant(s) of the \
     modules' own data (every one neither unsafe nor partial) kernel-admitted, \
     {contracts} executable contract registration(s)"
-  IO.println s!"Json comparisons: each module of {library} and {guarded.size} module(s) of the \
-    other libraries but Fixtures and of executable roots {roots.toList} inspected, \
+  IO.println s!"Json comparisons{scope}: each of those modules of {library} and \
+    {guarded.length} module(s) of the other libraries but Fixtures and of executable roots \
+    {roots.toList} inspected, \
     {jsonComparisonAllowlist.size} allowlisted declaration(s), \
     {(jsonControls.filter (·.2)).length}/{jsonControls.length} control(s) as intended"
   IO.println s!"reported, not failed: {unsafeDeclarations.size} unsafe \
@@ -472,8 +544,9 @@ def check (jobs : Nat := 4) : IO Unit := do
     the toolchain artifact paths, worker processes and JSON transport, and every execution path \
     (the library's executables make no execution claim)"
   unless violations.isEmpty && incomplete.isEmpty do
-    throw <| IO.userError s!"operational self-audit: FAIL ({violations.size} \
+    throw <| IO.userError s!"operational self-audit{scope}: FAIL ({violations.size} \
       violation(s), {incomplete.size} incomplete module(s))"
-  IO.println "operational self-audit: PASS (operational claim only; not a conforming proof surface)"
+  IO.println s!"operational self-audit{scope}: PASS (operational claim only; not a conforming \
+    proof surface)"
 
 end Regula.Qualification.SelfAudit

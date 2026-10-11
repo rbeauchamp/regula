@@ -21,6 +21,11 @@ namespace RegulaVerification
 toolchain, so it cannot read that; the self-test refuses a shard it does not have. -/
 def lintDriverShards : Nat := 5
 
+/-- The number of shards of the operational self-audit, which
+`Regula.Qualification.SelfAudit.shards` states for the campaign. This module imports only the
+toolchain, so it cannot read that; `qualify` refuses a shard it does not have. -/
+def selfAuditShards : Nat := 4
+
 /-- Closed vocabulary of supported verification invocations. -/
 inductive Mode where
   /-- No argument: the first acceptance step, which makes a private copy of the project, builds
@@ -76,6 +81,9 @@ inductive Mode where
   | selfLintDefault
   /-- `diagnostics self-audit`: the operational self-audit of the excluded `Regula` library. -/
   | selfAudit
+  /-- `diagnostics self-audit INDEX/4`: one of the self-audit's shards, `index` counted from 0 and
+  `INDEX` from 1. -/
+  | selfAuditShard (index : Fin selfAuditShards)
   /-- `diagnostics rule-examples`: the whole rule-example corpus in one run. -/
   | ruleExamples
   /-- `diagnostics rule-examples 1/2`: the first of the corpus's two shards. -/
@@ -115,6 +123,8 @@ def arguments : Mode → List String
   | .selfLint => ["diagnostics", "self-lint"]
   | .selfLintDefault => ["diagnostics", "self-lint-default"]
   | .selfAudit => ["diagnostics", "self-audit"]
+  | .selfAuditShard index =>
+      ["diagnostics", "self-audit", s!"{index.val + 1}/{selfAuditShards}"]
   | .ruleExamples => ["diagnostics", "rule-examples"]
   | .ruleExamplesFirst => ["diagnostics", "rule-examples", "1/2"]
   | .ruleExamplesSecond => ["diagnostics", "rule-examples", "2/2"]
@@ -126,7 +136,8 @@ def modes : List Mode := [.ordinary, .docs, .graph, .diagnostics, .fixtures, .st
   .execution, .structuralFirst, .structuralSecond, .executionFirst, .executionSecond, .cli,
   .environments, .buildPolicy, .lintDriver, .producers, .history, .selfLint, .selfLintDefault,
   .selfAudit, .ruleExamples, .ruleExamplesFirst, .ruleExamplesSecond, .site, .mathlib] ++
-  (List.finRange lintDriverShards).map .lintDriverShard
+  (List.finRange lintDriverShards).map .lintDriverShard ++
+  (List.finRange selfAuditShards).map .selfAuditShard
 
 /-- Argument parsing never accepts a prefix of a supported invocation. -/
 def parseMode (args : List String) : Option Mode :=
@@ -142,6 +153,7 @@ theorem parseMode_sound (args : List String) (mode : Mode)
 theorem parseMode_roundtrip (mode : Mode) : parseMode (arguments mode) = some mode := by
   cases mode with
   | lintDriverShard index => revert index; decide
+  | selfAuditShard index => revert index; decide
   | _ => rfl
 
 /-- Selection carries the argument-binding proof required by the operational caller. -/
@@ -320,8 +332,13 @@ def commands (copy pending : String) : Mode → List Command
   -- warning-free build. As the owner of both packages, the repository asserts that their lakefiles
   -- are ordinary configuration (`REGULA_ORDINARY_LAKEFILES=1`, which the driver reads only from
   -- its environment), so the driver can reuse ordinary build output when the plain-shape guard
-  -- admits the workspace.
-  | .selfLint => [{ lake #["lint"] with env := ownerAssertion },
+  -- admits the workspace. The first command builds, in one Lake invocation, the `lint` driver,
+  -- its worker `axiomGate` and the claimed targets (`gateTargets`), which `lake lint` otherwise
+  -- builds one after another: Lake's lint dispatch builds the driver, then the driver its worker,
+  -- then the audit its claimed build. That command selects nothing: each of those builds still
+  -- runs and builds anything not built here.
+  | .selfLint => [lake ("build" :: "lint" :: gateTargets).toArray,
+      { lake #["lint"] with env := ownerAssertion },
       { lakeIn auditPackage #["lint"] with env := ownerAssertion }]
   -- The root package's run on the default path that an adopter gets, without the owner's
   -- assertion, so with the audit-build marker. The `audit/` package runs the same driver code, and
@@ -330,6 +347,11 @@ def commands (copy pending : String) : Mode → List Command
   | .selfAudit => [
       lake #["build", "Regula", "qualify"],
       lake #["exe", "qualify", "--under-deadline", "self-audit"]]
+  -- A shard of the self-audit: its modules of each list the campaign deals (`SelfAudit.selected`).
+  | .selfAuditShard index => [
+      lake #["build", "Regula", "qualify"],
+      lake #["exe", "qualify", "--under-deadline", "self-audit", "--shard",
+        s!"{index.val + 1}/{selfAuditShards}"]]
   | .ruleExamples => [
       lake #["build", "axiomGate", "ruleExamples", "ruleExampleQualification", "qualify"],
       lake
@@ -958,8 +980,8 @@ def report (ends : List (Command × Option UInt32)) : String :=
 private def usage : String :=
   "usage: scripts/verify.sh [docs | serialized-graph | site | mathlib | diagnostics \
     [fixtures|structural [1/2|2/2]|execution [1/2|2/2]|cli|environments|build-policy|\
-    lint-driver [1/5|2/5|3/5|4/5|5/5]|producers|history|self-lint|self-lint-default|self-audit|\
-    rule-examples [1/2|2/2]]]"
+    lint-driver [1/5|2/5|3/5|4/5|5/5]|producers|history|self-lint|self-lint-default|self-audit \
+    [1/4|2/4|3/4|4/4]|rule-examples [1/2|2/2]]]"
 
 /-- The earlier verdicts an attempt of `mode` invalidates, each with the constant text recording
 it as incomplete. Ordinary acceptance invalidates the accepted link, so it is not accepted from

@@ -235,7 +235,7 @@ checker behavior:
 | `history` | [Source-bound replacement history qualification](proofs-and-boundaries.md#producers). |
 | `self-lint` | This repository's own `REGULA_ORDINARY_LAKEFILES=1 lake lint` through the `regula/lint` driver, in the root and `audit/` packages ([repository conformance](#repository-conformance)). |
 | `self-lint-default` | The root package's `lake lint` without `REGULA_ORDINARY_LAKEFILES`, so with the audit-build marker that an adopter gets by default ([repository conformance](#repository-conformance)). |
-| `self-audit` | Operational self-audit of the excluded `Regula` library, and the check for one-sided `Json` comparisons in each library except `Fixtures` ([repository conformance](#repository-conformance)). |
+| `self-audit`, `self-audit 1/4` to `self-audit 4/4` | Operational self-audit of the excluded `Regula` library, and the check for one-sided `Json` comparisons in each library except `Fixtures` ([repository conformance](#repository-conformance)). A shard audits a quarter of the modules, and the four shards together audit all of them. |
 | `rule-examples`, `rule-examples 1/2`, `rule-examples 2/2` | [Source-owned corpus and diagnostic demonstrations](architecture.md#rule-examples); a shard runs half of the rules. |
 
 The `environments` clean-checkout `freshChecker` control claims two import-free modules
@@ -284,10 +284,10 @@ documentation, passes it without running a campaign
 [CI](../../.github/workflows/ci.yml) runs both shards on every pull request and push to `main`,
 where they feed `./scripts/verify.sh site` ([website guide](website.md)). These campaigns are
 capability-triggered diagnostics (standard §7.8), not a partition of ordinary acceptance.
-The [dogfood workflow](../../.github/workflows/dogfood.yml) runs `self-lint` and `self-audit`
-as parallel jobs under the same limit when Lean sources, Lake configuration, manifests or
+The [dogfood workflow](../../.github/workflows/dogfood.yml) runs `self-lint` and the four shards of
+`self-audit` as parallel jobs under the same limit when Lean sources, Lake configuration, manifests or
 that compiler and dependency setup change, on every push to `main`, and nightly. They are not part of acceptance.
-Neither is a required check of the ruleset of `main`. The workflow runs on a pull request only when those paths change. A required check from it does not report on a different pull request, so that pull request cannot merge.
+None of these jobs is a required check of the ruleset of `main`. The workflow runs on a pull request only when those paths change. A required check from it does not report on a different pull request, so that pull request cannot merge.
 It runs `self-lint-default` only nightly and on dispatch, as one more job under the same limit. It is not a check of a pull request or of a push.
 
 ## Implementation and qualification layout
@@ -397,6 +397,18 @@ The self-audit refuses an allowlist entry if its declaration compares no `Json` 
 entry is a control of the check. Three fixed controls run too. A declaration named under
 `Regula.JsonAgreement` in a different module is found, and so are `compress` texts compared through
 `let` bindings. A `compress` that no comparison reads is not found.
+
+`./scripts/verify.sh diagnostics self-audit 1/4` to `4/4` each run one shard of the self-audit.
+The campaign sorts each list of modules that it inspects by name, and it deals the list to the
+four shards in turn. Thus each shard audits a quarter of each list. The theorem
+`SelfAudit.selected_cover` states that the four selections together are a rearrangement of the
+list that the single run audits. The dogfood workflow runs the four shards, and the local command
+`diagnostics self-audit` runs all of them in one invocation.
+
+Before its `lake lint` in the root package, `diagnostics self-lint` builds the `lint` driver, its
+worker `axiomGate` and the claimed targets in one `lake build`. Lake's lint dispatch, the driver
+and the audit otherwise build them in sequence. Each of these builds still runs, and it
+builds what is not built.
 
 The repository's own checklist rows, which apply to this repository only:
 
