@@ -3954,11 +3954,11 @@ repository).
 Regula's `lakefile.lean` executes the core-only source `RegulaPolicy.Compiler` when its
 configuration is elaborated, in a child `lean`: that of `LEAN_SYSROOT`, else the one
 beside Lake. The source guard compares that child's version and full commit with the
-revision's declared identity and then prints them; the lakefile passes only when the child succeeds and the
-printed pair is the `Lean.versionString` and `Lean.githash` of the Lean elaborating the
-lakefile, so a child that is another compiler, fails or cannot be run is refused, with the
-adopter's remedy. That comparison is an elaboration-time check, not a theorem. The compiled
-probe, inventory admission, and plan admission use the same declared pair.
+revision's declared identity and then prints them; the lakefile passes only when the child
+succeeds and the printed pair is the `Lean.versionString` and `Lean.githash` of the Lean
+elaborating the lakefile, so a child that is another compiler, fails or cannot be run is
+refused, with the adopter's remedy. That comparison is an elaboration-time check, not a
+theorem. The compiled probe, inventory admission, and plan admission use the same declared pair.
 `Compiler.accepts_iff` proves the executed Boolean matches the predicate;
 `transcript_plan_compiler` proves admitted transcripts and a valid plan agree on both fields.
 Compiler self-reports and locating and launching the compiler are trusted IO, and a
