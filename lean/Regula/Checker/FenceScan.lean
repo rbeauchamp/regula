@@ -4605,8 +4605,10 @@ abbrev Block := Option (Char × Nat)
 
 /-- How one line of a Markdown document moves the open block, by the protocol. Outside a block, a
 line that opens a fence opens a block, and each other line leaves none open. Inside a block, a
-line that closes it closes it, and each other line is a body line. Markers and violations move no
-block, so each document has one run of blocks, clean or not. -/
+line that closes it closes it, and each other line is a body line. A marker or a violation that
+the scanner records does not stop a line from opening or closing its block, so each document has
+one run of blocks, clean or not. `Permitted.blockStep` relates the permitted transitions to these
+steps. -/
 inductive BlockStep : Block → String → Block → Prop
   /-- A line that opens a fence, outside a block. -/
   | opens {line : String} {character : Char} {count : Nat} {info : String} :
@@ -4958,8 +4960,10 @@ theorem scanLines_fence (source : Source) {fence : Fence}
 
 /-- How one line of a Verso source moves the open block, by the protocol. Outside a block, a line
 with a fence run opens a block, and each other line leaves none open. Inside a block, a line that
-closes it with back-ticks closes it, and each other line is a body line. Violations move no block,
-so each source has one run of blocks, clean or not. -/
+closes it with back-ticks closes it, and each other line is a body line. A violation that the
+scanner records, such as a block that opens with tildes, does not stop the line from opening its
+block, so each source has one run of blocks, clean or not. `VersoPermitted.blockStep` relates the
+permitted transitions to these steps. -/
 inductive VersoBlockStep : VersoMode → String → VersoMode → Prop
   /-- A line with a fence run, outside a block. -/
   | opens {line : String} {character : Char} {count : Nat} {info : String} :
