@@ -370,12 +370,14 @@ with a `mode` records its `request`, whose documentation stages are exactly thos
 `projectWithDocs` request;
 `stagesCompleted`, `complete`, `stagesNotRun` and `rules` have search trees and agree with their
 derivation by the writer's own `guidanceFields` (`JsonAgreement.conforms`) from the status,
-those stages and the diagnostics (`guidanceFields_recorded`), so no stage a finding blocks is
-reported as run and a `completed` result reports every stage as run; and an `incomplete` result
-without an incomplete finding reports a stage not run, because only a stage that did not complete
-can have left it incomplete. This is consistency against writer regressions and omissions, not
-authenticity: a report deliberately edited to be self-consistent, such as a rewritten
-`request.kind`, passes. -/
+those stages and the diagnostics, which the writer's own members reproduce
+(`guidanceFields_recorded`). So a result whose status is not `completed` reports no stage that a
+finding blocks as run, and a `completed` result reports every stage as run, whatever its findings
+(`completedStages` reads no finding for it, https://github.com/rbeauchamp/regula/issues/364); and
+an `incomplete` result without an incomplete finding reports a stage not run, because only a stage
+that did not complete can have left it incomplete. This is consistency against writer regressions
+and omissions, not authenticity: a report deliberately edited to be self-consistent, such as a
+rewritten `request.kind`, passes. -/
 def admitGuidance (j : Json) : Except String Unit := do
   unless (j.getObjVal? "schemaVersion").toOption == some (toJson schemaVersion) do
     throw "unsupported result schema"

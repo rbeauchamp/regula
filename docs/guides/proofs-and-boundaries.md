@@ -1028,7 +1028,7 @@ Two-way decisions (`Regula.Decides`), each with an accepted and a refused input:
 | `RegulaPolicy.Erasure.reproduces` | `Erasure.Reproduction`: the observing pass finished, the regeneration added a definition, and each value is related by `Erasure.EqualWithin` to the observed value of its name | The recursion-helper comparison of [RG1006], over the two values and the recorded observations of their terms ([below](#the-recursion-helper-comparison-decision-and-observing-pass)). |
 | `Regula.JsonAgreement.agrees` | `JsonAgreement.Agree` (`agrees_iff`). The two values have one constructor and equal scalars. The elements of two arrays agree in order. Two objects have the same number of members. Each member of the first is found by its name in the second, with a value that it agrees with. | The comparison of an input with the encoding of the decoded value ([below](#the-diagnostic-and-policy-codecs-decisions-and-observing-pass)). |
 | `Regula.JsonAgreement.regular` | `JsonAgreement.Regular` (`regular_iff`). Each object tree of the value, at each depth, is a search tree. The names of its members go up in the order of the tree. | The search-tree half of `conforms`. |
-| `Regula.JsonAgreement.conforms` | The first value has search trees, and it agrees with the second (`conforms_iff`). | The comparison of an input with an encoding in `canonical`, `RegistryCodec.parseDescriptor`, `RegistryCodec.validateRegistry` and `ResultProtocol.admitGuidance`. |
+| `Regula.JsonAgreement.conforms` | The first value has search trees, and it agrees with the second (`conforms_iff`). | The comparison of an input with an encoding in `canonical`, the decoders of `RegistryCodec` and `Website`, `Checker.readWorkerPacket`, `ResultProtocol.admitGuidance` and checks of the qualification. |
 | `Regula.JsonAgreement.canonical` (accepts on `.ok`) | The reader returns a value, the input has search trees, and the input agrees with the encoding of that value (`canonical_eq_ok_iff`). | The decoders `DiagnosticCodec.parseLocation` and `parseDiagnostic`. The reader and the encoder are arguments, so the kind is about each reader and each encoder. |
 | `Regula.DiagnosticCodec.parseLocation`, `parseDiagnostic` (accept on `.ok`) | `LocationWire`, `FindingWire` (`parseLocation_iff`, `parseDiagnostic_iff`). Each object is a search tree. The object has the members of a location, or of a finding, and each member has its meaning. | The readers of a location and of a finding in a result file. |
 | `Regula.Checker.PolicyCodec.exactFields` (accepts on `.ok`) | `ExactFields` (`exactFields_iff`). The value is an object, and its member names are the expected names in some order. | The decoders of the worker protocol and of the producer reports. The proof that the expected names are distinct is an argument of the function. |
@@ -1490,6 +1490,7 @@ build of the excluded `Regula` library, with `propext`, `Classical.choice` and `
 | An accepted value has the form | `parseLocation_wire`, `parseDiagnostic_wire`, `parseLocation_iff`, `parseDiagnostic_iff`, `checked_parseLocation`, `checked_parseDiagnostic` | The input has the form of the value that the decoder returns. The theorem is for each `Json` value. |
 | An accepted value conforms to its encoding | `parseLocation_canonical`, `parseDiagnostic_canonical` | The input has search trees and agrees with the encoding. The theorem is for each `Json` value. It names the encoder that the decoder runs. |
 | The registry decoders conform | `RegistryCodec.parseDescriptor_eq_ok_iff`, `validateRegistry_eq_ok_iff` | `parseDescriptor` returns a rule exactly when the member `id` names it and the input conforms to the descriptor of that rule. `validateRegistry` accepts exactly a value that conforms to the registry of the producer. |
+| The other readers conform | `Checker.readWorkerPacket_eq_ok_iff`, `Website.parsePage_eq_ok_iff`, `Website.validateArtifact_regular` | `readWorkerPacket` returns a payload exactly when the packet has its four members and schema 1, and two members conform. The member `producer` conforms to the producer of this checker, and the member `request` to the request. `parsePage` returns a page exactly when its members read as the page and the record conforms to `pageJson` of it. `validateArtifact` accepts only an artifact list with search trees. |
 | In a search tree, each member is found by its name | `JsonAgreement.get?_of_mem`, `mem_of_get?` | The first theorem is about `Std.TreeMap.Raw.get?`, the lookup that `Json.getObjVal?` runs. The second is for each tree: a name that is found is the name of a member. |
 | Exact members | `PolicyCodec.exactFields_iff`, `checked_exactFields` | `exactFields` accepts exactly an object that has the expected names as its member names, in some order (`ExactFields`). The proof that the expected names are distinct is an argument. Thus Lean rejects a call with a list that gives one name twice. |
 
@@ -1510,12 +1511,14 @@ these items:
 - That `agrees` returns what the runtime equality of `Json` returns. The two definitions have the
   same cases, which a reader can compare. The agreement of the two is by reading, and a
   comparison of the two over pairs of values is evidence for those pairs only.
-- What the other comparisons of `Json` values accept. `RegistryCodec.parseDescriptor`,
-  `RegistryCodec.validateRegistry` and the guidance members of `ResultProtocol.admitGuidance`
-  run `conforms`, with the input first. Other modules of the library compare `Json` values with
-  the runtime equality. In some of them the encoding comes first, so each of its names is looked
-  up in the input. Others compare values with no object, or two inputs. This item is not a
-  complete list, and no theorem says what one of these comparisons accepts.
+- What the other comparisons of `Json` values accept. These functions run `conforms`, with the
+  input first: `RegistryCodec.parseDescriptor`, `validateRegistry`, `Website.parsePage`,
+  `validateArtifact` and `Checker.readWorkerPacket`. The guidance members of
+  `ResultProtocol.admitGuidance` and some checks of the qualification run it too. Other
+  comparisons put the encoding first, compare with an encoding that has no object, or compare two
+  inputs or two encodings. The producer checks of the claimed library `RegulaQualification` cannot
+  import `JsonAgreement`, and they put the report first. This item is not a complete list, and no
+  theorem says what one of these comparisons accepts.
 
 **The callers.** These paths give a value to the diagnostic decoder. They are read from the code
 of the callers.

@@ -2,6 +2,7 @@ import Regula.DiagnosticCodec
 import RegulaPolicy.Observation
 import Regula.Contract
 import Regula.Decision
+import RegulaPolicy.Guards
 
 /-! # Website metadata and example interfaces
 
@@ -393,27 +394,69 @@ theorem demonstration_not_accepted (request : DemonstrationRequest)
     exact ⟨f, member, by rw [impact]; rfl⟩
   simp [validateBoundExample, outcome, incomplete, h.1, bind, Except.bind, throw]
 
-/-- This artifact list is supplied by the builder after inspecting its actual output tree. -/
+/-- The members a page record has: its rule, its route and whether it includes the rule's
+checked example. -/
+def pageJson (page : Page) : Json :=
+  Json.mkObj [("id", ruleJson page.rule), ("route", toJson page.route),
+    ("checkedExample", toJson page.checkedExample)]
+
+/-- This artifact list is supplied by the builder after inspecting its actual output tree.
+A record whose object trees are not search trees, or that has a member other than the three, is
+refused (`parsePage_eq_ok_iff`, https://github.com/rbeauchamp/regula/issues/269). -/
 def parsePage (j : Json) : Except String Page := do
   let rule ← parseRule (← j.getObjVal? "id")
   let route ← (← j.getObjVal? "route").getStr?
   let checkedExample ← (← j.getObjVal? "checkedExample").getBool?
-  unless j == Json.mkObj [("id", ruleJson rule), ("route", toJson route),
-    ("checkedExample", toJson checkedExample)] do
+  unless JsonAgreement.conforms j (pageJson ⟨rule, route, checkedExample⟩) do
     throw "unknown page fields"
   return ⟨rule, route, checkedExample⟩
 
+/-- `parsePage` returns `page` exactly when the record's members `id`, `route` and
+`checkedExample` read as its rule, route and flag, and the record has search trees and agrees
+with `pageJson page`. -/
+theorem parsePage_eq_ok_iff (j : Json) (page : Page) :
+    parsePage j = .ok page ↔
+      (∃ id, j.getObjVal? "id" = .ok id ∧ parseRule id = .ok page.rule) ∧
+      (∃ route, j.getObjVal? "route" = .ok route ∧ route.getStr? = .ok page.route) ∧
+      (∃ flag, j.getObjVal? "checkedExample" = .ok flag ∧
+        flag.getBool? = .ok page.checkedExample) ∧
+      JsonAgreement.Regular j ∧ JsonAgreement.Agree j (pageJson page) := by
+  unfold parsePage
+  simp only [RegulaPolicy.Guards.bind_eq_ok, RegulaPolicy.Guards.throw_bind,
+    RegulaPolicy.Guards.ite_throw_eq_ok, JsonAgreement.conforms_iff, pure, Except.pure,
+    Except.ok.injEq]
+  constructor
+  · rintro ⟨id, readId, rule, named, route, readRoute, routed, readStr, flag, readFlag, checked,
+      readBool, conforming, rfl⟩
+    exact ⟨⟨id, readId, named⟩, ⟨route, readRoute, readStr⟩, ⟨flag, readFlag, readBool⟩,
+      conforming⟩
+  · rintro ⟨⟨id, readId, named⟩, ⟨route, readRoute, routed⟩, ⟨flag, readFlag, flagged⟩,
+      conforming⟩
+    exact ⟨id, readId, page.rule, named, route, readRoute, page.route, routed, flag, readFlag,
+      page.checkedExample, flagged, conforming, rfl⟩
+
 /-- Required IDs come from the selected site scope plus every emitted example diagnostic.
-Production #15 uses its full scope; the bounded prototype explicitly selects one rule. -/
+Production #15 uses its full scope; the bounded prototype explicitly selects one rule.
+An artifact list whose object trees are not search trees is refused
+(`validateArtifact_regular`, https://github.com/rbeauchamp/regula/issues/269). -/
 def validateArtifact (p : ProducerIdentity) (manifest artifact : Json) : Except String Unit := do
   let required ← (← (← artifact.getObjVal? "required").getArr?).toList.mapM parseRule
   let emitted ← (← (← artifact.getObjVal? "emitted").getArr?).toList.mapM parseRule
   let rawPages ← (← artifact.getObjVal? "pages").getArr?
   let pages ← rawPages.toList.mapM parsePage
-  unless artifact == Json.mkObj [("required", toJson (required.map ruleJson)),
-    ("emitted", toJson (emitted.map ruleJson)), ("pages", toJson rawPages)] do
+  unless JsonAgreement.conforms artifact (Json.mkObj [("required", toJson (required.map ruleJson)),
+    ("emitted", toJson (emitted.map ruleJson)), ("pages", toJson rawPages)]) do
     throw "unknown artifact fields"
   unless emitted.all (fun id => required.contains id) do
       throw "emitted diagnostic has no required page"
   validatePages p manifest required pages
+
+/-- An artifact list that `validateArtifact` accepts has search trees at every depth. -/
+theorem validateArtifact_regular {p : ProducerIdentity} {manifest artifact : Json}
+    (accepted : validateArtifact p manifest artifact = .ok ()) : JsonAgreement.Regular artifact := by
+  unfold validateArtifact at accepted
+  simp only [RegulaPolicy.Guards.bind_eq_ok, RegulaPolicy.Guards.throw_bind,
+    RegulaPolicy.Guards.ite_throw_eq_ok, JsonAgreement.conforms_iff] at accepted
+  obtain ⟨_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, ⟨regular, _⟩, _⟩ := accepted
+  exact regular
 end Regula.Website

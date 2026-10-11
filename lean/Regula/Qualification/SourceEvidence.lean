@@ -142,8 +142,9 @@ def configuration : IO Unit := do
             return [
               Check.mk "configuration IO detail"
                   (why.contains directory && process.stderr.contains why),
-              ⟨"exact configuration location", (← field d "location") == Json.mkObj [
-                ("kind", .str "project"), ("identity", .str project.toString)]⟩,
+              ⟨"exact configuration location",
+                Regula.JsonAgreement.conforms (← field d "location")
+                  (Json.mkObj [("kind", .str "project"), ("identity", .str project.toString)])⟩,
               ⟨"exact unresolved IO failure", (← array result "unresolved") == #[.str why]⟩,
               ⟨"no source invented", (← array result "sourceAccount").isEmpty⟩,
               ⟨"request without configuration read",
