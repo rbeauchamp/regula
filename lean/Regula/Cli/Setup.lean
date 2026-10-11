@@ -167,7 +167,8 @@ import resolves through `resolveImport`, so the closure holds only modules Lake 
 with the `Module.leanFile` Lake gives that module, and reads only their headers, with Lean's
 header parser, without building. An import of another package or of the toolchain ends its path.
 A module of the closure whose source file does not exist is refused, naming the module and the
-module that imports it: Lake's build of that import fails reading the file (`Module.recFetchInput`).
+module that imports it, or naming it as a claimed module: Lake's build of that module fails
+reading the file (`Module.recFetchInput`).
 -/
 def importClosure (ws : Lake.Workspace) (starts : List Lake.Module) :
     IO (List (Name × FilePath)) := do
