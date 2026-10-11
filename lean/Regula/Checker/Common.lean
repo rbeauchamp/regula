@@ -514,6 +514,54 @@ def mapWorkQueue {α β : Type} (jobs : Nat) (items : Array α)
     responses.toList).mapError fun failure =>
       s!"internal error: work queue result admission: {repr failure}"
 
+/-- The controls a run executes: all of `items`, or those assigned to the selected shard. Each
+item carries its one shard. -/
+def inShard {σ α : Type} [DecidableEq σ] (shard : Option σ) (items : List (σ × α)) :
+    List (σ × α) :=
+  match shard with
+  | none => items
+  | some selected => items.filter fun item => decide (item.1 = selected)
+
+/-- The selections of the shards in `shards`, in that order, are together a rearrangement of the
+items whose shard `shards` lists. -/
+private theorem inShard_listed {σ α : Type} [DecidableEq σ] (items : List (σ × α)) :
+    ∀ shards : List σ, shards.Nodup →
+      (shards.flatMap fun shard => inShard (some shard) items).Perm
+        (items.filter fun item => decide (item.1 ∈ shards))
+  | [], _ => by simp
+  | shard :: rest, nodup => by
+    obtain ⟨absent, rest_nodup⟩ := List.nodup_cons.mp nodup
+    have listed := List.filter_append_perm (fun item : σ × α => decide (item.1 = shard))
+      (items.filter fun item => decide (item.1 ∈ shard :: rest))
+    rw [List.filter_filter, List.filter_filter] at listed
+    have selected : (items.filter fun item =>
+        decide (item.1 = shard) && decide (item.1 ∈ shard :: rest)) =
+          items.filter fun item => decide (item.1 = shard) :=
+      List.filter_congr fun item _ => by
+        by_cases h : item.1 = shard <;> simp [h]
+    have others : (items.filter fun item =>
+        !decide (item.1 = shard) && decide (item.1 ∈ shard :: rest)) =
+          items.filter fun item => decide (item.1 ∈ rest) :=
+      List.filter_congr fun item _ => by
+        by_cases h : item.1 = shard
+        · simp [h, absent]
+        · simp [h]
+    rw [selected, others] at listed
+    simpa [inShard] using
+      ((inShard_listed items rest rest_nodup).append_left
+        (items.filter fun item => decide (item.1 = shard))).trans listed
+
+/-- Every item runs in exactly one shard: when `shards` lists every shard once, their selections,
+in that order, are together a rearrangement of what an unsharded run executes. This is a statement
+about the selection; that the runs of the shards select from the same list rests on their running
+the same sources, which it does not state. -/
+theorem inShard_cover {σ α : Type} [DecidableEq σ] (shards : List σ) (nodup : shards.Nodup)
+    (complete : ∀ shard, shard ∈ shards) (items : List (σ × α)) :
+    (shards.flatMap fun shard => inShard (some shard) items).Perm (inShard none items) := by
+  have all : (items.filter fun item => decide (item.1 ∈ shards)) = items :=
+    List.filter_eq_self.mpr fun item _ => by simp [complete]
+  simpa [all, inShard] using inShard_listed items shards nodup
+
 /-- Bounded concurrent map implemented in deterministic batches. -/
 def mapConcurrent {α β : Type} (jobs : Nat) (items : Array α) (action : α → IO β) :
     IO (Array β) := do

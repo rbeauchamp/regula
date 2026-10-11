@@ -839,15 +839,15 @@ def markerInputs (ws : _root_.Lake.Workspace) : IO (Option MarkerInputs) := do
 /-- The audit-build marker decision of `buildAuditTargets` for the workspace `ws` as Lake loads it:
 `auditLeanOptions` on the root package, or none. Without `ordinary` that is every build, as before
 the plain shape existed. With `ordinary`, the workspace owner's assertion that the workspace's
-lakefiles are ordinary configuration (`lake lint -- --ordinary-lakefiles`), the marker is omitted
-when `auditMarkerNeeded` decides that the workspace is of the plain shape and that each module of
-the root package resolves to its one source and does not import `linterModule`; each failure to
-read the workspace, by an exception or by an unknown, keeps it. It then prints one line before the
-build, outside the build output: that the build omits the marker, or that it keeps it with the
-reason, which is `markerReason` (a reason exactly when `auditMarkerNeeded` asks for the marker,
-`markerReason_isSome`) or the failure to read the workspace. The decision reads the configuration
-the workspace's lakefiles give, before `Lake.Build.run` turns off the artifact cache in it, and
-the imports of its modules through Lake (`moduleImports`), which builds no module. -/
+lakefiles are ordinary configuration (`REGULA_ORDINARY_LAKEFILES=1` in the environment of
+`lake lint`), the marker is omitted when `auditMarkerNeeded` decides that the workspace is of the
+plain shape and that each module of the root package resolves to its one source and does not
+import `linterModule`; each failure to read the workspace, by an exception or by an unknown, keeps
+it. It then prints one line before the build, outside the build output: that the build omits
+the marker, or that it keeps it with the reason, which is `markerReason` (a reason exactly when
+`auditMarkerNeeded` asks for the marker, `markerReason_isSome`) or the failure to read the
+workspace. The decision reads the configuration the workspace's lakefiles give, before
+`Lake.Build.run` turns off the artifact cache in it, and the imports of its modules through Lake (`moduleImports`), which builds no module. -/
 def auditRootOptions (ordinary : Bool) (ws : _root_.Lake.Workspace) :
     IO (Option LeanOptions) := do
   let marked ← if !ordinary then pure true else do

@@ -1259,9 +1259,9 @@ def guide : RuleId → Guide
           disable from a forbidden one; review checks them."]
       limitations := [
         "`lake lint` builds with Regula's audit-build marker, except when the workspace owner \
-          passes `--ordinary-lakefiles`, asserting that the workspace's lakefiles are ordinary \
-          configuration, and a conservative plain-shape guard admits the workspace. The marker \
-          turns the local linter off \
+          sets `REGULA_ORDINARY_LAKEFILES=1` in the environment of `lake lint`, asserting \
+          that the workspace's lakefiles are ordinary configuration, and a conservative \
+          plain-shape guard admits the workspace. The marker turns the local linter off \
           whatever the source sets `linter.regula` to, so Regula's own local findings are not \
           build warnings there and its policy stages report those rules. `axiomGate` and the \
           build-lint `policy` target keep ordinary options, so in a module that imports \
@@ -1450,8 +1450,9 @@ def guide : RuleId → Guide
               "lean/Regula/Checker/SourceAudit.lean", "lean/Regula/Checker/SourceBinding.lean"] }
   | .communityConfiguration => {
       problem := "A claimed library or executable is built with automatic implicits on or \
-        without Lean's `linter.missingDocs`, turns off a linter for all its modules beyond the \
-        three Mathlib-repository linters that standard §6.7 excludes, overrides these options \
+        without Lean's `linter.missingDocs`, sets for all its modules an option outside RG2006's \
+        accepted set, such as a linter or one of Lean's own `warn.*` warnings turned off beyond \
+        the three Mathlib-repository linters that standard §6.7 excludes, overrides these options \
         with a `-D` extra `lean` argument, or, in a surface that imports Mathlib, leaves Mathlib's \
         standard linter set or its exclusions unset."
       trigger := [
@@ -1461,10 +1462,28 @@ def guide : RuleId → Guide
           `moreLeanArgs`. The proved decision `RegulaPolicy.Community.failures` rejects the \
           target, with applicability `community-configuration`, when `autoImplicit` or \
           `relaxedAutoImplicit` is not set to `false` or `linter.missingDocs` is not set to \
-          `true`, when any other `linter.…` option than \
-          `linter.style.header`, `linter.hashCommand` and `linter.style.longFile` is set to \
-          `false`, or when a `-D name=value` among the extra arguments gives a required option \
-          a value the rule does not admit or sets such a linter to `false`.",
+          `true`, when `leanOptions` or a `-D name=value` among the extra arguments sets any \
+          other option outside the accepted set, at any value and whether Lean declares the \
+          option or not, or when a `-D` gives a required option a value the rule does not admit.",
+        "The accepted set holds the required options at the values the rule admits; the §6.7 \
+          exclusions `linter.style.header`, `linter.hashCommand` and `linter.style.longFile` at \
+          `false`, `false` and `0`; `linter.style.header.license` at a nonempty string, which \
+          selects the header the header linter accepts; each `linter.…` and `warn.…` option that \
+          Lean v4.34.1 or the pinned Mathlib and Batteries register, at the one value that \
+          silences nothing its default reports (`RegulaPolicy.Community.warningSettings`); \
+          `warningAsError` and \
+          `debugAssertions` at `true`, which add checks; the resource limits `maxHeartbeats`, \
+          `synthInstance.maxHeartbeats`, `maxRecDepth`, `maxSynthPendingDepth` and \
+          `exponentiation.threshold` at any number, since raising a positive one lets Lean do \
+          work it would otherwise stop or skip and `0` means no limit for the first three; and \
+          each `pp.…` option that Lean, Mathlib or Qq register, at its default \
+          (`RegulaPolicy.Community.printSettings`). A pretty-printer option changes the text \
+          some linters compare, such as Mathlib's whitespace linter with `pp.unicode` off, so a \
+          non-default one belongs in an editor or user setting, not in a target's options. Any \
+          other `linter.…`, `warn.…` or `pp.…` option, or a listed one at another value, is \
+          rejected: \
+          `linter.unusedVariables.analyzeTactics` passes only at `false`, since at `true` it \
+          counts a parameter as used when a tactic state mentions it.",
         "A target of a surface whose loaded environments contain a Mathlib module must also set \
           `weak.linter.mathlibStandardSet` to `true`, `weak.linter.hashCommand` to `false` and \
           `weak.linter.style.longFile` to `0`, and `weak.linter.style.header` to `false`, or to \
@@ -1472,29 +1491,43 @@ def guide : RuleId → Guide
           Mathlib's header linter expects in `leanOptions`, with every value that `leanOptions` or \
           any `-D` gives it a nonempty string; a `-D` alone does not configure the license line.",
         "A key's leading `weak.` component is read as the option it sets; a target that gives one \
-          option under both spellings must give a value the rule admits under each. A string value \
+          option under both spellings must give a value the rule admits under each. The name \
+          alone decides: whether Lean applies a `weak.` entry depends on which modules declare \
+          the option, so an entry such as `weak.warn.example` that no module declares is \
+          rejected although Lean ignores it; delete it. A string value \
           counts as Lean parses it for the option: `\"false\"` is `false` and `\"0\"` is `0`. \
           One finding per target lists every failure.",
         "Every `-D` that `lean` reads starts at the first `D` of an argument that begins with a \
           single `-` (`-D`, or after flags as in `-qD`), with its value after the `D` or in the \
           next argument; the rule reads every such candidate, so it can also reject one that \
-          `lean` does not read as a `-D`, such as the value of `-o`. Any other extra argument is \
-          allowed."]
+          `lean` does not read as a `-D`, such as the value of `-o`. Any extra argument that \
+          sets no option is allowed."]
       rationaleDetail := [
         "Standard §7.1 requires the options because they decide which binders a declaration's \
           elaborated type has. Standard §6.7 adopts the community's linters as its conventions \
           baseline, and a linter enforces its convention only where it is on: RG2003 rejects \
-          warnings, not a missing linter."]
+          warnings, not a missing linter. A list of the options that can stop a warning would \
+          have to name every switch Lean and its dependencies declare, so the rule closes the \
+          list the other way: only options that cannot stop a default warning pass, except that \
+          raising `exponentiation.threshold` stops the warning that a power was not evaluated, \
+          because Lean evaluates it."]
       proofShape := []
       established := [
         "Every claimed library and executable is built through Lake with automatic implicits \
-          off and `linter.missingDocs` on, turns off no linter target-wide beyond the §6.7 \
-          exclusions and, in a Mathlib surface, enables the standard set with exactly those \
-          exclusions, or with the header linter on and its license line configured; no `-D` \
+          off and `linter.missingDocs` on, sets no option for all its modules outside the \
+          accepted set and, in a Mathlib surface, enables the standard set with exactly the \
+          §6.7 exclusions, or with the header linter on and its license line configured; no `-D` \
           extra `lean` argument overrides these options."]
       notEstablished := [
         "That no module sets an option back in source, such as `set_option autoImplicit true` or \
           a linter disable; review checks source options (§6.2).",
+        "Any bound on a resource limit of the accepted set: `maxHeartbeats`, \
+          `synthInstance.maxHeartbeats`, `maxRecDepth`, `maxSynthPendingDepth` and \
+          `exponentiation.threshold` pass at any number, and raising one lets Lean do the work it \
+          would otherwise skip, such as evaluating a power above `exponentiation.threshold` \
+          instead of warning that it did not. `0` means no limit for `maxHeartbeats`, \
+          `synthInstance.maxHeartbeats` and `maxRecDepth`, so Lean does all the work. A project \
+          that wants a limit fixed checks it itself.",
         "That the community linters' own checks pass, such as a docstring on every public \
           declaration; their warnings are RG2003's.",
         "That extra `lean` arguments other than `-D`, such as `--plugin` or `--setup`, leave the \
@@ -1514,6 +1547,14 @@ def guide : RuleId → Guide
         "Whether a surface imports Mathlib is read from all of its loaded environments, so every \
           claimed target of such a surface, including an executable whose own root does not \
           import Mathlib, needs the Mathlib options.",
+        "The accepted value of each `linter.…` and `warn.…` option was read from its \
+          registration's description at Lean v4.34.1 and the pinned Mathlib and Batteries; that \
+          it silences nothing its default reports is not proved \
+          (`RegulaPolicy.Community.warningSettings`); each `pp.…` option's default was read \
+          from its registration at Lean v4.34.1, the pinned Mathlib and Qq \
+          (`RegulaPolicy.Community.printSettings`). A move to another Lean release fails the \
+          build until these arguments are read again (`acceptedRelease_eq`); nothing checked ties \
+          the list to the Mathlib pin.",
         "The `-D` reading is assumed to cover the command-line parser of the Lean executable, \
           as read from Lean's `Lean.Shell` source and its getopt handling; that correspondence \
           is neither proved nor observed.",
@@ -1524,11 +1565,16 @@ def guide : RuleId → Guide
         "The rule runs in project audits only; editor feedback does not read Lake configuration."]
       residuals := [.qualify, .intent]
       checklist := ["DECL-01", "DOC-01"]
-      linkage := "`RegulaPolicy.Community.failures_eq_nil_iff`, `conforming_of_mathlib`, \
-        `conforming_missingDocs`, `conforming_header`, `header_on_unlicensed_fails`, \
-        `licensed_iff`, `licensed_header_passes`, `unlicensed_header_fails`, \
-        `leanArgument_mem_failures_iff` and `missingDocs_unset_fails`. Reading Lake's target \
-        configuration is operational."
+      linkage := "`RegulaPolicy.Community.failures_eq_nil_iff`, `accepts_iff`, \
+        `conforming_of_mathlib`, `conforming_missingDocs`, `conforming_header`, \
+        `header_on_unlicensed_fails`, `licensed_iff`, `licensed_header_passes`, \
+        `unlicensed_header_fails`, `leanArgument_mem_failures_iff`, \
+        `unaccepted_mem_failures_iff`, `warn_sorry_option_fails`, \
+        `docVersoSuggestions_option_fails`, `unlisted_linter_option_fails`, \
+        `analyzeTactics_option_fails`, `ppUnicode_option_fails`, `ppOneline_option_fails`, \
+        `accepted_families_pass`, \
+        `undeclared_weak_argument_fails`, `acceptedRelease_eq`, `optionOf_eq_replacePrefix` and \
+        `missingDocs_unset_fails`. Reading Lake's target configuration is operational."
       sources := ["lean/RegulaPolicy/Community.lean", "lean/Regula/Checker/Lake.lean",
         "lean/Regula/Checker/AxiomGate.lean", "website/RegulaStandard/CodeOrganization.lean"] }
   | .executionUnresolved => {

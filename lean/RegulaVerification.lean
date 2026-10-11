@@ -16,6 +16,11 @@ it starts at low scheduling priority (`Priority`).
 Process effects remain trusted IO under the shell's single 420-second process-group deadline. -/
 namespace RegulaVerification
 
+/-- The number of shards of the self-test's lint-driver partition, which
+`Regula.Checker.LintQualification.shards` states for the self-test. This module imports only the
+toolchain, so it cannot read that; the self-test refuses a shard it does not have. -/
+def lintDriverShards : Nat := 5
+
 /-- Closed vocabulary of supported verification invocations. -/
 inductive Mode where
   /-- No argument: the first acceptance step, which makes a private copy of the project, builds
@@ -57,6 +62,9 @@ inductive Mode where
   | buildPolicy
   /-- `diagnostics lint-driver`: the self-test's `lake lint` driver partition. -/
   | lintDriver
+  /-- `diagnostics lint-driver INDEX/5`: one of the lint-driver partition's shards, `index`
+  counted from 0 and `INDEX` from 1. -/
+  | lintDriverShard (index : Fin lintDriverShards)
   /-- `diagnostics producers`: the producers qualification campaign. -/
   | producers
   /-- `diagnostics history`: the history qualification campaign. -/
@@ -100,6 +108,8 @@ def arguments : Mode → List String
   | .environments => ["diagnostics", "environments"]
   | .buildPolicy => ["diagnostics", "build-policy"]
   | .lintDriver => ["diagnostics", "lint-driver"]
+  | .lintDriverShard index =>
+      ["diagnostics", "lint-driver", s!"{index.val + 1}/{lintDriverShards}"]
   | .producers => ["diagnostics", "producers"]
   | .history => ["diagnostics", "history"]
   | .selfLint => ["diagnostics", "self-lint"]
@@ -115,7 +125,8 @@ def arguments : Mode → List String
 def modes : List Mode := [.ordinary, .docs, .graph, .diagnostics, .fixtures, .structural,
   .execution, .structuralFirst, .structuralSecond, .executionFirst, .executionSecond, .cli,
   .environments, .buildPolicy, .lintDriver, .producers, .history, .selfLint, .selfLintDefault,
-  .selfAudit, .ruleExamples, .ruleExamplesFirst, .ruleExamplesSecond, .site, .mathlib]
+  .selfAudit, .ruleExamples, .ruleExamplesFirst, .ruleExamplesSecond, .site, .mathlib] ++
+  (List.finRange lintDriverShards).map .lintDriverShard
 
 /-- Argument parsing never accepts a prefix of a supported invocation. -/
 def parseMode (args : List String) : Option Mode :=
@@ -129,7 +140,9 @@ theorem parseMode_sound (args : List String) (mode : Mode)
 
 /-- Every documented invocation is accepted; this excludes an always-refusing parser. -/
 theorem parseMode_roundtrip (mode : Mode) : parseMode (arguments mode) = some mode := by
-  cases mode <;> rfl
+  cases mode with
+  | lintDriverShard index => revert index; decide
+  | _ => rfl
 
 /-- Selection carries the argument-binding proof required by the operational caller. -/
 def select (args : List String) : Option {mode : Mode // args = arguments mode} :=
@@ -150,8 +163,10 @@ structure Command where
   args : Array String
   /-- Its working directory, relative to the repository root; the root itself by default. -/
   dir : String := "."
+  /-- Environment variables it receives in addition to the driver's own settings (`start`). -/
+  env : Array (String × String) := #[]
 
-private def lake (args : Array String) : Command := ⟨"lake", args, "."⟩
+private def lake (args : Array String) : Command := { program := "lake", args }
 
 /-- The package of the standard's example library (`Audit`), which imports only Lean's core
 libraries and adopts the root `regula` package by relative path, as an adopting project would.
@@ -164,7 +179,13 @@ package by relative path, holding the Mathlib-specific behaviour Regula supports
 Mathlib. -/
 def mathlibPackage : String := "integration/mathlib"
 
-private def lakeIn (dir : String) (args : Array String) : Command := ⟨"lake", args, dir⟩
+private def lakeIn (dir : String) (args : Array String) : Command :=
+  { program := "lake", args, dir }
+
+/-- The workspace owner's assertion that the lakefiles are ordinary configuration, as the `lint`
+driver reads it from its environment. The name is `Regula.Checker.Lint.ordinaryLakefilesVariable`,
+written again here because this driver imports only the toolchain. -/
+def ownerAssertion : Array (String × String) := #[("REGULA_ORDINARY_LAKEFILES", "1")]
 
 /-- Ordinary acceptance records its accepted input identity here; the separately timed
 documentation step refuses unless its own identity is equal. The driver puts the record here
@@ -207,7 +228,7 @@ private def ruleExampleShard (index : Nat) : List Command := [
 
 /-- A checker self-test run with the `checkerSelftest` arguments `selection`. The first command
 builds the self-test together with `axiomGate`, which the baseline build of every partition
-names, and with the further checker executables `tools` of the selection's baseline, so Lake
+names, and with the further targets `tools` of the selection's baseline, so Lake
 schedules the jobs of these builds in one invocation; run one after the other, the gate's own
 modules would start only once the self-test's last module is linked. That command selects
 nothing: the self-test's baseline build still names and builds its targets, finds these built
@@ -215,6 +236,12 @@ and builds any it names that are not here. -/
 private def selftest (selection : Array String) (tools : Array String := #[]) : List Command := [
   lake (#["build", "checkerSelftest", "axiomGate"] ++ tools),
   lake (#["exe", "checkerSelftest", "--build-bound"] ++ selection ++ #["--jobs", "4"])]
+
+/-- The further targets the lint-driver controls read from the repository's build: the `lake lint`
+driver, the `regula` command whose `init` they run, the corpus producer `ruleExamples` whose
+marker one control runs, and the module `Regula.Linter` that their adopters import. -/
+private def lintDriverTargets : Array String :=
+  #["lint", "regula", "ruleExamples", "Regula.Linter"]
 
 /-- The targets of the first acceptance step's build that its gate audits or runs: every target
 the surface manifest `foundation_manifest.json` claims (`prebuildCovers`) and the gate's own
@@ -291,10 +318,11 @@ def commands (copy pending : String) : Mode → List Command
   -- Regula on its own code base: the repository's own `lake lint` through `regula/lint` in both
   -- packages, and the operational self-audit of the excluded `Regula` library after its
   -- warning-free build. As the owner of both packages, the repository asserts that their lakefiles
-  -- are ordinary configuration (`--ordinary-lakefiles`), so the driver can reuse ordinary build
-  -- output when the plain-shape guard admits the workspace.
-  | .selfLint => [lake #["lint", "--", "--ordinary-lakefiles"],
-      lakeIn auditPackage #["lint", "--", "--ordinary-lakefiles"]]
+  -- are ordinary configuration (`REGULA_ORDINARY_LAKEFILES=1`, which the driver reads only from
+  -- its environment), so the driver can reuse ordinary build output when the plain-shape guard
+  -- admits the workspace.
+  | .selfLint => [{ lake #["lint"] with env := ownerAssertion },
+      { lakeIn auditPackage #["lint"] with env := ownerAssertion }]
   -- The root package's run on the default path that an adopter gets, without the owner's
   -- assertion, so with the audit-build marker. The `audit/` package runs the same driver code, and
   -- its default path would only add the rebuild that made the old step exceed its limit.
@@ -330,9 +358,13 @@ def commands (copy pending : String) : Mode → List Command
       selftest #["--partition", "structural", "--shard", "2/2"] #["docFenceAudit", "freshChecker"]
   | .executionFirst => selftest #["--partition", "execution", "--shard", "1/2"]
   | .executionSecond => selftest #["--partition", "execution", "--shard", "2/2"]
-  -- The lint-driver controls also run the `lake lint` driver and `regula init`, which their
-  -- baseline names.
-  | .lintDriver => selftest #["--partition", "lint-driver"] #["lint", "regula"]
+  -- The lint-driver controls also run the `lake lint` driver, `regula init` and the corpus
+  -- producer `ruleExamples`, and their adopters import `Regula.Linter`, which their baseline
+  -- names.
+  | .lintDriver => selftest #["--partition", "lint-driver"] lintDriverTargets
+  | .lintDriverShard index =>
+      selftest #["--partition", "lint-driver", "--shard", s!"{index.val + 1}/{lintDriverShards}"]
+        lintDriverTargets
   | mode => selftest (#["--partition"] ++ ((arguments mode).drop 1).toArray)
 
 /-- Every mode schedules actual work rather than accepting an empty campaign. -/
@@ -489,7 +521,8 @@ def announce (line : String) : BaseIO Unit := do
 
 /-- A command as the progress lines show it. -/
 def Command.display (command : Command) : String :=
-  " ".intercalate (command.program :: command.args.toList) ++
+  " ".intercalate ((command.env.map fun (name, value) => s!"{name}={value}").toList ++
+    command.program :: command.args.toList) ++
     (if command.dir = "." then "" else s!" (in {command.dir})")
 
 /-- An end as the progress lines and the failure report show it. No end has one label for its
@@ -537,8 +570,10 @@ deadline's kill reaches it. The inherited Lean search paths are removed, so a La
 resolves modules only through the workspace it runs in. `LAKE_ARTIFACT_CACHE` is `false`, so
 Lake's artifact cache is off for each package whose own configuration does not turn it on. These
 builds are not the checker's: the gate's own build of the claimed surface uses no artifact cache
-whatever the configuration says (`Regula.Checker.Lake.Build.run`). Process execution and signal
-delivery remain trusted. -/
+whatever the configuration says (`Regula.Checker.Lake.Build.run`). An inherited
+`REGULA_ORDINARY_LAKEFILES` is removed, so only a command that gives it (`ownerAssertion`) runs
+with the owner's assertion; each variable of the command's `env` is set last. Process execution
+and signal delivery remain trusted. -/
 def start (priority : Priority) (command : Command) :
     BaseIO (Option (IO.Process.Child stdio)) := do
   announce s!"start {priority.display}{command.display}"
@@ -547,7 +582,8 @@ def start (priority : Priority) (command : Command) :
     stdio with
     cmd := program, args := args, cwd := some command.dir,
     env := #[("GHCR_TOKEN", none), ("LEAN_PATH", none), ("LEAN_SRC_PATH", none),
-      ("LAKE_ARTIFACT_CACHE", some "false")] }
+      ("LAKE_ARTIFACT_CACHE", some "false"), ("REGULA_ORDINARY_LAKEFILES", none)] ++
+      command.env.map fun (name, value) => (name, some value) }
   match ← spawn.toBaseIO with
   | .ok child => return some child
   | .error error =>
@@ -922,7 +958,8 @@ def report (ends : List (Command × Option UInt32)) : String :=
 private def usage : String :=
   "usage: scripts/verify.sh [docs | serialized-graph | site | mathlib | diagnostics \
     [fixtures|structural [1/2|2/2]|execution [1/2|2/2]|cli|environments|build-policy|\
-    lint-driver|producers|history|self-lint|self-lint-default|self-audit|rule-examples [1/2|2/2]]]"
+    lint-driver [1/5|2/5|3/5|4/5|5/5]|producers|history|self-lint|self-lint-default|self-audit|\
+    rule-examples [1/2|2/2]]]"
 
 /-- The earlier verdicts an attempt of `mode` invalidates, each with the constant text recording
 it as incomplete. Ordinary acceptance invalidates the accepted link, so it is not accepted from

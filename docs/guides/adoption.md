@@ -315,19 +315,19 @@ lake lint                                  # incremental elaboration + current p
 lake lint -- --fresh                       # isolated copy built from empty output
 lake lint -- --json-out tmp/regula.json    # also write the JSON report
 lake lint -- --explain-config              # read-only: manifest, scope, profiles, stages
-lake lint -- --ordinary-lakefiles          # you assert your lakefiles are ordinary configuration
+REGULA_ORDINARY_LAKEFILES=1 lake lint      # you assert your lakefiles are ordinary configuration
 ```
 
-With `--ordinary-lakefiles` you, as the owner of the workspace, assert that its lakefiles are
-ordinary configuration. The driver then omits its audit-build marker for a workspace of the plain
-shape, and it reuses your ordinary build output. The plain shape is a conservative guard under
-your assertion. It is not a guarantee against a lakefile that someone wrote to defeat it. Without
-the option the driver always builds with the marker ([details](proofs-and-boundaries.md#the-acceptance-boundary)).
+With `REGULA_ORDINARY_LAKEFILES=1` you, as the owner of the workspace, assert that its lakefiles
+are ordinary configuration. The driver then omits its audit-build marker for a workspace of the
+plain shape, and it reuses your ordinary build output. The plain shape is a conservative guard
+under your assertion. It is not a guarantee against a lakefile that someone wrote to defeat it.
+Without the assertion the driver always builds with the marker ([details](proofs-and-boundaries.md#the-acceptance-boundary)).
 
-Give the option on the command line. The driver refuses it in `lintDriverArgs`, which your
-lakefile could set for each run. The banner of the run names your assertion, and the JSON report
-records it as `scope.ordinaryLakefiles`. Before the build, the run prints if the build omits the
-marker, or keeps it and why.
+Give the assertion in the environment of `lake lint`, which no lakefile sets. The driver refuses
+any value other than `1`. The banner of the run names your assertion, and the JSON report records
+it as `scope.ordinaryLakefiles`. Before the build, the run prints if the build omits the marker,
+or keeps it and why.
 
 The driver builds every manifested library and executable by its explicit Lake target, with
 warnings as failures, and inspects the completed environments: each library in one, and each
@@ -431,6 +431,13 @@ Lake details that affect what ran:
 
 - Arguments for the driver follow `--`; Lake prepends `lintDriverArgs`. Positional module
   arguments before `--` affect only Lake's builtin linters.
+- `lake lint` audits the project where you run it. A `--project` that names a different project is
+  refused with exit 2, and `lake exe axiomGate --project DIR` audits a different one. A relative
+  `--json-out` path is in the project where you run `lake lint`.
+- The `lintDriverArgs` of your default lakefile may give only `--fresh`, `--verbose`, `--help`
+  and `--explain-config`. The driver refuses any other option there with exit 2.
+- The success line names the project and manifest that the audit checked. The JSON report
+  records them as `scope.project` and `scope.manifestPath`.
 - `lake lint --builtin-only` skips the driver and is **not** Regula enforcement: it exits 0 with
   a Regula violation present. `lake lint --builtin-lint` runs the builtin linters and then the
   driver, and a failing driver determines the exit code; builtin linting needs module arguments
@@ -455,9 +462,9 @@ Lake details that affect what ran:
   when it recorded none, failed after recording a success (`Regula.Checker.Lint.gateExitCode`) or
   stopped on an error; `lake lint` reports the code its own audit returned
   (`Regula.Checker.Lint.classify_gateExitCode`). That audit builds with the driver's audit-build
-  marker, except when you pass `--ordinary-lakefiles` and your workspace has the plain shape. So a
-  standalone `axiomGate` run can differ: there a live Regula finding stops the warning-free build
-  check as incomplete (3).
+  marker, except when you set `REGULA_ORDINARY_LAKEFILES=1` and your workspace has the plain
+  shape. So a standalone `axiomGate` run can differ: there a live Regula finding stops the
+  warning-free build check as incomplete (3).
   `--file` prints only the declarations with a finding; `--verbose` lists every classified
   declaration. `lake exe docFenceAudit` checks Lean
   examples you keep in Markdown under `docs/` with the [fence protocol](https://rbeauchamp.github.io/regula/dev/standard/7-tooling-and-machine-audit/#77-check-lean-documentation-verbatim).
@@ -722,9 +729,10 @@ core-only code.
   ``leanOptions := #[⟨`linter.missingDocs, true⟩, ⟨`autoImplicit, false⟩, ⟨`relaxedAutoImplicit, false⟩, ⟨`weak.linter.mathlibStandardSet, true⟩, ⟨`weak.linter.style.header, false⟩, ⟨`weak.linter.hashCommand, false⟩, ⟨`weak.linter.style.longFile, .ofNat 0⟩]``.
   The linters report through build warnings, so `lake lint` reports each as [RG2003] (`INCOMPLETE`,
   exit 3). [RG2006] checks every option above in Lake's resolved configuration of each claimed
-  target, and rejects a target-wide `false` for any other linter and any `-D` in `moreLeanArgs`
-  or `weakLeanArgs` that overrides them (`VIOLATION`, exit 1); it does not read `set_option` in
-  source, which review checks. Where the community's guidance accepts an exception, disable that
+  target (`VIOLATION`, exit 1). It also rejects each other target-wide option that is not in the
+  accepted set of [RG2006] at an accepted value. It rejects each `-D` in `moreLeanArgs` or
+  `weakLeanArgs` that overrides these options or sets an option outside that set. It does not read
+  `set_option` in source, which review checks. Where the community's guidance accepts an exception, disable that
   linter for the one declaration (`set_option linter.style.longLine false in`) with a comment
   giving the reason. Never disable Lean's default warnings, such as `linter.unusedVariables` or
   `warn.sorry`.
@@ -907,6 +915,24 @@ audit refuses a `decides` entry that names its own surface or no claimed surface
   reading the project again, not proved to realize the model.
 - The command-line transcript names a finding's file and declaration; exact source ranges are in
   `--json-out` and the editor.
+- [RG2006] also accepts each `linter.` and `warn.` option that Lean or the pinned Mathlib
+  registers, at the one value that silences nothing. That value is `true` for most of them. It is
+  `false` for `linter.unusedVariables.analyzeTactics`, which at `true` counts a parameter as used
+  when a tactic state mentions it. `RegulaPolicy.Community.warningSettings` lists each option
+  with its value. The rule rejects any other `linter.` or `warn.` option, or a listed one at a
+  different value.
+- [RG2006] also accepts `warningAsError` and `debugAssertions` at `true`. It accepts each `pp.`
+  option only at its default, because a printing option changes the text that some linters
+  compare. Put a different printing in your editor or user settings.
+- [RG2006] accepts each resource limit at any number: `maxHeartbeats`,
+  `synthInstance.maxHeartbeats`, `maxRecDepth`, `maxSynthPendingDepth` and
+  `exponentiation.threshold`. When you raise a resource limit, Lean does the work that it
+  otherwise stops or skips. For example, Lean then evaluates a power above
+  `exponentiation.threshold` and gives no warning about it. The value `0` means no limit for
+  `maxHeartbeats`, `synthInstance.maxHeartbeats` and `maxRecDepth`. If your project must have
+  fixed resource limits, add your own check of these options.
+- [RG2006] reads an option by its name alone. It rejects a `weak.` entry for an option that no
+  module declares, although Lean ignores that entry. Delete such an entry.
 - The only supported editor is VS Code with the Lean 4 extension, and there is no latency claim.
 - Regula has run on small adopters only, including a Mathlib-importing library accepted
   incrementally and fresh; there is no Mathlib-scale adopter claim. These are bounded

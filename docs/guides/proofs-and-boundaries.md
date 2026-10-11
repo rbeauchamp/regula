@@ -130,7 +130,7 @@ or an INCOMPLETE diagnostic demonstration is not an audit-success certificate.
 | Route | Accepted value and remaining boundary |
 | --- | --- |
 | `AxiomGate.auditSurfaceAt` (fresh, `--driver-copy`, `--incremental`, `--build-lint`) | `Acceptance.freeze` reconciles Lake modules, sources, configuration, dependencies, reports, replay inventories and origins; `Acceptance.finish` returns `AcceptedRun` with checked equality to `finalize` (`finalize_collection_error`, `finalize_of_collected`). Cached build artifacts never cache a policy decision, and build-lint has no second exit-code-only PASS branch. |
-| `Lint.run` (`lake lint`) | The same project audit; exit 0 only through the claimed `Lint.classify` (`checked_classify`, `accepted_sound`): a zero audit exit and a recorded `completed` account of the requested mode. Exits 1, 2, 3 classify rejected, configuration-only and incomplete statuses; a missing or disagreeing status is 3. The audit's own exit code is the recorded `Lint.Observation`'s, or 3 when it recorded none or failed after recording a success (`gateExitCode`, `gateExitCode_some`, `gateExitCode_eq_zero`); an error escaping the audit discards any recorded result, so both sides are 3 (`AxiomGate.entry`). The driver reports the code the audit returned for its recorded result (`classify_gateExitCode`); the observation also decides the result status and the summary counts, each the number of findings of its impact (`Observation.status`, `Observation.tally`, `tally_eq`), and an incomplete finding exits 3 (`exitCode_incomplete`). Which findings a run records is operational. That the recorded observation is this invocation's audit is checked by inspection. `--explain-config` validates the manifest and Lake scope with the audit's own functions (`Manifest.loadFor`, `Acceptance.surfaceAssignments`, `AxiomGate.checkClassification`) and issues no audit certificate; it and `--help` are read-only, exit 2, refuse `--json-out` and `--verbose`, and first invalidate any recognizable `--json-out` destination. An error escaping `Lint.run` is exit 3, or 2 for a `manifest-` refusal, never 0 or 1. |
+| `Lint.run` (`lake lint`) | The same project audit; exit 0 only through the claimed `Lint.classify` (`checked_classify`, `accepted_sound`): a zero audit exit and a recorded `completed` account of the requested mode. Exits 1, 2, 3 classify rejected, configuration-only and incomplete statuses; a missing or disagreeing status is 3. The audit's own exit code is the recorded `Lint.Observation`'s, or 3 when it recorded none or failed after recording a success (`gateExitCode`, `gateExitCode_some`, `gateExitCode_eq_zero`); an error escaping the audit discards any recorded result, so both sides are 3 (`AxiomGate.entry`). The driver reports the code the audit returned for its recorded result (`classify_gateExitCode`); the observation also decides the result status and the summary counts, each the number of findings of its impact (`Observation.status`, `Observation.tally`, `tally_eq`), and an incomplete finding exits 3 (`exitCode_incomplete`). Which findings a run records is operational. That the recorded observation is this invocation's audit is checked by inspection. `--explain-config` validates the manifest and Lake scope with the audit's own functions (`Manifest.loadFor`, `Acceptance.surfaceAssignments`, `AxiomGate.checkClassification`) and issues no audit certificate; it and `--help` are read-only, exit 2, and refuse `--json-out` and `--verbose`. The driver reads its arguments one time (`read`). It decides before it writes a result destination or an audited artifact (`decision`, `decision_of_parse_error`, `decision_run`). The driver loads only the root configuration for that decision, so it resolves no dependency. Lake may write its configuration directory, lock file, trace and compiled configuration in that load. Then it marks each parsed `--json-out` incomplete on its own, where the run writes it. A refusal keeps exit 2 whatever marking failed (`Decision.settled`, `settled_refuse`). The audited project is the dispatching workspace, and a `--project` naming a different root is exit 2. A relative `--json-out` is in that workspace. The success line and `scope.project`, `scope.manifestPath` name the audited project and manifest. As an extra refusal, default-configuration `lintDriverArgs` that give an option outside `Options.packageConfigurable` are exit 2 (`configuredRefusal_eq_none`, under assumptions that no guarantee here rests on). An error escaping `Lint.run` is exit 3, or 2 for a `manifest-` refusal, never 0 or 1. |
 | `AxiomGate.auditSurface --with-docs` | One process: the project plan and the documentation plan over the same snapshot and build, joined by `combineAccepted`; no evidence crosses a process boundary between the stages. The documentation stage runs inside the project's frozen-input guard (`withSourceEvidenceOr`): a source or configuration change during it is the project's [RG2005] refusal, which replaces the stage's result. |
 | `--acceptance-link PATH` (`axiomGate`, `docFenceAudit`) | `axiomGate` records the link for fresh project success only (no `--with-docs`): after `AcceptedRun`, the SHA-256 of the copy-relative accepted sources, configuration, dependency captures, `docs/` Markdown and, with `--verso`, the Verso library's inputs; `docFenceAudit` computes the same identity from its own fresh capture before building and refuses unless it is equal. `axiomGate` invalidates PATH before the audit starts and records the identity only after its outer configuration recheck passes, so any refusal leaves it incomplete. Equality establishes identical captured inputs; `shasum` and the filesystem are trusted. |
 | `--driver-copy DIR` (`axiomGate`, internal to `scripts/verify.sh`) | The gate audits the build output of `DIR` and makes no copy of its own. It admits `DIR` only by the facts that [the acceptance boundary](#the-acceptance-boundary) gives. The result names that origin, and the statement that the copy was new rests on the driver. |
@@ -210,31 +210,94 @@ meets a wall-clock limit. Lake's facets, parsing, traces and process effects rem
 **`lake lint` dispatch.** Lake's lint dispatch builds only the driver, so the driver first builds its
 audit worker `regula/axiomGate` in the workspace `lake lint` ran in (never the `--project`
 directory). That workspace built the driver, so it resolves the same `regula`, dependencies and
-toolchain; a failed worker build is `INCOMPLETE`. Lake v4.34.0 does not change the driver's working
+toolchain; a failed worker build is `INCOMPLETE`. Lake v4.34.1 does not change the driver's working
 directory, and passes the dispatching workspace's package library directories, then
-`LEAN_SYSROOT/lib/lean`, then any inherited `LEAN_PATH`, as its `LEAN_PATH`. The driver requires
-the working-directory workspace's library directories and that directory to begin it
-(`Regula.Checker.Lint.dispatchedFrom_iff`) and otherwise refuses with exit 2, so a driver started
-outside Lake, by a Lake not collocated with the toolchain, or with `-d` from another project is
-refused. The driver builds the claimed targets with the audit-build marker
+`LEAN_SYSROOT/lib/lean`, then any inherited `LEAN_PATH`, as its `LEAN_PATH`. The root package's
+library directory is the last of the workspace's. The driver loads only the root configuration of
+its working directory. It requires the library directory of that root just before
+`LEAN_SYSROOT/lib/lean` (`Regula.Checker.Lint.dispatchedFrom_iff`), and otherwise it refuses with
+exit 2. So a driver started outside Lake, by a Lake not collocated with the toolchain, or with
+`-d` from another project is refused. That assumes that no package sets its build directory to
+give the library directory of a different package. The driver builds the claimed targets with the audit-build marker
 `weak.regula.auditBuild` ([editor feedback](#editor-feedback)), except in the case below.
 
 Lake scopes the marker to the whole package in its module trace. Thus with the marker, the audit
 rebuilds the modules that an ordinary build made, and their replayed logs do not enter its
 warning check. The driver omits the marker only for a workspace of the plain shape. It omits it
-only if the owner of the workspace asks for it with `lake lint -- --ordinary-lakefiles`. Without
-the option, the driver always builds with the marker.
+only if the owner of the workspace sets `REGULA_ORDINARY_LAKEFILES=1` in the environment of
+`lake lint`. Without that assertion, the driver always builds with the marker.
 
-With the option, the owner asserts that the lakefiles of the workspace are ordinary configuration.
-The plain shape is a conservative guard under that assertion. It is not a guarantee against a
-lakefile that someone wrote to defeat it. The verification of Regula uses the option in the timed
-check of its own code (`diagnostics self-lint`). A nightly check of its root package,
-`diagnostics self-lint-default`, runs without the option.
+With the assertion, the owner states that the lakefiles of the workspace are ordinary
+configuration. The plain shape is a conservative guard under that assertion. It is not a
+guarantee against a lakefile that someone wrote to defeat it. The verification of Regula makes
+the assertion in the timed check of its own code (`diagnostics self-lint`). A nightly check of
+its root package, `diagnostics self-lint-default`, runs without it.
 
-The driver takes the option only from the command line. It refuses the option in the
-`lintDriverArgs` of a package, because the audited project could give it there. The banner of the
-run names the assertion, and the JSON result records it (`scope.ordinaryLakefiles`). Before the
-build, the run prints if the build omits the marker, or keeps it and why.
+The driver reads the assertion only from its environment, and any value other than `1` is
+refused with exit 2 (`Regula.Checker.Lint.ownerAssertion_eq_true_iff`). Lake v4.34.1 runs the
+driver with its own environment plus variables of the workspace, and none of them is
+`REGULA_ORDINARY_LAKEFILES`. A package configuration can decide some of those variables, such as
+`LAKE_ARTIFACT_CACHE`, but it cannot set or override this one. That is read from Lake's
+`CLI/Actions.lean:20-21`, `Config/Workspace.lean:133-134` and `:417-431`, and
+`Config/Env.lean:287-305`.
+
+The banner of the run names the assertion, and the JSON result records it
+(`scope.ordinaryLakefiles`). Before the build, the run prints if the build omits the marker, or
+keeps it and why.
+
+Lake places the `lintDriverArgs` of the package before the arguments of the command line. The
+driver cannot tell which configuration Lake loaded them from, since `-f` and `-K` reach only
+Lake's load. So the guarantees below hold whatever configuration gave the arguments.
+
+The driver reads its arguments one time, into one value (`Regula.Checker.Lint.read`). An option
+that takes a value always consumes the next argument, so a value is not read as an option
+(`tokenize_value`). That value holds the parsed options or the refusal, and the result
+destinations (`read_destinations`).
+
+The driver also finds the project root of its working directory one time. Observation, decision, marking and the run all use that value and that root.
+
+Before it writes a result destination or an audited artifact, the driver decides what it does
+(`Regula.Checker.Lint.decision`). An argument refusal depends on the parse alone
+(`decision_of_parse_error`). A run audits the dispatching workspace with the parsed options, and
+its result destinations are exactly the parsed `--json-out` (`decision_run`).
+
+To decide, the driver loads only the root configuration of the workspace through Lake. That load
+resolves no dependency, so it writes no manifest and clones no package. If the compiled configuration of a
+`lakefile.lean` is not up to date, Lake writes its configuration directory, lock file, trace and
+compiled configuration. For a `lakefile.toml`, it writes nothing. That is read
+from `Load/Lean/Elab.lean:184-296` and `Load/Workspace.lean:31-54`.
+
+The order above assumes that the load writes nothing else. Elaborating a `lakefile.lean` also
+runs the commands in it, as Lake's own load does.
+
+A `--project` that names a different root is refused with exit 2.
+
+After the decision, the driver marks each result destination incomplete on its own, refused or
+not. It resolves a relative `--json-out` against the dispatching root, and the run writes its
+result at that resolved path. A refusal keeps exit 2 whatever marking failed (`Decision.settled`,
+`settled_refuse`, `settled_of_parse_error`). The success line names the project and manifest that
+the audit resolved, which the JSON result records as `scope.project` and `scope.manifestPath`.
+
+The audit also reads its own arguments one time, into its plan
+(`Regula.Checker.AxiomGate.Plan.of`). The plan holds the options or the refusal (`admit`), the
+project root, and each destination resolved against that root.
+
+The audit marks those resolved destinations, and it writes its result and its acceptance link at
+them. The corpus producer `ruleExamples` marks its injected result at the same resolved path
+(`AxiomGate.resultTarget`). These uses of the one plan are read from the source.
+
+As an extra refusal, the driver reads the `lintDriverArgs` of the workspace's default
+configuration. It admits only `--fresh`, `--verbose`, `--help` and `--explain-config` there,
+and it refuses any other option with exit 2 (`Regula.Checker.Lint.configuredRefusal`). None of
+the guarantees above rests on this refusal.
+
+Assume that Lake loaded that default configuration, without `-f` or `-K`. Assume also that the
+file gives the same `lintDriverArgs` when the driver loads it again. Lake hashes the file at each
+load and releases its lock between loads, so the file can change between them
+(`Load/Lean/Elab.lean:231-281`). Under these assumptions an admitted run takes the project, the
+manifest and the result destination from the command line alone (`configuredRefusal_eq_none`).
+
+The driver does not check these assumptions.
 
 In the plain shape, each package declares only `lean_lib`, `lean_exe`, `input_file` and
 `input_dir` targets. Each field of the configuration of a package or a target has the default
@@ -930,6 +993,13 @@ gives it (`licensed_iff`); a `-D` extra argument that gives it a value can only 
 fail. That the linter compares the header with that option is read from Mathlib's source and
 assumed.
 
+Each other option that a target sets in `leanOptions` or with `-D` must be in the closed accepted
+set `RegulaPolicy.Community.Accepted`, at an accepted value. The function `accepts` decides that
+set (`accepts_iff`). The accepted values were read from the option registrations at Lean
+`v4.34.1` and at the pinned Mathlib. That such a value stops no default warning is an argument
+from those registrations, not a theorem. The exception is a raised `exponentiation.threshold`,
+which stops the warning that a power was not evaluated, because Lean then evaluates the power.
+
 **Correspondence resource bound.** `kernelAnswer` gives the kernel Lean's
 per-declaration default heartbeats (`Core.getMaxHeartbeats` of the default options), so a
 checker-added obligation costs no more than one the adopter could write, and runs under Lean's
@@ -1101,7 +1171,7 @@ Two-way decisions (`Regula.Decides`), each with an accepted and a refused input:
 | `Regula.JsonAgreement.canonical` (accepts on `.ok`) | The reader returns a value, the input has search trees, and the input agrees with the encoding of that value (`canonical_eq_ok_iff`). | The decoders `DiagnosticCodec.parseLocation` and `parseDiagnostic`. The reader and the encoder are arguments, so the kind is about each reader and each encoder. |
 | `Regula.DiagnosticCodec.parseLocation`, `parseDiagnostic` (accept on `.ok`) | `LocationWire`, `FindingWire` (`parseLocation_iff`, `parseDiagnostic_iff`). Each object is a search tree. The object has the members of a location, or of a finding, and each member has its meaning. | The readers of a location and of a finding in a result file. |
 | `Regula.Checker.PolicyCodec.exactFields` (accepts on `.ok`) | `ExactFields` (`exactFields_iff`). The value is an object, and its member names are the expected names in some order. | The decoders of the worker protocol and of the producer reports. The proof that the expected names are distinct is an argument of the function. |
-| `Regula.Checker.Lake.auditMarkerNeeded` (accepts on `true`) | A package is not `PackageShape.Plain`, or some entry is not `ModuleEntry.Resolved` or has `Regula.Linter` among its imports (`auditMarkerNeeded_iff`). | The choice of the `lake lint` driver's claimed build, with or without the audit-build marker, when the owner passes `--ordinary-lakefiles` ([acceptance boundary](#the-acceptance-boundary)). The shape of each package is read from the configuration of Lake and from its compiled configuration file. Each entry is a module of the root package with its source files and the modules that Lake's `transImports` facet reports it imports (`markerInputs`). That `Regula.Linter` is the only reader of the marker in Regula is by inspection. That no module of the project reads the marker itself is an assumption. |
+| `Regula.Checker.Lake.auditMarkerNeeded` (accepts on `true`) | A package is not `PackageShape.Plain`, or some entry is not `ModuleEntry.Resolved` or has `Regula.Linter` among its imports (`auditMarkerNeeded_iff`). | The choice of the `lake lint` driver's claimed build, with or without the audit-build marker, when the owner sets `REGULA_ORDINARY_LAKEFILES=1` ([acceptance boundary](#the-acceptance-boundary)). The shape of each package is read from the configuration of Lake and from its compiled configuration file. Each entry is a module of the root package with its source files and the modules that Lake's `transImports` facet reports it imports (`markerInputs`). That `Regula.Linter` is the only reader of the marker in Regula is by inspection. That no module of the project reads the marker itself is an assumption. |
 | `Regula.Checker.Documentation.scanLines`, `scanVersoLines` (accept on a result with no violation) | `Clean`, `VersoClean`: the lines are a run of transitions from the first line to the end of the document. The fence protocol permits each transition, and each keeps the shape rule (`scanLines_problems_eq_empty_iff`, `scanVersoLines_problems_eq_empty_iff`). | The fence protocol and the shape rule of [RG4001] ([below](#the-fence-scanners-decisions-and-observing-pass)). The input is a `Source`: a document with the lines of its text. The kinds say nothing about the fences of a result. |
 | `Regula.Checker.Admission.checkHeader` (accepts on `.ok ()`) | `HeaderOK` (`checkHeader_eq_ok_iff`). Each replayed or reported module lists its constants under their own names. No module of the replay base imports a replayed module. | The decision on the header of [RG2005] ([below](#receipt-validation-decisions-and-observing-pass)). |
 | `Regula.Checker.Admission.checkTable` (accepts on `.ok ()`) | `TableWithin` (`checkTable_eq_ok_iff`). Each axiom that `collectAxioms` gives for a declaration is an axiom that the declaration reaches in the replayed kernel. | The decision on the axiom tables of [RG2005] ([below](#receipt-validation-decisions-and-observing-pass)). |
@@ -3567,7 +3637,7 @@ feedback cannot disable a mandatory project predicate. Enabling it cannot reach 
 own build. The audit's fresh elaboration passes the unregistered command-line marker
 `weak.regula.auditBuild`. The linter reads the marker only from the import-time options of a
 module, and under it the linter emits nothing. `lake lint`'s claimed build also passes the marker,
-except under the owner's `--ordinary-lakefiles` for a workspace of the plain shape
+except under the owner's `REGULA_ORDINARY_LAKEFILES=1` for a workspace of the plain shape
 ([acceptance boundary](#the-acceptance-boundary)). There no module of the root package imports
 `Regula.Linter`, so the linter runs on none of them.
 
@@ -4427,8 +4497,9 @@ controls run `axiomGate` on the repository with a manifest it refuses before any
 structural baseline is `axiomGate`, `docFenceAudit` and `freshChecker` (its first shard, whose
 controls run `axiomGate` alone, names only that; its second keeps the partition's baseline),
 the execution baseline is `axiomGate` alone, and neither builds the
-repository's claimed surface; the lint-driver baseline is `axiomGate` and `lint`, and the other
-partitions keep the complete baseline. That is a reading of the controls' code, not a theorem.
+repository's claimed surface; the lint-driver baseline is `axiomGate`, `lint`, `ruleExamples` and
+the module `Regula.Linter`, and the other partitions keep the complete baseline. That is a reading
+of the controls' code, not a theorem.
 For the structural and execution partitions, two guards bound it: after the baseline build,
 `toolPath` refuses an executable that build did not name (for every checker executable the
 self-test's own module runs, other than itself), and `baselineOf_axiomGate` proves that every
@@ -4436,8 +4507,8 @@ baseline names `axiomGate`, which `CompilerPaths` and `PolicyQualification` run 
 claimed-surface `.olean` that a control of these two partitions read from the repository's build
 without the baseline naming it would be absent on a clean checkout and fail that control there;
 on a warm local build it is not detected. `scripts/verify.sh` builds the self-test, `axiomGate`
-and, for a structural or lint-driver selection, the other checker executables its baseline names
-(none for the first shard) in one Lake invocation
+and, for a structural or lint-driver selection, the other targets its baseline names
+(none for the first structural shard) in one Lake invocation
 (`RegulaVerification.commands`), so the gate's own modules compile beside the self-test's last
 ones instead of after its link; that command selects nothing, and the baseline build still
 names and builds its targets. The frozen-artifact, cross-surface decision, library cycle, driver
@@ -4448,22 +4519,23 @@ The lint-driver controls run `lake lint` in adopters of their own, which require
 Lake path dependency of the checkout. The two guards and the clean-checkout argument above do not
 cover the modules that these adopters read from the repository's build. If the baseline did not
 build such a module, an adopter's Lake builds it there instead of a refusal, possibly in several
-concurrent groups. No guard detects that. Each module that the adopters import is one that
-`axiomGate` or `lint` imports, apart from `Regula.Linter` and `Regula.Linter.Rules`, by a reading
-of import lines. The control `toml/absent-worker` runs alone before the other controls, and it
-builds those two because its adopter's `examples/lake-lint-toml/Gadget/Double.lean` imports
-`Regula.Linter`.
+concurrent groups. No guard detects that. Thus the lint-driver baseline names `Regula.Linter`,
+which imports `Regula.Linter.Rules`. Each other module that the adopters import is one that
+`axiomGate` or `lint` imports, by a reading of import lines.
 
-The controls of each of these two partitions are divided into two shards, `1/2` and `2/2`
-(`--shard`), which the diagnostics workflow runs as separate jobs. Every control carries its one
-shard where the partition lists it, and a shard runs the controls that carry it (`inShard`);
-`inShard_cover` proves that the two selections together are a rearrangement of the whole list,
-so each control runs in exactly one shard. Both shards list the same controls because they run
-the same sources, which no theorem states. The structural shards are the mutation clusters
-`self-hosted` and `self-hosted-positive` with the frozen-artifact and cross-surface decision
-controls, and `a`, `b`, `c` and `d` with the library cycle, driver copy and manifest controls; the
-execution shards hold one correspondence cluster each and alternate compiler-path cases. A
-shard's PASS names the controls it ran and is not the partition's.
+The controls of the structural and of the execution partition are divided into two shards, `1/2`
+and `2/2`. The lint-driver controls are divided into five shards, `1/5` to `5/5`. The diagnostics
+workflow runs each shard as a separate job. Every control carries its one shard where the
+partition lists it, and a shard runs the controls that carry it. The theorem `inShard_cover`
+proves that the selections of the shards together are a rearrangement of the whole list. Thus
+each control runs in exactly one shard.
+
+The shards of a partition list the same controls because they run the same sources, which no
+theorem states. The first structural shard has the mutation clusters `self-hosted` and
+`self-hosted-positive` with the frozen-artifact and cross-surface decision controls. The second
+has the clusters `a`, `b`, `c` and `d` with the library cycle, driver copy and manifest controls.
+The execution shards hold one correspondence cluster each and alternate compiler-path cases. A
+shard's PASS names the controls or the groups that it ran and is not the partition's.
 
 Before the structural project, every cluster ran in a copy of the whole repository claiming
 `RegulaPolicy`, and one partition held the structural, correspondence and compiler-path
@@ -4481,76 +4553,74 @@ above); with them, one run the same day on that machine, at a load average of 7 
 in 85 s.
 
 The lint-driver partition runs the control `toml/absent-worker` first and alone, because it
-removes the `axiomGate` of the repository's build. Then four workers run the other controls in
-groups, and each worker takes the next group when it is free (`LintQualification.qualify`). The
-groups are listed longest first, by the times below. Each group writes its start and its time to
-the job log. The path-dependency controls are one chain in one adopter, which the queue runs as
-three groups.
+removes the `axiomGate` of the repository's build. Only the first shard runs it. Then four workers
+run the other controls of the shard in groups, and each worker takes the next group when it is
+free. The groups are listed longest first, by the times below, and a shard keeps that order
+(`LintQualification.qualify`). Each group writes its start and its time to the job log.
 
-Each of these three groups starts from the same files of the adopter. The chain is cut at the
-two points where it has restored each file that it changed. At these points, the files differ
-from the start only in build output and in one module that the next control writes again. Thus
-each control reads the files that it read in the chain. Only the first control of a later group
-that builds starts with no build output. In the chain, it started with the output of the
-controls before it.
+Each adopter has one chain of controls. The chain of the `lakefile.lean` adopter is cut into five
+groups, that of the `lakefile.toml` adopter into four, and the chain of the path dependency into
+eight. Each cut is at a point where the chain has restored each file that it changed. Some files
+are exceptions, but no later control reads them before it writes them. Thus each control reads
+the files that it read in the chain.
 
-On the slower hosted runners, the timed step of `diagnostics lint-driver` reached its
-420-second deadline after the path-dependency and owned-checker controls were added
-(Diagnostics runs 38073121895, 38074694772 and 38077207189, jobs 114274540988, 114279196648 and
-114289264598). In these job logs, the prologue from the start of the deadline to the build took
-about 3.5 s. Then the build of the self-test took 160 to 169 s, the baseline build 42 to 46 s and
-`toml/absent-worker` 10 to 12 s. That baseline build also built the fixtures, the claimed
-surface, `docFenceAudit` and `freshChecker`, which no lint-driver control reads.
+The first control of a later group starts with no build output, if it builds. In the chain, it
+started with the output of the controls before it. In the chains of the two adopters, most of
+these controls also started with no build output, because a restore removes it.
 
-From the end of `toml/absent-worker`, where the groups start, `lean` took 140 to 153 s and `toml`
-121 to 133 s. The group `owned-checker` took 84 to 93 s, and the part of the path chain that is
-now `path-owned` 85 to 93 s (up to `path/owned-standard-logical`). The deadline killed each run
-190 to 202 s after the groups started, while the path chain was still running. Its last complete
-control was `path/override-last-fresh` in run 38073121895 and `path/owned-override` in the other
-two. The groups `cache`, `empty-facets`, `dependency-cache`, `escaped-name` and `guard` did not
-start in these runs.
+The times are from the slowest run of the campaign before the cut, Diagnostics run 38166516467,
+job 114550165778. There, the build of the self-test took 196 s. The groups then took about 815 s
+together on four workers, and the deadline stopped the run in the last groups. The chain of the
+`lakefile.lean` adopter took 166 s, that of the `lakefile.toml` adopter 130 s, and the
+path-dependency chain 296 s. The group `owned-checker` took 91 s, and the control
+`toml/absent-worker` took 10 s.
 
-Two faster runs passed under the old schedule (Diagnostics runs 38071832852 and 38077102864, jobs
-114270714472 and 114289843134). Their builds of the self-test took 110 and 135 s. There, `lean`
-took 105 and 118 s and the whole path chain 162 and 179 s. After the chain, in later batches,
-`cache` took 18.7 and 20.7 s and `empty-facets` 17.1 and 19.2 s. Also, `dependency-cache` took
-14.9 and 17.1 s, `escaped-name` 14.7 and 16.5 s and `guard` 3.1 and 3.5 s.
+The deadline also stopped a run on a slower runner, where the build took 217 s (Diagnostics run
+38168005306, attempt 1, job 114554610171). Each group that ended there took 1.09 to 1.10 times as
+long as in the slowest run.
 
-The next numbers are derived, not logged. In the faster runs, the chain took 1.52 to 1.54 times
-as long as `lean`. With that ratio, the times of `lean` in the runs that reached the deadline give
-a chain of about 213 to 236 s. Thus `path-names` and `path-layout` share about 120 to 151 s. The
-time of `lean` in the runs that reached the deadline is 1.19 to 1.46 times that of the faster
-runs. Scaled by that factor, `cache` takes at most about 30 s, `empty-facets` 28 s,
-`dependency-cache` 25 s, `escaped-name` 24 s and `guard` 5 s.
-
-The order of the first four groups comes from the runs that reached the deadline. The order of
-the five short groups comes from the faster runs. The order of `path-names` and `path-layout`
-comes from local runs on a developer machine. In these local runs, `path-names` took a half to
-three fifths of the time of the two. No other source gives that division.
-
-No worker of the queue is idle while a group waits. Thus a group starts not later than a quarter
-of the summed times of the groups listed before it. It ends not later than that time plus its own
-time. The four groups listed first start together. No schedule of four workers ends before the
-longest group or before a quarter of the total time of the groups.
-
-With these inputs, the groups take about 640 to 727 s together. Thus the lower end is about 160
-to 182 s, more than the time of `lean`. At the upper inputs, each group listed after the three
-path groups ends by about 199 s. The two later path groups end by about 261 s at most, and by
-about 208 s with the division of the local runs. At the lower inputs, the groups end by about
-188 s with that division.
-
-Before the groups, the timed step has about 3.5 s of prologue and the build of the self-test, 160
-to 169 s. Then the baseline build takes about 0.5 s, because the build of the self-test also made
-its targets. That time comes from local runs of the new schedule. The control
-`toml/absent-worker` takes 10 to 12 s. With the groups, the prediction for the timed step is
-about 362 to 393 s.
-
-The times other than that of the baseline build are from the old schedule. Thus the result is an
-estimate, not a bound on the new schedule. The target is a timed step of at most 390 s on three
-runs on the slower hosted runners, 30 s under the deadline. The prediction straddles that target,
-thus the margin rests on the CI observations of this change. The job logs of these runs print the
-start and the time of each group. That is a target, not a bound, and the deadline alone refuses a
+A later change added controls to the chain of the `lakefile.lean` adopter, and they are in the
+group `lean-arguments`. After that change, a faster runner took 135 s for that chain (Diagnostics
+run 38170532999, job 114562100064). The `lakefile.toml` chain also gained a control. There, each
+other group of more than 40 s took 0.66 to 0.72 times as long as in the slowest run. Thus the
+added controls took about 15 to 25 s there, which is about 22 to 36 s at the speed of the slowest
 run.
+
+The shards other than the second divide the groups so that the sums of their times are similar.
+Without the group `lean-arguments`, these sums are 174 to 195 s at the speed of the slowest run.
+The group `owned-checker` is one `lake lint -- --fresh` of 91 s, which no cut can divide. Thus the
+second shard holds only that group and `guard`, so that this control has more of the processors.
+The fourth shard, which had the most room, also holds `lean-arguments`. In the shards other than
+the second, the longest group took at most 55 s in the chain.
+
+The next numbers are derived, not logged. With four workers, the first, third and fifth shards end
+their groups in about 53 to 63 s at the speed of the slowest run. That time includes
+`toml/absent-worker` in the first shard. Before the added controls, the fourth shard ended its
+groups in about 55 s. Its added 22 to 36 s spread over four workers, because neither
+`lean-decisions` nor `lean-arguments` is longer than 55 s. Thus it ends its groups in about 61 to
+64 s.
+
+A group that does not start a chain also builds the adopter again, which adds some seconds. At 1.1
+times these times, the build takes 217 s. The first, third and fifth shards then take about 58 to
+70 s, and the fourth about 67 to 70 s. Before the groups, the prologue and the baseline build take
+about 4 s. Thus each of these four shards ends at about 279 to 291 s, plus its adopter builds,
+before the target of 315 s.
+
+The second shard has no such estimate from these runs, because they do not show `owned-checker`
+with only `guard` beside it. On the slower runner, with three groups beside it, it took 99 s. From
+that contended time, the upper estimate is 217 s plus 4 s plus 99 s, about 320 s. A sixth shard
+cannot lower it, because `owned-checker` is one `lake lint -- --fresh` control that no cut
+divides. Its time beside `guard` alone on a 4-vCPU runner is the one input that derivation cannot
+give.
+
+The decision criterion is fixed before the run. Take the time of `owned-checker` from the CI job
+for shard `2/5` of the change that made these shards, and scale it by 1.10. Add the 217 s build
+and the 4 s of setup. The shard meets the target of 315 s if the sum is at most 315 s, and fails
+it above. These are estimates, not a bound, and the CI runs of that change give the observed
+times.
+
+The unsharded `diagnostics lint-driver` runs every group in one invocation. On the slower runners
+it does not end before its deadline, thus CI runs the five shards.
 
 **Other proved oracles.** Quantifiers range over supplied Lean values; the IO drivers call each
 `ExecutableContract.run`, so the evidence is required by their source linkage and erased at
