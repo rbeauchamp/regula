@@ -1850,8 +1850,8 @@ that it decodes from the shared edge sets (`SharedExecution.walk`).
 **Proved**, about the functions that `executionWalk` runs. They are in the claimed library
 `RegulaPolicy` (`RegulaPolicy.StackWalk` and `RegulaPolicy.ExecutionWalk`), so acceptance admits
 each theorem with Lean's kernel and reports its axioms: `propext`, `Classical.choice` and
-`Quot.sound`. Each theorem of `ExecutionWalk` in this table follows from the theorem of `StackWalk`
-with the same name.
+`Quot.sound`. `ExecutionWalk.walk_sound`, `walk_complete`, `walk_nodup` and `walk_ok` follow from
+the theorems of `StackWalk` with the same names.
 
 | Property | Declarations | Meaning and limit |
 | --- | --- | --- |
@@ -1860,7 +1860,7 @@ with the same name.
 | Each step is an edge | `ExecutionWalk.mem_successors`, `ExecutionWalk.reach_iff` | A name that the walk queues after a record is a target of one of the edge channels of the record. Thus the successors and the edges of the records reach the same names. |
 | The bound is sufficient | `StackWalk.walk_ok`, `ExecutionWalk.bounds`, `ExecutionWalk.walk_ok` | A walk returns visits when each reached node has successors and the bound is more than the number of successors of all nodes (`StackWalk.Bounds`). For the records, the bound is one more than the number of successors of all records. |
 | The decision is exact | `ExecutionWalk.checked_walk` | `walk` returns visits exactly when `Recorded` is true. It accepts a root with a record that has no successor, and it refuses a root with no record. |
-| Two walks agree | `StackWalk.walk_agree`, `StackWalk.walk_map`, `StackWalk.walk_fuel` | Take a map of the nodes that is one-to-one on the nodes that the first walk reaches. Let the successors of the image of each such node be the images of its successors, in their order. Then two walks that return visits give the visits of the first, carried by the map, with the same parents. Their bounds can be different. |
+| Two walks agree | `StackWalk.walk_agree`, `StackWalk.walk_map`, `StackWalk.walk_fuel` | Take a map of the nodes that is one-to-one on the nodes that the first successors reach from the root. Let the successors of the image of each such node be the images of its successors, in their order. Then two walks that return visits give the visits of the first, carried by the map, with the same parents. Their bounds can be different. |
 
 **The reader runs the same walk.** `SharedExecution.walk` is `StackWalk.walk` at the indices of
 the decoded name table, over the successor lists that the reader decodes
