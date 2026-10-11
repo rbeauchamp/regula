@@ -16,6 +16,7 @@ of scoped evidence, never a deserializable proof or whole-standard conformance c
 The accepted constructor requires the executed con-leche-inspired indexed finalization. -/
 namespace Regula.Checker.ResultProtocol
 open Lean
+open RegulaPolicy.Guards (bind_eq_ok)
 
 /-- This checker build's producer identity, written into every result envelope. -/
 abbrev producer := Regula.Checker.Producer.identity
@@ -545,11 +546,6 @@ theorem requireThat_bind_eq_ok {α : Type} (ok : Bool) (problem : String)
 theorem requireThat_eq_ok (ok : Bool) (problem : String) :
     requireThat ok problem = .ok () ↔ ok = true := by
   cases ok <;> simp [requireThat]
-
-theorem bind_eq_ok {α β : Type} (first : Except String α) (rest : α → Except String β)
-    (b : β) :
-    (first >>= rest) = .ok b ↔ ∃ a, first = .ok a ∧ rest a = .ok b := by
-  cases first <;> simp [bind, Except.bind]
 
 /-- The schema version is this one (`JsonAgreement.conforms`, the received value first). -/
 def readSchema (j : Json) : Except String Unit :=

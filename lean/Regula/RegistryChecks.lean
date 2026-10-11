@@ -43,7 +43,6 @@ run_cmd do
       ``Regula.Checker.ResultProtocol.guidanceVerdict_completed,
       ``Regula.Checker.ResultProtocol.guidanceVerdict_unblocked,
       ``Regula.Checker.ResultProtocol.membersConform_iff,
-      ``Regula.Checker.ResultProtocol.bind_eq_ok,
       ``Regula.Checker.ResultProtocol.readGuidance_eq_ok,
       ``Regula.Checker.ResultProtocol.admitGuidance_eq_ok_iff,
       ``Regula.Checker.ResultProtocol.admitGuidance_completed,
