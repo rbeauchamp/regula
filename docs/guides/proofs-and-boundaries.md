@@ -808,7 +808,7 @@ other rules still check it.
 | `executionFindings`, `executionFailures`, `executionSummary`, `toolchainBase` | `checked_executionFailures` (line `k` renders finding `k`, none added or dropped, so the lines are empty iff `ExecutionOK`), `executionRule_injective`, `checked_summary` (the boundary counts range over the boundaries reported on their own: a later record of one trusted boundary of a root, and a `partial` implementation reported with the boundary that runs it, are counted with that boundary, not again), `checked_toolchainBase` | Root collection, retained compiler edges, correspondence admission, source history, module origins and the text and JSON rendering of the toolchain trusted base. The records of the execution walk are observed, and the account that `ExecutionWalk.assemble` builds from them is not proved. |
 | `Probe.replacementCorrespondence` | `DefeqComparison.classify` of `DefeqComparison.ofAttempt` (an attempt that the kernel did not decide, or that raised an error, is unresolved and not trusted) | The kernel decision itself, the record of its answer (`Probe.kernelAnswer`), the capture of an error (`Probe.comparison`) and the incomplete theorem-candidate search. Lean's Core-based monads rethrow a runtime resource exception or an interruption. Such an exception records no comparison and stops the report. |
 | `Checker/Common.admitIndexedWorkerResults`, `mapWorkQueue`, `Documentation.auditTasks` | `checked_indexedResults` over `ResultState.collect` | Child completion, strict packet decoding, task scheduling and exact request and source binding. |
-| `Checker/FenceScan.scanLines`, `scanVersoLines`, `matchesPattern` | `checked_scanLines`, `checked_scanVersoLines` (no violation exactly for a clean document), `fence_of_leanShaped`, `example_of_leanShaped` (a returned fence for each line of Lean shape), `scanLines_fence`, `scanVersoLines_fence`, `Scanned.bytes` (where each returned fence lies, and the bytes of its ranges), `toList_linesOf` (the lines of a text), `matchesPattern` | Pattern diagnostic text and effective-error extraction. |
+| `Checker/FenceScan.scanLines`, `scanVersoLines`, `matchesPattern` | `checked_scanLines`, `checked_scanVersoLines` (no violation exactly for a clean document), `fence_of_leanShaped`, `example_of_leanShaped` (a returned fence for each line of Lean shape), `scanLines_fence`, `scanVersoLines_fence`, `Scanned.bytes` (where each returned fence lies, and the bytes of its ranges), `toList_linesOf` (the lines of a text), `matchesPattern` | That a Lean fence after a marker line carries that marker, pattern diagnostic text and effective-error extraction. |
 | `AxiomGate.auditSurfaceAt`, `FreshChecker`, the file gate | `checked_surfaceAssignments` (with `surfaceAssignments_covers`), `checked_conformingProfile`, `checked_histories`, `checked_environmentJob`, `checked_environmentEvidence` (claimed `RegulaCore.Assembly`) | Manifest parsing, Lake loading and producer history; the contracts concern the decoded records. |
 | `Checker/Acceptance.finish`, `Documentation.finishDocuments`, `FreshChecker.finishGraph` | `finalize`, `finalize_iff`, `accepted_report_identity`, `accepted_covers_slot` | The independently supplied census and the truth of the observations; each finalizer supplies all derived jobs and returns `AcceptedRun`. |
 | `AxiomGate.auditSurface` combined success | `combineAccepted`, `combined_policy`, `combined_reports_same_snapshot` | Child completion and raw decoding, terminal source stability and environment extraction. |
@@ -1678,7 +1678,7 @@ build of the excluded `Regula` library, with `propext`, `Classical.choice` and `
 | The Markdown scanner is exact | `scanLines_problems_eq_empty_iff`, `checked_scanLines` | `scanLines` reports no violation exactly for a document with lines that `Clean` admits. The line numbers start at 1, and the valid patterns are those of the policy library. The theorem is for each `Source`. |
 | The Verso scanner is exact | `scanVersoLines_problems_eq_empty_iff`, `checked_scanVersoLines` | `scanVersoLines` reports no violation exactly for a source with lines that `VersoClean` admits. The theorem is for each `Source`. |
 | A line of Lean shape is a returned fence | `fence_of_leanShaped`, `example_of_leanShaped` | In a clean document, each line of Lean shape is the opening line of a returned fence. The fence has the number of that line. `scanLines_fence`, `scanVersoLines_fence` and `Scanned.bytes` give its body and its byte ranges. |
-| Where a returned fence lies | `scanLines_fence`, `scanVersoLines_fence`, `MarkdownFence.unique`, `VersoFence.unique` | For each document, clean or not, a returned fence opens at a line where the lines before it leave no block open (`MarkdownFence`, `VersoFence`). Its body lines do not close it, and its closing line is the first line that does. The body is the body lines joined by line feeds, and a Markdown body drops a carriage return at its end (`DropsReturn`). Each byte range starts after the lines before its part, each with its line feed. A Markdown marker is on the line before the opening line. One opening line gives one body and one set of ranges. |
+| Where a returned fence lies | `scanLines_fence`, `scanVersoLines_fence`, `MarkdownFence.unique`, `VersoFence.unique` | For each document, clean or not, a returned fence opens at a line where the lines before it leave no block open (`MarkdownFence`, `VersoFence`). Its body lines do not close it, and its closing line is the first line that does. The body is the body lines joined by line feeds, and a Markdown body drops a carriage return at its end (`DropsReturn`). Each byte range starts after the lines before its part, each with its line feed. When a Markdown fence has a marker, the marker is the line before the opening line. One opening line gives one body and one set of ranges. |
 | The protocol moves the blocks | `Permitted.blockStep`, `VersoPermitted.blockStep`, `BlockStep.functional`, `VersoBlockStep.functional`, `Run.functional` | Each transition that the protocol permits is a step of `BlockStep` or `VersoBlockStep` between the blocks of its two modes. The two `blockStep` theorems are about the permitted transitions only. Each step has one block after a block and a line, so the lines give one run of blocks, clean or not. The invariants behind `scanLines_fence` and `scanVersoLines_fence` follow these steps on each line, also on a line with a violation. A Verso block that opens with tildes is an example. |
 | The bytes of a returned fence | `Scanned.bytes`, `extract_append` | In the text of the document, the opening range holds the opening line, and the closing range holds the closing line. The body range holds the body of the fence. `ExampleExpectationOK` reads these bytes with the same `String.Pos.Raw.extract`. |
 | The lines of a Markdown reader | `clean_iff_withoutReturn`, `permitted_withoutReturn`, `shapeRule_withoutReturn`, `leanAfter_withoutReturn` | A Markdown document is clean exactly when its lines without the carriage return of a line ending have no carriage return and are clean. Each statement about a line is the same with and without that carriage return. |
@@ -1703,6 +1703,8 @@ The refused input is the document of one line that opens a fence.
 items:
 
 - What a file contains.
+- That a Lean fence after a marker line carries that marker. `MarkdownFence` states only that a
+  marker that a fence has is the line before its opening line.
 - The text of a violation, and the number of violations of a document that is not clean.
 - That the protocol is the intended one. A reviewer examines `Permitted`, `VersoPermitted`,
   `BlockKind`, `ShapeRule` and the statements about one line.
@@ -1725,9 +1727,10 @@ closing line is the first line that closes it. Its body is its body lines joined
 carriage return at its end. Its byte ranges start after the lines before each part, and
 `Scanned.bytes` states that they hold those lines and that body.
 
-The marker of a Markdown fence is the line before its opening line, and the fence has the pattern
-or the trust of that marker. The scanner keeps a marker that waits for one line only, so this
-holds without the shape rule. In a Verso source the info string gives the marker, by `BlockKind`.
+When a Markdown fence has a marker, the marker is the line before its opening line. The fence
+has the pattern or the trust of that marker. The scanner keeps a marker that waits for one line
+only, so this holds without the shape rule. That a Lean fence after a marker line has that marker
+is not proved. In a Verso source the info string gives the marker, by `BlockKind`.
 
 The proof relates the offsets of `layout` to the text. The text is its lines joined by line
 feeds, and a part starts after the bytes of the lines before it and their line feeds. That the
@@ -2135,10 +2138,12 @@ Each producer that [#199](https://github.com/rbeauchamp/regula/issues/199) lists
 observing pass and pure decisions with kinds. The sections above state what is proved and what is
 observed for each of them.
 
-This proof obligation of the producers that are split is open:
+These proof obligations of the producers that are split are open:
 
 - The account that `ExecutionWalk.assemble` builds from the visits
   ([above](#root-and-closure-discovery-decision-and-observing-pass)).
+- That a Lean fence that the Markdown scanner returns after a marker line carries that marker
+  ([above](#the-fence-scanners-decisions-and-observing-pass)).
 
 ## Producers
 

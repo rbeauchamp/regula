@@ -40,9 +40,10 @@ a clean document has a returned fence for each line of Lean shape. The input of 
 `Scanned`: a result that is bound to its input and to the scanner. For each document, clean or
 not, `scanLines_fence` and `scanVersoLines_fence` state where each returned fence lies, over the
 run of blocks of the protocol (`BlockStep`, `VersoBlockStep`): its opening line, its body lines and
-its closing line, its body, its byte ranges and the marker of a Markdown fence. One opening line
-gives one place (`MarkdownFence.unique`, `VersoFence.unique`). `Scanned.bytes` states that its byte
-ranges hold its lines and its body in the text of the document.
+its closing line, its body, its byte ranges and, when a Markdown fence has a marker, the line of
+that marker. One opening line gives one place (`MarkdownFence.unique`, `VersoFence.unique`).
+`Scanned.bytes` states that its byte ranges hold its lines and its body in the text of the
+document.
 
 Expected-failure markers use a deliberately small diagnostic pattern language:
 `|` separates alternatives and `.*` separates ordered literal substrings. This
@@ -4674,7 +4675,8 @@ line. Its body is the body lines joined by line feeds, without a carriage return
 end (`DropsReturn`). Its opening range, its body range and its closing range each start after
 the lines before that part, each with its line feed, and span that part. When the fence has a
 marker, the marker is the line before the opening line, and the fence has the pattern or the trust
-of that marker. Without one, it has neither. -/
+of that marker. Without one, it has neither. The relation does not say that a fence after a marker
+line has that marker. -/
 def MarkdownFence (lines : List String) (fence : Fence) : Prop :=
   ∃ (before body after : List String) (opening closing : String) (character : Char)
     (count : Nat) (info : String),
@@ -4947,8 +4949,8 @@ private theorem markdownPlaced_run (document : RegulaPolicy.SourceSnapshot) (ori
 /-- **Each fence that the Markdown scanner returns lies in its document** (`MarkdownFence`): it
 opens at a line where the protocol has no block open, its body lines are the lines while the block
 is open, and its closing line is the first that closes it. Its body is the text of its body lines,
-each of its byte ranges spans its part, and a marker is on the line before the opening line. The
-theorem is for each `Source`, clean or not. -/
+each of its byte ranges spans its part, and a marker that the fence has is the line before the
+opening line. The theorem is for each `Source`, clean or not. -/
 theorem scanLines_fence (source : Source) {fence : Fence}
     (member : fence ∈ (scanLines source).fences) :
     fence.document = source.document ∧ MarkdownFence source.lines fence := by
