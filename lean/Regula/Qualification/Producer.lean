@@ -64,11 +64,19 @@ private def chain (root : FilePath) (fresh : String → IO FilePath)
       ⟨rule, kind, invocation, mode, relative, source, result.exitCode.toNat, report⟩
   return observations
 
+/-- The executable root of the standalone controls, before the axiom of phase `axiom`. -/
+private def mainSource : String :=
+  "/-! Standalone no-effect IO entrypoint. -/\n/-- Does nothing. -/\ndef main \
+    : IO Unit := pure ()\n"
+
+/-- The documented-source examples the chains audit, by their paths below the repository. -/
+private def examples : Array String :=
+  #["RG5001", "RG5002"].flatMap fun rule =>
+    #["Fixed", "Violation"].map fun kind => s!"examples/rules/{rule}/{kind}.lean"
+
 /-- The standalone executable control `phase` in a fresh workspace of its own. -/
 private def standalone (root : FilePath) (fresh : String → IO FilePath) (phase : String) :
     IO Unit := do
-  let mainSource := "/-! Standalone no-effect IO entrypoint. -/\n/-- Does nothing. -/\ndef main \
-    : IO Unit := pure ()\n"
   let project ← fresh s!"standalone-{phase}"
   IO.FS.writeBinFile (project / "Example.lean")
       (← IO.FS.readBinFile (root / "examples/rules/RG5002/Fixed.lean"))
@@ -93,11 +101,18 @@ private def standalone (root : FilePath) (fresh : String → IO FilePath) (phase
 
 /-- Run all source-bound producer controls, optionally retaining emitted evidence. No workspace
 reads another's, so the four documented-source workspaces and the two standalone ones run on
-`jobs` workers (`mapWorkQueue`), which joins every workspace before it reports the first failure.
-The documented-source observations are then validated in the order of one workspace after
-another, each against the theorem type of the first, as when the workspaces ran in turn. -/
+`jobs` workers (`mapWorkQueue`), beside the control of the guard (`rootImportsGuardControl`).
+Before they start, the guard refuses when a module of the root package that their sources import
+needs a build (`requireRootImportsBuilt`). `mapWorkQueue` joins every worker before it reports a
+failure, and the error it reports is the first failing worker's. A worker that fails runs no
+further item, so once `jobs` items have failed, the items still queued do not run. The
+documented-source observations are then validated in the order of one workspace after another,
+each against the theorem type of the first, as when the workspaces ran in turn. -/
 def check (evidence : Option FilePath) (jobs : Nat := 4) : IO Unit := do
   let root ← rootDirectory
+  let sources := (← examples.mapM fun (relative : String) => IO.FS.readFile (root / relative)).push
+    mainSource
+  requireRootImportsBuilt root sources
   let records ← withScratch root "producer-controls" fun scratch => do
     let fresh (label : String) : IO FilePath := do
       let project := scratch / label
@@ -111,7 +126,8 @@ def check (evidence : Option FilePath) (jobs : Nat := 4) : IO Unit := do
     let workspaces : Array (IO (Array Observation)) :=
       chains.mapIdx (fun index (invocation, flags, mode, rule) =>
         chain root fresh invocation flags mode rule (3 * index)) ++
-      #["positive", "axiom"].map fun phase => do standalone root fresh phase; pure #[]
+      #["positive", "axiom"].map (fun phase => do standalone root fresh phase; pure #[]) |>.push
+        (do rootImportsGuardControl root scratch sources; pure #[])
     let observed ← Regula.Checker.mapWorkQueue jobs workspaces id
     let mut records : Array Json := #[]
     let mut theoremType : Option Json := none

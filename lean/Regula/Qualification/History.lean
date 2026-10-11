@@ -30,17 +30,21 @@ private def source := "import Lean\nimport Regula.Contract\n/-! Two callers pres
   Regula.ExecutableContract Nat.add\n    (fun f => ∀ n m, f n m = n + m) := ⟨by intros; rfl⟩\n-- \
   evaluator control\n"
 
-/-- One control: the public invocation `invocation` with `flags` on the history source mutated
-for `phase`, in a fresh workspace of its own below `scratch`, and the checks of its oracle. -/
-private def control (root scratch : System.FilePath)
-    (invocation : String) (flags : Array String) (mode : String) (index : Nat) (phase : String) :
-    IO Unit := do
+/-- The history source mutated for `phase`. -/
+private def mutated (phase : String) : String :=
   let mutation := if phase == "unsupported" then "run_cmd pure ()"
     else if phase == "admission" then SourceEvidence.unchecked
     else if phase == "source-change" then "run_cmd do\n  let path ← Lean.getFileName\n  let \
       content ← IO.FS.readFile path\n  IO.FS.writeFile path (content ++ \"\\n\")\n"
     else "-- evaluator control"
-  let source := source.replace "-- evaluator control" mutation
+  source.replace "-- evaluator control" mutation
+
+/-- One control: the public invocation `invocation` with `flags` on the history source mutated
+for `phase`, in a fresh workspace of its own below `scratch`, and the checks of its oracle. -/
+private def control (root scratch : System.FilePath)
+    (invocation : String) (flags : Array String) (mode : String) (index : Nat) (phase : String) :
+    IO Unit := do
+  let source := mutated phase
   let project := scratch / s!"{invocation}-{phase}"
   IO.FS.createDir project
   prepareProject root project "history_adopter" "standard-logical"
@@ -93,7 +97,11 @@ private def control (root scratch : System.FilePath)
 
 /-- Ten real public invocations retain exact requests, source binding, outcomes and
 both replacement targets. No control reads another's workspace, so they run on `jobs` workers
-(`mapWorkQueue`), which joins every control before it reports the first failure. -/
+(`mapWorkQueue`). Before they start, the guard refuses when a module of the root package that
+their sources import needs a build (`requireRootImportsBuilt`); the producers campaign runs the
+guard's control. `mapWorkQueue` joins every worker before it reports a failure, and the error it
+reports is the first failing worker's. A worker that fails runs no further control, so once
+`jobs` controls have failed, the controls still queued do not run. -/
 def check (jobs : Nat := 4) : IO Unit := do
   let root ← rootDirectory
   withScratch root "history-controls" fun scratch => do
@@ -105,6 +113,7 @@ def check (jobs : Nat := 4) : IO Unit := do
       let phases := #["positive", "unsupported"] ++
         (if invocation == "incremental" then #[] else #["admission", "source-change"])
       phases.mapIdx fun index phase => (invocation, flags, mode, index, phase)
+    requireRootImportsBuilt root (controls.map (mutated ·.2.2.2.2))
     let _ ← Regula.Checker.mapWorkQueue jobs controls fun (invocation, flags, mode, index, phase) =>
       control root scratch invocation flags mode index phase
 

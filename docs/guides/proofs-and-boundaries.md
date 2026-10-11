@@ -4321,6 +4321,20 @@ The `qualify` campaigns and what they observe:
 `producers` and `history` run their workspaces on four workers. `producers` validates the
 observations after all of them end, in the order of its chains.
 
+The workspaces require `regula` from the repository. A build in one of them writes the output of
+the repository if a module of `regula` that it imports is not built. Before the workers start,
+each campaign runs a guard (`requireRootImportsBuilt`). It finds the modules of the root package
+that the sources of the workspaces import, through Lean's header parser and Lake's own lookup.
+For each one, `lake build --no-build +MODULE` must exit 0, and the guard otherwise refuses and
+names the module.
+
+That command checks the default facet of the module and its import closure, and it builds
+nothing. The guard does not cover a different facet that a build in a workspace could ask for.
+It also does not cover a difference between the traces of `regula` in a workspace and in the
+repository. That they agree is a reading of Lake, not a theorem. `producers` runs the control of
+the guard in a copy of the repository with the module artifacts of its build. There the guard
+passes, and when the source of an imported module has changed, it refuses and names the module.
+
 `producers` accepts an optional `--evidence PATH`; `environments --evidence PATH` and
 `acceptance GROUP --evidence PATH` (group `fences`) take an evidence path.
 `checkerSelftest --policy-domain-only` qualifies strict transport, external-adopter

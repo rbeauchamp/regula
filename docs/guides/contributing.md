@@ -225,7 +225,7 @@ checker behavior:
 | Partition | Focus |
 | --- | --- |
 | `fixtures` | Positive controls and intentionally invalid Lean declarations. |
-| `structural`, `structural 1/5` to `structural 5/5` | Surface discovery, ownership, contamination, required application contracts, decision contracts that one surface counts for a different surface, and admission reuse between environments; a shard runs part of the controls, and the shards together run all of them. |
+| `structural`, `structural 1/5` to `structural 5/5` | Surface discovery, ownership, contamination, required application contracts, decision contracts that one surface counts for a different surface, and admission reuse between environments; a shard runs part of the controls. The shards together run all of them but the self-hosted identity. Shards 1/5 and 5/5 write its two digests, `tmp/self-hosted-digest/positive.sha256` and `restored.sha256`. Only the CI `diagnostics` gate compares them, so a local claim rests on the unsharded `structural` run or a comparison of the two files. |
 | `execution`, `execution 1/4` to `execution 4/4` | Execution evidence: each compiler-path mutation and correspondence control with its positive and fresh restoration; a shard runs part of the controls, and the shards together run all of them. |
 | `cli` | Command-line behavior and diagnostics. |
 | `environments` | Isolated environments, documentation scanning, and external adopters. |
@@ -293,7 +293,7 @@ It runs `self-lint-default` only nightly and on dispatch, as one more job under 
 When the campaigns apply, the `diagnostics` job also compares two digests. The shard
 `structural 1/5` uploads the SHA-256 digest of the fresh input that the self-hosted positive's
 fresh gate accepted. The shard `structural 5/5` uploads that of its restored self-hosted copy.
-The gate refuses unless both are present, well-formed and equal.
+The gate refuses unless the two are present, well-formed and equal.
 
 ## Implementation and qualification layout
 
