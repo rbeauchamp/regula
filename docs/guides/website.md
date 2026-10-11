@@ -144,8 +144,9 @@ After provisioning the pinned Verso package once:
 
 ```sh
 lean --run lean/RegulaProvision.lean verso          # Verso setup
-./scripts/verify.sh diagnostics rule-examples 1/2    # corpus shard 1
-./scripts/verify.sh diagnostics rule-examples 2/2    # corpus shard 2
+./scripts/verify.sh diagnostics rule-examples 1/3    # corpus shard 1
+./scripts/verify.sh diagnostics rule-examples 2/3    # corpus shard 2
+./scripts/verify.sh diagnostics rule-examples 3/3    # corpus shard 3
 ./scripts/verify.sh site                             # build and check _site/
 ```
 
@@ -162,7 +163,7 @@ revision as Verso, and the two packages use one checkout of it in `.lake/package
 that provisions Verso compares the two revisions, and it stops if they are different.
 
 Any change to a module source, the corpus or the Lake configuration makes earlier shard
-exports stale; the site build refuses them, so rerun both shards. The checker embeds its commit
+exports stale; the site build refuses them, so rerun the three shards. The checker embeds its commit
 when `lean/Regula/Checker/Producer.lean` is compiled, and Lake reuses that build after a new
 commit; the site build then refuses the evidence as another commit's. Delete
 `.lake/build/lib/lean/Regula/Checker/Producer.*` before rerunning the shards. CI builds fresh. A
@@ -179,8 +180,8 @@ CI runs on every pull request and on `main`:
 1. `verify`: the two [acceptance](contributing.md#develop-and-verify) steps. Its first step
    refuses a commit whose `Regula.installed` is a release: only the release commit, which is not
    on `main`, carries a release label.
-2. `rule-examples` (two shards): the corpus campaign; each uploads its export. The diagnostics
-   workflow also runs both shards nightly on `main`.
+2. `rule-examples` (three shards): the corpus campaign; each uploads its export. The diagnostics
+   workflow also runs the three shards nightly on `main`.
 3. `candidate` (`main` only, after `verify` and `rule-examples`): when `main` lists a release that
    is not yet published and this commit is still the head of `main`, creates the release commit (a
    signed child of this commit whose only change sets `Regula.installed` to the release), points
@@ -191,7 +192,7 @@ CI runs on every pull request and on `main`:
    commit, and `adopt` derives the release commit there and adopts its name once it has shown it
    is exactly that content (`Regula.Release.adopt`).
 5. `release-site` (only when `candidate` output a release commit): adopts the release commit the
-   same way, then both rule-example shards and `./scripts/verify.sh site` on it, whose tag does
+   same way, then the three rule-example shards and `./scripts/verify.sh site` on it, whose tag does
    not exist yet, so its site build renders the release's edition and writes it; it is uploaded
    as `site-release-<release commit>`.
 6. `publish` (only after `release-verify` and `release-site` passed, refusing unless both adopted
@@ -226,10 +227,10 @@ CI runs on every pull request and on `main`:
 Each run on `main` cancels older runs of `main`, the deploy job refuses to publish a revision
 that is no longer the head of `main` (for example a manual re-run of an older run, which
 re-checks because the check is part of that job), and deployments are serialized in the
-`github-pages` concurrency group. The ruleset of `main` requires the `site` check and the two corpus
+`github-pages` concurrency group. The ruleset of `main` requires the `site` check and the three corpus
 shards. A pull request does not merge if its site build or check fails. The required checks are
-`verify`, `title`, `diagnostics`, `diagnostics rule-examples 1/2`, `diagnostics rule-examples 2/2`,
-`site`, `mathlib integration` and code scanning's `CodeQL` and `Analyze (actions)`. The site can
+`verify`, `title`, `diagnostics`, `diagnostics rule-examples 1/3`, `diagnostics rule-examples 2/3`,
+`diagnostics rule-examples 3/3`, `site`, `mathlib integration` and code scanning's `CodeQL` and `Analyze (actions)`. The site can
 lag `main` while checks run or after they fail; each page states its commit. Repository Pages
 settings use **GitHub Actions** as the source. There is no custom domain or paid hosting. Actions are pinned by commit SHA.
 
@@ -322,7 +323,7 @@ A release takes these steps, in order ([release procedure](contributing.md#relea
    check passes with a preview of the release's edition, which is never deployed.
 2. When it merges, CI on `main`, once acceptance and the rule-example shards pass, creates the
    release commit, a child of the head of `main` that is not on `main` and whose only change sets
-   `Regula.installed` to the release, and runs both acceptance steps, both rule-example shards
+   `Regula.installed` to the release, and runs both acceptance steps, the three rule-example shards
    and the site build on it. Its site build renders the release's edition and writes
    `tmp/site-release/regula-site-<version>.tar.gz`, kept as the `site-release-<release commit>`
    artifact of that run. Other pull requests still merge meanwhile; until the release is
@@ -362,7 +363,7 @@ A rule change touches its semantics, metadata, examples and explanation together
    stronger than the detector and the standard; `@repo/PATH` links name repository files. State
    only what is specific to the rule; what every rule shares belongs on the enforcement page.
 3. Examples: `examples/rules/<ID>/` and its `corpus.json` entry ([rule examples](architecture.md#rule-examples)).
-4. Run both shards and `./scripts/verify.sh site`; open the affected pages in a browser at a
+4. Run the three shards and `./scripts/verify.sh site`; open the affected pages in a browser at a
    narrow and a wide width.
 
 Review reads the elaborated rule predicate, the explanation and the example together: the

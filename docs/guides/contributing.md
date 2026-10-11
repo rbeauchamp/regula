@@ -225,8 +225,8 @@ checker behavior:
 | Partition | Focus |
 | --- | --- |
 | `fixtures` | Positive controls and intentionally invalid Lean declarations. |
-| `structural`, `structural 1/2`, `structural 2/2` | Surface discovery, ownership, contamination, required application contracts, decision contracts that one surface counts for a different surface, and admission reuse between environments; a shard runs part of the controls, and the two together run all of them. |
-| `execution`, `execution 1/2`, `execution 2/2` | Execution evidence: each compiler-path mutation and correspondence control with its positive and fresh restoration; a shard runs part of the controls, and the two together run all of them. |
+| `structural`, `structural 1/5` to `structural 5/5` | Surface discovery, ownership, contamination, required application contracts, decision contracts that one surface counts for a different surface, and admission reuse between environments; a shard runs part of the controls, and the shards together run all of them. |
+| `execution`, `execution 1/4` to `execution 4/4` | Execution evidence: each compiler-path mutation and correspondence control with its positive and fresh restoration; a shard runs part of the controls, and the shards together run all of them. |
 | `cli` | Command-line behavior and diagnostics. |
 | `environments` | Isolated environments, documentation scanning, and external adopters. |
 | `build-policy` | Enforcement through the example's ordinary Lake build. |
@@ -236,7 +236,7 @@ checker behavior:
 | `self-lint` | This repository's own `REGULA_ORDINARY_LAKEFILES=1 lake lint` through the `regula/lint` driver, in the root and `audit/` packages ([repository conformance](#repository-conformance)). |
 | `self-lint-default` | The root package's `lake lint` without `REGULA_ORDINARY_LAKEFILES`, so with the audit-build marker that an adopter gets by default ([repository conformance](#repository-conformance)). |
 | `self-audit`, `self-audit 1/4` to `self-audit 4/4` | Operational self-audit of the excluded `Regula` library, and the check for one-sided `Json` comparisons in each library except `Fixtures` ([repository conformance](#repository-conformance)). A shard audits a quarter of the modules, and the four shards together audit all of them. |
-| `rule-examples`, `rule-examples 1/2`, `rule-examples 2/2` | [Source-owned corpus and diagnostic demonstrations](architecture.md#rule-examples); a shard runs half of the rules. |
+| `rule-examples`, `rule-examples 1/3` to `rule-examples 3/3` | [Source-owned corpus and diagnostic demonstrations](architecture.md#rule-examples); a shard runs a third of the rules. |
 
 The `environments` clean-checkout `freshChecker` control claims two import-free modules
 written into a copy with no build directory. It establishes that `freshChecker` builds its
@@ -266,8 +266,8 @@ The [diagnostics workflow](../../.github/workflows/diagnostics.yml) runs on ever
 every push to `main`, nightly and on dispatch. Its first job, `applies`
 (`lean --run lean/Regula/DiagnosticsGate.lean applies`), provisions the pinned release and
 decides which jobs apply. It runs
-`producers`, `history`, the five shards of `lint-driver` and the two shards each of
-`structural` and `execution` as parallel jobs, each with its own hard 420-second limit, on a pull
+`producers`, `history`, the five shards each of `lint-driver` and `structural` and the four
+shards of `execution` as parallel jobs, each with its own hard 420-second limit, on a pull
 request exactly when it changes one of the paths `Regula.DiagnosticsGate.inputs` lists (the checker, rules, rule examples, the
 adopter fixtures in `examples/lake-lint-toml` and `examples/build-lint`, the application and
 fixture sources the structural and execution controls mutate, Lake configuration, manifests, or
@@ -281,7 +281,7 @@ applies to it has passed on its head commit, and a failed, cancelled or timed-ou
 merge. A pull request that changes none of the listed paths, such as one that changes only
 documentation, passes it without running a campaign
 ([proofs and boundaries](proofs-and-boundaries.md#the-diagnostics-gate)).
-[CI](../../.github/workflows/ci.yml) runs both shards on every pull request and push to `main`,
+[CI](../../.github/workflows/ci.yml) runs the three shards on every pull request and push to `main`,
 where they feed `./scripts/verify.sh site` ([website guide](website.md)). These campaigns are
 capability-triggered diagnostics (standard §7.8), not a partition of ordinary acceptance.
 The [dogfood workflow](../../.github/workflows/dogfood.yml) runs `self-lint` and the four shards of
@@ -742,7 +742,7 @@ from a few mutations or a worker exit.
 
 Follow the [architecture](architecture.md). A rule change updates its descriptor, actual detector, source fixtures, expected typed diagnostics and explanatory page together. Regula is agent-first: the descriptor's requirement, rationale, remedy, rewrites and checked example pair are required fields, because every finding, `lake exe regula` and the agent briefing print them; regenerate the dogfooded [skill](../../.agents/skills/regula/SKILL.md) with `lake exe regula skill > .agents/skills/regula/SKILL.md`, which acceptance checks. Follow the [attribution scope](design-influences.md): preserve actual code/license notices and cite relevant component-level design influences; examples such as CA1416, Ruff and Pyrefly are not exclusive design mandates. Never replace semantic review with docstring presence or generated-page counts.
 
-The [website guide](website.md) specifies the pinned Verso setup, `./scripts/verify.sh site` (after both rule-example shards), publication and the rule-change workflow. The site build complements, and never partitions, [acceptance](#develop-and-verify). Review workflow must inspect rule IDs, exact scopes/modes, source ranges, versioned help routes and generated-source agreement where affected; no extra mandatory benchmark campaign is introduced.
+The [website guide](website.md) specifies the pinned Verso setup, `./scripts/verify.sh site` (after the three rule-example shards), publication and the rule-change workflow. The site build complements, and never partitions, [acceptance](#develop-and-verify). Review workflow must inspect rule IDs, exact scopes/modes, source ranges, versioned help routes and generated-source agreement where affected; no extra mandatory benchmark campaign is introduced.
 
 The acceptance transport groups are maintained, capability-triggered diagnostics. Run
 all affected groups when worker dispatch, codecs, joins, request reconstruction or
@@ -891,9 +891,10 @@ until the release commit has passed the same checks as `main`:
    without a release label ([versions](website.md#versions-and-routes)): the release's own
    edition exists only once CI builds it from the release commit, and an artifact with a preview
    is never deployed. The required checks are `verify`, `title`, `diagnostics`,
-   `diagnostics rule-examples 1/2`, `diagnostics rule-examples 2/2`, `site`, `mathlib integration`
+   `diagnostics rule-examples 1/3`, `diagnostics rule-examples 2/3`, `diagnostics rule-examples 3/3`,
+   `site`, `mathlib integration`
    and code scanning's `CodeQL` and `Analyze (actions)`.
-2. **candidate** (`ci.yml`, the `candidate` job on `main`): once acceptance and both rule-example
+2. **candidate** (`ci.yml`, the `candidate` job on `main`): once acceptance and the three rule-example
    shards pass on a commit of `main` that lists a release not yet published, it refuses unless
    the releases GitHub reports published are exactly the releases listed before it
    (`publishedExactly`): its listed predecessor is then the latest published release
@@ -911,7 +912,7 @@ until the release commit has passed the same checks as `main`:
    only change sets `Regula.installed` to the release, and points the branch
    `release/v<version>-candidate` at it.
    The next jobs run on it, with its release label, the checks of `main`: `release-verify` both
-   acceptance steps, and `release-site` both rule-example shards and the site build, which
+   acceptance steps, and `release-site` the three rule-example shards and the site build, which
    renders the release's edition and writes it as `regula-site-<version>.tar.gz`
    ([versions](website.md#versions-and-routes)). They check out the commit of `main` itself, not
    the release commit: their **adopt** step derives the release commit's content there with

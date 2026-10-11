@@ -3,7 +3,7 @@ name: Diagnostics
 # Capability-triggered qualification campaigns (standard §7.8): the producer and history
 # campaigns, the `lake lint` dispatch over the maintained adopter fixtures, which crosses
 # Lake, process and filesystem boundaries that the driver's proofs do not cover, in five shards,
-# and the checker self-test's structural and execution partitions, each in two shards; the
+# and the checker self-test's structural and execution partitions, in five and four shards; the
 # controls of a partition's shards together are the partition's. They are diagnostics, not a
 # partition of ordinary acceptance.
 #
@@ -77,10 +77,15 @@ jobs:
           - diagnostics lint-driver 3/5
           - diagnostics lint-driver 4/5
           - diagnostics lint-driver 5/5
-          - diagnostics structural 1/2
-          - diagnostics structural 2/2
-          - diagnostics execution 1/2
-          - diagnostics execution 2/2
+          - diagnostics structural 1/5
+          - diagnostics structural 2/5
+          - diagnostics structural 3/5
+          - diagnostics structural 4/5
+          - diagnostics structural 5/5
+          - diagnostics execution 1/4
+          - diagnostics execution 2/4
+          - diagnostics execution 3/4
+          - diagnostics execution 4/4
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -91,7 +96,7 @@ jobs:
       - name: Qualify (same command and seven-minute limit as local)
         run: ./scripts/verify.sh ${{ matrix.campaign }}
 
-  # CI runs the two rule-example shards on every change. Like the campaigns above, they also
+  # CI runs the three rule-example shards on every change. Like the campaigns above, they also
   # run nightly on an unchanged main, where a failure shows drift in the runner image or the
   # restored toolchain cache rather than in the pinned sources.
   rule-examples-nightly:
@@ -103,7 +108,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        shard: ['1/2', '2/2']
+        shard: ['1/3', '2/3', '3/3']
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:

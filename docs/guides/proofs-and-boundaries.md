@@ -4312,6 +4312,9 @@ The `qualify` campaigns and what they observe:
   reason.
 - `self-audit`, or with `--shard K/4` one of its four shards (`SelfAudit.selected_cover`).
 
+`producers` and `history` run their workspaces on four workers. `producers` validates the
+observations after all of them end, in the order of its chains.
+
 `producers` accepts an optional `--evidence PATH`; `environments --evidence PATH` and
 `acceptance GROUP --evidence PATH` (group `fences`) take an evidence path.
 `checkerSelftest --policy-domain-only` qualifies strict transport, external-adopter
@@ -4438,19 +4441,25 @@ resolve to it in a self-hosted copy;
 `Regula.Checker.Environment` does not elaborate unless every module in the probe's import closure
 outside the toolchain is a `RegulaPolicy` module or one of
 `RegulaPolicy.infrastructureModuleNames` (the command beside `probeModuleNames`, whose docstring
-states what it does not see). The controls are two clusters, both in the first shard, whose
-queue runs them beside one another.
+states what it does not see). The controls are two clusters: the positive alone in the first structural
+shard and the chain in the fifth.
 
 `structuralSelfHosted` builds its copy and runs the incremental gate on each of the three
 contaminations. It restores each contamination before the next. Then it records the fresh input
 of the restored copy with `freshInput`: the files that the copy operation of a fresh gate copies
-from it. `structuralSelfHostedPositive` prepares a different copy with `prepareSelfHosted`,
-records its fresh input and then runs the accepting fresh gate on that copy.
+from it. It prepares a reference copy with `prepareSelfHosted` and records the fresh input of that
+copy too. `structuralSelfHostedPositive` prepares its own copy with `prepareSelfHosted` and runs
+the accepting fresh gate on it.
 
-After the queue of the first shard stops, `selfHostedIdentity` compares the two fresh inputs
-path by path and byte by byte. A difference fails the shard. This comparison takes the place of
-an accepting fresh gate on the restored copy. It shows that the restorations gave the copy the
-same fresh input as the copy that the positive gate accepted.
+`selfHostedIdentity` compares the two fresh inputs of the chain path by path and byte by byte. A
+difference fails the cluster. This comparison takes the place of an accepting fresh gate on the
+restored copy. It shows that the restorations gave the copy the same fresh input as a copy that
+`prepareSelfHosted` prepares.
+
+The positive runs in another job, and the two jobs do not compare their inputs. The input of the copy that the
+positive accepted is the input of the reference copy. That rests on `prepareSelfHosted`, which
+copies the files of the checkout and derives the manifest from them alone. This is a reading of
+that function, not a theorem.
 
 The comparison does not prove that a fresh gate accepts the restored copy. That result also
 rests on a fact that is not a theorem. A fresh gate reads the audited project only through
@@ -4486,13 +4495,9 @@ clusters in the structural project (`a`, `b`, `c` and `d`) run in the second sha
 longer holds the positive. With cluster `a` still in the first shard, beside the chain and the
 positive, that shard's timed step took 354 s and 362 s on the slower hosted runners
 (Diagnostics run 37178141571, attempts 1 and 2): the chain took 205 and 208 s there, beside 162
-and 163 s for the positive and 139 and 142 s for `a`. The target for each structural
-shard is a timed step (the `Qualify` step of its job in the diagnostics workflow) of at most
-360 s on every run, a margin of at least 60 s (14 %) under the unchanged 420-second deadline.
-That step includes the build of the self-test and its checker executables: on the slower
+and 163 s for the positive and 139 and 142 s for `a`. That step includes the build of the self-test and its checker executables: on the slower
 hosted runners (Diagnostics runs 37170060453 and 37171425583, both shards), 147 to 157 s of it
-had passed when the first control started. That is a target, not a bound, and the timings above
-are observations: the deadline alone refuses a run.
+had passed when the first control started.
 
 On the slower hosted runners, the timed step of the first shard took 405 s at commit `e6c4c996`,
 with 242 s for the chain. With the seed, Diagnostics run 37979063520 took 368 s, with 198 s for
@@ -4506,7 +4511,7 @@ Each partition's baseline build names what its controls read from the repository
 projects of their own, where the gate builds that project's targets itself, and the manifest
 controls run `axiomGate` on the repository with a manifest it refuses before any build. So the
 structural baseline is `axiomGate`, `docFenceAudit` and `freshChecker` (its first shard, whose
-controls run `axiomGate` alone, names only that; its second keeps the partition's baseline),
+control runs `axiomGate` alone, names only that; the others keep the partition's baseline),
 the execution baseline is `axiomGate` alone, and neither builds the
 repository's claimed surface; the lint-driver baseline is `axiomGate`, `lint`, `ruleExamples` and
 the module `Regula.Linter`, and the other partitions keep the complete baseline. That is a reading
@@ -4534,19 +4539,40 @@ concurrent groups. No guard detects that. Thus the lint-driver baseline names `R
 which imports `Regula.Linter.Rules`. Each other module that the adopters import is one that
 `axiomGate` or `lint` imports, by a reading of import lines.
 
-The controls of the structural and of the execution partition are divided into two shards, `1/2`
-and `2/2`. The lint-driver controls are divided into five shards, `1/5` to `5/5`. The diagnostics
-workflow runs each shard as a separate job. Every control carries its one shard where the
-partition lists it, and a shard runs the controls that carry it. The theorem `inShard_cover`
-proves that the selections of the shards together are a rearrangement of the whole list. Thus
-each control runs in exactly one shard.
+The structural controls are divided into five shards, `1/5` to `5/5`. The execution controls are
+divided into four, `1/4` to `4/4`, and the lint-driver controls into five. The diagnostics workflow
+runs each shard as a separate job. Every control carries its one shard where the partition lists
+it, and a shard runs the controls that carry it. The theorem `inShard_cover` proves that the
+selections of the shards together are a rearrangement of the whole list. Thus each control runs in
+exactly one shard.
 
 The shards of a partition list the same controls because they run the same sources, which no
-theorem states. The first structural shard has the mutation clusters `self-hosted` and
-`self-hosted-positive` with the frozen-artifact and cross-surface decision controls. The second
-has the clusters `a`, `b`, `c` and `d` with the library cycle, driver copy and manifest controls.
-The execution shards hold one correspondence cluster each and alternate compiler-path cases. A
-shard's PASS names the controls or the groups that it ran and is not the partition's.
+theorem states. The first structural shard holds `self-hosted-positive` alone. The other four hold
+the chain `self-hosted` and the clusters cut from `a`, `b`, `c` and `d`. They also hold the
+frozen-artifact, cross-surface decision, library cycle, driver copy and manifest controls. The
+execution shards divide the correspondence clusters and the compiler-path cases. A shard's PASS
+names the controls or the groups that it ran and is not the partition's.
+
+Each of the chains `a`, `b`, `c` and `d` ran its mutations one after another in one project. On
+the slower hosted runners, each chain took 122 to 150 s. Each chain is now cut at points where it
+has restored every file it changed, and each cut runs in a project of its own. Each cut ends with
+an accepting fresh gate on its restored project: `restoredControl`, or the restored gate of its
+last mutation. The cuts keep every mutation and its assertions, and their fresh gates are added
+controls. The correspondence clusters of the execution partition are cut in the same way.
+
+The target for each shard is the target of the lint-driver shards. The estimate of a shard is the
+sum of three times. The first is the slowest recent build of the root package, 217 s. The second
+is 4 s of setup, and the third is 1.10 times the slowest observed time of its controls. The target
+is an estimate of at most 315 s, so that a quarter of the 420-second deadline is left. These
+estimates are targets, not bounds: the deadline alone refuses a run.
+
+The first structural shard holds one control that no cut divides. That control is one fresh gate,
+which builds `RegulaPolicy` from empty output. On the slower hosted runners, it took 133 to 163 s.
+That shard builds only `axiomGate` and the self-test. Its criterion was fixed before its first
+run. The time of its own build in the job, plus 4 s, plus 1.10 times the time of the positive, is
+at most 315 s.
+
+
 
 Before the structural project, every cluster ran in a copy of the whole repository claiming
 `RegulaPolicy`, and one partition held the structural, correspondence and compiler-path
@@ -4554,7 +4580,7 @@ controls: an instrumented run took 513 s, in which 21 gate runs each inspected t
 `RegulaPolicy` library (about 475 s of roughly 1,200 s of control work). `diagnostics
 structural` and `diagnostics execution` then each ran under the 420-second deadline, locally
 and as jobs of the diagnostics workflow, where the slowest hosted `structural` run observed
-(2026-10-02) took 413 s; the workflow now runs each partition as two shards, a job each.
+(2026-10-02) took 413 s; the workflow now runs each partition as several shards, a job each.
 Observed on 2026-10-01 on a 14-core machine that other
 builds kept at a load average of 10 to 13, `structural` passed in 96 s and `execution` in 90 s
 (102 s and 94 s for the whole `verify.sh` invocation). These are observations of two runs, not

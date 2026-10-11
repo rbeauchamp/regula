@@ -94,7 +94,7 @@ the release `open` derived passes on the commits it derived from (`nextVersion_c
 creates the release commit, a signed child of that commit that is not
 on `main` and whose only change sets `Regula.installed` to the release, and points the branch
 `release/v<version>-candidate` at it. CI then runs on the release commit, with its release label,
-the same checks as on `main`: both acceptance steps, both rule-example shards and the site build,
+the same checks as on `main`: both acceptance steps, the three rule-example shards and the site build,
 which renders the release's edition and writes it as the release asset. The jobs that run them
 check out the commit of `main` itself, derive the release commit's content there with `main`'s
 own code, and adopt the release commit's name only once they have shown that it is exactly that
@@ -1984,7 +1984,8 @@ def openRelease : IO Unit := do
       `v/{v.spelling}/`, rendered from this branch, which carries no release label; the \
       release's own edition exists only once CI builds it from the release commit, and no \
       artifact with a preview is deployed. The required checks are `verify`, `title`, \
-      `diagnostics`, `diagnostics rule-examples 1/2`, `diagnostics rule-examples 2/2`, `site`, \
+      `diagnostics`, `diagnostics rule-examples 1/3`, `diagnostics rule-examples 2/3`, \
+      `diagnostics rule-examples 3/3`, `site`, \
       `mathlib integration` and code scanning's `CodeQL` and `Analyze (actions)`.\n\n\
       The Release workflow created this signed branch, which is named after its commit, and a \
       maintainer opened this pull request from the link in the job summary, which started its \
