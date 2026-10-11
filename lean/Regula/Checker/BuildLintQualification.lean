@@ -239,8 +239,11 @@ def setup (repo adopter : FilePath) (exampleDir : String := "build-lint")
     (lakefile.replace "\"../..\"" (Json.compress (toJson repo.toString)))
   requireCheckout repo adopter
 
+/-- The adopter's `lake build`, as from a shell: the toolchain's `lake` by its path, without
+`LAKE_OVERRIDE_LEAN` and without the `LEAN_SYSROOT` of `Regula.Toolchain.lakeChildEnv` or of this
+process, so the `policy` target must give its `axiomGate` the toolchain itself. -/
 private def build (adopter : FilePath) : IO ProcessResult :=
-  runLake adopter #["build"] scrubbedLeanPathEnv
+  runLake adopter #["build"] (scrubbedLeanPathEnv.push ("LEAN_SYSROOT", none))
 
 private def positive (name : String) (result : ProcessResult) : Array String :=
   let label := "PASS"
