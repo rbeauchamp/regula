@@ -10,9 +10,10 @@ in the toolchain's installation directory, never by a bare name that `PATH` reso
 binary directory of every package of a workspace before the toolchain's on the `PATH` of the
 programs it starts (`Lake.Workspace.augmentedPath`, used by `lake env`, `lake exe` and `lake lint`),
 so a bare name could run a program of the project or of one of its dependencies instead. The
-installation directory is the canonical path of the absolute `LEAN_SYSROOT` that Lake sets, or in a
-`lean` without it that `lean`'s own installation (`Regula.CompilerObservation.toolchainRoot`),
-accepted once its `lean` reports the identity of the compiler this Regula build pins
+installation directory is the canonical path of the absolute `LEAN_SYSROOT` that Lake sets,
+else, in a `lean`, that `lean`'s own installation, else the Elan toolchain that `ELAN_TOOLCHAIN`
+names under Elan's home (`Regula.CompilerObservation.toolchainRoot`, which throws without any of
+them), accepted once its `lean` reports the identity of the compiler this Regula build pins
 (`Regula.CompilerObservation.identifiedRoot`). Its other programs are trusted to be that
 installation's; no program reports more of its identity than `lean` does.
 -/

@@ -452,8 +452,9 @@ Lake details that affect what ran:
   ([standard §7.11](https://rbeauchamp.github.io/regula/dev/standard/7-tooling-and-machine-audit/#711-opt-in-enforcing-build-linter));
   `lakefile.toml` has no custom targets. Direct `lean`, editor elaboration and an explicit
   build of another target never run the strict gate. The target starts `axiomGate` with the
-  environment that `lake exe` gives a program. Without that environment, `axiomGate` uses the
-  toolchain that Elan names in `ELAN_TOOLCHAIN`, in the Elan home of `ELAN_HOME`.
+  environment that `lake exe` gives a program. Without that environment, `axiomGate` uses an
+  inherited absolute `LEAN_SYSROOT`. Without it, `axiomGate` uses the toolchain that
+  `ELAN_TOOLCHAIN` names in the Elan home of `ELAN_HOME`, and with neither variable it fails.
 - `lake exe axiomGate` runs the same audit body directly: fresh by default, over the incremental
   build with `--incremental`, and as the build-lint `policy` target runs it with `--build-lint`
   (`lake exe axiomGate -- --help` lists every option);

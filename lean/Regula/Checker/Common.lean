@@ -256,8 +256,9 @@ def repoRoot : IO FilePath := do
 
 /-- Initialize dynamic module lookup from Lake's `LEAN_PATH`. Compiled checker
 executables do not receive the `lean` driver's search-path initialization. The toolchain's
-library comes from `Regula.CompilerObservation.toolchainRoot`, so in a program that is not a
-`lean` this throws unless Lake set an absolute `LEAN_SYSROOT`. -/
+library comes from `Regula.CompilerObservation.toolchainRoot`: an absolute `LEAN_SYSROOT`, else,
+in a `lean`, that `lean`'s own installation, else the Elan toolchain that `ELAN_TOOLCHAIN` names
+under Elan's home; with none of them this throws. -/
 def initializeLeanSearchPath : IO Unit := do
   Lean.initSearchPath (← Regula.CompilerObservation.toolchainRoot)
 
