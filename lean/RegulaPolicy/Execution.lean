@@ -986,12 +986,12 @@ def toolchainEntry (observations : Array (ToolchainReach × ExecutionBoundary ×
   toolchainEntryOf (observations.filter (·.2.1.toolchainKey == key))
 
 /-- The observations under each key, in their order (`observationsByKey_getD`), gathered in one
-pass instead of one pass for each key. -/
+pass instead of one pass for each key, each key's array updated in place. -/
 def observationsByKey
     (observations : Array (ToolchainReach × ExecutionBoundary × ToolchainOrigin)) :
     Std.HashMap ToolchainKey (Array (ToolchainReach × ExecutionBoundary × ToolchainOrigin)) :=
   observations.foldl (init := {}) fun byKey x =>
-    byKey.insert x.2.1.toolchainKey ((byKey.getD x.2.1.toolchainKey #[]).push x)
+    byKey.alter x.2.1.toolchainKey fun a? => some ((a?.getD #[]).push x)
 
 private theorem foldl_observationsByKey_getD
     (l : List (ToolchainReach × ExecutionBoundary × ToolchainOrigin))
@@ -999,16 +999,16 @@ private theorem foldl_observationsByKey_getD
       (Array (ToolchainReach × ExecutionBoundary × ToolchainOrigin)))
     (key : ToolchainKey) :
     (l.foldl (fun byKey x =>
-        byKey.insert x.2.1.toolchainKey ((byKey.getD x.2.1.toolchainKey #[]).push x)) byKey).getD
+        byKey.alter x.2.1.toolchainKey fun a? => some ((a?.getD #[]).push x)) byKey).getD
           key #[] =
       byKey.getD key #[] ++ (l.filter (·.2.1.toolchainKey == key)).toArray := by
   induction l generalizing byKey with
   | nil => simp
   | cons x l ih =>
-    rw [List.foldl_cons, ih, Std.HashMap.getD_insert]
+    rw [List.foldl_cons, ih, Std.HashMap.getD_alter]
     by_cases same : x.2.1.toolchainKey = key
     · subst same
-      simp
+      simp [Std.HashMap.getD_eq_getD_getElem?]
     · simp [same]
 
 /-- The observations `observationsByKey` gathers under a key are exactly those under it, in
