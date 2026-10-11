@@ -902,7 +902,8 @@ def descriptor : (id : RuleId) → RuleDescriptor id
         "Keep only accepted options: a listed linter or `warn.*` option at its listed value \
           (`true` for most), `warningAsError` or `debugAssertions` at true, a `pp.*` option at its \
           default, or a number for `maxHeartbeats`, `synthInstance.maxHeartbeats`, \
-          `maxRecDepth`, `maxSynthPendingDepth` or `exponentiation.threshold`, which lets Lean do work it would skip. Delete other \
+          `maxRecDepth`, `maxSynthPendingDepth` or `exponentiation.threshold`, which lets Lean \
+          do work it would skip. Delete other \
           `-D name=value` arguments and `weak.` entries, even undeclared ones; non-option \
           arguments may stay."]
       examples := {
