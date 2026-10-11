@@ -785,7 +785,9 @@ instance : CoeFun Build (fun _ => FilePath → Array Target → IO ProcessResult
 /-- Run the executable of the root package of the workspace at `repo` that `spelling` names (as
 for `SurfaceTarget.executable`) with `args`, as `lake exe` runs it once it is built: in `repo`,
 with the environment Lake gives the programs it starts (`Workspace.augmentedEnvVars`), here that
-of `Workspace.uncachedWorkspace`, without the inherited `LEAN_PATH` and `LEAN_SRC_PATH`. Unlike
+of `Workspace.uncachedWorkspace`, without the inherited `LEAN_PATH` and `LEAN_SRC_PATH` and with
+`LAKE_OVERRIDE_LEAN` unset (`Regula.Toolchain.lakeChildEnv`, whose `LEAN_SYSROOT` is the one that
+environment gives). Unlike
 `lake exe` it builds nothing, so no build that ignores `uncachedWorkspace` precedes it: the caller
 builds the executable first with `Build.run`, and a missing executable fails. -/
 def runBuiltExecutable (repo : FilePath) (spelling : String) (args : Array String) :
@@ -795,7 +797,7 @@ def runBuiltExecutable (repo : FilePath) (spelling : String) (args : Array Strin
     let recorded := Manifest.recordedName spelling
     let some exe := ws.root.leanExes.find? (Manifest.targetSpelling ·.name == recorded)
       | throw <| IO.userError s!"'{spelling}' names no executable of the root package"
-    pure (exe.file, ws.augmentedEnvVars)
+    pure (exe.file, (← Regula.Toolchain.lakeChildEnv) ++ ws.augmentedEnvVars)
   unless ← file.pathExists do
     throw <| IO.userError s!"executable {spelling} was not built: {file}"
   runProcess repo file.toString args env

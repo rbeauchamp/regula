@@ -142,4 +142,13 @@ def refuseRelativeOverrides (env : Array (String × Option String) := #[]) : IO 
         throw <| IO.userError s!"the toolchain program override {name}={value} is not an \
           absolute path, so PATH could resolve it; unset it or give an absolute path"
 
+/-- The environment changes that each Lake process Regula starts gets: `LEAN_SYSROOT` is the
+identity-checked installation (`sysroot`) and `LAKE_OVERRIDE_LEAN` is unset. A toolchain `lake`
+beside its `lean` then takes its own installation (`Lake.findLakeLeanJointHome?`), and
+`Lake.findInstall?` does not run `Lake.findLeanInstall?`, which starts a `lean --print-prefix` that
+`PATH` resolves when `LEAN_SYSROOT` and `LEAN` are unset. A caller puts these changes before its
+own, so a control's deliberate `LEAN_SYSROOT` stays. -/
+def lakeChildEnv : IO (Array (String × Option String)) := do
+  return #[("LEAN_SYSROOT", some (← sysroot).toString), ("LAKE_OVERRIDE_LEAN", none)]
+
 end Regula.Toolchain

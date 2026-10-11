@@ -8,19 +8,36 @@ Each declaration of Regula's libraries that refers directly to a function that s
 declaration may refer to a function that finds a toolchain program through `PATH`
 (`pathFinders`). The operational self-audit (`Regula.Qualification.SelfAudit`) reads the
 references from the kernel value and type of every constant of the modules it audits
-(`references`) and decides them with `violations` (`violations_eq_empty`). A process started
-through another library function, such as Lake's build API, is not a direct reference, so this
-check does not see it; Regula gives Lake the installation it builds with
-(`Regula.Checker.Workspace`). A program named by a string that a caller passes is chosen by that
-caller, which the entry of the starting declaration names. -/
+(`references`) and decides them with `violations` (`violations_eq_empty`). It is a tripwire for
+direct references to the listed starters only: a process started through another function, such as
+Lake's build API, is not a direct reference, so this check does not see it. Following references
+into dependencies is the reach check of issue #362 (its part 1b). Regula gives Lake the
+installation it builds with (`Regula.Checker.Workspace`). A program named by a string that a
+caller passes is chosen by that caller, which the entry of the starting declaration names. -/
 namespace Regula.Qualification.ProcessStarts
 
 open Lean
 
-/-- The functions of Lean and of the pinned Lake that start a process. -/
+/-- The functions of Lean and of the pinned Lake that start a process: Lean's `IO.Process.spawn`,
+`output` and `run`, and each public function of Lake v4.34.1 whose own body starts one, by its
+source file in `src/lean/lake`: `Lake.rawProc` (`Lake/Util/Proc.lean:29`), `Lake.captureProc?`
+(`:61`) and `Lake.testProc` (`:69`); `Lake.env` (`Lake/CLI/Actions.lean:20`) and
+`Lake.Workspace.evalLeanFile` (`:108`); `Lake.lake.env` (`Lake/CLI/Main.lean:1158`);
+`Lake.serve` (`Lake/CLI/Serve.lean:90`); `Lake.CacheService.downloadArtifacts`
+(`Lake/Config/Cache.lean:911`); and `Lake.LeanInstall.get` (`Lake/Config/InstallPath.lean:272`),
+which runs its installation's `lean --githash` by its path. It also lists the wrappers of
+`Lake.rawProc` in `Lake/Util/Proc.lean`: `Lake.proc` (`:38`), `Lake.captureProc'` (`:49`) and
+`Lake.captureProc` (`:58`). The functions of that Lake that are not public, such as
+`Lake.Workspace.updateToolchain` (`Lake/Load/Resolve.lean:369`), cannot be referenced from Regula.
+`Lake.lake.env` and `Lake.serve` are in modules of Lake's command line, which `import Lake` does not
+import, so they are named without a check that they resolve. This is a list of direct starters: a
+function that starts a process through one of them, such as Lake's build functions, is not on it
+(`references`). -/
 def starters : List Name :=
   [``IO.Process.spawn, ``IO.Process.output, ``IO.Process.run, ``Lake.rawProc, ``Lake.proc,
-    ``Lake.captureProc', ``Lake.captureProc, ``Lake.captureProc?, ``Lake.testProc]
+    ``Lake.captureProc', ``Lake.captureProc, ``Lake.captureProc?, ``Lake.testProc, ``Lake.env,
+    ``Lake.Workspace.evalLeanFile, `Lake.lake.env, `Lake.serve,
+    ``Lake.CacheService.downloadArtifacts, ``Lake.LeanInstall.get]
 
 /-- The functions of Lean and of the pinned Lake that find the toolchain by running a `lean` that
 `PATH` (or `LEAN`) names when no other source names it (`Lean.findSysroot`,
@@ -66,6 +83,9 @@ def allowed : List Allowed := [
   ⟨"Regula.Checker.Producer", "Regula.Checker.Producer._aux_Regula_Checker_Producer___elabRules_\
       Regula_Checker_Producer_termRegula_build_revision_1",
     "`git`, found on `PATH`, at elaboration; not a toolchain program"⟩,
+  ⟨"Regula.Checker.Workspace", "Regula.Checker.Workspace.detectEnvironment",
+    "Lake's `LeanInstall.get` for the identity-checked installation (`Regula.Toolchain.sysroot`), \
+      as collocated, so it starts no `lean --githash`"⟩,
   ⟨"Regula.Checker.Snapshot", "Regula.Checker.Snapshot.statusBytes",
     "`git`, found on `PATH`; not a toolchain program"⟩,
   ⟨"Regula.CompilerObservation", "Regula.CompilerObservation.identifiedRoot",

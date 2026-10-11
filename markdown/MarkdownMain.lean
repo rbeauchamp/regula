@@ -402,13 +402,16 @@ def lakeVariables : List String :=
     "LAKE_PKG_URL_MAP", "LAKE_RESTORE_ARTIFACTS", "LEAN", "LEAN_AR", "LEAN_GITHASH", "LEAN_PATH",
     "LEAN_RECURSION_COUNT", "LEAN_SRC_PATH", "LEAN_SYSROOT"]
 
-/-- Run `cmd` with `args` in `directory`, without the variables `lakeVariables`. Throws without
+/-- Run `cmd` with `args` in `directory`, without the variables `lakeVariables` but with
+`Regula.Toolchain.lakeChildEnv`: the identity-checked `LEAN_SYSROOT`, without `LAKE_OVERRIDE_LEAN`,
+so a child `lake` reads no `lean` that `PATH` resolves to find its installation. Throws without
 starting it when `cmd` spells a toolchain program's name, or is a `lake` and an argument spells one
 (`Regula.Toolchain.refuseBareName`), or when the child would see a toolchain program override that
 is not an absolute path (`Regula.Toolchain.refuseRelativeOverrides`). -/
 def runOutside (directory : System.FilePath) (cmd : String) (args : Array String) :
     IO IO.Process.Output := do
-  let env := (lakeVariables.map fun name => (name, none)).toArray
+  let env := (lakeVariables.map fun name => (name, none)).toArray ++
+    (← Regula.Toolchain.lakeChildEnv)
   Regula.Toolchain.refuseBareName cmd args
   Regula.Toolchain.refuseRelativeOverrides env
   IO.Process.output { cmd, args, cwd := some directory, env }

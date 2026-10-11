@@ -48,9 +48,11 @@ def run (root : FilePath) (command : String) (args : Array String)
 
 /-- `run` of the toolchain's `lake`, by its path (`Regula.Checker.toolchainProgram`). Throws
 without starting it when the child would see a toolchain program override that is not an absolute
-path (`Regula.Toolchain.refuseRelativeOverrides`). -/
+path (`Regula.Toolchain.refuseRelativeOverrides`). The child gets `Regula.Toolchain.lakeChildEnv`,
+then `env`. -/
 def runLake (root : FilePath) (args : Array String) (env : Array (String × Option String) := #[]) :
     IO IO.Process.Output := do
+  let env := (← Regula.Toolchain.lakeChildEnv) ++ env
   Regula.Toolchain.refuseRelativeOverrides env
   run root (← Regula.Checker.toolchainProgram "lake") args env
 
