@@ -4747,10 +4747,14 @@ The theorems for the observer use that model. Thus they use only the four assump
 system at that model. Each assumption is a statement about each run from each world.
 
 In `IO`, the world at the end of an operation is the world at the start of the next operation.
-Thus a change by a different process between two operations is a part of one of the two runs. A
-read changes nothing, and a removal keeps the entry at each path in its frame. Thus such a change
-makes an assumption false. The only exception is a change after a removal, at a path that the
-frame of the removal does not include. The theorems that use a false assumption give no result.
+Thus a change by a different process while the code runs is a part of the run of one operation. A
+read changes nothing, thus a change during a read makes an assumption false. A removal keeps the
+entry at each path in its frame. Thus a change during a removal, at an entry that the frame keeps,
+makes an assumption false.
+
+A change in the removed tree can also make `RemovesTree` false, as "The file system" shows. Thus
+the assumptions are about runs in which no different process writes to the file system. The
+theorems that use a false assumption give no result.
 
 ### The sources of an assumption
 
@@ -4798,17 +4802,21 @@ hypothesis. `Regula.Filesystem` gives them for the observer at the model of the 
 `corresponds_ofIO` proves `Corresponds`.
 
 `Model.Unchanged` gives the frame of a removal. It is each path with a file name, if its parent is
-its own real path before the removal. The spelling of the path must not start with the removed
-path. Before the removal, also no entry is at the path, or the path names a file that is not an
+its own real path before the removal. The path is not the removed path, and the chain of its
+parents does not reach the removed path (`Within`). Before the removal, also no entry is at the path, or the path names a file that is not an
 entry of the removed tree. For each such path, the entry after the removal has the same type as
 before, or no entry is at the path before and after.
 
-`Model.Below` gives the entries of the removed tree. They are the entries that `removeDirAll` of
-Lean 4.34.1 visits
+`Model.Below` gives the removed tree. The removed path is in its tree. A name in a directory of
+the tree, other than `.` and `..`, is also in the tree. A symbolic link is not a directory, thus
+the tree does not go into a symbolic link.
+
+The tree includes the entries that `removeDirAll` of Lean 4.34.1 visits when no different process
+writes
 ([`Init/System/IO.lean#L1335-L1342`](https://github.com/leanprover/lean4/blob/v4.34.1/src/Init/System/IO.lean#L1335-L1342)).
-The removed path is an entry of its tree. A name in a directory of the tree, other than `.` and
-`..`, is also an entry of the tree. A symbolic link is not a directory, thus the tree does not go
-into a symbolic link.
+It also has a name with no entry in a directory of the tree. It also has a different spelling of
+an entry, for example a different case on a volume that ignores case. These names add no file to
+the files of the tree. The first names no file, and the second names the file of the entry.
 
 `Model.ident` gives the file that a path names. It is the device and the number of the file, the
 values `st_dev` and `st_ino` of `lstat(2)`. POSIX.1-2024 `<sys/stat.h>` states that these two
@@ -4823,9 +4831,16 @@ the frame is about.
 
 The frame also does not include a path if the real path of its parent is not that parent. Such a
 path can go through the removed path, for example through a symbolic link or with `..`. The target
-of a symbolic link in the tree is not an entry of the tree through that link. Thus the frame keeps
-the entry of the target, if the tree does not have it with a different name. A path with no entry
+of a symbolic link in the tree is not an entry of the tree through that link. Thus the entry of
+the target is in the frame, if the tree does not have it with a different name. Thus in a run with
+no different process that writes, the removal keeps the entry of the target. A path with no entry
 is in the frame, thus no entry appears outside the removed path.
+
+`removeDirAll` of Lean 4.34.1 resolves each path of the tree again at each call. During the
+removal, a different process can replace a directory of the tree with a symbolic link. It can also
+change what a path of the tree resolves to in a different way, for example with a rename. Then the
+walk can go out of the tree and remove entries outside it. This is the race of CVE-2022-21658. In
+such a run, `RemovesTree` is false.
 
 Some volumes ignore case or Unicode normalization. On such a volume, the `realpath(3)` of Darwin
 gives the name that the volume keeps for each component. Apple Libc-1752.120.2
@@ -4858,8 +4873,9 @@ This section does not establish these properties:
 
 - That the real system satisfies the assumptions. Regula trusts each one, with its sources.
 - That no different process changes the file system while the code runs. Such a process can make
-  an assumption false, as "From a model to the real system" shows. Regula does not examine the
-  other processes.
+  an assumption false, as "From a model to the real system" shows. For example, a process can
+  replace a directory of a removed tree with a symbolic link during the removal. This race of
+  CVE-2022-21658 makes `RemovesTree` false. Regula does not examine the other processes.
 - That two names of one file give the same device. Two mounts of one network or FUSE file system
   can give two devices for one file. There `RemovesTree` and `RemovesEntry` are false.
 - That the file numbers of a file system are stable. On a file system with file numbers that
