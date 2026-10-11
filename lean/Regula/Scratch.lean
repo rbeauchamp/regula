@@ -18,7 +18,16 @@ remove its directory, but the kernel releases its lock. So whenever the lock can
 exclusively, no scratch owner is alive and every marked directory is an orphan; the next
 scratch user removes them, then their markers, before creating its own. Nothing else is
 removed: no unmarked entry, and nothing outside Regula's directory. File locking, exclusive
-creation, process death and directory removal are trusted operating-system effects. -/
+creation, process death and directory removal are trusted operating-system effects.
+
+A scratch user that reclaimed converts its exclusive lock to a shared one, without releasing it
+first. Safety does not depend on the conversion: `flock(2)` does not promise that it is atomic,
+but the process creates nothing before it holds the shared lock, so a window without a lock is
+one that a release before the shared request would open too. The conversion is for progress
+only, and the operating-system behaviour it relies on is trusted, not proved. On macOS, XNU's
+release of a `flock` lock wakes only its first waiter and moves the others onto that waiter's
+lock, so shared waiters would sleep until that waiter's whole scratch ended; a downgrade by the
+holder wakes every waiter. Linux wakes every waiter in both cases. -/
 namespace Regula.Scratch
 open System
 
@@ -72,16 +81,20 @@ private def reclaim (dir : FilePath) : IO Unit := do
 
 /-- Run `action` in a fresh, marked scratch directory under `directory root` and remove it,
 then its marker, on normal or exceptional return, holding the scratch lock shared throughout.
-When no scratch owner is alive, orphans are reclaimed first. Returns the value and the removed
-directory's path; the path is returned only after its removal returned. Random naming is not a
-logical freshness proof. -/
+When no scratch owner is alive, orphans are reclaimed first under the exclusive lock, which is
+then converted to the shared one without an `unlock` between them, so that on macOS the
+conversion wakes every waiter (see the module documentation); a reclamation that raises
+releases the lock. Returns the value and the removed directory's path; the path is returned
+only after its removal returned. Random naming is not a logical freshness proof. -/
 def withScratch {α : Type} (root : FilePath) (stem : String) (action : FilePath → IO α) :
     IO (α × FilePath) := do
   let dir := directory root
   IO.FS.createDirAll dir
   let lock ← IO.FS.Handle.mk (dir / lockName) .append
   if ← lock.tryLock then
-    try reclaim dir finally lock.unlock
+    try reclaim dir catch error =>
+      lock.unlock
+      throw error
   lock.lock (exclusive := false)
   try
     let path := dir / s!"{stem}-{← suffix}"
