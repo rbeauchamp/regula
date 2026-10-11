@@ -39,8 +39,9 @@ last two tools. Verification runs offline against those pinned dependencies. Non
 commands below downloads, caches, imports or builds Mathlib; the
 [Mathlib integration check](#mathlib-integration-check) is a separate command with its own setup.
 
-`scripts/verify.sh` and `scripts/provision.sh` run Elan's `lean` proxy by its path in
-`$ELAN_HOME/bin`, or else `~/.elan/bin`, and not a `lean` that `PATH` resolves. Elan selects the
+`scripts/verify.sh` and `scripts/provision.sh` run Elan's `lean` proxy by its path in the directory
+of the `elan` that `PATH` resolves (`~/.elan/bin` for elan-init, the Homebrew `bin` for Homebrew),
+and not a `lean` that `PATH` resolves. That `elan` is trusted to be Elan. Elan selects the
 toolchain, and the verification driver refuses any compiler but the one this revision pins.
 The verification driver refuses a script that names `lean`, `lake` or `leanchecker` literally and
 bare. A quoted or computed command name is outside that check. The guarantee is the construction:

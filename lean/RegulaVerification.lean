@@ -715,7 +715,7 @@ def bareWords (text : String) : List (Nat × String) :=
 program (`bareWords`), which `PATH` would resolve, Lake putting a workspace's binary directories
 first. It is a tripwire for literal bare names only: a quoted or computed command name is outside
 it. The guarantee is the scripts' construction: each starts a toolchain program only through
-Elan's `lean` proxy, by its path in `$ELAN_HOME/bin`, else `~/.elan/bin`. -/
+Elan's `lean` proxy, by its path in the directory of the `elan` that `PATH` resolves. -/
 def refuseBareScriptWords : IO Unit := do
   for entry in ← System.FilePath.readDir "scripts" do
     let found := bareWords (← IO.FS.readFile entry.path)
