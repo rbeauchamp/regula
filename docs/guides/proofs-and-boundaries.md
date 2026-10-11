@@ -3689,13 +3689,14 @@ planned exactly when there is no manifest and the package has a `lean_lib` for i
 (`plan_manifest_mem`); a package with none has a setup issue `init` does not fix.
 
 **Checked when it runs:** `init` observes the project again after writing and restores every
-file it wrote unless the new plan is empty and each claimed target of both observations, matched
+file it wrote unless the new plan is empty, no library that the plan gave a glob leaves out a
+module that `doctor` reports (`uncovered_run`'s executable counterpart), and each claimed target of both observations, matched
 by kind and name, sets the same required options only with a `-D` as before (`arguedBy_run`'s
 executable counterpart, which catches an added option that reaches such a target; a target the
 new observation does not claim, as while a starter manifest fails [RG2002], is not compared), and it
 writes the starter manifest only after `Manifest.parse` reads the text back as exactly that
 manifest. That the lakefile edits realize
-the model's `apply` is this check, not a theorem. That `allClaimed` holds only when the observed
+the model's `apply` is not a theorem. The command checks only these consequences when it runs. That `allClaimed` holds only when the observed
 targets are every root `lean_lib` and `lean_exe` is how `observe` builds the observation, and the
 extra `lean` arguments it reads are those of the audit's inventory, read by the same
 `Lake.libraryOptions` and `Lake.executableOptions`. `doctor` runs the audit's own [RG2002] functions

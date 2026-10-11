@@ -31,8 +31,10 @@ finding for the targets that share a claim and failures.
 - `starterManifest`: every root `lean_lib` claimed `standard-logical`, as a `Manifest` value that
   `Manifest.parse` admits before it is written.
 - `init`: apply the plan, observe again and restore every written file unless the new plan is
-  empty and each claimed target of both observations, matched by kind and name, sets the same
-  required options only with a `-D` (`Regula.Setup.arguedBy_run`); then run `doctor`.
+  empty, the new observation leaves out no module of a library the plan gave a glob
+  (`Regula.Setup.uncovered_run`), and each claimed target of both observations, matched by kind
+  and name, sets the same required options only with a `-D` (`Regula.Setup.arguedBy_run`); then
+  run `doctor`.
 - `doctor`: print the findings and the edits `init` would write, exiting 0 only when there is
   none, and a note, which does not count, for each module outside every library that no claimed
   module imports.
@@ -43,7 +45,7 @@ Lake's loader, the parsers (including Lean's import-header parser), the filesyst
 frontend that locates the `package`, `lean_lib` and `lean_exe` declarations are trusted. That a
 text edit realizes `Regula.Setup.apply` is not proved: `init` observes the project again after
 writing and refuses, restoring the files it wrote, unless the plan of the new observation is
-empty. `init` never changes a value the project already gives: it inserts text only, into the
+empty and its `uncovered` has no entry for a library the plan gave a glob. `init` never changes a value the project already gives: it inserts text only, into the
 package's configuration and each claimed target's as the plan decides, and a `globs` setting into
 the library of `Regula.Setup.Observation.globCase`, located the same way. That case is read from
 Lake: the package's only library, with one root and its globs Lake's default, whose glob has a
@@ -440,7 +442,9 @@ partial def containsKind (stx : Syntax) (kind : SyntaxNodeKind) : Bool :=
 (`what` names it): `lintDriver` and the `globs` setting `globs` as new last fields, and the
 missing options appended to the `leanOptions` array literal, appended to any other `leanOptions`
 term with `++`, or as a new last field. A `globs` field already in the declaration, which
-`soleDeclared` rules out for the library that receives one, is refused. -/
+`soleDeclared` rules out for the library that receives one, is refused. An empty `where` block
+receives the `globs` setting alone; any other field into an empty `where` block or structure
+instance is refused. -/
 def configInsertions (input : String) (command : Syntax) (what : String) (driver : Bool)
     (entries : List (Name × OptionValue)) (globs : Option String := none) :
     Except String (List (Nat × String)) := do
@@ -474,11 +478,11 @@ def configInsertions (input : String) (command : Syntax) (what : String) (driver
         pure [(lineEnd input (← endOf last),
           String.join ((newFields (some indent)).map (("\n" ++ indent) ++ ·)))]
     | none =>
-      if structForm then
+      if structForm || (whereForm && (driver || !entries.isEmpty)) then
         throw s!"{what} has an empty configuration; add the fields by hand"
       if whereForm then
-        -- An empty `where` block, as in Lake's `lake new` template: the fields go on their own
-        -- lines after `where`.
+        -- An empty `where` block, as in Lake's `lake new` template: the glob goes on its own
+        -- line after `where`.
         let some keyword := command.find? (·.isToken "where")
           | throw s!"{what} has a `where` block without its keyword; add the fields by hand"
         pure [(← endOf keyword, String.join ((newFields (some "  ")).map ("\n  " ++ ·)))]
@@ -902,7 +906,8 @@ private def realize (written : IO.Ref (Array Written)) (project : Project) (edit
     | _ => pure ()
 
 /-- Write the missing setup of the project at `root` with guidance preference `g`, confirm that
-the plan of the project as written is empty, and run `doctor`. Any failure restores the files
+the plan of the project as written is empty and that no library the plan gave a glob leaves out a
+module, and run `doctor`. Any failure restores the files
 written. -/
 def init (g : Guidance) (root : FilePath) : IO UInt32 := do
   let project ← observe root
@@ -918,6 +923,11 @@ def init (g : Guidance) (root : FilePath) : IO UInt32 := do
       unless left.isEmpty do
         throw <| IO.userError s!"the files as written still need: \
           {", ".intercalate (left.map (·.summary project.lakefile))}"
+      let globbed := edits.filterMap Edit.library?
+      for (library, _, modules) in after.observation.uncovered do
+        if globbed.contains library then
+          throw <| IO.userError s!"the glob written for lean_lib `{library}` still leaves out \
+            {", ".intercalate modules}"
       -- `arguedBy_run`: the plan adds no option to a claimed target that sets it only with a `-D`.
       for t in after.observation.targets do
         let some t₀ := project.observation.targets.find? fun t₀ =>

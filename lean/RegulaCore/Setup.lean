@@ -81,13 +81,13 @@ imports them as Lean's import-header parser reads the package's sources (not a b
 the facts of `Observation.globCase`: whether the package's only `lean_lib` has one root, keeps
 Lake's default globs and is declared at the top level with no `globs` field, the modules Lake's
 glob of its root's submodules finds, and the files the claimed modules' import closure read under
-their names, each file by its canonical path. `apply` of the glob removes that library's entries
-and its `sole` record; that the written glob includes exactly `added` is Lake's own glob, confirmed
-by the command's second observation. The command writes each edit into the lakefile, the
+their names, each file by its canonical path. `apply` of the glob removes that library's
+`uncovered` entries and its `sole` record. The command writes each edit into the lakefile, the
 manifest and the guidance files, then observes the project again and refuses unless the new plan
-is empty and each claimed target of both observations, matched by kind and name, has the same
-`Observation.arguedBy` (`arguedBy_run`); that the file edits realize `apply` is that runtime
-check, not a theorem. RG2006 itself is decided per claimed target over Lake's resolved options by
+is empty, the new `uncovered` has no entry for a library the plan gave a glob (`uncovered_run`),
+and each claimed target of both observations, matched by kind and name, has the same
+`Observation.arguedBy` (`arguedBy_run`). That the file edits realize `apply` is not a theorem;
+the command checks only those consequences at run time. RG2006 itself is decided per claimed target over Lake's resolved options by
 `RegulaPolicy.Community.failures`, reading the same `-D` candidates as `Target.argues`; `init`
 writes an option into the package's configuration only when every root target is claimed and no
 claimed target's `-D` candidate sets it, into claimed targets' own configurations otherwise, never
