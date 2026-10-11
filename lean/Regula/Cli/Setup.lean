@@ -45,8 +45,9 @@ Lake's loader, the parsers (including Lean's import-header parser), the filesyst
 frontend that locates the `package`, `lean_lib` and `lean_exe` declarations are trusted. That a
 text edit realizes `Regula.Setup.apply` is not proved: `init` observes the project again after
 writing and refuses, restoring the files it wrote, unless the plan of the new observation is
-empty and its `uncovered` has no entry for a library the plan gave a glob. `init` never changes a value the project already gives: it inserts text only, into the
-package's configuration and each claimed target's as the plan decides, and a `globs` setting into
+empty and its `uncovered` has no entry for a library the plan gave a glob. `init` never changes
+a value the project already gives: it inserts text only, into the package's configuration and
+each claimed target's as the plan decides, and a `globs` setting into
 the library of `Regula.Setup.Observation.globCase`, located the same way. That case is read from
 Lake: the package's only library, with one root and its globs Lake's default, whose glob has a
 place in the configuration file, found by the walk that writes it (`soleDeclared`), and whose

@@ -225,7 +225,8 @@ Lake's elaborated inventory, not through your umbrella import or a file list
 ([standard §7.2](https://rbeauchamp.github.io/regula/dev/standard/7-tooling-and-machine-audit/#72-define-surfaces-through-lake-semantics)).
 Give every claimed library a glob that covers its modules, so a module your umbrella does not
 import is still inspected. `lake new` writes none. `init` adds one only in the case that the
-[table of step 2](#2-run-lake-exe-regula-init) states. `doctor` names each module that a library leaves out:
+[table of step 2](#2-run-lake-exe-regula-init) states. `doctor` names each module that a library
+leaves out:
 
 - `lakefile.lean`: ``globs := #[.andSubmodules `Widget]``
 - `lakefile.toml`: `globs = ["Widget", "Widget.+"]` (`"Widget.+"` alone omits `Widget` itself)
