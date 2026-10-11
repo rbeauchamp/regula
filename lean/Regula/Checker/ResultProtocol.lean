@@ -21,7 +21,13 @@ open RegulaPolicy.Guards (bind_eq_ok)
 /-- This checker build's producer identity, written into every result envelope. -/
 abbrev producer := Regula.Checker.Producer.identity
 
-/-- Result schema 17 records the assumptions about external systems that each declaration rests on:
+/-- Result schema 18 lists a toolchain `partial def` and the `_unsafe_rec` helper Lean compiles it
+through as one trusted step: each `scope.toolchainBase` entry carries `implementations`, the
+`partial` implementations its boundary carries that have no entry of their own because every root
+that reaches one holds a boundary that carries it there (`RegulaPolicy.checked_toolchainBase`).
+The coverage counts of `executionSummary` count such a pair once, as they already counted a pair
+the project or a dependency owns. Earlier schemas gave the helper an entry and a count of its own.
+Schema 17 records the assumptions about external systems that each declaration rests on:
 a declaration record carries `assumptions` and `checkedOperations`, the declarations with the role
 `assumption` or `checked` (`Regula.Assumption`) that the walk of the constants it uses, proofs
 included, reaches from it in the replayed kernel (`RegulaPolicy.Assumptions.RestsOn`). Earlier
@@ -144,7 +150,7 @@ frozen configuration and dependency text from the snapshot (`snapshotJson`: a cl
 dependency is identified by its pinned revision, a dirty one only by package and `dirty`
 status) and imported-environment module lists (`acceptedJson`,
 `ProducerReport.Environment.resultJson`); schema 1 embedded them. -/
-def schemaVersion : Nat := 17
+def schemaVersion : Nat := 18
 
 /-- Envelope identity of every result file. -/
 def identityFields : List (String × Json) := RegistryCodec.identityFields producer schemaVersion
