@@ -155,7 +155,7 @@ private def diagnostics (output : String) : String :=
 
 private def compilationFailure (compilation : SourceAudit.Compilation)
     (task : Task) : Result :=
-  let warnings := warningLines compilation.process.output
+  let warnings := compilation.diagnostics.warnings.map (·.trimAscii.toString)
   let detail := if warnings.isEmpty then
     "did not elaborate verbatim: " ++ diagnostics compilation.process.output
   else "emitted warning: " ++ " | ".intercalate (warnings.extract 0 4).toList
@@ -438,7 +438,7 @@ def exampleObservation (result : Result) : IO RegulaPolicy.ExampleObservation :=
         RegulaPolicy.ExampleOutcome.elaborated scope.inventory replay.required replay.admitted #[])
   return {
     fence, unitName := raw.compilation.spec.module.toName, units, before, after,
-    warnings := warningLines raw.compilation.process.output, declarationCensus := census, outcome }
+    warnings := raw.compilation.diagnostics.warnings, declarationCensus := census, outcome }
 
 /-- Finalize the frozen document plan using the unchanged output of `auditTasks`,
 which has already collected every task occurrence and refused unknown, duplicate,

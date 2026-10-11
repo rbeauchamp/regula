@@ -62,7 +62,8 @@ private unsafe def checkCore (attempt : String) (path : FilePath) : IO Unit := d
   let targets := Lake.claimedTargets manifest
   let (build, failure) ← Lake.buildCheckedObservation root targets
       "incrementally for environment qualification"
-  records := records.push <| Json.mkObj [("case", toJson "build"), ("observation", toJson build)]
+  records := records.push <|
+    Json.mkObj [("case", toJson "build"), ("observation", toJson build.process)]
   let mut packets : Array Json := #[]
   save attempt path packets records "incomplete"
   requireChecks [⟨"positive targets build warning-free", failure.isNone⟩]

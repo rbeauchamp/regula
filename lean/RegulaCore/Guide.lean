@@ -1204,10 +1204,14 @@ def guide : RuleId → Guide
       problem := "The claimed source did not elaborate warning-free under the audit's build: the \
         build failed or emitted a warning."
       trigger := [
-        "The audit builds the claimed targets itself and checks both the exit status and every \
-          emitted diagnostic. Any warning fails, including when the source sets `warningAsError` \
-          to false locally (for a single-file audit, when any `--claim` is requested). The \
-          original compiler message is preserved in the finding.",
+        "The audit builds the claimed targets itself with Lake's failure level at `warning`, as \
+          `lake build --wfail` does, so the build fails when a job it requires logs a warning or \
+          an error. Any warning fails, including when the source sets `warningAsError` to false \
+          locally (for a single-file audit, when any `--claim` is requested). Lake gives each \
+          message the level of its Lean severity, so an information message never fails the \
+          build, whatever its text. A single-file audit compiles the file with `lean --json` and \
+          reads each message's severity in the same way; output that is not a Lean message \
+          counts as an error. The original compiler message is preserved in the finding.",
         "The audit's builds neither read nor write Lake's artifact cache, whatever the project's \
           `enableArtifactCache` or the `LAKE_ARTIFACT_CACHE` environment variable says, and a \
           claimed module whose build trace records a restore from that cache is elaborated again. \
@@ -1269,8 +1273,14 @@ def guide : RuleId → Guide
           INCOMPLETE under this rule."]
       residuals := [.qualify]
       checklist := ["DECL-01", "BUILD-01", "DOC-01"]
-      linkage := "Acceptance side only: an accepted run satisfies `RegulaPolicy.BuildOK`. Reading \
-        Lake's build result is operational. That the audit's builds keep Lake's artifact cache \
+      linkage := "Acceptance side only: an accepted run satisfies `RegulaPolicy.BuildOK`. A \
+        warning-checked Lake build's observation satisfies it exactly when the build exited 0 \
+        (`Acceptance.buildObservation_ok_iff`); that Lake fails a build whose required job logs \
+        an entry at its failure level, and gives a message the level of its severity, is read \
+        from Lake's source. A single-file compilation's diagnostics are read from message \
+        severities: an information message adds none, a warning message adds a warning, and \
+        output that is not a message adds an error (`SourceAudit.diagnose_information`, \
+        `diagnose_warning`, `diagnose_other`). That the audit's builds keep Lake's artifact cache \
         off is proved of Lake's own cache predicates for every package of the build's workspace \
         (`Workspace.uncachedWorkspace_unreadable`, `uncachedWorkspace_unwritable`); that Lake \
         consults them before each access to the cache is read from Lake's source. That each \
@@ -1280,7 +1290,8 @@ def guide : RuleId → Guide
       sources :=
           ["lean/Regula/Checker/Lake.lean", "lean/Regula/Checker/LintBuild.lean",
               "lean/Regula/Checker/Workspace.lean",
-              "lean/Regula/Checker/Diagnostics.lean", "lean/Regula/Checker/ResultProtocol.lean"] }
+              "lean/Regula/Checker/Diagnostics.lean", "lean/Regula/Checker/ResultProtocol.lean",
+              "lean/Regula/Checker/Acceptance.lean", "lean/Regula/Checker/SourceAudit.lean"] }
   | .coverage => {
       problem := "The exact module and declaration inventory from Lake does not match the owned \
         coverage: a claimed library imports an excluded or checker-probe module, a module is \

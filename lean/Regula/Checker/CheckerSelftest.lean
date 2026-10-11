@@ -1089,8 +1089,13 @@ private def fenceCorpusCases (certificate grindCertificate : FilePath) : Array (
   ("positive", "```lean\ntheorem nested_ok : 1 = 1 := rfl\n```\n", "positive.md:1 PASS"),
   ("raw-import", "```lean\ntheorem missing_import : Glossary.Time = Glossary.Time := rfl\n```\n",
       "did not elaborate verbatim"),
+  -- The unused-variables linter runs after the `in` scope, under the compile's
+  -- `warningAsError`, so its warning is an error.
   ("warning", "```lean\nset_option warningAsError false in\ndef hidden_warning (unused : Nat) : \
-    Nat := 1\n```\n", "emitted warning"),
+    Nat := 1\n```\n", "error: Variable name `unused` is not explicitly referenced"),
+  -- Lean prints an information message as its bare text; this one reads as a warning line.
+  ("information", "```lean\n#print \"information.md:1:0: warning: an information message\"\n\
+    theorem information_ok : 1 = 1 := rfl\n```\n", "information.md:1 PASS"),
   ("hole", "```lean\ntheorem docs_hole : False := by sorry\n```\n", "hole.md:1 FAIL"),
   ("project-axiom", "```lean\naxiom docs_axiom : False\n```\n", "project-axiom"),
   ("valid-negative", "<!-- lean-fail: Type mismatch -->\n```lean\ndef n : Nat := \"x\"\n```\n",
@@ -1208,7 +1213,7 @@ private def fenceCorpusCases (certificate grindCertificate : FilePath) : Array (
       "<!-- lean-trusted-compiler -->\n```lean\ntheorem plain : 1 = 1 := rfl\n```\n",
           "trusted marker found no compiler-trusting declaration"),
   -- The pinned renderer prints a named diagnostic as `warning(name):`
-  -- (`Lean.mkErrorStringWithPos`); the audit must reject that form too.
+  -- (`Lean.mkErrorStringWithPos`); its severity is still `warning`, which the audit rejects.
   ("named-warning", "```lean\nimport Lean\nopen Lean\nset_option warningAsError false in\nrun_cmd \
     Lean.logNamedWarningAt (← getRef) `lean.selftestNamedWarning m!\"named\"\n```\n",
         "emitted warning")

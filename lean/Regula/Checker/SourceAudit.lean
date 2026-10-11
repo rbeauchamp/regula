@@ -21,7 +21,7 @@ structure SourceSpec where
   source : String
   /-- Compile with `-DwarningAsError=true`. -/
   warningAsError : Bool := false
-  /-- Count the compilation as failed when its output has a warning line (`compilationPassed`). -/
+  /-- Count the compilation as failed when its compiler reports a warning (`compilationPassed`). -/
   rejectWarnings : Bool := false
   /-- Instead of compiling to `.olean`, run the checker's diagnostic worker, which elaborates the
   source and records its error messages (used for examples expected to fail). -/
@@ -45,6 +45,91 @@ instance : FromJson SourceSpec := ⟨fun j => do
     captureRejection := ← j.getObjValAs? _ "captureRejection"
   }⟩
 
+/-- One line of the output of `lean --json`: a Lean message, with its severity, its file and its
+text as Lean prints it without `--json`, or any other output. -/
+inductive OutputLine where
+  /-- A Lean message. -/
+  | message (severity : MessageSeverity) (fileName text : String)
+  /-- Output that is not a Lean message. -/
+  | other (text : String)
+
+/-- The diagnostics of a compilation, read from the severities of the compiler's messages
+(`diagnose`), not from their text. -/
+structure CompilerDiagnostics where
+  /-- Each warning message. -/
+  warnings : Array String := #[]
+  /-- Each error message, and each non-blank line of output that is not a Lean message. -/
+  errors : Array String := #[]
+  /-- Whether a warning or error message is located in the compiled source file. -/
+  sourceLocated : Bool := false
+  deriving Repr, ToJson
+
+instance : FromJson CompilerDiagnostics := ⟨fun j => do
+  Regula.Checker.PolicyCodec.exactFields j ["warnings", "errors", "sourceLocated"]
+  return {
+    warnings := ← j.getObjValAs? _ "warnings"
+    errors := ← j.getObjValAs? _ "errors"
+    sourceLocated := ← j.getObjValAs? _ "sourceLocated"
+  }⟩
+
+/-- `diagnostics` after one more line of the output of compiling the file `source`. -/
+def CompilerDiagnostics.add (source : String) (diagnostics : CompilerDiagnostics) :
+    OutputLine → CompilerDiagnostics
+  | .message .information _ _ => diagnostics
+  | .message .warning file text => { diagnostics with
+      warnings := diagnostics.warnings.push text,
+      sourceLocated := diagnostics.sourceLocated || file == source }
+  | .message .error file text => { diagnostics with
+      errors := diagnostics.errors.push text,
+      sourceLocated := diagnostics.sourceLocated || file == source }
+  | .other text =>
+      if text.trimAscii.isEmpty then diagnostics
+      else { diagnostics with errors := diagnostics.errors.push text }
+
+/-- The diagnostics of the output `lines` of compiling the file `source`. -/
+def diagnose (source : String) (lines : List OutputLine) : CompilerDiagnostics :=
+  lines.foldl (CompilerDiagnostics.add source) {}
+
+/-- An information message adds no diagnostic, whatever its text. -/
+theorem diagnose_information (source : String) (lines : List OutputLine) (file text : String) :
+    diagnose source (lines ++ [.message .information file text]) = diagnose source lines := by
+  simp [diagnose, List.foldl_append, CompilerDiagnostics.add]
+
+/-- A warning message adds its text to the warnings and leaves the errors as they were. -/
+theorem diagnose_warning (source : String) (lines : List OutputLine) (file text : String) :
+    (diagnose source (lines ++ [.message .warning file text])).warnings =
+        (diagnose source lines).warnings.push text ∧
+      (diagnose source (lines ++ [.message .warning file text])).errors =
+        (diagnose source lines).errors := by
+  simp [diagnose, List.foldl_append, CompilerDiagnostics.add]
+
+/-- Output that is not a Lean message and is not blank is an error, whatever its text. -/
+theorem diagnose_other (source : String) (lines : List OutputLine) (text : String)
+    (nonblank : text.trimAscii.isEmpty = false) :
+    (diagnose source (lines ++ [.other text])).errors =
+      (diagnose source lines).errors.push text := by
+  simp [diagnose, List.foldl_append, CompilerDiagnostics.add, nonblank]
+
+/-- A line of the output of `lean --json`: a Lean message when it parses as one. -/
+def readOutputLine (line : String) : OutputLine :=
+  match Json.parse line >>= fromJson? (α := SerialMessage) with
+  | .ok message => .message message.severity message.fileName message.toString
+  | .error _ => .other line
+
+/-- The output of `lean --json` compiling the file `source`, as `process` gives it: the process
+with its standard output as Lean prints it without `--json` (each message as
+`SerialMessage.toString` renders it, which is how Lean prints a message then), and the diagnostics
+of that output and of its standard error, each of whose lines is output that is not a Lean
+message. -/
+def readCompilerOutput (source : String) (process : ProcessResult) :
+    ProcessResult × CompilerDiagnostics :=
+  let lines := (process.stdout.splitOn "\n").filter (!·.isEmpty) |>.map readOutputLine
+  let errors := (process.stderr.splitOn "\n").map OutputLine.other
+  let render : OutputLine → String
+    | .message _ _ text => text
+    | .other text => text ++ "\n"
+  ({ process with stdout := String.join (lines.map render) }, diagnose source (lines ++ errors))
+
 /-- The observed result of compiling one `SourceSpec`. -/
 structure Compilation where
   /-- The compiled specification. -/
@@ -60,11 +145,14 @@ structure Compilation where
   /-- With `captureRejection`, the error messages the diagnostic worker recorded; `none` when
   it was not run or did not complete. -/
   errors : Option (Array String) := none
+  /-- Without `captureRejection`, the diagnostics of the compiler's messages
+  (`readCompilerOutput`); none otherwise. -/
+  diagnostics : CompilerDiagnostics := {}
   deriving Repr, ToJson
 
 instance : FromJson Compilation := ⟨fun j => do
   Regula.Checker.PolicyCodec.exactFields j
-      ["spec", "sourcePath", "oleanPath", "ileanPath", "process", "errors"]
+      ["spec", "sourcePath", "oleanPath", "ileanPath", "process", "errors", "diagnostics"]
   return {
     spec := ← j.getObjValAs? _ "spec"
     sourcePath := ← j.getObjValAs? _ "sourcePath"
@@ -72,7 +160,14 @@ instance : FromJson Compilation := ⟨fun j => do
     ileanPath := ← j.getObjValAs? _ "ileanPath"
     process := ← j.getObjValAs? _ "process"
     errors := ← j.getObjValAs? _ "errors"
+    diagnostics := ← j.getObjValAs? _ "diagnostics"
   }⟩
+
+/-- The build observation of a compilation: its exit code, and the warnings and errors its
+compiler's messages report by their severity (`Compilation.diagnostics`). -/
+def Compilation.observation (compilation : Compilation) : RegulaPolicy.BuildObservation :=
+  ⟨compilation.process.exitCode.toNat, compilation.diagnostics.warnings,
+    compilation.diagnostics.errors⟩
 
 /-- A compiled source together with the typed environment report and frontend transcripts
 read from it. -/
@@ -244,7 +339,10 @@ private def compileIn (repo scratch : FilePath) (spec : SourceSpec)
     let warningArgs := if spec.warningAsError then #["-DwarningAsError=true"] else #[]
     -- The scratch root names the module `spec.module`, the name its inventory and fresh
     -- transcript use, so the module's private names agree across all three.
-    let args := warningArgs ++ #["-R", scratch.toString,
+    -- `--json` gives each message's severity, which the diagnostics read, not its text: Lean
+    -- prints an information message without position or severity, so its text can read as a
+    -- warning.
+    let args := warningArgs ++ #["--json", "-R", scratch.toString,
       "-o", oleanPath.toString, "-i", ileanPath.toString, sourcePath.toString]
     -- The worker sees only the workspace's own search path: an import of a
     -- root-package module fails here unless the workspace's own build output
@@ -258,9 +356,9 @@ private def compileIn (repo scratch : FilePath) (spec : SourceSpec)
         pure path
       else pure "lean"
     let compileStart ← IO.monoMsNow
-    let process ← spawn compiler args
+    let (process, diagnostics) := readCompilerOutput sourcePath.toString (← spawn compiler args)
     timingSpan s!"diagnostic span: compileIn compile: {(← IO.monoMsNow) - compileStart}ms"
-    return { spec, sourcePath, oleanPath, ileanPath, process }
+    return { spec, sourcePath, oleanPath, ileanPath, process, diagnostics }
 
 /-- Standalone compilation still obtains its environment through Lake. -/
 def compile (repo scratch : FilePath) (spec : SourceSpec) : IO
@@ -330,18 +428,18 @@ def compileBatch (repo scratch : FilePath) (jobs : Nat) (specs : Array SourceSpe
           throw <| IO.userError "compile batch source snapshot changed"
       return compilations
 
-/-- The process succeeded and, when the specification rejects warnings, printed no warning
-line. -/
+/-- The process succeeded and, when the specification rejects warnings, its compiler reported no
+warning message (`CompilerDiagnostics.warnings`). -/
 def compilationPassed (value : Compilation) : Bool :=
   value.process.succeeded
-    && (!value.spec.rejectWarnings || (warningLines value.process.output).isEmpty)
+    && (!value.spec.rejectWarnings || value.diagnostics.warnings.isEmpty)
 
-/-- A normal compiler exit with a source-located error/warning establishes an emitted
-source diagnostic. Crashes, termination and unrelated tool messages remain incomplete.
-The pinned compiler's exit and textual diagnostic protocol is a trusted boundary. -/
+/-- A normal compiler exit with an error or warning message located in the source establishes an
+emitted source diagnostic (`CompilerDiagnostics.sourceLocated`). Crashes, termination and
+unrelated tool messages remain incomplete. The pinned compiler's exit and `--json` message
+protocol is a trusted boundary. -/
 def sourceDiagnosticFailure (value : Compilation) : Bool :=
-  value.process.exitCode ≤ 1 && (outputLines value.process.output).any (fun line =>
-    line.startsWith (value.sourcePath.toString ++ ":") && (isErrorLine line || isWarningLine line))
+  value.process.exitCode ≤ 1 && value.diagnostics.sourceLocated
 
 /-- Reads the typed report of a compiled source (and its frontend transcript when needed, which
 refuses a warning exactly when the compilation does) while its source stays unchanged; throws

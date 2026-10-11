@@ -276,7 +276,7 @@ private unsafe def freezeGraph (plan : Plan) (snapshot : RegulaPolicy.AdmittedSn
   return ⟨claim, census, admitted, fun slot =>
       RegulaPolicy.authorize census.environments[slot].policy⟩
 
-private def finishGraph (frozen : FrozenGraph) (build : ProcessResult) (checks : Array Check) :
+private def finishGraph (frozen : FrozenGraph) (build : Lake.CheckedBuild) (checks : Array Check) :
     Except String (RegulaPolicy.AcceptedRun frozen.claim) := do
   let checked ← checks.mapM fun check => do
     let [key] :=

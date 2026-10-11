@@ -151,10 +151,18 @@ audit of `leanArguments`, `lean/option-like-manifest-read`. -/
 
 /-- `lakefile.lean` adopter, the first part: an accepted run whose default output shows Lake's
 build progress and no timing span, the read-only configuration explanation, and the file audit,
-which lists every classified declaration only with `--verbose`. -/
+which lists every classified declaration only with `--verbose`. An information message whose text
+reads as a warning line fails neither the claimed build nor the file audit. -/
 private def leanAudit (repo adopter : FilePath) : IO (Array String) := do
   BuildLintQualification.setup repo adopter
-  -- The first run builds every module, showing Lake's progress line for each.
+  -- The first run builds every module, showing Lake's progress line for each. Until the file
+  -- audits end, Widget also prints an information message whose text reads as a warning line,
+  -- which is no warning: the claimed build is checked by Lake's log levels and the file audit by
+  -- the compiler's message severities, not by the text of their output.
+  let widget := adopter / "Widget.lean"
+  let widgetSource ← IO.FS.readFile widget
+  mutate widget "namespace Widget" "#print \"Widget.lean:1:0: warning: an information message\"\n\n\
+    namespace Widget"
   let positive := accepted "lean/positive"
   let mut failures ← expect adopter
     { positive with contains := positive.contains.push "] Built Widget" }
@@ -172,6 +180,7 @@ private def leanAudit (repo adopter : FilePath) : IO (Array String) := do
       label := "lean/file-verbose", exitCode := 0,
       contains := #[s!"file audit: {acceptanceLabel}", "[OK]", "diagnostic span"] }
     (← fileAudit adopter "Widget.lean" #["--verbose"]))
+  IO.FS.writeFile widget widgetSource
   return failures
 
 /-- The plain shape of the `lakefile.lean` adopter's `lakefile`: without the `policy` target the
@@ -194,7 +203,9 @@ marker, and an ordinary `lake build` and the driver reuse each other's build out
 names the assertion and the result records it as `scope.ordinaryLakefiles`; the success line and
 the result (`scope.project`, `scope.manifestPath`) name the audited project and manifest. Decision
 probes of the guard (`probe`), each with one change to the plain shape and the reason that
-decides: a custom target and a library in `needs` each keep the marker. -/
+decides: a custom target and a library in `needs` each keep the marker. After a marked build, a
+weak argument added to the claimed library makes the driver elaborate it again
+(`Lake.weakArgsRecord`). -/
 private def leanDecisions (probes : Std.Mutex Unit) (repo adopter : FilePath) :
     IO (Array String) := do
   BuildLintQualification.setup repo adopter
@@ -222,6 +233,13 @@ private def leanDecisions (probes : Std.Mutex Unit) (repo adopter : FilePath) :
   IO.FS.writeFile lakefile plain
   failures := failures ++ (← expect adopter { positive with
     label := "lean/plain-default-marked", excludes := positive.excludes.push "the claimed build" })
+  -- After that marked build, a weak argument added to the claimed library is the only change.
+  -- Lake's module trace omits `weakLeanArgs`, so only the audit build's record of them
+  -- (`Lake.weakArgsRecord`) changes Widget's trace, and the driver elaborates it again.
+  IO.FS.writeFile lakefile (widgetLibrary "weakLeanArgs := #[\"-DmaxHeartbeats=400000\"]")
+  failures := failures ++ (← expect adopter { positive with
+    label := "lean/weak-args-rebuilt", contains := positive.contains.push "] Built Widget" })
+  IO.FS.writeFile lakefile plain
   let ordinary ← runProcess adopter "lake" #["build", "Widget"] scrubbedLeanPathEnv
   unless ordinary.succeeded && ordinary.output.contains "] Built Widget" do
     failures := failures.push s!"lake-lint/lean/plain-default-marked: the ordinary build reused \

@@ -430,18 +430,45 @@ def main : IO Unit := do
   require (native.pos.line == 1 && native.pos.column == 1 &&
     native.endPos == some ⟨1, 2⟩) "native codepoint coordinates"
   require ((← native.data.toString) == d.text) "native/text agreement"
-  let compilation : Regula.Checker.SourceAudit.Compilation := {
-    spec := { «module» := "Control", source := "" }
-    sourcePath := "/control.lean", oleanPath := "/control.olean", ileanPath := "/control.ilean"
-    process := { exitCode := 1, stdout := "/control.lean:1:0: error: intended", stderr := "" } }
+  -- A compilation of `/control.lean` whose compiler printed `messages` with `lean --json`, or
+  -- `other` output, and exited with `exitCode`.
+  let compiled (exitCode : UInt32) (messages : List Lean.SerialMessage) (other : String := "")
+      (rejectWarnings := true) : Regula.Checker.SourceAudit.Compilation :=
+    let stdout := String.join (messages.map fun message => (toJson message).compress ++ "\n")
+    let (process, diagnostics) := Regula.Checker.SourceAudit.readCompilerOutput "/control.lean"
+      { exitCode, stdout := stdout ++ other, stderr := "" }
+    { spec := { «module» := "Control", source := "", rejectWarnings }
+      sourcePath := "/control.lean", oleanPath := "/control.olean", ileanPath := "/control.ilean"
+      process, diagnostics }
+  let message (severity : Lean.MessageSeverity) (data : String) : Lean.SerialMessage :=
+    { fileName := "/control.lean", pos := ⟨1, 0⟩, severity, data, kind := .anonymous }
+  let compilation := compiled 1 [message .error "intended"]
   require (Regula.Checker.SourceAudit.sourceDiagnosticFailure compilation)
       "completed source diagnostic"
+  require (compilation.process.stdout == "/control.lean:1:0: error: intended\n")
+      "a message is printed as without --json"
   require (!Regula.Checker.SourceAudit.sourceDiagnosticFailure
     { compilation with process := { compilation.process with exitCode := 137 } })
         "termination is incomplete"
   require (!Regula.Checker.SourceAudit.sourceDiagnosticFailure
-    { compilation with process := { compilation.process with stdout := "compiler crashed" } })
-        "crash is incomplete"
+    (compiled 1 [] (other := "compiler crashed"))) "crash is incomplete"
+  -- Lean prints an information message as its bare text, so one that reads as a warning line is
+  -- a warning line of the printed output, yet the compiler reported no warning.
+  let forged := compiled 0 [message .information "/control.lean:1:0: warning: forged"]
+  require (!(Regula.Checker.warningLines forged.process.output).isEmpty)
+      "an information message can print as a warning line"
+  require (Regula.Checker.SourceAudit.compilationPassed forged &&
+      decide (RegulaPolicy.BuildOK forged.observation)) "an information message is no warning"
+  let warned := compiled 0 [message .warning "unused variable"]
+  require (!Regula.Checker.SourceAudit.compilationPassed warned &&
+      !decide (RegulaPolicy.BuildOK warned.observation) &&
+      Regula.Checker.SourceAudit.sourceDiagnosticFailure warned) "a warning message is a warning"
+  require (Regula.Checker.SourceAudit.compilationPassed
+    (compiled 0 [message .warning "unused variable"] (rejectWarnings := false)))
+      "warnings pass a compilation that does not reject them"
+  let unexpected := compiled 0 [] (other := "unexpected output")
+  require (!decide (RegulaPolicy.BuildOK unexpected.observation))
+      "output that is not a Lean message is an error"
   require (succeeded (Website.validateExample (.policyRejection .projectAxiom "project-axiom")
     (.checked #[⟨.projectAxiom, d⟩] false))) "policy rejection after elaboration"
   require

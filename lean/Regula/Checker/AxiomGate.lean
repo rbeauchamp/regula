@@ -1517,7 +1517,7 @@ private unsafe def auditFile (repo path : FilePath) (claim : Option Profile)
                     let frozen ← Acceptance.freeze request #[#[moduleName.toName]] #[] #[] bindings
                       inventory.leanLibDir #[inspection] (some binding)
                     let accepted ← Acceptance.finish frozen
-                      (Acceptance.buildObservation compilation.process)
+                      compilation.observation
                     pure
                         (some
                             (⟨request, accepted⟩ :

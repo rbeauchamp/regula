@@ -72,9 +72,25 @@ def sourceSnapshots (sources : Array ProducerReport.SourceBinding)
     else files := files.push source
   return files
 
-/-- Observed process completion is not a theorem of external process semantics. -/
-def buildObservation (process : ProcessResult) : BuildObservation :=
-  ⟨process.exitCode.toNat, warningLines process.output, errorLines process.output⟩
+/-- The observation of a warning-checked Lake build: a build that succeeded logged no warning or
+error, since Lake failed it otherwise (`Lake.buildCheckedObservation`), so it has none; a failed
+build keeps its exit code and the warning and error lines of its output, which are read only to
+report it. That Lake fails such a build is read from Lake's source, not proved. -/
+def buildObservation (build : Lake.CheckedBuild) : BuildObservation :=
+  if build.process.exitCode = 0 then ⟨0, #[], #[]⟩
+  else ⟨build.process.exitCode.toNat, warningLines build.process.output,
+    errorLines build.process.output⟩
+
+/-- A warning-checked build's observation is accepted exactly when the build exited 0, whatever
+its output says. -/
+theorem buildObservation_ok_iff (build : Lake.CheckedBuild) :
+    BuildOK (buildObservation build) ↔ build.process.exitCode = 0 := by
+  unfold buildObservation BuildOK
+  split
+  · simp_all
+  · rename_i h
+    refine ⟨fun ⟨exit, _⟩ => absurd (UInt32.toNat_inj.mp (by simpa using exit)) h,
+      fun exit => absurd exit h⟩
 
 private def moduleKey (snapshot : AdmittedSnapshot) (name : Name) : Except String ModuleKey := do
   return ⟨snapshot, ← admitIdentity name⟩
