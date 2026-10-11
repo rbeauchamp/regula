@@ -45,6 +45,11 @@ commands below downloads, caches, imports or builds Mathlib; the
 Elan selects the toolchain, and the verification driver refuses any compiler but the one this
 revision pins.
 
+The scripts trust the `PATH` of the shell that starts them to find `elan`, as they do for
+`timeout` or `gtimeout`. Started under `lake env` in a workspace that provides an executable with
+one of those names, they would run that executable. Regula's own Lean entry points and the Lake
+processes that they start do not use `PATH` to choose a toolchain program.
+
 The verification driver refuses a script that names `lean`, `lake` or `leanchecker` literally and
 bare. A quoted or computed command name is outside that check. The guarantee is the construction:
 each script starts a toolchain program only through that proxy's path.
