@@ -20,7 +20,8 @@ commands execute over what they observe of a project.
   `coverageIssues_outside_globCase`, `globCase_run`, `uncovered_run`: `init`
   writes a library's glob, `Lakefile.globsSetting`, the one `doctor` asks for, exactly in one case
   that it decides: the package's only `lean_lib`, declared at the top level with no `globs`, leaves
-  out modules that claimed modules import, and its glob adds exactly those. Outside that case the
+  out modules that claimed modules import, and every source file its glob adds is one the claimed
+  modules' import closure, the claimed roots included, already reached. Outside that case the
   plan has no glob edit (`plan_globs_mem`): it is the plan without globs
   (`plan_outside_globCase`), and `doctor` reports what a library leaves out as an unfixable issue
   (`coverageIssues_outside_globCase`). After
@@ -79,7 +80,8 @@ modules below a library root that no library includes, split by whether a claime
 imports them as Lean's import-header parser reads the package's sources (not a build), and
 the facts of `Observation.globCase`: whether the package's only `lean_lib` keeps Lake's default
 globs and is declared at the top level with no `globs` field, the modules Lake's glob of its
-roots' submodules finds, and which of them a claimed module imports. `apply` of the glob removes
+roots' submodules finds, and which of them have the source file the claimed modules' import
+closure reached under their name. `apply` of the glob removes
 that library's entries and its `sole` record; that the written glob includes exactly `added` is
 Lake's own glob, confirmed by the command's second observation. The command writes each edit into the lakefile, the
 manifest and the guidance files, then observes the project again and refuses unless the new plan
@@ -227,9 +229,11 @@ structure Observation where
   /-- The modules the glob of `sole` would add: those Lake's glob of the submodules of each root
   finds in the library's source directory. Empty without `sole`. -/
   added : List String
-  /-- The modules of `added` that a claimed module imports, directly or through other modules of
-  the package. -/
-  imported : List String
+  /-- The modules of `added` whose source file, the one Lake's glob finds for it in the library's
+  source directory, is the file the import closure of the claimed modules, the claimed roots
+  included, reached under that name. A name whose module the closure reached in another file,
+  such as an executable root in another source directory, is not among them. -/
+  reached : List String
   deriving DecidableEq, Repr
 
 /-- The modules that the `uncovered` entries of library `l` name. -/
@@ -237,14 +241,16 @@ def Observation.leftOut (o : Observation) (l : String) : List String :=
   (o.uncovered.filter (·.1 == l)).flatMap (·.2.2)
 
 /-- The one case in which `init` writes a library's glob, decided exactly: the library is `sole`,
-it leaves out a module that a claimed module imports, the claimed modules import every module
-its glob adds, and the glob adds every module it leaves out that way. So the glob adds no module
-that is not already built, and after it the library leaves out none that a claimed module
-imports. `none` in every other case, where `doctor` reports what a library leaves out. -/
+it leaves out a module that a claimed module imports, the import closure of the claimed modules,
+the claimed roots included, already reached the very source file of every module its glob adds
+(`Observation.reached`), and the glob adds every module it leaves out that way. So the glob adds
+no source file outside that import closure, and after it the library leaves out none that a
+claimed module imports. `none` in every other case, where `doctor` reports what a library leaves
+out. -/
 def Observation.globCase (o : Observation) : Option (String × List String) :=
   match o.sole with
   | some (l, rs) =>
-    if !(o.leftOut l).isEmpty && o.added.all o.imported.contains &&
+    if !(o.leftOut l).isEmpty && o.added.all o.reached.contains &&
         (o.leftOut l).all o.added.contains then some (l, rs)
     else none
   | none => none
@@ -523,7 +529,7 @@ def apply (o : Observation) : Edit → Observation
   | .agentsSection _ => { o with agentsSection := true }
   | .skill path => { o with skills := markCurrent path o.skills }
   | .globs library _ => { o with
-      sole := none, added := [], imported := []
+      sole := none, added := [], reached := []
       uncovered := o.uncovered.filter (·.1 != library) }
 
 /-- The observation after applying `edits` in order. -/
@@ -668,8 +674,8 @@ theorem run_uncovered (o : Observation) (es : List Edit) :
 /-- Edits that give no glob keep the facts of the glob decision; one that gives a glob leaves no
 `sole` library. -/
 theorem run_globFacts (o : Observation) (es : List Edit) :
-    ((run o es).sole, (run o es).added, (run o es).imported) =
-      if (es.filterMap Edit.library?).isEmpty then (o.sole, o.added, o.imported)
+    ((run o es).sole, (run o es).added, (run o es).reached) =
+      if (es.filterMap Edit.library?).isEmpty then (o.sole, o.added, o.reached)
       else (none, [], []) := by
   induction es generalizing o with
   | nil => simp [run]
@@ -1757,8 +1763,8 @@ def Issue.fix (f : Lakefile) : Issue → String
   | .uncovered l rs ms => "  fix: include " ++ pronoun ms ++ " in the `globs` of " ++
       f.target false l ++ ", for example with " ++ f.globsCode rs ++ ", or remove the " ++
       (if ms.length == 1 then "import" else "imports") ++ " (`init` adds a glob only to a package's \
-      only `lean_lib`, declared with no `globs`, when the glob adds just modules that claimed \
-      modules import)"
+      only `lean_lib`, declared with no `globs`, when the claimed modules' import closure already \
+      reaches the source of each module the glob adds)"
   | .unglobbed l rs ms => "  fix: " ++ f.globs l rs ++ ", or run `lake exe regula init`, which \
       adds it, or remove the " ++
       (if ms.length == 1 then "import" else "imports")

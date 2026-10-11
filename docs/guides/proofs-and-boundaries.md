@@ -3675,9 +3675,11 @@ builds without it; and `run_options_prefix` and `withAdded_prefix`, the options 
 arguments the package and each claimed target already give are kept. An edit adds a missing
 piece and has no form that replaces a lint driver, an option value or a library's `globs`.
 `init` writes a glob in one case only, `Observation.globCase`, and `plan_globs_mem` proves it.
-The package has one `lean_lib`, declared at the top level with no `globs`. The glob adds only
-modules that claimed modules import. It also adds each imported module that the library leaves
-out.
+The package has one `lean_lib`, declared at the top level with no `globs`. It is a
+`[[lean_lib]]` table, or a `lean_lib` declaration with a `where` block or no fields. The library
+leaves out a module that a claimed module imports. Each module that the glob adds is in the import
+closure of the claimed modules, the claimed roots included, with the same source file. The glob
+also adds each module that the library leaves out that way.
 `globCase_run` proves that after the plan no glob is left to write. `uncovered_run` proves that
 only the entries of that library leave the issues. The glob is the one that `doctor` asks for,
 and one definition, `Lakefile.globsSetting`, gives that glob to the two. The starter manifest is

@@ -46,8 +46,9 @@ empty. `init` never changes a value the project already gives: it inserts text o
 package's configuration and each claimed target's as the plan decides, and a `globs` setting into
 the library of `Regula.Setup.Observation.globCase`, located the same way. That case is read from
 Lake: the package's only library, its globs Lake's default, declared as `soleDeclared` reads the
-configuration file, whose glob, Lake's own over its source directory, adds exactly modules that
-claimed modules import. A
+configuration file, whose glob, Lake's own over its source directory, adds only source files the
+import closure of the claimed modules, the claimed roots included, already reached under the same
+name. That closure reads the headers of its own files alone. A
 `.git` entry marks the repository root for the agent guidance; Git itself is not run. RG2006 in
 `doctor` applies Mathlib's options when the workspace contains Mathlib, where the linter applies
 them to a target whose modules import Mathlib; by
@@ -553,8 +554,9 @@ files, the
 modules below a library root that no library includes, split by whether a claimed module imports
 them, and the facts of `Regula.Setup.Observation.globCase`: the package's only `lean_lib` when
 Lake reports its globs as its roots alone and `soleDeclared` holds, the modules Lake's glob of the
-submodules of its roots finds in its source directory, and which of those a claimed module
-imports. -/
+submodules of its roots finds in its source directory, and which of those have as their source,
+`Module.leanFile` once the library includes them, the file the import closure of the claimed
+modules, the claimed roots included, reached under their name. -/
 def observe (root : FilePath) : IO Project := do
   -- Without a manifest every root target is claimed, as in the starter `init` writes; a target the
   -- manifest that loads excludes is not. A manifest that does not load or classify every root
@@ -573,7 +575,7 @@ def observe (root : FilePath) : IO Project := do
   let excludedLibraries := (manifest.map (·.excludedLibraries.map (·.library))).getD #[]
   let excludedExecutables := (manifest.map (·.excludedExecutables.map (·.executable))).getD #[]
   let (lakefile, configFile, driver, options, targets, allClaimed, libraries, mathlib,
-      uncovered, unimported, candidate, added, imported) ←
+      uncovered, unimported, candidate, added, reached) ←
       Workspace.withRootWorkspace root fun ws => do
       -- An entry of module names: the configuration of each package of the workspace, before
       -- any module is resolved or any path is built from a name (`Lake.checkModuleNames`).
@@ -613,6 +615,7 @@ def observe (root : FilePath) : IO Project := do
       -- modules its glob would add: Lake's own glob of the submodules of each root.
       let mut candidate : Option (String × List String) := none
       let mut added : Array Name := #[]
+      let mut globFile : Name → FilePath := fun _ => ""
       if let #[lib] := pkg.leanLibs then
         if lib.config.globs == lib.config.roots.map .one then
           candidate := some (lib.name.toString, lib.roots.toList.map toString)
@@ -621,9 +624,10 @@ def observe (root : FilePath) : IO Project := do
             if ← (Lean.modToFilePath lib.srcDir r "").isDir then
               (Lake.Glob.submodules r).forEachModuleIn lib.srcDir fun m => found.modify (·.push m)
           added ← found.get
+          -- The file Lake gives a module of the library, `Module.leanFile`.
+          globFile := fun m => Lean.modToFilePath lib.srcDir m "lean"
           for m in added do
-            unless sources.contains m do
-              sources := sources.insert m (Lean.modToFilePath lib.srcDir m "lean")
+            unless sources.contains m do sources := sources.insert m (globFile m)
       let imported ← importClosure sources claimed
       let sorted (names : Array Name) := ((names.map toString).qsort (· < ·)).toList
       let mut uncovered := []
@@ -654,7 +658,8 @@ def observe (root : FilePath) : IO Project := do
         !invalid && libs.size == pkg.leanLibs.size && exes.size == pkg.leanExes.size,
         !pkg.leanLibs.isEmpty,
         ws.packages.any (·.baseName == `mathlib), uncovered, unimported, candidate,
-        sorted added, sorted (added.filter imported.contains))
+        sorted added,
+        sorted (added.filter fun m => imported.contains m && sources.find? m == some (globFile m)))
   -- The configuration file is read only when the glob could apply: a library with modules for its
   -- glob to add.
   let sole ← match candidate with
@@ -679,7 +684,7 @@ def observe (root : FilePath) : IO Project := do
       pin := ← pinned root
       uncovered, unimported
       sole, added := if sole.isSome then added else []
-      imported := if sole.isSome then imported else [] } }
+      reached := if sole.isSome then reached else [] } }
 
 /-! ## The starter manifest -/
 
