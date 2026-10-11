@@ -133,6 +133,19 @@ def requireOwnDirectory (path : FilePath) : IO Unit := do
     throw <| IO.userError s!"{path} is not a directory at its own place (a symbolic link, a file, \
       or a path through a symbolic link is there)"
 
+/-- Stop unless nothing is at `path`, or a directory is there at its own place
+(`requireOwnDirectory`) and each of its entries is a directory or a file, by a read that follows no
+link at the entry. A symbolic link among the entries, also one whose target is absent, makes it
+stop, so a file that a later operation opens by its name in this directory is not reached through
+a link, when no process makes one after this check, which is trusted. -/
+def requireNoLinkedEntries (path : FilePath) : IO Unit := do
+  requireOwnDirectory path
+  unless (← place path) matches .present .directory do return
+  for entry in ← path.readDir do
+    unless (← place entry.path) matches .present _ do
+      throw <| IO.userError s!"{entry.path} is not a directory or a file (a symbolic link or \
+        another kind of entry is there)"
+
 /-- `path` as an absolute path whose present ancestors are at their own place. It refuses a path
 with a `.` or `..` component before it reads anything. A relative path is joined to the real path
 of the working directory, and no component that `path` gives is resolved. It refuses when the
@@ -224,10 +237,12 @@ list. Each rests on an assumption, which the check does not establish:
   `.lake/config/0` below the checkout. It removes the stale `lakefile.olean` and its trace
   (`Lake/Load/Lean/Elab.lean:244` and `:262`). It writes the new `lakefile.olean` and its
   siblings (`:256`), each through a temporary file that it renames over the file and removes when
-  the write fails (`src/library/module.cpp:403` and `:408`). That directory is the checkout's own:
-  before the loader runs, `Workspace.withRootPackage` refuses when `.lake`, `.lake/config` or
-  `.lake/config/0` is there and is not a directory at its own place (`requireOwnDirectory`). That
-  check is the loader's prerequisite. The site loads only the root package of the checkout.
+  the write fails (`src/library/module.cpp:311-314`, `:403` and `:408`). That directory and the
+  files written in it are the checkout's own: before the loader runs, `Workspace.withRootPackage`
+  refuses when `.lake` or `.lake/config` is there and is not a directory at its own place
+  (`requireOwnDirectory`), and when `.lake/config/0` is not one or has an entry that is a symbolic
+  link (`requireNoLinkedEntries`), so no open for writing there follows a link. That check is the
+  loader's prerequisite. The site loads only the root package of the checkout.
 - `Lake.removeFileIfExists`, `Lake.downloadArtifactCore`, `Lake.download`. Assumes: the site runs
   no Lake build and no download of Lake's artifact cache in its own process, so these, which the
   build functions of Lake's facets reach (`Lake/Util/IO.lean:23`, `Lake/Config/Cache.lean:558`,

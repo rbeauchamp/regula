@@ -52,12 +52,14 @@ child finds it (`inheritEnv := false`, `Init/System/IO.lean:1450`), so no variab
 process, such as `SSLKEYLOGFILE`, can make it write a file. Assumes: with `--disable` as its first
 argument, curl reads no `.curlrc` (curl manual, `-q, --disable`: "If used as the first parameter
 on the command line, the curlrc config file is not read or used"), so no configuration file can
-make it write the body to a file; with the other arguments and no other variable it writes no
-file. -/
+make it write the body to a file. `url` is the value of `--url`, so a `url` that starts with `-`,
+such as `-K/tmp/x`, is a URL and not an option. With the other arguments and no other variable
+curl writes no file. -/
 def fetch (url : String) : IO (Nat × ByteArray) := do
   let child ← IO.Process.spawn
       { cmd := "curl", args := #["--disable", "--silent", "--show-error", "--max-time", "60",
-    "--write-out", "%{http_code}", url], stdin := .null, stdout := .piped, stderr := .inherit
+          "--write-out", "%{http_code}", "--url", url]
+        stdin := .null, stdout := .piped, stderr := .inherit
         inheritEnv := false, env := #[("PATH", ← IO.getEnv "PATH")] }
   let out ← child.stdout.readBinToEnd
   let _ ← child.wait

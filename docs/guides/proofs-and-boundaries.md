@@ -452,8 +452,9 @@ on an assumption, and `libraryRemovals` gives it with a source line of the libra
 
 For example, Lake removes and writes its compiled configuration in `.lake/config/0`. Before Lake
 loads the package, the site executable stops if `.lake`, `.lake/config` or `.lake/config/0` is a
-link. It also stops if one of them is a file or is not at its own place. Thus the files that
-Lake removes and writes there are files of the checkout.
+link. It also stops if one of them is a file or is not at its own place. It also stops if an entry
+of `.lake/config/0` is a link, because Lake and Lean open their files there for writing by name.
+Thus the files that Lake removes and writes there are files of the checkout.
 
 A removal function removes or replaces an entry, as a rename and the writing of a module do. A
 declaration that `extern` binds to `lean_io_remove_file`, `lean_io_remove_dir`, `lean_io_rename`
@@ -478,7 +479,8 @@ removal by a different program, for example `rm`, is not a call that this check 
 The deployment program `lean/Regula/Site/Deployment.lean` imports only the Lean core, thus it
 cannot use the decision. It reads each page from the output of `curl` and writes no file. Thus it
 removes nothing. It starts `curl` with no variable of its environment except `PATH`. Thus no
-variable, for example `SSLKEYLOGFILE`, can make `curl` write a file.
+variable, for example `SSLKEYLOGFILE`, can make `curl` write a file. The URL is the value of the
+option `--url`, thus a URL that starts with `-` is not an option.
 
 The driver moves the pending record to `tmp/acceptance-link.json` only if
 `RegulaVerification.passed` accepts the exit status of each command. The driver does that move

@@ -1,4 +1,5 @@
 import Regula.Removal
+import Regula.Site.Deployment
 import Lean.Elab.Command
 
 /-! # Controls of the removal decision and its reach check
@@ -24,7 +25,10 @@ planted declaration below is linked into a program, and its planted initializer 
 - An absent output below a linked ancestor, and an output with a `.` or `..` component: `ownPath`
   refuses each before anything is made.
 - A symbolic link, a path through one and a file where a directory is checked:
-  `requireOwnDirectory` refuses each, and accepts a directory at its own place and an absent path. -/
+  `requireOwnDirectory` refuses each, and accepts a directory at its own place and an absent path.
+  `requireNoLinkedEntries` refuses a directory with a symbolic link among its entries.
+- A URL of `Regula.Site.Deployment.fetch` that starts with `-`: curl does not read it as an
+  option. -/
 
 namespace Regula.RemovalControls
 
@@ -61,6 +65,16 @@ run_cmd do
       unless (← (Regula.Removal.requireOwnDirectory refused).toBaseIO) matches .error _ do
         throwError "requireOwnDirectory accepted {refused}"
     Regula.Removal.requireOwnDirectory (base / "target" / "out")
+    Regula.Removal.requireNoLinkedEntries (base / "target" / "out")
+    Regula.Removal.requireNoLinkedEntries (base / "absent")
+    unless (← (Regula.Removal.requireNoLinkedEntries base).toBaseIO) matches .error _ do
+      throwError "requireNoLinkedEntries accepted a directory with a linked entry"
+    let dangling ← IO.Process.output { cmd := "ln", args := #["-s", (base / "missing").toString,
+      (base / "target" / "out" / "dangling").toString] }
+    unless dangling.exitCode == 0 do throwError "ln -s failed: {dangling.stderr}"
+    unless (← (Regula.Removal.requireNoLinkedEntries (base / "target" / "out")).toBaseIO)
+        matches .error _ do
+      throwError "requireNoLinkedEntries accepted a directory with a dangling linked entry"
     Regula.Removal.requireOwnDirectory (base / "absent")
     unless ← (base / "target" / "out" / "keep").pathExists do
       throwError "removeOwn removed an entry below a linked component"
@@ -125,5 +139,24 @@ run_cmd do
   unless raw.size == 1 && raw.all fun (caller, primitive) =>
       primitive == ``IO.FS.removeDirAll && (env.getModuleIdxFor? caller).isNone do
     throwError "the planted initializer is not the only raw removal: {raw}"
+
+-- A URL that starts with `-` is not an option of curl: `fetch` gives `-K` with a configuration
+-- that writes a file, and the file is not written. The configuration is effective: curl writes the
+-- file when it is given as an option.
+run_cmd do
+  let base ← IO.FS.realPath (← IO.FS.createTempDir)
+  try
+    IO.FS.writeFile (base / "body") "body"
+    IO.FS.writeFile (base / "config")
+      s!"url = \"file://{base / "body"}\"\noutput = \"{base / "written"}\"\n"
+    let _ ← Regula.Site.Deployment.fetch s!"-K{base / "config"}"
+    if ← (base / "written").pathExists then
+      throwError "fetch read a URL that starts with `-` as an option of curl"
+    let direct ← IO.Process.output
+      { cmd := "curl", args := #["--disable", "--silent", s!"-K{base / "config"}"] }
+    unless direct.exitCode == 0 && (← (base / "written").pathExists) do
+      throwError "the planted configuration of curl writes no file: {direct.stderr}"
+  finally
+    IO.FS.removeDirAll base
 
 end Regula.RemovalControls
