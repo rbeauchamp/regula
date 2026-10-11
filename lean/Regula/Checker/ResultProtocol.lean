@@ -1,5 +1,6 @@
 import RegulaPolicy.Acceptance
 import RegulaCore.Account
+import RegulaCore.Lint
 import Regula.Website
 import Regula.Checker.Producer
 import Regula.Checker.RuleDiagnostics
@@ -15,6 +16,7 @@ of scoped evidence, never a deserializable proof or whole-standard conformance c
 The accepted constructor requires the executed con-leche-inspired indexed finalization. -/
 namespace Regula.Checker.ResultProtocol
 open Lean
+open RegulaPolicy.Guards (bind_eq_ok)
 
 /-- This checker build's producer identity, written into every result envelope. -/
 abbrev producer := Regula.Checker.Producer.identity
@@ -362,48 +364,485 @@ def runStages : Option EvidenceMode → List (List Stage)
   | some mode => [stagesOf mode]
   | none => [allStages]
 
-/-- Admit a result envelope's agent members in the registry-export style: it has this schema
-version; every diagnostic decodes to its canonical indexed form (`DiagnosticCodec.parseDiagnostic`,
-which includes the finding's `remedy` and `text`); every entry of `stages` and `stagesCompleted`
-is a stage, and `stages` are the required stages of the result's `mode` (`runStages`); a result
-with a `mode` records its `request`, whose documentation stages are exactly those of a
-`projectWithDocs` request;
-`stagesCompleted`, `complete`, `stagesNotRun` and `rules` have search trees and agree with their
-derivation by the writer's own `guidanceFields` (`JsonAgreement.conforms`) from the status,
-those stages and the diagnostics, which the writer's own members reproduce
-(`guidanceFields_recorded`). So a result whose status is not `completed` reports no stage that a
-finding blocks as run, and a `completed` result reports every stage as run, whatever its findings
-(`completedStages` reads no finding for it, https://github.com/rbeauchamp/regula/issues/364); and
-an `incomplete` result without an incomplete finding reports a stage not run, because only a stage
-that did not complete can have left it incomplete. This is consistency against writer regressions
-and omissions, not authenticity: a report deliberately edited to be self-consistent, such as a
+/-- The rule and impact of each finding, the form in which `Lint.Observation` records a run's
+findings. -/
+def impacts (findings : List Finding) : List (RuleId × Impact) :=
+  findings.map fun f => (f.1, f.2.impact)
+
+/-- Whether a result of `status` can carry `findings`: none for `completed` and `classified`, at
+least one for `rejected` and every one a violation, any for `incomplete`, and no other status
+(`statusAgrees_completed`). Every status `Lint.Observation.status` decides agrees with the
+observation's findings (`statusAgrees_observation`), and apart from `completed`, whose observation
+carries an accepted account, every status that agrees with them is one it decides from them
+(`statusAgrees_iff`). -/
+def statusAgrees (status : String) (findings : List Finding) : Bool :=
+  match status with
+  | "completed" | "classified" => findings.isEmpty
+  | "rejected" => !findings.isEmpty && findings.all (·.2.impact == .violation)
+  | "incomplete" => true
+  | _ => false
+
+/-- A `completed` result agrees with its findings exactly when it has none. -/
+theorem statusAgrees_completed (findings : List Finding) :
+    statusAgrees "completed" findings = true ↔ findings = [] := by
+  simp [statusAgrees]
+
+/-- The tally of a list of findings counts no incomplete finding and at least one violation
+exactly when the list is not empty and every finding is a violation. -/
+theorem tally_rejected_iff (findings : List Finding) :
+    (Lint.tally ((impacts findings).map (·.2))).incomplete = 0 ∧
+        0 < (Lint.tally ((impacts findings).map (·.2))).violations ↔
+      findings ≠ [] ∧ ∀ f ∈ findings, f.2.impact = .violation := by
+  have key : ∀ f : Finding, f.2.impact ≠ .incomplete ↔ f.2.impact = .violation := by
+    intro f; cases f.2.impact <;> simp
+  simp only [Lint.tally_eq, impacts, List.map_map, Function.comp_def, List.length_eq_zero_iff,
+    List.filter_eq_nil_iff, List.mem_map, List.length_pos_iff, ne_eq]
+  constructor
+  · rintro ⟨hi, hv⟩
+    refine ⟨fun h => by simp [h] at hv,
+      fun f hf => (key f).mp fun h => by simpa [h] using hi _ ⟨f, hf, rfl⟩⟩
+  · rintro ⟨hne, hall⟩
+    refine ⟨fun i ⟨f, hf, he⟩ => by subst he; simp [hall f hf], fun h => ?_⟩
+    obtain ⟨f, hf⟩ := List.exists_mem_of_ne_nil findings hne
+    have := h _ ⟨f, hf, rfl⟩
+    simp [hall f hf] at this
+
+/-- The status an observation decides agrees with the findings it records: a result whose
+writer writes an observation's status and the findings that observation records is never refused
+for its status. -/
+theorem statusAgrees_observation (o : Lint.Observation) (findings : List Finding)
+    (h : o.findings = impacts findings) : statusAgrees o.status.spelling findings = true := by
+  cases o with
+  | accepted a =>
+    simp only [Lint.Observation.findings, impacts] at h
+    simp [Lint.Observation.status, Account.Status.spelling, statusAgrees,
+      List.map_eq_nil_iff.mp h.symm]
+  | classified =>
+    simp only [Lint.Observation.findings, impacts] at h
+    simp [Lint.Observation.status, Account.Status.spelling, statusAgrees,
+      List.map_eq_nil_iff.mp h.symm]
+  | refused fs u =>
+    simp only [Lint.Observation.findings] at h
+    subst h
+    simp only [Lint.Observation.status, Lint.Observation.tally, Lint.Observation.findings]
+    by_cases hc : u = false ∧ (Lint.tally ((impacts findings).map (·.2))).incomplete = 0 ∧
+        0 < (Lint.tally ((impacts findings).map (·.2))).violations
+    · simp only [hc, and_self, ↓reduceIte]
+      have := (tally_rejected_iff findings).mp ⟨hc.2.1, hc.2.2⟩
+      simp [Account.Status.spelling, statusAgrees, this.1, List.all_eq_true]
+      exact fun f hf => this.2 f hf
+    · simp only [hc, ↓reduceIte]
+      simp [Account.Status.spelling, statusAgrees]
+
+/-- For every status but `completed`, a result's status agrees with its findings exactly when an
+observation that records those findings' rules and impacts decides that status. A `completed`
+observation carries an accepted account, so `statusAgrees_completed` states that case instead. -/
+theorem statusAgrees_iff (status : String) (findings : List Finding)
+    (h : status ≠ "completed") :
+    statusAgrees status findings = true ↔
+      ∃ o : Lint.Observation, o.status.spelling = status ∧ o.findings = impacts findings := by
+  constructor
+  · intro ha
+    unfold statusAgrees at ha
+    split at ha
+    · exact absurd rfl h
+    · exact ⟨.classified, rfl, by simp_all [Lint.Observation.findings, impacts]⟩
+    · refine ⟨.refused (impacts findings) false, ?_, rfl⟩
+      have hr : findings ≠ [] ∧ ∀ f ∈ findings, f.2.impact = .violation := by
+        simp only [Bool.and_eq_true, Bool.not_eq_true', List.isEmpty_eq_false_iff,
+          List.all_eq_true, beq_iff_eq] at ha
+        exact ha
+      have := (tally_rejected_iff findings).mpr hr
+      simp only [Lint.Observation.status, Lint.Observation.tally, Lint.Observation.findings]
+      simp [this, Account.Status.spelling]
+    · refine ⟨.refused (impacts findings) true, ?_, rfl⟩
+      simp [Lint.Observation.status, Account.Status.spelling]
+    · exact absurd ha (by simp)
+  · rintro ⟨o, rfl, ho⟩
+    exact statusAgrees_observation o findings ho
+
+/-- The stages a `classified` result of `mode` records as completed, one list for each writer
+that writes `classified`: a file audit that found nothing without a conforming claim
+(`AxiomGate`, every stage of `freshFile`), a policy example that elaborated without a finding
+(`RuleExamples.inspectNegative`, discovery through declaration policy) and a documentation
+example run whose fences classify (`RuleExamples.documentation`, every stage of
+`documentationExample`). -/
+def classifiedStages : Option EvidenceMode → List (List Stage)
+  | some .freshFile => [stagesOf .freshFile, [.discovery, .build, .admission, .declarationPolicy]]
+  | some .documentationExample => [stagesOf .documentationExample]
+  | _ => []
+
+/-- The keys of the members `guidanceFields` writes, in its order (`guidanceFields_keys`). -/
+def guidanceKeys : List String := ["stages", "stagesCompleted", "complete", "stagesNotRun", "rules"]
+
+theorem guidanceFields_keys (accepted : Bool) (required completed : List Stage)
+    (findings : List Finding) :
+    (guidanceFields accepted required completed findings).map (·.1) = guidanceKeys := rfl
+
+/-- Whether each recorded member has the name of the expected member at its place and a value
+that conforms to the expected value (`JsonAgreement.conforms`, the recorded value first), and the
+two lists have the same length (`membersConform_iff`). -/
+def membersConform : List (String × Json) → List (String × Json) → Bool
+  | [], [] => true
+  | (name, value) :: rest, (expectedName, expected) :: others =>
+      name == expectedName && JsonAgreement.conforms value expected && membersConform rest others
+  | _, _ => false
+
+/-- Each recorded member has the name of the expected member at its place and a value that
+conforms to the expected value, and the two lists have the same length. -/
+def MembersConform (recorded expected : List (String × Json)) : Prop :=
+  recorded.length = expected.length ∧
+    ∀ pair ∈ recorded.zip expected,
+      pair.1.1 = pair.2.1 ∧ JsonAgreement.Conforms pair.1.2 pair.2.2
+
+theorem membersConform_iff (recorded expected : List (String × Json)) :
+    membersConform recorded expected = true ↔
+      MembersConform recorded expected := by
+  unfold MembersConform
+  induction recorded generalizing expected with
+  | nil => cases expected <;> simp [membersConform]
+  | cons member rest step =>
+    cases expected with
+    | nil => simp [membersConform]
+    | cons want others =>
+      obtain ⟨name, value⟩ := member
+      obtain ⟨expectedName, expectedValue⟩ := want
+      simp only [membersConform, Bool.and_eq_true, beq_iff_eq, step, JsonAgreement.conforms_iff,
+        List.length_cons, Nat.add_right_cancel_iff, List.zip_cons_cons, List.forall_mem_cons]
+      unfold JsonAgreement.Conforms
+      constructor
+      · rintro ⟨⟨same, conforming⟩, length, each⟩
+        exact ⟨length, ⟨same, conforming⟩, each⟩
+      · rintro ⟨length, ⟨same, conforming⟩, each⟩
+        exact ⟨⟨same, conforming⟩, length, each⟩
+
+/-- The members of a result envelope that `admitGuidance` decides on, as `readGuidance` decodes
+them. -/
+structure Guidance where
+  /-- The `status` text. -/
+  status : String
+  /-- The `mode`, or `none` for `null`. -/
+  mode : Option EvidenceMode
+  /-- `request.kind` is `projectWithDocs`; read only for a result with a mode, else `false`. -/
+  withDocs : Bool
+  /-- The stages of `stages`. -/
+  required : List Stage
+  /-- The stages of `stagesCompleted`. -/
+  completed : List Stage
+  /-- The decoded `diagnostics`. -/
+  findings : List Finding
+  /-- The recorded value of each `guidanceKeys` member, under its key, in that order. -/
+  members : List (String × Json)
+
+/-- `ok`, or the refusal `problem`. -/
+def requireThat (ok : Bool) (problem : String) : Except String Unit :=
+  if ok then .ok () else .error problem
+
+theorem requireThat_bind_eq_ok {α : Type} (ok : Bool) (problem : String)
+    (rest : Except String α) (a : α) :
+    (requireThat ok problem >>= fun _ => rest) = .ok a ↔ ok = true ∧ rest = .ok a := by
+  cases ok <;> simp [requireThat, bind, Except.bind]
+
+theorem requireThat_eq_ok (ok : Bool) (problem : String) :
+    requireThat ok problem = .ok () ↔ ok = true := by
+  cases ok <;> simp [requireThat]
+
+/-- The schema version is this one (`JsonAgreement.conforms`, the received value first). -/
+def readSchema (j : Json) : Except String Unit :=
+  requireThat ((j.getObjVal? "schemaVersion").toOption.any
+      (JsonAgreement.conforms · (toJson schemaVersion)))
+    "unsupported result schema"
+
+/-- The `status` text. -/
+def readStatus (j : Json) : Except String String := do
+  (← j.getObjVal? "status").getStr?
+
+/-- The `mode`: `none` for `null`, else a mode (`RegistryCodec.parseMode`). -/
+def readMode (j : Json) : Except String (Option EvidenceMode) := do
+  match ← j.getObjVal? "mode" with
+  | .null => pure none
+  | mode => some <$> RegistryCodec.parseMode (← mode.getStr?)
+
+/-- Whether a result with a mode records a `projectWithDocs` request; `false` without a mode. -/
+def readWithDocs (j : Json) : Except String Bool := do
+  if (← readMode j).isSome then
+    pure ((← (← (← j.getObjVal? "request").getObjVal? "kind").getStr?) == "projectWithDocs")
+  else pure false
+
+/-- The stages of the member `key`, each entry a stage name (`parseStage`). -/
+def readStages (j : Json) (key : String) : Except String (List Stage) := do
+  (← (← j.getObjVal? key).getArr?).toList.mapM fun name => do parseStage (← name.getStr?)
+
+/-- The findings of `diagnostics`, each decoded to its canonical indexed form
+(`DiagnosticCodec.parseDiagnostic`, which includes the finding's `remedy` and `text`). -/
+def readFindings (j : Json) : Except String (List Finding) := do
+  (← (← j.getObjVal? "diagnostics").getArr?).toList.mapM DiagnosticCodec.parseDiagnostic
+
+/-- The recorded value of each `guidanceKeys` member, under its key. -/
+def readMembers (j : Json) : Except String (List (String × Json)) :=
+  guidanceKeys.mapM fun key => do pure (key, ← j.getObjVal? key)
+
+/-- Decode the members `admitGuidance` decides on, each by its own reader. -/
+def readGuidance (j : Json) : Except String Guidance := do
+  readSchema j
+  let status ← readStatus j
+  let mode ← readMode j
+  let withDocs ← readWithDocs j
+  let required ← readStages j "stages"
+  let completed ← readStages j "stagesCompleted"
+  let findings ← readFindings j
+  let members ← readMembers j
+  pure { status, mode, withDocs, required, completed, findings, members }
+
+/-- What each reader returned for a decoded envelope. -/
+theorem readGuidance_eq_ok {j : Json} {g : Guidance} (h : readGuidance j = .ok g) :
+    readSchema j = .ok () ∧ readStatus j = .ok g.status ∧ readMode j = .ok g.mode ∧
+      readWithDocs j = .ok g.withDocs ∧ readStages j "stages" = .ok g.required ∧
+      readStages j "stagesCompleted" = .ok g.completed ∧ readFindings j = .ok g.findings ∧
+      readMembers j = .ok g.members := by
+  simp only [readGuidance, bind_eq_ok, pure, Except.pure, Except.ok.injEq] at h
+  obtain ⟨⟨⟩, schema, status, hs, mode, hm, docs, hd, required, hr, completed, hc, findings,
+    hf, members, hmem, rfl⟩ := h
+  exact ⟨schema, hs, hm, hd, hr, hc, hf, hmem⟩
+
+/-- Whether findings are in run order: their entries (`Finding.entry`) are those
+`Feedback.sortEntries` gives, the order of `sortFindings`, which every writer writes
+(`sortFindings_entries`). -/
+def inRunOrder (findings : List Finding) : Bool :=
+  decide (findings.map Finding.entry = Feedback.sortEntries (findings.map Finding.entry))
+
+/-- Findings are in run order exactly when each entry may precede every later one
+(`Feedback.Entry.le`). -/
+theorem inRunOrder_iff (findings : List Finding) :
+    inRunOrder findings = true ↔
+      (findings.map Finding.entry).Pairwise fun a b => Feedback.Entry.le a b = true := by
+  unfold inRunOrder
+  rw [decide_eq_true_iff]
+  constructor
+  · intro sorted
+    rw [sorted]
+    exact Feedback.sortEntries_sorted _
+  · intro sorted
+    apply List.Perm.eq_of_pairwise (le := fun a b => Feedback.Entry.le a b = true)
+    · intro a b _ _ ab ba
+      exact Feedback.Entry.eq_of_cmp (Std.OrientedCmp.isLE_antisymm ab ba)
+    · exact sorted
+    · exact Feedback.sortEntries_sorted _
+    · exact (Feedback.sortEntries_perm _).symm
+
+/-- The findings every writer writes are in run order. -/
+theorem inRunOrder_sortFindings (findings : List Finding) :
+    inRunOrder (sortFindings findings) = true := by
+  rw [inRunOrder_iff, sortFindings_entries]
+  exact Feedback.sortEntries_sorted _
+
+/-- The decision of `admitGuidance` on decoded members, stated by `guidanceVerdict_eq_ok_iff`:
+`stages` are the required stages of the result's `mode` (`runStages`), and for a result with a
+mode its documentation stages are exactly those of a `projectWithDocs` request; a result without
+a mode has exactly the form `invalidateResults` writes for a destination whose configuration was
+not yet validated: `incomplete`, without a finding or a completed stage; the status agrees with
+the findings (`statusAgrees`), so a `completed` or `classified` result has none; the findings are in
+run order (`inRunOrder`), the order `sortFindings` gives every writer; a `classified`
+result records the completed stages of one of its writers (`classifiedStages`); the guidance
+members conform to their derivation by the writer's own `guidanceFields` (`membersConform`); and
+an `incomplete` result without an incomplete finding reports a stage not run. -/
+def guidanceVerdict (g : Guidance) : Except String Unit := do
+  requireThat ((runStages g.mode).contains g.required)
+    "stages are not the required stages of the result's mode"
+  requireThat (g.mode.isNone ||
+      g.withDocs == (g.required == stagesOf .freshProject ++ documentationStages))
+    "stages are not the required stages of the result's request"
+  requireThat
+    (g.mode.isSome || g.status == "incomplete" && g.findings.isEmpty && g.completed.isEmpty)
+    "a result without a mode is not the invalidated result of an unvalidated configuration"
+  let incomplete := (g.findings.filter (·.2.impact == .incomplete)).length
+  requireThat (statusAgrees g.status g.findings)
+    s!"a {g.status} result cannot carry its {g.findings.length} findings ({incomplete} incomplete)"
+  requireThat (inRunOrder g.findings) "result findings are not in run order"
+  requireThat (g.status != "classified" || (classifiedStages g.mode).contains g.completed)
+    "a classified result records completed stages that no classified result records"
+  let expected := guidanceFields (acceptedStatus g.status) g.required g.completed g.findings
+  let differing := (g.members.zip expected).find? fun (member, want) =>
+    !(member.1 == want.1 && JsonAgreement.conforms member.2 want.2)
+  let key := (differing.map (·.1.1)).getD "guidance"
+  requireThat (membersConform g.members expected) s!"noncanonical result {key}"
+  requireThat (g.status != "incomplete" || g.findings.any (·.2.impact == .incomplete) ||
+      !(notRun g.required g.completed).isEmpty)
+    "incomplete result without an incomplete finding reports every stage as run"
+
+/-- The required stages are never missing from themselves. -/
+theorem notRun_self (required : List Stage) : notRun required required = [] := by
+  simp [notRun, List.filter_eq_nil_iff]
+
+/-- What `guidanceVerdict` accepts, for every decoded envelope. -/
+theorem guidanceVerdict_eq_ok_iff (g : Guidance) :
+    guidanceVerdict g = .ok () ↔
+      g.required ∈ runStages g.mode ∧
+      (g.mode.isSome →
+        g.withDocs = (g.required == stagesOf .freshProject ++ documentationStages)) ∧
+      (g.mode = none → g.status = "incomplete" ∧ g.findings = [] ∧ g.completed = []) ∧
+      statusAgrees g.status g.findings = true ∧
+      (g.findings.map Finding.entry).Pairwise (fun a b => Feedback.Entry.le a b = true) ∧
+      (g.status = "classified" → g.completed ∈ classifiedStages g.mode) ∧
+      MembersConform g.members
+        (guidanceFields (acceptedStatus g.status) g.required g.completed g.findings) ∧
+      (g.status = "incomplete" → (∃ f ∈ g.findings, f.2.impact = .incomplete) ∨
+        notRun g.required g.completed ≠ []) := by
+  simp only [guidanceVerdict, requireThat_bind_eq_ok, requireThat_eq_ok, ← membersConform_iff,
+    inRunOrder_iff]
+  cases hm : g.mode <;>
+    simp [Bool.or_eq_true, Bool.and_eq_true, List.isEmpty_iff, beq_iff_eq, List.any_eq_true,
+      bne_iff_ne, ne_eq, and_assoc, Decidable.imp_iff_not_or, or_assoc]
+
+/-- The guidance members of a run that completed every required stage, with no finding. -/
+def completedMembers (required : List Stage) : List (String × Json) :=
+  [("stages", toJson (required.map stageName)),
+   ("stagesCompleted", toJson (required.map stageName)),
+   ("complete", .bool true), ("stagesNotRun", toJson ([] : List String)),
+   ("rules", RegistryCodec.rulesJson [])]
+
+/-- A `completed` envelope is admitted exactly when it has a mode whose required stages its
+`stages` are, with the documentation stages of its request, no finding, and members that conform
+to those of a run that completed every one of those stages (`completedMembers`): `stagesCompleted`
+the same stages, `complete` true, no stage in `stagesNotRun` and no rule guidance. -/
+theorem guidanceVerdict_completed (g : Guidance) (h : g.status = "completed") :
+    guidanceVerdict g = .ok () ↔
+      (∃ mode, g.mode = some mode ∧ g.required ∈ runStages (some mode) ∧
+        g.withDocs = (g.required == stagesOf .freshProject ++ documentationStages)) ∧
+      g.findings = [] ∧
+      MembersConform g.members (completedMembers g.required) := by
+  have expected : ∀ completed,
+      guidanceFields (acceptedStatus "completed") g.required completed [] =
+        completedMembers g.required := by
+    intro completed
+    simp [guidanceFields, completedStages, acceptedStatus, notRun_self, completedMembers]
+  rw [guidanceVerdict_eq_ok_iff, h, statusAgrees_completed]
+  cases hm : g.mode with
+  | none => simp
+  | some mode =>
+    constructor
+    · rintro ⟨hr, hw, -, hf, -, -, hmem, -⟩
+      rw [hf, expected] at hmem
+      exact ⟨⟨mode, rfl, hr, hw rfl⟩, hf, hmem⟩
+    · rintro ⟨⟨m, hm', hr, hw⟩, hf, hmem⟩
+      cases hm'
+      rw [hf, expected]
+      exact ⟨hr, fun _ => hw, by simp, rfl, by simp, by simp, hmem, by simp⟩
+
+/-- No stage that a finding of an admitted envelope blocks is among the stages whose names its
+recorded `stagesCompleted` must conform to (`guidanceVerdict_eq_ok_iff`): a `completed` result has
+no finding, and every other status records only stages no finding blocks. -/
+theorem guidanceVerdict_unblocked (g : Guidance) (h : guidanceVerdict g = .ok ()) :
+    ∀ s ∈ completedStages (acceptedStatus g.status) g.required g.completed g.findings,
+      blocked g.findings s = false := by
+  have agrees := ((guidanceVerdict_eq_ok_iff g).mp h).2.2.2.1
+  intro s hs
+  cases ha : acceptedStatus g.status
+  · simp only [completedStages, ha, Bool.false_eq_true, ↓reduceIte, List.mem_filter,
+      Bool.and_eq_true, Bool.not_eq_true'] at hs
+    exact hs.2.2
+  · have : g.status = "completed" := by simpa [acceptedStatus] using ha
+    rw [this, statusAgrees_completed] at agrees
+    simp [blocked, agrees]
+
+/-- Admit a result envelope's agent members in the registry-export style: its object trees are
+search trees at each depth (`JsonAgreement.regular`), so each name is found once and no member is
+hidden from a lookup; then decode them (`readGuidance`) and decide on them (`guidanceVerdict`).
+`admitGuidance_eq_ok_iff` states what it admits of every `Json` value, `admitGuidance_completed`
+what it admits of a `completed` result, `admitGuidance_completed_diagnostics` that such a result's
+only `diagnostics` member is empty, and `guidanceVerdict_unblocked` that no stage a finding blocks
+is reported as run. `statusAgrees_observation` states that a writer that writes an observation's
+status with the findings that observation records passes the status check; that each writer
+does so is read from its code, not proved. This is consistency against writer regressions and
+omissions, not authenticity: a report deliberately edited to be self-consistent, such as a
 rewritten `request.kind`, passes. -/
 def admitGuidance (j : Json) : Except String Unit := do
-  unless (j.getObjVal? "schemaVersion").toOption.any
-      (JsonAgreement.conforms · (toJson schemaVersion)) do
-    throw "unsupported result schema"
-  let findings := (← (← (← j.getObjVal? "diagnostics").getArr?).mapM
-    DiagnosticCodec.parseDiagnostic).toList
-  let stages (key : String) : Except String (List Stage) := do
-    (← (← j.getObjVal? key).getArr?).toList.mapM fun name => do parseStage (← name.getStr?)
-  let required ← stages "stages"
-  let completed ← stages "stagesCompleted"
-  let mode ← match ← j.getObjVal? "mode" with
-    | .null => pure none
-    | mode => some <$> RegistryCodec.parseMode (← mode.getStr?)
-  unless (runStages mode).contains required do
-    throw "stages are not the required stages of the result's mode"
-  if mode.isSome then
-    let withDocs := (← (← (← j.getObjVal? "request").getObjVal? "kind").getStr?) ==
-        "projectWithDocs"
-    unless withDocs == (required == stagesOf .freshProject ++ documentationStages) do
-      throw "stages are not the required stages of the result's request"
-  let status ← (← j.getObjVal? "status").getStr?
-  for (key, value) in guidanceFields (acceptedStatus status) required completed findings do
-    unless JsonAgreement.conforms (← j.getObjVal? key) value do throw s!"noncanonical result {key}"
-  if status == "incomplete" && !findings.any (·.2.impact == .incomplete) &&
-      (notRun required completed).isEmpty then
-    throw "incomplete result without an incomplete finding reports every stage as run"
+  requireThat (JsonAgreement.regular j) "result object trees are not search trees"
+  guidanceVerdict (← readGuidance j)
+
+/-- What `admitGuidance` admits, for every `Json` value: one whose object trees are search
+trees, whose members decode, and whose decoded members `guidanceVerdict` accepts
+(`guidanceVerdict_eq_ok_iff`). -/
+theorem admitGuidance_eq_ok_iff (j : Json) :
+    admitGuidance j = .ok () ↔
+      JsonAgreement.Regular j ∧ ∃ g, readGuidance j = .ok g ∧ guidanceVerdict g = .ok () := by
+  unfold admitGuidance
+  rw [requireThat_bind_eq_ok, bind_eq_ok, JsonAgreement.regular_iff]
+
+/-- What `admitGuidance` admits of a `Json` value whose `status` is `completed`: search trees,
+decoded members, a mode whose required stages its `stages` are (with the documentation stages
+of its request), no finding, and the members of a run that completed every required stage
+(`guidanceVerdict_completed`). -/
+theorem admitGuidance_completed (j : Json) (h : readStatus j = .ok "completed") :
+    admitGuidance j = .ok () ↔
+      JsonAgreement.Regular j ∧ ∃ g, readGuidance j = .ok g ∧
+        (∃ mode, g.mode = some mode ∧ g.required ∈ runStages (some mode) ∧
+          g.withDocs = (g.required == stagesOf .freshProject ++ documentationStages)) ∧
+        g.findings = [] ∧
+        MembersConform g.members (completedMembers g.required) := by
+  rw [admitGuidance_eq_ok_iff]
+  constructor
+  · rintro ⟨regular, g, read, verdict⟩
+    have status : g.status = "completed" := by
+      have := (readGuidance_eq_ok read).2.1
+      rw [h] at this
+      exact (Except.ok.inj this).symm
+    exact ⟨regular, g, read, (guidanceVerdict_completed g status).mp verdict⟩
+  · rintro ⟨regular, g, read, rest⟩
+    have status : g.status = "completed" := by
+      have := (readGuidance_eq_ok read).2.1
+      rw [h] at this
+      exact (Except.ok.inj this).symm
+    exact ⟨regular, g, read, (guidanceVerdict_completed g status).mpr rest⟩
+
+/-- The members of a result that `admitGuidance` reads: its schema, status, mode, request,
+findings and guidance members. -/
+def guidanceInputKeys : List String :=
+  ["schemaVersion", "status", "mode", "request", "diagnostics"] ++ guidanceKeys
+
+/-- The members of `j` that `admitGuidance` reads, as Lean's lookup finds them, in an object of
+their own. A reader that decides on a result by its members alone admits this object, so its
+decision is unchanged by the result's other members. -/
+def guidanceInput (j : Json) : Json :=
+  Json.mkObj (guidanceInputKeys.filterMap fun key => (j.getObjVal? key).toOption.map (key, ·))
+
+theorem mapM_eq_ok_nil {α β : Type} {f : α → Except String β} {l : List α}
+    (h : l.mapM f = .ok []) : l = [] := by
+  cases l with
+  | nil => rfl
+  | cons head rest =>
+    simp only [List.mapM_cons, bind_eq_ok, pure, Except.pure] at h
+    obtain ⟨_, _, _, _, impossible⟩ := h
+    exact nomatch impossible
+
+/-- **No hidden finding.** An admitted `completed` result is an object whose tree has exactly
+one member named `diagnostics`, and it is the empty array: each member of the tree with that name
+is found by Lean's lookup (`JsonAgreement.get?_of_mem`), and the lookup reads no finding. -/
+theorem admitGuidance_completed_diagnostics {j : Json} (h : admitGuidance j = .ok ())
+    (completed : readStatus j = .ok "completed") :
+    j.getObjVal? "diagnostics" = .ok (.arr #[]) ∧
+      ∀ fields : Std.TreeMap.Raw String Json compare, j = .obj fields →
+        ∀ member ∈ JsonAgreement.members fields.inner.inner, member.1 = "diagnostics" →
+          member.2 = .arr #[] := by
+  obtain ⟨regular, g, read, -, none, -⟩ := (admitGuidance_completed j completed).mp h
+  have findings := (readGuidance_eq_ok read).2.2.2.2.2.2.1
+  rw [none] at findings
+  have lookup : j.getObjVal? "diagnostics" = .ok (.arr #[]) := by
+    simp only [readFindings, bind_eq_ok] at findings
+    obtain ⟨value, found, entries, array, decoded⟩ := findings
+    have empty := mapM_eq_ok_nil decoded
+    cases value <;> simp [Json.getArr?] at array
+    subst array
+    rw [found, Array.toList_eq_nil_iff.mp empty]
+  refine ⟨lookup, fun fields shape member present named => ?_⟩
+  subst shape
+  obtain ⟨⟨tree⟩⟩ := fields
+  cases regular with
+  | obj ordered _ =>
+    have found := JsonAgreement.get?_of_mem ordered present
+    rw [named] at found
+    simp only [Json.getObjVal?, found] at lookup
+    exact Except.ok.inj lookup
 
 /-- The JSON record of the request a result answers: its kind, project, subject, optional
 claim and execution mode, and each configuration file path with its text, if read. -/
@@ -431,12 +870,152 @@ def writeDocument (path : System.FilePath) (document : Json) (span : String := "
   IO.FS.writeFile path encoded
   timingSpan s!"diagnostic span: {span} write: {(← IO.monoMsNow) - writeStart}ms"
 
+/-- Applying `g` to the members named `key` of what applying `f` to them wrote is applying `g`
+after `f` to them. -/
+theorem mapMembers_mapMembers (key : String) (f g : Json → Json) (value : Json) :
+    SharedExecution.mapMembers key g (SharedExecution.mapMembers key f value) =
+      SharedExecution.mapMembers key (g ∘ f) value := by
+  refine JsonAgreement.Cases.value
+    (motive := fun value => SharedExecution.mapMembers key g
+      (SharedExecution.mapMembers key f value) = SharedExecution.mapMembers key (g ∘ f) value)
+    (fieldsMotive := fun fields => SharedExecution.mapMemberFields key g
+      (SharedExecution.mapMemberFields key f fields) =
+        SharedExecution.mapMemberFields key (g ∘ f) fields) ?_ value
+  refine ⟨?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_⟩
+  · simp [SharedExecution.mapMembers]
+  · intro b
+    simp [SharedExecution.mapMembers]
+  · intro n
+    simp [SharedExecution.mapMembers]
+  · intro s
+    simp [SharedExecution.mapMembers]
+  · intro elems elements
+    simp only [SharedExecution.mapMembers, Array.map_map]
+    exact congrArg Json.arr (Array.map_congr_left fun element member => elements element member)
+  · intro fields step
+    simp [SharedExecution.mapMembers, step]
+  · simp [SharedExecution.mapMemberFields]
+  · intro size name value left right valueStep leftStep rightStep
+    by_cases named : (name == key) = true
+    · simp [SharedExecution.mapMemberFields, named, leftStep, rightStep]
+    · simp [SharedExecution.mapMemberFields, named, valueStep, leftStep, rightStep]
+
+/-- The written form the result writers give the document a value with its source texts put back
+(`expanded`) stands for, each execution account in the entry kinds `expanded` gives it: every
+`execution` member replaced by its `ExecutionShare.formLike` for the value the reader restores
+from it (`SharedExecution.restore?`). -/
+def rewritten (expanded : Json) : Json :=
+  SharedExecution.mapMembers SharedExecution.accountKey (fun written =>
+    match SharedExecution.restore? written with
+    | some value => ExecutionShare.formLike written value
+    | none => written) expanded
+
+/-- Admit a received result document: put its source texts back (`SourceTexts.expand`), restore
+its execution accounts (`SharedExecution.expand`), write it again as the writers do with the kind
+of each root entry of an execution account the received value has (`rewritten`, then
+`SourceTexts.intern`), and require the received value to conform to that (`JsonAgreement.conforms`,
+the received value first). It admits exactly the values `admitDocument_eq_ok_iff` states, and
+each value a writer writes with search trees, at every entry kinds under which the reader takes
+back its execution accounts (`admitDocument_of_forms`, `admitDocument_write`,
+`admitDocument_writeAs`). So a source table with an entry that no `sourceText` member names, or an
+execution account with a member a writer does not write, is refused. An account may be explicit
+where its derived entry fits: the writer decides with `SharedExecution.same`, which compares
+object trees node for node, and the document read from a file has the parser's trees. -/
+def admitDocument (received : Json) : Except String Json := do
+  let expanded ← SourceTexts.expand received
+  let document ← SharedExecution.expand expanded
+  let written ← SourceTexts.intern (rewritten expanded)
+  requireThat (JsonAgreement.conforms received written)
+    "result document: not a written form of the document it stands for"
+  pure document
+
+/-- What `admitDocument` admits, for every `Json` value: a value whose source texts and execution
+accounts restore to `document`, and which conforms to the writers' form of what its source texts
+restore to, with its own entry kinds. -/
+theorem admitDocument_eq_ok_iff (received document : Json) :
+    admitDocument received = .ok document ↔
+      ∃ expanded, SourceTexts.expand received = .ok expanded ∧
+        SharedExecution.expand expanded = .ok document ∧
+        ∃ written, SourceTexts.intern (rewritten expanded) = .ok written ∧
+          JsonAgreement.Conforms received written := by
+  unfold admitDocument
+  simp only [bind_eq_ok, pure, Except.pure, Except.ok.injEq]
+  constructor
+  · rintro ⟨expanded, he, restored, hr, written, hw, ⟨⟩, conforming, rfl⟩
+    exact ⟨expanded, he, hr, written, hw,
+      (JsonAgreement.conforms_iff _ _).mp ((requireThat_eq_ok _ _).mp conforming)⟩
+  · rintro ⟨expanded, he, hr, written, hw, conforming⟩
+    exact ⟨expanded, he, document, hr, written, hw, (),
+      (requireThat_eq_ok _ _).mpr ((JsonAgreement.conforms_iff _ _).mpr conforming), rfl⟩
+
+/-- An admitted value is read as the document `admitDocument` returns. -/
+theorem admitDocument_read {received document : Json}
+    (admitted : admitDocument received = .ok document) :
+    SharedExecution.read received = .ok document := by
+  obtain ⟨expanded, he, hr, -⟩ := (admitDocument_eq_ok_iff received document).mp admitted
+  simp only [SharedExecution.read, he, bind, Except.bind]
+  exact hr
+
+/-- **Admission accepts what a writer writes.** For every list of proposals whose written form of
+each value `ExecutionShare.formLike` returns, `admitDocument` admits each value
+`SharedExecution.write` produces with them whose object trees are search trees, and returns the
+document the writer was given (`SharedExecution.read_write`). -/
+theorem admitDocument_of_forms {proposals : List (Json → Json)} {document written : Json}
+    (forms : ∀ value, ExecutionShare.formLike (SharedExecution.internValue proposals value) value =
+      SharedExecution.internValue proposals value)
+    (wrote : SharedExecution.write proposals document = .ok written)
+    (regular : JsonAgreement.Regular written) : admitDocument written = .ok document := by
+  have texts : SourceTexts.expand written = .ok (SharedExecution.intern proposals document) :=
+    SourceTexts.expand_intern wrote
+  have same : rewritten (SharedExecution.intern proposals document) =
+      SharedExecution.intern proposals document := by
+    unfold rewritten SharedExecution.intern
+    rw [mapMembers_mapMembers]
+    congr 1
+    funext value
+    simp only [Function.comp_apply, SharedExecution.restore?_internValue, forms]
+  refine (admitDocument_eq_ok_iff written document).mpr
+    ⟨_, texts, SharedExecution.expand_intern proposals document, written, ?_,
+      regular, regular.agree_self⟩
+  rw [same]
+  exact wrote
+
+/-- `admitDocument` admits each value the result writers write (`ExecutionShare.proposals`) for a
+document of any shape whose object trees are search trees, and returns that document
+(`ExecutionShare.formLike_internValue`). -/
+theorem admitDocument_write {document written : Json}
+    (wrote : SharedExecution.write ExecutionShare.proposals document = .ok written)
+    (regular : JsonAgreement.Regular written) : admitDocument written = .ok document :=
+  admitDocument_of_forms ExecutionShare.formLike_internValue wrote regular
+
+/-- `admitDocument` admits each value written with any kind of each root entry
+(`ExecutionShare.sharedAs`, the kinds of a value's entries given by `explicit` of the value) under
+which the reader takes back every value or `sharedAs` writes it as it is, when its object trees
+are search trees (`ExecutionShare.formLike_sharedAs`). The writers' own choice, and the one a
+document read back from its file has, are such kinds wherever the reader takes the shared form
+back; that the writers' form is taken back is `SharedExecution.read_write`, and that the parse of
+a written file is a value of this form is not proved: the qualification campaigns, which read
+their result files with `admitDocument`, observe it. -/
+theorem admitDocument_writeAs {explicit : Json → Nat → Bool} {document written : Json}
+    (restores : ∀ value, ExecutionShare.sharedAs (explicit value) value = value ∨
+      SharedExecution.recovers (ExecutionShare.sharedAs (explicit value) value) value = true)
+    (wrote : SharedExecution.write [fun value => ExecutionShare.sharedAs (explicit value) value]
+      document = .ok written)
+    (regular : JsonAgreement.Regular written) : admitDocument written = .ok document :=
+  admitDocument_of_forms (fun value => by
+    have own : SharedExecution.internValue
+        [fun value => ExecutionShare.sharedAs (explicit value) value] value =
+        SharedExecution.internValue [ExecutionShare.sharedAs (explicit value)] value :=
+      ExecutionShare.internValue_congr rfl
+    rw [own]
+    exact ExecutionShare.formLike_sharedAs (restores value)) wrote regular
+
 /-- Read the result document `writeDocument` wrote at `path`: parsed strictly
-(`PolicyCodec.parse`) and read (`SharedExecution.read`), so every `sourceText` member holds its
+(`PolicyCodec.parse`) and admitted (`admitDocument`), so every `sourceText` member holds its
 text and every `execution` member its roots' accounts. A file that is not a written result
 document is an error. -/
 def readDocument (path : System.FilePath) : IO Json := do
-  IO.ofExcept (SharedExecution.read (← readJson path))
+  IO.ofExcept (admitDocument (← readJson path))
 
 /-- Write the `resultJson` of these arguments to `path` (`writeDocument`). -/
 def write (path : System.FilePath) (scope : Json) (mode : EvidenceMode) (status : Status)

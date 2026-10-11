@@ -1,6 +1,7 @@
 import VersoManual
 import RegulaPolicy.Pattern
 import RegulaCore.Standard
+import Regula.Checker.PolicyCodec
 
 /-! # Checked Lean examples of the standard
 
@@ -71,9 +72,30 @@ private def Config.expectation : Config → DocElabM Expectation
   | { fails := some _, trustedCompiler := true } =>
     throwError "an example cannot both fail and demonstrate a trusted compiler mechanism"
 
+/-- The severity of a reported message: one of the three spellings the helper writes. -/
+inductive Severity where
+  | error
+  | warning
+  | information
+  deriving BEq
+
+/-- The spelling the helper writes for a severity. -/
+def Severity.spelling : Severity → String
+  | .error => "error"
+  | .warning => "warning"
+  | .information => "information"
+
+/-- A severity is read from its spelling alone; any other value is refused. -/
+instance : FromJson Severity where
+  fromJson?
+    | .str "error" => .ok .error
+    | .str "warning" => .ok .warning
+    | .str "information" => .ok .information
+    | other => .error s!"unknown message severity {other.compress}"
+
 /-- One message of an example's elaboration, as the helper reports it. -/
 structure Reported where
-  severity : String
+  severity : Severity
   line : Nat
   column : Nat
   text : String
@@ -107,8 +129,16 @@ def runHelper (text : String) : IO (Array Reported × Json) := do
       env := #[("LEAN_SYSROOT", some sysroot.toString)] }
     if out.exitCode != 0 then
       throw <| IO.userError s!"example helper failed ({out.exitCode}): {out.stderr}"
-    let json ← IO.ofExcept (Json.parse out.stdout)
-    return (← IO.ofExcept (json.getObjValAs? (Array Reported) "messages"), ← IO.ofExcept (json.getObjVal? "code"))
+    -- Exactly the members the helper writes, each name once (`PolicyCodec.parse`), and a severity
+    -- of the three it writes (`Severity`): the verdict depends on no other form.
+    let json ← IO.ofExcept (Regula.Checker.PolicyCodec.parse out.stdout)
+    IO.ofExcept (Regula.Checker.PolicyCodec.exactFields json ["messages", "code"])
+    let listed ← IO.ofExcept (json.getObjValAs? (Array Json) "messages")
+    let messages ← listed.mapM fun message => do
+      IO.ofExcept (Regula.Checker.PolicyCodec.exactFields message
+        ["severity", "line", "column", "text"])
+      IO.ofExcept (fromJson? (α := Reported) message)
+    return (messages, ← IO.ofExcept (json.getObjVal? "code"))
 
 /-- The Lean community's line limit (Mathlib's `linter.style.longLine`), in characters. -/
 def maxLineLength : Nat := 100
@@ -177,9 +207,9 @@ def elabExample (expectation : Expectation) (str : StrLit) : DocElabM Term := do
   let firstLine := (← getFileMap).toPosition start |>.line
   let describe (ms : Array Reported) : String :=
     "\n".intercalate (ms.toList.map fun m =>
-      s!"line {firstLine + m.line - 1}, column {m.column}: {m.severity}: {m.text}")
-  let errors := messages.filter (·.severity == "error")
-  let warnings := messages.filter (·.severity == "warning")
+      s!"line {firstLine + m.line - 1}, column {m.column}: {m.severity.spelling}: {m.text}")
+  let errors := messages.filter (·.severity == .error)
+  let warnings := messages.filter (·.severity == .warning)
   -- The error message that matched a rejection's pattern: the evidence the page shows.
   let evidence : Option Reported ← match expectation with
     | .positive | .trustedCompiler => do
