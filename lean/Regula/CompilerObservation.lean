@@ -63,16 +63,18 @@ or unset in any other program; no `lean` is run to find the directory, so no pro
 resolves takes part.
 Assumes: Lake sets `LEAN_SYSROOT` for each program it starts (`lake exe`, `lake env`, `lake lint`)
 to the installation it detected (`Lake.Env.baseVars`, `Lake/Config/Env.lean:302` of Lean v4.34.1).
-The `lean` that Lake starts to compile a module gets no `LEAN_SYSROOT`
-(`Lake.compileLeanModule`, `Lake/Build/Actions.lean:29`), so code that runs while it elaborates
-takes that `lean`'s installation, the one Lake detected, whose `bin/lean` Lake ran by its path.
 For a toolchain `lake` beside its `lean`, without `LAKE_OVERRIDE_LEAN` set to true, that is the
 parent of the directory of the running `lake` (`Lake.findLakeLeanJointHome?`,
 `Lake/Config/InstallPath.lean:334`), an absolute path. With that override, Lake detects the
 installation instead from the inherited `LEAN_SYSROOT`, or else from the `lean` that `LEAN` or
 `PATH` names (`Lake.findInstall?` and `Lake.findLeanInstall?`, `InstallPath.lean:371`); that
-choice is the caller's, and `identifiedRoot` refuses one whose `lean` is another compiler. The
-filesystem's resolution of the path is trusted. -/
+choice is the caller's, and `identifiedRoot` refuses one whose `lean` is another compiler.
+Lake adds no `LEAN_SYSROOT` to the `lean` it starts to compile a module: `Lake.compileLeanModule`
+adds only `LEAN_PATH` (its `rawProc`, `Lake/Build/Actions.lean:59`), and that `lean` inherits the
+rest of Lake's environment. So code that runs while it elaborates has `LEAN_SYSROOT` only when Lake
+itself has it, such as when Regula's `runLake` started Lake (`Regula.Toolchain.lakeChildEnv`) or the
+user exported it. Otherwise it takes that `lean`'s installation (`Lean.getBuildDir`), whose
+`bin/lean` Lake ran by its path. The filesystem's resolution of the path is trusted. -/
 def toolchainRoot : IO System.FilePath := do
   let some root ← IO.getEnv "LEAN_SYSROOT" | do
     unless (← IO.appPath).fileStem == some "lean" do
