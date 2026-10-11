@@ -2204,7 +2204,7 @@ end Regula.Checker.Manifest
 
 -- Exact dependency ceiling for the manifest-parser guarantees: Standard-Logical.
 run_cmd do
-  for name in #[``Regula.Checker.Manifest.parse_sound, ``Regula.Checker.Manifest.parse_input,
+  let names := #[``Regula.Checker.Manifest.parse_sound, ``Regula.Checker.Manifest.parse_input,
       ``Regula.Checker.Manifest.parse_emptyExclusions, ``Regula.Checker.Manifest.parse_malformed,
       ``Regula.Checker.Manifest.parse_topLevel_refuses,
           ``Regula.Checker.Manifest.topLevel_unknownKey,
@@ -2237,7 +2237,10 @@ run_cmd do
       ``Regula.Checker.Manifest.restrict_libraries,
       ``Regula.Checker.Manifest.restrict_executables,
       ``Regula.Checker.Manifest.restrict_valid,
-      ``Regula.Checker.Manifest.restrict_roundtrip] do
-    let axioms ← Lean.collectAxioms name
+      ``Regula.Checker.Manifest.restrict_roundtrip]
+  let some table := RegulaPolicy.KernelAxioms.reachedAxiomTable (← Lean.getEnv) names
+    | throwError "the axiom search ran out of fuel"
+  for name in names do
+    let some axioms := table[name]? | throwError "the axiom search did not reach {name}"
     unless axioms.all RegulaPolicy.standardLogicalAxiom do
       throwError "manifest theorem {name} exceeds Standard-Logical: {axioms}"

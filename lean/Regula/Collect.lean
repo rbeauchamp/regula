@@ -169,13 +169,6 @@ erases. -/
 private def erasedByCompilation (e : Expr) : MetaM Bool := do
   return (← Meta.isProof e) || (← Meta.isType e)
 
-/-- A bound on the names a search in `env` expands: one for each constant of its modules and of
-the current module, and `extra` more. Every name a constant of a kernel environment uses is a
-constant of it. -/
-def fuelFor (env : Environment) (extra : Nat) : Nat :=
-  env.header.moduleData.foldl (fun total data => total + data.constants.size) 0 +
-    env.constants.map₂.foldl (fun total _ _ => total + 1) 0 + extra
-
 /-- Whether Lean's kernel, in the current environment, accepts `value` as a proof of the closed
 statement `type` (`Environment.addDeclCore` on a theorem of a fresh name) and that theorem uses
 only axioms that the Standard-Logical profile permits (`RegulaPolicy.standardLogicalAxiom`, the
@@ -200,7 +193,7 @@ private def kernelChecked (cached : Std.HashMap Name (Array Name)) (type value :
   | .ok checked =>
     setEnv checked
     let some axioms := RegulaPolicy.KernelAxioms.axiomsWith checked.toKernelEnv.find? cached
-        (fuelFor checked 1) name | return false
+        (RegulaPolicy.KernelAxioms.fuelFor checked 1) name | return false
     return axioms.all RegulaPolicy.standardLogicalAxiom
 
 /-- Whether Lean's kernel checks the threading law of the application `threaded`, the fact the
@@ -3633,9 +3626,10 @@ functions that its two sides share (`sharedReading`). The record of a decision r
 was read and not refused holds the names of the functions that its two sides share. Its axioms are
 those `replayed` holds for the declaration, the axioms it reaches in the kernel that replayed it
 (`Admission.validate`), with the axioms `collectAxioms` omits of them, or, with no `replayed`,
-those Lean's `collectAxioms` reports. -/
+those it reaches in the environment: its entry of `editor`, a table of
+`KernelAxioms.reachedAxiomTable`, or else `KernelAxioms.reachedAxioms`. -/
 private def declarationReading (name : Name) (stage : Stage) (scope? : Option ContractScope)
-    (replayed : Option Replayed) :
+    (replayed : Option Replayed) (editor : Std.HashMap Name (Array Name) := {}) :
     CommandElabM (RegulaPolicy.Declaration × Option Unread) := withoutSmartUnfolding do
   let env ← getEnv
   let scope ← match scope? with
@@ -3647,7 +3641,9 @@ private def declarationReading (name : Name) (stage : Stage) (scope? : Option Co
     | some table => match table.axioms[name]? with
       | some axioms => pure axioms
       | none => throwError "declaration {name} has no axioms from the replayed kernel"
-    | none => collectAxioms name
+    | none => match editor[name]? <|> RegulaPolicy.KernelAxioms.reachedAxioms env name with
+      | some axioms => pure axioms
+      | none => throwError "the axiom search from declaration {name} ran out of fuel"
   let tableOmissions := (replayed.bind (·.omissions[name]?)).getD #[]
   let assumptions := (replayed.bind (·.assumptions[name]?)).getD #[]
   let checkedOperations := (replayed.bind (·.checkedOperations[name]?)).getD #[]
@@ -3737,7 +3733,8 @@ it names no shared function below a constant that the environment has no value o
 holds for the declaration, the axioms it reaches in the kernel that replayed it
 (`Admission.validate`), and its `tableOmissions`, `assumptions` and `checkedOperations` are those
 `replayed` holds for it; a caller with no replayed kernel, such as the editor, passes none, and the
-record has the axioms Lean's `collectAxioms` reports and no assumption or checked operation. -/
+record has the axioms the declaration reaches in the environment (`KernelAxioms.reachedAxioms`)
+and no assumption or checked operation. -/
 def declaration (name : Name) (stage : Stage) (scope? : Option ContractScope := none)
     (replayed : Option Replayed := none) :
     CommandElabM RegulaPolicy.Declaration :=
@@ -3747,8 +3744,11 @@ def declaration (name : Name) (stage : Stage) (scope? : Option ContractScope := 
 Uses Lean's own local constant map through its environment-linter API. The caller
 must separately establish completion of elaboration before claiming completion. -/
 def currentModule (stage : Stage := .snapshot) : CommandElabM (Array RegulaPolicy.Declaration) := do
-  let scope ← ContractScope.new (← getEnv)
-  (← liftCoreM Lean.Linter.EnvLinter.getDeclsInCurrModule).mapM (declaration · stage scope)
+  let env ← getEnv
+  let scope ← ContractScope.new env
+  let names ← liftCoreM Lean.Linter.EnvLinter.getDeclsInCurrModule
+  let editor := (RegulaPolicy.KernelAxioms.reachedAxiomTable env names).getD {}
+  names.mapM fun name => (·.1) <$> declarationReading name stage scope none editor
 
 /-- Declaration binders recorded in this command's information trees. This is a
 local feedback selection, not a complete module census: elaborators can add
@@ -3769,7 +3769,8 @@ def commandDeclarations :
           !names.contains name then names := names.push name
   if names.isEmpty then return (#[], #[])
   let scope ← ContractScope.new env
-  let readings ← names.mapM (declarationReading · .snapshot scope none)
+  let editor := (RegulaPolicy.KernelAxioms.reachedAxiomTable env names).getD {}
+  let readings ← names.mapM (declarationReading · .snapshot scope none editor)
   return (readings.map (·.1), readings.filterMap fun (record, unread) =>
     unread.map (record.name, ·))
 

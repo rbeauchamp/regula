@@ -26,8 +26,9 @@ declaration's exact axiom set; Standard-Logical is an upper bound, not a claim t
 choice. Theorems in the excluded operational `Regula` library are kernel-checked by its
 warning-free build (`warningAsError` also rejects `sorry`); `Checker.Manifest`,
 `Checker.ProducerReport` and `Checker.RuleExampleQualification` bound their theorems' axioms to
-Standard-Logical with a `collectAxioms` command, and `RegistryChecks` checks the registry and
-codec theorems' axioms. None of this certifies the whole operational checker as verified.
+Standard-Logical with a command that reads the axioms each reaches with
+`KernelAxioms.reachedAxiomTable`, and `RegistryChecks` checks the registry and codec theorems'
+axioms. None of this certifies the whole operational checker as verified.
 
 ## The acceptance boundary
 
@@ -2506,7 +2507,10 @@ inferred from any pure proof.
   A constant of the replayed kernel refers only to constants of that kernel, so the search from a
   safe declaration reads only the replayed kernel. **Trusted:** the kernel and `replay` as above,
   and the constants of the imported, unowned dependencies, which replay does not check. The editor
-  has no replayed kernel, thus it reads `collectAxioms`.
+  has no replayed kernel, thus `KernelAxioms.reachedAxiomTable` searches the constants of its own
+  environment, exact by `KernelAxioms.axiomTableThrough_some`, and for a theorem or an unexposed
+  definition that a `module` dependency exports without its body it reads the axioms that the
+  dependency's table records, a trusted input.
 
   The checks of proofs that the checker makes use `KernelAxioms.axiomsWith`: the recursion equation
   of a recursion helper and an execution correspondence. It starts at the new theorem, stops at
@@ -4353,14 +4357,15 @@ the public controls include both an authored tagged lookalike and a runtime-modi
 helper.
 
 **The manifest** (`Checker.Manifest`, excluded library; axioms bounded to Standard-Logical by
-the module's `collectAxioms` command). `parse_sound` and `parse_input`: every manifest the executed
-`parse` accepts satisfies `Manifest.Valid` (nonempty surfaces, duplicate-free library and
-executable names across surfaces and exclusions, well-formed target names, no compiler-trusting
-claim, a nonempty rationale for every entry) and comes from JSON whose keys are all allowed and
-whose schema version is 2, each array decoding element by element in order. Every rationale is
-the JSON string, the JSON string of the claim is its written form (`Profile.toString`), an absent
-`executables` is empty and a present one is its string array, and an absent `execution`
-is `report` while the JSON string of a present one is its spelling (`ExecutionClaim.spelling`) (`SurfaceDecodes`,
+the module's `KernelAxioms.reachedAxiomTable` command). `parse_sound` and `parse_input`: every
+manifest the executed `parse` accepts satisfies `Manifest.Valid` (nonempty surfaces,
+duplicate-free library and executable names across surfaces and exclusions, well-formed target
+names, no compiler-trusting claim, a nonempty rationale for every entry) and comes from JSON
+whose keys are all allowed and whose schema version is 2, each array decoding element by element
+in order. Every rationale is the JSON string, the JSON string of the claim is its written form
+(`Profile.toString`), an absent `executables` is empty and a present one is its string array, and
+an absent `execution` is `report` while the JSON string of a present one is its spelling
+(`ExecutionClaim.spelling`) (`SurfaceDecodes`,
 `ExcludedLibraryDecodes`, `ExcludedExecutableDecodes`). Every library and executable name is
 `recordedName` of the JSON string (`parse_input`, `recordTargets_ok`): Lake's own reading of a
 target name (`Lake.stringToLegalOrSimpleName`, which its TOML loader applies to a `lean_lib` and

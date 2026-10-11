@@ -1,6 +1,8 @@
 module
 
 public import Lean.Util.FoldConsts
+public import Lean.Util.CollectAxioms
+public import Lean.OriginalConstKind
 public import Std.Data.HashMap.Lemmas
 public import Std.Data.HashSet.Lemmas
 
@@ -17,8 +19,10 @@ A search of a graph of names (`search`) underlies both computations here: `axiom
 search from each axiom that a forward search from every requested name (`searchEdges`) found, for
 all the names of their closure in one environment, and `axiomsWith`, a search from one name that
 stops at the names of such a table. `axiomTable_some` and `axiomsWith_some` state that each returns
-exactly the axioms `ReachesAxiom` relates to a name. Each search is bounded by its fuel: a search that runs out
-returns `none`, and the caller refuses.
+exactly the axioms `ReachesAxiom` relates to a name. `reachedAxioms` reads the axioms of a name in
+an environment with no replayed kernel, such as the editor's, by the same search
+(`axiomsThrough_some`), taking Lean's table only for a name whose body the module system hid. Each
+search is bounded by its fuel: a search that runs out returns `none`, and the caller refuses.
 
 A step follows `ConstantInfo.getUsedConstantsAsSet`: the constants of the type and the value,
 the constructors of an inductive type, the inductive types of a recursor. Each step that Lean's
@@ -684,5 +688,150 @@ theorem axiomsWith_some {find : Name → Option ConstantInfo}
           simpa using hna
         rw [hnone]
         simp [(isAxiomIn_iff find a).mpr hax]
+
+/-! ## Axioms with hidden bodies
+
+Under the module system, a module imported without `import all` gives the importer the exported
+form of its constants: a theorem, and a definition whose body the module does not expose, are
+axioms there. The search treats such a name as an axiom, so `axiomsThrough` replaces each hidden
+name it reaches by the axioms that `hidden` records for it, the table of the module that holds the
+body, and keeps every other axiom it reaches. -/
+
+/-- The axioms `axioms`, each name that `hidden` records replaced by its record. -/
+def throughHidden (hidden : Name → Option (Array Name)) (axioms : Array Name) : Array Name :=
+  (axioms.toList.flatMap fun a => match hidden a with
+    | some recorded => recorded.toList
+    | none => [a]).toArray
+
+/-- `throughHidden` of the axioms that `P` describes holds exactly those that `hidden` does not
+record and the records of those it does. -/
+theorem mem_throughHidden {hidden : Name → Option (Array Name)} {axioms : Array Name}
+    {P : Name → Prop} (exact : ∀ a, a ∈ axioms ↔ P a) (a : Name) :
+    a ∈ throughHidden hidden axioms ↔ (P a ∧ hidden a = none) ∨
+      ∃ h recorded, P h ∧ hidden h = some recorded ∧ a ∈ recorded := by
+  unfold throughHidden
+  simp only [List.mem_toArray, List.mem_flatMap]
+  constructor
+  · rintro ⟨m, hm, ha⟩
+    have hp := (exact m).mp (Array.mem_toList_iff.mp hm)
+    cases hh : hidden m with
+    | some recorded =>
+      rw [hh] at ha
+      exact .inr ⟨m, recorded, hp, hh, Array.mem_toList_iff.mp ha⟩
+    | none =>
+      rw [hh, List.mem_singleton] at ha
+      subst ha
+      exact .inl ⟨hp, hh⟩
+  · rintro (⟨hp, hh⟩ | ⟨m, recorded, hp, hh, ha⟩)
+    · exact ⟨a, Array.mem_toList_iff.mpr ((exact a).mpr hp), by simp [hh]⟩
+    · exact ⟨m, Array.mem_toList_iff.mpr ((exact m).mpr hp), by
+        simp [hh, Array.mem_toList_iff.mpr ha]⟩
+
+/-- The axioms `n` reaches in `find` (`axiomsWith` with no table), each name that `hidden` records
+replaced by its record. `none` when the search runs out of `fuel`. -/
+def axiomsThrough (find : Name → Option ConstantInfo) (hidden : Name → Option (Array Name))
+    (fuel : Nat) (n : Name) : Option (Array Name) :=
+  (axiomsWith find {} fuel n).map (throughHidden hidden)
+
+/-- **`axiomsThrough` returns exactly the axioms that `n` reaches and `hidden` does not record,
+with the records of those it does.** -/
+theorem axiomsThrough_some {find : Name → Option ConstantInfo}
+    {hidden : Name → Option (Array Name)} {fuel : Nat} {n : Name} {axioms : Array Name}
+    (h : axiomsThrough find hidden fuel n = some axioms) :
+    ∀ a, a ∈ axioms ↔ (ReachesAxiom find n a ∧ hidden a = none) ∨
+      ∃ h recorded, ReachesAxiom find n h ∧ hidden h = some recorded ∧ a ∈ recorded := by
+  unfold axiomsThrough at h
+  cases hs : axiomsWith find {} fuel n with
+  | none => simp [hs] at h
+  | some reached =>
+    simp only [hs, Option.map_some, Option.some.injEq] at h
+    subst h
+    exact mem_throughHidden (axiomsWith_some (fun _ _ hc => by simp at hc) hs)
+
+/-- The table of `axiomTable` for the names `roots`, each entry's names that `hidden` records
+replaced by their records: one search for all of `roots` instead of one for each. `none` when a
+search runs out of `fuel`. -/
+def axiomTableThrough (find : Name → Option ConstantInfo) (hidden : Name → Option (Array Name))
+    (fuel : Nat) (roots : Array Name) : Option (Std.HashMap Name (Array Name)) :=
+  (axiomTable find fuel roots).map fun table => table.map fun _ => throughHidden hidden
+
+/-- **`axiomTableThrough` holds each name of `roots`, and gives each name it holds exactly the
+axioms that name reaches and `hidden` does not record, with the records of those it does.** -/
+theorem axiomTableThrough_some {find : Name → Option ConstantInfo}
+    {hidden : Name → Option (Array Name)} {fuel : Nat} {roots : Array Name}
+    {table : Std.HashMap Name (Array Name)}
+    (h : axiomTableThrough find hidden fuel roots = some table) :
+    (∀ n ∈ roots, ∃ axioms, table[n]? = some axioms) ∧
+      ∀ n axioms, table[n]? = some axioms → ∀ a, a ∈ axioms ↔
+        (ReachesAxiom find n a ∧ hidden a = none) ∨
+          ∃ h recorded, ReachesAxiom find n h ∧ hidden h = some recorded ∧ a ∈ recorded := by
+  unfold axiomTableThrough at h
+  cases hs : axiomTable find fuel roots with
+  | none => simp [hs] at h
+  | some reached =>
+    simp only [hs, Option.map_some, Option.some.injEq] at h
+    subst h
+    obtain ⟨holds, exact⟩ := axiomTable_some hs
+    refine ⟨fun n hn => ?_, fun n axioms hn => ?_⟩
+    · obtain ⟨axioms, ha⟩ := holds n hn
+      exact ⟨throughHidden hidden axioms, by simp [ha]⟩
+    · simp only [Std.HashMap.getElem?_map'] at hn
+      cases hr : reached[n]? with
+      | none => simp [hr] at hn
+      | some entry =>
+        simp only [hr, Option.pmap_some, Option.some.injEq] at hn
+        subst hn
+        exact mem_throughHidden (exact n entry hr)
+
+/-! ## The axioms a name reaches in an environment -/
+
+/-- A bound on the names a search in `env` expands: one for each constant of its modules and of
+the current module, and `extra` more. Every name a constant of a kernel environment uses is a
+constant of it. -/
+def fuelFor (env : Environment) (extra : Nat) : Nat :=
+  env.header.moduleData.foldl (fun total data => total + data.constants.size) 0 +
+    env.constants.map₂.foldl (fun total _ _ => total + 1) 0 + extra
+
+/-- The axioms that Lean's `collectAxioms` reports for `name` in `env`: for a name that an
+imported module exported, those the module recorded when it was compiled. -/
+def recordedAxioms (env : Environment) (name : Name) : Array Name :=
+  letI : MonadEnv (StateM Environment) := ⟨get, modify⟩
+  (collectAxioms name : StateM Environment (Array Name)).run' env
+
+/-- The record of the axioms of `name` when it was declared as another kind than an axiom, which
+is how the search meets a name that `env` holds as an axiom although it was declared otherwise:
+the module system exported it without its body, and only the table of the module that holds the
+body records what the body uses.
+
+Assumes: in a module, Lean 4.34.1 exports a theorem, and a definition or an opaque constant whose
+body is not exposed, as an axiom (`Lean/AddDecl.lean:112-125`); it records the declared kind of
+each such name (`Lean/AddDecl.lean:146-148`), which `getOriginalConstKind?` reads
+(`Lean/OriginalConstKind.lean:25-29`), and an importer that does not `import all` the module loads
+its exported constants (`Lean/Environment.lean:2029-2033`). The record is the table that module
+computed when it was compiled (`Lean/Util/CollectAxioms.lean:120-143`), a trusted input: the
+importer has no body to search. -/
+def hiddenAxioms (env : Environment) (name : Name) : Option (Array Name) :=
+  match getOriginalConstKind? env name with
+  | some .axiom | none => none
+  | some _ => some (recordedAxioms env name)
+
+/-- The axioms `name` reaches in the kernel environment of `env`, read by the checker's own search
+(`axiomsThrough`, exact by `axiomsThrough_some`) instead of Lean's `collectAxioms`, whose cache
+entry for a constant on a cycle it is still expanding is empty
+(`Lean/Util/CollectAxioms.lean:45-53`), so that an inductive type reached through its constructor,
+or a constructor reached through its type, can be recorded without the axioms of the rest of the
+cycle, and the table a module writes shares that cache across its declarations
+(`Lean/Util/CollectAxioms.lean:136-139`). A name whose body `env` hides reads its module's record
+(`hiddenAxioms`). `none` when the search runs out of fuel. -/
+def reachedAxioms (env : Environment) (name : Name) : Option (Array Name) :=
+  axiomsThrough env.toKernelEnv.find? (hiddenAxioms env) (fuelFor env 1) name
+
+/-- The axioms that each name reachable from `names` reaches in the kernel environment of `env`,
+under that name, read as `reachedAxioms` reads them for one name (`axiomTableThrough`, exact by
+`axiomTableThrough_some`), with one search for all of `names`. `none` when a search runs out of
+fuel. -/
+def reachedAxiomTable (env : Environment) (names : Array Name) :
+    Option (Std.HashMap Name (Array Name)) :=
+  axiomTableThrough env.toKernelEnv.find? (hiddenAxioms env) (fuelFor env 1) names
 
 end RegulaPolicy.KernelAxioms

@@ -45,7 +45,7 @@ module index is requested, the report records:
 - instance / `noncomputable` / `@[implemented_by]` / `@[extern]` flags;
 - the exact transitive axiom set: the axioms the declaration reaches in the kernel that replayed
   it (`Admission.validate`, `KernelAxioms.axiomTable`), or, for a caller with no replayed kernel,
-  those `Lean.collectAxioms` reports, as `#print axioms` does; and
+  those it reaches in the environment that holds it (`KernelAxioms.reachedAxioms`); and
 - Lean-native reporting metadata (internal/private spelling, projection,
   matcher, recursor kind, unsafe-recursion relationship, and source range).
 
@@ -243,7 +243,7 @@ private def kernelAnswer (cached : Std.HashMap Name (Array Name)) (levels : List
   | .error e => return if kernelExhausted e then .exhausted else .refused
   | .ok checked =>
     let some axioms := RegulaPolicy.KernelAxioms.axiomsWith checked.toKernelEnv.find? cached
-        (Regula.Collect.fuelFor checked 1) name | return .exhausted
+        (RegulaPolicy.KernelAxioms.fuelFor checked 1) name | return .exhausted
     withOptions (fun opts => opts.setBool `pp.all true |>.setBool `pp.deepTerms true
         |>.set `pp.maxSteps (1000000 : Nat)) do
       return .admitted axioms
@@ -909,7 +909,8 @@ private def executableRoots (env : Environment) (modules : List Name)
 runner calls this function directly, without parsing a command in the audited
 module's frontend extension environment. Each declaration record has the axioms `replayed` holds
 for it, those it reaches in the kernel that replayed it (`Admission.validate`), with the axioms
-Lean's `collectAxioms` omits of them, or, with no `replayed`, those `collectAxioms` reports. The
+Lean's `collectAxioms` omits of them, or, with no `replayed`, those it reaches in the environment
+(`KernelAxioms.reachedAxioms`). The
 kernel walks of the correspondence proofs the execution account builds stop at the names
 `replayed` holds (`kernelAnswer`). `replayedModules` names the modules whose declarations the
 kernel checked in this audit, those the environment's admission replayed or reused: the execution

@@ -189,8 +189,10 @@ def guide : RuleId → Guide
         "In the editor the rule is reported for completed declarations of the current snapshot. A \
           cancelled collection reports nothing for that declaration; a failed one is reported as \
           RG2005 (incomplete), never as an invented RG1002. The editor has no replayed kernel: it \
-          reads the axioms Lean's `collectAxioms` reports, which for an imported declaration come \
-          from its module's table and can be fewer than the project audit computes.",
+          searches the constants its environment holds \
+          (`RegulaPolicy.KernelAxioms.reachedAxioms`), and for a theorem or an unexposed \
+          definition that a `module` dependency exports without its body it reads the axioms \
+          that module's table records, which can be fewer than the project audit computes.",
         "The checked example comes from a diagnostic single-file inspection that keeps Lean's \
           `sorry` warning as related evidence and continues to policy inspection; the ordinary \
           project commands stop earlier with RG2003, as described above."]

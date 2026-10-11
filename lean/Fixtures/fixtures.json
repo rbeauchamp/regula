@@ -1012,6 +1012,17 @@
    "fixtures_pair_reference [exported-implementation] correspondence=checked"
   ]
  },
+ "Fixtures.Positive.CycleAxiomTable": {
+  "expect": "pass",
+  "claim": "standard-logical",
+  "output": [
+   "collectAxioms [Classical.choice], replayed kernel [Classical.choice, propext]; omitted: [propext]"
+  ]
+ },
+ "Fixtures.Positive.CycleAxiomReading": {
+  "expect": "pass",
+  "claim": "standard-logical"
+ },
  "Fixtures.Mutations.InitializedValueBoundary": {
   "expect": "fail",
   "claim": "standard-logical",
