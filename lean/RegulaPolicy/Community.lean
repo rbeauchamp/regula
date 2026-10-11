@@ -14,8 +14,9 @@ linter may instead stay on when the target configures its license line
 (`linter.style.header.license`). Every other option the target sets for all its modules, in
 Lake's `leanOptions` or with a `-D` among its extra `lean` arguments, must be in RG2006's closed
 accepted set (`Accepted`) at an accepted value; any other option, at any value, fails, whether
-Lean declares it or not. So no target-wide option can stop a warning that Lean reports by default
-unless one of the arguments for the accepted set below is wrong.
+Lean declares it or not. So no target-wide option can stop a warning that Lean reports by default,
+except a raised `exponentiation.threshold`, unless one of the arguments for the accepted set below
+is wrong.
 
 ## Main declarations
 
@@ -25,8 +26,8 @@ unless one of the arguments for the accepted set below is wrong.
 - `required`: the options every claimed target sets, and the additional Mathlib options.
 - `Accepted`, `accepts`, `accepts_iff`: the closed accepted set for every other option, and its
   executed decision.
-- `warningSettings`: each `linter.` and `warn.` option that Lean or the pinned Mathlib registers,
-  with its accepted value and the file and line of its registration.
+- `warningSettings`, `printSettings`: each `linter.`, `warn.` and `pp.` option that Lean or the
+  pinned Mathlib registers, with its accepted value and the file and line of its registration.
 - `acceptedRelease_eq`: the arguments for the accepted set were read for the supported Lean
   release, so moving to another release fails the build until they are read again.
 - `licensed`, `admits`, `meets`: the target configures the header linter's license line; the values
@@ -61,6 +62,8 @@ unless one of the arguments for the accepted set below is wrong.
   `warn.sorry` or `doc.verso.suggestions` to `false` fail.
 - `unlisted_linter_option_fails`, `analyzeTactics_option_fails`: `leanOptions` that set an
   unlisted `linter.` option, or `linter.unusedVariables.analyzeTactics`, to `true` fail.
+- `ppUnicode_option_fails`, `ppOneline_option_fails`: `leanOptions` that set `pp.unicode` to
+  `false` or `pp.oneline` to `true` fail.
 - `accepted_families_pass`: one option of each accepted family adds no failure.
 - `autoImplicit_argument_fails`, `linter_argument_fails`, `warn_argument_fails`,
   `undeclared_weak_argument_fails`, `maxHeartbeats_argument_passes`,
@@ -92,14 +95,18 @@ accepts and silences no other warning; each `linter.` and `warn.` option registe
 (`mathlibWarningSettings`), at the one value that silences nothing its registered default reports;
 `warningAsError` and `debugAssertions` at `true` (`checkSwitches`), which add checks; the resource
 limits `maxHeartbeats`, `synthInstance.maxHeartbeats`, `maxRecDepth`, `maxSynthPendingDepth` and
-`exponentiation.threshold` at any natural number (`resourceLimits`), since raising one lets Lean do
-work it would otherwise stop or, for `exponentiation.threshold`, skip with a warning, and lowering
-one only stops that work sooner; and the printing options (first component `pp`) at any value,
-which change how a message reads, not whether Lean reports it. A `linter.` or `warn.` option not
-listed, or at another value, is refused. Each listed value was read from its registration's
-description or docstring at those revisions and is not proved; that `pp.` options change only
-printing is assumed for Lean `acceptedRelease`, not proved. `acceptedRelease_eq` fails the build
-when the supported Lean release moves; nothing checked ties `acceptedMathlib` to the Mathlib pin.
+`exponentiation.threshold` at any natural number (`resourceLimits`); and each `pp.` option
+registered by Lean, Mathlib or Qq at its registered default (`printSettings`). Raising a positive
+resource limit lets Lean do work it would otherwise stop, and lowering one only stops that work
+sooner; `0` means no limit for `maxHeartbeats`, `synthInstance.maxHeartbeats` and `maxRecDepth`
+(`Lean/CoreM.lean:487`, `Lean/Exception.lean:248`), so Lean does all the work and hides no
+warning. The exception is `exponentiation.threshold`: raising it stops the warning that a power
+was not evaluated (`Lean/Util/SafeExponentiation.lean:29`), because Lean evaluates the power
+instead. A pretty-printer option changes the text some linters compare, so only its default is
+accepted. A `linter.`, `warn.` or `pp.` option not listed, or at another value, is refused. Each
+listed value was read from its registration's description or docstring at those revisions and is
+not proved. `acceptedRelease_eq` fails the build when the supported Lean release moves; nothing
+checked ties `acceptedMathlib` to the Mathlib pin.
 
 ## Boundaries
 
@@ -736,6 +743,108 @@ def mathlibWarningSettings : List (Name × OptionValue) := [
 /-- The listed `linter.` and `warn.` options with their accepted values. -/
 def warningSettings : List (Name × OptionValue) := leanWarningSettings ++ mathlibWarningSettings
 
+/-- Each `pp.` option that Lean `acceptedRelease` registers, or Mathlib `acceptedMathlib` or the Qq
+revision it pins registers, cited by file and line, at its registered default. A pretty-printer
+option changes the text that some linters compare: with `pp.unicode` at `false` Mathlib's
+whitespace linter stops at the first mismatch, `→` printed as `->`, before the missing space it
+would report (`Mathlib/Tactic/Linter/Whitespace.lean:203`), and `pp.oneline` at `true` truncates
+the text it compares. So each is accepted only at its default; a different printing belongs in an
+editor or user setting, not in a target's options. -/
+def printSettings : List (Name × OptionValue) := [
+  -- Lean/Elab/Util.lean:65
+  (`pp.macroStack, .bool false),
+  -- Lean/Hygiene.lean:70
+  (`pp.sanitizeNames, .bool true),
+  -- Lean/Meta/PPGoal.lean:15, 20, 25, 30, 35, 40
+  (`pp.auxDecls, .bool false),
+  (`pp.implementationDetailHyps, .bool false),
+  (`pp.inaccessibleNames, .bool true),
+  (`pp.showLetValues, .bool false),
+  (`pp.showLetValues.threshold, .nat 0),
+  (`pp.showLetValues.tactic.threshold, .nat 255),
+  -- Lean/PrettyPrinter.lean:32
+  (`pp.exprSizes, .bool false),
+  -- Lean/PrettyPrinter/Delaborator/Options.lean:15, 19, 24, 28, 32, 36, 40, 44, 48, 52, 56, 60,
+  --   64, 68, 72, 76, 81, 85, 89, 93, 97, 101, 105, 109, 114, 119, 125, 129, 133, 138, 142, 147,
+  --   151, 155, 159, 163, 167, 171, 175, 179, 183, 187, 191, 195, 199, 203, 207, 211, 215
+  (`pp.maxSteps, .nat 5000),
+  (`pp.all, .bool false),
+  (`pp.notation, .bool true),
+  (`pp.parens, .bool false),
+  (`pp.unicode, .bool true),
+  (`pp.unicode.fun, .bool false),
+  (`pp.match, .bool true),
+  (`pp.sorrySource, .bool false),
+  (`pp.coercions, .bool true),
+  (`pp.coercions.types, .bool false),
+  (`pp.universes, .bool false),
+  (`pp.fullNames, .bool false),
+  (`pp.privateNames, .bool false),
+  (`pp.funBinderTypes, .bool false),
+  (`pp.piBinderTypes, .bool true),
+  (`pp.piBinderNames, .bool false),
+  (`pp.piBinderNames.hygienic, .bool false),
+  (`pp.foralls, .bool true),
+  (`pp.letVarTypes, .bool false),
+  (`pp.natLit, .bool false),
+  (`pp.numericTypes, .bool false),
+  (`pp.mdata, .bool false),
+  (`pp.instantiateMVars, .bool true),
+  (`pp.mvars, .bool true),
+  (`pp.mvars.levels, .bool true),
+  (`pp.mvars.anonymous, .bool true),
+  (`pp.mvars.withType, .bool false),
+  (`pp.mvars.delayed, .bool false),
+  (`pp.fvars.anonymous, .bool true),
+  (`pp.beta, .bool false),
+  (`pp.structureInstances, .bool true),
+  (`pp.structureInstances.flatten, .bool true),
+  (`pp.structureInstances.defaults, .bool false),
+  (`pp.fieldNotation, .bool true),
+  (`pp.fieldNotation.generalized, .bool true),
+  (`pp.explicit, .bool false),
+  (`pp.structureInstanceTypes, .bool false),
+  (`pp.safeShadowing, .bool true),
+  (`pp.tagAppFns, .bool false),
+  (`pp.proofs, .bool false),
+  (`pp.proofs.withType, .bool false),
+  (`pp.proofs.threshold, .nat 0),
+  (`pp.instances, .bool true),
+  (`pp.instanceTypes, .bool false),
+  (`pp.deepTerms, .bool false),
+  (`pp.deepTerms.threshold, .nat 50),
+  (`pp.motives.pi, .bool true),
+  (`pp.motives.nonConst, .bool false),
+  (`pp.motives.all, .bool false),
+  -- Lean/PrettyPrinter/Delaborator/TopDownAnalyze.lean:32, 37, 46, 51, 56, 61, 67, 72, 77, 82, 87,
+  --   92
+  (`pp.analyze, .bool false),
+  (`pp.analyze.checkInstances, .bool false),
+  (`pp.analyze.typeAscriptions, .bool true),
+  (`pp.analyze.trustSubst, .bool false),
+  (`pp.analyze.trustOfNat, .bool true),
+  (`pp.analyze.trustOfScientific, .bool true),
+  (`pp.analyze.trustSubtypeMk, .bool true),
+  (`pp.analyze.trustId, .bool true),
+  (`pp.analyze.trustKnownFOType2TypeHOFuns, .bool true),
+  (`pp.analyze.omitMax, .bool true),
+  (`pp.analyze.knowsType, .bool true),
+  (`pp.analyze.explicitHoles, .bool false),
+  -- Lean/PrettyPrinter/Formatter.lean:597
+  (`pp.oneline, .bool false),
+  -- Lean/Util/PPExt.lean:15, 19, 23, 27
+  (`pp.raw, .bool false),
+  (`pp.raw.showInfo, .bool false),
+  (`pp.raw.maxDepth, .nat 32),
+  (`pp.rawOnError, .bool false),
+  -- Mathlib/Data/Prod/Basic.lean:312
+  (`pp.numericProj.prod, .bool true),
+  -- Mathlib/Util/PPOptions.lean:24
+  (`pp.mathlib.binderPredicates, .bool true),
+  -- Qq/Delab.lean:17
+  (`pp.qq, .bool true)
+]
+
 /-- The §6.7 exclusions at the values the standard prescribes for them: Mathlib's header linter
 off, `linter.hashCommand` off and no `linter.style.longFile` limit. -/
 def exclusionSettings : List (Name × OptionValue) :=
@@ -750,8 +859,11 @@ def checkSwitches : List Name := [`warningAsError, `debugAssertions]
 
 /-- Resource limits: raising one lets Lean do work that it would otherwise stop with an error
 (`maxHeartbeats`, `synthInstance.maxHeartbeats`, `maxRecDepth`, `maxSynthPendingDepth`) or skip
-with a warning (`exponentiation.threshold`, whose warning reports a power it did not evaluate);
-lowering one only stops that work sooner. -/
+with a warning (`exponentiation.threshold`, whose warning reports a power it did not evaluate, so
+raising it stops that warning while Lean evaluates the power). Lowering a positive limit only stops
+that work sooner; `0` means no limit for `maxHeartbeats` and `synthInstance.maxHeartbeats`
+(`Lean/CoreM.lean:487`) and for `maxRecDepth` (`Lean/Exception.lean:248`), so Lean does all the
+work and hides no warning. -/
 def resourceLimits : List Name :=
   [`maxHeartbeats, `synthInstance.maxHeartbeats, `maxRecDepth, `maxSynthPendingDepth,
     `exponentiation.threshold]
@@ -786,18 +898,20 @@ theorem OptionValue.isLicense_iff (v : OptionValue) :
 /-- The option `name` at `value`, other than a required option, is in RG2006's accepted set: a §6.7
 exclusion at its prescribed value; the header linter's license line at a nonempty string; a listed
 `linter.` or `warn.` option at its listed value (`warningSettings`); one of `checkSwitches` at
-`true`; one of `resourceLimits` at a natural number; or a printing option (first component `pp`)
-at any value. Each cannot stop a warning that Lean reports by default: an exclusion is the
-standard's own; the license string selects which header the header linter accepts and silences no
-other warning; a listed value was read from the option's registration as silencing nothing its
-default reports; a check switch adds checks; a resource limit lets Lean do more work; a printing
-option changes how a message reads, not whether it is reported. Every other `linter.` or `warn.`
-option, and a listed one at another value, is refused. That the listed values silence nothing was
-read from the registrations' descriptions at Lean `acceptedRelease` and Mathlib `acceptedMathlib`,
-and that `pp.` options only change printing is assumed for Lean `acceptedRelease`; neither is
-proved. The name alone decides: whether Lean applies a `weak.` entry depends on
-which imported modules declare the option, so a `weak.` entry is refused for its name even when no
-module declares it and Lean ignores it. This is the relation, as a proposition, that `accepts`
+`true`; one of `resourceLimits` at a natural number; or a listed `pp.` option at its registered
+default (`printSettings`). Except for `exponentiation.threshold`, none can stop a warning that
+Lean reports by default: an exclusion is the standard's own; the license string selects which
+header the header linter accepts and silences no other warning; a listed value was read from the
+option's registration as silencing nothing its default reports; a check switch adds checks; a
+resource limit lets Lean do more work, and `0` removes the limit where it means none; a
+pretty-printer option keeps the text linters compare at its default. Raising
+`exponentiation.threshold` stops the warning that a power was not evaluated, because Lean
+evaluates it. Every other `linter.`, `warn.` or `pp.` option, and a listed one at another value,
+is refused. That the listed values silence nothing was read from the registrations' descriptions
+at Lean `acceptedRelease` and Mathlib `acceptedMathlib`, and is not proved. The name alone
+decides: whether Lean applies a `weak.` entry depends on which imported modules declare the
+option, so a `weak.` entry is refused for its name even when no module declares it and Lean
+ignores it. This is the relation, as a proposition, that `accepts`
 decides (`accepts_iff`). -/
 def Accepted (name : Name) (value : OptionValue) : Prop :=
   (∃ e ∈ exclusionSettings, e.1 = name ∧ value.ReadsAs e.2) ∨
@@ -805,7 +919,7 @@ def Accepted (name : Name) (value : OptionValue) : Prop :=
   (∃ e ∈ warningSettings, e.1 = name ∧ value.ReadsAs e.2) ∨
   (name ∈ checkSwitches ∧ value.ReadsAs (.bool true)) ∨
   (name ∈ resourceLimits ∧ ∃ n, value.ReadsAs (.nat n)) ∨
-  name.getRoot = `pp
+  ∃ e ∈ printSettings, e.1 = name ∧ value.ReadsAs e.2
 
 /-- The executed decision of `Accepted`. -/
 def accepts (name : Name) (value : OptionValue) : Bool :=
@@ -814,7 +928,7 @@ def accepts (name : Name) (value : OptionValue) : Bool :=
   warningSettings.any (fun e => e.1 == name && value.readsAs e.2) ||
   (checkSwitches.contains name && value.readsAs (.bool true)) ||
   (resourceLimits.contains name && value.readsNat) ||
-  name.getRoot == `pp
+  printSettings.any (fun e => e.1 == name && value.readsAs e.2)
 
 /-- `accepts` decides exactly `Accepted`. -/
 theorem accepts_iff (name : Name) (value : OptionValue) :
@@ -825,7 +939,10 @@ theorem accepts_iff (name : Name) (value : OptionValue) :
   have hw : warningSettings.any (fun e => e.1 == name && value.readsAs e.2) = true ↔
       ∃ e ∈ warningSettings, e.1 = name ∧ value.ReadsAs e.2 := by
     simp [OptionValue.readsAs_iff]
-  simp only [accepts, Accepted, Bool.or_eq_true, Bool.and_eq_true, he, hw, beq_iff_eq,
+  have hp : printSettings.any (fun e => e.1 == name && value.readsAs e.2) = true ↔
+      ∃ e ∈ printSettings, e.1 = name ∧ value.ReadsAs e.2 := by
+    simp [OptionValue.readsAs_iff]
+  simp only [accepts, Accepted, Bool.or_eq_true, Bool.and_eq_true, he, hw, hp, beq_iff_eq,
     OptionValue.isLicense_iff, OptionValue.readsAs_iff, OptionValue.readsNat_iff,
     List.contains_iff_mem, or_assoc]
 
@@ -1152,19 +1269,33 @@ theorem analyzeTactics_option_fails (o : BuildOptions) (mathlib : Bool)
     Failure.unaccepted `linter.unusedVariables.analyzeTactics (.bool true) ∈ failures o mathlib :=
   unaccepted_option_fails o mathlib _ _ h rfl (by cases mathlib <;> decide)
 
+/-- `leanOptions` that set `pp.unicode` to `false` fail: Mathlib's whitespace linter compares the
+printed text, so ASCII printing can stop it before a missing space it would report. -/
+theorem ppUnicode_option_fails (o : BuildOptions) (mathlib : Bool)
+    (h : (`pp.unicode, OptionValue.bool false) ∈ o.options) :
+    Failure.unaccepted `pp.unicode (.bool false) ∈ failures o mathlib :=
+  unaccepted_option_fails o mathlib _ _ h rfl (by cases mathlib <;> decide)
+
+/-- `leanOptions` that set `pp.oneline` to `true` fail: it truncates the printed text a linter
+compares. -/
+theorem ppOneline_option_fails (o : BuildOptions) (mathlib : Bool)
+    (h : (`pp.oneline, OptionValue.bool true) ∈ o.options) :
+    Failure.unaccepted `pp.oneline (.bool true) ∈ failures o mathlib :=
+  unaccepted_option_fails o mathlib _ _ h rfl (by cases mathlib <;> decide)
+
 /-- A core-only target with the required options and one option of each accepted family in
 `leanOptions` (a §6.7 exclusion at its value, the license line, listed `linter.` and `warn.`
 options at their listed values, among them `linter.extra.dupNamespace.consecutiveOnly` at its
-default `true` and `linter.haveLet` at `2`, both check switches, two resource limits and a printing
-option) has no failure. -/
+default `true` and `linter.haveLet` at `2`, both check switches, two resource limits, one at `0`,
+which means no limit, and a printing option at its default) has no failure. -/
 theorem accepted_families_pass :
     failures ⟨[(`autoImplicit, .bool false), (`relaxedAutoImplicit, .bool false),
       (`linter.missingDocs, .bool true), (`weak.linter.hashCommand, .bool false),
       (`linter.style.header.license, .string "MIT"), (`linter.unusedVariables, .bool true),
       (`linter.extra.dupNamespace.consecutiveOnly, .bool true), (`linter.haveLet, .nat 2),
       (`warn.sorry, .bool true), (`warningAsError, .bool true), (`debugAssertions, .bool true),
-      (`maxHeartbeats, .nat 400000), (`exponentiation.threshold, .nat 512),
-      (`pp.all, .bool true)], []⟩ false = [] := by
+      (`maxHeartbeats, .nat 0), (`exponentiation.threshold, .nat 512),
+      (`pp.unicode, .bool true)], []⟩ false = [] := by
   decide
 
 /-! The cases below fix the extra `lean` arguments and hold for every `leanOptions`. Lean's

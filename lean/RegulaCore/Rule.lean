@@ -879,8 +879,8 @@ def descriptor : (id : RuleId) → RuleDescriptor id
         elaborated statement can quantify over more than the text a reviewer compares with the \
         intent. A linter or warning reports only where it is on, and a target-wide option can \
         turn one off, so the warning-free build (RG2003) never sees it. The rule accepts only \
-        options that cannot stop a default warning, in `leanOptions` or a `-D` extra `lean` \
-        argument."
+        options that cannot stop a default warning, besides a raised `exponentiation.threshold`, \
+        in `leanOptions` or a `-D` extra `lean` argument."
       remedy := "Set the target's Lake `leanOptions`: `autoImplicit` and `relaxedAutoImplicit` \
         false, `linter.missingDocs` true and, with Mathlib, the standard set and its three §6.7 \
         exclusions; delete each other option, or `-D` extra `lean` argument, outside the \
@@ -896,12 +896,13 @@ def descriptor : (id : RuleId) → RuleDescriptor id
         "Replace a target-wide ``⟨`linter.X, false⟩`` with `set_option linter.X false in` \
           on the one declaration the community's guidance allows, with a comment (§6.2); delete \
           each other target-wide option outside the accepted set, such as \
-          ``⟨`warn.sorry, false⟩`` or ``⟨`doc.verso.suggestions, false⟩``.",
+          ``⟨`warn.sorry, false⟩`` or ``⟨`doc.verso.suggestions, false⟩``. A `pp.*` option \
+          changes the text some linters compare: put a non-default one in an editor or user \
+          setting.",
         "Keep only accepted options: a listed linter or `warn.*` option at its listed value \
-          (`true` for most), `warningAsError` or `debugAssertions` at true, a `pp.*` option, or \
-          a number for `maxHeartbeats`, `synthInstance.maxHeartbeats`, `maxRecDepth`, \
-          `maxSynthPendingDepth` or \
-          `exponentiation.threshold`, which lets Lean do work it would skip. Delete other \
+          (`true` for most), `warningAsError` or `debugAssertions` at true, a `pp.*` option at its \
+          default, or a number for `maxHeartbeats`, `synthInstance.maxHeartbeats`, \
+          `maxRecDepth`, `maxSynthPendingDepth` or `exponentiation.threshold`, which lets Lean do work it would skip. Delete other \
           `-D name=value` arguments and `weak.` entries, even undeclared ones; non-option \
           arguments may stay."]
       examples := {

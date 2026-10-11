@@ -914,13 +914,16 @@ audit refuses a `decides` entry that names its own surface or no claimed surface
   when a tactic state mentions it. `RegulaPolicy.Community.warningSettings` lists each option
   with its value. The rule rejects any other `linter.` or `warn.` option, or a listed one at a
   different value.
-- [RG2006] also accepts `warningAsError` and `debugAssertions` at `true`, and each `pp.` option.
-  It accepts each resource limit at any
-  number: `maxHeartbeats`, `synthInstance.maxHeartbeats`, `maxRecDepth`, `maxSynthPendingDepth`
-  and `exponentiation.threshold`. When you raise a resource limit, Lean does the work that it
+- [RG2006] also accepts `warningAsError` and `debugAssertions` at `true`. It accepts each `pp.`
+  option only at its default, because a printing option changes the text that some linters
+  compare. Put a different printing in your editor or user settings.
+- [RG2006] accepts each resource limit at any number: `maxHeartbeats`,
+  `synthInstance.maxHeartbeats`, `maxRecDepth`, `maxSynthPendingDepth` and
+  `exponentiation.threshold`. When you raise a resource limit, Lean does the work that it
   otherwise stops or skips. For example, Lean then evaluates a power above
-  `exponentiation.threshold` and gives no warning about it. If your project must have fixed
-  resource limits, add your own check of these options.
+  `exponentiation.threshold` and gives no warning about it. The value `0` means no limit for
+  `maxHeartbeats`, `synthInstance.maxHeartbeats` and `maxRecDepth`. If your project must have
+  fixed resource limits, add your own check of these options.
 - [RG2006] reads an option by its name alone. It rejects a `weak.` entry for an option that no
   module declares, although Lean ignores that entry. Delete such an entry.
 - The only supported editor is VS Code with the Lean 4 extension, and there is no latency claim.

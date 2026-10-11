@@ -1474,9 +1474,14 @@ def guide : RuleId → Guide
           `warningAsError` and \
           `debugAssertions` at `true`, which add checks; the resource limits `maxHeartbeats`, \
           `synthInstance.maxHeartbeats`, `maxRecDepth`, `maxSynthPendingDepth` and \
-          `exponentiation.threshold` at any number, since raising one lets Lean do work it would \
-          otherwise stop or skip; and any `pp.…` printing option. Any other `linter.…` or \
-          `warn.…` option, or a listed one at another value, is rejected: \
+          `exponentiation.threshold` at any number, since raising a positive one lets Lean do \
+          work it would otherwise stop or skip and `0` means no limit for the first three; and \
+          each `pp.…` option that Lean, Mathlib or Qq register, at its default \
+          (`RegulaPolicy.Community.printSettings`). A pretty-printer option changes the text \
+          some linters compare, such as Mathlib's whitespace linter with `pp.unicode` off, so a \
+          non-default one belongs in an editor or user setting, not in a target's options. Any \
+          other `linter.…`, `warn.…` or `pp.…` option, or a listed one at another value, is \
+          rejected: \
           `linter.unusedVariables.analyzeTactics` passes only at `false`, since at `true` it \
           counts a parameter as used when a tactic state mentions it.",
         "A target of a surface whose loaded environments contain a Mathlib module must also set \
@@ -1503,7 +1508,9 @@ def guide : RuleId → Guide
           baseline, and a linter enforces its convention only where it is on: RG2003 rejects \
           warnings, not a missing linter. A list of the options that can stop a warning would \
           have to name every switch Lean and its dependencies declare, so the rule closes the \
-          list the other way: only options that cannot stop a default warning pass."]
+          list the other way: only options that cannot stop a default warning pass, except that \
+          raising `exponentiation.threshold` stops the warning that a power was not evaluated, \
+          because Lean evaluates it."]
       proofShape := []
       established := [
         "Every claimed library and executable is built through Lake with automatic implicits \
@@ -1518,8 +1525,9 @@ def guide : RuleId → Guide
           `synthInstance.maxHeartbeats`, `maxRecDepth`, `maxSynthPendingDepth` and \
           `exponentiation.threshold` pass at any number, and raising one lets Lean do the work it \
           would otherwise skip, such as evaluating a power above `exponentiation.threshold` \
-          instead of warning that it did not. A project that wants a limit fixed checks it \
-          itself.",
+          instead of warning that it did not. `0` means no limit for `maxHeartbeats`, \
+          `synthInstance.maxHeartbeats` and `maxRecDepth`, so Lean does all the work. A project \
+          that wants a limit fixed checks it itself.",
         "That the community linters' own checks pass, such as a docstring on every public \
           declaration; their warnings are RG2003's.",
         "That extra `lean` arguments other than `-D`, such as `--plugin` or `--setup`, leave the \
@@ -1542,10 +1550,11 @@ def guide : RuleId → Guide
         "The accepted value of each `linter.…` and `warn.…` option was read from its \
           registration's description at Lean v4.34.1 and the pinned Mathlib and Batteries; that \
           it silences nothing its default reports is not proved \
-          (`RegulaPolicy.Community.warningSettings`). That each `pp.…` option changes only how a \
-          message is printed, not whether Lean reports it, is assumed for Lean v4.34.1, not \
-          proved. A move to another Lean release fails the build until these arguments are read \
-          again (`acceptedRelease_eq`); nothing checked ties the list to the Mathlib pin.",
+          (`RegulaPolicy.Community.warningSettings`); each `pp.…` option's default was read \
+          from its registration at Lean v4.34.1, the pinned Mathlib and Qq \
+          (`RegulaPolicy.Community.printSettings`). A move to another Lean release fails the \
+          build until these arguments are read again (`acceptedRelease_eq`); nothing checked ties \
+          the list to the Mathlib pin.",
         "The `-D` reading is assumed to cover the command-line parser of the Lean executable, \
           as read from Lean's `Lean.Shell` source and its getopt handling; that correspondence \
           is neither proved nor observed.",
@@ -1562,7 +1571,8 @@ def guide : RuleId → Guide
         `unlicensed_header_fails`, `leanArgument_mem_failures_iff`, \
         `unaccepted_mem_failures_iff`, `warn_sorry_option_fails`, \
         `docVersoSuggestions_option_fails`, `unlisted_linter_option_fails`, \
-        `analyzeTactics_option_fails`, `accepted_families_pass`, \
+        `analyzeTactics_option_fails`, `ppUnicode_option_fails`, `ppOneline_option_fails`, \
+        `accepted_families_pass`, \
         `undeclared_weak_argument_fails`, `acceptedRelease_eq`, `optionOf_eq_replacePrefix` and \
         `missingDocs_unset_fails`. Reading Lake's target configuration is operational."
       sources := ["lean/RegulaPolicy/Community.lean", "lean/Regula/Checker/Lake.lean",
