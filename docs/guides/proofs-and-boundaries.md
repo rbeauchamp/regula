@@ -425,7 +425,8 @@ Before this decision, the site executable removed its output directory, `tmp/sit
 `tmp/site-releases` and `website/Generated` with no such read. With a link at one of these
 paths, it deleted the content of the target of the link
 ([issue 261](https://github.com/rbeauchamp/regula/issues/261)). At this time, it stops there
-and removes nothing.
+and removes nothing. A relative `--out` is joined to the real path of the working directory, and
+no component that it gives is resolved. Thus a removal at `--out` through a link at one of its components also stops it.
 
 The driver cannot import `RegulaCore.Removal`, because `scripts/verify.sh` operates the driver
 before the build. The site executable cannot import the driver, because each of the two programs
@@ -433,11 +434,25 @@ declares `main`. Thus the decision has two implementations. The theorem
 `RegulaVerification.removal_shared` shows that the two implementations give the same result for a
 directory.
 
-The build of `Regula.Site.Main` reads the compiled code of `main` and of each declaration of the
-package that `main` calls. The build fails if a declaration other than
-`Regula.Removal.removeDecided` calls a removal function of the Lean library. The build also fails
-if such a declaration has no compiled code that the check can read. A removal by a different
-program, for example `rm`, is not a call that this check finds.
+The build of `Regula.Site.Main` reads the compiled code of `main` and of each initializer of the
+modules that the executable links. It also reads the compiled code of each declaration that this
+code calls, in this package and in the libraries. Only `Regula.Removal.removeDecided` and the
+variants of it that the compiler made can call a removal function of the Lean library. The calls
+that `Regula.Removal.libraryRemovals` gives are the only other calls that the check permits. The
+build fails for each different call.
+
+Each call on that list is a call of `IO.FS.removeFile` in Lake or in the tactic `bv_decide`.
+That function removes the one entry that the path names. It does not remove the target of a link
+and it does not read the entries of a directory. A removal of a directory in a library is not on
+the list.
+
+The loader of the dependencies of Lake can remove a directory. Thus the site executable loads
+only the root package of the workspace (`withRootPackage`). It refuses a root package that
+declares a dependency.
+
+The build also fails if such a declaration has no compiled code that the check can read. A
+removal by a different program, for example `rm`, is not a call that this check finds. The module
+`Regula.RemovalControls` has controls of the check. The first acceptance step builds that module.
 
 The deployment program `lean/Regula/Site/Deployment.lean` imports only the Lean core, thus it
 cannot use the decision. It reads each page from the output of `curl` and writes no file. Thus it

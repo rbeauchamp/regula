@@ -266,9 +266,9 @@ def checkDefaultLayout (inventory : SurfaceInventory) : IO Unit := do
 /-- Obtain every root-package Lean library and executable, exact module, and
 exact source from Lake's own elaborated package model. This loads the checked
 project's workspace in-process, so `lakefile.lean` and `lakefile.toml`
-projects share one discovery path and need no custom Lake facets. -/
-def surfaceInventory (repo : FilePath) : IO SurfaceInventory :=
-  Workspace.withRootWorkspace repo fun ws => do
+projects share one discovery path and need no custom Lake facets. This is the inventory of the
+loaded workspace `ws` of the project at `repo`. -/
+def surfaceInventoryOf (repo : FilePath) (ws : _root_.Lake.Workspace) : IO SurfaceInventory := do
     let pkg := ws.root
     -- No path is built from a module name before each name that a package's configuration gives is
     -- a safe module name (`checkModuleNames`); a resolved module is placed by `modulePath?`.
@@ -370,6 +370,17 @@ def surfaceInventory (repo : FilePath) : IO SurfaceInventory :=
     -- Every audit, incremental or fresh, requires Lake's default layout of each owned package.
     checkDefaultLayout inventory
     return inventory
+
+/-- The inventory (`surfaceInventoryOf`) of the workspace that Lake loads, with its dependencies, for
+the project at `repo`. -/
+def surfaceInventory (repo : FilePath) : IO SurfaceInventory :=
+  Workspace.withRootWorkspace repo (surfaceInventoryOf repo)
+
+/-- The inventory (`surfaceInventoryOf`) of the root package of the project at `repo`, which must
+declare no dependency (`Workspace.withRootPackage`). It is the inventory that `surfaceInventory`
+gives for such a project, and no loader that removes a directory is in its compiled code. -/
+def rootSurfaceInventory (repo : FilePath) : IO SurfaceInventory :=
+  Workspace.withRootPackage repo (surfaceInventoryOf repo)
 
 /-- What Lake's load of a workspace selects for one dependency package: its name, directory and
 ownership, the configuration and manifest files it reads, the text of that configuration, the

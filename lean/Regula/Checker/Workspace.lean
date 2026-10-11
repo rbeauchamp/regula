@@ -29,6 +29,25 @@ private def detectEnvironment : IO _root_.Lake.Env := do
   | .ok env => return env
   | .error error => throw <| IO.userError s!"lake-workspace-load-failed: {error}"
 
+/-- The configuration with which the workspace rooted at `repo` is loaded. With
+`scrubSearchPath`, the inherited `LEAN_PATH` and `LEAN_SRC_PATH` are ignored, as for
+`scrubbedLeanPathEnv`. -/
+private def loadConfig (repo : FilePath) (scrubSearchPath : Bool) : IO _root_.Lake.LoadConfig := do
+  let lakeEnv ← detectEnvironment
+  let lakeEnv := if scrubSearchPath then { lakeEnv with initLeanPath := [], initLeanSrcPath := [] }
+    else lakeEnv
+  return { lakeEnv, wsDir := ← IO.FS.realPath repo }
+
+/-- Pass the workspace that a load gave to `action`, or fail with the messages of its log. -/
+private def withLoaded {α : Type} (ws? : Option _root_.Lake.Workspace) (log : _root_.Lake.Log)
+    (action : _root_.Lake.Workspace → IO α) : IO α :=
+  match ws? with
+  | some ws => action ws
+  | none =>
+      let messages := log.entries.map (·.message)
+      throw <| IO.userError <|
+        s!"lake-workspace-load-failed: {"; ".intercalate messages.toList}"
+
 /-- Load the workspace rooted at `repo` with Lake's loader and pass it to
 `action`. The action runs in the same process, so it must not retain mutable
 workspace state beyond its return value. With `scrubSearchPath`, the inherited
@@ -36,18 +55,26 @@ workspace state beyond its return value. With `scrubSearchPath`, the inherited
 `resolveDependencies` to load only the root configuration without materializing dependencies. -/
 def withRootWorkspace {α : Type} (repo : FilePath) (action : _root_.Lake.Workspace → IO α)
     (scrubSearchPath := false) (resolveDependencies := true) : IO α := do
-  let lakeEnv ← detectEnvironment
-  let lakeEnv := if scrubSearchPath then { lakeEnv with initLeanPath := [], initLeanSrcPath := [] }
-    else lakeEnv
-  let config : _root_.Lake.LoadConfig := { lakeEnv, wsDir := ← IO.FS.realPath repo }
+  let config ← loadConfig repo scrubSearchPath
   let (ws?, log) ← (if resolveDependencies then _root_.Lake.loadWorkspace config
     else _root_.Lake.loadWorkspaceRoot config).captureLog
-  match ws? with
-  | some ws => action ws
-  | none =>
-      let messages := log.entries.map (·.message)
-      throw <| IO.userError <|
-        s!"lake-workspace-load-failed: {"; ".intercalate messages.toList}"
+  withLoaded ws? log action
+
+/-- Load only the root package of the workspace at `repo` (`Lake.loadWorkspaceRoot`) and pass it
+to `action`, after refusing a root package that declares a dependency. For a root that declares
+none, `Lake.loadWorkspace` loads no other package, so `action` gets the packages that
+`withRootWorkspace` gives it. The compiled code of this function calls no loader that resolves or
+materializes a dependency, which removes directories (`Regula.Removal.rawRemovals`). -/
+def withRootPackage {α : Type} (repo : FilePath) (action : _root_.Lake.Workspace → IO α) :
+    IO α := do
+  let load : _root_.Lake.LoggerIO _root_.Lake.Workspace :=
+    _root_.Lake.loadWorkspaceRoot (← loadConfig repo false)
+  let (ws?, log) ← load.captureLog
+  withLoaded ws? log fun ws => do
+    unless ws.root.depConfigs.isEmpty do
+      throw <| IO.userError s!"lake-workspace-load-failed: the root package at {repo} declares \
+        a dependency, so its root package alone is not its workspace"
+    action ws
 
 /-! ## Builds without Lake's artifact cache
 

@@ -231,7 +231,8 @@ def otherTargets : List String :=
     "+Regula.Checker.CheckerSelftest:olean", "+Regula.Checker.FreshChecker:olean",
     "+Regula.RegistryChecks:olean", "+Regula.Linter:olean", "+Regula.Checker.LintMain:olean",
     "+Regula.Checker.RuleExamples:olean", "+Regula.Checker.RuleExampleQualificationMain:olean",
-    "+Regula.Cli.Main:olean", "+Regula.Release:olean", "+Regula.DiagnosticsGate:olean"]
+    "+Regula.Cli.Main:olean", "+Regula.Release:olean", "+Regula.DiagnosticsGate:olean",
+    "+Regula.RemovalControls:olean"]
 
 /-- Existing acceptance and diagnostic recipes, executed inside the outer deadline.
 Qualification's private flag retains the already timed process group. `copy` is the root of the
@@ -631,8 +632,8 @@ so such a process can make it remove the entries of a different directory. The c
 its own scratch directories with the same function (`Regula.Scratch`).
 
 The site executable decides its removals with `Regula.Removal.removal`, which this module cannot
-import. `RegulaVerification.Decisions.removal_shared` proves that `removal` is that decision for a
-directory. -/
+import. `RegulaVerification.removal_shared`, in the module `RegulaVerification.Decisions`, proves
+that `removal` is that decision for a directory. -/
 
 /-- What is at a path, observed without following a symbolic link at the path itself. -/
 inductive Place where

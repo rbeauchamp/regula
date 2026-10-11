@@ -16,11 +16,13 @@ def main (args : List String) : IO UInt32 := do
     IO.eprintln "usage: lake exe site build --out DIR --evidence SHARD.json [SHARD.json ...]"
     return 2
 
--- Every removal of a directory or file that the compiled code of `main` reaches through this
--- package's code is `Regula.Removal.removeDecided`, which removes only what the decision
--- `Regula.Removal.removal` decided to remove (`removal_remove_iff`). The check reads the compiled
--- code of `main` and of each declaration of the package that it calls; the build of this module
--- fails when it finds a removal primitive called elsewhere or a declaration with no compiled body.
+-- Each removal of a directory or file that the compiled code of `main` and of the initializers of
+-- the linked modules reaches is in `Regula.Removal.removeDecided`, which removes only what the
+-- decision `Regula.Removal.removal` decided to remove (`removal_remove_iff`), or is one of the
+-- single-file removals of Lean's library that `Regula.Removal.libraryRemovals` lists. The check
+-- follows every compiled declaration, of this package and of the libraries, and the build of this
+-- module fails when it finds another call of a removal primitive or a declaration whose compiled
+-- code it cannot read.
 run_cmd do
   let (raw, unknown) := Regula.Removal.rawRemovals (← Lean.getEnv) ``main
   unless raw.isEmpty do

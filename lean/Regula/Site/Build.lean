@@ -32,7 +32,8 @@ contrast) are proved in `RegulaCore.Edition`, `RegulaCore.Site`, `RegulaCore.Sit
 Each directory or file that the builder removes is removed by `Regula.Removal.removeOwn` or
 `removeEntry`, only when a read that follows no link finds an entry of its kind at its own place
 (`Regula.Removal.removal_remove_iff`); in every other case the build stops with nothing removed.
-`Regula.Site.Main` fails to build when its `main` reaches another removal
+`Regula.Site.Main` fails to build when its `main` or an initializer reaches another removal than
+the single-file removals of the libraries that `Regula.Removal.libraryRemovals` lists
 (`Regula.Removal.rawRemovals`).
 Workspace paths of the
 disposable qualification projects are displayed as `<example>`, `<scratch>` and `<regula>`; the
@@ -352,7 +353,7 @@ structure Generated where
 /-- Admit both shards and derive every rule's example. The two shards must select disjoint
 rules whose union is the registry, and contain one fix and one violation record per rule. -/
 def evidence (root : FilePath) (ident : Identity) (shardPaths : List FilePath) : IO Generated := do
-  let inventory ← Regula.Checker.Lake.surfaceInventory root
+  let inventory ← Regula.Checker.Lake.rootSurfaceInventory root
   let paths ← Regula.Qualification.RuleExamples.sourcePaths root
       (inventory.moduleSources.map Prod.snd)
   let current ← Regula.Qualification.RuleExamples.snapshot paths
