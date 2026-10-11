@@ -165,21 +165,29 @@ def resolveImport (ws : Lake.Workspace) (name : Name) : Option Lake.Module :=
 included, each with the canonical path (`IO.FS.realPath`) of the source file read for it. Each
 import resolves through `resolveImport`, so the closure holds only modules Lake gives it, each
 with the `Module.leanFile` Lake gives that module, and reads only their headers, with Lean's
-header parser, without building. An import of another package or of the toolchain ends its path,
-and so does a module whose source file does not exist, which has no header to read. -/
+header parser, without building. An import of another package or of the toolchain ends its path.
+A module of the closure whose source file does not exist is refused, naming the module and the
+module that imports it: Lake's build of that import fails reading the file (`Module.recFetchInput`).
+-/
 def importClosure (ws : Lake.Workspace) (starts : List Lake.Module) :
     IO (List (Name × FilePath)) := do
   let mut visited : Std.HashSet (Name × String) := {}
   let mut reached : Array (Name × FilePath) := #[]
   let mut canonical : Std.HashSet (Name × String) := {}
-  let mut pending := starts
+  -- Each pending module with the module whose import reached it; a start has none.
+  let mut pending : List (Lake.Module × Option Name) := starts.map (·, none)
   repeat
-    let m :: rest := pending | break
+    let (m, importer) :: rest := pending | break
     pending := rest
     let file := m.leanFile
     if visited.contains (m.name, file.toString) then continue
     visited := visited.insert (m.name, file.toString)
-    unless ← file.pathExists do continue
+    unless ← file.pathExists do
+      throw <| IO.userError <| match importer with
+        | some i => s!"module {i} imports {m.name}, which Lake resolves to {file}, and that file \
+            does not exist, so Lake cannot build {i}"
+        | none => s!"the source {file} of claimed module {m.name} does not exist, so Lake cannot \
+            build it"
     let path ← IO.FS.realPath file
     if canonical.contains (m.name, path.toString) then continue
     canonical := canonical.insert (m.name, path.toString)
@@ -188,7 +196,7 @@ def importClosure (ws : Lake.Workspace) (starts : List Lake.Module) :
     -- An entry of module names: the import lines of a project source.
     Regula.Checker.requireSafeModuleNames s!"the imports of {file}" (header.imports.map (·.module))
     for i in header.imports do
-      if let some next := resolveImport ws i.module then pending := next :: pending
+      if let some next := resolveImport ws i.module then pending := (next, some m.name) :: pending
   return reached.toList
 
 /-- The project's manifest with its Lake inventory, refused unless it loads and classifies every
