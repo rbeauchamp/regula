@@ -873,19 +873,19 @@ def descriptor : (id : RuleId) → RuleDescriptor id
       applicability := "community-configuration"
       evidenceModes := [.incrementalProject, .freshProject]
       requirement := "Targets' `leanOptions`: auto-implicits off, `linter.missingDocs` on, no \
-        linter or `warn.*` off past §6.7 exclusions, with Mathlib its standard set, header \
+        default warning off past §6.7 exclusions, with Mathlib its standard set, header \
         linter off or licensed; no `-D` undoes it."
       rationale := "An automatic implicit adds a binder the source does not show, so the \
         elaborated \
         statement can quantify over more than the text a reviewer compares with the intent. A \
         linter or warning reports only where it is on: without `linter.missingDocs`, or with a \
-        linter or a `warn.*` warning such as `warn.sorry` off for a whole target, the \
+        linter, a `warn.*` warning or a gate such as `mvcgen.warning` off target-wide, the \
         warning-free build (RG2003) never sees those warnings. A `-D` extra `lean` argument can \
-        override `leanOptions`, where the audit reads these options."
+        override the `leanOptions` that the audit reads."
       remedy := "Set the target's Lake `leanOptions`: `autoImplicit` and `relaxedAutoImplicit` \
         false, `linter.missingDocs` true and, with Mathlib, the standard set and its three §6.7 \
-        exclusions; remove other linter and `warn.*` disables and each `-D` extra `lean` argument \
-        that overrides these options."
+        exclusions; remove other settings that silence a default warning and each `-D` extra \
+        `lean` argument that overrides these options."
       rewrites := [
         "Add ``⟨`autoImplicit, false⟩, ⟨`relaxedAutoImplicit, false⟩, \
           ⟨`linter.missingDocs, true⟩`` to `leanOptions` (the same keys under `[leanOptions]` in \
@@ -896,11 +896,12 @@ def descriptor : (id : RuleId) → RuleDescriptor id
           with `weak.linter.style.header.license` set to your license line.",
         "Replace a target-wide ``⟨`linter.X, false⟩`` with `set_option linter.X false in` on the \
           one declaration the community's guidance allows, with a comment (§6.2); delete a \
-          target-wide `warn.*` disable such as ``⟨`warn.sorry, false⟩``: Lean's default warnings \
-          stay on.",
+          target-wide `warn.*` disable such as ``⟨`warn.sorry, false⟩`` or a gate setting such \
+          as ``⟨`mvcgen.warning, false⟩``: Lean's default warnings stay on.",
         "Delete each `-D name=value` in `moreLeanArgs` or `weakLeanArgs` that gives one of these \
-          options a value the rule does not admit or turns off another linter or `warn.*` \
-          warning; other extra arguments may stay."]
+          options a value the rule does not admit or silences another default warning; a \
+          `weak.` entry counts by its name even when no module declares it, so delete it; other \
+          extra arguments may stay."]
       examples := {
         language := .lean
         audience := .adopter

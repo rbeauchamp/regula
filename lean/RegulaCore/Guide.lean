@@ -1450,9 +1450,9 @@ def guide : RuleId → Guide
               "lean/Regula/Checker/SourceAudit.lean", "lean/Regula/Checker/SourceBinding.lean"] }
   | .communityConfiguration => {
       problem := "A claimed library or executable is built with automatic implicits on or \
-        without Lean's `linter.missingDocs`, turns off a linter or one of Lean's own `warn.*` \
-        warnings for all its modules beyond the three Mathlib-repository linters that standard \
-        §6.7 excludes, overrides these options \
+        without Lean's `linter.missingDocs`, silences a linter, one of Lean's own `warn.*` \
+        warnings or another warning Lean reports by default for all its modules beyond the \
+        three Mathlib-repository linters that standard §6.7 excludes, overrides these options \
         with a `-D` extra `lean` argument, or, in a surface that imports Mathlib, leaves Mathlib's \
         standard linter set or its exclusions unset."
       trigger := [
@@ -1464,9 +1464,11 @@ def guide : RuleId → Guide
           `relaxedAutoImplicit` is not set to `false` or `linter.missingDocs` is not set to \
           `true`, when any other `linter.…` option than \
           `linter.style.header`, `linter.hashCommand` and `linter.style.longFile`, or any \
-          `warn.…` option, such as `warn.sorry`, is set to `false`, or when a `-D name=value` \
-          among the extra arguments gives a required option a value the rule does not admit or \
-          sets such an option to `false`.",
+          `warn.…` option, such as `warn.sorry`, is set to `false`, when `mvcgen.warning`, \
+          `warning.simp.varHead`, `warning.simp.otherHead` or `backward.privateInPublic.warn` is \
+          set to `false` or `experimental.intrinsic` to `true`, or when a `-D name=value` among \
+          the extra arguments gives a required option a value the rule does not admit or sets \
+          such an option to that value.",
         "A target of a surface whose loaded environments contain a Mathlib module must also set \
           `weak.linter.mathlibStandardSet` to `true`, `weak.linter.hashCommand` to `false` and \
           `weak.linter.style.longFile` to `0`, and `weak.linter.style.header` to `false`, or to \
@@ -1474,7 +1476,10 @@ def guide : RuleId → Guide
           Mathlib's header linter expects in `leanOptions`, with every value that `leanOptions` or \
           any `-D` gives it a nonempty string; a `-D` alone does not configure the license line.",
         "A key's leading `weak.` component is read as the option it sets; a target that gives one \
-          option under both spellings must give a value the rule admits under each. A string value \
+          option under both spellings must give a value the rule admits under each. The name \
+          alone decides: whether Lean applies a `weak.` entry depends on which modules declare \
+          the option, so an entry such as `weak.warn.example` that no module declares is \
+          rejected although Lean ignores it; delete it. A string value \
           counts as Lean parses it for the option: `\"false\"` is `false` and `\"0\"` is `0`. \
           One finding per target lists every failure.",
         "Every `-D` that `lean` reads starts at the first `D` of an argument that begins with a \
@@ -1490,10 +1495,10 @@ def guide : RuleId → Guide
       proofShape := []
       established := [
         "Every claimed library and executable is built through Lake with automatic implicits \
-          off and `linter.missingDocs` on, turns off no linter or `warn.…` warning target-wide \
-          beyond the §6.7 exclusions and, in a Mathlib surface, enables the standard set with \
-          exactly those exclusions, or with the header linter on and its license line \
-          configured; no `-D` extra `lean` argument overrides these options."]
+          off and `linter.missingDocs` on, silences no linter, `warn.…` warning or other \
+          default warning target-wide beyond the §6.7 exclusions and, in a Mathlib surface, \
+          enables the standard set with exactly those exclusions, or with the header linter on \
+          and its license line configured; no `-D` extra `lean` argument overrides these options."]
       notEstablished := [
         "That no module sets an option back in source, such as `set_option autoImplicit true` or \
           a linter disable; review checks source options (§6.2).",
@@ -1518,6 +1523,13 @@ def guide : RuleId → Guide
         "Whether a surface imports Mathlib is read from all of its loaded environments, so every \
           claimed target of such a surface, including an executable whose own root does not \
           import Mathlib, needs the Mathlib options.",
+        "That `mvcgen.warning`, `warning.simp.varHead`, `warning.simp.otherHead`, \
+          `backward.privateInPublic.warn` and `experimental.intrinsic` are the only options \
+          outside `linter.…` and `warn.…` that silence a warning Lean reports by default is \
+          assumed for Lean v4.34.1, from a search of its source: every option registered when \
+          `Lean` and `Lake` are imported, and each place a warning is logged near where one is \
+          read (`RegulaPolicy.Community.warningGates`). A move to another Lean release fails the \
+          build until the search is repeated (`warningGatesRelease_eq`).",
         "The `-D` reading is assumed to cover the command-line parser of the Lean executable, \
           as read from Lean's `Lean.Shell` source and its getopt handling; that correspondence \
           is neither proved nor observed.",
@@ -1532,8 +1544,10 @@ def guide : RuleId → Guide
         `conforming_missingDocs`, `conforming_header`, `header_on_unlicensed_fails`, \
         `licensed_iff`, `licensed_header_passes`, `unlicensed_header_fails`, \
         `leanArgument_mem_failures_iff`, `disabledWarning_mem_failures_iff`, \
-        `warn_sorry_option_fails`, `numeric_root_option_passes`, `optionOf_eq_replacePrefix` and \
-        `missingDocs_unset_fails`. Reading Lake's target configuration is operational."
+        `warn_sorry_option_fails`, `mvcgen_warning_option_fails`, `intrinsic_option_fails`, \
+        `undeclared_weak_argument_fails`, `numeric_root_option_passes`, \
+        `warningGatesRelease_eq`, `optionOf_eq_replacePrefix` and `missingDocs_unset_fails`. \
+        Reading Lake's target configuration is operational."
       sources := ["lean/RegulaPolicy/Community.lean", "lean/Regula/Checker/Lake.lean",
         "lean/Regula/Checker/AxiomGate.lean", "website/RegulaStandard/CodeOrganization.lean"] }
   | .executionUnresolved => {

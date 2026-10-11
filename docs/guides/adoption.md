@@ -722,8 +722,8 @@ core-only code.
   ``leanOptions := #[⟨`linter.missingDocs, true⟩, ⟨`autoImplicit, false⟩, ⟨`relaxedAutoImplicit, false⟩, ⟨`weak.linter.mathlibStandardSet, true⟩, ⟨`weak.linter.style.header, false⟩, ⟨`weak.linter.hashCommand, false⟩, ⟨`weak.linter.style.longFile, .ofNat 0⟩]``.
   The linters report through build warnings, so `lake lint` reports each as [RG2003] (`INCOMPLETE`,
   exit 3). [RG2006] checks every option above in Lake's resolved configuration of each claimed
-  target (`VIOLATION`, exit 1). It also rejects a target-wide `false` for any other linter or for
-  one of Lean's own warnings, such as `warn.sorry`. It rejects each `-D` in `moreLeanArgs` or
+  target (`VIOLATION`, exit 1). It also rejects a target-wide setting that turns off any other
+  linter or a default warning of Lean, for example with `warn.sorry` or `mvcgen.warning`. It rejects each `-D` in `moreLeanArgs` or
   `weakLeanArgs` that overrides these options. It does not read `set_option` in source, which
   review checks. Where the community's guidance accepts an exception, disable that
   linter for the one declaration (`set_option linter.style.longLine false in`) with a comment
@@ -911,6 +911,8 @@ audit refuses a `decides` entry that names its own surface or no claimed surface
 - [RG2006] accepts each option that it does not name, for example a larger `maxHeartbeats` in
   `leanOptions`, in a `-D` argument or in a `set_option` for one declaration. If your project
   must have a fixed heartbeat budget, add your own check of these options.
+- [RG2006] reads an option by its name alone. It rejects a `weak.` entry for an option that no
+  module declares, although Lean ignores that entry. Delete such an entry.
 - The only supported editor is VS Code with the Lean 4 extension, and there is no latency claim.
 - Regula has run on small adopters only, including a Mathlib-importing library accepted
   incrementally and fresh; there is no Mathlib-scale adopter claim. These are bounded

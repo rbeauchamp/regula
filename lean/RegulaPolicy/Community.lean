@@ -2,18 +2,20 @@ module
 
 meta import Regula.Decision
 import all Init.Meta.Defs
+public import RegulaPolicy.Compiler
 
 /-! # Community build configuration decision
 
 The decision behind RG2006 for one claimed Lake target (standard §7.1, §6.7 and §6.2): the
 options Lake builds its modules with turn automatic implicits off, enable Lean's
-`linter.missingDocs`, keep every linter and every one of Lean's own warnings (`warn.sorry` and
-the other `warn.…` options) on except the three Mathlib-repository linters §6.7 excludes, and,
-when the target imports Mathlib, enable Mathlib's standard linter set with exactly those
-exclusions. Of these, Mathlib's header linter may instead stay on when the target configures its
-license line (`linter.style.header.license`). The target sets these options in Lake's
-`leanOptions`, where the audit reads them, and no `-D` among its extra `lean` arguments gives one
-of them a value the requirement does not admit or turns off another linter or warning.
+`linter.missingDocs`, keep every linter and every warning Lean reports by default on (`warn.sorry`,
+the other `warn.…` options and the options of `warningGates`, such as `mvcgen.warning`) except
+the three Mathlib-repository linters §6.7 excludes, and, when the target imports Mathlib, enable
+Mathlib's standard linter set with exactly those exclusions. Of these, Mathlib's header linter may
+instead stay on when the target configures its license line (`linter.style.header.license`). The
+target sets these options in Lake's `leanOptions`, where the audit reads them, and no `-D` among
+its extra `lean` arguments gives one of them a value the requirement does not admit or silences
+another default warning.
 
 ## Main declarations
 
@@ -47,15 +49,21 @@ of them a value the requirement does not admit or turns off another linter or wa
   the characters of the arguments.
 - `leanArgument_mem_failures_iff`: a `-D` argument fails exactly when some `-D` form sets a
   checked option to a contradicting value.
+- `Silences`, `disables_iff`, `not_silences`: the options and values that silence a default
+  warning, which `disables` decides outside the §6.7 exclusions.
+- `warningGates`, `warningGatesRelease_eq`: the default-warning gates outside `linter` and `warn`
+  found in the source of the supported Lean release, and the tie to that release.
 - `disabledWarning_mem_failures_iff`: an option fails as a turned-off warning exactly when the
-  target's options turn off a linter or one of Lean's warnings outside the §6.7 exclusions.
+  target's options silence a default warning outside the §6.7 exclusions.
 - `autoImplicit_argument_fails`, `maxHeartbeats_argument_passes`, `linter_argument_fails`,
-  `warn_argument_fails`, `excluded_linter_argument_passes`, `plugin_argument_passes`: fixed
-  argument lists.
-- `warn_sorry_option_fails`: `leanOptions` that turn off `warn.sorry` fail.
+  `warn_argument_fails`, `undeclared_weak_argument_fails`, `excluded_linter_argument_passes`,
+  `plugin_argument_passes`: fixed argument lists.
+- `warn_sorry_option_fails`, `mvcgen_warning_option_fails`, `intrinsic_option_fails`:
+  `leanOptions` that turn off `warn.sorry` or `mvcgen.warning`, or turn on
+  `experimental.intrinsic`, fail.
 - `numeric_root_argument_passes`, `numeric_root_option_passes`: an option whose first component
   is a number, such as `0.warn.example`, switches no warning, whatever components follow.
-- `optionOf_eq_replacePrefix`: `optionOf` removes a leading `weak.` exactly as Lean does.
+- `optionOf_eq_replacePrefix`: `optionOf` is the call by which Lean removes a leading `weak.`.
 
 ## Option names and values
 
@@ -67,10 +75,13 @@ spellings, every value given must be the required one, except that the header li
 `leanOptions`, and every value that `leanOptions` or any `-D` candidate gives it is a nonempty
 string. Lean parses a string value by the option's declared type
 (`Lean.Language.Lean.setOption`): `"true"` and `"false"` for a Boolean option and a numeral for a
-natural-number one, so `readsAs` compares a string with a required value that way. A warning
-option is an option whose first component, by `Name.getRoot`, is `linter`, for a linter, or
-`warn`, for one of Lean's own warnings, such as `warn.sorry`, each `true` by default at the
-pinned toolchain; turning one off means giving it a value Lean reads as `false`.
+natural-number one, so `readsAs` compares a string with a required value that way. An option
+silences a default warning (`Silences`) when its first component, by `Name.getRoot`, is `linter`,
+for a linter, or `warn`, for one of Lean's own warnings such as `warn.sorry`, and its value reads
+as `false`; or when it is one of `warningGates`, such as `mvcgen.warning`, and its value reads as
+the one that silences that gate. The name alone decides: whether Lean applies a `weak.` entry
+depends on which imported modules declare the option, so a `weak.` entry for an option that no
+module declares is refused although Lean ignores it, and its correction is to delete it.
 
 ## Boundaries
 
@@ -85,7 +96,9 @@ command-line parser of the Lean executable is assumed, read from Lean's `Lean.Sh
 its getopt handling; it is neither proved nor observed. That reading only rejects: a `-D` never
 configures the license line, which only `leanOptions` does. That Mathlib's header linter at the
 pinned release compares the second header line with `linter.style.header.license` is likewise read
-from its source (`Mathlib/Tactic/Linter/Header.lean`) and assumed. The decision does not read
+from its source (`Mathlib/Tactic/Linter/Header.lean`) and assumed. That `warningGates` holds
+every gate of a default warning outside `linter` and `warn` is assumed from the search that its
+docstring states. The decision does not read
 `set_option` commands in source, which review checks (`DECL-01`), nor options given to `lake` on
 its command line. It accepts every other option, such as a `maxHeartbeats` budget, so a project
 that wants such a value fixed checks it itself. Which targets are claimed and whether a target
@@ -140,36 +153,14 @@ structure BuildOptions where
   arguments : List String
   deriving DecidableEq, Repr
 
-/-- The option a `leanOptions` key sets: the key without a leading `weak.` component. Lean removes
-it the same way (`Lean.Language.Lean.reparseOptions`), as `optionOf_eq_replacePrefix` states. -/
-def optionOf : Name → Name
-  | .str .anonymous "weak" => .anonymous
-  | .str p s => .str (optionOf p) s
-  | .num p k => .num (optionOf p) k
-  | .anonymous => .anonymous
+/-- The option a `leanOptions` key sets: the key without a leading `weak.` component, removed by
+the call Lean makes (`Lean.Language.Lean.reparseOptions`). -/
+def optionOf (name : Name) : Name :=
+  name.replacePrefix `weak .anonymous
 
 /-- `optionOf` is Lean's own removal of a leading `weak.` component from an option name. -/
 theorem optionOf_eq_replacePrefix (name : Name) :
-    optionOf name = name.replacePrefix `weak .anonymous := by
-  induction name with
-  | anonymous => rfl
-  | str p s ih =>
-    by_cases h : p = .anonymous ∧ s = "weak"
-    · obtain ⟨rfl, rfl⟩ := h; rfl
-    · have hne : (Name.str p s == `weak) = false := by
-        simp only [beq_eq_false_iff_ne, ne_eq, Name.str.injEq]
-        exact h
-      rw [Name.replacePrefix, hne, ← ih]
-      simp only [Bool.false_eq_true, ↓reduceIte, Name.mkStr]
-      conv => lhs; unfold optionOf
-      split
-      · next h' => exact absurd ⟨(Name.str.inj h').1, (Name.str.inj h').2⟩ h
-      · next h' => cases h'; rfl
-      · next h' => cases h'
-      · next h' => cases h'
-  | num p k ih =>
-    rw [Name.replacePrefix, ← ih]
-    simp [optionOf]
+    optionOf name = name.replacePrefix `weak .anonymous := rfl
 
 /-- The characters after the first `D`, when there is one. -/
 def afterD : List Char → Option (List Char)
@@ -485,20 +476,53 @@ theorem meets_of_sets (o : BuildOptions) (r : Name × OptionValue) (h : sets o r
 `warn.exposeOnPrivate` and `warn.redundantExpose` at the pinned toolchain). -/
 def warningRoots : List Name := [`linter, `warn]
 
-/-- `name` switches a linter or one of Lean's own warnings: its first component (`Name.getRoot`, a
-string or a number) is `linter` or `warn`. This is the relation, as a proposition, that
-`disables` reads through `warningRoots` (`disables_iff`). -/
-def WarningOption (name : Name) : Prop :=
-  name.getRoot = `linter ∨ name.getRoot = `warn
+/-- The Lean release whose source `warningGates` was read from. -/
+def warningGatesRelease : String := "4.34.1"
 
-/-- Setting `name` to `value` turns off a linter or one of Lean's own warnings outside the §6.7
-exclusions (§6.2). -/
+/-- The options outside `linter` and `warn` that gate a warning Lean reports by default, each
+with the Boolean value that silences it, read from the source of Lean `warningGatesRelease`:
+
+- `backward.privateInPublic.warn`, `false` (`Lean/ResolveName.lean:112`, read at `:276`);
+- `experimental.intrinsic`, `true` (`Lean/Elab/Do/Basic.lean:26`, read at `:37`);
+- `mvcgen.warning`, `false` (`Lean/Elab/Tactic/Do/VCGen/Basic.lean:23`, read at
+  `Lean/Elab/Tactic/Do/VCGen.lean:455` and `Lean/Elab/Tactic/Do/Internal/VCGen/Frontend.lean:388`);
+- `warning.simp.otherHead`, `false` (`Lean/Meta/Tactic/Simp/SimpTheorems.lean:59`, read at `:409`);
+- `warning.simp.varHead`, `false` (`Lean/Meta/Tactic/Simp/SimpTheorems.lean:53`, read at `:404`).
+
+Assumed, not proved: that these are all of them. The search listed every option registered when
+`Lean` and `Lake` are imported (`Lean.getOptionDecls`, 674 options), set aside `trace.`, `pp.`,
+`linter.` and `warn.` options, and read each place within 20 lines of a `logWarning`, `logLint`,
+`logAt` or warning severity where one of the others is named, and each of the others whose
+description mentions warnings or reports. An option that only enables a warning that is off by
+default, such as `structureDiamondWarning`, is not a gate. `exponentiation.threshold` is a
+resource limit, like `maxHeartbeats`, and not a gate. `warningGatesRelease_eq` ties the list to
+`Compiler.version`, so a move to another release fails the build until the search is run
+again. -/
+def warningGates : List (Name × Bool) :=
+  [(`backward.privateInPublic.warn, false), (`experimental.intrinsic, true),
+    (`mvcgen.warning, false), (`warning.simp.otherHead, false), (`warning.simp.varHead, false)]
+
+/-- The search behind `warningGates` was for the release this source revision supports. -/
+theorem warningGatesRelease_eq : warningGatesRelease = RegulaPolicy.Compiler.version := rfl
+
+/-- Setting `name` to `value` silences a warning that Lean reports by default: `name` switches a
+linter or one of Lean's own warnings, its first component (`Name.getRoot`, a string or a number)
+being `linter` or `warn`, and `value` is what Lean reads as `false`; or `name` is one of
+`warningGates` and `value` is what Lean reads as its silencing value. The name alone decides:
+a `weak.` entry for an option no imported module declares is ignored by Lean but still counts.
+This is the relation, as a proposition, that `disables` decides (`disables_iff`). -/
+def Silences (name : Name) (value : OptionValue) : Prop :=
+  ((name.getRoot = `linter ∨ name.getRoot = `warn) ∧ value.ReadsAs (.bool false)) ∨
+    ∃ b, (name, b) ∈ warningGates ∧ value.ReadsAs (.bool b)
+
+/-- Setting `name` to `value` silences a default warning outside the §6.7 exclusions (§6.2). -/
 def disables (name : Name) (value : OptionValue) : Bool :=
-  warningRoots.contains name.getRoot && value.readsAs (.bool false) &&
+  ((warningRoots.contains name.getRoot && value.readsAs (.bool false)) ||
+      warningGates.any fun g => name == g.1 && value.readsAs (.bool g.2)) &&
     !exclusions.contains name
 
 /-- The `-D` setting of `name` to `value` gives a required option a value the requirement does
-not admit or turns off a linter or warning outside the §6.7 exclusions. -/
+not admit or silences a default warning outside the §6.7 exclusions. -/
 def contradicts (o : BuildOptions) (mathlib : Bool) (name : Name) (value : OptionValue) : Bool :=
   (required mathlib).any (fun r => optionOf name == r.1 && !admits o r value) ||
     disables (optionOf name) value
@@ -508,8 +532,7 @@ inductive Failure where
   /-- A required option is not given, or is given a value the requirement does not admit; `actual`
   lists the values the options give. -/
   | option (name : Name) (value : OptionValue) (actual : List OptionValue)
-  /-- A linter or one of Lean's own warnings outside the §6.7 exclusions is turned off for every
-  module of the target. -/
+  /-- A default warning outside the §6.7 exclusions is silenced for every module of the target. -/
   | disabledWarning (name : Name)
   /-- An extra `lean` argument sets `name` to `value` with `-D` against the requirement. -/
   | leanArgument (name : Name) (value : OptionValue)
@@ -548,7 +571,8 @@ def Failure.text : Failure → String
     s!"`{name}` is {", ".intercalate (given.map OptionValue.text)}; set it to {value.text}" ++
       licenseHint name
   | .disabledWarning name =>
-    s!"`{name}` is off for every module; only the standard §6.7 exclusions may be"
+    s!"`{name}` silences a default warning in every module; only the standard §6.7 exclusions \
+      may be off"
   | .leanArgument name value =>
     s!"an extra `lean` argument sets `{name}` to {value.text}; remove it" ++ licenseHint name
 
@@ -559,18 +583,18 @@ def detail (failures : List Failure) : String :=
 /-- The RG2006 obligation of one target, stated without the executed Boolean decisions: every
 required option is given, and only values that the requirement admits: what Lean reads as its
 required value, and for Mathlib's header linter also `true` when the target configures the license
-line (`Licensed`); no option turns off a linter or one of Lean's own warnings outside the §6.7
-exclusions; and no `-D` among the extra `lean` arguments gives a required option a value the
-requirement does not admit or turns off such a linter or warning. -/
+line (`Licensed`); no option silences a default warning outside the §6.7 exclusions (`Silences`);
+and no `-D` among the extra `lean` arguments gives a required option a value the requirement does
+not admit or silences such a warning. -/
 def Conforming (o : BuildOptions) (mathlib : Bool) : Prop :=
   (∀ r ∈ required mathlib, valuesOf o r.1 ≠ [] ∧ ∀ v ∈ valuesOf o r.1,
     v.ReadsAs r.2 ∨ (r.1 = headerLinter ∧ v.ReadsAs (.bool true) ∧ Licensed o)) ∧
-  (∀ entry ∈ o.options, WarningOption (optionOf entry.1) →
-    entry.2.ReadsAs (.bool false) → optionOf entry.1 ∈ exclusions) ∧
+  (∀ entry ∈ o.options, Silences (optionOf entry.1) entry.2 →
+    optionOf entry.1 ∈ exclusions) ∧
   ∀ s ∈ argumentSettings o.arguments,
     (∀ r ∈ required mathlib, optionOf s.1 = r.1 → s.2.ReadsAs r.2 ∨
       (r.1 = headerLinter ∧ s.2.ReadsAs (.bool true) ∧ Licensed o)) ∧
-    (WarningOption (optionOf s.1) → s.2.ReadsAs (.bool false) → optionOf s.1 ∈ exclusions)
+    (Silences (optionOf s.1) s.2 → optionOf s.1 ∈ exclusions)
 
 /-- `meets` decides exactly the first conjunct's condition for one option. -/
 theorem meets_iff (o : BuildOptions) (r : Name × OptionValue) :
@@ -581,16 +605,36 @@ theorem meets_iff (o : BuildOptions) (r : Name × OptionValue) :
 /-- `disables` decides exactly the negation of the second conjunct's condition. -/
 theorem disables_iff (name : Name) (value : OptionValue) :
     disables name value = true ↔
-      WarningOption name ∧ value.ReadsAs (.bool false) ∧ name ∉ exclusions := by
-  simp [disables, warningRoots, WarningOption, OptionValue.readsAs_iff, and_assoc]
+      Silences name value ∧ name ∉ exclusions := by
+  have hg : (warningGates.any fun g => name == g.1 && value.readsAs (.bool g.2)) = true ↔
+      ∃ b, (name, b) ∈ warningGates ∧ value.ReadsAs (.bool b) := by
+    rw [List.any_eq_true]
+    constructor
+    · rintro ⟨⟨m, b⟩, hm, h⟩
+      simp only [Bool.and_eq_true, beq_iff_eq, OptionValue.readsAs_iff] at h
+      obtain ⟨rfl, h⟩ := h
+      exact ⟨b, hm, h⟩
+    · rintro ⟨b, hm, h⟩
+      exact ⟨(name, b), hm, by simp [OptionValue.readsAs_iff, h]⟩
+  simp [disables, Silences, hg, warningRoots, OptionValue.readsAs_iff]
+
+/-- An option whose first component is neither `linter` nor `warn` and that is not one of
+`warningGates` silences no warning, whatever its value. -/
+theorem not_silences (name : Name) (value : OptionValue)
+    (hr : name.getRoot ≠ `linter ∧ name.getRoot ≠ `warn)
+    (hg : ∀ b, (name, b) ∉ warningGates) :
+    ¬Silences name value := by
+  rintro (⟨h | h, -⟩ | ⟨b, hb, -⟩)
+  · exact hr.1 h
+  · exact hr.2 h
+  · exact hg b hb
 
 /-- `contradicts` decides exactly the negation of the third conjunct's condition. -/
 theorem contradicts_eq_false_iff (o : BuildOptions) (mathlib : Bool) (name : Name)
     (value : OptionValue) :
     contradicts o mathlib name value = false ↔
       (∀ r ∈ required mathlib, optionOf name = r.1 → admits o r value = true) ∧
-      (WarningOption (optionOf name) → value.ReadsAs (.bool false) →
-        optionOf name ∈ exclusions) := by
+      (Silences (optionOf name) value → optionOf name ∈ exclusions) := by
   have := disables_iff (optionOf name) value
   cases h : disables (optionOf name) value <;> simp_all [contradicts]
 
@@ -659,8 +703,9 @@ not set. -/
 theorem missingDocs_unset_fails :
     failures ⟨[(`autoImplicit, .bool false), (`relaxedAutoImplicit, .bool false)], []⟩ false =
       [.option `linter.missingDocs (.bool true) []] := by
-  simp [failures, required, baseline, meets, admits, valuesOf, optionOf, disables, warningRoots,
-    exclusions, Name.getRoot, argumentSettings, argumentTexts, OptionValue.readsAs]
+  simp [failures, required, baseline, meets, admits, valuesOf, optionOf, Name.replacePrefix,
+    disables, warningRoots, exclusions, Name.getRoot, warningGates, argumentSettings, argumentTexts,
+    OptionValue.readsAs]
 
 /-- A `-D` string value contradicts the requirement exactly when it is a value the requirement does
 not admit for a required option (`admits`), or it is `"false"` for a linter or one of Lean's own
@@ -669,23 +714,20 @@ theorem contradicts_string_eq_true_iff (o : BuildOptions) (mathlib : Bool) (n : 
     (value : String) :
     contradicts o mathlib n (.string value) = true ↔
       (∃ r ∈ required mathlib, optionOf n = r.1 ∧ admits o r (.string value) = false) ∨
-      (WarningOption (optionOf n) ∧ value = "false" ∧ optionOf n ∉ exclusions) := by
-  have hfalse : (OptionValue.string value).ReadsAs (.bool false) ↔ value = "false" := by
-    simp only [OptionValue.ReadsAs]
-    rfl
-  rw [contradicts, Bool.or_eq_true, List.any_eq_true, disables_iff, hfalse]
+      (Silences (optionOf n) (.string value) ∧ optionOf n ∉ exclusions) := by
+  rw [contradicts, Bool.or_eq_true, List.any_eq_true, disables_iff]
   simp
 
 /-- The decision reports a `-D` argument exactly when some argument sets a checked option to a
 value that contradicts the requirement: `-Dname=value`, also after flags as in `-qD`, or `-D`
 followed by `name=value` as the next argument. The name is read as `lean` reads it
-(`String.toName`), and a linter or warning is turned off by the string `"false"`. -/
+(`String.toName`), and a string value silences a default warning as Lean reads it (`Silences`). -/
 theorem leanArgument_mem_failures_iff (o : BuildOptions) (mathlib : Bool) (n : Name)
     (v : OptionValue) :
     Failure.leanArgument n v ∈ failures o mathlib ↔
       ∃ name value, Defines o.arguments name value ∧ n = name.toName ∧ v = .string value ∧
         ((∃ r ∈ required mathlib, optionOf n = r.1 ∧ admits o r (.string value) = false) ∨
-          (WarningOption (optionOf n) ∧ value = "false" ∧ optionOf n ∉ exclusions)) := by
+          (Silences (optionOf n) (.string value) ∧ optionOf n ∉ exclusions)) := by
   have hmem : Failure.leanArgument n v ∈ failures o mathlib ↔
       (n, v) ∈ argumentSettings o.arguments ∧ contradicts o mathlib n v = true := by
     simp only [failures, List.mem_append, List.mem_filterMap]
@@ -707,13 +749,13 @@ theorem leanArgument_mem_failures_iff (o : BuildOptions) (mathlib : Bool) (n : N
   · rintro ⟨name, value, hd, rfl, rfl, hc⟩
     exact ⟨⟨name, value, hd, rfl, rfl⟩, (contradicts_string_eq_true_iff _ _ _ _).2 hc⟩
 
-/-- The decision reports `n` as turned off for every module exactly when one of the target's
-options sets `n`, under either spelling, to a value Lean reads as `false`, and `n` switches a
-linter or one of Lean's own warnings outside the §6.7 exclusions. -/
+/-- The decision reports `n` as silenced for every module exactly when one of the target's options
+sets `n`, under either spelling, to a value that silences a default warning (`Silences`), and `n`
+is outside the §6.7 exclusions. -/
 theorem disabledWarning_mem_failures_iff (o : BuildOptions) (mathlib : Bool) (n : Name) :
     Failure.disabledWarning n ∈ failures o mathlib ↔
-      ∃ entry ∈ o.options, optionOf entry.1 = n ∧ WarningOption n ∧
-        entry.2.ReadsAs (.bool false) ∧ n ∉ exclusions := by
+      ∃ entry ∈ o.options,
+        optionOf entry.1 = n ∧ Silences n entry.2 ∧ n ∉ exclusions := by
   simp only [failures, List.mem_append, List.mem_filterMap]
   constructor
   · rintro ((⟨r, -, h⟩ | ⟨e, he, h⟩) | ⟨s, -, h⟩)
@@ -735,7 +777,23 @@ theorem warn_sorry_option_fails (o : BuildOptions) (mathlib : Bool)
     (h : (`warn.sorry, OptionValue.bool false) ∈ o.options) :
     Failure.disabledWarning `warn.sorry ∈ failures o mathlib :=
   (disabledWarning_mem_failures_iff o mathlib _).2
-    ⟨_, h, rfl, Or.inr rfl, rfl, by simp [exclusions]⟩
+    ⟨_, h, rfl, .inl ⟨Or.inr rfl, rfl⟩, by simp [exclusions]⟩
+
+/-- `leanOptions` that set `mvcgen.warning` to `false` silence the warning Lean reports for each use
+of `mvcgen`, so the target fails with that option whatever its other options. -/
+theorem mvcgen_warning_option_fails (o : BuildOptions) (mathlib : Bool)
+    (h : (`mvcgen.warning, OptionValue.bool false) ∈ o.options) :
+    Failure.disabledWarning `mvcgen.warning ∈ failures o mathlib :=
+  (disabledWarning_mem_failures_iff o mathlib _).2
+    ⟨_, h, rfl, .inr ⟨false, by simp [warningGates], rfl⟩, by simp [exclusions]⟩
+
+/-- `leanOptions` that set `experimental.intrinsic` to `true` silence the warning Lean reports for
+each experimental intrinsic verification form, so the target fails with that option. -/
+theorem intrinsic_option_fails (o : BuildOptions) (mathlib : Bool)
+    (h : (`experimental.intrinsic, OptionValue.bool true) ∈ o.options) :
+    Failure.disabledWarning `experimental.intrinsic ∈ failures o mathlib :=
+  (disabledWarning_mem_failures_iff o mathlib _).2
+    ⟨_, h, rfl, .inr ⟨true, by simp [warningGates], rfl⟩, by simp [exclusions]⟩
 
 /-! The cases below fix the extra `lean` arguments and hold for every `leanOptions`. Lean's
 `String.toName` is `partial`, so the kernel cannot evaluate it: a case whose argument names an
@@ -764,7 +822,8 @@ theorem maxHeartbeats_argument_passes (options : List (Name × OptionValue)) (ma
   obtain ⟨rfl, rfl⟩ := hd
   have ho : optionOf "maxHeartbeats".toName = `maxHeartbeats := by rw [h]; rfl
   rw [ho] at hc
-  cases mathlib <;> simp [required, baseline, mathlibBaseline, WarningOption, admits] at hc
+  have hs : ¬Silences `maxHeartbeats (.string "400000") := not_silences _ _ (by decide) (by decide)
+  cases mathlib <;> simp [required, baseline, mathlibBaseline, admits, hs] at hc
 
 /-- `-Dweak.0.warn.example=false` names the option `0.warn.example`, whose first component is the
 number `0`: no linter or warning of Lean's, and Lean ignores an unknown option after `weak.`, so
@@ -784,8 +843,8 @@ theorem numeric_root_argument_passes (options : List (Name × OptionValue)) (mat
   have ho :
       optionOf "weak.0.warn.example".toName = .str (.str (.num .anonymous 0) "warn") "example" := by
     rw [h]; rfl
-  have hw : ¬WarningOption (.str (.str (.num .anonymous 0) "warn") "example") := by
-    unfold WarningOption; decide
+  have hw : ¬Silences (.str (.str (.num .anonymous 0) "warn") "example") (.string "false") :=
+    not_silences _ _ (by decide) (by decide)
   rw [ho] at hc
   cases mathlib <;> simp [required, baseline, mathlibBaseline, hw] at hc
 
@@ -799,9 +858,7 @@ theorem numeric_root_option_passes (mathlib : Bool) (n : Name) :
   rintro ⟨_, he, rfl, hw, -⟩
   rw [List.mem_singleton] at he
   subst he
-  revert hw
-  unfold WarningOption
-  decide
+  exact not_silences _ _ (by decide) (by decide) hw
 
 /-- `-qD` followed by `weak.linter.unusedVariables=false` turns off a linter outside the §6.7
 exclusions, so the target fails. -/
@@ -812,7 +869,7 @@ theorem linter_argument_fails (options : List (Name × OptionValue)) (mathlib : 
   rw [leanArgument_mem_failures_iff]
   refine ⟨"weak.linter.unusedVariables", "false",
     (mem_argumentTexts_iff ["-qD", "weak.linter.unusedVariables=false"] _ _).1 (by decide),
-    h.symm, rfl, .inr ⟨Or.inl rfl, rfl, ?_⟩⟩
+    h.symm, rfl, .inr ⟨.inl ⟨Or.inl rfl, rfl⟩, ?_⟩⟩
   have ho : optionOf `weak.linter.unusedVariables = `linter.unusedVariables := rfl
   rw [ho]
   simp [exclusions]
@@ -825,7 +882,20 @@ theorem warn_argument_fails (options : List (Name × OptionValue)) (mathlib : Bo
   rw [leanArgument_mem_failures_iff]
   exact ⟨"warn.sorry", "false",
     (mem_argumentTexts_iff ["-Dwarn.sorry=false"] _ _).1 (by decide),
-    h.symm, rfl, .inr ⟨Or.inr rfl, rfl, by simp [optionOf, exclusions]⟩⟩
+    h.symm, rfl,
+    .inr ⟨.inl ⟨Or.inr rfl, rfl⟩, by simp [optionOf, Name.replacePrefix, exclusions]⟩⟩
+
+/-- `-Dweak.warn.example=false` is refused although no module declares `warn.example` and Lean
+ignores the setting: a `weak.` entry is classified by its name alone. -/
+theorem undeclared_weak_argument_fails (options : List (Name × OptionValue)) (mathlib : Bool)
+    (h : "weak.warn.example".toName = `weak.warn.example) :
+    Failure.leanArgument `weak.warn.example (.string "false") ∈
+      failures ⟨options, ["-Dweak.warn.example=false"]⟩ mathlib := by
+  rw [leanArgument_mem_failures_iff]
+  exact ⟨"weak.warn.example", "false",
+    (mem_argumentTexts_iff ["-Dweak.warn.example=false"] _ _).1 (by decide),
+    h.symm, rfl,
+    .inr ⟨.inl ⟨Or.inr rfl, rfl⟩, by simp [optionOf, Name.replacePrefix, exclusions]⟩⟩
 
 /-- `-Dweak.linter.hashCommand=false` turns off a §6.7 exclusion, which a Mathlib target sets to
 `false` itself, so it adds no failure. -/
@@ -930,7 +1000,8 @@ theorem unlicensed_header_fails :
       (`linter.hashCommand, .bool false), (`linter.style.longFile, .nat 0)], []⟩ true =
       [.option `linter.style.header (.bool false) [.bool true]] := by
   simp [failures, required, baseline, mathlibBaseline, meets, admits, licensed,
-    licenseValues, valuesOf, optionOf, disables, warningRoots, exclusions, argumentSettings,
-    argumentTexts, headerLinter, licenseOption, OptionValue.readsAs, Name.getRoot]
+    licenseValues, valuesOf, optionOf, Name.replacePrefix, disables, warningRoots, exclusions,
+    argumentSettings, argumentTexts, headerLinter, licenseOption, OptionValue.readsAs, Name.getRoot,
+    warningGates]
 
 end RegulaPolicy.Community
