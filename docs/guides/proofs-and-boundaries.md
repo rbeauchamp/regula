@@ -4797,17 +4797,24 @@ hypotheses are the assumptions that they use. The theorems `removeDirectory_io` 
 hypothesis. `Regula.Filesystem` gives them for the observer at the model of the worlds, where
 `corresponds_ofIO` proves `Corresponds`.
 
-`Model.Unchanged` gives the frame of a removal. It is each path with a file name, not in the
-removed path, if its parent is its own real path before the removal. Before the removal, also no
-entry is at the path, or the path names a file that no path in the removed path names. For each
-such path, the entry after the removal has the same type as before, or no entry is at the path
-before and after.
+`Model.Unchanged` gives the frame of a removal. It is each path with a file name, if its parent is
+its own real path before the removal. The spelling of the path must not start with the removed
+path. Before the removal, also no entry is at the path, or the path names a file that is not an
+entry of the removed tree. For each such path, the entry after the removal has the same type as
+before, or no entry is at the path before and after.
+
+`Model.Below` gives the entries of the removed tree. They are the entries that `removeDirAll` of
+Lean 4.34.1 visits
+([`Init/System/IO.lean#L1335-L1342`](https://github.com/leanprover/lean4/blob/v4.34.1/src/Init/System/IO.lean#L1335-L1342)).
+The removed path is an entry of its tree. A name in a directory of the tree, other than `.` and
+`..`, is also an entry of the tree. A symbolic link is not a directory, thus the tree does not go
+into a symbolic link.
 
 `Model.ident` gives the file that a path names. It is the device and the number of the file, the
 values `st_dev` and `st_ino` of `lstat(2)`. POSIX.1-2024 `<sys/stat.h>` states that these two
 values identify a file in the system. A second name of a file has the same identity. Examples are a
 different case of a name on a volume that ignores case, an APFS firmlink, a bind mount and a hard
-link. Thus the frame does not include a second name of a file in the removed path.
+link. Thus the frame does not include a second name of an entry of the removed tree.
 
 The `IO.FS.Metadata` of Lean 4.34.1 has no device and no file number
 ([`Init/System/IO.lean#L1115-L1129`](https://github.com/leanprover/lean4/blob/v4.34.1/src/Init/System/IO.lean#L1115-L1129)).
@@ -4815,8 +4822,10 @@ Thus no observer reads `Model.ident`, and no decision uses it. It only identifie
 the frame is about.
 
 The frame also does not include a path if the real path of its parent is not that parent. Such a
-path can go through the removed path, for example through a symbolic link or with `..`. A path
-with no entry is in the frame, thus no entry appears outside the removed path.
+path can go through the removed path, for example through a symbolic link or with `..`. The target
+of a symbolic link in the tree is not an entry of the tree through that link. Thus the frame keeps
+the entry of the target, if the tree does not have it with a different name. A path with no entry
+is in the frame, thus no entry appears outside the removed path.
 
 Some volumes ignore case or Unicode normalization. On such a volume, the `realpath(3)` of Darwin
 gives the name that the volume keeps for each component. Apple Libc-1752.120.2
@@ -4855,8 +4864,8 @@ This section does not establish these properties:
   can give two devices for one file. There `RemovesTree` and `RemovesEntry` are false.
 - That the file numbers of a file system are stable. On a file system with file numbers that
   change, `RemovesTree` and `RemovesEntry` can be false.
-- That a second name of a file in a removed path stays, for example a second hard link. The frame
-  does not include such a name.
+- That a second name of an entry of a removed tree stays, for example a second hard link. The
+  frame does not include such a name.
 - That an entry outside a removed path is the same file, with the same contents, after the
   removal. The frame compares only the type of each entry.
 - That each call of an operation of an external system is in an observer. Regula's code also calls

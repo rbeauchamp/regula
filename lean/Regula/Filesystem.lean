@@ -96,9 +96,10 @@ theorem observer_removeEntry_gone (reads : ReadsEntry (observed entry real ident
   removeEntry_gone_io (corresponds_ofIO observer entry real ident) reads path w
 
 /-- `removeDirectory observer` of a directory at its own place removes it and keeps the entry at
-each path of its frame (`Model.Unchanged`), each path below a parent at its own real path whose
-file before is not one within the directory, and when it fails it kept them, when the observer
-satisfies `ReadsEntry` and `RemovesTree`. -/
+each path of its frame (`Model.Unchanged`), each path not spelled within the directory, below a
+parent at its own real path, whose file before is not an entry of the directory's tree
+(`Model.Below`), and when it fails it kept them, when the observer satisfies `ReadsEntry` and
+`RemovesTree`. -/
 theorem observer_removeDirectory (reads : ReadsEntry (observed entry real ident))
     (removes : RemovesTree (observed entry real ident)) (path : FilePath) (w : Void IO.RealWorld)
     (directory : entry w path = some .dir) (own : real w path = some path) :
@@ -108,9 +109,9 @@ theorem observer_removeDirectory (reads : ReadsEntry (observed entry real ident)
   removeDirectory_io (corresponds_ofIO observer entry real ident) reads removes path w directory own
 
 /-- `removeEntry observer` of a path at its own place removes it and keeps the entry at each path of
-its frame (`Model.Unchanged`), each path below a parent at its own real path whose file before is
-not the removed one, and when it fails it kept them, when the observer satisfies `ReadsEntry` and
-`RemovesEntry`. -/
+its frame (`Model.Unchanged`), each path not spelled within the path, below a parent at its own
+real path, whose file before is not an entry of the path's tree (`Model.Below`), and when it fails
+it kept them, when the observer satisfies `ReadsEntry` and `RemovesEntry`. -/
 theorem observer_removeEntry (reads : ReadsEntry (observed entry real ident))
     (removes : RemovesEntry (observed entry real ident)) (path : FilePath) (w : Void IO.RealWorld)
     (own : real w path = some path) :
