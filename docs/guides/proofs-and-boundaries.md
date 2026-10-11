@@ -4495,8 +4495,9 @@ controls run `axiomGate` on the repository with a manifest it refuses before any
 structural baseline is `axiomGate`, `docFenceAudit` and `freshChecker` (its first shard, whose
 controls run `axiomGate` alone, names only that; its second keeps the partition's baseline),
 the execution baseline is `axiomGate` alone, and neither builds the
-repository's claimed surface; the lint-driver baseline is `axiomGate`, `lint` and `ruleExamples`, and the other
-partitions keep the complete baseline. That is a reading of the controls' code, not a theorem.
+repository's claimed surface; the lint-driver baseline is `axiomGate`, `lint`, `ruleExamples` and
+the module `Regula.Linter`, and the other partitions keep the complete baseline. That is a reading
+of the controls' code, not a theorem.
 For the structural and execution partitions, two guards bound it: after the baseline build,
 `toolPath` refuses an executable that build did not name (for every checker executable the
 self-test's own module runs, other than itself), and `baselineOf_axiomGate` proves that every
@@ -4504,8 +4505,8 @@ baseline names `axiomGate`, which `CompilerPaths` and `PolicyQualification` run 
 claimed-surface `.olean` that a control of these two partitions read from the repository's build
 without the baseline naming it would be absent on a clean checkout and fail that control there;
 on a warm local build it is not detected. `scripts/verify.sh` builds the self-test, `axiomGate`
-and, for a structural or lint-driver selection, the other checker executables its baseline names
-(none for the first shard) in one Lake invocation
+and, for a structural or lint-driver selection, the other targets its baseline names
+(none for the first structural shard) in one Lake invocation
 (`RegulaVerification.commands`), so the gate's own modules compile beside the self-test's last
 ones instead of after its link; that command selects nothing, and the baseline build still
 names and builds its targets. The frozen-artifact, cross-surface decision, library cycle, driver
@@ -4516,22 +4517,23 @@ The lint-driver controls run `lake lint` in adopters of their own, which require
 Lake path dependency of the checkout. The two guards and the clean-checkout argument above do not
 cover the modules that these adopters read from the repository's build. If the baseline did not
 build such a module, an adopter's Lake builds it there instead of a refusal, possibly in several
-concurrent groups. No guard detects that. Each module that the adopters import is one that
-`axiomGate` or `lint` imports, apart from `Regula.Linter` and `Regula.Linter.Rules`, by a reading
-of import lines. The control `toml/absent-worker` runs alone before the other controls, and it
-builds those two because its adopter's `examples/lake-lint-toml/Gadget/Double.lean` imports
-`Regula.Linter`.
+concurrent groups. No guard detects that. Thus the lint-driver baseline names `Regula.Linter`,
+which imports `Regula.Linter.Rules`. Each other module that the adopters import is one that
+`axiomGate` or `lint` imports, by a reading of import lines.
 
-The controls of each of these two partitions are divided into two shards, `1/2` and `2/2`
-(`--shard`), which the diagnostics workflow runs as separate jobs. Every control carries its one
-shard where the partition lists it, and a shard runs the controls that carry it (`inShard`);
-`inShard_cover` proves that the two selections together are a rearrangement of the whole list,
-so each control runs in exactly one shard. Both shards list the same controls because they run
-the same sources, which no theorem states. The structural shards are the mutation clusters
-`self-hosted` and `self-hosted-positive` with the frozen-artifact and cross-surface decision
-controls, and `a`, `b`, `c` and `d` with the library cycle, driver copy and manifest controls; the
-execution shards hold one correspondence cluster each and alternate compiler-path cases. A
-shard's PASS names the controls it ran and is not the partition's.
+The controls of the structural and of the execution partition are divided into two shards, `1/2`
+and `2/2`. The lint-driver controls are divided into five shards, `1/5` to `5/5`. The diagnostics
+workflow runs each shard as a separate job. Every control carries its one shard where the
+partition lists it, and a shard runs the controls that carry it. The theorem `inShard_cover`
+proves that the selections of the shards together are a rearrangement of the whole list. Thus
+each control runs in exactly one shard.
+
+The shards of a partition list the same controls because they run the same sources, which no
+theorem states. The first structural shard has the mutation clusters `self-hosted` and
+`self-hosted-positive` with the frozen-artifact and cross-surface decision controls. The second
+has the clusters `a`, `b`, `c` and `d` with the library cycle, driver copy and manifest controls.
+The execution shards hold one correspondence cluster each and alternate compiler-path cases. A
+shard's PASS names the controls or the groups that it ran and is not the partition's.
 
 Before the structural project, every cluster ran in a copy of the whole repository claiming
 `RegulaPolicy`, and one partition held the structural, correspondence and compiler-path
@@ -4549,76 +4551,74 @@ above); with them, one run the same day on that machine, at a load average of 7 
 in 85 s.
 
 The lint-driver partition runs the control `toml/absent-worker` first and alone, because it
-removes the `axiomGate` of the repository's build. Then four workers run the other controls in
-groups, and each worker takes the next group when it is free (`LintQualification.qualify`). The
-groups are listed longest first, by the times below. Each group writes its start and its time to
-the job log. The path-dependency controls are one chain in one adopter, which the queue runs as
-three groups.
+removes the `axiomGate` of the repository's build. Only the first shard runs it. Then four workers
+run the other controls of the shard in groups, and each worker takes the next group when it is
+free. The groups are listed longest first, by the times below, and a shard keeps that order
+(`LintQualification.qualify`). Each group writes its start and its time to the job log.
 
-Each of these three groups starts from the same files of the adopter. The chain is cut at the
-two points where it has restored each file that it changed. At these points, the files differ
-from the start only in build output and in one module that the next control writes again. Thus
-each control reads the files that it read in the chain. Only the first control of a later group
-that builds starts with no build output. In the chain, it started with the output of the
-controls before it.
+Each adopter has one chain of controls. The chain of the `lakefile.lean` adopter is cut into five
+groups, that of the `lakefile.toml` adopter into four, and the chain of the path dependency into
+eight. Each cut is at a point where the chain has restored each file that it changed. Some files
+are exceptions, but no later control reads them before it writes them. Thus each control reads
+the files that it read in the chain.
 
-On the slower hosted runners, the timed step of `diagnostics lint-driver` reached its
-420-second deadline after the path-dependency and owned-checker controls were added
-(Diagnostics runs 38073121895, 38074694772 and 38077207189, jobs 114274540988, 114279196648 and
-114289264598). In these job logs, the prologue from the start of the deadline to the build took
-about 3.5 s. Then the build of the self-test took 160 to 169 s, the baseline build 42 to 46 s and
-`toml/absent-worker` 10 to 12 s. That baseline build also built the fixtures, the claimed
-surface, `docFenceAudit` and `freshChecker`, which no lint-driver control reads.
+The first control of a later group starts with no build output, if it builds. In the chain, it
+started with the output of the controls before it. In the chains of the two adopters, most of
+these controls also started with no build output, because a restore removes it.
 
-From the end of `toml/absent-worker`, where the groups start, `lean` took 140 to 153 s and `toml`
-121 to 133 s. The group `owned-checker` took 84 to 93 s, and the part of the path chain that is
-now `path-owned` 85 to 93 s (up to `path/owned-standard-logical`). The deadline killed each run
-190 to 202 s after the groups started, while the path chain was still running. Its last complete
-control was `path/override-last-fresh` in run 38073121895 and `path/owned-override` in the other
-two. The groups `cache`, `empty-facets`, `dependency-cache`, `escaped-name` and `guard` did not
-start in these runs.
+The times are from the slowest run of the campaign before the cut, Diagnostics run 38166516467,
+job 114550165778. There, the build of the self-test took 196 s. The groups then took about 815 s
+together on four workers, and the deadline stopped the run in the last groups. The chain of the
+`lakefile.lean` adopter took 166 s, that of the `lakefile.toml` adopter 130 s, and the
+path-dependency chain 296 s. The group `owned-checker` took 91 s, and the control
+`toml/absent-worker` took 10 s.
 
-Two faster runs passed under the old schedule (Diagnostics runs 38071832852 and 38077102864, jobs
-114270714472 and 114289843134). Their builds of the self-test took 110 and 135 s. There, `lean`
-took 105 and 118 s and the whole path chain 162 and 179 s. After the chain, in later batches,
-`cache` took 18.7 and 20.7 s and `empty-facets` 17.1 and 19.2 s. Also, `dependency-cache` took
-14.9 and 17.1 s, `escaped-name` 14.7 and 16.5 s and `guard` 3.1 and 3.5 s.
+The deadline also stopped a run on a slower runner, where the build took 217 s (Diagnostics run
+38168005306, attempt 1, job 114554610171). Each group that ended there took 1.09 to 1.10 times as
+long as in the slowest run.
 
-The next numbers are derived, not logged. In the faster runs, the chain took 1.52 to 1.54 times
-as long as `lean`. With that ratio, the times of `lean` in the runs that reached the deadline give
-a chain of about 213 to 236 s. Thus `path-names` and `path-layout` share about 120 to 151 s. The
-time of `lean` in the runs that reached the deadline is 1.19 to 1.46 times that of the faster
-runs. Scaled by that factor, `cache` takes at most about 30 s, `empty-facets` 28 s,
-`dependency-cache` 25 s, `escaped-name` 24 s and `guard` 5 s.
-
-The order of the first four groups comes from the runs that reached the deadline. The order of
-the five short groups comes from the faster runs. The order of `path-names` and `path-layout`
-comes from local runs on a developer machine. In these local runs, `path-names` took a half to
-three fifths of the time of the two. No other source gives that division.
-
-No worker of the queue is idle while a group waits. Thus a group starts not later than a quarter
-of the summed times of the groups listed before it. It ends not later than that time plus its own
-time. The four groups listed first start together. No schedule of four workers ends before the
-longest group or before a quarter of the total time of the groups.
-
-With these inputs, the groups take about 640 to 727 s together. Thus the lower end is about 160
-to 182 s, more than the time of `lean`. At the upper inputs, each group listed after the three
-path groups ends by about 199 s. The two later path groups end by about 261 s at most, and by
-about 208 s with the division of the local runs. At the lower inputs, the groups end by about
-188 s with that division.
-
-Before the groups, the timed step has about 3.5 s of prologue and the build of the self-test, 160
-to 169 s. Then the baseline build takes about 0.5 s, because the build of the self-test also made
-its targets. That time comes from local runs of the new schedule. The control
-`toml/absent-worker` takes 10 to 12 s. With the groups, the prediction for the timed step is
-about 362 to 393 s.
-
-The times other than that of the baseline build are from the old schedule. Thus the result is an
-estimate, not a bound on the new schedule. The target is a timed step of at most 390 s on three
-runs on the slower hosted runners, 30 s under the deadline. The prediction straddles that target,
-thus the margin rests on the CI observations of this change. The job logs of these runs print the
-start and the time of each group. That is a target, not a bound, and the deadline alone refuses a
+A later change added controls to the chain of the `lakefile.lean` adopter, and they are in the
+group `lean-arguments`. After that change, a faster runner took 135 s for that chain (Diagnostics
+run 38170532999, job 114562100064). The `lakefile.toml` chain also gained a control. There, each
+other group of more than 40 s took 0.66 to 0.72 times as long as in the slowest run. Thus the
+added controls took about 15 to 25 s there, which is about 22 to 36 s at the speed of the slowest
 run.
+
+The shards other than the second divide the groups so that the sums of their times are similar.
+Without the group `lean-arguments`, these sums are 174 to 195 s at the speed of the slowest run.
+The group `owned-checker` is one `lake lint -- --fresh` of 91 s, which no cut can divide. Thus the
+second shard holds only that group and `guard`, so that this control has more of the processors.
+The fourth shard, which had the most room, also holds `lean-arguments`. In the shards other than
+the second, the longest group took at most 55 s in the chain.
+
+The next numbers are derived, not logged. With four workers, the first, third and fifth shards end
+their groups in about 53 to 63 s at the speed of the slowest run. That time includes
+`toml/absent-worker` in the first shard. Before the added controls, the fourth shard ended its
+groups in about 55 s. Its added 22 to 36 s spread over four workers, because neither
+`lean-decisions` nor `lean-arguments` is longer than 55 s. Thus it ends its groups in about 61 to
+64 s.
+
+A group that does not start a chain also builds the adopter again, which adds some seconds. At 1.1
+times these times, the build takes 217 s. The first, third and fifth shards then take about 58 to
+70 s, and the fourth about 67 to 70 s. Before the groups, the prologue and the baseline build take
+about 4 s. Thus each of these four shards ends at about 279 to 291 s, plus its adopter builds,
+before the target of 315 s.
+
+The second shard has no such estimate from these runs, because they do not show `owned-checker`
+with only `guard` beside it. On the slower runner, with three groups beside it, it took 99 s. From
+that contended time, the upper estimate is 217 s plus 4 s plus 99 s, about 320 s. A sixth shard
+cannot lower it, because `owned-checker` is one `lake lint -- --fresh` control that no cut
+divides. Its time beside `guard` alone on a 4-vCPU runner is the one input that derivation cannot
+give.
+
+The decision criterion is fixed before the run. Take the time of `owned-checker` from the CI job
+for shard `2/5` of the change that made these shards, and scale it by 1.10. Add the 217 s build
+and the 4 s of setup. The shard meets the target of 315 s if the sum is at most 315 s, and fails
+it above. These are estimates, not a bound, and the CI runs of that change give the observed
+times.
+
+The unsharded `diagnostics lint-driver` runs every group in one invocation. On the slower runners
+it does not end before its deadline, thus CI runs the five shards.
 
 **Other proved oracles.** Quantifiers range over supplied Lean values; the IO drivers call each
 `ExecutableContract.run`, so the evidence is required by their source linkage and erased at
