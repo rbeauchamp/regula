@@ -1877,7 +1877,7 @@ theorems decide.
   order of the visits. A required name with no record is reported as unavailable code, which fails
   closed.
 
-The probe keeps each record for the later roots of the same environment. `Probe.environmentReport` gives one record cache to each walk. A record does not use its root. Only the note for a name that is not in the environment names the root, and the probe does not keep that record. When the probe uses a kept record again, it requests the same module histories again, and the report gives one answer for each module. This argument about the probe is observed, and no theorem gives it.
+The probe keeps each record for the later roots of the same environment. The walks of one report share one record cache. `Probe.observeNode` does not receive the root, so a record is the same for each root. After the cache, the walk adds the one note that names its root, for a name with no constant and no compiled code. When the probe uses a kept record again, it requests the same module histories again, and the report gives one answer for each module. No theorem states that a kept record is equal to a new record.
 
 The type of a record is indexed by its name (`NodeRecord name`), so the map of records holds a
 record only under its own name. A record holds the targets of the edges from its name, and not the
