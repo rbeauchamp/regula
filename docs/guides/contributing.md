@@ -386,9 +386,12 @@ except `Fixtures` alone, with its private declarations. It refuses a declaration
 value names the instance `Lean.Json.instBEq` or compares texts of `Json.compress`.
 `Regula.JsonAgreement` is exempt, and so is each declaration of
 `SelfAudit.jsonComparisonAllowlist`, which states why its two operands are values that Regula
-built. The check reads elaborated terms, so it finds a comparison through a project `BEq` instance
-at that instance. It does not find a comparison through an instance that Lean or a dependency
-declares for a type with a `Json` field.
+built.
+
+The self-audit refuses an entry if the declaration it names compares no `Json` values, so each
+entry is a control of the check. The check reads elaborated terms, so it finds a comparison through
+a project `BEq` instance at that instance. It does not find a comparison through an instance that
+Lean or a dependency declares for a type with a `Json` field.
 
 The repository's own checklist rows, which apply to this repository only:
 
