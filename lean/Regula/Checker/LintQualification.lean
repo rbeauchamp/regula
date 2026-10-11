@@ -294,7 +294,7 @@ private def leanAdopter (probes : Std.Mutex Unit) (repo adopter : FilePath) :
         "regula lint: INVALID CONFIGURATION"],
       excludes := #[s!"regula lint: {acceptanceLabel}"] } #["--", "--json-out", "stale.json"])
   let stale := (← readJson (adopter / "stale.json")).getObjValD "status"
-  unless stale == toJson "incomplete" do
+  unless JsonAgreement.conforms stale (toJson "incomplete") do
     failures := failures.push s!"lake-lint/lean/option-like-value-refused: stale.json has status \
       {stale.compress}"
   if ← (adopter / "--json-out").pathExists then
@@ -324,7 +324,7 @@ private def leanAdopter (probes : Std.Mutex Unit) (repo adopter : FilePath) :
       contains := #["duplicate --json-out option", "regula lint: INVALID CONFIGURATION"],
       excludes := #[s!"regula lint: {acceptanceLabel}"] } #["--", "--json-out", "stale.json"])
   let stale := (← readJson (adopter / "stale.json")).getObjValD "status"
-  unless stale == toJson "incomplete" do
+  unless JsonAgreement.conforms stale (toJson "incomplete") do
     failures := failures.push s!"lake-lint/lean/each-destination-marked: stale.json has status \
       {stale.compress}"
   IO.FS.removeFile (adopter / "stale.json")
@@ -341,7 +341,7 @@ private def leanAdopter (probes : Std.Mutex Unit) (repo adopter : FilePath) :
     failures := failures.push "lake-lint/lean/option-like-manifest-read: the manifest named \
       --json-out was overwritten"
   let named := (← readJson (adopter / "named.json")).getObjValD "status"
-  unless named == toJson "completed" do
+  unless JsonAgreement.conforms named (toJson "completed") do
     failures := failures.push s!"lake-lint/lean/option-like-manifest-read: named.json has status \
       {named.compress}"
   IO.FS.removeFile (adopter / "--json-out")
@@ -363,8 +363,8 @@ private def leanAdopter (probes : Std.Mutex Unit) (repo adopter : FilePath) :
       directory's result.json was changed"
   match Json.parse (← IO.FS.readFile (adopter / "result.json")) with
   | .ok marked =>
-    unless marked.getObjValD "status" == toJson "incomplete" &&
-        marked.getObjValD "gitFacts" == toJson "injected" do
+    unless JsonAgreement.conforms (marked.getObjValD "status") (toJson "incomplete") &&
+        JsonAgreement.conforms (marked.getObjValD "gitFacts") (toJson "injected") do
       failures := failures.push s!"lake-lint/lean/rule-examples-project-marked: the project's \
         result.json has status {(marked.getObjValD "status").compress} and gitFacts \
         {(marked.getObjValD "gitFacts").compress}"
