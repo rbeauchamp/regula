@@ -1901,7 +1901,7 @@ the theorems of `StackWalk` with the same names.
 | Each step is an edge | `ExecutionWalk.mem_successors`, `ExecutionWalk.reach_iff` | A name that the walk queues after a record is a target of one of the edge channels of the record. Thus the successors and the edges of the records reach the same names. |
 | The bound is sufficient | `StackWalk.walk_ok`, `ExecutionWalk.bounds`, `ExecutionWalk.walk_ok` | A walk returns visits when each reached node has successors and the bound is more than the number of successors of all nodes (`StackWalk.Bounds`). For the records, the bound is one more than the number of successors of all records. |
 | The decision is exact | `ExecutionWalk.checked_walk` | `walk` returns visits exactly when `Recorded` is true. It accepts a root with a record that has no successor, and it refuses a root with no record. |
-| The account of a root | `ExecutionWalk.assemble_account`, `ExecutionWalk.AccountOf` | `assemble` builds the account that the visits and their records give, and each part is in canonical form. The nodes are the visited names, and the closure has the visits with their modules and parents. Each edge channel and the compiler edges are the visited edges of the channel. The required code is the root when it requires code, and each call of a visited compiler body. The unavailable code is the required names with no function body or `extern` body. The unresolved paths hold the paths of each visited record. They are not empty when code is unavailable or the visited replacement edges have a cycle. The boundaries are those of the visited records in visit order, with their index and the callers of their name. |
+| The account of a root | `ExecutionWalk.assemble_account`, `ExecutionWalk.AccountOf` | `assemble` builds the account that the visits and their records give, and each name and edge set is in canonical form. The nodes are the visited names, and the closure has the visits with their modules and parents. Each edge channel and the compiler edges are the visited edges of the channel. The required code is the root when it requires code, and each call of a visited compiler body. The unavailable code is the required names with no function body or `extern` body. The unresolved paths hold the paths of each visited record. They are not empty when code is unavailable or the visited replacement edges have a cycle. The boundaries are those of the visited records in visit order, with their index and the callers of their name. |
 | Two walks agree | `StackWalk.walk_agree`, `StackWalk.walk_map`, `StackWalk.walk_fuel` | Take a map of the nodes that is one-to-one on the nodes that the first successors reach from the root. Let the successors of the image of each such node be the images of its successors, in their order. Then two walks that return visits give the visits of the first, carried by the map, with the same parents. Their bounds can be different. |
 
 **The reader runs the same walk.** `SharedExecution.walk` is `StackWalk.walk` at the indices of
@@ -2141,8 +2141,11 @@ Each producer that [#199](https://github.com/rbeauchamp/regula/issues/199) lists
 observing pass and pure decisions with kinds. The sections above state what is proved and what is
 observed for each of them.
 
-No proof obligation of the producers that are split is open. The section of each one names what it
-leaves observed, trusted or not proved.
+This proof obligation of the producers that are split is open:
+
+- The converse for the unresolved paths of the account that `ExecutionWalk.assemble` builds: no
+  extra entry and no false cycle message
+  ([above](#root-and-closure-discovery-decision-and-observing-pass)).
 
 ## Producers
 

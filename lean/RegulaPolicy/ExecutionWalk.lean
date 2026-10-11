@@ -402,9 +402,11 @@ def assemble (rootCompiled : Bool) (walked : Walked) :
 /-! ## What the account of a root is
 
 The account is stated here as a relation over the records of the request and the visits of the
-walk, with no function of `assemble`. Each part is in its canonical form, as admission requires
-(`ExecutionClosure.Valid`), and holds exactly the names or the edges that the visits and their
-records give. -/
+walk, with no function of `assemble`. Each name and edge set is in its canonical form, as admission
+requires (`ExecutionClosure.Valid`), and holds exactly the names or the edges that the visits and
+their records give. The visits and the boundaries are exactly those of the walk and of the visited
+records, in their order. The unresolved paths hold the paths of the visited records, with no
+statement about other entries. -/
 
 /-- `name` is the name of a visit. -/
 def Visited (visits : Array (Name × Option Nat)) (name : Name) : Prop :=
