@@ -3704,11 +3704,14 @@ library includes is a failing setup issue only when a claimed module (of a libra
 the manifest does not exclude) reaches it by import through the package's modules, which the
 audit rejects as outside every library; any other such module is a `note` that does not count
 toward `doctor`'s exit status. That reachability is read from the sources' import headers, not
-from a build. A claimed module counts only when an import names it. The modules below the roots
+from a build. `observe` reads only the headers that the decision reads, from the source that Lake
+finds. `coverage_congr` proves that other headers do not change a finding. A claimed module
+counts only when an import names it. The modules below the roots
 of each claimed library that gets a glob also count as claimed. `Coverage.globbing` computes that
 fixed point, so it counts a module that only they import before `init` writes the glob. A library
 sets its own `globs` when Lake reports other globs than its roots alone, the default of Lake. It
-also sets them when its declaration writes a `globs` field, even with that value. Each such finding states how many modules the library leaves out and names at most
+also sets them when its declaration writes a `globs` field, as Lake reads the file, even with that
+value. Each such finding states how many modules the library leaves out and names at most
 `shownModules` of them, wrapped (`moduleLines`, which prints `moduleSummary`'s names grouped by
 `wrapFrom`): `moduleSummary_complete` proves those names are a prefix of the modules and the
 count is exactly the rest, and `wrapFrom_flatten` that grouping keeps each name, in order; that

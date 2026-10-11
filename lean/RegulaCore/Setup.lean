@@ -23,7 +23,8 @@ commands execute over what they observe of a project.
   changes the facts (`Coverage.glob`), and after the plan they are the facts with those globs
   written (`coverage_run`), in which no library needs one (`unglobbed_run`) and what libraries
   leave out otherwise is unchanged (`uncovered_run`). A library with `globs` of its own keeps
-  them, and its left-out modules stay an issue `init` does not fix.
+  them, and its left-out modules stay an issue `init` does not fix. The findings read the imports
+  of `Coverage.reads` alone (`coverage_congr`).
 - `Settled`, `plan_eq_nil_iff_settled`, `issues_unfixable_iff_settled`, `plan_eq_nil_iff`: the plan
   is empty exactly when no fixable issue remains.
 - `issues_run`: applying the plan removes exactly the fixable issues and adds none.
@@ -211,8 +212,9 @@ structure Coverage where
   executables : List String
   /-- The root module of each root `lean_exe` the manifest does not exclude. -/
   claimedExecutables : List String
-  /-- Each module of the package with a source file, with the modules of the package it imports
-  as Lean's import-header parser reads them. -/
+  /-- Each module whose import header the command read, with the modules of the package it imports
+  as Lean's import-header parser reads them. It reads those of `Coverage.reads`, and the findings
+  are the same for every table that lists the same imports for them (`coverage_congr`). -/
   imports : List (String × List String)
   deriving DecidableEq, Repr
 
@@ -288,15 +290,86 @@ def reach (imports : List (String × List String)) :
     let new := (frontier.filter (!seen.contains ·)).eraseDups
     if new.isEmpty then seen else reach imports fuel (seen ++ new) (new.flatMap (importsOf imports))
 
+/-- The modules whose imports the walk of `reach` reads: those each round adds. -/
+def reachReads (imports : List (String × List String)) :
+    Nat → List String → List String → List String
+  | 0, _, _ => []
+  | fuel + 1, seen, frontier =>
+    let new := (frontier.filter (!seen.contains ·)).eraseDups
+    if new.isEmpty then []
+    else new ++ reachReads imports fuel (seen ++ new) (new.flatMap (importsOf imports))
+
+/-- The walk reads only the imports of the modules `reachReads` names: two import tables that list
+the same imports for each of them give the same walk. -/
+theorem reach_congr (A B : List (String × List String)) (fuel : Nat) (seen frontier : List String)
+    (h : ∀ m ∈ reachReads A fuel seen frontier, importsOf A m = importsOf B m) :
+    reach A fuel seen frontier = reach B fuel seen frontier ∧
+      reachReads A fuel seen frontier = reachReads B fuel seen frontier := by
+  induction fuel generalizing seen frontier with
+  | zero => exact ⟨rfl, rfl⟩
+  | succ fuel ih =>
+    simp only [reach, reachReads] at h ⊢
+    by_cases hn : ((frontier.filter (!seen.contains ·)).eraseDups).isEmpty = true
+    · simp only [hn, ↓reduceIte, and_self]
+    · simp only [hn, Bool.false_eq_true, ↓reduceIte] at h ⊢
+      have hmap : ((frontier.filter (!seen.contains ·)).eraseDups).flatMap (importsOf A) =
+          ((frontier.filter (!seen.contains ·)).eraseDups).flatMap (importsOf B) := by
+        simp only [List.flatMap_def]
+        congr 1
+        exact List.map_congr_left fun m hm => h m (List.mem_append_left _ hm)
+      have := ih _ _ fun m hm => h m (List.mem_append_right _ hm)
+      rw [hmap] at this ⊢
+      exact ⟨this.1, by rw [this.2]⟩
+
+/-- The modules library `l` includes once it has its glob: also every module below its roots
+unless it sets `globs` of its own. -/
+def _root_.Regula.Setup.Library.globbedModules (l : Library) : List String :=
+  if l.globbed then l.modules else l.modules ++ l.below
+
+/-- The rounds the walk of `witnesses` may take: one more than the modules the facts name, each
+library's counted as `Library.globbedModules` and its `below` again, which a glob leaves unchanged
+(`fuel_globAll`). Each round that runs adds a module an import names, and the command lists only
+imports of modules the facts name, so the bound lets each such round run; that is by counting,
+not a theorem. -/
+def fuel (c : Coverage) : Nat :=
+  (c.libraries.map fun l => l.globbedModules.length + l.below.length).sum +
+    c.executables.length + 1
+
+/-- The modules a claimed module of the facts is: each module of a claimed library, with the
+libraries named in `S` that set no `globs` given their globs, and each claimed executable root. -/
+def starts (c : Coverage) (S : List String) : List String :=
+  (c.libraries.filter (·.claimed)).flatMap (·.modulesAt S) ++ c.claimedExecutables
+
 /-- The modules a claimed module imports, directly or through other modules of the package, when
 each library named in `S` that sets no `globs` has its glob, so that the modules below its roots
 are claimed when it is. A module counts only when an import names it, never as a start of the
-walk. Every module the walk adds is named by an import, so the bound, one more than the number of
-imports listed, lets each round that adds one run; that is by counting, not a theorem. -/
+walk. -/
 def witnesses (c : Coverage) (S : List String) : List String :=
-  let starts := (c.libraries.filter (·.claimed)).flatMap (·.modulesAt S) ++ c.claimedExecutables
-  reach c.imports (c.imports.foldl (fun n e => n + e.2.length) 1) []
-    (starts.flatMap (importsOf c.imports))
+  reach c.imports c.fuel [] ((c.starts S).flatMap (importsOf c.imports))
+
+/-- The modules whose imports `witnesses` reads: the starts and each module the walk adds. -/
+def readsAt (c : Coverage) (S : List String) : List String :=
+  c.starts S ++ reachReads c.imports c.fuel [] ((c.starts S).flatMap (importsOf c.imports))
+
+/-- Facts that differ at most in their imports, and list the same imports for each module of `R`. -/
+def Agree (c c' : Coverage) (R : List String) : Prop :=
+  c.libraries = c'.libraries ∧ c.executables = c'.executables ∧
+    c.claimedExecutables = c'.claimedExecutables ∧
+    ∀ m ∈ R, importsOf c.imports m = importsOf c'.imports m
+
+theorem witnesses_congr {c c' : Coverage} {S : List String} (h : c.Agree c' (c.readsAt S)) :
+    c.witnesses S = c'.witnesses S := by
+  obtain ⟨hl, he, hc, hi⟩ := h
+  have hs : c.starts S = c'.starts S := by simp only [starts, hl, hc]
+  have hf : c.fuel = c'.fuel := by simp only [fuel, hl, he]
+  have hmap : (c.starts S).flatMap (importsOf c.imports) =
+      (c.starts S).flatMap (importsOf c'.imports) := by
+    simp only [List.flatMap_def]
+    congr 1
+    exact List.map_congr_left fun m hm => hi m (List.mem_append_left _ hm)
+  unfold witnesses
+  rw [← hs, ← hf, (reach_congr c.imports c'.imports c.fuel [] _
+    fun m hm => hi m (List.mem_append_right _ hm)).1, hmap]
 
 /-- The modules below the roots of `l` that no library includes and that a claimed module imports
 (`w`, the `witnesses`), when each library named in `S` that sets no `globs` has its glob. -/
@@ -394,6 +467,75 @@ theorem nextGlobs_globsFrom (c : Coverage) (S : List String) : c.nextGlobs (c.gl
 termination_by c.pending S
 decreasing_by exact c.pending_lt S (by assumption)
 
+/-- The modules whose imports `globsFrom` reads, round by round (`readsAt`), ending with those
+read at the libraries it returns. -/
+def globReads (c : Coverage) (S : List String) : List String :=
+  c.readsAt S ++ if _h : c.nextGlobs S = [] then [] else globReads c (S ++ c.nextGlobs S)
+termination_by c.pending S
+decreasing_by exact c.pending_lt S (by assumption)
+
+/-- The modules whose imports the decision reads: `globReads` from no library. The command reads
+the import header of these modules alone, and the decision is the same for every import table
+that lists the same imports for them (`globbing_congr`, `witnesses_globbing_congr`). -/
+def reads (c : Coverage) : List String := c.globReads []
+
+theorem Agree.mono {c c' : Coverage} {R R' : List String} (h : c.Agree c' R)
+    (hR : ∀ m ∈ R', m ∈ R) : c.Agree c' R' :=
+  ⟨h.1, h.2.1, h.2.2.1, fun m hm => h.2.2.2 m (hR m hm)⟩
+
+theorem readsAt_subset_globReads (c : Coverage) (S : List String) :
+    ∀ m ∈ c.readsAt S, m ∈ c.globReads S := by
+  intro m hm
+  rw [globReads]
+  exact List.mem_append_left _ hm
+
+theorem readsAt_globsFrom (c : Coverage) (S : List String) :
+    ∀ m ∈ c.readsAt (c.globsFrom S), m ∈ c.globReads S := by
+  intro m hm
+  rw [globsFrom] at hm
+  rw [globReads]
+  by_cases h : c.nextGlobs S = []
+  · simp only [h, ↓reduceDIte] at hm ⊢
+    exact List.mem_append_left _ hm
+  · simp only [h, ↓reduceDIte] at hm ⊢
+    exact List.mem_append_right _ (readsAt_globsFrom c _ m hm)
+termination_by c.pending S
+decreasing_by exact c.pending_lt S h
+
+theorem nextGlobs_congr {c c' : Coverage} {S : List String} (h : c.Agree c' (c.readsAt S)) :
+    c.nextGlobs S = c'.nextGlobs S := by
+  have hw := witnesses_congr h
+  obtain ⟨hl, he, -, -⟩ := h
+  simp only [nextGlobs, uncoveredIn, included, hw, hl, he]
+
+/-- Facts that list the same imports for each module `globReads` names give the same globs. -/
+theorem globsFrom_congr {c c' : Coverage} (S : List String) (h : c.Agree c' (c.globReads S)) :
+    c.globsFrom S = c'.globsFrom S := by
+  have hn : c.nextGlobs S = c'.nextGlobs S :=
+    nextGlobs_congr (h.mono (readsAt_subset_globReads c S))
+  conv => lhs; rw [globsFrom]
+  conv => rhs; rw [globsFrom]
+  by_cases hx : c.nextGlobs S = []
+  · have hx' : c'.nextGlobs S = [] := hn ▸ hx
+    simp only [hx, hx', ↓reduceDIte]
+  · have hx' : ¬c'.nextGlobs S = [] := hn ▸ hx
+    simp only [hx, hx', ↓reduceDIte]
+    rw [← hn]
+    refine globsFrom_congr _ (h.mono fun m hm => ?_)
+    rw [globReads]
+    simp only [hx, ↓reduceDIte]
+    exact List.mem_append_right _ hm
+termination_by c.pending S
+decreasing_by exact c.pending_lt S hx
+
+theorem globbing_congr {c c' : Coverage} (h : c.Agree c' c.reads) : c.globbing = c'.globbing :=
+  globsFrom_congr [] h
+
+theorem witnesses_globbing_congr {c c' : Coverage} (h : c.Agree c' c.reads) :
+    c.witnesses c.globbing = c'.witnesses c'.globbing := by
+  rw [← globbing_congr h]
+  exact witnesses_congr (h.mono (readsAt_globsFrom c []))
+
 /-- The facts with the library named `name` given its glob (`Library.glob`). -/
 def glob (c : Coverage) (name : String) : Coverage :=
   { c with libraries := c.libraries.map fun l => if l.name == name then l.glob else l }
@@ -435,10 +577,23 @@ theorem included_globAll (c : Coverage) (S : List String) (m : String) :
     (c.globAll S).included [] m = c.included S m := by
   simp [included, globAll, List.any_map, Function.comp_def, modulesAt_globIn]
 
+theorem _root_.Regula.Setup.Library.globIn_globbedModules (S : List String) (l : Library) :
+    (l.globIn S).globbedModules = l.globbedModules := by
+  unfold Library.globIn Library.glob Library.globbedModules
+  cases h : S.contains l.name <;> cases hg : l.globbed <;> simp [hg]
+
+theorem fuel_globAll (c : Coverage) (S : List String) : (c.globAll S).fuel = c.fuel := by
+  simp only [fuel, globAll, List.map_map, Function.comp_def, Library.globIn_globbedModules,
+    Library.globIn_below]
+
+theorem starts_globAll (c : Coverage) (S : List String) : (c.globAll S).starts [] = c.starts S := by
+  simp [starts, globAll, List.filter_map, List.flatMap_map, Function.comp_def,
+    modulesAt_globIn, Library.globIn_claimed]
+
 theorem witnesses_globAll (c : Coverage) (S : List String) :
     (c.globAll S).witnesses [] = c.witnesses S := by
-  simp [witnesses, globAll, List.filter_map, List.flatMap_map, Function.comp_def,
-    modulesAt_globIn, Library.globIn_claimed]
+  simp only [witnesses, fuel_globAll, starts_globAll]
+  rfl
 
 theorem uncoveredIn_globAll (c : Coverage) (S w : List String) (l : Library) :
     (c.globAll S).uncoveredIn [] w (l.globIn S) = c.uncoveredIn S w l := by
@@ -530,6 +685,20 @@ def Observation.unimported (o : Observation) : List (String × List String × Li
   let w := c.witnesses S
   let gone (l : Library) := l.below.filter fun m => !c.included S m && !w.contains m
   (c.libraries.filter fun l => !(gone l).isEmpty).map fun l => (l.name, l.roots, gone l)
+
+/-- The coverage findings read only the imports of `Coverage.reads`: facts that list the same
+imports for each of those modules give the same findings, whatever they list for any other. -/
+theorem coverage_congr (o : Observation) (c : Coverage) (h : o.coverage.Agree c o.coverage.reads) :
+    { o with coverage := c }.unglobbed = o.unglobbed ∧
+      { o with coverage := c }.uncovered = o.uncovered ∧
+      { o with coverage := c }.unimported = o.unimported := by
+  have hg := Coverage.globbing_congr h
+  have hw := Coverage.witnesses_globbing_congr h
+  obtain ⟨hl, he, -, -⟩ := h
+  simp only [Observation.unglobbed, Observation.uncovered, Observation.unimported,
+    Coverage.uncoveredIn, Coverage.included]
+  rw [← hw, ← hg, ← hl, ← he]
+  exact ⟨rfl, rfl, rfl⟩
 
 /-- The key `init` writes for option `name`: Mathlib's options under `weak.`, which Lean ignores
 in a module that does not import Mathlib, and every other option as it is. -/

@@ -47,10 +47,12 @@ writing and refuses, restoring the files it wrote, unless the plan of the new ob
 empty and its coverage facts match the model's. `init` never changes a value the project already
 gives: it inserts text only, into the package's configuration and each claimed target's as the
 plan decides, and a `globs` setting into each library `Regula.Setup.Coverage.globbing` names,
-located the same way. A library whose declaration writes `globs`, even with Lake's default value,
-sets its own and receives none. That the modules below a library's roots, read from the
-filesystem as Lake's glob reads them, are the modules its glob adds is trusted, and checked
-after writing by `coverageAgrees`. A
+located the same way. A library whose declaration writes `globs` (a key Lake's TOML loader
+decodes, or a field of the declaration), even with Lake's default value, sets its own and
+receives none. The modules a glob adds are those Lake's own glob finds, and each module is read
+from the source Lake's lookup finds; `coverageAgrees` checks after writing that Lake then lists
+the modules the model gives. Only the import headers the decision reads are read, so a header
+that does not parse fails only when it matters. A
 `.git` entry marks the repository root for the agent guidance; Git itself is not run. RG2006 in
 `doctor` applies Mathlib's options when the workspace contains Mathlib, where the linter applies
 them to a target whose modules import Mathlib; by
@@ -211,15 +213,13 @@ private def sourceText (s : String) (stx : Syntax) : Except String String := do
   | none => throw "syntax range splits a character"
 
 /-- A `[[lean_lib]]` or `[[lean_exe]]` table of a `lakefile.toml` and where it receives options:
-after its last key, or into its inline `leanOptions` table; `globs` when it writes a `globs`
-key. -/
+after its last key, or into its inline `leanOptions` table. -/
 private structure TomlTarget where
   exe : Bool
   name : Option String := none
   lastEnd : Nat
   inline : Option (Nat × Bool) := none
   unsupported : Bool := false
-  globs : Bool := false
 
 /-- Where a `lakefile.toml` receives the edits: after the last top-level key, into an existing
 `[leanOptions]` table or inline `leanOptions` table, and into each target table. -/
@@ -305,10 +305,27 @@ private def tomlPlaces (input : String) : IO TomlPlaces := do
           name := if name == "name" then decoded else t.name
           inline := if name == "leanOptions" then inline else t.inline
           unsupported := t.unsupported || name.startsWith "leanOptions." ||
-            (name == "leanOptions" && inline.isNone)
-          globs := t.globs || name == "globs" || name.startsWith "globs." }, table)
+            (name == "leanOptions" && inline.isNone) }, table)
       | some _ => return (p, table))
   return places.1
+
+/-- The libraries whose `[[lean_lib]]` table in `lakefile.toml` text `input` has a `globs` key, as
+Lake's TOML loader decodes the file: a quoted or bare key alike. Each is named as Lake decodes the
+table's `name`. -/
+def tomlGlobs (input : String) : IO (List String) := do
+  let ictx := Parser.mkInputContext input "lakefile.toml"
+  let table ← match ← (Lake.Toml.loadToml ictx).toBaseIO with
+    | .ok table => pure table
+    | .error _ => throw <| IO.userError "lakefile.toml does not load as TOML"
+  return match table.find? `lean_lib with
+    | some (.array _ tables) => tables.toList.filterMap fun
+      | .table' _ t => if t.contains `globs then
+          match t.find? `name with
+          | some (.string _ s) => some (Lake.stringToLegalOrSimpleName s).toString
+          | _ => none
+        else none
+      | _ => none
+    | _ => []
 
 /-- `lakefile.toml` with the planned edits: `lintDriver` as a new last top-level key, the missing
 package options appended to the `[leanOptions]` table, to an inline `leanOptions` table, or in a
@@ -321,6 +338,7 @@ def tomlText (input : String) (driver : Bool) (entries : List (Name × OptionVal
     (targets : List Regula.Setup.Target) (globs : List (String × List String)) :
     IO String := do
   let places ← tomlPlaces input
+  let written ← tomlGlobs input
   let lines := entries.map (Lakefile.toml.entry ·)
   -- After the last top-level key's line; with none, at the start of the file.
   let (top, before, after) := match places.topEnd with
@@ -361,7 +379,7 @@ def tomlText (input : String) (driver : Bool) (entries : List (Name × OptionVal
       | throw <| IO.userError s!"lakefile.toml has no {table}; add `{setting}` to it by hand"
     -- `observe` counts a written `globs` key as the library's own, so the plan gives such a
     -- table no glob; a file changed since is refused here.
-    if place.globs then
+    if written.contains library then
       throw <| IO.userError s!"the {table} writes `globs`; add `{setting}` to it by hand"
     pure (place.lastEnd, "\n" ++ setting)
   IO.ofExcept <| splice input (driverText ++ optionText ++ targetText ++ globText)
@@ -516,10 +534,7 @@ def lakefileText (project : Project) (input : String) (edits : List Edit) : IO S
 def writtenGlobs (kind : Lakefile) (path : FilePath) : IO (List String) := do
   let input ← IO.FS.readFile path
   match kind with
-  | .toml =>
-    return (← tomlPlaces input).targets.toList.filterMap fun t =>
-      if !t.exe && t.globs then t.name.map fun s => (Lake.stringToLegalOrSimpleName s).toString
-      else none
+  | .toml => tomlGlobs input
   | .lean =>
     let (commands, _) ← lakefileCommands path input
     return commands.toList.filterMap fun c =>
@@ -531,10 +546,12 @@ def writtenGlobs (kind : Lakefile) (path : FilePath) : IO (List String) := do
 `leanOptions`, whether it has a `lean_lib`, and the root targets the manifest does not exclude with
 their own `leanOptions` and resolved extra `lean` arguments), whether the workspace contains
 Mathlib, the compiler its `lean-toolchain` selects (`pinned`), the manifest and agent-guidance
-files, and the `Coverage` facts: each root library with its modules, the modules whose source
-files lie below its roots, and whether it sets `globs` (other globs than its roots alone, Lake's
-default, or a `globs` field its declaration writes, `writtenGlobs`), each executable root, and the
-imports of each of those modules within the package, read with Lean's header parser. -/
+files, and the `Coverage` facts: each root library with the modules Lake lists for it, those its
+glob would add (Lake's `Glob.submodules` of each root over its own source directory), and whether
+it sets `globs` (other globs than its roots alone, Lake's default, or a `globs` field its
+declaration writes, `writtenGlobs`), each executable root, and the imports within the package of
+the modules whose header the decision reads (`Coverage.reads`), each read with Lean's header
+parser from the source Lake's own lookup finds. -/
 def observe (root : FilePath) : IO Project := do
   -- Without a manifest every root target is claimed, as in the starter `init` writes; a target the
   -- manifest that loads excludes is not. A manifest that does not load or classify every root
@@ -553,53 +570,54 @@ def observe (root : FilePath) : IO Project := do
   let excludedLibraries := (manifest.map (·.excludedLibraries.map (·.library))).getD #[]
   let excludedExecutables := (manifest.map (·.excludedExecutables.map (·.executable))).getD #[]
   let (lakefile, configFile, driver, options, targets, allClaimed, libraries, mathlib,
-      coverage) ← Workspace.withRootWorkspace root fun ws => do
+      coverage, files) ← Workspace.withRootWorkspace root fun ws => do
       -- An entry of module names: the configuration of each package of the workspace, before
       -- any module is resolved or any path is built from a name (`Lake.checkModuleNames`).
       Regula.Checker.Lake.checkWorkspaceModuleNames ws
       let pkg := ws.root
       let sorted (names : Array Name) := ((names.map toString).qsort (· < ·)).toList
-      -- The source of every module of the package: each module a root library includes, each
-      -- module below a library root, and each executable root.
-      let mut sources : NameMap FilePath := {}
+      -- The modules the facts name, by Lake's own module lists and globs: each module a root
+      -- library includes (with its file there), each module the glob `init` writes would add to a
+      -- library (`Glob.submodules` of each root over the library's own source directory), and each
+      -- executable root.
+      let mut listed : NameMap FilePath := {}
+      let mut globbedBy : NameMap FilePath := {}
       let mut covered : Array Regula.Setup.Library := #[]
       for lib in pkg.leanLibs do
         let modules ← lib.getModuleArray
         for m in modules do
-          sources := sources.insert m.name m.leanFile
-        let mut below : Array Name := #[]
+          unless listed.contains m.name do listed := listed.insert m.name m.leanFile
+        let found ← IO.mkRef (#[] : Array Name)
         for r in lib.roots do
-          let dir := Lean.modToFilePath lib.srcDir r ""
-          unless ← dir.isDir do continue
-          for path in ← dir.walkDir do
-            if path.extension != some "lean" || (← path.isDir) then continue
-            let parts := (path.withExtension "").components.drop dir.components.length
-            let name := parts.foldl Name.str r
-            below := below.push name
-            sources := sources.insert name path
+          if ← (Lean.modToFilePath lib.srcDir r "").isDir then
+            (Lake.Glob.submodules r).forEachModuleIn lib.srcDir fun m => found.modify (·.push m)
+        let below ← found.get
+        for m in below do
+          unless globbedBy.contains m do
+            globbedBy := globbedBy.insert m (Lean.modToFilePath lib.srcDir m "lean")
         covered := covered.push {
           name := lib.name.toString, roots := lib.roots.toList.map toString
           claimed := !excludedLibraries.contains (Manifest.targetSpelling lib.name)
           globbed := lib.config.globs != lib.config.roots.map .one
           modules := modules.toList.map (·.name.toString), below := sorted below }
+      let mut roots : NameMap FilePath := {}
       for exe in pkg.leanExes do
-        sources := sources.insert exe.root.name exe.root.leanFile
-      let mut imports : Array (String × List String) := #[]
-      for (m, file) in sources do
-        unless ← file.pathExists do continue
-        let header ← Lean.parseImports' (← IO.FS.readFile file) file.toString
-        -- An entry of module names: the import lines of a project source.
-        Regula.Checker.requireSafeModuleNames s!"the imports of {file}"
-          (header.imports.map (·.module))
-        imports := imports.push (m.toString,
-          (header.imports.filter (sources.contains ·.module)).toList.map (·.module.toString))
+        unless roots.contains exe.root.name do roots := roots.insert exe.root.name exe.root.leanFile
+      -- The source of each module the facts name: the module Lake's own lookup finds
+      -- (`Package.findModule?`, as an import resolves it), else the executable root, else the file
+      -- of the first library that lists it, else that of the first whose glob would add it.
+      let mut files : Std.HashMap String (Option FilePath) := {}
+      for (m, _) in listed.toList ++ roots.toList ++ globbedBy.toList do
+        let file := (pkg.findModule? m).map (·.leanFile) <|> roots.find? m <|>
+          listed.find? m <|> globbedBy.find? m
+        files := files.insert m.toString file
       let coverage : Regula.Setup.Coverage :=
         { libraries := covered.toList
           executables := pkg.leanExes.toList.map (·.root.name.toString)
           claimedExecutables := (pkg.leanExes.filter fun exe =>
             !excludedExecutables.contains (Manifest.targetSpelling exe.name)).toList.map
               (·.root.name.toString)
-          imports := imports.toList }
+          imports := [] }
       let own (options : Array Lean.LeanOption) :=
         (Lake.buildOptions (.ofArray options) #[] #[]).options
       let libs := pkg.leanLibs.filter fun lib =>
@@ -621,12 +639,42 @@ def observe (root : FilePath) : IO Project := do
         (Lake.buildOptions pkg.leanOptions #[] #[]).options, targets,
         !invalid && libs.size == pkg.leanLibs.size && exes.size == pkg.leanExes.size,
         !pkg.leanLibs.isEmpty,
-        ws.packages.any (·.baseName == `mathlib), coverage)
+        ws.packages.any (·.baseName == `mathlib), coverage, files)
   -- A `globs` field written with Lake's default value is the library's own as well.
   let written ← if coverage.libraries.all (·.globbed) then pure []
     else writtenGlobs lakefile configFile
-  let coverage := { coverage with libraries := coverage.libraries.map fun l =>
+  let coverage : Regula.Setup.Coverage := { coverage with
+    libraries := coverage.libraries.map fun (l : Regula.Setup.Library) =>
     { l with globbed := l.globbed || written.contains l.name } }
+  -- The import headers the decision reads (`Coverage.reads`), and no other: each round reads those
+  -- it names that are not read yet, until none is left, so the findings are those every import
+  -- table that lists the same imports for them gives (`Regula.Setup.coverage_congr`). Each round
+  -- reads a module the facts name, so the rounds are bounded by `Coverage.fuel`.
+  let mut imports : Array (String × List String) := #[]
+  let mut settled := false
+  for _ in [0:coverage.fuel] do
+    let read : Regula.Setup.Coverage := { coverage with imports := imports.toList }
+    let pending := read.reads.eraseDups.filter fun m => !imports.any (·.1 == m)
+    if pending.isEmpty then
+      settled := true
+      break
+    for m in pending do
+      -- A module the facts do not name, or one without a source file, imports nothing here; Lake
+      -- reports the missing file when it builds.
+      let some file := (files[m]?).getD none
+        | imports := imports.push (m, [])
+      unless ← file.pathExists do
+        imports := imports.push (m, [])
+        continue
+      let header ← Lean.parseImports' (← IO.FS.readFile file) file.toString
+      -- An entry of module names: the import lines of a project source.
+      Regula.Checker.requireSafeModuleNames s!"the imports of {file}"
+        (header.imports.map (·.module))
+      let named := header.imports.filter fun i => files.contains i.module.toString
+      imports := imports.push (m, named.toList.map (·.module.toString))
+  unless settled do
+    throw <| IO.userError "the import headers the coverage decision reads did not settle"
+  let coverage : Regula.Setup.Coverage := { coverage with imports := imports.toList }
   let guidance ← guidanceFile root
   let skills ← skillPaths.filterMapM fun (p : String) => do
     let name := guidance.up ++ p
@@ -645,8 +693,9 @@ def observe (root : FilePath) : IO Project := do
 
 /-- Whether the coverage facts `observed` after writing match `predicted`, the facts
 `Regula.Setup.run` gives for the plan: the same libraries in order, each with the same name, roots,
-claim and `globs` decision, and the same modules included, below its roots and imported, compared
-as sets, since Lake lists them in its own order. -/
+claim and `globs` decision and the same modules included and below its roots, and the same
+imports for each module both read the header of, compared as sets, since Lake lists them in its
+own order. -/
 def coverageAgrees (observed predicted : Regula.Setup.Coverage) : Bool :=
   let same (a b : List String) := a.all b.contains && b.all a.contains
   observed.libraries.length == predicted.libraries.length &&
@@ -655,9 +704,8 @@ def coverageAgrees (observed predicted : Regula.Setup.Coverage) : Bool :=
         a.globbed == b.globbed && same a.modules b.modules && same a.below b.below) &&
     observed.executables == predicted.executables &&
     observed.claimedExecutables == predicted.claimedExecutables &&
-    same (observed.imports.map (·.1)) (predicted.imports.map (·.1)) &&
     observed.imports.all fun (m, ms) =>
-      same ms (Regula.Setup.Coverage.importsOf predicted.imports m)
+      (predicted.imports.lookup m).all (same ms)
 
 /-! ## The starter manifest -/
 
