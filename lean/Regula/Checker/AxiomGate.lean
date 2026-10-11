@@ -28,7 +28,7 @@ open Regula.Checker
 open Regula.Checker.Policy
 open Regula.Checker.Inspection
 
-/-- The command-line options of one `axiomGate` invocation, as `parseArgs` reads them; `run`
+/-- The command-line options of one `axiomGate` invocation, as `admit` reads them; `admit`
 rejects the combinations the usage text does not allow. -/
 structure Options where
   /-- `--file FILE`: audit this one source file instead of the manifested project surfaces. -/
@@ -95,45 +95,103 @@ private def usage : String :=
     2 invalid configuration or invocation, 3 incomplete; --help exits 0 unless another argument \
     fails"
 
-private def parseArgs : List String → Options → IO Options
-  | [], options => return options
-  | "--" :: rest, options => parseArgs rest options
-  | "--file" :: value :: rest, options =>
-      parseArgs rest { options with file := some (FilePath.mk value) }
-  | "--claim" :: value :: rest, options => do
-      let some claim := Profile.parse? value
-        | throw <| IO.userError s!"unknown foundation profile: {value}"
-      parseArgs rest { options with claim := some claim }
-  | "--execution" :: value :: rest, options => do
-      let some mode := ExecutionClaim.parse? value
-        | throw <| IO.userError s!"unknown execution mode: {value}"
-      parseArgs rest { options with execution := mode }
-  | "--manifest" :: value :: rest, options =>
-      parseArgs rest { options with manifest := some (FilePath.mk value) }
-  | "--project" :: value :: rest, options =>
-      parseArgs rest { options with project := some (FilePath.mk value) }
-  | "--json-out" :: value :: rest, options =>
-      parseArgs rest { options with resultOut := some (FilePath.mk value) }
-  | "--acceptance-link" :: value :: rest, options =>
-      parseArgs rest { options with acceptanceLink := some (FilePath.mk value) }
-  | "--verso" :: value :: rest, options => do
-      parseArgs rest
-          { options with verso := some (← IO.ofExcept (Documentation.parseVersoOption value)) }
-  | "--with-docs" :: rest, options =>
-      parseArgs rest { options with withDocs := true }
-  | "--incremental" :: rest, options =>
-      parseArgs rest { options with incremental := true }
-  | "--build-lint" :: rest, options =>
-      parseArgs rest { options with buildLint := true, incremental := true }
-  | "--driver-copy" :: value :: rest, options =>
-      parseArgs rest { options with driverCopy := some (FilePath.mk value) }
-  | "--verbose" :: rest, options =>
-      parseArgs rest { options with verbose := true }
-  | "--kernel-types" :: rest, options =>
-      parseArgs rest { options with kernelTypes := true }
-  | "--help" :: rest, options => parseArgs rest { options with help := true }
-  | "-h" :: rest, options => parseArgs rest { options with help := true }
-  | flag :: _, _ => throw <| IO.userError s!"unknown or incomplete argument: {flag}"
+/-- The options of `axiomGate`, as its one reading of its arguments (`arguments`) names them. -/
+inductive Setting where
+  /-- `--file FILE`. -/
+  | file
+  /-- `--claim PROFILE`. -/
+  | claim
+  /-- `--execution MODE`. -/
+  | execution
+  /-- `--manifest PATH`. -/
+  | manifest
+  /-- `--project DIR`. -/
+  | project
+  /-- `--json-out PATH`. -/
+  | jsonOut
+  /-- `--acceptance-link PATH`. -/
+  | acceptanceLink
+  /-- `--verso DIR:LIBRARY:RENDER`. -/
+  | verso
+  /-- `--driver-copy PATH`. -/
+  | driverCopy
+  /-- `--with-docs`. -/
+  | withDocs
+  /-- `--incremental`. -/
+  | incremental
+  /-- `--build-lint`. -/
+  | buildLint
+  /-- `--verbose`. -/
+  | verbose
+  /-- `--kernel-types`. -/
+  | kernelTypes
+  /-- `--help` or `-h`. -/
+  | help
+  deriving DecidableEq
+
+/-- Every option of `axiomGate`. -/
+def Setting.all : List Setting :=
+  [.file, .claim, .execution, .manifest, .project, .jsonOut, .acceptanceLink, .verso, .driverCopy,
+    .withDocs, .incremental, .buildLint, .verbose, .kernelTypes, .help]
+
+/-- How `axiomGate` spells each option. -/
+def Setting.spelling : Setting → String
+  | .file => "--file" | .claim => "--claim" | .execution => "--execution"
+  | .manifest => "--manifest" | .project => "--project" | .jsonOut => "--json-out"
+  | .acceptanceLink => "--acceptance-link" | .verso => "--verso" | .driverCopy => "--driver-copy"
+  | .withDocs => "--with-docs" | .incremental => "--incremental" | .buildLint => "--build-lint"
+  | .verbose => "--verbose" | .kernelTypes => "--kernel-types" | .help => "--help"
+
+/-- Whether an option takes a value. -/
+def Setting.takesValue : Setting → Bool
+  | .file | .claim | .execution | .manifest | .project | .jsonOut | .acceptanceLink | .verso
+    | .driverCopy => true
+  | .withDocs | .incremental | .buildLint | .verbose | .kernelTypes | .help => false
+
+/-- The option an argument spells, and whether it takes a value. -/
+def Setting.ofSpelling (argument : String) : Option (Setting × Bool) :=
+  if argument = "-h" then some (.help, false)
+  else (Setting.all.find? (·.spelling == argument)).map fun setting =>
+    (setting, setting.takesValue)
+
+/-- `axiomGate`'s one reading of its arguments (`Lint.tokenize`): an option's value is never read
+as an option. `Plan.of` reads it one time, and the options (`admit`), the project root and every
+destination the audit writes (`destinations`) come from that one reading. -/
+def arguments (args : List String) : List (Lint.Arg Setting) :=
+  Lint.tokenize Setting.ofSpelling args
+
+/-- Apply one argument. An unknown or incomplete argument, a profile or execution mode that does
+not parse and a malformed `--verso` are refused. The destinations of `--json-out` and
+`--acceptance-link` are taken from `destinations`, not here. -/
+private def Options.apply (o : Options) : Lint.Arg Setting → Except String Options
+  | .separator => .ok o
+  | .value .file value => .ok { o with file := some (FilePath.mk value) }
+  | .value .claim value => match Profile.parse? value with
+    | some claim => .ok { o with claim := some claim }
+    | none => .error s!"unknown foundation profile: {value}"
+  | .value .execution value => match ExecutionClaim.parse? value with
+    | some mode => .ok { o with execution := mode }
+    | none => .error s!"unknown execution mode: {value}"
+  | .value .manifest value => .ok { o with manifest := some (FilePath.mk value) }
+  | .value .project value => .ok { o with project := some (FilePath.mk value) }
+  | .value .jsonOut _ | .value .acceptanceLink _ => .ok o
+  | .value .verso value => (Documentation.parseVersoOption value).map fun verso =>
+    { o with verso := some verso }
+  | .value .driverCopy value => .ok { o with driverCopy := some (FilePath.mk value) }
+  | .flag .withDocs => .ok { o with withDocs := true }
+  | .flag .incremental => .ok { o with incremental := true }
+  | .flag .buildLint => .ok { o with buildLint := true, incremental := true }
+  | .flag .verbose => .ok { o with verbose := true }
+  | .flag .kernelTypes => .ok { o with kernelTypes := true }
+  | .flag .help => .ok { o with help := true }
+  | .value setting _ | .flag setting =>
+    .error s!"unknown or incomplete argument: {setting.spelling}"
+  | .unknown argument => .error s!"unknown or incomplete argument: {argument}"
+
+/-- Apply each argument in order, stopping at the first refusal. -/
+private def Options.applyAll : List (Lint.Arg Setting) → Options → Except String Options
+  | [], o => .ok o
+  | a :: rest, o => do Options.applyAll rest (← o.apply a)
 
 private def resolve (repo path : FilePath) : FilePath :=
   if path.isAbsolute then path else repo / path.toString
@@ -144,6 +202,19 @@ the one the result output renders, its tally the summary counts, and its exit co
 `run` returns (`Lint.Observation`); `lint` derives its exit class from it and the exit code
 (`Lint.classify`). -/
 initialize terminalObservation : IO.Ref (Option Lint.Observation) ← IO.mkRef none
+
+/-- The project root and manifest path the current invocation audits, set when its options are
+admitted (`none` until then): the root of `--project` or of the working directory, and
+`--manifest` resolved against that root or the root's `foundation_manifest.json`. A fresh audit
+reads the default manifest from its isolated copy of that root, and an explicit `--manifest` at
+that resolved path. `lint` names them in its success line. -/
+initialize auditedTarget : IO.Ref (Option (FilePath × FilePath)) ← IO.mkRef none
+
+/-- The result destination of the current invocation's plan (`Plan.target`), resolved and marked
+incomplete, set when the plan is read, whether or not the invocation is admitted (`none` until then,
+when it names none, or when it did not resolve). `ruleExamples` marks its injected result there.
+-/
+initialize resultTarget : IO.Ref (Option FilePath) ← IO.mkRef none
 
 /-- The stages the current invocation performs, set when its options are admitted; until then
 every stage, so no result claims a stage it never started. -/
@@ -161,8 +232,8 @@ showing Lake's progress line for each job as it runs (`Lake.buildTargetsShowing`
 initialize claimedBuild : IO.Ref Lake.Build ← IO.mkRef Lake.buildTargetsShowing
 
 /-- Whether the workspace owner asserted that the workspace's lakefiles are ordinary configuration
-(`lake lint -- --ordinary-lakefiles`), set by the `lint` driver for its own audit. The project
-result records it as `scope.ordinaryLakefiles`. -/
+(`REGULA_ORDINARY_LAKEFILES=1` in the environment of `lake lint`), set by the `lint` driver for
+its own audit. The project result records it as `scope.ordinaryLakefiles`. -/
 initialize ordinaryLakefiles : IO.Ref Bool ← IO.mkRef false
 
 /-- Record the invocation's result and return the status it decides, for the result output. -/
@@ -1079,6 +1150,7 @@ private unsafe def auditSurfaceAt (repo manifestPath : FilePath)
           library.setObjVal! "executables" (Json.arr executables)
         let resultScope := Json.mkObj
             [("project", toJson reportRoot.toString), ("manifest", manifestJson manifest),
+            ("manifestPath", toJson ((← auditedTarget.get).map (·.2.toString))),
             ("modules", toJson ownedModuleNames),
             ("declarations", toJson totalDeclarations),
             ("sources", toJson sources), ("surfaces", toJson surfaceEntries),
@@ -1496,12 +1568,6 @@ private unsafe def auditFile (repo path : FilePath) (claim : Option Profile)
                   jobs, {account.val.mode.spelling})"
             return 0
 
-private def optionValues (flag : String) : List String → List String
-  | option :: value :: rest =>
-      if option == flag then value :: optionValues flag rest
-      else optionValues flag (value :: rest)
-  | _ => []
-
 /-- A kind of output destination an invocation may name: a result document (`--json-out`) or an
 acceptance link (`--acceptance-link`). -/
 inductive Destination where
@@ -1509,69 +1575,126 @@ inductive Destination where
   | result
   /-- An acceptance link, named by `--acceptance-link`. -/
   | acceptanceLink
-  deriving BEq
+  deriving BEq, DecidableEq
 
-/-- The option that names a destination of this kind. -/
-def Destination.flag : Destination → String
-  | .result => "--json-out"
-  | .acceptanceLink => "--acceptance-link"
+/-- Each output destination a reading (`arguments`) names, with its kind, in order, whether or not
+its arguments are admitted. -/
+def destinations (read : List (Lint.Arg Setting)) : List (Destination × FilePath) :=
+  read.filterMap fun
+    | .value .jsonOut path => some (.result, FilePath.mk path)
+    | .value .acceptanceLink path => some (.acceptanceLink, FilePath.mk path)
+    | _ => none
 
-/-- Before any argument validation, mark every recognisable destination of the `kinds` the calling
-interface accepts incomplete, so an earlier completed result cannot be mistaken for this
-attempt's. A destination of another kind is left untouched: that interface refuses its option. -/
-def invalidateResults (kinds : List Destination) (args : List String) : IO Unit := do
-  let destinations := kinds.flatMap fun kind =>
-    (optionValues kind.flag args).eraseDups.map fun path =>
-      (FilePath.mk path, kind == .acceptanceLink)
-  let invalidate (path : FilePath) (link : Bool) :=
-    if link then AcceptanceLink.invalidate path else
-    ResultProtocol.writeDocument path (Json.mkObj (ResultProtocol.identityFields ++ [
-      ("scope", Json.null), ("mode", Json.null), ("status", .str "incomplete"),
-      ("diagnostics", toJson (#[] : Array Json)),
-      ("unresolved", toJson #["configuration has not been validated"]),
-      ResultProtocol.sourceTextsField] ++
-      ResultProtocol.guidanceFields false ResultProtocol.allStages [] []))
-  -- Absolute destinations do not depend on project configuration being valid.
-  for (path, link) in destinations.filter (·.1.isAbsolute) do invalidate path link
-  let relative := destinations.filter (!·.1.isAbsolute)
-  if !relative.isEmpty then
-    let root ← match optionValues "--project" args with
-      | [dir] => findRepoRoot dir
-      | [] => repoRoot
-      | _ => throw <| IO.userError "duplicate --project option"
-    for (path, link) in relative do invalidate (resolve root path) link
+/-- The first destination of `kind` in `named`. -/
+def destinationOf (kind : Destination) (named : List (Destination × FilePath)) : Option FilePath :=
+  ((named.find? (decide <| ·.1 = kind))).map (·.2)
 
-/-- The options of an audit invocation: parsed, without a duplicated option, and in a
-combination the usage text allows; otherwise an error naming the problem. The usage text does
-not list the internal `--driver-copy`, which is admitted only in the fresh surface mode of the
-current project, without `--with-docs` and `--project`. -/
-private def admitOptions (args : List String) : IO Options := do
-  for flag in #["--json-out", "--acceptance-link", "--project", "--file",
-      "--manifest", "--claim", "--execution", "--driver-copy"] do
-    if (optionValues flag args).length > 1 then
-      throw <| IO.userError s!"duplicate {flag} option"
-  let options ← parseArgs args {}
-  if options.help then return options
-  if options.file.isNone && options.claim.isSome then
-    throw <| IO.userError "--claim requires --file"
-  if options.file.isNone && options.execution != .report then
-    throw <| IO.userError "--execution requires --file (surface mode uses the manifest)"
-  if options.file.isSome && options.incremental then
-    throw <| IO.userError "--incremental applies only to surface mode"
-  if options.withDocs && (options.file.isSome || options.incremental) then
-    throw <| IO.userError "--with-docs requires fresh surface mode"
-  if options.acceptanceLink.isSome &&
+/-- The option that `read` gives a value more than once, if any. -/
+private def duplicated (read : List (Lint.Arg Setting)) : Option Setting :=
+  let given := read.filterMap fun
+    | .value setting _ => some setting
+    | _ => none
+  Setting.all.find? fun setting => given.count setting > 1
+
+/-- The reason the usage text does not allow these options together, if any. `--help` is
+admitted with any. The usage text does not list the internal `--driver-copy`, which is admitted
+only in the fresh surface mode of the current project, without `--with-docs` and `--project`. -/
+private def combinationRefusal (options : Options) : Option String :=
+  if options.help then none
+  else if options.file.isNone && options.claim.isSome then some "--claim requires --file"
+  else if options.file.isNone && options.execution != .report then
+    some "--execution requires --file (surface mode uses the manifest)"
+  else if options.file.isSome && options.incremental then
+    some "--incremental applies only to surface mode"
+  else if options.withDocs && (options.file.isSome || options.incremental) then
+    some "--with-docs requires fresh surface mode"
+  else if options.acceptanceLink.isSome &&
       (options.file.isSome || options.incremental || options.withDocs) then
-    throw <| IO.userError "--acceptance-link requires fresh surface mode without --with-docs"
-  if options.driverCopy.isSome &&
+    some "--acceptance-link requires fresh surface mode without --with-docs"
+  else if options.driverCopy.isSome &&
       (options.file.isSome || options.incremental || options.withDocs || options.project.isSome) then
-    throw <| IO.userError "--driver-copy applies only to the fresh surface mode of the current \
-      project, without --with-docs and --project"
-  if options.verso.isSome && options.acceptanceLink.isNone then
-    throw <| IO.userError "--verso applies only to --acceptance-link"
-  if options.kernelTypes && options.resultOut.isNone then
-    throw <| IO.userError "--kernel-types applies only to --json-out"
-  return options
+    some "--driver-copy applies only to the fresh surface mode of the current project, without \
+      --with-docs and --project"
+  else if options.verso.isSome && options.acceptanceLink.isNone then
+    some "--verso applies only to --acceptance-link"
+  else if options.kernelTypes && options.resultOut.isNone then
+    some "--kernel-types applies only to --json-out"
+  else none
+
+/-- The options of an audit invocation, from its one reading `read` (`arguments`): without an
+option given a value twice, each argument applied, its result and acceptance-link destinations the
+first of each kind in `destinations`, and in a combination the usage text allows; otherwise the
+reason for refusing it. -/
+def admit (read : List (Lint.Arg Setting)) : Except String Options :=
+  match duplicated read with
+  | some setting => .error s!"duplicate {setting.spelling} option"
+  | none => match Options.applyAll read {} with
+    | .error reason => .error reason
+    | .ok options =>
+      let named := destinations read
+      let options := { options with
+        resultOut := destinationOf .result named
+        acceptanceLink := destinationOf .acceptanceLink named }
+      match combinationRefusal options with
+      | some reason => .error reason
+      | none => .ok options
+
+/-- Mark the result document at `path` incomplete, so an earlier completed result there cannot be
+mistaken for the current attempt's. -/
+def invalidateResult (path : FilePath) : IO Unit :=
+  ResultProtocol.writeDocument path (Json.mkObj (ResultProtocol.identityFields ++ [
+    ("scope", Json.null), ("mode", Json.null), ("status", .str "incomplete"),
+    ("diagnostics", toJson (#[] : Array Json)),
+    ("unresolved", toJson #["configuration has not been validated"]),
+    ResultProtocol.sourceTextsField] ++
+    ResultProtocol.guidanceFields false ResultProtocol.allStages [] []))
+
+/-- The project root a reading names: that of its one `--project`, or of the working directory.
+-/
+private def rootOf (read : List (Lint.Arg Setting)) : IO FilePath :=
+  match read.filterMap (fun | .value .project dir => some dir | _ => none) with
+  | [dir] => findRepoRoot dir
+  | [] => repoRoot
+  | _ => throw <| IO.userError "duplicate --project option"
+
+/-- An invocation's plan, from its one reading of its arguments (`arguments`): its options or the
+reason for refusing them (`admit`), the project root that reading names, and each destination it
+names (`destinations`) resolved against that root. The marking, the audit's writes and the
+`ruleExamples` marker all take their destinations from this one value. -/
+structure Plan where
+  /-- The options, or the reason for refusing the invocation. -/
+  admitted : Except String Options
+  /-- The project root of the reading's `--project`, or of the working directory. -/
+  root : Except IO.Error FilePath
+  /-- Each destination named, without repeats: its kind, as given, and resolved against `root`
+  when relative. -/
+  targets : List (Destination × FilePath × Except IO.Error FilePath)
+
+/-- The plan of `args`, read once. -/
+def Plan.of (args : List String) : BaseIO Plan := do
+  let read := arguments args
+  let root ← (rootOf read).toBaseIO
+  return { admitted := admit read, root,
+           targets := (destinations read).eraseDups.map fun (kind, path) =>
+             (kind, path, if path.isAbsolute then .ok path else root.map (resolve · path)) }
+
+/-- The resolved destination of `kind` the plan writes: the first that the reading names, as
+`admit` takes it. -/
+def Plan.target (plan : Plan) (kind : Destination) : Option (Except IO.Error FilePath) :=
+  (plan.targets.find? (decide <| ·.1 = kind)).map (·.2.2)
+
+/-- Mark each resolved destination of `plan` incomplete, each on its own, whether or not the
+invocation is admitted, so an earlier completed result cannot be mistaken for this attempt's;
+return a line for each that could not be marked. -/
+private def markIncomplete (plan : Plan) : IO (List String) := do
+  let mut failed := []
+  for (kind, path, target) in plan.targets do
+    let result ← match target with
+      | .ok target => (if kind == .acceptanceLink then AcceptanceLink.invalidate target
+          else invalidateResult target).toBaseIO
+      | .error error => pure (.error error)
+    if let .error error := result then failed := failed ++ [s!"{path}: {error}"]
+  return failed
 
 /-- Refuse an invalid invocation: the usage text and the problem, and the invalid-configuration
 exit code, since no audit ran and no result was recorded. -/
@@ -1582,22 +1705,20 @@ private def refuseInvocation (message : String) : IO UInt32 := do
 
 /-- Run one `axiomGate` invocation and return its exit code. The internal forms
 `--validate-site`, `--registry-out`, `--validate-registry` and `--replacement-history-worker`
-do only that job; otherwise it invalidates earlier results at the requested output paths,
-parses and checks the options, audits the single file or the manifested project surfaces, and
-writes the result JSON and the acceptance link that were requested. An audit returns the exit code
+do only that job; otherwise it reads its arguments once into its plan (`Plan.of`): whether to
+admit them (`admit`), its root and its resolved destinations. It marks each destination
+incomplete, refuses an invalid invocation whatever marking failed, audits the single file or the
+manifested project surfaces under that root, and writes the result JSON and the acceptance link
+at those resolved destinations. An audit returns the exit code
 of the result it recorded (`Lint.gateExitCode`): 0 accepted or classified, 1 violation, 2 invalid
 configuration, 3 incomplete; an invalid invocation returns 2, and `--help` and the internal forms
 0 when they succeed. -/
 unsafe def run (args : List String) : IO UInt32 := do
   terminalObservation.set none
+  auditedTarget.set none
+  resultTarget.set none
   RunFeedback.reset
   expectedStages.set ResultProtocol.allStages
-  -- An invalid invocation is refused as one, though its destinations could not be invalidated.
-  try invalidateResults [.result, .acceptanceLink] args
-  catch error =>
-    let admitted ← (admitOptions args).toBaseIO
-    if let .error invalid := admitted then return ← refuseInvocation invalid.toString
-    throw error
   if let ["--validate-site", registryPath, artifactPath] := args then
     let registry ← IO.ofExcept <| Regula.Checker.PolicyCodec.parse (← IO.FS.readFile registryPath)
     let artifact ← IO.ofExcept <| Regula.Checker.PolicyCodec.parse (← IO.FS.readFile artifactPath)
@@ -1676,17 +1797,27 @@ unsafe def run (args : List String) : IO UInt32 := do
         (workerPacket (sourceWorkerRequest "history" moduleName source transcript.sourceContent)
       (toJson transcript.runtimeReplacements))
     return 0
-  let admitted ← (admitOptions args).toBaseIO
-  if let .error error := admitted then return ← refuseInvocation error.toString
-  let .ok options := admitted | return Lint.Outcome.configuration.exitCode
+  -- Decide before the first write, then mark every destination of the one plan incomplete,
+  -- admitted or not: a refused invocation keeps its class whatever marking failed.
+  let plan ← Plan.of args
+  resultTarget.set ((plan.target .result).bind (·.toOption))
+  let failed ← markIncomplete plan
+  for line in failed do
+    IO.eprintln s!"axiom gate: could not mark the destination {line} incomplete"
+  let options ← match plan.admitted with
+    | .error reason => return ← refuseInvocation reason
+    | .ok options => pure options
+  unless failed.isEmpty do
+    throw <| IO.userError "a destination could not be marked incomplete"
   if options.help then IO.println usage; return 0
   if options.verbose then timing.set true
   kernelTypes.set options.kernelTypes
-  let repo ← match options.project with
-    | some dir => findRepoRoot dir
-    | none => repoRoot
-  let resultOut := options.resultOut.map (resolve repo)
-  let acceptanceLink := options.acceptanceLink.map (resolve repo)
+  -- The root and destinations the plan resolved and marked.
+  let repo ← IO.ofExcept plan.root
+  let resultOut ← (plan.target .result).mapM IO.ofExcept
+  let manifestPath := (options.manifest.map (resolve repo)).getD (Manifest.defaultPath repo)
+  auditedTarget.set (some (repo, manifestPath))
+  let acceptanceLink ← (plan.target .acceptanceLink).mapM IO.ofExcept
   if let some path := acceptanceLink then AcceptanceLink.invalidate path
   let mode : Regula.EvidenceMode := if options.file.isSome then .freshFile
     else if options.incremental then .incrementalProject else .freshProject
@@ -1743,8 +1874,7 @@ unsafe def run (args : List String) : IO UInt32 := do
     catch error => return (← reportFailure error, none)
   -- A configuration-read failure still records the request, with no configuration read.
   let (configuration, readFailure) ← try
-      pure (← SourceBinding.configuration repo
-        ((options.manifest.map (resolve repo)).getD (Manifest.defaultPath repo)), none)
+      pure (← SourceBinding.configuration repo manifestPath, none)
     catch error => pure (#[], some error)
   let request := ResultProtocol.requestJson
       (if options.file.isSome then "file" else if options.withDocs then "projectWithDocs" else
