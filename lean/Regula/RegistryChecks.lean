@@ -205,7 +205,7 @@ def main : IO Unit := do
   -- what the writer does with an account of another form or without roots, and what the reader
   -- does with a malformed one.
   let evidence ← IO.ofExcept
-    (RegulaPolicy.admitBoundaryEvidence .partialComputation .trusted none none)
+    (RegulaPolicy.admitBoundaryEvidence .partialComputation .trusted none none none)
   let account (root : Name) (visits : Array RegulaPolicy.ExecutionVisit) :
       RegulaPolicy.ExecutionRoot := {
     name := root, «module» := `M

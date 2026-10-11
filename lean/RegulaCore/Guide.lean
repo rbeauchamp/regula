@@ -589,6 +589,14 @@ def guide : RuleId → Guide
           registration. The checker reads the kind from the head constant of that elaborated \
           requirement, so an alias of a kind is recognized and no theorem text or name is matched, \
           and it reports the kind with the direction a one-way kind leaves open.",
+        "A registration whose requirement reduces to `Regula.DecisionEquivalence`, a law of the \
+          two directions with no outcome, is not a decision registration: it is an ordinary \
+          requirement (`RegulaPolicy.Carrier.kind?_ofStructureName?`). The law observer reports \
+          each registration of a kind or a law and refuses none: it links the report only when \
+          the decided function is `f` itself under any number of `Function.uncurry` and nothing \
+          else, at the registration's own universe parameters, with every argument supplied \
+          (`RegulaPolicy.DecidedObservation.unlinked?_eq_none_iff`), and otherwise reports it \
+          as `unsupported`, or as `mismatch` for another constant or other levels.",
         "It rejects a decision registration whose kind is stated about a function other than `f` \
           on its arguments, on a packing of them, or with its result erased. A packing is `f` \
           applied to every field of the variable of one function, each field once and in the \
@@ -675,7 +683,21 @@ def guide : RuleId → Guide
           for that class stops at each named function, so a function of that class that only \
           a named function calls is not named. A function with a result of `Bool` or `BEq` \
           that the two sides share only through the declaration of the input type is named \
-          apart, and no registration is refused for it."]
+          apart, and no registration is refused for it.",
+        "For a linked report of a kind or a law: one proposition for each fact its carrier \
+          proves, about that registration's own acceptance predicate, specification and decided \
+          function, and no other fact. Each listed fact follows from the carrier, and each \
+          unlisted one fails for some instance of it (`RegulaPolicy.Carrier.facts_sound`, \
+          `RegulaPolicy.Carrier.facts_exact`). An unlinked report holds no fact by its type \
+          (`RegulaPolicy.ContractEvidence.facts_unlinked`). Each expression and proposition is \
+          recorded as its exact term beside Lean's display of it (`RegulaPolicy.Shown`). The \
+          roles and the name-keyed decision ignore the report, and so does the decision on a \
+          member when the inventory's reports and the member's change together \
+          (`RegulaPolicy.policyFor_withEvidence`). The admission boundary of a supplied record \
+          (`RegulaPolicy.recordFailure`) compares whole records and refuses one whose report \
+          differs from the inventory's. The \
+          account lists one entry for each observed registration \
+          (`Regula.Checker.Account.mem_evidenceOf`)."]
       notEstablished := [
         "That `R` expresses the intended behavior (R-INTENT) and that every caller uses the \
           contracted implementation (R-INVARIANT). Every accepted account lists these as open for \
@@ -703,6 +725,14 @@ def guide : RuleId → Guide
           as the result of the identity function does, an acceptance predicate can restate the \
           specification: `Regula.Decides spec spec id` holds of every specification that some \
           input satisfies and some input does not.",
+        "For a law: any outcome. A law holds on an empty domain, where `f` neither accepts nor \
+          refuses an input (`Regula.DecisionEquivalence.of_empty`). It excludes a function that \
+          refuses every input only when the specification is satisfiable, and one that accepts \
+          every input only when it is refutable.",
+        "For a linked report: that each stated proposition is the statement of its fact. The \
+          observing pass builds it from Lean's own `Exists`, `Not` and function types, since the \
+          audited environment need not hold `RegulaPolicy`; this correspondence is not a \
+          theorem.",
         "Behavior of compiled code beyond the Lean definition; execution boundaries are RG3001 and \
           RG3002."]
       configuration := []
@@ -800,11 +830,17 @@ def guide : RuleId → Guide
         definition of that class has it (`RegulaPolicy.mem_sharedNames_booleans`, \
         `RegulaPolicy.mem_sharedNames_others`), and each class is a stated condition on those \
         readings (`RegulaPolicy.SharedDefinition.class_eq_boolean_iff`, `class_eq_other_iff`). \
-        The search that finds the shared definitions, and the reading of each, are operational."
+        The search that finds the shared definitions, and the reading of each, are operational. \
+        The law observer's reading of a carrier and of its decided function is operational; \
+        whether that reading links the report is one registered decision \
+        (`RegulaPolicy.DecidedObservation.checked_unlinked`), and the facts it lists are proved \
+        sound and exact for the carrier (`RegulaPolicy.Carrier.facts_exact`). That each stated \
+        proposition is the statement of its fact is the observing pass's construction, not a \
+        theorem."
       sources :=
           ["lean/Regula/Contract.lean", "lean/Regula/Collect.lean", "lean/Regula/Probe.lean",
-              "lean/RegulaPolicy/Domain.lean", "lean/RegulaPolicy/MentionSearch.lean",
-              "lean/RegulaCore/Policy.lean"] }
+              "lean/RegulaPolicy/Domain.lean", "lean/RegulaPolicy/Evidence.lean",
+              "lean/RegulaPolicy/MentionSearch.lean", "lean/RegulaCore/Policy.lean"] }
   | .decisionContract => {
       problem := "A function registered as a decision with `@[regula_decision]` has no decision \
         contract in its inventory or in a surface whose `decides` names its library, and its \
@@ -822,7 +858,8 @@ def guide : RuleId → Guide
           (`Regula.DecidesSoundly`, `Regula.DecidesCompletely` or `Regula.Decides`) and was not \
           refused under RG1007. The inventory is the declarations of the audited environment that \
           owns the function: its library, an executable root inspected alone, a file, or a group \
-          of documentation fences.",
+          of documentation fences. A law, `Regula.DecisionEquivalence`, is not a kind \
+          and does not count.",
         "In a project audit, a contract of another claimed surface counts too when the manifest \
           names the function's library in that surface's `decides`. It is the record that \
           surface's environment holds in the same run, and that environment loaded the \

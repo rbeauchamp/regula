@@ -252,7 +252,7 @@ lake exe axiomGate --with-docs --json-out tmp/result.json
 ```
 
 Each export is versioned on its own: the surface manifest is schema 2, the registry schema 4, the
-result schema 15, the worker packet schema 1, the rule-example corpus export schema 1, the
+result schema 16, the worker packet schema 1, the rule-example corpus export schema 1, the
 acceptance link schema 1 and the site's `build.json` schema 2. Registry and result envelopes carry
 `schemaVersion`, `producerVersion`, `toolchain` and `sourceRevision` from
 `Regula.Checker.Producer.identity`: `producerVersion` is the installed release's spelling
@@ -267,7 +267,7 @@ metadata, not authenticated binary identity.
   re-encoding, refusing unknown or missing fields, changed routes and stale lifecycle data.
   Registry admission rejects duplicate external IDs, missing clauses, pages or examples, unknown
   JSON fields or versions, and invalid lifecycle references.
-- **Result, schema 15:** `scope`, `mode`, `status`, `stages` (the stages
+- **Result, schema 16:** `scope`, `mode`, `status`, `stages` (the stages
   `RegulaPolicy.requiredStages` requires for the mode, plus the documentation stages of a
   `--with-docs` run), `stagesCompleted`, `complete`, `stagesNotRun`, `diagnostics` (each with its
   `remedy`, in run order), `rules` (the guidance of every rule that fired, once each, in registry
@@ -365,6 +365,14 @@ metadata, not authenticated binary identity.
   from a different surface for a function that it marks as a decision. The entry gives the
   `registration`, its `module`, the `implementation`, the surface of the function as `surface` and
   the surface of the record as `source`.
+- **Contract evidence:** since schema 16 a declaration record carries `contractEvidence`, and the
+  account has `contractEvidence`. The requirement of each such registration reduces to
+  `Regula.DecidesSoundly`, `Regula.DecidesCompletely`, `Regula.Decides` or
+  `Regula.DecisionEquivalence`. Its entry gives the carrier, the linkage and the parts of the
+  relation, each with its `exact` term and its `display`. Only a `linked` entry has `laws` and
+  `outcomes`, each with its proposition in the same form. No part of a record that a rule's
+  decision takes holds the member. The admission of a supplied record,
+  `RegulaPolicy.recordFailure`, refuses a report that differs from the inventory's.
 - **Axiom-table omissions:** since schema 12 a declaration record carries `tableOmissions`. Each
   entry is an axiom that the declaration reaches in the replayed kernel and that Lean's
   `collectAxioms` does not report. The rules decide on `axioms`, and the omissions are reported,

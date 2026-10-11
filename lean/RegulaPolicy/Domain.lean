@@ -4,6 +4,7 @@ public import RegulaPolicy.Identity
 public import RegulaPolicy.Collections
 public import RegulaPolicy.Compiler
 public import Regula.Contract
+public import RegulaPolicy.Evidence
 meta import Regula.Decision
 
 /-! # Policy vocabulary and observation data
@@ -255,14 +256,26 @@ def ConformingProfile.permits : ConformingProfile → Lean.Name → Bool
 def standardLogicalAxiom (name : Lean.Name) : Bool :=
   ConformingProfile.permits .standardLogical name
 
+/-- The closed proof and the required proposition of a correspondence comparison that the kernel
+admitted (`KernelAnswer.admitted`), each as its exact term beside a display (`Shown`). -/
+structure CorrespondenceTerms where
+  /-- The closed proof the kernel checked. -/
+  proof : Shown
+  /-- The proposition the kernel checked it against. -/
+  required : Shown
+  deriving Repr, DecidableEq, Inhabited
+
+/-- The displays of the proof and the required proposition. -/
+def CorrespondenceTerms.text (terms : CorrespondenceTerms) : String :=
+  s!"proof={terms.proof.display}; required={terms.required.display}"
+
 /-- The kernel's answer to the theorem the checker declares, without adding it, to compare a
-runtime replacement with its reference: a closed proof, checked against the exact required
-proposition (`Probe.kernelAnswer`). Only the result of the kernel's own check selects the
-constructor. -/
+runtime replacement with its reference: a closed proof, checked against the required proposition
+(`Probe.kernelAnswer`). Only the result of the kernel's own check selects the constructor. -/
 inductive KernelAnswer where
-  /-- The kernel admitted the theorem. `axioms` are its transitive axioms, and `detail` prints
-  its proof and the required proposition. -/
-  | admitted (axioms : Array Lean.Name) (detail : String)
+  /-- The kernel admitted the theorem. `axioms` are its transitive axioms, and `terms` hold its
+  proof and the required proposition, each as its exact term with a display. -/
+  | admitted (axioms : Array Lean.Name) (terms : CorrespondenceTerms)
   /-- The kernel finished its check and refused the theorem. -/
   | refused
   /-- The kernel stopped before it decided: it exhausted its resources or was interrupted. -/
@@ -275,8 +288,8 @@ that a theorem candidate gives. Each value has one meaning, stated by the kernel
 the attempt recorded (`KernelAnswer`); `ofAttempt` gives the value of an attempt, and its theorems
 show that the value it gives has this meaning:
 
-- `completed (some detail)`: the attempt recorded the kernel's admission of the proof, with its
-  axioms within the Standard-Logical foundations. `detail` prints that proof and the required
+- `completed (some terms)`: the attempt recorded the kernel's admission of the proof, with its
+  axioms within the Standard-Logical foundations. `terms` hold that proof and the required
   proposition (`ofAttempt_checked_iff`).
 - `completed none`: the attempt recorded a decision of the kernel without such evidence: its
   refusal of the proof, or its admission of the proof with an axiom outside those foundations
@@ -286,9 +299,9 @@ show that the value it gives has this meaning:
   error, before it recorded the kernel's answer, also after the kernel admitted the proof
   (`ofAttempt_incomplete_iff`). `reason` tells which. -/
 inductive DefeqComparison where
-  /-- The attempt recorded a decision of the kernel; `admitted` is the evidence detail when it
-  recorded an admission of the proof within the Standard-Logical foundations. -/
-  | completed (admitted : Option String)
+  /-- The attempt recorded a decision of the kernel; `admitted` holds the proof and the required
+  proposition when it recorded an admission of the proof within the Standard-Logical foundations. -/
+  | completed (admitted : Option CorrespondenceTerms)
   /-- The attempt recorded no decision of the kernel; `reason` tells why. -/
   | incomplete (reason : String)
   deriving Repr, DecidableEq
@@ -298,8 +311,8 @@ the error that the attempt raised before it recorded an answer. Only the answer 
 decided completes a comparison, so an attempt that raised an error is incomplete, whatever the
 error (`ofAttempt_error`). -/
 def DefeqComparison.ofAttempt : Except String KernelAnswer → DefeqComparison
-  | .ok (.admitted axioms detail) =>
-      .completed (if axioms.all standardLogicalAxiom then some detail else none)
+  | .ok (.admitted axioms terms) =>
+      .completed (if axioms.all standardLogicalAxiom then some terms else none)
   | .ok .refused => .completed none
   | .ok .exhausted =>
       .incomplete "kernel resources exhausted before deciding definitional correspondence"
@@ -310,7 +323,7 @@ def DefeqComparison.ofAttempt : Except String KernelAnswer → DefeqComparison
 checked, completed negative leaves the replacement trusted, and a comparison that could not
 complete is unresolved. -/
 def DefeqComparison.classify : DefeqComparison → Correspondence × Option String
-  | .completed (some detail) => (.checked, some s!"kernel-defeq; {detail}")
+  | .completed (some terms) => (.checked, some s!"kernel-defeq; {terms.text}")
   | .completed none => (.trusted, some "no kernel-checked unconditional correspondence proof")
   | .incomplete reason =>
       (.unresolved, some s!"no kernel-checked unconditional correspondence proof; {reason}")
@@ -330,13 +343,19 @@ theorem DefeqComparison.classify_unresolved_iff (o : DefeqComparison) :
     o.classify.1 = .unresolved ↔ ∃ reason, o = .incomplete reason := by
   rcases o with (_ | _) | _ <;> simp [classify]
 
+/-- The proof and the required proposition of a completed positive comparison; `none` for any
+other comparison. -/
+def DefeqComparison.terms? : DefeqComparison → Option CorrespondenceTerms
+  | .completed admitted => admitted
+  | .incomplete _ => none
+
 /-- An attempt records a completed positive comparison exactly when it recorded the kernel's
-admission of the proof with its axioms within the Standard-Logical foundations; `detail` is the
-admitted detail. -/
+admission of the proof with its axioms within the Standard-Logical foundations; `terms` are the
+admitted proof and proposition. -/
 theorem DefeqComparison.ofAttempt_checked_iff (attempt : Except String KernelAnswer)
-    (detail : String) :
-    ofAttempt attempt = .completed (some detail) ↔
-      ∃ axioms, attempt = .ok (.admitted axioms detail) ∧
+    (terms : CorrespondenceTerms) :
+    ofAttempt attempt = .completed (some terms) ↔
+      ∃ axioms, attempt = .ok (.admitted axioms terms) ∧
         axioms.all standardLogicalAxiom = true := by
   rcases attempt with error | (⟨axioms, admitted⟩ | _ | _)
   · simp [ofAttempt]
@@ -353,7 +372,7 @@ refusal of the proof, or its admission of the proof with an axiom outside the St
 foundations. -/
 theorem DefeqComparison.ofAttempt_negative_iff (attempt : Except String KernelAnswer) :
     ofAttempt attempt = .completed none ↔
-      attempt = .ok .refused ∨ ∃ axioms detail, attempt = .ok (.admitted axioms detail) ∧
+      attempt = .ok .refused ∨ ∃ axioms terms, attempt = .ok (.admitted axioms terms) ∧
         axioms.all standardLogicalAxiom = false := by
   rcases attempt with error | (⟨axioms, detail⟩ | _ | _)
   · simp [ofAttempt]
@@ -835,6 +854,38 @@ does not establish. -/
 theorem DecisionKind.leavesOpen_eq_none_iff (kind : DecisionKind) :
     kind.leavesOpen = none ↔ kind = .«soundAndComplete» := by
   cases kind <;> simp [leavesOpen]
+
+/-- The decision kind of a carrier: the carrier of each kind has that kind, and the law
+`Regula.DecisionEquivalence` has none. -/
+def Carrier.kind? : Carrier → Option DecisionKind
+  | .«sound» => some .«sound»
+  | .«complete» => some .«complete»
+  | .«soundAndComplete» => some .«soundAndComplete»
+  | .«equivalence» => none
+
+/-- The kind that the collector records of a registration (`DecisionKind.ofStructureName?` of the
+head constant of its reduced requirement) is the kind of the carrier read from the same constant.
+So the law `Regula.DecisionEquivalence`, whose carrier has no kind, adds no recorded kind, and
+the implementations that RG1008 counts as decided (`decidedImplementations`, which reads the
+recorded kind) are those they were before the law. -/
+theorem Carrier.kind?_ofStructureName? (name : Lean.Name) :
+    (Carrier.ofStructureName? name).bind Carrier.kind? = DecisionKind.ofStructureName? name := by
+  cases read : Carrier.ofStructureName? name with
+  | some carrier =>
+    rw [Carrier.ofStructureName?_eq_some_iff] at read
+    subst read
+    cases carrier <;> rfl
+  | none =>
+    cases kind : DecisionKind.ofStructureName? name with
+    | none => rfl
+    | some k =>
+      rw [DecisionKind.ofStructureName?_eq_some_iff] at kind
+      subst kind
+      cases k <;> simp [DecisionKind.structureName, Carrier.ofStructureName?] at read
+
+/-- The law has no recorded kind: its structure is read as no kind. -/
+theorem DecisionKind.ofStructureName?_equivalence :
+    DecisionKind.ofStructureName? Carrier.«equivalence».structureName = none := rfl
 
 /-- What the collector reads, from kernel-checked declarations, of a decided function that
 applies the implementation to arguments under one binder (`fun input => f a₁ … aₙ`): the shape of
@@ -1498,13 +1549,58 @@ change its signature. -/
 structure Declaration.Inspected extends Declaration.KernelChecked, Declaration.ToolchainObserved
   deriving Repr, DecidableEq
 
-/-- Complete Lean-semantic report for one owned constant. Each field is declared in the part
-that says where its value comes from: kernel-checked declaration data
+/-- The part of a declaration's record that the checker reports: the
+law observer's report of a registration whose requirement reduces to a decision carrier
+(`ContractEvidence`). By its source it is a toolchain observation: the observer reads the
+kernel-checked requirement and prints its parts with the notations in force. It is kept apart
+from `Declaration.ToolchainObserved` so that no part a decision takes (`Declaration.Inspected`,
+`Declaration.Assessed`, `Declaration.Role`, `Declaration.Registration`) holds it: a decision that
+read it would have to change its signature. The roles and the name-keyed decision give the same
+answer whatever it holds (`authorize_withEvidence`, `policyForName_withEvidence`), and so does the
+decision on a member when the reports of the inventory's records and of the member are replaced
+together (`policyFor_withEvidence`). The admission boundary of a supplied record (`recordFailure`)
+compares whole records, this part included, so it refuses a supplied record whose report differs
+from the report of the inventory's record. -/
+structure Declaration.Reported where
+  /-- For a registration whose requirement reduces to `Regula.DecidesSoundly`,
+  `Regula.DecidesCompletely`, `Regula.Decides` or `Regula.DecisionEquivalence`: the carrier, its
+  exact relation and the law observer's linkage conclusion. `none` for every other
+  declaration. -/
+  contractEvidence : Option ContractEvidence := none
+  deriving Repr, DecidableEq
+
+/-- Complete Lean-semantic report for one owned constant. Each field that a decision can read is
+declared in the part that says where its value comes from: kernel-checked declaration data
 (`Declaration.KernelChecked`), a toolchain observation (`Declaration.ToolchainObserved`), or
 environment state an audited project can write (`Declaration.ProjectWritten`). The classification
-is of the source of each value. No theorem of this library proves an observation truthful. -/
-structure Declaration extends Declaration.Inspected, Declaration.ProjectWritten
+is of the source of each value. The report-only observations are in a fourth part
+(`Declaration.Reported`), which no part that a rule's decision takes includes. The admission
+boundary of a supplied record (`recordFailure`) compares whole records, this part included. No
+theorem of this library proves an
+observation truthful. -/
+structure Declaration extends Declaration.Inspected, Declaration.ProjectWritten,
+    Declaration.Reported
   deriving Repr, DecidableEq
+
+/-- The record with `evidence` as its reported observation and every other field unchanged. -/
+def Declaration.withEvidence (d : Declaration) (evidence : Option ContractEvidence) :
+    Declaration :=
+  { d with contractEvidence := evidence }
+
+/-- Replacing the reported observation keeps the inspected part. -/
+@[simp] theorem Declaration.withEvidence_toInspected (d : Declaration)
+    (evidence : Option ContractEvidence) :
+    (d.withEvidence evidence).toInspected = d.toInspected := rfl
+
+/-- Replacing the reported observation keeps the project-written part. -/
+@[simp] theorem Declaration.withEvidence_toProjectWritten (d : Declaration)
+    (evidence : Option ContractEvidence) :
+    (d.withEvidence evidence).toProjectWritten = d.toProjectWritten := rfl
+
+/-- Replacing the reported observation keeps the name. -/
+@[simp] theorem Declaration.withEvidence_name (d : Declaration)
+    (evidence : Option ContractEvidence) : (d.withEvidence evidence).name = d.name := rfl
+
 
 /-- A declaration's record is read as its part without the project-written fields wherever a
 decision takes only that part. Nothing is computed: the other part is dropped. -/
@@ -1685,10 +1781,14 @@ def admitToolchainOrigin (moduleName : Lean.Name) (actual expected : String) :
 
 /-- Checked replacement equality and an admitted opaque body have different meanings. -/
 inductive CheckedEvidence : BoundaryKind → Type where
-  /-- A runtime replacement with checked correspondence, described by `detail`. -/
-  | replacement (detail : String) : CheckedEvidence .runtimeReplacement
-  /-- A compiler simplification with checked correspondence, described by `detail`. -/
-  | simplification (detail : String) : CheckedEvidence .compilerSimplification
+  /-- A runtime replacement with checked correspondence, described by `detail`; `terms` hold the
+  proof the kernel admitted and the proposition it checked it against. -/
+  | replacement (detail : String) (terms : CorrespondenceTerms) :
+      CheckedEvidence .runtimeReplacement
+  /-- A compiler simplification with checked correspondence, described by `detail`; `terms` hold
+  the proof the kernel admitted and the proposition it checked it against. -/
+  | simplification (detail : String) (terms : CorrespondenceTerms) :
+      CheckedEvidence .compilerSimplification
   /-- An opaque constant executed through its kernel-checked body. -/
   | opaqueBody : CheckedEvidence .opaqueComputation
   deriving Repr, DecidableEq
@@ -1733,9 +1833,17 @@ def BoundaryEvidence.correspondence {k : BoundaryKind} : BoundaryEvidence k → 
 /-- The evidence's detail text; `kernel-checked-body` for a checked opaque body. -/
 def BoundaryEvidence.detail {k : BoundaryKind} : BoundaryEvidence k → Option String
   | .checked evidence => match evidence with
-    | .replacement s | .simplification s => some s
+    | .replacement s _ | .simplification s _ => some s
     | .opaqueBody => some "kernel-checked-body"
   | .trusted s _ | .unresolved s => s
+
+/-- The proof and the required proposition of checked replacement or simplification evidence;
+`none` for any other evidence. -/
+def BoundaryEvidence.terms? {k : BoundaryKind} : BoundaryEvidence k → Option CorrespondenceTerms
+  | .checked evidence => match evidence with
+    | .replacement _ terms | .simplification _ terms => some terms
+    | .opaqueBody => none
+  | .trusted .. | .unresolved _ => none
 
 /-- The admitted toolchain origin of a toolchain-owned trusted boundary; `none` for any other
 evidence. Such a boundary is trusted (`correspondence_of_toolchainOrigin`). -/
@@ -1778,8 +1886,8 @@ theorem BoundaryEvidence.toolchainOrigin_of_nativeRuntime {e : BoundaryEvidence 
 Operational/wire callers requiring field preservation must use `admitBoundaryEvidence`.
 A candidate is an indexed value, not a receipt for the supplied raw fields. -/
 def boundaryEvidenceCandidate (kind : BoundaryKind) (state : Correspondence)
-    (detail : Option String) (origin : Option ToolchainOrigin) : Except String
-    (BoundaryEvidence kind) :=
+    (detail : Option String) (origin : Option ToolchainOrigin)
+    (terms : Option CorrespondenceTerms) : Except String (BoundaryEvidence kind) :=
   match state with
   | .unresolved => .ok (.unresolved detail)
   | .trusted => match kind with
@@ -1791,26 +1899,28 @@ def boundaryEvidenceCandidate (kind : BoundaryKind) (state : Correspondence)
     | .partialComputation => .ok (.trusted detail origin)
     | .compilerSimplification | .external | .opaqueComputation | .compilerTrustedProof =>
         .ok (.trusted detail ())
-  | .checked => match kind, detail with
-    | .runtimeReplacement, some s => .ok (.checked (.replacement s))
-    | .compilerSimplification, some s => .ok (.checked (.simplification s))
-    | .opaqueComputation, some "kernel-checked-body" => .ok (.checked .opaqueBody)
-    | _, _ => .error "invalid checked boundary evidence"
+  | .checked => match kind, detail, terms with
+    | .runtimeReplacement, some s, some t => .ok (.checked (.replacement s t))
+    | .compilerSimplification, some s, some t => .ok (.checked (.simplification s t))
+    | .opaqueComputation, some "kernel-checked-body", _ => .ok (.checked .opaqueBody)
+    | _, _, _ => .error "invalid checked boundary evidence"
 
 /-- Admission retains every supplied evidence field or refuses the observation. -/
 @[regula_decision]
 def admitBoundaryEvidence (kind : BoundaryKind) (state : Correspondence)
-    (detail : Option String) (origin : Option ToolchainOrigin) : Except String
-    (BoundaryEvidence kind) :=
-  match boundaryEvidenceCandidate kind state detail origin with
+    (detail : Option String) (origin : Option ToolchainOrigin)
+    (terms : Option CorrespondenceTerms) : Except String (BoundaryEvidence kind) :=
+  match boundaryEvidenceCandidate kind state detail origin terms with
   | .error error => .error error
   | .ok e =>
-    if e.correspondence = state ∧ e.detail = detail ∧ e.toolchainOrigin? = origin then .ok e
+    if e.correspondence = state ∧ e.detail = detail ∧ e.toolchainOrigin? = origin ∧
+        e.terms? = terms then .ok e
     else .error "boundary evidence contains incompatible fields"
 
 private theorem boundaryEvidenceCandidate_roundtrip {kind : BoundaryKind}
     (e : BoundaryEvidence kind) :
-    boundaryEvidenceCandidate kind e.correspondence e.detail e.toolchainOrigin? = .ok e := by
+    boundaryEvidenceCandidate kind e.correspondence e.detail e.toolchainOrigin? e.terms? =
+      .ok e := by
   cases e with
   | checked evidence => cases evidence <;> rfl
   | trusted detail origin => cases kind <;> rfl
@@ -1818,9 +1928,11 @@ private theorem boundaryEvidenceCandidate_roundtrip {kind : BoundaryKind}
 
 /-- Successful admission preserves every evidence projection for all raw inputs. -/
 theorem boundaryEvidence_admission_preserves (kind : BoundaryKind) (state : Correspondence)
-    (detail : Option String) (origin : Option ToolchainOrigin) (e : BoundaryEvidence kind)
-    (h : admitBoundaryEvidence kind state detail origin = .ok e) :
-    e.correspondence = state ∧ e.detail = detail ∧ e.toolchainOrigin? = origin := by
+    (detail : Option String) (origin : Option ToolchainOrigin)
+    (terms : Option CorrespondenceTerms) (e : BoundaryEvidence kind)
+    (h : admitBoundaryEvidence kind state detail origin terms = .ok e) :
+    e.correspondence = state ∧ e.detail = detail ∧ e.toolchainOrigin? = origin ∧
+      e.terms? = terms := by
   unfold admitBoundaryEvidence at h
   split at h
   next => cases h
@@ -1831,31 +1943,33 @@ theorem boundaryEvidence_admission_preserves (kind : BoundaryKind) (state : Corr
 
 /-- Every inhabitant of the indexed evidence domain survives its actual admission API. -/
 theorem boundaryEvidence_roundtrip {kind : BoundaryKind} (e : BoundaryEvidence kind) :
-    admitBoundaryEvidence kind e.correspondence e.detail e.toolchainOrigin? = .ok e := by
+    admitBoundaryEvidence kind e.correspondence e.detail e.toolchainOrigin? e.terms? = .ok e := by
   unfold admitBoundaryEvidence
   rw [boundaryEvidenceCandidate_roundtrip]
   simp
 
-/-- The raw fields `admitBoundaryEvidence` admits for a kind: they are the correspondence, detail
-and toolchain origin of some evidence of that kind. It is stated without
+/-- The raw fields `admitBoundaryEvidence` admits for a kind: they are the correspondence, detail,
+toolchain origin and correspondence terms of some evidence of that kind. It is stated without
 `admitBoundaryEvidence`. -/
 def BoundaryFieldsOK (kind : BoundaryKind) (state : Correspondence) (detail : Option String)
-    (origin : Option ToolchainOrigin) : Prop :=
+    (origin : Option ToolchainOrigin) (terms : Option CorrespondenceTerms) : Prop :=
   ∃ e : BoundaryEvidence kind,
-    e.correspondence = state ∧ e.detail = detail ∧ e.toolchainOrigin? = origin
+    e.correspondence = state ∧ e.detail = detail ∧ e.toolchainOrigin? = origin ∧ e.terms? = terms
 
 /-- Boundary-evidence admission succeeds exactly for the fields of some evidence of the kind
 (`boundaryEvidence_admission_preserves`, `boundaryEvidence_roundtrip`). -/
 theorem admitBoundaryEvidence_isOk_iff (kind : BoundaryKind) (state : Correspondence)
-    (detail : Option String) (origin : Option ToolchainOrigin) :
-    (admitBoundaryEvidence kind state detail origin).isOk = true ↔
-      BoundaryFieldsOK kind state detail origin := by
+    (detail : Option String) (origin : Option ToolchainOrigin)
+    (terms : Option CorrespondenceTerms) :
+    (admitBoundaryEvidence kind state detail origin terms).isOk = true ↔
+      BoundaryFieldsOK kind state detail origin terms := by
   constructor
   · intro accepted
-    cases admitted : admitBoundaryEvidence kind state detail origin with
-    | ok e => exact ⟨e, boundaryEvidence_admission_preserves kind state detail origin e admitted⟩
+    cases admitted : admitBoundaryEvidence kind state detail origin terms with
+    | ok e =>
+      exact ⟨e, boundaryEvidence_admission_preserves kind state detail origin terms e admitted⟩
     | error _ => rw [admitted] at accepted; cases accepted
-  · rintro ⟨e, rfl, rfl, rfl⟩
+  · rintro ⟨e, rfl, rfl, rfl, rfl⟩
     rw [boundaryEvidence_roundtrip]
     rfl
 
@@ -1870,26 +1984,28 @@ structure BoundaryFields where
   detail : Option String
   /-- The observed toolchain origin. -/
   origin : Option ToolchainOrigin
+  /-- The observed proof and required proposition of the correspondence. -/
+  terms : Option CorrespondenceTerms
 
 /-- `admitBoundaryEvidence` accepts exactly the fields of some evidence of the kind
 (`admitBoundaryEvidence_isOk_iff`): it accepts an unresolved external boundary and refuses a
 trusted native-runtime boundary with no origin. The result type depends on the kind, so the
 decision is of whether the result is a success (`Regula.Dependent.isOk`), on the structure of
-the four arguments; that the admitted evidence has the supplied fields is
+the five arguments; that the admitted evidence has the supplied fields is
 `boundaryEvidence_admission_preserves`. -/
 theorem checked_admitBoundaryEvidence :
     Regula.ExecutableContract admitBoundaryEvidence (fun admit =>
       Regula.Decides (· = true)
         (fun input : BoundaryFields =>
-          BoundaryFieldsOK input.kind input.state input.detail input.origin)
+          BoundaryFieldsOK input.kind input.state input.detail input.origin input.terms)
         (Regula.Dependent.isOk fun input =>
-          admit input.kind input.state input.detail input.origin)) :=
+          admit input.kind input.state input.detail input.origin input.terms)) :=
   ⟨.of_iff (fun input =>
-      admitBoundaryEvidence_isOk_iff input.kind input.state input.detail input.origin)
-    ⟨⟨.external, .unresolved, none, none⟩,
-      (admitBoundaryEvidence_isOk_iff .external .unresolved none none).mpr
-        ⟨.unresolved none, rfl, rfl, rfl⟩⟩
-    ⟨⟨.nativeRuntime, .trusted, none, none⟩, by decide⟩⟩
+      admitBoundaryEvidence_isOk_iff input.kind input.state input.detail input.origin input.terms)
+    ⟨⟨.external, .unresolved, none, none, none⟩,
+      (admitBoundaryEvidence_isOk_iff .external .unresolved none none none).mpr
+        ⟨.unresolved none, rfl, rfl, rfl, rfl⟩⟩
+    ⟨⟨.nativeRuntime, .trusted, none, none, none⟩, by decide⟩⟩
 
 /-- Canonical toolchain-origin admission preserves its module and exact path observation. -/
 theorem toolchainOrigin_roundtrip (o : ToolchainOrigin) :
@@ -1960,6 +2076,11 @@ def ExecutionBoundary.correspondence (b : ExecutionBoundary) : Correspondence :=
 
 /-- The detail text of the boundary's evidence. -/
 def ExecutionBoundary.evidence (b : ExecutionBoundary) : Option String := b.account.detail
+
+/-- The proof and the required proposition of the boundary's checked correspondence evidence;
+`none` for any other evidence (`BoundaryEvidence.terms?`). -/
+def ExecutionBoundary.terms? (b : ExecutionBoundary) : Option CorrespondenceTerms :=
+  b.account.terms?
 
 /-- The admitted origin of the boundary's module when the toolchain owns the boundary, which
 then belongs to the toolchain's trusted base rather than to the project or a dependency;

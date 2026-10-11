@@ -309,18 +309,19 @@ def visitObject (name moduleName parent : Json) : Json :=
 
 /-- A boundary of a root's account. -/
 def boundaryObject (occurrence name moduleName boundary correspondence owned replacement evidence
-    compilerCallers toolchainOrigin : Json) : Json :=
+    exact compilerCallers toolchainOrigin : Json) : Json :=
   Json.mkObj [("boundary", boundary), ("compilerCallers", compilerCallers),
-    ("correspondence", correspondence), ("evidence", evidence), ("module", moduleName),
+    ("correspondence", correspondence), ("evidence", evidence), ("exact", exact),
+    ("module", moduleName),
     ("name", name), ("occurrence", occurrence), ("owned", owned), ("replacement", replacement),
     ("toolchainOrigin", toolchainOrigin)]
 
 /-- A boundary record as a written account stores it once: the members of `boundaryObject` that
 do not depend on the root, and `node`, the index of the boundary's name. -/
 def boundaryRecord (node name moduleName boundary correspondence owned replacement evidence
-    toolchainOrigin : Json) : Json :=
+    exact toolchainOrigin : Json) : Json :=
   Json.mkObj [("boundary", boundary), ("correspondence", correspondence), ("evidence", evidence),
-    ("module", moduleName), ("name", name), ("node", node), ("owned", owned),
+    ("exact", exact), ("module", moduleName), ("name", name), ("node", node), ("owned", owned),
     ("replacement", replacement), ("toolchainOrigin", toolchainOrigin)]
 
 /-- The closure of a root's account. -/
@@ -536,7 +537,8 @@ def rebuildRoot (graph : Graph) (entry : Json) : Option Json :=
       return boundaryObject (SourceTexts.refJson occurrence) (← field? "name" record)
         (← field? "module" record) (← field? "boundary" record)
         (← field? "correspondence" record) (← field? "owned" record)
-        (← field? "replacement" record) (← field? "evidence" record) (callers node)
+        (← field? "replacement" record) (← field? "evidence" record) (← field? "exact" record)
+        (callers node)
         (← field? "toolchainOrigin" record)
     let visited := visits.map fun (node, parent) =>
       visitObject (name node) (graph.modules.getD node .null)

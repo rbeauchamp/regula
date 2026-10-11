@@ -42,7 +42,7 @@ theorem boundary_toJson (boundary : ExecutionBoundary) :
     toJson boundary =
       boundaryObject (toJson boundary.occurrence) (toJson boundary.name) (toJson boundary.module)
         (toJson boundary.boundary) (toJson boundary.correspondence) (toJson boundary.owned)
-        (toJson boundary.replacement) (toJson boundary.evidence)
+        (toJson boundary.replacement) (toJson boundary.evidence) (toJson boundary.terms?)
         (toJson boundary.compilerCallers) (toJson boundary.toolchainOrigin?) := rfl
 
 theorem closure_toJson (closure : ExecutionClosure) :
@@ -141,7 +141,7 @@ def tables (roots : Array ExecutionRoot) (accounts : Array Json) : Tables :=
             (member "name" written) (member "module" written) (member "boundary" written)
             (member "correspondence" written) (member "owned" written)
             (member "replacement" written) (member "evidence" written)
-            (member "toolchainOrigin" written)))
+            (member "exact" written) (member "toolchainOrigin" written)))
       own.fold (fun found slot listed => found.insert slot listed) found
   let boundaries := (records.toArray.qsort fun a b => a.1 < b.1).flatMap (·.2)
   let unavailable := roots.foldl (init := ({} : Std.HashSet Nat)) fun found root =>

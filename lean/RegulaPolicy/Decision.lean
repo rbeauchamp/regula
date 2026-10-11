@@ -507,6 +507,118 @@ theorem policyFor_of_mem (i : Inventory) (roles : Roles i) {d : Declaration}
     policyFor i roles d request = policyForName i roles d.name request := by
   simp [policyFor, recordFailure, hd]
 
+/-! ## What the decisions do with the reported observation
+
+The law observer's report of a registration (`Declaration.Reported`) is in no part that the
+decision of a rule takes. The roles (`authorize_withEvidence`) and the identity-keyed decision
+(`policyForName_withEvidence`) give the same answer whatever each record reports, and so does the
+public decision on a member when the reports of the inventory's records and of that member are
+replaced together (`policyFor_withEvidence`). The admission boundary of a supplied record
+(`recordFailure`) is the exception: it compares the whole record with the inventory's records,
+the report included, so it refuses a supplied record whose report differs from the report of the
+inventory's record, as it refuses a difference in any other field. -/
+
+/-- Replacing the reported observation keeps the assessed part. -/
+@[simp] theorem Declaration.withEvidence_assessed (d : Declaration)
+    (evidence : Option ContractEvidence) : (d.withEvidence evidence).assessed = d.assessed := rfl
+
+/-- Replacing the reported observation keeps the role part. -/
+@[simp] theorem Declaration.withEvidence_role (d : Declaration)
+    (evidence : Option ContractEvidence) : (d.withEvidence evidence).role = d.role := rfl
+
+/-- Replacing the reported observation keeps the registration part. -/
+@[simp] theorem Declaration.withEvidence_registration (d : Declaration)
+    (evidence : Option ContractEvidence) :
+    (d.withEvidence evidence).registration = d.registration := rfl
+
+/-- Replacing the reported observation keeps the recorded contract. -/
+@[simp] theorem Declaration.withEvidence_executableContract (d : Declaration)
+    (evidence : Option ContractEvidence) :
+    (d.withEvidence evidence).executableContract = d.executableContract := rfl
+
+/-- Validity reads no reported observation. -/
+theorem InventoryValid.withEvidence {ds : Array Declaration} {ts : Array Frontend.Transcript}
+    (evidence : Declaration → Option ContractEvidence) (valid : InventoryValid ds ts) :
+    InventoryValid (ds.map fun d => d.withEvidence (evidence d)) ts := by
+  obtain ⟨names, records, modules, transcripts⟩ := valid
+  refine ⟨?_, ?_, modules, ?_⟩
+  · simpa [Array.map_map, Function.comp_def] using names
+  · simp only [Array.mem_map]
+    rintro _ ⟨d, member, rfl⟩
+    exact records d member
+  · intro t ht
+    obtain ⟨named, source, bytes, version, hash, coordinates, ranges⟩ := transcripts t ht
+    refine ⟨named, source, bytes, version, hash, coordinates, ?_⟩
+    simp only [Array.mem_map]
+    rintro _ ⟨d, member, rfl⟩
+    exact ranges d member
+
+/-- `i` with the reported observation of each record replaced by `evidence` of the record, and
+every other field unchanged. -/
+def Inventory.withEvidence (i : Inventory) (evidence : Declaration → Option ContractEvidence) :
+    Inventory :=
+  { i with
+    declarations := i.declarations.map fun d => d.withEvidence (evidence d)
+    valid := InventoryValid.withEvidence evidence i.valid }
+
+/-- The role parts of the records do not depend on what they report. -/
+theorem roleRecords_withEvidence (ds : Array Declaration)
+    (evidence : Declaration → Option ContractEvidence) :
+    roleRecords (ds.map fun d => d.withEvidence (evidence d)) = roleRecords ds := by
+  simp [roleRecords, Array.map_map, Function.comp_def]
+
+/-- The recorded contracts of the records do not depend on what they report. -/
+theorem recordedContracts_withEvidence (ds : Array Declaration)
+    (evidence : Declaration → Option ContractEvidence) :
+    recordedContracts (ds.map fun d => d.withEvidence (evidence d)) = recordedContracts ds := by
+  simp [recordedContracts, Array.map_map, Function.comp_def]
+
+/-- The roles of an inventory do not depend on what its records report: the native-proof axioms,
+the recursion helpers and the implementations that its decision contracts decide (RG1008) are
+the same. -/
+theorem authorize_withEvidence (i : Inventory) (evidence : Declaration → Option ContractEvidence) :
+    (authorize (i.withEvidence evidence)).native = (authorize i).native ∧
+      (authorize (i.withEvidence evidence)).helpers = (authorize i).helpers ∧
+      (authorize (i.withEvidence evidence)).decided = (authorize i).decided := by
+  refine ⟨?_, ?_, ?_⟩ <;>
+    simp [authorize, Inventory.withEvidence, Inventory.decisionContracts,
+      roleRecords_withEvidence, recordedContracts_withEvidence]
+
+/-- The record with a name, with what it reports replaced, is the record of the inventory with
+what its records report replaced. -/
+theorem Inventory.withEvidence_record? (i : Inventory)
+    (evidence : Declaration → Option ContractEvidence) (n : Name) :
+    (i.withEvidence evidence).record? n =
+      (i.record? n).map fun d => d.withEvidence (evidence d) := by
+  simp [Inventory.record?, Inventory.withEvidence, Array.find?_map, Function.comp_def]
+
+/-- The identity-keyed decision does not depend on what the records report. -/
+theorem policyForName_withEvidence (i : Inventory)
+    (evidence : Declaration → Option ContractEvidence) (n : Name) (request : InspectionRequest) :
+    policyForName (i.withEvidence evidence) (authorize (i.withEvidence evidence)) n request =
+      policyForName i (authorize i) n request := by
+  obtain ⟨native, helpers, decided⟩ := authorize_withEvidence i evidence
+  unfold policyForName
+  rw [Inventory.withEvidence_record?]
+  cases i.record? n with
+  | none => rfl
+  | some d =>
+    simp only [Option.map_some, Roles.safetyHelpers, native, helpers, decided]
+    rfl
+
+/-- The public decision on a member does not depend on what the records report, for every role
+receipt of the two inventories. -/
+theorem policyFor_withEvidence (i : Inventory) (evidence : Declaration → Option ContractEvidence)
+    (roles : Roles i) (roles' : Roles (i.withEvidence evidence)) {d : Declaration}
+    (member : d ∈ i.declarations) (request : InspectionRequest) :
+    policyFor (i.withEvidence evidence) roles' (d.withEvidence (evidence d)) request =
+      policyFor i roles d request := by
+  have member' : d.withEvidence (evidence d) ∈ (i.withEvidence evidence).declarations :=
+    Array.mem_map_of_mem member
+  rw [Roles.eq_authorize roles, Roles.eq_authorize roles', policyFor_of_mem _ _ member',
+    policyFor_of_mem _ _ member, Declaration.withEvidence_name]
+  exact policyForName_withEvidence i evidence d.name request
+
 /-- Foundation rendering uses the same inventory-bound generated-role result. -/
 def foundationFor (i : Inventory) (roles : Roles i) (d : Declaration) :
     Except String FoundationClass :=

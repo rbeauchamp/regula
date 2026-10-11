@@ -1644,6 +1644,19 @@ theorem checked_parseValue : Regula.ExecutableContract parseValue
        rfl
      refused := ⟨.null, by decide⟩ }⟩
 
+/-- `parseValue` accepts exactly the values that encode a valid manifest, as a law
+(`Regula.DecisionEquivalence`) built from `parseValue_ok` and `parseValue_complete`. The complete
+kind `checked_parseValue` is kept: it adds the value the function refuses, which the law does not
+supply, and the law adds the sound direction that the kind leaves open. Neither states which
+manifest an accepted value gives; `parseValue_ok` does. -/
+theorem checked_parseValue_law : Regula.ExecutableContract parseValue
+    (Regula.DecisionEquivalence (·.isOk = true) fun value => ∃ m, m.Valid ∧ Encodes value m) :=
+  ⟨⟨fun value => ⟨fun accepted => by
+      cases parsed : parseValue value with
+      | ok m => exact ⟨m, parseValue_ok.mp parsed⟩
+      | error _ => simp [parsed, Except.isOk, Except.toBool] at accepted,
+    fun ⟨_, valid, encodes⟩ => by rw [parseValue_complete valid encodes]; rfl⟩⟩⟩
+
 /-! Refusal classes. Each isolated defect, after an otherwise accepted prefix, yields exactly
 its documented `manifest-malformed`, `manifest-schema` or `manifest-incomplete` message. -/
 

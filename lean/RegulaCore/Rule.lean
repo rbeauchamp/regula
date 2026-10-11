@@ -653,7 +653,9 @@ def descriptor : (id : RuleId) → RuleDescriptor id
         `Decidable (Spec x)`."
       rewrites := [
         "Prove both directions and a witness of each outcome: `ExecutableContract f (Decides (· = \
-          true) Spec)`, from an existing equivalence by `Decides.of_iff`.",
+          true) Spec)`, from an existing equivalence by `Decides.of_iff`. A law \
+          `DecisionEquivalence accepts Spec f` alone does not discharge the registration: add the \
+          witness it lacks with `law.toSoundly` or `law.toCompletely`.",
         "State a deliberate one-way guarantee with `DecidesSoundly` (may refuse inputs that \
           satisfy `Spec`) or `DecidesCompletely` (may accept inputs that do not).",
         "Decide several arguments on their product, `ExecutableContract f (fun g => Decides \

@@ -26,6 +26,17 @@ input has no complete kind. The linter reads the kind from the head constant of 
 registration's elaborated requirement and reports it, with the direction a one-way kind leaves
 open.
 
+A fourth requirement, `DecisionEquivalence accepts spec f`, states the two directions as one law
+and no witness. It is not a kind: an equivalence holds on an empty domain, where `f` neither
+accepts nor refuses an input, so it gives no outcome, and a registered decision is not discharged
+by it (rule RG1008). It serves a registration whose evidence is an equivalence, so that the linter
+reports that evidence in the same structured form as the kinds: for each registration of one of
+the four, the laws and the outcomes it establishes (`RegulaPolicy.Carrier.facts`), each as its
+exact proposition, where the function it states them about is the registered implementation
+itself or `Function.uncurry` of it, and otherwise why it draws no such conclusion.
+`DecisionEquivalence.toSoundly` and `toCompletely` give a kind from a law and the witness that
+the law does not supply.
+
 A function of several arguments is decided on the product of its arguments: state the kind about
 `Function.uncurry f`, as in `ExecutableContract f (fun g => Decides accepts spec
 (Function.uncurry g))`. `Function.uncurry` is a bijection between `α → β → ρ` and `α × β → ρ`
@@ -217,6 +228,25 @@ structure Decides {α : Sort u} {ρ : Sort v} (accepts : ρ → Prop) (spec : α
     (f : α → ρ) : Prop
     extends DecidesSoundly accepts spec f, DecidesCompletely accepts spec f
 
+/-- A decision law: `f` accepts exactly the inputs that satisfy `spec`. It states the two
+directions of `Decides` and neither witness, so it is not a decision kind. On an empty domain it
+holds while `f` neither accepts nor refuses an input (`DecisionEquivalence.of_empty`), and a
+constant function has one for the specification that its one outcome gives
+(`DecisionEquivalence.of_constant`), although it has no two-way kind (`Decides.not_of_constant`).
+A registration states it as the `condition` of an `ExecutableContract`, an ordinary requirement,
+so that the linter reports its evidence in the same structured form as the kinds
+(`RegulaPolicy.Carrier`). It does not discharge a `@[regula_decision]` registration (rule RG1008),
+which needs a kind: `DecisionEquivalence.toSoundly` and `toCompletely` give one from a law and the
+witness that the law does not supply, and `Decides.of_iff` both.
+
+**Not claimed:** that `f` accepts some input, that it refuses some input, or that `spec` holds or
+fails of some input. Neither is it claimed that `spec` is the intended specification, nor which
+value an accepting result carries. -/
+structure DecisionEquivalence {α : Sort u} {ρ : Sort v} (accepts : ρ → Prop) (spec : α → Prop)
+    (f : α → ρ) : Prop where
+  /-- `f` accepts an input exactly when the input satisfies the specification. -/
+  iff : ∀ x, accepts (f x) ↔ spec x
+
 section
 variable {α : Sort u} {ρ : Sort v} {accepts : ρ → Prop} {spec : α → Prop} {f : α → ρ}
 
@@ -228,6 +258,42 @@ theorem Decides.iff (decides : Decides accepts spec f) (x : α) : accepts (f x) 
 theorem Decides.of_iff (iff : ∀ x, accepts (f x) ↔ spec x) (accepted : ∃ x, accepts (f x))
     (refused : ∃ x, ¬ accepts (f x)) : Decides accepts spec f :=
   { sound := fun x => (iff x).mp, accepted, complete := fun x => (iff x).mpr, refused }
+
+/-- A two-way kind gives the law of its two directions as one equivalence, and forgets its two
+witnesses. -/
+theorem Decides.toEquivalence (decides : Decides accepts spec f) :
+    DecisionEquivalence accepts spec f :=
+  ⟨decides.iff⟩
+
+/-- The direction of a law that soundness states: every input `f` accepts satisfies the
+specification. -/
+theorem DecisionEquivalence.sound (law : DecisionEquivalence accepts spec f) (x : α) :
+    accepts (f x) → spec x :=
+  (law.iff x).mp
+
+/-- The direction of a law that completeness states: `f` accepts every input that satisfies the
+specification. -/
+theorem DecisionEquivalence.complete (law : DecisionEquivalence accepts spec f) (x : α) :
+    spec x → accepts (f x) :=
+  (law.iff x).mpr
+
+/-- A law and an input that `f` accepts give the sound kind. The input is an argument: the law
+does not supply it. -/
+theorem DecisionEquivalence.toSoundly (law : DecisionEquivalence accepts spec f)
+    (accepted : ∃ x, accepts (f x)) : DecidesSoundly accepts spec f :=
+  { sound := law.sound, accepted }
+
+/-- A law and an input that `f` refuses give the complete kind. The input is an argument: the law
+does not supply it. -/
+theorem DecisionEquivalence.toCompletely (law : DecisionEquivalence accepts spec f)
+    (refused : ∃ x, ¬ accepts (f x)) : DecidesCompletely accepts spec f :=
+  { complete := law.complete, refused }
+
+/-- On an empty domain every law holds, and `f` neither accepts nor refuses an input: a law gives
+no outcome. -/
+theorem DecisionEquivalence.of_empty (empty : α → False) :
+    DecisionEquivalence accepts spec f ∧ ¬ (∃ x, accepts (f x)) ∧ ¬ ∃ x, ¬ accepts (f x) :=
+  ⟨⟨fun x => (empty x).elim⟩, fun ⟨x, _⟩ => empty x, fun ⟨x, _⟩ => empty x⟩
 
 /-- A parser of a written form is a two-way decision of "is a written form": `parse` reads
 every `write x` back as `x` and accepts nothing else, with one value and one input it refuses as
@@ -288,6 +354,13 @@ of each outcome. -/
 theorem Decides.not_of_constant (result : ρ) : ¬ Decides accepts spec (fun _ : α => result) :=
   fun decides => decides.accepted.elim fun _ accepted =>
     decides.refused.elim fun _ refused => refused accepted
+
+/-- A constant function has a law for the specification that its one outcome gives: it accepts an
+input exactly when its result is accepted. With `Decides.not_of_constant`, this shows on an
+inhabited domain too that a law gives no outcome of each kind. -/
+theorem DecisionEquivalence.of_constant (result : ρ) :
+    DecisionEquivalence accepts (fun _ : α => accepts result) (fun _ : α => result) :=
+  ⟨fun _ => Iff.rfl⟩
 
 /-- A constant function with a sound kind accepts every input, so the specification holds of
 every input. -/
