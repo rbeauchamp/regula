@@ -2,6 +2,7 @@ import Regula.Checker.Documentation
 import Regula.Checker.Lake
 import Regula.Checker.AcceptanceLink
 import RegulaCore.Prose
+import RegulaCore.JsonAgreement
 
 /-! # Documentation fence audit executable
 
@@ -74,7 +75,8 @@ private def resolve (repo path : FilePath) : FilePath :=
 /-- The first package that the Verso package at `package` and a package it requires by local path
 both pin by Git at different revisions or sources, with that package's recorded directory. Where
 the two share one packages directory, such a pin would make one build check out another revision
-of a shared dependency. -/
+of a shared dependency. Both pins are read from manifests, so each is compared with the other both
+ways (`JsonAgreement.conforms`), which also requires each object in them to be a search tree. -/
 private def sharedPinMismatch (package : FilePath) : IO (Option String) := do
   let entries (dir : FilePath) : IO (Array Json) := do
     IO.ofExcept ((← readJson (dir / "lake-manifest.json")).getObjValAs? (Array Json) "packages")
@@ -91,7 +93,8 @@ private def sharedPinMismatch (package : FilePath) : IO (Option String) := do
     let requiredPins ← pins (package / dir)
     for (name, url, rev) in versoPins do
       if let some (_, url', rev') := requiredPins.find? (·.1 == name) then
-        unless url == url' && rev == rev' do return some s!"{name} (against {dir})"
+        let same (a b : Json) := JsonAgreement.conforms a b && JsonAgreement.conforms b a
+        unless same url url' && same rev rev' do return some s!"{name} (against {dir})"
   return none
 
 /-- The rendered HTML files below `root`, each by its path below it with its text. -/

@@ -84,13 +84,14 @@ def requirements (report : Json) (code : Nat) (rule mode source : String)
     ⟨"exact diagnostic list", ids == (if fixed then [] else [rule])⟩,
     ⟨"exact exit", code == (if fixed then 0 else 1)⟩,
     ⟨"exact status", (← text report "status") == (if fixed then "completed" else "rejected")⟩,
-    ⟨"admission receipt complete", (← field receipt "required") == (← field receipt "admitted")⟩,
+    ⟨"admission receipt complete",
+      decide (Conforms (← field receipt "required") (← field receipt "admitted"))⟩,
     ⟨"exact mode", (← text report "mode") == mode⟩,
     ⟨"no unresolved evidence", (← array report "unresolved").isEmpty⟩,
     ⟨"exact census", decide (Conforms (← field account "census") censusJson)⟩,
-    ⟨"reflexivity admitted", required.contains key⟩,
+    ⟨"reflexivity admitted", required.any (decide <| Conforms · key)⟩,
     ⟨"one source snapshot", snapshots.size == 1⟩,
-    ⟨"snapshot module", (← field snapshot "module") == nameJson "Example"⟩,
+    ⟨"snapshot module", decide (Conforms (← field snapshot "module") (nameJson "Example"))⟩,
     ⟨"exact source bytes", (← text snapshot "sourceText") == source⟩,
     ⟨"snapshot filename", (System.FilePath.mk (← text snapshot "path")).fileName ==
         some "Example.lean"⟩,
@@ -270,10 +271,11 @@ def standaloneRequirements (report : Json) (code : Nat) (mutated : Bool) : Excep
     ⟨"standalone diagnostics", ids == (if mutated then ["RG1001"] else [])⟩,
     ⟨"standalone status", (← text report "status") ==
         (if mutated then "rejected" else "completed")⟩,
-    ⟨"standalone documentation", (← array (← field account "documentation") "modules").contains
-      (toJson #[nameJson "SelftestMain", Json.mkObj [("documented", .bool true),
-        ("documentationFirst", .bool true), ("imports", toJson (#[] : Array Json))]])⟩,
-    ⟨"standalone main root", (← array (← field account "census") "executionRoots").contains
-      (toJson #[nameJson "SelftestMain", nameJson "main"])⟩]
+    ⟨"standalone documentation", (← array (← field account "documentation") "modules").any
+      (decide <| Conforms · (toJson #[nameJson "SelftestMain",
+        Json.mkObj [("documented", .bool true), ("documentationFirst", .bool true),
+          ("imports", toJson (#[] : Array Json))]]))⟩,
+    ⟨"standalone main root", (← array (← field account "census") "executionRoots").any
+      (decide <| Conforms · (toJson #[nameJson "SelftestMain", nameJson "main"]))⟩]
 
 end RegulaQualification.Producer

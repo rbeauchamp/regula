@@ -92,7 +92,8 @@ def closure : IO Unit := do
               array (← field surface "report") "execution"
             for (name, recursion) in #[("f", false), ("recursiveSum", true)] do
               let some entry := roots.find?
-                  (fun entry => (entry.getObjVal? "name").toOption == some (nameJson name))
+                  (fun entry => (entry.getObjVal? "name").toOption.any
+                    (Regula.JsonAgreement.conforms · (nameJson name)))
                 | throw <| IO.userError s!"missing {name} execution"
               let closure ← IO.ofExcept (field entry "closure")
               let edge := toJson #[nameJson name, nameJson name]
@@ -100,11 +101,15 @@ def closure : IO Unit := do
                   (if recursion then array entry "compilerEdges" else
                                       array closure "candidateEdges")
               let unresolved ← IO.ofExcept (array entry "unresolved")
-              requireChecks [⟨"retained self edge", edges.contains edge⟩,
+              requireChecks [
+                ⟨"retained self edge", edges.any (Regula.JsonAgreement.conforms · edge)⟩,
                 ⟨"exact unresolved state", (!unresolved.isEmpty) == (bad && !recursion)⟩]
               if !recursion then
+                -- The edges have search trees, so an edge that does not conform to `edge` differs.
+                let active ← IO.ofExcept (array closure "activeSimplificationEdges")
                 requireChecks [⟨"active self simplification iff mutated",
-                  (← IO.ofExcept (array closure "activeSimplificationEdges")).contains edge == bad⟩]
+                  Regula.JsonAgreement.regular (.arr active) &&
+                    active.any (Regula.JsonAgreement.conforms · edge) == bad⟩]
           IO.println s!"closure evidence {kind}/{invocation}/{phase}: PASS"
 
 /-- Initial configuration-read IO failure must produce one exact typed incomplete
@@ -145,12 +150,13 @@ def configuration : IO Unit := do
               ⟨"exact configuration location",
                 Regula.JsonAgreement.conforms (← field d "location")
                   (Json.mkObj [("kind", .str "project"), ("identity", .str project.toString)])⟩,
-              ⟨"exact unresolved IO failure", (← array result "unresolved") == #[.str why]⟩,
+              ⟨"exact unresolved IO failure", Regula.JsonAgreement.conforms
+                (.arr (← array result "unresolved")) (.arr #[.str why])⟩,
               ⟨"no source invented", (← array result "sourceAccount").isEmpty⟩,
               ⟨"request without configuration read",
-                ((← field result "request").getObjVal? "configuration").toOption == some
-                (.arr #[]) &&
-                  (field result "effective").toOption == some .null⟩]
+                ((← field result "request").getObjVal? "configuration").toOption.any
+                  (Regula.JsonAgreement.conforms · (.arr #[])) &&
+                (field result "effective").toOption.any (Regula.JsonAgreement.conforms · .null)⟩]
           else
             let effective ← text (← field result "effective") "root"
             let sources ← array result "sourceAccount"

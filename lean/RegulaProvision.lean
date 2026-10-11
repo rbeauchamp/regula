@@ -454,7 +454,7 @@ private def gitPin (entry : Json) : Except String (Option (Json × Pin × String
   let name ← entry.getObjValAs? String "name"
   let rev ← entry.getObjValAs? String "rev"
   let url ← entry.getObjValAs? String "url"
-  if (entry.getObjValD "subDir") != .null then
+  unless entry.getObjValD "subDir" matches .null do
     throw s!"{name}: a Git package in a subdirectory is not supported"
   return some (entry, ⟨name, rev⟩, url)
 

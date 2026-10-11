@@ -1493,6 +1493,7 @@ Lean's kernel checked the others in the build of the excluded `Regula` library. 
 | The registry decoders conform | `RegistryCodec.parseDescriptor_eq_ok_iff`, `validateRegistry_eq_ok_iff` | `parseDescriptor` returns a rule exactly when the member `id` names it and the input conforms to the descriptor of that rule. `validateRegistry` accepts exactly a value that conforms to the registry of the producer. |
 | The other readers conform | `Checker.readWorkerPacket_eq_ok_iff`, `Website.parsePage_eq_ok_iff`, `Website.validateArtifact_regular` | `readWorkerPacket` returns a payload exactly when the packet has its four members and schema 1, and two members conform. The member `producer` conforms to the producer of this checker, and the member `request` to the request. `parsePage` returns a page exactly when its members read as the page and the record conforms to `pageJson` of it. `validateArtifact` accepts only an artifact list with search trees. |
 | The producer checks conform | `RegulaQualification.Producer.requirements_census_type`, `validate_census_type` | An admitted requirement list holds the census check and the theorem-type check. Each decides `JsonAgreement.Conforms` with `conforms`, with the received value first. An admitted report's census conforms to `censusJson`, and the `type` of its first declaration conforms to `theoremType`. Its other object checks decide `Conforms` too, and no theorem names them. |
+| The rule-example records conform | `Checker.RuleExampleQualification.binding_sound`, `checkIdentity_sound`, `qualify_sound` | `binding` admits a record only when its `before` input has search trees and agrees with its `after` input. `checkIdentity` admits an identity member only when it has search trees and agrees with the expected value. `RecordAdmissible` states the two. |
 | In a search tree, each member is found by its name | `JsonAgreement.get?_of_mem`, `mem_of_get?` | The first theorem is about `Std.TreeMap.Raw.get?`, the lookup that `Json.getObjVal?` runs. The second is for each tree: a name that is found is the name of a member. |
 | Exact members | `PolicyCodec.exactFields_iff`, `checked_exactFields` | `exactFields` accepts exactly an object that has the expected names as its member names, in some order (`ExactFields`). The proof that the expected names are distinct is an argument. Thus Lean rejects a call with a list that gives one name twice. |
 
@@ -1513,13 +1514,13 @@ these items:
 - That `agrees` returns what the runtime equality of `Json` returns. The two definitions have the
   same cases, which a reader can compare. The agreement of the two is by reading, and a
   comparison of the two over pairs of values is evidence for those pairs only.
-- What the other comparisons of `Json` values accept. These functions run `conforms`, with the
-  input first: `RegistryCodec.parseDescriptor`, `validateRegistry`, `Website.parsePage`,
-  `validateArtifact` and `Checker.readWorkerPacket`. The guidance members of
-  `ResultProtocol.admitGuidance` and the checks of report objects in the qualification run it too.
-  Other comparisons put the encoding first, compare with an encoding that has no object, or
-  compare two inputs or two encodings. This item is not a complete list, and no theorem says what
-  one of these comparisons accepts.
+- What the other comparisons of `Json` values accept. Where an operand can hold a value that
+  Regula read, the comparison runs `conforms` with that value first, or decides `Conforms`. A
+  comparison with a constant `null`, Boolean or string matches its constructor or compares its
+  text. The self-audit diagnostic refuses a declaration that names the equality of `Json` or
+  compares texts of `compress`, in each library except `Fixtures`. `JsonAgreement` is exempt, and
+  so is an allowlist of comparisons of two values that Regula built, each with its reason. Only
+  the theorems in the table above say what one of these comparisons accepts.
 
 **The callers.** These paths give a value to the diagnostic decoder. They are read from the code
 of the callers.
@@ -4006,7 +4007,8 @@ of `DemonstrationOK`: completed production, nonempty expected findings, a select
 finding, exact mode and canonical diagnostic equality; the observed list itself must contain an
 incomplete finding for the selected rule, without assuming injectivity of JSON rendering.
 `Checker.RuleExampleQualification.qualify_sound`: every record `qualify` admits is
-`RecordAdmissible` (current producer identity, parsed mode, equal before/after snapshots, the
+`RecordAdmissible` (current producer identity, parsed mode, a before snapshot with search trees
+that agrees with the after snapshot, the
 observed request decoding to the frozen one, exit at most 1, sources in the bound snapshot with one
 having the displayed text, for a file or diagnostic-only request one being the requested subject
 with the displayed text, a result source account unless the request is diagnostic-only or

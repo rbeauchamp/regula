@@ -91,7 +91,8 @@ def check : IO Unit := do
           let execution ← IO.ofExcept (account.getObjValAs? (Array Json) "execution")
           let importedName := nameJson "Nat.add"
           let imported := execution.filter
-              (fun entry => (entry.getObjVal? "name").toOption == some importedName)
+              (fun entry => (entry.getObjVal? "name").toOption.any
+                (Regula.JsonAgreement.conforms · importedName))
           requireChecks
               [⟨"one imported control with existing ownership", imported.size == 1 && imported.all
             (fun entry => (entry.getObjVal? "module").toOption.isSome)⟩]

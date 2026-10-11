@@ -400,7 +400,8 @@ private def produce (ctx : Context) (slot : Slot.ProducerSlot) (rule phase : Str
     let account ← listed.mapM fun s => do
       return Json.mkObj [("module", ← get s moduleKey), ("path", ← get s "path"),
         ("source", ← get s "sourceText")]
-    let candidates ← account.filterM fun s => return (← get s "module") == nameJson "Example"
+    let candidates ← account.filterM fun s =>
+      return Regula.JsonAgreement.conforms (← get s "module") (nameJson "Example")
     let #[_] := candidates | throw <| IO.userError "project example source account mismatch"
     let originalSources ← entries before "sources"
     -- Each audited source is the fresh copy of exactly one frozen source: the same bytes at
@@ -416,7 +417,7 @@ private def produce (ctx : Context) (slot : Slot.ProducerSlot) (rule phase : Str
       requireChecks [⟨s!"project source binding {actualPath}", originals.size == 1⟩,
         ⟨"fresh project source belongs to owned copy", actualPath.startsWith
             ((Regula.Scratch.directory project).toString ++ "/")⟩]
-      if (← get item "module") == nameJson "Example" then
+      if Regula.JsonAgreement.conforms (← get item "module") (nameJson "Example") then
         replacements := ("$SOURCE", actualPath) :: replacements.filter (·.1 != "$SOURCE")
       aliases := aliases.push (Json.mkObj [("uri", .str actualPath), ("source", .str actualSource)])
     before := before.setObjVal! "sources" (toJson (originalSources ++ aliases))
@@ -692,13 +693,15 @@ def check (evidence : FilePath) (selection : Option (Array String))
           match productions[index]? with
           | some ("RG1005", "WrongClaim") =>
             requireChecks
-                [⟨"Standard-Logical producer control completes", (← get record "exitCode") == toJson
-                    (0 : Nat) && (← string (← get record "result") "status") == "completed"⟩]
+                [⟨"Standard-Logical producer control completes",
+                  Regula.JsonAgreement.conforms (← get record "exitCode") (toJson (0 : Nat)) &&
+                    (← string (← get record "result") "status") == "completed"⟩]
             admitRecord ctx record (some "producer request differs from frozen example request")
           | _ =>
             requireChecks
-                [⟨"nonpositive documentation classifies", (← get record "exitCode") == toJson
-                    (0 : Nat) && (← string (← get record "result") "status") == "classified"⟩]
+                [⟨"nonpositive documentation classifies",
+                  Regula.JsonAgreement.conforms (← get record "exitCode") (toJson (0 : Nat)) &&
+                    (← string (← get record "result") "status") == "classified"⟩]
             admitRecord ctx record
                 (some "documentation correction requires completed positive fences")
     finally
@@ -737,8 +740,8 @@ def check (evidence : FilePath) (selection : Option (Array String))
       #[evidence.toString] cleanEnv
     requireChecks [⟨s!"corpus admission: {checked.stdout}{checked.stderr}", checked.exitCode == 0⟩]
     requireChecks
-        [⟨"terminal checker sources changed", (← snapshotCached cache checkerPaths) ==
-            checkerBefore⟩]
+        [⟨"terminal checker sources changed",
+          Regula.JsonAgreement.conforms (← snapshotCached cache checkerPaths) checkerBefore⟩]
     -- The campaign's one dependency recheck: the product's own terminal decision on
     -- the once-captured value (fresh Lake inventory, fresh reads and fresh Git).
     Regula.Checker.Snapshot.inputsUnchanged inventory

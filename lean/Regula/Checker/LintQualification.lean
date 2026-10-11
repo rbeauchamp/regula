@@ -23,6 +23,11 @@ open Lean System
 
 private def acceptanceLabel := "PASS"
 
+/-- Whether a manifest package entry is the support package `build_lint_support`: its name, a
+received value, conforms to that string (`JsonAgreement.conforms`). -/
+private def isSupportEntry (entry : Json) : Bool :=
+  JsonAgreement.conforms (entry.getObjValD "name") (toJson "build_lint_support")
+
 private def lint (cwd : FilePath) (args : Array String := #[]) : IO ProcessResult :=
   runProcess cwd "lake" (#["lint"] ++ args) scrubbedLeanPathEnv
 
@@ -211,7 +216,7 @@ private def leanAdopter (probes : Std.Mutex Unit) (repo adopter : FilePath) :
     (optIn ++ #["--json-out", "opt-in.json"]))
   let recorded := ((← readJson (adopter / "opt-in.json")).getObjValD "scope").getObjValD
     "ordinaryLakefiles"
-  unless recorded == toJson true do
+  unless JsonAgreement.conforms recorded (toJson true) do
     failures := failures.push s!"lake-lint/lean/opt-in-reported: scope.ordinaryLakefiles is \
       {recorded.compress}"
   IO.FS.removeFile (adopter / "opt-in.json")
@@ -321,7 +326,7 @@ private def leanAdopter (probes : Std.Mutex Unit) (repo adopter : FilePath) :
         "FAIL: 0 violation(s), 1 incomplete finding(s)", "regula lint: INCOMPLETE (exit 3)"] }
     #["--", "--json-out", "worker-failure.json"])
   let stages := (← readJson (adopter / "worker-failure.json")).getObjValD "stagesCompleted"
-  unless stages == toJson #["configuration", "discovery", "build"] do
+  unless JsonAgreement.conforms stages (toJson #["configuration", "discovery", "build"]) do
     failures := failures.push s!"lake-lint/lean/worker-failure: stagesCompleted {stages.compress}"
   for file in entryPoints do IO.FS.removeFile file
   restore adopter originals
@@ -923,11 +928,11 @@ private def pathLayout (repo adopter : FilePath) : IO (Array String) := do
   let configManifestPath := adopter / "lake-manifest.json"
   let configManifest ← readJson configManifestPath
   let configEntries ← IO.ofExcept <| configManifest.getObjValAs? (Array Json) "packages"
-  let some configEntry := configEntries.find? (·.getObjValD "name" == toJson "build_lint_support")
+  let some configEntry := configEntries.find? isSupportEntry
     | return failures.push "lake-lint/path: the manifest has no build_lint_support entry"
   let relative := configEntry.setObjVal! "dir" (toJson "support")
   writeJson configManifestPath <| configManifest.setObjVal! "packages" <| toJson <|
-    configEntries.map fun item => if item == configEntry then relative else item
+    configEntries.map fun item => if JsonAgreement.conforms item configEntry then relative else item
   let alternative ← IO.ofExcept <| _root_.Lake.PackageEntry.fromJson?
     (relative.setObjVal! "configFile" (toJson "alt.toml"))
   _root_.Lake.Manifest.saveEntries (adopter / ".lake" / "package-overrides.json") #[alternative]
@@ -985,7 +990,7 @@ private def pathLayout (repo adopter : FilePath) : IO (Array String) := do
   let vendorEntries ← IO.ofExcept <| vendorManifest.getObjValAs? (Array Json) "packages"
   writeJson vendorManifestPath <| vendorManifest.setObjVal! "packages" <| toJson <|
     vendorEntries.map fun item =>
-      if item.getObjValD "name" == toJson "regula" then
+      if JsonAgreement.conforms (item.getObjValD "name") (toJson "regula") then
         (item.setObjVal! "dir" (toJson "vendor")).setObjVal! "configFile" (toJson "lakefile.toml")
       else item
   IO.FS.writeFile adopterLakefile <|
@@ -1043,7 +1048,7 @@ private def pathNames (repo adopter : FilePath) : IO (Array String) := do
   let manifestPath := adopter / "lake-manifest.json"
   let projectManifest ← readJson manifestPath
   let entries ← IO.ofExcept <| projectManifest.getObjValAs? (Array Json) "packages"
-  let some supportEntry := entries.find? (·.getObjValD "name" == toJson "build_lint_support")
+  let some supportEntry := entries.find? isSupportEntry
     | return failures.push "lake-lint/path: the manifest has no build_lint_support entry"
   writeJson manifestPath <| projectManifest.setObjVal! "packages" <| toJson <| entries.push <|
     (supportEntry.setObjVal! "name" (toJson "build_lint_support_two")).setObjVal! "dir"
@@ -1058,7 +1063,7 @@ private def pathNames (repo adopter : FilePath) : IO (Array String) := do
   let asLean (configuration : String) : IO Unit := do
     writeJson manifestPath <| projectManifest.setObjVal! "packages" <| toJson <|
       entries.map fun item =>
-        if item.getObjValD "name" == toJson "build_lint_support" then
+        if isSupportEntry item then
           item.setObjVal! "configFile" (toJson "lakefile.lean")
         else item
     IO.FS.removeFile supportLakefile
@@ -1170,10 +1175,11 @@ private def pathNames (repo adopter : FilePath) : IO (Array String) := do
   let manifestPath := adopter / "lake-manifest.json"
   let manifest ← readJson manifestPath
   let entries ← IO.ofExcept <| manifest.getObjValAs? (Array Json) "packages"
-  let some entry := entries.find? (·.getObjValD "name" == toJson "build_lint_support")
+  let some entry := entries.find? isSupportEntry
     | return failures.push "lake-lint/path: the manifest has no build_lint_support entry"
   writeJson manifestPath <| manifest.setObjVal! "packages" <| toJson <| entries.map fun item =>
-    if item == entry then item.setObjVal! "dir" (toJson external.toString) else item
+    if JsonAgreement.conforms item entry then item.setObjVal! "dir" (toJson external.toString)
+    else item
   let override ← IO.ofExcept <| _root_.Lake.PackageEntry.fromJson?
     (entry.setObjVal! "dir" (toJson "support"))
   _root_.Lake.Manifest.saveEntries (adopter / ".lake" / "package-overrides.json") #[override]
@@ -1252,14 +1258,16 @@ private def ownedChecker (repo adopter : FilePath) : IO (Array String) := do
   IO.FS.removeFile resultFile
   let entries (value : Json) : Array Json := value.getArr?.toOption.getD #[]
   let dependencies := entries ((acceptance.getObjValD "snapshot").getObjValD "dependencies")
-  unless dependencies.any (fun dependency => dependency.getObjValD "package" == toJson "regula" &&
-      dependency.getObjValD "owned" == toJson true) do
+  unless dependencies.any (fun dependency =>
+      JsonAgreement.conforms (dependency.getObjValD "package") (toJson "regula") &&
+      JsonAgreement.conforms (dependency.getObjValD "owned") (toJson true)) do
     failures := failures.push s!"lake-lint/{label}: snapshot.dependencies has no owned regula: \
       {(Json.arr dependencies).compress}"
   let inspected := Regula.RegistryCodec.printedNameJson `RegulaCore.EditorPolicy
   let environments := entries (acceptance.getObjValD "environments")
   let dependencyModules := environments.map (·.getObjValD "dependencyModules")
-  unless dependencyModules.any (fun modules => (entries modules).contains inspected) do
+  unless dependencyModules.any (fun modules =>
+      (entries modules).any (JsonAgreement.conforms · inspected)) do
     failures := failures.push s!"lake-lint/{label}: no environment's dependencyModules holds \
       {inspected.compress}: {(Json.arr dependencyModules).compress}"
   return failures

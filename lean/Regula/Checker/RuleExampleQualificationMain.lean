@@ -16,7 +16,8 @@ def main (args : List String) : IO Unit := do
   if single then
     let before ← IO.ofExcept (json.getObjVal? "checkerBefore")
     let after ← IO.ofExcept (json.getObjVal? "checkerAfter")
-    unless before == after do throw <| IO.userError "checker sources changed"
+    unless Regula.JsonAgreement.conforms before after do
+      throw <| IO.userError "checker sources changed"
     for record in ← IO.ofExcept ((json.getObjVal? "records").bind Lean.Json.getArr?) do
       IO.ofExcept
           (Regula.Checker.RuleExampleQualification.qualify

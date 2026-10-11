@@ -1594,12 +1594,14 @@ def releaseOf (repo tag : String) : IO (Option Json) := do
 
 /-- Whether the release of `tag` is published: it exists and is not a draft. -/
 def published (repo tag : String) : IO Bool := do
-  return (← releaseOf repo tag).any fun r => r.getObjValD "draft" != .bool true
+  return (← releaseOf repo tag).any fun r => !(r.getObjValD "draft" matches .bool true)
 
 /-- The versions of the published releases (not drafts), read from their tags `v<version>`;
 refused when a published release's tag is not one. -/
 def publishedVersions (repo : String) : IO (List Version) := do
-  ((← githubReleases repo).filter (·.getObjValD "draft" != .bool true)).mapM fun r => do
+  let published := (← githubReleases repo).filter fun r =>
+    !(r.getObjValD "draft" matches .bool true)
+  published.mapM fun r => do
     let tag ← str r "tag_name"
     let some v := (tag.dropPrefix? "v").bind (parseVersion ·.toString)
       | fail s!"the published release {tag} is not tagged v<major>.<minor>.<patch>"
@@ -1639,7 +1641,7 @@ def filesCommit (repo parent : String) (files : List (String × String)) (messag
     ("message", message), ("tree", ← str tree "sha"), ("parents", Json.arr #[parent])])
   let sha ← str commit "sha"
   let verified := (commit.getObjValD "verification").getObjValD "verified"
-  unless verified == .bool true do
+  unless verified matches .bool true do
     fail s!"GitHub did not verify the signature of the commit {sha}"
   return sha
 
@@ -1670,7 +1672,7 @@ def percentEncode (s : String) : String :=
 private def pointBranch (repo branch commit : String) : IO Unit := do
   let existing ← ghGet s!"repos/{repo}/git/matching-refs/heads/{branch}"
   let exists_ := (← IO.ofExcept existing.getArr?).any fun r =>
-    r.getObjValD "ref" == .str s!"refs/heads/{branch}"
+    (r.getObjValD "ref").getStr?.toOption == some s!"refs/heads/{branch}"
   if exists_ then
     discard <| ghPost "PATCH" s!"repos/{repo}/git/refs/heads/{branch}"
       (Json.mkObj [("sha", commit), ("force", true)])
@@ -2150,7 +2152,7 @@ def publish : IO Unit := do
     "--notes-start-tag", prev.version.tag, "--latest"]
   let some release ← releaseOf repo tag | fail s!"release {tag} was not created"
   let assets ← IO.ofExcept ((release.getObjValD "assets").getArr?)
-  unless release.getObjValD "draft" == .bool false &&
+  unless (release.getObjValD "draft" matches .bool false) &&
       (← assets.anyM fun a => return (← str a "name") == s!"regula-site-{v.spelling}.tar.gz") do
     fail s!"release {tag} is not published with its site asset"
   unless (← taggedCommit repo tag) == some commit do

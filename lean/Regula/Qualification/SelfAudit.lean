@@ -55,6 +55,8 @@ structure ModuleObservation where
   /-- Each public `@[regula_material]` declaration the module owns, with its RG5002/RG5003
   documentation failure, or `none` when its docstring passes. -/
   material : Array (Name × Option MaterialDocumentationFailure)
+  /-- The declarations the module owns that compare `Json` values (`jsonComparisons`). -/
+  jsonComparisons : Array Name
 
 /-- Whether `owner`'s artifact is the pinned toolchain's own `Lake` module. -/
 private def toolchainLakeModule (toolchainLib : FilePath) (owner : Name) : IO Bool := do
@@ -62,6 +64,50 @@ private def toolchainLakeModule (toolchainLib : FilePath) (owner : Name) : IO Bo
   let expected := modToFilePath toolchainLib owner "olean"
   unless ← expected.pathExists do return false
   return (← IO.FS.realPath (← findOLean owner)) == (← IO.FS.realPath expected)
+
+/-! ### Comparisons of `Json` values
+
+Lean's equality of `Json` is one-sided for two objects: it looks each member of the first up in
+the second, so a first object tree that is not a search tree can repeat one name and lack another
+(https://github.com/rbeauchamp/regula/issues/269). A received value is therefore compared with
+`Regula.JsonAgreement.conforms`, or read as a string, number or Boolean first. The campaign
+refuses each other declaration that compares `Json` values, unless both operands are values that
+Regula builds and the allowlist names it with that reason. -/
+
+/-- The declarations that keep Lean's equality of `Json`, each with its reason. -/
+def jsonComparisonAllowlist : Array (Name × String) := #[
+  (`Regula.Checker.Snapshot.legacyBeq,
+    "compares the field state of two dependency observations; the field state_sound proves each \
+      is stateOfCore of the observation's captures, a value Regula builds"),
+  (`Regula.RegistryChecks.main,
+    "the registry self-check executable: each operand is a value it builds with the encoders, \
+      Json.mkObj or Json.setObjVal!, or that its own decoders read back from such a value")]
+
+/-- Whether `e` compares `Json` values with Lean's equality: it names the `BEq Json` instance, the
+only public way to its private `Json.beq'`, or it applies `BEq.beq`, `bne` or `Eq` to an argument
+that contains `Json.compress`. -/
+def comparesJson (e : Expr) : Bool :=
+  (e.find? fun sub =>
+    sub.isConstOf ``Lean.Json.instBEq ||
+      (sub.isAppOf ``BEq.beq || sub.isAppOf ``bne || sub.isAppOf ``Eq) &&
+        sub.getAppArgs.any fun arg => (arg.find? (·.isConstOf ``Lean.Json.compress)).isSome).isSome
+
+/-- The declarations of `owned` whose type or value compares `Json` values (`comparesJson`),
+outside the namespace `Regula.JsonAgreement` and `jsonComparisonAllowlist`. -/
+def jsonComparisons (owned : Array (Name × ConstantInfo)) : Array Name :=
+  owned.filterMap fun (name, info) =>
+    let user := privateToUserName name
+    if (`Regula.JsonAgreement).isPrefixOf user || jsonComparisonAllowlist.any (·.1 == user) then
+      none
+    else if comparesJson info.type || (info.value? (allowOpaque := true)).any comparesJson then
+      some name
+    else none
+
+/-- The finding text for a declaration that compares `Json` values. -/
+def jsonComparisonText (name moduleName : Name) : String :=
+  s!"json-comparison: {privateToUserName name} ({moduleName}) compares Json values with Lean's \
+    one-sided equality; compare a received value with Regula.JsonAgreement.conforms, or name the \
+    declaration in jsonComparisonAllowlist when both operands are built by Regula"
 
 /-- Import one module, kernel-admit its owned declarations and collect its observations. -/
 private unsafe def observe (toolchainLib : FilePath) (moduleName : Name) (source : FilePath) :
@@ -102,7 +148,10 @@ private unsafe def observe (toolchainLib : FilePath) (moduleName : Name) (source
   for (name, _) in own do
     if Linter.Documentation.selected env name then
       material := material.push (name, ← Linter.Documentation.declarationFailure env name)
-  return .ok { «module» := moduleName, declarations, admitted, toolchain, header, material }
+  let found := jsonComparisons own
+  return .ok {
+    «module» := moduleName, declarations, admitted, toolchain, header, material,
+    jsonComparisons := found }
 
 /-- Text of one violation finding at the declaration's module. -/
 private def declarationText (id : RuleId) (name : Name) (detail : String) (moduleName : Name) :
@@ -169,6 +218,8 @@ private def decide (o : ModuleObservation) : Except String ModuleResult := do
     if let some failure := failure? then
       violations := violations.push (← declarationText
         (ruleForMaterialDocumentation failure) name (materialDocumentationDetail failure) o.module)
+  for name in o.jsonComparisons do
+    violations := violations.push (jsonComparisonText name o.module)
   -- A name is reported with its module: two modules, each audited alone, can declare one name.
   let inModule (name : Name) : String := s!"{name} ({o.module})"
   let mut unsafeDeclarations := #[]
@@ -223,6 +274,16 @@ unsafe def worker (moduleName source : String) : IO Unit := do
   let observation ← IO.ofExcept (← observe (← getLibDir (← findSysroot)) moduleName.toName source)
   IO.println (toJson (← IO.ofExcept (decide observation))).compress
 
+/-- Worker for a module of another library of the package: import it alone and print, as a JSON
+array, the declarations it owns that compare `Json` values (`jsonComparisons`). -/
+unsafe def jsonWorker (moduleName : String) : IO Unit := do
+  Checker.initializeLeanSearchPath
+  Lean.enableInitializersExecution
+  let env ← importModules #[{ module := moduleName.toName, importAll := true }] {} 0
+    (loadExts := true) (level := .private)
+  let found := jsonComparisons (Regula.Probe.ownedConstants env [moduleName.toName])
+  IO.println (toJson (found.map toString)).compress
+
 /-- Run the campaign: one fresh worker process per Lake-discovered module of the library.
 Any violation or incomplete module refuses after the full report. -/
 def check (jobs : Nat := 4) : IO Unit := do
@@ -245,12 +306,28 @@ def check (jobs : Nat := 4) : IO Unit := do
       if r.module == moduleName.toString then return .ok r
       return .error s!"{moduleName}: worker answered for {r.module}"
     | .error e => return .error s!"{moduleName}: unreadable worker result: {e}"
+  -- The other libraries of the package, other than the intended-failure controls, are held to the
+  -- comparison rule alone: each of their modules in a worker of its own.
+  let others := inventory.libraries.filter fun l => l.library != library && l.library != "Fixtures"
+  let guarded := others.flatMap (·.modules)
+  let jsonOutcomes ← Checker.mapWorkQueue jobs guarded fun moduleName =>
+    show IO (Except String (Array String)) from do
+    let result ← Checker.runProcess repo self
+      #["--under-deadline", "self-audit-json-module", moduleName.toString]
+    if result.exitCode != 0 then
+      return .error s!"{moduleName}: worker exit {result.exitCode}: {result.stderr.trimAscii}"
+    match Json.parse result.stdout >>= fromJson? (α := Array String) with
+    | .ok names => return .ok (names.map fun name =>
+        jsonComparisonText name.toName moduleName)
+    | .error e => return .error s!"{moduleName}: unreadable worker result: {e}"
   let results := outcomes.filterMap fun | .ok r => some r | .error _ => none
   let incomplete := outcomes.filterMap fun | .ok _ => none | .error e => some e
+  let incomplete := incomplete ++ jsonOutcomes.filterMap fun | .ok _ => none | .error e => some e
   let union (field : ModuleResult → Array String) : Array String :=
     (results.foldl (fun acc r => (field r).foldl
       (fun acc n => if acc.contains n then acc else acc.push n) acc) #[]).qsort (· < ·)
-  let violations := results.flatMap (·.violations)
+  let violations := results.flatMap (·.violations) ++
+    (jsonOutcomes.filterMap fun | .ok found => some found | .error _ => none).flatMap id
   for line in violations do IO.println line
   for line in incomplete do IO.println s!"INCOMPLETE {line}"
   let declarations := results.foldl (· + ·.declarations) 0
@@ -263,6 +340,9 @@ def check (jobs : Nat := 4) : IO Unit := do
     module(s), {declarations} declaration(s) inspected, {admitted} constant(s) of the \
     modules' own data (every one neither unsafe nor partial) kernel-admitted, \
     {contracts} executable contract registration(s)"
+  IO.println s!"Json comparisons: each module of {library} and {guarded.size} module(s) of the \
+    other libraries but Fixtures inspected, {jsonComparisonAllowlist.size} allowlisted \
+    declaration(s)"
   IO.println s!"reported, not failed: {unsafeDeclarations.size} unsafe \
     declaration(s): {unsafeDeclarations.toList}"
   IO.println s!"reported, not failed: {partialDefinitions.size} partial \

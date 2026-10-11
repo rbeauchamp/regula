@@ -235,7 +235,7 @@ checker behavior:
 | `history` | [Source-bound replacement history qualification](proofs-and-boundaries.md#producers). |
 | `self-lint` | This repository's own `lake lint -- --ordinary-lakefiles` through the `regula/lint` driver, in the root and `audit/` packages ([repository conformance](#repository-conformance)). |
 | `self-lint-default` | The root package's `lake lint` without `--ordinary-lakefiles`, so with the audit-build marker that an adopter gets by default ([repository conformance](#repository-conformance)). |
-| `self-audit` | Operational self-audit of the excluded `Regula` library ([repository conformance](#repository-conformance)). |
+| `self-audit` | Operational self-audit of the excluded `Regula` library, and the check for one-sided `Json` comparisons in each library except `Fixtures` ([repository conformance](#repository-conformance)). |
 | `rule-examples`, `rule-examples 1/2`, `rule-examples 2/2` | [Source-owned corpus and diagnostic demonstrations](architecture.md#rule-examples); a shard runs half of the rules. |
 
 The `environments` clean-checkout `freshChecker` control claims two import-free modules
@@ -379,6 +379,16 @@ without a reported fact. The self-audit claims no proof surface and no execution
 applies the linter's collector and decisions to completed modules rather than attaching its
 editor hooks. Lean's import and kernel replay, the collector's observations, toolchain artifact
 paths, the worker processes and their JSON transport are trusted.
+
+The self-audit also refuses a one-sided comparison of `Json` values, the defect of
+[#269](https://github.com/rbeauchamp/regula/issues/269). It imports each module of each library
+except `Fixtures` alone, with its private declarations. It refuses a declaration if its type or
+value names the instance `Lean.Json.instBEq` or compares texts of `Json.compress`.
+`Regula.JsonAgreement` is exempt, and so is each declaration of
+`SelfAudit.jsonComparisonAllowlist`, which states why its two operands are values that Regula
+built. The check reads elaborated terms, so it finds a comparison through a project `BEq` instance
+at that instance. It does not find a comparison through an instance that Lean or a dependency
+declares for a type with a `Json` field.
 
 The repository's own checklist rows, which apply to this repository only:
 

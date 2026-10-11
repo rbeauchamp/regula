@@ -379,7 +379,8 @@ that did not complete can have left it incomplete. This is consistency against w
 and omissions, not authenticity: a report deliberately edited to be self-consistent, such as a
 rewritten `request.kind`, passes. -/
 def admitGuidance (j : Json) : Except String Unit := do
-  unless (j.getObjVal? "schemaVersion").toOption == some (toJson schemaVersion) do
+  unless (j.getObjVal? "schemaVersion").toOption.any
+      (JsonAgreement.conforms · (toJson schemaVersion)) do
     throw "unsupported result schema"
   let findings := (← (← (← j.getObjVal? "diagnostics").getArr?).mapM
     DiagnosticCodec.parseDiagnostic).toList

@@ -101,12 +101,17 @@ theorem Cases.fields {motive : Json → Prop} {fieldsMotive : Fields → Prop}
 termination_by fields => sizeOf fields
 end
 
-
 /-- The members of an object tree in the order of the tree: the left subtree, the node, the right
-subtree. -/
-def members : Fields → List (String × Json)
-  | .leaf => []
-  | .inner _ key value left right => members left ++ (key, value) :: members right
+subtree. It is Std's `Impl.toListModel`, with each dependent pair written as a pair. -/
+def members (fields : Fields) : List (String × Json) :=
+  fields.toListModel.map fun member => (member.1, member.2)
+
+@[simp] theorem members_leaf : members .leaf = [] := rfl
+
+@[simp] theorem members_inner (size : Nat) (key : String) (value : Json) (left right : Fields) :
+    members (.inner size key value left right) =
+      members left ++ (key, value) :: members right := by
+  simp [members]
 
 /-- The number of the members of an object tree: one for each node. The size that a node records
 is not read. -/
@@ -119,14 +124,20 @@ theorem count_eq_length (fields : Fields) : count fields = (members fields).leng
   induction fields with
   | leaf => rfl
   | inner size key value left right leftStep rightStep =>
-    simp only [count, members, List.length_append, List.length_cons, leftStep, rightStep]
+    simp only [count, members_inner, List.length_append, List.length_cons, leftStep, rightStep]
     omega
 
 /-! ### Search trees, decided -/
 
-/-- The names of the members go up in the order of the tree: the tree is a search tree. -/
-def Ordered (fields : Fields) : Prop :=
-  (members fields).Pairwise fun earlier later => compare earlier.1 later.1 = .lt
+/-- The names of the members go up in the order of the tree: the tree is a search tree. It is
+Std's `Impl.Ordered` (`ordered_iff`). -/
+def Ordered (fields : Fields) : Prop := fields.Ordered
+
+/-- `Ordered` over `members`: the names go up in the order of the tree. -/
+theorem ordered_iff (fields : Fields) :
+    Ordered fields ↔
+      (members fields).Pairwise fun earlier later => compare earlier.1 later.1 = .lt := by
+  simp [Ordered, Std.DTreeMap.Internal.Impl.Ordered, members, List.pairwise_map]
 
 /-- Each object tree in the value, at each depth, is a search tree: the names of its members go
 up in the order of the tree. -/
@@ -225,13 +236,13 @@ theorem regular_iff (j : Json) : regular j = true ↔ Regular j := by
   · intro fields step
     simp only [regular, Bool.and_eq_true, ascending_iff, List.pairwise_map, step]
     constructor
-    · exact fun ⟨ordered, values⟩ => .obj ordered values
+    · exact fun ⟨ordered, values⟩ => .obj ((ordered_iff _).mpr ordered) values
     · intro h
       cases h with
-      | obj ordered values => exact ⟨ordered, values⟩
+      | obj ordered values => exact ⟨(ordered_iff _).mp ordered, values⟩
   · exact ⟨(fun _ _ member => nomatch member), fun _ => by simp [regularFields]⟩
   · intro size key value left right valueStep leftStep rightStep
-    simp only [regularFields, Bool.and_eq_true, valueStep, leftStep, rightStep, members,
+    simp only [regularFields, Bool.and_eq_true, valueStep, leftStep, rightStep, members_inner,
       List.mem_append, List.mem_cons]
     constructor
     · rintro ⟨⟨here, lefts⟩, rights⟩ member (inLeft | rfl | inRight)
@@ -250,6 +261,10 @@ theorem checked_regular : Regula.ExecutableContract regular (fun test =>
   ⟨Regula.Decides.of_iff regular_iff ⟨.null, by decide⟩
     ⟨.obj ⟨⟨.inner 2 "a" .null (.inner 1 "b" .null .leaf .leaf) .leaf⟩⟩, by decide⟩⟩
 
+/-- `regular` decides `Regular`, so a check can state the proposition and run `decide`, whose
+instance runs `regular`. -/
+instance (j : Json) : Decidable (Regular j) := decidable_of_iff _ (regular_iff j)
+
 /-- An object is a value with search trees when its members in the order of its tree are
 `written`, the names go up, and the value of each member is a value with search trees. -/
 theorem Regular.obj_of_members (fields : Std.TreeMap.Raw String Json compare)
@@ -260,7 +275,7 @@ theorem Regular.obj_of_members (fields : Std.TreeMap.Raw String Json compare)
     Regular (.obj fields) := by
   obtain ⟨⟨tree⟩⟩ := fields
   refine .obj ?_ fun member present => each member (sorted ▸ present)
-  rw [Ordered, sorted]
+  rw [ordered_iff, sorted]
   exact List.pairwise_map.mp increasing
 
 mutual
@@ -428,16 +443,16 @@ theorem agreeFields_iff (a : Fields) (b : Std.TreeMap.Raw String Json compare) :
     · intro h member present
       cases h with
       | inner found values lefts rights =>
-        simp only [members, List.mem_append, List.mem_cons] at present
+        simp only [members_inner, List.mem_append, List.mem_cons] at present
         rcases present with inLeft | rfl | inRight
         · exact leftStep.mp lefts member inLeft
         · exact ⟨_, found, values⟩
         · exact rightStep.mp rights member inRight
     · intro all
-      obtain ⟨other, found, values⟩ := all (key, value) (by simp [members])
+      obtain ⟨other, found, values⟩ := all (key, value) (by simp [members_inner])
       exact .inner found values
-        (leftStep.mpr fun member present => all member (by simp [members, present]))
-        (rightStep.mpr fun member present => all member (by simp [members, present]))
+        (leftStep.mpr fun member present => all member (by simp [members_inner, present]))
+        (rightStep.mpr fun member present => all member (by simp [members_inner, present]))
 
 /-- `agrees` is a sound and complete decision of `Agree` on pairs of JSON values
 (`agrees_iff`): it accepts `null` with `null`, and it refuses `null` with a Boolean. The
@@ -573,7 +588,7 @@ abbrev Increasing (written : List (String × Json)) : Prop :=
 /-- A tree whose members in the order of the tree have names that go up is a search tree. -/
 theorem Ordered.of_members {fields : Fields} {written : List (String × Json)}
     (sorted : members fields = written) (increasing : Increasing written) : Ordered fields := by
-  rw [Ordered, sorted]
+  rw [ordered_iff, sorted]
   exact List.pairwise_map.mp increasing
 
 /-- **In a search tree, each member is found by its name.** -/
@@ -590,15 +605,16 @@ theorem get?_of_mem {fields : Fields} (ordered : Ordered fields) {member : Strin
           | .gt => (⟨⟨right⟩⟩ : Std.TreeMap.Raw String Json compare).get? member.1
           | .eq => some value := rfl
     rw [unfolded]
-    simp only [Ordered, members, List.pairwise_append, List.pairwise_cons] at ordered
+    rw [ordered_iff] at ordered
+    simp only [members_inner, List.pairwise_append, List.pairwise_cons] at ordered
     obtain ⟨lefts, ⟨after, rights⟩, across⟩ := ordered
-    simp only [members, List.mem_append, List.mem_cons] at present
+    simp only [members_inner, List.mem_append, List.mem_cons] at present
     rcases present with inLeft | rfl | inRight
     · rw [across member inLeft (key, value) List.mem_cons_self]
-      exact leftStep lefts inLeft
+      exact leftStep ((ordered_iff _).mpr lefts) inLeft
     · rw [Std.ReflCmp.compare_self (cmp := (compare : String → String → Ordering))]
     · rw [Std.OrientedCmp.gt_of_lt (after member inRight)]
-      exact rightStep rights inRight
+      exact rightStep ((ordered_iff _).mpr rights) inRight
 
 /-! ### The members of an object, by their names
 
@@ -768,7 +784,7 @@ theorem mem_of_get? {fields : Fields} {name : String} {value : Json}
           | .gt => (⟨⟨right⟩⟩ : Std.TreeMap.Raw String Json compare).get? name
           | .eq => some other := rfl
     rw [unfolded] at found
-    simp only [members, List.mem_append, List.mem_cons]
+    simp only [members_inner, List.mem_append, List.mem_cons]
     split at found
     · exact .inl (leftStep found)
     · exact .inr (.inr (rightStep found))
@@ -855,7 +871,7 @@ theorem Shaped.of_agree {schema : List Entry} {j : Json}
       refine ⟨⟨⟨tree⟩⟩, rfl, ordered, length, ?_, traversal⟩
       intro entry present
       have treeNames : ((members tree).map (·.1)).Nodup :=
-        nodup_of_increasing (List.pairwise_map.mpr ordered)
+        nodup_of_increasing (List.pairwise_map.mpr ((ordered_iff _).mp ordered))
       have schemaNames : (schema.map (·.name)).Nodup := by
         rw [← aligned_names meanings]
         exact nodup_of_increasing increasing
