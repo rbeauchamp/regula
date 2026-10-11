@@ -110,6 +110,147 @@ instance : FromJson DecisionResult := ⟨fun j => do
   | some x => return x
   | none => throw "unknown DecisionResult"⟩
 
+instance : ToJson Carrier := ⟨fun x => .str x.spelling⟩
+instance : FromJson Carrier := ⟨fun j => do
+  match Carrier.parse? (← j.getStr?) with
+  | some x => return x
+  | none => throw "unknown Carrier"⟩
+
+instance : ToJson Binding := ⟨fun
+  | .default => "default" | .implicit => "implicit"
+  | .strictImplicit => "strictImplicit" | .instImplicit => "instImplicit"⟩
+instance : FromJson Binding := ⟨fun j => do
+  match ← j.getStr? with
+  | "default" => return .default
+  | "implicit" => return .implicit
+  | "strictImplicit" => return .strictImplicit
+  | "instImplicit" => return .instImplicit
+  | other => throw s!"unknown binding {other}"⟩
+
+/-- An entry of a term's table of levels (`RegulaPolicy.LevelNode`), as an array: its constructor's
+tag, then its arguments in order. -/
+instance : ToJson LevelNode := ⟨fun
+  | .zero => toJson ["zero"]
+  | .succ of => .arr #["succ", toJson of]
+  | .max left right => .arr #["max", toJson left, toJson right]
+  | .imax left right => .arr #["imax", toJson left, toJson right]
+  | .param name => .arr #["param", toJson name]
+  | .mvar name => .arr #["mvar", toJson name]⟩
+instance : FromJson LevelNode := ⟨fun j => do
+  match (← j.getArr?).toList with
+  | [.str "zero"] => return .zero
+  | [.str "succ", of] => return .succ (← fromJson? of)
+  | [.str "max", left, right] => return .max (← fromJson? left) (← fromJson? right)
+  | [.str "imax", left, right] => return .imax (← fromJson? left) (← fromJson? right)
+  | [.str "param", name] => return .param (← fromJson? name)
+  | [.str "mvar", name] => return .mvar (← fromJson? name)
+  | _ => throw s!"unknown level node {j.compress}"⟩
+
+/-- An entry of a term's table of subterms (`RegulaPolicy.TermNode`), as an array: its
+constructor's tag, then its arguments in order. -/
+instance : ToJson TermNode := ⟨fun
+  | .bvar index => .arr #["bvar", toJson index]
+  | .fvar name => .arr #["fvar", toJson name]
+  | .mvar name => .arr #["mvar", toJson name]
+  | .sort level => .arr #["sort", toJson level]
+  | .const name levels => .arr #["const", toJson name, toJson levels]
+  | .app function argument => .arr #["app", toJson function, toJson argument]
+  | .lam binder type body binding =>
+      .arr #["lam", toJson binder, toJson type, toJson body, toJson binding]
+  | .forallE binder type body binding =>
+      .arr #["forall", toJson binder, toJson type, toJson body, toJson binding]
+  | .letE binder type value body nondep =>
+      .arr #["let", toJson binder, toJson type, toJson value, toJson body, toJson nondep]
+  | .natLit value => .arr #["nat", toJson value]
+  | .strLit value => .arr #["str", toJson value]
+  | .proj typeName index value => .arr #["proj", toJson typeName, toJson index, toJson value]⟩
+instance : FromJson TermNode := ⟨fun j => do
+  match (← j.getArr?).toList with
+  | [.str "bvar", index] => return .bvar (← fromJson? index)
+  | [.str "fvar", name] => return .fvar (← fromJson? name)
+  | [.str "mvar", name] => return .mvar (← fromJson? name)
+  | [.str "sort", level] => return .sort (← fromJson? level)
+  | [.str "const", name, levels] => return .const (← fromJson? name) (← fromJson? levels)
+  | [.str "app", function, argument] => return .app (← fromJson? function) (← fromJson? argument)
+  | [.str "lam", binder, type, body, binding] =>
+      return .lam (← fromJson? binder) (← fromJson? type) (← fromJson? body) (← fromJson? binding)
+  | [.str "forall", binder, type, body, binding] =>
+      return .forallE (← fromJson? binder) (← fromJson? type) (← fromJson? body)
+        (← fromJson? binding)
+  | [.str "let", binder, type, value, body, nondep] =>
+      return .letE (← fromJson? binder) (← fromJson? type) (← fromJson? value) (← fromJson? body)
+        (← fromJson? nondep)
+  | [.str "nat", value] => return .natLit (← fromJson? value)
+  | [.str "str", value] => return .strLit (← fromJson? value)
+  | [.str "proj", typeName, index, value] =>
+      return .proj (← fromJson? typeName) (← fromJson? index) (← fromJson? value)
+  | _ => throw s!"unknown term node {j.compress}"⟩
+
+/-- An exact term (`RegulaPolicy.Term`): its table of levels and its table of subterms. -/
+instance : ToJson RegulaPolicy.Term := ⟨fun t =>
+  Json.mkObj [("levels", toJson t.levels), ("nodes", toJson t.nodes)]⟩
+instance : FromJson RegulaPolicy.Term := ⟨fun j => do
+  exactFields j ["levels", "nodes"]
+  return { levels := ← j.getObjValAs? _ "levels", nodes := ← j.getObjValAs? _ "nodes" }⟩
+
+/-- An expression of a report (`RegulaPolicy.Shown`): `exact`, its exact term, and `display`,
+Lean's display of it for a reader. -/
+instance : ToJson Shown := ⟨fun s =>
+  Json.mkObj [("exact", toJson s.exact), ("display", toJson s.display)]⟩
+instance : FromJson Shown := ⟨fun j => do
+  exactFields j ["exact", "display"]
+  return { exact := ← j.getObjValAs? _ "exact", display := ← j.getObjValAs? _ "display" }⟩
+
+/-- A linkage conclusion of a carrier (`RegulaPolicy.Linkage`): `state` is `linked`, with the
+applications of `Function.uncurry` and one proposition for each fact of the carrier, which the
+decoder admits through `admitStatements`; or `unsupported` or `mismatch`, with the reason. Each
+state has exactly its own members. -/
+instance (carrier : Carrier) : ToJson (Linkage carrier) := ⟨fun
+  | .linked conclusion => Json.mkObj [("state", toJson "linked"),
+      ("uncurries", toJson conclusion.uncurries), ("statements", toJson conclusion.statements)]
+  | .unlinked (.unsupported reason) =>
+      Json.mkObj [("state", toJson "unsupported"), ("reason", toJson reason)]
+  | .unlinked (.mismatch reason) =>
+      Json.mkObj [("state", toJson "mismatch"), ("reason", toJson reason)]⟩
+instance (carrier : Carrier) : FromJson (Linkage carrier) := ⟨fun j => do
+  match ← j.getObjValAs? String "state" with
+  | "linked" =>
+    exactFields j ["state", "uncurries", "statements"]
+    let uncurries ← j.getObjValAs? Nat "uncurries"
+    let ⟨statements, exact⟩ ← admitStatements carrier (← j.getObjValAs? _ "statements")
+    return .linked ⟨uncurries, statements, exact⟩
+  | "unsupported" =>
+    exactFields j ["state", "reason"]
+    return .unlinked (.unsupported (← j.getObjValAs? _ "reason"))
+  | "mismatch" =>
+    exactFields j ["state", "reason"]
+    return .unlinked (.mismatch (← j.getObjValAs? _ "reason"))
+  | state => throw s!"unknown linkage state {state}"⟩
+
+/-- The law observer's report of a registration (`RegulaPolicy.ContractEvidence`), with its
+exact-field JSON codec; the linkage is decoded at the decoded carrier. -/
+instance : ToJson ContractEvidence := ⟨fun e => Json.mkObj [
+  ("carrier", toJson e.carrier), ("implementation", toJson e.implementation),
+  ("universes", toJson e.universes), ("requirement", toJson e.requirement),
+  ("domain", toJson e.domain), ("result", toJson e.result),
+  ("accepts", toJson e.accepts), ("spec", toJson e.spec), ("decided", toJson e.decided),
+  ("linkage", toJson e.linkage)]⟩
+instance : FromJson ContractEvidence := ⟨fun j => do
+  exactFields j ["carrier", "implementation", "universes", "requirement", "domain", "result",
+    "accepts", "spec", "decided", "linkage"]
+  let carrier ← j.getObjValAs? Carrier "carrier"
+  return {
+    carrier
+    implementation := ← j.getObjValAs? _ "implementation"
+    universes := ← j.getObjValAs? _ "universes"
+    requirement := ← j.getObjValAs? _ "requirement"
+    domain := ← j.getObjValAs? _ "domain"
+    result := ← j.getObjValAs? _ "result"
+    accepts := ← j.getObjValAs? _ "accepts"
+    spec := ← j.getObjValAs? _ "spec"
+    decided := ← j.getObjValAs? _ "decided"
+    linkage := ← j.getObjValAs? (Linkage carrier) "linkage" }⟩
+
 instance : ToJson EvaluatorRole := ⟨fun x => .str x.spelling⟩
 instance : FromJson EvaluatorRole := ⟨fun j => do
   match EvaluatorRole.parse? (← j.getStr?) with
@@ -195,14 +336,15 @@ instance : ToJson RegulaPolicy.Declaration := ⟨fun d => Json.mkObj [
   ("nativeStatement", toJson d.nativeStatement), ("nativeReplay", toJson d.nativeReplay),
   ("ranges", toJson d.recordedRanges), ("generatedFrom", toJson d.generatedFrom),
   ("axioms", toJson d.axioms), ("executableContract", toJson d.executableContract),
-  ("decisionResult", toJson d.decisionResult), ("tableOmissions", toJson d.tableOmissions)]⟩
+  ("decisionResult", toJson d.decisionResult), ("tableOmissions", toJson d.tableOmissions),
+  ("contractEvidence", toJson d.contractEvidence)]⟩
 instance : FromJson RegulaPolicy.Declaration := ⟨fun j => do
   exactFields j ["name", "module", "kind", "type", "prettyType", "isProp", "isUnsafe", "isPartial",
       "safety", "instance", "noncomputable", "implementedBy", "extern", "internal", "private",
           "projection", "matcher", "recursive", "unsafeRecBase", "levelParams", "all", "hints",
               "valueConstants", "unsafeRecRegenerated", "nativeStatement", "nativeReplay",
                   "ranges", "generatedFrom", "axioms", "executableContract", "decisionResult",
-                      "tableOmissions"]
+                      "tableOmissions", "contractEvidence"]
   return {
     name := ← j.getObjValAs? _ "name"
     «module» := ← j.getObjValAs? _ "module"
@@ -236,7 +378,16 @@ instance : FromJson RegulaPolicy.Declaration := ⟨fun j => do
     executableContract := ← j.getObjValAs? _ "executableContract"
     decisionResult := ← j.getObjValAs? _ "decisionResult"
     tableOmissions := ← j.getObjValAs? _ "tableOmissions"
+    contractEvidence := ← j.getObjValAs? _ "contractEvidence"
   }⟩
+
+/-- The proof and the required proposition of a checked correspondence
+(`RegulaPolicy.CorrespondenceTerms`): `proof` and `required`, each an expression of a report. -/
+instance : ToJson RegulaPolicy.CorrespondenceTerms := ⟨fun t => Json.mkObj [
+  ("proof", toJson t.proof), ("required", toJson t.required)]⟩
+instance : FromJson RegulaPolicy.CorrespondenceTerms := ⟨fun j => do
+  exactFields j ["proof", "required"]
+  return { proof := ← j.getObjValAs? _ "proof", required := ← j.getObjValAs? _ "required" }⟩
 
 /-- One execution boundary a root's closure reaches (`RegulaPolicy.ExecutionBoundary`), with a
 JSON codec whose decoder admits the boundary evidence through `admitBoundaryEvidence` and
@@ -257,19 +408,21 @@ import the reader. -/
 instance : ToJson ExecutionBoundary := ⟨fun b => Json.mkObj [
   ("boundary", toJson b.boundary), ("compilerCallers", toJson b.compilerCallers),
   ("correspondence", toJson b.correspondence), ("evidence", toJson b.evidence),
-  ("module", toJson b.module), ("name", toJson b.name), ("occurrence", toJson b.occurrence),
+  ("exact", toJson b.terms?), ("module", toJson b.module), ("name", toJson b.name), ("occurrence", toJson b.occurrence),
   ("owned", toJson b.owned), ("replacement", toJson b.replacement),
   ("toolchainOrigin", toJson b.toolchainOrigin?)]⟩
 instance : FromJson ExecutionBoundary := ⟨fun j => do
   exactFields j
       ["occurrence", "name", "module", "boundary", "correspondence", "owned", "replacement",
-          "evidence", "compilerCallers", "toolchainOrigin"]
+          "evidence", "exact", "compilerCallers", "toolchainOrigin"]
   let boundary ← j.getObjValAs? BoundaryKind "boundary"
   let state ← j.getObjValAs? Correspondence "correspondence"
   let detail ← j.getObjValAs? (Option String) "evidence"
   let origin ← j.getObjValAs? (Option ToolchainOrigin) "toolchainOrigin"
-  let account ← admitBoundaryEvidence boundary state detail origin
-  unless account.detail == detail && account.toolchainOrigin? == origin do
+  let terms ← j.getObjValAs? (Option RegulaPolicy.CorrespondenceTerms) "exact"
+  let account ← admitBoundaryEvidence boundary state detail origin terms
+  unless account.detail == detail && account.toolchainOrigin? == origin &&
+      account.terms? == terms do
     throw "noncanonical boundary evidence payload"
   return {
     occurrence := ← j.getObjValAs? Nat "occurrence"

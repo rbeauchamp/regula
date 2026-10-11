@@ -50,7 +50,8 @@ private def parseRequest (json : Json) : Except String ExampleRequest := do
   let request : ExampleRequest ← fromJson? json
   unless ["file", "project", "documentation", "policyNegative"].contains request.kind do
     throw "unsupported example request kind"
-  unless toJson (request : ExampleRequest) == json do throw "invalid example request account"
+  unless JsonAgreement.conforms json (toJson (request : ExampleRequest)) do
+    throw "invalid example request account"
   return request
 
 theorem parseRequest_sound {json : Json} {r : ExampleRequest} (h : parseRequest json = .ok r) :
@@ -58,18 +59,19 @@ theorem parseRequest_sound {json : Json} {r : ExampleRequest} (h : parseRequest 
   unfold parseRequest at h
   simp only [RegulaPolicy.Guards.bind_eq_ok] at h
   obtain ⟨d, hd, h⟩ := h
-  by_cases c₂ : (toJson d == json) = true <;>
+  by_cases c₂ : JsonAgreement.conforms json (toJson d) = true <;>
     simp [c₂, throw, throwThe, MonadExceptOf.throw, pure, Except.pure, bind, Except.bind] at h <;>
     split at h <;> simp_all
 
-/-- The example binding of a receipt record: its `before` and `after` inputs must be equal;
-their sources and configuration, the result's toolchain and source revision and the record's
-checker sources form the admitted snapshot; the record's request must have that
-configuration's URI as its project and its parsed text as its configuration. -/
+/-- The example binding of a receipt record: its `before` input must have search trees and agree
+with its `after` input (`JsonAgreement.conforms`); their sources and configuration, the result's
+toolchain and source revision and the record's checker sources form the admitted snapshot; the
+record's request must have that configuration's URI as its project, and the parsed text of that
+configuration must conform to the request's configuration. -/
 def binding (record : Json) (mode : EvidenceMode) : Except String ExampleBinding := do
   let input ← field record "before"
   let after ← field record "after"
-  unless input == after do throw "example source/configuration changed"
+  unless JsonAgreement.conforms input after do throw "example source/configuration changed"
   let ss ← sources (← field input "sources")
   let configuration : RegulaPolicy.SourceSnapshot :=
     ⟨← string (← field input "configuration") "uri", ← string
@@ -91,7 +93,8 @@ def binding (record : Json) (mode : EvidenceMode) : Except String ExampleBinding
       reserved := false }] }
   let request ← parseRequest (← field record "request")
   unless request.project == configuration.uri &&
-      toJson request.configuration == (← PolicyCodec.parse configuration.source) do
+      JsonAgreement.conforms (← PolicyCodec.parse configuration.source)
+        (toJson request.configuration) do
     throw "request configuration differs from frozen snapshot"
   return ⟨snapshot, mode, request⟩
 
@@ -139,31 +142,34 @@ private def configurationAccount (root : String) (configuration : Array (String 
 def effectiveAccount (result : Json) (admitted : ExampleRequest) : Except String Unit := do
   let requested ← configurationAccount admitted.project admitted.configuration
   let effectiveAccount ← field result "effective"
-  if effectiveAccount != Json.null then
+  unless effectiveAccount matches .null do
     let effective ← configurationAccount (← string effectiveAccount "root")
       (← fromJson? (α := Array (String × Option String)) (← field effectiveAccount "configuration"))
     unless effective == requested do throw "effective configuration differs from request"
   let scope ← field result "scope"
   if let .ok _ := scope.getObj? then
-    unless effectiveAccount != Json.null do throw "missing effective request account"
+    if effectiveAccount matches .null then throw "missing effective request account"
     let configuration ← fromJson? (α := Array (String × Option String))
         (← field scope "configuration")
     let effective ← configurationAccount (← string scope "configurationRoot") configuration
     unless effective == requested &&
-        (← field scope "configuration") == (← field effectiveAccount "configuration") &&
-        (← field scope "configurationRoot") == (← field effectiveAccount "root") do
+        JsonAgreement.conforms (← field scope "configuration")
+          (← field effectiveAccount "configuration") &&
+        JsonAgreement.conforms (← field scope "configurationRoot")
+          (← field effectiveAccount "root") do
       throw "effective configuration differs from request"
     match admitted.kind with
     | "file" =>
-        unless (← field scope "claim") == toJson admitted.claim &&
-            (← field scope "execution") == toJson admitted.execution &&
+        unless JsonAgreement.conforms (← field scope "claim") (toJson admitted.claim) &&
+            JsonAgreement.conforms (← field scope "execution") (toJson admitted.execution) &&
             (← string scope "file") == admitted.subject do
           throw "effective file claim or execution differs from request"
     | "policyNegative" =>
-        unless (← field scope "claim") == toJson (some "standard-logical" : Option String) &&
-            (← field scope "execution") == Json.null && (← string scope "file") ==
-                admitted.subject &&
-            (← field scope "diagnosticOnly") == toJson true do
+        unless JsonAgreement.conforms (← field scope "claim")
+              (toJson (some "standard-logical" : Option String)) &&
+            JsonAgreement.conforms (← field scope "execution") .null &&
+            (← string scope "file") == admitted.subject &&
+            JsonAgreement.conforms (← field scope "diagnosticOnly") (toJson true) do
           throw "wrong diagnostic-only effective request"
     | "documentation" => pure ()
     | "project" =>
@@ -176,10 +182,10 @@ def effectiveAccount (result : Json) (admitted : ExampleRequest) : Except String
         unless actual.size == surfaces.size do
             throw "effective surface coverage differs from request"
         for (expected, actual) in surfaces.zip actual do
-          unless (← field expected "library") == (← field actual "library") &&
-              (← field expected "claim") == (← field actual "claim") &&
-              ((field expected "execution").toOption.getD (.str "report")) ==
-              (← field actual "execution") do
+          unless JsonAgreement.conforms (← field actual "library") (← field expected "library") &&
+              JsonAgreement.conforms (← field actual "claim") (← field expected "claim") &&
+              JsonAgreement.conforms (← field actual "execution")
+                ((field expected "execution").toOption.getD (.str "report")) do
             throw "effective surface claim or execution differs from request"
     | _ => throw "unknown example request kind"
 
@@ -206,17 +212,20 @@ private def matchFinding (expected : Json) (actual : Finding) (input : ExampleBi
   unless RegulaPolicy.matchesPattern (← string expected "detailPattern")
       (← string arguments "detail") do
     throw s!"wrong diagnostic reason for {id}"
-  unless (← field expected "impact") == (← field encoded "impact") do
+  unless JsonAgreement.conforms (← field expected "impact") (← field encoded "impact") do
       throw "wrong diagnostic impact"
-  unless (← field expected "claim") == (← field encoded "claim") && actual.2.severity == .error do
+  unless JsonAgreement.conforms (← field expected "claim") (← field encoded "claim") &&
+      actual.2.severity == .error do
     throw "wrong diagnostic claim or severity"
   unless actual.2.mode == input.mode do throw "wrong diagnostic mode"
   unless actual.2.related.isEmpty do throw "unexpected related diagnostics"
   let subject ← field expected "subject"
   let args := (← arguments.getObj?).toList.filter (·.1 != "detail")
-  unless Json.mkObj args == subject do throw s!"wrong diagnostic subject for {id}"
+  unless JsonAgreement.conforms subject (Json.mkObj args) do
+    throw s!"wrong diagnostic subject for {id}"
   let location ← field expected "location"
-  unless (← field encoded "location") == location do throw s!"wrong primary location for {id}"
+  unless JsonAgreement.conforms location (← field encoded "location") do
+    throw s!"wrong primary location for {id}"
   match actual.2.location with
   | .source source =>
       unless input.snapshot.val.sources.any (fun s => s == source.val.snapshot) do
@@ -225,9 +234,11 @@ private def matchFinding (expected : Json) (actual : Finding) (input : ExampleBi
   | .project name => unless !name.isEmpty do throw "missing diagnostic context"
 
 
-/-- The result retains one exact producer identity field. -/
+/-- The result retains one exact producer identity field: the received value has search trees and
+agrees with the expected one (`JsonAgreement.conforms`). -/
 def checkIdentity (result : Json) (entry : String × Json) : Except String Unit := do
-  unless (← field result entry.1) == entry.2 do throw s!"stale result identity: {entry.1}"
+  unless JsonAgreement.conforms (← field result entry.1) entry.2 do
+    throw s!"stale result identity: {entry.1}"
 
 /-- The request kind agrees with the evidence mode it was produced under. -/
 def modeMatches (kind : String) (mode : EvidenceMode) : Bool :=
@@ -344,16 +355,17 @@ theorem qualify_parts (record : Json) (h : qualify record = .ok ()) :
 
 theorem checkIdentity_sound {result : Json} {entry : String × Json}
     (h : checkIdentity result entry = .ok ()) :
-    ∃ value, field result entry.1 = .ok value ∧ (value == entry.2) = true := by
+    ∃ value, field result entry.1 = .ok value ∧ JsonAgreement.Regular value ∧
+      JsonAgreement.Agree value entry.2 := by
   unfold checkIdentity at h
   simp only [bind_eq_ok] at h
   obtain ⟨value, hv, h⟩ := h
-  exact ⟨value, hv, by simpa using h⟩
+  exact ⟨value, hv, (JsonAgreement.conforms_iff _ _).mp (by simpa using h)⟩
 
 theorem binding_sound {record : Json} {mode : EvidenceMode} {bound : ExampleBinding}
     (h : binding record mode = .ok bound) :
     ∃ before after, field record "before" = .ok before ∧ field record "after" = .ok after ∧
-      (before == after) = true ∧ bound.mode = mode ∧
+      JsonAgreement.Regular before ∧ JsonAgreement.Agree before after ∧ bound.mode = mode ∧
       ∃ requestJson, field record "request" = .ok requestJson ∧
         (fromJson? requestJson : Except String ExampleRequest) = .ok bound.request := by
   unfold binding at h
@@ -368,7 +380,8 @@ theorem binding_sound {record : Json} {mode : EvidenceMode} {bound : ExampleBind
     next =>
       simp only [pure_eq_ok] at h
       subst h
-      refine ⟨before, after, hb, ha, heq, rfl, rj, hrj, ?_⟩
+      obtain ⟨regular, agree⟩ := (JsonAgreement.conforms_iff _ _).mp heq
+      refine ⟨before, after, hb, ha, regular, agree, rfl, rj, hrj, ?_⟩
       exact parseRequest_sound hreq
     next => simp only [throw_bind] at h; cases h
   next => simp only [throw_bind] at h; cases h
@@ -459,11 +472,12 @@ def RecordAdmissible (record : Json) : Prop :=
   ∃ result mode bound code displayed kind actual,
     field record "result" = .ok result ∧
     (∀ entry ∈ ResultProtocol.identityFields,
-      ∃ value, field result entry.1 = .ok value ∧ (value == entry.2) = true) ∧
+      ∃ value, field result entry.1 = .ok value ∧ JsonAgreement.Regular value ∧
+        JsonAgreement.Agree value entry.2) ∧
     (string record "mode" >>= RegistryCodec.parseMode) = .ok mode ∧
     string result "mode" = .ok mode.spelling ∧
     (∃ before after, field record "before" = .ok before ∧ field record "after" = .ok after ∧
-      (before == after) = true) ∧
+      JsonAgreement.Regular before ∧ JsonAgreement.Agree before after) ∧
     binding record mode = .ok bound ∧
     (∃ requestJson, field record "request" = .ok requestJson ∧
       (fromJson? requestJson : Except String ExampleRequest) = .ok bound.request) ∧
@@ -489,13 +503,14 @@ theorem qualify_sound (record : Json) (h : qualify record = .ok ()) : RecordAdmi
   obtain ⟨result, mode, bound, req, code, actual, status, kind, displayed, hr, hid, hmode,
       hrm, hb, hreq,
     _, hcode, hle, hfind, _, hk, hsrc, hsa, hq⟩ := qualify_parts record h
-  obtain ⟨before, after, hbefore, hafter, hstable, _, rj, hrj, hbreq⟩ := binding_sound hb
+  obtain ⟨before, after, hbefore, hafter, hregular, hstable, _, rj, hrj, hbreq⟩ := binding_sound hb
   obtain ⟨rfl, oj, hoj, horeq⟩ := requestAccount_sound hreq
   obtain ⟨hsources, hpresent⟩ := sourceAccount_sound hsa
   obtain ⟨hkind, hdemo⟩ := qualifyKind_sound hq
   refine ⟨result, mode, bound, code, displayed, kind, actual, hr, fun e he => checkIdentity_sound
                                                                                (hid e he),
-    hmode, hrm, ⟨before, after, hbefore, hafter, hstable⟩, hb, ⟨rj, hrj, hbreq⟩, ⟨oj, hoj, horeq⟩,
+    hmode, hrm, ⟨before, after, hbefore, hafter, hregular, hstable⟩, hb, ⟨rj, hrj, hbreq⟩,
+    ⟨oj, hoj, horeq⟩,
     hcode, hle, hsrc, hsources, hpresent, checkFindings_sound hfind, hk, hkind, ?_⟩
   simpa using hdemo
 
@@ -503,7 +518,8 @@ theorem qualify_sound (record : Json) (h : qualify record = .ok ()) : RecordAdmi
 one fixed and one intended diagnostic record, each produced in its own fresh workspace
 with no restored rerun (standard §7.8). -/
 def qualifyCorpus (json : Json) : Except String Unit := do
-  unless (← field json "schemaVersion") == toJson (1 : Nat) do throw "unsupported corpus schema"
+  unless JsonAgreement.conforms (← field json "schemaVersion") (toJson (1 : Nat)) do
+    throw "unsupported corpus schema"
   let selected ← (← (← field json "selected").getArr?).mapM RegistryCodec.parseRule
   unless decide selected.toList.Nodup do throw "duplicate selected rule"
   let complete ← (← field json "completeCorpus").getBool?
@@ -511,7 +527,8 @@ def qualifyCorpus (json : Json) : Except String Unit := do
     unless selected.size == RuleId.all.length && RuleId.all.all selected.contains do
       throw "incomplete rule corpus: not every registered rule"
   let checkerBefore ← field json "checkerBefore"
-  unless checkerBefore == (← field json "checkerAfter") do throw "checker sources changed"
+  unless JsonAgreement.conforms checkerBefore (← field json "checkerAfter") do
+    throw "checker sources changed"
   let checkerFiles ← sources checkerBefore
   unless !checkerFiles.isEmpty do throw "missing checker source state"
   let records := (← (← field json "records").getArr?).map

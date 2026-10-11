@@ -19,7 +19,12 @@ open Lean
 /-- This checker build's producer identity, written into every result envelope. -/
 abbrev producer := Regula.Checker.Producer.identity
 
-/-- Result schema 15 records the relation between surfaces that the manifest declares for RG1008:
+/-- Result schema 16 adds the acceptance account's `contractEvidence`, the law observer's report
+of each registration whose requirement reduces to a decision carrier (`accountJson`), and each
+execution boundary's `exact`: the proof and the required proposition of its checked
+correspondence, each as its exact term beside a display (`RegulaPolicy.CorrespondenceTerms`),
+or `null`.
+Schema 15 records the relation between surfaces that the manifest declares for RG1008:
 each `surfaces` entry of an accepted project, and each surface of the manifest a project result
 renders in `scope`, carries `decides`, the claimed surfaces whose registered decisions its
 recorded contracts count toward, and the acceptance account carries
@@ -132,7 +137,7 @@ frozen configuration and dependency text from the snapshot (`snapshotJson`: a cl
 dependency is identified by its pinned revision, a dirty one only by package and `dirty`
 status) and imported-environment module lists (`acceptedJson`,
 `ProducerReport.Environment.resultJson`); schema 1 embedded them. -/
-def schemaVersion : Nat := 15
+def schemaVersion : Nat := 16
 
 /-- Envelope identity of every result file. -/
 def identityFields : List (String × Json) := RegistryCodec.identityFields producer schemaVersion
@@ -363,15 +368,19 @@ which includes the finding's `remedy` and `text`); every entry of `stages` and `
 is a stage, and `stages` are the required stages of the result's `mode` (`runStages`); a result
 with a `mode` records its `request`, whose documentation stages are exactly those of a
 `projectWithDocs` request;
-`stagesCompleted`, `complete`, `stagesNotRun` and `rules` equal their derivation by the writer's
-own `guidanceFields` from the status, those stages and the diagnostics
-(`guidanceFields_recorded`), so no stage a finding blocks is reported as run and a `completed`
-result reports every stage as run; and an `incomplete` result without an incomplete finding
-reports a stage not run, because only a stage that did not complete can have left it
-incomplete. This is consistency against writer regressions and omissions, not authenticity: a
-report deliberately edited to be self-consistent, such as a rewritten `request.kind`, passes. -/
+`stagesCompleted`, `complete`, `stagesNotRun` and `rules` have search trees and agree with their
+derivation by the writer's own `guidanceFields` (`JsonAgreement.conforms`) from the status,
+those stages and the diagnostics, which the writer's own members reproduce
+(`guidanceFields_recorded`). So a result whose status is not `completed` reports no stage that a
+finding blocks as run, and a `completed` result reports every stage as run, whatever its findings
+(`completedStages` reads no finding for it, https://github.com/rbeauchamp/regula/issues/364); and
+an `incomplete` result without an incomplete finding reports a stage not run, because only a stage
+that did not complete can have left it incomplete. This is consistency against writer regressions
+and omissions, not authenticity: a report deliberately edited to be self-consistent, such as a
+rewritten `request.kind`, passes. -/
 def admitGuidance (j : Json) : Except String Unit := do
-  unless (j.getObjVal? "schemaVersion").toOption == some (toJson schemaVersion) do
+  unless (j.getObjVal? "schemaVersion").toOption.any
+      (JsonAgreement.conforms · (toJson schemaVersion)) do
     throw "unsupported result schema"
   let findings := (← (← (← j.getObjVal? "diagnostics").getArr?).mapM
     DiagnosticCodec.parseDiagnostic).toList
@@ -391,7 +400,7 @@ def admitGuidance (j : Json) : Except String Unit := do
       throw "stages are not the required stages of the result's request"
   let status ← (← j.getObjVal? "status").getStr?
   for (key, value) in guidanceFields (acceptedStatus status) required completed findings do
-    unless (← j.getObjVal? key) == value do throw s!"noncanonical result {key}"
+    unless JsonAgreement.conforms (← j.getObjVal? key) value do throw s!"noncanonical result {key}"
   if status == "incomplete" && !findings.any (·.2.impact == .incomplete) &&
       (notRun required completed).isEmpty then
     throw "incomplete result without an incomplete finding reports every stage as run"
@@ -488,7 +497,15 @@ input type; no entry is refused for it. Since schema 14 the account carries
 declarations the audit does not replay, or that provide a module under the checker's reserved
 prefixes, which the audit does not own (`RegulaPolicy.DependencyState.reserved`). Since schema 15 the account also carries
 `countedContracts`: each decision registration an environment counts from another surface toward
-a function it registers as a decision (`Account.CountedAccount`), with both surfaces. -/
+a function it registers as a decision (`Account.CountedAccount`), with both surfaces. Since
+schema 16 the account also carries `contractEvidence`: for each registration whose requirement
+reduces to a decision carrier (`Account.EvidenceAccount`), its environment, module,
+implementation and requirement, the carrier, each part of the relation as an object with its
+exact term (`exact`: the tables of levels and subterms of `RegulaPolicy.Term`) and Lean's
+`display` of it, the law observer's `linkage` (`linked` with the applications of
+`Function.uncurry`, or `unsupported` or `mismatch` with the reason), and the `laws` and
+`outcomes` the carrier establishes, each with its proposition as an object of the same form,
+which are empty unless it is linked. -/
 def accountJson (account : Regula.Checker.Account) : Json :=
   let a := account.val
   let residuals (rs : List Regula.Checker.Account.Residual) := toJson (rs.map (·.spelling))
@@ -517,6 +534,30 @@ def accountJson (account : Regula.Checker.Account) : Json :=
       ("registration", RegistryCodec.printedNameJson counted.registration),
       ("module", RegistryCodec.printedNameJson counted.module),
       ("implementation", RegistryCodec.printedNameJson counted.implementation)])),
+    ("contractEvidence", toJson (a.evidence.map fun entry =>
+      let e := entry.evidence
+      let facts (law : Bool) := toJson <| (e.facts.filter (·.1.law == law)).map
+        fun (fact, statement) =>
+          Json.mkObj [("fact", toJson fact.spelling), ("proposition", toJson statement)]
+      Json.mkObj [
+        ("rule", toJson Regula.RuleId.executableContract.spelling),
+        ("environment", toJson entry.environment),
+        ("registration", RegistryCodec.printedNameJson entry.registration),
+        ("module", RegistryCodec.printedNameJson entry.module),
+        ("implementation", RegistryCodec.printedNameJson entry.implementation),
+        ("requirement", toJson e.requirement), ("carrier", toJson e.carrier.spelling),
+        ("implementationExpression", toJson e.implementation),
+        ("universes", toJson (e.universes.map RegistryCodec.printedNameJson)),
+        ("domain", toJson e.domain), ("result", toJson e.result), ("accepts", toJson e.accepts),
+        ("spec", toJson e.spec), ("decided", toJson e.decided),
+        ("linkage", match e.linkage with
+          | .linked conclusion => Json.mkObj [("state", toJson "linked"),
+              ("uncurries", toJson conclusion.uncurries)]
+          | .unlinked (.unsupported reason) =>
+              Json.mkObj [("state", toJson "unsupported"), ("reason", toJson reason)]
+          | .unlinked (.mismatch reason) =>
+              Json.mkObj [("state", toJson "mismatch"), ("reason", toJson reason)]),
+        ("laws", facts true), ("outcomes", facts false)])),
     ("executionSummary", toJson (a.execution.mapIdx fun environment summary => Json.mkObj [
       ("environment", toJson environment), ("roots", toJson summary.roots),
       ("boundaries", toJson summary.boundaries), ("checked", toJson summary.checked),

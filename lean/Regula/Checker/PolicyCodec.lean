@@ -119,28 +119,6 @@ occurs twice when the expected names are distinct, which `exactFields_iff` and
 def ExactFields (j : Json) (expected : List String) : Prop :=
   ∃ fields, j = .obj fields ∧ (fields.toList.map (·.1)).Perm expected
 
-/-- A list with the length of a list of distinct names, and with each of those names, is those
-names in some order. `Regula.JsonAgreement` uses this lemma too: this module is in the import
-closure of the probe, so it does not import that one. -/
-theorem perm_of_length_of_mem {expected : List String} (distinct : expected.Nodup) :
-    ∀ {actual : List String}, actual.length = expected.length →
-      (∀ name ∈ expected, name ∈ actual) → actual.Perm expected := by
-  induction expected with
-  | nil =>
-    intro actual length _
-    rw [List.length_nil, List.length_eq_zero_iff] at length
-    rw [length]
-  | cons name rest step =>
-    intro actual length members
-    obtain ⟨absent, distinct⟩ := List.nodup_cons.mp distinct
-    have present : name ∈ actual := members name List.mem_cons_self
-    have shorter : (actual.erase name).length = rest.length := by
-      rw [List.length_erase_of_mem present, length, List.length_cons, Nat.add_sub_cancel]
-    have others : ∀ other ∈ rest, other ∈ actual.erase name := fun other member =>
-      (List.mem_erase_of_ne fun (same : other = name) => absent (same ▸ member)).mpr
-        (members other (List.mem_cons_of_mem _ member))
-    exact (List.perm_cons_erase present).trans ((step distinct shorter others).cons name)
-
 /-- `exactFields` accepts exactly the objects whose member names are the expected names in some
 order. The proof of distinct names is the argument of the function: without it an object with
 one expected name and one unknown name has the length of a list that gives that expected name
@@ -162,7 +140,7 @@ theorem exactFields_iff (j : Json) (expected : List String) (distinct : expected
       · rename_i test
         simp only [Bool.and_eq_true, beq_iff_eq, List.all_eq_true,
           List.contains_iff_mem] at test
-        exact ⟨fields, rfl, perm_of_length_of_mem distinct test.1 test.2⟩
+        exact ⟨fields, rfl, RegulaPolicy.Codec.perm_of_length_of_mem distinct test.1 test.2⟩
       · exact absurd accepted (by simp [Except.isOk, Except.toBool])
     · rintro ⟨other, same, names⟩
       obtain rfl : fields = other := Json.obj.inj same

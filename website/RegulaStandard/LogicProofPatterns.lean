@@ -757,7 +757,7 @@ A type invariant describes valid results; a functional contract also relates the
   * State the exact input domain, any precondition, and the input–output relation. A restricted domain MUST appear in the API when promised (§3.2.1).
 *
   * Parser, decoder, admission
-  * Prove accepted-result soundness and input meaning. State and prove rejection behavior and any normalization/default policy. If the API promises success on a class of inputs, prove that completeness; a conditional soundness theorem alone does not deliver it. A registered decision states its direction with a decision kind (§3.8): `Regula.Decides` for both directions, `Regula.DecidesSoundly` or `Regula.DecidesCompletely` for one. A one-way kind is a statement that the other direction is not claimed. A function whose result type depends on its input states its kind about an erasure of that result (§3.8). A function the project registers with `@[regula_decision]` MUST have such a registration or a `Decidable` result type (§3.8).
+  * Prove accepted-result soundness and input meaning. State and prove rejection behavior and any normalization/default policy. If the API promises success on a class of inputs, prove that completeness; a conditional soundness theorem alone does not deliver it. A registered decision states its direction with a decision kind (§3.8): `Regula.Decides` for both directions, `Regula.DecidesSoundly` or `Regula.DecidesCompletely` for one. A one-way kind is a statement that the other direction is not claimed: it does not supply that direction, which a separate theorem can, and the report of a one-way kind establishes no more than the kind. A law (`Regula.DecisionEquivalence`) states both directions and no outcome: it excludes a replacement that refuses every input only when the specification is satisfiable, and one that accepts every input only when the specification is refutable. Neither a kind nor a law supplies input meaning, rejection behavior beyond refusal, a normalization or default policy, or the value an accepting result carries. A function whose result type depends on its input states its kind about an erasure of that result (§3.8). A function the project registers with `@[regula_decision]` MUST have such a registration or a `Decidable` result type (§3.8).
 *
   * Update
   * Establish the invariant at the write boundary, the intended change, and frame conditions for components promised unchanged.
@@ -943,6 +943,25 @@ A function that acts as a checker (a parser, decoder, validator or admission fun
 :::
 
 The fields are the statements, so Lean's kernel checks the direction, and a one-way guarantee can be registered only under the structure that names it. The witnesses are about `f`: `accepted` excludes the function that refuses every input, which is sound for every specification, and `refused` excludes the function that accepts every input, which is complete for every specification. A satisfiable `spec` alone would not exclude the first. `accepts` is a parameter because acceptance has no canonical polarity: an `Option` result accepts on `some` for a parser and on `none` for a failure report.
+
+A fourth requirement, `Regula.DecisionEquivalence accepts spec f`, has one field, `iff : ∀ x, accepts (f x) ↔ spec x`: the two directions of `Decides` as one law, without either witness. It is not a kind. On an empty domain every law holds while `f` neither accepts nor refuses an input (`Regula.DecisionEquivalence.of_empty`), and a constant function has a law for the specification its one result gives (`Regula.DecisionEquivalence.of_constant`), so a law gives no outcome. A registration states it as an ordinary requirement, and it does not discharge a registered decision ({rule}[RG1008]). `toSoundly` gives the sound kind from a law and an input that `f` accepts, `toCompletely` the complete kind from a law and an input that `f` refuses, and `Regula.Decides.toEquivalence` the law of a two-way kind. The build linter reports, for each registration of one of the four, the laws and outcomes it establishes, each as its exact proposition about that registration (§7.11).
+
+```lean
+import Regula.Contract
+
+/-- Whether `n` is positive. -/
+def positive (n : Nat) : Bool := decide (0 < n)
+
+/-- `positive` accepts exactly the positive numbers. The law claims no outcome. -/
+theorem positive_law :
+    Regula.ExecutableContract positive (Regula.DecisionEquivalence (· = true) fun n => 0 < n) :=
+  ⟨⟨fun _ => decide_eq_true_iff⟩⟩
+
+/-- The law and the input `1`, which `positive` accepts, give the sound kind. -/
+theorem positive_sound :
+    Regula.ExecutableContract positive (Regula.DecidesSoundly (· = true) fun n => 0 < n) :=
+  ⟨positive_law.evidence.toSoundly ⟨1, by decide⟩⟩
+```
 
 A function of several arguments is decided on the product of its arguments, through `Function.uncurry`. That function is a bijection between `α → β → ρ` and `α × β → ρ` (`Function.curry_uncurry`, `Function.uncurry_curry`), so the kind's quantifiers over the pairs are the quantifiers over both arguments, and the registered implementation remains the constant its callers run:
 

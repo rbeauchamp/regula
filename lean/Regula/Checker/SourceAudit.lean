@@ -317,7 +317,8 @@ def compileBatch (repo scratch : FilePath) (jobs : Nat) (specs : Array SourceSpe
       let binding (i : Nat) (actual : Compilation) : Bool :=
         match specs[i]? with
         | none => false
-        | some expected => toJson actual.spec == toJson expected &&
+        | some expected =>
+          Regula.JsonAgreement.conforms (toJson actual.spec) (toJson expected) &&
             actual.sourcePath == scratch / s!"{expected.module}.lean" &&
             actual.oleanPath == scratch / s!"{expected.module}.olean" &&
             actual.ileanPath == scratch / s!"{expected.module}.ilean"

@@ -48,8 +48,8 @@ open Lean System Regula.Site Regula.Qualification RegulaQualification.Evidence
 private def get (j : Json) (key : String) : IO Json := IO.ofExcept (field j key)
 private def str (j : Json) (key : String) : IO String := IO.ofExcept (text j key)
 private def arr (j : Json) (key : String) : IO (Array Json) := IO.ofExcept (array j key)
-private def has (j : Json) (key : String) (value : Json) : Bool := (field j key).toOption ==
-    some value
+private def has (j : Json) (key : String) (value : Json) : Bool :=
+  (field j key).toOption.any (Regula.JsonAgreement.conforms · value)
 
 /-- The pinned Verso revision of the website package. -/
 def versoRevision (root : FilePath) : IO String := do

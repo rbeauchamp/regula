@@ -322,11 +322,14 @@ def checkAt (root scratch : FilePath) (launcher : Launcher.State) (jobs : Nat :=
     let some axiomMessages := messages[0]? | throw <| IO.userError "missing Axiom control"
     let some missingMessages := messages[2]? | throw <| IO.userError "missing Missing control"
     let some config := messages[3]? | throw <| IO.userError "missing BadRequest control"
-    requireChecks [⟨"axiom diagnostic selection position", (← position axiomMessages "RG1001") ==
-      Json.mkObj [("line", toJson (12 : Nat)), ("column", toJson (6 : Nat))]⟩]
+    requireChecks [⟨"axiom diagnostic selection position", Regula.JsonAgreement.conforms
+      (← position axiomMessages "RG1001")
+      (Json.mkObj [("line", toJson (12 : Nat)), ("column", toJson (6 : Nat))])⟩]
     requireChecks
-        [⟨"missing module documentation position", (← position missingMessages "RG5001") ==
-      Json.mkObj [("line", toJson (missing.splitOn "\n").length), ("column", toJson (0 : Nat))]⟩]
+        [⟨"missing module documentation position", Regula.JsonAgreement.conforms
+      (← position missingMessages "RG5001")
+      (Json.mkObj [("line", toJson (missing.splitOn "\n").length),
+        ("column", toJson (0 : Nat))])⟩]
     let lines ← IO.ofExcept (config.mapM fun value => do
       (← value.getObjVal? "pos").getObjValAs? Nat "line")
     requireChecks [⟨"configuration diagnostic ordering/positions", lines == [11, 12]⟩]

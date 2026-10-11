@@ -235,7 +235,7 @@ checker behavior:
 | `history` | [Source-bound replacement history qualification](proofs-and-boundaries.md#producers). |
 | `self-lint` | This repository's own `lake lint -- --ordinary-lakefiles` through the `regula/lint` driver, in the root and `audit/` packages ([repository conformance](#repository-conformance)). |
 | `self-lint-default` | The root package's `lake lint` without `--ordinary-lakefiles`, so with the audit-build marker that an adopter gets by default ([repository conformance](#repository-conformance)). |
-| `self-audit` | Operational self-audit of the excluded `Regula` library ([repository conformance](#repository-conformance)). |
+| `self-audit` | Operational self-audit of the excluded `Regula` library, and the check for one-sided `Json` comparisons in each library except `Fixtures` ([repository conformance](#repository-conformance)). |
 | `rule-examples`, `rule-examples 1/2`, `rule-examples 2/2` | [Source-owned corpus and diagnostic demonstrations](architecture.md#rule-examples); a shard runs half of the rules. |
 
 The `environments` clean-checkout `freshChecker` control claims two import-free modules
@@ -379,6 +379,24 @@ without a reported fact. The self-audit claims no proof surface and no execution
 applies the linter's collector and decisions to completed modules rather than attaching its
 editor hooks. Lean's import and kernel replay, the collector's observations, toolchain artifact
 paths, the worker processes and their JSON transport are trusted.
+
+The self-audit also refuses a one-sided comparison of `Json` values, the defect of
+[#269](https://github.com/rbeauchamp/regula/issues/269). It inspects each module of each library
+except `Fixtures`, and each executable root that no library contains. Lake builds them first, and a
+worker imports each module alone, with its private declarations. It refuses a declaration if its
+type or value names the instance `Lean.Json.instBEq`. It also refuses one that compares texts of
+`Json.compress`, directly or through `let` bindings. The module `RegulaCore.JsonAgreement` is
+exempt, and so is each entry of `SelfAudit.jsonComparisonAllowlist`, which states its reason.
+
+Each use of that instance names it, so the check finds each such use in the inspected modules. It
+does not find texts that a named helper or a function argument renders before a comparison. It also
+misses a comparison through an instance that Lean or a dependency declares for a type with a `Json`
+field.
+
+The self-audit refuses an allowlist entry if its declaration compares no `Json` values, so each
+entry is a control of the check. Three fixed controls run too. A declaration named under
+`Regula.JsonAgreement` in a different module is found, and so are `compress` texts compared through
+`let` bindings. A `compress` that no comparison reads is not found.
 
 The repository's own checklist rows, which apply to this repository only:
 

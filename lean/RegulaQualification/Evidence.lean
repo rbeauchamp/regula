@@ -108,6 +108,18 @@ theorem checked_validation_complete : Regula.ExecutableContract validate (fun ru
      refused := ⟨((({}, 1), ""), none),
        fun accepted => absurd (congrArg Except.isOk accepted) (by decide +kernel)⟩ }⟩
 
+/-- `validate` accepts exactly the observations whose requirements decode and all hold, as a law
+(`Regula.DecisionEquivalence`) on the product of its four arguments, from `checked_validation`.
+The complete kind `checked_validation_complete` is kept: it adds the observation the function
+refuses, which the law does not supply. -/
+theorem checked_validation_law : Regula.ExecutableContract validate (fun run =>
+    Regula.DecisionEquivalence (· = .ok ())
+      (fun input : ((Expected × Nat) × String) × Option Json =>
+        ∃ checks, requirements input.1.1.1 input.1.1.2 input.1.2 input.2 = .ok checks ∧
+          Satisfied checks)
+      (Function.uncurry (Function.uncurry (Function.uncurry run)))) :=
+  ⟨⟨fun input => checked_validation.evidence input.1.1.1 input.1.1.2 input.1.2 input.2⟩⟩
+
 /-- Original documentation mutation transcript requirements, including two distinct
 admission diagnostics (fence and project), and exactly one compilation diagnostic. For a phase
 that makes an input unavailable, the transcript must also contain the supplied IO reason, which
@@ -171,4 +183,19 @@ theorem checked_documentation_complete :
          List.mem_cons_of_mem _ <| List.mem_cons_of_mem _ <| List.mem_cons_of_mem _ <|
          List.mem_cons_of_mem _ <| List.mem_cons_self)
        exact absurd detail (by decide)⟩ }⟩
+
+/-- `validateDocumentation` accepts exactly the transcripts that satisfy its requirements, as a law
+(`Regula.DecisionEquivalence`) on the product of its six arguments, from
+`checked_documentation`. The complete kind `checked_documentation_complete` is kept: it adds the
+transcript the function refuses, which the law does not supply. -/
+theorem checked_documentation_law :
+    Regula.ExecutableContract validateDocumentation (fun run =>
+      Regula.DecisionEquivalence (· = .ok ())
+        (fun input : ((((String × String) × String) × String) × String) × String =>
+          Satisfied (documentationChecks input.1.1.1.1.1 input.1.1.1.1.2 input.1.1.1.2
+            input.1.1.2 input.1.2 input.2))
+        (Function.uncurry (Function.uncurry (Function.uncurry (Function.uncurry
+          (Function.uncurry run)))))) :=
+  ⟨⟨fun input => checked_documentation.evidence input.1.1.1.1.1 input.1.1.1.1.2 input.1.1.1.2
+    input.1.1.2 input.1.2 input.2⟩⟩
 end RegulaQualification.Evidence

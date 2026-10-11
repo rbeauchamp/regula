@@ -93,11 +93,11 @@ private def env (name : String) : IO String := do
 def gate (artifact : FilePath) : IO Unit := do
   let build ← IO.ofExcept (Json.parse (← IO.FS.readFile (artifact / "build.json")))
   let sha ← env "GITHUB_SHA"
-  unless (← field build "dirty") == .bool false do
+  unless (← field build "dirty") matches .bool false do
       fail "the artifact was built from uncommitted changes"
   unless (← str build "revision") == sha do
       fail s!"the artifact is for {← str build "revision"}, not {sha}"
-  unless (← field build "publishable") == .bool true do
+  unless (← field build "publishable") matches .bool true do
       fail "a release edition is not its release asset: the release commit rendered it from \
         source, or an unreleased commit previewed a release that is not published yet"
   IO.println s!"deployment gate: PASS (clean artifact of {sha})"
@@ -116,7 +116,7 @@ def run (artifact : FilePath) (pageUrl : String) : IO Unit := do
   let revision ← str build "revision"
   let pageUrl := if pageUrl.endsWith "/" then pageUrl else pageUrl ++ "/"
   unless pageUrl == site do fail s!"deployed at {pageUrl}, but the artifact is for {site}"
-  unless (← field build "dirty") == .bool false do
+  unless (← field build "dirty") matches .bool false do
       fail "the artifact was built from uncommitted changes"
   let probe := s!"?regula-deployment={revision}"
   -- The deployment is atomic; wait until the live identity is this artifact's.

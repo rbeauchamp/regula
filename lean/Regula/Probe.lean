@@ -38,7 +38,8 @@ module index is requested, the report records:
 
 - the declaration's module and constant kind (axiom, theorem, def, opaque,
   constructor, inductive, recursor, quotient);
-- the exact elaborated type, whether that type is a proposition, and
+- the elaborated type, as the `repr` of its kernel expression (`type`) and as Lean prints it
+  (`prettyType`), whether that type is a proposition, and
   `ConstantInfo.isUnsafe` / `ConstantInfo.isPartial` for every constant kind;
 - instance / `noncomputable` / `@[implemented_by]` / `@[extern]` flags;
 - the exact transitive axiom set: the axioms the declaration reaches in the kernel that replayed
@@ -92,8 +93,8 @@ of this repository's audited positive surface.
 namespace Regula.Probe
 
 open Lean Elab Command
-open RegulaPolicy (DeclarationKind BoundaryKind Correspondence DefeqComparison KernelAnswer Safety
-  Reducibility RecursionOrigin)
+open RegulaPolicy (DeclarationKind BoundaryKind Correspondence CorrespondenceTerms DefeqComparison
+  KernelAnswer Safety Reducibility RecursionOrigin)
 
 /-- Compatibility name for the shared closed constant-kind mapping. -/
 abbrev kindOf := Regula.Collect.kindOf
@@ -209,11 +210,14 @@ private def kernelExhausted : Kernel.Exception → Bool
   | .deterministicTimeout | .excessiveMemory | .deepRecursion | .interrupted => true
   | _ => false
 
-/-- The kernel's answer to the constructed closed proof, checked against the exact required
-proposition in a disposable kernel declaration (`RegulaPolicy.KernelAnswer`). Neither
+/-- The kernel's answer to the constructed closed proof, checked against the required proposition
+in a disposable kernel declaration (`RegulaPolicy.KernelAnswer`). Neither
 metavariable unification nor a matching theorem statement alone authorizes `checked`. Only the
 kernel's result selects the answer: its admission, with the declaration's transitive axioms and
-the printed proof and proposition; the axioms are those the declaration reaches in the kernel
+the proof and proposition the kernel checked, each as its exact term (`Collect.exactTerm`) beside
+its display, printed with `pp.all` requested: explicit settings of the caller can still hide
+implicit arguments and universe levels, and Lean's printer can abbreviate, so only the exact term
+is complete; the axioms are those the declaration reaches in the kernel
 environment that holds it (`KernelAxioms.axiomsWith`), the search stopping at each name of
 `cached`, the table admission computed in the replayed kernel for the owned declarations' closure,
 and an exhausted search is the kernel's exhaustion; its resource exhaustion or interruption (`kernelExhausted`);
@@ -241,7 +245,9 @@ private def kernelAnswer (cached : Std.HashMap Name (Array Name)) (levels : List
         (Regula.Collect.fuelFor checked 1) name | return .exhausted
     withOptions (fun opts => opts.setBool `pp.all true |>.setBool `pp.deepTerms true
         |>.set `pp.maxSteps (1000000 : Nat)) do
-      return .admitted axioms s!"proof={← Meta.ppExpr proof}; required={← Meta.ppExpr required}"
+      return .admitted axioms
+        { proof := ← Regula.Collect.shownTerm proof
+          required := ← Regula.Collect.shownTerm required }
 
 /-- The comparison that one attempt at the kernel's answer records
 (`RegulaPolicy.DefeqComparison.ofAttempt`). `observing` keeps an error that the attempt raises as
@@ -263,7 +269,7 @@ exactly the actual domain. Unsolved theorem-only premises remain metavariables
 and cannot pass kernel admission. Search incompleteness never grants evidence. -/
 private def theoremCorrespondence? (cached : Std.HashMap Name (Array Name)) (levels : List Name)
     (reference replacement : Expr) (domain : Array Expr) (required : Expr) (name : Name) :
-    MetaM (Option String) := do
+    MetaM (Option (String × CorrespondenceTerms)) := do
   for count in List.range (domain.size + 1) do
     for reverse in [false, true] do
       let result ← Meta.withoutModifyingMCtx do
@@ -279,9 +285,9 @@ private def theoremCorrespondence? (cached : Std.HashMap Name (Array Name)) (lev
           for arg in domain.extract count domain.size do
             proof ← Meta.mkCongrFun proof arg
           proof ← Meta.mkLambdaFVars domain proof
-          let .completed (some detail) ← comparison (kernelAnswer cached levels required proof)
+          let .completed (some terms) ← comparison (kernelAnswer cached levels required proof)
             | return none
-          return some s!"proved: {name}; {detail}"
+          return some (s!"proved: {name}; {terms.text}", terms)
         catch _ => return none
       if result.isSome then return result
   return none
@@ -363,7 +369,7 @@ private def replacementCorrespondence (env : Environment) (cached : Std.HashMap 
     (prepared : Thunk (PreparedTheorems env)) (admits : Name → Bool)
     (reference replacement : Name)
     (proofCandidates : Array Name := #[]) :
-    CommandElabM (Correspondence × Option String) :=
+    CommandElabM (Correspondence × Option String × Option CorrespondenceTerms) :=
   liftTermElabM <| Meta.withoutModifyingMCtx do
     try
       let referenceInfo ← getConstInfo reference
@@ -383,22 +389,22 @@ private def replacementCorrespondence (env : Environment) (cached : Std.HashMap 
         for name in proofCandidates do
           if !admits name then continue
           let evidence? ← theoremCorrespondence? cached levels ref impl domain required name
-          if let some evidence := evidence? then
-            return (.checked, some evidence)
+          if let some (evidence, terms) := evidence? then
+            return (.checked, some evidence, some terms)
         for (name, used) in prepared.get.entries do
           let some name := correspondenceCandidate reference replacement (name, used.get)
             | continue
           if !admits name then continue
           let evidence? ← theoremCorrespondence? cached levels ref impl domain required name
-          if let some evidence := evidence? then
-            return (.checked, some evidence)
+          if let some (evidence, terms) := evidence? then
+            return (.checked, some evidence, some terms)
         let outcome ← comparison do
           kernelAnswer cached levels required
             (← Meta.mkLambdaFVars domain (← Meta.mkEqRefl lhs))
-        return outcome.classify
+        return (outcome.classify.1, outcome.classify.2, outcome.terms?)
     catch _ =>
       return (.unresolved,
-          some s!"cannot construct exact correspondence for {reference} and {replacement}")
+          some s!"cannot construct exact correspondence for {reference} and {replacement}", none)
 
 /-- The pinned `CSimp.isConstantReplacement?` shape, indexed independently of
 the final scoped attribute state. This conservative candidate set includes
@@ -526,7 +532,8 @@ private def observeNode (env : Environment) (ownedModules : List Name)
     (cached : Std.HashMap Name (Array Name))
     (loadReplacementHistory : Name → IO (Except String (Array (Name × Name))))
     (candidates : NameMap (Array Lean.Compiler.CSimp.Entry))
-    (proofCache : IO.Ref (Std.HashMap (Name × Name) (Correspondence × Option String)))
+    (proofCache : IO.Ref
+      (Std.HashMap (Name × Name) (Correspondence × Option String × Option CorrespondenceTerms)))
     (dependencyCache : IO.Ref (CompilerDependenciesCache env))
     (preparedTheorems : Thunk (PreparedTheorems env)) (admits : Name → Bool)
     (timing : Bool)
@@ -570,11 +577,12 @@ private def observeNode (env : Environment) (ownedModules : List Name)
   let toolchain := toolchainModules.find? moduleName
   -- The occurrence of a boundary is its position in the root's list, which `assemble` gives.
   let entry (boundary : BoundaryKind) (correspondence : Correspondence)
-      (replacement : Option Name) (evidence : Option String) :
+      (replacement : Option Name) (evidence : Option String)
+      (terms : Option CorrespondenceTerms := none) :
       CommandElabM Regula.Report.ExecutionBoundary := do
     let account ← match RegulaPolicy.admitBoundaryEvidence boundary correspondence evidence
         (if boundary.toolchainOwnable && correspondence == .trusted then toolchain
-          else none) with
+          else none) terms with
       | .ok account => pure account
       | .error error => throwError "{error}"
     return {
@@ -592,10 +600,10 @@ private def observeNode (env : Environment) (ownedModules : List Name)
   for simplification in (candidates.find? name).getD #[] do
     let target := simplification.toDeclName
     record := { record with candidateTargets := record.candidateTargets.push target }
-    let (correspondence, evidence) ← correspondence name target
+    let (correspondence, evidence, terms) ← correspondence name target
     let boundary ← entry .compilerSimplification correspondence (some target)
       (some s!"conservative constant-equality candidate={simplification.thmName}; \
-        {evidence.getD ""}")
+        {evidence.getD ""}") terms
     record := { record with boundaries := record.boundaries.push boundary }
   if Lean.isExtern env name then
     let boundary ←
@@ -627,8 +635,8 @@ private def observeNode (env : Environment) (ownedModules : List Name)
           pure (if targets.contains target then targets else targets.push target)
     for target in targets do
       record := { record with replacementTargets := record.replacementTargets.push target }
-      let (correspondence, evidence) ← correspondence name target
-      let boundary ← entry .runtimeReplacement correspondence (some target) evidence
+      let (correspondence, evidence, terms) ← correspondence name target
+      let boundary ← entry .runtimeReplacement correspondence (some target) evidence terms
       record := { record with boundaries := record.boundaries.push boundary }
     return record
   -- The value of the name, followed as logical edges.
@@ -707,7 +715,8 @@ private def executionWalk (env : Environment) (ownedModules : List Name)
     (cached : Std.HashMap Name (Array Name))
     (loadReplacementHistory : Name → IO (Except String (Array (Name × Name))))
     (candidates : NameMap (Array Lean.Compiler.CSimp.Entry))
-    (proofCache : IO.Ref (Std.HashMap (Name × Name) (Correspondence × Option String)))
+    (proofCache : IO.Ref
+      (Std.HashMap (Name × Name) (Correspondence × Option String × Option CorrespondenceTerms)))
     (dependencyCache : IO.Ref (CompilerDependenciesCache env))
     (recordCache : IO.Ref NodeRecordCache)
     (preparedTheorems : Thunk (PreparedTheorems env)) (admits : Name → Bool)
@@ -900,7 +909,8 @@ def environmentReport (modules : List Name)
     let recursorHelpers := brecOnHelpers env own
     let candidates := simplificationCandidates env
     let proofCache ← liftIO <| IO.mkRef
-        ({} : Std.HashMap (Name × Name) (Correspondence × Option String))
+        ({} : Std.HashMap (Name × Name)
+          (Correspondence × Option String × Option CorrespondenceTerms))
     let dependencyCache ← liftIO <| IO.mkRef ({} : CompilerDependenciesCache env)
     let recordCache ← liftIO <| IO.mkRef ({} : NodeRecordCache)
     -- One answer for each module in this report: every history request, from any root's walk
