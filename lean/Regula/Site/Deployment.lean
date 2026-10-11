@@ -57,16 +57,14 @@ process reads from a pipe. curl starts with an environment that has only the var
 which by POSIX `env` (`-i`) gets exactly the environment its assignments give. The child is not
 spawned with `inheritEnv := false`, under which the Lean 4.34.1 runtime on macOS crashes the child
 (exit 139) before it runs curl. The variables are `PATH`, by which the child finds curl, the proxy
-variables
-`HTTPS_PROXY`, `HTTP_PROXY`, `ALL_PROXY`, `NO_PROXY` and their lowercase forms, and the
+variables `HTTPS_PROXY`, `HTTP_PROXY`, `ALL_PROXY`, `NO_PROXY` and their lowercase forms, and the
 certificate variables `SSL_CERT_FILE`, `SSL_CERT_DIR` and `CURL_CA_BUNDLE`. Assumes: by the curl
 manual (its ENVIRONMENT section and the `--cacert` and `--capath` descriptions), these select only
 the proxy curl connects through and the certificates it reads, and none makes it write a file. No
 other variable of this process reaches curl, so for example `SSLKEYLOGFILE` cannot make it write a
-file. Assumes: with `--disable` as its first
-argument, curl reads no `.curlrc` (curl manual, `-q, --disable`: "If used as the first parameter
-on the command line, the curlrc config file is not read or used"), so no configuration file can
-make it write the body to a file. `url` is the value of `--url`, so a `url` that starts with `-`,
+file. Assumes: with `--disable` as its first argument, curl reads no `.curlrc` (curl manual,
+`-q, --disable`: "If used as the first parameter on the command line, the curlrc config file is
+not read or used"), so no configuration file can make it write the body to a file. `url` is the value of `--url`, so a `url` that starts with `-`,
 such as `-K/tmp/x`, is a URL and not an option. With the other arguments and no other variable
 curl writes no file. -/
 def fetch (url : String) : IO (Nat × ByteArray) := do

@@ -428,7 +428,8 @@ paths, it deleted the content of the target of the link
 and removes nothing.
 
 A relative `--out` is joined to the real path of the working directory, and no component that it
-gives is resolved. Before it reads anything, the build refuses a `.` or `..` component of `--out`. Before it makes anything, it refuses a link among the present components.
+gives is resolved. Before it reads anything, the build refuses a `.` or `..` component of
+`--out`. Before it makes anything, it refuses a link among the present components.
 
 On Windows, the site executable removes nothing and refuses each `--out`. There the runtime reads
 a link's target when asked to read the link itself, so no read that follows no link is available.
@@ -480,8 +481,8 @@ The deployment program `lean/Regula/Site/Deployment.lean` imports only the Lean 
 cannot use the decision. It reads each page from the output of `curl` and writes no file. Thus it
 removes nothing. It passes to `curl` only `PATH` and the proxy and certificate variables that
 `fetch` lists, none of which makes `curl` write a file. Thus a variable such as `SSLKEYLOGFILE`
-does not reach `curl`. The URL is the value of the
-option `--url`, thus a URL that starts with `-` is not an option.
+does not reach `curl`. The URL is the value of the option `--url`, thus a URL that starts with
+`-` is not an option.
 
 The driver moves the pending record to `tmp/acceptance-link.json` only if
 `RegulaVerification.passed` accepts the exit status of each command. The driver does that move
