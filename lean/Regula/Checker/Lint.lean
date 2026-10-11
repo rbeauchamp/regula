@@ -114,27 +114,29 @@ same package, dependencies and toolchain, and its `regula/axiomGate` is `workerB
 def workerTarget : String := "regula/axiomGate"
 
 /-- What the driver reads before it decides (`Observed`), from the working directory's project
-root `dispatching`; it writes no result destination and no audited artifact, and Lake's loader may
-write its own configuration trace and compiled configuration file (the assumption of `Observed`).
+root `dispatching`. It loads only that root's configuration (`resolveDependencies := false`), so it
+resolves, updates and materializes no dependency and writes no manifest; it writes no result
+destination and no audited artifact, and the writes of that load are the assumption of `Observed`.
 That workspace (`repoRoot`, which builds the worker and is the audited project) is the
-dispatching one when the `LEAN_PATH` the driver received is that workspace's own: Lake v4.34.0
-runs the driver without changing its working directory, so `lake -d DIR lint` from another
-project would otherwise build and audit that project. `Package.lint` spawns it through `env` with
-`Workspace.augmentedEnvVars`: `LEAN_PATH` is the dispatching workspace's `leanPath`, then the
-library directory of the toolchain-collocated Lake (`LakeInstall.ofLean`, so
-`LEAN_SYSROOT/lib/lean`), then any inherited `LEAN_PATH`. `dispatchedFrom_iff` shows the check
-holds exactly when the working-directory workspace, loaded by the same Lake, has the same package
-library directories, whatever was inherited. Any other Lake layout, or a driver run outside Lake,
-fails the check. It also reads the `lintDriverArgs` of that workspace's default configuration,
+dispatching one when its root library directory ends the dispatching part of the `LEAN_PATH` the
+driver received: Lake v4.34.1 runs the driver without changing its working directory, so
+`lake -d DIR lint` from another project would otherwise build and audit that project.
+`Package.lint` spawns it through `env` with `Workspace.augmentedEnvVars`: `LEAN_PATH` is the
+dispatching workspace's `leanPath`, then the library directory of the toolchain-collocated Lake
+(`LakeInstall.ofLean`, so `LEAN_SYSROOT/lib/lean`), then any inherited `LEAN_PATH`.
+`dispatchedFrom_iff` shows the check holds exactly when the root library directory is the last of
+the dispatching workspace's, whatever was inherited, under the assumption of `dispatchedFrom`.
+Any other Lake layout, or a driver run outside Lake, fails the check. It also reads the
+`lintDriverArgs` of that workspace's default configuration,
 the project root of `project` (the parsed `--project`), and the owner's assertion. -/
 private def observe (dispatching : FilePath) (project : Option String) : IO Observed := do
   let sysroot ← IO.getEnv "LEAN_SYSROOT"
   let received := (((← IO.getEnv "LEAN_PATH").map SearchPath.parse).getD []).map toString
-  let (workspace, configured) ← Workspace.withRootWorkspace dispatching fun ws =>
-    pure (ws.leanPath.map toString, ws.root.lintDriverArgs.toList)
+  let (root, configured) ← Workspace.withRootWorkspace dispatching (resolveDependencies := false)
+    fun ws => pure (ws.root.leanLibDir.toString, ws.root.lintDriverArgs.toList)
   let dispatched := match sysroot with
     | some sysroot =>
-      dispatchedFrom workspace (FilePath.mk sysroot / "lib" / "lean").toString received
+      dispatchedFrom root (FilePath.mk sysroot / "lib" / "lean").toString received
     | none => false
   let named ← match project with
     | some dir => try (some ∘ toString) <$> findRepoRoot dir catch _ => pure none

@@ -23,11 +23,12 @@ option's value as an option) into one `Reading`: its options and the result dest
 incomplete, exactly the parsed `--json-out` when they parse (`read_destinations`). Lake prepends
 the package's `lintDriverArgs` to them. Before it writes any result destination or audited
 artifact, the driver decides what it does (`decision`) from that reading and what it observed
-(`Observed`, whose load through Lake may write Lake's own configuration trace and compiled
-configuration file): an argument refusal is decided from `parseArgs` alone
-(`decision_of_parse_error`), a run audits the dispatching workspace with the parsed options
-(`decision_run`), and a refusal keeps the configuration class whatever marking then fails
-(`Decision.settled`, `settled_refuse`). `configuredRefusal` is an extra refusal of
+(`Observed`, read from a load of the root configuration alone, which resolves no dependency and
+may write only Lake's configuration directory, lock file, trace and compiled configuration):
+an argument refusal is decided from `parseArgs` alone (`decision_of_parse_error`), a run audits
+the dispatching workspace with the parsed options (`decision_run`), and a refusal keeps the
+configuration class whatever marking then fails (`Decision.settled`, `settled_refuse`).
+`configuredRefusal` is an extra refusal of
 `lintDriverArgs` that give an option outside `Options.packageConfigurable`, read from the default
 configuration (`configuredRefusal_eq_none`); none of the driver's guarantees rests on it. The
 workspace owner's assertion of ordinary lakefiles comes from the caller's environment
@@ -413,41 +414,43 @@ theorem projectStages_required (c : Claim)
   unfold requiredStages
   rcases h with h | h <;> simp [h, projectStages]
 
-/-- Whether the driver's working-directory workspace, with package library directories
-`workspace`, is the workspace that dispatched it, given the `LEAN_PATH` the driver received
-and the library directory `lakeLib` of the dispatching Lake. Lake v4.34.0 (`Package.lint`,
-`env`, `Workspace.augmentedLeanPath`) passes the dispatching workspace's `leanPath`, then
-`lakeLib`, then any inherited `LEAN_PATH`. -/
-def dispatchedFrom (workspace : List String) (lakeLib : String) (leanPath : List String) : Bool :=
-  decide (lakeLib ∉ workspace) && (workspace ++ [lakeLib]).isPrefixOf leanPath
+/-- Whether the driver's working directory is the root of the workspace that dispatched it: the
+library directory `root` of the working directory's root package is the entry of the `LEAN_PATH`
+the driver received just before the first entry `lakeLib`, the library directory of the
+dispatching Lake. Lake v4.34.1 (`Package.lint`, `env`, `Workspace.augmentedLeanPath`) passes the
+dispatching workspace's `leanPath`, then `lakeLib`, then any inherited `LEAN_PATH`
+(`Config/Workspace.lean:391-392`, `Config/Env.lean:254`), and that `leanPath` ends with the root
+package's library directory, since it puts each package before the ones loaded ahead of it and the
+root comes first (`Config/Workspace.lean:356-357`).
 
-/-- For every `LEAN_PATH` of Lake's composition, whatever its inherited entries, the check
-holds exactly when the working-directory workspace has the dispatching workspace's library
-directories, provided Lake's own library directory is not one of the latter. -/
-theorem dispatchedFrom_iff {workspace dispatching inherited : List String} {lakeLib : String}
+The driver reads `root` from the root configuration alone and resolves no dependency, so it no
+longer compares the library directories of the dependencies. The guarantee changes only for two
+workspaces whose root packages have one library directory, which a build directory that names
+another package's can give.
+
+Assumes: no package configuration sets its build directory so that its library directory is that
+of another package. -/
+def dispatchedFrom (root lakeLib : String) (leanPath : List String) : Bool :=
+  decide ((leanPath.takeWhile (· ≠ lakeLib)).getLast? = some root) &&
+    decide (lakeLib ∈ leanPath)
+
+/-- For every `LEAN_PATH` of Lake's composition, whatever its inherited entries, the check holds
+exactly when `root` is the last library directory of the dispatching workspace, provided Lake's
+own library directory is not one of those. -/
+theorem dispatchedFrom_iff {root lakeLib : String} {dispatching inherited : List String}
     (h : lakeLib ∉ dispatching) :
-    dispatchedFrom workspace lakeLib (dispatching ++ lakeLib :: inherited) = true ↔
-      workspace = dispatching := by
-  unfold dispatchedFrom
-  constructor
-  · intro hc
-    simp only [Bool.and_eq_true, decide_eq_true_eq] at hc
-    obtain ⟨hw, hp⟩ := hc
-    induction workspace generalizing dispatching with
-    | nil =>
-      cases dispatching with
-      | nil => rfl
-      | cons b d => simp_all [List.isPrefixOf]
-    | cons a w ih =>
-      cases dispatching with
-      | nil => simp_all [List.isPrefixOf]
-      | cons b d =>
-        simp only [List.cons_append, List.isPrefixOf, Bool.and_eq_true, beq_iff_eq] at hp
-        obtain ⟨rfl, hp⟩ := hp
-        simp only [List.mem_cons, not_or] at hw h
-        rw [ih h.2 hw.2 hp]
-  · rintro rfl
-    simp [h, List.isPrefixOf_iff_prefix]
+    dispatchedFrom root lakeLib (dispatching ++ lakeLib :: inherited) = true ↔
+      dispatching.getLast? = some root := by
+  have hall : ∀ a ∈ dispatching, decide (a ≠ lakeLib) = true := by
+    intro a ha
+    simp only [ne_eq, decide_eq_true_eq]
+    exact fun hal => h (hal ▸ ha)
+  have htake : (dispatching ++ lakeLib :: inherited).takeWhile (fun a => decide (a ≠ lakeLib)) =
+      dispatching := by
+    rw [List.takeWhile_append_of_pos hall]
+    simp
+  simp only [dispatchedFrom, htake, Bool.and_eq_true, decide_eq_true_eq]
+  simp
 
 /-- One command-line argument as a program's parser reads it, for the options `α` of that
 program. Each program reads its arguments once, through `tokenize`, and takes from that one
@@ -884,11 +887,15 @@ theorem ownerAssertion_eq_true_iff (value : Option String) :
 
 
 /-- What the driver reads before it decides. It writes no result destination and no audited
-artifact to read it.
+artifact to read it, and it loads only the root configuration of the working directory, so it
+resolves no dependency and writes no manifest.
 
-Assumes: loading the workspace to read its `lintDriverArgs` writes only Lake's own configuration
-trace and compiled configuration file. Lake v4.34.1 writes them when the configuration is not up
-to date (`Load/Lean/Elab.lean:244-256` and `:293-296`). -/
+Assumes: that load writes only what Lake v4.34.1's `importConfigFile` writes for a `lakefile.lean`
+whose compiled configuration is not up to date, and nothing for a `lakefile.toml`: the
+configuration directory and `.lake` when absent (`Load/Lean/Elab.lean:184` and `:293`), the
+configuration's lock file (`:207`), its trace (`:223`, `:246-253` and `:294`, removed again at
+`:262` when elaboration fails) and its compiled configuration (`:244` and `:256`). Elaborating the
+configuration also runs its own commands, as Lake's own load of it does. -/
 structure Observed where
   /-- The project root of the working directory, which builds the audit worker and is the
   dispatching workspace when `dispatched` holds. -/

@@ -507,6 +507,25 @@ private def tomlAdopter (probes : Std.Mutex Unit) (repo adopter : FilePath) :
       label := "toml/foreign-dir", exitCode := 2,
       contains := #["without -d/--dir", "regula lint: INVALID CONFIGURATION"],
       excludes := #[s!"regula lint: {acceptanceLabel}"] } #["-d", adopter.toString])
+  -- The same from a project with no manifest and a refused argument: the driver loads only that
+  -- project's root configuration, so it writes no manifest there and, for a `lakefile.toml`,
+  -- nothing at all.
+  let foreign := adopter / "foreign"
+  IO.FS.createDirAll foreign
+  IO.FS.writeFile (foreign / "lakefile.toml") "name = \"foreign\"\n"
+  IO.FS.writeFile (foreign / "lean-toolchain") (← IO.FS.readFile (adopter / "lean-toolchain"))
+  failures := failures ++ (← expect foreign {
+      label := "toml/foreign-dir-unwritten", exitCode := 2,
+      contains := #["unknown or incomplete argument: --bogus",
+        "regula lint: INVALID CONFIGURATION"],
+      excludes := #[s!"regula lint: {acceptanceLabel}"] }
+    #["-d", adopter.toString, "--", "--bogus"])
+  let written := (← foreign.readDir).map (·.fileName) |>.filter
+    (· ∉ ["lakefile.toml", "lean-toolchain"])
+  unless written.isEmpty do
+    failures := failures.push s!"lake-lint/toml/foreign-dir-unwritten: the driver wrote {written} \
+      in the working directory's project"
+  IO.FS.removeDirAll foreign
   mutate double "end Gadget" <|
     "set_option linter.regula false in\n/-- A control assumption. -/\n" ++
       "axiom optedOut : True\nend Gadget"

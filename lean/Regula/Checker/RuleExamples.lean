@@ -169,11 +169,12 @@ def Production.parse? : List String → Option Production
 def Production.output : Production → String
   | .policyNegative _ _ output | .documentation _ _ output => output
 
-/-- Run one rule-example production and return its exit code: `--policy-negative PROJECT
-SOURCE OUTPUT` runs `inspectNegative`, `--documentation PROJECT DOCS OUTPUT` runs
-`documentation`, and any other arguments throw the usage text. -/
-unsafe def run (args : List String) : IO UInt32 := do
-  match Production.parse? args with
+/-- Run one rule-example production, as the caller parsed it one time (`Production.parse?`), and
+return its exit code: `--policy-negative PROJECT SOURCE OUTPUT` runs `inspectNegative`,
+`--documentation PROJECT DOCS OUTPUT` runs `documentation`, and arguments that name no production
+(`none`) throw the usage text. -/
+unsafe def run (production : Option Production) : IO UInt32 := do
+  match production with
   | some (.policyNegative repo source output) =>
       inspectNegative ⟨repo⟩ ⟨source⟩ ⟨output⟩
   | some (.documentation repo docs output) =>
@@ -188,10 +189,11 @@ qualifier (`RuleExampleQualification.qualify`, which admits only 0 to 3) never m
 audit's own result. -/
 private def productionIncomplete : UInt32 := 4
 
-private unsafe def ruleExamplesEntry (args : List String) : IO UInt32 := do
+private unsafe def ruleExamplesEntry (production : Option Regula.Checker.RuleExamples.Production) :
+    IO UInt32 := do
   try
     Regula.Checker.initializeLeanSearchPath
-    Regula.Checker.RuleExamples.run args
+    Regula.Checker.RuleExamples.run production
   catch error =>
     IO.eprintln s!"rule example production incomplete: {error}"
     return productionIncomplete
@@ -226,8 +228,10 @@ unsafe def main (args : List String) : IO UInt32 := do
         | "--injected-git-facts" :: _ =>
           IO.eprintln "rule example production incomplete: repeated injected git facts"
           return productionIncomplete
-        | _ => pure (← ruleExamplesEntry rest,
-            (Regula.Checker.RuleExamples.Production.parse? rest).map (·.output))
+        | _ =>
+          -- One parse of the production, which both the run and the marker take.
+          let production := Regula.Checker.RuleExamples.Production.parse? rest
+          pure (← ruleExamplesEntry production, production.map (·.output))
       -- Mark the result so it cannot be mistaken for Git-observed output. The
       -- qualification-only result view keeps this field and admission ignores it.
       if let some path := output.filter (· != "") then
@@ -240,4 +244,4 @@ unsafe def main (args : List String) : IO UInt32 := do
           IO.eprintln s!"rule example production incomplete: injected-facts marker: {error}"
           return productionIncomplete
       return code
-  | _ => ruleExamplesEntry args
+  | _ => ruleExamplesEntry (Regula.Checker.RuleExamples.Production.parse? args)
