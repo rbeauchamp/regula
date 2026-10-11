@@ -71,6 +71,17 @@ theorem checked_removal : Regula.ExecutableContract removal
       observed.place = .directory ∧ observed.sameLocation = true)) :=
   ⟨.of_iff removal_remove_iff ⟨⟨.directory, true⟩, rfl⟩ ⟨⟨.absent, false⟩, by decide⟩⟩
 
-attribute [regula_decision] parseMode dependencyFree select passed walked removal
+/-- `prebuildCovers` accepts exactly a surface manifest of the shape `claimedTargets` reads all of
+whose claimed targets are targets of the prebuild (`prebuildCovers_iff`). It accepts a manifest
+with no surface and refuses one with no `surfaces` field. That `claimedTargets` reads the claimed
+targets as the checker's manifest reader does is not claimed. -/
+theorem checked_prebuildCovers : Regula.ExecutableContract prebuildCovers
+    (Regula.Decides (· = true) (fun manifest => ∃ targets,
+      claimedTargets manifest = some targets ∧ ∀ target ∈ targets, target ∈ gateTargets)) :=
+  ⟨.of_iff prebuildCovers_iff
+    ⟨Lean.Json.mkObj [("surfaces", Lean.Json.arr #[])], by decide +kernel⟩
+    ⟨Lean.Json.null, by decide +kernel⟩⟩
+
+attribute [regula_decision] parseMode dependencyFree select passed walked removal prebuildCovers
 
 end RegulaVerification

@@ -66,8 +66,11 @@ provisioning the pinned Verso artifacts.
 Ordinary acceptance puts the accepted record at `tmp/acceptance-link.json` only after each of
 its commands ended with exit status 0. Its driver first makes one copy of the checkout in
 `.lake/regula-scratch/`. The build, the registry checks and the qualification controls operate
-in that copy. Then the gate that the copy built audits the build output of the copy. Thus the
-step builds the claimed libraries one time.
+in that copy. The gate that the copy built audits the build output of the copy. Thus the step
+builds the claimed libraries one time.
+
+In the copy, the driver first builds the claimed targets and the gate. Then the gate runs beside
+the other three commands, which run at low priority.
 
 If the step passed and the checkout has no build output, the driver moves the build output of
 the copy to `.lake/build` of the checkout. After a step that failed, a checkout with no build

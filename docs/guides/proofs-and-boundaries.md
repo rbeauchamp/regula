@@ -152,6 +152,12 @@ including the lint driver's options. A deferred build is followed by the source,
 configuration and frozen-artifact checks before the unchanged full inspection and terminal
 freshness checks.
 
+The preflight reads the first module graphs of three environments at a time, each in a worker
+process of its own. The rest of each environment's scope, which in a copy can build owned modules
+there, runs one environment at a time in claim order. After an environment asked for such a
+build, each later environment reads its graph again. Thus the builds, the findings and their
+order do not change.
+
 **No build uses Lake's artifact cache.** Lake writes no compiler messages in the build trace of
 a module that it restores from its artifact cache. Thus a check of the build output for warnings
 would accept such a module. Each checker build is a `Lake.Build`, and its only runner,
@@ -296,13 +302,22 @@ directory in `.lake/regula-scratch/` of the checkout.
 
 The copy has the files of the checkout, but not the directories `.git`, `.lake`, `.cache` and
 `.regula-scratch`, and not the root directory `tmp`. The theorem `walked_iff` gives that set of
-names. Thus the copy starts with no build output, and the first build in it compiles each
-module.
+names. Thus the copy starts with no build output, and the builds in it compile each module.
 
-The step has four commands in one sequence, which the function `RegulaVerification.commands`
-gives. The build, the registry checks and the qualification controls operate in the copy. The
-last command is the gate that the copy built. The theorem `ordinary_places` gives the directory
-of each command.
+The step has four commands, which the function `RegulaVerification.commands` gives. The build,
+the registry checks and the qualification controls operate in the copy. The last command is the
+gate that the copy built. The theorem `ordinary_places` gives the directory of each command.
+
+Before these commands, the driver builds what the gate audits and runs. The function
+`RegulaVerification.prebuild` gives that build, in the copy. Its targets are the list
+`RegulaVerification.gateTargets`: each target that `foundation_manifest.json` claims and the
+executable `axiomGate`. The step refuses a manifest that claims a target outside that list, by
+the decision `prebuildCovers`. Then the gate runs beside the other three commands, which run one
+after the other at low priority. The theorem `inOrder_append_beside` shows that the two groups are
+the four commands, each one time.
+
+The step's build is the first of the three commands. It names each target of the prebuild again,
+as the theorem `prebuild_named` shows, and it builds the targets that the prebuild did not build.
 
 The driver starts the gate in the root of the checkout as `lake -d COPY exe axiomGate
 --acceptance-link PENDING --verso website:RegulaStandard:regula-standard --driver-copy COPY`.
@@ -457,29 +472,52 @@ From the start of a command until the driver waits for it, the driver operates o
 actions. A `BaseIO` action has no exception. Thus no failure can stop the driver before it waits
 for that command. This includes the failure to write a progress line.
 
-An earlier schedule operated the gate at the same time as the build and the other checks
-([pull request 252](https://github.com/rbeauchamp/regula/pull/252)). That schedule was a
-stopgap, and this sequence replaces it. The gate of this sequence audits the build output that
-the first command makes. Thus it cannot start before that build ends. The driver starts no
-command at low priority, and one Lake process operates at a time.
+The gate and the step's build operate in the same copy at the same time. The rest of the step's
+build writes only the build output of the targets that the prebuild did not build. The gate
+reads the build output of its own targets, which the prebuild completed. The `lake exe` that
+starts the gate and the gate's own builds find those targets built, and they build nothing.
 
-This sequence removes work from the step. Before it, the step built the claimed libraries in
-the checkout, and the gate built them again in its own copy. That second build took 55 s to 76 s
-in the hosted runs of the sequential schedule on the same tree. That is approximately 18 percent
-of the step.
+In a copy, the gate also builds an owned module that an environment loads and that no build
+made. The environments load the claimed modules and the modules of the reporter. The executable
+`axiomGate` imports the reporter, so the prebuild built each of those modules, and the gate asks
+for no such build.
+
+That Lake then writes none of their files is read from the source of Lake, not proved. Lake
+compares the trace of each target, and it writes a hash file only when the file is not there.
+The gate reads each `.olean` part of each claimed module before its inspections and compares the
+parts after them. A change of one part fails the audit as incomplete.
+
+A claimed target that the prebuild did not build would be built by two Lake processes at the
+same time. The driver refuses that case before it makes the copy.
+
+An earlier schedule of [pull request 252](https://github.com/rbeauchamp/regula/pull/252)
+operated the gate at the same time as the build and the other checks. In that schedule the gate
+built the claimed libraries again in its own copy, while the step built them in the checkout.
+The sequence of [pull request 262](https://github.com/rbeauchamp/regula/pull/262) removed that
+second build, and with it the concurrent schedule. Its gate audited the build output of its
+first command, so the gate started only after the complete build. The present schedule keeps the
+one build and starts the gate when its own targets are built.
+
+The sequence of pull request 262 removed work from the step. Before it, the step built the
+claimed libraries in the checkout, and the gate built them again in its own copy. That second
+build took 55 s to 76 s in the hosted runs of the sequential schedule on the same tree. That is
+approximately 18 percent of the step.
 
 The [evidence notes](../../.agents/skills/lean-ci/references/evidence.md) give those runs and
 the calculation of the time of this sequence. They also give the criterion for the hosted
 result, which was set before a hosted run of this sequence. Two hosted runs then had ratios of
-1.38 and 1.39, which confirms the prediction by that criterion.
+1.38 and 1.39, which confirms the prediction by that criterion. The notes also give the parts of
+the step before the present schedule, and the criterion for its hosted result.
 
 The driver writes each line that starts with `verification:`. It writes such a line at the start
 of each command and a second line when the command ends. For a command that operates in the
-copy, the line gives the directory of the copy. The other `verification:` lines are for these
-events:
+copy, the line gives the directory of the copy. The start line of a command at low priority
+says so. The other `verification:` lines are for these events:
 
 - The driver could not start a command.
 - The driver could not wait for a command.
+- A command failed while the gate operated beside it, and the driver waits for the gate.
+- The gate ended. The line gives its time and the time that it operated after the other commands.
 - The driver removed the scratch directory of a run that died, or it could not remove that
   directory.
 - The driver could not read the scratch area for its reclamation.
@@ -983,6 +1021,7 @@ Two-way decisions (`Regula.Decides`), each with an accepted and a refused input:
 | `RegulaVerification.passed` | Each command of a step ended with exit status 0 (`passed_iff`). | The driver of `scripts/verify.sh` uses it before it operates one more command, before its success line and before it moves the acceptance record. |
 | `RegulaVerification.walked` | The path does not start with `tmp`, and no component of it is `.git`, `.lake`, `.cache` or `.regula-scratch` (`walked_iff`). | The files that the driver copies for the first acceptance step. No theorem relates it to the rule of the isolated copy of the checker. |
 | `RegulaVerification.removal` (accepts on `.remove`) | A directory is at the place by a read that follows no link, and its real path is the place (`removal_remove_iff`). | The driver removes its copy and the `_site` directory only by this decision. The two reads of the file system are trusted. |
+| `RegulaVerification.prebuildCovers` | The surface manifest has the shape that `claimedTargets` reads, and each target it claims is in `gateTargets` (`prebuildCovers_iff`). | The driver runs the first acceptance step only on such a manifest. Thus the gate does not build a claimed target beside the step's build. No theorem relates `claimedTargets` to the manifest reader of the checker. |
 | `ScratchCopy.name?` (accepts on `some`) | The path is the scratch area, then one name, then `project` (`name?_eq_some_iff`). | The gate admits a copy of the driver only at such a path. The components come from real paths, which the file system gives. |
 | `ScratchCopy.inside` | The path is the directory with one or more components after it (`inside_iff`). | The gate requires its own executable in the build directory of a copy of the driver. |
 
@@ -1069,7 +1108,7 @@ imports only the toolchain:
   no program imports: `RegulaProvision.Decisions` registers `component?`, `admits`, `mathlibStep`, `cloneStep`, `found`, `prunes`, `retires` and
   `mathlibApplies`;
   `RegulaVerification.Decisions` registers `parseMode`, `dependencyFree`, `select`, `passed`,
-  `walked` and `removal`.
+  `walked`, `removal` and `prebuildCovers`.
   Each kind restates a theorem the program proves about the same definition, except that of
   `component?` (`checked_component`).
 
@@ -2196,8 +2235,9 @@ inferred from any pure proof.
   library modules it loads. What a library's environment loads is read from the import headers
   of the bound sources, starting at its own modules and the force-imported probe; the
   environments are ordered so that a library comes after the libraries whose modules it loads
-  (`Inspection.libraryNeeds`, `Inspection.startOrder`), and the first environment in that order
-  to load a module is the one that replays it (`Inspection.replayers`): its own library's, unless
+  (`Inspection.libraryNeeds`, `Inspection.startOrder`). Of the environments that can start, the
+  one with the most modules of its own comes first. The first environment in that order to load
+  a module replays it (`Inspection.replayers`). That is its own library's environment, unless
   claimed libraries import one another. An executable's environment waits for every library. No
   environments wait for one another (`Inspection.prerequisites`), and environments that wait for
   nothing, or for the same ones, run side by side, three at a time. A worker publishes its
@@ -4327,6 +4367,15 @@ execution, and calling a proved oracle does not prove the driver or its IO effec
 - The theorem `RegulaVerification.ordinary_places` gives the directory of each command of the
   first step. Three commands operate in the copy, and the gate starts in the root of the
   checkout.
+- The theorem `RegulaVerification.inOrder_append_beside` shows that the schedule runs each
+  command of a mode one time. The theorem `beside_prebuilt` shows that the command beside the
+  others is the gate of the copy. It also shows that a prebuild in the copy names `axiomGate` and
+  each of `gateTargets`.
+- The theorem `RegulaVerification.prebuild_builds` shows that a prebuild is a build. The theorem
+  `prebuild_named` shows that the build of the mode names each target of a prebuild again.
+  The theorem `prebuildCovers_iff` shows that the driver accepts only a surface manifest with no
+  claimed target outside the prebuild. That Lake then builds nothing again is the behaviour of
+  Lake. The use of `nice` by the operating system is trusted.
 - The theorems `walked_iff`, `removal_remove_iff` and `removal_nothing_iff` of
   `RegulaVerification` state the decisions of the copy and of the removal. The theorems
   `ScratchCopy.name?_eq_some_iff` and `ScratchCopy.inside_iff` state the two decisions with which
