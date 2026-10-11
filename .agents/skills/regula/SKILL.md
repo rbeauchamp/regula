@@ -272,8 +272,8 @@ Fix: Fix the manifest: exactly the four top-level keys, one entry per root `lean
 
 ### [RG2006](https://rbeauchamp.github.io/regula/dev/rules/RG2006/) Claimed targets must build with the community configuration
 
-Targets' `leanOptions`: auto-implicits off, `linter.missingDocs` on, no default warning off past §6.7 exclusions, with Mathlib its standard set, header linter off or licensed; no `-D` undoes it.
-Fix: Set the target's Lake `leanOptions`: `autoImplicit` and `relaxedAutoImplicit` false, `linter.missingDocs` true and, with Mathlib, the standard set and its three §6.7 exclusions; remove other settings that silence a default warning and each `-D` extra `lean` argument that overrides these options.
+Targets' `leanOptions`: auto-implicits off, `linter.missingDocs` on, with Mathlib its standard set, header linter off or licensed; any other option, also by `-D`, only in [RG2006](https://rbeauchamp.github.io/regula/dev/rules/RG2006/)'s accepted set.
+Fix: Set the target's Lake `leanOptions`: `autoImplicit` and `relaxedAutoImplicit` false, `linter.missingDocs` true and, with Mathlib, the standard set and its three §6.7 exclusions; delete each other option, or `-D` extra `lean` argument, outside the accepted set.
 
 ```lean
 import Lake

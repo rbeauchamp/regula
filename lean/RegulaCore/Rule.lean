@@ -872,20 +872,19 @@ def descriptor : (id : RuleId) → RuleDescriptor id
       normativeClauses := [.elaborationEnvironment, .communityConventions, .linterDiscipline]
       applicability := "community-configuration"
       evidenceModes := [.incrementalProject, .freshProject]
-      requirement := "Targets' `leanOptions`: auto-implicits off, `linter.missingDocs` on, no \
-        default warning off past §6.7 exclusions, with Mathlib its standard set, header \
-        linter off or licensed; no `-D` undoes it."
+      requirement := "Targets' `leanOptions`: auto-implicits off, `linter.missingDocs` on, with \
+        Mathlib its standard set, header linter off or licensed; any other option, also by \
+        `-D`, only in RG2006's accepted set."
       rationale := "An automatic implicit adds a binder the source does not show, so the \
-        elaborated \
-        statement can quantify over more than the text a reviewer compares with the intent. A \
-        linter or warning reports only where it is on: without `linter.missingDocs`, or with a \
-        linter, a `warn.*` warning or a gate such as `mvcgen.warning` off target-wide, the \
-        warning-free build (RG2003) never sees those warnings. A `-D` extra `lean` argument can \
-        override the `leanOptions` that the audit reads."
+        elaborated statement can quantify over more than the text a reviewer compares with the \
+        intent. A linter or warning reports only where it is on, and a target-wide option can \
+        turn one off, so the warning-free build (RG2003) never sees it. The rule accepts only \
+        options that cannot stop a default warning, in `leanOptions` or a `-D` extra `lean` \
+        argument."
       remedy := "Set the target's Lake `leanOptions`: `autoImplicit` and `relaxedAutoImplicit` \
         false, `linter.missingDocs` true and, with Mathlib, the standard set and its three §6.7 \
-        exclusions; remove other settings that silence a default warning and each `-D` extra \
-        `lean` argument that overrides these options."
+        exclusions; delete each other option, or `-D` extra `lean` argument, outside the \
+        accepted set."
       rewrites := [
         "Add ``⟨`autoImplicit, false⟩, ⟨`relaxedAutoImplicit, false⟩, \
           ⟨`linter.missingDocs, true⟩`` to `leanOptions` (the same keys under `[leanOptions]` in \
@@ -894,14 +893,17 @@ def descriptor : (id : RuleId) → RuleDescriptor id
         "With Mathlib, also set `weak.linter.mathlibStandardSet` to true, `weak.linter.hashCommand` \
           false, `weak.linter.style.longFile` 0 and `weak.linter.style.header` false, or true \
           with `weak.linter.style.header.license` set to your license line.",
-        "Replace a target-wide ``⟨`linter.X, false⟩`` with `set_option linter.X false in` on the \
-          one declaration the community's guidance allows, with a comment (§6.2); delete a \
-          target-wide `warn.*` disable such as ``⟨`warn.sorry, false⟩`` or a gate setting such \
-          as ``⟨`mvcgen.warning, false⟩``: Lean's default warnings stay on.",
-        "Delete each `-D name=value` in `moreLeanArgs` or `weakLeanArgs` that gives one of these \
-          options a value the rule does not admit or silences another default warning; a \
-          `weak.` entry counts by its name even when no module declares it, so delete it; other \
-          extra arguments may stay."]
+        "Replace a target-wide ``⟨`linter.X, false⟩`` with `set_option linter.X false in` \
+          on the one declaration the community's guidance allows, with a comment (§6.2); delete \
+          each other target-wide option outside the accepted set, such as \
+          ``⟨`warn.sorry, false⟩`` or ``⟨`doc.verso.suggestions, false⟩``.",
+        "Keep only accepted options: a listed linter or `warn.*` option at its listed value \
+          (`true` for most), `warningAsError` or `debugAssertions` at true, a `pp.*` option, or \
+          a number for `maxHeartbeats`, `synthInstance.maxHeartbeats`, `maxRecDepth`, \
+          `maxSynthPendingDepth` or \
+          `exponentiation.threshold`, which lets Lean do work it would skip. Delete other \
+          `-D name=value` arguments and `weak.` entries, even undeclared ones; non-option \
+          arguments may stay."]
       examples := {
         language := .lean
         audience := .adopter

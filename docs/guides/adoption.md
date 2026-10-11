@@ -722,10 +722,10 @@ core-only code.
   ``leanOptions := #[⟨`linter.missingDocs, true⟩, ⟨`autoImplicit, false⟩, ⟨`relaxedAutoImplicit, false⟩, ⟨`weak.linter.mathlibStandardSet, true⟩, ⟨`weak.linter.style.header, false⟩, ⟨`weak.linter.hashCommand, false⟩, ⟨`weak.linter.style.longFile, .ofNat 0⟩]``.
   The linters report through build warnings, so `lake lint` reports each as [RG2003] (`INCOMPLETE`,
   exit 3). [RG2006] checks every option above in Lake's resolved configuration of each claimed
-  target (`VIOLATION`, exit 1). It also rejects a target-wide setting that turns off any other
-  linter or a default warning of Lean, for example with `warn.sorry` or `mvcgen.warning`. It rejects each `-D` in `moreLeanArgs` or
-  `weakLeanArgs` that overrides these options. It does not read `set_option` in source, which
-  review checks. Where the community's guidance accepts an exception, disable that
+  target (`VIOLATION`, exit 1). It also rejects each other target-wide option that is not in the
+  accepted set of [RG2006] at an accepted value. It rejects each `-D` in `moreLeanArgs` or
+  `weakLeanArgs` that overrides these options or sets an option outside that set. It does not read
+  `set_option` in source, which review checks. Where the community's guidance accepts an exception, disable that
   linter for the one declaration (`set_option linter.style.longLine false in`) with a comment
   giving the reason. Never disable Lean's default warnings, such as `linter.unusedVariables` or
   `warn.sorry`.
@@ -908,9 +908,19 @@ audit refuses a `decides` entry that names its own surface or no claimed surface
   reading the project again, not proved to realize the model.
 - The command-line transcript names a finding's file and declaration; exact source ranges are in
   `--json-out` and the editor.
-- [RG2006] accepts each option that it does not name, for example a larger `maxHeartbeats` in
-  `leanOptions`, in a `-D` argument or in a `set_option` for one declaration. If your project
-  must have a fixed heartbeat budget, add your own check of these options.
+- [RG2006] also accepts each `linter.` and `warn.` option that Lean or the pinned Mathlib
+  registers, at the one value that silences nothing. That value is `true` for most of them. It is
+  `false` for `linter.unusedVariables.analyzeTactics`, which at `true` counts a parameter as used
+  when a tactic state mentions it. `RegulaPolicy.Community.warningSettings` lists each option
+  with its value. The rule rejects any other `linter.` or `warn.` option, or a listed one at a
+  different value.
+- [RG2006] also accepts `warningAsError` and `debugAssertions` at `true`, and each `pp.` option.
+  It accepts each resource limit at any
+  number: `maxHeartbeats`, `synthInstance.maxHeartbeats`, `maxRecDepth`, `maxSynthPendingDepth`
+  and `exponentiation.threshold`. When you raise a resource limit, Lean does the work that it
+  otherwise stops or skips. For example, Lean then evaluates a power above
+  `exponentiation.threshold` and gives no warning about it. If your project must have fixed
+  resource limits, add your own check of these options.
 - [RG2006] reads an option by its name alone. It rejects a `weak.` entry for an option that no
   module declares, although Lean ignores that entry. Delete such an entry.
 - The only supported editor is VS Code with the Lean 4 extension, and there is no latency claim.
