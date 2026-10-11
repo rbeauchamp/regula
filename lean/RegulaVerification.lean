@@ -839,13 +839,24 @@ taken exclusively, no scratch owner lives, and the marked directories are remove
 exclusively, create the directory of that name, which must not exist, and copy the project into
 its directory `project` (`copyTree`). So the checker's reclamation and that of a later driver
 remove the directory of a driver that died, and remove none while this driver holds the lock.
-The copy has no `.lake`, so it has no build output. -/
+The copy has no `.lake`, so it has no build output.
+
+After a reclamation the exclusive lock is converted to the shared one without an `unlock`
+between them, as in `Regula.Scratch`. Safety does not depend on the conversion: `flock(2)` does
+not promise that it is atomic, but nothing is created before the shared lock is held, so a
+window without a lock is one that a release would open too. The conversion is for progress only,
+and the operating-system behaviour it relies on is trusted, not proved: XNU's release of a
+`flock` lock wakes only its first waiter and moves the others onto that waiter's lock, while a
+downgrade by the holder wakes every waiter, and Linux wakes every waiter in both cases. On
+Windows Lean's lock is `LockFileEx`, which stacks a shared lock over the held exclusive one on the
+same handle instead of converting it, so there the lock is released first. -/
 def makeCopy (root : System.FilePath) : IO Copy := do
   IO.FS.createDirAll (root / ".lake" / "regula-scratch")
   let area ← IO.FS.realPath (root / ".lake" / "regula-scratch")
   let lock ← IO.FS.Handle.mk (area / ".lock") .append
   if ← lock.tryLock then
-    try reclaim area finally lock.unlock
+    reclaim area
+    if System.Platform.isWindows then lock.unlock
   lock.lock (exclusive := false)
   let random := (← IO.getRandomBytes 8).foldl (fun value byte => value * 256 + byte.toNat) 0
   let name := s!"acceptance-{← IO.Process.getPID}-{← IO.monoNanosNow}-{random}"
