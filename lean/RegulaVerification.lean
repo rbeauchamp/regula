@@ -1336,7 +1336,8 @@ end RegulaVerification
 first runs it with the private `--begin-attempt` protocol flag before setup. The private
 `--copy-control` entry is for the controls of the checker self-test. Every entry but that one
 refuses a `lean` that is not the pinned compiler (`RegulaVerification.requireCompiler`): the run
-before its work, and `--begin-attempt` after its invalidation, which needs no particular compiler. -/
+before its work, and `--begin-attempt` after its invalidation, which needs no particular
+compiler. -/
 def main : List String → IO Unit
   | "--begin-attempt" :: args => do
     RegulaVerification.beginAttempt args
