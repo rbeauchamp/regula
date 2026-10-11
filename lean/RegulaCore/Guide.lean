@@ -1450,8 +1450,9 @@ def guide : RuleId → Guide
               "lean/Regula/Checker/SourceAudit.lean", "lean/Regula/Checker/SourceBinding.lean"] }
   | .communityConfiguration => {
       problem := "A claimed library or executable is built with automatic implicits on or \
-        without Lean's `linter.missingDocs`, turns off a linter for all its modules beyond the \
-        three Mathlib-repository linters that standard §6.7 excludes, overrides these options \
+        without Lean's `linter.missingDocs`, turns off a linter or one of Lean's own `warn.*` \
+        warnings for all its modules beyond the three Mathlib-repository linters that standard \
+        §6.7 excludes, overrides these options \
         with a `-D` extra `lean` argument, or, in a surface that imports Mathlib, leaves Mathlib's \
         standard linter set or its exclusions unset."
       trigger := [
@@ -1462,9 +1463,10 @@ def guide : RuleId → Guide
           target, with applicability `community-configuration`, when `autoImplicit` or \
           `relaxedAutoImplicit` is not set to `false` or `linter.missingDocs` is not set to \
           `true`, when any other `linter.…` option than \
-          `linter.style.header`, `linter.hashCommand` and `linter.style.longFile` is set to \
-          `false`, or when a `-D name=value` among the extra arguments gives a required option \
-          a value the rule does not admit or sets such a linter to `false`.",
+          `linter.style.header`, `linter.hashCommand` and `linter.style.longFile`, or any \
+          `warn.…` option, such as `warn.sorry`, is set to `false`, or when a `-D name=value` \
+          among the extra arguments gives a required option a value the rule does not admit or \
+          sets such an option to `false`.",
         "A target of a surface whose loaded environments contain a Mathlib module must also set \
           `weak.linter.mathlibStandardSet` to `true`, `weak.linter.hashCommand` to `false` and \
           `weak.linter.style.longFile` to `0`, and `weak.linter.style.header` to `false`, or to \
@@ -1488,13 +1490,15 @@ def guide : RuleId → Guide
       proofShape := []
       established := [
         "Every claimed library and executable is built through Lake with automatic implicits \
-          off and `linter.missingDocs` on, turns off no linter target-wide beyond the §6.7 \
-          exclusions and, in a Mathlib surface, enables the standard set with exactly those \
-          exclusions, or with the header linter on and its license line configured; no `-D` \
-          extra `lean` argument overrides these options."]
+          off and `linter.missingDocs` on, turns off no linter or `warn.…` warning target-wide \
+          beyond the §6.7 exclusions and, in a Mathlib surface, enables the standard set with \
+          exactly those exclusions, or with the header linter on and its license line \
+          configured; no `-D` extra `lean` argument overrides these options."]
       notEstablished := [
         "That no module sets an option back in source, such as `set_option autoImplicit true` or \
           a linter disable; review checks source options (§6.2).",
+        "Any bound on an option the rule does not name, such as a `maxHeartbeats` budget: a \
+          project that wants one fixed checks it itself.",
         "That the community linters' own checks pass, such as a docstring on every public \
           declaration; their warnings are RG2003's.",
         "That extra `lean` arguments other than `-D`, such as `--plugin` or `--setup`, leave the \
@@ -1527,7 +1531,8 @@ def guide : RuleId → Guide
       linkage := "`RegulaPolicy.Community.failures_eq_nil_iff`, `conforming_of_mathlib`, \
         `conforming_missingDocs`, `conforming_header`, `header_on_unlicensed_fails`, \
         `licensed_iff`, `licensed_header_passes`, `unlicensed_header_fails`, \
-        `leanArgument_mem_failures_iff` and `missingDocs_unset_fails`. Reading Lake's target \
+        `leanArgument_mem_failures_iff`, `disabledWarning_mem_failures_iff`, \
+        `warn_sorry_option_fails` and `missingDocs_unset_fails`. Reading Lake's target \
         configuration is operational."
       sources := ["lean/RegulaPolicy/Community.lean", "lean/Regula/Checker/Lake.lean",
         "lean/Regula/Checker/AxiomGate.lean", "website/RegulaStandard/CodeOrganization.lean"] }

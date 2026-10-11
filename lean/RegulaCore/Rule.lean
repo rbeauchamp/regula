@@ -872,19 +872,20 @@ def descriptor : (id : RuleId) → RuleDescriptor id
       normativeClauses := [.elaborationEnvironment, .communityConventions, .linterDiscipline]
       applicability := "community-configuration"
       evidenceModes := [.incrementalProject, .freshProject]
-      requirement := "Claimed targets' `leanOptions` set auto-implicits off, `linter.missingDocs` on, no \
-        linter off past §6.7 exclusions, with Mathlib its standard set on, header linter off or \
-        licensed; no `-D` undoes it."
+      requirement := "Targets' `leanOptions`: auto-implicits off, `linter.missingDocs` on, no \
+        linter or `warn.*` off past §6.7 exclusions, with Mathlib its standard set, header \
+        linter off or licensed; no `-D` undoes it."
       rationale := "An automatic implicit adds a binder the source does not show, so the \
         elaborated \
         statement can quantify over more than the text a reviewer compares with the intent. A \
-        linter reports only where it is on: without `linter.missingDocs`, or with a linter off \
-        for a whole target, the warning-free build (RG2003) never sees those warnings. A `-D` \
-        extra `lean` argument can override `leanOptions`, where the audit reads these options."
+        linter or warning reports only where it is on: without `linter.missingDocs`, or with a \
+        linter or a `warn.*` warning such as `warn.sorry` off for a whole target, the \
+        warning-free build (RG2003) never sees those warnings. A `-D` extra `lean` argument can \
+        override `leanOptions`, where the audit reads these options."
       remedy := "Set the target's Lake `leanOptions`: `autoImplicit` and `relaxedAutoImplicit` \
         false, `linter.missingDocs` true and, with Mathlib, the standard set and its three §6.7 \
-        exclusions; remove other linter disables and each `-D` extra `lean` argument that \
-        overrides these options."
+        exclusions; remove other linter and `warn.*` disables and each `-D` extra `lean` argument \
+        that overrides these options."
       rewrites := [
         "Add ``⟨`autoImplicit, false⟩, ⟨`relaxedAutoImplicit, false⟩, \
           ⟨`linter.missingDocs, true⟩`` to `leanOptions` (the same keys under `[leanOptions]` in \
@@ -894,10 +895,12 @@ def descriptor : (id : RuleId) → RuleDescriptor id
           false, `weak.linter.style.longFile` 0 and `weak.linter.style.header` false, or true \
           with `weak.linter.style.header.license` set to your license line.",
         "Replace a target-wide ``⟨`linter.X, false⟩`` with `set_option linter.X false in` on the \
-          one declaration the community's guidance allows, with a comment (§6.2).",
+          one declaration the community's guidance allows, with a comment (§6.2); delete a \
+          target-wide `warn.*` disable such as ``⟨`warn.sorry, false⟩``: Lean's default warnings \
+          stay on.",
         "Delete each `-D name=value` in `moreLeanArgs` or `weakLeanArgs` that gives one of these \
-          options a value the rule does not admit or turns off another linter; other extra \
-          arguments may stay."]
+          options a value the rule does not admit or turns off another linter or `warn.*` \
+          warning; other extra arguments may stay."]
       examples := {
         language := .lean
         audience := .adopter

@@ -6,12 +6,13 @@ meta import Regula.Decision
 
 The decision behind RG2006 for one claimed Lake target (standard §7.1, §6.7 and §6.2): the
 options Lake builds its modules with turn automatic implicits off, enable Lean's
-`linter.missingDocs`, keep every linter on except the three Mathlib-repository linters §6.7
-excludes, and, when the target imports Mathlib, enable Mathlib's standard linter set with exactly
-those exclusions. Of these, Mathlib's header linter may instead stay on when the target configures
-its license line (`linter.style.header.license`). The target sets these options in Lake's
-`leanOptions`, where the audit reads them, and no `-D` among its extra `lean` arguments gives one of
-them a value the requirement does not admit or turns off another linter.
+`linter.missingDocs`, keep every linter and every one of Lean's own warnings (`warn.sorry` and the
+other `warn.…` options) on except the three Mathlib-repository linters §6.7 excludes, and, when the
+target imports Mathlib, enable Mathlib's standard linter set with exactly those exclusions. Of
+these, Mathlib's header linter may instead stay on when the target configures its license line
+(`linter.style.header.license`). The target sets these options in Lake's `leanOptions`, where the
+audit reads them, and no `-D` among its extra `lean` arguments gives one of them a value the
+requirement does not admit or turns off another linter or warning.
 
 ## Main declarations
 
@@ -45,8 +46,12 @@ them a value the requirement does not admit or turns off another linter.
   the characters of the arguments.
 - `leanArgument_mem_failures_iff`: a `-D` argument fails exactly when some `-D` form sets a
   checked option to a contradicting value.
+- `disabledWarning_mem_failures_iff`: an option fails as a turned-off warning exactly when the
+  target's options turn off a linter or one of Lean's warnings outside the §6.7 exclusions.
 - `autoImplicit_argument_fails`, `maxHeartbeats_argument_passes`, `linter_argument_fails`,
-  `excluded_linter_argument_passes`, `plugin_argument_passes`: fixed argument lists.
+  `warn_argument_fails`, `excluded_linter_argument_passes`, `plugin_argument_passes`: fixed
+  argument lists.
+- `warn_sorry_option_fails`: `leanOptions` that turn off `warn.sorry` fail.
 
 ## Option names and values
 
@@ -57,9 +62,10 @@ one, except that the header linter may be `true` when the license line is config
 option is given at least once in `leanOptions`, and every value that `leanOptions` or any `-D`
 candidate gives it is a nonempty string. Lean parses a string value by the option's declared type
 (`Lean.Language.Lean.setOption`): `"true"` and `"false"` for a Boolean option and a numeral for a
-natural-number one, so `readsAs` compares a string with a required value that way. A linter
-option is an option whose first component is `linter`; turning one off means giving it a value
-Lean reads as `false`.
+natural-number one, so `readsAs` compares a string with a required value that way. A warning
+option is an option whose first component is `linter`, for a linter, or `warn`, for one of Lean's
+own warnings, such as `warn.sorry`, each `true` by default at the pinned toolchain; turning one off
+means giving it a value Lean reads as `false`.
 
 ## Boundaries
 
@@ -76,9 +82,11 @@ configures the license line, which only `leanOptions` does. That Mathlib's heade
 pinned release compares the second header line with `linter.style.header.license` is likewise read
 from its source (`Mathlib/Tactic/Linter/Header.lean`) and assumed. The decision does not read
 `set_option` commands in source, which review checks (`DECL-01`), nor options given to `lake` on
-its command line. Which targets are claimed and whether a target imports Mathlib are supplied by the
-operational adapter. That `linter.missingDocs` is on establishes only that Lean runs the linter;
-its reports are build warnings, which RG2003 rejects. -/
+its command line. It accepts every other option, such as a `maxHeartbeats` budget, so a project
+that wants such a value fixed checks it itself. Which targets are claimed and whether a target
+imports Mathlib are supplied by the operational adapter. That `linter.missingDocs` is on
+establishes only that Lean runs the linter; its reports are build warnings, which RG2003
+rejects. -/
 
 @[expose] public section
 
@@ -449,12 +457,25 @@ theorem meets_of_sets (o : BuildOptions) (r : Name × OptionValue) (h : sets o r
   simp only [sets, meets, Bool.and_eq_true, List.all_eq_true] at h ⊢
   exact ⟨h.1, fun v hv => by simp [admits, h.2 v hv]⟩
 
-/-- Setting `name` to `value` turns off a linter outside the §6.7 exclusions (§6.2). -/
+/-- The first components of the options that switch a warning: `linter`, for a linter, and
+`warn`, for one of Lean's own warnings (`warn.sorry`, `warn.classDefReducibility`,
+`warn.exposeOnPrivate` and `warn.redundantExpose` at the pinned toolchain). -/
+def warningRoots : List String := ["linter", "warn"]
+
+/-- `name` switches a linter or one of Lean's own warnings: its first component is `linter` or
+`warn`. This is the relation, as a proposition, that `disables` reads through `warningRoots`
+(`disables_iff`). -/
+def WarningOption (name : Name) : Prop :=
+  rootOf name = some "linter" ∨ rootOf name = some "warn"
+
+/-- Setting `name` to `value` turns off a linter or one of Lean's own warnings outside the §6.7
+exclusions (§6.2). -/
 def disables (name : Name) (value : OptionValue) : Bool :=
-  rootOf name == some "linter" && value.readsAs (.bool false) && !exclusions.contains name
+  (rootOf name).any warningRoots.contains && value.readsAs (.bool false) &&
+    !exclusions.contains name
 
 /-- The `-D` setting of `name` to `value` gives a required option a value the requirement does
-not admit or turns off a linter outside the §6.7 exclusions. -/
+not admit or turns off a linter or warning outside the §6.7 exclusions. -/
 def contradicts (o : BuildOptions) (mathlib : Bool) (name : Name) (value : OptionValue) : Bool :=
   (required mathlib).any (fun r => optionOf name == r.1 && !admits o r value) ||
     disables (optionOf name) value
@@ -464,20 +485,22 @@ inductive Failure where
   /-- A required option is not given, or is given a value the requirement does not admit; `actual`
   lists the values the options give. -/
   | option (name : Name) (value : OptionValue) (actual : List OptionValue)
-  /-- A linter outside the §6.7 exclusions is turned off for every module of the target. -/
-  | disabledLinter (name : Name)
+  /-- A linter or one of Lean's own warnings outside the §6.7 exclusions is turned off for every
+  module of the target. -/
+  | disabledWarning (name : Name)
   /-- An extra `lean` argument sets `name` to `value` with `-D` against the requirement. -/
   | leanArgument (name : Name) (value : OptionValue)
   deriving DecidableEq, Repr
 
 /-- Every failure of one target's build options: required options in the order of `required`,
-then each turned-off linter in option order, then each contradicting `-D` in argument order. -/
+then each turned-off linter or warning in option order, then each contradicting `-D` in argument
+order. -/
 @[regula_decision]
 def failures (o : BuildOptions) (mathlib : Bool) : List Failure :=
   (required mathlib).filterMap (fun r =>
       if meets o r then none else some (.option r.1 r.2 (valuesOf o r.1))) ++
     o.options.filterMap (fun entry =>
-      if disables (optionOf entry.1) entry.2 then some (.disabledLinter (optionOf entry.1))
+      if disables (optionOf entry.1) entry.2 then some (.disabledWarning (optionOf entry.1))
       else none) ++
     (argumentSettings o.arguments).filterMap fun s =>
       if contradicts o mathlib s.1 s.2 then some (.leanArgument s.1 s.2) else none
@@ -501,7 +524,7 @@ def Failure.text : Failure → String
   | .option name value given =>
     s!"`{name}` is {", ".intercalate (given.map OptionValue.text)}; set it to {value.text}" ++
       licenseHint name
-  | .disabledLinter name =>
+  | .disabledWarning name =>
     s!"`{name}` is off for every module; only the standard §6.7 exclusions may be"
   | .leanArgument name value =>
     s!"an extra `lean` argument sets `{name}` to {value.text}; remove it" ++ licenseHint name
@@ -513,19 +536,18 @@ def detail (failures : List Failure) : String :=
 /-- The RG2006 obligation of one target, stated without the executed Boolean decisions: every
 required option is given, and only values that the requirement admits: what Lean reads as its
 required value, and for Mathlib's header linter also `true` when the target configures the license
-line (`Licensed`); no option turns off a linter outside the §6.7 exclusions; and no `-D` among the
-extra `lean` arguments gives a required option a value the requirement does not admit or turns off
-such a linter. -/
+line (`Licensed`); no option turns off a linter or one of Lean's own warnings outside the §6.7
+exclusions; and no `-D` among the extra `lean` arguments gives a required option a value the
+requirement does not admit or turns off such a linter or warning. -/
 def Conforming (o : BuildOptions) (mathlib : Bool) : Prop :=
   (∀ r ∈ required mathlib, valuesOf o r.1 ≠ [] ∧ ∀ v ∈ valuesOf o r.1,
     v.ReadsAs r.2 ∨ (r.1 = headerLinter ∧ v.ReadsAs (.bool true) ∧ Licensed o)) ∧
-  (∀ entry ∈ o.options, rootOf (optionOf entry.1) = some "linter" →
+  (∀ entry ∈ o.options, WarningOption (optionOf entry.1) →
     entry.2.ReadsAs (.bool false) → optionOf entry.1 ∈ exclusions) ∧
   ∀ s ∈ argumentSettings o.arguments,
     (∀ r ∈ required mathlib, optionOf s.1 = r.1 → s.2.ReadsAs r.2 ∨
       (r.1 = headerLinter ∧ s.2.ReadsAs (.bool true) ∧ Licensed o)) ∧
-    (rootOf (optionOf s.1) = some "linter" → s.2.ReadsAs (.bool false) →
-      optionOf s.1 ∈ exclusions)
+    (WarningOption (optionOf s.1) → s.2.ReadsAs (.bool false) → optionOf s.1 ∈ exclusions)
 
 /-- `meets` decides exactly the first conjunct's condition for one option. -/
 theorem meets_iff (o : BuildOptions) (r : Name × OptionValue) :
@@ -536,15 +558,17 @@ theorem meets_iff (o : BuildOptions) (r : Name × OptionValue) :
 /-- `disables` decides exactly the negation of the second conjunct's condition. -/
 theorem disables_iff (name : Name) (value : OptionValue) :
     disables name value = true ↔
-      rootOf name = some "linter" ∧ value.ReadsAs (.bool false) ∧ name ∉ exclusions := by
-  simp [disables, OptionValue.readsAs_iff, and_assoc]
+      WarningOption name ∧ value.ReadsAs (.bool false) ∧ name ∉ exclusions := by
+  have hw : (rootOf name).any warningRoots.contains = true ↔ WarningOption name := by
+    cases h : rootOf name <;> simp [warningRoots, WarningOption, h]
+  simp [disables, hw, OptionValue.readsAs_iff, and_assoc]
 
 /-- `contradicts` decides exactly the negation of the third conjunct's condition. -/
 theorem contradicts_eq_false_iff (o : BuildOptions) (mathlib : Bool) (name : Name)
     (value : OptionValue) :
     contradicts o mathlib name value = false ↔
       (∀ r ∈ required mathlib, optionOf name = r.1 → admits o r value = true) ∧
-      (rootOf (optionOf name) = some "linter" → value.ReadsAs (.bool false) →
+      (WarningOption (optionOf name) → value.ReadsAs (.bool false) →
         optionOf name ∈ exclusions) := by
   have := disables_iff (optionOf name) value
   cases h : disables (optionOf name) value <;> simp_all [contradicts]
@@ -614,17 +638,17 @@ not set. -/
 theorem missingDocs_unset_fails :
     failures ⟨[(`autoImplicit, .bool false), (`relaxedAutoImplicit, .bool false)], []⟩ false =
       [.option `linter.missingDocs (.bool true) []] := by
-  simp [failures, required, baseline, meets, admits, valuesOf, optionOf, disables, rootOf,
-    exclusions, argumentSettings, argumentTexts, OptionValue.readsAs]
+  simp [failures, required, baseline, meets, admits, valuesOf, optionOf, disables, warningRoots,
+    rootOf, exclusions, argumentSettings, argumentTexts, OptionValue.readsAs]
 
 /-- A `-D` string value contradicts the requirement exactly when it is a value the requirement does
-not admit for a required option (`admits`), or it is `"false"` for a linter outside the §6.7
-exclusions. -/
+not admit for a required option (`admits`), or it is `"false"` for a linter or one of Lean's own
+warnings outside the §6.7 exclusions. -/
 theorem contradicts_string_eq_true_iff (o : BuildOptions) (mathlib : Bool) (n : Name)
     (value : String) :
     contradicts o mathlib n (.string value) = true ↔
       (∃ r ∈ required mathlib, optionOf n = r.1 ∧ admits o r (.string value) = false) ∨
-      (rootOf (optionOf n) = some "linter" ∧ value = "false" ∧ optionOf n ∉ exclusions) := by
+      (WarningOption (optionOf n) ∧ value = "false" ∧ optionOf n ∉ exclusions) := by
   have hfalse : (OptionValue.string value).ReadsAs (.bool false) ↔ value = "false" := by
     simp only [OptionValue.ReadsAs]
     rfl
@@ -634,13 +658,13 @@ theorem contradicts_string_eq_true_iff (o : BuildOptions) (mathlib : Bool) (n : 
 /-- The decision reports a `-D` argument exactly when some argument sets a checked option to a
 value that contradicts the requirement: `-Dname=value`, also after flags as in `-qD`, or `-D`
 followed by `name=value` as the next argument. The name is read as `lean` reads it
-(`String.toName`), and a linter is turned off by the string `"false"`. -/
+(`String.toName`), and a linter or warning is turned off by the string `"false"`. -/
 theorem leanArgument_mem_failures_iff (o : BuildOptions) (mathlib : Bool) (n : Name)
     (v : OptionValue) :
     Failure.leanArgument n v ∈ failures o mathlib ↔
       ∃ name value, Defines o.arguments name value ∧ n = name.toName ∧ v = .string value ∧
         ((∃ r ∈ required mathlib, optionOf n = r.1 ∧ admits o r (.string value) = false) ∨
-          (rootOf (optionOf n) = some "linter" ∧ value = "false" ∧ optionOf n ∉ exclusions)) := by
+          (WarningOption (optionOf n) ∧ value = "false" ∧ optionOf n ∉ exclusions)) := by
   have hmem : Failure.leanArgument n v ∈ failures o mathlib ↔
       (n, v) ∈ argumentSettings o.arguments ∧ contradicts o mathlib n v = true := by
     simp only [failures, List.mem_append, List.mem_filterMap]
@@ -661,6 +685,36 @@ theorem leanArgument_mem_failures_iff (o : BuildOptions) (mathlib : Bool) (n : N
     exact ⟨name, value, hd, rfl, rfl, (contradicts_string_eq_true_iff _ _ _ _).1 hc⟩
   · rintro ⟨name, value, hd, rfl, rfl, hc⟩
     exact ⟨⟨name, value, hd, rfl, rfl⟩, (contradicts_string_eq_true_iff _ _ _ _).2 hc⟩
+
+/-- The decision reports `n` as turned off for every module exactly when one of the target's
+options sets `n`, under either spelling, to a value Lean reads as `false`, and `n` switches a
+linter or one of Lean's own warnings outside the §6.7 exclusions. -/
+theorem disabledWarning_mem_failures_iff (o : BuildOptions) (mathlib : Bool) (n : Name) :
+    Failure.disabledWarning n ∈ failures o mathlib ↔
+      ∃ entry ∈ o.options, optionOf entry.1 = n ∧ WarningOption n ∧
+        entry.2.ReadsAs (.bool false) ∧ n ∉ exclusions := by
+  simp only [failures, List.mem_append, List.mem_filterMap]
+  constructor
+  · rintro ((⟨r, -, h⟩ | ⟨e, he, h⟩) | ⟨s, -, h⟩)
+    · split at h <;> simp at h
+    · split at h
+      · rename_i hd
+        simp only [Option.some.injEq, Failure.disabledWarning.injEq] at h
+        subst h
+        exact ⟨e, he, rfl, (disables_iff _ _).1 hd⟩
+      · simp at h
+    · split at h <;> simp at h
+  · rintro ⟨e, he, rfl, hd⟩
+    exact .inl (.inr ⟨e, he, by simp [(disables_iff _ _).2 hd]⟩)
+
+/-- `leanOptions` that set `warn.sorry` to `false` turn off Lean's warning for a declaration that
+uses `sorry`, one of Lean's default warnings, so the target fails with that option whatever its
+other options and extra `lean` arguments. -/
+theorem warn_sorry_option_fails (o : BuildOptions) (mathlib : Bool)
+    (h : (`warn.sorry, OptionValue.bool false) ∈ o.options) :
+    Failure.disabledWarning `warn.sorry ∈ failures o mathlib :=
+  (disabledWarning_mem_failures_iff o mathlib _).2
+    ⟨_, h, rfl, Or.inr rfl, rfl, by simp [exclusions]⟩
 
 /-! The cases below fix the extra `lean` arguments and hold for every `leanOptions`. Lean's
 `String.toName` is `partial`, so the kernel cannot evaluate it: a case whose argument names an
@@ -689,7 +743,7 @@ theorem maxHeartbeats_argument_passes (options : List (Name × OptionValue)) (ma
   obtain ⟨rfl, rfl⟩ := hd
   have ho : optionOf "maxHeartbeats".toName = `maxHeartbeats := by rw [h]; rfl
   rw [ho] at hc
-  cases mathlib <;> simp [required, baseline, mathlibBaseline, rootOf, admits] at hc
+  cases mathlib <;> simp [required, baseline, mathlibBaseline, rootOf, WarningOption, admits] at hc
 
 /-- `-qD` followed by `weak.linter.unusedVariables=false` turns off a linter outside the §6.7
 exclusions, so the target fails. -/
@@ -700,10 +754,20 @@ theorem linter_argument_fails (options : List (Name × OptionValue)) (mathlib : 
   rw [leanArgument_mem_failures_iff]
   refine ⟨"weak.linter.unusedVariables", "false",
     (mem_argumentTexts_iff ["-qD", "weak.linter.unusedVariables=false"] _ _).1 (by decide),
-    h.symm, rfl, .inr ⟨rfl, rfl, ?_⟩⟩
+    h.symm, rfl, .inr ⟨Or.inl rfl, rfl, ?_⟩⟩
   have ho : optionOf `weak.linter.unusedVariables = `linter.unusedVariables := rfl
   rw [ho]
   simp [exclusions]
+
+/-- `-Dwarn.sorry=false` turns off one of Lean's own warnings, so the target fails. -/
+theorem warn_argument_fails (options : List (Name × OptionValue)) (mathlib : Bool)
+    (h : "warn.sorry".toName = `warn.sorry) :
+    Failure.leanArgument `warn.sorry (.string "false") ∈
+      failures ⟨options, ["-Dwarn.sorry=false"]⟩ mathlib := by
+  rw [leanArgument_mem_failures_iff]
+  exact ⟨"warn.sorry", "false",
+    (mem_argumentTexts_iff ["-Dwarn.sorry=false"] _ _).1 (by decide),
+    h.symm, rfl, .inr ⟨Or.inr rfl, rfl, by simp [optionOf, exclusions]⟩⟩
 
 /-- `-Dweak.linter.hashCommand=false` turns off a §6.7 exclusion, which a Mathlib target sets to
 `false` itself, so it adds no failure. -/
@@ -798,7 +862,7 @@ theorem licensed_header_passes :
         .string "Released under the MIT license as described in the repository LICENSE."),
       (`linter.hashCommand, .bool false), (`linter.style.longFile, .nat 0)], []⟩ true = [] := by
   simp +decide [failures, required, baseline, mathlibBaseline, meets, admits, licensed,
-    licenseValues, valuesOf, optionOf, disables, exclusions, argumentSettings, argumentTexts,
+    licenseValues, valuesOf, optionOf, disables, warningRoots, exclusions, argumentSettings, argumentTexts,
     headerLinter, licenseOption, OptionValue.readsAs, OptionValue.isLicense]
 
 /-- The same target without the license line fails with exactly the header linter, set to
@@ -810,7 +874,7 @@ theorem unlicensed_header_fails :
       (`linter.hashCommand, .bool false), (`linter.style.longFile, .nat 0)], []⟩ true =
       [.option `linter.style.header (.bool false) [.bool true]] := by
   simp [failures, required, baseline, mathlibBaseline, meets, admits, licensed,
-    licenseValues, valuesOf, optionOf, disables, rootOf, exclusions, argumentSettings,
+    licenseValues, valuesOf, optionOf, disables, warningRoots, rootOf, exclusions, argumentSettings,
     argumentTexts, headerLinter, licenseOption, OptionValue.readsAs]
 
 end RegulaPolicy.Community
