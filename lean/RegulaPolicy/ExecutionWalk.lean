@@ -508,9 +508,8 @@ edges and the closure that the visits of a walk and their records give:
   exactly when the visited replacement edges have a cycle (`replacementCycle_iff`). It lists, each
   one time, the names that satisfy `OnReplacementCycle`: the names on a cycle of visited replacement
   edges and the names from which such a cycle can be reached. There is one message for each
-  required name with no available code
-  (`CodeMessage`). The order of the names in the cycle message and the order of the messages for
-  code are not stated.
+  required name with no available code (`CodeMessage`). The order of the names in the cycle
+  message and the order of the messages for code are not stated.
 - The boundaries are the boundaries of the visited records in the order of the visits. Each has
   its index as its occurrence, and the callers of its name in the compiler edges as its callers. -/
 def AccountOf (request : WalkRequest) (visits : Array (Name × Option Nat)) (rootCompiled : Bool)

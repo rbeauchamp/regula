@@ -1941,7 +1941,8 @@ items:
   of the shared edge sets of all roots, and no theorem is about them. The `history` qualification
   and `RegistryChecks` observe them. If the lists are different, the writer keeps the account of
   that root as it is, and `read_write` still holds.
-- The text of an unresolved path.
+- The text of an unresolved path of a record. `AccountOf` states the text of the messages that
+  `assemble` adds.
 
 **Root discovery has no decision.** `Probe.executableRoots` selects the owned definitions and
 opaque constants that are not internal, `unsafe`, `partial` or `noncomputable`. It also refuses a
