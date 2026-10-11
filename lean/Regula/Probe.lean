@@ -518,6 +518,28 @@ private theorem compilerDependenciesLookup_frame (env : Environment) (name other
   cases h : cache.get? name <;>
     simp [compilerDependenciesLookup, h, Std.DHashMap.get?_insert, different]
 
+/-- The declarations of `env` whose `@[export]` name gives the C symbol `symbol`: an export name
+`.str .anonymous s` is the C name `s`, and Lean refuses to emit code for any other export name.
+
+Assumes: Lean 4.34.1 emits a declaration with the export name `.str .anonymous s` under the C
+symbol `s` (`toCName`, `src/Lean/Compiler/LCNF/EmitC.lean:244-250`), and emits each call of an
+`extern` with a standard entry for the backend `c` as a call of the C symbol `getExternNameFor`
+returns (`emitFap`, `src/Lean/Compiler/LCNF/EmitC.lean:638-652`); `@[export]` is a parametric
+attribute, whose entries are those of each module and of the current one
+(`src/Lean/Compiler/ExportAttr.lean:53-67`). Trusted: the C linker binds the call to the one
+definition of that symbol, and the two C signatures agree. -/
+private def exportersOf (env : Environment) (symbol : String) : Array Name := Id.run do
+  let exported (exportName : Name) := exportName == .str .anonymous symbol
+  let mut found := #[]
+  for idx in [0:env.header.moduleNames.size] do
+    for (declaration, exportName) in Lean.exportAttr.ext.getModuleEntries env idx do
+      if exported exportName && !found.contains declaration then
+        found := found.push declaration
+  for (declaration, exportName) in (Lean.exportAttr.ext.getState env).2.toList do
+    if exported exportName && !found.contains declaration then
+      found := found.push declaration
+  return found
+
 /-- What a walk observes of one name `name`: the targets of the edges from the name, its
 boundaries and unresolved paths, and its retained compiler body
 (`RegulaPolicy.ExecutionWalk.NodeRecord`). It does not receive the walk's root, so the record is
@@ -527,7 +549,9 @@ definition of the targets (`NodeRecord.successors`). The record reads source val
 compiler IR, all supported equality candidates, and observed implementation choices. Compiler
 metadata supplements source dependencies; neither alone retains all earlier replacements after
 inlining. Equality candidates are not a claim that the compiler selected them. Extern reference
-bodies remain boundary leaves.
+bodies remain boundary leaves. An `extern` of a project or dependency whose C symbol one Lean
+declaration exports (`exportersOf`) is an exported implementation by that declaration, and a constant
+with an initializer is an initialized value.
 
 An opaque constant gets a helper edge to the constant `Lean.Compiler.mkUnsafeRecName` names for it
 when the environment has that constant and it is `partial`. The edge is how the policy pairs a
@@ -543,7 +567,15 @@ Assumes:
   that name with `partial` definition safety, in one command (`addAndCompilePartial`,
   `src/lean/Lean/Elab/PreDefinition/Main.lean:20-36`; `addAndCompilePartialRec`,
   `src/lean/Lean/Elab/PreDefinition/Basic.lean:280-294`), so the two share a declaring module and
-  so a toolchain origin. -/
+  so a toolchain origin.
+- Lean 4.34.1 compiles a constant with an `extern` attribute from that attribute alone, and any
+  other constant with an initializer (`getInitFnNameFor?`) to an extern declaration with no
+  entries (`toDecl`, `src/Lean/Compiler/LCNF/ToDecl.lean:148-155`), which its IR replaces with a
+  body that is `unreachable` (`lowerDecl`, `src/Lean/Compiler/IR/ToIR.lean:194-200`;
+  `mkDummyExternDecl`, `src/Lean/Compiler/IR/Basic.lean:386-388`); the module's initialization
+  sets the constant to the value its initializer returned (`emitDeclInit`,
+  `src/Lean/Compiler/LCNF/EmitC.lean:986-1004`), and the initializer is a retained call of the
+  constant's IR (`collectDecl`, `src/Lean/Compiler/IR/EmitUtil.lean:52-60`). -/
 private def observeNode (env : Environment) (ownedModules : List Name)
     (toolchainModules : NameMap RegulaPolicy.ToolchainOrigin)
     (cached : Std.HashMap Name (Array Name))
@@ -623,8 +655,28 @@ private def observeNode (env : Environment) (ownedModules : List Name)
         {evidence.getD ""}") terms
     record := { record with boundaries := record.boundaries.push boundary }
   if Lean.isExtern env name then
+    -- An `extern` whose C symbol is the `export` name of exactly one Lean declaration calls that
+    -- declaration's compiled code: the call is a retained compiler call of the `extern`, and its
+    -- correspondence with the exporting declaration is decided as for `@[implemented_by]`.
+    if toolchain.isNone then
+      if let some symbol := Lean.getExternNameFor env `c name then
+        if let #[exporter] := exportersOf env symbol then
+          record := { record with
+            compilerDependencies := record.compilerDependencies.push exporter }
+          let (correspondence, evidence, terms) ← correspondence name exporter
+          let boundary ← entry .exportedImplementation correspondence (some exporter)
+            (some s!"extern symbol {symbol} is the export name of {exporter}; \
+              {evidence.getD ""}") terms
+          return { record with boundaries := record.boundaries.push boundary }
     let boundary ←
       entry (if toolchain.isSome then .nativeRuntime else .external) .trusted none none
+    return { record with boundaries := record.boundaries.push boundary }
+  -- A constant with an initializer is compiled to a stub that is never run, and compiled code
+  -- reads the value its initializer action returned at module initialization. The action is a
+  -- retained compiler call of the record (`compilerDependencies`), so the walk follows it.
+  if let some action := Lean.getInitFnNameFor? env name then
+    let boundary ← entry .initializedValue .trusted none
+      (some s!"compiled code reads the value that initializer {action} returned")
     return { record with boundaries := record.boundaries.push boundary }
   if let some target := Lean.Compiler.getImplementedBy? env name then
     record := { record with

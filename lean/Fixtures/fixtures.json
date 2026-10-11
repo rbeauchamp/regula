@@ -1003,5 +1003,22 @@
   "output": [
    "Lake.removeDirAllIfExists"
   ]
+ },
+ "Fixtures.Positive.ExternExportPair": {
+  "expect": "pass",
+  "claim": "standard-logical",
+  "execution": "checked",
+  "output": [
+   "fixtures_pair_reference [exported-implementation] correspondence=checked"
+  ]
+ },
+ "Fixtures.Mutations.InitializedValueBoundary": {
+  "expect": "fail",
+  "claim": "standard-logical",
+  "execution": "checked",
+  "reason": "execution-trusted-boundary",
+  "output": [
+   "fixtures_read_counter reaches fixtures_initialized_counter (initialized-value)"
+  ]
  }
 }

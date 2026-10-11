@@ -86,8 +86,8 @@ inductive BoundaryKind where
   /-- A `@[csimp]`-shaped constant-equality lemma may let the compiler replace this constant
   with another. -/
   | «compilerSimplification»
-  /-- An `@[extern]` constant of a toolchain module (`Init`, `Std`, `Lean` or `Lake`) whose origin was
-  admitted, implemented by the toolchain's own native code. -/
+  /-- An `@[extern]` constant of a toolchain module (`Init`, `Std`, `Lean` or `Lake`) whose origin
+  was admitted, implemented by the toolchain's own native code. -/
   | «nativeRuntime»
   /-- Any other `@[extern]` constant, implemented outside Lean. -/
   | «external»
@@ -102,6 +102,13 @@ inductive BoundaryKind where
   compiler-trust family or a name the `nativeEqTrue` scheme generates for
   `native_decide`, `decide +native` or `bv_decide` (`compilerTrustingAxiomName`). -/
   | «compilerTrustedProof»
+  /-- A constant with an initializer (`[init]` or `[builtin_init]`): compiled code reads the value
+  its initializer action returned when the module was initialized, not the constant's own
+  value, and its compiled body is a stub that is never run. -/
+  | «initializedValue»
+  /-- An `@[extern]` constant outside the toolchain whose C symbol is the `@[export]` name of one Lean
+  declaration: its compiled calls run that declaration's compiled code. -/
+  | «exportedImplementation»
   deriving Repr, DecidableEq, Hashable, Inhabited
 
 /-- The kind's kebab-case text in reports and diagnostics, such as `runtime-replacement`;
@@ -115,6 +122,8 @@ def BoundaryKind.spelling : BoundaryKind → String
   | .«partialComputation» => "partial-computation"
   | .«opaqueComputation» => "opaque-computation"
   | .«compilerTrustedProof» => "compiler-trusted-proof"
+  | .«initializedValue» => "initialized-value"
+  | .«exportedImplementation» => "exported-implementation"
 
 /-- The kind a report text names; `none` for any text that is not a `spelling`
 (`BoundaryKind.canonical`). -/
@@ -128,6 +137,8 @@ def BoundaryKind.parse? : String → Option BoundaryKind
   | "partial-computation" => some .«partialComputation»
   | "opaque-computation" => some .«opaqueComputation»
   | "compiler-trusted-proof" => some .«compilerTrustedProof»
+  | "initialized-value" => some .«initializedValue»
+  | "exported-implementation" => some .«exportedImplementation»
   | _ => none
 
 instance : ToString BoundaryKind := ⟨BoundaryKind.spelling⟩
@@ -152,6 +163,8 @@ def BoundaryKind.index : BoundaryKind → Nat
   | .«partialComputation» => 5
   | .«opaqueComputation» => 6
   | .«compilerTrustedProof» => 7
+  | .«initializedValue» => 8
+  | .«exportedImplementation» => 9
 
 /-- Distinct kinds have distinct indices. -/
 theorem BoundaryKind.index_injective : Function.Injective BoundaryKind.index := by
@@ -1807,25 +1820,34 @@ inductive CheckedEvidence : BoundaryKind → Type where
       CheckedEvidence .compilerSimplification
   /-- An opaque constant executed through its kernel-checked body. -/
   | opaqueBody : CheckedEvidence .opaqueComputation
+  /-- An `extern` whose exporting declaration runs with checked correspondence, described by
+  `detail`; `terms` hold the proof the kernel admitted and the proposition it checked it against. -/
+  | exported (detail : String) (terms : CorrespondenceTerms) :
+      CheckedEvidence .exportedImplementation
   deriving Repr, DecidableEq
 
 /-- Trusted evidence by kind. A native-runtime `extern` always carries the admitted origin of
-its toolchain module. A runtime replacement or an unsafe or partial computation may carry one,
-which the probe attaches exactly when the declaring module has an admitted toolchain origin;
-without one it is the project's or a dependency's. No other kind can carry one: a compiler
+its toolchain module. A runtime replacement, an unsafe or partial computation or an initialized
+value may carry one, which the probe attaches exactly when the declaring module has an admitted
+toolchain origin; without one it is the project's or a dependency's. No other kind can carry one: a compiler
 simplification is registered by its equality's module, an `external` is by definition outside
 the toolchain, the probe reports an opaque constant as checked, unresolved, or through its
 partial helper, and a compiler-trusting proof axiom is the project's use of the compiler. -/
 def TrustedEvidence : BoundaryKind → Type
   | .nativeRuntime => ToolchainOrigin
-  | .runtimeReplacement | .unsafeComputation | .partialComputation => Option ToolchainOrigin
-  | .compilerSimplification | .external | .opaqueComputation | .compilerTrustedProof => Unit
+  | .runtimeReplacement | .unsafeComputation | .partialComputation | .initializedValue =>
+      Option ToolchainOrigin
+  | .compilerSimplification | .external | .opaqueComputation | .compilerTrustedProof
+  | .exportedImplementation => Unit
 
 /-- The kinds whose trusted evidence can carry a toolchain origin (`TrustedEvidence`): a
-runtime replacement, a native-runtime `extern`, and unsafe or partial computation. -/
+runtime replacement, a native-runtime `extern`, unsafe or partial computation, and an initialized
+value. -/
 def BoundaryKind.toolchainOwnable : BoundaryKind → Bool
-  | .runtimeReplacement | .nativeRuntime | .unsafeComputation | .partialComputation => true
-  | .compilerSimplification | .external | .opaqueComputation | .compilerTrustedProof => false
+  | .runtimeReplacement | .nativeRuntime | .unsafeComputation | .partialComputation
+  | .initializedValue => true
+  | .compilerSimplification | .external | .opaqueComputation | .compilerTrustedProof
+  | .exportedImplementation => false
 
 instance (k : BoundaryKind) : Repr (TrustedEvidence k) := by cases k <;> dsimp
     [TrustedEvidence] <;> infer_instance
@@ -1849,7 +1871,7 @@ def BoundaryEvidence.correspondence {k : BoundaryKind} : BoundaryEvidence k → 
 /-- The evidence's detail text; `kernel-checked-body` for a checked opaque body. -/
 def BoundaryEvidence.detail {k : BoundaryKind} : BoundaryEvidence k → Option String
   | .checked evidence => match evidence with
-    | .replacement s _ | .simplification s _ => some s
+    | .replacement s _ | .simplification s _ | .exported s _ => some s
     | .opaqueBody => some "kernel-checked-body"
   | .trusted s _ | .unresolved s => s
 
@@ -1857,7 +1879,7 @@ def BoundaryEvidence.detail {k : BoundaryKind} : BoundaryEvidence k → Option S
 `none` for any other evidence. -/
 def BoundaryEvidence.terms? {k : BoundaryKind} : BoundaryEvidence k → Option CorrespondenceTerms
   | .checked evidence => match evidence with
-    | .replacement _ terms | .simplification _ terms => some terms
+    | .replacement _ terms | .simplification _ terms | .exported _ terms => some terms
     | .opaqueBody => none
   | .trusted .. | .unresolved _ => none
 
@@ -1870,6 +1892,7 @@ def BoundaryEvidence.toolchainOrigin? {k : BoundaryKind} (e : BoundaryEvidence k
   | .runtimeReplacement, .trusted _ origin => origin
   | .unsafeComputation, .trusted _ origin => origin
   | .partialComputation, .trusted _ origin => origin
+  | .initializedValue, .trusted _ origin => origin
   | _, _ => none
 
 /-- A toolchain-owned boundary is trusted: never checked, never unresolved. -/
@@ -1913,11 +1936,13 @@ def boundaryEvidenceCandidate (kind : BoundaryKind) (state : Correspondence)
     | .runtimeReplacement => .ok (.trusted detail origin)
     | .unsafeComputation => .ok (.trusted detail origin)
     | .partialComputation => .ok (.trusted detail origin)
-    | .compilerSimplification | .external | .opaqueComputation | .compilerTrustedProof =>
-        .ok (.trusted detail ())
+    | .initializedValue => .ok (.trusted detail origin)
+    | .compilerSimplification | .external | .opaqueComputation | .compilerTrustedProof
+    | .exportedImplementation => .ok (.trusted detail ())
   | .checked => match kind, detail, terms with
     | .runtimeReplacement, some s, some t => .ok (.checked (.replacement s t))
     | .compilerSimplification, some s, some t => .ok (.checked (.simplification s t))
+    | .exportedImplementation, some s, some t => .ok (.checked (.exported s t))
     | .opaqueComputation, some "kernel-checked-body", _ => .ok (.checked .opaqueBody)
     | _, _, _ => .error "invalid checked boundary evidence"
 
@@ -2050,7 +2075,9 @@ structure ExecutionBoundary.ToolchainObserved where
 /-- The part of a boundary's record that marks an audited project writes can decide: its kind, its
 evidence and the constant run in its place. `@[implemented_by]` and `@[extern]` decide the kind of
 the boundary that each makes, and for `@[extern]` the toolchain origin of the module chooses
-`native-runtime` over `external`. A constant whose type is an equality of two constants with the
+`native-runtime` over `external`, and an `@[export]` name equal to its C symbol chooses
+`exported-implementation`. An initializer (`initialize`, `@[init]`) makes an `initialized-value`
+boundary. A constant whose type is an equality of two constants with the
 same list of distinct universe parameters makes a `compiler-simplification` boundary, registered
 with `@[csimp]` or not, and an attribute such as `@[simp]` makes Lean generate equation lemmas of
 that shape. The name of an axiom decides the `compiler-trusted-proof` kind
@@ -2061,16 +2088,16 @@ structure ExecutionBoundary.ProjectWritten where
   boundary : BoundaryKind
   /-- The correspondence evidence, of a form the kind admits. -/
   account : BoundaryEvidence boundary
-  /-- For a runtime replacement or compiler simplification, the constant run in its place. -/
+  /-- For a runtime replacement, compiler simplification or exported implementation, the constant
+  run in its place. -/
   replacement : Option Lean.Name
   deriving Repr, DecidableEq
 
 /-- One boundary in the conservative compiler/source closure of an
 executable root. `boundary` is one of `runtime-replacement`, `compiler-simplification`,
-`native-runtime`,
-`external`, `unsafe-computation`, `partial-computation`, `opaque-computation`,
-or `compiler-trusted-proof`; `correspondence` is `checked`, `trusted`, or
-`unresolved`. Each field the pass sets at one constant is declared in the part that says where its
+`native-runtime`, `external`, `unsafe-computation`, `partial-computation`, `opaque-computation`,
+`compiler-trusted-proof`, `initialized-value` or `exported-implementation`; `correspondence` is
+`checked`, `trusted`, or `unresolved`. Each field the pass sets at one constant is declared in the part that says where its
 value comes from. Its position and its callers are computed over the walk of the root, through the
 edges of the project-written part of the name records (`ExecutionWalk.NodeRecord.ProjectWritten`),
 so they are fields of the boundary itself. Its callers are the sources of the compiled edges whose
