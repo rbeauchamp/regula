@@ -4,8 +4,8 @@
 home page shows `summary` (`RegulaCore/SiteDocs.lean`) and its link previews show
 `plainText summary` (`Regula.Site.tagline`), so those two cannot differ from it. The Markdown check
 of acceptance (`markdown/MarkdownMain.lean`) refuses the root `README.md` and the adoption guide
-unless each starts with a title of level 1 and the first block after it is a paragraph that md4c
-reads as it reads `summary` (`Regula.Markdown.summaryErrors`), and it refuses the `description` of
+unless its first top-level block is a title of level 1 and its second is the paragraph that md4c
+reads for `summary` (`Regula.Markdown.summaryErrors`), and it refuses the `description` of
 `lakefile.lean`, as Lake reads it, unless that description is `plainText summary`.
 
 This module imports nothing, so each of those users can import it.

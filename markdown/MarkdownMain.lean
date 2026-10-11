@@ -409,14 +409,14 @@ def lakeDescription (root : System.FilePath) : IO (Except String String) := do
 
 /-- The refusals of the openings: each of `summarizedDocuments` that is not a tracked Markdown
 document of `documents`, each such document that does not open with the summary of Regula
-(`summaryErrors` of md4c's readings of `Regula.Site.summary` and of the document), and a
+(`summaryErrors` of md4c's outlines of `Regula.Site.summary` and of the document), and a
 `description` of `lakefile.lean`, as Lake reads it, that is not the summary's plain text. -/
 def openingRefusals (root : System.FilePath) (documents : List Document) :
     IO (List String) := do
   let missing := (summarizedDocuments.filter fun path => !documents.any (·.path == path)).map
     fun path => s!"{path}: Git does not track it, but it must open with the summary of Regula"
-  let summary := read Regula.Site.summary
-  let opening := documents.flatMap fun d => summaryErrors d.path summary d.reading
+  let summary := outline Regula.Site.summary
+  let opening := documents.flatMap fun d => summaryErrors d.path summary (outline d.source)
   let plain := Regula.Site.plainText Regula.Site.summary
   let description ← match ← lakeDescription root with
     | .error reason => pure [reason]

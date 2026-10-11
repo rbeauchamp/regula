@@ -333,7 +333,7 @@ unless it is a fence marker of the documentation audit (`auditMarker`). -/
 def block (list : Option Bool) (b : Block) : List Piece :=
   match b with
   | .p texts => .start (paragraphKind list) :: .line :: inlines false texts
-  | .header level texts => .start (.heading level) :: .line :: inlines false texts
+  | .header _ texts => .start .heading :: .line :: inlines false texts
   | .ul _ _ items =>
     items.attach.toList.flatMap fun ⟨item, _⟩ =>
       item.contents.attach.toList.flatMap fun ⟨inner, _⟩ =>
@@ -375,25 +375,54 @@ def difference (html other : String) : String :=
     | as, _ => as
   String.ofList (((go html.toList other.toList).take 60).map fun c => if c == '\n' then ' ' else c)
 
-/-- md4c's reading of the Markdown document `source` in GitHub's dialect: its pieces, or why the
-reading cannot be used (see the module documentation). -/
-def read (source : String) : Reading :=
+/-- md4c's parse of the Markdown document `source` in GitHub's dialect: its top-level blocks, or
+why the parse cannot be used (see the module documentation). -/
+def parse (source : String) : Except String (Array Block) :=
   if source.contains '\x00' then
-    .unread "the document has a NUL character, which MD4Lean cannot represent in a code block"
+    .error "the document has a NUL character, which MD4Lean cannot represent in a code block"
   else
     match MD4Lean.renderHtml source github 0, MD4Lean.renderHtml source htmlAsText 0 with
     | some html, some escaped =>
       if html != escaped then
-        .unread s!"inline raw HTML, which the check does not read (MD4Lean has no value for \
+        .error s!"inline raw HTML, which the check does not read (MD4Lean has no value for \
           it); write it in Markdown: {difference html escaped}"
       else if escaped.contains "</thead>\n</table>" then
-        .unread "md4c renders a table head with no table body: a table with no body row, which \
+        .error "md4c renders a table head with no table body: a table with no body row, which \
           MD4Lean cannot represent, or raw HTML, which the check does not read"
       else
         match MD4Lean.parse source htmlAsText with
-        | some document => .read (document.blocks.toList.flatMap (block none))
-        | none => .unread "md4c could not parse the document"
-    | _, _ => .unread "md4c could not render the document"
+        | some document => .ok document.blocks
+        | none => .error "md4c could not parse the document"
+    | _, _ => .error "md4c could not render the document"
+
+/-- md4c's reading of the Markdown document `source` in GitHub's dialect: its pieces, or why the
+reading cannot be used (see the module documentation). -/
+def read (source : String) : Reading :=
+  match parse source with
+  | .ok blocks => .read (blocks.toList.flatMap (block none))
+  | .error reason => .unread reason
+
+/-- The top-level block `b` of md4c's parse as `Regula.Markdown.Top` gives it: one kind for each
+constructor of `MD4Lean.Block`, with the inline pieces of a paragraph and the level of a heading.
+The match names each constructor and has no other case, so a kind that MD4Lean adds stops the
+build here. -/
+def top : Block → Top
+  | .p texts => .paragraph (inlines false texts)
+  | .header level _ => .heading level
+  | .ul .. => .unordered
+  | .ol .. => .ordered
+  | .hr => .rule
+  | .code .. => .code
+  | .html _ => .html
+  | .blockquote _ => .quote
+  | .table .. => .table
+
+/-- md4c's top-level blocks of the Markdown document `source`, each as `top` gives it, or why the
+parse cannot be used. -/
+def outline (source : String) : Outline :=
+  match parse source with
+  | .ok blocks => .read (blocks.toList.map top)
+  | .error reason => .unread reason
 
 /-- What the Markdown document `file` with text `source` is refused for
 (`Regula.Markdown.documentErrors` of md4c's reading). -/
@@ -405,13 +434,13 @@ site that has no stable address. -/
 def checkSiteLinks (file source : String) : List String := siteLinkErrors file (read source)
 
 /-- What the opening of the Markdown document `file` with text `source` is refused for
-(`Regula.Markdown.summaryErrors` of md4c's readings of `summary` and of the document): in the
-root `README.md` and the adoption guide, a first block after the title that is not the paragraph
-`summary`, which is the summary of Regula (`Regula.Site.summary`) unless a control gives a
-different one. -/
+(`Regula.Markdown.summaryErrors` of md4c's outlines of `summary` and of the document): in the
+root `README.md` and the adoption guide, first and second top-level blocks that are not a heading
+of level 1 and the paragraph `summary`, which is the summary of Regula (`Regula.Site.summary`)
+unless a control gives a different one. -/
 def checkSummary (file source : String) (summary : String := Regula.Site.summary) :
     List String :=
-  summaryErrors file (read summary) (read source)
+  summaryErrors file (outline summary) (outline source)
 
 /-- Whether `path` names a Markdown document: its extension is `md` or `markdown`, in any
 case. -/
@@ -633,7 +662,9 @@ private def bodyless : String :=
 -- examined. The summary in a code block after a different first paragraph, in a fenced block
 -- alone, on two lines, with more text in its paragraph, in a list item, after a block before
 -- the title, or after a title of level 2, also when a title of level 1 follows, is refused. A
--- changed summary that a document still opens with in its old words is refused too.
+-- block of each other kind as the first or the second block is refused: a thematic break before
+-- and after the title, a heading, an ordered list, a raw HTML block, a block quote and a table.
+-- A changed summary that a document still opens with in its old words is refused too.
 private def summary : String := Regula.Site.summary
 
 private def unsummarized : List String := [unsummarizedReason "README.md"]
@@ -654,6 +685,14 @@ private def unsummarized : List String := [unsummarizedReason "README.md"]
   checkSummary "README.md" s!"Before.\n\n# Regula\n\n{summary}\n" == unsummarized &&
   checkSummary "README.md" s!"## Regula\n\n{summary}\n" == unsummarized &&
   checkSummary "README.md" s!"## Intro\n\n{summary}\n\n# Regula\n\n{summary}\n" == unsummarized
+-- Compiled-evaluation observation at build time, not a kernel-checked proof.
+#guard checkSummary "README.md" s!"***\n\n# Regula\n\n{summary}\n" == unsummarized &&
+  checkSummary "README.md" s!"# Regula\n\n***\n\n{summary}\n" == unsummarized &&
+  checkSummary "README.md" s!"# Regula\n\n# Again\n\n{summary}\n" == unsummarized &&
+  checkSummary "README.md" s!"# Regula\n\n1. {summary}\n" == unsummarized &&
+  checkSummary "README.md" s!"# Regula\n\n<div>x</div>\n\n{summary}\n" == unsummarized &&
+  checkSummary "README.md" s!"# Regula\n\n> {summary}\n" == unsummarized &&
+  checkSummary "README.md" s!"# Regula\n\n| a |\n| --- |\n| b |\n\n{summary}\n" == unsummarized
 -- Compiled-evaluation observation at build time, not a kernel-checked proof.
 #guard checkSummary "README.md" s!"# Regula\n\n{summary}\n" ("Regula accepts holes. " ++ summary) ==
   unsummarized
@@ -677,7 +716,7 @@ private def kinds (source : String) : List Kind :=
 -- Compiled-evaluation observation at build time, not a kernel-checked proof.
 #guard kinds ("# T\n\nP one.\n\n- a\n- b\n\n1. c\n2. d\n\n> q\n\n| h |\n| --- |\n| x |\n\n" ++
   "```\ncode\n```\n") ==
-  [.heading 1, .paragraph, .bullet, .bullet, .step, .step, .paragraph, .cell, .cell, .code]
+  [.heading, .paragraph, .bullet, .bullet, .step, .step, .paragraph, .cell, .cell, .code]
 -- A block in an item of an ordered list is a step at each depth: a paragraph of an unordered
 -- list there, a paragraph of a block quote there and the cells of a table there.
 -- Compiled-evaluation observation at build time, not a kernel-checked proof.

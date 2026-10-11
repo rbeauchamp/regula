@@ -44,10 +44,11 @@ md4c's decision, and which piece each becomes is that module's (see Boundaries).
   `checked_siteLinkErrors`: the executed check of the links of each document of
   `stableDocuments` to the site. Each has a stable address, the site root or an address below a
   `stableRoots` directory with no fragment, so it names no edition.
-- `summarizedDocuments`, `OpensWith`, `opensWith_iff`, `summaryErrors`, `summaryErrors_nil_iff`,
-  `checked_summaryErrors`: the executed check of the opening of each document of
-  `summarizedDocuments`: the first block after its title is the paragraph that the summary of
-  Regula alone is, as the parser reads each (`Regula.Site.summary`).
+- `summarizedDocuments`, `Top`, `Outline`, `OpensWith`, `opensWith_iff`, `summaryErrors`,
+  `summaryErrors_nil_iff`, `checked_summaryErrors`: the executed check of the opening of each
+  document of `summarizedDocuments`: its first top-level block is a heading of level 1, and its
+  second is the paragraph that the summary of Regula alone is, as the parser reads each
+  (`Regula.Site.summary`).
 
 ## What prose is
 
@@ -93,8 +94,8 @@ open Regula.Prose
 /-- The kind of a block of a document, as far as the checks of its prose tell blocks apart
 (`RegulaCore/ControlledProse.lean`). The rule-ID check does not read it. -/
 inductive Kind where
-  /-- A heading of level `level`: 1 for a title (`#`), up to 6. -/
-  | heading (level : Nat)
+  /-- A heading. -/
+  | heading
   /-- A paragraph that is in no list item: also such a paragraph of a block quote. -/
   | paragraph
   /-- A paragraph in an item of an ordered list, at each depth: also in an unordered list or a
@@ -1793,151 +1794,91 @@ theorem checked_siteLinkErrors : Regula.ExecutableContract siteLinkErrors (fun r
 /-! ## The opening of a document
 
 The root `README.md` and the adoption guide open with the summary of Regula
-(`Regula.Site.summary`, `RegulaCore/Summary.lean`): md4c reads the first block after the title of
-each as it reads the summary alone, one paragraph, and the title is a heading of level 1. The
-statement compares the pieces of the two readings, so it reads no Markdown syntax itself. A summary in a code block, in a list item, in
-two paragraphs or on two lines, or with a different text, is not that paragraph. -/
+(`Regula.Site.summary`, `RegulaCore/Summary.lean`). The check reads the top-level blocks of md4c's
+parse of each document and of the summary alone, each block as one of the nine kinds that md4c
+reports (`Top`, `Regula.Markdown.top` in `markdown/RegulaMarkdown.lean`). It accepts a document
+exactly when its first block is a heading of level 1 and its second block is a paragraph with the
+inline pieces of the summary, which md4c reads as one paragraph. Any other first or second block
+is refused, whatever its kind. -/
 
 /-- The documents that open with the summary of Regula, by their paths in the repository. -/
 def summarizedDocuments : List String := ["README.md", "docs/guides/adoption.md"]
 
-/-- No piece of `pieces` starts a block. -/
-def NoStart (pieces : List Piece) : Prop := ∀ kind, Piece.start kind ∉ pieces
+/-- A top-level block of a document, as the parser reports it: one constructor for each kind of
+block that md4c reports (each constructor of `MD4Lean.Block`), so no top-level block is left
+out. A paragraph keeps its inline pieces and a heading its level. -/
+inductive Top where
+  /-- A paragraph, with the pieces of its inline content. -/
+  | paragraph (pieces : List Piece)
+  /-- A heading of level `level`: 1 for a title, up to 6. -/
+  | heading (level : Nat)
+  /-- An unordered list. -/
+  | unordered
+  /-- An ordered list. -/
+  | ordered
+  /-- A thematic break. -/
+  | rule
+  /-- A code block. -/
+  | code
+  /-- A raw HTML block. -/
+  | html
+  /-- A block quote. -/
+  | quote
+  /-- A table. -/
+  | table
+  deriving DecidableEq, Repr
 
-/-- `pieces` is empty or starts a block: what can follow the last piece of a block. -/
-def BlockEnd (pieces : List Piece) : Prop := ∀ piece ∈ pieces.head?, ∃ kind, piece = .start kind
+/-- What the parser reports of the top-level blocks of one document. -/
+inductive Outline where
+  /-- The parser's reading cannot be used, for the reason given. -/
+  | unread (reason : String)
+  /-- The document's top-level blocks, in document order. -/
+  | read (blocks : List Top)
+  deriving DecidableEq, Repr
 
-/-- The document `doc` opens with the paragraph `summary`, as the parser reads each: `summary` is
-one paragraph, and `doc` is a heading of level 1, the title, then exactly the pieces of `summary`,
-then the end of the document or the start of a different block. -/
-def OpensWith (summary doc : List Piece) : Prop :=
-  ∃ body title rest, summary = .start .paragraph :: body ∧ NoStart body ∧ NoStart title ∧
-    BlockEnd rest ∧ doc = .start (.heading 1) :: (title ++ (summary ++ rest))
+/-- The document with the top-level blocks `doc` opens with the summary with the top-level blocks
+`summary`: the summary is one paragraph, the first block of the document is a heading of level 1,
+and its second block is a paragraph with the inline pieces of the summary. -/
+def OpensWith (summary doc : List Top) : Prop :=
+  ∃ body rest, summary = [.paragraph body] ∧ doc = .heading 1 :: .paragraph body :: rest
 
-/-- Whether `piece` starts a block. -/
-def Piece.isStart : Piece → Bool
-  | .start _ => true
-  | _ => false
-
-/-- No piece starts a block exactly when no piece passes `Piece.isStart`. -/
-theorem noStart_iff (pieces : List Piece) :
-    pieces.any Piece.isStart = false ↔ NoStart pieces := by
-  simp only [List.any_eq_false, NoStart]
-  constructor
-  · intro h kind member
-    simpa [Piece.isStart] using h _ member
-  · intro h piece member
-    cases piece <;> simp [Piece.isStart]
-    exact h _ member
-
-/-- Whether `rest` can follow the last piece of a block: it is empty or starts a block. -/
-def endsBlock (rest : List Piece) : Bool := rest.head?.all Piece.isStart
-
-theorem endsBlock_iff (rest : List Piece) : endsBlock rest = true ↔ BlockEnd rest := by
-  cases rest with
-  | nil => simp [endsBlock, BlockEnd]
-  | cons piece rest => cases piece <;> simp [endsBlock, BlockEnd, Piece.isStart]
-
-/-- Whether `pieces` starts with the pieces of `summary`, and a block ends right after them. -/
-def startsWith (summary pieces : List Piece) : Bool :=
-  summary.isPrefixOf pieces && endsBlock (pieces.drop summary.length)
-
-theorem startsWith_iff (summary pieces : List Piece) :
-    startsWith summary pieces = true ↔ ∃ rest, BlockEnd rest ∧ pieces = summary ++ rest := by
-  simp only [startsWith, Bool.and_eq_true, List.isPrefixOf_iff_prefix, endsBlock_iff]
-  constructor
-  · rintro ⟨⟨rest, rfl⟩, ends⟩
-    exact ⟨rest, by simpa using ends, rfl⟩
-  · rintro ⟨rest, ends, rfl⟩
-    exact ⟨⟨rest, rfl⟩, by simpa using ends⟩
-
-/-- Whether the pieces after the start of the title hold the title's own pieces, none of which
-starts a block, and then start with `summary` (`startsWith`). -/
-def afterTitle (summary : List Piece) : List Piece → Bool
-  | [] => false
-  | piece :: rest =>
-    if piece.isStart then startsWith summary (piece :: rest) else afterTitle summary rest
-
-theorem afterTitle_iff {summary : List Piece} (starts : ∃ kind body, summary = .start kind :: body)
-    (pieces : List Piece) :
-    afterTitle summary pieces = true ↔
-      ∃ title rest, NoStart title ∧ BlockEnd rest ∧ pieces = title ++ (summary ++ rest) := by
-  obtain ⟨kind, body, rfl⟩ := starts
-  induction pieces with
-  | nil => simp [afterTitle]
-  | cons piece pieces ih =>
-    by_cases starting : ∃ k, piece = .start k
-    · obtain ⟨k, rfl⟩ := starting
-      simp only [afterTitle, Piece.isStart, ↓reduceIte, startsWith_iff]
-      constructor
-      · rintro ⟨rest, ends, h⟩
-        exact ⟨[], rest, by simp [NoStart], ends, by simpa using h⟩
-      · rintro ⟨title, rest, none, ends, h⟩
-        cases title with
-        | nil => exact ⟨rest, ends, by simpa using h⟩
-        | cons first title =>
-          simp only [List.cons_append, List.cons.injEq] at h
-          exact absurd (h.1 ▸ List.mem_cons_self) (none k)
-    · have other : piece.isStart = false := by
-        cases piece with
-        | start k => exact absurd ⟨k, rfl⟩ starting
-        | _ => rfl
-      simp only [afterTitle, other, Bool.false_eq_true, ↓reduceIte, ih]
-      constructor
-      · rintro ⟨title, rest, none, ends, rfl⟩
-        refine ⟨piece :: title, rest, ?_, ends, rfl⟩
-        intro k member
-        rcases List.mem_cons.mp member with h | h
-        · exact starting ⟨k, h.symm⟩
-        · exact none k h
-      · rintro ⟨title, rest, none, ends, h⟩
-        cases title with
-        | nil =>
-          simp only [List.nil_append, List.cons_append, List.cons.injEq] at h
-          exact absurd ⟨kind, h.1⟩ starting
-        | cons first title =>
-          simp only [List.cons_append, List.cons.injEq] at h
-          exact ⟨title, rest, fun k member => none k (List.mem_cons_of_mem _ member), ends, h.2⟩
-
-/-- Whether the document `doc` opens with the paragraph `summary` (`OpensWith`). -/
-def opensWith (summary doc : List Piece) : Bool :=
+/-- Whether the document with the top-level blocks `doc` opens with the summary with the
+top-level blocks `summary` (`OpensWith`). -/
+def opensWith (summary doc : List Top) : Bool :=
   match summary, doc with
-  | .start .paragraph :: body, .start (.heading 1) :: after =>
-    !body.any Piece.isStart && afterTitle summary after
+  | [.paragraph body], .heading 1 :: .paragraph first :: _ => first == body
   | _, _ => false
 
-theorem opensWith_iff (summary doc : List Piece) :
+/-- The decision is the statement of the opening. -/
+theorem opensWith_iff (summary doc : List Top) :
     opensWith summary doc = true ↔ OpensWith summary doc := by
   unfold opensWith OpensWith
   split
-  · rename_i body after
-    rw [Bool.and_eq_true, Bool.not_eq_true', noStart_iff,
-      afterTitle_iff ⟨_, _, rfl⟩]
+  · rename_i body first rest
+    simp only [beq_iff_eq, List.cons.injEq, Top.paragraph.injEq, true_and, and_true]
     constructor
-    · rintro ⟨none, title, rest, untitled, ends, rfl⟩
-      exact ⟨body, title, rest, rfl, none, untitled, ends, rfl⟩
-    · rintro ⟨body', title, rest, same, none, untitled, ends, h⟩
-      simp only [List.cons.injEq, true_and] at same h
-      subst same
-      exact ⟨none, title, rest, untitled, ends, h⟩
+    · rintro rfl
+      exact ⟨first, rest, rfl, rfl, rfl⟩
+    · rintro ⟨body', rest', rfl, rfl, -⟩
+      rfl
   · rename_i different
     simp only [Bool.false_eq_true, false_iff, not_exists, not_and]
-    intro body title rest same _ _ _ h
-    exact different body _ same h
+    intro body rest same h
+    exact different body _ rest same h
 
 /-- Why the document `file` is refused: it does not open with the summary. -/
 def unsummarizedReason (file : String) : String :=
-  s!"{file}: the first block after the title is not the summary of Regula \
-    (Regula.Site.summary in lean/RegulaCore/Summary.lean), one paragraph on one line, as md4c \
+  s!"{file}: the document does not start with a heading of level 1 and then the summary of Regula \
+    (Regula.Site.summary in lean/RegulaCore/Summary.lean) as one paragraph on one line, as md4c \
     reads it"
 
-/-- What the document `file` is refused for, given the parser's reading `summary` of the summary
-of Regula and its reading `doc` of the document: when the document is one of
+/-- What the document `file` is refused for, given the parser's outline `summary` of the summary
+of Regula and its outline `doc` of the document: when the document is one of
 `summarizedDocuments`, that it does not open with the summary (`OpensWith`), or that the summary
 cannot be read. A document whose reading cannot be used reports nothing here;
 `documentErrors` reports it. -/
 @[regula_decision]
-def summaryErrors (file : String) (summary doc : Reading) : List String :=
+def summaryErrors (file : String) (summary doc : Outline) : List String :=
   if file ∈ summarizedDocuments then
     match summary, doc with
     | _, .unread _ => []
@@ -1946,44 +1887,44 @@ def summaryErrors (file : String) (summary doc : Reading) : List String :=
   else []
 
 /-- The check of the opening reports nothing exactly when, if the document is one of
-`summarizedDocuments` and its reading can be used, the summary's reading can be used and the
+`summarizedDocuments` and its outline can be used, the summary's outline can be used and the
 document opens with it (`OpensWith`). -/
-theorem summaryErrors_nil_iff (file : String) (summary doc : Reading) :
+theorem summaryErrors_nil_iff (file : String) (summary doc : Outline) :
     summaryErrors file summary doc = [] ↔
-      file ∈ summarizedDocuments → ∀ pieces, doc = .read pieces →
-        ∃ s, summary = .read s ∧ OpensWith s pieces := by
+      file ∈ summarizedDocuments → ∀ blocks, doc = .read blocks →
+        ∃ s, summary = .read s ∧ OpensWith s blocks := by
   unfold summaryErrors
   by_cases member : file ∈ summarizedDocuments
   · simp only [member, ↓reduceIte, true_implies]
     cases doc with
     | unread reason => simp
-    | read pieces =>
+    | read blocks =>
       cases summary with
       | unread reason => simp
       | read s =>
-        by_cases opens : opensWith s pieces = true
-        · simp [opens, (opensWith_iff s pieces).mp opens]
+        by_cases opens : opensWith s blocks = true
+        · simp [opens, (opensWith_iff s blocks).mp opens]
         · simp [opens, ← opensWith_iff]
   · simp [member]
 
 /-- Registered contract of the executed check of the opening, as a two-way decision over the
-file name and the two readings (`summaryErrors_nil_iff`): it reports nothing for a document that
+file name and the two outlines (`summaryErrors_nil_iff`): it reports nothing for a document that
 is not one of `summarizedDocuments`, and an error for a `README.md` and a summary read as no
-pieces. -/
+blocks. -/
 theorem checked_summaryErrors : Regula.ExecutableContract summaryErrors (fun run =>
     Regula.Decides (· = [])
-      (fun input : (String × Reading) × Reading =>
-        input.1.1 ∈ summarizedDocuments → ∀ pieces, input.2 = .read pieces →
-          ∃ s, input.1.2 = .read s ∧ OpensWith s pieces)
+      (fun input : (String × Outline) × Outline =>
+        input.1.1 ∈ summarizedDocuments → ∀ blocks, input.2 = .read blocks →
+          ∃ s, input.1.2 = .read s ∧ OpensWith s blocks)
       (Function.uncurry (Function.uncurry run))) :=
   ⟨.of_iff (fun input => summaryErrors_nil_iff input.1.1 input.1.2 input.2)
     ⟨(("a.md", .read []), .read []), (summaryErrors_nil_iff "a.md" (.read []) (.read [])).mpr
       fun member => by simp [summarizedDocuments] at member⟩
     ⟨(("README.md", .read []), .read []), fun accepted => by
-      obtain ⟨s, read, body, title, rest, paragraph, -⟩ :=
+      obtain ⟨s, read, body, rest, paragraph, -⟩ :=
         (summaryErrors_nil_iff "README.md" (.read []) (.read [])).mp accepted
           (by simp [summarizedDocuments]) [] rfl
-      simp only [Reading.read.injEq] at read
+      simp only [Outline.read.injEq] at read
       subst read
       simp at paragraph⟩⟩
 

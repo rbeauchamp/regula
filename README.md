@@ -50,7 +50,7 @@ Each finding gives the rule, the location and the fix. The first finding of each
 | A `partial` or `unsafe` declaration that you write ([RG1006]). A contract of a registered function that is missing or that the rules refuse ([RG1007]–[RG1009]). | Lean's kernel, compiler and runtime, Lake and the operating system |
 | An `extern` or `implemented_by` path that Regula cannot resolve ([RG3001]). In `checked` mode, a boundary outside the code of the Lean toolchain with no proof of correspondence ([RG3002]). | The packages that you require from outside your Git work tree. Regula names them as trusted, and it does not replay them in Lean's kernel. A path dependency in your work tree is your own code, and Regula examines it. |
 | A build with a warning ([RG2003]), and a manifest that does not classify each target ([RG2002]) | Code that deliberately changes Lean's environment, compiler or build to make a check pass, where no rule examines the mechanism (see the [scope](SECURITY.md#scope) of the security policy) |
-| A claimed import of an excluded module, or of a module outside the libraries and executable roots of the manifest ([RG2004]) | |
+| A claimed import of an excluded module, or of a root-package module outside the libraries and executable roots of the manifest ([RG2004]) | |
 | Missing evidence, for example of kernel admission ([RG2005]), and options other than the community configuration ([RG2006]) | |
 | A workspace that Lake cannot load with its toolchain and dependencies, or an environment that the audit cannot inspect ([RG2001]) | |
 | A module without a module docstring ([RG5001]), and a registered material declaration without its docstring or its Intent section ([RG5002], [RG5003]) | |

@@ -592,7 +592,7 @@ prose and are not checked.
 
 The summary of Regula is one definition, `Regula.Site.summary` in [`lean/RegulaCore/Summary.lean`](../../lean/RegulaCore/Summary.lean). The home page of the site shows it, and its link previews show its plain text.
 
-`./scripts/verify.sh docs` refuses the root `README.md` and the adoption guide unless each starts with a heading of level 1, the title. After the title, md4c must read the first block as it reads the summary alone (`Regula.Markdown.summaryErrors`, `summaryErrors_nil_iff`). Thus that block is one paragraph on one line with the text of the summary. It is not in a code block or a list.
+`./scripts/verify.sh docs` reads the top-level blocks of the root `README.md` and of the adoption guide, as md4c gives them. It refuses a document unless its first block is a heading of level 1. Its second block must be the paragraph that md4c reads for the summary alone (`Regula.Markdown.summaryErrors`, `summaryErrors_nil_iff`). Thus the second block is the summary on one line, and a block of a different kind before it is refused.
 
 The same step runs `lake reservoir-config` in the repository root. It refuses a `description` of `lakefile.lean`, as Lake reads it, that is not the summary without its backticks.
 
