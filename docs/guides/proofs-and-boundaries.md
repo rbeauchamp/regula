@@ -299,7 +299,6 @@ manifest and the result destination from the command line alone (`configuredRefu
 
 The driver does not check these assumptions.
 
-
 In the plain shape, each package declares only `lean_lib`, `lean_exe`, `input_file` and
 `input_dir` targets. Each field of the configuration of a package or a target has the default
 value of Lake, except for a short list of fields. Lake gives the fields of each type of
