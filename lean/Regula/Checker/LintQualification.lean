@@ -1630,8 +1630,13 @@ private def compilerGuard (repo project : FilePath) : IO (Array String) := do
     let sysroot := project / label
     let lean := sysroot / "bin" / "lean"
     IO.FS.createDirAll (sysroot / "bin")
+    -- The canonical path, so a relative `PATH` entry cannot leave the link dangling.
+    let program ← IO.FS.realPath program
     let linked ← runProcess project "ln" #["-s", program.toString, lean.toString]
     if !linked.succeeded then throw <| IO.userError linked.output
+    unless (← IO.FS.realPath lean) == program do
+      throw <| IO.userError s!"lake-lint: the compiler-guard stand-in {lean} does not resolve to \
+        {program}"
     assess { label := s!"guard/{label}", exitCode := 1, contains := #[lean.toString, branch] }
       (← load #[("LEAN_SYSROOT", some sysroot.toString)])
   let failing ← refused "failing-child" (← Regula.Toolchain.program "lake")

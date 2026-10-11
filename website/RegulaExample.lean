@@ -109,13 +109,22 @@ def helperPath : IO System.FilePath := do
     throw <| IO.userError s!"example helper not built: {path}"
   return path
 
-/-- Elaborate one example module in a fresh `regula-example` process: its messages and highlighting. -/
+/-- Elaborate one example module in a fresh `regula-example` process: its messages and highlighting.
+The helper's toolchain is the installation of the `lean` elaborating the standard, which runs this:
+it receives that directory as `LEAN_SYSROOT` (`Regula.CompilerObservation.toolchainRoot`), so no
+`lean` that `PATH` resolves is run to find it. -/
 def runHelper (text : String) : IO (Array Reported × Json) := do
   let helper ← helperPath
+  let running ← IO.appPath
+  let some sysroot := (running.parent.bind (·.parent)).filter fun _ =>
+      running.fileStem == some "lean"
+    | throw <| IO.userError s!"example helper: {running} is not the `lean` elaborating the standard"
   IO.FS.withTempFile fun handle path => do
     handle.putStr text
     handle.flush
-    let out ← IO.Process.output { cmd := helper.toString, args := #[path.toString] }
+    let out ← IO.Process.output {
+      cmd := helper.toString, args := #[path.toString]
+      env := #[("LEAN_SYSROOT", some sysroot.toString)] }
     if out.exitCode != 0 then
       throw <| IO.userError s!"example helper failed ({out.exitCode}): {out.stderr}"
     -- Exactly the members the helper writes, each name once (`PolicyCodec.parse`), and a severity

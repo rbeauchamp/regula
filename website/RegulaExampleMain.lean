@@ -1,5 +1,6 @@
 import SubVerso.Compat
 import SubVerso.Highlighting
+import Regula.CompilerObservation
 
 /-! # Example elaboration helper
 
@@ -44,7 +45,7 @@ private def report (messages : Array Message) (code : Highlighted) : IO Unit := 
   IO.println (Json.mkObj [("messages", .arr messages), ("code", code.exportCode.toJson)]).compress
 
 unsafe def run (path : System.FilePath) : IO UInt32 := do
-  let sysroot ← findSysroot
+  let sysroot ← Regula.CompilerObservation.toolchainRoot
   initSearchPath sysroot
   let opts := exampleOptions
     (sysroot / "bin" / "cadical" |>.withExtension System.FilePath.exeExtension) {}

@@ -276,7 +276,7 @@ private def phase (repo scratch : FilePath) (test : Case) (negative : Bool) : IO
   let lookalikeRoot := supportName.getRoot
   let lookalike := decide (RegulaPolicy.ToolchainRoot lookalikeRoot)
   if lookalike then
-    let toolchainLib ← Lean.getLibDir (← Lean.findSysroot)
+    let toolchainLib ← Lean.getLibDir (← Regula.CompilerObservation.toolchainRoot)
     let output := scratch / ".lake" / "build" / "lib" / "lean"
     let prefixDirectory := lookalikeRoot.toString
     IO.FS.createDirAll (output / prefixDirectory)

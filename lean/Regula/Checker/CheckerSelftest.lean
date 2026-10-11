@@ -2735,11 +2735,16 @@ private unsafe def fenceEnvironmentQualification (layout : SourceLayout) (repo s
     let path := System.SearchPath.parse ((← IO.getEnv "PATH").getD "")
     let some failing ← path.findM? fun entry => (entry / "false").pathExists
       | throw <| IO.userError "fence-env/fresh-checker: found no `false` on PATH"
+    -- The canonical path, so a relative `PATH` entry cannot leave the link dangling.
+    let failing ← IO.FS.realPath (failing / "false")
     let workspaceBin := dir / ".lake" / "build" / "bin"
     IO.FS.createDirAll workspaceBin
-    let planted ← runProcess dir "ln"
-      #["-s", (failing / "false").toString, (workspaceBin / "leanchecker").toString]
+    let plantedPath := workspaceBin / "leanchecker"
+    let planted ← runProcess dir "ln" #["-s", failing.toString, plantedPath.toString]
     if !planted.succeeded then throw <| IO.userError planted.output
+    unless (← IO.FS.realPath plantedPath) == failing do
+      throw <| IO.userError "fence-env/fresh-checker: the planted leanchecker does not resolve \
+        to the `false` utility"
     let reportPath := dir / "fresh-report.json"
     let result ← runScrubbed dir "freshChecker" #["--json-out", reportPath.toString]
     if !result.succeeded then
