@@ -95,6 +95,9 @@ structure FixtureSpec where
   pattern : Option String := none
   /-- Texts the checker output must contain, whatever the verdict. -/
   output : Array String := #[]
+  /-- For each named declaration, texts that its own record in the output must contain
+  (`declarationRecord`). -/
+  records : Array (String × Array String) := #[]
   deriving Repr
 
 /-- Disjoint groups whose union is the complete build-bound qualification. -/
@@ -508,7 +511,8 @@ private def loadFixtureManifest (layout : SourceLayout) (repo : FilePath) : IO
   let value ← readJson path
   let object ← IO.ofExcept value.getObj?
   let allowed :=
-      #["expect", "reason", "reasons", "claim", "execution", "label", "pattern", "output"]
+      #["expect", "reason", "reasons", "claim", "execution", "label", "pattern", "output",
+        "records"]
   let mut fixtures : Array FixtureSpec := #[]
   for moduleName in object.keysArray.qsort (· < ·) do
     let some source := library.sources.find? (·.«module» == moduleName.toName)
@@ -557,9 +561,16 @@ private def loadFixtureManifest (layout : SourceLayout) (repo : FilePath) : IO
     let output ← match spec.getObjVal? "output" with
       | .error _ => pure #[]
       | .ok value => jsonStringArray s!"{moduleName}.output" value
+    let records ← match spec.getObjVal? "records" with
+      | .error _ => pure #[]
+      | .ok value => do
+        let object ← IO.ofExcept value.getObj?
+        object.keysArray.qsort (· < ·) |>.mapM fun declaration => do
+          let texts ← IO.ofExcept <| value.getObjVal? declaration
+          return (declaration, ← jsonStringArray s!"{moduleName}.records.{declaration}" texts)
     fixtures := fixtures.push {
       moduleName, source := source.source, expectation, reasons, claim, execution, label,
-          pattern, output }
+          pattern, output, records }
   if library.modules.size != fixtures.size then
     throw <| IO.userError <|
       s!"fixture manifest/Lake module count mismatch: {fixtures.size}/{library.modules.size}"
@@ -630,6 +641,23 @@ private def runBinaryFrom (binaryRepo cwd : FilePath) (name : String)
     (args : Array String) : IO ProcessResult := do
   runProcess cwd (← toolPath binaryRepo name).toString args
 
+/-- The record of the declaration `name` in a gate output: the line whose text after its verdict
+tag, `[OK] ` or `[VIOLATION[...]] `, begins with `name (`, then the lines after it up to the next
+one that begins with `[`, which hold the rest of a type that Lean prints on several lines. `none`
+when no line begins the record. -/
+private def declarationRecord (output name : String) : Option String := Id.run do
+  let mut record : Option (Array String) := none
+  for line in output.splitOn "\n" do
+    match record with
+    | some lines =>
+      if line.startsWith "[" then break
+      record := some (lines.push line)
+    | none =>
+      if line.startsWith "[" && ("] ".intercalate ((line.splitOn "] ").drop 1)).startsWith
+          s!"{name} (" then
+        record := some #[line]
+  return record.map ("\n".intercalate ·.toList)
+
 /-- Exact verdict assessment for one fixture against gate (or gate-equivalent)
 output. The same function assesses real CLI output and the in-process batch
 verdicts, so both paths assert identical intended reasons. -/
@@ -637,6 +665,11 @@ private def assessFixtureOutput (fixture : FixtureSpec) (ended : RunEnd)
     (output : String) : Option String := Id.run do
   if let some missing := fixture.output.find? fun needle => !output.contains needle then
     return some s!"{fixture.moduleName}: missing expected output {repr missing}:\n{output}"
+  for (name, needles) in fixture.records do
+    let some record := declarationRecord output name
+      | return some s!"{fixture.moduleName}: no record of {name}:\n{output}"
+    if let some missing := needles.find? fun needle => !record.contains needle then
+      return some s!"{fixture.moduleName}: the record of {name} lacks {repr missing}:\n{record}"
   match fixture.expectation with
   | .pass =>
       if ended != .accepted then

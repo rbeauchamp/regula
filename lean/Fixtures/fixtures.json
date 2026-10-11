@@ -888,6 +888,52 @@
    "table-omissions: collectAxioms []"
   ]
  },
+ "Fixtures.Positive.RestsOnAssumption": {
+  "expect": "pass",
+  "claim": "standard-logical",
+  "records": {
+   "Fixtures.RestsOnAssumption.twice_adds": [
+    "assumptions=[\"Fixtures.RestsOnAssumption.Increments\"]"
+   ],
+   "Fixtures.RestsOnAssumption.unfolded_adds": [
+    "assumptions=[\"Fixtures.RestsOnAssumption.Increments\"]"
+   ],
+   "Fixtures.RestsOnAssumption.checked_reads": [
+    "checked=[\"Fixtures.RestsOnAssumption.checkedStep\"]"
+   ],
+   "Fixtures.RestsOnAssumption.twice_steady": [
+    "assumptions=[\"Fixtures.RestsOnAssumption.Steady\"]"
+   ],
+   "Fixtures.RestsOnAssumption.step_bounded": [
+    "assumptions=[\"Fixtures.RestsOnAssumption.Bounded\"]"
+   ]
+  }
+ },
+ "Fixtures.Mutations.StaleAssumptionSource": {
+  "expect": "fail",
+  "reason": "compile-error",
+  "pattern": "this source is pinned to Lean v4.33.0, but Lean .* elaborates this module"
+ },
+ "Fixtures.Mutations.UnpinnedAssumptionSource": {
+  "expect": "fail",
+  "reason": "compile-error",
+  "pattern": ":12:31: error: a document about Lean or Lake.*has no release that this module checks.*:16:31: error: a document about Lean or Lake.*has no release that this module checks"
+ },
+ "Fixtures.Mutations.ImportedRoleTarget": {
+  "expect": "fail",
+  "reason": "compile-error",
+  "pattern": "`Nat.le` is declared in `Init.Prelude`: a role is given only in the module that declares the constant"
+ },
+ "Fixtures.Mutations.NonPredicateAssumption": {
+  "expect": "fail",
+  "reason": "compile-error",
+  "pattern": "is not a predicate: an assumption is a definition or an inductive type whose type ends in `Prop`"
+ },
+ "Fixtures.Mutations.UnrelatedCheckedContract": {
+  "expect": "fail",
+  "reason": "compile-error",
+  "pattern": "the statement of `Fixtures.UnrelatedCheckedContract.other_bounded` does not use `Fixtures.UnrelatedCheckedContract.step`: the contract of a checked operation must state the postcondition of that operation"
+ },
  "Fixtures.Mutations.ForgedAxiomTableOmission": {
   "expect": "fail",
   "reason": "label-exceeds-claim",
