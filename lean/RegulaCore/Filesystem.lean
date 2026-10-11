@@ -23,8 +23,8 @@ operations as actions on the state:
 
 ## The assumptions
 
-Each assumption is a predicate with the sources that state it (`Regula.Assumption`). Four are the
-contracts of the operations, each a `Std.Do` triple whose postcondition is the property:
+Each assumption is a predicate with the sources that state it (`Regula.Assumption`). The four are
+the contracts of the operations, each a `Std.Do` triple whose postcondition is the property:
 
 * `ReadsEntry`: `symlinkMetadata` reports the entry, changes nothing, and fails with
   `noFileOrDirectory` only when nothing is there.
@@ -35,11 +35,13 @@ contracts of the operations, each a `Std.Do` triple whose postcondition is the p
 * `RemovesEntry`: `removeFile` of a path at its own place keeps the type of each entry outside the
   path.
 
-The fifth, `Corresponds`, ties the operations that run in `IO` to a model: each one runs as the
-model's operation, with each world of `IO` read as a model state. Only those operations move that
-reading of the world, so it is where "no other process changes the filesystem while the code runs"
-is assumed. `corresponds_ofIO` shows that it can hold: it holds for every set of operations when
-the worlds themselves are the model's states.
+Each is a statement about every run from every state, so together they carry "no other process
+changes the filesystem while the code runs", which none states alone. In `IO`, the world that one
+operation ends in is the world that the next starts from, so a change that another process makes
+between them is part of one of the two runs. A read changes nothing, and a removal keeps the type
+of each entry outside its path. So the change makes one of the assumptions false, unless the first
+operation is a removal and the change is within its path, and the theorems that rest on a false
+assumption say nothing.
 
 That a removal removes the path is not assumed. `removeDirectory` and `removeEntry` read the path
 again after the removal and fail when something is still there, so their contracts
@@ -50,9 +52,13 @@ operation.
 
 The theorems about a function's runs in a model (`removeDirectory_spec`, `removeDirectory_gone`,
 `removeEntry_spec`, `removeEntry_gone`, `atOwnPlace_spec`) are carried to the runs of the same
-function in `IO` at operations that correspond to the model (`removeDirectory_io`,
-`removeDirectory_gone_io`, `removeEntry_io`, `removeEntry_gone_io`, `atOwnPlace_io`), with
-`Corresponds` as one more hypothesis. `Regula.Filesystem` states them at the observer.
+function in `IO` (`removeDirectory_io`, `removeDirectory_gone_io`, `removeEntry_io`,
+`removeEntry_gone_io`, `atOwnPlace_io`) at operations that correspond to the model
+(`Corresponds`): each operation in `IO` runs as the model's operation when each world of `IO` is
+read as a model state. That is agreement of runs, not an assumption about the filesystem:
+`corresponds_ofIO` proves it for every set of operations at the model whose states are the worlds
+(`Model.ofIO`). `Regula.Filesystem` states the theorems for the observer at that model, where they
+rest on the four assumptions alone.
 
 ## Boundaries
 
@@ -183,14 +189,12 @@ def RemovesEntry (M : Model) : Prop :=
 /-- The operations `ops` in `IO` run as the operations of the model `M`, when `view` reads each
 world of `IO` as a state of `M` (`Regula.StateTriple.Agrees`): from each world, an operation of
 `ops` has the outcome of the model's operation from the view of that world, and the view of the
-world it ends in is the state the model's operation ends in. Code built from these operations with
-`pure`, `bind`, `throw` and `tryCatchThe` passes each world it ends in to the next operation, so
-only the operations of `ops` move the view. -/
-@[regula_assumption filesystem
-  (trusted "No other process changes the filesystem while the code runs, so the filesystem that \
-    each operation acts on is the one that the operations before it left. No source states this, \
-    and it is not true of a computer as a whole: the theorems apply only while no other process \
-    changes the entries that they name.")]
+world it ends in is the state the model's operation ends in.
+
+This is agreement of runs, not a property of the filesystem, so it has no role: `corresponds_ofIO`
+proves it for every set of operations at the model whose states are the worlds. It does not say
+that no other process changes the filesystem. At that model, the four assumptions say so (see the
+module's documentation). -/
 def Corresponds (ops : Ops IO) (M : Model) (view : Void IO.RealWorld → M.World) : Prop :=
   (∀ path, Agrees view (ops.symlinkMetadata path) (M.ops.symlinkMetadata path)) ∧
     (∀ path, Agrees view (ops.realPath path) (M.ops.realPath path)) ∧
@@ -223,9 +227,10 @@ theorem ofEIO_agrees {ε α : Type} (x : EIO ε α) : Agrees id x (ofEIO x) := b
   | ok a w' => simp only [ofEIO, EStateM.run, id, ran]
   | error e w' => simp only [ofEIO, EStateM.run, id, ran]
 
-/-- **`Corresponds` can hold:** every set of operations in `IO` corresponds to the model whose
-states are the worlds of `IO`, each world read as itself. Whether the real operations also satisfy
-the other assumptions at such a model is the part that is trusted. -/
+/-- Every set of operations in `IO` corresponds to the model whose states are the worlds of `IO`,
+each world read as itself. So a theorem about the runs of operations in `IO` at this model rests
+only on the assumptions it names at it: that the operations satisfy them is the part that is
+trusted. -/
 theorem corresponds_ofIO (ops : Ops IO)
     (entry : Void IO.RealWorld → FilePath → Option IO.FS.FileType)
     (real : Void IO.RealWorld → FilePath → Option FilePath) :

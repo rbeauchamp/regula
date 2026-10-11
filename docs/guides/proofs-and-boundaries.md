@@ -4724,21 +4724,31 @@ writes over the operations of a model gets the real system only through an obser
 attribute `@[regula_observer]` marks it.
 
 Each attribute is checked where it is written. An assumption must be a definition or an inductive
-type, and its type must end in `Prop`. A role is given only in the module that declares the
-constant, and only one time. Thus no import can give a second role to a constant.
+type, and its type must end in `Prop`. The check reduces the type, thus it also accepts a different
+name of `Prop`. A role is given only in the module that declares the constant, and only one time.
+Thus no import can give a second role to a constant.
 
 ### From a model to the real system
 
 A theorem about a model is not a theorem about the code that runs. In Lean, an action of `IO` gets
 a world, `IO.RealWorld`, and gives its result and a new world. No proof can examine a world. The
-assumption `Corresponds ops M view` connects the operations `ops` in `IO` to the model `M`. The
+definition `Corresponds ops M view` connects the operations `ops` in `IO` to the model `M`. The
 function `view` gives a state of the model for each world.
 
 `Corresponds` states that each operation of `ops` gives the result of the operation of the model,
 from the state that `view` gives. The world after the operation gives the state after the
-operation of the model. Thus only the operations of `ops` change the state that `view` gives: no
-other process changes the file system. The theorem `corresponds_ofIO` proves that `Corresponds`
-can be true. It is true for each `ops` when the states of the model are the worlds.
+operation of the model. This is a relation between two runs, not a property of the file system.
+Thus it is not an assumption. The theorem `corresponds_ofIO` proves it for each `ops`, when the
+states of the model are the worlds (`Model.ofIO`).
+
+The theorems for the observer use that model. Thus they use only the four assumptions of the file
+system at that model. Each assumption is a statement about each run from each world.
+
+In `IO`, the world at the end of an operation is the world at the start of the next operation.
+Thus a change by a different process between two operations is a part of one of the two runs. A
+read changes nothing, and a removal keeps the type of each entry outside its path. Thus such a
+change makes an assumption false, if it is not in the path that the first of the two operations
+removes. The theorems that use a false assumption give no result.
 
 ### The sources of an assumption
 
@@ -4768,7 +4778,6 @@ below is a file of the Lean 4 repository at `v4.34.1`, below `src`.
 
 | Declaration | Status | Contract | Sources |
 | --- | --- | --- | --- |
-| `Corresponds` | trusted | Each operation of the observer operates as the operation of a model. No other process changes the file system while the code operates. | None. This is not true for a computer as a whole. Thus the theorems apply only while no other process changes the entries that they name. |
 | `ReadsEntry` | trusted | `symlinkMetadata` gives the type of the entry at a path and changes nothing. It fails with `noFileOrDirectory` only when no entry is at the path. | [`Init/System/IO.lean#L1151-L1156`](https://github.com/leanprover/lean4/blob/v4.34.1/src/Init/System/IO.lean#L1151-L1156), [`runtime/io.cpp#L1160-L1179`](https://github.com/leanprover/lean4/blob/v4.34.1/src/runtime/io.cpp#L1160-L1179), [`runtime/io.cpp#L276-L279`](https://github.com/leanprover/lean4/blob/v4.34.1/src/runtime/io.cpp#L276-L279), POSIX.1-2024 `lstat()` |
 | `ReadsReal` | trusted | `realPath` gives the real path of a path and changes nothing. It fails only when there is no real path. | [`Init/System/IO.lean#L873-L879`](https://github.com/leanprover/lean4/blob/v4.34.1/src/Init/System/IO.lean#L873-L879), [`runtime/io.cpp#L1054-L1066`](https://github.com/leanprover/lean4/blob/v4.34.1/src/runtime/io.cpp#L1054-L1066), POSIX.1-2024 `realpath()` |
 | `RemovesTree` | trusted | `removeDirAll` of a directory at its real path keeps the type of each entry outside the directory, when it succeeds and when it fails. | [`Init/System/IO.lean#L1330-L1342`](https://github.com/leanprover/lean4/blob/v4.34.1/src/Init/System/IO.lean#L1330-L1342), [`runtime/io.cpp#L1160-L1179`](https://github.com/leanprover/lean4/blob/v4.34.1/src/runtime/io.cpp#L1160-L1179), [`runtime/io.cpp#L1197-L1207`](https://github.com/leanprover/lean4/blob/v4.34.1/src/runtime/io.cpp#L1197-L1207), [`runtime/io.cpp#L1351-L1364`](https://github.com/leanprover/lean4/blob/v4.34.1/src/runtime/io.cpp#L1351-L1364), POSIX.1-2024 `lstat()`, `unlink()` and `rmdir()` |
@@ -4781,7 +4790,8 @@ of a file at its real path, in a model. After a removal that succeeds, no entry 
 removal keeps the type of each entry outside the path, when it succeeds and when it fails. Their
 hypotheses are the assumptions that they use. The theorems `removeDirectory_io` and
 `removeEntry_io` give the same result for the code in `IO`, with `Corresponds` as one more
-hypothesis. `Regula.Filesystem` gives them for the observer.
+hypothesis. `Regula.Filesystem` gives them for the observer at the model of the worlds, where
+`corresponds_ofIO` proves `Corresponds`.
 
 `Model.Unchanged` gives what is outside a path. It is each path with a file name, not in the path,
 if the real path of its parent is that parent before the operation. For each such path, the entry
@@ -4811,6 +4821,9 @@ The control `Fixtures.Positive.RestsOnAssumption` examines the lists in the reco
 This section does not establish these properties:
 
 - That the real system satisfies the assumptions. Regula trusts each one, with its sources.
+- That no different process changes the file system while the code runs. Such a process can make
+  an assumption false, as "From a model to the real system" shows. Regula does not examine the
+  other processes.
 - That no directory below a removed directory is also mounted at a different place, for example by
   a bind mount. `RemovesTree` is false for such a directory, because its entries also have names
   outside the removed directory.

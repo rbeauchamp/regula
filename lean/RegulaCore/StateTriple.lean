@@ -25,8 +25,10 @@ same outcome, and the view of the world `x` ends in is the state `y` ends in. Ag
 `eio_throw`, `eio_bind_ok`, `eio_bind_error`, `eio_tryCatch_ok`, `eio_tryCatch_error`). So code
 written once for any monad agrees with itself at two sets of operations when each pair of
 operations agrees. `Agrees.transfer` carries what a run of the model action satisfies to the run of
-the `IO` action. That the operations of an observer agree with those of a model is an assumption
-about the real system, never proved here.
+the `IO` action. Agreement is a relation between two runs, not a property of the real system: at
+the model whose states are the worlds, every set of operations agrees with the model's
+(`Regula.Filesystem.corresponds_ofIO`), and what the real system does is stated by the assumptions
+at that model.
 
 [RG2003]: https://rbeauchamp.github.io/regula/dev/rules/RG2003/ -/
 

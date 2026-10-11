@@ -431,7 +431,8 @@ leaf is a name that `leaf` accepts: one forward search from all of `roots`, then
 from each leaf it finds, along the edges the forward search recorded, so the names after each name
 are computed once. The table holds every name the forward search reached. `none` when a search runs
 out of `fuel`. `axiomTable` is this table with the axioms of a kernel environment as the leaves;
-`RegulaPolicy.Assumptions` uses it with the assumptions of a claim's statement as the leaves. -/
+`RegulaPolicy.Assumptions` uses it along the same edges, through the type and the value of each
+constant, proofs included, with the declarations that have a role as the leaves. -/
 def leafTable (next : Name → Array Name) (leaf : Name → Bool) (fuel : Nat) (roots : Array Name) :
     Option (Std.HashMap Name (Array Name)) := do
   let (seen, edges) ← searchEdges next fuel roots.toList

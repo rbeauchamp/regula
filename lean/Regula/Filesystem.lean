@@ -4,11 +4,11 @@ import RegulaCore.Filesystem
 
 The filesystem operations of Lean's library that `Regula.Filesystem.Ops` names, as code written
 over `Ops` runs them: each operation of `observer` is a definition of this module that calls one of
-them. That they correspond to some model of the filesystem (`Corresponds`) that satisfies the other
-assumptions (`RegulaCore.Filesystem`) is the trusted step. The theorems at the end of this module
-state, under those hypotheses, what the code of `RegulaCore.Filesystem` does when it runs at the
-observer. Other code of Regula still calls these operations of Lean's library directly, and no
-check finds those calls yet.
+them. The observer's runs are a model of the filesystem (`observed`), whose states are the worlds
+of `IO`. That the observer satisfies the assumptions of `RegulaCore.Filesystem` at that model is the
+trusted step. The theorems at the end of this module state, under those assumptions, what the code
+of `RegulaCore.Filesystem` does when it runs at the observer. Other code of Regula still calls these
+operations of Lean's library directly, and no check finds those calls yet.
 
 Each operation is `@[noinline]`, so its call of the library's operation stays in its own compiled
 code and is not copied into a caller's. On Windows, Lean 4.34.1's
@@ -64,57 +64,63 @@ def observer : Ops IO where
 
 /-! ## The removals at the observer -/
 
+/-- The model of the filesystem that the observer's runs are: its states are the worlds of `IO`,
+its operations are the observer's, and `entry` and `real` give what `lstat(2)` and `realpath(3)`
+report at each world. The observer corresponds to it (`corresponds_ofIO`), so the theorems below
+rest only on the assumptions they name at it. -/
+abbrev observed (entry : Void IO.RealWorld → FilePath → Option IO.FS.FileType)
+    (real : Void IO.RealWorld → FilePath → Option FilePath) : Model :=
+  Model.ofIO observer entry real
+
 section Observer
 
-variable {M : Model} {view : Void IO.RealWorld → M.World}
+variable {entry : Void IO.RealWorld → FilePath → Option IO.FS.FileType}
+  {real : Void IO.RealWorld → FilePath → Option FilePath}
 
-/-- **Checked, at the observer:** when `removeDirectory observer` succeeds, nothing is at the path,
-when the observer corresponds to a model that satisfies `ReadsEntry`. -/
-theorem observer_removeDirectory_gone (corresponds : Corresponds observer M view)
-    (reads : ReadsEntry M) (path : FilePath) (w : Void IO.RealWorld) :
-    RunsTo view (removeDirectory observer path w) (fun _ s => M.entry s path = none)
+/-- **Checked, at the observer:** when `removeDirectory observer` succeeds from a world, nothing is
+at the path at the world it ends in, when the observer satisfies `ReadsEntry`. -/
+theorem observer_removeDirectory_gone (reads : ReadsEntry (observed entry real)) (path : FilePath)
+    (w : Void IO.RealWorld) :
+    RunsTo id (removeDirectory observer path w) (fun _ s => entry s path = none)
       (fun _ _ => True) :=
-  removeDirectory_gone_io corresponds reads path w
+  removeDirectory_gone_io (corresponds_ofIO observer entry real) reads path w
 
-/-- **Checked, at the observer:** when `removeEntry observer` succeeds, nothing is at the path,
-when the observer corresponds to a model that satisfies `ReadsEntry`. -/
-theorem observer_removeEntry_gone (corresponds : Corresponds observer M view)
-    (reads : ReadsEntry M) (path : FilePath) (w : Void IO.RealWorld) :
-    RunsTo view (removeEntry observer path w) (fun _ s => M.entry s path = none)
-      (fun _ _ => True) :=
-  removeEntry_gone_io corresponds reads path w
+/-- **Checked, at the observer:** when `removeEntry observer` succeeds from a world, nothing is at
+the path at the world it ends in, when the observer satisfies `ReadsEntry`. -/
+theorem observer_removeEntry_gone (reads : ReadsEntry (observed entry real)) (path : FilePath)
+    (w : Void IO.RealWorld) :
+    RunsTo id (removeEntry observer path w) (fun _ s => entry s path = none) (fun _ _ => True) :=
+  removeEntry_gone_io (corresponds_ofIO observer entry real) reads path w
 
 /-- `removeDirectory observer` of a directory at its own place removes it and keeps the type of
-each entry outside it, and when it fails it kept them, when the observer corresponds to a model
-that satisfies `ReadsEntry` and `RemovesTree`. -/
-theorem observer_removeDirectory (corresponds : Corresponds observer M view)
-    (reads : ReadsEntry M) (removes : RemovesTree M) (path : FilePath) (w : Void IO.RealWorld)
-    (directory : M.entry (view w) path = some .dir) (own : M.real (view w) path = some path) :
-    RunsTo view (removeDirectory observer path w)
-      (fun _ s => M.entry s path = none ∧ M.Unchanged path (view w) s)
-      (fun _ s => M.Unchanged path (view w) s) :=
-  removeDirectory_io corresponds reads removes path w directory own
+each entry outside it, and when it fails it kept them, when the observer satisfies `ReadsEntry` and
+`RemovesTree`. -/
+theorem observer_removeDirectory (reads : ReadsEntry (observed entry real))
+    (removes : RemovesTree (observed entry real)) (path : FilePath) (w : Void IO.RealWorld)
+    (directory : entry w path = some .dir) (own : real w path = some path) :
+    RunsTo id (removeDirectory observer path w)
+      (fun _ s => entry s path = none ∧ (observed entry real).Unchanged path w s)
+      (fun _ s => (observed entry real).Unchanged path w s) :=
+  removeDirectory_io (corresponds_ofIO observer entry real) reads removes path w directory own
 
 /-- `removeEntry observer` of a path at its own place removes it and keeps the type of each entry
-outside it, and when it fails it kept them, when the observer corresponds to a model that satisfies
-`ReadsEntry` and `RemovesEntry`. -/
-theorem observer_removeEntry (corresponds : Corresponds observer M view)
-    (reads : ReadsEntry M) (removes : RemovesEntry M) (path : FilePath) (w : Void IO.RealWorld)
-    (own : M.real (view w) path = some path) :
-    RunsTo view (removeEntry observer path w)
-      (fun _ s => M.entry s path = none ∧ M.Unchanged path (view w) s)
-      (fun _ s => M.Unchanged path (view w) s) :=
-  removeEntry_io corresponds reads removes path w own
+outside it, and when it fails it kept them, when the observer satisfies `ReadsEntry` and
+`RemovesEntry`. -/
+theorem observer_removeEntry (reads : ReadsEntry (observed entry real))
+    (removes : RemovesEntry (observed entry real)) (path : FilePath) (w : Void IO.RealWorld)
+    (own : real w path = some path) :
+    RunsTo id (removeEntry observer path w)
+      (fun _ s => entry s path = none ∧ (observed entry real).Unchanged path w s)
+      (fun _ s => (observed entry real).Unchanged path w s) :=
+  removeEntry_io (corresponds_ofIO observer entry real) reads removes path w own
 
-/-- `atOwnPlace observer` never fails, ends in a world read as the same state, and gives `true`
-exactly when the real path of the path is the path, when the observer corresponds to a model that
-satisfies `ReadsReal`. -/
-theorem observer_atOwnPlace (corresponds : Corresponds observer M view) (reads : ReadsReal M)
-    (path : FilePath) (w : Void IO.RealWorld) :
-    RunsTo view (atOwnPlace observer path w)
-      (fun same s => s = view w ∧ (same = true ↔ M.real (view w) path = some path))
-      (fun _ _ => False) :=
-  atOwnPlace_io corresponds reads path w
+/-- `atOwnPlace observer` never fails, ends in the world it starts from, and gives `true` exactly
+when the real path of the path is the path, when the observer satisfies `ReadsReal`. -/
+theorem observer_atOwnPlace (reads : ReadsReal (observed entry real)) (path : FilePath)
+    (w : Void IO.RealWorld) :
+    RunsTo id (atOwnPlace observer path w)
+      (fun same s => s = w ∧ (same = true ↔ real w path = some path)) (fun _ _ => False) :=
+  atOwnPlace_io (corresponds_ofIO observer entry real) reads path w
 
 end Observer
 

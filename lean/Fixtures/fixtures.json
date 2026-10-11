@@ -900,6 +900,12 @@
    ],
    "Fixtures.RestsOnAssumption.checked_reads": [
     "checked=[\"Fixtures.RestsOnAssumption.checkedStep\"]"
+   ],
+   "Fixtures.RestsOnAssumption.twice_steady": [
+    "assumptions=[\"Fixtures.RestsOnAssumption.Steady\"]"
+   ],
+   "Fixtures.RestsOnAssumption.step_bounded": [
+    "assumptions=[\"Fixtures.RestsOnAssumption.Bounded\"]"
    ]
   }
  },

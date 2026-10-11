@@ -1,6 +1,7 @@
 module
 
 public import Lean.Attributes
+public import Lean.Meta.Basic
 public import Lean.ResolveName
 public import RegulaPolicy.External
 
@@ -28,10 +29,10 @@ Lake, or one whose reference names a place of the Lean 4 repository or of Lean's
 refused (`RegulaPolicy.External.Source.unpinned`), so a fact about Lean or Lake carries its release.
 
 Each attribute is checked where it is written: an assumption is a definition or an inductive type
-whose type ends in `Prop`; a checked operation is a definition, and its contract a theorem; an
-observer is a definition or an opaque constant. A role is given in the module that declares the
-constant, and once. Each constant is declared by one module, so no import can carry a second role
-for it, and `roles` meets each constant at most once.
+whose type ends in `Prop`, read with Lean's reduction; a checked operation is a definition, and its
+contract a theorem; an observer is a definition or an opaque constant. A role is given in the
+module that declares the constant, and once. Each constant is declared by one module, so no import
+can carry a second role for it, and `roles` meets each constant at most once.
 
 A `module` imports this module with `meta import Regula.Assumption`, as it imports
 `Regula.Decision`; the extension is an ordinary definition, so the checker reads the roles through
@@ -91,11 +92,13 @@ syntax (name := regula_checked) "regula_checked " ident ppSpace ident (ppSpace r
 /-- `@[regula_observer <system>]`: IO code that supplies the real system. -/
 syntax (name := regula_observer) "regula_observer " ident : attr
 
-/-- The system an identifier names. -/
+/-- The system an identifier names. The name is read without its macro scopes, so a system that a
+macro writes in its expansion names that system. -/
 private def system (stx : Syntax) : CoreM System := do
-  match System.parse? stx.getId.toString with
+  let name := stx.getId.eraseMacroScopes
+  match System.parse? name.toString with
   | some system => return system
-  | none => throwErrorAt stx "unknown external system `{stx.getId}`; the systems are \
+  | none => throwErrorAt stx "unknown external system `{name}`; the systems are \
       {String.intercalate ", " (System.all.map System.spelling)}"
 
 /-- The source a `regula_source` node writes. -/
@@ -126,11 +129,14 @@ private def source (stx : Syntax) : CoreM Source := do
   | _ => throwErrorAt stx "expected `(lean \"<tag>\" \"<file>#L<line>\")`, \
       `(document <system> \"<reference>\")` or `(trusted \"<reason>\")`"
 
-/-- Whether an expression is a type whose last codomain is `Prop`. -/
-private def endsInProp : Expr → Bool
-  | .forallE _ _ body _ => endsInProp body
-  | .sort .zero => true
-  | _ => false
+/-- Whether a type ends in `Prop`, read with Lean's reduction: after the binders that
+`forallTelescopeReducing` exposes, its codomain reduces (`whnf`) to `Sort 0`. So a type written
+with an alias of `Prop`, or of a function type that ends in `Prop`, ends in `Prop`. -/
+private def endsInProp (type : Expr) : MetaM Bool :=
+  Meta.forallTelescopeReducing type fun _ codomain => do
+    match ← Meta.whnf codomain with
+    | .sort level => return level.normalize.isZero
+    | _ => return false
 
 /-- The role an attribute's syntax writes for `declaration`, checked against the declaration. -/
 private def role (declaration : Name) (stx : Syntax) : CoreM Role := do
@@ -138,7 +144,7 @@ private def role (declaration : Name) (stx : Syntax) : CoreM Role := do
   let shown := privateToUserName declaration
   match stx.getKind with
   | ``regula_assumption =>
-    unless (info matches .defnInfo _ | .inductInfo _) && endsInProp info.type do
+    unless (info matches .defnInfo _ | .inductInfo _) && (← (endsInProp info.type).run') do
       throwError "`{shown}` is not a predicate: an assumption is a definition or an inductive \
         type whose type ends in `Prop`, so that a theorem can take it as a hypothesis"
     return .assumption (← system stx[1]) (← stx[2].getArgs.toList.mapM source)

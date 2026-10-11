@@ -2088,9 +2088,10 @@ unsafe def validate (env : Environment) (ownedModules : Array Name) (reused : Ar
           let omitted := reached.filter fun a => !lean.contains a
           unless omitted.isEmpty do
             omissions := omissions.insert root omitted
-        -- The assumptions and checked operations each owned declaration rests on, read from its
-        -- statement in the same kernel (`RegulaPolicy.Assumptions.table_some`). With no role in
-        -- the environment, no declaration rests on one, so there is nothing to search.
+        -- The assumptions and checked operations each owned declaration rests on, read from the
+        -- types and values it reaches, proofs included, in the same kernel
+        -- (`RegulaPolicy.Assumptions.table_some`). With no role in the environment, no declaration
+        -- rests on one, so there is nothing to search.
         let roles : Std.HashMap Name RegulaPolicy.External.Role :=
           (Regula.Assumption.roles env).foldl (init := {}) fun roles (n, role) =>
             roles.insert n role
