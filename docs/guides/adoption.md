@@ -659,9 +659,10 @@ boundaries reported on their own, as the text does: a `partial` implementation (
 `partial` definition safety, such as a `partial def`'s `_unsafe_rec` helper) is counted with the
 trusted boundary that names it as the code run in its place where the two have the same owner,
 the toolchain or not, and a later record of one trusted boundary of a root with the first, while
-a root's account above keeps every boundary record. In the same way, `scope.toolchainBase` gives
-a toolchain `partial def` and its `_unsafe_rec` helper one entry. The `implementations` member of
-that entry, new in schema 18, names the helper.
+a root's account above keeps every boundary record. `scope.toolchainBase` likewise gives a
+toolchain `partial def` and its `_unsafe_rec` helper one entry when each root that reaches the
+helper carries it. The `implementations` member of that entry, new in schema 18, names the
+helper.
 
 Every Lean name in the document, in `diagnostics`, `scope` and `acceptance` alike, is written one
 way: as the text Lean prints for it (`Name.toString`, which escapes a component with `«»` where it
