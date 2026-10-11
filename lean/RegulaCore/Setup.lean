@@ -224,8 +224,11 @@ structure Observation where
   unimported : List (String × List String × List String)
   /-- The root package's only `lean_lib` with its only root, when the package has exactly one
   library, the library exactly one root, Lake reports its globs as that root alone (Lake's
-  default), and its configuration file declares it at the top level, with no `globs` field and
-  nothing conditional; `none` otherwise. -/
+  default), and its configuration file gives the place where `init` writes its glob: the walk of
+  the file that writes the edit finds the library declared at the top level, as a `[[lean_lib]]`
+  table or a `lean_lib` command, with no `globs` field and nothing conditional. That place is a
+  fact of the observation, so a library written as an inline table is `none`; `none` otherwise.
+  -/
   sole : Option (String × String)
   /-- Each module the glob of `sole` would add, those Lake's glob of the submodules of its root
   finds in the library's source directory, with the canonical path (`IO.FS.realPath`) of the file

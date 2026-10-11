@@ -3676,7 +3676,8 @@ arguments the package and each claimed target already give are kept. An edit add
 piece and has no form that replaces a lint driver, an option value or a library's `globs`.
 `init` writes a glob in one case only, `Observation.globCase`, and `plan_globs_mem` proves it.
 The package has one `lean_lib` with one root, declared at the top level with no `globs`. It is a
-`[[lean_lib]]` table, or a `lean_lib` declaration with a `where` block or no fields. `doctor`
+`[[lean_lib]]` table, or a `lean_lib` declaration with a `where` block or no fields, not an inline
+table. `doctor`
 reports a module of the claimed modules' import closure below that root, which neither the library
 nor an executable root includes. Each module that the glob adds is in that closure, the claimed
 roots included, with the same canonical source file. The glob also adds each module that `doctor`
@@ -3709,7 +3710,8 @@ the manifest does not exclude) reaches it by import through the package's module
 audit rejects as outside every library; any other such module is a `note` that does not count
 toward `doctor`'s exit status. That reachability is read from the sources' import headers, not
 from a build. For the glob case, Lake's own glob gives the modules that the glob adds.
-`soleDeclared` reads the declaration as Lake's TOML loader or Lean's parser reads it. Each such
+`soleDeclared` finds the place of the glob with the walk of the lakefile that writes it. A library
+written as an inline table has no such place. Each such
 finding states how many modules the library leaves out and names at most
 `shownModules` of them, wrapped (`moduleLines`, which prints `moduleSummary`'s names grouped by
 `wrapFrom`): `moduleSummary_complete` proves those names are a prefix of the modules and the
