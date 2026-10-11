@@ -16,7 +16,12 @@ The `lint` driver reads the observation back with the audit's exit code and clas
 (`classify`): exit 0 requires an accepted run of the requested project mode
 (`accepted_sound`), and for the audit's own recorded result the driver reports the exit code the
 audit returned (`classify_gateExitCode`). The observation's authenticity, that it is this
-invocation's audit rather than another's, is the driver's binding, checked by inspection. -/
+invocation's audit rather than another's, is the driver's binding, checked by inspection.
+
+The driver's arguments (`parseArgs`) begin with the package's `lintDriverArgs`, which Lake
+prepends. `configuredRefusal` admits those only when they give no option outside
+`Options.packageConfigurable`, and then the project, manifest and result destination come from
+the `lake lint` command line alone (`configuredRefusal_eq_none`). -/
 
 namespace Regula.Checker.Lint
 
@@ -433,5 +438,245 @@ theorem dispatchedFrom_iff {workspace dispatching inherited : List String} {lake
         rw [ih h.2 hw.2 hp]
   · rintro rfl
     simp [h, List.isPrefixOf_iff_prefix]
+
+/-- The command-line options of one `lake lint` run of this driver, as `parseArgs` reads them. -/
+structure Options where
+  /-- `--project DIR`: the project to audit instead of the current one. -/
+  project : Option String := none
+  /-- `--manifest PATH`: the surface manifest instead of `foundation_manifest.json`. -/
+  manifest : Option String := none
+  /-- `--json-out PATH`: where the audit writes its versioned result JSON. -/
+  jsonOut : Option String := none
+  /-- `--fresh`: audit an isolated copy built from empty output instead of incrementally. -/
+  fresh : Bool := false
+  /-- `--verbose`: pass `--verbose` to the audit, which then also prints every classified
+  declaration, the execution roots and toolchain trusted-base entries it lists on request, and
+  its timing spans. -/
+  verbose : Bool := false
+  /-- `--ordinary-lakefiles`: the workspace owner asserts that the workspace's lakefiles are
+  ordinary configuration. The claimed build then omits the audit-build marker when the plain-shape
+  guard `Lake.auditMarkerNeeded` admits the workspace, and prints whether it omits the marker or
+  keeps it and why (`Lake.buildAuditTargets`); without it the build always has the marker. -/
+  ordinaryLakefiles : Bool := false
+  /-- `--explain-config`: print the configuration an audit would use, run no audit and exit
+  with the configuration class. -/
+  explain : Bool := false
+  /-- `--help` or `-h`: print the usage text, run no audit and exit with the configuration
+  class. -/
+  help : Bool := false
+  deriving DecidableEq
+
+/-- Set an option that takes a value; a second occurrence is refused. -/
+private def setOnce (flag : String) (current : Option String) (value : String) :
+    Except String (Option String) :=
+  if current.isSome then .error s!"duplicate {flag} option" else .ok (some value)
+
+/-- Set a flag; a second occurrence is refused. -/
+private def setFlag (flag : String) (current : Bool) : Except String Bool :=
+  if current then .error s!"duplicate {flag} option" else .ok true
+
+/-- Unknown, duplicate and incomplete arguments are refused; none narrows the claim. -/
+def parseArgs : List String → Options → Except String Options
+  | [], options => .ok options
+  | "--" :: rest, options => parseArgs rest options
+  | "--project" :: value :: rest, options => do
+      parseArgs rest { options with project := ← setOnce "--project" options.project value }
+  | "--manifest" :: value :: rest, options => do
+      parseArgs rest { options with manifest := ← setOnce "--manifest" options.manifest value }
+  | "--json-out" :: value :: rest, options => do
+      parseArgs rest { options with jsonOut := ← setOnce "--json-out" options.jsonOut value }
+  | "--fresh" :: rest, options => do
+      parseArgs rest { options with fresh := ← setFlag "--fresh" options.fresh }
+  | "--verbose" :: rest, options => do
+      parseArgs rest { options with verbose := ← setFlag "--verbose" options.verbose }
+  | "--ordinary-lakefiles" :: rest, options => do
+      parseArgs rest { options with
+        ordinaryLakefiles := ← setFlag "--ordinary-lakefiles" options.ordinaryLakefiles }
+  | "--explain-config" :: rest, options => do
+      parseArgs rest { options with explain := ← setFlag "--explain-config" options.explain }
+  | "--help" :: rest, options | "-h" :: rest, options =>
+      parseArgs rest { options with help := true }
+  | flag :: _, _ => .error s!"unknown or incomplete argument: {flag}"
+
+/-- The options a package's `lintDriverArgs` may give: the evidence mode, `--verbose`,
+`--explain-config` and `--help`. Every other field has its default here, including a field added
+to `Options` later, so an option is refused in `lintDriverArgs` unless it is added here. -/
+def Options.packageConfigurable (o : Options) : Options :=
+  { fresh := o.fresh, verbose := o.verbose, explain := o.explain, help := o.help }
+
+/-- What a run audits, how it builds and where its result goes: every field but the four of
+`packageConfigurable`, which this resets. -/
+def Options.target (o : Options) : Options :=
+  { o with fresh := false, verbose := false, explain := false, help := false }
+
+/-- The arguments the driver takes from the package's `lintDriverArgs`, which do not need a value
+of their own: `--` and the flags of `packageConfigurable`. -/
+def configurableArguments : List String :=
+  ["--", "--fresh", "--verbose", "--explain-config", "--help", "-h"]
+
+/-- The refusal, if any, of the package's `lintDriverArgs` `configured` for the arguments `args`
+the driver received. Lake v4.34.1 (`Package.lint`) passes `configured ++ caller`, where `caller`
+holds the arguments after `--` on the `lake lint` command line. The configured arguments must
+begin `args`, parse alone, and give only options of `packageConfigurable`
+(`configuredRefusal_eq_none`). -/
+def configuredRefusal (configured args : List String) : Option String :=
+  if !configured.isPrefixOf args then
+    some "the arguments do not begin with the package's lintDriverArgs, so Lake did not \
+      compose them"
+  else match parseArgs configured {} with
+    | .error message => some s!"the package's lintDriverArgs do not parse alone: {message}"
+    | .ok given =>
+      if given = given.packageConfigurable then none
+      else
+        let named := configured.filter fun a => a.startsWith "-" && !configurableArguments.contains a
+        some s!"the package's lintDriverArgs give {" ".intercalate named}: the project, manifest, \
+          result destination and --ordinary-lakefiles come only from the lake lint command \
+          line, and lintDriverArgs cannot give them"
+
+/-- Parsing continues from the options of a prefix that parses alone. -/
+theorem parseArgs_append {l : List String} {o o' : Options} (r : List String)
+    (h : parseArgs l o = .ok o') : parseArgs (l ++ r) o = parseArgs r o' := by
+  induction l, o using parseArgs.induct with
+  | case1 o => simp only [parseArgs, Except.ok.injEq] at h; subst h; rfl
+  | case2 rest o ih => simp only [parseArgs] at h; simpa [parseArgs] using ih h
+  | case3 _ _ _ ih | case4 _ _ _ ih | case5 _ _ _ ih | case6 _ _ ih | case7 _ _ ih
+    | case8 _ _ ih | case9 _ _ ih =>
+    simp only [List.cons_append, parseArgs, bind, Except.bind] at h ⊢
+    split at h
+    · simp at h
+    · exact ih _ h
+  | case10 _ _ ih | case11 _ _ ih =>
+    simp only [List.cons_append, parseArgs] at h ⊢; exact ih h
+  | case12 =>
+    unfold parseArgs at h; split at h <;> simp_all
+
+/-- From two option sets that give the same `target`, where the second sets no flag of
+`packageConfigurable` that the first leaves unset, the same arguments parse to options with the
+same `target`, the second whenever the first does. -/
+theorem parseArgs_target {args : List String} {s t o : Options}
+    (htarget : s.target = t.target)
+    (hfresh : t.fresh = true → s.fresh = true) (hverbose : t.verbose = true → s.verbose = true)
+    (hexplain : t.explain = true → s.explain = true) (h : parseArgs args s = .ok o) :
+    ∃ o₀, parseArgs args t = .ok o₀ ∧ o.target = o₀.target := by
+  induction args, s using parseArgs.induct generalizing t o with
+  | case1 s =>
+    simp only [parseArgs, Except.ok.injEq] at h
+    subst h
+    exact ⟨t, rfl, htarget⟩
+  | case2 rest s ih =>
+    simp only [parseArgs] at h ⊢
+    exact ih htarget hfresh hverbose hexplain h
+  | case3 value rest s ih =>
+    have hp : s.project = t.project := congrArg (·.project) htarget
+    cases hs : s.project with
+    | some _ => simp [parseArgs, bind, Except.bind, setOnce, hs] at h
+    | none =>
+      simp only [parseArgs, bind, Except.bind, setOnce, hs, Option.isSome_none,
+        Bool.false_eq_true, ↓reduceIte] at h
+      simp only [parseArgs, bind, Except.bind, setOnce, ← hp, hs, Option.isSome_none,
+        Bool.false_eq_true, ↓reduceIte]
+      exact ih (some value) (t := { t with project := some value })
+        (by cases s; cases t; simp_all [Options.target]) hfresh hverbose hexplain h
+  | case4 value rest s ih =>
+    have hp : s.manifest = t.manifest := congrArg (·.manifest) htarget
+    cases hs : s.manifest with
+    | some _ => simp [parseArgs, bind, Except.bind, setOnce, hs] at h
+    | none =>
+      simp only [parseArgs, bind, Except.bind, setOnce, hs, Option.isSome_none,
+        Bool.false_eq_true, ↓reduceIte] at h
+      simp only [parseArgs, bind, Except.bind, setOnce, ← hp, hs, Option.isSome_none,
+        Bool.false_eq_true, ↓reduceIte]
+      exact ih (some value) (t := { t with manifest := some value })
+        (by cases s; cases t; simp_all [Options.target]) hfresh hverbose hexplain h
+  | case5 value rest s ih =>
+    have hp : s.jsonOut = t.jsonOut := congrArg (·.jsonOut) htarget
+    cases hs : s.jsonOut with
+    | some _ => simp [parseArgs, bind, Except.bind, setOnce, hs] at h
+    | none =>
+      simp only [parseArgs, bind, Except.bind, setOnce, hs, Option.isSome_none,
+        Bool.false_eq_true, ↓reduceIte] at h
+      simp only [parseArgs, bind, Except.bind, setOnce, ← hp, hs, Option.isSome_none,
+        Bool.false_eq_true, ↓reduceIte]
+      exact ih (some value) (t := { t with jsonOut := some value })
+        (by cases s; cases t; simp_all [Options.target]) hfresh hverbose hexplain h
+  | case6 rest s ih =>
+    cases hs : s.fresh with
+    | true => simp [parseArgs, bind, Except.bind, setFlag, hs] at h
+    | false =>
+      have ht : t.fresh = false := by
+        cases hf : t.fresh
+        · rfl
+        · simp [hfresh hf] at hs
+      simp only [parseArgs, bind, Except.bind, setFlag, hs, Bool.false_eq_true, ↓reduceIte] at h
+      simp only [parseArgs, bind, Except.bind, setFlag, ht, Bool.false_eq_true, ↓reduceIte]
+      exact ih true (t := { t with fresh := true })
+        (by cases s; cases t; simp_all [Options.target]) (fun _ => rfl) hverbose hexplain h
+  | case7 rest s ih =>
+    cases hs : s.verbose with
+    | true => simp [parseArgs, bind, Except.bind, setFlag, hs] at h
+    | false =>
+      have ht : t.verbose = false := by
+        cases hf : t.verbose
+        · rfl
+        · simp [hverbose hf] at hs
+      simp only [parseArgs, bind, Except.bind, setFlag, hs, Bool.false_eq_true, ↓reduceIte] at h
+      simp only [parseArgs, bind, Except.bind, setFlag, ht, Bool.false_eq_true, ↓reduceIte]
+      exact ih true (t := { t with verbose := true })
+        (by cases s; cases t; simp_all [Options.target]) hfresh (fun _ => rfl) hexplain h
+  | case8 rest s ih =>
+    have hp : s.ordinaryLakefiles = t.ordinaryLakefiles :=
+      congrArg (·.ordinaryLakefiles) htarget
+    cases hs : s.ordinaryLakefiles with
+    | true => simp [parseArgs, bind, Except.bind, setFlag, hs] at h
+    | false =>
+      simp only [parseArgs, bind, Except.bind, setFlag, hs, Bool.false_eq_true, ↓reduceIte] at h
+      simp only [parseArgs, bind, Except.bind, setFlag, ← hp, hs, Bool.false_eq_true,
+        ↓reduceIte]
+      exact ih true (t := { t with ordinaryLakefiles := true })
+        (by cases s; cases t; simp_all [Options.target]) hfresh hverbose hexplain h
+  | case9 rest s ih =>
+    cases hs : s.explain with
+    | true => simp [parseArgs, bind, Except.bind, setFlag, hs] at h
+    | false =>
+      have ht : t.explain = false := by
+        cases hf : t.explain
+        · rfl
+        · simp [hexplain hf] at hs
+      simp only [parseArgs, bind, Except.bind, setFlag, hs, Bool.false_eq_true, ↓reduceIte] at h
+      simp only [parseArgs, bind, Except.bind, setFlag, ht, Bool.false_eq_true, ↓reduceIte]
+      exact ih true (t := { t with explain := true })
+        (by cases s; cases t; simp_all [Options.target]) hfresh hverbose (fun _ => rfl) h
+  | case10 rest s ih | case11 rest s ih =>
+    simp only [parseArgs] at h ⊢
+    exact ih (t := { t with help := true })
+      (by cases s; cases t; simp_all [Options.target]) hfresh hverbose hexplain h
+  | case12 =>
+    unfold parseArgs at h
+    split at h <;> simp_all
+
+/-- When `configuredRefusal` admits the package's `lintDriverArgs` `configured`, and the arguments
+Lake composes from them and the command line's `caller` (`configured ++ caller`) parse, then
+`caller` alone parses too, and to the same `Options.target`: the project, the manifest, the
+`--json-out` destination, `--ordinary-lakefiles` and every option outside `packageConfigurable`
+come from the command line alone. That the driver receives `configured ++ caller` is Lake's
+composition, read from its source, not proved here. -/
+theorem configuredRefusal_eq_none {configured caller : List String} {o : Options}
+    (h : configuredRefusal configured (configured ++ caller) = none)
+    (hparse : parseArgs (configured ++ caller) {} = .ok o) :
+    ∃ o₀, parseArgs caller {} = .ok o₀ ∧ o.target = o₀.target := by
+  have hprefix : configured.isPrefixOf (configured ++ caller) = true :=
+    List.isPrefixOf_iff_prefix.mpr (List.prefix_append _ _)
+  simp only [configuredRefusal, hprefix, Bool.not_true, Bool.false_eq_true, ↓reduceIte] at h
+  split at h
+  · simp at h
+  · rename_i given hgiven
+    split at h
+    · rename_i hconfigurable
+      rw [parseArgs_append caller hgiven] at hparse
+      refine parseArgs_target ?_ (fun h => by simp at h) (fun h => by simp at h)
+        (fun h => by simp at h) hparse
+      rw [hconfigurable]
+      rfl
+    · simp at h
 
 end Regula.Checker.Lint

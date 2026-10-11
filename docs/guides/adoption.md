@@ -431,6 +431,12 @@ Lake details that affect what ran:
 
 - Arguments for the driver follow `--`; Lake prepends `lintDriverArgs`. Positional module
   arguments before `--` affect only Lake's builtin linters.
+- `lintDriverArgs` may give only `--fresh`, `--verbose`, `--help` and `--explain-config`. The
+  driver refuses any other option there with exit 2, so the project, the manifest and
+  `--json-out` come from your command line. A relative `--json-out` path is in the project where
+  you run `lake lint`, also with `--project`.
+- The success line names the project and manifest that the audit checked. The JSON report
+  records them as `scope.project` and `scope.manifestPath`.
 - `lake lint --builtin-only` skips the driver and is **not** Regula enforcement: it exits 0 with
   a Regula violation present. `lake lint --builtin-lint` runs the builtin linters and then the
   driver, and a failing driver determines the exit code; builtin linting needs module arguments

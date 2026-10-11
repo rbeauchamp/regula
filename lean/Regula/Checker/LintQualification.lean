@@ -133,9 +133,11 @@ target the workspace has the plain shape: without the owner's `--ordinary-lakefi
 keeps the audit-build marker and prints no decision, so an ordinary build after it rebuilds; with
 it the driver prints that it omits the marker, and an ordinary `lake build` and the driver reuse
 each other's build output. The banner names the option and the result records it as
-`scope.ordinaryLakefiles`; a `lintDriverArgs` entry that gives it is refused. Decision probes of
-the guard (`probe`), each with one change to the plain shape and the reason that decides: an
-`input_file` in `needs` keeps the plain shape, and each of these keeps the marker: a custom target,
+`scope.ordinaryLakefiles`; the success line and the result (`scope.project`,
+`scope.manifestPath`) name the audited project and manifest; and a `lintDriverArgs` entry that
+gives the option, or `--project`, is refused. Decision probes of the guard (`probe`), each with
+one change to the plain shape and the reason that decides: an `input_file` in `needs` keeps the
+plain shape, and each of these keeps the marker: a custom target,
 a library in `needs`, Lake's `ilean` facet declared again with Lake's own configuration, a
 library field outside the plain shape's list (`libName`), a `nativeFacets` that is not Lake's
 whole default term, a lakefile declaration beside Lake's configuration declarations, and a theorem
@@ -209,23 +211,42 @@ private def leanAdopter (probes : Std.Mutex Unit) (repo adopter : FilePath) :
   failures := failures ++ (← expect adopter { positive with
     label := "lean/plain-reused-again", excludes := positive.excludes.push "] Built" } optIn)
   -- The banner names the owner's assertion, and the result records it as
-  -- `scope.ordinaryLakefiles`.
+  -- `scope.ordinaryLakefiles`. The success line and the result name the audited project and
+  -- manifest.
+  let project ← IO.FS.realPath adopter
+  let projectManifest := project / "foundation_manifest.json"
   failures := failures ++ (← expect adopter { positive with
       label := "lean/opt-in-reported"
-      contains := positive.contains.push "the workspace owner asserts ordinary lakefiles" }
+      contains := positive.contains ++ #["the workspace owner asserts ordinary lakefiles",
+        s!"— project {project}, manifest {projectManifest}"] }
     (optIn ++ #["--json-out", "opt-in.json"]))
-  let recorded := ((← readJson (adopter / "opt-in.json")).getObjValD "scope").getObjValD
-    "ordinaryLakefiles"
+  let scope := (← readJson (adopter / "opt-in.json")).getObjValD "scope"
+  let recorded := scope.getObjValD "ordinaryLakefiles"
   unless JsonAgreement.conforms recorded (toJson true) do
     failures := failures.push s!"lake-lint/lean/opt-in-reported: scope.ordinaryLakefiles is \
       {recorded.compress}"
+  unless JsonAgreement.conforms (scope.getObjValD "project") (toJson project.toString) &&
+      JsonAgreement.conforms (scope.getObjValD "manifestPath")
+        (toJson projectManifest.toString) do
+    failures := failures.push s!"lake-lint/lean/opt-in-reported: scope.project is \
+      {(scope.getObjValD "project").compress} and scope.manifestPath is \
+      {(scope.getObjValD "manifestPath").compress}"
   IO.FS.removeFile (adopter / "opt-in.json")
-  -- A package's `lintDriverArgs` cannot give the owner's assertion: the driver refuses it.
+  -- A package's `lintDriverArgs` cannot give the owner's assertion, or name another project to
+  -- audit (#292): the driver refuses each.
   IO.FS.writeFile lakefile (plain.replace "lintDriver := \"regula/lint\""
     "lintDriver := \"regula/lint\"\n  lintDriverArgs := #[\"--ordinary-lakefiles\"]")
   failures := failures ++ (← expect adopter {
       label := "lean/opt-in-configured-refused", exitCode := 2,
-      contains := #["lintDriverArgs cannot give it", "regula lint: INVALID CONFIGURATION"],
+      contains := #["the package's lintDriverArgs give --ordinary-lakefiles",
+        "regula lint: INVALID CONFIGURATION"],
+      excludes := #[s!"regula lint: {acceptanceLabel}"] })
+  IO.FS.writeFile lakefile (plain.replace "lintDriver := \"regula/lint\""
+    "lintDriver := \"regula/lint\"\n  lintDriverArgs := #[\"--project\", \"vendor/clean\"]")
+  failures := failures ++ (← expect adopter {
+      label := "lean/project-configured-refused", exitCode := 2,
+      contains := #["the package's lintDriverArgs give --project",
+        "regula lint: INVALID CONFIGURATION"],
       excludes := #[s!"regula lint: {acceptanceLabel}"] })
   -- An `input_file` in `needs` keeps the plain shape.
   let notes := adopter / "notes.txt"

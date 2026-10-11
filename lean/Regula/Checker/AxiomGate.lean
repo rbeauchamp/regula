@@ -145,6 +145,12 @@ the one the result output renders, its tally the summary counts, and its exit co
 (`Lint.classify`). -/
 initialize terminalObservation : IO.Ref (Option Lint.Observation) ← IO.mkRef none
 
+/-- The project root and manifest path the current invocation audits, set when its options are
+admitted (`none` until then): the root of `--project` or of the working directory, and
+`--manifest` resolved against that root or the root's `foundation_manifest.json`. A fresh audit
+reads the manifest from its isolated copy of that root. `lint` names them in its success line. -/
+initialize auditedTarget : IO.Ref (Option (FilePath × FilePath)) ← IO.mkRef none
+
 /-- The stages the current invocation performs, set when its options are admitted; until then
 every stage, so no result claims a stage it never started. -/
 initialize expectedStages : IO.Ref (List ResultProtocol.Stage) ← IO.mkRef ResultProtocol.allStages
@@ -1079,6 +1085,7 @@ private unsafe def auditSurfaceAt (repo manifestPath : FilePath)
           library.setObjVal! "executables" (Json.arr executables)
         let resultScope := Json.mkObj
             [("project", toJson reportRoot.toString), ("manifest", manifestJson manifest),
+            ("manifestPath", toJson ((← auditedTarget.get).map (·.2.toString))),
             ("modules", toJson ownedModuleNames),
             ("declarations", toJson totalDeclarations),
             ("sources", toJson sources), ("surfaces", toJson surfaceEntries),
@@ -1518,8 +1525,11 @@ def Destination.flag : Destination → String
 
 /-- Before any argument validation, mark every recognisable destination of the `kinds` the calling
 interface accepts incomplete, so an earlier completed result cannot be mistaken for this
-attempt's. A destination of another kind is left untouched: that interface refuses its option. -/
-def invalidateResults (kinds : List Destination) (args : List String) : IO Unit := do
+attempt's. A destination of another kind is left untouched: that interface refuses its option.
+A relative destination is resolved against `root` when the caller gives it, and otherwise against
+the root of `--project` or of the working directory, as `run` resolves it. -/
+def invalidateResults (kinds : List Destination) (args : List String)
+    (root : Option (IO FilePath) := none) : IO Unit := do
   let destinations := kinds.flatMap fun kind =>
     (optionValues kind.flag args).eraseDups.map fun path =>
       (FilePath.mk path, kind == .acceptanceLink)
@@ -1535,10 +1545,11 @@ def invalidateResults (kinds : List Destination) (args : List String) : IO Unit 
   for (path, link) in destinations.filter (·.1.isAbsolute) do invalidate path link
   let relative := destinations.filter (!·.1.isAbsolute)
   if !relative.isEmpty then
-    let root ← match optionValues "--project" args with
-      | [dir] => findRepoRoot dir
-      | [] => repoRoot
-      | _ => throw <| IO.userError "duplicate --project option"
+    let root ← match root, optionValues "--project" args with
+      | some root, _ => root
+      | none, [dir] => findRepoRoot dir
+      | none, [] => repoRoot
+      | none, _ => throw <| IO.userError "duplicate --project option"
     for (path, link) in relative do invalidate (resolve root path) link
 
 /-- The options of an audit invocation: parsed, without a duplicated option, and in a
@@ -1590,6 +1601,7 @@ configuration, 3 incomplete; an invalid invocation returns 2, and `--help` and t
 0 when they succeed. -/
 unsafe def run (args : List String) : IO UInt32 := do
   terminalObservation.set none
+  auditedTarget.set none
   RunFeedback.reset
   expectedStages.set ResultProtocol.allStages
   -- An invalid invocation is refused as one, though its destinations could not be invalidated.
@@ -1686,6 +1698,8 @@ unsafe def run (args : List String) : IO UInt32 := do
     | some dir => findRepoRoot dir
     | none => repoRoot
   let resultOut := options.resultOut.map (resolve repo)
+  let manifestPath := (options.manifest.map (resolve repo)).getD (Manifest.defaultPath repo)
+  auditedTarget.set (some (repo, manifestPath))
   let acceptanceLink := options.acceptanceLink.map (resolve repo)
   if let some path := acceptanceLink then AcceptanceLink.invalidate path
   let mode : Regula.EvidenceMode := if options.file.isSome then .freshFile
@@ -1743,8 +1757,7 @@ unsafe def run (args : List String) : IO UInt32 := do
     catch error => return (← reportFailure error, none)
   -- A configuration-read failure still records the request, with no configuration read.
   let (configuration, readFailure) ← try
-      pure (← SourceBinding.configuration repo
-        ((options.manifest.map (resolve repo)).getD (Manifest.defaultPath repo)), none)
+      pure (← SourceBinding.configuration repo manifestPath, none)
     catch error => pure (#[], some error)
   let request := ResultProtocol.requestJson
       (if options.file.isSome then "file" else if options.withDocs then "projectWithDocs" else
