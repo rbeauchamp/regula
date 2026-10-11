@@ -86,7 +86,7 @@ inductive BoundaryKind where
   /-- A `@[csimp]`-shaped constant-equality lemma may let the compiler replace this constant
   with another. -/
   | «compilerSimplification»
-  /-- An `@[extern]` constant of a toolchain module (`Init`, `Std` or `Lean`) whose origin was
+  /-- An `@[extern]` constant of a toolchain module (`Init`, `Std`, `Lean` or `Lake`) whose origin was
   admitted, implemented by the toolchain's own native code. -/
   | «nativeRuntime»
   /-- Any other `@[extern]` constant, implemented outside Lean. -/
@@ -1749,10 +1749,17 @@ def Declaration.Assessed.neutral (d : Declaration.Assessed) : Declaration.Assess
 @[simp] theorem Declaration.Assessed.neutral_toInspected (d : Declaration.Assessed) :
     d.neutral.toInspected = d.toInspected := rfl
 
-/-- The roots of the library packages the Lean toolchain ships as its own code: `Init`, `Std`
-and `Lean`. A module under one of them is toolchain code only with an admitted origin
-(`ToolchainOrigin`); the name alone never makes it so. -/
-def ToolchainRoot (root : Lean.Name) : Prop := root = `Init ∨ root = `Std ∨ root = `Lean
+/-- The roots of the library packages the Lean toolchain ships as its own code: `Init`, `Std`,
+`Lean` and `Lake`. A module under one of them is toolchain code only with an admitted origin
+(`ToolchainOrigin`); the name alone never makes it so.
+
+Assumes: the Lean 4.34.1 release installs the compiled modules of these four packages in its
+library directory `lib/lean`, beside only the root modules of its executables (`LakeMain`,
+`LeanChecker`, `LeanIR` and `Leanc`), as a listing of that directory shows (Lake's sources are
+`src/lake/Lake` of the release), so a module whose loaded `.olean` is its own file there is the
+toolchain's. -/
+def ToolchainRoot (root : Lean.Name) : Prop :=
+  root = `Init ∨ root = `Std ∨ root = `Lean ∨ root = `Lake
 
 instance : DecidablePred ToolchainRoot := fun _ => by unfold ToolchainRoot; infer_instance
 
@@ -1768,7 +1775,7 @@ structure ToolchainOrigin where
   actual : String
   /-- The canonical path of that module's `.olean` in the toolchain's library directory. -/
   expected : String
-  /-- The module is under `Init`, `Std` or `Lean`. -/
+  /-- The module is under `Init`, `Std`, `Lean` or `Lake`. -/
   toolchainModule : ToolchainRoot moduleName.getRoot
   /-- The resolved path is not empty. -/
   nonempty : actual ≠ ""
@@ -1776,7 +1783,7 @@ structure ToolchainOrigin where
   agrees : actual = expected
   deriving Repr, DecidableEq
 
-/-- Admit an origin observation: an error unless the module is under `Init`, `Std` or `Lean`
+/-- Admit an origin observation: an error unless the module is under `Init`, `Std`, `Lean` or `Lake`
 and `actual` is nonempty and equal to `expected` (`toolchainOrigin_roundtrip`). -/
 @[regula_decision]
 def admitToolchainOrigin (moduleName : Lean.Name) (actual expected : String) :
@@ -1786,7 +1793,7 @@ def admitToolchainOrigin (moduleName : Lean.Name) (actual expected : String) :
       if he : actual = expected then .ok ⟨moduleName, actual, expected, hm, hn, he⟩
       else .error "toolchain origin mismatch"
     else .error "empty toolchain origin"
-  else .error "toolchain module is not under Init, Std or Lean"
+  else .error "toolchain module is not under Init, Std, Lean or Lake"
 
 /-- Checked replacement equality and an admitted opaque body have different meanings. -/
 inductive CheckedEvidence : BoundaryKind → Type where

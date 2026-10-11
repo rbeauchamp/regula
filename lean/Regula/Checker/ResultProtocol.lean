@@ -124,7 +124,7 @@ names its own module. Other declaration findings carry no attribution: a documen
 example's, a material-documentation one and the editor linter's record `null` and their
 declaration's own location (`Findings.declarationLocation`).
 Schema 5 attributes the toolchain's own boundaries to it: a boundary a toolchain
-module (`Init`, `Std` or `Lean`, loaded from the toolchain's library) owns carries its
+module (`Init`, `Std`, `Lean` or `Lake`, loaded from the toolchain's library) owns carries its
 `toolchainOrigin` (formerly `nativeOrigin`, which only native-runtime boundaries carried), and
 each `axiomGate` project and file result's `scope.toolchainBase` lists every such boundary once
 for the whole audit, with the environments and roots that reach it (until schema 18 named a

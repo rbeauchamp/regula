@@ -1596,7 +1596,7 @@ def guide : RuleId → Guide
           error before it recorded the kernel's answer, is unresolved.",
         "Replacement history is reconstructed by fresh re-elaboration; metaprogramming commands \
           such as `run_cmd`, `run_elab` or module-local elaborators make it unavailable.",
-        "A path through the Lean toolchain's own origin-checked `Init`, `Std` or `Lean` modules \
+        "A path through the Lean toolchain's own origin-checked `Init`, `Std`, `Lean` or `Lake` modules \
           does not need that history: a toolchain replacement is followed through the current \
           target its compiled module records, as part of the toolchain's trusted base, so no \
           toolchain replacement is reported as unresolved for missing history."]
@@ -1651,7 +1651,7 @@ def guide : RuleId → Guide
           computation can: a `csimp` simplification or a compiler-trusting proof axiom never \
           does, even on a constant declared in `Init`.",
         "The toolchain owns a replacement, `extern`, or unsafe or partial computation declared in \
-          one of its own `Init`, `Std` or `Lean` modules, decided by where Lean loaded that module \
+          one of its own `Init`, `Std`, `Lean` or `Lake` modules, decided by where Lean loaded that module \
           from (the pinned toolchain's library, an observation of the probe), not by its name. \
           Such a boundary is the toolchain's trusted base: it passes and is reported for the whole \
           audit in the audit's toolchain trusted base, as one entry with every environment and \

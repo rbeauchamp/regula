@@ -983,5 +983,25 @@
   "expect": "fail",
   "reason": "kernel-admission",
   "claim": "kernel-only"
+ },
+ "Fixtures.Mutations.UnsafeEntryPoint": {
+  "expect": "fail",
+  "claim": "standard-logical",
+  "execution": "checked",
+  "reasons": [
+   "escape-hatch",
+   "execution-trusted-boundary"
+  ],
+  "output": [
+   "main reaches main (unsafe-computation)"
+  ]
+ },
+ "Fixtures.Positive.LakeBoundary": {
+  "expect": "pass",
+  "claim": "standard-logical",
+  "execution": "checked",
+  "output": [
+   "Lake.removeDirAllIfExists"
+  ]
  }
 }
