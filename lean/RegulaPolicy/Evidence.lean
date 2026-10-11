@@ -368,7 +368,7 @@ inductive Binding where
   | strictImplicit
   /-- An instance-implicit binder. -/
   | instImplicit
-  deriving Repr, DecidableEq, Inhabited
+  deriving Repr, DecidableEq, Hashable, Inhabited
 
 /-- A subterm of a `Term`, as one entry of its table of subterms: each argument that is a subterm
 is the position of an earlier entry of the same table, and each argument that is a level is a
@@ -400,7 +400,7 @@ inductive TermNode where
   | strLit (value : String)
   /-- A projection of a structure value. -/
   | proj (typeName : Lean.Name) (index : Nat) (value : Nat)
-  deriving Repr, DecidableEq, Inhabited
+  deriving Repr, DecidableEq, Hashable, Inhabited
 
 /-- An elaborated Lean term, node by node: the table of its universe levels and the table of its
 subterms, in which each subterm comes after the subterms it contains and the last entry is the

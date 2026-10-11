@@ -2472,13 +2472,16 @@ private def uncurriedCore : Expr → Nat × Expr
   | decided => (0, decided.eta)
 
 /-- The tables that `termPosition` fills: the levels and the subterms it has recorded, and the
-position of each. Subterms are keyed by Lean's `ExprStructEq`, which compares by `Expr.equal`, so
-binder names and annotations count, unlike Lean's `BEq Expr`, which ignores them. -/
+position of each. Each subterm is keyed by its node, so two subterms that differ only in metadata
+have one entry; the expressions already read are keyed by Lean's `ExprStructEq`, which compares by
+`Expr.equal`, so binder names and annotations count, unlike Lean's `BEq Expr`, which ignores
+them. -/
 private structure TermTables where
   levels : Array RegulaPolicy.LevelNode := #[]
   levelPositions : Std.HashMap Level Nat := {}
   nodes : Array RegulaPolicy.TermNode := #[]
-  nodePositions : ExprStructMap Nat := {}
+  nodePositions : Std.HashMap RegulaPolicy.TermNode Nat := {}
+  exprPositions : ExprStructMap Nat := {}
 
 /-- The position of `level` in the table of levels, with `node` recorded for it the first time;
 `node` is run only then, so each distinct level is read once. -/
@@ -2508,15 +2511,19 @@ private def bindingOf : BinderInfo → RegulaPolicy.Binding
   | .strictImplicit => .strictImplicit
   | .instImplicit => .instImplicit
 
-/-- The position of `e` in the table of subterms, with `node` recorded for it the first time;
-`node` is run only then, so each distinct subterm is read once. -/
+/-- The position of `e` in the table of subterms. `node` is run only the first time `e` is read,
+so each distinct expression is read once, and its result is recorded only if the table does not
+hold it yet, so each distinct node is recorded once. -/
 private def rememberTerm (e : Expr) (node : StateM TermTables RegulaPolicy.TermNode) :
     StateM TermTables Nat := do
-  if let some position := (← get).nodePositions[ExprStructEq.mk e]? then return position
+  if let some position := (← get).exprPositions[ExprStructEq.mk e]? then return position
   let node ← node
-  modifyGet fun t => (t.nodes.size,
-    { t with nodes := t.nodes.push node,
-             nodePositions := t.nodePositions.insert (ExprStructEq.mk e) t.nodes.size })
+  modifyGet fun t =>
+    let position := t.nodePositions.getD node t.nodes.size
+    (position,
+      { t with nodes := if position = t.nodes.size then t.nodes.push node else t.nodes,
+               nodePositions := t.nodePositions.insert node position,
+               exprPositions := t.exprPositions.insert (ExprStructEq.mk e) position })
 
 /-- The position of `e` in the table of subterms, after the subterms it contains. Metadata is
 passed through: a subterm with metadata has the position of the subterm under it. -/
