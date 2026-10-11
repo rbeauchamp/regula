@@ -12,7 +12,8 @@ cd "$(dirname "$0")/.."
 mkdir -p tmp
 printf '{"outcome":"INCOMPLETE","phase":"setup"}\n' > tmp/rule-examples.json
 # The toolchain-only driver invalidates the selected mode's earlier verdicts before setup,
-# so a failed or timed-out provisioning cannot leave an accepted one in place.
+# so a refused compiler or a failed or timed-out provisioning cannot leave an accepted one in
+# place.
 # Elan's `lean` proxy, by its path beside the `elan` that PATH resolves (elan-init's
 # `~/.elan/bin`, Homebrew's `bin`), never a `lean` that PATH resolves: Lake puts a workspace's
 # binary directories first on the PATH of the programs it starts.

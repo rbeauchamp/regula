@@ -1220,7 +1220,8 @@ theorem prebuildCovers_iff (manifest : Lean.Json) :
 
 /-- Begin an attempt: invalidate the selected mode's earlier PASS or accepted link, and remove
 an earlier site artifact. `scripts/verify.sh` runs this toolchain-only step before provisioning
-and before any checker is built, so a failed setup or build cannot leave either in place. The
+and before any checker is built, so a failed setup or build cannot leave either in place.
+`main` runs it before `requireCompiler`, so a compiler that check refuses cannot either. The
 site artifact is removed only when a directory is at its own place (`removeOwn`): with a symbolic
 link at `_site` the attempt stops and removes nothing. -/
 def beginAttempt (args : List String) : IO Unit := do
@@ -1333,12 +1334,13 @@ end RegulaVerification
 
 /-- Standalone cold-start entrypoint; invoke through the timed `scripts/verify.sh`, which
 first runs it with the private `--begin-attempt` protocol flag before setup. The private
-`--copy-control` entry is for the controls of the checker self-test. Every entry but that one first
-refuses a `lean` that is not the pinned compiler (`RegulaVerification.requireCompiler`). -/
+`--copy-control` entry is for the controls of the checker self-test. Every entry but that one
+refuses a `lean` that is not the pinned compiler (`RegulaVerification.requireCompiler`): the run
+before its work, and `--begin-attempt` after its invalidation, which needs no particular compiler. -/
 def main : List String → IO Unit
   | "--begin-attempt" :: args => do
-    RegulaVerification.requireCompiler
     RegulaVerification.beginAttempt args
+    RegulaVerification.requireCompiler
   | ["--copy-control"] => RegulaVerification.copyControl
   | args => do
     RegulaVerification.requireCompiler
