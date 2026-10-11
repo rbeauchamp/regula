@@ -1967,7 +1967,7 @@ def demonstrationExit : Nat := 1
 /-- The messages of Lean's elaboration of `demonstrationModule` that the root `README.md` states,
 each as `line:column: severity: text`: one warning, at the name of the theorem `double`, which
 contains the `sorry`. Lean gives no message for the theorem that uses `double`. -/
-def demonstrationMessages : List String := ["12:8: warning: declaration uses `sorry`"]
+def demonstrationMessages : List String := ["4:8: warning: declaration uses `sorry`"]
 
 /-- One element of a pattern over elements of `α`: one element that a test accepts, or omitted
 elements. -/

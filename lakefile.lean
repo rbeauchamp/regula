@@ -41,13 +41,11 @@ package «regula» where
   -- changes and CI checks against `Regula.releases` (docs/guides/contributing.md#release). Each
   -- release is tagged `v<version>`. The first release, tagged `v4.34.0` for its Lean release,
   -- declares no version, which Lake reads as this `0.0.0`.
-  version := v!"0.11.0"
+  version := v!"0.11.1"
   -- Reservoir (https://reservoir.lean-lang.org) lists these, and each release tag with the version
   -- its lakefile declares.
-  description := "A strict linter for Lean. It checks that each theorem of the libraries that you \
-    claim depends only on the axioms of the foundation that you choose, also through imports. \
-    Thus lake lint refuses a sorry, an axiom of those libraries and native_decide, which lake \
-    build accepts."
+  description := "A strict linter for Lean. Regula refuses proof holes, project axioms and proofs \
+    that trust the compiler. Each finding gives a fix."
   keywords := #["linter", "devtool", "cli", "formal-verification", "software-verification"]
   homepage := "https://rbeauchamp.github.io/regula/"
   license := "MIT AND Apache-2.0"
