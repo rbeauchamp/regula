@@ -4310,7 +4310,7 @@ The `qualify` campaigns and what they observe:
   acquires it (`Inspection.inspect`); the complete and restored positives must be accepted, and
   each omitted, duplicated, rebound, substituted or mis-bound mutation refused for its intended
   reason.
-- `self-audit`.
+- `self-audit`, or with `--shard K/4` one of its four shards (`SelfAudit.selected_cover`).
 
 `producers` accepts an optional `--evidence PATH`; `environments --evidence PATH` and
 `acceptance GROUP --evidence PATH` (group `fences`) take an evidence path.
