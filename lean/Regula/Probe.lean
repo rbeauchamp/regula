@@ -23,6 +23,7 @@ import Regula.Report
 import Regula.Contract
 import Regula.MaterialClaim
 import Regula.Decision
+import Regula.Assumption
 import RegulaPolicy.ExecutionWalk
 
 /-!

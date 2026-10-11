@@ -337,14 +337,15 @@ instance : ToJson RegulaPolicy.Declaration := ⟨fun d => Json.mkObj [
   ("ranges", toJson d.recordedRanges), ("generatedFrom", toJson d.generatedFrom),
   ("axioms", toJson d.axioms), ("executableContract", toJson d.executableContract),
   ("decisionResult", toJson d.decisionResult), ("tableOmissions", toJson d.tableOmissions),
-  ("contractEvidence", toJson d.contractEvidence)]⟩
+  ("contractEvidence", toJson d.contractEvidence),
+  ("assumptions", toJson d.assumptions), ("checkedOperations", toJson d.checkedOperations)]⟩
 instance : FromJson RegulaPolicy.Declaration := ⟨fun j => do
   exactFields j ["name", "module", "kind", "type", "prettyType", "isProp", "isUnsafe", "isPartial",
       "safety", "instance", "noncomputable", "implementedBy", "extern", "internal", "private",
           "projection", "matcher", "recursive", "unsafeRecBase", "levelParams", "all", "hints",
               "valueConstants", "unsafeRecRegenerated", "nativeStatement", "nativeReplay",
                   "ranges", "generatedFrom", "axioms", "executableContract", "decisionResult",
-                      "tableOmissions", "contractEvidence"]
+                      "tableOmissions", "contractEvidence", "assumptions", "checkedOperations"]
   return {
     name := ← j.getObjValAs? _ "name"
     «module» := ← j.getObjValAs? _ "module"
@@ -379,6 +380,8 @@ instance : FromJson RegulaPolicy.Declaration := ⟨fun j => do
     decisionResult := ← j.getObjValAs? _ "decisionResult"
     tableOmissions := ← j.getObjValAs? _ "tableOmissions"
     contractEvidence := ← j.getObjValAs? _ "contractEvidence"
+    assumptions := ← j.getObjValAs? _ "assumptions"
+    checkedOperations := ← j.getObjValAs? _ "checkedOperations"
   }⟩
 
 /-- The proof and the required proposition of a checked correspondence
