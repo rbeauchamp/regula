@@ -3674,12 +3674,13 @@ some claimed target's `-D` sets likewise goes only into the configuration of eac
 builds without it; and `run_options_prefix` and `withAdded_prefix`, the options and extra `lean`
 arguments the package and each claimed target already give are kept. An edit adds a missing
 piece and has no form that replaces a lint driver, an option value or a library's `globs`.
-`unglobbed_run` proves that after the plan, no further library gets a glob. `uncovered_run`
-proves that the plan keeps the left-out modules of a library with its own `globs`, an issue that
-`init` does not fix. In the model, an edit gives a library its glob in the `Coverage` facts. The
-next observation is the same function of the changed facts (`coverage_run`). The plan gives
-each such library the glob that `doctor` asks for, and one definition, `Lakefile.globsSetting`,
-gives that glob to the two. The starter manifest is
+`init` writes a glob in one case only, `Observation.globCase`, and `plan_globs_mem` proves it.
+The package has one `lean_lib`, declared at the top level with no `globs`. The glob adds only
+modules that claimed modules import. It also adds each imported module that the library leaves
+out.
+`globCase_run` proves that after the plan no glob is left to write. `uncovered_run` proves that
+only the entries of that library leave the issues. The glob is the one that `doctor` asks for,
+and one definition, `Lakefile.globsSetting`, gives that glob to the two. The starter manifest is
 planned exactly when there is no manifest and the package has a `lean_lib` for it to claim
 (`plan_manifest_mem`); a package with none has a setup issue `init` does not fix.
 
@@ -3704,14 +3705,9 @@ library includes is a failing setup issue only when a claimed module (of a libra
 the manifest does not exclude) reaches it by import through the package's modules, which the
 audit rejects as outside every library; any other such module is a `note` that does not count
 toward `doctor`'s exit status. That reachability is read from the sources' import headers, not
-from a build. `observe` reads only the headers that the decision reads, from the source that Lake
-finds. `coverage_congr` proves that other headers do not change a finding. A claimed module
-counts only when an import names it. The modules below the roots
-of each claimed library that gets a glob also count as claimed. `Coverage.globbing` computes that
-fixed point, so it counts a module that only they import before `init` writes the glob. A library
-sets its own `globs` when Lake reports other globs than its roots alone, the default of Lake. It
-also sets them when its declaration writes a `globs` field, as Lake reads the file, even with that
-value. Each such finding states how many modules the library leaves out and names at most
+from a build. For the glob case, Lake's own glob gives the modules that the glob adds.
+`soleDeclared` reads the declaration as Lake's TOML loader or Lean's parser reads it. Each such
+finding states how many modules the library leaves out and names at most
 `shownModules` of them, wrapped (`moduleLines`, which prints `moduleSummary`'s names grouped by
 `wrapFrom`): `moduleSummary_complete` proves those names are a prefix of the modules and the
 count is exactly the rest, and `wrapFrom_flatten` that grouping keeps each name, in order; that

@@ -16,15 +16,16 @@ commands execute over what they observe of a project.
   what is missing, and their effect on the observation.
 - `plan_idempotent`: after `init` applies its plan, the plan of the result is empty, so a second
   run writes nothing.
-- `Coverage`, `Coverage.globbing`, `globEdits`, `coverage_run`, `unglobbed_run`, `uncovered_run`:
-  which modules each library leaves out, and which of them a claimed module imports, is one
-  function of the root package's facts. `init` gives the libraries of `Coverage.globbing`, each
-  setting no `globs`, the glob `Lakefile.globsSetting`, the one `doctor` asks for. The glob edit
-  changes the facts (`Coverage.glob`), and after the plan they are the facts with those globs
-  written (`coverage_run`), in which no library needs one (`unglobbed_run`) and what libraries
-  leave out otherwise is unchanged (`uncovered_run`). A library with `globs` of its own keeps
-  them, and its left-out modules stay an issue `init` does not fix. The findings read the imports
-  of `Coverage.reads` alone (`coverage_congr`).
+- `Observation.globCase`, `globEdits`, `plan_globs_mem`, `plan_outside_globCase`,
+  `coverageIssues_outside_globCase`, `globCase_run`, `uncovered_run`: `init`
+  writes a library's glob, `Lakefile.globsSetting`, the one `doctor` asks for, exactly in one case
+  that it decides: the package's only `lean_lib`, declared at the top level with no `globs`, leaves
+  out modules that claimed modules import, and its glob adds exactly those. Outside that case the
+  plan has no glob edit (`plan_globs_mem`): it is the plan without globs
+  (`plan_outside_globCase`), and `doctor` reports what a library leaves out as an unfixable issue
+  (`coverageIssues_outside_globCase`). After
+  the plan no glob is left to write (`globCase_run`), and only that library's entries leave
+  `uncovered` (`uncovered_run`).
 - `Settled`, `plan_eq_nil_iff_settled`, `issues_unfixable_iff_settled`, `plan_eq_nil_iff`: the plan
   is empty exactly when no fixable issue remains.
 - `issues_run`: applying the plan removes exactly the fixable issues and adds none.
@@ -75,12 +76,12 @@ version and commit reported by the compiler of the toolchain `elan toolchain lis
 project's `lean-toolchain` (a trusted listing and self-report,
 independent of the compiler running `regula`), and the
 modules below a library root that no library includes, split by whether a claimed module
-imports them as Lean's import-header parser reads the package's sources (not a build), and the
-imported ones by whether the library sets `globs` of its own. The command supplies these as the
-facts of `Coverage` (each library's roots, modules, the modules below its roots and whether it
-sets `globs`, the executable roots, and each source module's imports within the package); the
-decision over them is defined here, so the edited facts are observed by the same function. The
-command writes each edit into the lakefile, the
+imports them as Lean's import-header parser reads the package's sources (not a build), and
+the facts of `Observation.globCase`: whether the package's only `lean_lib` keeps Lake's default
+globs and is declared at the top level with no `globs` field, the modules Lake's glob of its
+roots' submodules finds, and which of them a claimed module imports. `apply` of the glob removes
+that library's entries and its `sole` record; that the written glob includes exactly `added` is
+Lake's own glob, confirmed by the command's second observation. The command writes each edit into the lakefile, the
 manifest and the guidance files, then observes the project again and refuses unless the new plan
 is empty and each claimed target of both observations, matched by kind and name, has the same
 `Observation.arguedBy` (`arguedBy_run`); that the file edits realize `apply` is that runtime
@@ -179,448 +180,6 @@ inductive Pin where
   | unresolved (selector reason : String)
   deriving DecidableEq, Repr
 
-/-! ## Library coverage
-
-Which modules each library leaves out, and which of them a claimed module imports, is one
-function of the facts `Coverage` records. `init`'s glob edit changes those facts
-(`Coverage.glob`), and the observation after it is the same function of the changed facts. -/
-
-/-- A root `lean_lib` as the coverage decision reads it; module names are written as Lean prints
-them. -/
-structure Library where
-  /-- The library's Lake target name. -/
-  name : String
-  /-- Its roots. -/
-  roots : List String
-  /-- The manifest does not exclude it. -/
-  claimed : Bool
-  /-- It sets `globs` of its own: Lake reports other globs than its roots alone, Lake's default,
-  or its declaration writes a `globs` field. -/
-  globbed : Bool
-  /-- The modules it includes, as Lake lists them. -/
-  modules : List String
-  /-- The modules whose source files lie below its roots, such as `Foo.Basic` for root `Foo`: the
-  modules its glob adds. -/
-  below : List String
-  deriving DecidableEq, Repr
-
-/-- The facts of the root package that decide which modules its libraries leave out. -/
-structure Coverage where
-  /-- Each root `lean_lib`. -/
-  libraries : List Library
-  /-- The root module of each root `lean_exe`, which the audit counts as included. -/
-  executables : List String
-  /-- The root module of each root `lean_exe` the manifest does not exclude. -/
-  claimedExecutables : List String
-  /-- Each module whose import header the command read, with the modules of the package it imports
-  as Lean's import-header parser reads them. It reads those of `Coverage.reads`, and the findings
-  are the same for every table that lists the same imports for them (`coverage_congr`). -/
-  imports : List (String × List String)
-  deriving DecidableEq, Repr
-
-/-- The modules library `l` includes when each library named in `S` that sets no `globs` has its
-glob: then also every module below its roots. -/
-def Library.modulesAt (S : List String) (l : Library) : List String :=
-  if !l.globbed && S.contains l.name then l.modules ++ l.below else l.modules
-
-/-- Library `l` with its glob: it sets `globs` and, unless it already set them, includes every
-module below its roots as well. Giving it a second time changes nothing (`Library.glob_glob`). -/
-def Library.glob (l : Library) : Library :=
-  if l.globbed then l else { l with globbed := true, modules := l.modules ++ l.below }
-
-theorem Library.glob_glob (l : Library) : l.glob.glob = l.glob := by
-  unfold Library.glob
-  split <;> simp_all
-
-theorem Library.glob_name (l : Library) : l.glob.name = l.name := by
-  unfold Library.glob
-  split <;> rfl
-
-/-- `l` with its glob when `S` names it. -/
-def Library.globIn (S : List String) (l : Library) : Library :=
-  if S.contains l.name then l.glob else l
-
-theorem Library.globIn_name (S : List String) (l : Library) : (l.globIn S).name = l.name := by
-  unfold Library.globIn
-  split
-  · exact l.glob_name
-  · rfl
-
-theorem Library.globIn_roots (S : List String) (l : Library) : (l.globIn S).roots = l.roots := by
-  unfold Library.globIn Library.glob
-  split <;> (try split) <;> rfl
-
-theorem Library.globIn_claimed (S : List String) (l : Library) :
-    (l.globIn S).claimed = l.claimed := by
-  unfold Library.globIn Library.glob
-  split <;> (try split) <;> rfl
-
-theorem Library.globIn_below (S : List String) (l : Library) : (l.globIn S).below = l.below := by
-  unfold Library.globIn Library.glob
-  split <;> (try split) <;> rfl
-
-theorem Library.globIn_globbed (S : List String) (l : Library) :
-    (l.globIn S).globbed = (l.globbed || S.contains l.name) := by
-  unfold Library.globIn
-  cases h : S.contains l.name
-  · simp
-  · unfold Library.glob
-    cases hg : l.globbed
-    · simp
-    · simp [hg]
-
-namespace Coverage
-
-/-- Some library, with the libraries named in `S` given their globs, or an executable root includes
-module `m`. -/
-def included (c : Coverage) (S : List String) (m : String) : Bool :=
-  c.libraries.any (fun l => (l.modulesAt S).contains m) || c.executables.contains m
-
-/-- The modules `m` imports, among those `imports` lists. -/
-def importsOf (imports : List (String × List String)) (m : String) : List String :=
-  (imports.lookup m).getD []
-
-/-- The modules reached from `frontier`, after `seen`, following `imports`, for at most `fuel`
-rounds; each round adds the modules of the frontier not seen yet, and the walk stops at a round
-that adds none. -/
-def reach (imports : List (String × List String)) :
-    Nat → List String → List String → List String
-  | 0, seen, _ => seen
-  | fuel + 1, seen, frontier =>
-    let new := (frontier.filter (!seen.contains ·)).eraseDups
-    if new.isEmpty then seen else reach imports fuel (seen ++ new) (new.flatMap (importsOf imports))
-
-/-- The modules whose imports the walk of `reach` reads: those each round adds. -/
-def reachReads (imports : List (String × List String)) :
-    Nat → List String → List String → List String
-  | 0, _, _ => []
-  | fuel + 1, seen, frontier =>
-    let new := (frontier.filter (!seen.contains ·)).eraseDups
-    if new.isEmpty then []
-    else new ++ reachReads imports fuel (seen ++ new) (new.flatMap (importsOf imports))
-
-/-- The walk reads only the imports of the modules `reachReads` names: two import tables that list
-the same imports for each of them give the same walk. -/
-theorem reach_congr (A B : List (String × List String)) (fuel : Nat) (seen frontier : List String)
-    (h : ∀ m ∈ reachReads A fuel seen frontier, importsOf A m = importsOf B m) :
-    reach A fuel seen frontier = reach B fuel seen frontier ∧
-      reachReads A fuel seen frontier = reachReads B fuel seen frontier := by
-  induction fuel generalizing seen frontier with
-  | zero => exact ⟨rfl, rfl⟩
-  | succ fuel ih =>
-    simp only [reach, reachReads] at h ⊢
-    by_cases hn : ((frontier.filter (!seen.contains ·)).eraseDups).isEmpty = true
-    · simp only [hn, ↓reduceIte, and_self]
-    · simp only [hn, Bool.false_eq_true, ↓reduceIte] at h ⊢
-      have hmap : ((frontier.filter (!seen.contains ·)).eraseDups).flatMap (importsOf A) =
-          ((frontier.filter (!seen.contains ·)).eraseDups).flatMap (importsOf B) := by
-        simp only [List.flatMap_def]
-        congr 1
-        exact List.map_congr_left fun m hm => h m (List.mem_append_left _ hm)
-      have := ih _ _ fun m hm => h m (List.mem_append_right _ hm)
-      rw [hmap] at this ⊢
-      exact ⟨this.1, by rw [this.2]⟩
-
-/-- The modules library `l` includes once it has its glob: also every module below its roots
-unless it sets `globs` of its own. -/
-def _root_.Regula.Setup.Library.globbedModules (l : Library) : List String :=
-  if l.globbed then l.modules else l.modules ++ l.below
-
-/-- The rounds the walk of `witnesses` may take: one more than the modules the facts name, each
-library's counted as `Library.globbedModules` and its `below` again, which a glob leaves unchanged
-(`fuel_globAll`). Each round that runs adds a module an import names, and the command lists only
-imports of modules the facts name, so the bound lets each such round run; that is by counting,
-not a theorem. -/
-def fuel (c : Coverage) : Nat :=
-  (c.libraries.map fun l => l.globbedModules.length + l.below.length).sum +
-    c.executables.length + 1
-
-/-- The modules a claimed module of the facts is: each module of a claimed library, with the
-libraries named in `S` that set no `globs` given their globs, and each claimed executable root. -/
-def starts (c : Coverage) (S : List String) : List String :=
-  (c.libraries.filter (·.claimed)).flatMap (·.modulesAt S) ++ c.claimedExecutables
-
-/-- The modules a claimed module imports, directly or through other modules of the package, when
-each library named in `S` that sets no `globs` has its glob, so that the modules below its roots
-are claimed when it is. A module counts only when an import names it, never as a start of the
-walk. -/
-def witnesses (c : Coverage) (S : List String) : List String :=
-  reach c.imports c.fuel [] ((c.starts S).flatMap (importsOf c.imports))
-
-/-- The modules whose imports `witnesses` reads: the starts and each module the walk adds. -/
-def readsAt (c : Coverage) (S : List String) : List String :=
-  c.starts S ++ reachReads c.imports c.fuel [] ((c.starts S).flatMap (importsOf c.imports))
-
-/-- Facts that differ at most in their imports, and list the same imports for each module of `R`. -/
-def Agree (c c' : Coverage) (R : List String) : Prop :=
-  c.libraries = c'.libraries ∧ c.executables = c'.executables ∧
-    c.claimedExecutables = c'.claimedExecutables ∧
-    ∀ m ∈ R, importsOf c.imports m = importsOf c'.imports m
-
-theorem witnesses_congr {c c' : Coverage} {S : List String} (h : c.Agree c' (c.readsAt S)) :
-    c.witnesses S = c'.witnesses S := by
-  obtain ⟨hl, he, hc, hi⟩ := h
-  have hs : c.starts S = c'.starts S := by simp only [starts, hl, hc]
-  have hf : c.fuel = c'.fuel := by simp only [fuel, hl, he]
-  have hmap : (c.starts S).flatMap (importsOf c.imports) =
-      (c.starts S).flatMap (importsOf c'.imports) := by
-    simp only [List.flatMap_def]
-    congr 1
-    exact List.map_congr_left fun m hm => hi m (List.mem_append_left _ hm)
-  unfold witnesses
-  rw [← hs, ← hf, (reach_congr c.imports c'.imports c.fuel [] _
-    fun m hm => hi m (List.mem_append_right _ hm)).1, hmap]
-
-/-- The modules below the roots of `l` that no library includes and that a claimed module imports
-(`w`, the `witnesses`), when each library named in `S` that sets no `globs` has its glob. -/
-def uncoveredIn (c : Coverage) (S w : List String) (l : Library) : List String :=
-  l.below.filter fun m => !c.included S m && w.contains m
-
-/-- The libraries that set no `globs`, are not named in `S`, and leave out a module that a claimed
-module imports when those of `S` have their globs. -/
-def nextGlobs (c : Coverage) (S : List String) : List String :=
-  let w := c.witnesses S
-  (c.libraries.filter fun l =>
-    !l.globbed && !S.contains l.name && !(c.uncoveredIn S w l).isEmpty).map (·.name)
-
-/-- The libraries that set no `globs` and are not named in `S`. -/
-def pending (c : Coverage) (S : List String) : Nat :=
-  (c.libraries.filter fun l => !l.globbed && !S.contains l.name).length
-
-/-- Of the elements of `l`, no more satisfy `q` than `p` when each that satisfies `q` satisfies
-`p`. -/
-theorem length_filter_le {α : Type} (l : List α) (p q : α → Bool)
-    (hqp : ∀ x ∈ l, q x = true → p x = true) : (l.filter q).length ≤ (l.filter p).length := by
-  induction l with
-  | nil => simp
-  | cons a t ih =>
-    have ih := ih fun x hx => hqp x (List.mem_cons_of_mem a hx)
-    by_cases hq : q a = true
-    · have hp : p a = true := hqp a (by simp) hq
-      simp [hq, hp]
-      omega
-    · by_cases hp : p a = true
-      · simp [hq, hp]
-        omega
-      · simp [hq, hp]
-        omega
-
-/-- Of the elements of `l`, fewer satisfy `q` than `p` when each that satisfies `q` satisfies `p`
-and one satisfies `p` but not `q`. -/
-theorem length_filter_lt {α : Type} (l : List α) (p q : α → Bool)
-    (hqp : ∀ x ∈ l, q x = true → p x = true) (hx : ∃ x ∈ l, p x = true ∧ q x = false) :
-    (l.filter q).length < (l.filter p).length := by
-  induction l with
-  | nil => simp at hx
-  | cons a t ih =>
-    have hle := length_filter_le t p q fun x hx => hqp x (List.mem_cons_of_mem a hx)
-    obtain ⟨x, hx, hpx, hqx⟩ := hx
-    rcases List.mem_cons.mp hx with rfl | hx
-    · simp [hpx, hqx]
-      omega
-    · have ih := ih (fun y hy => hqp y (List.mem_cons_of_mem a hy)) ⟨x, hx, hpx, hqx⟩
-      by_cases hq : q a = true
-      · have hp : p a = true := hqp a (by simp) hq
-        simp [hq, hp]
-        omega
-      · by_cases hp : p a = true
-        · simp [hq, hp]
-          omega
-        · simp [hq, hp]
-          omega
-
-/-- A round that adds a library leaves fewer libraries pending. -/
-theorem pending_lt (c : Coverage) (S : List String) (h : c.nextGlobs S ≠ []) :
-    c.pending (S ++ c.nextGlobs S) < c.pending S := by
-  obtain ⟨n, hn⟩ := List.exists_mem_of_ne_nil _ h
-  have hn' := hn
-  simp only [nextGlobs] at hn'
-  obtain ⟨l, hl, rfl⟩ := List.mem_map.mp hn'
-  obtain ⟨hmem, hp⟩ := List.mem_filter.mp hl
-  unfold pending
-  apply length_filter_lt
-  · intro k _ hk
-    simp only [Bool.and_eq_true, Bool.not_eq_true', List.contains_append,
-      Bool.or_eq_false_iff] at hk ⊢
-    exact ⟨hk.1, hk.2.1⟩
-  · refine ⟨l, hmem, ?_, ?_⟩
-    · simp only [Bool.and_eq_true, Bool.not_eq_true'] at hp ⊢
-      exact ⟨hp.1.1, hp.1.2⟩
-    · simp [hn]
-
-/-- The libraries `init` gives a glob, from those of `S`: rounds of `nextGlobs` until one adds
-none. -/
-def globsFrom (c : Coverage) (S : List String) : List String :=
-  if _h : c.nextGlobs S = [] then S else globsFrom c (S ++ c.nextGlobs S)
-termination_by c.pending S
-decreasing_by exact c.pending_lt S (by assumption)
-
-/-- The libraries `init` gives a glob. -/
-def globbing (c : Coverage) : List String := c.globsFrom []
-
-/-- At the libraries `globsFrom` returns, no further library needs a glob. -/
-theorem nextGlobs_globsFrom (c : Coverage) (S : List String) : c.nextGlobs (c.globsFrom S) = [] := by
-  rw [globsFrom]
-  split
-  · assumption
-  · exact nextGlobs_globsFrom c _
-termination_by c.pending S
-decreasing_by exact c.pending_lt S (by assumption)
-
-/-- The modules whose imports `globsFrom` reads, round by round (`readsAt`), ending with those
-read at the libraries it returns. -/
-def globReads (c : Coverage) (S : List String) : List String :=
-  c.readsAt S ++ if _h : c.nextGlobs S = [] then [] else globReads c (S ++ c.nextGlobs S)
-termination_by c.pending S
-decreasing_by exact c.pending_lt S (by assumption)
-
-/-- The modules whose imports the decision reads: `globReads` from no library. The command reads
-the import header of these modules alone, and the decision is the same for every import table
-that lists the same imports for them (`globbing_congr`, `witnesses_globbing_congr`). -/
-def reads (c : Coverage) : List String := c.globReads []
-
-theorem Agree.mono {c c' : Coverage} {R R' : List String} (h : c.Agree c' R)
-    (hR : ∀ m ∈ R', m ∈ R) : c.Agree c' R' :=
-  ⟨h.1, h.2.1, h.2.2.1, fun m hm => h.2.2.2 m (hR m hm)⟩
-
-theorem readsAt_subset_globReads (c : Coverage) (S : List String) :
-    ∀ m ∈ c.readsAt S, m ∈ c.globReads S := by
-  intro m hm
-  rw [globReads]
-  exact List.mem_append_left _ hm
-
-theorem readsAt_globsFrom (c : Coverage) (S : List String) :
-    ∀ m ∈ c.readsAt (c.globsFrom S), m ∈ c.globReads S := by
-  intro m hm
-  rw [globsFrom] at hm
-  rw [globReads]
-  by_cases h : c.nextGlobs S = []
-  · simp only [h, ↓reduceDIte] at hm ⊢
-    exact List.mem_append_left _ hm
-  · simp only [h, ↓reduceDIte] at hm ⊢
-    exact List.mem_append_right _ (readsAt_globsFrom c _ m hm)
-termination_by c.pending S
-decreasing_by exact c.pending_lt S h
-
-theorem nextGlobs_congr {c c' : Coverage} {S : List String} (h : c.Agree c' (c.readsAt S)) :
-    c.nextGlobs S = c'.nextGlobs S := by
-  have hw := witnesses_congr h
-  obtain ⟨hl, he, -, -⟩ := h
-  simp only [nextGlobs, uncoveredIn, included, hw, hl, he]
-
-/-- Facts that list the same imports for each module `globReads` names give the same globs. -/
-theorem globsFrom_congr {c c' : Coverage} (S : List String) (h : c.Agree c' (c.globReads S)) :
-    c.globsFrom S = c'.globsFrom S := by
-  have hn : c.nextGlobs S = c'.nextGlobs S :=
-    nextGlobs_congr (h.mono (readsAt_subset_globReads c S))
-  conv => lhs; rw [globsFrom]
-  conv => rhs; rw [globsFrom]
-  by_cases hx : c.nextGlobs S = []
-  · have hx' : c'.nextGlobs S = [] := hn ▸ hx
-    simp only [hx, hx', ↓reduceDIte]
-  · have hx' : ¬c'.nextGlobs S = [] := hn ▸ hx
-    simp only [hx, hx', ↓reduceDIte]
-    rw [← hn]
-    refine globsFrom_congr _ (h.mono fun m hm => ?_)
-    rw [globReads]
-    simp only [hx, ↓reduceDIte]
-    exact List.mem_append_right _ hm
-termination_by c.pending S
-decreasing_by exact c.pending_lt S hx
-
-theorem globbing_congr {c c' : Coverage} (h : c.Agree c' c.reads) : c.globbing = c'.globbing :=
-  globsFrom_congr [] h
-
-theorem witnesses_globbing_congr {c c' : Coverage} (h : c.Agree c' c.reads) :
-    c.witnesses c.globbing = c'.witnesses c'.globbing := by
-  rw [← globbing_congr h]
-  exact witnesses_congr (h.mono (readsAt_globsFrom c []))
-
-/-- The facts with the library named `name` given its glob (`Library.glob`). -/
-def glob (c : Coverage) (name : String) : Coverage :=
-  { c with libraries := c.libraries.map fun l => if l.name == name then l.glob else l }
-
-/-- The facts with each library named in `S` given its glob. -/
-def globAll (c : Coverage) (S : List String) : Coverage :=
-  { c with libraries := c.libraries.map (Library.globIn S) }
-
-theorem globAll_libraries (c : Coverage) (S : List String) :
-    (c.globAll S).libraries = c.libraries.map (Library.globIn S) := rfl
-
-/-- Giving the libraries named in `N` their globs one at a time gives each of them its glob. -/
-theorem foldl_glob (c : Coverage) (N : List String) : N.foldl glob c = c.globAll N := by
-  induction N generalizing c with
-  | nil =>
-    have h : c.libraries.map (Library.globIn []) = c.libraries := by
-      conv => rhs; rw [← List.map_id c.libraries]
-      exact List.map_congr_left fun l _ => by simp [Library.globIn]
-    rw [List.foldl_nil, globAll, h]
-  | cons n N ih =>
-    rw [List.foldl_cons, ih]
-    simp only [glob, globAll, List.map_map]
-    congr 1
-    apply List.map_congr_left
-    intro l _
-    simp only [Function.comp_apply, Library.globIn, List.contains_cons]
-    by_cases h : l.name = n
-    · simp [h, Library.glob_glob]
-    · simp [h]
-
-/-- With the libraries of `S` given their globs, a library includes what it would include, with
-those globs, before. -/
-theorem modulesAt_globIn (S : List String) (l : Library) :
-    (l.globIn S).modulesAt [] = l.modulesAt S := by
-  unfold Library.globIn Library.modulesAt
-  cases h : S.contains l.name <;> cases hg : l.globbed <;> simp [Library.glob, hg]
-
-theorem included_globAll (c : Coverage) (S : List String) (m : String) :
-    (c.globAll S).included [] m = c.included S m := by
-  simp [included, globAll, List.any_map, Function.comp_def, modulesAt_globIn]
-
-theorem _root_.Regula.Setup.Library.globIn_globbedModules (S : List String) (l : Library) :
-    (l.globIn S).globbedModules = l.globbedModules := by
-  unfold Library.globIn Library.glob Library.globbedModules
-  cases h : S.contains l.name <;> cases hg : l.globbed <;> simp [hg]
-
-theorem fuel_globAll (c : Coverage) (S : List String) : (c.globAll S).fuel = c.fuel := by
-  simp only [fuel, globAll, List.map_map, Function.comp_def, Library.globIn_globbedModules,
-    Library.globIn_below]
-
-theorem starts_globAll (c : Coverage) (S : List String) : (c.globAll S).starts [] = c.starts S := by
-  simp [starts, globAll, List.filter_map, List.flatMap_map, Function.comp_def,
-    modulesAt_globIn, Library.globIn_claimed]
-
-theorem witnesses_globAll (c : Coverage) (S : List String) :
-    (c.globAll S).witnesses [] = c.witnesses S := by
-  simp only [witnesses, fuel_globAll, starts_globAll]
-  rfl
-
-theorem uncoveredIn_globAll (c : Coverage) (S w : List String) (l : Library) :
-    (c.globAll S).uncoveredIn [] w (l.globIn S) = c.uncoveredIn S w l := by
-  simp only [uncoveredIn, Library.globIn_below, included_globAll]
-
-/-- With the libraries `nextGlobs` would add given their globs, no further one needs a glob. -/
-theorem nextGlobs_globAll (c : Coverage) (S : List String) (h : c.nextGlobs S = []) :
-    (c.globAll S).nextGlobs [] = [] := by
-  simp only [nextGlobs, List.map_eq_nil_iff, List.filter_eq_nil_iff] at h ⊢
-  rw [witnesses_globAll, globAll_libraries]
-  intro l' hl'
-  obtain ⟨l, hl, rfl⟩ := List.mem_map.mp hl'
-  rw [uncoveredIn_globAll, Library.globIn_globbed]
-  have := h l hl
-  simp only [Bool.and_eq_true, Bool.not_eq_true', Bool.or_eq_false_iff, List.contains_nil,
-    Bool.not_false, and_true, not_and] at this ⊢
-  intro hg hu
-  exact this hg hu
-
-/-- After the globs of `globbing` are written, no library needs one. -/
-theorem globbing_globAll (c : Coverage) : (c.globAll c.globbing).globbing = [] := by
-  have h := nextGlobs_globAll c _ (nextGlobs_globsFrom c [])
-  rw [globbing, globsFrom]
-  exact dite_eq_left_of_eq_true (eq_true h)
-
-end Coverage
-
 /-- What `init` and `doctor` observe of a project. -/
 structure Observation where
   /-- The root package's `lintDriver`; empty when it is not set. -/
@@ -654,51 +213,41 @@ structure Observation where
   skills : List (String × Bool)
   /-- The compiler the project's own `lean-toolchain` selects, whichever compiler runs `regula`. -/
   pin : Pin
-  /-- The root package's libraries, executables and imports (`Coverage`). -/
-  coverage : Coverage
+  /-- Each root `lean_lib` with its roots and the modules below a root, such as `Foo.Basic` for
+  root `Foo`, that no root library includes and that a claimed module imports, directly or
+  through other modules of the package: the audit finds them outside every library. -/
+  uncovered : List (String × List String × List String)
+  /-- The same for the modules below a root that no root library includes and no claimed module
+  imports: the audit neither inspects them nor fails, so `doctor` only notes them. -/
+  unimported : List (String × List String × List String)
+  /-- The root package's only `lean_lib`, with its roots, when the package has exactly one, Lake
+  reports its globs as its roots alone (Lake's default), and its configuration file declares it
+  at the top level, with no `globs` field and nothing conditional; `none` otherwise. -/
+  sole : Option (String × List String)
+  /-- The modules the glob of `sole` would add: those Lake's glob of the submodules of each root
+  finds in the library's source directory. Empty without `sole`. -/
+  added : List String
+  /-- The modules of `added` that a claimed module imports, directly or through other modules of
+  the package. -/
+  imported : List String
   deriving DecidableEq, Repr
 
-/-- Each library `init` gives a glob (`Coverage.globbing`), with its roots and the modules below
-them that no library includes and that a claimed module imports once those globs are written. -/
-def Observation.unglobbed (o : Observation) : List (String × List String × List String) :=
-  let c := o.coverage
-  let S := c.globbing
-  let w := c.witnesses S
-  (c.libraries.filter fun l => !l.globbed && S.contains l.name).map fun l =>
-    (l.name, l.roots, l.below.filter fun m => !c.included [] m && w.contains m)
+/-- The modules that the `uncovered` entries of library `l` name. -/
+def Observation.leftOut (o : Observation) (l : String) : List String :=
+  (o.uncovered.filter (·.1 == l)).flatMap (·.2.2)
 
-/-- Each library with its roots and the modules below them that no library includes and that a
-claimed module imports, once the globs of `unglobbed` are written: the audit finds them outside
-every library. -/
-def Observation.uncovered (o : Observation) : List (String × List String × List String) :=
-  let c := o.coverage
-  let S := c.globbing
-  let w := c.witnesses S
-  (c.libraries.filter fun l => !(c.uncoveredIn S w l).isEmpty).map fun l =>
-    (l.name, l.roots, c.uncoveredIn S w l)
-
-/-- The same for the modules that no library includes and no claimed module imports: the audit
-neither inspects them nor fails, so `doctor` only notes them. -/
-def Observation.unimported (o : Observation) : List (String × List String × List String) :=
-  let c := o.coverage
-  let S := c.globbing
-  let w := c.witnesses S
-  let gone (l : Library) := l.below.filter fun m => !c.included S m && !w.contains m
-  (c.libraries.filter fun l => !(gone l).isEmpty).map fun l => (l.name, l.roots, gone l)
-
-/-- The coverage findings read only the imports of `Coverage.reads`: facts that list the same
-imports for each of those modules give the same findings, whatever they list for any other. -/
-theorem coverage_congr (o : Observation) (c : Coverage) (h : o.coverage.Agree c o.coverage.reads) :
-    { o with coverage := c }.unglobbed = o.unglobbed ∧
-      { o with coverage := c }.uncovered = o.uncovered ∧
-      { o with coverage := c }.unimported = o.unimported := by
-  have hg := Coverage.globbing_congr h
-  have hw := Coverage.witnesses_globbing_congr h
-  obtain ⟨hl, he, -, -⟩ := h
-  simp only [Observation.unglobbed, Observation.uncovered, Observation.unimported,
-    Coverage.uncoveredIn, Coverage.included]
-  rw [← hw, ← hg, ← hl, ← he]
-  exact ⟨rfl, rfl, rfl⟩
+/-- The one case in which `init` writes a library's glob, decided exactly: the library is `sole`,
+it leaves out a module that a claimed module imports, the claimed modules import every module
+its glob adds, and the glob adds every module it leaves out that way. So the glob adds no module
+that is not already built, and after it the library leaves out none that a claimed module
+imports. `none` in every other case, where `doctor` reports what a library leaves out. -/
+def Observation.globCase (o : Observation) : Option (String × List String) :=
+  match o.sole with
+  | some (l, rs) =>
+    if !(o.leftOut l).isEmpty && o.added.all o.imported.contains &&
+        (o.leftOut l).all o.added.contains then some (l, rs)
+    else none
+  | none => none
 
 /-- The key `init` writes for option `name`: Mathlib's options under `weak.`, which Lean ignores
 in a module that does not import Mathlib, and every other option as it is. -/
@@ -778,16 +327,15 @@ inductive Issue where
   /-- The project's `lean-toolchain`, `selector`, selects no installed compiler that reports its
   identity (`reason`), so it cannot be compared with the compiler this Regula revision declares. -/
   | toolchainUnresolved (selector reason : String)
-  /-- `lean_lib` `library`, with roots `roots` and `globs` of its own, includes none of `modules`,
-  which lie below them. -/
+  /-- `lean_lib` `library`, with roots `roots`, includes none of `modules`, which lie below them,
+  outside the case in which `init` writes its glob (`Observation.globCase`). -/
   | uncovered (library : String) (roots modules : List String)
-  /-- `lean_lib` `library`, with roots `roots` and no `globs`, includes none of `modules`, which
-  lie below them (the glob `init` adds includes them). -/
+  /-- The same for the library of `Observation.globCase`, whose glob `init` writes. -/
   | unglobbed (library : String) (roots modules : List String)
   deriving DecidableEq, Repr
 
-/-- Whether `init` writes the fix. It never replaces another lint driver, nor changes the `globs`
-a library sets. -/
+/-- Whether `init` writes the fix. It never replaces another lint driver, and it writes a
+library's glob only in `Observation.globCase`. -/
 def Issue.fixable : Issue → Bool
   | .driverUnset => true
   | .driverOther _ => false
@@ -822,9 +370,15 @@ def driverIssues (o : Observation) : List Issue :=
 def uncoveredIssue (entry : String × List String × List String) : Issue :=
   .uncovered entry.1 entry.2.1 entry.2.2
 
-/-- The issue of one library entry of `Observation.unglobbed`. -/
+/-- The issue of one library entry of `Observation.uncovered` whose glob `init` writes. -/
 def unglobbedIssue (entry : String × List String × List String) : Issue :=
   .unglobbed entry.1 entry.2.1 entry.2.2
+
+/-- The issues of `Observation.uncovered`: fixable for the library of `Observation.globCase`, and
+not for any other. -/
+def coverageIssues (o : Observation) : List Issue :=
+  o.uncovered.map fun e =>
+    if o.globCase.any (·.1 == e.1) then unglobbedIssue e else uncoveredIssue e
 
 /-- The option issues: the options the package must add, then each claimed target's own. -/
 def optionIssues (o : Observation) : List Issue :=
@@ -899,8 +453,7 @@ def issues (o : Observation) : List Issue :=
   (if o.guided then [] else [.guidanceMissing o.agentsFile o.skillFile]) ++
   (staleSkills o).map .skillStale ++
   toolchainIssues o ++
-  o.unglobbed.map unglobbedIssue ++
-  o.uncovered.map uncoveredIssue
+  coverageIssues o
 
 /-- One edit `init` writes. -/
 inductive Edit where
@@ -937,9 +490,11 @@ def optionEdits (o : Observation) : List Edit :=
   if o.targets.all (fun t => targetMissing o t = []) then []
   else [.targetOptions (o.targets.map fun t => { t with options := targetMissing o t })]
 
-/-- The glob edits: one for each library of `Observation.unglobbed`. -/
+/-- The glob edit: one in `Observation.globCase`, and none otherwise. -/
 def globEdits (o : Observation) : List Edit :=
-  o.unglobbed.map fun e => .globs e.1 e.2.1
+  match o.globCase with
+  | some (l, rs) => [.globs l rs]
+  | none => []
 
 /-- The edits that fix `o`'s fixable issues, each writing only what is missing. -/
 def plan (g : Guidance) (o : Observation) : List Edit :=
@@ -967,7 +522,9 @@ def apply (o : Observation) : Edit → Observation
   | .manifest => { o with manifest := true }
   | .agentsSection _ => { o with agentsSection := true }
   | .skill path => { o with skills := markCurrent path o.skills }
-  | .globs library _ => { o with coverage := o.coverage.glob library }
+  | .globs library _ => { o with
+      sole := none, added := [], imported := []
+      uncovered := o.uncovered.filter (·.1 != library) }
 
 /-- The observation after applying `edits` in order. -/
 def run (o : Observation) (edits : List Edit) : Observation := edits.foldl apply o
@@ -1091,10 +648,31 @@ theorem run_skills (o : Observation) (es : List Edit) :
     rw [ih]
     cases e <;> simp [apply, Edit.skillFile?, markAll, List.filterMap_cons]
 
-theorem run_coverage (o : Observation) (es : List Edit) :
-    (run o es).coverage = (es.filterMap Edit.library?).foldl Coverage.glob o.coverage := by
+theorem run_uncovered (o : Observation) (es : List Edit) :
+    (run o es).uncovered =
+      o.uncovered.filter fun e => !(es.filterMap Edit.library?).contains e.1 := by
   induction es generalizing o with
-  | nil => rfl
+  | nil => exact (List.filter_eq_self.mpr fun _ _ => rfl).symm
+  | cons e es ih =>
+    simp only [run, List.foldl_cons] at ih ⊢
+    rw [ih]
+    cases e
+    case globs l rs =>
+      rw [List.filterMap_cons_some (show Edit.library? (.globs l rs) = some l from rfl)]
+      simp only [apply, List.filter_filter]
+      refine List.filter_congr fun x _ => ?_
+      rw [List.contains_cons, Bool.not_or, Bool.and_comm]
+      rfl
+    all_goals simp [apply, Edit.library?, List.filterMap_cons]
+
+/-- Edits that give no glob keep the facts of the glob decision; one that gives a glob leaves no
+`sole` library. -/
+theorem run_globFacts (o : Observation) (es : List Edit) :
+    ((run o es).sole, (run o es).added, (run o es).imported) =
+      if (es.filterMap Edit.library?).isEmpty then (o.sole, o.added, o.imported)
+      else (none, [], []) := by
+  induction es generalizing o with
+  | nil => simp [run]
   | cons e es ih =>
     simp only [run, List.foldl_cons] at ih ⊢
     rw [ih]
@@ -1312,20 +890,29 @@ theorem skills_added (paths : List String) :
   rfl
 
 theorem globEdits_entries (o : Observation) : (globEdits o).flatMap Edit.entries = [] := by
-  simp [globEdits, List.flatMap_map, Edit.entries]
+  unfold globEdits
+  split <;> rfl
 
 theorem driver_not_mem_globEdits (o : Observation) : Edit.driver ∉ globEdits o := by
-  simp [globEdits]
+  unfold globEdits
+  split <;> simp
 
 theorem manifest_not_mem_globEdits (o : Observation) : Edit.manifest ∉ globEdits o := by
-  simp [globEdits]
+  unfold globEdits
+  split <;> simp
 
 theorem globEdits_skillFiles (o : Observation) :
     (globEdits o).filterMap Edit.skillFile? = [] := by
-  simp [globEdits, List.filterMap_map, Function.comp_def, Edit.skillFile?]
+  unfold globEdits
+  split <;> rfl
 
 theorem globEdits_added (o : Observation) : (globEdits o).filterMap Edit.added? = [] := by
-  simp [globEdits, List.filterMap_map, Function.comp_def, Edit.added?]
+  unfold globEdits
+  split <;> rfl
+
+theorem globEdits_eq_nil_iff (o : Observation) : globEdits o = [] ↔ o.globCase = none := by
+  unfold globEdits
+  split <;> simp_all
 
 /-- The plan's package entries: the missing ones. -/
 theorem plan_entries (g : Guidance) (o : Observation) :
@@ -1367,9 +954,9 @@ theorem plan_added (g : Guidance) (o : Observation) :
   by_cases hd : o.driver = "" <;> cases hf : o.starter <;>
     simp [hd, Edit.added?, List.filterMap_cons]
 
-/-- The libraries the plan gives a glob: those of `Observation.unglobbed`. -/
+/-- The library the plan gives a glob: that of `Observation.globCase`, and none outside it. -/
 theorem plan_libraries (g : Guidance) (o : Observation) :
-    (plan g o).filterMap Edit.library? = o.unglobbed.map (·.1) := by
+    (plan g o).filterMap Edit.library? = (o.globCase.map (·.1)).toList := by
   have hg : (guidanceEdits g o).filterMap Edit.library? = [] := by
     unfold guidanceEdits
     split
@@ -1378,9 +965,53 @@ theorem plan_libraries (g : Guidance) (o : Observation) :
   have ho : (optionEdits o).filterMap Edit.library? = [] := by
     unfold optionEdits
     split <;> split <;> simp [Edit.library?]
-  simp only [plan, List.filterMap_append, hg, ho, globEdits, List.filterMap_map]
-  by_cases hd : o.driver = "" <;> cases hf : o.starter <;>
-    simp [hd, Edit.library?, Function.comp_def, List.filterMap_cons]
+  have hb : (if o.driver = "" then [Edit.driver] else []).filterMap Edit.library? = [] := by
+    split <;> rfl
+  have hm : (if o.starter then [Edit.manifest] else []).filterMap Edit.library? = [] := by
+    split <;> rfl
+  have hs : ((staleSkills o).map Edit.skill).filterMap Edit.library? = [] := by
+    simp [List.filterMap_map, Function.comp_def, Edit.library?]
+  have hgl : (globEdits o).filterMap Edit.library? = (o.globCase.map (·.1)).toList := by
+    unfold globEdits
+    split <;> simp_all [Edit.library?]
+  simp only [plan, List.filterMap_append, hg, ho, hb, hm, hs, hgl, List.nil_append]
+
+/-- `init` writes a glob exactly in `Observation.globCase`, the one it decides there. -/
+theorem plan_globs_mem (g : Guidance) (o : Observation) (l : String) (rs : List String) :
+    Edit.globs l rs ∈ plan g o ↔ o.globCase = some (l, rs) := by
+  have hg : Edit.globs l rs ∉ guidanceEdits g o := by
+    unfold guidanceEdits
+    split
+    · simp
+    · cases g <;> simp
+  have ho : Edit.globs l rs ∉ optionEdits o := by
+    unfold optionEdits
+    split <;> simp
+  have hgl : Edit.globs l rs ∈ globEdits o ↔ o.globCase = some (l, rs) := by
+    unfold globEdits
+    cases hc : o.globCase with
+    | none => simp
+    | some p =>
+      obtain ⟨l', rs'⟩ := p
+      simp [eq_comm]
+  by_cases hd : o.driver = "" <;> cases hf : o.starter <;> simp [plan, hd, hg, ho, hgl]
+
+/-- Outside `Observation.globCase`, the plan is the driver, option, manifest, guidance and skill
+edits alone, the plan `init` wrote before it wrote globs. -/
+theorem plan_outside_globCase (g : Guidance) (o : Observation) (h : o.globCase = none) :
+    plan g o =
+      (if o.driver = "" then [.driver] else []) ++
+      optionEdits o ++
+      (if o.starter then [.manifest] else []) ++
+      guidanceEdits g o ++
+      (staleSkills o).map .skill := by
+  rw [plan, (globEdits_eq_nil_iff o).mpr h, List.append_nil]
+
+/-- Outside `Observation.globCase`, each library's left-out modules give its unfixable
+`Issue.uncovered`, the issue `doctor` reported before `init` wrote globs. -/
+theorem coverageIssues_outside_globCase (o : Observation) (h : o.globCase = none) :
+    coverageIssues o = o.uncovered.map uncoveredIssue := by
+  simp [coverageIssues, h]
 
 /-! ## Main theorems -/
 
@@ -1645,41 +1276,75 @@ theorem starter_run (g : Guidance) (o : Observation) : (run o (plan g o)).starte
   · have h : Edit.manifest ∈ plan g o := (plan_manifest_mem g o).mpr hs
     simp [h]
 
-/-- The facts after the plan are the facts with each library of `Coverage.globbing` given its
-glob: the state the decision assumed when it chose them. -/
-theorem coverage_run (g : Guidance) (o : Observation) :
-    (run o (plan g o)).coverage = o.coverage.globAll o.coverage.globbing := by
-  rw [run_coverage, plan_libraries, Coverage.foldl_glob]
-  simp only [Coverage.globAll]
-  congr 1
-  apply List.map_congr_left
-  intro l hl
-  cases hg : l.globbed
-  · have key : ((o.unglobbed.map (·.1)).contains l.name) = o.coverage.globbing.contains l.name := by
-      rw [Bool.eq_iff_iff, List.contains_iff_mem, List.contains_iff_mem]
-      simp only [Observation.unglobbed, List.map_map, List.mem_map, List.mem_filter,
-        Function.comp_apply, Bool.and_eq_true, Bool.not_eq_true', List.contains_iff_mem]
-      constructor
-      · rintro ⟨k, ⟨-, -, hk⟩, he⟩
-        rwa [← he]
-      · intro h
-        exact ⟨l, ⟨hl, hg, h⟩, rfl⟩
-    simp only [Library.globIn, key]
-  · simp [Library.globIn, Library.glob, hg]
-
-/-- After the plan, no library needs a glob. -/
-theorem unglobbed_run (g : Guidance) (o : Observation) : (run o (plan g o)).unglobbed = [] := by
-  simp only [Observation.unglobbed, coverage_run, Coverage.globbing_globAll]
-  simp
-
-/-- The plan leaves the modules that libraries with `globs` of their own leave out as they were
-(`Observation.uncovered` already counts them with the plan's globs written). -/
+/-- The plan leaves `uncovered` as it was outside `Observation.globCase`, and in it removes the
+entries of that library alone. -/
 theorem uncovered_run (g : Guidance) (o : Observation) :
-    (run o (plan g o)).uncovered = o.uncovered := by
-  simp only [Observation.uncovered, coverage_run, Coverage.globbing_globAll,
-    Coverage.witnesses_globAll, Coverage.globAll_libraries, List.filter_map, List.map_map]
-  simp only [Function.comp_def, Coverage.uncoveredIn_globAll, Library.globIn_name,
-    Library.globIn_roots]
+    (run o (plan g o)).uncovered =
+      o.uncovered.filter fun e => !o.globCase.any (·.1 == e.1) := by
+  rw [run_uncovered, plan_libraries]
+  refine List.filter_congr fun e _ => ?_
+  cases o.globCase with
+  | none => simp
+  | some p =>
+    by_cases h : e.1 = p.1
+    · simp [Option.any, h]
+    · simp [Option.any, h, Ne.symm h]
+
+/-- In `Observation.globCase`, some entry of `uncovered` belongs to its library. -/
+theorem globCase_entry (o : Observation) {p : String × List String} (h : o.globCase = some p) :
+    ∃ e ∈ o.uncovered, e.1 = p.1 := by
+  unfold Observation.globCase at h
+  split at h
+  · rename_i l rs _
+    split at h
+    · rename_i hc
+      simp only [Option.some.injEq] at h
+      subst h
+      have hne : o.leftOut l ≠ [] := by
+        intro h0
+        simp [h0] at hc
+      obtain ⟨m, hm⟩ := List.exists_mem_of_ne_nil _ hne
+      obtain ⟨e, he, -⟩ := List.mem_flatMap.mp hm
+      obtain ⟨he, hel⟩ := List.mem_filter.mp he
+      exact ⟨e, he, by simpa using hel⟩
+    · simp at h
+  · simp at h
+
+/-- After the plan, `init` has no glob left to write. -/
+theorem globCase_run (g : Guidance) (o : Observation) : (run o (plan g o)).globCase = none := by
+  have hf := run_globFacts o (plan g o)
+  have hu := uncovered_run g o
+  rw [plan_libraries] at hf
+  cases hc : o.globCase with
+  | none =>
+    simp only [hc, Option.map_none, Option.toList_none, List.isEmpty_nil, ↓reduceIte,
+      Prod.mk.injEq, Option.any_none, Bool.not_false] at hf hu
+    rw [List.filter_eq_self.mpr fun _ _ => rfl] at hu
+    unfold Observation.globCase Observation.leftOut
+    rw [hf.1, hf.2.1, hf.2.2, hu]
+    exact hc
+  | some p =>
+    simp only [hc, Option.map_some, Option.toList_some, List.isEmpty_cons, Bool.false_eq_true,
+      ↓reduceIte, Prod.mk.injEq] at hf
+    unfold Observation.globCase
+    rw [hf.1]
+
+/-- The coverage issues after the plan are those `init` does not fix: the entries of the library
+of `Observation.globCase` are gone, and every other stays. -/
+theorem coverageIssues_run (g : Guidance) (o : Observation) :
+    coverageIssues (run o (plan g o)) = (coverageIssues o).filter (!·.fixable) := by
+  simp only [coverageIssues, globCase_run, uncovered_run, Option.any_none, Bool.false_eq_true,
+    ↓reduceIte, List.filter_map, Function.comp_def]
+  have hp : ∀ e ∈ o.uncovered, (!(if o.globCase.any (·.1 == e.1) then unglobbedIssue e
+      else uncoveredIssue e).fixable) = !o.globCase.any (·.1 == e.1) := by
+    intro e _
+    split <;> simp_all [unglobbedIssue, uncoveredIssue, Issue.fixable]
+  rw [List.filter_congr hp]
+  apply List.map_congr_left
+  intro e he
+  have := (List.mem_filter.mp he).2
+  simp only [Bool.not_eq_true'] at this
+  simp [this]
 
 /-- After `init` applies its plan, the plan of the result is empty: a second run writes
 nothing. -/
@@ -1689,9 +1354,9 @@ theorem plan_idempotent (g : Guidance) (o : Observation) : plan g (run o (plan g
   have h3 := starter_run g o
   have h4 := guided_run g o
   have h5 := staleSkills_run g o
-  have h6 := unglobbed_run g o
+  have h6 := (globEdits_eq_nil_iff _).mpr (globCase_run g o)
   generalize run o (plan g o) = r at h1 h2 h3 h4 h5 h6
-  simp [plan, guidanceEdits, globEdits, h1, h2, h3, h4, h5, h6]
+  simp [plan, guidanceEdits, h1, h2, h3, h4, h5, h6]
 
 theorem guidanceEdits_eq_nil_iff (g : Guidance) (o : Observation) :
     guidanceEdits g o = [] ↔ o.guided = true := by
@@ -1701,13 +1366,13 @@ theorem guidanceEdits_eq_nil_iff (g : Guidance) (o : Observation) :
 /-- The conditions under which nothing is left for `init` to write. -/
 def Settled (o : Observation) : Prop :=
   o.driver ≠ "" ∧ optionEdits o = [] ∧ o.starter = false ∧ o.guided = true ∧
-    staleSkills o = [] ∧ o.unglobbed = []
+    staleSkills o = [] ∧ o.globCase = none
 
 /-- The plan is empty exactly when the observation is settled. -/
 theorem plan_eq_nil_iff_settled (g : Guidance) (o : Observation) :
     plan g o = [] ↔ Settled o := by
-  unfold plan Settled globEdits
-  rw [← guidanceEdits_eq_nil_iff g o]
+  unfold plan Settled
+  rw [← guidanceEdits_eq_nil_iff g o, ← globEdits_eq_nil_iff o]
   by_cases hd : o.driver = "" <;> cases hf : o.starter <;> simp_all
 
 /-- Every option issue is one `init` writes a fix for. -/
@@ -1775,12 +1440,16 @@ theorem issues_unfixable_iff_settled (o : Observation) :
       intro p hp
       have := h (.skillStale p) (by simp [issues, hp])
       exact Bool.noConfusion this
-    · rw [List.eq_nil_iff_forall_not_mem]
-      intro e he
-      have := h (unglobbedIssue e) (by
-        unfold issues
-        exact List.mem_append_left _ (List.mem_append_right _ (List.mem_map_of_mem he)))
-      exact Bool.noConfusion this
+    · cases hc : o.globCase with
+      | none => rfl
+      | some p =>
+        obtain ⟨e, he, hel⟩ := globCase_entry o hc
+        have hm : unglobbedIssue e ∈ coverageIssues o := by
+          unfold coverageIssues
+          refine List.mem_map.mpr ⟨e, he, ?_⟩
+          simp [hc, Option.any, hel]
+        have := h (unglobbedIssue e) (by unfold issues; exact List.mem_append_right _ hm)
+        exact Bool.noConfusion this
   · rintro ⟨hd, hm, hf, hg, hs, hu⟩ i hi
     have hopt : optionIssues o = [] := (optionIssues_eq_nil_iff o).mpr hm
     have hdrv : ∀ j ∈ driverIssues o, j.fixable = false := by
@@ -1800,11 +1469,12 @@ theorem issues_unfixable_iff_settled (o : Observation) :
         rw [hj]
         rfl
     have htc := toolchainIssues_unfixable o
-    have hun : ∀ j ∈ o.uncovered.map uncoveredIssue, j.fixable = false := by
+    have hun : ∀ j ∈ coverageIssues o, j.fixable = false := by
       intro j hj
+      unfold coverageIssues at hj
       obtain ⟨x, -, rfl⟩ := List.mem_map.mp hj
-      rfl
-    simp only [issues, hopt, hf, hg, hs, hu, Bool.false_eq_true, ↓reduceIte, List.map_nil,
+      simp [hu, uncoveredIssue, Issue.fixable]
+    simp only [issues, hopt, hf, hg, hs, Bool.false_eq_true, ↓reduceIte, List.map_nil,
       List.append_nil, List.mem_append] at hi
     rcases hi with (((hi | hi) | hi) | hi) | hi
     · exact hdrv i hi
@@ -1827,8 +1497,7 @@ theorem issues_run (g : Guidance) (o : Observation) :
   have h3 := starter_run g o
   have h4 := guided_run g o
   have h5 := staleSkills_run g o
-  have h7 := unglobbed_run g o
-  have h8 := uncovered_run g o
+  have h8 := coverageIssues_run g o
   have h6 : toolchainIssues (run o (plan g o)) = toolchainIssues o := by
     unfold toolchainIssues
     rw [run_toolchain o (plan g o)]
@@ -1836,12 +1505,6 @@ theorem issues_run (g : Guidance) (o : Observation) :
   have h10 : arguedIssues (run o (plan g o)) = arguedIssues o := by
     unfold arguedIssues
     rw [argued_run]
-  have hu : (o.uncovered.map uncoveredIssue).filter (!·.fixable) =
-      o.uncovered.map uncoveredIssue := by
-    rw [List.filter_eq_self]
-    intro j hj
-    obtain ⟨x, -, rfl⟩ := List.mem_map.mp hj
-    rfl
   have hs : ((staleSkills o).map Issue.skillStale).filter (!·.fixable) = [] := by
     induction staleSkills o <;> simp_all [Issue.fixable]
   have ht : (toolchainIssues o).filter (!·.fixable) = toolchainIssues o := by
@@ -1859,14 +1522,9 @@ theorem issues_run (g : Guidance) (o : Observation) :
   have hl : (if o.libraries = true then [] else [Issue.noLibrary]).filter (!·.fixable) =
       if o.libraries = true then [] else [Issue.noLibrary] := by
     split <;> rfl
-  have hug : (o.unglobbed.map unglobbedIssue).filter (!·.fixable) = [] := by
-    rw [List.filter_eq_nil_iff]
-    intro j hj
-    obtain ⟨x, -, rfl⟩ := List.mem_map.mp hj
-    simp [unglobbedIssue, Issue.fixable]
-  generalize run o (plan g o) = r at h1 h2 h3 h4 h5 h6 h7 h8 h9 h10
-  simp only [issues, h2, h3, h4, h5, h6, h7, h8, h9, h10, Bool.false_eq_true, ↓reduceIte,
-    List.map_nil, List.append_nil, List.filter_append, hs, ht, hu, hl, hopt, ha, hug]
+  generalize run o (plan g o) = r at h1 h2 h3 h4 h5 h6 h8 h9 h10
+  simp only [issues, h2, h3, h4, h5, h6, h8, h9, h10, Bool.false_eq_true, ↓reduceIte,
+    List.map_nil, List.append_nil, List.filter_append, hs, ht, hl, hopt, ha]
   have hf : (if o.starter = true then [Issue.manifestMissing] else []).filter
       (!·.fixable) = [] := by split <;> rfl
   have hg : (if o.guided = true then []
@@ -2098,10 +1756,11 @@ def Issue.fix (f : Lakefile) : Issue → String
       toolchains `elan toolchain list` names and installs nothing"
   | .uncovered l rs ms => "  fix: include " ++ pronoun ms ++ " in the `globs` of " ++
       f.target false l ++ ", for example with " ++ f.globsCode rs ++ ", or remove the " ++
-      (if ms.length == 1 then "import" else "imports") ++ " (`init` never changes the `globs` a \
-      library sets)"
+      (if ms.length == 1 then "import" else "imports") ++ " (`init` adds a glob only to a package's \
+      only `lean_lib`, declared with no `globs`, when the glob adds just modules that claimed \
+      modules import)"
   | .unglobbed l rs ms => "  fix: " ++ f.globs l rs ++ ", or run `lake exe regula init`, which \
-      adds it because the library sets no `globs`, or remove the " ++
+      adds it, or remove the " ++
       (if ms.length == 1 then "import" else "imports")
 
 /-- The note `doctor` prints, without failing, for one library entry of
