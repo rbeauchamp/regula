@@ -52,8 +52,8 @@ module index is requested, the report records:
 The report additionally carries an execution-coverage account, distinct from
 the logical axiom audit: for every owned executable root (computable,
 non-proposition, safe, non-partial, non-internal definitions and opaque
-constants, including claimed executable `main`s, and the action of each
-initializer that an owned module records) it computes the transitive
+constants, each program entry point `main` with a compiled body, `unsafe` or not, and the
+action of each initializer that an owned module records) it computes the transitive
 conservative closure over value-level dependencies, retained compiler IR,
 constant-equality simplification candidates, historical `@[implemented_by]`
 targets, and partial helpers. `@[extern]` constants are boundary leaves for
@@ -62,7 +62,7 @@ retained compiler edges and records every boundary in this closure:
 compiler simplifications, `@[implemented_by]` replacements, `@[extern]` declarations split into
 toolchain native-runtime primitives and other external code, unsafe/partial/opaque
 computation, and compiler-trusting proof axioms. A replacement, `extern`, or unsafe or partial
-computation declared in an origin-checked `Init`, `Std` or `Lean` module carries that
+computation declared in an origin-checked `Init`, `Std`, `Lean` or `Lake` module carries that
 module's toolchain origin: it is the toolchain's trusted base, and a toolchain replacement is
 followed through its current target without source history or correspondence. An unsafe
 constant whose type Lean's `Meta.isProp` finds to be a proposition, such as `lcProof`, is a
@@ -588,7 +588,7 @@ private def observeNode (env : Environment) (ownedModules : List Name)
   | return note record s!"{name}: module attribution is unavailable"
   let owned := ownedModules.contains moduleName
   -- The admitted origin of the constant's module when it is the toolchain's own compiled
-  -- `Init`, `Std` or `Lean` module. A trusted boundary of an ownable kind there belongs to
+  -- `Init`, `Std`, `Lean` or `Lake` module. A trusted boundary of an ownable kind there belongs to
   -- the toolchain's trusted base; `implemented_by` and `extern` data can only be set in the
   -- declaring module, so the declaration's module decides who owns the boundary.
   let toolchain := toolchainModules.find? moduleName
@@ -816,25 +816,37 @@ private def initializerActions (env : Environment) (modules : List Name) : Array
           actions := actions.push action
   return actions
 
-/-- Owned executable roots: computable, non-proposition, safe, non-partial,
-non-internal definitions and opaque constants whose result is not a `Sort`
-(types are erased before execution, like propositions), and the action of each initializer that
-an owned module records (`initializerActions`), whatever its name, safety or computability: Lean
-runs that action at startup or import, where no other root need reference it. Role metadata never
-removes an otherwise eligible root, including unused tagged declarations. -/
+/-- Owned executable roots: the definitions and opaque constants that
+`RegulaPolicy.ExecutionWalk.RootFacts.root` admits, and the action of each initializer that an
+owned module records (`initializerActions`), whatever its name, safety or computability: Lean
+runs that action at startup or import, where no other root need reference it. A constant is a
+root when it is the program's entry point, whatever its safety, or when it is computable, safe,
+non-partial and non-internal and execution does not erase it (its type is no proposition and its
+result is no `Sort`). Role metadata never removes an otherwise eligible root, including unused
+tagged declarations. Erasure is read only where it decides the answer
+(`RootFacts.root_erased`).
+
+Assumes: Lean 4.34.1 emits the C `main` function of a module from the compiled function body
+named `main` that the module itself holds, whatever the declaration's safety
+(`emitMainFnIfNeeded`, `src/Lean/Compiler/LCNF/EmitC.lean:1084-1092`); an imported module's
+compiled bodies are the ones `Lean.IR.findEnvDecl` returns. -/
 private def executableRoots (env : Environment) (modules : List Name)
     (own : Array (Name × ConstantInfo)) : CommandElabM (Array Name) := do
   let mut roots : Array Name := #[]
   for (name, info) in own do
     match info with
     | .defnInfo _ | .opaqueInfo _ =>
-        if name.isInternal || info.isUnsafe || info.isPartial
-            || Lean.isNoncomputable env name then continue
-        let eligible ← observing env name "executable-root classification" do
-          if ← liftTermElabM <| Meta.isProp info.type then return false
-          return !(← liftTermElabM <| Regula.Collect.returnsSort info.type)
-        if !eligible then continue
-        roots := roots.push name
+        let facts : RegulaPolicy.ExecutionWalk.RootFacts := {
+          entryPoint := name == `main &&
+            (match Lean.IR.findEnvDecl env name with | some (.fdecl ..) => true | _ => false)
+          internal := name.isInternal, isUnsafe := info.isUnsafe, isPartial := info.isPartial
+          isNoncomputable := Lean.isNoncomputable env name, erased := false }
+        let facts ← if facts.entryPoint || !facts.root then pure facts else do
+          let erased ← observing env name "executable-root classification" do
+            if ← liftTermElabM <| Meta.isProp info.type then return true
+            liftTermElabM <| Regula.Collect.returnsSort info.type
+          pure { facts with erased }
+        if facts.root then roots := roots.push name
     | _ => continue
   for action in initializerActions env modules do
     unless roots.contains action do
