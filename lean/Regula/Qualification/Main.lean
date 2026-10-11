@@ -7,6 +7,7 @@ import Regula.Qualification.FrozenExit
 import Regula.Qualification.RuleExamples
 import Regula.Qualification.EnvironmentCensus
 import Regula.Qualification.Acceptance
+import Regula.Qualification.InputInventory
 import Regula.Qualification.ReceiptBoundary
 import Regula.Qualification.Preparation
 import Regula.Qualification.SelfAudit
@@ -78,7 +79,6 @@ unsafe def main (args : List String) : IO UInt32 := do
     return ← Regula.Qualification.ReceiptBoundary.worker args
   match ← IO.getEnv "REGULA_QUALIFICATION_WRAPPER" with
   | some "acceptance" => return ← Regula.Qualification.Acceptance.worker args
-  | some "inventory" => return ← Regula.Qualification.InputInventory.worker args
   | some _ => throw <| IO.userError "unknown qualification wrapper mode"
   | none => pure ()
   match args with

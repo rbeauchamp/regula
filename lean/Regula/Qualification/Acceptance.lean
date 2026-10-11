@@ -1,4 +1,4 @@
-import Regula.Qualification.InputInventory
+import Regula.Qualification.DependencySnapshot
 
 /-! # Acceptance control qualification
 
@@ -8,13 +8,18 @@ completed fence-compilation packets. Project and documentation acceptance run in
 process with no serialized evidence between them, so no project packet exists to
 mutate. IO/process observations remain trusted boundaries. -/
 namespace Regula.Qualification.Acceptance
-open Lean System DependencySnapshot InputInventory
+open Lean System DependencySnapshot
 
 private def array (j : Json) (key : String) : IO (Array Json) := IO.ofExcept
     (j.getObjValAs? (Array Json) key)
 private def first (xs : Array Json) : IO Json := do
   let some x := xs[0]? | throw <| IO.userError "mutation requires a nonempty array"
   return x
+
+/-- Copy the native dispatcher, without generating an interpreter or shell program. -/
+def copyExecutable (source target : FilePath) : IO Unit := do
+  IO.FS.writeBinFile target (← IO.FS.readBinFile source)
+  success (← run (target.parent.getD ".") "chmod" #["755", target.toString])
 
 /-- Test-only native proxy; invoked before the dispatcher's outer deadline wrapper. -/
 def worker (args : List String) : IO UInt32 := do
