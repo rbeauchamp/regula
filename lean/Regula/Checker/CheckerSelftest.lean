@@ -50,7 +50,8 @@ package as the audited project run in copies of the repository (`structuralSelfH
 `structuralSelfHostedPositive`).
 
 The controls of the structural and of the execution partition each carry one of two shards
-(`Shard`); `--shard` runs the controls of one, and the two together run every control once
+(`Shard`), and the lint-driver control groups one of `LintQualification.shards`; `--shard` runs
+the controls of one, and the shards of a partition together run every control once
 (`inShard_cover`).
 
 It is intentionally qualification-only, not an ordinary build.
@@ -146,6 +147,9 @@ private structure Baseline where
   import (`importedFixtures`), and the claimed positive surface there (fixture sources import the
   owned library, e.g. `import AuditApp`). -/
   surface : Bool
+  /-- Modules of the repository's own package that the controls' projects import from its build,
+  which the baseline build names so that no control builds them there. -/
+  modules : List String
 
 /-- Each partition's baseline. The structural and execution controls run their gates in
 projects of their own (the structural project, a copy of the repository, a scratch project),
@@ -156,22 +160,20 @@ in the structural clusters `docFenceAudit` and `freshChecker`. The lint-driver c
 adopters of their own, which import `Regula.Contract` or `Regula.Linter`, and a fresh audit
 builds in a copy of its own. From the repository's build they read `lint`, the driver that Lake
 runs for `lake lint`, `axiomGate`, which that driver and some controls run, `ruleExamples`, whose
-corpus-producer marker one control runs, and the modules the adopters import. That `axiomGate` or
-`lint` imports each of those modules, apart from `Regula.Linter` and `Regula.Linter.Rules`, is a
-reading of import lines. Neither `toolPath` nor
-`baselineOf_axiomGate` covers that reading, and a module missing from this baseline is not absent
-on a clean checkout: the adopters require `regula` as a Lake path dependency of the checkout
+corpus-producer marker one control runs, and the modules the adopters import, so the baseline
+names `Regula.Linter`, which imports `Regula.Linter.Rules`. That `axiomGate` or `lint` imports
+each of the other modules the adopters import, such as `Regula.Contract`, is a reading of import
+lines. Neither `toolPath` nor `baselineOf_axiomGate` covers that reading, and a module missing
+from this baseline is not absent on a clean checkout: the adopters require `regula` as a Lake path
+dependency of the checkout
 (`BuildLintQualification.setup`), so an adopter's Lake builds such a module into the repository's
 build on demand, possibly in several groups at once, instead of a refusal, and no guard detects
-that. `Regula.Linter` and `Regula.Linter.Rules` are built before the concurrent groups only
-because the first control, which runs alone (`LintQualification.qualify`), audits an adopter whose
-`examples/lake-lint-toml/Gadget/Double.lean` imports `Regula.Linter`. The other partitions keep
-the complete baseline. -/
+that. The other partitions keep the complete baseline. -/
 private def Partition.baseline : Partition → Baseline
-  | .structural => ⟨["axiomGate", "docFenceAudit", "freshChecker"], false⟩
-  | .execution => ⟨["axiomGate"], false⟩
-  | .lintDriver => ⟨["axiomGate", "lint", "ruleExamples"], false⟩
-  | .fixtures | .cli | .environments | .buildPolicy => ⟨checkerTools, true⟩
+  | .structural => ⟨["axiomGate", "docFenceAudit", "freshChecker"], false, []⟩
+  | .execution => ⟨["axiomGate"], false, []⟩
+  | .lintDriver => ⟨["axiomGate", "lint", "ruleExamples"], false, ["Regula.Linter"]⟩
+  | .fixtures | .cli | .environments | .buildPolicy => ⟨checkerTools, true, []⟩
 
 /-- Every partition's baseline build names `axiomGate`: the executable that controls of every
 partition run, some by its path in the repository's build instead of through `toolPath`
@@ -194,27 +196,29 @@ private def Shard.label : Shard → String
   | .first => "1/2"
   | .second => "2/2"
 
-/-- The controls a run executes: all of `items`, or those assigned to the selected shard. Each
-item carries its one shard. -/
-private def inShard {α : Type} (shard : Option Shard) (items : List (Shard × α)) :
-    List (Shard × α) :=
-  match shard with
-  | none => items
-  | some selected => items.filter (·.1 == selected)
-
 /-- The two shards of a list of controls are together a rearrangement of the list: every control
-runs in exactly one shard, and the two shards together run what an unsharded run does. This is a
-statement about the selection. That the two shards select from the same list rests on their
-running the same sources, which it does not state. -/
-private theorem inShard_cover {α : Type} (items : List (Shard × α)) :
+runs in exactly one shard, and the two shards together run what an unsharded run does
+(`inShard_cover`). This is a statement about the selection. That the two shards select from the
+same list rests on their running the same sources, which it does not state. -/
+private theorem Shard.cover {α : Type} (items : List (Shard × α)) :
     (inShard (some .first) items ++ inShard (some .second) items).Perm (inShard none items) := by
-  have second : (fun item : Shard × α => item.1 == Shard.second) =
-      fun item => !(item.1 == Shard.first) := by
-    funext item
-    obtain ⟨shard, _⟩ := item
-    cases shard <;> rfl
-  simp only [inShard, second]
-  exact List.filter_append_perm _ _
+  simpa using inShard_cover [Shard.first, .second] (by decide)
+    (fun shard => by cases shard <;> simp) items
+
+/-- The shard of the structural or execution partition that `--shard index/count` selects. -/
+private def Shard.ofSpec? : Nat × Nat → Option Shard
+  | (1, 2) => some .first
+  | (2, 2) => some .second
+  | _ => none
+
+/-- The shard of the lint-driver partition that `--shard index/count` selects: `index` counted
+from 1, of `count`, which must be the partition's number of shards (`LintQualification.shards`). -/
+private def lintShard? : Nat × Nat → Option (Fin LintQualification.shards)
+  | (index + 1, count) =>
+      if bound : count = LintQualification.shards ∧ index < LintQualification.shards then
+        some ⟨index, bound.2⟩
+      else none
+  | _ => none
 
 /-- The baseline of a run of `partition`, of one of its shards when `shard` selects one. The
 first structural shard holds the two self-hosted clusters, which run `axiomGate` alone, and the
@@ -222,7 +226,7 @@ frozen-artifact controls, which run no checker executable. The clusters that run
 and `freshChecker` are in the second, which keeps the partition's baseline. -/
 private def baselineOf (partition : Partition) (shard : Option Shard) : Baseline :=
   match partition, shard with
-  | .structural, some .first => ⟨["axiomGate"], false⟩
+  | .structural, some .first => ⟨["axiomGate"], false, []⟩
   | _, _ => partition.baseline
 
 /-- Every run's baseline build names `axiomGate` (`Partition.baseline_axiomGate`), a shard's
@@ -249,32 +253,40 @@ structure Options where
   buildBound : Bool := false
   /-- `--partition NAME`: run only this build-bound group; requires `--build-bound`. -/
   partition : Option Partition := none
-  /-- `--shard 1/2` or `--shard 2/2`: run only that shard of the selected structural or
-  execution partition. -/
-  shard : Option Shard := none
+  /-- `--shard INDEX/COUNT`: run only that shard of the selected partition, `INDEX` counted from 1:
+  `1/2` or `2/2` of the structural or execution partition (`Shard.ofSpec?`), or one of the
+  `LintQualification.shards` of the lint-driver partition (`lintShard?`). -/
+  shard : Option (Nat × Nat) := none
   /-- `--help` or `-h`: print the usage and exit. -/
   help : Bool := false
 
 private def usage : String :=
   "usage: lake exe checkerSelftest -- [--jobs N] [--structural-only] [--build-bound [--partition \
     fixtures|structural|execution|cli|environments|build-policy|lint-driver \
-    [--shard 1/2|2/2]]]\n" ++
+    [--shard INDEX/COUNT]]]\n" ++
   "--fences-only: focused in-process and public fence qualification, without the full suite\n" ++
   "default tier: every planted-defect verdict in one process plus a real-CLI smoke tier\n" ++
   "--build-bound: additionally run the conditional tier (real-CLI sweep, end-to-end\n" ++
   "fence corpus, external adopters, clean-checkout environment, public controls)\n" ++
   "--partition: run only the named build-bound group; all seven groups are required for full \
     qualification\n" ++
-  "--shard: run only that half of the structural or execution group; both halves are required \
-    for the group"
+  s!"--shard: run only that shard of the group: 1/2 or 2/2 of the structural or execution group, \
+    1/{LintQualification.shards} to {LintQualification.shards}/{LintQualification.shards} of the \
+    lint-driver group; all its shards are required for the group"
 
 private def parseArgs : List String → Options → IO Options
   | [], options => do
       if options.partition.isSome && !options.buildBound then
         throw <| IO.userError "--partition requires --build-bound"
-      if options.shard.isSome && !(options.partition == some .structural ||
-          options.partition == some .execution) then
-        throw <| IO.userError "--shard requires --partition structural or --partition execution"
+      if let some spec := options.shard then
+        let admitted := match options.partition with
+          | some .structural | some .execution => (Shard.ofSpec? spec).isSome
+          | some .lintDriver => (lintShard? spec).isSome
+          | _ => false
+        unless admitted do
+          throw <| IO.userError s!"--shard {spec.1}/{spec.2} requires --partition structural or \
+            --partition execution with 1/2 or 2/2, or --partition lint-driver with INDEX/\
+            {LintQualification.shards}"
       if options.structuralOnly && (options.buildBound || options.partition.isSome) then
         throw <| IO.userError "--structural-only conflicts with --build-bound and --partition"
       return options
@@ -302,9 +314,10 @@ private def parseArgs : List String → Options → IO Options
       parseArgs rest { options with partition := some partition }
   | "--shard" :: value :: rest, options => do
       if options.shard.isSome then throw <| IO.userError "duplicate --shard"
-      let shard ← match value with
-        | "1/2" => pure Shard.first
-        | "2/2" => pure Shard.second
+      let shard ← match value.splitOn "/" with
+        | [index, count] => match index.toNat?, count.toNat? with
+          | some index, some count => pure (index, count)
+          | _, _ => throw <| IO.userError s!"unknown shard: {value}"
         | _ => throw <| IO.userError s!"unknown shard: {value}"
       parseArgs rest { options with shard := some shard }
   | "--help" :: rest, options | "-h" :: rest, options =>
@@ -3315,8 +3328,9 @@ private inductive StructuralGroup where
 
 /-- What a sharded run printed in place of the description of every control of its group: the
 controls it ran, which are not all of the group's. -/
-private def shardDescription (shard : Shard) (names : Array String) : String :=
-  s!" (shard {shard.label}: {", ".intercalate names.toList}; the other shard runs the rest)"
+private def shardDescription (label : String) (others : Nat) (names : Array String) : String :=
+  s!" (shard {label}: {", ".intercalate names.toList}; " ++
+    (if others == 1 then "the other shard runs the rest)" else "the other shards run the rest)")
 
 /-- Structural mutations and manifest controls retain their isolated projects, worker joins,
 and complete failure accumulation. The frozen-artifact controls, the mutation clusters, the
@@ -3379,7 +3393,7 @@ private unsafe def runStructural (layout : SourceLayout) (repo : FilePath) (jobs
         "app missing/trivial/weakened update evidence, missing proof field, weakened admission, " ++
         "fresh coverage, realized and unchecked duplicate copies, restore; " ++
         "isolated projects, bounded parallelism)"
-      | some selected => shardDescription selected
+      | some selected => shardDescription selected.label 1
           ((results.filter (·.1 == StructuralGroup.clusters)).map (·.2.1))
   if ran .cycle then
     IO.println <| "self-test library cycle: " ++ verdict .cycle ++
@@ -3414,7 +3428,7 @@ private unsafe def runExecution (layout : SourceLayout) (repo : FilePath) (jobs 
       s!" ({CompilerPaths.caseCount} compiler-path cases, conditional correspondence, " ++
       "restricted-domain and universe correspondence restorations; positive, mutation and " ++
       "fresh restoration each; isolated projects, bounded parallelism)"
-    | some selected => shardDescription selected names
+    | some selected => shardDescription selected.label 1 names
 
 /-- Public CLI fixtures: the complete sweep for qualification, or the unchanged
 smoke subset for the default development tier. -/
@@ -3493,31 +3507,37 @@ private def runBuildPolicy (repo : FilePath) (jobs : Nat)
 the cold compiler guard of `lakefile.lean`, which refuses an inherited `LEAN_SYSROOT` child
 that fails and one that succeeds without reporting the running compiler's identity, then loads
 the same package again. The shared audit body's detectors are qualified by the build-policy
-partition. -/
+partition. With `shard`, only that shard's control groups run and are named
+(`LintQualification.qualify`). -/
 private def runLintDriver (repo : FilePath) (jobs : Nat)
-    (failures : IO.Ref (Array String)) : IO Unit := do
+    (shard : Option (Fin LintQualification.shards)) (failures : IO.Ref (Array String)) :
+    IO Unit := do
   withScratch repo "checker-lake-lint" fun scratch => do
-    let lint ← loggedPhase "lake lint driver controls" <|
-      LintQualification.qualify repo scratch jobs
+    let (names, lint) ← loggedPhase "lake lint driver controls" <|
+      LintQualification.qualify repo scratch jobs shard
     for failure in lint do failures.modify (·.push failure)
-    IO.println <| "self-test lake lint driver: " ++ (if lint.isEmpty then "PASS" else "FAIL")
+    IO.println <| "self-test lake lint driver: " ++ (if lint.isEmpty then "PASS" else "FAIL") ++
+      match shard with
+      | none => ""
+      | some selected => shardDescription s!"{selected.val + 1}/{LintQualification.shards}"
+          (LintQualification.shards - 1) names
 
 /-- Full and selected runs use the same group implementations. This exhaustive
 match assigns each supported partition exactly one implementation. `fullCli` selects the
 complete CLI sweep of the build-bound tier instead of the default tier's smoke subset, and
-`shard` one shard of the structural or execution partition (`parseArgs` admits it with no
-other). -/
+`shard` one shard of the structural, execution or lint-driver partition (`parseArgs` admits it
+with no other). -/
 private unsafe def runPartition (layout : SourceLayout) (partition : Partition) (repo : FilePath)
-    (jobs : Nat) (fullCli : Bool) (shard : Option Shard)
+    (jobs : Nat) (fullCli : Bool) (shard : Option (Nat × Nat))
     (fixtures : Array FixtureSpec) (failures : IO.Ref (Array String)) : IO Unit :=
   match partition with
   | .fixtures => runFixtures repo jobs fixtures failures
-  | .structural => runStructural layout repo jobs shard failures
-  | .execution => runExecution layout repo jobs shard failures
+  | .structural => runStructural layout repo jobs (shard.bind Shard.ofSpec?) failures
+  | .execution => runExecution layout repo jobs (shard.bind Shard.ofSpec?) failures
   | .cli => runCli repo jobs fullCli fixtures failures
   | .environments => runEnvironments layout repo failures
   | .buildPolicy => runBuildPolicy repo jobs failures
-  | .lintDriver => runLintDriver repo jobs failures
+  | .lintDriver => runLintDriver repo jobs (shard.bind lintShard?) failures
 
 /-- The combined public command must preserve Markdown discovery even in
 subdirectories pruned by the generic project copier. Exercise a fresh positive,
@@ -3689,17 +3709,17 @@ unsafe def run (args : List String) : IO UInt32 := do
       | none => if options.buildBound then Partition.all
           else [.fixtures, .structural, .execution, .cli]
   -- One baseline build pays the prefix of the selected partitions once (`baselineOf`):
-  -- the checker executables their controls run and, where one of them reads it, the fixture
-  -- import anchor, the fixture modules other fixtures import and the claimed positive surface, so
-  -- every later phase sees it built.
+  -- the checker executables their controls run, the modules their projects import from it and,
+  -- where one of them reads it, the fixture import anchor, the fixture modules other fixtures
+  -- import and the claimed positive surface, so every later phase sees it built.
   let surfaceManifest ← parsedManifest (Manifest.defaultPath repo)
-  let baselines := selected.map (baselineOf · options.shard)
+  let baselines := selected.map (baselineOf · (options.shard.bind Shard.ofSpec?))
   let tools := baselineTools baselines
   let fixtureTargets ← if baselines.any (·.surface) then
       pure (((← importedFixtures repo).filter (· != structuralFixture)).push structuralFixture)
     else pure #[]
   let build ← loggedPhase "baseline build" <| runProcess repo "lake"
-    (#["build"] ++ tools.toArray ++
+    (#["build"] ++ tools.toArray ++ (baselines.flatMap (·.modules)).eraseDups.toArray ++
       (if baselines.any (·.surface) then
         fixtureTargets.map (·.toString) ++ Manifest.positiveTargets surfaceManifest
       else #[]))
@@ -3735,7 +3755,8 @@ unsafe def run (args : List String) : IO UInt32 := do
     IO.println <| match options.shard with
       | none => s!"checker self-test partition {partition.label}: PASS \
           ({elapsed / 1000000000}s; this partition alone is not full qualification)"
-      | some shard => s!"checker self-test partition {partition.label} shard {shard.label}: PASS \
+      | some (index, count) => s!"checker self-test partition {partition.label} shard \
+          {index}/{count}: PASS \
           ({elapsed / 1000000000}s; this shard alone is not the partition, and no partition \
           alone is full qualification)"
     return 0

@@ -16,6 +16,11 @@ it starts at low scheduling priority (`Priority`).
 Process effects remain trusted IO under the shell's single 420-second process-group deadline. -/
 namespace RegulaVerification
 
+/-- The number of shards of the self-test's lint-driver partition, which
+`Regula.Checker.LintQualification.shards` states for the self-test. This module imports only the
+toolchain, so it cannot read that; the self-test refuses a shard it does not have. -/
+def lintDriverShards : Nat := 5
+
 /-- Closed vocabulary of supported verification invocations. -/
 inductive Mode where
   /-- No argument: the first acceptance step, which makes a private copy of the project, builds
@@ -57,6 +62,9 @@ inductive Mode where
   | buildPolicy
   /-- `diagnostics lint-driver`: the self-test's `lake lint` driver partition. -/
   | lintDriver
+  /-- `diagnostics lint-driver INDEX/5`: one of the lint-driver partition's shards, `index`
+  counted from 0 and `INDEX` from 1. -/
+  | lintDriverShard (index : Fin lintDriverShards)
   /-- `diagnostics producers`: the producers qualification campaign. -/
   | producers
   /-- `diagnostics history`: the history qualification campaign. -/
@@ -100,6 +108,8 @@ def arguments : Mode → List String
   | .environments => ["diagnostics", "environments"]
   | .buildPolicy => ["diagnostics", "build-policy"]
   | .lintDriver => ["diagnostics", "lint-driver"]
+  | .lintDriverShard index =>
+      ["diagnostics", "lint-driver", s!"{index.val + 1}/{lintDriverShards}"]
   | .producers => ["diagnostics", "producers"]
   | .history => ["diagnostics", "history"]
   | .selfLint => ["diagnostics", "self-lint"]
@@ -115,7 +125,8 @@ def arguments : Mode → List String
 def modes : List Mode := [.ordinary, .docs, .graph, .diagnostics, .fixtures, .structural,
   .execution, .structuralFirst, .structuralSecond, .executionFirst, .executionSecond, .cli,
   .environments, .buildPolicy, .lintDriver, .producers, .history, .selfLint, .selfLintDefault,
-  .selfAudit, .ruleExamples, .ruleExamplesFirst, .ruleExamplesSecond, .site, .mathlib]
+  .selfAudit, .ruleExamples, .ruleExamplesFirst, .ruleExamplesSecond, .site, .mathlib] ++
+  (List.finRange lintDriverShards).map .lintDriverShard
 
 /-- Argument parsing never accepts a prefix of a supported invocation. -/
 def parseMode (args : List String) : Option Mode :=
@@ -129,7 +140,9 @@ theorem parseMode_sound (args : List String) (mode : Mode)
 
 /-- Every documented invocation is accepted; this excludes an always-refusing parser. -/
 theorem parseMode_roundtrip (mode : Mode) : parseMode (arguments mode) = some mode := by
-  cases mode <;> rfl
+  cases mode with
+  | lintDriverShard index => revert index; decide
+  | _ => rfl
 
 /-- Selection carries the argument-binding proof required by the operational caller. -/
 def select (args : List String) : Option {mode : Mode // args = arguments mode} :=
@@ -215,7 +228,7 @@ private def ruleExampleShard (index : Nat) : List Command := [
 
 /-- A checker self-test run with the `checkerSelftest` arguments `selection`. The first command
 builds the self-test together with `axiomGate`, which the baseline build of every partition
-names, and with the further checker executables `tools` of the selection's baseline, so Lake
+names, and with the further targets `tools` of the selection's baseline, so Lake
 schedules the jobs of these builds in one invocation; run one after the other, the gate's own
 modules would start only once the self-test's last module is linked. That command selects
 nothing: the self-test's baseline build still names and builds its targets, finds these built
@@ -223,6 +236,12 @@ and builds any it names that are not here. -/
 private def selftest (selection : Array String) (tools : Array String := #[]) : List Command := [
   lake (#["build", "checkerSelftest", "axiomGate"] ++ tools),
   lake (#["exe", "checkerSelftest", "--build-bound"] ++ selection ++ #["--jobs", "4"])]
+
+/-- The further targets the lint-driver controls read from the repository's build: the `lake lint`
+driver, the `regula` command whose `init` they run, the corpus producer `ruleExamples` whose
+marker one control runs, and the module `Regula.Linter` that their adopters import. -/
+private def lintDriverTargets : Array String :=
+  #["lint", "regula", "ruleExamples", "Regula.Linter"]
 
 /-- The targets of the first acceptance step's build that its gate audits or runs: every target
 the surface manifest `foundation_manifest.json` claims (`prebuildCovers`) and the gate's own
@@ -340,8 +359,12 @@ def commands (copy pending : String) : Mode → List Command
   | .executionFirst => selftest #["--partition", "execution", "--shard", "1/2"]
   | .executionSecond => selftest #["--partition", "execution", "--shard", "2/2"]
   -- The lint-driver controls also run the `lake lint` driver, `regula init` and the corpus
-  -- producer `ruleExamples`, which their baseline names.
-  | .lintDriver => selftest #["--partition", "lint-driver"] #["lint", "regula", "ruleExamples"]
+  -- producer `ruleExamples`, and their adopters import `Regula.Linter`, which their baseline
+  -- names.
+  | .lintDriver => selftest #["--partition", "lint-driver"] lintDriverTargets
+  | .lintDriverShard index =>
+      selftest #["--partition", "lint-driver", "--shard", s!"{index.val + 1}/{lintDriverShards}"]
+        lintDriverTargets
   | mode => selftest (#["--partition"] ++ ((arguments mode).drop 1).toArray)
 
 /-- Every mode schedules actual work rather than accepting an empty campaign. -/
@@ -935,7 +958,8 @@ def report (ends : List (Command × Option UInt32)) : String :=
 private def usage : String :=
   "usage: scripts/verify.sh [docs | serialized-graph | site | mathlib | diagnostics \
     [fixtures|structural [1/2|2/2]|execution [1/2|2/2]|cli|environments|build-policy|\
-    lint-driver|producers|history|self-lint|self-lint-default|self-audit|rule-examples [1/2|2/2]]]"
+    lint-driver [1/5|2/5|3/5|4/5|5/5]|producers|history|self-lint|self-lint-default|self-audit|\
+    rule-examples [1/2|2/2]]]"
 
 /-- The earlier verdicts an attempt of `mode` invalidates, each with the constant text recording
 it as incomplete. Ordinary acceptance invalidates the accepted link, so it is not accepted from
