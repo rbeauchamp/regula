@@ -346,6 +346,33 @@ private def leanAdopter (probes : Std.Mutex Unit) (repo adopter : FilePath) :
       {named.compress}"
   IO.FS.removeFile (adopter / "--json-out")
   IO.FS.removeFile (adopter / "named.json")
+  -- The corpus producer marks the result where the audit's own plan resolved it: from another
+  -- directory, a relative `--json-out` with `--project` is the project's file, and a stale file of
+  -- the same name in the working directory is left as it was.
+  let elsewhere := adopter / "elsewhere"
+  IO.FS.createDirAll elsewhere
+  IO.FS.writeFile (elsewhere / "facts.json") "[]\n"
+  IO.FS.writeFile (elsewhere / "result.json") "{\"status\":\"completed\"}\n"
+  failures := failures ++
+    (← assess { label := "lean/rule-examples-project-marked", exitCode := 0 }
+    (← runProcess elsewhere (repo / ".lake" / "build" / "bin" / "ruleExamples").toString
+      #["--injected-git-facts", "facts.json", "axiomGate", "--project", adopter.toString,
+        "--json-out", "result.json", "--help"]))
+  unless (← IO.FS.readFile (elsewhere / "result.json")) == "{\"status\":\"completed\"}\n" do
+    failures := failures.push "lake-lint/lean/rule-examples-project-marked: the working \
+      directory's result.json was changed"
+  match Json.parse (← IO.FS.readFile (adopter / "result.json")) with
+  | .ok marked =>
+    unless marked.getObjValD "status" == toJson "incomplete" &&
+        marked.getObjValD "gitFacts" == toJson "injected" do
+      failures := failures.push s!"lake-lint/lean/rule-examples-project-marked: the project's \
+        result.json has status {(marked.getObjValD "status").compress} and gitFacts \
+        {(marked.getObjValD "gitFacts").compress}"
+  | .error error =>
+    failures := failures.push s!"lake-lint/lean/rule-examples-project-marked: the project's \
+      result.json: {error}"
+  IO.FS.removeDirAll elsewhere
+  IO.FS.removeFile (adopter / "result.json")
   -- An `input_file` in `needs` keeps the plain shape.
   let notes := adopter / "notes.txt"
   IO.FS.writeFile notes "Widget notes.\n"

@@ -219,10 +219,10 @@ unsafe def main (args : List String) : IO UInt32 := do
       Regula.Checker.Snapshot.injectedGitFacts.set table
       let (code, output) ← match rest with
         | "axiomGate" :: gateArgs =>
-          -- The result the audit writes, from its own one reading of its arguments.
-          pure (← Regula.Checker.AxiomGate.entry gateArgs,
-            ((Regula.Checker.AxiomGate.admit gateArgs).toOption.bind (·.resultOut)).map
-              (·.toString))
+          -- The result destination the audit's own plan resolved and marked, whatever the working
+          -- directory, read after the audit ran.
+          let code ← Regula.Checker.AxiomGate.entry gateArgs
+          pure (code, (← Regula.Checker.AxiomGate.resultTarget.get).map (·.toString))
         | "--injected-git-facts" :: _ =>
           IO.eprintln "rule example production incomplete: repeated injected git facts"
           return productionIncomplete

@@ -18,12 +18,13 @@ The `lint` driver reads the observation back with the audit's exit code and clas
 audit returned (`classify_gateExitCode`). The observation's authenticity, that it is this
 invocation's audit rather than another's, is the driver's binding, checked by inspection.
 
-The driver reads its arguments once (`arguments`, through the shared `tokenize`, which never reads
-an option's value as an option), and takes from that one reading both its options (`parseArgs`)
-and the result destinations it marks incomplete (`resultDestinations`, exactly the parsed
-`--json-out` when they parse: `resultDestinations_of_parse`). Lake prepends the package's
-`lintDriverArgs` to them. Before any write the driver decides what it does (`decision`) from that
-parse and what it observed: an argument refusal is decided from `parseArgs` alone
+The driver reads its arguments once (`read`, through the shared `tokenize`, which never reads an
+option's value as an option) into one `Reading`: its options and the result destinations it marks
+incomplete, exactly the parsed `--json-out` when they parse (`read_destinations`). Lake prepends
+the package's `lintDriverArgs` to them. Before it writes any result destination or audited
+artifact, the driver decides what it does (`decision`) from that reading and what it observed
+(`Observed`, whose load through Lake may write Lake's own configuration trace and compiled
+configuration file): an argument refusal is decided from `parseArgs` alone
 (`decision_of_parse_error`), a run audits the dispatching workspace with the parsed options
 (`decision_run`), and a refusal keeps the configuration class whatever marking then fails
 (`Decision.settled`, `settled_refuse`). `configuredRefusal` is an extra refusal of
@@ -622,10 +623,26 @@ def Arg.destination : Arg Setting → Option String
   | .value .jsonOut path => some path
   | _ => none
 
-/-- The result destinations an invocation names: each `--json-out` value of the driver's one
-reading of its arguments, whether or not they parse. The driver marks each incomplete. -/
-def resultDestinations (args : List String) : List String :=
-  (arguments args).filterMap Arg.destination
+/-- The driver's one reading of the arguments it received. The parse and every result
+destination come from the same `arguments`, and each step of the driver uses this value instead
+of reading the arguments again. -/
+structure Reading where
+  /-- The arguments as received, which `configuredRefusal` compares with the package's
+  `lintDriverArgs`. -/
+  args : List String
+  /-- The options they parse to, or the reason they do not. -/
+  parsed : Except String Options
+  /-- Each `--json-out` value, whether or not the arguments parse. The driver marks each
+  incomplete. -/
+  destinations : List String
+  /-- Whether an argument is `--ordinary-lakefiles`, which the driver reads as unknown. -/
+  ownerArgument : Bool
+
+/-- Read `args` once. -/
+def read (args : List String) : Reading :=
+  let arguments := arguments args
+  { args, parsed := Options.applyAll arguments {}, destinations := arguments.filterMap Arg.destination
+    ownerArgument := arguments.contains (.unknown "--ordinary-lakefiles") }
 
 /-- Applying arguments that apply: no `unknown` argument among them. -/
 private theorem applyAll_known {ts : List (Arg Setting)} {o o' : Options}
@@ -676,12 +693,12 @@ private theorem apply_destination {s s' : Options} {a : Arg Setting} (h : s.appl
     cases k <;> simp only [Options.apply] at h <;> (try split at h) <;>
       simp_all [duplicate, Arg.destination] <;> (subst h; simp_all)
 
-/-- When the arguments parse, the destinations are exactly the parsed `--json-out`. -/
-theorem resultDestinations_of_parse {args : List String} {options : Options}
-    (h : parseArgs args {} = .ok options) : resultDestinations args = options.jsonOut.toList := by
+/-- When the arguments parse, the reading's destinations are exactly the parsed `--json-out`. -/
+theorem read_destinations {args : List String} {options : Options}
+    (h : (read args).parsed = .ok options) : (read args).destinations = options.jsonOut.toList := by
   suffices ∀ (ts : List (Arg Setting)) (s : Options), Options.applyAll ts s = .ok options →
       s.jsonOut.toList ++ ts.filterMap Arg.destination = options.jsonOut.toList by
-    simpa [resultDestinations] using this (arguments args) {} h
+    simpa [read] using this (arguments args) {} h
   intro ts
   induction ts with
   | nil => intro s h; simp only [Options.applyAll, Except.ok.injEq] at h; subst h; simp
@@ -866,7 +883,12 @@ theorem ownerAssertion_eq_true_iff (value : Option String) :
   split <;> simp_all
 
 
-/-- What the driver reads before it decides, all of it without a write. -/
+/-- What the driver reads before it decides. It writes no result destination and no audited
+artifact to read it.
+
+Assumes: loading the workspace to read its `lintDriverArgs` writes only Lake's own configuration
+trace and compiled configuration file. Lake v4.34.1 writes them when the configuration is not up
+to date (`Load/Lean/Elab.lean:244-256` and `:293-296`). -/
 structure Observed where
   /-- The project root of the working directory, which builds the audit worker and is the
   dispatching workspace when `dispatched` holds. -/
@@ -881,7 +903,8 @@ structure Observed where
   /-- The value of `ordinaryLakefilesVariable` in the driver's environment. -/
   owner : Option String
 
-/-- What the driver does, decided before any write. -/
+/-- What the driver does, decided before it writes any result destination or audited
+artifact. -/
 inductive Decision where
   /-- Refuse the invocation with this reason: the configuration class. -/
   | refuse (reason : String)
@@ -896,8 +919,8 @@ inductive Decision where
 
 /-- The reason for an argument refusal, with a note when an argument is the owner's assertion,
 which comes only from the environment. -/
-def argumentRefusal (args : List String) (message : String) : String :=
-  if (arguments args).contains (.unknown "--ordinary-lakefiles") then
+def argumentRefusal (reading : Reading) (message : String) : String :=
+  if reading.ownerArgument then
     s!"{message}; the workspace owner gives that assertion as {ordinaryLakefilesVariable}=1 in \
       the environment of lake lint"
   else message
@@ -912,14 +935,14 @@ def projectRefusal (project dispatching : String) : String :=
   s!"--project {project} is not the project lake lint runs in ({dispatching}); lake lint audits \
     only that project, and `lake exe axiomGate --project DIR` audits another one"
 
-/-- The driver's decision from its one reading of `args` (`parseArgs`) and what it observed, in
+/-- The driver's decision from its one reading of its arguments and what it observed, in
 this order: an argument refusal, `--json-out` or `--verbose` with `--help` or `--explain-config`,
 `--help`, a failed observation, a working directory that is not the dispatching workspace, the
 extra `configuredRefusal`, a `--project` whose root is not the dispatching one, `--explain-config`,
 and an owner's assertion other than `1`. Otherwise it runs. -/
-def decision (args : List String) (observed : Except String Observed) : Decision :=
-  match parseArgs args {} with
-  | .error message => .refuse (argumentRefusal args message)
+def decision (reading : Reading) (observed : Except String Observed) : Decision :=
+  match reading.parsed with
+  | .error message => .refuse (argumentRefusal reading message)
   | .ok options =>
     if (options.help || options.explain) && (options.jsonOut.isSome || options.verbose) then
       .refuse "--json-out and --verbose apply only to an audit"
@@ -928,7 +951,7 @@ def decision (args : List String) (observed : Except String Observed) : Decision
       | .error reason => .incomplete reason
       | .ok seen =>
         if !seen.dispatched then .refuse dispatchRefusal
-        else match configuredRefusal seen.configured args with
+        else match configuredRefusal seen.configured reading.args with
           | some reason => .refuse reason
           | none =>
             match options.project with
@@ -945,18 +968,18 @@ def decision (args : List String) (observed : Except String Observed) : Decision
                 | .error reason => .refuse reason
                 | .ok ordinary => .run options ordinary
 
-/-- An argument refusal is decided from `parseArgs` alone, whatever the driver observed. -/
-theorem decision_of_parse_error {args : List String} {message : String}
-    (h : parseArgs args {} = .error message) (observed : Except String Observed) :
-    decision args observed = .refuse (argumentRefusal args message) := by
+/-- An argument refusal is decided from the parse alone, whatever the driver observed. -/
+theorem decision_of_parse_error {reading : Reading} {message : String}
+    (h : reading.parsed = .error message) (observed : Except String Observed) :
+    decision reading observed = .refuse (argumentRefusal reading message) := by
   simp [decision, h]
 
-/-- A run's options are those of the one reading of the arguments, its result destinations are
-exactly their `--json-out`, its project, when it names one, has the dispatching root, and the
-owner's assertion holds exactly when the variable is `1`. -/
+/-- A run's options are those of the one reading of the arguments `args`, its result
+destinations are exactly their `--json-out`, its project, when it names one, has the dispatching
+root, and the owner's assertion holds exactly when the variable is `1`. -/
 theorem decision_run {args : List String} {seen : Observed} {options : Options}
-    {ordinary : Bool} (h : decision args (.ok seen) = .run options ordinary) :
-    parseArgs args {} = .ok options ∧ resultDestinations args = options.jsonOut.toList ∧
+    {ordinary : Bool} (h : decision (read args) (.ok seen) = .run options ordinary) :
+    (read args).parsed = .ok options ∧ (read args).destinations = options.jsonOut.toList ∧
       (options.project.isSome → seen.named = some seen.dispatching) ∧ seen.dispatched = true ∧
       (ordinary = true ↔ seen.owner = some "1") := by
   unfold decision at h
@@ -984,7 +1007,7 @@ theorem decision_run {args : List String} {seen : Observed} {options : Options}
         · rename_i asserted hasserted
           simp only [Decision.run.injEq] at h
           obtain ⟨rfl, rfl⟩ := h
-          refine ⟨hparsed, resultDestinations_of_parse hparsed, fun _ => hnamed, by simpa using
+          refine ⟨hparsed, read_destinations hparsed, fun _ => hnamed, by simpa using
             hdispatched, ?_⟩
           rw [← ownerAssertion_eq_true_iff]
           cases asserted <;> simp [hasserted]
@@ -997,7 +1020,7 @@ theorem decision_run {args : List String} {seen : Observed} {options : Options}
       · rename_i asserted hasserted
         simp only [Decision.run.injEq] at h
         obtain ⟨rfl, rfl⟩ := h
-        refine ⟨hparsed, resultDestinations_of_parse hparsed, by simp [hproject], by simpa using
+        refine ⟨hparsed, read_destinations hparsed, by simp [hproject], by simpa using
           hdispatched, ?_⟩
         rw [← ownerAssertion_eq_true_iff]
         cases asserted <;> simp [hasserted]
@@ -1026,9 +1049,9 @@ theorem settled_refuse (reason : String) (failed : List String) :
 
 /-- A refused invocation exits with the configuration class, whatever the driver observed and
 whatever marking failed. -/
-theorem settled_of_parse_error {args : List String} {message : String}
-    (h : parseArgs args {} = .error message) (observed : Except String Observed)
-    (failed : List String) : (decision args observed).settled failed = .error .configuration := by
+theorem settled_of_parse_error {reading : Reading} {message : String}
+    (h : reading.parsed = .error message) (observed : Except String Observed)
+    (failed : List String) : (decision reading observed).settled failed = .error .configuration := by
   rw [decision_of_parse_error h]
   rfl
 

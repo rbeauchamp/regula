@@ -14,10 +14,10 @@ project and manifest the audit resolved. `--explain-config` is a read-only accou
 configuration an audit would use; it runs no audit and, like `--help`, exits with the non-success
 configuration class.
 
-The driver reads its arguments once (`parseArgs`), observes without writing, and decides before
-its first write (`decision`); then it marks every result destination of that one reading
-incomplete, each on its own, and a refusal keeps the configuration class whatever marking failed
-(`Decision.settled`). What it audits and where its result goes do not depend on which
+The driver reads its arguments once (`read`), observes, and decides (`decision`) before it
+writes any result destination or audited artifact; then it marks every result destination of that
+one reading incomplete, each on its own, and a refusal keeps the configuration class whatever
+marking failed (`Decision.settled`). What it audits and where its result goes do not depend on which
 configuration Lake loaded, which Lake does not tell the driver. The audited project is always the
 workspace `lake lint` was dispatched from: a `--project` naming another one is refused with the
 configuration class. A relative `--json-out` names a path in that workspace, and the success line
@@ -68,10 +68,10 @@ private def modeText (fresh : Bool) : String :=
   else "incrementalProject (incremental elaboration; current policy on cached modules)"
 
 /-- Read-only: validates the manifest and Lake scope with the audit's own functions and
-prints what an audit would check. It never constructs or reports a result. -/
-private def explain (options : Options) : IO Outcome := do
+prints what an audit of the dispatching root `repo` would check. It never constructs or reports a
+result. -/
+private def explain (repo : FilePath) (options : Options) : IO Outcome := do
   Regula.Checker.initializeLeanSearchPath
-  let repo ← repoRoot
   let manifestPath := match options.manifest with
     | some path => if (FilePath.mk path).isAbsolute then FilePath.mk path else repo / path
     | none => Manifest.defaultPath repo
@@ -113,11 +113,13 @@ under `.lake/packages`, any custom `packagesDir` or the root, so it resolves `re
 same package, dependencies and toolchain, and its `regula/axiomGate` is `workerBinary`. -/
 def workerTarget : String := "regula/axiomGate"
 
-/-- What the driver reads before it decides (`Observed`), without a write. The working directory's
-workspace (`repoRoot`, which builds the worker and is the audited project) is the dispatching one
-when the `LEAN_PATH` the driver received is that workspace's own: Lake v4.34.0 runs the driver
-without changing its working directory, so `lake -d DIR lint` from another project would otherwise
-build and audit that project. `Package.lint` spawns it through `env` with
+/-- What the driver reads before it decides (`Observed`), from the working directory's project
+root `dispatching`; it writes no result destination and no audited artifact, and Lake's loader may
+write its own configuration trace and compiled configuration file (the assumption of `Observed`).
+That workspace (`repoRoot`, which builds the worker and is the audited project) is the
+dispatching one when the `LEAN_PATH` the driver received is that workspace's own: Lake v4.34.0
+runs the driver without changing its working directory, so `lake -d DIR lint` from another
+project would otherwise build and audit that project. `Package.lint` spawns it through `env` with
 `Workspace.augmentedEnvVars`: `LEAN_PATH` is the dispatching workspace's `leanPath`, then the
 library directory of the toolchain-collocated Lake (`LakeInstall.ofLean`, so
 `LEAN_SYSROOT/lib/lean`), then any inherited `LEAN_PATH`. `dispatchedFrom_iff` shows the check
@@ -125,8 +127,7 @@ holds exactly when the working-directory workspace, loaded by the same Lake, has
 library directories, whatever was inherited. Any other Lake layout, or a driver run outside Lake,
 fails the check. It also reads the `lintDriverArgs` of that workspace's default configuration,
 the project root of `project` (the parsed `--project`), and the owner's assertion. -/
-private def observe (project : Option String) : IO Observed := do
-  let dispatching ← repoRoot
+private def observe (dispatching : FilePath) (project : Option String) : IO Observed := do
   let sysroot ← IO.getEnv "LEAN_SYSROOT"
   let received := (((← IO.getEnv "LEAN_PATH").map SearchPath.parse).getD []).map toString
   let (workspace, configured) ← Workspace.withRootWorkspace dispatching fun ws =>
@@ -150,15 +151,20 @@ workspace `root`. -/
 private def inWorkspace (root : FilePath) (path : String) : FilePath :=
   if (FilePath.mk path).isAbsolute then path else root / path
 
-/-- Mark each of `destinations` incomplete where the audit would write it, one at a time, and
-return a line for each that could not be marked, so one failure leaves no other unmarked. A
-relative destination needs the working directory's project root. -/
-private def markIncomplete (destinations : List String) : IO (List String) := do
-  let root ← repoRoot.toBaseIO
+/-- Each destination of a reading, resolved where the audit writes it: a relative one in the
+working directory's project root `root`, which it needs. -/
+private def targets (reading : Reading) (root : Except IO.Error FilePath) :
+    List (String × Except IO.Error FilePath) :=
+  reading.destinations.eraseDups.map fun path =>
+    (path, if (FilePath.mk path).isAbsolute then .ok (FilePath.mk path)
+      else root.map (inWorkspace · path))
+
+/-- Mark each resolved destination incomplete, one at a time, and return a line for each that
+could not be marked, so one failure leaves no other unmarked. -/
+private def markIncomplete (targets : List (String × Except IO.Error FilePath)) :
+    IO (List String) := do
   let mut failed := []
-  for path in destinations.eraseDups do
-    let target := if (FilePath.mk path).isAbsolute then .ok (FilePath.mk path)
-      else root.map (inWorkspace · path)
+  for (path, target) in targets do
     let marked ← match target with
       | .ok target => (AxiomGate.invalidateResult target).toBaseIO
       | .error error => pure (.error error)
@@ -166,15 +172,20 @@ private def markIncomplete (destinations : List String) : IO (List String) := do
   return failed
 
 /-- Every path but the audit's `classify` returns a non-accepted class. The driver reads its
-arguments once (`parseArgs`), observes without writing (`observe`), and decides (`decision`)
-before its first write. Then it marks every result destination of that one reading incomplete
-(`resultDestinations`), refused or not, and settles the exit class from the decision and the
-marks that failed (`Decision.settled`): a refusal keeps the configuration class whatever failed.
--/
+arguments once (`read`) and finds the working directory's project root once; observation
+(`observe`), decision (`decision`), marking and the run all use that reading and that root. It
+decides before it writes any result destination or audited artifact. Then it marks every result
+destination of the reading incomplete, refused or not, and settles the exit class from the
+decision and the marks that failed (`Decision.settled`): a refusal keeps the configuration class
+whatever failed. -/
 private unsafe def lint (args : List String) : IO Outcome := do
-  let observed ← (observe ((parseArgs args {}).toOption.bind (·.project))).toBaseIO
-  let decided := decision args (observed.mapError toString)
-  let failed ← markIncomplete (resultDestinations args)
+  let reading := read args
+  let root ← repoRoot.toBaseIO
+  let observed ← (do
+    observe (← IO.ofExcept root) (reading.parsed.toOption.bind (·.project))).toBaseIO
+  let decided := decision reading (observed.mapError toString)
+  let resolved := targets reading root
+  let failed ← markIncomplete resolved
   for line in failed do
     IO.eprintln s!"regula lint: could not mark the result destination {line} incomplete"
   match decided.settled failed with
@@ -189,9 +200,9 @@ private unsafe def lint (args : List String) : IO Outcome := do
       IO.eprintln s!"regula lint: {outcome.label}: a result destination could not be marked \
         incomplete"
     return outcome
-  | .ok (.explain options) => explain options
+  | .ok (.explain options) => explain (← IO.ofExcept root) options
   | .ok (.run options ordinary) =>
-    let dispatching ← repoRoot
+    let dispatching ← IO.ofExcept root
     IO.println
         s!"regula lint: enforcing all manifested Lake surfaces; mode {modeText options.fresh}\
           {if ordinary then ownerAssertionNote else ""}"
@@ -215,9 +226,10 @@ private unsafe def lint (args : List String) : IO Outcome := do
         is not built"
     AxiomGate.claimedBuild.set (Lake.buildAuditTargets ordinary)
     AxiomGate.ordinaryLakefiles.set ordinary
-    -- The destination invalidated above: a relative path is resolved in the dispatching workspace.
-    let jsonOut := options.jsonOut.map fun path => (inWorkspace dispatching path).toString
-    let code ← AxiomGate.entry (gateArgs { options with jsonOut })
+    -- The destination marked above, where it was resolved: the run's destinations are exactly
+    -- its `--json-out` (`decision_run`), and each was marked (`settled_run`).
+    let jsonOut ← resolved.head?.mapM fun (_, target) => IO.ofExcept target
+    let code ← AxiomGate.entry (gateArgs { options with jsonOut := jsonOut.map toString })
     let observed ← AxiomGate.terminalObservation.get
     let audited ← AxiomGate.auditedTarget.get
     let outcome := classify (requestedMode options.fresh) code observed

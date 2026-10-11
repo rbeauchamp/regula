@@ -155,9 +155,10 @@ repository's build they read only the executables they run: `axiomGate` in both 
 in the structural clusters `docFenceAudit` and `freshChecker`. The lint-driver controls run
 adopters of their own, which import `Regula.Contract` or `Regula.Linter`, and a fresh audit
 builds in a copy of its own. From the repository's build they read `lint`, the driver that Lake
-runs for `lake lint`, `axiomGate`, which that driver and some controls run, and the modules the
-adopters import. That `axiomGate` or `lint` imports each of those modules, apart from
-`Regula.Linter` and `Regula.Linter.Rules`, is a reading of import lines. Neither `toolPath` nor
+runs for `lake lint`, `axiomGate`, which that driver and some controls run, `ruleExamples`, whose
+corpus-producer marker one control runs, and the modules the adopters import. That `axiomGate` or
+`lint` imports each of those modules, apart from `Regula.Linter` and `Regula.Linter.Rules`, is a
+reading of import lines. Neither `toolPath` nor
 `baselineOf_axiomGate` covers that reading, and a module missing from this baseline is not absent
 on a clean checkout: the adopters require `regula` as a Lake path dependency of the checkout
 (`BuildLintQualification.setup`), so an adopter's Lake builds such a module into the repository's
@@ -169,7 +170,7 @@ the complete baseline. -/
 private def Partition.baseline : Partition → Baseline
   | .structural => ⟨["axiomGate", "docFenceAudit", "freshChecker"], false⟩
   | .execution => ⟨["axiomGate"], false⟩
-  | .lintDriver => ⟨["axiomGate", "lint"], false⟩
+  | .lintDriver => ⟨["axiomGate", "lint", "ruleExamples"], false⟩
   | .fixtures | .cli | .environments | .buildPolicy => ⟨checkerTools, true⟩
 
 /-- Every partition's baseline build names `axiomGate`: the executable that controls of every

@@ -129,16 +129,16 @@ private def parseArgs : List (Lint.Arg Setting) → Options → Except String Op
   | .unknown argument :: _, _ => .error s!"unknown or incomplete argument: {argument}"
   | .value _ _ :: _, _ | .flag _ :: _, _ => .error "unknown or incomplete argument"
 
-/-- Every `--json-out` destination of the one reading of `args`, whether or not they parse. -/
-private def destinations (args : List String) : List FilePath :=
-  (arguments args).filterMap fun
+/-- Every `--json-out` destination of a reading, whether or not it parses. -/
+private def destinations (read : List (Lint.Arg Setting)) : List FilePath :=
+  read.filterMap fun
     | .value .jsonOut path => some (FilePath.mk path)
     | _ => none
 
-/-- The project root of the one reading's last `--project`, as `parseArgs` keeps it, or of the
-working directory: `run` resolves a relative destination against it. -/
-private def readRoot (args : List String) : IO FilePath :=
-  match ((arguments args).filterMap fun | .value .project dir => some dir | _ => none).getLast? with
+/-- The project root of a reading's last `--project`, as `parseArgs` keeps it, or of the working
+directory: `run` resolves a relative destination against it and audits it. -/
+private def rootOf (read : List (Lint.Arg Setting)) : IO FilePath :=
+  match (read.filterMap fun | .value .project dir => some dir | _ => none).getLast? with
   | some dir => findRepoRoot dir
   | none => repoRoot
 
@@ -314,17 +314,20 @@ parse; otherwise it builds the plan, and unless `--plan-only` builds the positiv
 through `RegulaPolicy.finalize`, then writes the JSON result when requested. Returns `1` when the
 build or a check fails and `0` otherwise. -/
 unsafe def run (args : List String) : IO UInt32 := do
-  let parsed := parseArgs (arguments args) {}
+  let read := arguments args
+  let parsed := parseArgs read {}
+  let root ← (rootOf read).toBaseIO
+  -- Each destination of the one reading, resolved against the one root.
+  let targets := (destinations read).eraseDups.map fun path =>
+    (path, if path.isAbsolute then .ok path else root.map (resolve · path))
   let invalidate (path : FilePath) :=
     writeJson path (Json.mkObj [("mode", .str "serializedGraph"),
       ("status", .str "incomplete"), ("unresolved", toJson #["graph audit has not completed"])])
-  -- Absolute destinations do not need valid project discovery. Relative ones keep the public
+  -- An absolute destination does not need project discovery; a relative one keeps the public
   -- repo-root meaning. Each is marked on its own, so one failure leaves no other unmarked.
-  let marked := (destinations args).eraseDups
-  let root ← if marked.all (·.isAbsolute) then pure (.ok ".") else (readRoot args).toBaseIO
   let mut failed := #[]
-  for path in marked do
-    let result ← match (if path.isAbsolute then .ok path else root.map (resolve · path)) with
+  for (path, target) in targets do
+    let result ← match target with
       | .ok target => (invalidate target).toBaseIO
       | .error error => pure (.error error)
     if let .error error := result then failed := failed.push s!"{path}: {error}"
@@ -332,9 +335,7 @@ unsafe def run (args : List String) : IO UInt32 := do
   unless failed.isEmpty do
     throw <| IO.userError s!"could not mark incomplete: {"; ".intercalate failed.toList}"
   if options.help then IO.println usage; return 0
-  let repo ← match options.project with
-    | some dir => findRepoRoot dir
-    | none => repoRoot
+  let repo ← IO.ofExcept root
   let manifestPath := options.manifest.map (resolve repo) |>.getD (Manifest.defaultPath repo)
   let configuration ← SourceBinding.configuration repo manifestPath
   let inventory ← Lake.surfaceInventory repo
@@ -377,7 +378,10 @@ unsafe def run (args : List String) : IO UInt32 := do
           "acceptance" (ResultProtocol.acceptedJson receipt)
       | none =>
           value.setObjVal! "status" (.str (if options.planOnly then "planned" else "incomplete"))
-    writeJson (resolve repo path) value
+    -- The last destination of the reading, as `parseArgs` keeps it, where it was marked.
+    match targets.find? (·.1 == path) with
+    | some (_, target) => writeJson (← IO.ofExcept target) value
+    | none => throw <| IO.userError s!"{path} was not marked incomplete"
   IO.println
       s!"Lake modules: {plan.modules.size}   fresh roots: {", ".intercalate plan.roots.toList}"
   if !failures.isEmpty then

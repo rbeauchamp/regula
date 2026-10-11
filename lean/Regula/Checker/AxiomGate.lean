@@ -155,8 +155,8 @@ def Setting.ofSpelling (argument : String) : Option (Setting × Bool) :=
     (setting, setting.takesValue)
 
 /-- `axiomGate`'s one reading of its arguments (`Lint.tokenize`): an option's value is never read
-as an option, and both the options (`admit`) and every destination the audit writes
-(`destinations`) come from it. -/
+as an option. `Plan.of` reads it one time, and the options (`admit`), the project root and every
+destination the audit writes (`destinations`) come from that one reading. -/
 def arguments (args : List String) : List (Lint.Arg Setting) :=
   Lint.tokenize Setting.ofSpelling args
 
@@ -209,6 +209,12 @@ admitted (`none` until then): the root of `--project` or of the working director
 reads the default manifest from its isolated copy of that root, and an explicit `--manifest` at
 that resolved path. `lint` names them in its success line. -/
 initialize auditedTarget : IO.Ref (Option (FilePath × FilePath)) ← IO.mkRef none
+
+/-- The result destination of the current invocation's plan (`Plan.target`), resolved and marked
+incomplete, set when the plan is read, whether or not the invocation is admitted (`none` until then,
+when it names none, or when it did not resolve). `ruleExamples` marks its injected result there.
+-/
+initialize resultTarget : IO.Ref (Option FilePath) ← IO.mkRef none
 
 /-- The stages the current invocation performs, set when its options are admitted; until then
 every stage, so no result claims a stage it never started. -/
@@ -1571,17 +1577,17 @@ inductive Destination where
   | acceptanceLink
   deriving BEq, DecidableEq
 
-/-- Each output destination of `axiomGate`'s one reading of `args`, with its kind, in order,
-whether or not the arguments are admitted. -/
-def destinations (args : List String) : List (Destination × FilePath) :=
-  (arguments args).filterMap fun
+/-- Each output destination a reading (`arguments`) names, with its kind, in order, whether or not
+its arguments are admitted. -/
+def destinations (read : List (Lint.Arg Setting)) : List (Destination × FilePath) :=
+  read.filterMap fun
     | .value .jsonOut path => some (.result, FilePath.mk path)
     | .value .acceptanceLink path => some (.acceptanceLink, FilePath.mk path)
     | _ => none
 
-/-- The first destination of `kind` that `args` name. -/
-def destinationOf (kind : Destination) (args : List String) : Option FilePath :=
-  ((destinations args).find? (decide <| ·.1 = kind)).map (·.2)
+/-- The first destination of `kind` in `named`. -/
+def destinationOf (kind : Destination) (named : List (Destination × FilePath)) : Option FilePath :=
+  ((named.find? (decide <| ·.1 = kind))).map (·.2)
 
 /-- The option that `read` gives a value more than once, if any. -/
 private def duplicated (read : List (Lint.Arg Setting)) : Option Setting :=
@@ -1615,45 +1621,23 @@ private def combinationRefusal (options : Options) : Option String :=
     some "--kernel-types applies only to --json-out"
   else none
 
-/-- The options of an audit invocation, from its one reading (`arguments`): without an option
-given a value twice, each argument applied, its result and acceptance-link destinations those of
-`destinations`, and in a combination the usage text allows; otherwise the reason for refusing it.
--/
-def admit (args : List String) : Except String Options :=
-  match duplicated (arguments args) with
+/-- The options of an audit invocation, from its one reading `read` (`arguments`): without an
+option given a value twice, each argument applied, its result and acceptance-link destinations the
+first of each kind in `destinations`, and in a combination the usage text allows; otherwise the
+reason for refusing it. -/
+def admit (read : List (Lint.Arg Setting)) : Except String Options :=
+  match duplicated read with
   | some setting => .error s!"duplicate {setting.spelling} option"
-  | none => match Options.applyAll (arguments args) {} with
+  | none => match Options.applyAll read {} with
     | .error reason => .error reason
     | .ok options =>
+      let named := destinations read
       let options := { options with
-        resultOut := destinationOf .result args
-        acceptanceLink := destinationOf .acceptanceLink args }
+        resultOut := destinationOf .result named
+        acceptanceLink := destinationOf .acceptanceLink named }
       match combinationRefusal options with
       | some reason => .error reason
       | none => .ok options
-
-/-- An admitted invocation writes its result document and acceptance link only where its one
-reading of the arguments names them: each is a member of `destinations`. -/
-theorem admit_destinations {args : List String} {options : Options}
-    (h : admit args = .ok options) :
-    (∀ path, options.resultOut = some path → (Destination.result, path) ∈ destinations args) ∧
-    (∀ path, options.acceptanceLink = some path →
-      (Destination.acceptanceLink, path) ∈ destinations args) := by
-  unfold admit at h
-  split at h
-  · simp at h
-  · split at h
-    · simp at h
-    · dsimp only at h
-      split at h
-      · simp at h
-      · simp only [Except.ok.injEq] at h
-        subst h
-        constructor <;> intro path hpath <;>
-          simp only [destinationOf, Option.map_eq_some_iff] at hpath <;>
-          obtain ⟨⟨kind, found⟩, hfind, rfl⟩ := hpath <;>
-          have hkind := List.find?_some hfind <;> have hmem := List.mem_of_find?_eq_some hfind <;>
-          simp_all
 
 /-- Mark the result document at `path` incomplete, so an earlier completed result there cannot be
 mistaken for the current attempt's. -/
@@ -1665,23 +1649,46 @@ def invalidateResult (path : FilePath) : IO Unit :=
     ResultProtocol.sourceTextsField] ++
     ResultProtocol.guidanceFields false ResultProtocol.allStages [] []))
 
-/-- The project root an invocation's one reading names: that of its `--project`, or of the working
-directory. The audit resolves a relative destination against it, as `run` does. -/
-private def readRoot (args : List String) : IO FilePath :=
-  match (arguments args).filterMap (fun | .value .project dir => some dir | _ => none) with
+/-- The project root a reading names: that of its one `--project`, or of the working directory.
+-/
+private def rootOf (read : List (Lint.Arg Setting)) : IO FilePath :=
+  match read.filterMap (fun | .value .project dir => some dir | _ => none) with
   | [dir] => findRepoRoot dir
   | [] => repoRoot
   | _ => throw <| IO.userError "duplicate --project option"
 
-/-- Mark each destination of the one reading of `args` (`destinations`) incomplete, each on its
-own, whether or not the invocation is admitted, so an earlier completed result cannot be mistaken
-for this attempt's; return a line for each that could not be marked. -/
-private def markIncomplete (args : List String) : IO (List String) := do
-  let marked := (destinations args).eraseDups
-  let root ← if marked.all (·.2.isAbsolute) then pure (.ok ".") else (readRoot args).toBaseIO
+/-- An invocation's plan, from its one reading of its arguments (`arguments`): its options or the
+reason for refusing them (`admit`), the project root that reading names, and each destination it
+names (`destinations`) resolved against that root. The marking, the audit's writes and the
+`ruleExamples` marker all take their destinations from this one value. -/
+structure Plan where
+  /-- The options, or the reason for refusing the invocation. -/
+  admitted : Except String Options
+  /-- The project root of the reading's `--project`, or of the working directory. -/
+  root : Except IO.Error FilePath
+  /-- Each destination named, without repeats: its kind, as given, and resolved against `root`
+  when relative. -/
+  targets : List (Destination × FilePath × Except IO.Error FilePath)
+
+/-- The plan of `args`, read once. -/
+def Plan.of (args : List String) : BaseIO Plan := do
+  let read := arguments args
+  let root ← (rootOf read).toBaseIO
+  return { admitted := admit read, root,
+           targets := (destinations read).eraseDups.map fun (kind, path) =>
+             (kind, path, if path.isAbsolute then .ok path else root.map (resolve · path)) }
+
+/-- The resolved destination of `kind` the plan writes: the first that the reading names, as
+`admit` takes it. -/
+def Plan.target (plan : Plan) (kind : Destination) : Option (Except IO.Error FilePath) :=
+  (plan.targets.find? (decide <| ·.1 = kind)).map (·.2.2)
+
+/-- Mark each resolved destination of `plan` incomplete, each on its own, whether or not the
+invocation is admitted, so an earlier completed result cannot be mistaken for this attempt's;
+return a line for each that could not be marked. -/
+private def markIncomplete (plan : Plan) : IO (List String) := do
   let mut failed := []
-  for (kind, path) in marked do
-    let target := if path.isAbsolute then .ok path else root.map (resolve · path)
+  for (kind, path, target) in plan.targets do
     let result ← match target with
       | .ok target => (if kind == .acceptanceLink then AcceptanceLink.invalidate target
           else invalidateResult target).toBaseIO
@@ -1698,16 +1705,18 @@ private def refuseInvocation (message : String) : IO UInt32 := do
 
 /-- Run one `axiomGate` invocation and return its exit code. The internal forms
 `--validate-site`, `--registry-out`, `--validate-registry` and `--replacement-history-worker`
-do only that job; otherwise it reads its arguments once (`arguments`), decides whether to admit
-them (`admit`), marks every destination of that reading incomplete, refuses an invalid invocation
-whatever marking failed, audits the single file or the manifested project surfaces, and
-writes the result JSON and the acceptance link that were requested. An audit returns the exit code
+do only that job; otherwise it reads its arguments once into its plan (`Plan.of`): whether to
+admit them (`admit`), its root and its resolved destinations. It marks each destination
+incomplete, refuses an invalid invocation whatever marking failed, audits the single file or the
+manifested project surfaces under that root, and writes the result JSON and the acceptance link
+at those resolved destinations. An audit returns the exit code
 of the result it recorded (`Lint.gateExitCode`): 0 accepted or classified, 1 violation, 2 invalid
 configuration, 3 incomplete; an invalid invocation returns 2, and `--help` and the internal forms
 0 when they succeed. -/
 unsafe def run (args : List String) : IO UInt32 := do
   terminalObservation.set none
   auditedTarget.set none
+  resultTarget.set none
   RunFeedback.reset
   expectedStages.set ResultProtocol.allStages
   if let ["--validate-site", registryPath, artifactPath] := args then
@@ -1788,13 +1797,14 @@ unsafe def run (args : List String) : IO UInt32 := do
         (workerPacket (sourceWorkerRequest "history" moduleName source transcript.sourceContent)
       (toJson transcript.runtimeReplacements))
     return 0
-  -- Decide before the first write, then mark every destination of the one reading incomplete,
+  -- Decide before the first write, then mark every destination of the one plan incomplete,
   -- admitted or not: a refused invocation keeps its class whatever marking failed.
-  let admitted := admit args
-  let failed ← markIncomplete args
+  let plan ← Plan.of args
+  resultTarget.set ((plan.target .result).bind (·.toOption))
+  let failed ← markIncomplete plan
   for line in failed do
     IO.eprintln s!"axiom gate: could not mark the destination {line} incomplete"
-  let options ← match admitted with
+  let options ← match plan.admitted with
     | .error reason => return ← refuseInvocation reason
     | .ok options => pure options
   unless failed.isEmpty do
@@ -1802,13 +1812,12 @@ unsafe def run (args : List String) : IO UInt32 := do
   if options.help then IO.println usage; return 0
   if options.verbose then timing.set true
   kernelTypes.set options.kernelTypes
-  let repo ← match options.project with
-    | some dir => findRepoRoot dir
-    | none => repoRoot
-  let resultOut := options.resultOut.map (resolve repo)
+  -- The root and destinations the plan resolved and marked.
+  let repo ← IO.ofExcept plan.root
+  let resultOut ← (plan.target .result).mapM IO.ofExcept
   let manifestPath := (options.manifest.map (resolve repo)).getD (Manifest.defaultPath repo)
   auditedTarget.set (some (repo, manifestPath))
-  let acceptanceLink := options.acceptanceLink.map (resolve repo)
+  let acceptanceLink ← (plan.target .acceptanceLink).mapM IO.ofExcept
   if let some path := acceptanceLink then AcceptanceLink.invalidate path
   let mode : Regula.EvidenceMode := if options.file.isSome then .freshFile
     else if options.incremental then .incrementalProject else .freshProject
