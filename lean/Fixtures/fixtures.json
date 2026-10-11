@@ -124,7 +124,6 @@
    "contract-evidence=equivalence decided=even linked uncurries=0 facts=[sound: ∀ (x : Nat), even x = true → x % 2 = 0; complete: ∀ (x : Nat), x % 2 = 0 → even x = true]",
    "contract-evidence=equivalence decided=Function.uncurry within linked uncurries=1 facts=[sound: ∀ (x : Nat × Nat), Function.uncurry within x = true → x.snd < x.fst; complete: ∀ (x : Nat × Nat), x.snd < x.fst → Function.uncurry within x = true]",
    "contract-evidence=sound decided=smallEven linked uncurries=0 facts=[sound: ∀ (x : Nat), smallEven x = true → x % 2 = 0; accepted: ∃ x, smallEven x = true; satisfiable: ∃ x, x % 2 = 0]",
-   "implementation even; linked: the decided function is the implementation itself; laws: sound: ∀ (x : Nat), even x = true → x % 2 = 0; complete: ∀ (x : Nat), x % 2 = 0 → even x = true; outcomes: none established by this carrier",
    "unsupported: the function is not a constant under `Function.uncurry`",
    "contract-evidence=equivalence decided=evenCopy mismatch: the function is `evenCopy`, not the implementation `even`"
   ]
