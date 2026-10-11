@@ -1209,9 +1209,12 @@ def guide : RuleId → Guide
           an error. Any warning fails, including when the source sets `warningAsError` to false \
           locally (for a single-file audit, when any `--claim` is requested). Lake gives each \
           message the level of its Lean severity, so an information message never fails the \
-          build, whatever its text. Lake logs output of the compiler that is not a Lean message \
-          as information, so the build also fails when a claimed module's trace holds such an \
-          entry, which can be a warning whose line other output corrupted. A single-file audit \
+          build, whatever its text. Lake logs standard output of the compiler that is not a \
+          Lean message as information, so the build also fails when a job it requires logs \
+          such an entry, which can be a warning whose line other output corrupted. Lake logs \
+          other programs' standard output in the same form, so that output fails the build too. \
+          A module whose source path, as Lake names it in messages, has a line break fails the \
+          build, since its messages could not be told from such output. A single-file audit \
           compiles the file with `lean --json` and reads each message's severity in the same \
           way; output that is not a Lean message counts as an error. The original compiler \
           message is preserved in the finding.",
@@ -1278,13 +1281,13 @@ def guide : RuleId → Guide
       checklist := ["DECL-01", "BUILD-01", "DOC-01"]
       linkage := "Acceptance side only: an accepted run satisfies `RegulaPolicy.BuildOK`. A \
         warning-checked Lake build's observation satisfies it exactly when the build exited 0 \
-        and no claimed module's trace holds an entry that Lake made from compiler output that \
-        is not a Lean message (`Acceptance.buildObservation_ok_iff`, \
-        `Workspace.unparsedCompilerOutput`, whose forms of such an entry are read from Lake's \
-        source); that Lake fails a build whose required job logs \
-        an entry at its failure level, and gives a message the level of its severity, is read \
-        from Lake's source. A single-file compilation's diagnostics are read from message \
-        severities: an information message adds none, a warning message adds a warning, and \
+        and no required job (`Lake.observedFetch`) logged an entry that \
+        `Workspace.unparsedCompilerOutput` selects (`Acceptance.buildObservation_ok_iff`). \
+        Lake's entry for a Lean message whose file name has no line break is never selected \
+        (`unparsedCompilerOutput_ofSerialMessage`); `lineBreakSourcePaths` fails the others. \
+        That Lake fails a build whose required job logs an entry at its failure level, and \
+        the forms of its entries, are read from Lake's source. A single-file compilation's \
+        diagnostics are read from message severities: an information message adds none, a warning message adds a warning, and \
         output that is not a message adds an error (`SourceAudit.diagnose_information`, \
         `diagnose_warning`, `diagnose_other`), and it passes exactly when the compiler exited 0 \
         with no error and, where warnings are refused, no warning \

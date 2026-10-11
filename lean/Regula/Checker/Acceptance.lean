@@ -82,12 +82,15 @@ def buildObservation (build : Lake.CheckedBuild) : BuildObservation :=
   else ⟨build.process.exitCode.toNat, warningLines build.process.output,
     errorLines build.process.output ++ build.unparsed⟩
 
-/-- A warning-checked build's observation is accepted exactly when the build exited 0 and no
-claimed module's trace holds an entry from compiler output that is not a Lean message, whatever
-its output says. -/
+/-- A warning-checked build's observation is accepted exactly when the build exited 0 and no job
+that Lake's build monitor judged and that is not optional logged an entry Lake can have made from
+compiler output that is not a Lean message, whatever its output says. That `build.jobs` holds the
+logs of exactly the jobs Lake's monitor judged is `Lake.observedFetch`'s construction. -/
 theorem buildObservation_ok_iff (build : Lake.CheckedBuild) :
     BuildOK (buildObservation build) ↔
-      build.process.exitCode = 0 ∧ build.unparsed = #[] := by
+      build.process.exitCode = 0 ∧ ∀ job ∈ build.jobs, job.optional = false →
+        ∀ entry ∈ job.entries, Workspace.unparsedCompilerOutput entry = false := by
+  rw [← Lake.unparsedOutput_eq_empty_iff, ← Lake.CheckedBuild.unparsed]
   unfold buildObservation BuildOK
   split
   · simp_all

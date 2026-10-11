@@ -723,19 +723,99 @@ executable's configuration, so for it these are the package's and the executable
 def weakArgsRecord (library : _root_.Lake.LeanLib) : String :=
   (toJson library.weakLeanArgs).compress
 
-/-- Lake's `extraDep` facet of a library (`LeanLib.extraDepFacetConfig`), with the trace of the
+/-- The `extraDep` facet of a library that the workspace configures, `existing` (Lake's own,
+`LeanLib.extraDepFacetConfig`, or one a package declares in its place), with the trace of the
 library's `weakArgsRecord` mixed into its job's when the library belongs to the package `root`.
-Lake mixes the trace of that facet's job into the dependency trace of each module of the library
+The job of `existing` runs for every library, so what it builds or writes is kept. Lake mixes the
+trace of that facet's job into the dependency trace of each module of the library
 (`Lake/Build/Module.lean`, line 591), which sets no option of the module's elaboration. -/
-def weakArgsExtraDep (root : Name) :
+def weakArgsExtraDep (root : Name)
+    (existing : _root_.Lake.LibraryFacetConfig _root_.Lake.LeanLib.extraDepFacet) :
     _root_.Lake.LibraryFacetConfig _root_.Lake.LeanLib.extraDepFacet :=
-  _root_.Lake.mkFacetJobConfig fun (library : _root_.Lake.LeanLib) => do
-    let job : _root_.Lake.Job Unit ← _root_.Lake.LeanLib.extraDepFacetConfig.run library
-    if library.pkg.baseName != root then return job
-    let record := weakArgsRecord library
-    let trace := _root_.Lake.BuildTrace.ofHash (_root_.Lake.pureHash record)
-      s!"weakLeanArgs {record}"
-    return job.mix (_root_.Lake.Job.ofTask (.pure (.ok () { trace })))
+  _root_.Lake.mkFacetJobConfig (buildable := existing.buildable) (memoize := existing.memoize)
+    fun (library : _root_.Lake.LeanLib) => do
+      let job : _root_.Lake.Job Unit ← existing.run library
+      if library.pkg.baseName != root then return job
+      let record := weakArgsRecord library
+      let trace := _root_.Lake.BuildTrace.ofHash (_root_.Lake.pureHash record)
+        s!"weakLeanArgs {record}"
+      return job.mix (_root_.Lake.Job.ofTask (.pure (.ok () { trace })))
+
+/-- The log of one job of a build, as Lake's build monitor judges it: Lake counts a job that is not
+optional as failed when its log holds an entry at the build's failure level or above
+(`Monitor.reportJob`, `Lake/Build/Run.lean` lines 119 to 129). -/
+structure JobLog where
+  /-- The job's caption in Lake's build monitor. -/
+  caption : String
+  /-- Whether the job is optional, so that its log fails no build. -/
+  optional : Bool
+  /-- The job's log, with what it replayed from a trace. -/
+  entries : Array _root_.Lake.LogEntry
+  deriving Inhabited
+
+/-- Each entry of a log in `jobs` of a job that is not optional which Lake can have made from
+output of the Lean compiler that is not a Lean message (`Workspace.unparsedCompilerOutput`), after
+its job's caption. -/
+def unparsedOutput (jobs : Array JobLog) : Array String :=
+  jobs.flatMap fun job =>
+    if job.optional then #[]
+    else (job.entries.filter Workspace.unparsedCompilerOutput).map (s!"{job.caption}: {·.message}")
+
+/-- `unparsedOutput` is empty exactly when no job that is not optional logged an entry that
+`Workspace.unparsedCompilerOutput` selects. -/
+theorem unparsedOutput_eq_empty_iff (jobs : Array JobLog) :
+    unparsedOutput jobs = #[] ↔ ∀ job ∈ jobs, job.optional = false →
+      ∀ entry ∈ job.entries, Workspace.unparsedCompilerOutput entry = false := by
+  simp only [unparsedOutput, Array.flatMap_eq_empty_iff]
+  apply forall₂_congr
+  intro job _
+  cases job.optional <;> simp [Array.filter_eq_empty_iff]
+
+/-- Move the jobs registered in `own` to `lake`, the queue Lake's build monitor reads, and wait for
+each, until `own` is empty; returns `forwarded` with each job moved. A job can register more jobs
+while it runs, so `own` is read again once the jobs it held have finished. -/
+partial def forwardJobs (own lake : IO.Ref (Array _root_.Lake.OpaqueJob))
+    (forwarded : Array _root_.Lake.OpaqueJob) : BaseIO (Array _root_.Lake.OpaqueJob) := do
+  let new ← own.modifyGet fun jobs => (jobs, #[])
+  if new.isEmpty then return forwarded
+  lake.modify (· ++ new)
+  for job in new do
+    discard <| IO.wait job.task
+  forwardJobs own lake (forwarded ++ new)
+
+/-- `build`, with each job it registers kept in `record` as Lake's build monitor reads it. Lake's
+monitor judges the jobs registered in the build's job queue and the job that runs the build itself
+(`Workspace.runBuild`, `Lake/Build/Run.lean` lines 427 to 436). This runs `build` with a queue of
+its own, moves each job registered there to Lake's queue once registered (`forwardJobs`), waits for
+each and for the job `build` returns, and records the log of each and that of the job that runs it,
+so `record` holds exactly the logs Lake's monitor judges. A module of the build whose message file
+name has a line break (`Workspace.lineBreakSourcePaths`) is logged as an error of the job that runs
+the build, which fails it. -/
+def observedFetch (ws : _root_.Lake.Workspace) (record : IO.Ref (Array JobLog))
+    (build : _root_.Lake.FetchM (_root_.Lake.Job Unit)) :
+    _root_.Lake.FetchM (_root_.Lake.Job Unit) :=
+  _root_.Lake.FetchM.ofFn fun fetch pkg? stack store context log => do
+    let own ← IO.mkRef #[]
+    let result ← build.toFn fetch pkg? stack store { context with registeredJobs := own } log
+    let mut jobs ← forwardJobs own context.registeredJobs #[]
+    if let .ok job _ := result then
+      discard <| IO.wait job.task
+      jobs ← forwardJobs own context.registeredJobs jobs
+    let lineBreaks := Workspace.lineBreakSourcePaths ws (← store.get)
+    let addErrors (log : _root_.Lake.Log) := lineBreaks.foldl (init := log) fun log path =>
+      log.push (.error s!"the file name Lake gives each message of module {path} has a line \
+        break, so its log cannot tell those messages from other output of the compiler")
+    let result := match result with
+      | .ok job log => .ok job (addErrors log)
+      | .error position log => .error position (addErrors log)
+    let ownLog := match result with
+      | .ok _ log => log
+      | .error _ log => log
+    record.set <| (jobs.map fun job => {
+        caption := job.caption, optional := job.optional,
+        entries := job.task.get.state.log.entries : JobLog }).push
+      { caption := "the build's computation", optional := false, entries := ownLog.entries }
+    return result
 
 /-- Build `targets` of the workspace at `repo` as `build` describes, in this process through
 Lake's build API, as `lake build` does: its build monitor's text is the output, and a failed build
@@ -752,29 +832,29 @@ module's trace must record an elaboration (`Workspace.elaborationTrace`), or the
 module restored from the cache has no log of its elaboration, so its warnings would be missing
 from the output. The build fails when a required job logs an entry at `build.failLv` or above.
 With root-package options (`Build.rootOptions`), the build's libraries also take their `extraDep`
-facet from `weakArgsExtraDep`. Lake's module trace records a module's Lean options but not the
-`weakLeanArgs` Lake passes to `lean`, so without it a module elaborated under weak arguments since
-changed would stay up to date and replay the log of that elaboration. With it, a change to a weak
+facet from `weakArgsExtraDep`, around the one the workspace configures. Lake's module trace
+records a module's Lean options but not the `weakLeanArgs` Lake passes to `lean`, so without it a
+module elaborated under weak arguments since changed would stay up to date and replay the log of
+that elaboration. With it, a change to a weak
 argument of the root package or of one of its targets changes the dependency trace of each module
 that the arguments reach, and Lake elaborates each such module again; that Lake mixes that facet's
 trace into the module's is read from Lake's source. The modules of other packages keep Lake's own
-traces. Each claimed module's trace is also read for entries that Lake made from compiler output
-that is not a Lean message (`Workspace.unparsedTraceOutput`), which the run returns beside the
-process result. The `lean` processes Lake starts inherit this process's
-working directory, which a module's elaboration can read (`IO.currentDir`), and Lake reads a
-target spec that names a path from it, so the build runs with the root package's directory as the
-working directory, as a `lake build` run there does. Lake's loader sets this process's Lean search
+traces. The build runs through `observedFetch`, so the run returns beside the process result the
+log of each job that Lake's build monitor judged. The `lean` processes Lake starts inherit this
+process's working directory, which a module's elaboration can read (`IO.currentDir`), and Lake
+reads a target spec that names a path from it, so the build runs with the root package's directory
+as the working directory, as a `lake build` run there does. Lake's loader sets this process's Lean search
 path (`Lean.searchPathRef`), which the checker's workers inherit. The run restores both, so like a
 child `lake build` it leaves the checker's own state as it was. Both are process-wide, so no other
 task of the process may build or read them while it runs; the checker runs its builds one at a
 time. -/
 def Build.runObserved (build : Build) (repo : FilePath) (targets : Array Target) :
-    IO (ProcessResult × Array String) := do
+    IO (ProcessResult × Array JobLog) := do
   let buffer ← IO.mkRef ({} : IO.FS.Stream.Buffer)
   let out ← showingStream (IO.FS.Stream.ofBuffer buffer) build.display
   let searchPath ← Lean.searchPathRef.get
   let workingDirectory ← IO.currentDir
-  let unparsed ← IO.mkRef (#[] : Array String)
+  let jobLogs ← IO.mkRef (#[] : Array JobLog)
   let exitCode ← try
       Workspace.withRootWorkspace repo (scrubSearchPath := true) fun loaded => do
         let ws := Workspace.uncachedWorkspace loaded
@@ -795,11 +875,14 @@ def Build.runObserved (build : Build) (repo : FilePath) (targets : Array Target)
           throw <| IO.userError s!"'{spec.info.key.toSimpleString}' is not a buildable target"
         let rootOptions ← build.rootOptions loaded
         Workspace.dropRestoredTraces ws
-        let (ws, leanOptOverrides) := match rootOptions with
-          | some options => (ws.addLibraryFacetConfig (weakArgsExtraDep ws.root.baseName),
+        let (ws, leanOptOverrides) ← match rootOptions with
+          | some options =>
+            let some existing := ws.findLibraryFacetConfig? _root_.Lake.LeanLib.extraDepFacet
+              | throw <| IO.userError "the workspace configures no `extraDep` facet of a library"
+            pure (ws.addLibraryFacetConfig (weakArgsExtraDep ws.root.baseName existing),
               ({} : NameMap LeanOptions).insert ws.root.baseName options)
-          | none => (ws, {})
-        ws.runBuild (_root_.Lake.buildSpecs specs) {
+          | none => pure (ws, {})
+        ws.runBuild (observedFetch ws jobLogs (_root_.Lake.buildSpecs specs)) {
           out := .stream out, ansiMode := .noAnsi, showSuccess := true, leanOptOverrides,
           failLv := build.failLv }
         for mod in modules do
@@ -809,8 +892,6 @@ def Build.runObserved (build : Build) (repo : FilePath) (targets : Array Target)
           unless text.any Workspace.elaborationTrace do
             throw <| IO.userError s!"the build left no trace of an elaboration of {mod.name}, \
               so its messages were not observed"
-          for entry in text.elim #[] Workspace.unparsedTraceOutput do
-            unparsed.modify (·.push s!"{mod.name}: {entry}")
       pure (0 : UInt32)
     catch error =>
       out.putStrLn s!"error: {error}"
@@ -820,8 +901,8 @@ def Build.runObserved (build : Build) (repo : FilePath) (targets : Array Target)
       IO.Process.setCurrentDir workingDirectory
   let some stdout := String.fromUTF8? (← buffer.get).data
     | return ({ exitCode := 1, stdout := "", stderr := "error: build output is not UTF-8" },
-        ← unparsed.get)
-  return ({ exitCode, stdout, stderr := "" }, ← unparsed.get)
+        ← jobLogs.get)
+  return ({ exitCode, stdout, stderr := "" }, ← jobLogs.get)
 
 /-- The process result of `Build.runObserved`. -/
 def Build.run (build : Build) (repo : FilePath) (targets : Array Target) : IO ProcessResult :=
@@ -876,37 +957,43 @@ structure CheckedBuild where
   /-- The build's exit code and output. Lake's build monitor failed the build, and
   `Build.runObserved` exited 1, when a required job logged an entry of level `warning` or above. -/
   process : ProcessResult
-  /-- Each entry of a claimed module's trace that Lake made from compiler output that is not a Lean
-  message (`Workspace.unparsedTraceOutput`), such as a warning whose line other output corrupted,
-  which Lake logs as information. -/
-  unparsed : Array String
+  /-- The log of each job that Lake's build monitor judged (`observedFetch`). -/
+  jobs : Array JobLog
+
+/-- Each entry of a job of `build` that is not optional which Lake can have made from compiler
+output that is not a Lean message (`unparsedOutput`), such as a warning whose line other output
+corrupted, which Lake logs as information. -/
+def CheckedBuild.unparsed (build : CheckedBuild) : Array String :=
+  unparsedOutput build.jobs
 
 /-- Build the claimed Lake targets and require success with no warnings: the build runs with
 Lake's failure level at `warning`, so it succeeds only when no required job logged a warning or an
 error. Lake gives each message of a module's elaboration the level of its Lean severity
 (`LogLevel.ofMessageSeverity`), so an information message, whatever its text, never fails the
-build. The build is also refused when a claimed module's trace holds an entry Lake made from
-compiler output that is not a Lean message (`CheckedBuild.unparsed`), since Lake logs it as
-information whatever it held. The output is read only to report a failure. Returns the
+build. The build is also refused when a job that Lake's build monitor judged holds an entry Lake
+can have made from compiler output that is not a Lean message (`CheckedBuild.unparsed`), since Lake
+logs it as information whatever it held. The output is read only to report a failure. Returns the
 diagnostic lines to report on failure. -/
 def buildCheckedObservation (repo : FilePath) (targets : Array SurfaceTarget)
     (mode : String) (build : Build := buildTargets) :
     IO (CheckedBuild × Option (Array String)) := do
-  let (build, unparsed) ← Build.runObserved { build with failLv := .warning } repo
+  let (process, jobs) ← Build.runObserved { build with failLv := .warning } repo
     (targets.map .surface)
-  if build.succeeded && unparsed.isEmpty then return (⟨build, unparsed⟩, none)
+  let build : CheckedBuild := { process, jobs }
+  if process.succeeded && build.unparsed.isEmpty then return (build, none)
   let diagnostics :=
-    if !unparsed.isEmpty then
+    if !build.unparsed.isEmpty then
       #["the compiler printed output that is not a Lean message, which Lake logs as \
-        information whatever it held:"] ++ unparsed
+        information whatever it held:"] ++ build.unparsed
     -- A warning's payload (the unused simp argument, the hint) sits on the
     -- continuation lines after its head; report the whole block.
-    else if !(warningLines build.output).isEmpty then diagnosticBlocks build.output isWarningLine
+    else if !(warningLines process.output).isEmpty then
+      diagnosticBlocks process.output isWarningLine
     -- Lean's expected type and supplied proof are continuation lines. Keep
     -- that context so public-gate qualification can identify the obligation.
-    else if !(errorLines build.output).isEmpty then outputLines build.output
-    else takeLast 20 (outputLines build.output)
-  return (⟨build, unparsed⟩, some
+    else if !(errorLines process.output).isEmpty then outputLines process.output
+    else takeLast 20 (outputLines process.output)
+  return (build, some
       (#[s!"FAIL[build-failed]: positive surface did not build {mode} and warning-free"]
     ++ diagnostics))
 

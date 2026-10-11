@@ -275,26 +275,102 @@ def elaborationTrace (text : String) : Bool :=
   | .ok data => !data.synthetic
   | .error _ => false
 
-/-- Whether `entry` is one that Lake made from output of the Lean compiler that is not a Lean
-message. Lake v4.34.1's `compileLeanModule` runs `lean --json` and logs each message line that
-parses as a Lean message through `LogEntry.ofSerialMessage`, whose text starts with the message's
-file name, a `:` and its line number (`mkErrorStringWithPos`). It logs each run of other standard
-output lines as one information entry, `stdout:`, a line break and the text, and nonempty standard
-error as one information entry, `stderr:`, a line break and the text (`Lake/Build/Actions.lean`,
-lines 66 to 83). A message whose JSON line other output corrupted is one of those runs, whatever its
-severity.
+/-- The characters `stdout:` and a line break, with which Lake v4.34.1 starts the information
+entry it logs for a run of output lines of a program that are not a message of it
+(`unparsedCompilerOutput`). -/
+def stdoutPrefix : List Char := ['s', 't', 'd', 'o', 'u', 't', ':', '\n']
 
-Assumes: Lake v4.34.1 logs compiler output that is not a Lean message only in those two forms. -/
+/-- Whether `entry` is one that Lake can have made from output of the Lean compiler that is not a
+Lean message. Lake v4.34.1's `compileLeanModule` runs `lean --json`, which prints each message as
+one JSON line on its standard output, and logs each line that parses as a Lean message through
+`LogEntry.ofSerialMessage`. It logs each run of other standard output lines as one information
+entry, `stdout:`, a line break and the text (`Lake/Build/Actions.lean`, lines 66 to 81), so a
+message whose JSON line other output corrupted is in such an entry, whatever its severity. Lake
+logs the standard output of other programs it runs in the same form (`logOutput`,
+`Lake/Util/Proc.lean`, lines 22 to 27), which this also selects. Standard error, which Lake logs
+after `stderr:`, holds no Lean message, so this does not select it.
+An entry Lake made from a Lean message whose file name has no line break is never selected
+(`unparsedCompilerOutput_ofSerialMessage`), and `lineBreakSourcePaths` refuses the modules whose
+message file name has one.
+
+Assumes: Lake v4.34.1 logs the standard output of `lean --json` that is not a Lean message only as
+such an entry. -/
 def unparsedCompilerOutput (entry : _root_.Lake.LogEntry) : Bool :=
-  entry.message.startsWith "stdout:\n" || entry.message.startsWith "stderr:\n"
+  entry.level == .info && stdoutPrefix.isPrefixOf entry.message.toList
 
-/-- The entries of the log that the module trace `text` records which Lake made from compiler
-output that is not a Lean message (`unparsedCompilerOutput`), or none when Lake cannot read it as a
-trace. -/
-def unparsedTraceOutput (text : String) : Array String :=
-  match _root_.Lake.BuildMetadata.parse text with
-  | .ok data => (data.log.entries.filter unparsedCompilerOutput).map (·.message)
-  | .error _ => #[]
+/-- A list that starts with a file name with no line break, then `:` and a character other than a
+line break, does not start with `stdoutPrefix`. -/
+theorem not_stdoutPrefix_prefix {name : List Char} {next : Char} (hName : '\n' ∉ name)
+    (hNext : next ≠ '\n') (rest : List Char) :
+    ¬ stdoutPrefix <+: name ++ ':' :: next :: rest := by
+  rcases name with
+    _ | ⟨c0, _ | ⟨c1, _ | ⟨c2, _ | ⟨c3, _ | ⟨c4, _ | ⟨c5, _ | ⟨c6, _ | ⟨c7, t⟩⟩⟩⟩⟩⟩⟩⟩ <;>
+    simp_all [stdoutPrefix, List.cons_prefix_cons] <;>
+    exact fun _ _ _ _ _ _ h => hNext h.symm
+
+/-- The decimal rendering of a natural number starts with a character other than a line break. -/
+theorem toString_nat_head (n : Nat) :
+    ∃ first rest, (toString n).toList = first :: rest ∧ first ≠ '\n' := by
+  cases h : (toString n).toList with
+  | nil => simp [toString, Nat.repr] at h
+  | cons first rest =>
+    refine ⟨first, rest, rfl, fun hFirst => ?_⟩
+    have digit : first ∈ Nat.toDigits 10 n := by
+      have : first ∈ (toString n).toList := by rw [h]; exact List.mem_cons_self
+      simpa [toString, Nat.repr] using this
+    have := Nat.isDigit_of_mem_toDigits (by decide) (by decide) digit
+    simp [hFirst] at this
+
+/-- Lake's entry for a Lean message (`LogEntry.ofSerialMessage`, whose text is the file name, `:`,
+the line number and the rest, `mkErrorStringWithPos`) is never one that `unparsedCompilerOutput`
+selects when the message's file name has no line break. -/
+theorem unparsedCompilerOutput_ofSerialMessage (message : SerialMessage)
+    (h : '\n' ∉ message.fileName.toList) :
+    unparsedCompilerOutput (_root_.Lake.LogEntry.ofSerialMessage message) = false := by
+  obtain ⟨first, rest, hLine, hFirst⟩ := toString_nat_head message.pos.line
+  obtain ⟨tail, hText⟩ : ∃ tail, (_root_.Lake.LogEntry.ofSerialMessage message).message.toList =
+      message.fileName.toList ++ ':' :: first :: tail := by
+    simp only [_root_.Lake.LogEntry.ofSerialMessage, mkErrorStringWithPos, String.toList_append]
+    rw [show toString message.fileName = message.fileName from rfl,
+      show (toString ":").toList = [':'] from rfl, hLine]
+    exact ⟨_, by simp only [List.append_assoc, List.cons_append, List.nil_append]; rfl⟩
+  simp only [unparsedCompilerOutput, Bool.and_eq_false_iff, hText]
+  right
+  cases hPrefix : stdoutPrefix.isPrefixOf (message.fileName.toList ++ ':' :: first :: tail)
+  · rfl
+  · exact absurd (List.isPrefixOf_iff_prefix.mp hPrefix) (not_stdoutPrefix_prefix h hFirst tail)
+
+/-- The file name Lake v4.34.1 gives each message of the elaboration of `mod`: the path of its
+source file relative to its package's directory (`Module.buildLean` and `compileLeanModule`,
+`Lake/Build/Module.lean` lines 981 to 989 and `Lake/Build/Actions.lean` line 74, with the source
+file `Module.leanFile`, line 31 of that module).
+
+Assumes: Lake v4.34.1 names each message of a module's elaboration as this does. -/
+def messageFileName (mod : _root_.Lake.Module) : String :=
+  _root_.Lake.mkRelPathString (_root_.Lake.relPathFrom mod.pkg.dir mod.leanFile)
+
+/-- Each module of the build `store` of `ws`, by the name Lake keys its facets with, whose message
+file name (`messageFileName`) holds a line break, so that `unparsedCompilerOutput_ofSerialMessage`
+does not cover its messages. A module key names a package and a module; each module of a library of
+that package with that name and each executable of it with that root counts, and a key that names
+none is reported too, since its file name is unknown. -/
+def lineBreakSourcePaths (ws : _root_.Lake.Workspace) (store : _root_.Lake.BuildStore) :
+    Array String := Id.run do
+  let mut found := #[]
+  let mut seen : Std.HashSet (Name × Name) := {}
+  for key in store.keys do
+    let .facet (.packageModule package module) _ := key | continue
+    if seen.contains (package, module) then continue
+    seen := seen.insert (package, module)
+    let candidates := (ws.packages.filter (·.keyName == package)).flatMap fun pkg =>
+      pkg.leanLibs.filterMap (·.findModule? module) ++
+        (pkg.leanExes.filter (·.root.name == module)).map (·.root)
+    if candidates.isEmpty then
+      found := found.push s!"{module}: no library or executable of package {package} has it"
+    for mod in candidates do
+      if '\n' ∈ (messageFileName mod).toList then
+        found := found.push s!"{module}: {(messageFileName mod).quote}"
+  return found
 
 /-- A trace that records an elaboration is not one that `dropRestoredTraces` removes. -/
 theorem restoredTrace_eq_false_of_elaborationTrace {text : String}

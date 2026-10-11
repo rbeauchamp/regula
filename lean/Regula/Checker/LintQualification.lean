@@ -206,11 +206,15 @@ probes of the guard (`probe`), each with one change to the plain shape and the r
 decides: a custom target and a library in `needs` each keep the marker. After a marked build, a
 weak argument added to the claimed library makes the driver elaborate it again
 (`Lake.weakArgsRecord`), and a warning whose line another process's output corrupted fails both the
-claimed build and the file audit. -/
+claimed build and the file audit, and fails the claimed build also in a library outside the claim
+that the claimed library needs. A module of such a library whose source directory has a line break
+fails the build, and a library facet `extraDep` that the package declares in place of Lake's still
+runs in the audit build. -/
 private def leanDecisions (probes : Std.Mutex Unit) (repo adopter : FilePath) :
     IO (Array String) := do
   BuildLintQualification.setup repo adopter
   let positive := accepted "lean/positive"
+  let manifest := adopter / "foundation_manifest.json"
   let widget := adopter / "Widget.lean"
   let widgetSource ← IO.FS.readFile widget
   let lakefile := adopter / "lakefile.lean"
@@ -263,6 +267,59 @@ private def leanDecisions (probes : Std.Mutex Unit) (repo adopter : FilePath) :
       excludes := #[s!"file audit: {acceptanceLabel}"] }
     (← fileAudit adopter "Widget.lean"))
   IO.FS.writeFile widget widgetSource
+  -- The same corrupted warning in a library outside the claim that the claimed library needs:
+  -- Lake's build monitor judges that library's job, and so does the audit's check of the output.
+  -- The manifest excludes that library.
+  let manifestText ← IO.FS.readFile manifest
+  let some manifestJson := (Json.parse manifestText).toOption
+    | throw <| IO.userError "lake-lint: the adopter's manifest is not JSON"
+  IO.FS.writeFile manifest (manifestJson.setObjVal! "excluded-libraries" (Json.arr #[
+    Json.mkObj [("library", "Tooling"), ("rationale", "Tooling outside the claim.")]])).pretty
+  IO.FS.writeFile tooling "import Lean\n\nrun_cmd do\n  let child ← IO.Process.spawn \
+    { cmd := \"printf\", args := #[\"x\"] }\n  discard child.wait\n  \
+    Lean.logWarning \"a corrupted tooling warning\"\n"
+  IO.FS.writeFile lakefile <| widgetLibrary "needs := #[`@/Tooling]\n\nlean_lib Tooling where\n  \
+    globs := #[.one `Tooling]"
+  failures := failures ++ (← expect adopter {
+      label := "lean/needed-corrupted-warning", exitCode := 3,
+      contains := #["the compiler printed output that is not a Lean message",
+        "a corrupted tooling warning"],
+      excludes := #[s!"regula lint: {acceptanceLabel}"] })
+  IO.FS.removeFile tooling
+  -- A library outside the claim whose source directory has a line break: the file name of its
+  -- messages could then read as Lake's entry for other output, so the build refuses the module.
+  let breakDirectory := adopter / "line\nbreak"
+  IO.FS.createDirAll breakDirectory
+  IO.FS.writeFile (breakDirectory / "Tooling.lean") "/-! Tooling outside the claim. -/\n"
+  IO.FS.writeFile lakefile <| widgetLibrary "needs := #[`@/Tooling]\n\nlean_lib Tooling where\n  \
+    srcDir := \"line\\nbreak\"\n  globs := #[.one `Tooling]"
+  failures := failures ++ (← expect adopter {
+      label := "lean/line-break-source-path", exitCode := 3,
+      contains := #["Tooling", "has a line break, so its log cannot tell"],
+      excludes := #[s!"regula lint: {acceptanceLabel}"] })
+  IO.FS.removeDirAll breakDirectory
+  IO.FS.writeFile manifest manifestText
+  -- A library facet `extraDep` the package declares in place of Lake's writes a file that the
+  -- claimed module's elaboration reads; the audit build runs it, adding only its record of the
+  -- weak arguments.
+  let generated := adopter / "generated.txt"
+  -- Lake applies a declared facet to every library of the workspace, so it runs Lake's own
+  -- facet and writes the file only for Widget, and the `regula` package's modules keep their
+  -- traces.
+  IO.FS.writeFile lakefile (plain ++ "\n@[«library_facet»] def generatedExtraDep : \
+    LibraryFacetDecl :=\n  .mk LeanLib.extraDepFacet <| mkFacetJobConfig fun (lib : LeanLib) => do\n    \
+    let job : Job Unit ← LeanLib.extraDepFacetConfig.run lib\n    \
+    if lib.name == `Widget then IO.FS.writeFile (lib.pkg.dir / \"generated.txt\") \"ready\"\n    \
+    return job\n")
+  mutate widget "namespace Widget" "namespace Widget\n\n\
+    /-- Text that the package's `extraDep` facet writes. -/\n\
+    def generated : String := include_str \"generated.txt\"\n"
+  if ← generated.pathExists then IO.FS.removeFile generated
+  failures := failures ++ (← expect adopter { positive with
+    label := "lean/declared-extra-dep", contains := positive.contains.push "] Built Widget" })
+  IO.FS.writeFile widget widgetSource
+  IO.FS.writeFile lakefile plain
+  if ← generated.pathExists then IO.FS.removeFile generated
   let ordinary ← runProcess adopter "lake" #["build", "Widget"] scrubbedLeanPathEnv
   unless ordinary.succeeded && ordinary.output.contains "] Built Widget" do
     failures := failures.push s!"lake-lint/lean/plain-default-marked: the ordinary build reused \

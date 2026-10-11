@@ -472,13 +472,18 @@ def main : IO Unit := do
       !Regula.Checker.SourceAudit.compilationPassed unexpected)
         "output that is not a Lean message is an error"
   -- Lake's entry for a Lean message, even an information message whose text starts as Lake's
-  -- entry for other output does, is not one; Lake's entry for other output is.
-  let lakeEntry (data : String) : Lake.LogEntry := .ofSerialMessage
-    { fileName := "Widget.lean", pos := ⟨1, 0⟩, severity := .information, data,
-      kind := .anonymous }
-  require (!Regula.Checker.Workspace.unparsedCompilerOutput (lakeEntry "stdout:\nforged") &&
-      Regula.Checker.Workspace.unparsedCompilerOutput
-        { level := .info, message := "stdout:\nx{\"severity\":\"warning\"}" })
+  -- entry for other output does, is not one; Lake's entry for other standard output is, and its
+  -- entry for standard error or for output it logs only verbosely is not. A file name with a line
+  -- break, which `lineBreakSourcePaths` refuses, makes a message's entry look like other output.
+  let lakeEntry (fileName data : String) : Lake.LogEntry := .ofSerialMessage
+    { fileName, pos := ⟨1, 0⟩, severity := .information, data, kind := .anonymous }
+  let selects := Regula.Checker.Workspace.unparsedCompilerOutput
+  require (!selects (lakeEntry "Widget.lean" "stdout:\nforged") &&
+      !selects (lakeEntry "stdout" "\nforged") &&
+      selects { level := .info, message := "stdout:\nx{\"severity\":\"warning\"}" } &&
+      !selects { level := .info, message := "stderr:\nx{\"severity\":\"warning\"}" } &&
+      !selects { level := .trace, message := "stdout:\nx" } &&
+      selects (lakeEntry "stdout:\n" "forged"))
       "Lake's entries from compiler output that is not a Lean message"
   require (succeeded (Website.validateExample (.policyRejection .projectAxiom "project-axiom")
     (.checked #[⟨.projectAxiom, d⟩] false))) "policy rejection after elaboration"
