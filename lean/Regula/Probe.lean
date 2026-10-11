@@ -215,8 +215,9 @@ in a disposable kernel declaration (`RegulaPolicy.KernelAnswer`). Neither
 metavariable unification nor a matching theorem statement alone authorizes `checked`. Only the
 kernel's result selects the answer: its admission, with the declaration's transitive axioms and
 the proof and proposition the kernel checked, each as its exact term (`Collect.exactTerm`) beside
-its display with every implicit argument and universe shown (`pp.all`), a display that Lean's
-printer may still elide; the axioms are those the declaration reaches in the kernel
+its display, printed with `pp.all` requested: explicit settings of the caller can still hide
+implicit arguments and universe levels, and Lean's printer can abbreviate, so only the exact term
+is complete; the axioms are those the declaration reaches in the kernel
 environment that holds it (`KernelAxioms.axiomsWith`), the search stopping at each name of
 `cached`, the table admission computed in the replayed kernel for the owned declarations' closure,
 and an exhausted search is the kernel's exhaustion; its resource exhaustion or interruption (`kernelExhausted`);
