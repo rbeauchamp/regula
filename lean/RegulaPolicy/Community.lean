@@ -1,17 +1,22 @@
 module
 
 meta import Regula.Decision
+import all Init.Meta.Defs
+public import RegulaPolicy.Compiler
 
 /-! # Community build configuration decision
 
 The decision behind RG2006 for one claimed Lake target (standard §7.1, §6.7 and §6.2): the
 options Lake builds its modules with turn automatic implicits off, enable Lean's
-`linter.missingDocs`, keep every linter on except the three Mathlib-repository linters §6.7
-excludes, and, when the target imports Mathlib, enable Mathlib's standard linter set with exactly
-those exclusions. Of these, Mathlib's header linter may instead stay on when the target configures
-its license line (`linter.style.header.license`). The target sets these options in Lake's
-`leanOptions`, where the audit reads them, and no `-D` among its extra `lean` arguments gives one of
-them a value the requirement does not admit or turns off another linter.
+`linter.missingDocs` and, when the target imports Mathlib, enable Mathlib's standard linter set
+with the three Mathlib-repository linters §6.7 excludes turned off. Of these, Mathlib's header
+linter may instead stay on when the target configures its license line
+(`linter.style.header.license`). Every other option the target sets for all its modules, in
+Lake's `leanOptions` or with a `-D` among its extra `lean` arguments, must be in RG2006's closed
+accepted set (`Accepted`) at an accepted value; any other option, at any value, fails, whether
+Lean declares it or not. So no target-wide option can stop a warning that Lean reports by default,
+except a raised `exponentiation.threshold`, unless one of the arguments for the accepted set below
+is wrong.
 
 ## Main declarations
 
@@ -19,6 +24,12 @@ them a value the requirement does not admit or turns off another linter.
 - `OptionValue.readsAs`: the value Lean reads an option value as.
 - `argumentSettings`: the options the extra `lean` arguments can set with `-D`.
 - `required`: the options every claimed target sets, and the additional Mathlib options.
+- `Accepted`, `accepts`, `accepts_iff`: the closed accepted set for every other option, and its
+  executed decision.
+- `warningSettings`, `printSettings`: each `linter.`, `warn.` and `pp.` option that Lean or the
+  pinned Mathlib registers, with its accepted value and the file and line of its registration.
+- `acceptedRelease_eq`: the arguments for the accepted set were read for the supported Lean
+  release, so moving to another release fails the build until they are read again.
 - `licensed`, `admits`, `meets`: the target configures the header linter's license line; the values
   the requirement admits for a required option, which are its required value and, for the header
   linter, `true` with a configured license.
@@ -43,23 +54,59 @@ them a value the requirement does not admit or turns off another linter.
   `linter.missingDocs`.
 - `mem_argumentTexts_iff`: the `-D` reading holds exactly the settings of `Defines`, stated over
   the characters of the arguments.
-- `leanArgument_mem_failures_iff`: a `-D` argument fails exactly when some `-D` form sets a
-  checked option to a contradicting value.
-- `autoImplicit_argument_fails`, `maxHeartbeats_argument_passes`, `linter_argument_fails`,
+- `leanArgument_mem_failures_iff`, `unaccepted_mem_failures_iff`: a `-D` argument fails exactly
+  when some `-D` form sets a required option to a value it does not admit or another option
+  outside the accepted set; an option of `leanOptions` fails exactly when it is no required option
+  and outside the accepted set.
+- `warn_sorry_option_fails`, `docVersoSuggestions_option_fails`: `leanOptions` that set
+  `warn.sorry` or `doc.verso.suggestions` to `false` fail.
+- `unlisted_linter_option_fails`, `analyzeTactics_option_fails`: `leanOptions` that set an
+  unlisted `linter.` option, or `linter.unusedVariables.analyzeTactics`, to `true` fail.
+- `ppUnicode_option_fails`, `ppOneline_option_fails`: `leanOptions` that set `pp.unicode` to
+  `false` or `pp.oneline` to `true` fail.
+- `accepted_families_pass`: one option of each accepted family adds no failure.
+- `autoImplicit_argument_fails`, `linter_argument_fails`, `warn_argument_fails`,
+  `undeclared_weak_argument_fails`, `maxHeartbeats_argument_passes`,
   `excluded_linter_argument_passes`, `plugin_argument_passes`: fixed argument lists.
+- `optionOf_eq_replacePrefix`: `optionOf` is the call by which Lean removes a leading `weak.`.
 
 ## Option names and values
 
 Lake and Lean accept an option key with a leading `weak.` component, which sets the option
 after it when that option is declared and is otherwise ignored; `optionOf` reads the option a key
-sets. When a target sets one option under both spellings, every value given must be the required
-one, except that the header linter may be `true` when the license line is configured: the license
-option is given at least once in `leanOptions`, and every value that `leanOptions` or any `-D`
-candidate gives it is a nonempty string. Lean parses a string value by the option's declared type
+sets, as Lean reads it (`optionOf_eq_replacePrefix`). When a target sets one option under both
+spellings, every value given must be the required one, except that the header linter may be
+`true` when the license line is configured: the license option is given at least once in
+`leanOptions`, and every value that `leanOptions` or any `-D` candidate gives it is a nonempty
+string. Lean parses a string value by the option's declared type
 (`Lean.Language.Lean.setOption`): `"true"` and `"false"` for a Boolean option and a numeral for a
-natural-number one, so `readsAs` compares a string with a required value that way. A linter
-option is an option whose first component is `linter`; turning one off means giving it a value
-Lean reads as `false`.
+natural-number one, so `readsAs` compares a string with a required value that way. The name
+alone decides: whether Lean applies a `weak.` entry depends on which imported modules declare the
+option, so a `weak.` entry for an option that no module declares is refused although Lean ignores
+it, and its correction is to delete it.
+
+## The accepted set
+
+`Accepted` admits, besides the required options at the values the requirement admits: the §6.7
+exclusions at their prescribed values (`exclusionSettings`), the standard's own choice; the
+header linter's license line at a nonempty string, which selects which header the header linter
+accepts and silences no other warning; each `linter.` and `warn.` option registered by Lean
+`acceptedRelease` (`leanWarningSettings`) or by Mathlib `acceptedMathlib` and its pinned Batteries
+(`mathlibWarningSettings`), at the one value that silences nothing its registered default reports;
+`warningAsError` and `debugAssertions` at `true` (`checkSwitches`), which add checks; the resource
+limits `maxHeartbeats`, `synthInstance.maxHeartbeats`, `maxRecDepth`, `maxSynthPendingDepth` and
+`exponentiation.threshold` at any natural number (`resourceLimits`); and each `pp.` option
+registered by Lean, Mathlib or Qq at its registered default (`printSettings`). Raising a positive
+resource limit lets Lean do work it would otherwise stop, and lowering one only stops that work
+sooner; `0` means no limit for `maxHeartbeats`, `synthInstance.maxHeartbeats` and `maxRecDepth`
+(`Lean/CoreM.lean:487`, `Lean/Exception.lean:248`), so Lean does all the work and hides no
+warning. The exception is `exponentiation.threshold`: raising it stops the warning that a power
+was not evaluated (`Lean/Util/SafeExponentiation.lean:29`), because Lean evaluates the power
+instead. A pretty-printer option changes the text some linters compare, so only its default is
+accepted. A `linter.`, `warn.` or `pp.` option not listed, or at another value, is refused. Each
+listed value was read from its registration's description or docstring at those revisions and is
+not proved. `acceptedRelease_eq` fails the build when the supported Lean release moves; nothing
+checked ties `acceptedMathlib` to the Mathlib pin.
 
 ## Boundaries
 
@@ -76,9 +123,10 @@ configures the license line, which only `leanOptions` does. That Mathlib's heade
 pinned release compares the second header line with `linter.style.header.license` is likewise read
 from its source (`Mathlib/Tactic/Linter/Header.lean`) and assumed. The decision does not read
 `set_option` commands in source, which review checks (`DECL-01`), nor options given to `lake` on
-its command line. Which targets are claimed and whether a target imports Mathlib are supplied by the
-operational adapter. That `linter.missingDocs` is on establishes only that Lean runs the linter;
-its reports are build warnings, which RG2003 rejects. -/
+its command line. A project that wants a resource limit fixed checks it itself. Which targets are
+claimed and whether a target imports Mathlib are supplied by the operational adapter. That
+`linter.missingDocs` is on establishes only that Lean runs the linter; its reports are build
+warnings, which RG2003 rejects. -/
 
 @[expose] public section
 
@@ -127,18 +175,14 @@ structure BuildOptions where
   arguments : List String
   deriving DecidableEq, Repr
 
-/-- The option a `leanOptions` key sets: the key without a leading `weak.` component. -/
-def optionOf : Name → Name
-  | .str .anonymous "weak" => .anonymous
-  | .str p s => .str (optionOf p) s
-  | .num p k => .num (optionOf p) k
-  | .anonymous => .anonymous
+/-- The option a `leanOptions` key sets: the key without a leading `weak.` component, removed by
+the call Lean makes (`Lean.Language.Lean.reparseOptions`). -/
+def optionOf (name : Name) : Name :=
+  name.replacePrefix `weak .anonymous
 
-/-- The first component of a name, when it is a string. -/
-def rootOf : Name → Option String
-  | .anonymous => none
-  | .str p s => some ((rootOf p).getD s)
-  | .num p _ => rootOf p
+/-- `optionOf` is Lean's own removal of a leading `weak.` component from an option name. -/
+theorem optionOf_eq_replacePrefix (name : Name) :
+    optionOf name = name.replacePrefix `weak .anonymous := rfl
 
 /-- The characters after the first `D`, when there is one. -/
 def afterD : List Char → Option (List Char)
@@ -373,9 +417,6 @@ def mathlibBaseline : List (Name × OptionValue) :=
 def required (mathlib : Bool) : List (Name × OptionValue) :=
   baseline ++ if mathlib then mathlibBaseline else []
 
-/-- The linters a claimed target may turn off for all its modules: exactly the §6.7 exclusions. -/
-def exclusions : List Name := [`linter.style.header, `linter.hashCommand, `linter.style.longFile]
-
 /-- The values the options give option `name`, under either spelling. -/
 def valuesOf (o : BuildOptions) (name : Name) : List OptionValue :=
   o.options.filterMap fun entry => if optionOf entry.1 = name then some entry.2 else none
@@ -449,35 +490,512 @@ theorem meets_of_sets (o : BuildOptions) (r : Name × OptionValue) (h : sets o r
   simp only [sets, meets, Bool.and_eq_true, List.all_eq_true] at h ⊢
   exact ⟨h.1, fun v hv => by simp [admits, h.2 v hv]⟩
 
-/-- Setting `name` to `value` turns off a linter outside the §6.7 exclusions (§6.2). -/
-def disables (name : Name) (value : OptionValue) : Bool :=
-  rootOf name == some "linter" && value.readsAs (.bool false) && !exclusions.contains name
+/-- The Mathlib revision whose option registrations `mathlibWarningSettings` was read from: the one
+`integration/mathlib/lakefile.lean` pins, read with the Batteries revision of its manifest. -/
+def acceptedMathlib : String := "d13f23b723b8a846827a245b89c10fc7d3f11612"
+
+/-- Each `linter.` and `warn.` option that Lean `acceptedRelease` registers with
+`register_builtin_option` or `register_option`, cited by file and line under `src/lean/` of the
+toolchain, at the one value that silences nothing its registered default reports: `true` where
+its description says `true` turns a warning on or extends it, and its default where `true` narrows
+one. Two narrow. `linter.extra.dupNamespace.consecutiveOnly` at `true`, its default, warns only on
+consecutive duplicated namespaces. `linter.unusedVariables.analyzeTactics` at `true` counts a
+parameter as used when any intermediate tactic state mentions it (`Lean/Linter/UnusedVariables.lean`
+line 400), so it is accepted only at its default `false`. `linter.all` at `true` only makes `true`
+the default of each linter that `Lean.Linter.getLinterValue` reads (`Lean/Linter/Init.lean:130`);
+neither narrowing option is read that way. -/
+def leanWarningSettings : List (Name × OptionValue) := [
+  -- Lean/AddDecl.lean:71
+  (`warn.sorry, .bool true),
+  -- Lean/DeprecatedModule.lean:20
+  (`linter.deprecated.module, .bool true),
+  -- Lean/Elab/DeclModifiers.lean:17
+  (`linter.redundantVisibility, .bool true),
+  -- Lean/Elab/DeprecatedArg.lean:18
+  (`linter.deprecated.arg, .bool true),
+  -- Lean/Elab/DeprecatedSyntax.lean:17
+  (`linter.deprecated.syntax, .bool true),
+  -- Lean/Elab/DocString/Builtin/Postponed.lean:20
+  (`linter.doc.deferred, .bool true),
+  -- Lean/Elab/MutualDef.lean:497, 1180, 1185, 1190
+  (`linter.unusedSectionVars, .bool true),
+  (`warn.classDefReducibility, .bool true),
+  (`warn.exposeOnPrivate, .bool true),
+  (`warn.redundantExpose, .bool true),
+  -- Lean/Elab/SetOption.lean:15
+  (`linter.deprecated.options, .bool true),
+  -- Lean/Elab/Tactic/Lets.lean:25
+  (`linter.tactic.unusedName, .bool true),
+  -- Lean/Elab/Tactic/RCases.lean:23
+  (`linter.unusedRCasesPattern, .bool true),
+  -- Lean/Elab/Tactic/Simp.lean:675
+  (`linter.unusedSimpArgs, .bool true),
+  -- Lean/Elab/Tactic/Simpa.lean:21
+  (`linter.unnecessarySimpa, .bool true),
+  -- Lean/Linter/AmbiguousOpen.lean:16
+  (`linter.ambiguousOpen, .bool true),
+  -- Lean/Linter/Builtin.lean:16
+  (`linter.suspiciousUnexpanderPatterns, .bool true),
+  -- Lean/Linter/CheckUnivs.lean:29
+  (`linter.checkUnivs, .bool true),
+  -- Lean/Linter/Coe.lean:23
+  (`linter.deprecatedCoercions, .bool true),
+  -- Lean/Linter/ConstructorAsVariable.lean:25
+  (`linter.constructorNameAsVariable, .bool true),
+  -- Lean/Linter/DefProp.lean:26
+  (`linter.defProp, .bool true),
+  -- Lean/Linter/Deprecated.lean:19
+  (`linter.deprecated, .bool true),
+  -- Lean/Linter/DocsOnAlt.lean:21
+  (`linter.tactic.docsOnAlt, .bool true),
+  -- Lean/Linter/Extra/DupNamespace.lean:30, 35
+  (`linter.extra.dupNamespace, .bool true),
+  (`linter.extra.dupNamespace.consecutiveOnly, .bool true),
+  -- Lean/Linter/Extra/UnnecessarySeqFocus.lean:44
+  (`linter.extra.unnecessarySeqFocus, .bool true),
+  -- Lean/Linter/Extra/UnreachableTactic.lean:32
+  (`linter.extra.unreachableTactic, .bool true),
+  -- Lean/Linter/Extra/UnusedDecidableInType.lean:120
+  (`linter.extra.unusedDecidableInType, .bool true),
+  -- Lean/Linter/Init.lean:101, 106, 112
+  (`linter.all, .bool true),
+  (`linter.extra, .bool true),
+  (`linter.coreInternal, .bool true),
+  -- Lean/Linter/InternalModule.lean:30
+  (`linter.coreInternal.internalModule, .bool true),
+  -- Lean/Linter/List.lean:31, 40
+  (`linter.indexVariables, .bool true),
+  (`linter.listVariables, .bool true),
+  -- Lean/Linter/MissingDocs.lean:20
+  (`linter.missingDocs, .bool true),
+  -- Lean/Linter/Omit.lean:17
+  (`linter.omit, .bool true),
+  -- Lean/Linter/TacticTypeCheck.lean:24
+  (`linter.tacticCheckInstances, .bool true),
+  -- Lean/Linter/UnusedVariables.lean:84, 89, 94, 99
+  (`linter.unusedVariables, .bool true),
+  (`linter.unusedVariables.funArgs, .bool true),
+  (`linter.unusedVariables.patternVars, .bool true),
+  (`linter.unusedVariables.analyzeTactics, .bool false),
+  -- Lean/Meta/Tactic/Simp/LoopProtection.lean:17
+  (`linter.loopingSimpArgs, .bool true)
+]
+
+/-- Each `linter.` and `warn.` option that Mathlib `acceptedMathlib` registers with `register_option`
+or `register_linter_set`, or the Batteries revision it pins registers, cited by file and line in
+each repository, at the one value that silences nothing its registered default reports: `true`
+where its description or docstring says `true` turns a warning, report or linter set on or extends
+it, and its default otherwise. The exceptions: `linter.haveLet` at `2`, which its description calls
+always active; the bounds `linter.style.longFile`, `linter.style.longFileDefValue` and
+`linter.style.longLine.maxLineLength` and the sampling divisor
+`linter.tacticAnalysis.tryAtEachStep.fraction` at their defaults, since raising one reports less;
+`linter.countHeartbeatsApprox`, which rounds a reported count, and `linter.tacticAnalysis.dummy`, a
+test option, at their default `false`. `linter.style.header.license`, a string, has its own entry
+in `Accepted`. Options registered only under `scripts/` or `MathlibTest/`, which no Mathlib module
+imports, are not listed. -/
+def mathlibWarningSettings : List (Name × OptionValue) := [
+  -- Mathlib/Init.lean:85, 119, 127
+  (`linter.mathlibStandardSet, .bool true),
+  (`linter.nightlyRegressionSet, .bool true),
+  (`linter.weeklyLintSet, .bool true),
+  -- Mathlib/Tactic/CategoryTheory/Coherence.lean:159
+  (`warn.refl_coherence, .bool true),
+  -- Mathlib/Tactic/FastInstance.lean:23
+  (`linter.fast_instance_existing, .bool true),
+  -- Mathlib/Tactic/Linter/AuxLemma.lean:56
+  (`linter.auxLemma, .bool true),
+  -- Mathlib/Tactic/Linter/CommandRanges.lean:41
+  (`linter.commandRanges, .bool true),
+  -- Mathlib/Tactic/Linter/DeprecatedSyntaxLinter.lean:53, 63, 73, 80, 91, 98, 109
+  (`linter.style.refine, .bool true),
+  (`linter.style.cases, .bool true),
+  (`linter.style.induction, .bool true),
+  (`linter.style.admit, .bool true),
+  (`linter.style.native, .bool true),
+  (`linter.style.nativeDecide, .bool true),
+  (`linter.style.maxHeartbeats, .bool true),
+  -- Mathlib/Tactic/Linter/DirectoryDependency.lean:70
+  (`linter.directoryDependency, .bool true),
+  -- Mathlib/Tactic/Linter/DocPrime.lean:37
+  (`linter.docPrime, .bool true),
+  -- Mathlib/Tactic/Linter/DocString.lean:30, 38, 48
+  (`linter.style.docString, .bool true),
+  (`linter.style.docString.empty, .bool true),
+  (`linter.style.docStringVerso, .bool true),
+  -- Mathlib/Tactic/Linter/EmptyLine.lean:79
+  (`linter.style.emptyLine, .bool true),
+  -- Mathlib/Tactic/Linter/FlexibleLinter.lean:108
+  (`linter.flexible, .bool true),
+  -- Mathlib/Tactic/Linter/GlobalAttributeIn.lean:90
+  (`linter.globalAttributeIn, .bool true),
+  -- Mathlib/Tactic/Linter/HashCommandLinter.lean:36
+  (`linter.hashCommand, .bool true),
+  -- Mathlib/Tactic/Linter/HaveILetI.lean:44
+  (`linter.style.haveILetI, .bool true),
+  -- Mathlib/Tactic/Linter/HaveLetLinter.lean:44
+  (`linter.haveLet, .nat 2),
+  -- Mathlib/Tactic/Linter/Header.lean:225
+  (`linter.style.header, .bool true),
+  -- Mathlib/Tactic/Linter/InternalConstructor.lean:51
+  (`linter.internalConstructors, .bool true),
+  -- Mathlib/Tactic/Linter/Lint.lean:79
+  (`linter.dupNamespace, .bool true),
+  -- Mathlib/Tactic/Linter/MinImports.lean:74, 83
+  (`linter.minImports, .bool true),
+  (`linter.minImports.increases, .bool true),
+  -- Mathlib/Tactic/Linter/Multigoal.lean:50
+  (`linter.style.multiGoal, .bool true),
+  -- Mathlib/Tactic/Linter/OldObtain.lean:70
+  (`linter.oldObtain, .bool true),
+  -- Mathlib/Tactic/Linter/OverlappingInstances.lean:139
+  (`linter.overlappingInstances, .bool true),
+  -- Mathlib/Tactic/Linter/PPRoundtrip.lean:32
+  (`linter.ppRoundtrip, .bool true),
+  -- Mathlib/Tactic/Linter/PrivateModule.lean:65
+  (`linter.privateModule, .bool true),
+  -- Mathlib/Tactic/Linter/Style.lean:61, 142, 191, 257, 300, 347, 353, 425, 433, 493, 578, 629
+  (`linter.style.setOption, .bool true),
+  (`linter.style.missingEnd, .bool true),
+  (`linter.style.cdot, .bool true),
+  (`linter.style.dollarSyntax, .bool true),
+  (`linter.style.lambdaSyntax, .bool true),
+  (`linter.style.longFile, .nat 0),
+  (`linter.style.longFileDefValue, .nat 1500),
+  (`linter.style.longLine, .bool true),
+  (`linter.style.longLine.maxLineLength, .nat 100),
+  (`linter.style.nameCheck, .bool true),
+  (`linter.style.openClassical, .bool true),
+  (`linter.style.show, .bool true),
+  -- Mathlib/Tactic/Linter/TextBased.lean:278, 298, 314, 401, 506, 558, 587
+  (`linter.adaptationNote, .bool true),
+  (`linter.trailingWhitespace, .bool true),
+  (`linter.whitespaceBeforeSemicolon, .bool true),
+  (`linter.unicodeLinter, .bool true),
+  (`linter.pythonStyle, .bool true),
+  (`linter.modulesUpperCamelCase, .bool true),
+  (`linter.modulesForbiddenWindows, .bool true),
+  -- Mathlib/Tactic/Linter/UnusedInstancesInType.lean:315, 356
+  (`linter.unusedDecidableInType, .bool true),
+  (`linter.unusedFintypeInType, .bool true),
+  -- Mathlib/Tactic/Linter/UnusedTactic.lean:64
+  (`linter.unusedTactic, .bool true),
+  -- Mathlib/Tactic/Linter/UpstreamableDecl.lean:65, 77, 85
+  (`linter.upstreamableDecl, .bool true),
+  (`linter.upstreamableDecl.defs, .bool true),
+  (`linter.upstreamableDecl.private, .bool true),
+  -- Mathlib/Tactic/Linter/Whitespace.lean:40, 47
+  (`linter.style.whitespace, .bool true),
+  (`linter.style.whitespace.verbose, .bool true),
+  -- Mathlib/Tactic/SetNotationForOrder.lean:115
+  (`linter.setNotationForOrder, .bool true),
+  -- Mathlib/Tactic/Simps/Basic.lean:267, 272
+  (`linter.simpsNoConstructor, .bool true),
+  (`linter.simpsUnusedCustomDeclarations, .bool true),
+  -- Mathlib/Tactic/TacticAnalysis.lean:47, 375
+  (`linter.tacticAnalysis, .bool true),
+  (`linter.tacticAnalysis.dummy, .bool false),
+  -- Mathlib/Tactic/TacticAnalysis/Declarations.lean:184, 199, 207, 217, 227, 245, 271, 299, 366,
+  --   376, 387, 507, 516, 525, 537, 546, 559, 593, 704, 715, 726
+  (`linter.tacticAnalysis.regressions.linarithToGrind, .bool true),
+  (`linter.tacticAnalysis.regressions.ringToGrind, .bool true),
+  (`linter.tacticAnalysis.regressions.omegaToLia, .bool true),
+  (`linter.tacticAnalysis.omegaToLia, .bool true),
+  (`linter.tacticAnalysis.rwaSuggestion, .bool true),
+  (`linter.tacticAnalysis.rwMerge, .bool true),
+  (`linter.tacticAnalysis.mergeWithGrind, .bool true),
+  (`linter.tacticAnalysis.terminalToGrind, .bool true),
+  (`linter.tacticAnalysis.tryAtEachStep.fraction, .nat 1),
+  (`linter.tacticAnalysis.tryAtEachStep.showTiming, .bool true),
+  (`linter.tacticAnalysis.tryAtEachStep.selfReplacements, .bool true),
+  (`linter.tacticAnalysis.tryAtEachStepGrind, .bool true),
+  (`linter.tacticAnalysis.tryAtEachStepSimpAll, .bool true),
+  (`linter.tacticAnalysis.tryAtEachStepAesop, .bool true),
+  (`linter.tacticAnalysis.tryAtEachStepGrindSuggestions, .bool true),
+  (`linter.tacticAnalysis.tryAtEachStepSimpAllSuggestions, .bool true),
+  (`linter.tacticAnalysis.tryAtEachStepFromEnv, .bool true),
+  (`linter.tacticAnalysis.introMerge, .bool true),
+  (`linter.tacticAnalysis.verifyGrind, .bool true),
+  (`linter.tacticAnalysis.verifyGrindSuggestions, .bool true),
+  (`linter.tacticAnalysis.verifyGrindOnly, .bool true),
+  -- Mathlib/Tactic/Tauto.lean:239, 249
+  (`linter.tacticAnalysis.tautoToGrind, .bool true),
+  (`linter.tacticAnalysis.regressions.tautoToGrind, .bool true),
+  -- Mathlib/Tactic/Translate/Core.lean:126, 133, 140, 147, 154, 160, 165, 171
+  (`linter.existingAttributeWarning, .bool true),
+  (`linter.translateGenerateName, .bool true),
+  (`linter.translateExisting, .bool true),
+  (`linter.translateReorder, .bool true),
+  (`linter.translateRelevantArg, .bool true),
+  (`linter.translateOverwrite, .bool true),
+  (`linter.translateRedundant, .bool true),
+  (`linter.translate.warnInvalid, .bool true),
+  -- Mathlib/Util/CountHeartbeats.lean:252, 263
+  (`linter.countHeartbeats, .bool true),
+  (`linter.countHeartbeatsApprox, .bool false),
+  -- Batteries/Linter/UnnecessarySeqFocus.lean:40
+  (`linter.unnecessarySeqFocus, .bool true),
+  -- Batteries/Linter/UnreachableTactic.lean:28
+  (`linter.unreachableTactic, .bool true),
+  -- Batteries/Tactic/Lint/Simp.lean:69
+  (`linter.simpNF.respectTransparency, .bool true)
+]
+
+/-- The listed `linter.` and `warn.` options with their accepted values. -/
+def warningSettings : List (Name × OptionValue) := leanWarningSettings ++ mathlibWarningSettings
+
+/-- Each `pp.` option that Lean `acceptedRelease` registers, or Mathlib `acceptedMathlib` or the Qq
+revision it pins registers, cited by file and line, at its registered default. A pretty-printer
+option changes the text that some linters compare: with `pp.unicode` at `false` Mathlib's
+whitespace linter stops at the first mismatch, `→` printed as `->`, before the missing space it
+would report (`Mathlib/Tactic/Linter/Whitespace.lean:203`), and `pp.oneline` at `true` truncates
+the text it compares. So each is accepted only at its default; a different printing belongs in an
+editor or user setting, not in a target's options. -/
+def printSettings : List (Name × OptionValue) := [
+  -- Lean/Elab/Util.lean:65
+  (`pp.macroStack, .bool false),
+  -- Lean/Hygiene.lean:70
+  (`pp.sanitizeNames, .bool true),
+  -- Lean/Meta/PPGoal.lean:15, 20, 25, 30, 35, 40
+  (`pp.auxDecls, .bool false),
+  (`pp.implementationDetailHyps, .bool false),
+  (`pp.inaccessibleNames, .bool true),
+  (`pp.showLetValues, .bool false),
+  (`pp.showLetValues.threshold, .nat 0),
+  (`pp.showLetValues.tactic.threshold, .nat 255),
+  -- Lean/PrettyPrinter.lean:32
+  (`pp.exprSizes, .bool false),
+  -- Lean/PrettyPrinter/Delaborator/Options.lean:15, 19, 24, 28, 32, 36, 40, 44, 48, 52, 56, 60,
+  --   64, 68, 72, 76, 81, 85, 89, 93, 97, 101, 105, 109, 114, 119, 125, 129, 133, 138, 142, 147,
+  --   151, 155, 159, 163, 167, 171, 175, 179, 183, 187, 191, 195, 199, 203, 207, 211, 215
+  (`pp.maxSteps, .nat 5000),
+  (`pp.all, .bool false),
+  (`pp.notation, .bool true),
+  (`pp.parens, .bool false),
+  (`pp.unicode, .bool true),
+  (`pp.unicode.fun, .bool false),
+  (`pp.match, .bool true),
+  (`pp.sorrySource, .bool false),
+  (`pp.coercions, .bool true),
+  (`pp.coercions.types, .bool false),
+  (`pp.universes, .bool false),
+  (`pp.fullNames, .bool false),
+  (`pp.privateNames, .bool false),
+  (`pp.funBinderTypes, .bool false),
+  (`pp.piBinderTypes, .bool true),
+  (`pp.piBinderNames, .bool false),
+  (`pp.piBinderNames.hygienic, .bool false),
+  (`pp.foralls, .bool true),
+  (`pp.letVarTypes, .bool false),
+  (`pp.natLit, .bool false),
+  (`pp.numericTypes, .bool false),
+  (`pp.mdata, .bool false),
+  (`pp.instantiateMVars, .bool true),
+  (`pp.mvars, .bool true),
+  (`pp.mvars.levels, .bool true),
+  (`pp.mvars.anonymous, .bool true),
+  (`pp.mvars.withType, .bool false),
+  (`pp.mvars.delayed, .bool false),
+  (`pp.fvars.anonymous, .bool true),
+  (`pp.beta, .bool false),
+  (`pp.structureInstances, .bool true),
+  (`pp.structureInstances.flatten, .bool true),
+  (`pp.structureInstances.defaults, .bool false),
+  (`pp.fieldNotation, .bool true),
+  (`pp.fieldNotation.generalized, .bool true),
+  (`pp.explicit, .bool false),
+  (`pp.structureInstanceTypes, .bool false),
+  (`pp.safeShadowing, .bool true),
+  (`pp.tagAppFns, .bool false),
+  (`pp.proofs, .bool false),
+  (`pp.proofs.withType, .bool false),
+  (`pp.proofs.threshold, .nat 0),
+  (`pp.instances, .bool true),
+  (`pp.instanceTypes, .bool false),
+  (`pp.deepTerms, .bool false),
+  (`pp.deepTerms.threshold, .nat 50),
+  (`pp.motives.pi, .bool true),
+  (`pp.motives.nonConst, .bool false),
+  (`pp.motives.all, .bool false),
+  -- Lean/PrettyPrinter/Delaborator/TopDownAnalyze.lean:32, 37, 46, 51, 56, 61, 67, 72, 77, 82, 87,
+  --   92
+  (`pp.analyze, .bool false),
+  (`pp.analyze.checkInstances, .bool false),
+  (`pp.analyze.typeAscriptions, .bool true),
+  (`pp.analyze.trustSubst, .bool false),
+  (`pp.analyze.trustOfNat, .bool true),
+  (`pp.analyze.trustOfScientific, .bool true),
+  (`pp.analyze.trustSubtypeMk, .bool true),
+  (`pp.analyze.trustId, .bool true),
+  (`pp.analyze.trustKnownFOType2TypeHOFuns, .bool true),
+  (`pp.analyze.omitMax, .bool true),
+  (`pp.analyze.knowsType, .bool true),
+  (`pp.analyze.explicitHoles, .bool false),
+  -- Lean/PrettyPrinter/Formatter.lean:597
+  (`pp.oneline, .bool false),
+  -- Lean/Util/PPExt.lean:15, 19, 23, 27
+  (`pp.raw, .bool false),
+  (`pp.raw.showInfo, .bool false),
+  (`pp.raw.maxDepth, .nat 32),
+  (`pp.rawOnError, .bool false),
+  -- Mathlib/Data/Prod/Basic.lean:312
+  (`pp.numericProj.prod, .bool true),
+  -- Mathlib/Util/PPOptions.lean:24
+  (`pp.mathlib.binderPredicates, .bool true),
+  -- Qq/Delab.lean:17
+  (`pp.qq, .bool true)
+]
+
+/-- The §6.7 exclusions at the values the standard prescribes for them: Mathlib's header linter
+off, `linter.hashCommand` off and no `linter.style.longFile` limit. -/
+def exclusionSettings : List (Name × OptionValue) :=
+  [(headerLinter, .bool false), (`linter.hashCommand, .bool false),
+    (`linter.style.longFile, .nat 0)]
+
+/-- Options that add checks at `true`: `warningAsError` makes Lean report each warning as an
+error (`Lean/Log.lean`), and `debugAssertions`, which Lake's `debug` build type sets
+(`Lake/Config/LeanConfig.lean`), keeps run-time assertions in compiled code. Neither removes a
+message at `true`. -/
+def checkSwitches : List Name := [`warningAsError, `debugAssertions]
+
+/-- Resource limits: raising one lets Lean do work that it would otherwise stop with an error
+(`maxHeartbeats`, `synthInstance.maxHeartbeats`, `maxRecDepth`, `maxSynthPendingDepth`) or skip
+with a warning (`exponentiation.threshold`, whose warning reports a power it did not evaluate, so
+raising it stops that warning while Lean evaluates the power). Lowering a positive limit only stops
+that work sooner; `0` means no limit for `maxHeartbeats` and `synthInstance.maxHeartbeats`
+(`Lean/CoreM.lean:487`) and for `maxRecDepth` (`Lean/Exception.lean:248`), so Lean does all the
+work and hides no warning. -/
+def resourceLimits : List Name :=
+  [`maxHeartbeats, `synthInstance.maxHeartbeats, `maxRecDepth, `maxSynthPendingDepth,
+    `exponentiation.threshold]
+
+/-- The Lean release whose source the arguments for the accepted options were read from. -/
+def acceptedRelease : String := "4.34.1"
+
+/-- The arguments for the accepted options were read for the release this source revision
+supports, so a move to another release fails the build until they are read again. -/
+theorem acceptedRelease_eq : acceptedRelease = RegulaPolicy.Compiler.version := rfl
+
+/-- Lean reads `v` as a natural number. -/
+def OptionValue.readsNat : OptionValue → Bool
+  | .nat _ => true
+  | .string s => s.toNat?.isSome
+  | .bool _ => false
+
+/-- `readsNat` holds exactly for the values Lean reads as some natural number. -/
+theorem OptionValue.readsNat_iff (v : OptionValue) :
+    v.readsNat = true ↔ ∃ n, v.ReadsAs (.nat n) := by
+  cases v with
+  | nat m => simp [OptionValue.readsNat, OptionValue.ReadsAs]
+  | string s =>
+    simp only [OptionValue.readsNat, OptionValue.ReadsAs, Option.isSome_iff_exists]
+  | bool b => simp [OptionValue.readsNat, OptionValue.ReadsAs]
+
+/-- `isLicense` holds exactly for the nonempty strings. -/
+theorem OptionValue.isLicense_iff (v : OptionValue) :
+    v.isLicense = true ↔ ∃ t, v = .string t ∧ t ≠ "" := by
+  cases v <;> simp [OptionValue.isLicense]
+
+/-- The option `name` at `value`, other than a required option, is in RG2006's accepted set: a §6.7
+exclusion at its prescribed value; the header linter's license line at a nonempty string; a listed
+`linter.` or `warn.` option at its listed value (`warningSettings`); one of `checkSwitches` at
+`true`; one of `resourceLimits` at a natural number; or a listed `pp.` option at its registered
+default (`printSettings`). Except for `exponentiation.threshold`, none can stop a warning that
+Lean reports by default: an exclusion is the standard's own; the license string selects which
+header the header linter accepts and silences no other warning; a listed value was read from the
+option's registration as silencing nothing its default reports; a check switch adds checks; a
+resource limit lets Lean do more work, and `0` removes the limit where it means none; a
+pretty-printer option keeps the text linters compare at its default. Raising
+`exponentiation.threshold` stops the warning that a power was not evaluated, because Lean
+evaluates it. Every other `linter.`, `warn.` or `pp.` option, and a listed one at another value,
+is refused. That the listed values silence nothing was read from the registrations' descriptions
+at Lean `acceptedRelease` and Mathlib `acceptedMathlib`, and is not proved. The name alone
+decides: whether Lean applies a `weak.` entry depends on which imported modules declare the
+option, so a `weak.` entry is refused for its name even when no module declares it and Lean
+ignores it. This is the relation, as a proposition, that `accepts`
+decides (`accepts_iff`). -/
+def Accepted (name : Name) (value : OptionValue) : Prop :=
+  (∃ e ∈ exclusionSettings, e.1 = name ∧ value.ReadsAs e.2) ∨
+  (name = licenseOption ∧ ∃ t, value = .string t ∧ t ≠ "") ∨
+  (∃ e ∈ warningSettings, e.1 = name ∧ value.ReadsAs e.2) ∨
+  (name ∈ checkSwitches ∧ value.ReadsAs (.bool true)) ∨
+  (name ∈ resourceLimits ∧ ∃ n, value.ReadsAs (.nat n)) ∨
+  ∃ e ∈ printSettings, e.1 = name ∧ value.ReadsAs e.2
+
+/-- The executed decision of `Accepted`. -/
+def accepts (name : Name) (value : OptionValue) : Bool :=
+  exclusionSettings.any (fun e => e.1 == name && value.readsAs e.2) ||
+  (name == licenseOption && value.isLicense) ||
+  warningSettings.any (fun e => e.1 == name && value.readsAs e.2) ||
+  (checkSwitches.contains name && value.readsAs (.bool true)) ||
+  (resourceLimits.contains name && value.readsNat) ||
+  printSettings.any (fun e => e.1 == name && value.readsAs e.2)
+
+/-- `accepts` decides exactly `Accepted`. -/
+theorem accepts_iff (name : Name) (value : OptionValue) :
+    accepts name value = true ↔ Accepted name value := by
+  have he : exclusionSettings.any (fun e => e.1 == name && value.readsAs e.2) = true ↔
+      ∃ e ∈ exclusionSettings, e.1 = name ∧ value.ReadsAs e.2 := by
+    simp [OptionValue.readsAs_iff]
+  have hw : warningSettings.any (fun e => e.1 == name && value.readsAs e.2) = true ↔
+      ∃ e ∈ warningSettings, e.1 = name ∧ value.ReadsAs e.2 := by
+    simp [OptionValue.readsAs_iff]
+  have hp : printSettings.any (fun e => e.1 == name && value.readsAs e.2) = true ↔
+      ∃ e ∈ printSettings, e.1 = name ∧ value.ReadsAs e.2 := by
+    simp [OptionValue.readsAs_iff]
+  simp only [accepts, Accepted, Bool.or_eq_true, Bool.and_eq_true, he, hw, hp, beq_iff_eq,
+    OptionValue.isLicense_iff, OptionValue.readsAs_iff, OptionValue.readsNat_iff,
+    List.contains_iff_mem, or_assoc]
+
+/-- The option `name`, set to `value` for every module, is not a required option and is not in the
+accepted set. -/
+def unaccepted (mathlib : Bool) (name : Name) (value : OptionValue) : Bool :=
+  (required mathlib).all (fun r => r.1 != name) && !accepts name value
+
+/-- `unaccepted` decides exactly that `name` is no required option and `Accepted` fails. -/
+theorem unaccepted_iff (mathlib : Bool) (name : Name) (value : OptionValue) :
+    unaccepted mathlib name value = true ↔
+      (∀ r ∈ required mathlib, r.1 ≠ name) ∧ ¬Accepted name value := by
+  rw [← accepts_iff]
+  simp [unaccepted]
+
+/-- `unaccepted` fails exactly when the option is required or `Accepted`. -/
+theorem unaccepted_eq_false_iff (mathlib : Bool) (name : Name) (value : OptionValue) :
+    unaccepted mathlib name value = false ↔
+      ((∀ r ∈ required mathlib, r.1 ≠ name) → Accepted name value) := by
+  have hall : (required mathlib).all (fun r => r.1 != name) = true ↔
+      ∀ r ∈ required mathlib, r.1 ≠ name := by
+    simp
+  rw [← accepts_iff, ← hall, unaccepted]
+  cases (required mathlib).all (fun r => r.1 != name) <;> cases accepts name value <;> simp
 
 /-- The `-D` setting of `name` to `value` gives a required option a value the requirement does
-not admit or turns off a linter outside the §6.7 exclusions. -/
+not admit, or sets an option outside the accepted set. -/
 def contradicts (o : BuildOptions) (mathlib : Bool) (name : Name) (value : OptionValue) : Bool :=
   (required mathlib).any (fun r => optionOf name == r.1 && !admits o r value) ||
-    disables (optionOf name) value
+    unaccepted mathlib (optionOf name) value
 
 /-- One way a target's build options fail RG2006. -/
 inductive Failure where
   /-- A required option is not given, or is given a value the requirement does not admit; `actual`
   lists the values the options give. -/
   | option (name : Name) (value : OptionValue) (actual : List OptionValue)
-  /-- A linter outside the §6.7 exclusions is turned off for every module of the target. -/
-  | disabledLinter (name : Name)
+  /-- The options set `name`, no required option, to `value` outside the accepted set for every
+  module of the target. -/
+  | unaccepted (name : Name) (value : OptionValue)
   /-- An extra `lean` argument sets `name` to `value` with `-D` against the requirement. -/
   | leanArgument (name : Name) (value : OptionValue)
   deriving DecidableEq, Repr
 
 /-- Every failure of one target's build options: required options in the order of `required`,
-then each turned-off linter in option order, then each contradicting `-D` in argument order. -/
+then each option outside the accepted set in option order, then each contradicting `-D` in
+argument order. -/
 @[regula_decision]
 def failures (o : BuildOptions) (mathlib : Bool) : List Failure :=
   (required mathlib).filterMap (fun r =>
       if meets o r then none else some (.option r.1 r.2 (valuesOf o r.1))) ++
     o.options.filterMap (fun entry =>
-      if disables (optionOf entry.1) entry.2 then some (.disabledLinter (optionOf entry.1))
+      if unaccepted mathlib (optionOf entry.1) entry.2 then
+        some (.unaccepted (optionOf entry.1) entry.2)
       else none) ++
     (argumentSettings o.arguments).filterMap fun s =>
       if contradicts o mathlib s.1 s.2 then some (.leanArgument s.1 s.2) else none
@@ -501,10 +1019,11 @@ def Failure.text : Failure → String
   | .option name value given =>
     s!"`{name}` is {", ".intercalate (given.map OptionValue.text)}; set it to {value.text}" ++
       licenseHint name
-  | .disabledLinter name =>
-    s!"`{name}` is off for every module; only the standard §6.7 exclusions may be"
+  | .unaccepted name value =>
+    s!"`{name}` set to {value.text} is not in RG2006's accepted set; remove it"
   | .leanArgument name value =>
-    s!"an extra `lean` argument sets `{name}` to {value.text}; remove it" ++ licenseHint name
+    s!"an extra `lean` argument sets `{name}` to {value.text}, which RG2006 does not accept; \
+      remove it" ++ licenseHint name
 
 /-- The finding detail of a target's failures. -/
 def detail (failures : List Failure) : String :=
@@ -513,19 +1032,18 @@ def detail (failures : List Failure) : String :=
 /-- The RG2006 obligation of one target, stated without the executed Boolean decisions: every
 required option is given, and only values that the requirement admits: what Lean reads as its
 required value, and for Mathlib's header linter also `true` when the target configures the license
-line (`Licensed`); no option turns off a linter outside the §6.7 exclusions; and no `-D` among the
-extra `lean` arguments gives a required option a value the requirement does not admit or turns off
-such a linter. -/
+line (`Licensed`); every other option the options set is `Accepted`; and each `-D` among the extra
+`lean` arguments gives a required option only a value the requirement admits and sets any other
+option only as `Accepted` allows. -/
 def Conforming (o : BuildOptions) (mathlib : Bool) : Prop :=
   (∀ r ∈ required mathlib, valuesOf o r.1 ≠ [] ∧ ∀ v ∈ valuesOf o r.1,
     v.ReadsAs r.2 ∨ (r.1 = headerLinter ∧ v.ReadsAs (.bool true) ∧ Licensed o)) ∧
-  (∀ entry ∈ o.options, rootOf (optionOf entry.1) = some "linter" →
-    entry.2.ReadsAs (.bool false) → optionOf entry.1 ∈ exclusions) ∧
+  (∀ entry ∈ o.options, (∀ r ∈ required mathlib, r.1 ≠ optionOf entry.1) →
+    Accepted (optionOf entry.1) entry.2) ∧
   ∀ s ∈ argumentSettings o.arguments,
     (∀ r ∈ required mathlib, optionOf s.1 = r.1 → s.2.ReadsAs r.2 ∨
       (r.1 = headerLinter ∧ s.2.ReadsAs (.bool true) ∧ Licensed o)) ∧
-    (rootOf (optionOf s.1) = some "linter" → s.2.ReadsAs (.bool false) →
-      optionOf s.1 ∈ exclusions)
+    ((∀ r ∈ required mathlib, r.1 ≠ optionOf s.1) → Accepted (optionOf s.1) s.2)
 
 /-- `meets` decides exactly the first conjunct's condition for one option. -/
 theorem meets_iff (o : BuildOptions) (r : Name × OptionValue) :
@@ -533,21 +1051,14 @@ theorem meets_iff (o : BuildOptions) (r : Name × OptionValue) :
       valuesOf o r.1 ≠ [] ∧ ∀ v ∈ valuesOf o r.1, admits o r v = true := by
   simp [meets]
 
-/-- `disables` decides exactly the negation of the second conjunct's condition. -/
-theorem disables_iff (name : Name) (value : OptionValue) :
-    disables name value = true ↔
-      rootOf name = some "linter" ∧ value.ReadsAs (.bool false) ∧ name ∉ exclusions := by
-  simp [disables, OptionValue.readsAs_iff, and_assoc]
-
 /-- `contradicts` decides exactly the negation of the third conjunct's condition. -/
 theorem contradicts_eq_false_iff (o : BuildOptions) (mathlib : Bool) (name : Name)
     (value : OptionValue) :
     contradicts o mathlib name value = false ↔
       (∀ r ∈ required mathlib, optionOf name = r.1 → admits o r value = true) ∧
-      (rootOf (optionOf name) = some "linter" → value.ReadsAs (.bool false) →
-        optionOf name ∈ exclusions) := by
-  have := disables_iff (optionOf name) value
-  cases h : disables (optionOf name) value <;> simp_all [contradicts]
+      ((∀ r ∈ required mathlib, r.1 ≠ optionOf name) → Accepted (optionOf name) value) := by
+  rw [contradicts, Bool.or_eq_false_iff, unaccepted_eq_false_iff]
+  simp
 
 /-- The decision reports no failure exactly when the target meets its RG2006 obligation. -/
 theorem failures_eq_nil_iff (o : BuildOptions) (mathlib : Bool) :
@@ -558,16 +1069,59 @@ theorem failures_eq_nil_iff (o : BuildOptions) (mathlib : Bool) :
     (and_congr (forall₂_congr fun e _ => ?_) (forall₂_congr fun s _ => ?_))
   · rw [← meets_iff]
     cases meets o r <;> simp
-  · have := disables_iff (optionOf e.1) e.2
-    cases h : disables (optionOf e.1) e.2 <;> simp_all
+  · rw [← unaccepted_eq_false_iff]
+    cases unaccepted mathlib (optionOf e.1) e.2 <;> simp
   · rw [← contradicts_eq_false_iff]
     cases contradicts o mathlib s.1 s.2 <;> simp
 
+/-- Each value the Mathlib requirement admits for one of Mathlib's options is `Accepted` without
+it. -/
+theorem accepted_of_mathlibBaseline (o : BuildOptions) (r : Name × OptionValue)
+    (hr : r ∈ mathlibBaseline) (v : OptionValue)
+    (hv : v.ReadsAs r.2 ∨ (r.1 = headerLinter ∧ v.ReadsAs (.bool true) ∧ Licensed o)) :
+    Accepted r.1 v := by
+  simp only [mathlibBaseline, List.mem_cons, List.not_mem_nil, or_false] at hr
+  rcases hr with rfl | rfl | rfl | rfl
+  · exact .inr (.inr (.inl ⟨(`linter.mathlibStandardSet, .bool true), by decide, rfl,
+      hv.elim id (fun h => absurd h.1 (by decide))⟩))
+  · rcases hv with hf | ⟨-, ht, -⟩
+    · exact .inl ⟨(headerLinter, .bool false), by simp [exclusionSettings], rfl, hf⟩
+    · exact .inr (.inr (.inl ⟨(headerLinter, .bool true), by decide, rfl, ht⟩))
+  · exact .inl ⟨(`linter.hashCommand, .bool false), by simp [exclusionSettings], rfl,
+      hv.elim id (fun h => absurd h.1 (by decide))⟩
+  · exact .inl ⟨(`linter.style.longFile, .nat 0), by simp [exclusionSettings], rfl,
+      hv.elim id (fun h => absurd h.1 (by decide))⟩
+
 /-- A target that meets the Mathlib requirement meets the core-only one: `required false` is a
-prefix of `required true`, and the linter conditions do not depend on Mathlib. -/
-theorem conforming_of_mathlib (o : BuildOptions) (h : Conforming o true) : Conforming o false :=
-  ⟨fun r hr => h.1 r (by simp_all [required]), h.2.1,
-    fun s hs => ⟨fun r hr => (h.2.2 s hs).1 r (by simp_all [required]), (h.2.2 s hs).2⟩⟩
+prefix of `required true`, and a value the Mathlib requirement admits for one of Mathlib's options
+is `Accepted` (`accepted_of_mathlibBaseline`). -/
+theorem conforming_of_mathlib (o : BuildOptions) (h : Conforming o true) : Conforming o false := by
+  have hreq : ∀ n, (∀ r ∈ required false, r.1 ≠ n) →
+      (∀ r ∈ required true, r.1 ≠ n) ∨ ∃ r ∈ mathlibBaseline, r.1 = n := by
+    intro n hn
+    by_cases hm : ∃ r ∈ mathlibBaseline, r.1 = n
+    · exact .inr hm
+    · refine .inl fun r hr hrn => ?_
+      simp only [required, ite_true, List.mem_append] at hr
+      rcases hr with hb | hb
+      · exact hn r (by simpa [required] using hb) hrn
+      · exact hm ⟨r, hb, hrn⟩
+  refine ⟨fun r hr => h.1 r (by simp_all [required]), fun e he hn => ?_,
+    fun s hs => ⟨fun r hr => (h.2.2 s hs).1 r (by simp_all [required]), fun hn => ?_⟩⟩
+  · rcases hreq _ hn with ht | ⟨r, hr, hre⟩
+    · exact h.2.1 e he ht
+    · have hm : r ∈ required true := by simp [required, hr]
+      have hv : e.2 ∈ valuesOf o r.1 := by
+        simp only [valuesOf, List.mem_filterMap]
+        exact ⟨e, he, by simp [hre]⟩
+      rw [← hre]
+      exact accepted_of_mathlibBaseline o r hr e.2 ((h.1 r hm).2 e.2 hv)
+  · rcases hreq _ hn with ht | ⟨r, hr, hre⟩
+    · exact (h.2.2 s hs).2 ht
+    · have hm : r ∈ required true := by simp [required, hr]
+      rw [← hre]
+      exact accepted_of_mathlibBaseline o r hr s.2 ((h.2.2 s hs).1 r hm hre.symm)
+
 
 /-- For an option other than the header linter the requirement admits exactly what Lean reads as
 the required value. -/
@@ -614,33 +1168,29 @@ not set. -/
 theorem missingDocs_unset_fails :
     failures ⟨[(`autoImplicit, .bool false), (`relaxedAutoImplicit, .bool false)], []⟩ false =
       [.option `linter.missingDocs (.bool true) []] := by
-  simp [failures, required, baseline, meets, admits, valuesOf, optionOf, disables, rootOf,
-    exclusions, argumentSettings, argumentTexts, OptionValue.readsAs]
+  decide
 
 /-- A `-D` string value contradicts the requirement exactly when it is a value the requirement does
-not admit for a required option (`admits`), or it is `"false"` for a linter outside the §6.7
-exclusions. -/
+not admit for a required option (`admits`), or it sets another option outside the accepted set. -/
 theorem contradicts_string_eq_true_iff (o : BuildOptions) (mathlib : Bool) (n : Name)
     (value : String) :
     contradicts o mathlib n (.string value) = true ↔
       (∃ r ∈ required mathlib, optionOf n = r.1 ∧ admits o r (.string value) = false) ∨
-      (rootOf (optionOf n) = some "linter" ∧ value = "false" ∧ optionOf n ∉ exclusions) := by
-  have hfalse : (OptionValue.string value).ReadsAs (.bool false) ↔ value = "false" := by
-    simp only [OptionValue.ReadsAs]
-    rfl
-  rw [contradicts, Bool.or_eq_true, List.any_eq_true, disables_iff, hfalse]
+      ((∀ r ∈ required mathlib, r.1 ≠ optionOf n) ∧
+        ¬Accepted (optionOf n) (.string value)) := by
+  rw [contradicts, Bool.or_eq_true, List.any_eq_true, unaccepted_iff]
   simp
 
-/-- The decision reports a `-D` argument exactly when some argument sets a checked option to a
-value that contradicts the requirement: `-Dname=value`, also after flags as in `-qD`, or `-D`
-followed by `name=value` as the next argument. The name is read as `lean` reads it
-(`String.toName`), and a linter is turned off by the string `"false"`. -/
+/-- The decision reports a `-D` argument exactly when some argument sets an option to a value that
+contradicts the requirement: `-Dname=value`, also after flags as in `-qD`, or `-D` followed by
+`name=value` as the next argument. The name is read as `lean` reads it (`String.toName`). -/
 theorem leanArgument_mem_failures_iff (o : BuildOptions) (mathlib : Bool) (n : Name)
     (v : OptionValue) :
     Failure.leanArgument n v ∈ failures o mathlib ↔
       ∃ name value, Defines o.arguments name value ∧ n = name.toName ∧ v = .string value ∧
         ((∃ r ∈ required mathlib, optionOf n = r.1 ∧ admits o r (.string value) = false) ∨
-          (rootOf (optionOf n) = some "linter" ∧ value = "false" ∧ optionOf n ∉ exclusions)) := by
+          ((∀ r ∈ required mathlib, r.1 ≠ optionOf n) ∧
+            ¬Accepted (optionOf n) (.string value))) := by
   have hmem : Failure.leanArgument n v ∈ failures o mathlib ↔
       (n, v) ∈ argumentSettings o.arguments ∧ contradicts o mathlib n v = true := by
     simp only [failures, List.mem_append, List.mem_filterMap]
@@ -662,9 +1212,95 @@ theorem leanArgument_mem_failures_iff (o : BuildOptions) (mathlib : Bool) (n : N
   · rintro ⟨name, value, hd, rfl, rfl, hc⟩
     exact ⟨⟨name, value, hd, rfl, rfl⟩, (contradicts_string_eq_true_iff _ _ _ _).2 hc⟩
 
+/-- The decision reports `n` at `v` as outside the accepted set exactly when one of the target's
+options sets `n`, under either spelling, to `v`, `n` is no required option and `Accepted n v`
+fails. -/
+theorem unaccepted_mem_failures_iff (o : BuildOptions) (mathlib : Bool) (n : Name)
+    (v : OptionValue) :
+    Failure.unaccepted n v ∈ failures o mathlib ↔
+      ∃ entry ∈ o.options, optionOf entry.1 = n ∧ entry.2 = v ∧
+        (∀ r ∈ required mathlib, r.1 ≠ n) ∧ ¬Accepted n v := by
+  simp only [failures, List.mem_append, List.mem_filterMap]
+  constructor
+  · rintro ((⟨r, -, h⟩ | ⟨e, he, h⟩) | ⟨s, -, h⟩)
+    · split at h <;> simp at h
+    · split at h
+      · rename_i hd
+        simp only [Option.some.injEq, Failure.unaccepted.injEq] at h
+        obtain ⟨rfl, rfl⟩ := h
+        exact ⟨e, he, rfl, rfl, (unaccepted_iff _ _ _).1 hd⟩
+      · simp at h
+    · split at h <;> simp at h
+  · rintro ⟨e, he, rfl, rfl, hd⟩
+    exact .inl (.inr ⟨e, he, by simp [(unaccepted_iff _ _ _).2 hd]⟩)
+
+/-- An option that the options set for every module to a value `unaccepted` refuses is reported. -/
+theorem unaccepted_option_fails (o : BuildOptions) (mathlib : Bool) (n : Name) (v : OptionValue)
+    (h : (n, v) ∈ o.options) (hn : optionOf n = n) (hu : unaccepted mathlib n v = true) :
+    Failure.unaccepted n v ∈ failures o mathlib :=
+  (unaccepted_mem_failures_iff o mathlib n v).2 ⟨_, h, hn, rfl, (unaccepted_iff _ _ _).1 hu⟩
+
+/-- `leanOptions` that set `warn.sorry` to `false` fail: Lean's warning for a declaration that
+uses `sorry` is one of its default warnings, and `false` is not in the accepted set. -/
+theorem warn_sorry_option_fails (o : BuildOptions) (mathlib : Bool)
+    (h : (`warn.sorry, OptionValue.bool false) ∈ o.options) :
+    Failure.unaccepted `warn.sorry (.bool false) ∈ failures o mathlib :=
+  unaccepted_option_fails o mathlib _ _ h rfl (by cases mathlib <;> decide)
+
+/-- `leanOptions` that set `doc.verso.suggestions` to `false` fail: the option is not in the
+accepted set at any value, although no list of Lean's warning switches has to name it. -/
+theorem docVersoSuggestions_option_fails (o : BuildOptions) (mathlib : Bool)
+    (h : (`doc.verso.suggestions, OptionValue.bool false) ∈ o.options) :
+    Failure.unaccepted `doc.verso.suggestions (.bool false) ∈ failures o mathlib :=
+  unaccepted_option_fails o mathlib _ _ h rfl (by cases mathlib <;> decide)
+
+/-- `leanOptions` that set an unlisted `linter.` option, even to `true`, fail: the accepted set lists
+each `linter.` and `warn.` option by name, so one that no listed registration declares is refused. -/
+theorem unlisted_linter_option_fails (o : BuildOptions) (mathlib : Bool)
+    (h : (`linter.example, OptionValue.bool true) ∈ o.options) :
+    Failure.unaccepted `linter.example (.bool true) ∈ failures o mathlib :=
+  unaccepted_option_fails o mathlib _ _ h rfl (by cases mathlib <;> decide)
+
+/-- `leanOptions` that set `linter.unusedVariables.analyzeTactics` to `true` fail: at `true` the
+linter counts a parameter as used when an intermediate tactic state mentions it, so it can drop a
+warning its default `false` reports. -/
+theorem analyzeTactics_option_fails (o : BuildOptions) (mathlib : Bool)
+    (h : (`linter.unusedVariables.analyzeTactics, OptionValue.bool true) ∈ o.options) :
+    Failure.unaccepted `linter.unusedVariables.analyzeTactics (.bool true) ∈ failures o mathlib :=
+  unaccepted_option_fails o mathlib _ _ h rfl (by cases mathlib <;> decide)
+
+/-- `leanOptions` that set `pp.unicode` to `false` fail: Mathlib's whitespace linter compares the
+printed text, so ASCII printing can stop it before a missing space it would report. -/
+theorem ppUnicode_option_fails (o : BuildOptions) (mathlib : Bool)
+    (h : (`pp.unicode, OptionValue.bool false) ∈ o.options) :
+    Failure.unaccepted `pp.unicode (.bool false) ∈ failures o mathlib :=
+  unaccepted_option_fails o mathlib _ _ h rfl (by cases mathlib <;> decide)
+
+/-- `leanOptions` that set `pp.oneline` to `true` fail: it truncates the printed text a linter
+compares. -/
+theorem ppOneline_option_fails (o : BuildOptions) (mathlib : Bool)
+    (h : (`pp.oneline, OptionValue.bool true) ∈ o.options) :
+    Failure.unaccepted `pp.oneline (.bool true) ∈ failures o mathlib :=
+  unaccepted_option_fails o mathlib _ _ h rfl (by cases mathlib <;> decide)
+
+/-- A core-only target with the required options and one option of each accepted family in
+`leanOptions` (a §6.7 exclusion at its value, the license line, listed `linter.` and `warn.`
+options at their listed values, among them `linter.extra.dupNamespace.consecutiveOnly` at its
+default `true` and `linter.haveLet` at `2`, both check switches, two resource limits, one at `0`,
+which means no limit, and a printing option at its default) has no failure. -/
+theorem accepted_families_pass :
+    failures ⟨[(`autoImplicit, .bool false), (`relaxedAutoImplicit, .bool false),
+      (`linter.missingDocs, .bool true), (`weak.linter.hashCommand, .bool false),
+      (`linter.style.header.license, .string "MIT"), (`linter.unusedVariables, .bool true),
+      (`linter.extra.dupNamespace.consecutiveOnly, .bool true), (`linter.haveLet, .nat 2),
+      (`warn.sorry, .bool true), (`warningAsError, .bool true), (`debugAssertions, .bool true),
+      (`maxHeartbeats, .nat 0), (`exponentiation.threshold, .nat 512),
+      (`pp.unicode, .bool true)], []⟩ false = [] := by
+  decide
+
 /-! The cases below fix the extra `lean` arguments and hold for every `leanOptions`. Lean's
-`String.toName` is `partial`, so the kernel cannot evaluate it: a case whose argument names an
-option takes the name `lean` reads as a hypothesis. -/
+`String.toName` is `partial`, and the kernel does not evaluate `String.toNat?`: a case whose
+argument names an option or gives a number takes what `lean` reads as a hypothesis. -/
 
 /-- `-DautoImplicit=true` gives a required option another value, so the target fails. -/
 theorem autoImplicit_argument_fails (options : List (Name × OptionValue)) (mathlib : Bool)
@@ -677,9 +1313,51 @@ theorem autoImplicit_argument_fails (options : List (Name × OptionValue)) (math
     .inl ⟨(`autoImplicit, .bool false), by simp [required, baseline], rfl,
       by rw [admits_of_ne _ _ (by simp [headerLinter])]; decide⟩⟩
 
-/-- `-DmaxHeartbeats=400000` sets no checked option, so it adds no failure. -/
+/-- A `-D` setting of an option outside the required options that `accepts` refuses is
+reported. -/
+theorem unaccepted_argument_fails (options : List (Name × OptionValue)) (mathlib : Bool)
+    (argument name value : String) (n : Name) (hd : Defines [argument] name value)
+    (h : name.toName = n) (hu : unaccepted mathlib (optionOf n) (.string value) = true) :
+    Failure.leanArgument n (.string value) ∈ failures ⟨options, [argument]⟩ mathlib := by
+  rw [leanArgument_mem_failures_iff]
+  exact ⟨name, value, hd, h.symm, rfl, .inr ((unaccepted_iff _ _ _).1 hu)⟩
+
+/-- `-qD` followed by `weak.linter.unusedVariables=false` sets a linter to `false`, outside the
+accepted set, so the target fails. -/
+theorem linter_argument_fails (options : List (Name × OptionValue)) (mathlib : Bool)
+    (h : "weak.linter.unusedVariables".toName = `weak.linter.unusedVariables) :
+    Failure.leanArgument `weak.linter.unusedVariables (.string "false") ∈
+      failures ⟨options, ["-qD", "weak.linter.unusedVariables=false"]⟩ mathlib := by
+  rw [leanArgument_mem_failures_iff]
+  exact ⟨"weak.linter.unusedVariables", "false",
+    (mem_argumentTexts_iff ["-qD", "weak.linter.unusedVariables=false"] _ _).1 (by decide),
+    h.symm, rfl, .inr ((unaccepted_iff _ _ _).1 (by cases mathlib <;> decide))⟩
+
+/-- `-Dwarn.sorry=false` turns off one of Lean's own warnings, outside the accepted set, so the
+target fails. -/
+theorem warn_argument_fails (options : List (Name × OptionValue)) (mathlib : Bool)
+    (h : "warn.sorry".toName = `warn.sorry) :
+    Failure.leanArgument `warn.sorry (.string "false") ∈
+      failures ⟨options, ["-Dwarn.sorry=false"]⟩ mathlib :=
+  unaccepted_argument_fails options mathlib _ "warn.sorry" "false" _
+    ((mem_argumentTexts_iff ["-Dwarn.sorry=false"] _ _).1 (by decide)) h
+    (by cases mathlib <;> decide)
+
+/-- `-Dweak.warn.example=false` is refused although no module declares `warn.example` and Lean
+ignores the setting: a `weak.` entry is classified by its name alone. -/
+theorem undeclared_weak_argument_fails (options : List (Name × OptionValue)) (mathlib : Bool)
+    (h : "weak.warn.example".toName = `weak.warn.example) :
+    Failure.leanArgument `weak.warn.example (.string "false") ∈
+      failures ⟨options, ["-Dweak.warn.example=false"]⟩ mathlib :=
+  unaccepted_argument_fails options mathlib _ "weak.warn.example" "false" _
+    ((mem_argumentTexts_iff ["-Dweak.warn.example=false"] _ _).1 (by decide)) h
+    (by cases mathlib <;> decide)
+
+/-- `-DmaxHeartbeats=400000` raises a resource limit, which the accepted set admits at any natural
+number, so it adds no failure. -/
 theorem maxHeartbeats_argument_passes (options : List (Name × OptionValue)) (mathlib : Bool)
-    (h : "maxHeartbeats".toName = `maxHeartbeats) (n : Name) (v : OptionValue) :
+    (h : "maxHeartbeats".toName = `maxHeartbeats) (hn : "400000".toNat? = some 400000)
+    (n : Name) (v : OptionValue) :
     Failure.leanArgument n v ∉ failures ⟨options, ["-DmaxHeartbeats=400000"]⟩ mathlib := by
   rw [leanArgument_mem_failures_iff]
   rintro ⟨name, value, hd, rfl, rfl, hc⟩
@@ -689,21 +1367,9 @@ theorem maxHeartbeats_argument_passes (options : List (Name × OptionValue)) (ma
   obtain ⟨rfl, rfl⟩ := hd
   have ho : optionOf "maxHeartbeats".toName = `maxHeartbeats := by rw [h]; rfl
   rw [ho] at hc
-  cases mathlib <;> simp [required, baseline, mathlibBaseline, rootOf, admits] at hc
-
-/-- `-qD` followed by `weak.linter.unusedVariables=false` turns off a linter outside the §6.7
-exclusions, so the target fails. -/
-theorem linter_argument_fails (options : List (Name × OptionValue)) (mathlib : Bool)
-    (h : "weak.linter.unusedVariables".toName = `weak.linter.unusedVariables) :
-    Failure.leanArgument `weak.linter.unusedVariables (.string "false") ∈
-      failures ⟨options, ["-qD", "weak.linter.unusedVariables=false"]⟩ mathlib := by
-  rw [leanArgument_mem_failures_iff]
-  refine ⟨"weak.linter.unusedVariables", "false",
-    (mem_argumentTexts_iff ["-qD", "weak.linter.unusedVariables=false"] _ _).1 (by decide),
-    h.symm, rfl, .inr ⟨rfl, rfl, ?_⟩⟩
-  have ho : optionOf `weak.linter.unusedVariables = `linter.unusedVariables := rfl
-  rw [ho]
-  simp [exclusions]
+  have ha : Accepted `maxHeartbeats (.string "400000") :=
+    .inr (.inr (.inr (.inr (.inl ⟨by simp [resourceLimits], 400000, hn⟩))))
+  cases mathlib <;> simp [required, baseline, mathlibBaseline, admits, ha] at hc
 
 /-- `-Dweak.linter.hashCommand=false` turns off a §6.7 exclusion, which a Mathlib target sets to
 `false` itself, so it adds no failure. -/
@@ -721,7 +1387,7 @@ theorem excluded_linter_argument_passes (options : List (Name × OptionValue))
   have ho : optionOf "weak.linter.hashCommand".toName = `linter.hashCommand := by rw [h]; rfl
   have hr : (OptionValue.string "false").readsAs (.bool false) = true := by decide
   rw [ho] at hc
-  simp [required, baseline, mathlibBaseline, exclusions, admits, hr] at hc
+  simp [required, baseline, mathlibBaseline, admits, hr] at hc
 
 /-- Arguments that are not `-D`, such as `--plugin` and `--tstack`, add no failure. -/
 theorem plugin_argument_passes (options : List (Name × OptionValue)) (mathlib : Bool) (n : Name)
@@ -797,9 +1463,7 @@ theorem licensed_header_passes :
       (`linter.style.header.license,
         .string "Released under the MIT license as described in the repository LICENSE."),
       (`linter.hashCommand, .bool false), (`linter.style.longFile, .nat 0)], []⟩ true = [] := by
-  simp +decide [failures, required, baseline, mathlibBaseline, meets, admits, licensed,
-    licenseValues, valuesOf, optionOf, disables, exclusions, argumentSettings, argumentTexts,
-    headerLinter, licenseOption, OptionValue.readsAs, OptionValue.isLicense]
+  decide
 
 /-- The same target without the license line fails with exactly the header linter, set to
 `true`, where `false` is required. -/
@@ -809,8 +1473,6 @@ theorem unlicensed_header_fails :
       (`linter.style.header, .bool true),
       (`linter.hashCommand, .bool false), (`linter.style.longFile, .nat 0)], []⟩ true =
       [.option `linter.style.header (.bool false) [.bool true]] := by
-  simp [failures, required, baseline, mathlibBaseline, meets, admits, licensed,
-    licenseValues, valuesOf, optionOf, disables, rootOf, exclusions, argumentSettings,
-    argumentTexts, headerLinter, licenseOption, OptionValue.readsAs]
+  decide
 
 end RegulaPolicy.Community

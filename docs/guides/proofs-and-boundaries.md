@@ -992,6 +992,13 @@ gives it (`licensed_iff`); a `-D` extra argument that gives it a value can only 
 fail. That the linter compares the header with that option is read from Mathlib's source and
 assumed.
 
+Each other option that a target sets in `leanOptions` or with `-D` must be in the closed accepted
+set `RegulaPolicy.Community.Accepted`, at an accepted value. The function `accepts` decides that
+set (`accepts_iff`). The accepted values were read from the option registrations at Lean
+`v4.34.1` and at the pinned Mathlib. That such a value stops no default warning is an argument
+from those registrations, not a theorem. The exception is a raised `exponentiation.threshold`,
+which stops the warning that a power was not evaluated, because Lean then evaluates the power.
+
 **Correspondence resource bound.** `kernelAnswer` gives the kernel Lean's
 per-declaration default heartbeats (`Core.getMaxHeartbeats` of the default options), so a
 checker-added obligation costs no more than one the adopter could write, and runs under Lean's
