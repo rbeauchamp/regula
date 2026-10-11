@@ -66,8 +66,7 @@ structure PendingMarker where
   deriving Repr
 
 /-- One Lean code fence found by `scan` or `scanVerso`, with its exact location. The record has no
-parts: each field is project-written, the document, a copy of its text, or a value that its text
-and markers decide. -/
+parts: each field is project-written by the criterion of the guide's "Documentation records". -/
 structure Fence where
   /-- The scanned document: its URI and full text. -/
   document : RegulaPolicy.SourceSnapshot
@@ -90,8 +89,8 @@ structure Fence where
   markerLine : Option Nat
   deriving Repr, DecidableEq
 
-/-- The outcome of scanning one document. The record has no parts: the text and the markers of the
-document decide its fences and its violations, and a violation names the document. -/
+/-- The outcome of scanning one document. The record has no parts: each field is project-written
+by the criterion of the guide's "Documentation records". -/
 structure ScanResult where
   /-- The Lean fences found, in document order. -/
   fences : Array Fence
@@ -599,9 +598,8 @@ theorem toList_linesOf (text : String) :
   simp
 
 /-- A document with its lines. The field `divided` binds the lines to the text of the document,
-so no value of this type has the lines of a different text. The record has no parts: the document
-is a project file, its lines copy its text, and `origin` is its path, relative to the root that
-the checker reads. -/
+so no value of this type has the lines of a different text. The record has no parts: each field is
+project-written by the criterion of the guide's "Documentation records". -/
 structure Source where
   /-- The document: its URI and its full text. Each fence records it. -/
   document : RegulaPolicy.SourceSnapshot
@@ -840,8 +838,8 @@ def Source.scanned (source : Source) : Format → ScanResult
 /-- The result of a scan, with its input. The field `executed` binds the result to the scanner:
 no value of this type has the result of a different document, or a result that the scanner of
 its form did not return. The documentation audit takes its fences and its violations from a
-value of this type. The record has no parts: the form follows from the extension of the
-document's path, and the source and the result are project-written. -/
+value of this type. The record has no parts: each field is project-written by the criterion of the
+guide's "Documentation records". -/
 structure Scanned where
   /-- The form of the document. -/
   format : Format

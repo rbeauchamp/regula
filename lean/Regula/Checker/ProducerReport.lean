@@ -98,22 +98,37 @@ instance : ToJson ModuleHeader.Observation := ⟨fun o => Json.mkObj [
 
 instance : FromJson ModuleHeader.Observation := ⟨fun j => do
   exactFields j ["documented", "documentationFirst", "imports"]
-  return ⟨← j.getObjValAs? _ "documented", ← j.getObjValAs? _ "documentationFirst",
-    ← j.getObjValAs? _ "imports"⟩⟩
+  return { documented := ← j.getObjValAs? _ "documented"
+           documentationFirst := ← j.getObjValAs? _ "documentationFirst"
+           imports := ← j.getObjValAs? _ "imports" }⟩
 
-/-- Metadata presence is deliberately separate from prose adequacy. The material selector
-is frozen before docstring lookup and retains exact owning modules, including empty modules.
-Each module carries its RG5001 header observation (`RegulaPolicy.ModuleHeader`). The record has
-no parts: each field is project-written. The `@[regula_material]` mark of the project selects the
-material keys, the docstrings are the project's, and each header observation is project-written. -/
-structure DocumentationObservation where
+/-- The observed part of the documentation observation, by the criterion of the guide's
+"Documentation records": each claimed module with its header observation, which has its own
+parts, and the module that the environment attributes to each material declaration, with its
+name. Project state enters these fields only by selection: the claim names the modules, and the
+`@[regula_material]` mark selects the declarations. -/
+structure DocumentationObservation.ToolchainObserved where
   /-- Each claimed module with its RG5001 header observation, read from its bound source. -/
   modules : Array (Name × ModuleHeader.Observation)
   /-- The `(module, declaration)` key of every owned declaration the material selector chose,
   frozen before any docstring was read. -/
   materialDeclarations : Array (Name × Name)
+  deriving Repr, ToJson
+
+/-- The project-written part of the documentation observation, by the criterion of the guide's
+"Documentation records": the docstring of each material declaration, under a key that repeats one
+of the material keys. -/
+structure DocumentationObservation.ProjectWritten where
   /-- Each material key with the docstring `findDocString?` returned for it, if any. -/
   declarations : Array ((Name × Name) × Option String)
+  deriving Repr, ToJson
+
+/-- Metadata presence is deliberately separate from prose adequacy. The material selector
+is frozen before docstring lookup and retains exact owning modules, including empty modules.
+Each module carries its RG5001 header observation (`RegulaPolicy.ModuleHeader`). Each field is
+declared in the part that says where its value comes from. -/
+structure DocumentationObservation extends DocumentationObservation.ToolchainObserved,
+    DocumentationObservation.ProjectWritten
   deriving Repr, ToJson
 
 instance : FromJson DocumentationObservation := ⟨fun j => do
@@ -879,7 +894,8 @@ theorem validate_nonvacuous : ∃ r : Environment, r.validate = .ok () := by
     admission := some
       { modules := #[`A], required := #[], admitted := #[], reused := #[], shared := #[] }
     documentation := some {
-      modules := #[(`A, ⟨true, true, []⟩)], materialDeclarations := #[], declarations := #[] }
+      modules := #[(`A, { documented := true, documentationFirst := true, imports := [] })],
+      materialDeclarations := #[], declarations := #[] }
     sourceBindings := #[{ moduleName := `A, path := "A.lean", content := "" }] }
   refine ⟨r, (validate_eq_ok r).mpr ⟨rfl, by decide +kernel, by decide +kernel, rfl,
     ⟨_, admitExecution_exact _ (by decide +kernel)⟩, ?_, ⟨_, rfl, by decide +kernel⟩,

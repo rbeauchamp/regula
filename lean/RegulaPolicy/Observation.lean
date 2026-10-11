@@ -81,38 +81,46 @@ inductive ExampleOutcome where
   (`incomplete_example_refused`). -/
   | incomplete (detail : String)
 
-/-- Explicit temporary-unit mapping permits grouped inspection without conflating its
-source units. Each unit retains the original fence identity and exact compiler source.
-
-The record has no parts: each field is project-written. The checker names the module and its
-source file after the fence's place among the Lean fences of the documents, which the language
-words of the earlier fences decide. The file's text is a copy of the fence's body. -/
-structure ExampleUnit where
+/-- The observed part of a compilation unit, by the criterion of the guide's "Documentation
+records": the temporary module and the path of the source file that the checker chose for it. No
+project state enters them: the place of the unit's fence among the Lean fences numbers the module,
+and that numbering is selection. -/
+structure ExampleUnit.ToolchainObserved where
   /-- The temporary module the unit was compiled as. -/
   moduleName : Name
-  /-- The documentation fence the unit's source comes from. -/
-  fence : FenceKey
-  /-- The unit's compiled source file path and text. -/
-  source : SourceSnapshot
+  /-- The path of the unit's compiled source file. -/
+  source : String
   deriving Repr, DecidableEq
 
-/-- The observed production of one documentation example fence.
-
-The record has no parts: each field is project-written. The fence, the module's name and the
-source texts come from the documents, as for `ExampleUnit`. Compiling the example runs its
-commands and the code of the modules that it imports, whose elaborators, macros, linters and
-attributes a project writes. They can enter the group, the warnings, the declarations and the
-outcome, and the commands can write the source file that `after` reads. The inventory of an
-elaborated outcome holds declaration records, which keep their own parts. -/
-structure ExampleObservation where
-  /-- The fence this observation is for. -/
+/-- The project-written part of a compilation unit, by the criterion of the guide's
+"Documentation records": the fence of its document, and the text of the compiled source file,
+which the checker copies from the fence's body. -/
+structure ExampleUnit.ProjectWritten where
+  /-- The documentation fence the unit's source comes from. -/
   fence : FenceKey
+  /-- The text of the unit's compiled source file. -/
+  sourceContent : String
+  deriving Repr, DecidableEq
+
+/-- Explicit temporary-unit mapping permits grouped inspection without conflating its
+source units. Each unit retains the original fence identity and exact compiler source. Each field
+is declared in the part that says where its value comes from. -/
+structure ExampleUnit extends ExampleUnit.ToolchainObserved, ExampleUnit.ProjectWritten
+  deriving Repr, DecidableEq
+
+/-- The observed part of an example's production, by the criterion of the guide's "Documentation
+records": the temporary module and the group that the checker chose, the source file that it read
+back, and what the compiler, the kernel's replay and the checker's inspection report. Project state
+enters the file and the reports through the compilation, which runs the example's commands and
+options and the code of the modules that it imports. Those commands and options and the linters,
+elaborators, macros and attributes of those modules write the warnings, add declarations to the
+census and the inventory and decide the outcome, and the commands can write the source file. Each
+unit and each declaration record of the inventory has its own parts. -/
+structure ExampleObservation.ToolchainObserved where
   /-- The temporary module the fence was compiled as. -/
   unitName : Name
   /-- Every unit of the compilation group the fence was inspected with. -/
   units : Array ExampleUnit
-  /-- The source text given to the compiler. -/
-  before : String
   /-- The source file's text read back after compilation. -/
   after : String
   /-- The warning lines of the compiler output. -/
@@ -123,9 +131,22 @@ structure ExampleObservation where
   /-- How the example's production ended. -/
   outcome : ExampleOutcome
 
+/-- The project-written part of an example's production, by the criterion of the guide's
+"Documentation records": the fence, and the source text that the checker gave the compiler, a copy
+of the fence's body. -/
+structure ExampleObservation.ProjectWritten where
+  /-- The fence this observation is for. -/
+  fence : FenceKey
+  /-- The source text given to the compiler. -/
+  before : String
+
+/-- The observed production of one documentation example fence. Each field is declared in the
+part that says where its value comes from. -/
+structure ExampleObservation extends ExampleObservation.ToolchainObserved,
+    ExampleObservation.ProjectWritten
+
 /-- Complete scan of the exact document domain, including no-fence files. The record has no
-parts: each field is project-written. The documents are project files, and their text and
-markers decide the fences and the violations. -/
+parts: each field is project-written by the criterion of the guide's "Documentation records". -/
 structure DocumentObservation where
   /-- The documents scanned, with their exact text. -/
   documents : Array SourceSnapshot
@@ -269,12 +290,12 @@ def ExampleSourceOK (fences : Array FenceKey) (f : FenceKey) (o : ExampleObserva
   o.unitName ≠ .anonymous ∧ o.units.toList.Pairwise (fun a b => a.moduleName ≠ b.moduleName) ∧
   o.units.toList.Pairwise (fun a b => a.fence ≠ b.fence) ∧
   (∃ unit ∈ o.units, unit.moduleName = o.unitName ∧ unit.fence = f) ∧
-  (∀ unit ∈ o.units, unit.moduleName ≠ .anonymous ∧ unit.fence ∈ fences ∧ unit.source.uri ≠ "" ∧
-    unit.source.source = String.Pos.Raw.extract unit.fence.document.source
+  (∀ unit ∈ o.units, unit.moduleName ≠ .anonymous ∧ unit.fence ∈ fences ∧
+    unit.source ≠ "" ∧ unit.sourceContent = String.Pos.Raw.extract unit.fence.document.source
       ⟨unit.fence.body.start⟩ ⟨unit.fence.body.stop⟩) ∧
   (∀ d ∈ i.declarations, ∃ unit ∈ o.units, unit.moduleName = d.module) ∧
   (∀ t ∈ i.transcripts, ∃ unit ∈ o.units, unit.moduleName = t.module ∧
-    unit.source.uri = t.source ∧ unit.source.source = t.sourceContent)
+    unit.source = t.source ∧ unit.sourceContent = t.sourceContent)
 set_option synthInstance.maxSize 1024 in
 instance (fs : Array FenceKey) (f : FenceKey) (o : ExampleObservation) (i : Inventory) :
     Decidable (ExampleSourceOK fs f o i) := by unfold ExampleSourceOK; infer_instance

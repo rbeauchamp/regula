@@ -184,9 +184,8 @@ inductive FenceExpectation where
   deriving Repr, DecidableEq
 
 /-- One documentation fence: its document, the byte ranges of its lines and what its example is
-declared to do. The record has no parts: each field is project-written. The document is a project
-file. The byte ranges count the bytes of the document before them, its markers included, and the
-expectation is the data of the fence's marker or language word.
+declared to do. The record has no parts: each field is project-written by the criterion of the
+guide's "Documentation records".
 
 Rule identity tokens in policy-negative expectations must be validated by the sole
 registry adapter. The policy library deliberately defines no second RuleId enumeration. -/
