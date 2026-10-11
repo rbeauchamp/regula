@@ -358,7 +358,7 @@ structure OmissionAccount where
 with the law observer's report of it (`RegulaPolicy.ContractEvidence`): the census environment by
 its position, the registration, its module, the implementation and the requirement its recorded
 contract names, and the report. Each entry is one registration's own: no entry joins
-registrations by name or text (`mem_evidenceOf`). The report decides nothing; its adequacy and
+registrations by name or text (`mem_evidenceOf`). The report refuses nothing; its adequacy and
 caller coverage remain `ContractAccount.unresolved`. -/
 structure EvidenceAccount where
   /-- The position of the registration's environment in the census. -/
@@ -712,15 +712,17 @@ private def residualList (rs : List Residual) : String := ", ".intercalate (rs.m
 module, the carrier and the implementation, then either the linkage conclusion with each law and
 each outcome that the carrier establishes as its proposition
 (`RegulaPolicy.ContractEvidence.facts`), or the reason the observer draws no conclusion, which
-leaves the requirement as the contract line states it. The law `Regula.DecisionEquivalence` establishes no outcome
-(`RegulaPolicy.Carrier.facts_exact`), and its line says so. -/
+leaves the requirement as the contract line states it. The law `Regula.DecisionEquivalence`
+establishes no outcome (`RegulaPolicy.Carrier.facts_exact`), and its line says so. Each expression
+is shown by Lean's display of it; its exact term is in the JSON account. -/
 def EvidenceAccount.text (k : EvidenceAccount) : String :=
   let e := k.evidence
   let head := s!"{RuleId.executableContract.spelling} contract evidence {k.registration} \
     (environment {k.environment}, module {k.module}): {e.carrier.spelling} carrier about \
-    {e.decided}, implementation {e.implementation}"
-  let render (facts : List (RegulaPolicy.Fact × String)) : String :=
-    "; ".intercalate (facts.map fun (fact, statement) => s!"{fact.spelling}: {statement}")
+    {e.decided.display}, implementation {e.implementation.display}"
+  let render (facts : List (RegulaPolicy.Fact × RegulaPolicy.Shown)) : String :=
+    "; ".intercalate (facts.map fun (fact, statement) =>
+      s!"{fact.spelling}: {statement.display}")
   match e.linkage with
   | .linked conclusion =>
     let laws := e.facts.filter (·.1.law)

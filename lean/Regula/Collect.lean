@@ -2471,6 +2471,93 @@ private def uncurriedCore : Expr → Nat × Expr
       else (0, decided.eta)
   | decided => (0, decided.eta)
 
+/-- A term compared by `Expr.equal`, which takes binder names and annotations into account, and
+not by Lean's `BEq Expr`, which ignores them. -/
+private structure StrictExpr where
+  expr : Expr
+
+private instance : BEq StrictExpr := ⟨fun a b => a.expr.equal b.expr⟩
+private instance : Hashable StrictExpr := ⟨fun a => a.expr.hash⟩
+
+/-- The tables that `termPosition` fills: the levels and the subterms it has recorded, and the
+position of each. -/
+private structure TermTables where
+  levels : Array RegulaPolicy.LevelNode := #[]
+  levelPositions : Std.HashMap Level Nat := {}
+  nodes : Array RegulaPolicy.TermNode := #[]
+  nodePositions : Std.HashMap StrictExpr Nat := {}
+
+/-- The position of `level` in the table of levels, with `node` recorded for it the first time;
+`node` is run only then, so each distinct level is read once. -/
+private def rememberLevel (level : Level) (node : StateM TermTables RegulaPolicy.LevelNode) :
+    StateM TermTables Nat := do
+  if let some position := (← get).levelPositions[level]? then return position
+  let node ← node
+  modifyGet fun t => (t.levels.size,
+    { t with levels := t.levels.push node,
+             levelPositions := t.levelPositions.insert level t.levels.size })
+
+/-- The position of `level` in the table of levels, after the levels it contains. -/
+private def levelPosition : Level → StateM TermTables Nat
+  | level@.zero => rememberLevel level (pure .zero)
+  | level@(.succ of) => rememberLevel level do return .succ (← levelPosition of)
+  | level@(.max left right) => rememberLevel level do
+      return .max (← levelPosition left) (← levelPosition right)
+  | level@(.imax left right) => rememberLevel level do
+      return .imax (← levelPosition left) (← levelPosition right)
+  | level@(.param name) => rememberLevel level (pure (.param name))
+  | level@(.mvar id) => rememberLevel level (pure (.mvar id.name))
+
+/-- The binding of a binder annotation. -/
+private def bindingOf : BinderInfo → RegulaPolicy.Binding
+  | .default => .default
+  | .implicit => .implicit
+  | .strictImplicit => .strictImplicit
+  | .instImplicit => .instImplicit
+
+/-- The position of `e` in the table of subterms, with `node` recorded for it the first time;
+`node` is run only then, so each distinct subterm is read once. -/
+private def rememberTerm (e : Expr) (node : StateM TermTables RegulaPolicy.TermNode) :
+    StateM TermTables Nat := do
+  if let some position := (← get).nodePositions[StrictExpr.mk e]? then return position
+  let node ← node
+  modifyGet fun t => (t.nodes.size,
+    { t with nodes := t.nodes.push node,
+             nodePositions := t.nodePositions.insert ⟨e⟩ t.nodes.size })
+
+/-- The position of `e` in the table of subterms, after the subterms it contains. Metadata is
+passed through: a subterm with metadata has the position of the subterm under it. -/
+private def termPosition : Expr → StateM TermTables Nat
+  | .mdata _ inner => termPosition inner
+  | e@(.bvar index) => rememberTerm e (pure (.bvar index))
+  | e@(.fvar id) => rememberTerm e (pure (.fvar id.name))
+  | e@(.mvar id) => rememberTerm e (pure (.mvar id.name))
+  | e@(.sort level) => rememberTerm e do return .sort (← levelPosition level)
+  | e@(.const name levels) => rememberTerm e do return .const name (← levels.mapM levelPosition)
+  | e@(.app function argument) => rememberTerm e do
+      return .app (← termPosition function) (← termPosition argument)
+  | e@(.lam binder type body info) => rememberTerm e do
+      return .lam binder (← termPosition type) (← termPosition body) (bindingOf info)
+  | e@(.forallE binder type body info) => rememberTerm e do
+      return .forallE binder (← termPosition type) (← termPosition body) (bindingOf info)
+  | e@(.letE binder type value body nondep) => rememberTerm e do
+      return .letE binder (← termPosition type) (← termPosition value) (← termPosition body) nondep
+  | e@(.lit (.natVal value)) => rememberTerm e (pure (.natLit value))
+  | e@(.lit (.strVal value)) => rememberTerm e (pure (.strLit value))
+  | e@(.proj typeName index value) => rememberTerm e do
+      return .proj typeName index (← termPosition value)
+
+/-- The exact term of `e` (`RegulaPolicy.Term`): its levels and its subterms, each distinct one
+once, the last subterm being `e` without metadata. It reads every node of the term, with no
+limit, so nothing of the term is left out but its metadata. -/
+private def exactTerm (e : Expr) : RegulaPolicy.Term :=
+  let tables := ((termPosition e).run {}).2
+  { levels := tables.levels, nodes := tables.nodes }
+
+/-- `e` as a report shows it: its exact term, and Lean's display of it for a reader. -/
+private def shownTerm (e : Expr) : MetaM RegulaPolicy.Shown :=
+  return { exact := exactTerm e, display := toString (← Meta.ppExpr e) }
+
 /-- The proposition that `fact` states (`RegulaPolicy.Fact.Holds`) of the acceptance predicate
 `accepts`, the specification `spec` and the decided function `decided` on the domain `domain`,
 built from Lean's own `Exists`, `Not` and function types, with each application of `accepts` and
@@ -2503,7 +2590,9 @@ which the registration names `implementation` and whether those levels are the r
 parameters (`ownParameters`), and the arguments its result still takes
 (`unsuppliedArguments`). The registered decision `RegulaPolicy.DecidedObservation.unlinked?`
 links it or says why not. Only a linked report states facts: one proposition for each fact of the
-carrier (`factStatement`), which `RegulaPolicy.admitStatements` admits. The report refuses
+carrier (`factStatement`), which `RegulaPolicy.admitStatements` admits. Each expression, the
+applied requirement and each proposition is recorded as its exact term (`exactTerm`), with Lean's
+display of it beside it for a reader (`shownTerm`). The report refuses
 nothing: a registration that it does not link keeps whatever verdict its recorded contract
 gives. -/
 private def contractEvidence? (env : Environment) (scope : ContractScope)
@@ -2534,21 +2623,22 @@ private def contractEvidence? (env : Environment) (scope : ContractScope)
     | some why => pure (.unlinked why)
     | none => do
       let statements ← carrier.facts.toArray.mapM fun fact => do
-        return toString (← Meta.ppExpr (← factStatement fact domain accepts spec decided))
+        shownTerm (← factStatement fact domain accepts spec decided)
       match RegulaPolicy.checked_admitStatements.run carrier statements with
       | .ok ⟨statements, exact⟩ => pure (.linked ⟨uncurries, statements, exact⟩)
       | .error message => throwError message
-  let shown (e : Expr) : MetaM String := return toString (← Meta.ppExpr e)
   return some {
     carrier
-    implementation := toString (← withOptions (pp.universes.set · true) <|
-      Meta.ppExpr implementation)
+    implementation := {
+      exact := exactTerm implementation
+      display := toString (← withOptions (pp.universes.set · true) <| Meta.ppExpr implementation) }
     universes := registration.levelParams.toArray
-    domain := ← shown domain
-    result := ← shown result
-    accepts := ← shown accepts
-    spec := ← shown spec
-    decided := ← shown decided
+    requirement := ← shownTerm applied
+    domain := ← shownTerm domain
+    result := ← shownTerm result
+    accepts := ← shownTerm accepts
+    spec := ← shownTerm spec
+    decided := ← shownTerm decided
     linkage }
 
 /-- Acquisition stage, independent of whether a subsequent policy check succeeds.
@@ -2591,7 +2681,7 @@ The third component is the statement of a decision registration that was read an
 (`sharedReading`), and the record names them.
 The fourth is the law observer's report of a closed registration whose requirement reduces to a
 decision carrier (`contractEvidence?`), which the caller records in the reported part of the
-record (`RegulaPolicy.Declaration.Reported`); it decides nothing.
+record (`RegulaPolicy.Declaration.Reported`), which no rule's decision takes.
 -/
 private def executableContract? (env : Environment) (scope : ContractScope) (stage : Stage)
     (info : ConstantInfo) :

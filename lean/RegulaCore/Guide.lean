@@ -689,9 +689,14 @@ def guide : RuleId → Guide
           function, and no other fact. Each listed fact follows from the carrier, and each \
           unlisted one fails for some instance of it (`RegulaPolicy.Carrier.facts_sound`, \
           `RegulaPolicy.Carrier.facts_exact`). An unlinked report holds no fact by its type \
-          (`RegulaPolicy.ContractEvidence.facts_unlinked`). The report changes no policy \
-          decision (`RegulaPolicy.policyFor_withEvidence`), and the account lists one entry for \
-          each observed registration (`Regula.Checker.Account.mem_evidenceOf`)."]
+          (`RegulaPolicy.ContractEvidence.facts_unlinked`). Each expression and proposition is \
+          recorded as its exact term beside Lean's display of it (`RegulaPolicy.Shown`). The \
+          roles and the name-keyed decision ignore the report, and so does the decision on a \
+          member when the inventory's reports and the member's change together \
+          (`RegulaPolicy.policyFor_withEvidence`); the admission boundary of a supplied record \
+          compares whole records and refuses one whose report differs from the inventory's. The \
+          account lists one entry for each observed registration \
+          (`Regula.Checker.Account.mem_evidenceOf`)."]
       notEstablished := [
         "That `R` expresses the intended behavior (R-INTENT) and that every caller uses the \
           contracted implementation (R-INVARIANT). Every accepted account lists these as open for \

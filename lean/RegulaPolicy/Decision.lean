@@ -507,12 +507,16 @@ theorem policyFor_of_mem (i : Inventory) (roles : Roles i) {d : Declaration}
     policyFor i roles d request = policyForName i roles d.name request := by
   simp [policyFor, recordFailure, hd]
 
-/-! ## The reported observation decides nothing
+/-! ## What the decisions do with the reported observation
 
-The law observer's report of a registration (`Declaration.Reported`) is in no part that a
-decision takes. The decisions that take a whole record or inventory give the same answer whatever
-each record reports: the roles (`authorize_withEvidence`), the identity-keyed decision
-(`policyForName_withEvidence`) and the public decision on a member (`policyFor_withEvidence`). -/
+The law observer's report of a registration (`Declaration.Reported`) is in no part that the
+decision of a rule takes. The roles (`authorize_withEvidence`) and the identity-keyed decision
+(`policyForName_withEvidence`) give the same answer whatever each record reports, and so does the
+public decision on a member when the reports of the inventory's records and of that member are
+replaced together (`policyFor_withEvidence`). The admission boundary of a supplied record
+(`recordFailure`) is the exception: it compares the whole record with the inventory's records,
+the report included, so it refuses a supplied record whose report differs from the report of the
+inventory's record, as it refuses a difference in any other field. -/
 
 /-- Replacing the reported observation keeps the assessed part. -/
 @[simp] theorem Declaration.withEvidence_assessed (d : Declaration)

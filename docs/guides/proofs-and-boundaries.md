@@ -2050,8 +2050,8 @@ have, which lead to no target.
 ### The law observer: decisions and observing pass
 
 [RG1007] also reports what each closed registration of a decision kind or of the law
-`Regula.DecisionEquivalence` establishes. The report decides nothing, and it refuses no
-registration.
+`Regula.DecisionEquivalence` establishes. It refuses no registration, and no rule's decision
+takes the report.
 
 - **The observing pass** is `Collect.contractEvidence?`. It reduces the requirement only when
   `ContractScope.mayReachCarrier` admits that the reduction can produce one of the four
@@ -2066,8 +2066,13 @@ registration.
   carrier, and `checked_admitStatements` registers its kind.
 - **The statements.** For a linked report, `factStatement` builds each proposition from Lean's own
   `Exists`, `Not` and function types. It applies them to the acceptance predicate, specification
-  and decided function of the registration, and Lean prints the result. The audited environment
-  can lack `RegulaPolicy`, so the pass cannot state `Fact.Holds` there.
+  and decided function of the registration. The audited environment can lack `RegulaPolicy`, so
+  the pass cannot state `Fact.Holds` there.
+- **The exact terms.** `exactTerm` records each expression, the applied requirement and each
+  proposition as a `Term`: its distinct levels and subterms, with no printer limit and without
+  metadata. Beside it, `Shown` holds Lean's display of the term, which can leave out subterms,
+  implicit arguments and universe levels. The display is of a different type, so it cannot stand for
+  the exact term.
 
 **Proved.** These theorems are in the claimed libraries `RegulaPolicy` and `RegulaCore`.
 
@@ -2077,7 +2082,7 @@ registration.
 | The facts are exact | `Carrier.facts_sound`, `Carrier.facts_exact` | Each fact that a carrier lists holds of each instance of it. For each fact that it does not list, some instance of it with types in `Type` makes the fact false. |
 | A law gives no outcome | `Regula.DecisionEquivalence.of_empty`, `of_constant` | A law holds on an empty domain, where the function neither accepts nor refuses an input. A constant function has a law for the specification that its one result gives. |
 | Only a linked report states facts | `ContractEvidence.facts_linked`, `ContractEvidence.facts_unlinked` | A linked report lists the facts of its carrier, in order. An unlinked report lists none: `Linkage.unlinked` has no field for a fact. |
-| The report changes no decision | `policyFor_withEvidence`, `policyForName_withEvidence`, `authorize_withEvidence` | The report is in `Declaration.Reported`, which no decision part of a record includes. Each decision over whole records gives the same result with any report. |
+| The report changes no rule's decision | `authorize_withEvidence`, `policyForName_withEvidence`, `policyFor_withEvidence` | The report is in `Declaration.Reported`, which no decision part of a record includes. The roles and the name-keyed decision give the same result with any reports. The decision on a member gives the same result when the reports of the inventory and of the member change together. The admission boundary of a supplied record, `recordFailure`, compares whole records, so it refuses a record with a report that differs from the inventory's. |
 | One entry for each registration | `Regula.Checker.Account.mem_evidenceOf` | An account entry is the report of one recorded registration of one environment, with its environment, module and name. No entry merges two registrations. |
 
 **Hypotheses and trusted boundary.** The theorems start from the recorded observation. They do not
@@ -2085,8 +2090,10 @@ prove these items:
 
 - That the observation is what the environment holds. The observing pass reads the reduction,
   the five arguments, the core, its levels and the count of arguments.
-- That each printed proposition is the statement of its fact. It is built by `factStatement`, and
+- That each recorded proposition is the statement of its fact. It is built by `factStatement`, and
   the correspondence with `Fact.Holds` is read from the code.
+- That `exactTerm` records each node of the term. It is a direct walk of Lean's `Expr`, read from
+  the code. The JSON transport of the tables is trusted, as for each other record field.
 - That a report about the `Regula` library is checked. Acceptance excludes that library, so no
   account states the law of `checked_parseValue_law` in `Regula.Checker.Manifest`. Lean's kernel
   checks its proof in the library's build, and the `self-audit` diagnostic holds it to [RG1007].

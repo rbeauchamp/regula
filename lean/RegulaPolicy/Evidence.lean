@@ -9,7 +9,13 @@ What a registration whose requirement is one of the four decision structures of
 `Regula.Contract` establishes, as the checker reports it: the structure (`Carrier`), the laws and
 outcomes it establishes (`Carrier.facts`, proved sound and exact in `Carrier.facts_sound` and
 `Carrier.facts_exact`), and whether the function it states them about is the registered
-implementation (`Linkage`). The report is an observation: no decision of the policy reads it.
+implementation (`Linkage`). Each expression and proposition is recorded as its exact term
+(`Term`), beside Lean's display of it, which is of another type (`Shown`). The report is an
+observation in a record part that no rule's decision takes (`RegulaPolicy.Declaration.Reported`).
+The decisions over whole records are proved to give the same result whatever the records report
+(`RegulaPolicy.policyFor_withEvidence`), except the admission boundary of a supplied record
+(`RegulaPolicy.recordFailure`): it compares whole records, so it refuses a supplied record whose
+report differs from the inventory's.
 Which carriers discharge a `@[regula_decision]` registration is RG1008's decision, which reads the
 kind of the recorded contract (`RegulaPolicy.DecisionKind`) and not this report;
 `RegulaPolicy.Carrier.kind?_ofStructureName?` states that the law `Regula.DecisionEquivalence`
@@ -331,15 +337,100 @@ theorem DecidedObservation.checked_unlinked :
     ⟨(`f, ⟨0, none, true, true, 0⟩), fun linked =>
       nomatch ((unlinked?_eq_none_iff _ _).mp linked).1⟩⟩
 
+/-- A universe level of a `Term`, as one entry of its table of levels: each argument that is a
+level is the position of an earlier entry of the same table. -/
+inductive LevelNode where
+  /-- `Level.zero`. -/
+  | zero
+  /-- `Level.succ` of the entry at `of`. -/
+  | succ (of : Nat)
+  /-- `Level.max` of two entries. -/
+  | max (left right : Nat)
+  /-- `Level.imax` of two entries. -/
+  | imax (left right : Nat)
+  /-- A universe parameter. -/
+  | param (name : Lean.Name)
+  /-- A universe metavariable. -/
+  | mvar (name : Lean.Name)
+  deriving Repr, DecidableEq, Inhabited
+
+/-- How a binder of a `Term` binds its variable: Lean's `BinderInfo`, which does not derive
+`DecidableEq`. -/
+inductive Binding where
+  /-- An explicit binder. -/
+  | «default»
+  /-- An implicit binder. -/
+  | implicit
+  /-- A strict implicit binder. -/
+  | strictImplicit
+  /-- An instance-implicit binder. -/
+  | instImplicit
+  deriving Repr, DecidableEq, Inhabited
+
+/-- A subterm of a `Term`, as one entry of its table of subterms: each argument that is a subterm
+is the position of an earlier entry of the same table, and each argument that is a level is a
+position in the table of levels. The constructors are those of Lean's `Expr` except metadata
+(`Expr.mdata`), which is no part of the term that Lean's kernel checks: a subterm with metadata
+is recorded as the subterm under it. -/
+inductive TermNode where
+  /-- A bound variable, by its de Bruijn index. -/
+  | bvar (index : Nat)
+  /-- A free variable, by the name of its identifier. -/
+  | fvar (name : Lean.Name)
+  /-- A metavariable, by the name of its identifier. -/
+  | mvar (name : Lean.Name)
+  /-- A sort at a level. -/
+  | sort (level : Nat)
+  /-- A constant at its universe levels. -/
+  | const (name : Lean.Name) (levels : List Nat)
+  /-- An application of a function to one argument. -/
+  | app (function argument : Nat)
+  /-- A function abstraction. -/
+  | lam (binder : Lean.Name) (type body : Nat) (binding : Binding)
+  /-- A dependent function type. -/
+  | forallE (binder : Lean.Name) (type body : Nat) (binding : Binding)
+  /-- A local definition. -/
+  | letE (binder : Lean.Name) (type value body : Nat) (nondep : Bool)
+  /-- A natural-number literal. -/
+  | natLit (value : Nat)
+  /-- A string literal. -/
+  | strLit (value : String)
+  /-- A projection of a structure value. -/
+  | proj (typeName : Lean.Name) (index : Nat) (value : Nat)
+  deriving Repr, DecidableEq, Inhabited
+
+/-- An elaborated Lean term, node by node: the table of its universe levels and the table of its
+subterms, in which each subterm comes after the subterms it contains and the last entry is the
+term. A subterm that occurs several times has one entry, so the table grows with the number of
+distinct subterms. No limit of a printer applies to it, and it keeps every implicit argument and
+every universe level that the term has. -/
+structure Term where
+  /-- The universe levels, each after the levels it contains. -/
+  levels : Array LevelNode
+  /-- The subterms, each after the subterms it contains; the last is the term. -/
+  nodes : Array TermNode
+  deriving Repr, DecidableEq, Inhabited
+
+/-- An expression of a report: the exact term, and Lean's display of it for a reader. The display
+is pretty-printed with the notations in force, which can leave out subterms (`⋯`), implicit
+arguments and universe levels, so it is never the exact value: that is `exact`, of another
+type. -/
+structure Shown where
+  /-- The exact elaborated term. -/
+  exact : Term
+  /-- Lean's display of the term, for a reader only. -/
+  display : String
+  deriving Repr, DecidableEq, Inhabited
+
 /-- A linkage conclusion for a carrier: the applications of `Function.uncurry` around the
 implementation, and one proposition for each fact of the carrier, in the order of
-`Carrier.facts`, as Lean prints it at the registration's acceptance predicate, specification and
-decided function. The number of propositions is part of the type. -/
+`Carrier.facts`, at the registration's acceptance predicate, specification and decided function,
+each as its exact term with Lean's display. The number of propositions is part of the type. -/
 structure Linked (carrier : Carrier) where
   /-- The applications of `Function.uncurry` around the implementation. -/
   uncurries : Nat
   /-- The proposition of each fact of the carrier (`Fact.Holds`), in order. -/
-  statements : Array String
+  statements : Array Shown
   /-- There is one proposition for each fact of the carrier. -/
   exact : statements.size = carrier.facts.length
   deriving Repr, DecidableEq
@@ -358,15 +449,15 @@ inductive Linkage (carrier : Carrier) where
 /-- Admit the propositions of a linkage conclusion: them when there is one for each fact of the
 carrier, and an error otherwise. -/
 @[regula_decision]
-def admitStatements (carrier : Carrier) (statements : Array String) :
-    Except String { s : Array String // s.size = carrier.facts.length } :=
+def admitStatements (carrier : Carrier) (statements : Array Shown) :
+    Except String { s : Array Shown // s.size = carrier.facts.length } :=
   if exact : statements.size = carrier.facts.length then .ok ⟨statements, exact⟩
   else .error s!"linkage of a {carrier.spelling} carrier has {statements.size} proposition(s), \
     not {carrier.facts.length}"
 
 /-- The propositions are admitted exactly when there is one for each fact. -/
-theorem admitStatements_isOk_iff (input : Carrier × Array String) :
-    Regula.Dependent.isOk (fun input : Carrier × Array String => admitStatements input.1 input.2)
+theorem admitStatements_isOk_iff (input : Carrier × Array Shown) :
+    Regula.Dependent.isOk (fun input : Carrier × Array Shown => admitStatements input.1 input.2)
         input = true ↔ input.2.size = input.1.facts.length := by
   unfold Regula.Dependent.isOk admitStatements
   by_cases exact : input.2.size = input.1.facts.length <;> simp [exact, Except.isOk, Except.toBool]
@@ -376,40 +467,42 @@ theorem admitStatements_isOk_iff (input : Carrier × Array String) :
 theorem checked_admitStatements :
     Regula.ExecutableContract admitStatements (fun admit =>
       Regula.Decides (· = true)
-        (fun input : Carrier × Array String => input.2.size = input.1.facts.length)
-        (Regula.Dependent.isOk (fun input : Carrier × Array String => admit input.1 input.2))) :=
+        (fun input : Carrier × Array Shown => input.2.size = input.1.facts.length)
+        (Regula.Dependent.isOk (fun input : Carrier × Array Shown => admit input.1 input.2))) :=
   ⟨.of_iff admitStatements_isOk_iff
-    ⟨(.«equivalence», #["", ""]), by decide⟩
+    ⟨(.«equivalence», #[default, default]), by decide⟩
     ⟨(.«equivalence», #[]), by decide⟩⟩
 
 /-- The checker's report of one registration whose requirement reduces to a carrier: the exact
-relation, as Lean prints its parts, and the law observer's linkage conclusion. It is an
-observation of the registration it belongs to: no decision of the policy reads it, and it refuses
-nothing. The texts are pretty-printed with the notations in force. -/
+relation, each part as its exact term with Lean's display of it (`Shown`), and the law observer's
+linkage conclusion. It is an observation of the registration it belongs to and refuses
+nothing (`RegulaPolicy.policyFor_withEvidence` states what the decisions do with it). -/
 structure ContractEvidence where
   /-- The structure the requirement reduces to. -/
   carrier : Carrier
   /-- The registration's implementation expression, with its universe levels. -/
-  implementation : String
+  implementation : Shown
   /-- The registration's universe parameters. -/
   universes : Array Lean.Name
+  /-- The registration's requirement applied to its implementation, before any reduction. -/
+  requirement : Shown
   /-- The domain of the decided function: the carrier's first type argument. -/
-  domain : String
+  domain : Shown
   /-- The result type of the decided function: the carrier's second type argument. -/
-  result : String
+  result : Shown
   /-- The acceptance predicate. -/
-  accepts : String
+  accepts : Shown
   /-- The specification. -/
-  spec : String
+  spec : Shown
   /-- The function the requirement states its laws about. -/
-  decided : String
+  decided : Shown
   /-- The linkage conclusion, with the facts, or why there is none. -/
   linkage : Linkage carrier
   deriving Repr, DecidableEq
 
 /-- The facts of the evidence with their propositions, in the order of `Carrier.facts`: those of
 its carrier when it is linked, and none otherwise. -/
-def ContractEvidence.facts (e : ContractEvidence) : List (Fact × String) :=
+def ContractEvidence.facts (e : ContractEvidence) : List (Fact × Shown) :=
   match e.linkage with
   | .linked conclusion => e.carrier.facts.zip conclusion.statements.toList
   | .unlinked _ => []
@@ -429,13 +522,15 @@ theorem ContractEvidence.facts_unlinked (e : ContractEvidence) (why : Unlinked)
 
 /-- The evidence as the `--verbose` line of its declaration shows it: the carrier, the decided
 function, and the linkage with each fact and its proposition, or the state and the reason of no
-linkage. -/
+linkage. Each expression is shown by its display, which a reader of the line takes as a display:
+the exact terms are in the JSON record. -/
 def ContractEvidence.text (e : ContractEvidence) : String :=
-  s!"contract-evidence={e.carrier.spelling} decided={e.decided} " ++
+  s!"contract-evidence={e.carrier.spelling} decided={e.decided.display} " ++
     match e.linkage with
     | .linked conclusion =>
       s!"linked uncurries={conclusion.uncurries} facts=[" ++
-        "; ".intercalate (e.facts.map fun (fact, statement) => s!"{fact.spelling}: {statement}") ++
+        "; ".intercalate (e.facts.map fun (fact, statement) =>
+          s!"{fact.spelling}: {statement.display}") ++
         "]"
     | .unlinked (.unsupported reason) => s!"unsupported: {reason}"
     | .unlinked (.mismatch reason) => s!"mismatch: {reason}"

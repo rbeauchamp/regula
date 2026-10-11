@@ -493,10 +493,12 @@ prefixes, which the audit does not own (`RegulaPolicy.DependencyState.reserved`)
 a function it registers as a decision (`Account.CountedAccount`), with both surfaces. Since
 schema 16 the account also carries `contractEvidence`: for each registration whose requirement
 reduces to a decision carrier (`Account.EvidenceAccount`), its environment, module,
-implementation and requirement, the carrier, the exact relation as Lean prints its parts, the
-law observer's `linkage` (`linked` with the applications of `Function.uncurry`, or `unsupported`
-or `mismatch` with the reason), and the `laws` and `outcomes` the carrier establishes, each with
-its proposition, which are empty unless it is linked. -/
+implementation and requirement, the carrier, each part of the relation as an object with its
+exact term (`exact`: the tables of levels and subterms of `RegulaPolicy.Term`) and Lean's
+`display` of it, the law observer's `linkage` (`linked` with the applications of
+`Function.uncurry`, or `unsupported` or `mismatch` with the reason), and the `laws` and
+`outcomes` the carrier establishes, each with its proposition as an object of the same form,
+which are empty unless it is linked. -/
 def accountJson (account : Regula.Checker.Account) : Json :=
   let a := account.val
   let residuals (rs : List Regula.Checker.Account.Residual) := toJson (rs.map (·.spelling))
@@ -536,7 +538,7 @@ def accountJson (account : Regula.Checker.Account) : Json :=
         ("registration", RegistryCodec.printedNameJson entry.registration),
         ("module", RegistryCodec.printedNameJson entry.module),
         ("implementation", RegistryCodec.printedNameJson entry.implementation),
-        ("requirement", toJson entry.requirement), ("carrier", toJson e.carrier.spelling),
+        ("requirement", toJson e.requirement), ("carrier", toJson e.carrier.spelling),
         ("implementationExpression", toJson e.implementation),
         ("universes", toJson (e.universes.map RegistryCodec.printedNameJson)),
         ("domain", toJson e.domain), ("result", toJson e.result), ("accepts", toJson e.accepts),
