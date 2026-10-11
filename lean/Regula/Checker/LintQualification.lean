@@ -1681,14 +1681,14 @@ a shard, its groups keep that order. Each shard's groups add up to a similar tim
 group is a part of a chain: the chains of the two adopters and of the path dependency are cut into
 parts (`leanOriginals`, `tomlSetup`, `pathSetup`), so that no group is longer than about a quarter
 of a shard's time, apart from the owned-checker control, one `lake lint -- --fresh`, which shares
-its shard only with the short compiler-guard control. The order and the shards follow the times
-of the groups in the slowest CI run of the campaign before the cut
+its shard only with the short compiler-guard control `guard`. The order and the shards follow the
+times of the groups in the slowest CI run of the campaign before the cut
 (`docs/guides/proofs-and-boundaries.md` names the run). -/
 private def queuedGroups (probes : Std.Mutex Unit) : List Group :=
   [(numbered 1, "owned-checker", ownedChecker),
     (numbered 2, "path-overrides", pathOverrides),
     (numbered 3, "lean-decisions", leanDecisions probes),
-    (numbered 1, "lean-arguments", leanArguments probes),
+    (numbered 3, "lean-arguments", leanArguments probes),
     (numbered 4, "path-owned", pathOwned),
     (numbered 0, "lean-audit", leanAudit),
     (numbered 0, "path-owned-checks", pathOwnedChecks),

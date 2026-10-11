@@ -4584,25 +4584,38 @@ other group of more than 40 s took 0.66 to 0.72 times as long as in the slowest 
 added controls took about 15 to 25 s there, which is about 22 to 36 s at the speed of the slowest
 run.
 
-The shards other than the second divide the groups so that the sums of their times are similar,
-174 to 195 s at the speed of the slowest run. The group `owned-checker` is one
-`lake lint -- --fresh` of 91 s, which no cut can divide. Thus the second shard holds only that
-group, `guard` and `lean-arguments`, so that this control has more of the processors. Nine of the
-controls of `lean-arguments` are refusals. In each other shard, the longest group took at most
-55 s in the chain.
+The shards other than the second divide the groups so that the sums of their times are similar.
+Without the group `lean-arguments`, these sums are 174 to 195 s at the speed of the slowest run.
+The group `owned-checker` is one `lake lint -- --fresh` of 91 s, which no cut can divide. Thus the
+second shard holds only that group and `guard`, so that this control has more of the processors.
+The fourth shard, which had the most room, also holds `lean-arguments`. In the shards other than
+the second, the longest group took at most 55 s in the chain.
 
-The next numbers are derived, not logged. With four workers, these four shards end their groups
-in about 53 to 63 s at the speed of the slowest run. That time includes `toml/absent-worker` in
-the first shard. A group that does not start a chain also builds the adopter again, which adds
-some seconds. At 1.1 times these times, the build takes 217 s and these shards take about 58 to
-70 s.
+The next numbers are derived, not logged. With four workers, the first, third and fifth shards end
+their groups in about 53 to 63 s at the speed of the slowest run. That time includes
+`toml/absent-worker` in the first shard. Before the added controls, the fourth shard ended its
+groups in about 55 s. Its added 22 to 36 s spread over four workers, because neither
+`lean-decisions` nor `lean-arguments` is longer than 55 s. Thus it ends its groups in about 61 to
+64 s.
 
-Before the groups, the prologue and the baseline build take about 4 s. Thus each of these shards
-ends at about 279 to 291 s, plus the time of these builds, before the target of 315 s. The second
-shard has no such estimate, because these runs do not show the time of `owned-checker` with fewer
-groups beside it. On the slower runner, with three groups beside it, it took 99 s. With that time,
-its shard ends at about 320 s. These are estimates, not a bound, and the CI runs of this change
-give the observed times.
+A group that does not start a chain also builds the adopter again, which adds some seconds. At 1.1
+times these times, the build takes 217 s. The first, third and fifth shards then take about 58 to
+70 s, and the fourth about 67 to 70 s. Before the groups, the prologue and the baseline build take
+about 4 s. Thus each of these four shards ends at about 279 to 291 s, plus its adopter builds,
+before the target of 315 s.
+
+The second shard has no such estimate from these runs, because they do not show `owned-checker`
+with only `guard` beside it. On the slower runner, with three groups beside it, it took 99 s. From
+that contended time, the upper estimate is 217 s plus 4 s plus 99 s, about 320 s. A sixth shard
+cannot lower it, because `owned-checker` is one `lake lint -- --fresh` control that no cut
+divides. Its time beside `guard` alone on a 4-vCPU runner is the one input that derivation cannot
+give.
+
+The decision criterion is fixed before the run. Take the time of `owned-checker` from the CI job
+for shard `2/5` of the change that made these shards, and scale it by 1.10. Add the 217 s build
+and the 4 s of setup. The shard meets the target of 315 s if the sum is at most 315 s, and fails
+it above. These are estimates, not a bound, and the CI runs of that change give the observed
+times.
 
 The unsharded `diagnostics lint-driver` runs every group in one invocation. On the slower runners
 it does not end before its deadline, thus CI runs the five shards.

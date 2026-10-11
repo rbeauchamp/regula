@@ -316,7 +316,9 @@ private def parseArgs : List String → Options → IO Options
       if options.shard.isSome then throw <| IO.userError "duplicate --shard"
       let shard ← match value.splitOn "/" with
         | [index, count] => match index.toNat?, count.toNat? with
-          | some index, some count => pure (index, count)
+          | some index, some count =>
+            if value == s!"{index}/{count}" then pure (index, count)
+            else throw <| IO.userError s!"unknown shard: {value}"
           | _, _ => throw <| IO.userError s!"unknown shard: {value}"
         | _ => throw <| IO.userError s!"unknown shard: {value}"
       parseArgs rest { options with shard := some shard }
