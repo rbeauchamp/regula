@@ -264,7 +264,8 @@ metadata, not authenticated binary identity.
 - **Registry, schema 4:** the canonical `rules`, whose `normativeClauses` are
   `{section, title, source, url}` objects (the cited section's number, heading, Verso source path
   and URL in the installed build's edition). `parseDescriptor` compares input with canonical
-  re-encoding, refusing unknown or missing fields, changed routes and stale lifecycle data.
+  re-encoding (`JsonAgreement.conforms`). It refuses unknown or missing fields, changed routes,
+  stale lifecycle data and an object tree that is not a search tree.
   Registry admission rejects duplicate external IDs, missing clauses, pages or examples, unknown
   JSON fields or versions, and invalid lifecycle references.
 - **Result, schema 16:** `scope`, `mode`, `status`, `stages` (the stages
@@ -386,7 +387,7 @@ metadata, not authenticated binary identity.
   text back, and `parsePrintedNameJson_str` that the reader admits a string only as that text.
   Admission reads names back with that reader: producer reports through `Regula.Report`'s
   instances and diagnostics through `DiagnosticCodec.parseDiagnostic`, which also refuses a
-  diagnostic that does not agree with its canonical re-encoding (`JsonAgreement.agrees`).
+  diagnostic that does not conform to its canonical re-encoding (`JsonAgreement.conforms`).
 - **Attribution:** the collector records, for each declaration, the declaration Lean generated it
   from, one step (`Collect.generatedFrom?`), by trying the closed families of
   `RegulaPolicy.GeneratedFamily` in the order of `GeneratedFamily.all`, each with its own clause of

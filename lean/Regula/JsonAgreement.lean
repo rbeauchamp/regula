@@ -17,7 +17,11 @@ procedure with one constructor for each case.
 
 The comparison is not symmetric in its two objects. It reads each member of the first tree, node
 by node, and it looks the name up in the second tree. So the first value can be an object tree
-that is not a search tree: no lookup reads it.
+that is not a search tree: no lookup reads it. Such a tree can give one name twice and lack
+another name (https://github.com/rbeauchamp/regula/issues/269). A decoder therefore runs
+`conforms`, which also requires each object tree of its input to be a search tree (`Regular`,
+decided by `regular`, `regular_iff`). `canonical` is that decoder, for each reader and each
+encoder.
 
 **Not claimed.** That `agrees` returns what Lean's runtime equality returns: that function is
 `partial`, so no theorem mentions it. The two have the same cases, read from the two
@@ -26,11 +30,12 @@ pairs of values is evidence for those pairs only. The relation is about `Json` v
 text parser returns for a text is outside it.
 
 The module also has what a decoder needs to state the form of an encoded value without an
-encoder. `Shaped` says which members an object has and what the value of each is.
-`Shaped.of_members` proves it for an object that an encoder builds, `Shaped.agree_of_members`
-proves that a value of the form agrees with such an object, and `Shaped.of_agree` proves the
-converse for a value whose object trees are search trees (`Regular`). `get?_of_mem` is the
-lemma about Lean's lookup that these use: in a search tree, each member is found by its name. -/
+encoder. `Shaped` says that an object is a search tree, which members it has and what the value
+of each is. `Shaped.of_members` proves it for an object that an encoder builds,
+`Shaped.agree_of_members` proves that a value of the form agrees with such an object,
+`Shaped.regular` proves that it has search trees, and `Shaped.of_agree` proves the converse for
+a value whose object trees are search trees. `get?_of_mem` is the lemma about Lean's lookup
+that these use: in a search tree, each member is found by its name. -/
 namespace Regula.JsonAgreement
 open Lean
 open Regula.SourceTexts (Fields Cases)
@@ -54,6 +59,147 @@ theorem count_eq_length (fields : Fields) : count fields = (members fields).leng
   | inner size key value left right leftStep rightStep =>
     simp only [count, members, List.length_append, List.length_cons, leftStep, rightStep]
     omega
+
+/-! ### Search trees, decided -/
+
+/-- The names of the members go up in the order of the tree: the tree is a search tree. -/
+def Ordered (fields : Fields) : Prop :=
+  (members fields).Pairwise fun earlier later => compare earlier.1 later.1 = .lt
+
+/-- Each object tree in the value, at each depth, is a search tree: the names of its members go
+up in the order of the tree. -/
+inductive Regular : Json → Prop
+  /-- `null` has no object. -/
+  | null : Regular .null
+  /-- A Boolean has no object. -/
+  | bool (value : Bool) : Regular (.bool value)
+  /-- A number has no object. -/
+  | num (value : JsonNumber) : Regular (.num value)
+  /-- A string has no object. -/
+  | str (value : String) : Regular (.str value)
+  /-- An array of values with this property. -/
+  | arr {elements : Array Json} : (∀ value ∈ elements, Regular value) → Regular (.arr elements)
+  /-- A search tree whose members have values with this property. -/
+  | obj {fields : Fields} : Ordered fields → (∀ member ∈ members fields, Regular member.2) →
+      Regular (.obj ⟨⟨fields⟩⟩)
+
+/-- Whether each name of the list comes before the name after it (`ascending_iff`). -/
+def ascending : List String → Bool
+  | first :: second :: rest => compare first second == .lt && ascending (second :: rest)
+  | _ => true
+
+/-- Each name comes before the name after it exactly when each name comes before every later
+name: the order of strings is transitive. -/
+theorem ascending_iff (names : List String) :
+    ascending names = true ↔ names.Pairwise fun earlier later => compare earlier later = .lt := by
+  induction names with
+  | nil => simp [ascending]
+  | cons first rest step =>
+    cases rest with
+    | nil => simp [ascending]
+    | cons second more =>
+      simp only [ascending, Bool.and_eq_true, beq_iff_eq, step, List.pairwise_cons]
+      constructor
+      · rintro ⟨less, laterAll, tail⟩
+        refine ⟨fun name present => ?_, laterAll, tail⟩
+        rcases List.mem_cons.mp present with rfl | inMore
+        · exact less
+        · exact Std.TransCmp.lt_trans less (laterAll name inMore)
+      · rintro ⟨firstAll, laterAll, tail⟩
+        exact ⟨firstAll second List.mem_cons_self, laterAll, tail⟩
+
+mutual
+/-- Whether each object tree in the value, at each depth, is a search tree (`Regular`, by
+`regular_iff`): the names of the members of each object go up in the order of its tree. -/
+@[regula_decision]
+def regular (j : Json) : Bool :=
+  match j with
+  | .arr ⟨elements⟩ => regularAll elements
+  | .obj ⟨⟨fields⟩⟩ => ascending ((members fields).map (·.1)) && regularFields fields
+  | _ => true
+termination_by structural j
+/-- `regular` on each element of a list. -/
+def regularAll (elements : List Json) : Bool :=
+  match elements with
+  | [] => true
+  | head :: rest => regular head && regularAll rest
+termination_by structural elements
+/-- `regular` on the value of each member of an object tree. -/
+def regularFields (fields : Fields) : Bool :=
+  match fields with
+  | .leaf => true
+  | .inner _ _ value left right => regular value && regularFields left && regularFields right
+termination_by structural fields
+end
+
+/-- **`regular` answers `true` exactly for the values whose object trees are search trees.** -/
+theorem regular_iff (j : Json) : regular j = true ↔ Regular j := by
+  refine Cases.value (motive := fun j => regular j = true ↔ Regular j)
+    (fieldsMotive := fun fields =>
+      regularFields fields = true ↔ ∀ member ∈ members fields, Regular member.2) ?_ j
+  refine ⟨?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_⟩
+  · exact ⟨fun _ => .null, fun _ => by simp [regular]⟩
+  · exact fun value => ⟨fun _ => .bool value, fun _ => by simp [regular]⟩
+  · exact fun value => ⟨fun _ => .num value, fun _ => by simp [regular]⟩
+  · exact fun value => ⟨fun _ => .str value, fun _ => by simp [regular]⟩
+  · intro elems elements
+    obtain ⟨elems⟩ := elems
+    have all : ∀ items : List Json, (∀ value ∈ items, value ∈ elems) →
+        (regularAll items = true ↔ ∀ value ∈ items, Regular value) := by
+      intro items
+      induction items with
+      | nil => exact fun _ => ⟨(fun _ _ member => nomatch member), fun _ => by simp [regularAll]⟩
+      | cons head rest step =>
+        intro inside
+        have heads := elements head (Array.mem_def.mpr (inside head List.mem_cons_self))
+        have rests := step fun value member => inside value (List.mem_cons_of_mem _ member)
+        simp only [regularAll, Bool.and_eq_true, heads, rests, List.forall_mem_cons]
+    simp only [regular, all elems fun _ member => member]
+    constructor
+    · exact fun each => .arr fun value member => each value (Array.mem_def.mp member)
+    · intro h
+      cases h with
+      | arr each => exact fun value member => each value (Array.mem_def.mpr member)
+  · intro fields step
+    simp only [regular, Bool.and_eq_true, ascending_iff, List.pairwise_map, step]
+    constructor
+    · exact fun ⟨ordered, values⟩ => .obj ordered values
+    · intro h
+      cases h with
+      | obj ordered values => exact ⟨ordered, values⟩
+  · exact ⟨(fun _ _ member => nomatch member), fun _ => by simp [regularFields]⟩
+  · intro size key value left right valueStep leftStep rightStep
+    simp only [regularFields, Bool.and_eq_true, valueStep, leftStep, rightStep, members,
+      List.mem_append, List.mem_cons]
+    constructor
+    · rintro ⟨⟨here, lefts⟩, rights⟩ member (inLeft | rfl | inRight)
+      · exact lefts member inLeft
+      · exact here
+      · exact rights member inRight
+    · intro all
+      exact ⟨⟨all _ (.inr (.inl rfl)), fun member present => all member (.inl present)⟩,
+        fun member present => all member (.inr (.inr present))⟩
+
+/-- `regular` is a sound and complete decision of `Regular` (`regular_iff`): it accepts `null`,
+and it refuses an object of two members whose names do not go up in the order of its tree. The
+specification is a relation with one constructor for each case of a value. -/
+theorem checked_regular : Regula.ExecutableContract regular (fun test =>
+    Regula.Decides (· = true) Regular test) :=
+  ⟨Regula.Decides.of_iff regular_iff ⟨.null, by decide⟩
+    ⟨.obj ⟨⟨.inner 2 "a" .null (.inner 1 "b" .null .leaf .leaf) .leaf⟩⟩, by decide⟩⟩
+
+/-- An object is a value with search trees when its members in the order of its tree are
+`written`, the names go up, and the value of each member is a value with search trees. -/
+theorem Regular.obj_of_members (fields : Std.TreeMap.Raw String Json compare)
+    (written : List (String × Json)) (sorted : members fields.inner.inner = written)
+    (each : ∀ member ∈ written, Regular member.2)
+    (increasing : (written.map (·.1)).Pairwise fun earlier later => compare earlier later = .lt :=
+      by simp only [List.map]; decide) :
+    Regular (.obj fields) := by
+  obtain ⟨⟨tree⟩⟩ := fields
+  refine .obj ?_ fun member present => each member (sorted ▸ present)
+  rw [Ordered, sorted]
+  exact List.pairwise_map.mp increasing
 
 mutual
 /-- Whether the first JSON value agrees with the second: the same constructor, equal Booleans,
@@ -241,23 +387,47 @@ theorem checked_agrees : Regula.ExecutableContract agrees (fun test =>
   ⟨Regula.Decides.of_iff (fun values => agrees_iff values.1 values.2)
     ⟨(.null, .null), rfl⟩ ⟨(.null, .bool true), by decide⟩⟩
 
+/-- Whether the first JSON value has search trees as its object trees and agrees with the second
+(`conforms_iff`). This is the comparison of an input with an encoding: `agrees` alone looks each
+name of the input up in the encoding and never a name of the encoding in the input, so it also
+accepts an input object tree that is not a search tree, which can give one name twice and lack
+another name. -/
+@[regula_decision]
+def conforms (a b : Json) : Bool := regular a && agrees a b
+
+/-- `conforms` answers `true` exactly when the first value is a value with search trees that
+agrees with the second. -/
+theorem conforms_iff (a b : Json) : conforms a b = true ↔ Regular a ∧ Agree a b := by
+  simp only [conforms, Bool.and_eq_true, regular_iff, agrees_iff]
+
+/-- `conforms` is a sound and complete decision (`conforms_iff`): it accepts `null` with `null`,
+and it refuses `null` with a Boolean. The specification names the relations `Regular` and
+`Agree`, not the two Boolean functions. -/
+theorem checked_conforms : Regula.ExecutableContract conforms (fun test =>
+    Regula.Decides (· = true)
+      (fun values : Json × Json => Regular values.1 ∧ Agree values.1 values.2)
+      (Function.uncurry test)) :=
+  ⟨Regula.Decides.of_iff (fun values => conforms_iff values.1 values.2)
+    ⟨(.null, .null), rfl⟩ ⟨(.null, .bool true), by decide⟩⟩
+
 /-! ### Decoders that fail closed -/
 
-/-- The decoder that accepts what `decode` returns only when the input agrees with the encoding
-of that value, and that refuses with `refusal` otherwise: `canonical_eq_ok_iff`. -/
+/-- The decoder that accepts what `decode` returns only when the input has search trees as its
+object trees and agrees with the encoding of that value (`conforms`), and that refuses with
+`refusal` otherwise: `canonical_eq_ok_iff`. -/
 @[regula_decision]
 def canonical {α : Type} (decode : Json → Except String α) (encode : α → Json)
     (refusal : String) (j : Json) : Except String α := do
   let value ← decode j
-  unless agrees j (encode value) do throw refusal
+  unless conforms j (encode value) do throw refusal
   return value
 
-/-- A canonical decoder returns a value exactly when `decode` returns it and the input agrees
-with the encoding of that value. -/
+/-- A canonical decoder returns a value exactly when `decode` returns it, the object trees of the
+input are search trees, and the input agrees with the encoding of that value. -/
 theorem canonical_eq_ok_iff {α : Type} (decode : Json → Except String α) (encode : α → Json)
     (refusal : String) (j : Json) (value : α) :
     canonical decode encode refusal j = .ok value ↔
-      decode j = .ok value ∧ Agree j (encode value) := by
+      decode j = .ok value ∧ Regular j ∧ Agree j (encode value) := by
   unfold canonical
   cases decoded : decode j with
   | error message =>
@@ -268,11 +438,11 @@ theorem canonical_eq_ok_iff {α : Type} (decode : Json → Except String α) (en
     · rintro ⟨h, _⟩
       cases h
   | ok found =>
-    by_cases test : agrees j (encode found) = true
+    by_cases test : conforms j (encode found) = true
     · simp only [bind, Except.bind, test, pure, Except.pure, Except.ok.injEq, ↓reduceIte]
       constructor
       · rintro rfl
-        exact ⟨rfl, (agrees_iff _ _).mp test⟩
+        exact ⟨rfl, (conforms_iff _ _).mp test⟩
       · rintro ⟨same, _⟩
         exact same
     · simp only [bind, Except.bind, test, throw, throwThe, MonadExceptOf.throw, ↓reduceIte,
@@ -280,9 +450,9 @@ theorem canonical_eq_ok_iff {α : Type} (decode : Json → Except String α) (en
       constructor
       · intro h
         cases h
-      · rintro ⟨same, agree⟩
+      · rintro ⟨same, conforming⟩
         obtain rfl : found = value := Except.ok.inj same
-        exact absurd ((agrees_iff _ _).mpr agree) test
+        exact absurd ((conforms_iff _ _).mpr conforming) test
 
 /-- What a call of `canonical` gives: the type of a decoded value, the reader, the encoder, the
 text of the refusal and the input. -/
@@ -299,17 +469,17 @@ structure Decoding where
   input : Json
 
 /-- `canonical` is a sound and complete decision, for each reader and each encoder
-(`canonical_eq_ok_iff`): it accepts exactly an input that the reader reads to a value whose
-encoding the input agrees with. It accepts `null` for the reader of the one value of `Unit` with
-the encoder to `null`, and it refuses each input for a reader that refuses each input. The
-result type depends on the type of the decoded value, so the decision is of whether the result
-is a success (`Regula.Dependent.isOk`). The reader and the encoder are arguments: the kind says
-nothing about a particular reader or encoder. -/
+(`canonical_eq_ok_iff`): it accepts exactly an input whose object trees are search trees and
+that the reader reads to a value whose encoding the input agrees with. It accepts `null` for the
+reader of the one value of `Unit` with the encoder to `null`, and it refuses each input for a
+reader that refuses each input. The result type depends on the type of the decoded value, so
+the decision is of whether the result is a success (`Regula.Dependent.isOk`). The reader and the
+encoder are arguments: the kind says nothing about a particular reader or encoder. -/
 theorem checked_canonical : Regula.ExecutableContract (@canonical) (fun run :
       {α : Type} → (Json → Except String α) → (α → Json) → String → Json → Except String α =>
     Regula.Decides (· = true)
       (fun call : Decoding => ∃ value, call.decode call.input = .ok value ∧
-        Agree call.input (call.encode value))
+        Regular call.input ∧ Agree call.input (call.encode value))
       (Regula.Dependent.isOk fun call : Decoding =>
         run call.decode call.encode call.refusal call.input)) :=
   ⟨Regula.Decides.of_iff
@@ -319,17 +489,13 @@ theorem checked_canonical : Regula.ExecutableContract (@canonical) (fun run :
         canonical_eq_ok_iff call.decode call.encode call.refusal call.input value)
     ⟨⟨Unit, fun _ => .ok (), fun _ => .null, "", .null⟩, by
       rw [Regula.Dependent.isOk_eq_true_iff]
-      exact ⟨(), (canonical_eq_ok_iff _ _ _ _ _).mpr ⟨rfl, .null⟩⟩⟩
+      exact ⟨(), (canonical_eq_ok_iff _ _ _ _ _).mpr ⟨rfl, .null, .null⟩⟩⟩
     ⟨⟨Unit, fun _ => .error "", fun _ => .null, "", .null⟩, by
       rw [Regula.Dependent.isOk_eq_true_iff]
       rintro ⟨value, accepted⟩
       exact nomatch ((canonical_eq_ok_iff _ _ _ _ _).mp accepted).1⟩⟩
 
 /-! ### Search trees -/
-
-/-- The names of the members go up in the order of the tree: the tree is a search tree. -/
-def Ordered (fields : Fields) : Prop :=
-  (members fields).Pairwise fun earlier later => compare earlier.1 later.1 = .lt
 
 /-- The names of a list of members go up. A list with literal names has this property by
 `decide`, after `List.map` is unfolded: the lemmas below prove it so, as a default argument. -/
@@ -378,12 +544,13 @@ structure Entry where
   /-- What the value of the member is. -/
   meaning : Json → Prop
 
-/-- The value is an object with the members of `schema` and no other. It has as many members as
-the schema has names. Each name of the schema is found, with a value of its meaning. Each member
-has a name of the schema, with a value of the meaning of that name. -/
+/-- The value is an object with the members of `schema` and no other. Its tree is a search tree
+(`Ordered`), and it has as many members as the schema has names. Each name of the schema is
+found, with a value of its meaning. Each member has a name of the schema, with a value of the
+meaning of that name. -/
 def Shaped (schema : List Entry) (j : Json) : Prop :=
   ∃ fields : Std.TreeMap.Raw String Json compare, j = .obj fields ∧
-    count fields.inner.inner = schema.length ∧
+    Ordered fields.inner.inner ∧ count fields.inner.inner = schema.length ∧
     (∀ entry ∈ schema, ∃ value, fields.get? entry.name = some value ∧ entry.meaning value) ∧
     (∀ member ∈ members fields.inner.inner,
       ∃ entry ∈ schema, entry.name = member.1 ∧ entry.meaning member.2)
@@ -396,7 +563,7 @@ inductive Aligned {α β : Type} (R : α → β → Prop) : List α → List β 
   | cons {a : α} {b : β} {as : List α} {bs : List β} :
       R a b → Aligned R as bs → Aligned R (a :: as) (b :: bs)
 
-private theorem aligned_left {α β : Type} {R : α → β → Prop} {as : List α} {bs : List β}
+theorem aligned_left {α β : Type} {R : α → β → Prop} {as : List α} {bs : List β}
     (all : Aligned R as bs) : ∀ a ∈ as, ∃ b ∈ bs, R a b := by
   induction all with
   | nil => exact fun _ member => nomatch member
@@ -438,7 +605,7 @@ theorem Shaped.of_members {schema : List Entry} (fields : Std.TreeMap.Raw String
   have found : ∀ member ∈ written,
       (⟨⟨tree⟩⟩ : Std.TreeMap.Raw String Json compare).get? member.1 = some member.2 :=
     fun member present => get?_of_mem (.of_members sorted increasing) (sorted ▸ present)
-  refine ⟨⟨⟨tree⟩⟩, rfl, ?_, ?_, ?_⟩
+  refine ⟨⟨⟨tree⟩⟩, rfl, .of_members sorted increasing, ?_, ?_, ?_⟩
   · rw [count_eq_length, sorted, aligned_length meanings]
   · intro entry present
     obtain ⟨member, inWritten, same, meaning⟩ := aligned_right meanings entry present
@@ -455,7 +622,7 @@ theorem Shaped.agree {schema : List Entry} {j : Json} (shaped : Shaped schema j)
     (each : ∀ entry ∈ schema, ∃ value, canonical.get? entry.name = some value ∧
       ∀ found, entry.meaning found → Agree found value) :
     Agree j (.obj canonical) := by
-  obtain ⟨⟨⟨fields⟩⟩, rfl, length, -, all⟩ := shaped
+  obtain ⟨⟨⟨fields⟩⟩, rfl, -, length, -, all⟩ := shaped
   refine .obj (length.trans size.symm) ((agreeFields_iff _ _).mpr fun member present => ?_)
   obtain ⟨entry, inSchema, same, meaning⟩ := all member present
   obtain ⟨value, found, agree⟩ := each entry inSchema
@@ -483,11 +650,20 @@ theorem Shaped.agree_of_members {schema : List Entry} {j : Json} (shaped : Shape
 theorem Shaped.member {schema : List Entry} {j : Json} (shaped : Shaped schema j)
     {entry : Entry} (present : entry ∈ schema) :
     ∃ value, j.getObjVal? entry.name = .ok value ∧ entry.meaning value := by
-  obtain ⟨fields, rfl, -, lookups, -⟩ := shaped
+  obtain ⟨fields, rfl, -, -, lookups, -⟩ := shaped
   obtain ⟨value, found, meaning⟩ := lookups entry present
   refine ⟨value, ?_, meaning⟩
   simp only [Json.getObjVal?, found]
   rfl
+
+/-- A value of the form of a schema is a value with search trees, when each value of the meaning
+of each name of the schema is. -/
+theorem Shaped.regular {schema : List Entry} {j : Json} (shaped : Shaped schema j)
+    (each : ∀ entry ∈ schema, ∀ value, entry.meaning value → Regular value) : Regular j := by
+  obtain ⟨⟨⟨fields⟩⟩, rfl, ordered, -, -, all⟩ := shaped
+  refine .obj ordered fun member present => ?_
+  obtain ⟨entry, inSchema, -, meaning⟩ := all member present
+  exact each entry inSchema _ meaning
 
 /-- An object agrees with itself when its members in the order of its tree are `written`, the
 names go up, and the value of each member agrees with itself. -/
@@ -507,7 +683,7 @@ theorem Agree.obj_self (fields : Std.TreeMap.Raw String Json compare)
 `Shaped.of_agree` is the converse of `Shaped.agree_of_members`, for a value whose object trees
 are search trees (`Regular`). An object tree that is not a search tree can agree with an
 encoding and not have the members of the schema: it can give one name twice in the place of
-another name, or have a member that no lookup finds. -/
+another name, or have a member that no lookup finds. `conforms` refuses such an input. -/
 
 /-- A name that is found in an object tree is the name of a member of the tree, with the value
 that the lookup returns. -/
@@ -549,23 +725,6 @@ theorem Agree.eq_num {value : Json} {number : JsonNumber} (agree : Agree value (
 theorem Agree.eq_null {value : Json} (agree : Agree value .null) : value = .null := by
   cases agree
   rfl
-
-/-- Each object tree in the value, at each depth, is a search tree: the names of its members go
-up in the order of the tree. -/
-inductive Regular : Json → Prop
-  /-- `null` has no object. -/
-  | null : Regular .null
-  /-- A Boolean has no object. -/
-  | bool (value : Bool) : Regular (.bool value)
-  /-- A number has no object. -/
-  | num (value : JsonNumber) : Regular (.num value)
-  /-- A string has no object. -/
-  | str (value : String) : Regular (.str value)
-  /-- An array of values with this property. -/
-  | arr {elements : Array Json} : (∀ value ∈ elements, Regular value) → Regular (.arr elements)
-  /-- A search tree whose members have values with this property. -/
-  | obj {fields : Fields} : Ordered fields → (∀ member ∈ members fields, Regular member.2) →
-      Regular (.obj ⟨⟨fields⟩⟩)
 
 private theorem nodup_of_increasing {names : List String}
     (increasing : names.Pairwise fun earlier later => compare earlier later = .lt) :
@@ -625,7 +784,7 @@ theorem Shaped.of_agree {schema : List Entry} {j : Json}
         exact ⟨entry, inSchema, same.symm, meaning _ (values member present) agrees⟩
       have length : count tree = schema.length := by
         rw [size, count_eq_length, sorted, aligned_length meanings]
-      refine ⟨⟨⟨tree⟩⟩, rfl, length, ?_, traversal⟩
+      refine ⟨⟨⟨tree⟩⟩, rfl, ordered, length, ?_, traversal⟩
       intro entry present
       have treeNames : ((members tree).map (·.1)).Nodup :=
         nodup_of_increasing (List.pairwise_map.mpr ordered)

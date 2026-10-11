@@ -8,28 +8,27 @@ canonical re-encoding to reject unknown fields and redundant-coordinate disagree
 Payloads are indexed by the registry's closed `RuleId` (design credit in Regula.RuleId).
 
 Each decoder is `JsonAgreement.canonical` of a reader of the members and of an encoder of
-`Regula.RegistryCodec`. The comparison is the registered decision `JsonAgreement.agrees`.
+`Regula.RegistryCodec`. The comparison is the registered decision `JsonAgreement.conforms`: the
+object trees of the input are search trees, and the input agrees with the encoding.
 
 The form of an encoded location and of an encoded finding is stated here with no encoder of a
-location, of a payload or of a finding: `LocationWire` and `FindingWire` say which members the
-object has and what the value of each is (`JsonAgreement.Shaped`). The form of a name is the one
-that `printedNameJson` writes (`printedNameJson_roundtrip`). The encoders write that form (`locationJson_wire`,
-`diagnosticJson_wire`), and the decoders accept each value of that form and return the location
-or the finding of it (`parseLocation_of_wire`, `parseDiagnostic_of_wire`). So each decoder reads
-the encoding of each value back to that value (`parseLocation_roundtrip`,
-`parseDiagnostic_roundtrip`).
+location, of a payload or of a finding: `LocationWire` and `FindingWire` say that each object is
+a search tree, which members it has and what the value of each is (`JsonAgreement.Shaped`). The
+form of a name is the one that `printedNameJson` writes (`printedNameJson_roundtrip`). The
+encoders write that form (`locationJson_wire`, `diagnosticJson_wire`), and the decoders accept
+each value of that form and return the location or the finding of it (`parseLocation_of_wire`,
+`parseDiagnostic_of_wire`). So each decoder reads the encoding of each value back to that value
+(`parseLocation_roundtrip`, `parseDiagnostic_roundtrip`).
 
-The converse, that an accepted value has the form, is proved for an input whose object trees are
-search trees (`parseLocation_iff`, `parseDiagnostic_iff`). It is false for some other `Json`
-values: the comparison reads each member of the input and looks its name up in the encoding, and
-the reader does not look up a redundant member, so an object tree that gives one name twice and
-has no member `remedy` is accepted
-(https://github.com/rbeauchamp/regula/issues/269). The registered kind of each decoder is
-complete for that reason, and `parseLocation_canonical` and `parseDiagnostic_canonical` state,
-for every input, the agreement of an accepted value with the encoding that the decoder runs. -/
+The converse, that an accepted value has the form, holds for every `Json` value
+(`parseLocation_wire`, `parseDiagnostic_wire`), and `parseLocation_iff` and `parseDiagnostic_iff`
+state the two directions together. So the registered kind of each decoder is two-way. An object
+tree that is not a search tree is refused, also one that gives one name twice and has no member
+`remedy` (https://github.com/rbeauchamp/regula/issues/269). -/
+
 namespace Regula.DiagnosticCodec
 open Lean RegistryCodec
-open Regula.JsonAgreement (Agree Aligned Entry Shaped canonical canonical_eq_ok_iff)
+open Regula.JsonAgreement (Agree Aligned Entry Regular Shaped canonical canonical_eq_ok_iff)
 
 private def field (j : Json) (k : String) : Except String Json := j.getObjVal? k
 private def string (j : Json) (k : String) : Except String String := do
@@ -55,22 +54,21 @@ private def readLocation (j : Json) : Except String Location := do
         pure <| Location.source (← admitSource c)
     | _ => throw "unknown location kind"
 
-/-- Decode a module, project or source location (`readLocation`); the input must agree with the
-canonical `locationJson` of the result (`parseLocation_canonical`). -/
+/-- Decode a module, project or source location (`readLocation`); the object trees of the input
+must be search trees, and the input must agree with the canonical `locationJson` of the result
+(`parseLocation_canonical`). -/
 @[regula_decision]
 def parseLocation (j : Json) : Except String Location :=
   canonical readLocation locationJson "noncanonical location or unknown fields" j
 
-/-- **An accepted location agrees with its encoding.** The input has as many members as the
-encoding of the location that the decoder returns, and each member of the input is found by its
-name in that encoding, with a value that it agrees with. So the input has no member with a name
-that `locationJson` does not write, and the value of each member agrees with the written value,
-which is equality for a string, a number, a Boolean and null. The theorem does not say that each
-member of the encoding is a member of the input: an object tree that is not a search tree can
-give one name twice and not give a second name. For an input whose object trees are search trees,
-`parseLocation_wire` gives the members. -/
+/-- **An accepted location has search trees and agrees with its encoding.** Each object tree of
+the input is a search tree. The input has as many members as the encoding of the location that
+the decoder returns, and each member of the input is found by its name in that encoding, with a
+value that it agrees with. So the input has no member with a name that `locationJson` does not
+write, and the value of each member agrees with the written value, which is equality for a
+string, a number, a Boolean and null. `parseLocation_wire` gives the members. -/
 theorem parseLocation_canonical {j : Json} {location : Location}
-    (accepted : parseLocation j = .ok location) : Agree j (locationJson location) :=
+    (accepted : parseLocation j = .ok location) : Regular j ∧ Agree j (locationJson location) :=
   ((canonical_eq_ok_iff _ _ _ j location).mp accepted).2
 
 private def parseSource (j : Json) : Except String (Option Name) := do
@@ -116,26 +114,25 @@ private def readDiagnostic (j : Json) : Except String Finding := do
   let d ← makeDiagnostic id arguments location mode claim impact severity related
   return ⟨id, d⟩
 
-/-- Decode one finding (`readDiagnostic`); the input must agree with the canonical
-`diagnosticJson` of the result, so unknown fields and inconsistent coordinates are refused
-(`parseDiagnostic_canonical`). -/
+/-- Decode one finding (`readDiagnostic`); the object trees of the input must be search
+trees, and the input must agree with the canonical `diagnosticJson` of the result, so unknown
+fields and inconsistent coordinates are refused (`parseDiagnostic_canonical`). -/
 @[regula_decision]
 def parseDiagnostic (j : Json) : Except String Finding :=
   canonical readDiagnostic diagnosticJson "noncanonical diagnostic or unknown fields" j
 
-/-- **An accepted finding agrees with its encoding.** The input has as many members as the
-encoding of the finding that the decoder returns, and each member of the input is found by its
-name in that encoding, with a value that it agrees with. So the input has no member with a name
-that `diagnosticJson` does not write, and the value of each member agrees with the written value,
-which is equality for a string, a number, a Boolean and null: a member `text`, `remedy` or
-`helpUrl` with a value that the registry of this checker does not give is refused. The theorem
-does not say that
-each member of the encoding is a member of the input: an object tree that is not a search tree
-can give one name twice and have no member `remedy`
-(https://github.com/rbeauchamp/regula/issues/269). For an input whose object trees are search
-trees, `parseDiagnostic_wire` gives the members. -/
+/-- **An accepted finding has search trees and agrees with its encoding.** Each object tree of
+the input is a search tree. The input has as many members as the encoding of the finding that
+the decoder returns, and each member of the input is found by its name in that encoding, with a
+value that it agrees with. So the input has no member with a name that `diagnosticJson` does not
+write, and the value of each member agrees with the written value, which is equality for a
+string, a number, a Boolean and null: a member `text`, `remedy` or `helpUrl` with a value that
+the registry of this checker does not give is refused. `parseDiagnostic_wire` gives the members:
+an object tree that is not a search tree, such as one that gives one name twice and has no
+member `remedy` (https://github.com/rbeauchamp/regula/issues/269), is refused. -/
 theorem parseDiagnostic_canonical {j : Json} {finding : Finding}
-    (accepted : parseDiagnostic j = .ok finding) : Agree j (diagnosticJson finding) :=
+    (accepted : parseDiagnostic j = .ok finding) :
+    Regular j ∧ Agree j (diagnosticJson finding) :=
   ((canonical_eq_ok_iff _ _ _ j finding).mp accepted).2
 
 /-! ## The form of an encoded value
@@ -159,16 +156,16 @@ A project has the members `identity`, a string, and `kind`, the string `project`
 
 A source has seven members. `kind` is the string `source`. `uri` and `sourceText` are the strings
 of the snapshot. `range` and `selectionRange` are the two byte ranges. `lspRange` and
-`lspSelectionRange` are redundant: each agrees with the form that Lean writes for the LSP range
-that the source text gives for the byte range. -/
+`lspSelectionRange` are redundant: each has search trees and agrees with the form that Lean writes
+for the LSP range that the source text gives for the byte range. -/
 def LocationWire : Location → Json → Prop
   | .module name => Shaped [⟨"kind", (· = .str "module")⟩, ⟨"name", (· = printedNameJson name)⟩]
   | .project identity =>
       Shaped [⟨"identity", (· = .str identity)⟩, ⟨"kind", (· = .str "project")⟩]
   | .source source => Shaped [
       ⟨"kind", (· = .str "source")⟩,
-      ⟨"lspRange", (Agree · (toJson source.fullLsp))⟩,
-      ⟨"lspSelectionRange", (Agree · (toJson source.selectionLsp))⟩,
+      ⟨"lspRange", fun value => Regular value ∧ Agree value (toJson source.fullLsp)⟩,
+      ⟨"lspSelectionRange", fun value => Regular value ∧ Agree value (toJson source.selectionLsp)⟩,
       ⟨"range", RangeWire source.val.full⟩,
       ⟨"selectionRange", RangeWire source.val.selection⟩,
       ⟨"sourceText", (· = .str source.val.snapshot.source)⟩,
@@ -208,6 +205,49 @@ private theorem agree_lspRange (range : Lsp.Range) : Agree (toJson range) (toJso
       simp only [List.mem_cons, List.not_mem_nil, or_false] at present
       rcases present with rfl | rfl <;> exact agree_position _
 
+/-- The written form of a name has no object: it is a string, or an array of arrays of strings
+and numbers. -/
+private theorem regular_printedName (name : Name) : Regular (printedNameJson name) := by
+  have parts : ∀ name : Name, ∀ value ∈ nameParts name, Regular value := by
+    intro name
+    induction name with
+    | anonymous => exact fun _ member => nomatch member
+    | str parent text step =>
+      intro value member
+      rcases List.mem_cons.mp member with rfl | inParent
+      · exact .arr fun item present => by
+          simp only [List.mem_toArray, List.mem_cons, List.not_mem_nil, or_false] at present
+          rcases present with rfl | rfl <;> exact .str _
+      · exact step value inParent
+    | num parent number step =>
+      intro value member
+      rcases List.mem_cons.mp member with rfl | inParent
+      · exact .arr fun item present => by
+          simp only [List.mem_toArray, List.mem_cons, List.not_mem_nil, or_false] at present
+          rcases present with rfl | rfl
+          · exact .str _
+          · exact .num _
+      · exact step value inParent
+  unfold printedNameJson
+  split
+  · exact .str _
+  · exact .arr fun value member => parts name value (List.mem_toArray.mp member)
+
+/-- The form that Lean writes for an LSP position has search trees. -/
+private theorem regular_position (position : Lsp.Position) : Regular (toJson position) :=
+  Regular.obj_of_members _
+    [("character", toJson position.character), ("line", toJson position.line)] rfl
+    fun member present => by
+      simp only [List.mem_cons, List.not_mem_nil, or_false] at present
+      rcases present with rfl | rfl <;> exact .num _
+
+/-- The form that Lean writes for an LSP range has search trees. -/
+private theorem regular_lspRange (range : Lsp.Range) : Regular (toJson range) :=
+  Regular.obj_of_members _ [("end", toJson range.end), ("start", toJson range.start)]
+    rfl fun member present => by
+      simp only [List.mem_cons, List.not_mem_nil, or_false] at present
+      rcases present with rfl | rfl <;> exact regular_position _
+
 /-- The encoder of a byte range writes the form of that range. -/
 theorem rangeJson_wire (range : ByteRange) : RangeWire range (rangeJson range) :=
   Shaped.of_members _ [("endByte", toJson range.stop), ("startByte", toJson range.start)]
@@ -230,7 +270,8 @@ theorem locationJson_wire (location : Location) :
         ("range", rangeJson source.val.full), ("selectionRange", rangeJson source.val.selection),
         ("sourceText", .str source.val.snapshot.source), ("uri", .str source.val.snapshot.uri)]
       rfl
-      (.cons ⟨rfl, rfl⟩ (.cons ⟨rfl, agree_lspRange _⟩ (.cons ⟨rfl, agree_lspRange _⟩
+      (.cons ⟨rfl, rfl⟩ (.cons ⟨rfl, regular_lspRange _, agree_lspRange _⟩
+        (.cons ⟨rfl, regular_lspRange _, agree_lspRange _⟩
         (.cons ⟨rfl, rangeJson_wire _⟩ (.cons ⟨rfl, rangeJson_wire _⟩
           (.cons ⟨rfl, rfl⟩ (.cons ⟨rfl, rfl⟩ .nil)))))))
 
@@ -271,11 +312,47 @@ theorem agree_of_locationWire {location : Location} {j : Json}
         ("range", rangeJson source.val.full), ("selectionRange", rangeJson source.val.selection),
         ("sourceText", .str source.val.snapshot.source), ("uri", .str source.val.snapshot.uri)]
       rfl
-      (.cons ⟨rfl, fun _ same => same ▸ .str _⟩ (.cons ⟨rfl, fun _ agree => agree⟩
-        (.cons ⟨rfl, fun _ agree => agree⟩ (.cons ⟨rfl, fun _ wire => agree_of_rangeWire wire⟩
+      (.cons ⟨rfl, fun _ same => same ▸ .str _⟩ (.cons ⟨rfl, fun _ meaning => meaning.2⟩
+        (.cons ⟨rfl, fun _ meaning => meaning.2⟩ (.cons ⟨rfl, fun _ wire => agree_of_rangeWire wire⟩
           (.cons ⟨rfl, fun _ wire => agree_of_rangeWire wire⟩
             (.cons ⟨rfl, fun _ same => same ▸ .str _⟩
               (.cons ⟨rfl, fun _ same => same ▸ .str _⟩ .nil)))))))
+
+/-- A value of the form of a byte range has search trees. -/
+private theorem regular_of_rangeWire {range : ByteRange} {j : Json} (wire : RangeWire range j) :
+    Regular j := by
+  refine wire.regular fun entry present value meaning => ?_
+  simp only [List.mem_cons, List.not_mem_nil, or_false] at present
+  rcases present with rfl | rfl <;> dsimp only at meaning <;> subst meaning <;> exact .num _
+
+/-- A value of the form of a location has search trees. -/
+theorem regular_of_locationWire {location : Location} {j : Json}
+    (wire : LocationWire location j) : Regular j := by
+  cases location with
+  | module name =>
+    refine wire.regular fun entry present value meaning => ?_
+    simp only [List.mem_cons, List.not_mem_nil, or_false] at present
+    rcases present with rfl | rfl <;> dsimp only at meaning <;> subst meaning
+    · exact .str _
+    · exact regular_printedName name
+  | project identity =>
+    refine wire.regular fun entry present value meaning => ?_
+    simp only [List.mem_cons, List.not_mem_nil, or_false] at present
+    rcases present with rfl | rfl <;> dsimp only at meaning <;> subst meaning <;> exact .str _
+  | source source =>
+    refine wire.regular fun entry present value meaning => ?_
+    simp only [List.mem_cons, List.not_mem_nil, or_false] at present
+    rcases present with rfl | rfl | rfl | rfl | rfl | rfl | rfl <;> dsimp only at meaning
+    · subst meaning
+      exact .str _
+    · exact meaning.1
+    · exact meaning.1
+    · exact regular_of_rangeWire meaning
+    · exact regular_of_rangeWire meaning
+    · subst meaning
+      exact .str _
+    · subst meaning
+      exact .str _
 
 /-- The reader of a location reads a value of the form of a location to that location. -/
 private theorem readLocation_of_wire {location : Location} {j : Json}
@@ -316,7 +393,8 @@ private theorem readLocation_of_wire {location : Location} {j : Json}
 location. -/
 theorem parseLocation_of_wire {location : Location} {j : Json}
     (wire : LocationWire location j) : parseLocation j = .ok location :=
-  (canonical_eq_ok_iff _ _ _ _ _).mpr ⟨readLocation_of_wire wire, agree_of_locationWire wire⟩
+  (canonical_eq_ok_iff _ _ _ _ _).mpr
+    ⟨readLocation_of_wire wire, regular_of_locationWire wire, agree_of_locationWire wire⟩
 
 /-- **Each location is read back from its encoding.** -/
 theorem parseLocation_roundtrip (location : Location) :
@@ -650,55 +728,93 @@ private theorem readDiagnostic_of_wire {finding : Finding} {j : Json}
   cases claim <;> cases impact <;> cases severity <;>
     simp only [Severity.spelling, Array.toArray_toList, made]
 
+/-- A value of the form of a payload has search trees. -/
+private theorem regular_of_argumentsWire {id : RuleId} {arguments : Payload id} {j : Json}
+    (wire : ArgumentsWire id arguments j) : Regular j := by
+  cases id <;> first
+    | (have wire : DeclarationWire arguments j := wire
+       refine wire.regular fun entry present value meaning => ?_
+       simp only [List.mem_cons, List.not_mem_nil, or_false] at present
+       rcases present with rfl | rfl | rfl <;> dsimp only at meaning <;> subst meaning
+       · exact regular_printedName _
+       · exact .str _
+       · split
+         · exact .null
+         · exact regular_printedName _)
+    | (have wire : ExecutionWire arguments j := wire
+       refine wire.regular fun entry present value meaning => ?_
+       simp only [List.mem_cons, List.not_mem_nil, or_false] at present
+       rcases present with rfl | rfl <;> dsimp only at meaning <;> subst meaning
+       · exact .str _
+       · exact regular_printedName _)
+    | (have wire : ContextWire arguments j := wire
+       refine wire.regular fun entry present value meaning => ?_
+       simp only [List.mem_cons, List.not_mem_nil, or_false] at present
+       rcases present with rfl | rfl <;> dsimp only at meaning <;> subst meaning <;>
+         exact .str _)
+
+/-- A value of the form of a related location has search trees. -/
+private theorem regular_of_relatedWire {related : RelatedLocation} {j : Json}
+    (wire : RelatedWire related j) : Regular j := by
+  refine wire.regular fun entry present value meaning => ?_
+  simp only [List.mem_cons, List.not_mem_nil, or_false] at present
+  rcases present with rfl | rfl <;> dsimp only at meaning
+  · exact regular_of_locationWire meaning
+  · subst meaning
+    exact .str _
+
+/-- A value of the form of a finding has search trees. -/
+theorem regular_of_findingWire {finding : Finding} {j : Json} (wire : FindingWire finding j) :
+    Regular j := by
+  refine wire.regular fun entry present value meaning => ?_
+  simp only [List.mem_cons, List.not_mem_nil, or_false] at present
+  rcases present with rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl <;>
+    dsimp only at meaning
+  · exact regular_of_argumentsWire meaning
+  · subst meaning
+    split
+    · exact .null
+    · exact .str _
+  · subst meaning
+    exact .str _
+  · subst meaning
+    exact .str _
+  · subst meaning
+    exact .str _
+  · exact regular_of_locationWire meaning
+  · subst meaning
+    exact .str _
+  · obtain ⟨items, rfl, aligned⟩ := meaning
+    refine .arr fun item present => ?_
+    obtain ⟨related, -, wire⟩ :=
+      JsonAgreement.aligned_left aligned item (Array.mem_def.mp present)
+    exact regular_of_relatedWire wire
+  · subst meaning
+    exact .str _
+  · subst meaning
+    exact .str _
+  · subst meaning
+    exact .str _
+
 /-- **The decoder of a finding accepts each value of the form of a finding**, and returns that
 finding. -/
 theorem parseDiagnostic_of_wire {finding : Finding} {j : Json} (wire : FindingWire finding j) :
     parseDiagnostic j = .ok finding :=
-  (canonical_eq_ok_iff _ _ _ _ _).mpr ⟨readDiagnostic_of_wire wire, agree_of_findingWire wire⟩
+  (canonical_eq_ok_iff _ _ _ _ _).mpr
+    ⟨readDiagnostic_of_wire wire, regular_of_findingWire wire, agree_of_findingWire wire⟩
 
 /-- **Each finding is read back from its encoding**, with each number of related locations. -/
 theorem parseDiagnostic_roundtrip (finding : Finding) :
     parseDiagnostic (diagnosticJson finding) = .ok finding :=
   parseDiagnostic_of_wire (diagnosticJson_wire finding)
 
-/-- `parseLocation` is a complete decision of the form of a location
-(`parseLocation_of_wire`): it accepts each value of that form, and it refuses `null`. The
-specification says which members the object has and what each is. It names no encoder of a
-location, of a payload or of a finding, and the form of a name is the one that `printedNameJson`
-writes (`printedNameJson_roundtrip`). The kind is one-way: `parseLocation_wire` proves the other
-direction for an input whose object trees are search trees, and the decoder also accepts object
-trees that are not (https://github.com/rbeauchamp/regula/issues/269). -/
-theorem checked_parseLocation : Regula.ExecutableContract parseLocation
-    (Regula.DecidesCompletely (·.isOk = true) fun j => ∃ location, LocationWire location j) :=
-  ⟨{ complete := fun _ ⟨_, wire⟩ => by
-       rw [parseLocation_of_wire wire]
-       rfl
-     refused := ⟨.null, by decide⟩ }⟩
+/-! ## An accepted value has the form
 
-/-- `parseDiagnostic` is a complete decision of the form of a finding
-(`parseDiagnostic_of_wire`): it accepts each value of that form, and it refuses `null`. The
-specification says which members the object has and what each is. It names no encoder of a
-location, of a payload or of a finding, and the form of a name is the one that `printedNameJson`
-writes (`printedNameJson_roundtrip`). The kind is one-way: `parseDiagnostic_wire` proves the other
-direction for an input whose object trees are search trees, and the decoder also accepts object
-trees that are not, one of them with no member `remedy`
-(https://github.com/rbeauchamp/regula/issues/269). -/
-theorem checked_parseDiagnostic : Regula.ExecutableContract parseDiagnostic
-    (Regula.DecidesCompletely (·.isOk = true) fun j => ∃ finding, FindingWire finding j) :=
-  ⟨{ complete := fun _ ⟨_, wire⟩ => by
-       rw [parseDiagnostic_of_wire wire]
-       rfl
-     refused := ⟨.null, by decide⟩ }⟩
-
-/-! ## An accepted value has the form, for search trees
-
-The converse of the two decoder theorems above holds for an input whose object trees are search
-trees (`JsonAgreement.Regular`). That the object trees of an input are search trees is read from
-the code of the two text parsers (`Checker.PolicyCodec.parse` and Lean's `Json.parse`) and of
-`Json.mkObj`, and no theorem states it. The converse does not hold for each `Json` value: the
-comparison reads each member of the input and looks its name up in the encoding, so it accepts an
-object tree that gives one name twice in the place of another name.
-`parseLocation_iff` and `parseDiagnostic_iff` state the two directions together. -/
+The converse of the two decoder theorems above holds for every `Json` value. A decoder accepts
+only an input whose object trees are search trees (`JsonAgreement.Regular`), and a value with
+search trees that agrees with the encoding of a location or of a finding has the form of it.
+`parseLocation_iff` and `parseDiagnostic_iff` state the two directions together, and the
+registered kinds `checked_parseLocation` and `checked_parseDiagnostic` are two-way. -/
 
 /-- A value that agrees with the written form of a name is that written form. -/
 private theorem eq_of_agree_printedName {value : Json} {name : Name}
@@ -748,7 +864,6 @@ private theorem eq_of_agree_printedName {value : Json} {name : Name}
     cases agree with
     | arr all => rw [parts name _ all]
 
-open JsonAgreement (Regular) in
 /-- A value with search trees that agrees with the encoding of a byte range has the form of that
 range. -/
 private theorem rangeWire_of_agree {range : ByteRange} {j : Json} (regular : Regular j)
@@ -757,7 +872,6 @@ private theorem rangeWire_of_agree {range : ByteRange} {j : Json} (regular : Reg
     regular agree rfl
     (.cons ⟨rfl, fun _ _ agree => agree.eq_num⟩ (.cons ⟨rfl, fun _ _ agree => agree.eq_num⟩ .nil))
 
-open JsonAgreement (Regular) in
 /-- A value with search trees that agrees with the encoding of a location has the form of that
 location. -/
 theorem locationWire_of_agree {location : Location} {j : Json} (regular : Regular j)
@@ -779,28 +893,26 @@ theorem locationWire_of_agree {location : Location} {j : Json} (regular : Regula
         ("range", rangeJson source.val.full), ("selectionRange", rangeJson source.val.selection),
         ("sourceText", .str source.val.snapshot.source), ("uri", .str source.val.snapshot.uri)]
       regular agree rfl
-      (.cons ⟨rfl, fun _ _ agree => agree.eq_str⟩ (.cons ⟨rfl, fun _ _ agree => agree⟩
-        (.cons ⟨rfl, fun _ _ agree => agree⟩
+      (.cons ⟨rfl, fun _ _ agree => agree.eq_str⟩
+        (.cons ⟨rfl, fun _ regular agree => ⟨regular, agree⟩⟩
+        (.cons ⟨rfl, fun _ regular agree => ⟨regular, agree⟩⟩
           (.cons ⟨rfl, fun _ regular agree => rangeWire_of_agree regular agree⟩
             (.cons ⟨rfl, fun _ regular agree => rangeWire_of_agree regular agree⟩
               (.cons ⟨rfl, fun _ _ agree => agree.eq_str⟩
                 (.cons ⟨rfl, fun _ _ agree => agree.eq_str⟩ .nil)))))))
 
-open JsonAgreement (Regular) in
-/-- **An accepted location with search trees has the form of the location that the decoder
-returns.** -/
-theorem parseLocation_wire {location : Location} {j : Json} (regular : Regular j)
+/-- **An accepted location has the form of the location that the decoder returns**, for every
+`Json` value: the decoder accepts only an input with search trees. -/
+theorem parseLocation_wire {location : Location} {j : Json}
     (accepted : parseLocation j = .ok location) : LocationWire location j :=
-  locationWire_of_agree regular (parseLocation_canonical accepted)
+  locationWire_of_agree (parseLocation_canonical accepted).1 (parseLocation_canonical accepted).2
 
-open JsonAgreement (Regular) in
-/-- For an input with search trees, the decoder of a location returns a location exactly when
-the input has the form of that location. -/
-theorem parseLocation_iff {location : Location} {j : Json} (regular : Regular j) :
+/-- The decoder of a location returns a location exactly when the input has the form of that
+location, for every `Json` value. -/
+theorem parseLocation_iff {location : Location} {j : Json} :
     parseLocation j = .ok location ↔ LocationWire location j :=
-  ⟨parseLocation_wire regular, parseLocation_of_wire⟩
+  ⟨parseLocation_wire, parseLocation_of_wire⟩
 
-open JsonAgreement (Regular) in
 /-- A value with search trees that agrees with the encoding of a payload has the form of that
 payload. -/
 theorem argumentsWire_of_agree {id : RuleId} {arguments : Payload id} {j : Json}
@@ -840,7 +952,6 @@ theorem argumentsWire_of_agree {id : RuleId} {arguments : Payload id} {j : Json}
           (.cons ⟨rfl, fun _ _ agree => agree.eq_str⟩ .nil)) :
         ContextWire arguments j)
 
-open JsonAgreement (Regular) in
 private theorem aligned_of_agreeAll :
     ∀ (related : List RelatedLocation) (items : List Json),
       (∀ item ∈ items, Regular item) → JsonAgreement.AgreeAll items (related.map relatedJson) →
@@ -864,7 +975,6 @@ private theorem aligned_of_agreeAll :
         (.cons ⟨rfl, fun _ regular agree => locationWire_of_agree regular agree⟩
           (.cons ⟨rfl, fun _ _ agree => agree.eq_str⟩ .nil))
 
-open JsonAgreement (Regular) in
 /-- A value with search trees that agrees with the encoding of a finding has the form of that
 finding. -/
 theorem findingWire_of_agree {finding : Finding} {j : Json} (regular : Regular j)
@@ -908,18 +1018,57 @@ theorem findingWire_of_agree {finding : Finding} {j : Json} (regular : Regular j
                       (.cons ⟨rfl, fun _ _ agree => agree.eq_str⟩
                         (.cons ⟨rfl, fun _ _ agree => agree.eq_str⟩ .nil)))))))))))
 
-open JsonAgreement (Regular) in
-/-- **An accepted finding with search trees has the form of the finding that the decoder
-returns.** -/
-theorem parseDiagnostic_wire {finding : Finding} {j : Json} (regular : Regular j)
+/-- **An accepted finding has the form of the finding that the decoder returns**, for every
+`Json` value: the decoder accepts only an input with search trees. -/
+theorem parseDiagnostic_wire {finding : Finding} {j : Json}
     (accepted : parseDiagnostic j = .ok finding) : FindingWire finding j :=
-  findingWire_of_agree regular (parseDiagnostic_canonical accepted)
+  findingWire_of_agree (parseDiagnostic_canonical accepted).1
+    (parseDiagnostic_canonical accepted).2
 
-open JsonAgreement (Regular) in
-/-- For an input with search trees, the decoder of a finding returns a finding exactly when the
-input has the form of that finding. -/
-theorem parseDiagnostic_iff {finding : Finding} {j : Json} (regular : Regular j) :
+/-- The decoder of a finding returns a finding exactly when the input has the form of that
+finding, for every `Json` value. -/
+theorem parseDiagnostic_iff {finding : Finding} {j : Json} :
     parseDiagnostic j = .ok finding ↔ FindingWire finding j :=
-  ⟨parseDiagnostic_wire regular, parseDiagnostic_of_wire⟩
+  ⟨parseDiagnostic_wire, parseDiagnostic_of_wire⟩
+
+/-- `parseLocation` is a sound and complete decision of the form of a location
+(`parseLocation_iff`): it accepts the encoding of a project location, and it refuses `null`. The
+specification says that each object is a search tree, which members it has and what each is. It
+names no encoder of a location, of a payload or of a finding, and the form of a name is the one
+that `printedNameJson` writes (`printedNameJson_roundtrip`). -/
+theorem checked_parseLocation : Regula.ExecutableContract parseLocation
+    (Regula.Decides (·.isOk = true) fun j => ∃ location, LocationWire location j) :=
+  ⟨Regula.Decides.of_iff
+    (fun j => by
+      cases accepted : parseLocation j with
+      | ok location => exact ⟨fun _ => ⟨location, parseLocation_wire accepted⟩, fun _ => rfl⟩
+      | error message =>
+        refine ⟨(fun h => nomatch h), fun ⟨location, wire⟩ => ?_⟩
+        rw [parseLocation_of_wire wire] at accepted
+        exact nomatch accepted)
+    ⟨locationJson (.project "project"), by rw [parseLocation_roundtrip]; rfl⟩
+    ⟨.null, by decide⟩⟩
+
+/-- `parseDiagnostic` is a sound and complete decision of the form of a finding
+(`parseDiagnostic_iff`): it accepts the encoding of a finding of the rule `environment`, and it
+refuses `null`. The specification says that each object is a search tree, which members it has
+and what each is. It names no encoder of a location, of a payload or of a finding, and the form
+of a name is the one that `printedNameJson` writes (`printedNameJson_roundtrip`). -/
+theorem checked_parseDiagnostic : Regula.ExecutableContract parseDiagnostic
+    (Regula.Decides (·.isOk = true) fun j => ∃ finding, FindingWire finding j) :=
+  let finding : Finding :=
+    ⟨.environment, { arguments := ⟨"project", "analysis unavailable"⟩, location := .module `Module
+                     mode := .freshFile, claim := none, impact := .incomplete
+                     supportedMode := by decide }⟩
+  ⟨Regula.Decides.of_iff
+    (fun j => by
+      cases accepted : parseDiagnostic j with
+      | ok found => exact ⟨fun _ => ⟨found, parseDiagnostic_wire accepted⟩, fun _ => rfl⟩
+      | error message =>
+        refine ⟨(fun h => nomatch h), fun ⟨found, wire⟩ => ?_⟩
+        rw [parseDiagnostic_of_wire wire] at accepted
+        exact nomatch accepted)
+    ⟨diagnosticJson finding, by rw [parseDiagnostic_roundtrip]; rfl⟩
+    ⟨.null, by decide⟩⟩
 
 end Regula.DiagnosticCodec
