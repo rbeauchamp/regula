@@ -44,6 +44,17 @@ md4c's decision, and which piece each becomes is that module's (see Boundaries).
   `checked_siteLinkErrors`: the executed check of the links of each document of
   `stableDocuments` to the site. Each has a stable address, the site root or an address below a
   `stableRoots` directory with no fragment, so it names no edition.
+- `summarizedDocuments`, `Top`, `Outline`, `OpensWith`, `opensWith_iff`, `summaryErrors`,
+  `summaryErrors_nil_iff`, `checked_summaryErrors`: the executed check of the opening of each
+  document of `summarizedDocuments`: its first top-level block is a heading of level 1, and its
+  second is the paragraph that the summary of Regula alone is, as the parser reads each
+  (`Regula.Site.summary`).
+- `demonstrationModule`, `demonstrationMessages`, `LineFits`, `BlockFits`, `lineFits_plain`, `Pat`,
+  `Fits`, `fits_iff`, `fits_blockPattern`, `Demonstration`, `Demonstrates`, `demonstrationErrors`,
+  `demonstrationErrors_nil_iff`, `checked_demonstrationErrors`: the executed check of the example
+  of the root `README.md`: its `lean` block is the file `demonstrationModule`, Lean gives exactly
+  the messages `demonstrationMessages` for that file, and the output of `axiomGate --file` for it
+  fits the `text` block, where `…` marks omitted text.
 
 ## What prose is
 
@@ -1786,6 +1797,457 @@ theorem checked_siteLinkErrors : Regula.ExecutableContract siteLinkErrors (fun r
       ((siteLinkErrors_nil_iff _ _).mp accepted _ rfl (by decide) _ (List.mem_singleton.mpr rfl)
         ⟨"https://", "/dev/", by decide⟩).not_edition .dev "" rfl⟩⟩
 
+/-! ## The opening of a document
+
+The root `README.md` and the adoption guide open with the summary of Regula
+(`Regula.Site.summary`, `RegulaCore/Summary.lean`). The check reads the top-level blocks of md4c's
+parse of each document and of the summary alone, each block as one of the nine kinds that md4c
+reports (`Top`, `Regula.Markdown.top` in `markdown/RegulaMarkdown.lean`). It accepts a document
+exactly when its first block is a heading of level 1 and its second block is a paragraph with the
+inline pieces of the summary, which md4c reads as one paragraph. Any other first or second block
+is refused, whatever its kind. -/
+
+/-- The documents that open with the summary of Regula, by their paths in the repository. -/
+def summarizedDocuments : List String := ["README.md", "docs/guides/adoption.md"]
+
+/-- A top-level block of a document, as the parser reports it: one constructor for each kind of
+block that md4c reports (each constructor of `MD4Lean.Block`), so no top-level block is left
+out. A paragraph keeps its inline pieces, a heading its level and a code block its info string and
+its text. -/
+inductive Top where
+  /-- A paragraph, with the pieces of its inline content. -/
+  | paragraph (pieces : List Piece)
+  /-- A heading of level `level`: 1 for a title, up to 6. -/
+  | heading (level : Nat)
+  /-- An unordered list. -/
+  | unordered
+  /-- An ordered list. -/
+  | ordered
+  /-- A thematic break. -/
+  | rule
+  /-- A code block, with its info string and its text. -/
+  | code (info text : String)
+  /-- A raw HTML block. -/
+  | html
+  /-- A block quote. -/
+  | quote
+  /-- A table. -/
+  | table
+  deriving DecidableEq, Repr
+
+/-- What the parser reports of the top-level blocks of one document. -/
+inductive Outline where
+  /-- The parser's reading cannot be used, for the reason given. -/
+  | unread (reason : String)
+  /-- The document's top-level blocks, in document order. -/
+  | read (blocks : List Top)
+  deriving DecidableEq, Repr
+
+/-- The document with the top-level blocks `doc` opens with the summary with the top-level blocks
+`summary`: the summary is one paragraph, the first block of the document is a heading of level 1,
+and its second block is a paragraph with the inline pieces of the summary. -/
+def OpensWith (summary doc : List Top) : Prop :=
+  ∃ body rest, summary = [.paragraph body] ∧ doc = .heading 1 :: .paragraph body :: rest
+
+/-- Whether the document with the top-level blocks `doc` opens with the summary with the
+top-level blocks `summary` (`OpensWith`). -/
+def opensWith (summary doc : List Top) : Bool :=
+  match summary, doc with
+  | [.paragraph body], .heading 1 :: .paragraph first :: _ => first == body
+  | _, _ => false
+
+/-- The decision is the statement of the opening. -/
+theorem opensWith_iff (summary doc : List Top) :
+    opensWith summary doc = true ↔ OpensWith summary doc := by
+  unfold opensWith OpensWith
+  split
+  · rename_i body first rest
+    simp only [beq_iff_eq, List.cons.injEq, Top.paragraph.injEq, true_and, and_true]
+    constructor
+    · rintro rfl
+      exact ⟨first, rest, rfl, rfl, rfl⟩
+    · rintro ⟨body', rest', rfl, rfl, -⟩
+      rfl
+  · rename_i different
+    simp only [Bool.false_eq_true, false_iff, not_exists, not_and]
+    intro body rest same h
+    exact different body _ rest same h
+
+/-- Why the document `file` is refused: it does not open with the summary. -/
+def unsummarizedReason (file : String) : String :=
+  s!"{file}: the document does not start with a heading of level 1 and then the summary of Regula \
+    (Regula.Site.summary in lean/RegulaCore/Summary.lean) as one paragraph on one line, as md4c \
+    reads it"
+
+/-- What the document `file` is refused for, given the parser's outline `summary` of the summary
+of Regula and its outline `doc` of the document: when the document is one of
+`summarizedDocuments`, that it does not open with the summary (`OpensWith`), or that the summary
+cannot be read. A document whose reading cannot be used reports nothing here;
+`documentErrors` reports it. -/
+@[regula_decision]
+def summaryErrors (file : String) (summary doc : Outline) : List String :=
+  if file ∈ summarizedDocuments then
+    match summary, doc with
+    | _, .unread _ => []
+    | .unread reason, .read _ => [s!"{file}: md4c cannot read the summary of Regula: {reason}"]
+    | .read s, .read d => if opensWith s d then [] else [unsummarizedReason file]
+  else []
+
+/-- The check of the opening reports nothing exactly when, if the document is one of
+`summarizedDocuments` and its outline can be used, the summary's outline can be used and the
+document opens with it (`OpensWith`). -/
+theorem summaryErrors_nil_iff (file : String) (summary doc : Outline) :
+    summaryErrors file summary doc = [] ↔
+      file ∈ summarizedDocuments → ∀ blocks, doc = .read blocks →
+        ∃ s, summary = .read s ∧ OpensWith s blocks := by
+  unfold summaryErrors
+  by_cases member : file ∈ summarizedDocuments
+  · simp only [member, ↓reduceIte, true_implies]
+    cases doc with
+    | unread reason => simp
+    | read blocks =>
+      cases summary with
+      | unread reason => simp
+      | read s =>
+        by_cases opens : opensWith s blocks = true
+        · simp [opens, (opensWith_iff s blocks).mp opens]
+        · simp [opens, ← opensWith_iff]
+  · simp [member]
+
+/-- Registered contract of the executed check of the opening, as a two-way decision over the
+file name and the two outlines (`summaryErrors_nil_iff`): it reports nothing for a document that
+is not one of `summarizedDocuments`, and an error for a `README.md` and a summary read as no
+blocks. -/
+theorem checked_summaryErrors : Regula.ExecutableContract summaryErrors (fun run =>
+    Regula.Decides (· = [])
+      (fun input : (String × Outline) × Outline =>
+        input.1.1 ∈ summarizedDocuments → ∀ blocks, input.2 = .read blocks →
+          ∃ s, input.1.2 = .read s ∧ OpensWith s blocks)
+      (Function.uncurry (Function.uncurry run))) :=
+  ⟨.of_iff (fun input => summaryErrors_nil_iff input.1.1 input.1.2 input.2)
+    ⟨(("a.md", .read []), .read []), (summaryErrors_nil_iff "a.md" (.read []) (.read [])).mpr
+      fun member => by simp [summarizedDocuments] at member⟩
+    ⟨(("README.md", .read []), .read []), fun accepted => by
+      obtain ⟨s, read, body, rest, paragraph, -⟩ :=
+        (summaryErrors_nil_iff "README.md" (.read []) (.read [])).mp accepted
+          (by simp [summarizedDocuments]) [] rfl
+      simp only [Outline.read.injEq] at read
+      subst read
+      simp at paragraph⟩⟩
+
+/-! ## The example of the root `README.md`
+
+The root `README.md` shows a module in its one code block with the info string `lean`, and what
+`axiomGate --file` prints for that module in its one code block with the info string `text`. It
+states that Lean gives one warning for the module, at the theorem that contains the `sorry`, and
+that `axiomGate --file` exits with 1 for it. The module is the file `demonstrationModule`, which
+no Lake library of the repository contains. The check accepts the `README.md` exactly when its
+`lean` block is the text of that file, Lean's elaboration of the file gives exactly the messages
+`demonstrationMessages`, `axiomGate --file` exits with 1 for the file, and the output of
+`axiomGate --file` fits its `text` block (`Demonstrates`).
+
+The output fits the `text` block when its lines fit the lines of the block (`BlockFits`). A line
+of the block that is `…` alone stands for any run of lines of the output, also none. A `…` in a
+different line stands for any text in one line of the output, also none (`LineFits`). Each other
+character of the block must be the same character of the output, in the same place
+(`lineFits_plain`). The check decides the fit with the patterns `blockPattern` and `linePattern`
+(`fits_iff`, `fits_blockPattern`), which the statement does not use. The executed program
+(`markdown/MarkdownMain.lean`) gives this check the text of the file, the messages of Lean
+(`lean --json`) and the output and exit code of `axiomGate --file`, which it runs in a new Lake
+project that requires the root package by its path. -/
+
+/-- The file of the module that the root `README.md` shows, by its path in the repository. It is
+in no Lake library, so no target of the repository builds it. -/
+def demonstrationModule : String := "markdown/Readme/Shortcut.lean"
+
+/-- The exit code of `axiomGate --file` that the root `README.md` states for its module: 1, a
+violation. -/
+def demonstrationExit : Nat := 1
+
+/-- The messages of Lean's elaboration of `demonstrationModule` that the root `README.md` states,
+each as `line:column: severity: text`: one warning, at the name of the theorem `double`, which
+contains the `sorry`. Lean gives no message for the theorem that uses `double`. -/
+def demonstrationMessages : List String := ["12:8: warning: declaration uses `sorry`"]
+
+/-- One element of a pattern over elements of `α`: one element that a test accepts, or omitted
+elements. -/
+inductive Pat (α : Type) where
+  /-- One element that `test` accepts. -/
+  | one (test : α → Bool)
+  /-- Any run of elements, also an empty one. -/
+  | omitted
+
+/-- The elements `s` fit the pattern `p`: each `one` of `p` is one element of `s` that its test
+accepts, each `omitted` of `p` is a run of elements of `s`, also an empty one, and these elements
+and runs are all of `s`, in order. -/
+def Fits {α : Type} : List (Pat α) → List α → Prop
+  | [], s => s = []
+  | .one test :: p, s => ∃ a rest, s = a :: rest ∧ test a = true ∧ Fits p rest
+  | .omitted :: p, s => ∃ skipped rest, s = skipped ++ rest ∧ Fits p rest
+
+/-- Whether `test` accepts a suffix of `s`: `s` itself, the empty list or a list between them. -/
+def anySuffix {α : Type} (test : List α → Bool) : List α → Bool
+  | [] => test []
+  | a :: s => test (a :: s) || anySuffix test s
+
+/-- `test` accepts a suffix of `s` exactly when `s` is a list followed by a list that `test`
+accepts. -/
+theorem anySuffix_iff {α : Type} (test : List α → Bool) (s : List α) :
+    anySuffix test s = true ↔ ∃ skipped rest, s = skipped ++ rest ∧ test rest = true := by
+  induction s with
+  | nil =>
+    simp only [anySuffix]
+    constructor
+    · exact fun h => ⟨[], [], rfl, h⟩
+    · rintro ⟨u, v, e, h⟩
+      obtain ⟨rfl, rfl⟩ := List.append_eq_nil_iff.mp e.symm
+      exact h
+  | cons a s ih =>
+    simp only [anySuffix, Bool.or_eq_true, ih]
+    constructor
+    · rintro (h | ⟨u, v, rfl, h⟩)
+      · exact ⟨[], a :: s, rfl, h⟩
+      · exact ⟨a :: u, v, rfl, h⟩
+    · rintro ⟨u, v, e, h⟩
+      cases u with
+      | nil =>
+        simp only [List.nil_append] at e
+        subst e
+        exact .inl h
+      | cons b u =>
+        simp only [List.cons_append, List.cons.injEq] at e
+        obtain ⟨rfl, rfl⟩ := e
+        exact .inr ⟨u, v, rfl, h⟩
+
+/-- Whether the elements `s` fit the pattern `p` (`Fits`), by structural recursion on `p`. -/
+def fits {α : Type} : List (Pat α) → List α → Bool
+  | [], s => s.isEmpty
+  | .one test :: p, s => match s with
+    | [] => false
+    | a :: rest => test a && fits p rest
+  | .omitted :: p, s => anySuffix (fits p) s
+
+/-- The decision is the statement of the fit. -/
+theorem fits_iff {α : Type} (p : List (Pat α)) (s : List α) : fits p s = true ↔ Fits p s := by
+  induction p generalizing s with
+  | nil => simp [fits, Fits]
+  | cons element p ih =>
+    cases element with
+    | one test =>
+      cases s with
+      | nil => simp [fits, Fits]
+      | cons a rest =>
+        simp only [fits, Bool.and_eq_true, ih, Fits, List.cons.injEq]
+        constructor
+        · rintro ⟨t, h⟩
+          exact ⟨a, rest, ⟨rfl, rfl⟩, t, h⟩
+        · rintro ⟨b, rest', ⟨rfl, rfl⟩, t, h⟩
+          exact ⟨t, h⟩
+    | omitted => simp only [fits, anySuffix_iff, ih, Fits]
+
+/-- The lines of the characters `cs`: the runs of characters between the line feeds. Thus `n`
+line feeds give `n + 1` lines, and the last line is empty when `cs` ends with a line feed. -/
+def splitLines : List Char → List (List Char)
+  | [] => [[]]
+  | c :: rest =>
+    let lines := splitLines rest
+    if c = '\n' then [] :: lines else (c :: lines.headD []) :: lines.tail
+
+/-- The character `…`, which marks text that a `text` block of the root `README.md` leaves
+out. -/
+def ellipsis : Char := '…'
+
+/-- The line of output `out` fits the line `line` of a `text` block: each `…` of `line` stands for
+any text, also none, and each other character of `line` is the same character of `out`, in
+order. -/
+def LineFits : List Char → List Char → Prop
+  | [], out => out = []
+  | c :: line, out =>
+    if c = ellipsis then ∃ skipped rest, out = skipped ++ rest ∧ LineFits line rest
+    else ∃ rest, out = c :: rest ∧ LineFits line rest
+
+/-- The lines of output `outs` fit the lines `lines` of a `text` block: each line that is `…` alone
+stands for any run of lines of output, also none, and each other line is one line of output that
+fits it (`LineFits`), in order. -/
+def BlockFits : List (List Char) → List (List Char) → Prop
+  | [], outs => outs = []
+  | line :: lines, outs =>
+    if line = [ellipsis] then ∃ skipped rest, outs = skipped ++ rest ∧ BlockFits lines rest
+    else ∃ out rest, outs = out :: rest ∧ LineFits line out ∧ BlockFits lines rest
+
+/-- A line of output fits a line of a `text` block with no `…` exactly when the two are the same
+line. -/
+theorem lineFits_plain {line out : List Char} (plain : ellipsis ∉ line) :
+    LineFits line out ↔ out = line := by
+  induction line generalizing out with
+  | nil => simp [LineFits]
+  | cons c line ih =>
+    simp only [List.mem_cons, not_or] at plain
+    have different : ¬c = ellipsis := fun same => plain.1 same.symm
+    simp only [LineFits, different, ite_false]
+    constructor
+    · rintro ⟨rest, rfl, h⟩
+      rw [ih plain.2 |>.mp h]
+    · rintro rfl
+      exact ⟨line, rfl, (ih plain.2).mpr rfl⟩
+
+/-- A line of a `text` block as a pattern over the characters of one line of output: each `…` is
+omitted text, and each other character is that character. -/
+def linePattern (line : List Char) : List (Pat Char) :=
+  line.map fun c => if c = ellipsis then .omitted else .one (· == c)
+
+/-- A line of output fits the pattern of a line exactly when it fits the line (`LineFits`). -/
+theorem fits_linePattern {line out : List Char} :
+    Fits (linePattern line) out ↔ LineFits line out := by
+  induction line generalizing out with
+  | nil => simp [linePattern, Fits, LineFits]
+  | cons c line ih =>
+    by_cases e : c = ellipsis
+    · simp only [linePattern, List.map_cons, e, ite_true, Fits, LineFits] at ih ⊢
+      simp only [ih]
+    · simp only [linePattern, List.map_cons, e, ite_false, Fits, LineFits] at ih ⊢
+      constructor
+      · rintro ⟨a, rest, rfl, same, h⟩
+        simp only [beq_iff_eq] at same
+        exact ⟨rest, by rw [same], ih.mp h⟩
+      · rintro ⟨rest, rfl, h⟩
+        exact ⟨c, rest, rfl, by simp, ih.mpr h⟩
+
+/-- The lines of a `text` block as a pattern over the lines of the output: a line that is `…`
+alone is omitted lines, and each other line is one line of output that fits its
+`linePattern`. -/
+def blockPattern (lines : List (List Char)) : List (Pat (List Char)) :=
+  lines.map fun line =>
+    if line = [ellipsis] then .omitted else .one fun out => fits (linePattern line) out
+
+/-- The lines of output fit the pattern of the lines of a block exactly when they fit the lines
+(`BlockFits`). -/
+theorem fits_blockPattern {lines outs : List (List Char)} :
+    Fits (blockPattern lines) outs ↔ BlockFits lines outs := by
+  induction lines generalizing outs with
+  | nil => simp [blockPattern, Fits, BlockFits]
+  | cons line lines ih =>
+    by_cases e : line = [ellipsis]
+    · simp only [blockPattern, List.map_cons, e, ite_true, Fits, BlockFits] at ih ⊢
+      simp only [ih]
+    · simp only [blockPattern, List.map_cons, e, ite_false, Fits, BlockFits, fits_iff,
+        fits_linePattern] at ih ⊢
+      simp only [ih]
+
+/-- What Lean and `axiomGate --file` give for the module `demonstrationModule`. -/
+structure Demonstration where
+  /-- The text of the file `demonstrationModule`. -/
+  module : String
+  /-- Each message of Lean's elaboration of the module. -/
+  messages : List String
+  /-- What `axiomGate --file` prints for the module on its standard output. -/
+  output : String
+  /-- The exit code of `axiomGate --file` for the module. -/
+  exit : Nat
+  /-- What `axiomGate --file` prints for the module on its standard error, which the refusal of a
+  different exit code shows. -/
+  errors : String
+  deriving DecidableEq, Repr
+
+/-- The text of each code block with the info string `info` of the top-level blocks `doc`, in
+document order. -/
+def codeBlocks (info : String) (doc : List Top) : List String :=
+  doc.filterMap fun
+    | .code i text => if i = info then some text else none
+    | _ => none
+
+/-- The `README.md` with the top-level blocks `doc` shows the module of `o` and what Lean and
+`axiomGate --file` give for it: its one `lean` block is the module, Lean gives exactly the
+messages `demonstrationMessages` for the module, `axiomGate --file` exits with
+`demonstrationExit`, and the lines of its output fit the pattern of the one `text` block. -/
+def Demonstrates (doc : List Top) (o : Demonstration) : Prop :=
+  codeBlocks "lean" doc = [o.module] ∧ o.messages = demonstrationMessages ∧
+    o.exit = demonstrationExit ∧
+    ∃ block, codeBlocks "text" doc = [block] ∧
+      BlockFits (splitLines block.toList) (splitLines o.output.toList)
+
+/-- What the `text` block of the `README.md` with the top-level blocks `doc` is refused for: that
+the `README.md` does not have exactly one `text` block, or that the output of `o` does not fit
+it. -/
+def outputErrors (doc : List Top) (o : Demonstration) : List String :=
+  match codeBlocks "text" doc with
+  | [block] =>
+    if fits (blockPattern (splitLines block.toList)) (splitLines o.output.toList) then [] else
+      [s!"README.md: what `axiomGate --file` prints for {demonstrationModule} does not fit the \
+        `text` block. A line of the block that is `…` alone stands for any run of lines, and \
+        a `…` in a different line stands for any text in that line. The output:\n{o.output}"]
+  | _ => ["README.md: it must have exactly one code block with the info string `text`, the \
+      output of `axiomGate --file`"]
+
+/-- The `text` block is accepted exactly when there is one, and the output fits it. -/
+theorem outputErrors_nil_iff (doc : List Top) (o : Demonstration) :
+    outputErrors doc o = [] ↔ ∃ block, codeBlocks "text" doc = [block] ∧
+      BlockFits (splitLines block.toList) (splitLines o.output.toList) := by
+  unfold outputErrors
+  split
+  · rename_i block same
+    by_cases h : fits (blockPattern (splitLines block.toList)) (splitLines o.output.toList) = true
+    · simp [same, h, ← fits_blockPattern, ← fits_iff]
+    · simp [same, h, ← fits_blockPattern, ← fits_iff]
+  · rename_i other
+    simp only [List.cons_ne_nil, false_iff, not_exists, not_and]
+    exact fun block same => absurd same (other block)
+
+/-- One refusal with the reason `reason` unless `c` holds: nothing exactly when `c` holds. -/
+theorem refusal_nil_iff (c : Prop) [Decidable c] (reason : String) :
+    (if c then [] else [reason]) = [] ↔ c := by
+  by_cases h : c <;> simp [h]
+
+/-- What the root `README.md`, with the outline `doc`, is refused for, given what Lean and
+`axiomGate --file` give for the module `demonstrationModule` (`Demonstration`): that it does not
+show them (`Demonstrates`). A `README.md` whose reading cannot be used reports nothing here;
+`documentErrors` reports it. -/
+@[regula_decision]
+def demonstrationErrors (doc : Outline) (o : Demonstration) : List String :=
+  match doc with
+  | .unread _ => []
+  | .read blocks =>
+    (if codeBlocks "lean" blocks = [o.module] then [] else
+      [s!"README.md: it must have exactly one code block with the info string `lean`, and its \
+        text must be the text of {demonstrationModule}"]) ++
+    (if o.messages = demonstrationMessages then [] else
+      [s!"README.md: it states that Lean gives exactly these messages for {demonstrationModule}:\n\
+        {"\n".intercalate demonstrationMessages}\nLean gives:\n{"\n".intercalate o.messages}"]) ++
+    (if o.exit = demonstrationExit then [] else
+      [s!"README.md: it states that `axiomGate --file` exits with {demonstrationExit} for \
+        {demonstrationModule}, but it exits with {o.exit}. Its standard error:\n{o.errors}"]) ++
+    outputErrors blocks o
+
+/-- The check of the example reports nothing exactly when, if the outline of the `README.md` can
+be used, the `README.md` shows the module and what Lean and `axiomGate --file` give for it. -/
+theorem demonstrationErrors_nil_iff (doc : Outline) (o : Demonstration) :
+    demonstrationErrors doc o = [] ↔ ∀ blocks, doc = .read blocks → Demonstrates blocks o := by
+  cases doc with
+  | unread reason => simp [demonstrationErrors]
+  | read blocks =>
+    simp only [demonstrationErrors, List.append_eq_nil_iff, refusal_nil_iff, outputErrors_nil_iff,
+      Outline.read.injEq, forall_eq', Demonstrates, and_assoc]
+
+/-- Registered contract of the executed check of the example, as a two-way decision over the
+outline and the observation (`demonstrationErrors_nil_iff`): it accepts a `README.md` whose `lean`
+block is the module and whose empty `text` block fits an empty output, and refuses one with no
+block. -/
+theorem checked_demonstrationErrors : Regula.ExecutableContract demonstrationErrors (fun run =>
+    Regula.Decides (· = [])
+      (fun input : Outline × Demonstration =>
+        ∀ blocks, input.1 = .read blocks → Demonstrates blocks input.2)
+      (Function.uncurry run)) :=
+  ⟨.of_iff (fun input => demonstrationErrors_nil_iff input.1 input.2)
+    ⟨(.read [.code "lean" "m", .code "text" ""], ⟨"m", demonstrationMessages, "", 1, ""⟩),
+      (demonstrationErrors_nil_iff _ _).mpr fun blocks read => by
+        simp only [Outline.read.injEq] at read
+        subst read
+        refine ⟨rfl, rfl, rfl, "", rfl, ?_⟩
+        simp [splitLines, BlockFits, LineFits]⟩
+    ⟨(.read [], ⟨"", [], "", 1, ""⟩), fun accepted => by
+      have shown := (demonstrationErrors_nil_iff _ _).mp accepted [] rfl
+      simp [Demonstrates, codeBlocks] at shown⟩⟩
+
 /-! Evaluated controls (observations of the compiled definitions, not proofs), on pieces written
 out by hand; the controls on Markdown text, read by md4c, are in `markdown/RegulaMarkdown.lean`. -/
 
@@ -1886,5 +2348,44 @@ private def bare (line : String) : String :=
 -- Compiled-evaluation observation at build time, not a kernel-checked proof.
 #guard siteLinkErrors "docs/README.md" (.read [.enter page, .leave]) == [] &&
   siteLinkErrors "README.md" (.unread "no reading") == []
+
+/-- Whether the output `output` fits the `text` block `block` (`blockPattern`). -/
+private def fitsBlock (block output : String) : Bool :=
+  fits (blockPattern (splitLines block.toList)) (splitLines output.toList)
+
+-- The fit of an output to a `text` block: a `…` line stands for no line and for several lines, a
+-- `…` in a line for no text and for some text in that line. A changed character, a `…` in a line
+-- that would have to stand for a line feed, a missing last line feed and a missing line are
+-- refused.
+-- Compiled-evaluation observation at build time, not a kernel-checked proof.
+#guard fitsBlock "…\nRG1 a…z\n…\nend\n" "x\ny\nRG1 abcz\nq\nend\n" &&
+  fitsBlock "…\nRG1 a…z\n…\nend\n" "RG1 az\nend\n" &&
+  !fitsBlock "…\nRG1 a…z\n…\nend\n" "RG2 az\nend\n" &&
+  !fitsBlock "a…z\n" "a\nz\n" &&
+  !fitsBlock "…\nend\n" "end" &&
+  !fitsBlock "a\nb\n" "a\n"
+
+/-- An observation that the `README.md` `readme` shows: its module `m`, the messages
+`demonstrationMessages`, exit code 1 and the output `out`. -/
+private def shown (out : String) : Demonstration := ⟨"m", demonstrationMessages, out, 1, ""⟩
+
+/-- A `README.md` with the module `m` and the `text` block `block`. -/
+private def readme (block : String) : Outline := .read [.code "lean" "m", .code "text" block]
+
+-- The check of the example: a `README.md` that shows the observation is accepted, and one whose
+-- `lean` block is a different module, one with a message of Lean that it does not state, one
+-- without the message that it states, a different exit code, a changed finding line or a second
+-- `text` block are refused, each for its reason.
+-- Compiled-evaluation observation at build time, not a kernel-checked proof.
+#guard demonstrationErrors (readme "…\nRG1 [x…]\n…\n") (shown "b\nRG1 [x1]\nc\n") == [] &&
+  (demonstrationErrors (.read [.code "lean" "n", .code "text" "o\n"]) (shown "o\n")).length == 1 &&
+  (demonstrationErrors (readme "o\n") { shown "o\n" with
+    messages := demonstrationMessages ++ ["1:0: warning: w"] }).length == 1 &&
+  (demonstrationErrors (readme "o\n") { shown "o\n" with messages := [] }).length == 1 &&
+  (demonstrationErrors (readme "o\n") { shown "o\n" with exit := 0 }).length == 1 &&
+  (demonstrationErrors (readme "…\nRG1 [x…]\n…\n") (shown "b\nRG2 [x1]\nc\n")).length == 1 &&
+  (demonstrationErrors (.read [.code "lean" "m", .code "text" "o\n", .code "text" "o\n"])
+    (shown "o\n")).length == 1 &&
+  demonstrationErrors (.unread "no reading") (shown "o\n") == []
 
 end Regula.Markdown

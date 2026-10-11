@@ -1,5 +1,6 @@
 import MD4Lean
 import RegulaCore.Markdown
+import RegulaCore.Summary
 
 /-! # Markdown documents, read by md4c
 
@@ -374,25 +375,54 @@ def difference (html other : String) : String :=
     | as, _ => as
   String.ofList (((go html.toList other.toList).take 60).map fun c => if c == '\n' then ' ' else c)
 
-/-- md4c's reading of the Markdown document `source` in GitHub's dialect: its pieces, or why the
-reading cannot be used (see the module documentation). -/
-def read (source : String) : Reading :=
+/-- md4c's parse of the Markdown document `source` in GitHub's dialect: its top-level blocks, or
+why the parse cannot be used (see the module documentation). -/
+def parse (source : String) : Except String (Array Block) :=
   if source.contains '\x00' then
-    .unread "the document has a NUL character, which MD4Lean cannot represent in a code block"
+    .error "the document has a NUL character, which MD4Lean cannot represent in a code block"
   else
     match MD4Lean.renderHtml source github 0, MD4Lean.renderHtml source htmlAsText 0 with
     | some html, some escaped =>
       if html != escaped then
-        .unread s!"inline raw HTML, which the check does not read (MD4Lean has no value for \
+        .error s!"inline raw HTML, which the check does not read (MD4Lean has no value for \
           it); write it in Markdown: {difference html escaped}"
       else if escaped.contains "</thead>\n</table>" then
-        .unread "md4c renders a table head with no table body: a table with no body row, which \
+        .error "md4c renders a table head with no table body: a table with no body row, which \
           MD4Lean cannot represent, or raw HTML, which the check does not read"
       else
         match MD4Lean.parse source htmlAsText with
-        | some document => .read (document.blocks.toList.flatMap (block none))
-        | none => .unread "md4c could not parse the document"
-    | _, _ => .unread "md4c could not render the document"
+        | some document => .ok document.blocks
+        | none => .error "md4c could not parse the document"
+    | _, _ => .error "md4c could not render the document"
+
+/-- md4c's reading of the Markdown document `source` in GitHub's dialect: its pieces, or why the
+reading cannot be used (see the module documentation). -/
+def read (source : String) : Reading :=
+  match parse source with
+  | .ok blocks => .read (blocks.toList.flatMap (block none))
+  | .error reason => .unread reason
+
+/-- The top-level block `b` of md4c's parse as `Regula.Markdown.Top` gives it: one kind for each
+constructor of `MD4Lean.Block`, with the inline pieces of a paragraph, the level of a heading and
+the info string and the text of a code block. The match names each constructor and has no other
+case, so a kind that MD4Lean adds stops the build here. -/
+def top : Block → Top
+  | .p texts => .paragraph (inlines false texts)
+  | .header level _ => .heading level
+  | .ul .. => .unordered
+  | .ol .. => .ordered
+  | .hr => .rule
+  | .code info _ _ slices => .code (attrText info) (String.join slices.toList)
+  | .html _ => .html
+  | .blockquote _ => .quote
+  | .table .. => .table
+
+/-- md4c's top-level blocks of the Markdown document `source`, each as `top` gives it, or why the
+parse cannot be used. -/
+def outline (source : String) : Outline :=
+  match parse source with
+  | .ok blocks => .read (blocks.toList.map top)
+  | .error reason => .unread reason
 
 /-- What the Markdown document `file` with text `source` is refused for
 (`Regula.Markdown.documentErrors` of md4c's reading). -/
@@ -402,6 +432,21 @@ def check (file source : String) : List String := documentErrors file source (re
 for (`Regula.Markdown.siteLinkErrors` of md4c's reading): in the root `README.md`, a link to the
 site that has no stable address. -/
 def checkSiteLinks (file source : String) : List String := siteLinkErrors file (read source)
+
+/-- What the opening of the Markdown document `file` with text `source` is refused for
+(`Regula.Markdown.summaryErrors` of md4c's outlines of `summary` and of the document): in the
+root `README.md` and the adoption guide, first and second top-level blocks that are not a heading
+of level 1 and the paragraph `summary`, which is the summary of Regula (`Regula.Site.summary`)
+unless a control gives a different one. -/
+def checkSummary (file source : String) (summary : String := Regula.Site.summary) :
+    List String :=
+  summaryErrors file (outline summary) (outline source)
+
+/-- What the root `README.md` with text `source` is refused for, given what Lean and
+`axiomGate --file` give for its module (`Regula.Markdown.demonstrationErrors` of md4c's outline
+of the document). -/
+def checkDemonstration (source : String) (observed : Demonstration) : List String :=
+  demonstrationErrors (outline source) observed
 
 /-- Whether `path` names a Markdown document: its extension is `md` or `markdown`, in any
 case. -/
@@ -617,6 +662,73 @@ private def bodyless : String :=
 #guard check "README.md" (s!"See [RG2003]({site "rules/RG2003/"}).\n") == [] &&
   check "docs/README.md" (s!"See [RG2003]({site "rules/RG2003/"}).\n") ==
     [s!"docs/README.md:1: RG2003 is linked to {site "rules/RG2003/"}, which is not its rule page"]
+
+-- The opening of `README.md` and of the adoption guide, as md4c reports it (`checkSummary`): the
+-- summary as the paragraph right after the title is accepted, and a different document is not
+-- examined. The summary in a code block after a different first paragraph, in a fenced block
+-- alone, on two lines, with more text in its paragraph, in a list item, after a block before
+-- the title, or after a title of level 2, also when a title of level 1 follows, is refused. A
+-- block of each other kind as the first or the second block is refused: a thematic break before
+-- and after the title, a heading, an ordered list, a raw HTML block, a block quote and a table.
+-- A changed summary that a document still opens with in its old words is refused too.
+private def summary : String := Regula.Site.summary
+
+private def unsummarized : List String := [unsummarizedReason "README.md"]
+
+-- Compiled-evaluation observation at build time, not a kernel-checked proof.
+#guard checkSummary "README.md" s!"# Regula\n\n{summary}\n\nMore.\n" == [] &&
+  checkSummary "docs/guides/adoption.md" s!"# Adopt Regula\n\n{summary} More.\n" ==
+    [unsummarizedReason "docs/guides/adoption.md"] &&
+  checkSummary "docs/guides/adoption.md" s!"# Adopt Regula\n\n{summary}\n\n- One.\n" == [] &&
+  checkSummary "docs/README.md" "# Documentation\n\nAnother opening.\n" == []
+-- Compiled-evaluation observation at build time, not a kernel-checked proof.
+#guard checkSummary "README.md"
+    s!"# Regula\n\nRegula accepts holes.\n\n```text\n{summary}\n```\n" == unsummarized &&
+  checkSummary "README.md" s!"# Regula\n\n```text\n{summary}\n```\n" == unsummarized &&
+  checkSummary "README.md"
+    s!"# Regula\n\n{summary.replace ". " ".\n"}\n" == unsummarized &&
+  checkSummary "README.md" s!"# Regula\n\n- {summary}\n" == unsummarized &&
+  checkSummary "README.md" s!"Before.\n\n# Regula\n\n{summary}\n" == unsummarized &&
+  checkSummary "README.md" s!"## Regula\n\n{summary}\n" == unsummarized &&
+  checkSummary "README.md" s!"## Intro\n\n{summary}\n\n# Regula\n\n{summary}\n" == unsummarized
+-- Compiled-evaluation observation at build time, not a kernel-checked proof.
+#guard checkSummary "README.md" s!"***\n\n# Regula\n\n{summary}\n" == unsummarized &&
+  checkSummary "README.md" s!"# Regula\n\n***\n\n{summary}\n" == unsummarized &&
+  checkSummary "README.md" s!"# Regula\n\n# Again\n\n{summary}\n" == unsummarized &&
+  checkSummary "README.md" s!"# Regula\n\n1. {summary}\n" == unsummarized &&
+  checkSummary "README.md" s!"# Regula\n\n<div>x</div>\n\n{summary}\n" == unsummarized &&
+  checkSummary "README.md" s!"# Regula\n\n> {summary}\n" == unsummarized &&
+  checkSummary "README.md" s!"# Regula\n\n| a |\n| --- |\n| b |\n\n{summary}\n" == unsummarized
+-- Compiled-evaluation observation at build time, not a kernel-checked proof.
+#guard checkSummary "README.md" s!"# Regula\n\n{summary}\n" ("Regula accepts holes. " ++ summary) ==
+  unsummarized
+
+-- The example of `README.md`, as md4c reads it (`checkDemonstration`): the text of a fenced
+-- `lean` block is the module byte for byte, with the line feed of its last line, and an output
+-- that fits the `text` block is accepted. A changed `lean` block, a message of Lean that the
+-- document does not state, a changed finding line and a `lean` block written as an indented
+-- code block, which has no info string, are refused.
+private def shortcut : String := "/-! # S -/\n\n/-- An axiom. -/\naxiom a : 1 = 1\n"
+
+private def withExample (lean text : String) : String :=
+  s!"# Regula\n\nThe module:\n\n```lean\n{lean}```\n\nIts findings:\n\n```text\n{text}```\n"
+
+private def observedFor (module output : String) : Demonstration :=
+  ⟨module, demonstrationMessages, output, 1, ""⟩
+
+-- Compiled-evaluation observation at build time, not a kernel-checked proof.
+#guard checkDemonstration (withExample shortcut "…\nRG1001 [violation; …/S.lean:4:6]: a\n…\n")
+    (observedFor shortcut "built\nRG1001 [violation; /tmp/x/S.lean:4:6]: a\nfix\nFAIL\n") == [] &&
+  (checkDemonstration (withExample (shortcut ++ "-- changed\n") "…\n")
+    (observedFor shortcut "out\n")).length == 1 &&
+  (checkDemonstration (withExample shortcut "…\n")
+    { observedFor shortcut "out\n" with
+      messages := demonstrationMessages ++ ["4:6: warning: declaration uses `sorry`"] }).length ==
+    1 &&
+  (checkDemonstration (withExample shortcut "…\nRG1001 [violation; …/S.lean:4:6]: a\n…\n")
+    (observedFor shortcut "built\nRG1002 [violation; /tmp/x/S.lean:4:6]: a\nFAIL\n")).length == 1 &&
+  (checkDemonstration "# Regula\n\n    axiom a : 1 = 1\n\n```text\n…\n```\n"
+    (observedFor "axiom a : 1 = 1\n" "out\n")).length == 1
 
 /-! Evaluated controls of the reader boundary of the prose checks
 (`RegulaCore/ControlledProse.lean`): the kind of each block md4c reports. The controls of the

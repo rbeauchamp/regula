@@ -53,7 +53,7 @@ registry and native qualification controls (`qualify combined`, which runs those
 `qualify registry` and then `qualify native`). It refuses a root
 lock manifest that records any dependency. It records the content
 identity of the inputs it accepted in `tmp/acceptance-link.json`. `./scripts/verify.sh docs`
-then refuses a rule ID in the prose of a tracked Markdown document that is not a link to its rule page ([rule IDs in documentation](#rule-ids-in-documentation)), refuses a link of the root `README.md` to the rule-reference site that is not a stable address ([links of the root README](#links-of-the-root-readme)), audits the `audit/` package's claimed surface from fresh output, checks every Lean example
+then refuses a rule ID in the prose of a tracked Markdown document that is not a link to its rule page ([rule IDs in documentation](#rule-ids-in-documentation)), refuses a link of the root `README.md` to the rule-reference site that is not a stable address ([links of the root README](#links-of-the-root-readme)), refuses a root `README.md` or adoption guide that does not open with the summary of Regula ([opening of the root README](#opening-of-the-root-readme)), refuses a root `README.md` if its example does not show its module and what Lean and `axiomGate --file` give for it ([example of the root README](#the-example-of-the-root-readme)), audits the `audit/` package's claimed surface from fresh output, checks every Lean example
 under `docs/` and in the Verso standard (each elaborated in the Verso package's workspace, which
 requires both packages), builds and renders the standard fresh, refuses such a rule ID in the prose of the rendered standard, and refuses unless its own freshly captured inputs have the same identity. That command also operates the controls of the [checks of the prose](#the-prose-of-markdown-documents) and of the [check of the vocabulary](#the-vocabulary-of-the-project), and then does those checks. `DOC-*` rows need both commands. Each
 acceptance step performs Lake-semantic discovery and a clean, warning-free build before
@@ -588,6 +588,27 @@ what md4c's parse shows of the difference. The rest is not seen:
 Link destinations and titles, code block info strings, and link reference definitions are not
 prose and are not checked.
 
+#### Opening of the root README
+
+The summary of Regula is one definition, `Regula.Site.summary` in [`lean/RegulaCore/Summary.lean`](../../lean/RegulaCore/Summary.lean). The home page of the site shows it, and its link previews show its plain text.
+
+`./scripts/verify.sh docs` reads the top-level blocks of the root `README.md` and of the adoption guide, as md4c gives them. It refuses a document unless its first block is a heading of level 1. Its second block must be the paragraph that md4c reads for the summary alone (`Regula.Markdown.summaryErrors`, `summaryErrors_nil_iff`). Thus the second block is the summary on one line, and a block of a different kind before it is refused.
+
+The same step runs `lake reservoir-config` in the repository root. It refuses a `description` of `lakefile.lean`, as Lake reads it, that is not the summary without its backticks.
+
+#### The example of the root README
+
+The root `README.md` shows the module [`markdown/Readme/Shortcut.lean`](../../markdown/Readme/Shortcut.lean) and the findings of `axiomGate --file` for it. No Lake library contains that file, thus no target of the repository builds it.
+
+`./scripts/verify.sh docs` makes a new Lake project in a temporary directory. The project has the `lean-toolchain` of the repository, and it requires the root package by its path. In that project, the step runs `lean --json` and `lake exe axiomGate --file` on the module. It refuses the `README.md` unless these conditions are true (`Regula.Markdown.demonstrationErrors`, `demonstrationErrors_nil_iff`):
+
+- Its one `lean` code block is the text of the module, byte for byte.
+- Lean gives only the warning that the `README.md` states for the module (`demonstrationMessages`).
+- `axiomGate --file` exits with 1.
+- The output of `axiomGate --file` fits the one `text` code block. A line that is `…` alone stands for any sequence of lines, also for no line. A `…` in a different line stands for any text in that line. Each other character must be equal (`lineFits_plain`).
+
+The step also examines three changed copies of its input. They have a changed `lean` block, a warning of Lean that the `README.md` does not state and a changed finding line. It refuses unless the check refuses each copy, and it shows the refusal of each copy.
+
 ### The vocabulary of the project
 
 The same executable does a check of [`CONTEXT.md`](../../CONTEXT.md), the vocabulary of the
@@ -796,6 +817,8 @@ release. It also refuses a different use of that address in quotation marks. The
 and the adoption guide must each have a `require` of each form, or the step refuses. The release
 pull request sets each `require` to its release, and reads its edit back.
 
+The same step reads each mention of a release in the root `README.md`. The text ``Regula `v<version>` `` is a mention of a release of Regula, and the text `leanprover/lean4:<release>` is a mention of a Lean toolchain. The step refuses a mention that does not name the latest listed release or the toolchain of that release. It also refuses a `README.md` without a mention of each kind, and a mention without its version or its closing backtick. The release pull request sets each mention to its release or to the toolchain of the release, and reads its edit back. The theorems `mentionsAgree_iff` and `unmentioned_eq_nil_iff` state the two decisions.
+
 `main` never carries a release label: `Regula.installed`
 ([`RegulaCore.Edition`](../../lean/RegulaCore/Edition.lean)) is `.unreleased` on every commit of
 `main` and of a pull request, which the first step of the required `verify` check enforces
@@ -808,7 +831,8 @@ until the release commit has passed the same checks as `main`:
    creates the commit of the release pull request, a child of the `main` commit the workflow runs
    on that appends the release with its toolchain to `Regula.releases`, sets `lakefile.lean`'s
    `version` to it, adds its row to the adoption guide's compatibility table, sets each
-   `require` of Regula in the tracked Markdown documents to it, and stamps it into
+   `require` of Regula in the tracked Markdown documents and each mention of a release in
+   `README.md` to it or to its toolchain, and stamps it into
    rule lifecycle positions still `.unreleased`
    ([`RegulaCore.Rule`](../../lean/RegulaCore/Rule.lean)): each `.unreleased` on a line that
    starts `lifecycle :=`. `.unreleased` is the placeholder for both positions: a new rule states

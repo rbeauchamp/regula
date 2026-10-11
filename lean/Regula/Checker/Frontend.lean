@@ -323,14 +323,14 @@ private unsafe def newConstants (before after : Environment) : Array Name :=
     current.fold collect #[]
 
 /-- Elaborate one exact source from a fresh frontend state and return the
-first-introduction transcript. Any diagnostic error or concurrent source
-change fails the call. Regula's local feedback is always off here through the audit-build
-marker, as in the `lint` driver's claimed build outside the plain shape of
+first-introduction transcript. Any diagnostic error, any warning when `rejectWarnings`, or a
+concurrent source change fails the call. Regula's local feedback is always off here through the
+audit-build marker, as in the `lint` driver's claimed build outside the plain shape of
 `Lake.auditMarkerNeeded` (`Lake.auditLeanOptions`), whatever the source sets `linter.regula` to
 (`Regula.Linter.liveFeedback_auditBuild`); the marker is unregistered and `weak.`, so every
 command scope elaborates exactly as without it. -/
 private unsafe def buildCore (moduleName : Name) (sourcePath : System.FilePath)
-    (history : Bool := false) : IO Transcript := do
+    (history : Bool := false) (rejectWarnings : Bool := true) : IO Transcript := do
   unsafe Lean.enableInitializersExecution
   let sourceBefore ← IO.FS.readFile sourcePath
   -- For replacement history, a separate metadata environment identifies pinned elaborator
@@ -343,7 +343,7 @@ private unsafe def buildCore (moduleName : Name) (sourcePath : System.FilePath)
   let attributeRefs := (← Lean.attributeMapRef.get).toArray.map (·.2.ref)
   let inputCtx := Parser.mkInputContext sourceBefore sourcePath.toString
   let ctx := { inputCtx with }
-  let opts := (Lean.Elab.async.set (warningAsError.set {} true) false).setBool
+  let opts := (Lean.Elab.async.set (warningAsError.set {} rejectWarnings) false).setBool
       Regula.Linter.auditBuildOption true
   let processor := Lean.Language.Lean.process
   let importsRef ← IO.mkRef (#[] : Array Import)
@@ -415,8 +415,8 @@ private unsafe def buildCore (moduleName : Name) (sourcePath : System.FilePath)
 /-- Elaborate with the already configured module search path. A caller may use
 this variant while it owns one read-only search-path scope for bounded workers. -/
 unsafe def buildCurrentSearchPath (moduleName : Name)
-    (sourcePath : System.FilePath) : IO Transcript :=
-  buildCore moduleName sourcePath
+    (sourcePath : System.FilePath) (rejectWarnings : Bool := true) : IO Transcript :=
+  buildCore moduleName sourcePath (rejectWarnings := rejectWarnings)
 
 /-- Source-history worker variant; it additionally resolves operational
 elaborator attribution and records overwritten implementation targets. -/
@@ -427,10 +427,11 @@ unsafe def buildReplacementHistoryCurrentSearchPath (moduleName : Name)
 /-- Run `buildCore` with any freshly built package search roots taking
 precedence, then restore the executable's original search path. -/
 unsafe def build (moduleName : Name) (sourcePath : System.FilePath)
-    (extraSearchRoots : Array System.FilePath := #[]) : IO Transcript := do
+    (extraSearchRoots : Array System.FilePath := #[]) (rejectWarnings : Bool := true) :
+    IO Transcript := do
   let oldSearchPath ← Lean.searchPathRef.get
   Lean.searchPathRef.set (extraSearchRoots.toList ++ oldSearchPath)
-  try buildCore moduleName sourcePath
+  try buildCore moduleName sourcePath (rejectWarnings := rejectWarnings)
   finally Lean.searchPathRef.set oldSearchPath
 
 /-- The request a `--frontend-worker` process reads: which module to elaborate, from which

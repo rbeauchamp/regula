@@ -13,6 +13,9 @@ step of acceptance runs it (`lean/RegulaVerification.lean`).
 This program uses these registered decisions of `RegulaCore`: `documentErrors` for the rule IDs;
 `siteLinkErrors` for the links of the root `README.md` to the rule reference, each of which is a
 stable address that names no edition;
+`summaryErrors` for the opening of the root `README.md` and of the adoption guide, which is the
+summary of Regula (`Regula.Site.summary`); `demonstrationErrors` for the example of the root
+`README.md`, the module `demonstrationModule` and what Lean and `axiomGate --file` give for it;
 `parse`, `adopt` and `untracked` for the vocabulary; the eight checks of a document through
 `tally` and `report`; `Baseline.parse`, `gate` and `ratchet` for the baseline; `baseOf` for the
 base revision, with the start that `Start.read` reads. `vocabularyOf`
@@ -22,13 +25,20 @@ puts the three decisions of the vocabulary together, and `explain`, `clashes` an
 no theorem: `vocabularyOf` refuses a vocabulary that names a shared vocabulary when it is given
 none; `loadVocabulary` refuses when Git does not track `CONTEXT.md`, and when Git does not list
 the files of the repository of the shared vocabulary; `baseReference` refuses when Git does not
-give the baseline or the documents of the base revision; and `examine` refuses when Git does
-not list the files of the repository, and when it lists no Markdown document. The rest is not
-proved: the list of tracked files, the parents of the checked commit, the commit that a revision
-names, the merge base, and the baseline and the documents of the base revision are Git's
-(`historyOf`), the value that a workflow gives for its event is GitHub's, the content of a file
-is the file system's, a digest is `shasum`'s, and md4c's reading of a document is
-`Regula.Markdown.read`'s (`RegulaMarkdown.lean`). -/
+give the baseline or the documents of the base revision; `openingRefusals` refuses a document of
+`summarizedDocuments` that Git does not track, and a `description` of `lakefile.lean` that is not
+the plain text of the summary or that Lake does not give; `demonstrationRefusals` refuses
+when Git does not track the root `README.md`, when Lean or `axiomGate --file` gives nothing for
+the module, and when the check of the example accepts one of its three changed copies of its
+input; and `examine` refuses when Git does not list the files of the repository, and when it
+lists no Markdown document. The rest is not proved: the list of tracked files, the parents of the
+checked commit, the commit that a revision names, the merge base, and the baseline and the
+documents of the base revision are Git's (`historyOf`), the value that a workflow gives for its
+event is GitHub's, the content of a file is the file system's, a digest is `shasum`'s, the
+description of the package is Lake's (`lake reservoir-config`), the messages of the module are
+Lean's (`lean --json`), its findings and exit code are those of the `axiomGate` that Lake builds
+from the working tree, and md4c's reading of a document is `Regula.Markdown.read`'s
+(`RegulaMarkdown.lean`). -/
 
 open Regula.Markdown Regula.Controlled
 
@@ -382,6 +392,127 @@ def documentsOf (root : System.FilePath) (tracked : List String) : IO (List Docu
     let source ← IO.FS.readFile (root / path)
     return ⟨path, source, read source⟩
 
+/-- The variables that the Lake running this program sets for it, and that the Lake and the Lean
+that `runOutside` starts must not inherit, so that they read the workspace of their directory with
+the toolchain that its `lean-toolchain` selects. -/
+def lakeVariables : List String :=
+  ["ELAN_TOOLCHAIN", "LAKE", "LAKE_ARTIFACT_CACHE", "LAKE_CACHE_DIR", "LAKE_HOME", "LAKE_NO_CACHE",
+    "LAKE_PKG_URL_MAP", "LAKE_RESTORE_ARTIFACTS", "LEAN", "LEAN_AR", "LEAN_GITHASH", "LEAN_PATH",
+    "LEAN_RECURSION_COUNT", "LEAN_SRC_PATH", "LEAN_SYSROOT"]
+
+/-- Run `cmd` with `args` in `directory`, without the variables `lakeVariables`. -/
+def runOutside (directory : System.FilePath) (cmd : String) (args : Array String) :
+    IO IO.Process.Output :=
+  IO.Process.output {
+    cmd, args, cwd := some directory, env := (lakeVariables.map fun name => (name, none)).toArray }
+
+/-- The `description` of the package at the repository root `root`, as Lake reads it from the
+lakefile (`lake reservoir-config`), or why Lake does not give it. -/
+def lakeDescription (root : System.FilePath) : IO (Except String String) := do
+  let out ← runOutside root "lake" #["reservoir-config"]
+  if out.exitCode != 0 then
+    return .error s!"lakefile.lean: lake reservoir-config failed: {out.stderr.trimAscii}"
+  match Lean.Json.parse out.stdout >>= (·.getObjValAs? String "description") with
+  | .ok description => return .ok description
+  | .error reason => return .error s!"lakefile.lean: Lake gives no description: {reason}"
+
+/-- The refusals of the openings: each of `summarizedDocuments` that is not a tracked Markdown
+document of `documents`, each such document that does not open with the summary of Regula
+(`summaryErrors` of md4c's outlines of `Regula.Site.summary` and of the document), and a
+`description` of `lakefile.lean`, as Lake reads it, that is not the summary's plain text. -/
+def openingRefusals (root : System.FilePath) (documents : List Document) :
+    IO (List String) := do
+  let missing := (summarizedDocuments.filter fun path => !documents.any (·.path == path)).map
+    fun path => s!"{path}: Git does not track it, but it must open with the summary of Regula"
+  let summary := outline Regula.Site.summary
+  let opening := documents.flatMap fun d => summaryErrors d.path summary (outline d.source)
+  let plain := Regula.Site.plainText Regula.Site.summary
+  let description ← match ← lakeDescription root with
+    | .error reason => pure [reason]
+    | .ok text => pure <| if text == plain then [] else
+      [s!"lakefile.lean: the description, as Lake reads it, is not the summary of Regula \
+        (Regula.Site.summary in lean/RegulaCore/Summary.lean) without its backticks:\n{plain}\n\
+        Lake reads:\n{text}"]
+  return missing ++ opening ++ description
+
+/-- The messages of Lean's elaboration of the file `file` in `directory` (`lean --json`), each as
+`line:column: severity: text`, or why Lean gives none. -/
+def leanMessages (directory : System.FilePath) (file : String) :
+    IO (Except String (List String)) := do
+  let out ← runOutside directory "lean" #["--json", file]
+  let read := ((out.stdout.splitOn "\n").filter (!·.isEmpty)).mapM fun line => do
+    let message ← Lean.Json.parse line
+    let position ← message.getObjVal? "pos"
+    return s!"{← position.getObjValAs? Nat "line"}:{← position.getObjValAs? Nat "column"}: \
+      {← message.getObjValAs? String "severity"}: {← message.getObjValAs? String "data"}"
+  match read with
+  | .error reason => return .error s!"`lean --json {file}` printed a line that is not a message: \
+      {reason}"
+  | .ok messages =>
+    if out.exitCode != 0 && messages.isEmpty then
+      return .error s!"`lean --json {file}` failed with no message: {out.stderr.trimAscii}"
+    return .ok messages
+
+/-- What Lean and `axiomGate --file` give for the module `demonstrationModule` of the repository
+at `root`, or why they give nothing. Both run in a new Lake project in a temporary directory, as
+in the first try of the root `README.md`: its `lean-toolchain` is the root's, it has the library
+`Demo`, it requires the root package by its path, and the module is a file of it with the same
+name. -/
+def observeDemonstration (root : System.FilePath) : IO (Except String Demonstration) := do
+  let file := (System.FilePath.mk demonstrationModule).fileName.getD "Shortcut.lean"
+  let module ← try IO.FS.readFile (root / demonstrationModule) catch error =>
+    return .error s!"{demonstrationModule}: {error}"
+  let toolchain ← IO.FS.readFile (root / "lean-toolchain")
+  let regula ← IO.FS.realPath root
+  IO.FS.withTempDir fun project => do
+    IO.FS.writeFile (project / "lean-toolchain") toolchain
+    IO.FS.writeFile (project / "lakefile.toml")
+      s!"name = \"demo\"\n\n[[lean_lib]]\nname = \"Demo\"\n\n[[require]]\nname = \"regula\"\npath = \
+        {regula.toString.quote}\n"
+    IO.FS.writeFile (project / "Demo.lean") "def hello := \"world\"\n"
+    IO.FS.writeFile (project / file) module
+    let messages ← match ← leanMessages project file with
+      | .ok messages => pure messages
+      | .error reason => return .error reason
+    let gate ← runOutside project "lake" #["exe", "axiomGate", "--file", file]
+    return .ok ⟨module, messages, gate.stdout, gate.exitCode.toNat, gate.stderr⟩
+
+/-- The refusals of the example of the root `README.md` among `documents`
+(`demonstrationErrors` of md4c's outline of the `README.md` and of what Lean and
+`axiomGate --file` give for `demonstrationModule`), and the controls of that check: the first
+line of the refusal that the check gives for each of three changed copies of its input. The
+copies are the `README.md` with a line added to its `lean` block, the observation with a warning
+of Lean added, and the output with `[violation;` changed to `[incomplete;` in its first finding
+line. A copy that the check accepts is a refusal too. -/
+def demonstrationRefusals (root : System.FilePath) (documents : List Document) :
+    IO (List String × List String) := do
+  let some readme := documents.find? (·.path == "README.md")
+    | return ([s!"README.md: Git does not track it, but it must show {demonstrationModule}"], [])
+  let observed ← match ← observeDemonstration root with
+    | .ok observed => pure observed
+    | .error reason => return ([s!"README.md: its example cannot be examined: {reason}"], [])
+  let outlined := outline readme.source
+  let refusals := demonstrationErrors outlined observed
+  let fence := match outlined with
+    | .read blocks => .read (blocks.map fun
+        | .code "lean" text => .code "lean" (text ++ "-- changed\n")
+        | block => block)
+    | unread => unread
+  let changed := match (observed.output.splitOn "\n").find? (·.startsWith "RG") with
+    | some line => observed.output.replace line (line.replace "[violation;" "[incomplete;")
+    | none => observed.output
+  let controls := [
+    ("a changed `lean` block", demonstrationErrors fence observed),
+    ("a warning of Lean that README.md does not state", demonstrationErrors outlined
+      { observed with
+        messages := observed.messages ++ ["15:8: warning: declaration uses `sorry`"] }),
+    ("a changed finding line", demonstrationErrors outlined { observed with output := changed })]
+  let accepted := controls.filterMap fun (control, result) =>
+    if result.isEmpty then some s!"README.md: the check of its example accepts {control}" else none
+  let shown := controls.filterMap fun (control, result) =>
+    result.head?.map fun refusal => s!"{control}: {(refusal.splitOn "\n").headD ""}"
+  return (refusals ++ accepted, shown)
+
 /-- What the checks of a repository give. -/
 structure Outcome where
   /-- The refusals of the rule IDs. -/
@@ -393,8 +524,8 @@ structure Outcome where
   /-- What the checks of the vocabulary, the prose and the baseline accepted, when they
   accepted. -/
   summary : String
-  /-- The number of tracked Markdown documents. -/
-  documents : Nat
+  /-- The tracked Markdown documents. -/
+  documents : List Document
 
 /-- The checks of the repository: the rule IDs of every tracked Markdown document, the links of
 the root `README.md` to the rule reference, the
@@ -430,16 +561,20 @@ def examine (options : Options) : IO (Except String Outcome) := do
   | vocabulary, baseline =>
     prose := (match vocabulary with | .error refusals => refusals | .ok _ => []) ++
       (match baseline with | .error refusals => refusals | .ok _ => [])
-  return .ok ⟨ruleIds, siteLinks, prose, summary, documents.length⟩
+  return .ok ⟨ruleIds, siteLinks, prose, summary, documents⟩
 
-/-- Check the repository (`examine`). Exit code 0 when there is at least one document and
-nothing is refused, and 1 otherwise, after printing each refusal. -/
+/-- Check the repository: `examine`, then the openings (`openingRefusals`) and the example of the
+root `README.md` (`demonstrationRefusals`), which start Lake and Lean, so only this check of the
+repository itself runs them and no control repository does. Exit code 0 when there is at least
+one document and nothing is refused, and 1 otherwise, after printing each refusal. -/
 def check (options : Options) : IO UInt32 := do
   let outcome ← match ← examine options with
     | .ok outcome => pure outcome
     | .error reason =>
       IO.eprintln s!"FAIL: {reason}"
       return 1
+  let openings ← openingRefusals options.root outcome.documents
+  let (demonstration, controls) ← demonstrationRefusals options.root outcome.documents
   unless outcome.ruleIds.isEmpty do
     IO.eprintln ("FAIL: tracked Markdown documents have a rule ID in prose that is not a link to \
       its rule page, or a construct the check does not read:\n" ++
@@ -447,15 +582,28 @@ def check (options : Options) : IO UInt32 := do
   unless outcome.siteLinks.isEmpty do
     IO.eprintln ("FAIL: a document whose links to the rule reference name no edition has a link \
       that is not a stable address:\n" ++ "\n".intercalate outcome.siteLinks)
+  unless openings.isEmpty do
+    IO.eprintln ("FAIL: a document does not open with the summary of Regula, or the description \
+      of lakefile.lean is not its plain text:\n" ++ "\n".intercalate openings)
+  unless demonstration.isEmpty do
+    IO.eprintln ("FAIL: README.md does not show its module and what Lean and axiomGate --file \
+      give for it:\n" ++ "\n".intercalate demonstration)
   unless outcome.prose.isEmpty do
     IO.eprintln ("FAIL: the vocabulary, the prose of the tracked Markdown documents or the \
       baseline is refused (docs/guides/writing.md gives each check):\n" ++
       "\n".intercalate outcome.prose)
-  unless outcome.ruleIds.isEmpty && outcome.siteLinks.isEmpty && outcome.prose.isEmpty do
+  unless outcome.ruleIds.isEmpty && outcome.siteLinks.isEmpty && openings.isEmpty &&
+      demonstration.isEmpty && outcome.prose.isEmpty do
     return 1
-  IO.println s!"Markdown documents: {outcome.documents} tracked documents read by md4c; every \
-    rule ID in their prose links to its rule page; every link of {stableDocuments} to the rule \
-    reference is a stable address, which names no edition; {outcome.summary}"
+  IO.println s!"Markdown documents: {outcome.documents.length} tracked documents read by md4c; \
+    every rule ID in their prose links to its rule page; every link of {stableDocuments} to the \
+    rule reference is a stable address, which names no edition; {summarizedDocuments} open with \
+    the summary of Regula (Regula.Site.summary), and the description of lakefile.lean is its \
+    plain text; the lean block of README.md is {demonstrationModule}, Lean gives exactly the \
+    messages of demonstrationMessages for it, and axiomGate --file exits with {demonstrationExit} \
+    for it and prints an output that fits the text block of README.md; {outcome.summary}"
+  IO.println ("The check of the example of README.md refuses each changed copy of its input:\n" ++
+    "\n".intercalate controls)
   return 0
 
 /-- Print every finding of the checks C1 to C8 in one Markdown document of the repository. -/

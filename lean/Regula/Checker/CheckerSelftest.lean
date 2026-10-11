@@ -779,9 +779,10 @@ private unsafe def fixtureVerdicts (repo scratch : FilePath) (jobs : Nat)
   -- the parent loads environments, avoiding simultaneous large imports. Spawning
   -- keeps each transcript byte-identical in provenance to the public CLI's
   -- fresh re-elaboration (a fresh process can never see this harness's
-  -- attribute state). Failures are tolerated here (a `sorry` fixture fails
-  -- its warning-free transcript by design); consumers below fail closed on a
-  -- missing transcript with the same text the CLI path reports.
+  -- attribute state). As there, a transcript refuses a warning exactly when
+  -- its fixture's compilation does. Failures are tolerated here; consumers
+  -- below fail closed on a missing transcript with the same text the CLI path
+  -- reports.
   let leanPathEnv := SearchPath.toString scopedPath
   let transcriptTask ← IO.asTask (prio := .dedicated) do
     mapConcurrent jobs pending fun item => do
@@ -792,7 +793,7 @@ private unsafe def fixtureVerdicts (repo scratch : FilePath) (jobs : Nat)
         let spawned ← runProcess repo
           (repo / ".lake" / "build" / "bin" / "checkerSelftest").toString
           #["--transcript-worker", (Regula.RegistryCodec.nameJson moduleName.toName).compress,
-              item.compilation.sourcePath.toString,
+              item.compilation.sourcePath.toString, toString item.compilation.spec.rejectWarnings,
             out.toString]
           #[("LEAN_PATH", some leanPathEnv)]
         if !spawned.succeeded then return (moduleName, none)
@@ -3634,10 +3635,10 @@ unsafe def run (args : List String) : IO UInt32 := do
   -- isolated process environment the public CLI provides (a fresh process can
   -- never see the harness's imported attribute state), before the parent
   -- shared environment load.
-  if let ["--transcript-worker", moduleWire, source, out] := args then
+  if let ["--transcript-worker", moduleWire, source, rejectWarnings, out] := args then
     let moduleName ← IO.ofExcept <| Regula.RegistryCodec.parseName
         (← IO.ofExcept <| Regula.Checker.PolicyCodec.parse moduleWire)
-    let transcript ← Frontend.buildCurrentSearchPath moduleName source
+    let transcript ← Frontend.buildCurrentSearchPath moduleName source (rejectWarnings != "false")
     writeJson out
         (workerPacket (sourceWorkerRequest "transcript" moduleName source transcript.sourceContent)
             (toJson transcript))
