@@ -746,8 +746,34 @@ come from the owned ordinary declaration or each retained executable-contract re
 def rootRequests (c : Claim) (i : EnvironmentCensus) (root : Name) : Array ExecutionClaim :=
   rootRequestsAmong (executionForModule c) i.policy.declarations root
 
+/-- The modules of the boundaries of `roots` that meet `p`, collected once, so that a module is
+looked up in them instead of scanning every boundary again (`boundaryModules_contains`). -/
+def boundaryModules (roots : Array ExecutionRoot) (p : ExecutionBoundary → Bool) :
+    Std.HashSet Name :=
+  Std.HashSet.ofList (roots.flatMap fun r => r.boundaries.filterMap fun b =>
+    if p b then some b.module else none).toList
+
+/-- A name is among `boundaryModules` exactly when some boundary of some root meets `p` and is in
+that module. -/
+theorem boundaryModules_contains (roots : Array ExecutionRoot) (p : ExecutionBoundary → Bool)
+    (m : Name) :
+    (boundaryModules roots p).contains m =
+      roots.any (fun r => r.boundaries.any (fun b => b.module == m && p b)) := by
+  rw [Bool.eq_iff_iff]
+  simp only [boundaryModules, Std.HashSet.contains_ofList,
+    List.contains_iff_mem, Array.mem_toList_iff, Array.mem_flatMap, Array.mem_filterMap,
+    Option.ite_none_right_eq_some, Option.some.injEq, Array.any_eq_true', Bool.and_eq_true,
+    beq_iff_eq]
+  constructor
+  · rintro ⟨r, hr, b, hb, hp, rfl⟩
+    exact ⟨r, hr, b, hb, rfl, hp⟩
+  · rintro ⟨r, hr, b, hb, rfl, hp⟩
+    exact ⟨r, hr, b, hb, hp, rfl⟩
+
 /-- Jobs use the existing stage/subject vocabulary; this pair is a projection of JobKey,
-not a second identity scheme. Fixed array order supplies deterministic result slots. -/
+not a second identity scheme. Fixed array order supplies deterministic result slots. The
+`history` and `origin` subjects are the modules some boundary of a root is in that needs a history
+or claims the toolchain (`localStageSubjects_history`, `localStageSubjects_origin`). -/
 def localStageSubjects (i : EnvironmentCensus) : Stage → Array LocalJobSubject
   | .admission => #[.scope]
   | .declarationPolicy => i.declarations.map .declaration
@@ -755,13 +781,31 @@ def localStageSubjects (i : EnvironmentCensus) : Stage → Array LocalJobSubject
   | .transcript => (i.inspectedModules.filter (fun m =>
       i.policy.declarations.any (fun d =>
       d.module == m.name.name && decide (NeedsTranscript d.kind d.name)))).map .module
-  | .history => (i.allModules.filter (fun m => i.execution.roots.any (fun r => r.boundaries.any
-      (fun b => b.module == m.name.name && decide b.NeedsHistory)))).map .module
-  | .origin => (i.allModules.filter (fun m => i.execution.roots.any (fun r => r.boundaries.any
-      (fun b => b.module == m.name.name && decide b.ClaimsToolchain)))).map .module
+  | .history =>
+      let modules := boundaryModules i.execution.roots fun b => decide b.NeedsHistory
+      (i.allModules.filter (fun m => modules.contains m.name.name)).map .module
+  | .origin =>
+      let modules := boundaryModules i.execution.roots fun b => decide b.ClaimsToolchain
+      (i.allModules.filter (fun m => modules.contains m.name.name)).map .module
   | .documentationPresence => i.inspectedModules.map .module ++
       i.materialDeclarations.map .declaration
   | _ => #[]
+
+/-- The `history` subjects: each module, in order, that a boundary of a root needing a history is
+in. -/
+theorem localStageSubjects_history (i : EnvironmentCensus) :
+    localStageSubjects i .history =
+      (i.allModules.filter (fun m => i.execution.roots.any (fun r => r.boundaries.any
+        (fun b => b.module == m.name.name && decide b.NeedsHistory)))).map .module := by
+  simp only [localStageSubjects, boundaryModules_contains]
+
+/-- The `origin` subjects: each module, in order, that a boundary of a root claiming the toolchain
+is in. -/
+theorem localStageSubjects_origin (i : EnvironmentCensus) :
+    localStageSubjects i .origin =
+      (i.allModules.filter (fun m => i.execution.roots.any (fun r => r.boundaries.any
+        (fun b => b.module == m.name.name && decide b.ClaimsToolchain)))).map .module := by
+  simp only [localStageSubjects, boundaryModules_contains]
 
 /-- The subjects of a stage's jobs over the whole census: the scope for a whole-run stage, each
 fence for `example`, and otherwise every environment's local subjects under its request key. -/

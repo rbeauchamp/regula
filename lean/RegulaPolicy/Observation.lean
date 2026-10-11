@@ -423,11 +423,19 @@ def LocalStageOK (c : Claim) (i : EnvironmentCensus) (roles : Roles i.policy)
         MaterialDocumentationOK doc
     | _, _, _ => False
 
+/-- Decide whether `d` is one of `ds` comparing names first: only a declaration of the same name is
+compared field by field, instead of every declaration before it. -/
+def declarationMemDecidable (d : Declaration) (ds : Array Declaration) : Decidable (d ∈ ds) :=
+  decidable_of_iff (ds.any fun x => x.name == d.name && decide (x = d)) (by
+    simp only [Array.any_eq_true', Bool.and_eq_true, beq_iff_eq, decide_eq_true_eq]
+    exact ⟨fun ⟨_, member, _, same⟩ => same ▸ member, fun member => ⟨d, member, rfl, rfl⟩⟩)
+
 set_option synthInstance.maxSize 2048 in
 instance (c : Claim) (i : EnvironmentCensus) (roles : Roles i.policy)
     (stage : Stage) (subject : LocalJobSubject) (e : JobEvidence) :
     Decidable (LocalStageOK c i roles stage subject e) := by
   dsimp only [LocalStageOK]
+  letI := declarationMemDecidable
   split <;> (try dsimp only [DocumentationPresenceOK]) <;> infer_instance
 
 /-- When a former combined inventory was valid and role authentication agrees, its

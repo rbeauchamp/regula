@@ -45,11 +45,74 @@ theorem nameComponents_injective {a b : Name} (h : nameComponents a = nameCompon
   have := congrArg nameFromComponents h
   simpa using this
 
-/-- Structural ordering for Lean's own name type, scoped to policy collections. -/
-scoped instance : Ord Name := ⟨compareOn nameComponents⟩
-scoped instance : TransOrd Name := inferInstanceAs (TransCmp (compareOn nameComponents))
+/-- The order of the two names' component lists (`compare (nameComponents a) (nameComponents b)`,
+`compareName_eq`), read off the names themselves, outer component first, without building either
+list. -/
+def compareName : Name → Name → Ordering
+  | .anonymous, .anonymous => .eq
+  | .anonymous, _ => .lt
+  | _, .anonymous => .gt
+  | .str p s, .str q t => match compare s t with
+    | .lt => .lt
+    | .eq => compareName p q
+    | .gt => .gt
+  | .str _ _, .num _ _ => .lt
+  | .num _ _, .str _ _ => .gt
+  | .num p n, .num q m => match compare n m with
+    | .lt => .lt
+    | .eq => compareName p q
+    | .gt => .gt
+
+/-- `compareName` orders two names as their component lists are ordered. -/
+theorem compareName_eq (a b : Name) :
+    compareName a b = compare (nameComponents a) (nameComponents b) := by
+  induction a generalizing b with
+  | anonymous => cases b <;> rfl
+  | str p s ih =>
+    cases b with
+    | anonymous => rfl
+    | str q t =>
+      have head : compare ((0 : Nat), s) ((0 : Nat), t) = compare s t := by
+        simp [compare, compareLex, compareOn, compareOfLessAndEq, Ordering.then]
+      rw [compareName, ih, nameComponents, nameComponents, List.compare_eq_compareLex,
+        List.compareLex, head]
+      rfl
+    | num q m =>
+      simp [compareName, nameComponents, List.compareLex, compare,
+        compareLex, compareOn, compareOfLessAndEq, Ordering.then]
+  | num p n ih =>
+    cases b with
+    | anonymous => rfl
+    | str q t =>
+      simp [compareName, nameComponents, List.compareLex, compare,
+        compareLex, compareOn, compareOfLessAndEq, Ordering.then]
+    | num q m =>
+      have head : compare (n + 1, "") (m + 1, "") = compare n m := by
+        have empty : compare "" "" = .eq := Std.ReflCmp.compare_self
+        simp only [compare, compareLex, compareOn, compareOfLessAndEq, Ordering.then] at empty ⊢
+        rcases Nat.lt_trichotomy n m with lt | eq | gt
+        · simp [lt]
+        · simp [eq, empty]
+        · simp [Nat.not_lt.mpr (Nat.le_of_lt gt), Nat.ne_of_gt gt]
+      rw [compareName, ih, nameComponents, nameComponents, List.compare_eq_compareLex,
+        List.compareLex, head]
+      rfl
+
+/-- `compareName` is the order of the component lists, as a function. -/
+theorem compareName_eq_compareOn : compareName = compareOn nameComponents :=
+  funext fun a => funext fun b => compareName_eq a b
+
+/-- Structural ordering for Lean's own name type, scoped to policy collections: the order of the
+component lists (`compareName_eq`), which `compareName` computes without building them. -/
+scoped instance : Ord Name := ⟨compareName⟩
+scoped instance : TransOrd Name := by
+  show TransCmp compareName
+  rw [compareName_eq_compareOn]
+  infer_instance
 scoped instance : LawfulEqOrd Name where
-  eq_of_compare h := nameComponents_injective (LawfulEqOrd.eq_of_compare h)
+  eq_of_compare {a b} h := nameComponents_injective
+    (LawfulEqOrd.eq_of_compare (α := List (Nat × String))
+      ((compareName_eq a b).symm.trans h))
 
 /-- A module/declaration key cannot be anonymous. This is not a source identifier grammar. -/
 structure Identity where
@@ -61,12 +124,16 @@ structure Identity where
 
 instance : Repr Identity := ⟨fun x _ => repr x.name⟩
 instance : ToString Identity := ⟨fun x => x.name.toString⟩
-instance : Ord Identity := ⟨compareOn (fun x => nameComponents x.name)⟩
-instance : TransOrd Identity := inferInstanceAs
-    (TransCmp (compareOn (fun x : Identity => nameComponents x.name)))
+/-- Identities are ordered by their names' component lists (`compareName_eq`). -/
+instance : Ord Identity := ⟨fun a b => compareName a.name b.name⟩
+instance : TransOrd Identity := by
+  show TransCmp fun a b : Identity => compareName a.name b.name
+  rw [compareName_eq_compareOn]
+  exact inferInstanceAs (TransCmp (compareOn (fun x : Identity => nameComponents x.name)))
 instance : LawfulEqOrd Identity where
   eq_of_compare {a b} h := by
-    have e : nameComponents a.name = nameComponents b.name := LawfulEqOrd.eq_of_compare h
+    have e : nameComponents a.name = nameComponents b.name :=
+      LawfulEqOrd.eq_of_compare (α := List (Nat × String)) ((compareName_eq _ _).symm.trans h)
     cases a
     cases b
     have := nameComponents_injective e

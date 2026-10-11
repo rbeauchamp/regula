@@ -264,12 +264,15 @@ module and each declaration's ranges: its admitted ranges (`Declaration.ranges`)
 selection range Lean recorded (`Declaration.recordedRanges`), which the admitted pair drops when
 it leaves the full range. -/
 def Environment.sourceEvidenceOK (r : Environment) : Bool :=
+  -- Each source is split into its lines once, not once for each range that is checked against it
+  -- (`Ranges.validFor` is `validForLines` of that split).
+  let lined := r.sourceBindings.map fun s => (s, s.content.splitOn "\n")
   (canonicalNames (r.sourceBindings.map (·.moduleName))).size == r.sourceBindings.size &&
     r.sourceBindings.all (fun s => !s.path.isEmpty && r.modules.contains s.moduleName) &&
     r.census.modules.all (fun m => r.sourceBindings.any (·.moduleName == m)) &&
-    r.declarations.all (fun d => r.sourceBindings.any (fun s => s.moduleName == d.module &&
-      d.ranges.all (·.validFor s.content) &&
-      d.recordedRanges.all (·.selectionRange.validFor s.content)))
+    r.declarations.all (fun d => lined.any (fun (s, lines) => s.moduleName == d.module &&
+      d.ranges.all (·.validForLines lines) &&
+      d.recordedRanges.all (·.selectionRange.validForLines lines)))
 
 /-- Succeed when `sourceEvidenceOK` holds, and otherwise fail with a `producer-source`
 admission failure. -/
@@ -634,7 +637,8 @@ theorem sourceEvidenceSound_of (r : Environment) (h : r.validateSourceEvidence =
   unfold Environment.validateSourceEvidence at h
   simp only [Environment.sourceEvidenceOK, Array.contains_eq_mem, Bool.and_eq_true, beq_iff_eq,
     Array.all_eq_true', Bool.not_eq_eq_eq_not, Bool.not_true, String.isEmpty_eq_false_iff, ne_eq,
-    decide_eq_true_eq, Array.any_eq_true', and_assoc, ite_throw_eq_ok, pure_eq_ok, and_true] at h
+    decide_eq_true_eq, Array.any_map, Function.comp_apply, Array.any_eq_true', and_assoc,
+    ite_throw_eq_ok, pure_eq_ok, and_true] at h
   obtain ⟨h₁, h₂, h₃, h₄⟩ := h
   refine ⟨nodup_of_canonicalNames_size _ (by simpa using h₁), h₂, h₃, fun d hd => ?_⟩
   obtain ⟨s, hs, hm, hr, -⟩ := h₄ d hd
@@ -651,7 +655,8 @@ theorem recordedRangesValid_of (r : Environment) (h : r.validateSourceEvidence =
   unfold Environment.validateSourceEvidence at h
   simp only [Environment.sourceEvidenceOK, Array.contains_eq_mem, Bool.and_eq_true, beq_iff_eq,
     Array.all_eq_true', Bool.not_eq_eq_eq_not, Bool.not_true, String.isEmpty_eq_false_iff, ne_eq,
-    decide_eq_true_eq, Array.any_eq_true', and_assoc, ite_throw_eq_ok, pure_eq_ok, and_true] at h
+    decide_eq_true_eq, Array.any_map, Function.comp_apply, Array.any_eq_true', and_assoc,
+    ite_throw_eq_ok, pure_eq_ok, and_true] at h
   intro d hd
   obtain ⟨s, hs, hm, admitted, selection⟩ := h.2.2.2 d hd
   refine ⟨s, hs, hm, fun range recorded => ?_⟩
@@ -660,7 +665,6 @@ theorem recordedRangesValid_of (r : Environment) (h : r.validateSourceEvidence =
   refine ⟨(RegulaPolicy.Range.validFor_iff _ _).mp ?_,
     (RegulaPolicy.Range.validFor_iff _ _).mp selection⟩
   have full := RegulaPolicy.Ranges.admitted_validForLines range (s.content.splitOn "\n")
-  change range.admitted.validFor s.content = _ at full
   rw [admitted] at full
   by_cases nested : range.Nested
   · simp only [nested, ↓reduceIte] at full
