@@ -27,7 +27,9 @@ one that a release before the shared request would open too. The conversion is f
 only, and the operating-system behaviour it relies on is trusted, not proved. On macOS, XNU's
 release of a `flock` lock wakes only its first waiter and moves the others onto that waiter's
 lock, so shared waiters would sleep until that waiter's whole scratch ended; a downgrade by the
-holder wakes every waiter. Linux wakes every waiter in both cases. -/
+holder wakes every waiter. Linux wakes every waiter in both cases. On Windows Lean's lock is
+`LockFileEx`, which stacks a shared lock over the held exclusive one on the same handle instead of
+converting it, so there the lock is released before the shared request. -/
 namespace Regula.Scratch
 open System
 
@@ -83,7 +85,8 @@ private def reclaim (dir : FilePath) : IO Unit := do
 then its marker, on normal or exceptional return, holding the scratch lock shared throughout.
 When no scratch owner is alive, orphans are reclaimed first under the exclusive lock, which is
 then converted to the shared one without an `unlock` between them, so that on macOS the
-conversion wakes every waiter (see the module documentation); a reclamation that raises
+conversion wakes every waiter; on Windows, where a shared lock would stack over the exclusive
+one, the lock is released first (see the module documentation). A reclamation that raises
 releases the lock. Returns the value and the removed directory's path; the path is returned
 only after its removal returned. Random naming is not a logical freshness proof. -/
 def withScratch {α : Type} (root : FilePath) (stem : String) (action : FilePath → IO α) :
@@ -95,6 +98,7 @@ def withScratch {α : Type} (root : FilePath) (stem : String) (action : FilePath
     try reclaim dir catch error =>
       lock.unlock
       throw error
+    if Platform.isWindows then lock.unlock
   lock.lock (exclusive := false)
   try
     let path := dir / s!"{stem}-{← suffix}"

@@ -847,12 +847,16 @@ not promise that it is atomic, but nothing is created before the shared lock is 
 window without a lock is one that a release would open too. The conversion is for progress only,
 and the operating-system behaviour it relies on is trusted, not proved: XNU's release of a
 `flock` lock wakes only its first waiter and moves the others onto that waiter's lock, while a
-downgrade by the holder wakes every waiter, and Linux wakes every waiter in both cases. -/
+downgrade by the holder wakes every waiter, and Linux wakes every waiter in both cases. On
+Windows Lean's lock is `LockFileEx`, which stacks a shared lock over the held exclusive one on the
+same handle instead of converting it, so there the lock is released first. -/
 def makeCopy (root : System.FilePath) : IO Copy := do
   IO.FS.createDirAll (root / ".lake" / "regula-scratch")
   let area ← IO.FS.realPath (root / ".lake" / "regula-scratch")
   let lock ← IO.FS.Handle.mk (area / ".lock") .append
-  if ← lock.tryLock then reclaim area
+  if ← lock.tryLock then
+    reclaim area
+    if System.Platform.isWindows then lock.unlock
   lock.lock (exclusive := false)
   let random := (← IO.getRandomBytes 8).foldl (fun value byte => value * 256 + byte.toNat) 0
   let name := s!"acceptance-{← IO.Process.getPID}-{← IO.monoNanosNow}-{random}"
