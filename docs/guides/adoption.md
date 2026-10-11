@@ -108,11 +108,10 @@ observed version and full commit, the migration remedy, and a link to the
 
 A Lean too old to compile the policy prints its own errors in place of that refusal. The
 guard runs the `lean` of `LEAN_SYSROOT`, else the one beside the running Lake, and requires it to
-be the Lean running Lake. When another toolchain's variables are inherited, a `lean` the policy
-refuses
-stops with that diagnostic, whichever Lean runs Lake, and a `lean` the policy accepts while
-Lake runs another Lean stops with `… is not the Lean running Lake …` instead. Running Lake
-without those variables is the remedy in both cases.
+be the Lean running Lake. When another toolchain's `LEAN_SYSROOT` is inherited, a `lean` the
+policy refuses stops with that diagnostic, whichever Lean runs Lake, and a `lean` the policy
+accepts while Lake runs another Lean stops with `… is not the Lean running Lake …` instead.
+Running Lake without that variable is the remedy in both cases.
 `lake exe regula doctor` reports the same mismatch for the compiler your own `lean-toolchain`
 selects, whichever compiler an override runs. For a Lean too old to run its identity probe, it
 instead reports that the pin selects no installed compiler that reports its identity, with the

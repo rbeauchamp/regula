@@ -5,10 +5,9 @@ open Lake DSL
 -- artifacts yet, so a child `lean` elaborates the policy source, which imports only Init, checks
 -- that child's own identity and, asked by `REGULA_COMPILER_GUARD`, prints it. The child is the
 -- `bin/lean` of `LEAN_SYSROOT`, which must be an absolute path, or, when it is unset, the `lean`
--- beside the running Lake, as Lake
--- finds its own Lean (`Lake.findLakeLeanJointHome?`); no `lean` that `PATH` resolves is run. The
--- guard passes only when the child accepts itself and reports
--- the version and commit of the Lean elaborating this file. Any other child is refused.
+-- beside the running Lake, as Lake finds its own Lean (`Lake.findLakeLeanJointHome?`); no
+-- `lean` that `PATH` resolves is run. The guard passes only when the child accepts itself and
+-- reports the version and commit of the Lean elaborating this file. Any other child is refused.
 run_cmd do
   let running := s!"{Lean.versionString}\n{Lean.githash}\n"
   let refusal : IO (Option String) := do
