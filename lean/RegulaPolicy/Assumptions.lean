@@ -8,20 +8,20 @@ meta import Regula.Decision
 
 A claim is a theorem about a definition that Regula's code runs. When the definition acts on an
 external system, the theorem is stated over every model of that system that satisfies the
-assumptions it needs, so its statement names each one (`RegulaPolicy.External`). This module reads
-them from the statement, as `#print axioms` reads axioms from a proof: the assumptions and the
-checked operations that the claim's statement reaches.
+assumptions it needs, so it uses each one (`RegulaPolicy.External`). This module reads them as
+`#print axioms` reads axioms: the assumptions and the checked operations among the constants that
+the claim uses, directly or through the constants it uses.
 
-## What a statement reaches
+## What a claim uses
 
-A step from a constant goes to the constants that the meaning of its statement uses
-(`statementSuccessors`): the type of a theorem, and the type and the value of each other constant,
-with the constructors of an inductive type and the inductive types of a recursor
-(`KernelAxioms.successorsOf`). A proof is not part of what a statement means, so a step does not
-enter the value of a theorem: the statement of a theorem whose proof uses a lemma with a
-hypothesis has that hypothesis itself, or the proof would not be accepted. A step enters the value
-of a definition, so a property that a definition bundles is reached through it, and a checked
-operation that the claimed definition runs is reached through the claimed definition's value.
+A step from a constant goes to every constant that its type and its value use
+(`KernelAxioms.successors`), proofs included, with the constructors of an inductive type and the
+inductive types of a recursor: the walk of the axiom table. So a theorem whose proof applies a
+lemma that has an assumption as a hypothesis rests on that assumption, even when the theorem states
+the hypothesis by its unfolded text instead of by the assumption's name. A hypothesis that is
+written out and that no constant of the walk names is outside the report: the walk matches
+constants, not definitional equality. A theorem whose proof proves an assumption for a particular
+model also lists it.
 
 `table` computes, for every claim at once, the declarations with a role (`leaf`) that each one
 reaches, with one forward search from all the claims and one backward search from each such
@@ -41,30 +41,16 @@ namespace RegulaPolicy.Assumptions
 
 open Lean KernelAxioms External
 
-/-- The constants that the meaning of a constant's statement uses: the type of a theorem, and for
-each other constant the constants of `KernelAxioms.successorsOf`, which are those of its type and
-value, the constructors of an inductive type and the inductive types of a recursor. -/
-def statementSuccessorsOf : ConstantInfo → Array Name
-  | .thmInfo value => Std.TreeSet.toArray value.type.getUsedConstantsAsSet
-  | info => successorsOf info
-
-/-- The constants after `n` in a walk of statements: those `statementSuccessorsOf` gives for the
-constant `find` holds under `n`, or none when it holds none. -/
-def statementSuccessors (find : Name → Option ConstantInfo) (n : Name) : Array Name :=
-  match find n with
-  | some info => statementSuccessorsOf info
-  | none => #[]
-
 /-- The claim `claim` rests on the declaration `d`: `d` has a role that is an assumption or a
-checked operation, and the walk of statements reaches `d` from `claim`. -/
+checked operation, and the walk of the constants that `claim` uses reaches `d`. -/
 def RestsOn (find : Name → Option ConstantInfo) (role : Name → Option Role) (claim d : Name) :
     Prop :=
-  Reach (statementSuccessors find) claim d ∧
+  Reach (successors find) claim d ∧
     ((∃ system sources, role d = some (.assumption system sources)) ∨
       ∃ system contract sources, role d = some (.checked system contract sources))
 
 /-- Whether a role is one a claim rests on: an assumption or a checked operation. An observer is
-IO code, which no statement names as a property. -/
+IO code, not a property. -/
 def restable : Role → Bool
   | .assumption .. | .checked .. => true
   | .observer _ => false
@@ -86,11 +72,11 @@ theorem leaf_iff (role : Name → Option Role) (d : Name) :
   | some r => cases r <;> simp [restable]
 
 /-- For every claim of `claims`, the assumptions and checked operations it rests on, under its name:
-the `leafTable` of the walk of statements with those declarations as its leaves. `none` when a
-search runs out of `fuel`. -/
+the `leafTable` of the walk of the constants it uses, with those declarations as its leaves. `none`
+when a search runs out of `fuel`. -/
 def table (find : Name → Option ConstantInfo) (role : Name → Option Role) (fuel : Nat)
     (claims : Array Name) : Option (Std.HashMap Name (Array Name)) :=
-  leafTable (statementSuccessors find) (leaf role) fuel claims
+  leafTable (successors find) (leaf role) fuel claims
 
 /-- **`table` holds every claim, and gives each claim exactly the declarations it rests on**
 (`RestsOn`). -/

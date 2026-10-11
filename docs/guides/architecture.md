@@ -382,8 +382,8 @@ metadata, not authenticated binary identity.
   not failed ([RG2005]).
 - **Assumptions:** since schema 17 a declaration record carries `assumptions` and
   `checkedOperations`. Each entry is a declaration with the role `assumption` or `checked` of
-  `Regula.Assumption`. The walk of statements reaches it from the declaration in the replayed
-  kernel (`RegulaPolicy.Assumptions.table_some`). No rule decides on them: they are reported.
+  `Regula.Assumption`. The walk of the constants that the declaration uses, its proof included,
+  reaches it from the declaration in the replayed kernel (`RegulaPolicy.Assumptions.table_some`). No rule decides on them: they are reported.
 - **Names:** since schema 6 every Lean name of a result, in `diagnostics`, `scope` and
   `acceptance` alike, and of the producer report it renders, is written one way
   (`RegistryCodec.printedNameJson`): the text Lean prints for it, or, only where Lean's parser does

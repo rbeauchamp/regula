@@ -18,38 +18,50 @@ operations as actions on the state:
 
 * `Model.entry`: the type of the entry that a path names, as `lstat(2)` reports it, which does
   not follow a symbolic link at the path's last component;
-* `Model.real`: the path that `realpath(3)` resolves a path to, which is absolute and has no `.`
-  or `..` component and no symbolic link.
-
-The model is sequential: its state changes only by its operations, so no other process changes
-the filesystem between two of them. That premise is the trusted assumption on `Model` itself, so
-every theorem stated over a model rests on it.
+* `Model.real`: what `realpath(3)` resolves a path to, which is absolute and has no `.` or `..`
+  component and no symbolic link.
 
 ## The assumptions
 
-Each assumption is the contract of one operation: a `Std.Do` triple whose postcondition is the
-property, with the sources that state it (`Regula.Assumption`).
+Each assumption is a predicate with the sources that state it (`Regula.Assumption`). Four are the
+contracts of the operations, each a `Std.Do` triple whose postcondition is the property:
 
 * `ReadsEntry`: `symlinkMetadata` reports the entry, changes nothing, and fails with
   `noFileOrDirectory` only when nothing is there.
-* `ReadsReal`: `realPath` gives the real path, changes nothing, and fails exactly when there is
-  none.
-* `RemovesTree`: `removeDirAll` of a directory at its own place changes no entry outside the
-  directory (`Model.Unchanged`), whether it succeeds or fails.
-* `RemovesEntry`: `removeFile` of a path at its own place changes no entry outside the path.
+* `ReadsReal`: `realPath` gives what `realpath(3)` gives, changes nothing, and fails exactly when
+  `realpath(3)` fails.
+* `RemovesTree`: `removeDirAll` of a directory at its own place keeps the type of each entry
+  outside the directory (`Model.Unchanged`), whether it succeeds or fails.
+* `RemovesEntry`: `removeFile` of a path at its own place keeps the type of each entry outside the
+  path.
+
+The fifth, `Corresponds`, ties the operations that run in `IO` to a model: each one runs as the
+model's operation, with each world of `IO` read as a model state. Only those operations move that
+reading of the world, so it is where "no other process changes the filesystem while the code runs"
+is assumed. `corresponds_ofIO` shows that it can hold: it holds for every set of operations when
+the worlds themselves are the model's states.
 
 That a removal removes the path is not assumed. `removeDirectory` and `removeEntry` read the path
 again after the removal and fail when something is still there, so their contracts
-(`removeDirectory_gone`, `removeEntry_gone`) rest, besides the model, only on `ReadsEntry`: each
-is a checked operation.
+(`removeDirectory_gone`, `removeEntry_gone`) rest only on `ReadsEntry`: each is a checked
+operation.
+
+## From the model to `IO`
+
+The theorems about a function's runs in a model (`removeDirectory_spec`, `removeDirectory_gone`,
+`removeEntry_spec`, `removeEntry_gone`, `atOwnPlace_spec`) are carried to the runs of the same
+function in `IO` at operations that correspond to the model (`removeDirectory_io`,
+`removeDirectory_gone_io`, `removeEntry_io`, `removeEntry_gone_io`, `atOwnPlace_io`), with
+`Corresponds` as one more hypothesis. `Regula.Filesystem` states them at the observer.
 
 ## Boundaries
 
-The assumptions are stated for a POSIX system, where `symlinkMetadata` calls `lstat` and
-`removeDirAll` reads each entry without following a symbolic link. In Lean 4.34.1 on Windows,
-`symlinkMetadata` follows a link, so the observer refuses that read and every directory removal
-there. A process that changes the filesystem while Regula's code acts on it is outside the model,
-as the trusted assumption on `Model` states. -/
+The assumptions are stated for a POSIX system, where `symlinkMetadata` calls `lstat`,
+`removeDirAll` reads each entry without following a symbolic link, and `realPath` calls
+`realpath`. In Lean 4.34.1 on Windows, `symlinkMetadata` follows a link and `realPath` can give a
+path it did not resolve, so the observer refuses those reads and every directory removal there.
+The model reads the type of an entry, not which file it is or what it holds: an entry outside a
+removed path that is replaced by another entry of the same type is not a change the frame sees. -/
 
 namespace Regula.Filesystem
 
@@ -69,24 +81,19 @@ structure Ops (m : Type → Type) where
   removeFile : FilePath → m Unit
 
 /-- A model of the filesystem: its states, what the two reads report in each state, and the
-operations as actions on the state that can fail with an `IO.Error`. The model is sequential: its
-state changes only by its operations. -/
+operations as actions on the state that can fail with an `IO.Error`. -/
 structure Model where
   /-- The states of the filesystem. -/
   World : Type
   /-- The type of the entry that a path names in a state, as `lstat(2)` reports it: a symbolic
   link at the path's last component is the entry, not followed. `none` when nothing is there. -/
   entry : World → FilePath → Option IO.FS.FileType
-  /-- The path that `realpath(3)` resolves a path to in a state: absolute, with no `.` or `..`
-  component and no symbolic link. `none` when `realpath(3)` fails, such as when nothing is there. -/
+  /-- What `realpath(3)` resolves a path to in a state: an absolute path with no `.` or `..`
+  component and no symbolic link. `none` when `realpath(3)` fails, such as when nothing is
+  there. -/
   real : World → FilePath → Option FilePath
   /-- The operations, as actions on the state. -/
   ops : Ops (EStateM IO.Error World)
-
-attribute [regula_assumption filesystem
-  (trusted "No other process changes the filesystem while the code under study runs. No source \
-    states this, and it is not true of a computer as a whole: the theorems apply only while no \
-    other process changes the entries that they name.")] Model
 
 /-- `path` is `directory` or an entry below it: it is `directory`, or its parent
 (`System.FilePath.parent`) is within `directory`. -/
@@ -97,10 +104,11 @@ inductive Within (directory : FilePath) : FilePath → Prop where
   | entry {path parent : FilePath} :
       Within directory parent → path.parent = some parent → Within directory path
 
-/-- From the state `before` to the state `after`, no entry outside `directory` changed. A path
-whose parent is its own real path and whose last component is a name, not `.` or `..`, is the one
-name of an entry with no symbolic link and no `.` or `..` in it. Each such path that is not within
-`directory` names the same type of entry in both states. -/
+/-- From the state `before` to the state `after`, each entry outside `directory` kept its type. A
+path whose parent is its own real path and whose last component is a name, not `.` or `..`, is
+the one name of an entry with no symbolic link and no `.` or `..` in it. Each such path that is
+not within `directory` names an entry of the same type in both states, or nothing in both. Which
+file the entry is, and what it holds, is not part of the model. -/
 def Model.Unchanged (M : Model) (directory : FilePath) (before after : M.World) : Prop :=
   ∀ path parent, path.parent = some parent → path.fileName.isSome = true →
     M.real before parent = some parent → ¬ Within directory path →
@@ -123,51 +131,107 @@ there, for example with `ENOTDIR` when a component of the path is not a director
   (lean "v4.34.1" "Init/System/IO.lean#L1151-L1156")
   (lean "v4.34.1" "runtime/io.cpp#L1160-L1179")
   (lean "v4.34.1" "runtime/io.cpp#L276-L279")
-  (document "POSIX.1-2024, lstat()")]
+  (document filesystem "POSIX.1-2024, lstat()")]
 def ReadsEntry (M : Model) : Prop :=
   ∀ path before, ⦃fun w => ⌜w = before⌝⦄ M.ops.symlinkMetadata path
     ⦃post⟨fun metadata w => ⌜w = before ∧ M.entry before path = some metadata.type⌝,
       fun error w => ⌜w = before ∧ (Absent error → M.entry before path = none)⌝⟩⦄
 
-/-- `realPath` gives the real path of the path and changes nothing. It fails exactly when there is
-none. -/
+/-- `realPath` gives what `realpath(3)` resolves the path to and changes nothing. It fails exactly
+when `realpath(3)` fails. On Windows, Lean 4.34.1's `realPath` gives the path itself when it cannot
+resolve it (`runtime/io.cpp#L1032-L1033`), so the observer refuses it there. -/
 @[regula_assumption filesystem
   (lean "v4.34.1" "Init/System/IO.lean#L873-L879")
   (lean "v4.34.1" "runtime/io.cpp#L1054-L1066")
-  (document "POSIX.1-2024, realpath()")]
+  (document filesystem "POSIX.1-2024, realpath()")]
 def ReadsReal (M : Model) : Prop :=
   ∀ path before, ⦃fun w => ⌜w = before⌝⦄ M.ops.realPath path
     ⦃post⟨fun real w => ⌜w = before ∧ M.real before path = some real⌝,
       fun _ w => ⌜w = before ∧ M.real before path = none⌝⟩⦄
 
-/-- `removeDirAll` of a directory at its own place, whose real path is the path, changes no entry
-outside the directory (`Model.Unchanged`), whether it succeeds or fails. On a POSIX system it reads
-each entry with `lstat`, so it removes a symbolic link below the directory and not the link's
-target. That it removes the directory is not assumed (`removeDirectory_gone`). The assumption is
-false for a directory below the path that is also mounted at another place, such as by a bind
-mount: its entries also have names outside the path. -/
+/-- `removeDirAll` of a directory at its own place, whose real path is the path, keeps the type of
+each entry outside the directory (`Model.Unchanged`), whether it succeeds or fails. On a POSIX
+system it reads each entry with `lstat`, so it removes a symbolic link below the directory and not
+the link's target. That it removes the directory is not assumed (`removeDirectory_gone`). The
+assumption is false for a directory below the path that is also mounted at another place, such as
+by a bind mount: its entries also have names outside the path. -/
 @[regula_assumption filesystem
   (lean "v4.34.1" "Init/System/IO.lean#L1330-L1342")
   (lean "v4.34.1" "runtime/io.cpp#L1160-L1179")
   (lean "v4.34.1" "runtime/io.cpp#L1197-L1207")
   (lean "v4.34.1" "runtime/io.cpp#L1351-L1364")
-  (document "POSIX.1-2024, lstat(), unlink() and rmdir()")]
+  (document filesystem "POSIX.1-2024, lstat(), unlink() and rmdir()")]
 def RemovesTree (M : Model) : Prop :=
   ∀ path before, M.entry before path = some .dir → M.real before path = some path →
     ⦃fun w => ⌜w = before⌝⦄ M.ops.removeDirAll path
       ⦃post⟨fun _ w => ⌜M.Unchanged path before w⌝, fun _ w => ⌜M.Unchanged path before w⌝⟩⦄
 
-/-- `removeFile` of a path at its own place, whose real path is the path, changes no entry outside
-the path (`Model.Unchanged`), whether it succeeds or fails. That it removes the entry is not
-assumed (`removeEntry_gone`). -/
+/-- `removeFile` of a path at its own place, whose real path is the path, keeps the type of each
+entry outside the path (`Model.Unchanged`), whether it succeeds or fails. That it removes the entry
+is not assumed (`removeEntry_gone`). -/
 @[regula_assumption filesystem
   (lean "v4.34.1" "Init/System/IO.lean#L881-L886")
   (lean "v4.34.1" "runtime/io.cpp#L1351-L1364")
-  (document "POSIX.1-2024, unlink()")]
+  (document filesystem "POSIX.1-2024, unlink()")]
 def RemovesEntry (M : Model) : Prop :=
   ∀ path before, M.real before path = some path →
     ⦃fun w => ⌜w = before⌝⦄ M.ops.removeFile path
       ⦃post⟨fun _ w => ⌜M.Unchanged path before w⌝, fun _ w => ⌜M.Unchanged path before w⌝⟩⦄
+
+/-! ## Operations in `IO` that correspond to a model -/
+
+/-- The operations `ops` in `IO` run as the operations of the model `M`, when `view` reads each
+world of `IO` as a state of `M` (`Regula.StateTriple.Agrees`): from each world, an operation of
+`ops` has the outcome of the model's operation from the view of that world, and the view of the
+world it ends in is the state the model's operation ends in. Code built from these operations with
+`pure`, `bind`, `throw` and `tryCatchThe` passes each world it ends in to the next operation, so
+only the operations of `ops` move the view. -/
+@[regula_assumption filesystem
+  (trusted "No other process changes the filesystem while the code runs, so the filesystem that \
+    each operation acts on is the one that the operations before it left. No source states this, \
+    and it is not true of a computer as a whole: the theorems apply only while no other process \
+    changes the entries that they name.")]
+def Corresponds (ops : Ops IO) (M : Model) (view : Void IO.RealWorld → M.World) : Prop :=
+  (∀ path, Agrees view (ops.symlinkMetadata path) (M.ops.symlinkMetadata path)) ∧
+    (∀ path, Agrees view (ops.realPath path) (M.ops.realPath path)) ∧
+    (∀ path, Agrees view (ops.removeDirAll path) (M.ops.removeDirAll path)) ∧
+    (∀ path, Agrees view (ops.removeFile path) (M.ops.removeFile path))
+
+/-- The model action over the worlds of `IO` that runs the `EIO` action `x`. -/
+def ofEIO {ε α : Type} (x : EIO ε α) : EStateM ε (Void IO.RealWorld) α := fun w =>
+  match x w with
+  | .ok a w' => .ok a w'
+  | .error e w' => .error e w'
+
+/-- The model whose states are the worlds of `IO`, whose operations are those of `ops` run over
+them, and whose reads are `entry` and `real`. -/
+def Model.ofIO (ops : Ops IO) (entry : Void IO.RealWorld → FilePath → Option IO.FS.FileType)
+    (real : Void IO.RealWorld → FilePath → Option FilePath) : Model where
+  World := Void IO.RealWorld
+  entry := entry
+  real := real
+  ops := {
+    symlinkMetadata := fun path => ofEIO (ops.symlinkMetadata path)
+    realPath := fun path => ofEIO (ops.realPath path)
+    removeDirAll := fun path => ofEIO (ops.removeDirAll path)
+    removeFile := fun path => ofEIO (ops.removeFile path) }
+
+/-- An `EIO` action runs as itself over the worlds of `IO`, each world read as itself. -/
+theorem ofEIO_agrees {ε α : Type} (x : EIO ε α) : Agrees id x (ofEIO x) := by
+  intro w
+  cases ran : x w with
+  | ok a w' => simp only [ofEIO, EStateM.run, id, ran]
+  | error e w' => simp only [ofEIO, EStateM.run, id, ran]
+
+/-- **`Corresponds` can hold:** every set of operations in `IO` corresponds to the model whose
+states are the worlds of `IO`, each world read as itself. Whether the real operations also satisfy
+the other assumptions at such a model is the part that is trusted. -/
+theorem corresponds_ofIO (ops : Ops IO)
+    (entry : Void IO.RealWorld → FilePath → Option IO.FS.FileType)
+    (real : Void IO.RealWorld → FilePath → Option FilePath) :
+    Corresponds ops (Model.ofIO ops entry real) id :=
+  ⟨fun _ => ofEIO_agrees _, fun _ => ofEIO_agrees _, fun _ => ofEIO_agrees _,
+    fun _ => ofEIO_agrees _⟩
 
 /-! ## Reads -/
 
@@ -188,26 +252,26 @@ def atOwnPlace {m : Type → Type} [Monad m] [MonadExceptOf IO.Error m] (ops : O
 /-- A run of `entryType` gives the model's entry at the path and changes nothing. When it fails,
 nothing changed. -/
 theorem entryType_run (M : Model) (reads : ReadsEntry M) (path : FilePath) (before : M.World) :
-    Satisfies (entryType M.ops path before)
+    Satisfies ((entryType M.ops path).run before)
       (fun found w => w = before ∧ found = M.entry before path)
       (fun _ w => w = before) := by
   have h := (triple_iff _ _ _ _).mp (reads path before) before rfl
-  simp only [entryType, run_tryCatch, run_bind, run_pure]
+  simp only [entryType, run_tryCatch, EStateM.run_bind, EStateM.run_pure]
   revert h
-  cases M.ops.symlinkMetadata path before with
+  cases (M.ops.symlinkMetadata path).run before with
   | ok metadata w => intro h; exact ⟨h.1, h.2.symm⟩
-  | error e w => intro h; cases e <;> simp_all [Satisfies, Absent, run_pure, run_throw]
+  | error e w => intro h; cases e <;> simp_all [Satisfies, Absent, EStateM.run_pure, run_throw]
 
 /-- A run of `atOwnPlace` never fails, changes nothing, and gives `true` exactly when the real
 path of the path is the path. -/
 theorem atOwnPlace_run (M : Model) (reads : ReadsReal M) (path : FilePath) (before : M.World) :
-    Satisfies (atOwnPlace M.ops path before)
+    Satisfies ((atOwnPlace M.ops path).run before)
       (fun same w => w = before ∧ (same = true ↔ M.real before path = some path))
       (fun _ _ => False) := by
   have h := (triple_iff _ _ _ _).mp (reads path before) before rfl
-  simp only [atOwnPlace, run_tryCatch, run_bind, run_pure]
+  simp only [atOwnPlace, run_tryCatch, EStateM.run_bind, EStateM.run_pure]
   revert h
-  cases M.ops.realPath path before with
+  cases (M.ops.realPath path).run before with
   | ok real w => intro h; refine ⟨h.1, ?_⟩; rw [h.2]; simp [beq_iff_eq]
   | error e w => intro h; simp_all [Satisfies]
 
@@ -254,30 +318,30 @@ succeeds. It ends in a state of `Q` when `removal` succeeds and of `E` when `rem
 runs of `removal` do. -/
 theorem confirmed_run (M : Model) (reads : ReadsEntry M) (path : FilePath)
     (removal : EStateM IO.Error M.World Unit) (before : M.World) (Q E : M.World → Prop)
-    (removed : Satisfies (removal before) (fun _ w => Q w) (fun _ w => E w)) :
-    Satisfies ((do removal; confirmGone M.ops path : EStateM IO.Error M.World Unit) before)
+    (removed : Satisfies (removal.run before) (fun _ w => Q w) (fun _ w => E w)) :
+    Satisfies ((do removal; confirmGone M.ops path : EStateM IO.Error M.World Unit).run before)
       (fun _ w => M.entry w path = none ∧ Q w) (fun _ w => Q w ∨ E w) := by
-  simp only [run_bind]
+  simp only [EStateM.run_bind]
   revert removed
-  cases removal before with
+  cases removal.run before with
   | ok _ w =>
     intro removed
     have h := confirmGone_run M reads path w
     revert h
     simp only [Satisfies] at removed ⊢
-    cases confirmGone M.ops path w with
+    cases (confirmGone M.ops path).run w with
     | ok _ w' => intro h; rw [h.1]; exact ⟨h.2, removed⟩
     | error _ w' => intro h; rw [h]; exact .inl removed
   | error _ w => intro removed; exact .inr removed
 where
   /-- A run of `confirmGone` changes nothing, and succeeds only when nothing is at the path. -/
   confirmGone_run (M : Model) (reads : ReadsEntry M) (path : FilePath) (before : M.World) :
-      Satisfies (confirmGone M.ops path before)
+      Satisfies ((confirmGone M.ops path).run before)
         (fun _ w => w = before ∧ M.entry before path = none) (fun _ w => w = before) := by
     have h := entryType_run M reads path before
-    simp only [confirmGone, run_bind]
+    simp only [confirmGone, EStateM.run_bind]
     revert h
-    cases entryType M.ops path before with
+    cases (entryType M.ops path).run before with
     | ok found w =>
       intro h
       cases found with
@@ -285,8 +349,8 @@ where
       | some _ => exact h.1
     | error e w => intro h; exact h
 
-/-- **Checked:** when `removeDirectory` succeeds, nothing is at the path. Besides the model, this
-rests only on `ReadsEntry`, whatever `removeDirAll` does. -/
+/-- **Checked:** when `removeDirectory` succeeds, nothing is at the path. This rests only on
+`ReadsEntry`, whatever `removeDirAll` does. -/
 theorem removeDirectory_gone (M : Model) (reads : ReadsEntry M) (path : FilePath) :
     ⦃fun _ => ⌜True⌝⦄ removeDirectory M.ops path
       ⦃post⟨fun _ w => ⌜M.entry w path = none⌝, fun _ _ => ⌜True⌝⟩⦄ :=
@@ -294,14 +358,14 @@ theorem removeDirectory_gone (M : Model) (reads : ReadsEntry M) (path : FilePath
     have h := confirmed_run M reads path (M.ops.removeDirAll path) before (fun _ => True)
       (fun _ => True) (by unfold Satisfies; split <;> trivial)
     revert h
-    show Satisfies (removeDirectory M.ops path before) _ _ → _
+    show Satisfies ((removeDirectory M.ops path).run before) _ _ → _
     unfold Satisfies
     split
     · exact fun h => h.1
     · exact fun _ => trivial
 
-/-- **Checked:** when `removeEntry` succeeds, nothing is at the path. Besides the model, this rests
-only on `ReadsEntry`, whatever `removeFile` does. -/
+/-- **Checked:** when `removeEntry` succeeds, nothing is at the path. This rests only on
+`ReadsEntry`, whatever `removeFile` does. -/
 theorem removeEntry_gone (M : Model) (reads : ReadsEntry M) (path : FilePath) :
     ⦃fun _ => ⌜True⌝⦄ removeEntry M.ops path
       ⦃post⟨fun _ w => ⌜M.entry w path = none⌝, fun _ _ => ⌜True⌝⟩⦄ :=
@@ -309,7 +373,7 @@ theorem removeEntry_gone (M : Model) (reads : ReadsEntry M) (path : FilePath) :
     have h := confirmed_run M reads path (M.ops.removeFile path) before (fun _ => True)
       (fun _ => True) (by unfold Satisfies; split <;> trivial)
     revert h
-    show Satisfies (removeEntry M.ops path before) _ _ → _
+    show Satisfies ((removeEntry M.ops path).run before) _ _ → _
     unfold Satisfies
     split
     · exact fun h => h.1
@@ -321,8 +385,8 @@ attribute [regula_checked filesystem removeDirectory_gone
 attribute [regula_checked filesystem removeEntry_gone
   (lean "v4.34.1" "Init/System/IO.lean#L881-L886")] removeEntry
 
-/-- `removeDirectory` of a directory at its own place removes it and changes no entry outside it;
-when it fails, it changed no entry outside it. -/
+/-- `removeDirectory` of a directory at its own place removes it and keeps the type of each entry
+outside it; when it fails, it kept the type of each entry outside it. -/
 theorem removeDirectory_spec (M : Model) (reads : ReadsEntry M) (removes : RemovesTree M)
     (path : FilePath) (before : M.World) (directory : M.entry before path = some .dir)
     (own : M.real before path = some path) :
@@ -334,14 +398,14 @@ theorem removeDirectory_spec (M : Model) (reads : ReadsEntry M) (removes : Remov
     have h := confirmed_run M reads path (M.ops.removeDirAll path) s (M.Unchanged path s)
       (M.Unchanged path s) ((triple_iff _ _ _ _).mp (removes path s directory own) s rfl)
     revert h
-    show Satisfies (removeDirectory M.ops path s) _ _ → _
+    show Satisfies ((removeDirectory M.ops path).run s) _ _ → _
     unfold Satisfies
     split
     · exact id
     · exact fun h => h.elim id id
 
-/-- `removeEntry` of a path at its own place removes it and changes no entry outside it; when it
-fails, it changed no entry outside it. -/
+/-- `removeEntry` of a path at its own place removes it and keeps the type of each entry outside
+it; when it fails, it kept the type of each entry outside it. -/
 theorem removeEntry_spec (M : Model) (reads : ReadsEntry M) (removes : RemovesEntry M)
     (path : FilePath) (before : M.World) (own : M.real before path = some path) :
     ⦃fun w => ⌜w = before⌝⦄ removeEntry M.ops path
@@ -352,10 +416,101 @@ theorem removeEntry_spec (M : Model) (reads : ReadsEntry M) (removes : RemovesEn
     have h := confirmed_run M reads path (M.ops.removeFile path) s (M.Unchanged path s)
       (M.Unchanged path s) ((triple_iff _ _ _ _).mp (removes path s own) s rfl)
     revert h
-    show Satisfies (removeEntry M.ops path s) _ _ → _
+    show Satisfies ((removeEntry M.ops path).run s) _ _ → _
     unfold Satisfies
     split
     · exact id
     · exact fun h => h.elim id id
+
+/-! ## The functions in `IO` -/
+
+section IO
+
+variable {ops : Ops IO} {M : Model} {view : Void IO.RealWorld → M.World}
+
+/-- `entryType` at operations that correspond to a model runs as `entryType` in the model. -/
+theorem entryType_agrees (corresponds : Corresponds ops M view) (path : FilePath) :
+    Agrees view (entryType ops path) (entryType M.ops path) := by
+  unfold entryType
+  refine Agrees.tryCatch (Agrees.bind (corresponds.1 path) fun _ => Agrees.pure view _) ?_
+  intro error
+  cases error <;> first | exact Agrees.pure view none | exact Agrees.throw view _
+
+/-- `atOwnPlace` at operations that correspond to a model runs as `atOwnPlace` in the model. -/
+theorem atOwnPlace_agrees (corresponds : Corresponds ops M view) (path : FilePath) :
+    Agrees view (atOwnPlace ops path) (atOwnPlace M.ops path) :=
+  Agrees.tryCatch (Agrees.bind (corresponds.2.1 path) fun _ => Agrees.pure view _)
+    fun _ => Agrees.pure view false
+
+/-- `confirmGone` at operations that correspond to a model runs as `confirmGone` in the model. -/
+theorem confirmGone_agrees (corresponds : Corresponds ops M view) (path : FilePath) :
+    Agrees view (confirmGone ops path) (confirmGone M.ops path) := by
+  refine Agrees.bind (entryType_agrees corresponds path) fun found => ?_
+  cases found <;> first | exact Agrees.pure view _ | exact Agrees.throw view _
+
+/-- `removeDirectory` at operations that correspond to a model runs as `removeDirectory` in the
+model. -/
+theorem removeDirectory_agrees (corresponds : Corresponds ops M view) (path : FilePath) :
+    Agrees view (removeDirectory ops path) (removeDirectory M.ops path) :=
+  Agrees.bind (corresponds.2.2.1 path) fun _ => confirmGone_agrees corresponds path
+
+/-- `removeEntry` at operations that correspond to a model runs as `removeEntry` in the model. -/
+theorem removeEntry_agrees (corresponds : Corresponds ops M view) (path : FilePath) :
+    Agrees view (removeEntry ops path) (removeEntry M.ops path) :=
+  Agrees.bind (corresponds.2.2.2 path) fun _ => confirmGone_agrees corresponds path
+
+/-- **Checked, in `IO`:** when `removeDirectory` succeeds at operations that correspond to a model,
+nothing is at the path in the state the world it ends in is read as (`removeDirectory_gone`). -/
+theorem removeDirectory_gone_io (corresponds : Corresponds ops M view) (reads : ReadsEntry M)
+    (path : FilePath) (w : Void IO.RealWorld) :
+    RunsTo view (removeDirectory ops path w) (fun _ s => M.entry s path = none) (fun _ _ => True) :=
+  (removeDirectory_agrees corresponds path).transfer w
+    ((triple_iff _ _ _ _).mp (removeDirectory_gone M reads path) (view w) trivial)
+
+/-- **Checked, in `IO`:** when `removeEntry` succeeds at operations that correspond to a model,
+nothing is at the path in the state the world it ends in is read as (`removeEntry_gone`). -/
+theorem removeEntry_gone_io (corresponds : Corresponds ops M view) (reads : ReadsEntry M)
+    (path : FilePath) (w : Void IO.RealWorld) :
+    RunsTo view (removeEntry ops path w) (fun _ s => M.entry s path = none) (fun _ _ => True) :=
+  (removeEntry_agrees corresponds path).transfer w
+    ((triple_iff _ _ _ _).mp (removeEntry_gone M reads path) (view w) trivial)
+
+/-- `removeDirectory` in `IO`, at operations that correspond to a model, of a directory at its own
+place removes it and keeps the type of each entry outside it; when it fails, it kept the type of
+each entry outside it (`removeDirectory_spec`). -/
+theorem removeDirectory_io (corresponds : Corresponds ops M view) (reads : ReadsEntry M)
+    (removes : RemovesTree M) (path : FilePath) (w : Void IO.RealWorld)
+    (directory : M.entry (view w) path = some .dir) (own : M.real (view w) path = some path) :
+    RunsTo view (removeDirectory ops path w)
+      (fun _ s => M.entry s path = none ∧ M.Unchanged path (view w) s)
+      (fun _ s => M.Unchanged path (view w) s) :=
+  (removeDirectory_agrees corresponds path).transfer w
+    ((triple_iff _ _ _ _).mp
+      (removeDirectory_spec M reads removes path (view w) directory own) (view w) rfl)
+
+/-- `removeEntry` in `IO`, at operations that correspond to a model, of a path at its own place
+removes it and keeps the type of each entry outside it; when it fails, it kept the type of each
+entry outside it (`removeEntry_spec`). -/
+theorem removeEntry_io (corresponds : Corresponds ops M view) (reads : ReadsEntry M)
+    (removes : RemovesEntry M) (path : FilePath) (w : Void IO.RealWorld)
+    (own : M.real (view w) path = some path) :
+    RunsTo view (removeEntry ops path w)
+      (fun _ s => M.entry s path = none ∧ M.Unchanged path (view w) s)
+      (fun _ s => M.Unchanged path (view w) s) :=
+  (removeEntry_agrees corresponds path).transfer w
+    ((triple_iff _ _ _ _).mp (removeEntry_spec M reads removes path (view w) own) (view w) rfl)
+
+/-- `atOwnPlace` in `IO`, at operations that correspond to a model, never fails, ends in a world
+read as the same state, and gives `true` exactly when the real path of the path is the path
+(`atOwnPlace_spec`). -/
+theorem atOwnPlace_io (corresponds : Corresponds ops M view) (reads : ReadsReal M)
+    (path : FilePath) (w : Void IO.RealWorld) :
+    RunsTo view (atOwnPlace ops path w)
+      (fun same s => s = view w ∧ (same = true ↔ M.real (view w) path = some path))
+      (fun _ _ => False) :=
+  (atOwnPlace_agrees corresponds path).transfer w
+    ((triple_iff _ _ _ _).mp (atOwnPlace_spec M reads path (view w)) (view w) rfl)
+
+end IO
 
 end Regula.Filesystem

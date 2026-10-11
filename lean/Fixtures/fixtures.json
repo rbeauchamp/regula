@@ -891,15 +891,37 @@
  "Fixtures.Positive.RestsOnAssumption": {
   "expect": "pass",
   "claim": "standard-logical",
-  "output": [
-   "assumptions=[\"Fixtures.RestsOnAssumption.Increments\"]",
-   "checked=[\"Fixtures.RestsOnAssumption.checkedStep\"]"
-  ]
+  "records": {
+   "Fixtures.RestsOnAssumption.twice_adds": [
+    "assumptions=[\"Fixtures.RestsOnAssumption.Increments\"]"
+   ],
+   "Fixtures.RestsOnAssumption.unfolded_adds": [
+    "assumptions=[\"Fixtures.RestsOnAssumption.Increments\"]"
+   ],
+   "Fixtures.RestsOnAssumption.checked_reads": [
+    "checked=[\"Fixtures.RestsOnAssumption.checkedStep\"]"
+   ]
+  }
  },
  "Fixtures.Mutations.StaleAssumptionSource": {
   "expect": "fail",
   "reason": "compile-error",
   "pattern": "this source is pinned to Lean v4.33.0, but Lean .* elaborates this module"
+ },
+ "Fixtures.Mutations.UnpinnedAssumptionSource": {
+  "expect": "fail",
+  "reason": "compile-error",
+  "pattern": ":12:31: error: a document about Lean or Lake.*has no release that this module checks.*:16:31: error: a document about Lean or Lake.*has no release that this module checks"
+ },
+ "Fixtures.Mutations.ImportedRoleTarget": {
+  "expect": "fail",
+  "reason": "compile-error",
+  "pattern": "`Nat.le` is declared in `Init.Prelude`: a role is given only in the module that declares the constant"
+ },
+ "Fixtures.Mutations.NonPredicateAssumption": {
+  "expect": "fail",
+  "reason": "compile-error",
+  "pattern": "is not a predicate: an assumption is a definition or an inductive type whose type ends in `Prop`"
  },
  "Fixtures.Mutations.ForgedAxiomTableOmission": {
   "expect": "fail",

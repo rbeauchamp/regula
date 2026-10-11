@@ -1542,9 +1542,9 @@ structure Declaration.ProjectWritten where
   `collectAxioms` reports. Empty for an editor snapshot. -/
   tableOmissions : Array Lean.Name := #[]
   /-- The assumptions about an external system that the declaration rests on: each declaration
-  with the role `assumption` (`Regula.Assumption`) that the walk of statements reaches from it
-  (`RegulaPolicy.Assumptions.RestsOn`), in the kernel that replayed it. The roles are attributes
-  that a project writes. Empty for an editor snapshot. -/
+  with the role `assumption` (`Regula.Assumption`) that the walk of the constants it uses, proofs
+  included, reaches from it (`RegulaPolicy.Assumptions.RestsOn`), in the kernel that replayed it.
+  The roles are attributes that a project writes. Empty for an editor snapshot. -/
   assumptions : Array Lean.Name := #[]
   /-- The checked operations that the declaration rests on: each declaration with the role
   `checked` that the same walk reaches from it. Empty for an editor snapshot. -/

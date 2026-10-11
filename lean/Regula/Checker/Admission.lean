@@ -2029,9 +2029,9 @@ the `ownedModules`' declarations (`Probe.ownedConstants`) reaches in the replaye
 (`KernelAxioms.axiomTable` over `walkFind`, `KernelAxioms.axiomTable_some`), after `checkTable`
 admitted those of the owned declarations against the axioms Lean's `collectAxioms` reports,
 for each owned declaration, the axioms `collectAxioms` omits, and for each owned declaration, the
-assumptions and checked operations that the walk of statements reaches from it in the same kernel
-(`RegulaPolicy.Assumptions.table_some`), with the roles `Regula.Assumption.roles` reads from the
-environment. The original environment is retained
+assumptions and checked operations that the walk of the constants it uses reaches from it in
+the same kernel (`RegulaPolicy.Assumptions.table_some`), with the roles `Regula.Assumption.roles`
+reads from the environment. The original environment is retained
 for compiler metadata only after replay succeeds. This is not a fresh replay of the imported dependency graph.
 The modules of `checker`, those of the owned dependencies under the checker's reserved prefixes
 that the environment does not own, are replayed only where one imports a replayed module

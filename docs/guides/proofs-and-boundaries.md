@@ -4709,9 +4709,10 @@ file system has contracts.
 
 The module of an external system gives its operations as the structure `Ops` and a model of the
 system as the structure `Model`. A model gives each operation as an action on a state. An
-assumption is a predicate over a model: the contract of one operation, as a `Std.Do` triple. The
-attribute `@[regula_assumption]` of `Regula.Assumption` gives the system and the sources of the
-assumption. An assumption is not an `axiom`: each theorem that uses it has it as a hypothesis.
+assumption is a predicate over a model. Most assumptions are the contract of one operation, as a
+`Std.Do` triple. The attribute `@[regula_assumption]` of `Regula.Assumption` gives the system and
+the sources of the assumption. An assumption is not an `axiom`: each theorem that uses it has it
+as a hypothesis.
 
 A checked operation runs an operation and then examines the result. It fails when the
 postcondition of the operation is not true for that result. The attribute `@[regula_checked]`
@@ -4720,19 +4721,44 @@ that examine the result, not the contract of the operation that the checked oper
 
 An observer is the code that operates the real system for a Regula program. Code that Regula
 writes over the operations of a model gets the real system only through an observer. The
-attribute `@[regula_observer]` marks it. Regula trusts that each operation of an observer operates
-as the operation of a model that satisfies the assumptions of the system.
+attribute `@[regula_observer]` marks it.
+
+Each attribute is checked where it is written. An assumption must be a definition or an inductive
+type, and its type must end in `Prop`. A role is given only in the module that declares the
+constant, and only one time. Thus no import can give a second role to a constant.
+
+### From a model to the real system
+
+A theorem about a model is not a theorem about the code that runs. In Lean, an action of `IO` gets
+a world, `IO.RealWorld`, and gives its result and a new world. No proof can examine a world. The
+assumption `Corresponds ops M view` connects the operations `ops` in `IO` to the model `M`. The
+function `view` gives a state of the model for each world.
+
+`Corresponds` states that each operation of `ops` gives the result of the operation of the model,
+from the state that `view` gives. The world after the operation gives the state after the
+operation of the model. Thus only the operations of `ops` change the state that `view` gives: no
+other process changes the file system. The theorem `corresponds_ofIO` proves that `Corresponds`
+can be true. It is true for each `ops` when the states of the model are the worlds.
 
 ### The sources of an assumption
 
 A source is a file of the Lean 4 repository at a release tag, with its lines. It can also be a
-document, or the reason that Regula trusts the assumption when no source states it. A `lean`
-source must be at the release of the Lean that elaborates its module
+document about a system, or the reason that Regula trusts the assumption when no source states
+it. A `lean` source must be at the release of the Lean that elaborates its module
 (`RegulaPolicy.External.Source.stale`). After an upgrade of the toolchain, each module with a
 source at the earlier release does not elaborate. The writer must read the source again at the
 new release, and then change the release of the source.
 
-The control `Fixtures.Mutations.StaleAssumptionSource` shows this refusal.
+Only a `lean` source has a release that the module checks. Thus the attribute refuses a document
+about Lean or Lake, and a document in the Lean 4 repository or in the documentation of Lean
+(`RegulaPolicy.External.Source.unpinned`). It finds such a document by the text
+`leanprover/lean4`, `lean-lang.org` or `leanprover.github.io` in its reference. It does not find a
+reference that names such a place with a different text.
+
+The controls `Fixtures.Mutations.StaleAssumptionSource` and
+`Fixtures.Mutations.UnpinnedAssumptionSource` show these refusals. The controls
+`Fixtures.Mutations.ImportedRoleTarget` and `Fixtures.Mutations.NonPredicateAssumption` show the
+refusals of a role for an imported constant and of an assumption that is not a predicate.
 
 ### The file system
 
@@ -4742,35 +4768,45 @@ below is a file of the Lean 4 repository at `v4.34.1`, below `src`.
 
 | Declaration | Status | Contract | Sources |
 | --- | --- | --- | --- |
-| `Model` | trusted | No other process changes the file system while the code operates. | None. This is not true for a computer as a whole. Thus the theorems apply only while no other process changes the entries that they name. |
+| `Corresponds` | trusted | Each operation of the observer operates as the operation of a model. No other process changes the file system while the code operates. | None. This is not true for a computer as a whole. Thus the theorems apply only while no other process changes the entries that they name. |
 | `ReadsEntry` | trusted | `symlinkMetadata` gives the type of the entry at a path and changes nothing. It fails with `noFileOrDirectory` only when no entry is at the path. | [`Init/System/IO.lean#L1151-L1156`](https://github.com/leanprover/lean4/blob/v4.34.1/src/Init/System/IO.lean#L1151-L1156), [`runtime/io.cpp#L1160-L1179`](https://github.com/leanprover/lean4/blob/v4.34.1/src/runtime/io.cpp#L1160-L1179), [`runtime/io.cpp#L276-L279`](https://github.com/leanprover/lean4/blob/v4.34.1/src/runtime/io.cpp#L276-L279), POSIX.1-2024 `lstat()` |
 | `ReadsReal` | trusted | `realPath` gives the real path of a path and changes nothing. It fails only when there is no real path. | [`Init/System/IO.lean#L873-L879`](https://github.com/leanprover/lean4/blob/v4.34.1/src/Init/System/IO.lean#L873-L879), [`runtime/io.cpp#L1054-L1066`](https://github.com/leanprover/lean4/blob/v4.34.1/src/runtime/io.cpp#L1054-L1066), POSIX.1-2024 `realpath()` |
-| `RemovesTree` | trusted | `removeDirAll` of a directory at its real path changes no entry outside the directory, when it succeeds and when it fails. | [`Init/System/IO.lean#L1330-L1342`](https://github.com/leanprover/lean4/blob/v4.34.1/src/Init/System/IO.lean#L1330-L1342), [`runtime/io.cpp#L1160-L1179`](https://github.com/leanprover/lean4/blob/v4.34.1/src/runtime/io.cpp#L1160-L1179), [`runtime/io.cpp#L1197-L1207`](https://github.com/leanprover/lean4/blob/v4.34.1/src/runtime/io.cpp#L1197-L1207), [`runtime/io.cpp#L1351-L1364`](https://github.com/leanprover/lean4/blob/v4.34.1/src/runtime/io.cpp#L1351-L1364), POSIX.1-2024 `lstat()`, `unlink()` and `rmdir()` |
-| `RemovesEntry` | trusted | `removeFile` of a path at its real path changes no entry outside the path, when it succeeds and when it fails. | [`Init/System/IO.lean#L881-L886`](https://github.com/leanprover/lean4/blob/v4.34.1/src/Init/System/IO.lean#L881-L886), [`runtime/io.cpp#L1351-L1364`](https://github.com/leanprover/lean4/blob/v4.34.1/src/runtime/io.cpp#L1351-L1364), POSIX.1-2024 `unlink()` |
-| `removeDirectory` | checked | After a removal that succeeds, no entry is at the path: `removeDirectory_gone`, which uses only `Model` and `ReadsEntry`. | [`Init/System/IO.lean#L1330-L1342`](https://github.com/leanprover/lean4/blob/v4.34.1/src/Init/System/IO.lean#L1330-L1342) |
-| `removeEntry` | checked | After a removal that succeeds, no entry is at the path: `removeEntry_gone`, which uses only `Model` and `ReadsEntry`. | [`Init/System/IO.lean#L881-L886`](https://github.com/leanprover/lean4/blob/v4.34.1/src/Init/System/IO.lean#L881-L886) |
+| `RemovesTree` | trusted | `removeDirAll` of a directory at its real path keeps the type of each entry outside the directory, when it succeeds and when it fails. | [`Init/System/IO.lean#L1330-L1342`](https://github.com/leanprover/lean4/blob/v4.34.1/src/Init/System/IO.lean#L1330-L1342), [`runtime/io.cpp#L1160-L1179`](https://github.com/leanprover/lean4/blob/v4.34.1/src/runtime/io.cpp#L1160-L1179), [`runtime/io.cpp#L1197-L1207`](https://github.com/leanprover/lean4/blob/v4.34.1/src/runtime/io.cpp#L1197-L1207), [`runtime/io.cpp#L1351-L1364`](https://github.com/leanprover/lean4/blob/v4.34.1/src/runtime/io.cpp#L1351-L1364), POSIX.1-2024 `lstat()`, `unlink()` and `rmdir()` |
+| `RemovesEntry` | trusted | `removeFile` of a path at its real path keeps the type of each entry outside the path, when it succeeds and when it fails. | [`Init/System/IO.lean#L881-L886`](https://github.com/leanprover/lean4/blob/v4.34.1/src/Init/System/IO.lean#L881-L886), [`runtime/io.cpp#L1351-L1364`](https://github.com/leanprover/lean4/blob/v4.34.1/src/runtime/io.cpp#L1351-L1364), POSIX.1-2024 `unlink()` |
+| `removeDirectory` | checked | After a removal that succeeds, no entry is at the path: `removeDirectory_gone`, which uses only `ReadsEntry`. | [`Init/System/IO.lean#L1330-L1342`](https://github.com/leanprover/lean4/blob/v4.34.1/src/Init/System/IO.lean#L1330-L1342) |
+| `removeEntry` | checked | After a removal that succeeds, no entry is at the path: `removeEntry_gone`, which uses only `ReadsEntry`. | [`Init/System/IO.lean#L881-L886`](https://github.com/leanprover/lean4/blob/v4.34.1/src/Init/System/IO.lean#L881-L886) |
 
 The theorems `removeDirectory_spec` and `removeEntry_spec` are about the removal of a directory or
-of a file at its real path. After a removal that succeeds, no entry is at the path. A removal
-changes no entry outside the path, when it succeeds and when it fails. Their hypotheses are the
-assumptions that they use.
+of a file at its real path, in a model. After a removal that succeeds, no entry is at the path. A
+removal keeps the type of each entry outside the path, when it succeeds and when it fails. Their
+hypotheses are the assumptions that they use. The theorems `removeDirectory_io` and
+`removeEntry_io` give the same result for the code in `IO`, with `Corresponds` as one more
+hypothesis. `Regula.Filesystem` gives them for the observer.
 
 `Model.Unchanged` gives what is outside a path. It is each path with a file name, not in the path,
-if the real path of its parent is that parent before the operation.
+if the real path of its parent is that parent before the operation. For each such path, the entry
+after the operation has the same type as before, or no entry is at the path before and after.
 
 The assumptions are for a POSIX system. On Windows, `symlinkMetadata` of Lean 4.34.1 follows a
-symbolic link. Thus the observer refuses that read and each removal of a directory on Windows.
+symbolic link. Also, `realPath` gives the path that it got when it cannot find the real path
+([`runtime/io.cpp#L1032-L1033`](https://github.com/leanprover/lean4/blob/v4.34.1/src/runtime/io.cpp#L1032-L1033)).
+Thus the observer refuses these two reads and each removal of a directory on Windows.
 
 ### What the checker shows
 
-The checker walks the statements from each declaration in the kernel that replayed it. It records
+The checker walks the constants from each declaration in the kernel that replayed it. It records
 the assumptions and the checked operations that the walk reaches. Result schema 17 gives them as
 `assumptions` and `checkedOperations`. The `--verbose` output gives them as `assumptions=` and
-`checked=`. The walk goes into the type of a theorem and into the type and the value of each other
-constant, but not into a proof. The theorem
-`RegulaPolicy.Assumptions.table_some` proves that the table of the checker gives this walk.
+`checked=`. The walk goes into the type and the value of each constant, thus also into each proof,
+as the table of axioms does. The theorem `RegulaPolicy.Assumptions.table_some` proves that the
+table of the checker gives this walk.
 
-The control `Fixtures.Positive.RestsOnAssumption` shows the two lists.
+A hypothesis can write out the predicate of an assumption, with no name of a declaration with a
+role. The walk does not find an assumption in such a hypothesis. It finds the assumption only
+through a constant that the proof uses, for example a theorem with the assumption as a hypothesis.
+A theorem that proves an assumption for one model also shows that assumption.
+
+The control `Fixtures.Positive.RestsOnAssumption` examines the lists in the record of each theorem.
 
 This section does not establish these properties:
 
@@ -4778,6 +4814,8 @@ This section does not establish these properties:
 - That no directory below a removed directory is also mounted at a different place, for example by
   a bind mount. `RemovesTree` is false for such a directory, because its entries also have names
   outside the removed directory.
+- That an entry outside a removed path is the same file, with the same contents, after the
+  removal. The model gives only the type of each entry.
 - That each call of an operation of an external system is in an observer. Regula's code also calls
   these operations in other places.
 

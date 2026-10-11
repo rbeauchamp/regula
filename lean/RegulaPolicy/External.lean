@@ -12,8 +12,9 @@ reports the system truthfully, or that an action changes only what it should, is
 system, outside the logic.
 
 Each such fact is a declaration (`Role.assumption`): a predicate over a model of the system, which
-the theorems that rest on the fact take as a hypothesis, never an `axiom`. The predicate is the
-contract of one operation of the model, a `Std.Do` triple whose postcondition is the property.
+the theorems that rest on the fact take as a hypothesis, never an `axiom`. Such a predicate is
+the contract of one operation of the model, a `Std.Do` triple whose postcondition is the property,
+or states that the operations that run correspond to the model.
 Each assumption names its sources (`Source`): a file of the Lean 4 repository at a release
 tag, a document, or the reason it is trusted when no source states it. A property that the
 observer tests on each result it gets, refusing the result when the test fails, is not an
@@ -23,8 +24,8 @@ operations reaches the system only through it. Other code of Regula still calls 
 operations directly, and no check finds those calls yet.
 
 This module holds the vocabulary of those declarations; `Regula.Assumption` holds the attributes
-that make them, and `RegulaPolicy.Assumptions` the reading of a claim's assumptions from its
-type. -/
+that make them, and `RegulaPolicy.Assumptions` the reading of a claim's assumptions from the
+constants it uses. -/
 
 @[expose] public section
 
@@ -101,9 +102,10 @@ inductive Source where
   `Init/System/IO.lean#L1330-L1342` or `runtime/io.cpp#L1351-L1364`. A toolchain installs the
   Lean files below its own `src/lean` directory. -/
   | lean (version : String) (location : String)
-  /-- A document that states the fact and identifies its own version, such as a standard, or a
-  URL of a source file at a tag. -/
-  | document (reference : String)
+  /-- A document about `system` that states the fact and identifies its own version, such as a
+  standard. A fact about Lean or Lake is stated by a `lean` source, which carries its release, so
+  `Source.unpinned` refuses a document about either. -/
+  | document (system : System) (reference : String)
   /-- No source states the fact: it is trusted for the given reason. -/
   | trusted (reason : String)
   deriving Repr, DecidableEq, Inhabited
@@ -111,7 +113,7 @@ inductive Source where
 /-- What a declaration is to the check of external systems. -/
 inductive Role where
   /-- A property of `system` that the theorems resting on it take as a hypothesis: a predicate
-  over a model of the system, or the model itself for a premise of every theorem over it. -/
+  over a model of the system. -/
   | assumption (system : System) (sources : List Source)
   /-- An operation that runs an operation of `system`, tests the postcondition of that operation on
   its result and fails when the test fails. `contract` is the theorem that states that
@@ -141,7 +143,7 @@ def Role.sources : Role → List Source
 @[regula_decision]
 def Source.stale (tag : String) : Source → Bool
   | .lean version _ => version != tag
-  | .document _ | .trusted _ => false
+  | .document .. | .trusted _ => false
 
 /-- A source is stale exactly when it is a `lean` source of another version. -/
 theorem Source.stale_iff (tag : String) (source : Source) :
@@ -160,5 +162,49 @@ theorem Source.checked_stale : Regula.ExecutableContract Source.stale
   ⟨.of_iff (fun input => Source.stale_iff input.1 input.2)
     ⟨("v4.34.1", .lean "v4.33.0" "Init/Prelude.lean#L1"), by decide⟩
     ⟨("v4.34.1", .lean "v4.34.1" "Init/Prelude.lean#L1"), by decide⟩⟩
+
+/-! ## A document that would escape the pin -/
+
+/-- The texts that identify a place in the Lean 4 repository or in Lean's documentation: the
+repository's GitHub path `leanprover/lean4`, which a URL of `github.com` or of
+`raw.githubusercontent.com` contains, and the documentation sites `lean-lang.org` and
+`leanprover.github.io`. A reference that names that place by other text is not recognized. -/
+def leanLocators : List String := ["leanprover/lean4", "lean-lang.org", "leanprover.github.io"]
+
+/-- A source that states a fact about Lean or Lake without its release: a document about Lean or
+Lake, or a document whose reference, in lower case, contains one of `leanLocators`. Such a fact
+belongs in a `lean` source, which `stale` compares with the release that elaborates it. -/
+@[regula_decision]
+def Source.unpinned : Source → Bool
+  | .document system reference =>
+    system == .lean || system == .lake ||
+      leanLocators.any fun locator => decide (locator.toList <:+: reference.toLower.toList)
+  | .lean .. | .trusted _ => false
+
+/-- A source is unpinned exactly when it is a document about Lean or Lake, or a document whose
+reference in lower case is some text, then a Lean locator, then some text. -/
+theorem Source.unpinned_iff (source : Source) :
+    source.unpinned = true ↔ ∃ system reference, source = .document system reference ∧
+      (system = .lean ∨ system = .lake ∨ ∃ locator ∈ leanLocators, ∃ before after : List Char,
+        before ++ locator.toList ++ after = reference.toLower.toList) := by
+  cases source with
+  | lean version location => simp [Source.unpinned]
+  | trusted reason => simp [Source.unpinned]
+  | document system reference =>
+    simp only [Source.unpinned, Bool.or_eq_true, beq_iff_eq, List.any_eq_true, decide_eq_true_eq,
+      Source.document.injEq]
+    simp only [List.IsInfix, or_assoc]
+    constructor
+    · intro h; exact ⟨system, reference, ⟨rfl, rfl⟩, h⟩
+    · rintro ⟨_, _, ⟨rfl, rfl⟩, h⟩; exact h
+
+/-- `unpinned` holds exactly for a document about Lean or Lake or one that names a place of the
+Lean 4 repository or of Lean's documentation (`unpinned_iff`). -/
+theorem Source.checked_unpinned : Regula.ExecutableContract Source.unpinned
+    (Regula.Decides (· = true) fun source => ∃ system reference,
+      source = .document system reference ∧
+        (system = .lean ∨ system = .lake ∨ ∃ locator ∈ leanLocators, ∃ before after : List Char,
+          before ++ locator.toList ++ after = reference.toLower.toList)) :=
+  ⟨.of_iff Source.unpinned_iff ⟨.document .lean "", by decide⟩ ⟨.trusted "", by decide⟩⟩
 
 end RegulaPolicy.External
