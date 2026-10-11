@@ -83,7 +83,9 @@ of that closure are read, and
 the facts of `Observation.globCase`: whether the package's only `lean_lib` has one root, keeps
 Lake's default globs and is declared at the top level with no `globs` field, the modules Lake's
 glob of its root's submodules finds, and the files the claimed modules' import closure read under
-their names, each file by its canonical path. `apply` of the glob removes that library's
+their names, each file by its canonical path. `doctor` and `init` refuse a project in which Lake
+resolves a module of that closure, claimed or imported, to a source file that does not exist; the
+message names the module that imports it, or the claim. `apply` of the glob removes that library's
 `uncovered` entries and its `sole` record. The command writes each edit into the lakefile, the
 manifest and the guidance files, then observes the project again and refuses unless the new plan
 is empty, the new `uncovered` has no entry for a library the plan gave a glob (`uncovered_run`),
