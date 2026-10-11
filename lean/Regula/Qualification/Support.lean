@@ -34,8 +34,8 @@ def timeoutCommand : IO String := do
 
 /-- Run within the public entrypoint's timed process group. Do not detach a nested
 process group: the enclosing deadline must kill descendants holding output pipes too. Throws
-without starting it when it would run a toolchain program by its bare name
-(`Regula.Toolchain.refuseBareName`). -/
+without starting it when `command` is a toolchain program's bare name, or when `command` is a
+`lake` and any argument is one (`Regula.Toolchain.refuseBareName`). -/
 def run (root : FilePath) (command : String) (args : Array String)
     (env : Array (String × Option String) := #[]) : IO IO.Process.Output := do
   Regula.Toolchain.refuseBareName command args

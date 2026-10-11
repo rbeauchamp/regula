@@ -65,7 +65,7 @@ private initialize toolchainLibrary : IO.Ref (Option System.FilePath) ← IO.mkR
 /-- The library directory of the running Lean toolchain, found once for the process. -/
 private def toolchainLibraryDirectory : IO System.FilePath := do
   if let some directory ← toolchainLibrary.get then return directory
-  let directory ← Lean.getLibDir (← Lean.findSysroot)
+  let directory ← Lean.getLibDir (← Regula.CompilerObservation.toolchainRoot)
   toolchainLibrary.set (some directory)
   return directory
 
@@ -79,17 +79,12 @@ private def loadedFromLibrary (library : System.FilePath) (moduleName : Name) : 
   return (← IO.FS.realPath (← Lean.findOLean moduleName)) == (← IO.FS.realPath expected)
 
 /-- Memoize the Core capability after independently confirming the resolved compiler's
-identity. Installation contents and process execution remain trusted. -/
+identity (`Regula.CompilerObservation.identifiedRoot`). Installation contents and process execution
+remain trusted. -/
 def compilerCapability : IO RegulaPolicy.Compiler.LegacyCompilerTrust := do
   if let some capability ← capabilityCache.get then return capability
-  let root ← Lean.findSysroot
-  let output ← IO.Process.output {
-    cmd := (root / "bin/lean").toString, args := #["--stdin"]
-    env := #[("LEAN_PATH", none), ("LEAN_SRC_PATH", none), ("LEAN_SYSROOT", none)] }
-    (some "#eval IO.println Lean.versionString\n#eval IO.println Lean.githash\n")
-  unless output.exitCode == 0 && output.stdout ==
-      s!"{RegulaPolicy.Compiler.version}\n{RegulaPolicy.Compiler.commit}\n" do
-    throw <| IO.userError "compiler capability: resolved compiler identity differs from this Regula build"
+  let root ← Regula.CompilerObservation.identifiedRoot RegulaPolicy.Compiler.version
+    RegulaPolicy.Compiler.commit
   let capability := if ← Regula.CompilerObservation.legacyPresent (← Lean.getLibDir root)
     then .present else .absent
   let _ ← IO.ofExcept (RegulaPolicy.Compiler.admitCapability capability)

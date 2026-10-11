@@ -55,4 +55,37 @@ def legacyPresent (library : System.FilePath) : IO Bool := do
   if present == expected.size then return true
   throw <| IO.userError "compiler capability: incomplete legacy axiom family"
 
+/-- The installation directory of the Lean toolchain, by its canonical path: the value of
+`LEAN_SYSROOT`, which must be an absolute path. Throws when `LEAN_SYSROOT` is unset or relative;
+no `lean` is run to find the directory, so no program that `PATH` resolves takes part.
+Assumes: Lake sets `LEAN_SYSROOT` for each program it starts (`lake exe`, `lake env`, `lake lint`)
+to the installation it detected (`Lake.Env.baseVars`, `Lake/Config/Env.lean:302` of Lean v4.34.1),
+which for a toolchain `lake` beside its `lean` is the parent of the directory of the running `lake`
+(`Lake.findLakeLeanJointHome?`, `Lake/Config/InstallPath.lean:334`), an absolute path. The
+filesystem's resolution of that path is trusted. -/
+def toolchainRoot : IO System.FilePath := do
+  let some root ← IO.getEnv "LEAN_SYSROOT"
+    | throw <| IO.userError "the Lean toolchain is unknown: LEAN_SYSROOT is unset; run this \
+        program through Lake (lake exe, lake env or lake lint), which sets it"
+  let root := System.FilePath.mk root
+  unless root.isAbsolute do
+    throw <| IO.userError s!"the Lean toolchain is unknown: LEAN_SYSROOT is the relative path \
+      {root}, not an absolute one"
+  IO.FS.realPath root
+
+/-- `toolchainRoot`, accepted only once its `bin/lean`, run by that path without the inherited
+`LEAN_PATH`, `LEAN_SRC_PATH` and `LEAN_SYSROOT`, prints exactly `version` and `commit` on their
+own lines. A program that prints them is taken to be that compiler; process execution and the
+installation's contents are trusted. -/
+def identifiedRoot (version commit : String) : IO System.FilePath := do
+  let root ← toolchainRoot
+  let output ← IO.Process.output {
+    cmd := (root / "bin" / "lean").toString, args := #["--stdin"]
+    env := #[("LEAN_PATH", none), ("LEAN_SRC_PATH", none), ("LEAN_SYSROOT", none)] }
+    (some "#eval IO.println Lean.versionString\n#eval IO.println Lean.githash\n")
+  unless output.exitCode == 0 && output.stdout == s!"{version}\n{commit}\n" do
+    throw <| IO.userError
+      "compiler capability: resolved compiler identity differs from this Regula build"
+  return root
+
 end Regula.CompilerObservation

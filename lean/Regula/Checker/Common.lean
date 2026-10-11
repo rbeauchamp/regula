@@ -63,8 +63,9 @@ def scrubbedLeanPathEnv : Array (String × Option String) :=
   #[("LEAN_PATH", none), ("LEAN_SRC_PATH", none)]
 
 /-- Run `cmd` with `args` in directory `repo`, with the environment changes `env`, wait for it
-to finish and return its exit code and captured output. Throws without starting it when it would
-run a toolchain program by its bare name (`Regula.Toolchain.refuseBareName`). -/
+to finish and return its exit code and captured output. Throws without starting it when `cmd` is
+a toolchain program's bare name, or when `cmd` is a `lake` and any argument is one
+(`Regula.Toolchain.refuseBareName`, `Regula.Toolchain.bareName?_eq_none_iff`). -/
 def runProcess (repo : FilePath) (cmd : String) (args : Array String)
     (env : Array (String × Option String) := #[]) : IO ProcessResult := do
   Regula.Toolchain.refuseBareName cmd args
@@ -118,7 +119,8 @@ def showingStream (target : IO.FS.Stream) (display : String → Bool) : IO IO.FS
 
 /-- `runProcess`, also printing to standard output each line of the child's standard output that
 `display` selects (with its newline), as the child writes it. The captured output is the
-child's complete output. Like `runProcess`, it refuses a toolchain program's bare name. -/
+child's complete output. Like `runProcess`, it throws without starting it when `cmd` is a toolchain
+program's bare name, or when `cmd` is a `lake` and any argument is one. -/
 def runProcessShowing (repo : FilePath) (cmd : String) (args : Array String)
     (env : Array (String × Option String)) (display : String → Bool) : IO ProcessResult := do
   Regula.Toolchain.refuseBareName cmd args
@@ -246,9 +248,11 @@ def repoRoot : IO FilePath := do
   findRepoRoot (← IO.currentDir)
 
 /-- Initialize dynamic module lookup from Lake's `LEAN_PATH`. Compiled checker
-executables do not receive the `lean` driver's search-path initialization. -/
+executables do not receive the `lean` driver's search-path initialization. The toolchain's
+library comes from `Regula.CompilerObservation.toolchainRoot`, so this throws unless Lake set an
+absolute `LEAN_SYSROOT`. -/
 def initializeLeanSearchPath : IO Unit := do
-  Lean.initSearchPath (← Lean.findSysroot)
+  Lean.initSearchPath (← Regula.CompilerObservation.toolchainRoot)
 
 /-- The compiled library directory of the running checker executable's own
 package, when it follows Lake's standard layout. The trusted probe module

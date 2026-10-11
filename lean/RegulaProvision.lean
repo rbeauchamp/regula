@@ -359,10 +359,7 @@ private def stream (cwd : FilePath) (cmd : String) (args : Array String)
 private def say (line : String) : IO Unit := IO.println s!"provisioning: {line}"
 
 /-- The toolchain program `name` by its path beside the `lean` that runs this program
-(`IO.appDir`), never one that `PATH` resolves first. The `lean --githash` checks
-(`requireCompiler` and the staged workspace's) are the exception: they ask the `lean` that the
-directory's toolchain selection puts on `PATH` for its commit, and refuse unless it is the commit
-of the `lean` running this program. -/
+(`IO.appDir`), never one that `PATH` resolves first. -/
 private def toolchain (name : String) : IO String :=
   return ((← IO.appDir) / name).toString
 
@@ -562,11 +559,8 @@ private def create (repo parent final : FilePath) (key : String) (manifest : Jso
     |>.setObjVal! "packages" (.arr (pins.git.map (·.1)))).pretty ++ "\n")
   IO.FS.writeFile (staging / "lean-toolchain") (← IO.FS.readFile (repo / "lean-toolchain"))
   try
-    let githash := (← require staging "lean" #["--githash"]).trimAscii.toString
-    unless githash == Lean.githash do
-      throw <|
-          IO.userError
-              s!"provisioning: the staged toolchain is {githash}, not the running {Lean.githash}"
+    -- The staged `lean-toolchain` is the repository's, which `requireCompiler` accepted before
+    -- `provision` reached this, and each command here runs the running toolchain's `lake`.
     -- `cache get` unpacks into the workspace's default `.lake/packages` and ignores a custom
     -- packages directory, so the staging workspace keeps the default.
     buildMathlib staging true
@@ -770,12 +764,16 @@ private def provisionPackages (packages shared : FilePath) (receipt : Receipt) (
   unless cloned.isEmpty do
     say s!"cloned {", ".intercalate cloned.toList} (writable copy-on-write clones)"
 
-/-- Refuse a process using a different compiler from this program. -/
+/-- Refuse a repository whose `lean-toolchain` does not select the release of the `lean` running
+this program: its text, without surrounding whitespace, must be `leanprover/lean4:v` followed by
+that `lean`'s version. No program is run to observe the selection; that Elan runs the release
+this selector names is trusted, as it is for the `lean` running this program. -/
 def requireCompiler (repo : FilePath) : IO Unit := do
-  let githash := (← require repo "lean" #["--githash"]).trimAscii.toString
-  unless githash == Lean.githash do
-    throw <| IO.userError s!"provisioning: this repository's toolchain is {githash}, \
-      but this program runs on {Lean.githash}"
+  let selected := (← IO.FS.readFile (repo / "lean-toolchain")).trimAscii.toString
+  let running := s!"leanprover/lean4:v{Lean.versionString}"
+  unless selected == running do
+    throw <| IO.userError s!"provisioning: this repository's lean-toolchain selects {selected}, \
+      but this program runs on {running} ({Lean.githash})"
 
 /-- Observe whether the integration package selects the root's toolchain. -/
 def mathlibApplicability (repo : FilePath) : IO (Bool × String) := do
