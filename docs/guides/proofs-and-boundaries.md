@@ -731,12 +731,12 @@ fences, modules or declarations exist, and their order and numbering, decide nei
 By this criterion, `ModuleHeader.Observation`, `ExampleUnit`, `ExampleObservation` and
 `DocumentationObservation` have an observed part and a project-written part. The observed parts
 hold `documentationFirst`, the names, files and groups that the checker chooses, and the file that
-it reads back. They also hold the compiler's output, the census, the outcome, the claimed modules
+it reads back. They also hold the compiler's output, the census, the outcome, the inspected modules
 and the material keys. The project-written parts hold `documented`, the imports, the fences, the
-copies of a fence's body and the docstrings. `FenceKey`, `DocumentObservation` and the scanner's
-records hold only the project's text, its marks and the scanner's results, so they have no parts.
-That `moduleObservation`, `exampleObservation` and `loadReportCoreAtSearchPath` fill each field as
-its docstring states is by inspection, as for the producers below.
+copies of a fence's body and the docstrings of the material keys. `FenceKey`, `DocumentObservation`
+and the scanner's records hold only the project's text, its marks and the scanner's results, so
+they have no parts. That `moduleObservation`, `exampleObservation` and `loadReportCoreAtSearchPath`
+fill each field as its docstring states is by inspection, as for the producers below.
 
 The project-written fields that admit are the subject of the rule, as the registration is for
 [RG1008]. Examples are a docstring, `documented`, the imports and the body and expectation of a

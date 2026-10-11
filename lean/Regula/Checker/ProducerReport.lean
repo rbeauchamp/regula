@@ -103,12 +103,15 @@ instance : FromJson ModuleHeader.Observation := ⟨fun j => do
            imports := ← j.getObjValAs? _ "imports" }⟩
 
 /-- The observed part of the documentation observation, by the criterion of the guide's
-"Documentation records": each claimed module with its header observation, which has its own
+"Documentation records": each inspected module with its header observation, which has its own
 parts, and the module that the environment attributes to each material declaration, with its
-name. Project state enters these fields only by selection: the claim names the modules, and the
-`@[regula_material]` mark selects the declarations. -/
+name. The census's inspected modules, the claimed modules and in a project audit those of the
+owned dependencies, select `modules`. Each header observation has its own parts: `documented` and
+the imports are project-written, and `documentationFirst` is observed, and its docstring says how
+the project's syntax declarations enter it. The `@[regula_material]` mark selects the declarations
+of `materialDeclarations` and enters no value of them. -/
 structure DocumentationObservation.ToolchainObserved where
-  /-- Each claimed module with its RG5001 header observation, read from its bound source. -/
+  /-- Each inspected module with its RG5001 header observation, read from its bound source. -/
   modules : Array (Name × ModuleHeader.Observation)
   /-- The `(module, declaration)` key of every owned declaration the material selector chose,
   frozen before any docstring was read. -/
