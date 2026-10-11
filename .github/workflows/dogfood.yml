@@ -2,8 +2,9 @@ name: Dogfood
 
 # Regula run on its own code base (docs/guides/contributing.md#repository-conformance):
 # the repository's own `lake lint` through `regula/lint` in both packages, and the operational
-# self-audit of the excluded `Regula` library. Neither is part of acceptance; each verify.sh
-# partition keeps its own 420-second limit. It runs when a path listed below changes, always
+# self-audit of the excluded `Regula` library, in four shards that together audit every module the
+# single run does. Neither is part of acceptance; each verify.sh partition keeps its own 420-second
+# limit. It runs when a path listed below changes, always
 # on main, and nightly. The default-path lint of the root package, without the owner's
 # `REGULA_ORDINARY_LAKEFILES=1`, runs only nightly and on dispatch.
 on:
@@ -43,7 +44,10 @@ jobs:
       matrix:
         campaign:
           - diagnostics self-lint
-          - diagnostics self-audit
+          - diagnostics self-audit 1/4
+          - diagnostics self-audit 2/4
+          - diagnostics self-audit 3/4
+          - diagnostics self-audit 4/4
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:

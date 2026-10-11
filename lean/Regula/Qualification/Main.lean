@@ -46,6 +46,10 @@ private unsafe def dispatch (args : List String) (attempt : Option String := non
       Regula.Qualification.History.check
   | ["history"] => Regula.Qualification.History.check
   | ["self-audit"] => Regula.Qualification.SelfAudit.check
+  | ["self-audit", "--shard", spec] => do
+      let some shard := Regula.Qualification.SelfAudit.shardOf? spec
+        | throw <| IO.userError s!"invalid self-audit shard: {spec}"
+      Regula.Qualification.SelfAudit.check (some shard)
   | ["self-audit-module", m, source] => Regula.Qualification.SelfAudit.worker m source
   | ["self-audit-json-module", m] => Regula.Qualification.SelfAudit.jsonWorker m
   | ["environments", "--evidence", path] => Regula.Qualification.EnvironmentCensus.check
@@ -67,9 +71,10 @@ private unsafe def dispatch (args : List String) (attempt : Option String := non
   | _ => throw <| IO.userError "usage: lake exe qualify \
     registry|native|combined|native-launcher|producers [--evidence PATH]|environments --evidence \
     PATH|acceptance GROUP --evidence PATH|acceptance-snapshots \
-    dependencies|history|self-audit|git-status|all|documentation-dependencies|input-inventory|histo\
-    ry|closure-evidence|configuration-capture|fence-evidence|frozen-exits|documentation-source \
-    [--source-read-only]|rule-examples --evidence PATH [--rules RULE ... | --shard K/N]"
+    dependencies|history|self-audit [--shard K/4]|git-status|all|documentation-dependencies|\
+    input-inventory|history|closure-evidence|configuration-capture|fence-evidence|frozen-exits|\
+    documentation-source [--source-read-only]|\
+    rule-examples --evidence PATH [--rules RULE ... | --shard K/N]"
 
 /-- Standalone commands get one group-wide 420-second bound. The private protocol flag
 is supplied by this wrapper or the already timed acceptance driver, never documented
