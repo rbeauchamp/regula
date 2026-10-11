@@ -91,6 +91,8 @@ lean_lib «RegulaPolicy» where
 @[default_target]
 lean_lib «RegulaVerification» where
   globs := #[.andSubmodules `RegulaVerification]
+  -- The driver embeds the compiler guard source with include_str (`requireCompiler`).
+  needs := #[`@/compilerPolicySource]
 
 -- Dependency setup.
 @[default_target]
@@ -106,6 +108,11 @@ lean_lib «RegulaQualification» where
 -- noncompliant example files, so `RegulaCore` needs this directory as a traced input.
 input_dir ruleExampleSources where
   path := "examples/rules"
+  text := true
+
+-- The verification driver embeds this source with include_str.
+input_file compilerPolicySource where
+  path := "lean/RegulaPolicy/Compiler.lean"
   text := true
 
 -- The standalone compiler probe embeds this source with include_str.

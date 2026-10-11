@@ -52,6 +52,7 @@ private unsafe def dispatch (args : List String) (attempt : Option String := non
       Regula.Qualification.SelfAudit.check (some shard)
   | ["self-audit-module", m, source] => Regula.Qualification.SelfAudit.worker m source
   | ["self-audit-json-module", m] => Regula.Qualification.SelfAudit.jsonWorker m
+  | "self-audit-starts" :: modules => Regula.Qualification.SelfAudit.startsWorker modules
   | ["environments", "--evidence", path] => Regula.Qualification.EnvironmentCensus.check
                                              ⟨path⟩ attempt
   | ["acceptance", group, "--evidence", path] => Regula.Qualification.Acceptance.check group

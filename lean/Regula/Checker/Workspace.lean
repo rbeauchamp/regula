@@ -16,15 +16,21 @@ namespace Regula.Checker.Workspace
 
 open Lean System
 
-/-- The Lake environment of the detected Lean install, with the Lake installed beside that Lean
-(`LakeInstall.ofLean`), as the toolchain's `lake` command computes it for itself. Lake's own
-`findInstall?` run from this process reads `LAKE_HOME`, which a parent `lake` sets to the
-toolchain's root, as the root of a Lake build tree, so it names Lake's library where none
-exists, and a build in this process cannot load that library into a module that needs it. -/
+/-- The Lake environment of the toolchain's identity-checked installation
+(`Regula.Toolchain.sysroot`), with the Lake installed beside its Lean (`LakeInstall.ofLean`), as
+the toolchain's `lake` command computes it for itself. Lake's own `findInstall?` is not run: it
+reads the running program as a `lake`, so a `lean` beside this checker's executable would select
+the checker's build directory as the installation, and it reads `LAKE_HOME`, which a parent `lake`
+sets to the toolchain's root, as the root of a Lake build tree. The installation's commit is the
+one `Regula.Toolchain.sysroot` checked its `lean` reports. Throws first when a toolchain program
+override that Lake's `LeanInstall.get` reads is not an absolute path
+(`Regula.Toolchain.refuseRelativeOverrides`). -/
 private def detectEnvironment : IO _root_.Lake.Env := do
-  let (elan?, lean?, _) ← _root_.Lake.findInstall?
-  let some lean := lean?
-    | throw <| IO.userError "lake-workspace-load-failed: cannot detect a Lean install"
+  Regula.Toolchain.refuseRelativeOverrides
+  let sysroot ← Regula.Toolchain.sysroot
+  let elan? ← _root_.Lake.findElanInstall?
+  let lean ← _root_.Lake.LeanInstall.get sysroot (collocated := true)
+  let lean := { lean with githash := RegulaPolicy.Compiler.commit }
   let lake := _root_.Lake.LakeInstall.ofLean lean
   match ← EIO.toIO' (_root_.Lake.Env.compute lake lean elan?) with
   | .ok env => return env

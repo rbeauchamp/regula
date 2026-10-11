@@ -111,14 +111,16 @@ def helperPath : IO System.FilePath := do
 
 /-- Elaborate one example module in a fresh `regula-example` process: its messages and highlighting.
 The helper's toolchain is the installation of the `lean` elaborating the standard, which runs this:
-it receives that directory as `LEAN_SYSROOT` (`Regula.CompilerObservation.toolchainRoot`), so no
-`lean` that `PATH` resolves is run to find it. -/
+it receives that installation's directory (`Lean.getBuildDir`, the parent of the canonical
+directory of the running `lean`) as `LEAN_SYSROOT` (`Regula.CompilerObservation.toolchainRoot`),
+so no `lean` that `PATH` resolves is run to find it. Throws when the running program is not a
+`lean`. -/
 def runHelper (text : String) : IO (Array Reported × Json) := do
   let helper ← helperPath
-  let running ← IO.appPath
-  let some sysroot := (running.parent.bind (·.parent)).filter fun _ =>
-      running.fileStem == some "lean"
-    | throw <| IO.userError s!"example helper: {running} is not the `lean` elaborating the standard"
+  unless (← IO.appPath).fileStem == some "lean" do
+    throw <| IO.userError s!"example helper: {← IO.appPath} is not the `lean` elaborating the \
+      standard"
+  let sysroot ← Lean.getBuildDir
   IO.FS.withTempFile fun handle path => do
     handle.putStr text
     handle.flush

@@ -402,11 +402,16 @@ def lakeVariables : List String :=
     "LAKE_PKG_URL_MAP", "LAKE_RESTORE_ARTIFACTS", "LEAN", "LEAN_AR", "LEAN_GITHASH", "LEAN_PATH",
     "LEAN_RECURSION_COUNT", "LEAN_SRC_PATH", "LEAN_SYSROOT"]
 
-/-- Run `cmd` with `args` in `directory`, without the variables `lakeVariables`. -/
+/-- Run `cmd` with `args` in `directory`, without the variables `lakeVariables`. Throws without
+starting it when `cmd` spells a toolchain program's name, or is a `lake` and an argument spells one
+(`Regula.Toolchain.refuseBareName`), or when the child would see a toolchain program override that
+is not an absolute path (`Regula.Toolchain.refuseRelativeOverrides`). -/
 def runOutside (directory : System.FilePath) (cmd : String) (args : Array String) :
-    IO IO.Process.Output :=
-  IO.Process.output {
-    cmd, args, cwd := some directory, env := (lakeVariables.map fun name => (name, none)).toArray }
+    IO IO.Process.Output := do
+  let env := (lakeVariables.map fun name => (name, none)).toArray
+  Regula.Toolchain.refuseBareName cmd args
+  Regula.Toolchain.refuseRelativeOverrides env
+  IO.Process.output { cmd, args, cwd := some directory, env }
 
 /-- The `description` of the package at the repository root `root`, as Lake reads it from the
 lakefile (`lake reservoir-config`), or why Lake does not give it. -/

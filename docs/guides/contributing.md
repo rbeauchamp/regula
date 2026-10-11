@@ -39,6 +39,10 @@ last two tools. Verification runs offline against those pinned dependencies. Non
 commands below downloads, caches, imports or builds Mathlib; the
 [Mathlib integration check](#mathlib-integration-check) is a separate command with its own setup.
 
+`scripts/verify.sh` and `scripts/provision.sh` run the `lean` of the toolchain that `lean-toolchain`
+names by its path in Elan's toolchain directory, under `$ELAN_HOME` or else `~/.elan`. They stop
+when it is not installed there.
+
 ```sh
 lake build                         # incremental development check (the regula package)
 lake -d audit build                # the standard's example library
@@ -249,11 +253,14 @@ and this repository does not make. `./scripts/verify.sh serialized-graph` remain
 command. Ordinary acceptance's isolated clean build still covers the real claimed surface.
 
 The copy of that control also has a `leanchecker` program in the binary directory of its root
-package. This program is the `false` utility, and `lake env` puts that directory first on `PATH`.
-The control accepts a run only if the check of each root passed, thus an accepted run did not start
-that program. `freshChecker` starts `lake` and `leanchecker` by their paths in the installation
-directory of the toolchain (`Regula.Toolchain.program`). The `lean` of that directory must give the
-version and the commit of the supported compiler.
+package. This program is a link to the toolchain's `lean`, and `lake env` puts that directory first
+on `PATH`. The control first runs it as a `leanchecker` of each root and requires each run to fail.
+It accepts a run only if the check of each root passed, thus an accepted run did not start that
+program.
+
+`freshChecker` starts `lake` and `leanchecker` by their paths in the installation directory of the
+toolchain (`Regula.Toolchain.program`). The `lean` of that directory must give the version and the
+commit of the supported compiler.
 
 Omitting `PARTITION` requests the `checkerSelftest` campaign; the `producers`, `history` and
 `rule-examples` campaigns remain separate explicit selections. Each invocation uses the
@@ -416,6 +423,20 @@ Before its `lake lint` in the root package, `diagnostics self-lint` builds the `
 worker `axiomGate` and the claimed targets in one `lake build`. Lake's lint dispatch, the driver
 and the audit otherwise build them in sequence. Each of these builds still runs, and it
 builds what is not built.
+
+The self-audit also reads which declarations start a process. Its campaign builds each other root
+library but `Fixtures`, and the executable roots that no library holds. It imports them library by
+library. A declaration that refers to a function that starts a process in its kernel value or type
+must be an entry of `Regula.Qualification.ProcessStarts.allowed`. That entry says how its program
+is chosen.
+
+No declaration may refer to a function that finds a toolchain program through `PATH`. An entry
+that the audit does not find also fails (`violations_eq_empty`). A process started through a
+different library function, such as Lake's build API, is not a reference that this check sees.
+
+The shards of the self-audit also deal out these libraries and executable roots. A shard reports an
+unfound entry only for a module that it audits. An entry in a module that the campaign does not
+audit fails in every shard.
 
 The repository's own checklist rows, which apply to this repository only:
 
