@@ -1,18 +1,19 @@
 module
 
 meta import Regula.Decision
+import all Init.Meta.Defs
 
 /-! # Community build configuration decision
 
 The decision behind RG2006 for one claimed Lake target (standard §7.1, §6.7 and §6.2): the
 options Lake builds its modules with turn automatic implicits off, enable Lean's
-`linter.missingDocs`, keep every linter and every one of Lean's own warnings (`warn.sorry` and the
-other `warn.…` options) on except the three Mathlib-repository linters §6.7 excludes, and, when the
-target imports Mathlib, enable Mathlib's standard linter set with exactly those exclusions. Of
-these, Mathlib's header linter may instead stay on when the target configures its license line
-(`linter.style.header.license`). The target sets these options in Lake's `leanOptions`, where the
-audit reads them, and no `-D` among its extra `lean` arguments gives one of them a value the
-requirement does not admit or turns off another linter or warning.
+`linter.missingDocs`, keep every linter and every one of Lean's own warnings (`warn.sorry` and
+the other `warn.…` options) on except the three Mathlib-repository linters §6.7 excludes, and,
+when the target imports Mathlib, enable Mathlib's standard linter set with exactly those
+exclusions. Of these, Mathlib's header linter may instead stay on when the target configures its
+license line (`linter.style.header.license`). The target sets these options in Lake's
+`leanOptions`, where the audit reads them, and no `-D` among its extra `lean` arguments gives one
+of them a value the requirement does not admit or turns off another linter or warning.
 
 ## Main declarations
 
@@ -52,20 +53,24 @@ requirement does not admit or turns off another linter or warning.
   `warn_argument_fails`, `excluded_linter_argument_passes`, `plugin_argument_passes`: fixed
   argument lists.
 - `warn_sorry_option_fails`: `leanOptions` that turn off `warn.sorry` fail.
+- `numeric_root_argument_passes`, `numeric_root_option_passes`: an option whose first component
+  is a number, such as `0.warn.example`, switches no warning, whatever components follow.
+- `optionOf_eq_replacePrefix`: `optionOf` removes a leading `weak.` exactly as Lean does.
 
 ## Option names and values
 
 Lake and Lean accept an option key with a leading `weak.` component, which sets the option
 after it when that option is declared and is otherwise ignored; `optionOf` reads the option a key
-sets. When a target sets one option under both spellings, every value given must be the required
-one, except that the header linter may be `true` when the license line is configured: the license
-option is given at least once in `leanOptions`, and every value that `leanOptions` or any `-D`
-candidate gives it is a nonempty string. Lean parses a string value by the option's declared type
+sets, as Lean reads it (`optionOf_eq_replacePrefix`). When a target sets one option under both
+spellings, every value given must be the required one, except that the header linter may be
+`true` when the license line is configured: the license option is given at least once in
+`leanOptions`, and every value that `leanOptions` or any `-D` candidate gives it is a nonempty
+string. Lean parses a string value by the option's declared type
 (`Lean.Language.Lean.setOption`): `"true"` and `"false"` for a Boolean option and a numeral for a
 natural-number one, so `readsAs` compares a string with a required value that way. A warning
-option is an option whose first component is `linter`, for a linter, or `warn`, for one of Lean's
-own warnings, such as `warn.sorry`, each `true` by default at the pinned toolchain; turning one off
-means giving it a value Lean reads as `false`.
+option is an option whose first component, by `Name.getRoot`, is `linter`, for a linter, or
+`warn`, for one of Lean's own warnings, such as `warn.sorry`, each `true` by default at the
+pinned toolchain; turning one off means giving it a value Lean reads as `false`.
 
 ## Boundaries
 
@@ -135,18 +140,36 @@ structure BuildOptions where
   arguments : List String
   deriving DecidableEq, Repr
 
-/-- The option a `leanOptions` key sets: the key without a leading `weak.` component. -/
+/-- The option a `leanOptions` key sets: the key without a leading `weak.` component. Lean removes
+it the same way (`Lean.Language.Lean.reparseOptions`), as `optionOf_eq_replacePrefix` states. -/
 def optionOf : Name → Name
   | .str .anonymous "weak" => .anonymous
   | .str p s => .str (optionOf p) s
   | .num p k => .num (optionOf p) k
   | .anonymous => .anonymous
 
-/-- The first component of a name, when it is a string. -/
-def rootOf : Name → Option String
-  | .anonymous => none
-  | .str p s => some ((rootOf p).getD s)
-  | .num p _ => rootOf p
+/-- `optionOf` is Lean's own removal of a leading `weak.` component from an option name. -/
+theorem optionOf_eq_replacePrefix (name : Name) :
+    optionOf name = name.replacePrefix `weak .anonymous := by
+  induction name with
+  | anonymous => rfl
+  | str p s ih =>
+    by_cases h : p = .anonymous ∧ s = "weak"
+    · obtain ⟨rfl, rfl⟩ := h; rfl
+    · have hne : (Name.str p s == `weak) = false := by
+        simp only [beq_eq_false_iff_ne, ne_eq, Name.str.injEq]
+        exact h
+      rw [Name.replacePrefix, hne, ← ih]
+      simp only [Bool.false_eq_true, ↓reduceIte, Name.mkStr]
+      conv => lhs; unfold optionOf
+      split
+      · next h' => exact absurd ⟨(Name.str.inj h').1, (Name.str.inj h').2⟩ h
+      · next h' => cases h'; rfl
+      · next h' => cases h'
+      · next h' => cases h'
+  | num p k ih =>
+    rw [Name.replacePrefix, ← ih]
+    simp [optionOf]
 
 /-- The characters after the first `D`, when there is one. -/
 def afterD : List Char → Option (List Char)
@@ -460,18 +483,18 @@ theorem meets_of_sets (o : BuildOptions) (r : Name × OptionValue) (h : sets o r
 /-- The first components of the options that switch a warning: `linter`, for a linter, and
 `warn`, for one of Lean's own warnings (`warn.sorry`, `warn.classDefReducibility`,
 `warn.exposeOnPrivate` and `warn.redundantExpose` at the pinned toolchain). -/
-def warningRoots : List String := ["linter", "warn"]
+def warningRoots : List Name := [`linter, `warn]
 
-/-- `name` switches a linter or one of Lean's own warnings: its first component is `linter` or
-`warn`. This is the relation, as a proposition, that `disables` reads through `warningRoots`
-(`disables_iff`). -/
+/-- `name` switches a linter or one of Lean's own warnings: its first component (`Name.getRoot`, a
+string or a number) is `linter` or `warn`. This is the relation, as a proposition, that
+`disables` reads through `warningRoots` (`disables_iff`). -/
 def WarningOption (name : Name) : Prop :=
-  rootOf name = some "linter" ∨ rootOf name = some "warn"
+  name.getRoot = `linter ∨ name.getRoot = `warn
 
 /-- Setting `name` to `value` turns off a linter or one of Lean's own warnings outside the §6.7
 exclusions (§6.2). -/
 def disables (name : Name) (value : OptionValue) : Bool :=
-  (rootOf name).any warningRoots.contains && value.readsAs (.bool false) &&
+  warningRoots.contains name.getRoot && value.readsAs (.bool false) &&
     !exclusions.contains name
 
 /-- The `-D` setting of `name` to `value` gives a required option a value the requirement does
@@ -559,9 +582,7 @@ theorem meets_iff (o : BuildOptions) (r : Name × OptionValue) :
 theorem disables_iff (name : Name) (value : OptionValue) :
     disables name value = true ↔
       WarningOption name ∧ value.ReadsAs (.bool false) ∧ name ∉ exclusions := by
-  have hw : (rootOf name).any warningRoots.contains = true ↔ WarningOption name := by
-    cases h : rootOf name <;> simp [warningRoots, WarningOption, h]
-  simp [disables, hw, OptionValue.readsAs_iff, and_assoc]
+  simp [disables, warningRoots, WarningOption, OptionValue.readsAs_iff, and_assoc]
 
 /-- `contradicts` decides exactly the negation of the third conjunct's condition. -/
 theorem contradicts_eq_false_iff (o : BuildOptions) (mathlib : Bool) (name : Name)
@@ -639,7 +660,7 @@ theorem missingDocs_unset_fails :
     failures ⟨[(`autoImplicit, .bool false), (`relaxedAutoImplicit, .bool false)], []⟩ false =
       [.option `linter.missingDocs (.bool true) []] := by
   simp [failures, required, baseline, meets, admits, valuesOf, optionOf, disables, warningRoots,
-    rootOf, exclusions, argumentSettings, argumentTexts, OptionValue.readsAs]
+    exclusions, Name.getRoot, argumentSettings, argumentTexts, OptionValue.readsAs]
 
 /-- A `-D` string value contradicts the requirement exactly when it is a value the requirement does
 not admit for a required option (`admits`), or it is `"false"` for a linter or one of Lean's own
@@ -743,7 +764,44 @@ theorem maxHeartbeats_argument_passes (options : List (Name × OptionValue)) (ma
   obtain ⟨rfl, rfl⟩ := hd
   have ho : optionOf "maxHeartbeats".toName = `maxHeartbeats := by rw [h]; rfl
   rw [ho] at hc
-  cases mathlib <;> simp [required, baseline, mathlibBaseline, rootOf, WarningOption, admits] at hc
+  cases mathlib <;> simp [required, baseline, mathlibBaseline, WarningOption, admits] at hc
+
+/-- `-Dweak.0.warn.example=false` names the option `0.warn.example`, whose first component is the
+number `0`: no linter or warning of Lean's, and Lean ignores an unknown option after `weak.`, so
+it adds no failure. -/
+theorem numeric_root_argument_passes (options : List (Name × OptionValue)) (mathlib : Bool)
+    (h : "weak.0.warn.example".toName = .str (.str (.num `weak 0) "warn") "example") (n : Name)
+    (v : OptionValue) :
+    Failure.leanArgument n v ∉ failures ⟨options, ["-Dweak.0.warn.example=false"]⟩
+      mathlib := by
+  rw [leanArgument_mem_failures_iff]
+  rintro ⟨name, value, hd, rfl, rfl, hc⟩
+  have ht : argumentTexts ["-Dweak.0.warn.example=false"] =
+      [("weak.0.warn.example", "false")] := by
+    decide
+  rw [← mem_argumentTexts_iff, ht, List.mem_singleton, Prod.mk.injEq] at hd
+  obtain ⟨rfl, rfl⟩ := hd
+  have ho :
+      optionOf "weak.0.warn.example".toName = .str (.str (.num .anonymous 0) "warn") "example" := by
+    rw [h]; rfl
+  have hw : ¬WarningOption (.str (.str (.num .anonymous 0) "warn") "example") := by
+    unfold WarningOption; decide
+  rw [ho] at hc
+  cases mathlib <;> simp [required, baseline, mathlibBaseline, hw] at hc
+
+/-- A `leanOptions` key `weak.0.linter.example` set to `false` names the option `0.linter.example`,
+whose first component is the number `0`, so it turns off no linter. -/
+theorem numeric_root_option_passes (mathlib : Bool) (n : Name) :
+    Failure.disabledWarning n ∉
+      failures ⟨[(.str (.str (.num `weak 0) "linter") "example", .bool false)], []⟩
+        mathlib := by
+  rw [disabledWarning_mem_failures_iff]
+  rintro ⟨_, he, rfl, hw, -⟩
+  rw [List.mem_singleton] at he
+  subst he
+  revert hw
+  unfold WarningOption
+  decide
 
 /-- `-qD` followed by `weak.linter.unusedVariables=false` turns off a linter outside the §6.7
 exclusions, so the target fails. -/
@@ -861,9 +919,7 @@ theorem licensed_header_passes :
       (`linter.style.header.license,
         .string "Released under the MIT license as described in the repository LICENSE."),
       (`linter.hashCommand, .bool false), (`linter.style.longFile, .nat 0)], []⟩ true = [] := by
-  simp +decide [failures, required, baseline, mathlibBaseline, meets, admits, licensed,
-    licenseValues, valuesOf, optionOf, disables, warningRoots, exclusions, argumentSettings, argumentTexts,
-    headerLinter, licenseOption, OptionValue.readsAs, OptionValue.isLicense]
+  decide
 
 /-- The same target without the license line fails with exactly the header linter, set to
 `true`, where `false` is required. -/
@@ -874,7 +930,7 @@ theorem unlicensed_header_fails :
       (`linter.hashCommand, .bool false), (`linter.style.longFile, .nat 0)], []⟩ true =
       [.option `linter.style.header (.bool false) [.bool true]] := by
   simp [failures, required, baseline, mathlibBaseline, meets, admits, licensed,
-    licenseValues, valuesOf, optionOf, disables, warningRoots, rootOf, exclusions, argumentSettings,
-    argumentTexts, headerLinter, licenseOption, OptionValue.readsAs]
+    licenseValues, valuesOf, optionOf, disables, warningRoots, exclusions, argumentSettings,
+    argumentTexts, headerLinter, licenseOption, OptionValue.readsAs, Name.getRoot]
 
 end RegulaPolicy.Community

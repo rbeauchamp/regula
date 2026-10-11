@@ -1532,8 +1532,8 @@ def guide : RuleId → Guide
         `conforming_missingDocs`, `conforming_header`, `header_on_unlicensed_fails`, \
         `licensed_iff`, `licensed_header_passes`, `unlicensed_header_fails`, \
         `leanArgument_mem_failures_iff`, `disabledWarning_mem_failures_iff`, \
-        `warn_sorry_option_fails` and `missingDocs_unset_fails`. Reading Lake's target \
-        configuration is operational."
+        `warn_sorry_option_fails`, `numeric_root_option_passes`, `optionOf_eq_replacePrefix` and \
+        `missingDocs_unset_fails`. Reading Lake's target configuration is operational."
       sources := ["lean/RegulaPolicy/Community.lean", "lean/Regula/Checker/Lake.lean",
         "lean/Regula/Checker/AxiomGate.lean", "website/RegulaStandard/CodeOrganization.lean"] }
   | .executionUnresolved => {
