@@ -480,10 +480,10 @@ metadata, not authenticated binary identity.
   executable's root, inspected alone) keep the complete observed declaration and execution
   inventories, including trusted boundaries and correspondence evidence; in `axiomGate` results
   `scope.toolchainBase` lists every boundary the toolchain owns once for the whole audit, with
-  the environments and roots that reach it, except a `partial` implementation that every root
-  reaching it carries: since schema 18 the entry of each boundary that carries one names it in
-  its `implementations` instead (`RegulaPolicy.checked_toolchainBase`); project scope also keeps
-  its source snapshots, Lake library inventory and completed stage names. File scope keeps its
+  the environments and roots that reach it, except a `partial` implementation that all roots
+  reaching it carry, which the `implementations` of each entry that carries it name since schema
+  18; project scope also keeps its source snapshots, Lake library inventory and completed stage
+  names. File scope keeps its
   nullable foundation claim, execution claim and exact source even without findings.
 - **Build origin:** In `axiomGate` project results, `scope.buildOrigin` names the origin of the
   build output. It is `isolatedCopy`, `driverCopy` or `incrementalBuild`.

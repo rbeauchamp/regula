@@ -657,12 +657,11 @@ per-environment counts, which earlier schemas also named `execution`, are
 `acceptance.account.executionSummary`. Its `boundaries`, `checked` and `trusted` count the
 boundaries reported on their own, as the text does: a `partial` implementation (a constant of
 `partial` definition safety, such as a `partial def`'s `_unsafe_rec` helper) is counted with the
-trusted boundary that names it as the code run in its place where both have the same owner,
+trusted boundary that names it as the code run in its place where the two have the same owner,
 the toolchain or not, and a later record of one trusted boundary of a root with the first, while
-a root's account above keeps every boundary record. In the same way, `scope.toolchainBase` lists
-a toolchain `partial def` and its `_unsafe_rec` helper as one entry whose `implementations`, a
-member since schema 18, names the helper, unless a root reaches the helper without the boundary
-that carries it.
+a root's account above keeps every boundary record. In the same way, `scope.toolchainBase` gives
+a toolchain `partial def` and its `_unsafe_rec` helper one entry. The `implementations` member of
+that entry, new in schema 18, names the helper.
 
 Every Lean name in the document, in `diagnostics`, `scope` and `acceptance` alike, is written one
 way: as the text Lean prints for it (`Name.toString`, which escapes a component with `«»` where it
