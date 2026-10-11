@@ -628,7 +628,11 @@ it from an observation that follows no link at the path.
 **Outside this decision:** a process that replaces an entry below the directory with a link
 while the removal runs. `IO.FS.removeDirAll` examines each entry and then opens it by its path,
 so such a process can make it remove the entries of a different directory. The checker removes
-its own scratch directories with the same function (`Regula.Scratch`). -/
+its own scratch directories with the same function (`Regula.Scratch`).
+
+The site executable decides its removals with `Regula.Removal.removal`, which this module cannot
+import. `RegulaVerification.Decisions.removal_shared` proves that `removal` is that decision for a
+directory. -/
 
 /-- What is at a path, observed without following a symbolic link at the path itself. -/
 inductive Place where

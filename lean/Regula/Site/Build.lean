@@ -2,6 +2,7 @@ import Regula.Qualification.RuleExamples
 import Regula.Checker.ResultProtocol
 import RegulaCore.SiteDocs
 import RegulaCore.SiteTheme
+import Regula.Removal
 
 /-! # Rule-reference site builder
 
@@ -28,6 +29,11 @@ Process, filesystem, Git, network and Verso observations are trusted operational
 decisions (editions, releases and routes, escaping, filters, diffs, links, page structure, colour
 contrast) are proved in `RegulaCore.Edition`, `RegulaCore.Site`, `RegulaCore.SitePage`,
 `RegulaCore.SiteDocs` and `RegulaCore.SiteTheme`.
+Each directory or file that the builder removes is removed by `Regula.Removal.removeOwn` or
+`removeEntry`, only when a read that follows no link finds an entry of its kind at its own place
+(`Regula.Removal.removal_remove_iff`); in every other case the build stops with nothing removed.
+`Regula.Site.Main` fails to build when its `main` reaches another removal
+(`Regula.Removal.rawRemovals`).
 Workspace paths of the
 disposable qualification projects are displayed as `<example>`, `<scratch>` and `<regula>`; the
 exact records remain in the corpus export this build consumed.
@@ -310,7 +316,7 @@ an unreadable archive, a symbolic link, a copy without a home page, and a copy w
 does not record a clean build of `v` for this site. -/
 def extractRelease (root : FilePath) (v : ReleaseVersion) : IO (List (String × ByteArray)) := do
   let dir := releaseDirectory root / v.spelling
-  if ← dir.pathExists then IO.FS.removeDirAll dir
+  Regula.Removal.removeOwn .directory dir
   IO.FS.createDirAll dir
   let archive := releaseDirectory root / releaseAsset v
   let extracted ← run root "tar" #["-xzf", archive.toString, "-C", dir.toString]
@@ -394,7 +400,7 @@ stylesheet (`Regula.Site.stylesheet`) as `website/Generated/regula.css`, which t
 package copies to each edition's root. -/
 def generate (root : FilePath) (g : Generated) : IO Unit := do
   let out := root / "website/Generated"
-  if ← out.pathExists then IO.FS.removeDirAll out
+  Regula.Removal.removeOwn .directory out
   let top := root / "website/Generated.lean"
   IO.FS.writeFile top (← IO.ofExcept (homePage g.ident))
   IO.FS.createDirAll out
