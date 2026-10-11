@@ -278,7 +278,8 @@ metadata, not authenticated binary identity.
   each stage a stopping finding (an incomplete finding, or an [RG2002] or [RG2003] refusal) left
   unfinished and every later one; `complete` holds exactly when no required stage is missing.
   One function, `ResultProtocol.guidanceFields`, derives these members for writer and reader,
-  and `ResultProtocol.admitGuidance` re-derives them on admission. The
+  and `ResultProtocol.admitGuidance` re-derives them on admission. Admission also refuses a
+  status that the findings do not allow. The
   [adoption guide](adoption.md#machine-readable-report) documents the members for adopters.
 - **Source texts:** since schema 7 a result file holds each distinct source text once, in its
   top-level `sourceTexts`, and every `sourceText` member (a source location; a `sourceAccount`

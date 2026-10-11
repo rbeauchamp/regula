@@ -1,5 +1,6 @@
 import RegulaPolicy.Acceptance
 import RegulaCore.Account
+import RegulaCore.Lint
 import Regula.Website
 import Regula.Checker.Producer
 import Regula.Checker.RuleDiagnostics
@@ -362,25 +363,135 @@ def runStages : Option EvidenceMode → List (List Stage)
   | some mode => [stagesOf mode]
   | none => [allStages]
 
-/-- Admit a result envelope's agent members in the registry-export style: it has this schema
-version; every diagnostic decodes to its canonical indexed form (`DiagnosticCodec.parseDiagnostic`,
-which includes the finding's `remedy` and `text`); every entry of `stages` and `stagesCompleted`
-is a stage, and `stages` are the required stages of the result's `mode` (`runStages`); a result
-with a `mode` records its `request`, whose documentation stages are exactly those of a
-`projectWithDocs` request;
-`stagesCompleted`, `complete`, `stagesNotRun` and `rules` have search trees and agree with their
-derivation by the writer's own `guidanceFields` (`JsonAgreement.conforms`) from the status,
-those stages and the diagnostics, which the writer's own members reproduce
-(`guidanceFields_recorded`). So a result whose status is not `completed` reports no stage that a
-finding blocks as run, and a `completed` result reports every stage as run, whatever its findings
-(`completedStages` reads no finding for it, https://github.com/rbeauchamp/regula/issues/364); and
-an `incomplete` result without an incomplete finding reports a stage not run, because only a stage
-that did not complete can have left it incomplete. This is consistency against writer regressions
-and omissions, not authenticity: a report deliberately edited to be self-consistent, such as a
-rewritten `request.kind`, passes. -/
-def admitGuidance (j : Json) : Except String Unit := do
-  unless (j.getObjVal? "schemaVersion").toOption.any
-      (JsonAgreement.conforms · (toJson schemaVersion)) do
+/-- The rule and impact of each finding, the form in which `Lint.Observation` records a run's
+findings. -/
+def impacts (findings : List Finding) : List (RuleId × Impact) :=
+  findings.map fun f => (f.1, f.2.impact)
+
+/-- Whether a result of `status` can carry `findings`: none for `completed` and `classified`, at
+least one for `rejected` and every one a violation, any for `incomplete`, and no other status
+(`statusAgrees_completed`). Every status `Lint.Observation.status` decides agrees with the
+observation's findings (`statusAgrees_observation`), and apart from `completed`, whose observation
+carries an accepted account, every status that agrees with them is one it decides from them
+(`statusAgrees_iff`). -/
+def statusAgrees (status : String) (findings : List Finding) : Bool :=
+  match status with
+  | "completed" | "classified" => findings.isEmpty
+  | "rejected" => !findings.isEmpty && findings.all (·.2.impact == .violation)
+  | "incomplete" => true
+  | _ => false
+
+/-- A `completed` result agrees with its findings exactly when it has none. -/
+theorem statusAgrees_completed (findings : List Finding) :
+    statusAgrees "completed" findings = true ↔ findings = [] := by
+  simp [statusAgrees]
+
+/-- The tally of a list of findings counts no incomplete finding and at least one violation
+exactly when the list is not empty and every finding is a violation. -/
+theorem tally_rejected_iff (findings : List Finding) :
+    (Lint.tally ((impacts findings).map (·.2))).incomplete = 0 ∧
+        0 < (Lint.tally ((impacts findings).map (·.2))).violations ↔
+      findings ≠ [] ∧ ∀ f ∈ findings, f.2.impact = .violation := by
+  have key : ∀ f : Finding, f.2.impact ≠ .incomplete ↔ f.2.impact = .violation := by
+    intro f; cases f.2.impact <;> simp
+  simp only [Lint.tally_eq, impacts, List.map_map, Function.comp_def, List.length_eq_zero_iff,
+    List.filter_eq_nil_iff, List.mem_map, List.length_pos_iff, ne_eq]
+  constructor
+  · rintro ⟨hi, hv⟩
+    refine ⟨fun h => by simp [h] at hv,
+      fun f hf => (key f).mp fun h => by simpa [h] using hi _ ⟨f, hf, rfl⟩⟩
+  · rintro ⟨hne, hall⟩
+    refine ⟨fun i ⟨f, hf, he⟩ => by subst he; simp [hall f hf], fun h => ?_⟩
+    obtain ⟨f, hf⟩ := List.exists_mem_of_ne_nil findings hne
+    have := h _ ⟨f, hf, rfl⟩
+    simp [hall f hf] at this
+
+/-- The status an observation decides agrees with the findings it records: a result whose
+writer writes an observation's status and the findings that observation records is never refused
+for its status. -/
+theorem statusAgrees_observation (o : Lint.Observation) (findings : List Finding)
+    (h : o.findings = impacts findings) : statusAgrees o.status.spelling findings = true := by
+  cases o with
+  | accepted a =>
+    simp only [Lint.Observation.findings, impacts] at h
+    simp [Lint.Observation.status, Account.Status.spelling, statusAgrees,
+      List.map_eq_nil_iff.mp h.symm]
+  | classified =>
+    simp only [Lint.Observation.findings, impacts] at h
+    simp [Lint.Observation.status, Account.Status.spelling, statusAgrees,
+      List.map_eq_nil_iff.mp h.symm]
+  | refused fs u =>
+    simp only [Lint.Observation.findings] at h
+    subst h
+    simp only [Lint.Observation.status, Lint.Observation.tally, Lint.Observation.findings]
+    by_cases hc : u = false ∧ (Lint.tally ((impacts findings).map (·.2))).incomplete = 0 ∧
+        0 < (Lint.tally ((impacts findings).map (·.2))).violations
+    · simp only [hc, and_self, ↓reduceIte]
+      have := (tally_rejected_iff findings).mp ⟨hc.2.1, hc.2.2⟩
+      simp [Account.Status.spelling, statusAgrees, this.1, List.all_eq_true]
+      exact fun f hf => this.2 f hf
+    · simp only [hc, ↓reduceIte]
+      simp [Account.Status.spelling, statusAgrees]
+
+/-- For every status but `completed`, a result's status agrees with its findings exactly when an
+observation that records those findings' rules and impacts decides that status. A `completed`
+observation carries an accepted account, so `statusAgrees_completed` states that case instead. -/
+theorem statusAgrees_iff (status : String) (findings : List Finding)
+    (h : status ≠ "completed") :
+    statusAgrees status findings = true ↔
+      ∃ o : Lint.Observation, o.status.spelling = status ∧ o.findings = impacts findings := by
+  constructor
+  · intro ha
+    unfold statusAgrees at ha
+    split at ha
+    · exact absurd rfl h
+    · exact ⟨.classified, rfl, by simp_all [Lint.Observation.findings, impacts]⟩
+    · refine ⟨.refused (impacts findings) false, ?_, rfl⟩
+      have hr : findings ≠ [] ∧ ∀ f ∈ findings, f.2.impact = .violation := by
+        simp only [Bool.and_eq_true, Bool.not_eq_true', List.isEmpty_eq_false_iff,
+          List.all_eq_true, beq_iff_eq] at ha
+        exact ha
+      have := (tally_rejected_iff findings).mpr hr
+      simp only [Lint.Observation.status, Lint.Observation.tally, Lint.Observation.findings]
+      simp [this, Account.Status.spelling]
+    · refine ⟨.refused (impacts findings) true, ?_, rfl⟩
+      simp [Lint.Observation.status, Account.Status.spelling]
+    · exact absurd ha (by simp)
+  · rintro ⟨o, rfl, ho⟩
+    exact statusAgrees_observation o findings ho
+
+/-- The keys of the members `guidanceFields` writes, in its order (`guidanceFields_keys`). -/
+def guidanceKeys : List String := ["stages", "stagesCompleted", "complete", "stagesNotRun", "rules"]
+
+theorem guidanceFields_keys (accepted : Bool) (required completed : List Stage)
+    (findings : List Finding) :
+    (guidanceFields accepted required completed findings).map (·.1) = guidanceKeys := rfl
+
+/-- The members of a result envelope that `admitGuidance` decides on, as `readGuidance` decodes
+them. -/
+structure Guidance where
+  /-- The `status` text. -/
+  status : String
+  /-- The `mode`, or `none` for `null`. -/
+  mode : Option EvidenceMode
+  /-- `request.kind` is `projectWithDocs`; read only for a result with a mode, else `false`. -/
+  withDocs : Bool
+  /-- The stages of `stages`. -/
+  required : List Stage
+  /-- The stages of `stagesCompleted`. -/
+  completed : List Stage
+  /-- The decoded `diagnostics`. -/
+  findings : List Finding
+  /-- The recorded value of each `guidanceKeys` member, under its key, in that order. -/
+  members : List (String × Json)
+
+/-- Decode the members `admitGuidance` decides on: the schema version must be this one, every
+diagnostic must decode to its canonical indexed form (`DiagnosticCodec.parseDiagnostic`, which
+includes the finding's `remedy` and `text`), every entry of `stages` and `stagesCompleted` must
+be a stage (`parseStage`), `mode` must be `null` or a mode, a result with a mode must record
+`request.kind`, and `status` and every `guidanceKeys` member must be present. -/
+def readGuidance (j : Json) : Except String Guidance := do
+  unless (j.getObjVal? "schemaVersion").toOption == some (toJson schemaVersion) do
     throw "unsupported result schema"
   let findings := (← (← (← j.getObjVal? "diagnostics").getArr?).mapM
     DiagnosticCodec.parseDiagnostic).toList
@@ -391,19 +502,129 @@ def admitGuidance (j : Json) : Except String Unit := do
   let mode ← match ← j.getObjVal? "mode" with
     | .null => pure none
     | mode => some <$> RegistryCodec.parseMode (← mode.getStr?)
-  unless (runStages mode).contains required do
-    throw "stages are not the required stages of the result's mode"
-  if mode.isSome then
-    let withDocs := (← (← (← j.getObjVal? "request").getObjVal? "kind").getStr?) ==
-        "projectWithDocs"
-    unless withDocs == (required == stagesOf .freshProject ++ documentationStages) do
-      throw "stages are not the required stages of the result's request"
+  let withDocs ← if mode.isSome then do
+      pure ((← (← (← j.getObjVal? "request").getObjVal? "kind").getStr?) == "projectWithDocs")
+    else pure false
   let status ← (← j.getObjVal? "status").getStr?
-  for (key, value) in guidanceFields (acceptedStatus status) required completed findings do
-    unless JsonAgreement.conforms (← j.getObjVal? key) value do throw s!"noncanonical result {key}"
-  if status == "incomplete" && !findings.any (·.2.impact == .incomplete) &&
-      (notRun required completed).isEmpty then
-    throw "incomplete result without an incomplete finding reports every stage as run"
+  let members ← guidanceKeys.mapM fun key => do pure (key, ← j.getObjVal? key)
+  return { status, mode, withDocs, required, completed, findings, members }
+
+/-- `ok`, or the refusal `problem`. -/
+def requireThat (ok : Bool) (problem : String) : Except String Unit :=
+  if ok then .ok () else .error problem
+
+theorem requireThat_bind_eq_ok {α : Type} (ok : Bool) (problem : String)
+    (rest : Except String α) (a : α) :
+    (requireThat ok problem >>= fun _ => rest) = .ok a ↔ ok = true ∧ rest = .ok a := by
+  cases ok <;> simp [requireThat, bind, Except.bind]
+
+theorem requireThat_eq_ok (ok : Bool) (problem : String) :
+    requireThat ok problem = .ok () ↔ ok = true := by
+  cases ok <;> simp [requireThat]
+
+/-- The decision of `admitGuidance` on decoded members, stated by `guidanceVerdict_eq_ok_iff`:
+`stages` are the required stages of the result's `mode` (`runStages`), and for a result with a
+mode its documentation stages are exactly those of a `projectWithDocs` request; a result without
+a mode has exactly the form `invalidateResults` writes for a destination whose configuration was
+not yet validated: `incomplete`, without a finding or a completed stage; the status agrees with
+the findings (`statusAgrees`), so a `completed` or `classified` result has none; the guidance
+members equal their derivation by the writer's own `guidanceFields`; and an `incomplete` result
+without an incomplete finding reports a stage not run. -/
+def guidanceVerdict (g : Guidance) : Except String Unit := do
+  requireThat ((runStages g.mode).contains g.required)
+    "stages are not the required stages of the result's mode"
+  requireThat (g.mode.isNone ||
+      g.withDocs == (g.required == stagesOf .freshProject ++ documentationStages))
+    "stages are not the required stages of the result's request"
+  requireThat
+    (g.mode.isSome || g.status == "incomplete" && g.findings.isEmpty && g.completed.isEmpty)
+    "a result without a mode is not the invalidated result of an unvalidated configuration"
+  let incomplete := (g.findings.filter (·.2.impact == .incomplete)).length
+  requireThat (statusAgrees g.status g.findings)
+    s!"a {g.status} result cannot carry its {g.findings.length} findings ({incomplete} incomplete)"
+  let expected := guidanceFields (acceptedStatus g.status) g.required g.completed g.findings
+  let differing := ((g.members.zip expected).find? fun (m, e) => m != e).map (·.1.1)
+  requireThat (g.members == expected) s!"noncanonical result {differing.getD "guidance"}"
+  requireThat (g.status != "incomplete" || g.findings.any (·.2.impact == .incomplete) ||
+      !(notRun g.required g.completed).isEmpty)
+    "incomplete result without an incomplete finding reports every stage as run"
+
+/-- The required stages are never missing from themselves. -/
+theorem notRun_self (required : List Stage) : notRun required required = [] := by
+  simp [notRun, List.filter_eq_nil_iff]
+
+/-- What `guidanceVerdict` accepts, for every decoded envelope. -/
+theorem guidanceVerdict_eq_ok_iff (g : Guidance) :
+    guidanceVerdict g = .ok () ↔
+      g.required ∈ runStages g.mode ∧
+      (g.mode.isSome →
+        g.withDocs = (g.required == stagesOf .freshProject ++ documentationStages)) ∧
+      (g.mode = none → g.status = "incomplete" ∧ g.findings = [] ∧ g.completed = []) ∧
+      statusAgrees g.status g.findings = true ∧
+      (g.members == guidanceFields (acceptedStatus g.status) g.required g.completed g.findings) =
+        true ∧
+      (g.status = "incomplete" → (∃ f ∈ g.findings, f.2.impact = .incomplete) ∨
+        notRun g.required g.completed ≠ []) := by
+  simp only [guidanceVerdict, requireThat_bind_eq_ok, requireThat_eq_ok]
+  cases hm : g.mode <;>
+    simp [Bool.or_eq_true, Bool.and_eq_true, List.isEmpty_iff, beq_iff_eq, List.any_eq_true,
+      bne_iff_ne, ne_eq, and_assoc, Decidable.imp_iff_not_or, or_assoc]
+
+/-- A `completed` envelope is admitted exactly when it has a mode whose required stages its
+`stages` are, with the documentation stages of its request, no finding, and the members of a run
+that completed every one of those stages: `stagesCompleted` the same stages, `complete` true, no
+stage in `stagesNotRun` and no rule guidance. Its `stagesCompleted` is not otherwise read. -/
+theorem guidanceVerdict_completed (g : Guidance) (h : g.status = "completed") :
+    guidanceVerdict g = .ok () ↔
+      (∃ mode, g.mode = some mode ∧ g.required ∈ runStages (some mode) ∧
+        g.withDocs = (g.required == stagesOf .freshProject ++ documentationStages)) ∧
+      g.findings = [] ∧
+      (g.members == [("stages", toJson (g.required.map stageName)),
+        ("stagesCompleted", toJson (g.required.map stageName)), ("complete", .bool true),
+        ("stagesNotRun", toJson ([] : List String)), ("rules", RegistryCodec.rulesJson [])]) =
+        true := by
+  rw [guidanceVerdict_eq_ok_iff, h, statusAgrees_completed]
+  cases hm : g.mode with
+  | none => simp
+  | some mode =>
+    constructor
+    · rintro ⟨hr, hw, -, hf, hmem, -⟩
+      rw [hf] at hmem
+      refine ⟨⟨mode, rfl, hr, hw rfl⟩, hf, ?_⟩
+      simpa [guidanceFields, completedStages, acceptedStatus, notRun_self] using hmem
+    · rintro ⟨⟨m, hm', hr, hw⟩, hf, hmem⟩
+      cases hm'
+      rw [hf]
+      refine ⟨hr, fun _ => hw, by simp, rfl, ?_, by simp⟩
+      simpa [guidanceFields, completedStages, acceptedStatus, notRun_self] using hmem
+
+/-- No stage that a finding of an admitted envelope blocks is among the stages whose names its
+recorded `stagesCompleted` must equal (`guidanceVerdict_eq_ok_iff`): a `completed` result has no
+finding, and every other status records only stages no finding blocks. -/
+theorem guidanceVerdict_unblocked (g : Guidance) (h : guidanceVerdict g = .ok ()) :
+    ∀ s ∈ completedStages (acceptedStatus g.status) g.required g.completed g.findings,
+      blocked g.findings s = false := by
+  have agrees := ((guidanceVerdict_eq_ok_iff g).mp h).2.2.2.1
+  intro s hs
+  cases ha : acceptedStatus g.status
+  · simp only [completedStages, ha, Bool.false_eq_true, ↓reduceIte, List.mem_filter,
+      Bool.and_eq_true, Bool.not_eq_true'] at hs
+    exact hs.2.2
+  · have : g.status = "completed" := by simpa [acceptedStatus] using ha
+    rw [this, statusAgrees_completed] at agrees
+    simp [blocked, agrees]
+
+/-- Admit a result envelope's agent members in the registry-export style: decode them
+(`readGuidance`) and decide on them (`guidanceVerdict`). `guidanceVerdict_eq_ok_iff` states what
+it admits, `guidanceVerdict_completed` what it admits of a `completed` result, which has no
+finding, and `guidanceVerdict_unblocked` that no stage a finding blocks is reported as run.
+`statusAgrees_observation` states that a writer that writes an observation's status with the
+findings that observation records passes the status check; that each writer does so is read from
+its code, not proved. This is consistency against writer regressions and omissions, not
+authenticity: a report deliberately edited to be self-consistent, such as a rewritten
+`request.kind`, passes. -/
+def admitGuidance (j : Json) : Except String Unit := do
+  guidanceVerdict (← readGuidance j)
 
 /-- The JSON record of the request a result answers: its kind, project, subject, optional
 claim and execution mode, and each configuration file path with its text, if read. -/

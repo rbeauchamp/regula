@@ -3724,7 +3724,9 @@ build's skill is the development edition's, which the committed skill is compare
 parser admits exactly its documented commands (`parseCommand_arguments`, `parseCommand_sound`,
 `parseInvocation_arguments`, `parseInvocation_sound`). Result stages: `stagesOf_required`,
 `stagesOf_ordered`, `withDocs_ordered`, `notRun_completedStages_eq_nil_iff`,
-`completedStages_idem`, `guidanceFields_recorded`, `parseStage_stageName`. Snapshot size:
+`completedStages_idem`, `guidanceFields_recorded`, `parseStage_stageName`. Result admission:
+`guidanceVerdict_eq_ok_iff`, `guidanceVerdict_completed`, `guidanceVerdict_unblocked`,
+`statusAgrees_observation`, `statusAgrees_iff`. Snapshot size:
 `snapshotJson_configuration_independent`, `environmentJson_imports_independent` and
 `Environment.resultJson_imports_independent` (`rfl`) show the rendering does not depend on
 dependency text or import lists; the resulting size bound is an argument from construction, not a
@@ -3773,11 +3775,12 @@ the `history` qualification (`derivedOnly`) and on built and parsed accounts by
 These theorems concern text and data as functions of their inputs: that the checker supplies
 every finding, and that the process writes the lines, are operational. `admitGuidance` checks a
 result's consistency against writer regressions, not authenticity: a report edited to be
-self-consistent passes. `RegistryChecks` exhaustively checks the 24 descriptors, the embedded
-examples and the committed skill file, and exercises malformed transport, missing and duplicate
-routes, unsupported modes, Unicode/CRLF coordinates, native/text agreement and incomplete
-negative outcomes as observations of those boundaries, not sampled evidence for the universal
-theorems. JSON text parsing, `FileMap`, and the compiler's collection of names, ranges and source
+self-consistent passes. It refuses a status that the findings of the result do not allow. That the
+writers write only such statuses is read from their code, not proved. `RegistryChecks`
+exhaustively checks the 24 descriptors, the embedded examples and the committed skill file, and
+exercises malformed transport, missing and duplicate routes, unsupported modes, Unicode/CRLF
+coordinates, native/text agreement and incomplete negative outcomes as observations of those
+boundaries, not sampled evidence for the universal theorems. JSON text parsing, `FileMap`, and the compiler's collection of names, ranges and source
 identity are trusted.
 
 ## Generated declaration families
