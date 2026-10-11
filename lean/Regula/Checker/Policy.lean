@@ -189,12 +189,13 @@ private def classifyWith (decl : Declaration) (foundation : String) : String :=
           s!" shared-others={repr (contract.shared.others.toList.map (·.toString))}" ++
           s!" shared-through-types={repr (contract.shared.throughTypes.toList.map (·.toString))}"
         else "")) |>.getD ""
+  let evidenceText := (decl.contractEvidence.map (" " ++ ·.text)).getD ""
   let decisionText := (decl.decisionResult.map (s!" decision-result={·.spelling}")).getD ""
   let omissionText := if decl.tableOmissions.isEmpty then "" else
     s!" table-omissions: {RegulaPolicy.tableOmissionText decl.axioms decl.tableOmissions}"
   s!"{decl.name} ({decl.kind}){flagText}{roleText} type={decl.prettyType} " ++
     s!"axioms={repr (decl.axioms.toList.map (·.toString))} -> {foundation}{contractText}" ++
-    decisionText ++ omissionText
+    evidenceText ++ decisionText ++ omissionText
 
 /-- One-line text of a declaration for `--verbose` output: its name, kind, flags, roles,
 type, axioms and foundation label, or `invalid-inventory` when the scope has no label for it,

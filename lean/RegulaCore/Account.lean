@@ -354,6 +354,27 @@ structure OmissionAccount where
   /-- The axioms `collectAxioms` omits. -/
   omissions : Array Lean.Name
 
+/-- One registration of the accepted inventory whose requirement reduces to a decision carrier,
+with the law observer's report of it (`RegulaPolicy.ContractEvidence`): the census environment by
+its position, the registration, its module, the implementation and the requirement its recorded
+contract names, and the report. Each entry is one registration's own: no entry joins
+registrations by name or text (`mem_evidenceOf`). The report decides nothing; its adequacy and
+caller coverage remain `ContractAccount.unresolved`. -/
+structure EvidenceAccount where
+  /-- The position of the registration's environment in the census. -/
+  environment : Nat
+  /-- The declaration that registers the contract. -/
+  registration : Lean.Name
+  /-- The module that declares the registration. -/
+  «module» : Lean.Name
+  /-- The implementation the recorded contract names. -/
+  implementation : Lean.Name
+  /-- The collector's rendering of the requirement Lean checked about the implementation. -/
+  requirement : String
+  /-- The law observer's report of the registration. -/
+  evidence : RegulaPolicy.ContractEvidence
+  deriving Repr, DecidableEq
+
 /-- The report account's data. Construct it only through `account`. -/
 structure AccountData where
   /-- The claim's evidence mode. -/
@@ -389,6 +410,9 @@ structure AccountData where
   /-- Each owned declaration of the accepted inventory for which Lean's `collectAxioms` omits axioms
   it reaches in the replayed kernel. -/
   omissions : Array OmissionAccount
+  /-- The law observer's report of each registration of the accepted inventory whose requirement
+  reduces to a decision carrier, each with its environment, module and requirement. -/
+  evidence : Array EvidenceAccount
 
 /-- Every `ExecutableContract` registration among the census's declarations, with its module,
 implementation, rendered requirement, decision kind and shared functions, environment by
@@ -446,6 +470,41 @@ theorem mem_countedOf {c : Claim} {i : Census} {x : CountedAccount} :
         exact ⟨⟨hkind, hfailure⟩, d, hd, hname, hregistered⟩
       exact ⟨k, hk, by simp only [hcond, ↓reduceIte]⟩
 
+/-- The law observer's report of each registration among the census's declarations that has a
+recorded contract and a report, with the position of its environment, its module, implementation
+and rendered requirement, environment by environment. -/
+def evidenceOf (i : Census) : Array EvidenceAccount :=
+  (Array.range i.environments.size).flatMap fun slot =>
+    match i.environments[slot]? with
+    | none => #[]
+    | some e => e.policy.declarations.filterMap fun d =>
+      match d.executableContract, d.contractEvidence with
+      | some k, some evidence => some ⟨slot, d.name, d.module, k.root, k.requirement, evidence⟩
+      | _, _ => none
+
+/-- An entry of `evidenceOf` is exactly one declaration of one environment of the census, with
+that environment's position, the declaration's own recorded contract and its own report. -/
+theorem mem_evidenceOf {i : Census} {x : EvidenceAccount} :
+    x ∈ evidenceOf i ↔
+      ∃ slot, ∃ e, i.environments[slot]? = some e ∧ ∃ d ∈ e.policy.declarations,
+        ∃ k evidence, d.executableContract = some k ∧ d.contractEvidence = some evidence ∧
+          x = ⟨slot, d.name, d.module, k.root, k.requirement, evidence⟩ := by
+  simp only [evidenceOf, Array.mem_flatMap, Array.mem_range]
+  constructor
+  · rintro ⟨slot, -, member⟩
+    cases environment : i.environments[slot]? with
+    | none => simp [environment] at member
+    | some e =>
+      simp only [environment, Array.mem_filterMap] at member
+      obtain ⟨d, hd, found⟩ := member
+      cases contract : d.executableContract <;> cases reported : d.contractEvidence <;>
+        simp [contract, reported] at found
+      exact ⟨slot, e, environment, d, hd, _, _, contract, reported, found.symm⟩
+  · rintro ⟨slot, e, environment, d, hd, k, evidence, contract, reported, rfl⟩
+    refine ⟨slot, (Array.getElem?_eq_some_iff.mp environment).1, ?_⟩
+    simp only [environment, Array.mem_filterMap]
+    exact ⟨d, hd, by simp [contract, reported]⟩
+
 /-- Every declaration among the census's declarations that records an omission of Lean's
 `collectAxioms`, with its module, axioms and omissions, environment by environment. -/
 def omissionsOf (i : Census) : Array OmissionAccount :=
@@ -466,7 +525,10 @@ accepted fences by expectation. The trusted dependencies are the packages of the
 snapshot dependencies that are not owned or that provide a module under the checker's reserved
 prefixes, in order. Every residual obligation stays unresolved,
 R-GRAPH exactly when a serialized graph is claimed. The omissions are exactly the inventory's
-declarations that record one, each with its module, axioms and omissions. -/
+declarations that record one, each with its module, axioms and omissions. The evidence entries are
+exactly the inventory's declarations with a recorded contract and a law observer's report, each
+with the position of its environment, its own contract's implementation and requirement, and its
+own report: one entry for each registration, and none joined with another. -/
 def AccountContract (project : {c : Claim} → AcceptedRun c → AccountData) : Prop :=
   ∀ (c : Claim) (run : AcceptedRun c),
     (project run).mode = c.val.mode ∧ (project run).scope = c.val.scope ∧
@@ -503,7 +565,12 @@ def AccountContract (project : {c : Claim} → AcceptedRun c → AccountData) : 
     (∀ r, r ∈ (project run).unresolved ↔ (r = .graph → c.val.mode = .serializedGraph)) ∧
     (∀ x, x ∈ (project run).omissions ↔
       ∃ e ∈ run.report.census.environments, ∃ d ∈ e.policy.declarations,
-        d.tableOmissions ≠ #[] ∧ x = ⟨d.name, d.module, d.axioms, d.tableOmissions⟩)
+        d.tableOmissions ≠ #[] ∧ x = ⟨d.name, d.module, d.axioms, d.tableOmissions⟩) ∧
+    (∀ x, x ∈ (project run).evidence ↔
+      ∃ slot, ∃ e, run.report.census.environments[slot]? = some e ∧
+        ∃ d ∈ e.policy.declarations, ∃ k evidence, d.executableContract = some k ∧
+          d.contractEvidence = some evidence ∧
+          x = ⟨slot, d.name, d.module, k.root, k.requirement, evidence⟩)
 
 private def accountImpl {c : Claim} (run : AcceptedRun c) : AccountData :=
   let report := run.report
@@ -522,7 +589,8 @@ private def accountImpl {c : Claim} (run : AcceptedRun c) : AccountData :=
         (·.package)
     unresolved := Residual.all.filter fun r => r != .graph || report.claim.val.mode ==
                                                 .serializedGraph
-    omissions := omissionsOf report.census }
+    omissions := omissionsOf report.census
+    evidence := evidenceOf report.census }
 
 private theorem fence_partition (fences : Array FenceKey) :
     fences.countP isPositive + fences.countP isCompilerRejection +
@@ -543,7 +611,7 @@ theorem coverageOf_fresh_iff (m : EvidenceMode) :
 /-- Registers `AccountContract` about the executed projection. -/
 theorem checked_account : Regula.ExecutableContract @accountImpl AccountContract := by
   refine ⟨fun c run => ?_⟩
-  refine ⟨rfl, rfl, rfl, rfl, rfl, rfl, ?_, ?_, rfl, ?_, rfl, ?_, ?_, ?_⟩
+  refine ⟨rfl, rfl, rfl, rfl, rfl, rfl, ?_, ?_, rfl, ?_, rfl, ?_, ?_, ?_, ?_⟩
   · intro x
     simp only [accountImpl, contractsOf, Array.mem_flatMap, Array.mem_filterMap,
       Option.map_eq_some_iff]
@@ -581,6 +649,8 @@ theorem checked_account : Regula.ExecutableContract @accountImpl AccountContract
       have : d.tableOmissions.isEmpty = false := by
         simpa [Array.isEmpty_iff] using hne
       simp [this]
+  · intro x
+    exact mem_evidenceOf
 
 /-- An executed account reads fresh whole-project coverage exactly for a fresh project claim. -/
 theorem coverage_fresh_iff {c : Claim} (run : AcceptedRun c) :
@@ -638,6 +708,33 @@ theorem Status.completed_accepted (s : Status) (h : s.spelling = "completed") :
 
 private def residualList (rs : List Residual) : String := ", ".intercalate (rs.map (·.spelling))
 
+/-- The account line of a registration's evidence: the registration with its environment and
+module, the carrier and the implementation, then either the linkage conclusion with each law and
+each outcome that the carrier establishes as its proposition
+(`RegulaPolicy.ContractEvidence.facts`), or the reason the observer draws no conclusion, which
+leaves the requirement as the contract line states it. The law `Regula.DecisionEquivalence` establishes no outcome
+(`RegulaPolicy.Carrier.facts_exact`), and its line says so. -/
+def EvidenceAccount.text (k : EvidenceAccount) : String :=
+  let e := k.evidence
+  let head := s!"{RuleId.executableContract.spelling} contract evidence {k.registration} \
+    (environment {k.environment}, module {k.module}): {e.carrier.spelling} carrier about \
+    {e.decided}, implementation {e.implementation}"
+  let render (facts : List (RegulaPolicy.Fact × String)) : String :=
+    "; ".intercalate (facts.map fun (fact, statement) => s!"{fact.spelling}: {statement}")
+  match e.linkage with
+  | .linked conclusion =>
+    let laws := e.facts.filter (·.1.law)
+    let outcomes := e.facts.filter (!·.1.law)
+    let through := if conclusion.uncurries = 0 then "itself"
+      else s!"under {conclusion.uncurries} application(s) of Function.uncurry"
+    head ++ s!"; linked: the decided function is the implementation {through}; laws: \
+      {render laws}; outcomes: " ++
+      (if outcomes.isEmpty then "none established by this carrier" else render outcomes)
+  | .unlinked why =>
+    let state := match why with
+      | .unsupported _ => "unsupported" | .mismatch _ => "mismatch"
+    head ++ s!"; not linked ({state}): {why.reason}; no law or outcome is concluded"
+
 /-- An accepted account's coverage. -/
 def pass (label : String) (a : Account) : String :=
   s!"{label}: PASS — \
@@ -646,7 +743,8 @@ def pass (label : String) (a : Account) : String :=
 /-- Human account lines: the checked relation, each contract with its decision kind
 (`ContractAccount.decision`), its shared functions (`ContractAccount.sharing`) and its open
 review, each decision registration counted from another surface with the surface it comes from
-(`CountedAccount`), the execution counts, fence kinds, the count of declarations whose axiom
+(`CountedAccount`), the law observer's report of each registration of a decision carrier
+(`EvidenceAccount.text`), the execution counts, fence kinds, the count of declarations whose axiom
 tables omit axioms (the `--verbose` line of each lists its omissions), trusted mechanisms, the
 trusted dependencies (or `none`), and the unresolved review identifiers. -/
 def lines (a : Account) : Array String :=
@@ -689,7 +787,8 @@ def lines (a : Account) : Array String :=
     #[s!"axiom tables: {d.omissions.size} declaration(s) for which Lean's collectAxioms omits \
       axioms they reach in the replayed kernel; reported, not failed (listed with --verbose and \
       in --json-out)"]
-  #[checked] ++ contracts ++ counted ++ execution ++ fences ++ omissions ++
+  let evidence := d.evidence.map (·.text)
+  #[checked] ++ contracts ++ counted ++ evidence ++ execution ++ fences ++ omissions ++
     #[trusted, dependencies, unresolved]
 
 end Regula.Checker.Account

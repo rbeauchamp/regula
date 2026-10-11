@@ -115,8 +115,9 @@ for a fresh project claim (`coverage_fresh_iff`); the listed contracts are exact
 inventory's, each with the decision kind and the shared functions the collector recorded;
 execution counts are
 `executionSummary` of each environment; fence counts partition the
-accepted fences; the residual identifiers stay unresolved. That the run is the current request's is
-each caller's binding, checked by inspection, as is the use of `Account.pass` for project, file,
+accepted fences; the residual identifiers stay unresolved. The contract evidence is the law
+observer's report of each recorded registration, with its environment, module and name. That the run is the current
+request's is each caller's binding, checked by inspection, as is the use of `Account.pass` for project, file,
 build-lint, combined and graph verdict lines. The documentation audit prints no PASS verdict, and
 its per-fence labels come from task results once an `AcceptedRun` exists. Rendered text and
 `acceptance` JSON are unproved adapter output; JSON is never decoded into acceptance.
@@ -1018,6 +1019,9 @@ Two-way decisions (`Regula.Decides`), each with an accepted and a refused input:
 | `Regula.Checker.Frontend.coordinateCheck` (accepts on `.ok`) | `CoordinatesAgree` | Transcript coordinates, checked before inventory admission (`checked_scope`). |
 | The spelling parsers `DeclarationKind.parse?`, `BoundaryKind.parse?`, `Correspondence.parse?`, `FoundationClass.parse?`, `ConformingProfile.parse?`, `ExecutionClaim.parse?`, `EvidenceMode.parse?`, `Safety.parse?`, `Reducibility.parse?`, `RecursionOrigin.parse?`, `DecisionKind.parse?`, `DecisionResult.parse?`, `EvaluatorRole.parse?`, `Profile.parse?` and `RuleId.parse?` | The text is the spelling of a value (`roundtrip`, `canonical`) | Transport of closed vocabularies. |
 | `RegulaPolicy.DecisionKind.ofStructureName?` | The name is a kind's structure | Reading a registration's kind ([RG1007]). |
+| `RegulaPolicy.Carrier.ofStructureName?`, `Carrier.parse?` | The name is the structure of a kind or of the law `Regula.DecisionEquivalence`. The text is the spelling of a carrier (`roundtrip`, `canonical`). | The law observer of [RG1007] ([below](#the-law-observer-decisions-and-observing-pass)). |
+| `RegulaPolicy.DecidedObservation.unlinked?` (accepts on `none`) | `DecidedObservation.Linked` (`unlinked?_eq_none_iff`). The core of the decided function is the implementation at the registration's own levels, and no argument is left. | The link of a report of the law observer to the registered constant ([below](#the-law-observer-decisions-and-observing-pass)). It accepts the implementation itself and refuses a decided function with a core that is not a constant. |
+| `RegulaPolicy.admitStatements` (accepts on `.ok`) | There is one statement for each fact of the carrier (`admitStatements_isOk_iff`) | The facts of a linked report, decided on the pair of its two arguments through `Regula.Dependent.isOk`. |
 | `RegulaPolicy.Erasure.reproduces` | `Erasure.Reproduction`: the observing pass finished, the regeneration added a definition, and each value is related by `Erasure.EqualWithin` to the observed value of its name | The recursion-helper comparison of [RG1006], over the two values and the recorded observations of their terms ([below](#the-recursion-helper-comparison-decision-and-observing-pass)). |
 | `Regula.JsonAgreement.agrees` | `JsonAgreement.Agree` (`agrees_iff`). The two values have one constructor and equal scalars. The elements of two arrays agree in order. Two objects have the same number of members. Each member of the first is found by its name in the second, with a value that it agrees with. | The comparison of an input with the encoding of the decoded value ([below](#the-diagnostic-and-policy-codecs-decisions-and-observing-pass)). |
 | `Regula.JsonAgreement.canonical` (accepts on `.ok`) | The reader returns a value, and the input agrees with the encoding of that value (`canonical_eq_ok_iff`). | The decoders `DiagnosticCodec.parseLocation` and `parseDiagnostic`. The reader and the encoder are arguments, so the kind is about each reader and each encoder. |
@@ -2042,6 +2046,50 @@ same route. The guards marked a constant when they took it from the stack, and n
 when it goes on the stack. That changes which constants a guard reads before a target, but not if
 it finds one. Before this split, the memo also held the constants that the environment does not
 have, which lead to no target.
+
+### The law observer: decisions and observing pass
+
+[RG1007] also reports what each closed registration of a decision kind or of the law
+`Regula.DecisionEquivalence` establishes. The report decides nothing, and it refuses no
+registration.
+
+- **The observing pass** is `Collect.contractEvidence?`. It reduces the requirement only when
+  `ContractScope.mayReachCarrier` admits that the reduction can produce one of the four
+  structures. Then it reads the head constant as a carrier and reads the five arguments of the
+  carrier. It strips the applications of `Function.uncurry` around the decided function through
+  `uncurriedCore`. It records the constant of the core, the universe levels of that
+  constant and the number of arguments that its result still takes.
+- **The decisions.** `Carrier.ofStructureName?` reads the carrier, and `checked_ofStructureName`
+  registers its kind. `DecidedObservation.unlinked?` decides if the report is linked to the
+  registered constant, and `checked_unlinked` registers its kind against
+  `DecidedObservation.Linked`. `admitStatements` admits one proposition for each fact of the
+  carrier, and `checked_admitStatements` registers its kind.
+- **The statements.** For a linked report, `factStatement` builds each proposition from Lean's own
+  `Exists`, `Not` and function types. It applies them to the acceptance predicate, specification
+  and decided function of the registration, and Lean prints the result. The audited environment
+  can lack `RegulaPolicy`, so the pass cannot state `Fact.Holds` there.
+
+**Proved.** These theorems are in the claimed libraries `RegulaPolicy` and `RegulaCore`.
+
+| Property | Declarations | Meaning and limit |
+| --- | --- | --- |
+| A law is not a kind | `Carrier.kind?_ofStructureName?` | The kind of a carrier read from a name is the kind that `DecisionKind.ofStructureName?` reads. The law has none. [RG1008] counts the kind that the collector reads with `DecisionKind.ofStructureName?`, so a law counts toward no registered decision. |
+| The facts are exact | `Carrier.facts_sound`, `Carrier.facts_exact` | Each fact that a carrier lists holds of each instance of it. For each fact that it does not list, some instance of it with types in `Type` makes the fact false. |
+| A law gives no outcome | `Regula.DecisionEquivalence.of_empty`, `of_constant` | A law holds on an empty domain, where the function neither accepts nor refuses an input. A constant function has a law for the specification that its one result gives. |
+| Only a linked report states facts | `ContractEvidence.facts_linked`, `ContractEvidence.facts_unlinked` | A linked report lists the facts of its carrier, in order. An unlinked report lists none: `Linkage.unlinked` has no field for a fact. |
+| The report changes no decision | `policyFor_withEvidence`, `policyForName_withEvidence`, `authorize_withEvidence` | The report is in `Declaration.Reported`, which no decision part of a record includes. Each decision over whole records gives the same result with any report. |
+| One entry for each registration | `Regula.Checker.Account.mem_evidenceOf` | An account entry is the report of one recorded registration of one environment, with its environment, module and name. No entry merges two registrations. |
+
+**Hypotheses and trusted boundary.** The theorems start from the recorded observation. They do not
+prove these items:
+
+- That the observation is what the environment holds. The observing pass reads the reduction,
+  the five arguments, the core, its levels and the count of arguments.
+- That each printed proposition is the statement of its fact. It is built by `factStatement`, and
+  the correspondence with `Fact.Holds` is read from the code.
+- That a report about the `Regula` library is checked. Acceptance excludes that library, so no
+  account states the law of `checked_parseValue_law` in `Regula.Checker.Manifest`. Lean's kernel
+  checks its proof in the library's build, and the `self-audit` diagnostic holds it to [RG1007].
 
 ### The reading of a statement: decision and observing pass
 

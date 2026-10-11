@@ -2081,6 +2081,9 @@ structure ContractScope where
   /-- Constants whose closure under `unfoldReferences` was searched without reaching a decision
   kind (`Regula.DecidesSoundly`, `Regula.DecidesCompletely` or `Regula.Decides`). -/
   decisionFree : IO.Ref NameSet
+  /-- Constants whose closure under `unfoldReferences` was searched without reaching a decision
+  carrier (`RegulaPolicy.Carrier.structureNames`). -/
+  carrierFree : IO.Ref NameSet
   /-- Every declaration `@[regula_decision]` registers in the environment
   (`Regula.decisionRegistrations`), computed once for all of its declarations. -/
   decisions : NameSet
@@ -2109,6 +2112,7 @@ def ContractScope.new (env : Environment) (axioms : Std.HashMap Name (Array Name
              env.mainModule == `Regula.Contract
            free := ← IO.mkRef {}
            decisionFree := ← IO.mkRef {}
+           carrierFree := ← IO.mkRef {}
            decisions := decisionRegistrations env
            preprocessRules := ← IO.mkRef none
            toolchain := ← IO.mkRef {}
@@ -2199,6 +2203,14 @@ is read as a kind (`RegulaPolicy.DecisionKind.mem_structureNames_iff`). -/
 def ContractScope.mayReachDecision (scope : ContractScope) (env : Environment)
     (requirement : Expr) : BaseIO Bool :=
   scope.reaches env RegulaPolicy.DecisionKind.structureNames scope.decisionFree requirement
+
+/-- Whether reducing `requirement` can produce a decision carrier: whether one of the four
+structures of `RegulaPolicy.Carrier.structureNames` is among the constants it mentions, closed
+under `unfoldReferences`, by the argument of `ContractScope.mayReach`. The list holds a name
+exactly when the name is read as a carrier (`RegulaPolicy.Carrier.mem_structureNames_iff`). -/
+def ContractScope.mayReachCarrier (scope : ContractScope) (env : Environment)
+    (requirement : Expr) : BaseIO Bool :=
+  scope.reaches env RegulaPolicy.Carrier.structureNames scope.carrierFree requirement
 
 /-- The constants by which `e` mentions `target`, closed under unfolding: the first is a constant
 `e` mentions, each is mentioned by the type or the unfoldable value of the one before
@@ -2447,6 +2459,98 @@ structure DecisionStatement where
   /-- The specification of the kind. -/
   spec : Expr
 
+/-- The applications of `Function.uncurry`, at its three implicit arguments, around the core of
+`decided`, and that core, without metadata and eta-reduced. No other function is read: a term of
+another form is its own core, with no application. -/
+private def uncurriedCore : Expr → Nat × Expr
+  | .mdata _ decided => uncurriedCore decided
+  | decided@(.app function argument) =>
+      if function.isAppOfArity ``Function.uncurry 3 then
+        let (uncurries, core) := uncurriedCore argument
+        (uncurries + 1, core)
+      else (0, decided.eta)
+  | decided => (0, decided.eta)
+
+/-- The proposition that `fact` states (`RegulaPolicy.Fact.Holds`) of the acceptance predicate
+`accepts`, the specification `spec` and the decided function `decided` on the domain `domain`,
+built from Lean's own `Exists`, `Not` and function types, with each application of `accepts` and
+`spec` beta-reduced. That it is the statement of `Fact.Holds` is this observing pass's, not a
+theorem: the audited environment need not hold `RegulaPolicy`. -/
+private def factStatement (fact : RegulaPolicy.Fact) (domain accepts spec decided : Expr) :
+    MetaM Expr :=
+  Meta.withLocalDeclD `x domain fun x => do
+    let accepted := (mkApp accepts (mkApp decided x)).headBeta
+    let holds := (mkApp spec x).headBeta
+    let existsOf (body : Expr) : MetaM Expr := do
+      Meta.mkAppM ``Exists #[← Meta.mkLambdaFVars #[x] body]
+    match fact with
+    | .«sound» => Meta.mkForallFVars #[x] (← mkArrow accepted holds)
+    | .«complete» => Meta.mkForallFVars #[x] (← mkArrow holds accepted)
+    | .«accepted» => existsOf accepted
+    | .«refused» => existsOf (mkNot accepted)
+    | .«satisfiable» => existsOf holds
+    | .«refutable» => existsOf (mkNot holds)
+
+/-- The law observer's report of a closed registration of `implementation` whose requirement
+`applied` reduces to a decision carrier (`RegulaPolicy.Carrier.ofStructureName?` of the head
+constant of its weak head normal form, which is reduced only when
+`ContractScope.mayReachCarrier` admits that the reduction can produce a carrier); `none` for every
+other requirement. It reads the carrier's five arguments, the domain, the result type, the
+acceptance predicate, the specification and the decided function, and observes the decided
+function (`RegulaPolicy.DecidedObservation`): the applications of `Function.uncurry` around its
+core (`uncurriedCore`), the core's constant, whether the core names it at exactly the levels at
+which the registration names `implementation` and whether those levels are the registration's own
+parameters (`ownParameters`), and the arguments its result still takes
+(`unsuppliedArguments`). The registered decision `RegulaPolicy.DecidedObservation.unlinked?`
+links it or says why not. Only a linked report states facts: one proposition for each fact of the
+carrier (`factStatement`), which `RegulaPolicy.admitStatements` admits. The report refuses
+nothing: a registration that it does not link keeps whatever verdict its recorded contract
+gives. -/
+private def contractEvidence? (env : Environment) (scope : ContractScope)
+    (registration : ConstantInfo) (implementation applied : Expr) :
+    MetaM (Option RegulaPolicy.ContractEvidence) := do
+  unless (← scope.mayReachCarrier env applied) do return none
+  let reduced ← Meta.whnf applied
+  let some carrier := reduced.getAppFn.constName?.bind RegulaPolicy.Carrier.ofStructureName?
+    | return none
+  let args := reduced.getAppArgs
+  let (some domain, some result, some accepts, some spec, some decided) :=
+    (args[0]?, args[1]?, args[2]?, args[3]?, args[4]?) | return none
+  unless args.size == 5 do return none
+  let (uncurries, core) := uncurriedCore decided
+  let implementationName := implementation.constName?.getD .anonymous
+  let observation : RegulaPolicy.DecidedObservation := {
+    uncurries
+    core := core.constName?
+    sameLevels := match core, implementation with
+      | .const _ levels, .const _ registered => levels == registered
+      | _, _ => false
+    ownParameters := match core with
+      | .const _ levels => ownParameters levels
+      | _ => false
+    unsupplied := ← unsuppliedArguments result }
+  let linkage ← match RegulaPolicy.DecidedObservation.checked_unlinked.run implementationName
+      observation with
+    | some why => pure (.unlinked why)
+    | none => do
+      let statements ← carrier.facts.toArray.mapM fun fact => do
+        return toString (← Meta.ppExpr (← factStatement fact domain accepts spec decided))
+      match RegulaPolicy.checked_admitStatements.run carrier statements with
+      | .ok ⟨statements, exact⟩ => pure (.linked ⟨uncurries, statements, exact⟩)
+      | .error message => throwError message
+  let shown (e : Expr) : MetaM String := return toString (← Meta.ppExpr e)
+  return some {
+    carrier
+    implementation := toString (← withOptions (pp.universes.set · true) <|
+      Meta.ppExpr implementation)
+    universes := registration.levelParams.toArray
+    domain := ← shown domain
+    result := ← shown result
+    accepts := ← shown accepts
+    spec := ← shown spec
+    decided := ← shown decided
+    linkage }
+
 /-- Acquisition stage, independent of whether a subsequent policy check succeeds.
 Local snapshots deliberately omit replay and whole-environment parent searches. -/
 inductive Stage where
@@ -2485,11 +2589,14 @@ component is `none`.
 The third component is the statement of a decision registration that was read and not refused
 (`DecisionStatement`): the caller searches it for the functions that its two sides share
 (`sharedReading`), and the record names them.
+The fourth is the law observer's report of a closed registration whose requirement reduces to a
+decision carrier (`contractEvidence?`), which the caller records in the reported part of the
+record (`RegulaPolicy.Declaration.Reported`); it decides nothing.
 -/
 private def executableContract? (env : Environment) (scope : ContractScope) (stage : Stage)
     (info : ConstantInfo) :
     CommandElabM (Option (RegulaPolicy.ExecutableContract × Option Name ×
-      Option DecisionStatement)) := do
+      Option DecisionStatement × Option RegulaPolicy.ContractEvidence)) := do
   if !#[DeclarationKind.definition, .theorem, .opaque].contains (kindOf info) then return none
   if info.name == Lean.mkFlatCtorOfStructCtorName ``Regula.ExecutableContract.mk then return none
   unless (← scope.mayReach env info.type) do return none
@@ -2534,11 +2641,15 @@ private def executableContract? (env : Environment) (scope : ContractScope) (sta
       | none, none, some implementation, some (_, _, accepts, spec, _) =>
           some { implementation, accepts, spec : DecisionStatement }
       | _, _, _, _ => none
+    -- The law observer reads a closed registration only; it refuses nothing.
+    let evidence ← if parameters.isEmpty then
+        contractEvidence? env scope info implementation applied
+      else pure none
     return some ({
       root := root.getD .anonymous
       requirement := toString requirement
       failure
-      kind := decision.map (·.1) }, hidden, statement)
+      kind := decision.map (·.1) }, hidden, statement, evidence)
 
 /-- Exact module attribution, including declarations added by the current document.
 A missing imported index is not by itself evidence of current-module ownership. -/
@@ -3472,8 +3583,9 @@ private def declarationReading (name : Name) (stage : Stage) (scope? : Option Co
     | some value => value.getUsedConstants
     | none       => #[]
   let generatedFrom ← liftTermElabM (generatedFrom? name)
-  let contract? ← (← executableContract? env scope stage info).mapM
-    fun (record, hidden, statement) => do
+  let observed ← executableContract? env scope stage info
+  let contract? ← observed.mapM
+    fun (record, hidden, statement, _) => do
       let some statement := statement | return (record, hidden.map Unread.kind)
       let (shared, unread) ← liftTermElabM <| sharedReading env scope stage statement
       return ({ record with shared }, unread.map Unread.shared)
@@ -3511,6 +3623,7 @@ private def declarationReading (name : Name) (stage : Stage) (scope? : Option Co
     executableContract := contract?.map (·.1)
     decisionResult := ← liftTermElabM (decisionResult? scope.decisions info)
     tableOmissions
+    contractEvidence := observed.bind (·.2.2.2)
   }, contract?.bind (·.2))
 
 /-- Construct the canonical record from this command's actual environment.

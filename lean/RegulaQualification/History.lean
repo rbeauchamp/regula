@@ -252,6 +252,20 @@ theorem checked_validation_complete : Regula.ExecutableContract validate (fun ru
      refused := ⟨(((((.null, 0), ""), ""), false), false),
        fun accepted => absurd (congrArg Except.isOk accepted) (by decide +kernel)⟩ }⟩
 
+/-- `validate` accepts exactly the reports whose requirements decode and all hold, as a law
+(`Regula.DecisionEquivalence`) on the product of its six arguments, from `checked_validation`.
+The complete kind `checked_validation_complete` is kept: it adds the report the function refuses,
+which the law does not supply. -/
+theorem checked_validation_law : Regula.ExecutableContract validate (fun run =>
+    Regula.DecisionEquivalence (· = .ok ())
+      (fun input : ((((Json × Nat) × String) × String) × Bool) × Bool =>
+        ∃ checks, requirements input.1.1.1.1.1 input.1.1.1.1.2 input.1.1.1.2 input.1.1.2
+          input.1.2 input.2 = .ok checks ∧ Satisfied checks)
+      (Function.uncurry (Function.uncurry (Function.uncurry (Function.uncurry
+        (Function.uncurry run)))))) :=
+  ⟨⟨fun input => checked_validation.evidence input.1.1.1.1.1 input.1.1.1.1.2 input.1.1.1.2
+    input.1.1.2 input.1.2 input.2⟩⟩
+
 /-! ### What an admitted history report establishes
 
 These replace the former sampled oracle mutations (a dropped imported-root module and

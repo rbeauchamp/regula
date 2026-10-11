@@ -110,6 +110,60 @@ instance : FromJson DecisionResult := ⟨fun j => do
   | some x => return x
   | none => throw "unknown DecisionResult"⟩
 
+instance : ToJson Carrier := ⟨fun x => .str x.spelling⟩
+instance : FromJson Carrier := ⟨fun j => do
+  match Carrier.parse? (← j.getStr?) with
+  | some x => return x
+  | none => throw "unknown Carrier"⟩
+
+/-- A linkage conclusion of a carrier (`RegulaPolicy.Linkage`): `state` is `linked`, with the
+applications of `Function.uncurry` and one proposition for each fact of the carrier, which the
+decoder admits through `admitStatements`; or `unsupported` or `mismatch`, with the reason. Each
+state has exactly its own members. -/
+instance (carrier : Carrier) : ToJson (Linkage carrier) := ⟨fun
+  | .linked conclusion => Json.mkObj [("state", toJson "linked"),
+      ("uncurries", toJson conclusion.uncurries), ("statements", toJson conclusion.statements)]
+  | .unlinked (.unsupported reason) =>
+      Json.mkObj [("state", toJson "unsupported"), ("reason", toJson reason)]
+  | .unlinked (.mismatch reason) =>
+      Json.mkObj [("state", toJson "mismatch"), ("reason", toJson reason)]⟩
+instance (carrier : Carrier) : FromJson (Linkage carrier) := ⟨fun j => do
+  match ← j.getObjValAs? String "state" with
+  | "linked" =>
+    exactFields j ["state", "uncurries", "statements"]
+    let uncurries ← j.getObjValAs? Nat "uncurries"
+    let ⟨statements, exact⟩ ← admitStatements carrier (← j.getObjValAs? _ "statements")
+    return .linked ⟨uncurries, statements, exact⟩
+  | "unsupported" =>
+    exactFields j ["state", "reason"]
+    return .unlinked (.unsupported (← j.getObjValAs? _ "reason"))
+  | "mismatch" =>
+    exactFields j ["state", "reason"]
+    return .unlinked (.mismatch (← j.getObjValAs? _ "reason"))
+  | state => throw s!"unknown linkage state {state}"⟩
+
+/-- The law observer's report of a registration (`RegulaPolicy.ContractEvidence`), with its
+exact-field JSON codec; the linkage is decoded at the decoded carrier. -/
+instance : ToJson ContractEvidence := ⟨fun e => Json.mkObj [
+  ("carrier", toJson e.carrier), ("implementation", toJson e.implementation),
+  ("universes", toJson e.universes), ("domain", toJson e.domain), ("result", toJson e.result),
+  ("accepts", toJson e.accepts), ("spec", toJson e.spec), ("decided", toJson e.decided),
+  ("linkage", toJson e.linkage)]⟩
+instance : FromJson ContractEvidence := ⟨fun j => do
+  exactFields j ["carrier", "implementation", "universes", "domain", "result", "accepts", "spec",
+    "decided", "linkage"]
+  let carrier ← j.getObjValAs? Carrier "carrier"
+  return {
+    carrier
+    implementation := ← j.getObjValAs? _ "implementation"
+    universes := ← j.getObjValAs? _ "universes"
+    domain := ← j.getObjValAs? _ "domain"
+    result := ← j.getObjValAs? _ "result"
+    accepts := ← j.getObjValAs? _ "accepts"
+    spec := ← j.getObjValAs? _ "spec"
+    decided := ← j.getObjValAs? _ "decided"
+    linkage := ← j.getObjValAs? (Linkage carrier) "linkage" }⟩
+
 instance : ToJson EvaluatorRole := ⟨fun x => .str x.spelling⟩
 instance : FromJson EvaluatorRole := ⟨fun j => do
   match EvaluatorRole.parse? (← j.getStr?) with
@@ -195,14 +249,15 @@ instance : ToJson RegulaPolicy.Declaration := ⟨fun d => Json.mkObj [
   ("nativeStatement", toJson d.nativeStatement), ("nativeReplay", toJson d.nativeReplay),
   ("ranges", toJson d.recordedRanges), ("generatedFrom", toJson d.generatedFrom),
   ("axioms", toJson d.axioms), ("executableContract", toJson d.executableContract),
-  ("decisionResult", toJson d.decisionResult), ("tableOmissions", toJson d.tableOmissions)]⟩
+  ("decisionResult", toJson d.decisionResult), ("tableOmissions", toJson d.tableOmissions),
+  ("contractEvidence", toJson d.contractEvidence)]⟩
 instance : FromJson RegulaPolicy.Declaration := ⟨fun j => do
   exactFields j ["name", "module", "kind", "type", "prettyType", "isProp", "isUnsafe", "isPartial",
       "safety", "instance", "noncomputable", "implementedBy", "extern", "internal", "private",
           "projection", "matcher", "recursive", "unsafeRecBase", "levelParams", "all", "hints",
               "valueConstants", "unsafeRecRegenerated", "nativeStatement", "nativeReplay",
                   "ranges", "generatedFrom", "axioms", "executableContract", "decisionResult",
-                      "tableOmissions"]
+                      "tableOmissions", "contractEvidence"]
   return {
     name := ← j.getObjValAs? _ "name"
     «module» := ← j.getObjValAs? _ "module"
@@ -236,6 +291,7 @@ instance : FromJson RegulaPolicy.Declaration := ⟨fun j => do
     executableContract := ← j.getObjValAs? _ "executableContract"
     decisionResult := ← j.getObjValAs? _ "decisionResult"
     tableOmissions := ← j.getObjValAs? _ "tableOmissions"
+    contractEvidence := ← j.getObjValAs? _ "contractEvidence"
   }⟩
 
 /-- One execution boundary a root's closure reaches (`RegulaPolicy.ExecutionBoundary`), with a

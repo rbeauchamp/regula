@@ -4,6 +4,7 @@ public import RegulaPolicy.Identity
 public import RegulaPolicy.Collections
 public import RegulaPolicy.Compiler
 public import Regula.Contract
+public import RegulaPolicy.Evidence
 meta import Regula.Decision
 
 /-! # Policy vocabulary and observation data
@@ -836,6 +837,38 @@ theorem DecisionKind.leavesOpen_eq_none_iff (kind : DecisionKind) :
     kind.leavesOpen = none ↔ kind = .«soundAndComplete» := by
   cases kind <;> simp [leavesOpen]
 
+/-- The decision kind of a carrier: the carrier of each kind has that kind, and the law
+`Regula.DecisionEquivalence` has none. -/
+def Carrier.kind? : Carrier → Option DecisionKind
+  | .«sound» => some .«sound»
+  | .«complete» => some .«complete»
+  | .«soundAndComplete» => some .«soundAndComplete»
+  | .«equivalence» => none
+
+/-- The kind that the collector records of a registration (`DecisionKind.ofStructureName?` of the
+head constant of its reduced requirement) is the kind of the carrier read from the same constant.
+So the law `Regula.DecisionEquivalence`, whose carrier has no kind, adds no recorded kind, and
+the implementations that RG1008 counts as decided (`decidedImplementations`, which reads the
+recorded kind) are those they were before the law. -/
+theorem Carrier.kind?_ofStructureName? (name : Lean.Name) :
+    (Carrier.ofStructureName? name).bind Carrier.kind? = DecisionKind.ofStructureName? name := by
+  cases read : Carrier.ofStructureName? name with
+  | some carrier =>
+    rw [Carrier.ofStructureName?_eq_some_iff] at read
+    subst read
+    cases carrier <;> rfl
+  | none =>
+    cases kind : DecisionKind.ofStructureName? name with
+    | none => rfl
+    | some k =>
+      rw [DecisionKind.ofStructureName?_eq_some_iff] at kind
+      subst kind
+      cases k <;> simp [DecisionKind.structureName, Carrier.ofStructureName?] at read
+
+/-- The law has no recorded kind: its structure is read as no kind. -/
+theorem DecisionKind.ofStructureName?_equivalence :
+    DecisionKind.ofStructureName? Carrier.«equivalence».structureName = none := rfl
+
 /-- What the collector reads, from kernel-checked declarations, of a decided function that
 applies the implementation to arguments under one binder (`fun input => f a₁ … aₙ`): the shape of
 the inductive type of whose value the first argument is a field, and which field of the bound
@@ -1498,13 +1531,52 @@ change its signature. -/
 structure Declaration.Inspected extends Declaration.KernelChecked, Declaration.ToolchainObserved
   deriving Repr, DecidableEq
 
-/-- Complete Lean-semantic report for one owned constant. Each field is declared in the part
-that says where its value comes from: kernel-checked declaration data
+/-- The part of a declaration's record that the checker reports and that no decision reads: the
+law observer's report of a registration whose requirement reduces to a decision carrier
+(`ContractEvidence`). By its source it is a toolchain observation: the observer reads the
+kernel-checked requirement and prints its parts with the notations in force. It is kept apart
+from `Declaration.ToolchainObserved` so that no part a decision takes (`Declaration.Inspected`,
+`Declaration.Assessed`, `Declaration.Role`, `Declaration.Registration`) holds it: a decision that
+read it would have to change its signature. The decisions that take a whole record give the same
+answer whatever it holds (`policyForName_withEvidence`, `authorize_withEvidence`). -/
+structure Declaration.Reported where
+  /-- For a registration whose requirement reduces to `Regula.DecidesSoundly`,
+  `Regula.DecidesCompletely`, `Regula.Decides` or `Regula.DecisionEquivalence`: the carrier, its
+  exact relation and the law observer's linkage conclusion. `none` for every other
+  declaration. -/
+  contractEvidence : Option ContractEvidence := none
+  deriving Repr, DecidableEq
+
+/-- Complete Lean-semantic report for one owned constant. Each field that a decision can read is
+declared in the part that says where its value comes from: kernel-checked declaration data
 (`Declaration.KernelChecked`), a toolchain observation (`Declaration.ToolchainObserved`), or
 environment state an audited project can write (`Declaration.ProjectWritten`). The classification
-is of the source of each value. No theorem of this library proves an observation truthful. -/
-structure Declaration extends Declaration.Inspected, Declaration.ProjectWritten
+is of the source of each value. The report-only observations are in a fourth part
+(`Declaration.Reported`), which no decision reads. No theorem of this library proves an
+observation truthful. -/
+structure Declaration extends Declaration.Inspected, Declaration.ProjectWritten,
+    Declaration.Reported
   deriving Repr, DecidableEq
+
+/-- The record with `evidence` as its reported observation and every other field unchanged. -/
+def Declaration.withEvidence (d : Declaration) (evidence : Option ContractEvidence) :
+    Declaration :=
+  { d with contractEvidence := evidence }
+
+/-- Replacing the reported observation keeps the inspected part. -/
+@[simp] theorem Declaration.withEvidence_toInspected (d : Declaration)
+    (evidence : Option ContractEvidence) :
+    (d.withEvidence evidence).toInspected = d.toInspected := rfl
+
+/-- Replacing the reported observation keeps the project-written part. -/
+@[simp] theorem Declaration.withEvidence_toProjectWritten (d : Declaration)
+    (evidence : Option ContractEvidence) :
+    (d.withEvidence evidence).toProjectWritten = d.toProjectWritten := rfl
+
+/-- Replacing the reported observation keeps the name. -/
+@[simp] theorem Declaration.withEvidence_name (d : Declaration)
+    (evidence : Option ContractEvidence) : (d.withEvidence evidence).name = d.name := rfl
+
 
 /-- A declaration's record is read as its part without the project-written fields wherever a
 decision takes only that part. Nothing is computed: the other part is dropped. -/
