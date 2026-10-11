@@ -2,7 +2,6 @@ import Regula.Checker.Documentation
 import Regula.Checker.Lake
 import Regula.Checker.AcceptanceLink
 import RegulaCore.Prose
-import RegulaCore.JsonAgreement
 
 /-! # Documentation fence audit executable
 
@@ -75,26 +74,21 @@ private def resolve (repo path : FilePath) : FilePath :=
 /-- The first package that the Verso package at `package` and a package it requires by local path
 both pin by Git at different revisions or sources, with that package's recorded directory. Where
 the two share one packages directory, such a pin would make one build check out another revision
-of a shared dependency. Both pins are read from manifests, so each is compared with the other both
-ways (`JsonAgreement.conforms`), which also requires each object in them to be a search tree. -/
+of a shared dependency. Each manifest is read by Lake's own reader (`Lake.Manifest.loadEntries`),
+so an entry that Lake refuses, such as a Git entry without `url` or `rev`, is refused here too. -/
 private def sharedPinMismatch (package : FilePath) : IO (Option String) := do
-  let entries (dir : FilePath) : IO (Array Json) := do
-    IO.ofExcept ((← readJson (dir / "lake-manifest.json")).getObjValAs? (Array Json) "packages")
-  let pins (dir : FilePath) : IO (Array (String × Json × Json)) := do
-    (← entries dir).filterMapM fun p => do
-      let name ← IO.ofExcept (p.getObjValAs? String "name")
-      if (p.getObjValAs? String "type").toOption != some "git" then return none
-      return some
-          (name, (p.getObjVal? "url").toOption.getD .null, (p.getObjVal? "rev").toOption.getD .null)
+  let entries (dir : FilePath) := _root_.Lake.Manifest.loadEntries (dir / "lake-manifest.json")
+  let pins (dir : FilePath) : IO (Array (Name × String × String)) := do
+    return (← entries dir).filterMap fun entry => match entry.src with
+      | .git url rev _ _ => some (entry.name, url, rev)
+      | .path _ => none
   let versoPins ← pins package
   for entry in ← entries package do
-    unless (entry.getObjValAs? String "type").toOption == some "path" do continue
-    let dir ← IO.ofExcept (entry.getObjValAs? String "dir")
+    let .path dir := entry.src | continue
     let requiredPins ← pins (package / dir)
     for (name, url, rev) in versoPins do
       if let some (_, url', rev') := requiredPins.find? (·.1 == name) then
-        let same (a b : Json) := JsonAgreement.conforms a b && JsonAgreement.conforms b a
-        unless same url url' && same rev rev' do return some s!"{name} (against {dir})"
+        unless url == url' && rev == rev' do return some s!"{name} (against {dir})"
   return none
 
 /-- The rendered HTML files below `root`, each by its path below it with its text. -/

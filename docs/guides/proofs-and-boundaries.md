@@ -1518,8 +1518,8 @@ these items:
   Regula read, the comparison runs `conforms` with that value first, or decides `Conforms`. A
   comparison with a constant `null`, Boolean or string matches its constructor or compares its
   text. The self-audit diagnostic refuses a declaration that names the equality of `Json` or
-  compares texts of `compress`, in each library except `Fixtures`. `JsonAgreement` is exempt, and
-  so is an allowlist of comparisons of two values that Regula built, each with its reason. Only
+  compares texts of `compress`, in each library except `Fixtures`. The module `RegulaCore.JsonAgreement` is
+  exempt, and so is an allowlist of comparisons of two values that Regula built, each with its reason. Only
   the theorems in the table above say what one of these comparisons accepts.
 
 **The callers.** These paths give a value to the diagnostic decoder. They are read from the code
@@ -4009,7 +4009,7 @@ incomplete finding for the selected rule, without assuming injectivity of JSON r
 `Checker.RuleExampleQualification.qualify_sound`: every record `qualify` admits is
 `RecordAdmissible` (current producer identity, parsed mode, a before snapshot with search trees
 that agrees with the after snapshot, the
-observed request decoding to the frozen one, exit at most 1, sources in the bound snapshot with one
+observed request decoding to the frozen one, exit at most 3, sources in the bound snapshot with one
 having the displayed text, for a file or diagnostic-only request one being the requested subject
 with the displayed text, a result source account unless the request is diagnostic-only or
 documentation, findings equal to the parsed diagnostics, one of three kinds, and `DemonstrationOK`

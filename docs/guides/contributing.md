@@ -381,17 +381,22 @@ editor hooks. Lean's import and kernel replay, the collector's observations, too
 paths, the worker processes and their JSON transport are trusted.
 
 The self-audit also refuses a one-sided comparison of `Json` values, the defect of
-[#269](https://github.com/rbeauchamp/regula/issues/269). It imports each module of each library
-except `Fixtures` alone, with its private declarations. It refuses a declaration if its type or
-value names the instance `Lean.Json.instBEq` or compares texts of `Json.compress`.
-`Regula.JsonAgreement` is exempt, and so is each declaration of
-`SelfAudit.jsonComparisonAllowlist`, which states why its two operands are values that Regula
-built.
+[#269](https://github.com/rbeauchamp/regula/issues/269). It inspects each module of each library
+except `Fixtures`, and each executable root that no library contains. Lake builds them first, and a
+worker imports each module alone, with its private declarations. It refuses a declaration if its
+type or value names the instance `Lean.Json.instBEq`. It also refuses one that compares texts of
+`Json.compress`, directly or through `let` bindings. The module `RegulaCore.JsonAgreement` is
+exempt, and so is each entry of `SelfAudit.jsonComparisonAllowlist`, which states its reason.
 
-The self-audit refuses an entry if the declaration it names compares no `Json` values, so each
-entry is a control of the check. The check reads elaborated terms, so it finds a comparison through
-a project `BEq` instance at that instance. It does not find a comparison through an instance that
-Lean or a dependency declares for a type with a `Json` field.
+Each use of that instance names it, so the check finds each such use in the inspected modules. It
+does not find texts that a named helper or a function argument renders before a comparison. It also
+misses a comparison through an instance that Lean or a dependency declares for a type with a `Json`
+field.
+
+The self-audit refuses an allowlist entry if its declaration compares no `Json` values, so each
+entry is a control of the check. Three fixed controls run too. A declaration named under
+`Regula.JsonAgreement` in a different module is found, and so are `compress` texts compared through
+`let` bindings. A `compress` that no comparison reads is not found.
 
 The repository's own checklist rows, which apply to this repository only:
 

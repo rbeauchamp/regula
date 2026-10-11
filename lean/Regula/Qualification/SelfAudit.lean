@@ -72,7 +72,16 @@ the second, so a first object tree that is not a search tree can repeat one name
 (https://github.com/rbeauchamp/regula/issues/269). A received value is therefore compared with
 `Regula.JsonAgreement.conforms`, or read as a string, number or Boolean first. The campaign
 refuses each other declaration that compares `Json` values, unless both operands are values that
-Regula builds and the allowlist names it with that reason. -/
+Regula builds and the allowlist names it with that reason.
+
+What the check finds: each use of Lean's `BEq Json` instance, completely, since such a use names
+the instance (`Lean.Json.instBEq`), the only public way to its private `Json.beq'`; and each
+`BEq.beq`, `bne` or `Eq` whose compared operand contains `Json.compress`, directly or through
+`let` bindings. It does not find a comparison of texts that a named helper or a function argument
+renders, nor one through a `BEq` instance that Lean or a dependency declares for a type with a
+`Json` field. The guarantee that received values are compared through `conforms` rests on the
+conversions of #269 and the theorems about `conforms`; this check is the tripwire for a new use of
+the `BEq` form. -/
 
 /-- The declarations that keep Lean's equality of `Json`, each by its module and its name, with its
 reason. The module is part of the key: each executable root declares its own `main`. -/
@@ -84,27 +93,80 @@ def jsonComparisonAllowlist : Array (Name × Name × String) := #[
     "the registry self-check executable: each operand is a value it builds with the encoders, \
       Json.mkObj or Json.setObjVal!, or that its own decoders read back from such a value")]
 
-/-- Whether `e` compares `Json` values with Lean's equality: it names the `BEq Json` instance, the
-only public way to its private `Json.beq'`, or it applies `BEq.beq`, `bne` or `Eq` to an argument
-that contains `Json.compress`. -/
-def comparesJson (e : Expr) : Bool :=
-  (e.find? fun sub =>
-    sub.isConstOf ``Lean.Json.instBEq ||
-      (sub.isAppOf ``BEq.beq || sub.isAppOf ``bne || sub.isAppOf ``Eq) &&
-        sub.getAppArgs.any fun arg => (arg.find? (·.isConstOf ``Lean.Json.compress)).isSome).isSome
+/-- The module exempt from the check: the comparisons themselves. -/
+def jsonAgreementModule : Name := `RegulaCore.JsonAgreement
+
+/-- Whether `e` contains `Json.compress`, directly or through a bound variable: `carries` says,
+for each loose bound variable by its de Bruijn index, whether it is `let`-bound to such a term. -/
+def renders (carries : List Bool) : Expr → Bool
+  | .const name _ => name == ``Lean.Json.compress
+  | .bvar index => carries.getD index false
+  | .app f a => renders carries f || renders carries a
+  | .lam _ type body _ | .forallE _ type body _ =>
+      renders carries type || renders (false :: carries) body
+  | .letE _ type value body _ =>
+      renders carries type || renders carries value ||
+        renders (renders carries value :: carries) body
+  | .mdata _ e | .proj _ _ e => renders carries e
+  | _ => false
+
+/-- Whether `e` compares `Json` values with Lean's equality: it names the `BEq Json` instance, or it
+applies `BEq.beq`, `bne` or `Eq` to an operand that `renders`; `carries` is as for `renders`. -/
+def comparesJsonIn (carries : List Bool) : Expr → Bool
+  | .const name _ => name == ``Lean.Json.instBEq
+  | e@(.app f a) =>
+      let comparison := e.isAppOfArity ``BEq.beq 4 || e.isAppOfArity ``bne 4 ||
+        e.isAppOfArity ``Eq 3
+      let operands := renders carries a || match f with
+        | .app _ left => renders carries left
+        | _ => false
+      comparison && operands || comparesJsonIn carries f || comparesJsonIn carries a
+  | .lam _ type body _ | .forallE _ type body _ =>
+      comparesJsonIn carries type || comparesJsonIn (false :: carries) body
+  | .letE _ type value body _ =>
+      comparesJsonIn carries type || comparesJsonIn carries value ||
+        comparesJsonIn (renders carries value :: carries) body
+  | .mdata _ e | .proj _ _ e => comparesJsonIn carries e
+  | _ => false
+
+/-- Whether the closed term `e` compares `Json` values (`comparesJsonIn`). -/
+def comparesJson (e : Expr) : Bool := comparesJsonIn [] e
 
 /-- The declarations of `owned`, of the module `moduleName`, whose type or value compares `Json`
-values (`comparesJson`), outside the namespace `Regula.JsonAgreement` and `jsonComparisonAllowlist`.
+values (`comparesJson`), outside the module `jsonAgreementModule` and `jsonComparisonAllowlist`.
 -/
 def jsonComparisons (moduleName : Name) (owned : Array (Name × ConstantInfo)) : Array Name :=
   owned.filterMap fun (name, info) =>
     let user := privateToUserName name
     let allowed := jsonComparisonAllowlist.any fun (m, n, _) => m == moduleName && n == user
-    if (`Regula.JsonAgreement).isPrefixOf user || allowed then
+    if moduleName == jsonAgreementModule || allowed then
       none
     else if comparesJson info.type || (info.value? (allowOpaque := true)).any comparesJson then
       some name
     else none
+
+/-- Controls of the check, each with whether it gave the intended answer: a declaration named
+under `Regula.JsonAgreement` outside `jsonAgreementModule` is found; texts of `compress` compared
+through two `let` bindings are found; a `compress` that no comparison reads is not. -/
+def jsonControls : List (String × Bool) :=
+  let compress (j : Expr) : Expr := mkApp (mkConst ``Lean.Json.compress) j
+  let beq (a b : Expr) : Expr :=
+    let stringBEq :=
+      mkApp2 (mkConst ``instBEqOfDecidableEq [Level.zero]) (mkConst ``String) (mkConst ``String.decEq)
+    mkApp4 (mkConst ``BEq.beq [Level.zero]) (mkConst ``String) stringBEq a b
+  let null := mkConst ``Lean.Json.null
+  let named := `Regula.JsonAgreement.control
+  let declaration : ConstantInfo := .defnInfo {
+    name := named, levelParams := [], type := mkConst ``Bool
+    value :=
+      mkApp2 (mkConst ``BEq.beq [Level.zero]) (mkConst ``Lean.Json) (mkConst ``Lean.Json.instBEq)
+    hints := .opaque, safety := .safe, all := [named] }
+  let bound := Expr.letE `x (mkConst ``String) (compress null)
+    (.letE `y (mkConst ``String) (compress null) (beq (.bvar 1) (.bvar 0)) false) false
+  [("a Regula.JsonAgreement name outside RegulaCore.JsonAgreement is found",
+      jsonComparisons `Regula.Qualification.SelfAudit #[(named, declaration)] == #[named]),
+    ("compress texts compared through let bindings are found", comparesJson bound),
+    ("a compress text that no comparison reads is not found", !comparesJson (compress null))]
 
 /-- The finding text for a declaration that compares `Json` values. -/
 def jsonComparisonText (name moduleName : Name) : String :=
@@ -322,10 +384,18 @@ def check (jobs : Nat := 4) : IO Unit := do
       if r.module == moduleName.toString then return .ok r
       return .error s!"{moduleName}: worker answered for {r.module}"
     | .error e => return .error s!"{moduleName}: unreadable worker result: {e}"
-  -- The other libraries of the package, other than the intended-failure controls, are held to the
-  -- comparison rule alone: each of their modules in a worker of its own.
+  -- The other libraries of the package, other than the intended-failure controls, and the root
+  -- modules of executables that no library contains are held to the comparison rule alone: each
+  -- module in a worker of its own, after Lake builds them, since a worker imports built modules.
   let others := inventory.libraries.filter fun l => l.library != library && l.library != "Fixtures"
-  let guarded := others.flatMap (·.modules)
+  let inLibrary (m : Name) : Bool := inventory.libraries.any (·.modules.contains m)
+  let roots := (inventory.executables.map (·.root)).filter (!inLibrary ·)
+  let guarded := others.flatMap (·.modules) ++ roots
+  let build ← Checker.runProcess repo "lake"
+    (#["build"] ++ others.map (·.library) ++ roots.map (s!"+{·}"))
+  if build.exitCode != 0 then
+    throw <| IO.userError s!"self-audit: lake build of the guarded modules failed: \
+      {build.stdout.trimAscii} {build.stderr.trimAscii}"
   let jsonOutcomes ← Checker.mapWorkQueue jobs guarded fun moduleName =>
     show IO (Except String (Array String)) from do
     let result ← Checker.runProcess repo self
@@ -338,6 +408,8 @@ def check (jobs : Nat := 4) : IO Unit := do
   let results := outcomes.filterMap fun | .ok r => some r | .error _ => none
   let incomplete := outcomes.filterMap fun | .ok _ => none | .error e => some e
   let incomplete := incomplete ++ jsonOutcomes.filterMap fun | .ok _ => none | .error e => some e
+  let incomplete := incomplete ++ jsonControls.filterMap fun (label, passed) =>
+    if passed then none else some s!"Json comparison control failed: {label}"
   let union (field : ModuleResult → Array String) : Array String :=
     (results.foldl (fun acc r => (field r).foldl
       (fun acc n => if acc.contains n then acc else acc.push n) acc) #[]).qsort (· < ·)
@@ -356,8 +428,9 @@ def check (jobs : Nat := 4) : IO Unit := do
     modules' own data (every one neither unsafe nor partial) kernel-admitted, \
     {contracts} executable contract registration(s)"
   IO.println s!"Json comparisons: each module of {library} and {guarded.size} module(s) of the \
-    other libraries but Fixtures inspected, {jsonComparisonAllowlist.size} allowlisted \
-    declaration(s)"
+    other libraries but Fixtures and of executable roots {roots.toList} inspected, \
+    {jsonComparisonAllowlist.size} allowlisted declaration(s), \
+    {(jsonControls.filter (·.2)).length}/{jsonControls.length} control(s) as intended"
   IO.println s!"reported, not failed: {unsafeDeclarations.size} unsafe \
     declaration(s): {unsafeDeclarations.toList}"
   IO.println s!"reported, not failed: {partialDefinitions.size} partial \

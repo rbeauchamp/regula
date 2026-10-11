@@ -2154,6 +2154,31 @@ private def sourceAttributionSource : String :=
   "    type := mkApp3 (mkConst ``Eq [1]) (mkConst ``Nat) (mkConst ``pick) (mkConst ``pick)\n" ++
   "    value := mkApp2 (mkConst ``Eq.refl [1]) (mkConst ``Nat) (mkConst ``pick) }\n"
 
+/-- Whether a value read from a report differs from another value: the first has search trees and
+does not agree with the second (`differs_iff`). A value without search trees is never taken as a
+different one, so a check that requires two values to differ refuses it (`differs_irregular`). -/
+private def differs (received other : Json) : Bool :=
+  JsonAgreement.regular received && !JsonAgreement.agrees received other
+
+/-- `differs` holds exactly when the first value has search trees and does not agree with the
+second. -/
+private theorem differs_iff (received other : Json) :
+    differs received other = true ↔
+      JsonAgreement.Regular received ∧ ¬JsonAgreement.Agree received other := by
+  rw [← JsonAgreement.regular_iff, ← JsonAgreement.agrees_iff]
+  simp [differs]
+
+/-- An end position whose tree is rooted at `line` with `column` in its right subtree: not a search
+tree, since `column` comes before `line`. -/
+private def irregularEnd : Json :=
+  .obj ⟨⟨.inner 2 "line" (.num 1) .leaf (.inner 1 "column" (.num 1) .leaf .leaf)⟩⟩
+
+/-- Control: `irregularEnd` differs from no value, so a check that requires a recorded end to
+differ from another refuses it. -/
+private theorem differs_irregular (other : Json) : differs irregularEnd other = false := by
+  have irregular : JsonAgreement.regular irregularEnd = false := by decide
+  simp [differs, irregular]
+
 /-- The first failed expectation of the source-attribution report, if any: a declaration of every
 `GeneratedFamily` (`Channel`'s constructor, projection, recursor, constructor lemmas and type
 constructions, `Rec.x._default`, `firstIndex.match_1`, `walkDown._f` and `walkDown._sunfold`,
@@ -2187,10 +2212,6 @@ selection range that ends after its range does, and its finding is located at it
 range, which is the admitted selection range too (`RegulaPolicy.Ranges.admitted`). -/
 private def sourceAttributionFailure (report : Json) : Option String := Id.run do
   let same (received built : Json) : Bool := JsonAgreement.conforms received built
-  -- Two received values differ when the first has search trees and does not agree with the other:
-  -- a value without them is never taken as a different one.
-  let differs (received other : Json) : Bool :=
-    JsonAgreement.regular received && !JsonAgreement.agrees received other
   let some diagnostics := (report.getObjValAs? (Array Json) "diagnostics").toOption
     | return some "no diagnostics"
   let find (name : String) : Option Json := diagnostics.find? fun d =>
@@ -2281,8 +2302,9 @@ private def sourceAttributionFailure (report : Json) : Option String := Id.run d
     | return some "no record of the macro_rules definition of the first syntax kind"
   let recordedEnd (range : String) : Json :=
     ((recorded.getObjValD "ranges").getObjValD range).getObjValD "end"
-  if same (recordedEnd "range") (recordedEnd "selectionRange") then
-    return some "Lean recorded a selection range inside the range of the macro_rules definition"
+  unless differs (recordedEnd "range") (recordedEnd "selectionRange") do
+    return some "the range and the selection range recorded for the macro_rules definition do not \
+      end at different positions"
   let some rules := diagnostics.find? fun d =>
       rulesName ((d.getObjValD "arguments").getObjValD "declaration")
     | return some "no finding for the macro_rules definition of the first syntax kind"
