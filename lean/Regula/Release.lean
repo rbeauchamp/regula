@@ -1113,8 +1113,8 @@ def Named.marker : Named → String
 marker without it names it. -/
 def Named.expected : Named → String
   | .regula => "a version such as `0.11.0` and a closing backtick"
-  | .lean => "a Lean release such as `v4.34.1` and then the end of the line, a space or a closing \
-      mark (`releaseEnd`)"
+  | .lean => "a Lean release such as `v4.34.1` and then the end of the line, a full stop, a space \
+      or a closing mark (`releaseEnd`)"
 
 /-- A character of a Lean release as `leanprover/lean4:` names it, such as `v4.34.1` or
 `v4.35.0-rc1`. -/
@@ -1129,18 +1129,19 @@ def releaseEnd (c : Char) : Bool :=
 
 /-- What a mention of kind `k` requires right after the characters of its release, given the
 characters `rest` that follow them: a closing backtick for a release of Regula, and for a Lean
-toolchain the end of the line or a character that can follow a release (`releaseEnd`). -/
+toolchain, after any full stops, the end of the line or a character that can follow a release
+(`releaseEnd`). -/
 def Named.closes (k : Named) (rest : List Char) : Bool :=
   match k with
   | .regula => rest.head? == some '`'
-  | .lean => rest.head?.all releaseEnd
+  | .lean => (rest.dropWhile (· == '.')).head?.all releaseEnd
 
 /-- The characters that a mention of kind `k` writes at the start of `after`, the characters that
 follow its marker, or `none` when `after` does not start with them: the longest run of characters
-of a release (`releaseChar`), when that run is not empty and what follows it closes the mention
-(`Named.closes`). -/
+of a release (`releaseChar`) without the full stops at its end, which end a sentence, when that
+run is not empty and what follows it closes the mention (`Named.closes`). -/
 def Named.textChars (k : Named) (after : List Char) : Option (List Char) :=
-  let t := after.takeWhile releaseChar
+  let t := ((after.takeWhile releaseChar).reverse.dropWhile (· == '.')).reverse
   if !t.isEmpty && k.closes (after.drop t.length) then some t else none
 
 /-- The text that a mention of kind `k` writes at the start of `after` (`Named.textChars`). -/
@@ -1148,24 +1149,37 @@ def Named.text (k : Named) (after : String) : Option String :=
   (k.textChars after.toList).map String.ofList
 
 /-- What a mention reads is one or more characters of a release at the start of the text after its
-marker, and the characters that follow them close the mention: a backtick after the version of a
-release of Regula, and after a Lean release the end of the line or a character in `releaseEnd`. -/
+marker, the last of which is not a full stop, and the characters that follow them close the
+mention: a backtick after the version of a release of Regula, and after a Lean release, after any
+full stops, the end of the line or a character in `releaseEnd`. Thus a full stop that ends a
+sentence is in the text after the release, which an edit keeps (`setMentions`). -/
 theorem Named.textChars_sound {k : Named} {after t : List Char} (h : k.textChars after = some t) :
-    t ≠ [] ∧ (∀ c ∈ t, releaseChar c = true) ∧ t <+: after ∧
+    t ≠ [] ∧ (∀ c ∈ t, releaseChar c = true) ∧ t <+: after ∧ t.getLast? ≠ some '.' ∧
       match k with
       | .regula => (after.drop t.length).head? = some '`'
-      | .lean => ∀ c ∈ (after.drop t.length).head?, releaseEnd c = true := by
+      | .lean => ∀ c ∈ ((after.drop t.length).dropWhile (· == '.')).head?,
+          releaseEnd c = true := by
   simp only [Named.textChars] at h
   split at h
   · rename_i hc
     cases h
     simp only [Bool.and_eq_true, Bool.not_eq_true', List.isEmpty_eq_false_iff] at hc
     obtain ⟨hne, hcl⟩ := hc
-    refine ⟨hne, fun c hc => List.all_eq_true.mp List.all_takeWhile c hc, List.takeWhile_prefix _,
-      ?_⟩
-    cases k with
-    | regula => simpa [Named.closes] using hcl
-    | lean => simpa [Named.closes, Option.all_eq_true] using hcl
+    have kept : ((after.takeWhile releaseChar).reverse.dropWhile (· == '.')).reverse <+:
+        after.takeWhile releaseChar := by
+      have := List.reverse_prefix.mpr
+        (List.dropWhile_suffix (l := (after.takeWhile releaseChar).reverse) (· == '.'))
+      rwa [List.reverse_reverse] at this
+    refine ⟨hne, fun c hc => List.all_eq_true.mp List.all_takeWhile c (kept.subset hc),
+      kept.trans (List.takeWhile_prefix _), ?_, ?_⟩
+    · rw [List.getLast?_reverse]
+      intro last
+      have := List.head?_dropWhile_not (· == '.') (after.takeWhile releaseChar).reverse
+      rw [last] at this
+      simp at this
+    · cases k with
+      | regula => simpa [Named.closes] using hcl
+      | lean => simpa [Named.closes, Option.all_eq_true] using hcl
   · cases h
 
 /-- The release that a mention of kind `k` names when it writes `text` after its marker: the tag
@@ -1287,8 +1301,8 @@ theorem unmentioned_eq_nil_iff (ms : List Mention) (files : List String) :
 -- Controls of the text reading, which are samples and not proofs: the mentions of a line read in
 -- order of kind, an edit sets each mention and keeps the text around it, a marker without the
 -- text of its kind is refused, a Lean release with a suffix such as `+local` is refused, a Lean
--- release can end the line, ``Regula `init` `` is no mention, and a document without a mention
--- of a kind lacks that kind.
+-- release can end the line, a Lean release can end a sentence and an edit keeps its full stop,
+-- ``Regula `init` `` is no mention, and a document without a mention of a kind lacks that kind.
 #guard (mentionsOf "f" ("Regula `v0.9.0` is for the Lean toolchain `leanprover/lean4:v4.34.0`." ++
     "\nlake +leanprover/lean4:v4.34.0 new demo") |>.toOption) ==
   some [⟨"f", 1, .regula, "v0.9.0"⟩, ⟨"f", 1, .lean, "v4.34.0"⟩, ⟨"f", 2, .lean, "v4.34.0"⟩]
@@ -1299,6 +1313,12 @@ theorem unmentioned_eq_nil_iff (ms : List Mention) (files : List String) :
 #guard mentionsOf "f" "the toolchain leanprover/lean4: names no release" matches .error _
 #guard mentionsOf "f" "lake +leanprover/lean4:v4.34.1+local new demo" matches .error _
 #guard (mentionsOf "f" "toolchain: leanprover/lean4:v4.34.1" |>.toOption) == some [⟨"f", 1, .lean, "v4.34.1"⟩]
+#guard (mentionsOf "f" "Regula `v0.11.0` is for leanprover/lean4:v4.34.1." |>.toOption) ==
+  some [⟨"f", 1, .regula, "v0.11.0"⟩, ⟨"f", 1, .lean, "v4.34.1"⟩]
+#guard (withMentions "f" "It is for leanprover/lean4:v4.34.0. See Regula `v0.9.0`."
+    ⟨⟨0, 10, 0⟩, ⟨4, 34, 1⟩⟩ |>.toOption) ==
+  some "It is for leanprover/lean4:v4.34.1. See Regula `v0.10.0`."
+#guard mentionsOf "f" "lake +leanprover/lean4:v4.34.1.+local new demo" matches .error _
 #guard (mentionsOf "f" "Regula `init` writes a manifest" |>.toOption) == some []
 #guard (mentionsOf "f" "Regula `v0.9.0`" |>.toOption).map (unmentioned · ["f"]) ==
   some [("f", .lean)]

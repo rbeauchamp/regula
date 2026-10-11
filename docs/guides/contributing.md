@@ -596,6 +596,19 @@ The summary of Regula is one definition, `Regula.Site.summary` in [`lean/RegulaC
 
 The same step runs `lake reservoir-config` in the repository root. It refuses a `description` of `lakefile.lean`, as Lake reads it, that is not the summary without its backticks.
 
+#### The example of the root README
+
+The root `README.md` shows the module [`markdown/Readme/Shortcut.lean`](../../markdown/Readme/Shortcut.lean) and the findings of `axiomGate --file` for it. No Lake library contains that file, thus no target of the repository builds it.
+
+`./scripts/verify.sh docs` makes a new Lake project in a temporary directory. The project has the `lean-toolchain` of the repository, and it requires the root package by its path. In that project, the step runs `lean --json` and `lake exe axiomGate --file` on the module. It refuses the `README.md` unless these conditions are true (`Regula.Markdown.demonstrationErrors`, `demonstrationErrors_nil_iff`):
+
+- Its one `lean` code block is the text of the module, byte for byte.
+- Lean gives no message for the module.
+- `axiomGate --file` exits with 1.
+- The output of `axiomGate --file` fits the one `text` code block. A line that is `…` alone stands for any sequence of lines, also for no line. A `…` in a different line stands for any text in that line. Each other character must be equal (`lineFits_plain`).
+
+The step also examines three changed copies of its input. They have a changed `lean` block, a warning of Lean that the `README.md` does not state and a changed finding line. It refuses unless the check refuses each copy, and it shows the refusal of each copy.
+
 ### The vocabulary of the project
 
 The same executable does a check of [`CONTEXT.md`](../../CONTEXT.md), the vocabulary of the

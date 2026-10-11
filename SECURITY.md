@@ -58,20 +58,23 @@ from the axiom table `exportedAxiomsExt` that Lean writes for each module. It al
 checks the modules of a path dependency in the project's Git work tree that the claimed modules
 import, except Regula's own. But a pass makes no claim that the project has none of the changes in
 the list.
-The [README](README.md) puts Regula at the `#print axioms` step of
-[Validating a Lean Proof](https://lean-lang.org/doc/reference/latest/ValidatingProofs/).
 
-The later steps of that page, `lean4checker` and comparator, replay declarations through Lean's
-kernel. Thus the two refuse a declaration that `debug.skipKernelTC` adds and that the kernel does
-not accept. `lean4checker` does not calculate or compare axiom sets, thus it does not find a direct
-write to the axiom table. Comparator calculates the axioms from the declarations that it exports,
-not from that table. It refuses each axiom that is not one of its permitted axioms.
+Regula runs the `#print axioms` step of
+[Validating a Lean Proof](https://lean-lang.org/doc/reference/latest/ValidatingProofs/) over each
+declaration that a project claims. `lake env leanchecker` replays the compiled modules in Lean's
+kernel beside it. [Comparator](https://github.com/leanprover/comparator) judges a proof of a fixed
+statement from a source that you do not trust.
+
+The later steps of that page, `lake env leanchecker` and comparator, replay declarations through
+Lean's kernel. Thus the two refuse a declaration that `debug.skipKernelTC` adds and that the kernel
+does not accept. `lake env leanchecker` does not calculate or compare axiom sets, thus it does not
+find a direct write to the axiom table. Comparator calculates the axioms from the declarations that
+it exports, not from that table. It refuses each axiom that is not one of its permitted axioms.
 
 No step of that page checks the changes to compiled code. These are a compiler pass, a direct
 write that stores a compiled body that Lean's compiler did not make and a native build setting. An
 `_unsafe_rec` companion that Regula does not inspect is also such a change. The checks of Regula
-that read compiled code trust that the project makes none of these changes. To check a proof from
-a source that you do not trust, use [comparator](https://github.com/leanprover/comparator).
+that read compiled code trust that the project makes none of these changes.
 
 Regula owns the path dependencies in the Git work tree of the project only in a supported
 workspace. In it, each owned package, the root package included, keeps Lake's default output

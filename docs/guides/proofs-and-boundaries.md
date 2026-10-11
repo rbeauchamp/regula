@@ -999,7 +999,7 @@ Two-way decisions (`Regula.Decides`), each with an accepted and a refused input:
 | `RegulaPolicy.MentionSearch.search` (accepts on a route) | `Found` (`found_of_search`, `search_complete`). A constant that the term mentions leads to a target through the records. | Contract recognition and reach of [RG1007] ([below](#contract-recognition-and-reach-decision-and-observing-pass)). A returned route follows the records (`search_sound`). |
 | `RegulaPolicy.StatementReading.reads` (accepts on `true`) | `Read` (`reads_iff`). The reading of a statement follows the constant from the record of the constant that mentions it. It does not follow a projection of the input type back to it. | What [RG1009] follows from the specification and the acceptance predicate ([below](#the-reading-of-a-statement-decision-and-observing-pass)). The closure over the records is exact (`reading_some`). |
 | `Regula.SourceTexts.intern` | One `sourceTexts` member, `null`, and string `sourceText` members (`intern_isOk_iff`) | Writing a result document. |
-| `Regula.Markdown.documentErrors`, `Regula.Markdown.siteLinkErrors`, `Regula.Markdown.summaryErrors`, `Regula.Prose.bareMentions`, `Regula.Site.linkErrors`, `Regula.Site.missingAnchors`, `Regula.Site.rowsMismatch` | Their `_nil_iff` and `_eq_none_iff` relations | The rule-ID checks of Markdown and of the rendered standard, and the site's link, anchor and checklist checks. `siteLinkErrors` is the check of the links of the root `README.md` to the rule-reference site. `summaryErrors` is the check that the root `README.md` and the adoption guide open with the summary of Regula (`OpensWith`). |
+| `Regula.Markdown.documentErrors`, `Regula.Markdown.siteLinkErrors`, `Regula.Markdown.summaryErrors`, `Regula.Markdown.demonstrationErrors`, `Regula.Prose.bareMentions`, `Regula.Site.linkErrors`, `Regula.Site.missingAnchors`, `Regula.Site.rowsMismatch` | Their `_nil_iff` and `_eq_none_iff` relations | The rule-ID checks of Markdown and of the rendered standard, and the site's link, anchor and checklist checks. `siteLinkErrors` is the check of the links of the root `README.md` to the rule-reference site. `summaryErrors` is the check that the root `README.md` and the adoption guide open with the summary of Regula (`OpensWith`). `demonstrationErrors` is the check of the example of the root `README.md` (`Demonstrates`). |
 | `Regula.Controlled.parse` | The text is the text that `write` gives for a vocabulary (`parse_write`, `write_of_parse`). A vocabulary is a draft with `Draft.WellFormed` (`Draft.defects_nil_iff`). | The vocabulary `CONTEXT.md` (check C9) of the [writing rules](writing.md). The file system gives the text. |
 | `Regula.Controlled.untracked`, `Regula.Controlled.adopt` | Each source path is a tracked path of the repository of its row. `adopt` accepts two vocabularies if, and only if, three conditions are correct (`checked_adopt`). The vocabulary of the project has the line `Shared vocabulary:`. The vocabulary of the package does not have that line. The rows of the project and the `Shared` tables of the package together have `Draft.WellFormed`. | The other parts of check C9. Git gives the tracked paths. |
 | `Regula.Controlled.longSentences`, `longSteps`, `longParagraphs`, `semicolons`, `contractions`, `replacedNames`, `replacedWords`, `abbreviations` (accept on `[]`) | `ShortSentences`, `ShortSteps`, `ShortParagraphs`, `NoSemicolon`, `NoContraction`, `NoReplacedName`, `NoReplacedWord`, `NoAbbreviation`. Each statement is about the blocks (`Blocks`) and the sentences (`Divided`) of the pieces. The statements of C5 to C8 use the form of a word (`Normal`). | The checks C1 to C8 of the prose of a Markdown document. The md4c reader gives the pieces, and that reader has no theorem. |
@@ -4438,22 +4438,25 @@ account or of the two:
   that code.
 
 Regula finds some changes of this kind, where the standard or a rule page states the check. An
-accepted result makes no claim that the project has none of the changes in the list. The
-[README](../../README.md) puts Regula at the `#print axioms` step of
-[Validating a Lean Proof](https://lean-lang.org/doc/reference/latest/ValidatingProofs/).
+accepted result makes no claim that the project has none of the changes in the list.
 
-The later steps of that page, `lean4checker` and comparator, replay declarations through Lean's
-kernel. Thus the two refuse a declaration that `debug.skipKernelTC` adds and that the kernel does
-not accept. `lean4checker` does not calculate or compare axiom sets, thus it does not find a direct
-write to the axiom table. Comparator calculates the axioms from the declarations that it exports,
-not from that table. It refuses each axiom that is not one of its permitted axioms.
+Regula runs the `#print axioms` step of
+[Validating a Lean Proof](https://lean-lang.org/doc/reference/latest/ValidatingProofs/) over each
+declaration that a project claims. `lake env leanchecker` replays the compiled modules in Lean's
+kernel beside it. [Comparator](https://github.com/leanprover/comparator) judges a proof of a fixed
+statement from a source that you do not trust.
+
+The later steps of that page, `lake env leanchecker` and comparator, replay declarations through
+Lean's kernel. Thus the two refuse a declaration that `debug.skipKernelTC` adds and that the kernel
+does not accept. `lake env leanchecker` does not calculate or compare axiom sets, thus it does not
+find a direct write to the axiom table. Comparator calculates the axioms from the declarations that
+it exports, not from that table. It refuses each axiom that is not one of its permitted axioms.
 
 No step of that page checks the changes to compiled code. These are a compiler pass, a direct
 write that stores a compiled body that Lean's compiler did not make and a native build setting. An
 `_unsafe_rec` companion that [RG1006] does not inspect is also such a change. Thus these changes
 stay trusted boundaries of the execution account of [RG3001] and [RG3002] and of the native replay
-of [RG1004]. To check a proof from a source that you do not trust, use
-[comparator](https://github.com/leanprover/comparator).
+of [RG1004].
 
 ## Operational assumptions
 
