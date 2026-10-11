@@ -273,7 +273,7 @@ adopter fixtures in `examples/lake-lint-toml` and `examples/build-lint`, the app
 fixture sources the structural and execution controls mutate, Lake configuration, manifests, or
 the compiler and dependency setup: the provisioning program and its decision contracts, the
 provisioning action and the verification scripts),
-and on every other run; it also runs both `rule-examples` shards nightly. Its last job,
+and on every other run; it also runs the three `rule-examples` shards nightly. Its last job,
 `diagnostics`, is a required check of the ruleset of `main`. It reports on every pull request and
 passes exactly when `applies` succeeded and each partition job passed and applies, or was
 skipped and does not apply, so a pull request merges only once every one of these jobs that
@@ -289,6 +289,11 @@ The [dogfood workflow](../../.github/workflows/dogfood.yml) runs `self-lint` and
 that compiler and dependency setup change, on every push to `main`, and nightly. They are not part of acceptance.
 None of these jobs is a required check of the ruleset of `main`. The workflow runs on a pull request only when those paths change. A required check from it does not report on a different pull request, so that pull request cannot merge.
 It runs `self-lint-default` only nightly and on dispatch, as one more job under the same limit. It is not a check of a pull request or of a push.
+
+When the campaigns apply, the `diagnostics` job also compares two digests. The shard
+`structural 1/5` uploads the SHA-256 digest of the fresh input that the self-hosted positive's
+fresh gate accepted. The shard `structural 5/5` uploads that of its restored self-hosted copy.
+The gate refuses unless both are present, well-formed and equal.
 
 ## Implementation and qualification layout
 

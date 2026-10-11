@@ -17,7 +17,9 @@ name: Diagnostics
 # only when it applies. The last job, `diagnostics`, runs once every other job has finished,
 # whatever their results, and passes exactly when `applies` succeeded and each partition job passed
 # and applies, or was skipped and does not apply (`verdict_iff`); a failed, cancelled or timed-out
-# job fails it. The ruleset of main requires that check, so a pull request merges only once every
+# job fails it. When the campaigns apply, it also refuses unless the self-hosted digests that the
+# structural shards 1/5 and 5/5 upload are present, well-formed and equal
+# (`digestRefusals_eq_nil_iff`). The ruleset of main requires that check, so a pull request merges only once every
 # diagnostics job that applies to it has passed on its head commit, and one that changes no input
 # passes it without running a campaign. Every job other than `applies` and
 # `diagnostics` is in the `needs` of `diagnostics` and has its `if:` read its own decision; the
@@ -96,6 +98,19 @@ jobs:
       - name: Qualify (same command and seven-minute limit as local)
         run: ./scripts/verify.sh ${{ matrix.campaign }}
 
+      # The digest of the fresh input the self-hosted positive's gate accepted (shard 1/5) and of
+      # the restored self-hosted copy's (shard 5/5), for the gate to compare. Named by attempt, so
+      # a rerun never reads an earlier attempt's; a rerun of one of the two shards alone leaves
+      # the gate without the other's digest of its attempt, and the gate refuses.
+      - name: Keep the self-hosted digest for the gate
+        if: matrix.campaign == 'diagnostics structural 1/5' || matrix.campaign == 'diagnostics structural 5/5'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: self-hosted-digest-${{ strategy.job-index }}-${{ github.sha }}-${{ github.run_attempt }}
+          path: tmp/self-hosted-digest/
+          if-no-files-found: error
+          retention-days: 30
+
   # CI runs the three rule-example shards on every change. Like the campaigns above, they also
   # run nightly on an unchanged main, where a failure shows drift in the runner image or the
   # restored toolchain cache rather than in the pinned sources.
@@ -134,7 +149,15 @@ jobs:
       # The gate needs the pinned toolchain alone.
       - uses: ./.github/actions/provision
 
-      - name: Refuse unless every diagnostics job passed exactly when it applies
+      # None when the campaigns did not run or a structural shard failed; the gate decides.
+      - name: Receive this attempt's self-hosted digests
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          pattern: self-hosted-digest-*-${{ github.sha }}-${{ github.run_attempt }}
+          path: tmp/self-hosted-digest
+          merge-multiple: true
+
+      - name: Refuse unless every diagnostics job passed exactly when it applies and the self-hosted digests agree
         env:
           NEEDS: ${{ toJSON(needs) }}
         run: lean --run lean/Regula/DiagnosticsGate.lean gate

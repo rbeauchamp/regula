@@ -4145,6 +4145,12 @@ compiler-preparation job `compiler` is not a partition job: `applies` needs it a
 so `applies` runs, and the gate can pass, only once `compiler` succeeded (GitHub's implicit
 `success()`, trusted, and also the workflow's wiring).
 
+The gate also compares the two self-hosted digests that the structural shards `1/5` and `5/5`
+upload. **Proved:** when the campaigns apply, `digestRefusals` refuses nothing exactly when both
+digests are present, well-formed and equal (`digestRefusals_eq_nil_iff`). When they do not apply,
+it requires no digest. **Trusted:** the artifacts that GitHub carries between the jobs, and
+`shasum`. Equal digests are read as equal inputs, an assumption of collision resistance.
+
 ## Rule examples and the corpus runner
 
 **Proved:** `admitExampleRequest` admits exactly expected/observed request equality;
@@ -4447,19 +4453,21 @@ shard and the chain in the fifth.
 `structuralSelfHosted` builds its copy and runs the incremental gate on each of the three
 contaminations. It restores each contamination before the next. Then it records the fresh input
 of the restored copy with `freshInput`: the files that the copy operation of a fresh gate copies
-from it. It prepares a reference copy with `prepareSelfHosted` and records the fresh input of that
-copy too. `structuralSelfHostedPositive` prepares its own copy with `prepareSelfHosted` and runs
-the accepting fresh gate on it.
+from it. `structuralSelfHostedPositive` prepares its own copy with `prepareSelfHosted` and records
+the fresh input of that copy. Then it runs the fresh gate on the copy, and it keeps that input only
+when the gate accepts.
 
-`selfHostedIdentity` compares the two fresh inputs of the chain path by path and byte by byte. A
-difference fails the cluster. This comparison takes the place of an accepting fresh gate on the
-restored copy. It shows that the restorations gave the copy the same fresh input as a copy that
-`prepareSelfHosted` prepares.
+The fresh input of the restored copy must be the input that the fresh gate of the positive
+accepted. An unsharded run compares the two after the queue with `selfHostedIdentity`, path by
+path and byte by byte. A difference or a missing input fails the partition. In a sharded run, the
+positive and the chain run in different jobs. Each of their two shards writes the SHA-256 digest
+of a canonical serialization of its input to a file below `tmp/`.
 
-The positive runs in another job, and the two jobs do not compare their inputs. The input of the copy that the
-positive accepted is the input of the reference copy. That rests on `prepareSelfHosted`, which
-copies the files of the checkout and derives the manifest from them alone. This is a reading of
-that function, not a theorem.
+The `diagnostics` gate of the workflow compares the two digests
+(`Regula.DiagnosticsGate.digestRefusals`). When the campaigns apply, it refuses a missing,
+malformed or different digest. Equal SHA-256 digests are read as equal inputs. This is an
+assumption of collision resistance, not a theorem. The comparison takes the place of an accepting
+fresh gate on the restored copy.
 
 The comparison does not prove that a fresh gate accepts the restored copy. That result also
 rests on a fact that is not a theorem. A fresh gate reads the audited project only through
@@ -4491,8 +4499,8 @@ gates 23 s, and on the slower hosted runners the cluster took 262 to 266 s besid
 for cluster `a`, so that the shard's timed step took 394 to 414 s and once reached its
 420-second deadline. The
 gate on the unmutated copy therefore runs as the positive cluster, beside the chain, and the four
-clusters in the structural project (`a`, `b`, `c` and `d`) run in the second shard, which no
-longer holds the positive. With cluster `a` still in the first shard, beside the chain and the
+clusters in the structural project (`a`, `b`, `c` and `d`) ran in the second shard of the former
+two-shard layout, which no longer held the positive. With cluster `a` still in the first shard, beside the chain and the
 positive, that shard's timed step took 354 s and 362 s on the slower hosted runners
 (Diagnostics run 37178141571, attempts 1 and 2): the chain took 205 and 208 s there, beside 162
 and 163 s for the positive and 139 and 142 s for `a`. That step includes the build of the self-test and its checker executables: on the slower
@@ -4501,8 +4509,8 @@ had passed when the first control started.
 
 On the slower hosted runners, the timed step of the first shard took 405 s at commit `e6c4c996`,
 with 242 s for the chain. With the seed, Diagnostics run 37979063520 took 368 s, with 198 s for
-the chain and 156 s for its restored fresh gate. The chain now holds no fresh gate, so the
-positive is the longest item of the first shard. Without that gate, the timed step took 295 to
+the chain and 156 s for its restored fresh gate. The chain then held no fresh gate, so the
+positive was the longest item of the first shard of that layout. Without that gate, the timed step took 295 to
 308 s on the slower hosted runners (Diagnostics run 38015750002, attempts 2, 4 and 6). The chain
 took 40 to 41 s there and the positive 133 to 138 s.
 
