@@ -401,8 +401,8 @@ entry is a control of the check. Three fixed controls run too. A declaration nam
 `./scripts/verify.sh diagnostics self-audit 1/4` to `4/4` each run one shard of the self-audit.
 The campaign sorts each list of modules that it inspects by name, and it deals the list to the
 four shards in turn. Thus each shard audits a quarter of each list. The theorem
-`SelfAudit.selected_cover` states that the four selections together are the list that the single
-run audits. The dogfood workflow runs the four shards, and the local command
+`SelfAudit.selected_cover` states that the four selections together are a rearrangement of the
+list that the single run audits. The dogfood workflow runs the four shards, and the local command
 `diagnostics self-audit` runs all of them in one invocation.
 
 Before its `lake lint` in the root package, `diagnostics self-lint` builds the `lint` driver, its
