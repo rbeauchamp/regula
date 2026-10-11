@@ -609,12 +609,44 @@ theorem readGuidance_eq_ok {j : Json} {g : Guidance} (h : readGuidance j = .ok g
     hf, members, hmem, rfl⟩ := h
   exact ⟨schema, hs, hm, hd, hr, hc, hf, hmem⟩
 
+/-- Whether findings are in run order: their entries (`Finding.entry`) are those
+`Feedback.sortEntries` gives, the order of `sortFindings`, which every writer writes
+(`sortFindings_entries`). -/
+def inRunOrder (findings : List Finding) : Bool :=
+  decide (findings.map Finding.entry = Feedback.sortEntries (findings.map Finding.entry))
+
+/-- Findings are in run order exactly when each entry may precede every later one
+(`Feedback.Entry.le`). -/
+theorem inRunOrder_iff (findings : List Finding) :
+    inRunOrder findings = true ↔
+      (findings.map Finding.entry).Pairwise fun a b => Feedback.Entry.le a b = true := by
+  unfold inRunOrder
+  rw [decide_eq_true_iff]
+  constructor
+  · intro sorted
+    rw [sorted]
+    exact Feedback.sortEntries_sorted _
+  · intro sorted
+    apply List.Perm.eq_of_pairwise (le := fun a b => Feedback.Entry.le a b = true)
+    · intro a b _ _ ab ba
+      exact Feedback.Entry.eq_of_cmp (Std.OrientedCmp.isLE_antisymm ab ba)
+    · exact sorted
+    · exact Feedback.sortEntries_sorted _
+    · exact (Feedback.sortEntries_perm _).symm
+
+/-- The findings every writer writes are in run order. -/
+theorem inRunOrder_sortFindings (findings : List Finding) :
+    inRunOrder (sortFindings findings) = true := by
+  rw [inRunOrder_iff, sortFindings_entries]
+  exact Feedback.sortEntries_sorted _
+
 /-- The decision of `admitGuidance` on decoded members, stated by `guidanceVerdict_eq_ok_iff`:
 `stages` are the required stages of the result's `mode` (`runStages`), and for a result with a
 mode its documentation stages are exactly those of a `projectWithDocs` request; a result without
 a mode has exactly the form `invalidateResults` writes for a destination whose configuration was
 not yet validated: `incomplete`, without a finding or a completed stage; the status agrees with
-the findings (`statusAgrees`), so a `completed` or `classified` result has none; a `classified`
+the findings (`statusAgrees`), so a `completed` or `classified` result has none; the findings are in
+run order (`inRunOrder`), the order `sortFindings` gives every writer; a `classified`
 result records the completed stages of one of its writers (`classifiedStages`); the guidance
 members conform to their derivation by the writer's own `guidanceFields` (`membersConform`); and
 an `incomplete` result without an incomplete finding reports a stage not run. -/
@@ -630,6 +662,7 @@ def guidanceVerdict (g : Guidance) : Except String Unit := do
   let incomplete := (g.findings.filter (·.2.impact == .incomplete)).length
   requireThat (statusAgrees g.status g.findings)
     s!"a {g.status} result cannot carry its {g.findings.length} findings ({incomplete} incomplete)"
+  requireThat (inRunOrder g.findings) "result findings are not in run order"
   requireThat (g.status != "classified" || (classifiedStages g.mode).contains g.completed)
     "a classified result records completed stages that no classified result records"
   let expected := guidanceFields (acceptedStatus g.status) g.required g.completed g.findings
@@ -653,12 +686,14 @@ theorem guidanceVerdict_eq_ok_iff (g : Guidance) :
         g.withDocs = (g.required == stagesOf .freshProject ++ documentationStages)) ∧
       (g.mode = none → g.status = "incomplete" ∧ g.findings = [] ∧ g.completed = []) ∧
       statusAgrees g.status g.findings = true ∧
+      (g.findings.map Finding.entry).Pairwise (fun a b => Feedback.Entry.le a b = true) ∧
       (g.status = "classified" → g.completed ∈ classifiedStages g.mode) ∧
       MembersConform g.members
         (guidanceFields (acceptedStatus g.status) g.required g.completed g.findings) ∧
       (g.status = "incomplete" → (∃ f ∈ g.findings, f.2.impact = .incomplete) ∨
         notRun g.required g.completed ≠ []) := by
-  simp only [guidanceVerdict, requireThat_bind_eq_ok, requireThat_eq_ok, ← membersConform_iff]
+  simp only [guidanceVerdict, requireThat_bind_eq_ok, requireThat_eq_ok, ← membersConform_iff,
+    inRunOrder_iff]
   cases hm : g.mode <;>
     simp [Bool.or_eq_true, Bool.and_eq_true, List.isEmpty_iff, beq_iff_eq, List.any_eq_true,
       bne_iff_ne, ne_eq, and_assoc, Decidable.imp_iff_not_or, or_assoc]
@@ -690,13 +725,13 @@ theorem guidanceVerdict_completed (g : Guidance) (h : g.status = "completed") :
   | none => simp
   | some mode =>
     constructor
-    · rintro ⟨hr, hw, -, hf, -, hmem, -⟩
+    · rintro ⟨hr, hw, -, hf, -, -, hmem, -⟩
       rw [hf, expected] at hmem
       exact ⟨⟨mode, rfl, hr, hw rfl⟩, hf, hmem⟩
     · rintro ⟨⟨m, hm', hr, hw⟩, hf, hmem⟩
       cases hm'
       rw [hf, expected]
-      exact ⟨hr, fun _ => hw, by simp, rfl, by simp, hmem, by simp⟩
+      exact ⟨hr, fun _ => hw, by simp, rfl, by simp, by simp, hmem, by simp⟩
 
 /-- No stage that a finding of an admitted envelope blocks is among the stages whose names its
 recorded `stagesCompleted` must conform to (`guidanceVerdict_eq_ok_iff`): a `completed` result has
@@ -764,6 +799,17 @@ theorem admitGuidance_completed (j : Json) (h : readStatus j = .ok "completed") 
       exact (Except.ok.inj this).symm
     exact ⟨regular, g, read, (guidanceVerdict_completed g status).mpr rest⟩
 
+/-- The members of a result that `admitGuidance` reads: its schema, status, mode, request,
+findings and guidance members. -/
+def guidanceInputKeys : List String :=
+  ["schemaVersion", "status", "mode", "request", "diagnostics"] ++ guidanceKeys
+
+/-- The members of `j` that `admitGuidance` reads, as Lean's lookup finds them, in an object of
+their own. A reader that decides on a result by its members alone admits this object, so its
+decision is unchanged by the result's other members. -/
+def guidanceInput (j : Json) : Json :=
+  Json.mkObj (guidanceInputKeys.filterMap fun key => (j.getObjVal? key).toOption.map (key, ·))
+
 theorem mapM_eq_ok_nil {α β : Type} {f : α → Except String β} {l : List α}
     (h : l.mapM f = .ok []) : l = [] := by
   cases l with
@@ -828,47 +874,145 @@ def writeDocument (path : System.FilePath) (document : Json) (span : String := "
   IO.FS.writeFile path encoded
   timingSpan s!"diagnostic span: {span} write: {(← IO.monoMsNow) - writeStart}ms"
 
-/-- Admit a received result document: read it (`SharedExecution.read`), write what was read again
-with the writer's own proposals (`SharedExecution.write`), and require the received value to
-conform to that written form (`JsonAgreement.conforms`, the received value first). It admits
-exactly the values that have search trees and agree with the writer's output for the document
-they stand for (`admitDocument_eq_ok_iff`), and each writer output with search trees
-(`admitDocument_write`). So a source table with an entry that no `sourceText` member names, or an
-execution account in a form that the writer does not choose, is refused. -/
+/-- Applying `g` to the members named `key` of what applying `f` to them wrote is applying `g`
+after `f` to them. -/
+theorem mapMembers_mapMembers (key : String) (f g : Json → Json) (value : Json) :
+    SharedExecution.mapMembers key g (SharedExecution.mapMembers key f value) =
+      SharedExecution.mapMembers key (g ∘ f) value := by
+  refine JsonAgreement.Cases.value
+    (motive := fun value => SharedExecution.mapMembers key g
+      (SharedExecution.mapMembers key f value) = SharedExecution.mapMembers key (g ∘ f) value)
+    (fieldsMotive := fun fields => SharedExecution.mapMemberFields key g
+      (SharedExecution.mapMemberFields key f fields) =
+        SharedExecution.mapMemberFields key (g ∘ f) fields) ?_ value
+  refine ⟨?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_⟩
+  · simp [SharedExecution.mapMembers]
+  · intro b
+    simp [SharedExecution.mapMembers]
+  · intro n
+    simp [SharedExecution.mapMembers]
+  · intro s
+    simp [SharedExecution.mapMembers]
+  · intro elems elements
+    simp only [SharedExecution.mapMembers, Array.map_map]
+    exact congrArg Json.arr (Array.map_congr_left fun element member => elements element member)
+  · intro fields step
+    simp [SharedExecution.mapMembers, step]
+  · simp [SharedExecution.mapMemberFields]
+  · intro size name value left right valueStep leftStep rightStep
+    by_cases named : (name == key) = true
+    · simp [SharedExecution.mapMemberFields, named, leftStep, rightStep]
+    · simp [SharedExecution.mapMemberFields, named, valueStep, leftStep, rightStep]
+
+/-- The written form the result writers give the document a value with its source texts put back
+(`expanded`) stands for, each execution account in the entry kinds `expanded` gives it: every
+`execution` member replaced by its `ExecutionShare.formLike` for the value the reader restores
+from it (`SharedExecution.restore?`). -/
+def rewritten (expanded : Json) : Json :=
+  SharedExecution.mapMembers SharedExecution.accountKey (fun written =>
+    match SharedExecution.restore? written with
+    | some value => ExecutionShare.formLike written value
+    | none => written) expanded
+
+/-- Admit a received result document: put its source texts back (`SourceTexts.expand`), restore
+its execution accounts (`SharedExecution.expand`), write it again as the writers do with the kind
+of each root entry of an execution account the received value has (`rewritten`, then
+`SourceTexts.intern`), and require the received value to conform to that (`JsonAgreement.conforms`,
+the received value first). It admits exactly the values `admitDocument_eq_ok_iff` states, and
+each value a writer writes with search trees, at every entry kinds under which the reader takes
+back its execution accounts (`admitDocument_of_forms`, `admitDocument_write`,
+`admitDocument_writeAs`). So a source table with an entry that no `sourceText` member names, or an
+execution account with a member a writer does not write, is refused. An account may be explicit
+where its derived entry fits: the writer decides with `SharedExecution.same`, which compares
+object trees node for node, and the document read from a file has the parser's trees. -/
 def admitDocument (received : Json) : Except String Json := do
-  let document ← SharedExecution.read received
-  let written ← SharedExecution.write ExecutionShare.proposals document
+  let expanded ← SourceTexts.expand received
+  let document ← SharedExecution.expand expanded
+  let written ← SourceTexts.intern (rewritten expanded)
   requireThat (JsonAgreement.conforms received written)
-    "result document: not the written form of the document it stands for"
+    "result document: not a written form of the document it stands for"
   pure document
 
-/-- What `admitDocument` admits, for every `Json` value. -/
+/-- What `admitDocument` admits, for every `Json` value: a value whose source texts and execution
+accounts restore to `document`, and which conforms to the writers' form of what its source texts
+restore to, with its own entry kinds. -/
 theorem admitDocument_eq_ok_iff (received document : Json) :
     admitDocument received = .ok document ↔
-      SharedExecution.read received = .ok document ∧
-        ∃ written, SharedExecution.write ExecutionShare.proposals document = .ok written ∧
+      ∃ expanded, SourceTexts.expand received = .ok expanded ∧
+        SharedExecution.expand expanded = .ok document ∧
+        ∃ written, SourceTexts.intern (rewritten expanded) = .ok written ∧
           JsonAgreement.Conforms received written := by
   unfold admitDocument
   simp only [bind_eq_ok, pure, Except.pure, Except.ok.injEq]
   constructor
-  · rintro ⟨read, hr, written, hw, ⟨⟩, conforming, rfl⟩
-    exact ⟨hr, written, hw,
+  · rintro ⟨expanded, he, restored, hr, written, hw, ⟨⟩, conforming, rfl⟩
+    exact ⟨expanded, he, hr, written, hw,
       (JsonAgreement.conforms_iff _ _).mp ((requireThat_eq_ok _ _).mp conforming)⟩
-  · rintro ⟨hr, written, hw, conforming⟩
-    exact ⟨document, hr, written, hw, (),
+  · rintro ⟨expanded, he, hr, written, hw, conforming⟩
+    exact ⟨expanded, he, document, hr, written, hw, (),
       (requireThat_eq_ok _ _).mpr ((JsonAgreement.conforms_iff _ _).mpr conforming), rfl⟩
 
-/-- `admitDocument` admits each value the writer writes whose object trees are search trees,
-and returns the document the writer was given (`SharedExecution.read_write`). That a writer's
-output has search trees is not proved here; the result files of the qualification campaigns,
-read by `admitDocument`, observe it. -/
+/-- An admitted value is read as the document `admitDocument` returns. -/
+theorem admitDocument_read {received document : Json}
+    (admitted : admitDocument received = .ok document) :
+    SharedExecution.read received = .ok document := by
+  obtain ⟨expanded, he, hr, -⟩ := (admitDocument_eq_ok_iff received document).mp admitted
+  simp only [SharedExecution.read, he, bind, Except.bind]
+  exact hr
+
+/-- **Admission accepts what a writer writes.** For every list of proposals whose written form of
+each value `ExecutionShare.formLike` returns, `admitDocument` admits each value
+`SharedExecution.write` produces with them whose object trees are search trees, and returns the
+document the writer was given (`SharedExecution.read_write`). -/
+theorem admitDocument_of_forms {proposals : List (Json → Json)} {document written : Json}
+    (forms : ∀ value, ExecutionShare.formLike (SharedExecution.internValue proposals value) value =
+      SharedExecution.internValue proposals value)
+    (wrote : SharedExecution.write proposals document = .ok written)
+    (regular : JsonAgreement.Regular written) : admitDocument written = .ok document := by
+  have texts : SourceTexts.expand written = .ok (SharedExecution.intern proposals document) :=
+    SourceTexts.expand_intern wrote
+  have same : rewritten (SharedExecution.intern proposals document) =
+      SharedExecution.intern proposals document := by
+    unfold rewritten SharedExecution.intern
+    rw [mapMembers_mapMembers]
+    congr 1
+    funext value
+    simp only [Function.comp_apply, SharedExecution.restore?_internValue, forms]
+  refine (admitDocument_eq_ok_iff written document).mpr
+    ⟨_, texts, SharedExecution.expand_intern proposals document, written, ?_,
+      regular, regular.agree_self⟩
+  rw [same]
+  exact wrote
+
+/-- `admitDocument` admits each value the result writers write (`ExecutionShare.proposals`) for a
+document of any shape whose object trees are search trees, and returns that document
+(`ExecutionShare.formLike_internValue`). -/
 theorem admitDocument_write {document written : Json}
     (wrote : SharedExecution.write ExecutionShare.proposals document = .ok written)
     (regular : JsonAgreement.Regular written) : admitDocument written = .ok document :=
-  (admitDocument_eq_ok_iff written document).mpr
-    ⟨SharedExecution.read_write wrote, written, wrote, by
-      unfold JsonAgreement.Conforms
-      exact ⟨regular, regular.agree_self⟩⟩
+  admitDocument_of_forms ExecutionShare.formLike_internValue wrote regular
+
+/-- `admitDocument` admits each value written with any kind of each root entry
+(`ExecutionShare.sharedAs`, the kinds of a value's entries given by `explicit` of the value) under
+which the reader takes back every value or `sharedAs` writes it as it is, when its object trees
+are search trees (`ExecutionShare.formLike_sharedAs`). The writers' own choice, and the one a
+document read back from its file has, are such kinds wherever the reader takes the shared form
+back; that the writers' form is taken back is `SharedExecution.read_write`, and that the parse of
+a written file is a value of this form is not proved: the qualification campaigns, which read
+their result files with `admitDocument`, observe it. -/
+theorem admitDocument_writeAs {explicit : Json → Nat → Bool} {document written : Json}
+    (restores : ∀ value, ExecutionShare.sharedAs (explicit value) value = value ∨
+      SharedExecution.recovers (ExecutionShare.sharedAs (explicit value) value) value = true)
+    (wrote : SharedExecution.write [fun value => ExecutionShare.sharedAs (explicit value) value]
+      document = .ok written)
+    (regular : JsonAgreement.Regular written) : admitDocument written = .ok document :=
+  admitDocument_of_forms (fun value => by
+    have own : SharedExecution.internValue
+        [fun value => ExecutionShare.sharedAs (explicit value) value] value =
+        SharedExecution.internValue [ExecutionShare.sharedAs (explicit value)] value :=
+      ExecutionShare.internValue_congr rfl
+    rw [own]
+    exact ExecutionShare.formLike_sharedAs (restores value)) wrote regular
 
 /-- Read the result document `writeDocument` wrote at `path`: parsed strictly
 (`PolicyCodec.parse`) and admitted (`admitDocument`), so every `sourceText` member holds its

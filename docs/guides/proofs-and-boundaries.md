@@ -1660,14 +1660,16 @@ of the callers.
 
 - `AxiomGate` reads a result file with `ResultProtocol.readDocument`. That function runs
   `PolicyCodec.parse` and then `ResultProtocol.admitDocument`. `admitDocument` runs
-  `SharedExecution.read`, and it refuses a value that does not conform to the written form of the
-  document that it reads.
+  `SharedExecution.read`, and it refuses a value that does not conform to a form that the writers
+  write of the document that it reads. That form has the entry kinds of the execution accounts of
+  the value.
 - The runner of the rule examples (`Regula.Qualification.RuleExamples`) reads a result file with
   `Qualification.readResult`. That function runs `Json.parse` of Lean and then
   `ResultProtocol.admitDocument`. The runner gives the document to `ResultProtocol.admitGuidance`.
 - The executable `ruleExampleQualification` reads an evidence file with `PolicyCodec.parse`. A
   record of that file contains a result document. The executable does not run
-  `SharedExecution.read`.
+  `SharedExecution.read`. It gives the members of that result that
+  `ResultProtocol.admitGuidance` reads to that function.
 - `RegistryChecks` gives values that it builds with the encoders, `Json.mkObj` and
   `Json.setObjVal!`.
 
@@ -3729,7 +3731,9 @@ parser admits exactly its documented commands (`parseCommand_arguments`, `parseC
 `completedStages_idem`, `guidanceFields_recorded`, `parseStage_stageName`. Result admission:
 `guidanceVerdict_eq_ok_iff`, `guidanceVerdict_completed`, `guidanceVerdict_unblocked`,
 `statusAgrees_observation`, `statusAgrees_iff`, `admitGuidance_eq_ok_iff`, `admitGuidance_completed`,
-`admitGuidance_completed_diagnostics`, `admitDocument_eq_ok_iff`, `admitDocument_write`. Snapshot
+`admitGuidance_completed_diagnostics`, `inRunOrder_iff`, `inRunOrder_sortFindings`,
+`admitDocument_eq_ok_iff`, `admitDocument_read`, `admitDocument_of_forms`, `admitDocument_write`,
+`admitDocument_writeAs`, `ExecutionShare.formLike_internValue`, `ExecutionShare.formLike_sharedAs`. Snapshot
 size:
 `snapshotJson_configuration_independent`, `environmentJson_imports_independent` and
 `Environment.resultJson_imports_independent` (`rfl`) show the rendering does not depend on
@@ -3779,8 +3783,9 @@ the `history` qualification (`derivedOnly`) and on built and parsed accounts by
 These theorems concern text and data as functions of their inputs: that the checker supplies
 every finding, and that the process writes the lines, are operational. `admitGuidance` checks a
 result's consistency against writer regressions, not authenticity: a report edited to be
-self-consistent passes. It refuses a status that the findings of the result do not allow. That the
-writers write only such statuses is read from their code, not proved. `RegistryChecks`
+self-consistent passes. It refuses a status that the findings of the result do not allow, and findings that are
+not in run order. That the writers write only such statuses is read from their code, not proved.
+`RegistryChecks`
 exhaustively checks the 24 descriptors, the embedded examples and the committed skill file, and
 exercises malformed transport, missing and duplicate routes, unsupported modes, Unicode/CRLF
 coordinates, native/text agreement and incomplete negative outcomes as observations of those
@@ -4147,7 +4152,8 @@ of `DemonstrationOK`: completed production, nonempty expected findings, a select
 finding, exact mode and canonical diagnostic equality; the observed list itself must contain an
 incomplete finding for the selected rule, without assuming injectivity of JSON rendering.
 `Checker.RuleExampleQualification.qualify_sound`: every record `qualify` admits is
-`RecordAdmissible` (current producer identity, parsed mode, a before snapshot with search trees
+`RecordAdmissible` (the members of the result that `ResultProtocol.admitGuidance` reads pass it, current
+producer identity, parsed mode, a before snapshot with search trees
 that agrees with the after snapshot, the
 observed request decoding to the frozen one, exit at most 3, sources in the bound snapshot with one
 having the displayed text, for a file or diagnostic-only request one being the requested subject

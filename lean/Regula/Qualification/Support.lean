@@ -83,7 +83,8 @@ def readJson (path : FilePath) : IO Json := do
 
 /-- Read a result file (`--json-out`) as a logical result document: parsed with the pinned
 Lean JSON implementation and admitted (`Regula.Checker.ResultProtocol.admitDocument`: read by
-`Regula.SharedExecution.read`, and conforming to what the writer writes for the document read), so
+`Regula.SharedExecution.read`, and conforming to a form the writers write of the document read,
+with the entry kinds of its own execution accounts), so
 each `sourceText` member holds its text and each `execution` member its roots' accounts.
 `Regula.SharedExecution.read_write` proves that `read` of the `Json` value the writer wrote is
 the writer's document. The parse of the file's text is not that value: the JSON implementation

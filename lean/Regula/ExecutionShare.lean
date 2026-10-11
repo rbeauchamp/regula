@@ -201,6 +201,295 @@ def fitted (value : Json) : Json :=
 /-- The proposals of a result writer: `fitted` alone. -/
 def proposals : List (Json → Json) := [fitted]
 
+/-! ### The forms a writer gives a value
+
+`fitted` writes a root's derived entry when the reader rebuilds from it a value `same` as the
+root's logical account, a test that compares object trees node for node. A document read back from
+its file has its object trees in the shape the parser builds, which can differ from the shape of
+the document the writer was given, so the derived entry of a root can rebuild the read account
+where the writer wrote an explicit one. `sharedAs` is the shared form with the kind of each entry
+given, and `formLike` is the form a writer gives a value with the entry kinds of a written value:
+`formLike_internValue` and `formLike_sharedAs` state that it returns each writer's own form. -/
+
+/-- The shared form of `value` with the root entry at each position explicit where `explicit`
+holds of the position, and derived elsewhere; `value` itself where `fitted` writes it as it is. -/
+def sharedAs (explicit : Nat → Bool) (value : Json) : Json :=
+  match roots? value with
+  | some (roots, accounts) =>
+      let tables := tables roots accounts
+      match SharedExecution.graphOf? (sharedForm tables #[]) with
+      | some _ =>
+          sharedForm tables <| (roots.zip accounts).mapIdx fun position (root, account) =>
+            if explicit position then explicitEntry account else derivedEntry tables root account
+      | none => value
+  | none => value
+
+/-- The root entries of a written execution value: its `roots` member, when that is an array. -/
+def rootEntries? (written : Json) : Option (Array Json) :=
+  match written.getObjVal? SharedExecution.rootsKey with
+  | .ok (.arr entries) => some entries
+  | _ => none
+
+/-- Whether a root entry is explicit: it has an `explicit` member. -/
+def isExplicit (entry : Json) : Bool := (entry.getObjVal? "explicit").toBool
+
+/-- Whether the root entry at `position` of `entries` is explicit. -/
+def explicitAt (entries : Array Json) (position : Nat) : Bool :=
+  isExplicit (entries.getD position .null)
+
+/-- The written value a result writer gives the logical execution value `value` with the entry
+kinds of the written value `written`: the writer's form with `sharedAs` at the kinds of
+`written`'s root entries in place of `fitted`, and the writer's own form (`proposals`) when
+`written` has no root entries. -/
+def formLike (written value : Json) : Json :=
+  match rootEntries? written with
+  | some entries => SharedExecution.internValue [sharedAs (explicitAt entries)] value
+  | none => SharedExecution.internValue proposals value
+
+/-- The last member of an object built from a list is found by its name. -/
+theorem getObjVal?_mkObj_last (members : List (String × Json)) (key : String) (value : Json) :
+    (Json.mkObj (members ++ [(key, value)])).getObjVal? key = .ok value := by
+  have found :
+      (Std.TreeMap.Raw.ofList (members ++ [(key, value)]) compare)[key]? = some value := by
+    rw [Std.TreeMap.Raw.ofList_eq_insertMany_empty,
+      Std.TreeMap.Raw.getElem?_insertMany_list Std.TreeMap.Raw.WF.emptyc]
+    simp
+  simp only [Json.mkObj, Json.getObjVal?]
+  rw [Std.TreeMap.Raw.get?_eq_getElem?, found]
+  rfl
+
+/-- A name that no member of the list has is not found in the object built from it. -/
+theorem getObjVal?_mkObj_absent (members : List (String × Json)) (key : String)
+    (absent : (members.map Prod.fst).contains key = false) :
+    ((Json.mkObj members).getObjVal? key).toBool = false := by
+  have found : (Std.TreeMap.Raw.ofList members compare)[key]? = none :=
+    Std.TreeMap.Raw.getElem?_ofList_of_contains_eq_false absent
+  simp only [Json.mkObj, Json.getObjVal?]
+  rw [Std.TreeMap.Raw.get?_eq_getElem?, found]
+  rfl
+
+theorem rootEntries?_sharedForm (tables : Tables) (entries : Array Json) :
+    rootEntries? (sharedForm tables entries) = some entries := by
+  simp only [rootEntries?, sharedForm, getObjVal?_mkObj_last]
+
+theorem isExplicit_explicitEntry (account : Json) : isExplicit (explicitEntry account) = true := by
+  simp only [isExplicit, explicitEntry]
+  rw [show [("explicit", account)] = ([] : List (String × Json)) ++ [("explicit", account)]
+    from rfl, getObjVal?_mkObj_last]
+  rfl
+
+theorem isExplicit_derivedEntry (tables : Tables) (root : ExecutionRoot) (account : Json) :
+    isExplicit (derivedEntry tables root account) = false :=
+  getObjVal?_mkObj_absent _ _ (by simp only [entryMembers, List.map]; decide)
+
+/-- No written value with root entries is a `verbatim` one. -/
+theorem rootEntries?_verbatim (value : Json) :
+    rootEntries? (SharedExecution.verbatim value) = none := by
+  unfold rootEntries?
+  split
+  · next entries found =>
+    simp only [SharedExecution.verbatim, Json.getObjVal?] at found
+    split at found
+    · next member present =>
+      have := JsonAgreement.mem_of_get? present
+      simp [SharedExecution.rootsKey, SharedExecution.verbatimKey] at this
+    · cases found
+  · rfl
+
+/-- A value that `roots?` reads root accounts from is an array. -/
+private theorem roots?_arr {value : Json} {found : Array ExecutionRoot × Array Json}
+    (listed : roots? value = some found) : ∃ elems, value = .arr elems := by
+  unfold roots? at listed
+  split at listed
+  · cases value <;> simp_all [SharedExecution.array?]
+  · cases listed
+
+/-- The entries `sharedAs` writes at any kinds are written again from their own kinds. -/
+private theorem mapIdx_explicitAt (tables : Tables) (pairs : Array (ExecutionRoot × Json))
+    (explicit : Nat → ExecutionRoot × Json → Bool) :
+    (pairs.mapIdx fun position (root, account) =>
+      if explicitAt (pairs.mapIdx fun position pair =>
+          if explicit position pair then explicitEntry pair.2
+          else derivedEntry tables pair.1 pair.2)
+          position then explicitEntry account
+      else derivedEntry tables root account) =
+    pairs.mapIdx fun position pair =>
+      if explicit position pair then explicitEntry pair.2
+      else derivedEntry tables pair.1 pair.2 := by
+  apply Array.ext
+  · simp
+  · intro position inside _
+    have inPairs : position < pairs.size := by simpa using inside
+    have kind : explicitAt (pairs.mapIdx fun position pair =>
+          if explicit position pair then explicitEntry pair.2
+          else derivedEntry tables pair.1 pair.2)
+          position = explicit position pairs[position] := by
+      simp only [explicitAt, Array.getD_eq_getD_getElem?, Array.getElem?_mapIdx,
+        Array.getElem?_eq_getElem inPairs, Option.map_some, Option.getD_some]
+      split
+      · next yes => rw [yes, isExplicit_explicitEntry]
+      · next no => rw [Bool.not_eq_true] at no; rw [no, isExplicit_derivedEntry]
+    simp only [Array.getElem_mapIdx, kind]
+
+/-- `sharedAs` at the kinds of the entries it wrote writes the same value. -/
+theorem sharedAs_explicitAt {explicit : Nat → Bool} {value : Json} {entries : Array Json}
+    (found : rootEntries? (sharedAs explicit value) = some entries) :
+    sharedAs (explicitAt entries) value = sharedAs explicit value := by
+  rcases listed : roots? value with _ | ⟨roots, accounts⟩
+  · simp [sharedAs, listed]
+  · rcases decoded : SharedExecution.graphOf? (sharedForm (tables roots accounts) #[]) with
+      _ | graph
+    · simp [sharedAs, listed, decoded]
+    · simp only [sharedAs, listed, decoded] at found ⊢
+      rw [rootEntries?_sharedForm] at found
+      cases found
+      exact congrArg _ (mapIdx_explicitAt _ (roots.zip accounts) fun position _ =>
+        explicit position)
+
+/-- `sharedAs` at the kinds of the entries `fitted` wrote writes `fitted`'s value. -/
+theorem sharedAs_fitted {value : Json} {entries : Array Json}
+    (found : rootEntries? (fitted value) = some entries) :
+    sharedAs (explicitAt entries) value = fitted value := by
+  rcases listed : roots? value with _ | ⟨roots, accounts⟩
+  · simp [sharedAs, fitted, listed]
+  · rcases decoded : SharedExecution.graphOf? (sharedForm (tables roots accounts) #[]) with
+      _ | graph
+    · simp [sharedAs, fitted, listed, decoded]
+    · simp only [sharedAs, fitted, listed, decoded] at found ⊢
+      rw [rootEntries?_sharedForm] at found
+      cases found
+      let fits (pair : ExecutionRoot × Json) : Bool :=
+        match SharedExecution.rebuildRoot graph (derivedEntry (tables roots accounts) pair.1 pair.2)
+          with
+        | some rebuilt => SharedExecution.same rebuilt pair.2
+        | none => false
+      have asIdx : ((roots.zip accounts).map fun (root, account) =>
+          if (match SharedExecution.rebuildRoot graph (derivedEntry (tables roots accounts) root
+              account) with
+            | some rebuilt => SharedExecution.same rebuilt account
+            | none => false) = true then derivedEntry (tables roots accounts) root account
+          else explicitEntry account) =
+          (roots.zip accounts).mapIdx fun _ pair =>
+            if !fits pair then explicitEntry pair.2
+            else derivedEntry (tables roots accounts) pair.1 pair.2 := by
+        apply Array.ext
+        · simp
+        · intro position _ _
+          simp only [Array.getElem_map, Array.getElem_mapIdx, fits]
+          have flip : ∀ (kept : Bool) (derived explicit : Json),
+              (if kept = true then derived else explicit) =
+                if (!kept) = true then explicit else derived := by
+            intro kept _ _; cases kept <;> rfl
+          exact flip _ _ _
+      rw [asIdx]
+      exact congrArg _ (mapIdx_explicitAt _ (roots.zip accounts) fun _ pair => !fits pair)
+
+/-- Where `sharedAs` writes the value as it is, so does `fitted`, and so does `sharedAs` at every
+kind. -/
+theorem sharedAs_self {explicit : Nat → Bool} {value : Json}
+    (kept : sharedAs explicit value = value) :
+    fitted value = value ∧ ∀ other, sharedAs other value = value := by
+  rcases listed : roots? value with _ | ⟨roots, accounts⟩
+  · exact ⟨by simp [fitted, listed], fun _ => by simp [sharedAs, listed]⟩
+  · rcases decoded : SharedExecution.graphOf? (sharedForm (tables roots accounts) #[]) with
+      _ | graph
+    · exact ⟨by simp [fitted, listed, decoded], fun _ => by simp [sharedAs, listed, decoded]⟩
+    · exfalso
+      simp only [sharedAs, listed, decoded] at kept
+      obtain ⟨elems, rfl⟩ := roots?_arr listed
+      simp [sharedForm, Json.mkObj] at kept
+
+/-- Where `fitted` writes the value as it is, so does `sharedAs`, at every kind. -/
+theorem fitted_self {value : Json} (kept : fitted value = value) (explicit : Nat → Bool) :
+    sharedAs explicit value = value := by
+  rcases listed : roots? value with _ | ⟨roots, accounts⟩
+  · simp [sharedAs, listed]
+  · rcases decoded : SharedExecution.graphOf? (sharedForm (tables roots accounts) #[]) with
+      _ | graph
+    · simp [sharedAs, listed, decoded]
+    · exfalso
+      simp only [fitted, listed, decoded] at kept
+      obtain ⟨elems, rfl⟩ := roots?_arr listed
+      simp [sharedForm, Json.mkObj] at kept
+
+/-- The writer's form of a value is decided by what its one proposal writes for that value. -/
+theorem internValue_congr {propose other : Json → Json} {value : Json}
+    (agree : propose value = other value) :
+    SharedExecution.internValue [propose] value = SharedExecution.internValue [other] value := by
+  simp [SharedExecution.internValue, SharedExecution.firstRecovered, agree]
+
+/-- An array has no root entries. -/
+theorem rootEntries?_arr (elems : Array Json) : rootEntries? (.arr elems) = none := rfl
+
+/-- **`formLike` returns the result writers' form.** For every logical execution value, the form
+`formLike` gives it with the entry kinds of the writers' written form is that written form. -/
+theorem formLike_internValue (value : Json) :
+    formLike (SharedExecution.internValue proposals value) value =
+      SharedExecution.internValue proposals value := by
+  unfold formLike
+  split
+  · next entries found =>
+    show SharedExecution.internValue [sharedAs (explicitAt entries)] value =
+      SharedExecution.internValue [fitted] value
+    by_cases kept : fitted value = value
+    · exact internValue_congr ((fitted_self kept _).trans kept.symm)
+    · apply internValue_congr
+      by_cases recovered : SharedExecution.recovers (fitted value) value = true
+      · have written : SharedExecution.internValue proposals value = fitted value := by
+          simp [proposals, SharedExecution.internValue, SharedExecution.firstRecovered, recovered]
+        rw [written] at found
+        exact sharedAs_fitted found
+      · exfalso
+        have written : SharedExecution.internValue proposals value =
+            if SharedExecution.recovers value value then value
+            else SharedExecution.verbatim value := by
+          simp [proposals, SharedExecution.internValue, SharedExecution.firstRecovered, recovered]
+        rw [written] at found
+        split at found
+        · rcases listed : roots? value with _ | ⟨roots, accounts⟩
+          · exact kept (by simp [fitted, listed])
+          · obtain ⟨elems, rfl⟩ := roots?_arr listed
+            rw [rootEntries?_arr] at found
+            cases found
+        · rw [rootEntries?_verbatim] at found
+          cases found
+  · rfl
+
+/-- **`formLike` returns the form at every entry kinds whose shared form the reader takes back.**
+For every logical execution value and every choice of explicit positions under which `sharedAs`
+writes the value as it is or the reader returns the value from it, the form `formLike` gives the
+value with the entry kinds of the form written with that choice is that form. -/
+theorem formLike_sharedAs {explicit : Nat → Bool} {value : Json}
+    (restores : sharedAs explicit value = value ∨
+      SharedExecution.recovers (sharedAs explicit value) value = true) :
+    formLike (SharedExecution.internValue [sharedAs explicit] value) value =
+      SharedExecution.internValue [sharedAs explicit] value := by
+  by_cases kept : sharedAs explicit value = value
+  · obtain ⟨fittedKept, others⟩ := sharedAs_self kept
+    unfold formLike
+    split
+    · exact internValue_congr ((others _).trans kept.symm)
+    · exact internValue_congr (fittedKept.trans kept.symm)
+  · have recovered := restores.resolve_left kept
+    have written : SharedExecution.internValue [sharedAs explicit] value =
+        sharedAs explicit value := by
+      simp [SharedExecution.internValue, SharedExecution.firstRecovered, recovered]
+    rw [written]
+    unfold formLike
+    split
+    · next entries found =>
+      rw [internValue_congr (sharedAs_explicitAt found)]
+      simp [SharedExecution.internValue, SharedExecution.firstRecovered, recovered]
+    · next absent =>
+      exfalso
+      rcases listed : roots? value with _ | ⟨roots, accounts⟩
+      · exact kept (by simp [sharedAs, listed])
+      · rcases decoded : SharedExecution.graphOf? (sharedForm (tables roots accounts) #[]) with
+          _ | graph
+        · exact kept (by simp [sharedAs, listed, decoded])
+        · simp only [sharedAs, listed, decoded, rootEntries?_sharedForm] at absent
+          cases absent
+
 /-! ### The reader's walk is the producer's walk -/
 
 /-- **For equal successor lists, the reader's visits are the producer's.** Let `rename` take the

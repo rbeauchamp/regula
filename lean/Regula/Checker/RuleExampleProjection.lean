@@ -69,12 +69,27 @@ theorem identity_congr (ra rb : Json) (h : ResultRel ra rb) :
     h "schemaVersion" (by decide) (by decide), h "producerVersion" (by decide) (by decide),
     h "toolchain" (by decide) (by decide), h "sourceRevision" (by decide) (by decide)]
 
+theorem guidanceInput_congr (a b : Json) (h : ResultRel a b) :
+    ResultProtocol.guidanceInput a = ResultProtocol.guidanceInput b := by
+  have lookup : ∀ key, key ≠ "acceptance" → key ≠ "documentationAcceptance" →
+      a.getObjVal? key = b.getObjVal? key := h
+  simp only [ResultProtocol.guidanceInput, ResultProtocol.guidanceInputKeys,
+    ResultProtocol.guidanceKeys, List.cons_append, List.nil_append, List.filterMap_cons,
+    List.filterMap_nil]
+  simp only [lookup "schemaVersion" (by decide) (by decide),
+    lookup "status" (by decide) (by decide),
+    lookup "mode" (by decide) (by decide), lookup "request" (by decide) (by decide),
+    lookup "diagnostics" (by decide) (by decide), lookup "stages" (by decide) (by decide),
+    lookup "stagesCompleted" (by decide) (by decide), lookup "complete" (by decide) (by decide),
+    lookup "stagesNotRun" (by decide) (by decide), lookup "rules" (by decide) (by decide)]
+
 theorem qualify_congr (a b ra rb : Json)
     (ha : field a "result" = .ok ra) (hb : field b "result" = .ok rb)
     (hr : RecordRel a b) (hresult : ResultRel ra rb) : qualify a = qualify b := by
   unfold qualify
   rw [ha, hb]
   simp only [Except.bind, bind, Bind.bind]
+  rw [guidanceInput_congr ra rb hresult]
   rw [identity_congr ra rb hresult]
   simp only [checkFindings, expectFindings, qualifyKind, Except.bind, bind, Bind.bind]
   simp only [string, hresult "mode" (by decide) (by decide),
