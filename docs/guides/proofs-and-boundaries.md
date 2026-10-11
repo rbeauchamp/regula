@@ -1678,7 +1678,8 @@ build of the excluded `Regula` library, with `propext`, `Classical.choice` and `
 | The Markdown scanner is exact | `scanLines_problems_eq_empty_iff`, `checked_scanLines` | `scanLines` reports no violation exactly for a document with lines that `Clean` admits. The line numbers start at 1, and the valid patterns are those of the policy library. The theorem is for each `Source`. |
 | The Verso scanner is exact | `scanVersoLines_problems_eq_empty_iff`, `checked_scanVersoLines` | `scanVersoLines` reports no violation exactly for a source with lines that `VersoClean` admits. The theorem is for each `Source`. |
 | A line of Lean shape is a returned fence | `fence_of_leanShaped`, `example_of_leanShaped` | In a clean document, each line of Lean shape is the opening line of a returned fence. The fence has the number of that line. The next two rows give its body and its byte ranges. |
-| Where a returned fence lies | `scanLines_fence`, `scanVersoLines_fence` | For each document, clean or not, the opening line, the body lines and the closing line of a returned fence are consecutive lines (`MarkdownFence`, `VersoFence`). The body is the body lines joined by line feeds. A Markdown body drops a carriage return at its end (`DropsReturn`). Each byte range starts after the lines before its part, each with its line feed. A Markdown marker is on the line before the opening line. |
+| Where a returned fence lies | `scanLines_fence`, `scanVersoLines_fence`, `MarkdownFence.unique`, `VersoFence.unique` | For each document, clean or not, a returned fence opens at a line where the lines before it leave no block open (`MarkdownFence`, `VersoFence`). Its body lines do not close it, and its closing line is the first line that does. The body is the body lines joined by line feeds, and a Markdown body drops a carriage return at its end (`DropsReturn`). Each byte range starts after the lines before its part, each with its line feed. A Markdown marker is on the line before the opening line. One opening line gives one body and one set of ranges. |
+| The protocol moves the blocks | `Permitted.blockStep`, `VersoPermitted.blockStep` | Each transition that the protocol permits is a step of `BlockStep` or `VersoBlockStep` between the blocks of its two modes. Markers and violations move no block, so a document has one run of blocks, clean or not. |
 | The bytes of a returned fence | `Scanned.bytes`, `extract_append` | In the text of the document, the opening range holds the opening line, and the closing range holds the closing line. The body range holds the body of the fence. `ExampleExpectationOK` reads these bytes with the same `String.Pos.Raw.extract`. |
 | The lines of a Markdown reader | `clean_iff_withoutReturn`, `permitted_withoutReturn`, `shapeRule_withoutReturn`, `leanAfter_withoutReturn` | A Markdown document is clean exactly when its lines without the carriage return of a line ending have no carriage return and are clean. Each statement about a line is the same with and without that carriage return. |
 | A scan with its input | `Scanned.problems_eq_empty_iff`, `Scanned.versoProblems_eq_empty_iff` | The first two theorems, for the result and the document that a `Scanned` carries. |
@@ -1719,8 +1720,8 @@ Lean block of a Verso source after a tab
 **The body and the place of a returned fence.** The audit compiles the fences that a scanner
 returns, and the verdicts of [RG4002], [RG4003] and [RG4004] are about those fences.
 `scanLines_fence` and `scanVersoLines_fence` state where each returned fence lies, for each
-document, clean or not. Its opening line opens a fence of the language `lean`, and its closing
-line closes it. Its body is its body lines joined by line feeds, and a Markdown body drops a
+document, clean or not. It opens at a line where the protocol has no block open, and its
+closing line is the first line that closes it. Its body is its body lines joined by line feeds, and a Markdown body drops a
 carriage return at its end. Its byte ranges start after the lines before each part, and
 `Scanned.bytes` states that they hold those lines and that body.
 
@@ -1732,7 +1733,8 @@ The proof relates the offsets of `layout` to the text. The text is its lines joi
 feeds, and a part starts after the bytes of the lines before it and their line feeds. That the
 audit compiles the body of each returned fence is by reading `Checker/Documentation.lean`, which
 gives the compiler that body. `ExampleExpectationOK` compares the source that the compiler got
-with the bytes of the body range.
+with the bytes of the body range. `MarkdownFence.unique` and `VersoFence.unique` state that one
+opening line gives one body and one set of ranges.
 
 **The scanners before the split.** The audit ran two loops over the lines, with local variables,
 and it divided a text with `String.splitOn "\n"`. No theorem relates those loops to the steps of

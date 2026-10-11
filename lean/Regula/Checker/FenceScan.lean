@@ -38,10 +38,11 @@ protocol and keeps the shape rule. `fence_of_leanShaped` and `example_of_leanSha
 a clean document has a returned fence for each line of Lean shape. The input of a decision is a
 `Source`: a document with its lines, bound to its text (`toList_linesOf`). The audit takes a
 `Scanned`: a result that is bound to its input and to the scanner. For each document, clean or
-not, `scanLines_fence` and `scanVersoLines_fence` state where each returned fence lies: its
-opening line, its body lines and its closing line, its body, its byte ranges and the marker of a
-Markdown fence. `Scanned.bytes` states that its byte ranges hold its lines and its body in the
-text of the document.
+not, `scanLines_fence` and `scanVersoLines_fence` state where each returned fence lies, over the
+run of blocks of the protocol (`BlockStep`, `VersoBlockStep`): its opening line, its body lines and
+its closing line, its body, its byte ranges and the marker of a Markdown fence. One opening line
+gives one place (`MarkdownFence.unique`, `VersoFence.unique`). `Scanned.bytes` states that its byte
+ranges hold its lines and its body in the text of the document.
 
 Expected-failure markers use a deliberately small diagnostic pattern language:
 `|` separates alternatives and `.*` separates ordered literal substrings. This
@@ -4577,10 +4578,96 @@ def MarkerOf (line : String) : MarkerKind → Prop
   | .fail pattern => LineIs line (.fail pattern)
   | .trusted => LineIs line .trusted
 
+/-- `Run step first lines last`: the lines move the block `first` to the block `last`, one step of
+`step` for each line in order. -/
+inductive Run {α : Type} (step : α → String → α → Prop) : α → List String → α → Prop
+  /-- No line keeps the block. -/
+  | nil {block : α} : Run step block [] block
+  /-- A line moves the block, and the rest moves it on. -/
+  | cons {first next last : α} {line : String} {rest : List String} :
+      step first line next → Run step next rest last → Run step first (line :: rest) last
+
+private theorem Run.append {α : Type} {step : α → String → α → Prop} {first middle last : α}
+    {lines more : List String} (run : Run step first lines middle)
+    (after : Run step middle more last) : Run step first (lines ++ more) last := by
+  induction run with
+  | nil => exact after
+  | cons moves _ ih => exact .cons moves (ih after)
+
+private theorem Run.snoc {α : Type} {step : α → String → α → Prop} {first last next : α}
+    {lines : List String} {line : String} (run : Run step first lines last)
+    (moves : step last line next) : Run step first (lines ++ [line]) next :=
+  run.append (.cons moves .nil)
+
+/-- The block that is open between two lines of a Markdown document: none outside a fence, and
+the character and the length of the opening run inside one. -/
+abbrev Block := Option (Char × Nat)
+
+/-- How one line of a Markdown document moves the open block, by the protocol. Outside a block, a
+line that opens a fence opens a block, and each other line leaves none open. Inside a block, a
+line that closes it closes it, and each other line is a body line. Markers and violations move no
+block, so each document has one run of blocks, clean or not. -/
+inductive BlockStep : Block → String → Block → Prop
+  /-- A line that opens a fence, outside a block. -/
+  | opens {line : String} {character : Char} {count : Nat} {info : String} :
+      LineIs line (.opener character count info) → BlockStep none line (some (character, count))
+  /-- A line that opens no fence, outside a block. -/
+  | outside {line : String} :
+      (∀ character count info, ¬ LineIs line (.opener character count info)) →
+        BlockStep none line none
+  /-- A line that closes the open block. -/
+  | closes {line : String} {character : Char} {length : Nat} :
+      ClosingLine line character length → BlockStep (some (character, length)) line none
+  /-- A body line of the open block. -/
+  | body {line : String} {character : Char} {length : Nat} :
+      ¬ ClosingLine line character length →
+        BlockStep (some (character, length)) line (some (character, length))
+
+/-- The block that a mode of the protocol has open. -/
+def Mode.block : Mode → Block
+  | .outside _ => none
+  | .inside character length => some (character, length)
+
+/-- **The protocol moves blocks by `BlockStep`.** Each transition that the protocol permits is a
+step of the blocks of its two modes. -/
+theorem Permitted.blockStep {valid : String → Prop} {mode next : Mode} {number : Nat}
+    {line : String} (permitted : Permitted valid mode number line next) :
+    BlockStep mode.block line next.block := by
+  cases permitted with
+  | failMarker is _ => exact .outside fun _ _ _ opener => nomatch lineIs_unique is opener
+  | trustedMarker is => exact .outside fun _ _ _ opener => nomatch lineIs_unique is opener
+  | opening is => exact .opens is
+  | marked is _ _ => exact .opens is
+  | plain is => exact .outside fun _ _ _ opener => nomatch lineIs_unique is opener
+  | closing closes => exact .closes closes
+  | body stays => exact .body stays
+
+/-- The opening line, the body lines and the closing line of a fence move the blocks from none
+open to none open. -/
+private theorem run_fence {before body : List String} {opening closing : String}
+    {character : Char} {count : Nat} {info : String}
+    (blocks : Run BlockStep none before none)
+    (opens : LineIs opening (.opener character count info))
+    (inBody : ∀ line ∈ body, ¬ ClosingLine line character count)
+    (closes : ClosingLine closing character count) :
+    Run BlockStep none (before ++ opening :: body ++ [closing]) none := by
+  have lines : ∀ body : List String, (∀ line ∈ body, ¬ ClosingLine line character count) →
+      Run BlockStep (some (character, count)) body (some (character, count)) := by
+    intro body
+    induction body with
+    | nil => intro _; exact .nil
+    | cons line rest ih =>
+      intro stays
+      exact .cons (.body (stays line List.mem_cons_self))
+        (ih fun other member => stays other (List.mem_cons_of_mem _ member))
+  rw [List.append_assoc]
+  exact blocks.append (.cons (.opens opens) ((lines body inBody).snoc (.closes closes)))
+
 /-- **Where a Markdown fence lies among the lines `lines`.** The lines are the lines `before`,
-the opening line, the body lines, the closing line and the lines `after`. The opening line opens
-a fence whose language is `lean`, and the closing line closes it. The fence has the number of the
-opening line. Its body is the body lines joined by line feeds, without a carriage return at the
+the opening line, the body lines, the closing line and the lines `after`. The lines `before` leave
+no block open (`BlockStep`), the opening line opens a fence whose language is `lean`, and the
+closing line is the first line after it that closes it. The fence has the number of the opening
+line. Its body is the body lines joined by line feeds, without a carriage return at the
 end (`DropsReturn`). Its opening range, its body range and its closing range each start after
 the lines before that part, each with its line feed, and span that part. When the fence has a
 marker, the marker is the line before the opening line, and the fence has the pattern or the trust
@@ -4589,8 +4676,9 @@ def MarkdownFence (lines : List String) (fence : Fence) : Prop :=
   ∃ (before body after : List String) (opening closing : String) (character : Char)
     (count : Nat) (info : String),
     lines = before ++ opening :: (body ++ closing :: after) ∧
+    Run BlockStep none before none ∧
     LineIs opening (.opener character count info) ∧ FirstWord info "lean" ∧
-    ClosingLine closing character count ∧
+    (∀ line ∈ body, ¬ ClosingLine line character count) ∧ ClosingLine closing character count ∧
     fence.line = before.length + 1 ∧
     DropsReturn ("\n".intercalate body) fence.body ∧
     fence.opening = rangeAfter before opening ∧
@@ -4610,16 +4698,20 @@ private theorem MarkdownFence.append {lines : List String} {fence : Fence} (more
 
 /-- What the Markdown scanner keeps after the lines `done`, with the lines `rest` still to read:
 each fence lies among the lines `done`, a marker that waits outside a fence is on the last line
-read, and an open fence opened at a line of `done` with its body lines after it. -/
+read, the lines `done` leave no block open when no fence is open, and an open fence opened at a
+line of `done`, after lines that leave no block open, with its body lines after it. -/
 private def MarkdownPlaced (document : RegulaPolicy.SourceSnapshot) (done rest : List String)
     (state : Scan) : Prop :=
   (∀ fence ∈ state.fences, fence.document = document ∧ MarkdownFence done fence) ∧
   (state.opened = none → ∀ marker, state.pending = some marker →
     marker.line = done.length ∧ ∃ previous, done.getLast? = some previous ∧
       MarkerOf previous marker.kind) ∧
+  (state.opened = none → Run BlockStep none done none) ∧
   ∀ fence, state.opened = some fence → ∃ (before : List String) (opening : String),
     done = before ++ opening :: fence.body.toList ∧
+    Run BlockStep none before none ∧
     LineIs opening (.opener fence.character fence.length fence.info) ∧
+    (∀ line ∈ fence.body.toList, ¬ ClosingLine line fence.character fence.length) ∧
     fence.line = before.length + 1 ∧
     fence.opening = rangeAfter before opening ∧
     (rest ≠ [] → fence.bodyStart = (textBefore (before ++ [opening])).utf8ByteSize) ∧
@@ -4650,8 +4742,9 @@ private theorem markdownPlaced_outside (document : RegulaPolicy.SourceSnapshot) 
     (placed : MarkdownPlaced document done (text :: rest) state) :
     MarkdownPlaced document (done ++ [text]) rest
       (stepOutside origin state (lineAfter done text next)) := by
-  obtain ⟨fences, waiting, -⟩ := placed
+  obtain ⟨fences, waiting, blocks, -⟩ := placed
   have marks := waiting outside
+  have run := blocks outside
   have adj := adjacent_lineAfter origin state (text := text) (next := next)
     (fun marker pending => (marks marker pending).1)
   have is := lineIs_classify text
@@ -4662,7 +4755,7 @@ private theorem markdownPlaced_outside (document : RegulaPolicy.SourceSnapshot) 
         state.fences := by
     intro kind problems pending
     cases kind <;> cases pending <;> simp only [onClass] <;> split <;> rfl
-  refine ⟨fun fence member => ?_, ?_, ?_⟩
+  refine ⟨fun fence member => ?_, ?_, ?_, ?_⟩
   · rw [kept] at member
     obtain ⟨same, lies⟩ := fences fence member
     exact ⟨same, lies.append [text]⟩
@@ -4677,6 +4770,20 @@ private theorem markdownPlaced_outside (document : RegulaPolicy.SourceSnapshot) 
       | (cases pending <;> exact ⟨by simp [lineAfter], text, by simp, is⟩)
       | (split at closed <;> simp at closed)
       | simp at closed
+  · intro closed
+    have named : (lineAfter done text next).text = text := rfl
+    rw [named] at closed
+    revert is closed
+    generalize classify text = kind
+    intro is closed
+    cases kind with
+    | opener character count info =>
+      exfalso
+      cases waits : state.pending <;> simp only [onClass, waits] at closed
+      all_goals first
+        | (split at closed <;> simp at closed)
+        | simp at closed
+    | _ => exact run.snoc (.outside fun _ _ _ opener => nomatch lineIs_unique is opener)
   · intro fence opens
     have named : (lineAfter done text next).text = text := rfl
     rw [named] at opens ⊢
@@ -4685,25 +4792,29 @@ private theorem markdownPlaced_outside (document : RegulaPolicy.SourceSnapshot) 
     intro is opens
     cases waits : state.pending <;> cases kind <;> simp only [onClass, waits] at opens ⊢
     all_goals try (rw [outside] at opens; cases opens)
-    case refine_3.none.opener character count info =>
+    case refine_4.none.opener character count info =>
       cases opens
-      exact ⟨done, text, by simp, is, rfl, rfl, nextIs, fun _ none' => nomatch none'⟩
-    case refine_3.some.opener marker character count info =>
+      exact ⟨done, text, by simp, run, is, fun _ member => by simp at member, rfl, rfl, nextIs,
+        fun _ none' => nomatch none'⟩
+    case refine_4.some.opener marker character count info =>
       by_cases lean : (firstWord info != "lean") = true
       · simp only [lean, ↓reduceIte] at opens ⊢
         cases opens
-        exact ⟨done, text, by simp, is, rfl, rfl, nextIs, fun _ none' => nomatch none'⟩
+        exact ⟨done, text, by simp, run, is, fun _ member => by simp at member, rfl, rfl, nextIs,
+        fun _ none' => nomatch none'⟩
       · simp only [lean, Bool.false_eq_true, ↓reduceIte] at opens ⊢
         cases opens
-        exact ⟨done, text, by simp, is, rfl, rfl, nextIs,
-          fun _ pend => by cases pend; exact marks _ waits⟩
+        exact ⟨done, text, by simp, run, is, fun _ member => by simp at member, rfl, rfl,
+          nextIs, fun _ pend => by cases pend; exact marks _ waits⟩
 
 /-- The fence that a closing line returns lies among the lines read. -/
 private theorem markdownFence_closed (document : RegulaPolicy.SourceSnapshot)
     {done rest : List String} {text : String} {state : Scan} {fence : OpenFence} {next : Nat}
     (before : List String) (opening : String)
     (whole : done = before ++ opening :: fence.body.toList)
+    (blocks : Run BlockStep none before none)
     (opens : LineIs opening (.opener fence.character fence.length fence.info))
+    (inBody : ∀ line ∈ fence.body.toList, ¬ ClosingLine line fence.character fence.length)
     (numbered : fence.line = before.length + 1)
     (openRange : fence.opening = rangeAfter before opening)
     (bodyStart : text :: rest ≠ [] →
@@ -4716,9 +4827,9 @@ private theorem markdownFence_closed (document : RegulaPolicy.SourceSnapshot)
       (closedFence document fence state.pending (lineAfter done text next)) := by
   have start := bodyStart (by simp)
   refine ⟨before, fence.body.toList, [], opening, text, fence.character, fence.length, fence.info,
-    by simp [whole], opens, (firstWord_eq_iff _ (by decide)).mp (beq_iff_eq.mp lean),
-    (closingFence_iff _ _ _).mp closes, numbered, dropsReturn_withoutReturn _, openRange, ?_, ?_,
-    ?_⟩
+    by simp [whole], blocks, opens, (firstWord_eq_iff _ (by decide)).mp (beq_iff_eq.mp lean),
+    inBody, (closingFence_iff _ _ _).mp closes, numbered, dropsReturn_withoutReturn _, openRange,
+    ?_, ?_, ?_⟩
   · simp only [closedFence, rangeAfter, start]
   · subst whole
     rfl
@@ -4741,8 +4852,8 @@ private theorem markdownPlaced_inside (document : RegulaPolicy.SourceSnapshot) (
     (placed : MarkdownPlaced document done (text :: rest) state) :
     MarkdownPlaced document (done ++ [text]) rest
       (stepInside document origin state fence (lineAfter done text next)) := by
-  obtain ⟨fences, -, opened⟩ := placed
-  obtain ⟨before, opening, whole, opens, numbered, openRange, bodyStart, marked⟩ :=
+  obtain ⟨fences, -, -, opened⟩ := placed
+  obtain ⟨before, opening, whole, blocks, opens, inBody, numbered, openRange, bodyStart, marked⟩ :=
     opened fence inside
   have old : ∀ f ∈ state.fences, f.document = document ∧ MarkdownFence (done ++ [text]) f :=
     fun f member => ⟨(fences f member).1, (fences f member).2.append [text]⟩
@@ -4750,22 +4861,34 @@ private theorem markdownPlaced_inside (document : RegulaPolicy.SourceSnapshot) (
   unfold stepInside
   rw [named]
   by_cases closes : closingFence text fence.character fence.length = true
-  · by_cases lean : (firstWord fence.info == "lean") = true
+  · have run : Run BlockStep none (done ++ [text]) none := by
+      rw [whole]
+      exact run_fence blocks opens inBody ((closingFence_iff _ _ _).mp closes)
+    by_cases lean : (firstWord fence.info == "lean") = true
     · simp only [closes, lean, ↓reduceIte]
-      refine ⟨fun f member => ?_, (fun _ _ none' => nomatch none'), fun _ none' => nomatch none'⟩
+      refine ⟨fun f member => ?_, (fun _ _ none' => nomatch none'), (fun _ => run),
+        fun _ none' => nomatch none'⟩
       rcases Array.mem_push.mp member with found | rfl
       · exact old f found
-      · exact ⟨rfl, markdownFence_closed document before opening whole opens numbered openRange
-          bodyStart marked closes lean⟩
+      · exact ⟨rfl, markdownFence_closed document before opening whole blocks opens inBody numbered
+          openRange bodyStart marked closes lean⟩
     · have other : (firstWord fence.info == "lean") = false := by simpa using lean
       simp only [closes, other, Bool.false_eq_true, ↓reduceIte]
-      split <;> exact ⟨old, (fun _ _ none' => nomatch none'), fun _ none' => nomatch none'⟩
+      split <;> exact ⟨old, (fun _ _ none' => nomatch none'), (fun _ => run),
+        fun _ none' => nomatch none'⟩
   · have stays : closingFence text fence.character fence.length = false := by simpa using closes
+    have notClosing : ¬ ClosingLine text fence.character fence.length := fun closing => by
+      rw [(closingFence_iff _ _ _).mpr closing] at stays
+      cases stays
     simp only [stays, Bool.false_eq_true, ↓reduceIte]
-    refine ⟨old, (fun none' => nomatch none'), fun f opens' => ?_⟩
+    refine ⟨old, (fun none' => nomatch none'), (fun none' => nomatch none'), fun f opens' => ?_⟩
     cases opens'
-    exact ⟨before, opening, by simp [whole], opens, numbered, openRange,
-      fun _ => bodyStart (by simp), marked⟩
+    refine ⟨before, opening, by simp [whole], blocks, opens, fun line member => ?_, numbered,
+      openRange, fun _ => bodyStart (by simp), marked⟩
+    simp only [Array.toList_push, List.mem_append, List.mem_singleton] at member
+    rcases member with old | rfl
+    · exact inBody line old
+    · exact notClosing
 
 /-- One line keeps what the Markdown scanner keeps. -/
 private theorem markdownPlaced_step (document : RegulaPolicy.SourceSnapshot) (origin : String)
@@ -4818,24 +4941,76 @@ private theorem markdownPlaced_run (document : RegulaPolicy.SourceSnapshot) (ori
       List.append_assoc, List.singleton_append] at this
     exact this
 
-/-- **Each fence that the Markdown scanner returns lies in its document** (`MarkdownFence`): its
-opening line, its body lines and its closing line are consecutive lines of the document, its body
-is the text of its body lines, each of its byte ranges spans its part, and a marker is on the line
-before the opening line. The theorem is for each `Source`, clean or not. -/
+/-- **Each fence that the Markdown scanner returns lies in its document** (`MarkdownFence`): it
+opens at a line where the protocol has no block open, its body lines are the lines while the block
+is open, and its closing line is the first that closes it. Its body is the text of its body lines,
+each of its byte ranges spans its part, and a marker is on the line before the opening line. The
+theorem is for each `Source`, clean or not. -/
 theorem scanLines_fence (source : Source) {fence : Fence}
     (member : fence ∈ (scanLines source).fences) :
     fence.document = source.document ∧ MarkdownFence source.lines fence := by
   unfold scanLines finish at member
   rw [layout_eq] at member
   have placed := markdownPlaced_run source.document source.origin source.lines [] {}
-    ⟨fun _ member => by simp at member, (fun _ _ none' => nomatch none'),
+    ⟨fun _ member => by simp at member, (fun _ _ none' => nomatch none'), (fun _ => .nil),
       fun _ none' => nomatch none'⟩
   exact placed.1 fence member
 
+/-- How one line of a Verso source moves the open block, by the protocol. Outside a block, a line
+with a fence run opens a block, and each other line leaves none open. Inside a block, a line that
+closes it with back-ticks closes it, and each other line is a body line. Violations move no block,
+so each source has one run of blocks, clean or not. -/
+inductive VersoBlockStep : VersoMode → String → VersoMode → Prop
+  /-- A line with a fence run, outside a block. -/
+  | opens {line : String} {character : Char} {count : Nat} {info : String} :
+      FenceLine line character count info → VersoBlockStep .outside line (.inside count)
+  /-- A line with no fence run, outside a block. -/
+  | outside {line : String} :
+      (∀ character count info, ¬ FenceLine line character count info) →
+        VersoBlockStep .outside line .outside
+  /-- A line that closes the open block. -/
+  | closes {line : String} {length : Nat} :
+      ClosingLine line '`' length → VersoBlockStep (.inside length) line .outside
+  /-- A body line of the open block. -/
+  | body {line : String} {length : Nat} :
+      ¬ ClosingLine line '`' length → VersoBlockStep (.inside length) line (.inside length)
+
+/-- **The protocol of a Verso source moves blocks by `VersoBlockStep`.** Each transition that the
+protocol permits is a step of the blocks. -/
+theorem VersoPermitted.blockStep {mode next : VersoMode} {line : String}
+    (permitted : VersoPermitted mode line next) : VersoBlockStep mode line next := by
+  cases permitted with
+  | text none => exact .outside none
+  | opening fence _ _ => exact .opens fence
+  | closing closes => exact .closes closes
+  | body stays => exact .body stays
+
+/-- The opening line, the body lines and the closing line of a Verso block move the blocks from
+none open to none open. -/
+private theorem run_versoFence {before body : List String} {opening closing : String}
+    {character : Char} {count : Nat} {info : String}
+    (blocks : Run VersoBlockStep .outside before .outside)
+    (opens : FenceLine opening character count info)
+    (inBody : ∀ line ∈ body, ¬ ClosingLine line '`' count)
+    (closes : ClosingLine closing '`' count) :
+    Run VersoBlockStep .outside (before ++ opening :: body ++ [closing]) .outside := by
+  have lines : ∀ body : List String, (∀ line ∈ body, ¬ ClosingLine line '`' count) →
+      Run VersoBlockStep (.inside count) body (.inside count) := by
+    intro body
+    induction body with
+    | nil => intro _; exact .nil
+    | cons line rest ih =>
+      intro stays
+      exact .cons (.body (stays line List.mem_cons_self))
+        (ih fun other member => stays other (List.mem_cons_of_mem _ member))
+  rw [List.append_assoc]
+  exact blocks.append (.cons (.opens opens) ((lines body inBody).snoc (.closes closes)))
+
 /-- **Where a Verso example lies among the lines `lines`.** The lines are the lines `before`, the
-opening line, the body lines, the closing line and the lines `after`. The opening line has a fence
-run with the info string `info`, which `BlockKind` relates to a Lean example with the marker
-`marker`, and the closing line closes it with back-ticks. The example has the number of the
+opening line, the body lines, the closing line and the lines `after`. The lines `before` leave no
+block open (`VersoBlockStep`). The opening line has a fence run with the info string `info`, which
+`BlockKind` relates to a Lean example with the marker `marker`, and the closing line is the first
+line after it that closes it with back-ticks. The example has the number of the
 opening line, and its body is the body lines joined by line feeds. Its opening range, its body
 range and its closing range each start after the lines before that part, each with its line feed,
 and span that part. It has the pattern or the trust of its marker, and no marker line. -/
@@ -4843,8 +5018,9 @@ def VersoFence (lines : List String) (fence : Fence) : Prop :=
   ∃ (before body after : List String) (opening closing : String) (character : Char)
     (count : Nat) (info : String) (marker : Option MarkerKind),
     lines = before ++ opening :: (body ++ closing :: after) ∧
+    Run VersoBlockStep .outside before .outside ∧
     FenceLine opening character count info ∧ BlockKind info (some marker) ∧
-    ClosingLine closing '`' count ∧
+    (∀ line ∈ body, ¬ ClosingLine line '`' count) ∧ ClosingLine closing '`' count ∧
     fence.line = before.length + 1 ∧
     fence.body = "\n".intercalate body ∧
     fence.opening = rangeAfter before opening ∧
@@ -4864,16 +5040,20 @@ private theorem VersoFence.append {lines : List String} {fence : Fence} (more : 
     by simp [whole], rest⟩
 
 /-- What the Verso scanner keeps after the lines `done`, with the lines `rest` still to read:
-each example lies among the lines `done`, and an open block opened at a line of `done` with its
-body lines after it. -/
+each example lies among the lines `done`, the lines `done` leave no block open when no block is
+open, and an open block opened at a line of `done`, after lines that leave no block open, with
+its body lines after it. -/
 private def VersoPlaced (document : RegulaPolicy.SourceSnapshot) (done rest : List String)
     (state : VersoScan) : Prop :=
   (∀ fence ∈ state.fences, fence.document = document ∧ VersoFence done fence) ∧
+  (state.opened = none → Run VersoBlockStep .outside done .outside) ∧
   ∀ block, state.opened = some block → ∃ (before : List String) (opening : String)
     (character : Char) (info : String),
     done = before ++ opening :: block.body.toList ∧
+    Run VersoBlockStep .outside before .outside ∧
     FenceLine opening character block.length info ∧
     (∀ marker, block.kind = some marker → BlockKind info (some marker)) ∧
+    (∀ line ∈ block.body.toList, ¬ ClosingLine line '`' block.length) ∧
     block.line = before.length + 1 ∧
     block.opening = rangeAfter before opening ∧
     (rest ≠ [] → block.bodyStart = (textBefore (before ++ [opening])).utf8ByteSize)
@@ -4885,7 +5065,7 @@ private theorem versoPlaced_step (document : RegulaPolicy.SourceSnapshot) (origi
     (placed : VersoPlaced document done (text :: rest) state) :
     VersoPlaced document (done ++ [text]) rest
       (shapedVersoStep document origin state (lineAfter done text next)) := by
-  obtain ⟨fences, opened⟩ := placed
+  obtain ⟨fences, blocks, opened⟩ := placed
   have old : ∀ f ∈ state.fences, f.document = document ∧ VersoFence (done ++ [text]) f :=
     fun f member => ⟨(fences f member).1, (fences f member).2.append [text]⟩
   obtain ⟨sameOpened, sameFences⟩ :=
@@ -4897,16 +5077,21 @@ private theorem versoPlaced_step (document : RegulaPolicy.SourceSnapshot) (origi
   rw [named]
   cases open' : state.opened with
   | none =>
+    have run := blocks open'
     simp only
-    cases run : fenceRun? text with
-    | none => exact ⟨old, fun _ none' => by rw [open'] at none'; cases none'⟩
-    | some found =>
-      obtain ⟨character, count, info⟩ := found
+    cases found : fenceRun? text with
+    | none =>
+      refine ⟨old, fun _ => run.snoc (.outside fun character count info line => ?_),
+        fun _ none' => by rw [open'] at none'; cases none'⟩
+      rw [(fenceRun?_eq_some_iff _ _ _ _).mpr line] at found
+      cases found
+    | some run' =>
+      obtain ⟨character, count, info⟩ := run'
       simp only
-      refine ⟨old, fun block opens => ?_⟩
+      refine ⟨old, (fun none' => nomatch none'), fun block opens => ?_⟩
       cases opens
-      refine ⟨done, text, character, info, by simp, (fenceRun?_eq_some_iff _ _ _ _).mp run,
-        fun marker kind => ?_, rfl, rfl, nextIs⟩
+      refine ⟨done, text, character, info, by simp, run, (fenceRun?_eq_some_iff _ _ _ _).mp found,
+        fun marker kind => ?_, fun _ member => by simp at member, rfl, rfl, nextIs⟩
       revert kind
       cases versoKind : versoBlockKind info with
       | error => intro kind; cases kind
@@ -4915,21 +5100,24 @@ private theorem versoPlaced_step (document : RegulaPolicy.SourceSnapshot) (origi
         cases kind
         exact (versoBlockKind_eq_ok_iff _ _).mp versoKind
   | some block =>
-    obtain ⟨before, opening, character, info, whole, opens, kinds, numbered, openRange,
-      bodyStart⟩ := opened block open'
+    obtain ⟨before, opening, character, info, whole, blocks', opens, kinds, inBody, numbered,
+      openRange, bodyStart⟩ := opened block open'
     simp only
     by_cases closes : closingFence text '`' block.length = true
-    · simp only [closes, ↓reduceIte]
+    · have run : Run VersoBlockStep .outside (done ++ [text]) .outside := by
+        rw [whole]
+        exact run_versoFence blocks' opens inBody ((closingFence_iff _ _ _).mp closes)
+      simp only [closes, ↓reduceIte]
       cases kindIs : block.kind with
-      | none => exact ⟨old, fun _ none' => nomatch none'⟩
+      | none => exact ⟨old, (fun _ => run), fun _ none' => nomatch none'⟩
       | some marker =>
         simp only
-        refine ⟨fun f member => ?_, fun _ none' => nomatch none'⟩
+        refine ⟨fun f member => ?_, (fun _ => run), fun _ none' => nomatch none'⟩
         rcases Array.mem_push.mp member with found | rfl
         · exact old f found
         · refine ⟨rfl, before, block.body.toList, [], opening, text, character, block.length, info,
-            marker, by simp [whole], opens, kinds marker kindIs, (closingFence_iff _ _ _).mp closes,
-            numbered, rfl, openRange, ?_, ?_, rfl, ?_⟩
+            marker, by simp [whole], blocks', opens, kinds marker kindIs, inBody,
+            (closingFence_iff _ _ _).mp closes, numbered, rfl, openRange, ?_, ?_, rfl, ?_⟩
           · have start := bodyStart (by simp)
             unfold rangeAfter
             rw [start]
@@ -4958,11 +5146,18 @@ private theorem versoPlaced_step (document : RegulaPolicy.SourceSnapshot) (origi
               | trusted => exact .inr (.inl ⟨rfl, rfl, rfl⟩)
               | fail pattern => exact .inr (.inr ⟨pattern, rfl, rfl, rfl⟩)
     · have stays : closingFence text '`' block.length = false := by simpa using closes
+      have notClosing : ¬ ClosingLine text '`' block.length := fun closing => by
+        rw [(closingFence_iff _ _ _).mpr closing] at stays
+        cases stays
       simp only [stays, Bool.false_eq_true, ↓reduceIte]
-      refine ⟨old, fun b opens' => ?_⟩
+      refine ⟨old, (fun none' => nomatch none'), fun b opens' => ?_⟩
       cases opens'
-      exact ⟨before, opening, character, info, by simp [whole], opens, kinds, numbered, openRange,
-        fun _ => bodyStart (by simp)⟩
+      refine ⟨before, opening, character, info, by simp [whole], blocks', opens, kinds,
+        fun line member => ?_, numbered, openRange, fun _ => bodyStart (by simp)⟩
+      simp only [Array.toList_push, List.mem_append, List.mem_singleton] at member
+      rcases member with old | rfl
+      · exact inBody line old
+      · exact notClosing
 
 /-- The lines after `done` keep what the Verso scanner keeps. -/
 private theorem versoPlaced_run (document : RegulaPolicy.SourceSnapshot) (origin : String) :
@@ -4996,8 +5191,108 @@ theorem scanVersoLines_fence (source : Source) {fence : Fence}
   unfold scanVersoLines versoFinish at member
   rw [layout_eq] at member
   have placed := versoPlaced_run source.document source.origin source.lines [] {}
-    ⟨fun _ member => by simp at member, fun _ none' => nomatch none'⟩
+    ⟨fun _ member => by simp at member, (fun _ => .nil), fun _ none' => nomatch none'⟩
   exact placed.1 fence member
+
+/-- The first line that closes a fence: two divisions of the same lines, each at a closing line
+after lines that do not close the fence, are the same division. -/
+private theorem first_closing {Closes : String → Prop} :
+    ∀ {body body' after after' : List String} {closing closing' : String},
+      body ++ closing :: after = body' ++ closing' :: after' →
+      (∀ line ∈ body, ¬ Closes line) → Closes closing →
+      (∀ line ∈ body', ¬ Closes line) → Closes closing' →
+      body = body' ∧ closing = closing' ∧ after = after' := by
+  intro body
+  induction body with
+  | nil =>
+    intro body' after after' closing closing' same _ closes stays' _
+    cases body' with
+    | nil => simpa using same
+    | cons first rest =>
+      obtain ⟨rfl, -⟩ := List.cons.inj same
+      exact absurd closes (stays' _ List.mem_cons_self)
+  | cons first rest ih =>
+    intro body' after after' closing closing' same stays _ stays' closes'
+    cases body' with
+    | nil =>
+      obtain ⟨rfl, -⟩ := List.cons.inj same
+      exact absurd closes' (stays _ List.mem_cons_self)
+    | cons first' rest' =>
+      obtain ⟨rfl, tail⟩ := List.cons.inj same
+      obtain ⟨equal, closing, after⟩ :=
+        ih tail (fun line member => stays line (List.mem_cons_of_mem _ member)) ‹_›
+          (fun line member => stays' line (List.mem_cons_of_mem _ member)) closes'
+      exact ⟨by rw [equal], closing, after⟩
+
+/-- Lines divided at the same number of lines before a line are divided at the same line. -/
+private theorem same_division {before before' rest rest' : List String}
+    {line line' : String} (same : before ++ line :: rest = before' ++ line' :: rest')
+    (length : before.length = before'.length) :
+    before = before' ∧ line = line' ∧ rest = rest' := by
+  obtain ⟨equal, tail⟩ := List.append_inj same length
+  obtain ⟨first, after⟩ := List.cons.inj tail
+  exact ⟨equal, first, after⟩
+
+/-- `DropsReturn` gives one part of a text. -/
+private theorem DropsReturn.unique {joined part part' : String} (one : DropsReturn joined part)
+    (two : DropsReturn joined part') : part = part' := by
+  have last : ∀ part : String, (part ++ "\r").toList.getLast? = some '\r' := by
+    intro part
+    simp [String.toList_append]
+  rcases one with withReturn | ⟨same, plain⟩ <;> rcases two with withReturn' | ⟨same', plain'⟩
+  · exact String.toList_injective (by
+      simpa [String.toList_append] using congrArg String.toList (withReturn.symm.trans withReturn'))
+  · exact absurd (withReturn ▸ last part) plain'
+  · exact absurd (withReturn' ▸ last part') plain
+  · exact same.symm.trans same'
+
+/-- **A Markdown fence has one place for its opening line.** Two fences that lie among the same
+lines and open at the same line have the same body, the same opening, body and closing ranges,
+and the same closing line. So the relation admits no other body and no other closing for a
+returned fence. -/
+theorem MarkdownFence.unique {lines : List String} {fence fence' : Fence}
+    (one : MarkdownFence lines fence) (two : MarkdownFence lines fence')
+    (same : fence.line = fence'.line) :
+    fence.body = fence'.body ∧ fence.opening = fence'.opening ∧
+      fence.bodyRange = fence'.bodyRange ∧ fence.closing = fence'.closing := by
+  obtain ⟨before, body, after, opening, closing, character, count, info, whole, -, opens, -,
+    inBody, closes, numbered, drops, openRange, bodyRange, closeRange, -⟩ := one
+  obtain ⟨before', body', after', opening', closing', character', count', info', whole', -, opens',
+    -, inBody', closes', numbered', drops', openRange', bodyRange', closeRange', -⟩ := two
+  obtain ⟨rfl, rfl, rest⟩ := same_division (whole.symm.trans whole')
+    (by rw [numbered, numbered'] at same; omega)
+  cases lineIs_unique opens opens'
+  obtain ⟨rfl, rfl, -⟩ := first_closing rest inBody closes inBody' closes'
+  have bodies := drops.unique drops'
+  refine ⟨bodies, ?_, ?_, ?_⟩
+  · rw [openRange, openRange']
+  · rw [bodyRange, bodyRange', bodies]
+  · rw [closeRange, closeRange']
+
+/-- **A Verso example has one place for its opening line.** Two examples that lie among the same
+lines and open at the same line have the same body, the same opening, body and closing ranges, and
+the same closing line. -/
+theorem VersoFence.unique {lines : List String} {fence fence' : Fence}
+    (one : VersoFence lines fence) (two : VersoFence lines fence')
+    (same : fence.line = fence'.line) :
+    fence.body = fence'.body ∧ fence.opening = fence'.opening ∧
+      fence.bodyRange = fence'.bodyRange ∧ fence.closing = fence'.closing := by
+  obtain ⟨before, body, after, opening, closing, character, count, info, marker, whole, -, opens,
+    -, inBody, closes, numbered, text, openRange, bodyRange, closeRange, -⟩ := one
+  obtain ⟨before', body', after', opening', closing', character', count', info', marker', whole',
+    -, opens', -, inBody', closes', numbered', text', openRange', bodyRange', closeRange', -⟩ := two
+  obtain ⟨rfl, rfl, rest⟩ := same_division (whole.symm.trans whole')
+    (by rw [numbered, numbered'] at same; omega)
+  have runs := ((fenceRun?_eq_some_iff _ _ _ _).mpr opens).symm.trans
+    ((fenceRun?_eq_some_iff _ _ _ _).mpr opens')
+  obtain ⟨rfl, rfl, rfl⟩ : character = character' ∧ count = count' ∧ info = info' := by
+    simpa using runs
+  obtain ⟨rfl, rfl, -⟩ := first_closing rest inBody closes inBody' closes'
+  have bodies : fence.body = fence'.body := by rw [text, text']
+  refine ⟨bodies, ?_, ?_, ?_⟩
+  · rw [openRange, openRange']
+  · rw [bodyRange, bodyRange', bodies]
+  · rw [closeRange, closeRange']
 
 /-- The bytes of the three parts of a fence that lies among the lines of a source. -/
 private theorem parts_bytes (source : Source) {before body after : List String}
@@ -5042,8 +5337,8 @@ theorem Scanned.bytes (scan : Scanned) {fence : Fence} (member : fence ∈ scan.
   cases format : scan.format with
   | markdown =>
     rw [format] at member
-    obtain ⟨document, before, body, after, opening, closing, -, -, -, whole, -, -, -, numbered,
-      text, openRange, bodyRange, closeRange, -⟩ := scanLines_fence scan.source member
+    obtain ⟨document, before, body, after, opening, closing, -, -, -, whole, -, -, -, -, -,
+      numbered, text, openRange, bodyRange, closeRange, -⟩ := scanLines_fence scan.source member
     obtain ⟨openBytes, bodyBytes, closeBytes⟩ := parts_bytes scan.source (part := fence.body)
       whole text.leads
     refine ⟨document, before, body, after, opening, closing, whole, numbered, ?_, ?_, ?_⟩
@@ -5052,8 +5347,9 @@ theorem Scanned.bytes (scan : Scanned) {fence : Fence} (member : fence ∈ scan.
     · rw [document, closeRange]; exact closeBytes
   | verso =>
     rw [format] at member
-    obtain ⟨document, before, body, after, opening, closing, -, -, -, -, whole, -, -, -, numbered,
-      text, openRange, bodyRange, closeRange, -, -⟩ := scanVersoLines_fence scan.source member
+    obtain ⟨document, before, body, after, opening, closing, -, -, -, -, whole, -, -, -, -, -,
+      numbered, text, openRange, bodyRange, closeRange, -, -⟩ :=
+      scanVersoLines_fence scan.source member
     obtain ⟨openBytes, bodyBytes, closeBytes⟩ := parts_bytes scan.source (part := fence.body)
       whole ⟨"", by rw [text]; simp⟩
     refine ⟨document, before, body, after, opening, closing, whole, numbered, ?_, ?_, ?_⟩
