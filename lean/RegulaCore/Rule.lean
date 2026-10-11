@@ -872,19 +872,19 @@ def descriptor : (id : RuleId) → RuleDescriptor id
       normativeClauses := [.elaborationEnvironment, .communityConventions, .linterDiscipline]
       applicability := "community-configuration"
       evidenceModes := [.incrementalProject, .freshProject]
-      requirement := "Claimed targets' `leanOptions` set auto-implicits off, `linter.missingDocs` on, no \
-        linter off past §6.7 exclusions, with Mathlib its standard set on, header linter off or \
-        licensed; no `-D` undoes it."
+      requirement := "Targets' `leanOptions`: auto-implicits off, `linter.missingDocs` on, with \
+        Mathlib its standard set, header linter off or licensed; any other option, also by \
+        `-D`, only in RG2006's accepted set."
       rationale := "An automatic implicit adds a binder the source does not show, so the \
-        elaborated \
-        statement can quantify over more than the text a reviewer compares with the intent. A \
-        linter reports only where it is on: without `linter.missingDocs`, or with a linter off \
-        for a whole target, the warning-free build (RG2003) never sees those warnings. A `-D` \
-        extra `lean` argument can override `leanOptions`, where the audit reads these options."
+        elaborated statement can quantify over more than the text a reviewer compares with the \
+        intent. A linter or warning reports only where it is on, and a target-wide option can \
+        turn one off, so the warning-free build (RG2003) never sees it. The rule accepts only \
+        options that cannot stop a default warning, besides a raised `exponentiation.threshold`, \
+        in `leanOptions` or a `-D` extra `lean` argument."
       remedy := "Set the target's Lake `leanOptions`: `autoImplicit` and `relaxedAutoImplicit` \
         false, `linter.missingDocs` true and, with Mathlib, the standard set and its three §6.7 \
-        exclusions; remove other linter disables and each `-D` extra `lean` argument that \
-        overrides these options."
+        exclusions; delete each other option, or `-D` extra `lean` argument, outside the \
+        accepted set."
       rewrites := [
         "Add ``⟨`autoImplicit, false⟩, ⟨`relaxedAutoImplicit, false⟩, \
           ⟨`linter.missingDocs, true⟩`` to `leanOptions` (the same keys under `[leanOptions]` in \
@@ -893,10 +893,18 @@ def descriptor : (id : RuleId) → RuleDescriptor id
         "With Mathlib, also set `weak.linter.mathlibStandardSet` to true, `weak.linter.hashCommand` \
           false, `weak.linter.style.longFile` 0 and `weak.linter.style.header` false, or true \
           with `weak.linter.style.header.license` set to your license line.",
-        "Replace a target-wide ``⟨`linter.X, false⟩`` with `set_option linter.X false in` on the \
-          one declaration the community's guidance allows, with a comment (§6.2).",
-        "Delete each `-D name=value` in `moreLeanArgs` or `weakLeanArgs` that gives one of these \
-          options a value the rule does not admit or turns off another linter; other extra \
+        "Replace a target-wide ``⟨`linter.X, false⟩`` with `set_option linter.X false in` \
+          on the one declaration the community's guidance allows, with a comment (§6.2); delete \
+          each other target-wide option outside the accepted set, such as \
+          ``⟨`warn.sorry, false⟩`` or ``⟨`doc.verso.suggestions, false⟩``. A `pp.*` option \
+          changes the text some linters compare: put a non-default one in an editor or user \
+          setting.",
+        "Keep only accepted options: a listed linter or `warn.*` option at its listed value \
+          (`true` for most), `warningAsError` or `debugAssertions` at true, a `pp.*` option at its \
+          default, or a number for `maxHeartbeats`, `synthInstance.maxHeartbeats`, \
+          `maxRecDepth`, `maxSynthPendingDepth` or `exponentiation.threshold`, which lets Lean \
+          do work it would skip. Delete other \
+          `-D name=value` arguments and `weak.` entries, even undeclared ones; non-option \
           arguments may stay."]
       examples := {
         language := .lean
