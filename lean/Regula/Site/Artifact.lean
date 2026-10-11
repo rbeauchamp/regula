@@ -68,9 +68,9 @@ def render (root : FilePath) (destination : FilePath) (revision : String) : IO
       for entry in ← dir.readDir do
         if entry.fileName.startsWith "RegulaStandard" then
           Regula.Removal.removeEntry entry.path
-  let built ← run website "lake" #["build"] cleanEnv
+  let built ← runLake website #["build"] cleanEnv
   requireChecks [⟨s!"Verso site build\n{built.stdout}{built.stderr}", built.exitCode == 0⟩]
-  let rendered ← run website "lake" #["exe", "regula-site", "--output", destination.toString]
+  let rendered ← runLake website #["exe", "regula-site", "--output", destination.toString]
     (cleanEnv.push ("REGULA_SOURCE_REVISION", some revision))
   requireChecks [⟨s!"Verso rendering\n{rendered.stdout}{rendered.stderr}", rendered.exitCode == 0⟩]
   snapshotTree (destination / "html-multi")

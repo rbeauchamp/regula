@@ -34,7 +34,7 @@ private def isSupportEntry (entry : Json) : Bool :=
 inherited owner's assertion is removed. -/
 private def lint (cwd : FilePath) (args : Array String := #[])
     (env : Array (String × Option String) := #[]) : IO ProcessResult :=
-  runProcess cwd "lake" (#["lint"] ++ args)
+  runLake cwd (#["lint"] ++ args)
     (scrubbedLeanPathEnv ++ #[(Lint.ordinaryLakefilesVariable, none)] ++ env)
 
 /-- One invocation's required exit code and required/forbidden output fragments. -/
@@ -65,7 +65,7 @@ private def expect (cwd : FilePath) (e : Expectation) (args : Array String := #[
 /-- The adopter's `axiomGate --file` audit of `file` against kernel-only, run through Lake. -/
 private def fileAudit (cwd : FilePath) (file : String) (args : Array String := #[]) :
     IO ProcessResult :=
-  runProcess cwd "lake" (#["exe", "axiomGate", "--file", file, "--claim", "kernel-only"] ++ args)
+  runLake cwd (#["exe", "axiomGate", "--file", file, "--claim", "kernel-only"] ++ args)
     scrubbedLeanPathEnv
 
 /-- An accepted run prints its account's `Account.pass` line, which names the coverage, and no
@@ -97,7 +97,7 @@ audit-build marker, and `some cause` keeps it with a reason (`Lake.markerReason`
 path, so they run one at a time under `probes`. -/
 private def probe (probes : Std.Mutex Unit) (adopter : FilePath) (label : String)
     (targets : Array String) (expected : Option String) : IO (Array String) := do
-  let build ← runProcess adopter "lake" (#["build"] ++ targets) scrubbedLeanPathEnv
+  let build ← runLake adopter (#["build"] ++ targets) scrubbedLeanPathEnv
   let failures ← if !build.succeeded then
       pure #[s!"lake-lint/{label}: the ordinary build failed", build.output]
     else do
@@ -222,14 +222,14 @@ private def leanDecisions (probes : Std.Mutex Unit) (repo adopter : FilePath) :
   IO.FS.writeFile lakefile plain
   failures := failures ++ (← expect adopter { positive with
     label := "lean/plain-default-marked", excludes := positive.excludes.push "the claimed build" })
-  let ordinary ← runProcess adopter "lake" #["build", "Widget"] scrubbedLeanPathEnv
+  let ordinary ← runLake adopter #["build", "Widget"] scrubbedLeanPathEnv
   unless ordinary.succeeded && ordinary.output.contains "] Built Widget" do
     failures := failures.push s!"lake-lint/lean/plain-default-marked: the ordinary build reused \
       the driver's build: {ordinary.output}"
   failures := failures ++ (← expect adopter { positive with
     label := "lean/plain-reused", contains := positive.contains.push markerOmitted }
     (env := optIn))
-  let ordinary ← runProcess adopter "lake" #["build", "Widget"] scrubbedLeanPathEnv
+  let ordinary ← runLake adopter #["build", "Widget"] scrubbedLeanPathEnv
   unless ordinary.succeeded && !ordinary.output.contains "] Built Widget" do
     failures := failures.push s!"lake-lint/lean/plain-reused: the ordinary build rebuilt a module: \
       {ordinary.output}"
@@ -605,7 +605,7 @@ private def tomlLive (repo adopter : FilePath) : IO (Array String) := do
       excludes := #["build-failed", "editorSnapshot"] })
   restore adopter originals
   mutate double "end Gadget" "/-- A control assumption. -/\naxiom liveFinding : True\nend Gadget"
-  let ordinary ← runProcess adopter "lake" #["build"] scrubbedLeanPathEnv
+  let ordinary ← runLake adopter #["build"] scrubbedLeanPathEnv
   unless ordinary.succeeded && ordinary.output.contains "RG1001 [violation; editorSnapshot" do
     failures := failures.push s!"lake-lint/toml/live-build: {ordinary.output}"
   -- `Gadget.Double` imports `Regula.Linter`, so even under the owner's assertion the
@@ -745,7 +745,7 @@ private def tomlPlain (probes : Std.Mutex Unit) (repo adopter : FilePath) :
   failures := failures ++ (← expect adopter
     { accepted "toml/star-reused" with
       contains := (accepted "toml/star-reused").contains.push markerOmitted } (env := optIn))
-  let ordinary ← runProcess adopter "lake" #["build"] scrubbedLeanPathEnv
+  let ordinary ← runLake adopter #["build"] scrubbedLeanPathEnv
   unless ordinary.succeeded && !ordinary.output.contains "] Built Gadget" do
     failures := failures.push s!"lake-lint/toml/star-reused: the ordinary build rebuilt a module: \
       {ordinary.output}"
@@ -789,10 +789,10 @@ private def cachedWarning (repo adopter : FilePath) : IO (Array String) := do
   let incomplete (label : String) : Expectation := {
     label, exitCode := 3, contains := #["RG2003", warning, "regula lint: INCOMPLETE (exit 3)"],
     excludes := #[s!"regula lint: {acceptanceLabel}"] }
-  let fresh := runProcess adopter "lake" #["lint", "--", "--fresh"] env
+  let fresh := runLake adopter #["lint", "--", "--fresh"] env
   let mut failures ← assess (incomplete "cache/fresh") (← fresh)
   failures := failures ++ (← assess (incomplete "cache/fresh-again") (← fresh))
-  let build := runProcess adopter "lake" #["build", "Widget"] env
+  let build := runLake adopter #["build", "Widget"] env
   let built ← build
   IO.FS.removeDirAll (adopter / ".lake" / "build")
   let restored ← build
@@ -809,7 +809,7 @@ private def cachedWarning (repo adopter : FilePath) : IO (Array String) := do
   failures := failures ++ (← assess {
       label := "cache/incremental-restored", exitCode := 3, contains := #["RG2003", warning],
       excludes := #["axiom gate: PASS"] }
-    (← runProcess adopter "lake" #["exe", "axiomGate", "--incremental"] env))
+    (← runLake adopter #["exe", "axiomGate", "--incremental"] env))
   -- The positive control: without the warning, the cache-enabled adopter is accepted.
   IO.FS.writeFile additional original
   failures := failures ++ (← assess (accepted "cache/fresh-restored" (fresh := true)) (← fresh))
@@ -852,13 +852,13 @@ private def dependencyCachedWarning (repo adopter : FilePath) : IO (Array String
   IO.FS.writeFile additional ("import Dep\n" ++ (← IO.FS.readFile additional))
   let env := scrubbedLeanPathEnv ++ #[("LAKE_CACHE_DIR", some (adopter / "lake-cache").toString)]
   let warning := "Variable name `unused` is not explicitly referenced"
-  let filled ← runProcess adopter "lake" #["build", "Dep"] env
+  let filled ← runLake adopter #["build", "Dep"] env
   let mut failures : Array String := #[]
   unless filled.succeeded && filled.output.contains warning do
     failures := failures.push s!"lake-lint/dependency-cache/fill: {filled.output}"
   if ← (dependency / ".lake" / "build").pathExists then
     IO.FS.removeDirAll (dependency / ".lake" / "build")
-  let fresh := runProcess adopter "lake" #["lint", "--", "--fresh"] env
+  let fresh := runLake adopter #["lint", "--", "--fresh"] env
   failures := failures ++ (← assess {
       label := "dependency-cache/fresh", exitCode := 3,
       contains := #["RG2003", warning, "regula lint: INCOMPLETE (exit 3)"],
@@ -896,8 +896,8 @@ private def emptyFacetsWarning (repo adopter : FilePath) : IO (Array String) := 
   let warning := "Variable name `unused` is not explicitly referenced"
   let reported (label : String) : Expectation := {
     label, exitCode := 3, contains := #["RG2003", warning], excludes := #["axiom gate: PASS"] }
-  let incremental := runProcess adopter "lake" #["exe", "axiomGate", "--incremental"] env
-  let build := runProcess adopter "lake" #["build", "Widget:leanArts"] env
+  let incremental := runLake adopter #["exe", "axiomGate", "--incremental"] env
+  let build := runLake adopter #["build", "Widget:leanArts"] env
   let built ← build
   let mut failures : Array String := #[]
   unless built.succeeded && built.output.contains warning do
@@ -920,11 +920,11 @@ private def emptyFacetsWarning (repo adopter : FilePath) : IO (Array String) := 
       label := "empty-facets/fresh", exitCode := 3,
       contains := #["RG2003", warning, "regula lint: INCOMPLETE (exit 3)"],
       excludes := #[s!"regula lint: {acceptanceLabel}"] }
-    (← runProcess adopter "lake" #["lint", "--", "--fresh"] env))
+    (← runLake adopter #["lint", "--", "--fresh"] env))
   -- The positive control: without the warning, the audit builds the modules itself.
   IO.FS.writeFile additional original
   failures := failures ++ (← assess (accepted "empty-facets/fresh-restored" (fresh := true))
-    (← runProcess adopter "lake" #["lint", "--", "--fresh"] env))
+    (← runLake adopter #["lint", "--", "--fresh"] env))
   return failures
 
 /-- Counterexample control for the class the second review of issue 291 found: a claimed name
@@ -966,18 +966,18 @@ private def escapedNameWarning (repo adopter : FilePath) : IO (Array String) := 
     "\n/-- A claimed theorem whose proof leaves an unused `have`. -/\n" ++
     "theorem withUnused (n : Nat) : n = n :=\n  have unused : 0 = 0 := rfl\n  rfl\n"
   let warning := "Variable name `unused` is not explicitly referenced"
-  let built ← runProcess adopter "lake" #["build", "+Gadget:leanArts"] scrubbedLeanPathEnv
+  let built ← runLake adopter #["build", "+Gadget:leanArts"] scrubbedLeanPathEnv
   let mut failures : Array String := #[]
   unless built.succeeded && built.output.contains warning do
     failures := failures.push s!"lake-lint/escaped-name/build: {built.output}"
   failures := failures ++ (← assess {
       label := "escaped-name/incremental", exitCode := 3, contains := #["RG2003", warning],
       excludes := #["axiom gate: PASS"] }
-    (← runProcess adopter "lake" #["exe", "axiomGate", "--incremental"] scrubbedLeanPathEnv))
+    (← runLake adopter #["exe", "axiomGate", "--incremental"] scrubbedLeanPathEnv))
   -- The positive control: without the warning, the claimed library is found and accepted.
   IO.FS.writeFile gadget original
   failures := failures ++ (← assess (accepted "escaped-name/fresh-restored" (fresh := true))
-    (← runProcess adopter "lake" #["lint", "--", "--fresh"] scrubbedLeanPathEnv))
+    (← runLake adopter #["lint", "--", "--fresh"] scrubbedLeanPathEnv))
   return failures
 
 /-- The module of the adopter's path dependency `build_lint_support` for the path-dependency
@@ -1570,11 +1570,11 @@ written it accepts the project. That the plan of the result is empty in the mode
 `Regula.Setup.plan_idempotent`; these runs observe that the written files realize it. -/
 private def lakeNew (repo scratch : FilePath) : IO (Array String) := do
   let regula (project : FilePath) : IO ProcessResult :=
-    runProcess project "lake" #["exe", "regula", "init"] scrubbedLeanPathEnv
+    runLake project #["exe", "regula", "init"] scrubbedLeanPathEnv
   -- `lake new`, the `regula` requirement, then `init` twice: the first must report writing
   -- `setting`, after which the lakefile must contain `written`.
   let setUp (name format lakefile require setting written : String) : IO (Array String) := do
-    let made ← runProcess scratch "lake" (#["new", name] ++ (if format.isEmpty then #[] else
+    let made ← runLake scratch (#["new", name] ++ (if format.isEmpty then #[] else
       #[format])) scrubbedLeanPathEnv
     if !made.succeeded then return #[s!"lake-lint/new/{name}: lake new failed", made.output]
     let project := scratch / name
@@ -1625,7 +1625,7 @@ private def compilerGuard (repo project : FilePath) : IO (Array String) := do
   let some silent ← path.findM? fun dir => (dir / "true").pathExists
     | throw <| IO.userError "lake-lint: the compiler-guard control found no `true` on PATH"
   let load (env : Array (String × Option String)) : IO ProcessResult :=
-    runProcess project "lake" #["check-lint"] (scrubbedLeanPathEnv ++ env)
+    runLake project #["check-lint"] (scrubbedLeanPathEnv ++ env)
   let refused (label : String) (program : FilePath) (branch : String) : IO (Array String) := do
     let sysroot := project / label
     let lean := sysroot / "bin" / "lean"
@@ -1634,7 +1634,7 @@ private def compilerGuard (repo project : FilePath) : IO (Array String) := do
     if !linked.succeeded then throw <| IO.userError linked.output
     assess { label := s!"guard/{label}", exitCode := 1, contains := #[lean.toString, branch] }
       (← load #[("LEAN_SYSROOT", some sysroot.toString)])
-  let failing ← refused "failing-child" ((← Lean.findSysroot) / "bin" / "lake")
+  let failing ← refused "failing-child" (← Regula.Toolchain.program "lake")
     "refused Regula's compiler policy or could not compile it"
   let unidentified ← refused "unidentified-child" (silent / "true") "is not the Lean running Lake"
   return failing ++ unidentified ++

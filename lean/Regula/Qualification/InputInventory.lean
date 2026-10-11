@@ -61,16 +61,15 @@ def check : IO Unit := do
         #[⟨`autoImplicit, false⟩, ⟨`relaxedAutoImplicit, false⟩, ⟨`linter.missingDocs, \
         true⟩]\nlean_lib Example where\n  globs := #[.andSubmodules `Example]\n"
     manifest project "kernel-only"
-    success (← run project "lake" #["update"] cleanEnv)
+    success (← runLake project #["update"] cleanEnv)
     let tools := scratch / "tools"
     IO.FS.createDirAll tools
     copyExecutable (← IO.appPath) (tools / "lake")
-    let resolved ← run root "/usr/bin/which" #["lake"]
-    success resolved
+    let toolchainLake ← Regula.Checker.toolchainProgram "lake"
     let record := scratch / "build.json"
     let path ← requiredEnv "PATH"
     let env := cleanEnv ++ #[("REGULA_QUALIFICATION_WRAPPER", some "inventory"),
-      ("INVENTORY_LAKE", some resolved.stdout.trimAscii.toString),
+      ("INVENTORY_LAKE", some toolchainLake),
       ("INVENTORY_RECORD", some record.toString),
       ("PATH", some (tools.toString ++ ":" ++ path))]
     for (mode, flag) in #[("incremental", "--incremental"), ("build-lint", "--build-lint")] do

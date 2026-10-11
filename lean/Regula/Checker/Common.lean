@@ -3,6 +3,7 @@ import Regula.Checker.Producer
 import Regula.Checker.PolicyCodec
 import RegulaCore.JsonAgreement
 import Regula.Scratch
+import Regula.ToolchainProgram
 import RegulaPolicy.ResultState
 import RegulaPolicy.Guards
 import Lean
@@ -62,11 +63,22 @@ def scrubbedLeanPathEnv : Array (String × Option String) :=
   #[("LEAN_PATH", none), ("LEAN_SRC_PATH", none)]
 
 /-- Run `cmd` with `args` in directory `repo`, with the environment changes `env`, wait for it
-to finish and return its exit code and captured output. -/
+to finish and return its exit code and captured output. Throws without starting it when it would
+run a toolchain program by its bare name (`Regula.Toolchain.refuseBareName`). -/
 def runProcess (repo : FilePath) (cmd : String) (args : Array String)
     (env : Array (String × Option String) := #[]) : IO ProcessResult := do
+  Regula.Toolchain.refuseBareName cmd args
   let result ← IO.Process.output { cmd, args, cwd := some repo, env }
   return { exitCode := result.exitCode, stdout := result.stdout, stderr := result.stderr }
+
+/-- The path of the toolchain program `name` (`Regula.Toolchain.program`), as a command. -/
+def toolchainProgram (name : String) : IO String :=
+  return (← Regula.Toolchain.program name).toString
+
+/-- `runProcess` of the toolchain's `lake` (`toolchainProgram`) in directory `dir`. -/
+def runLake (dir : FilePath) (args : Array String) (env : Array (String × Option String) := #[]) :
+    IO ProcessResult := do
+  runProcess dir (← toolchainProgram "lake") args env
 
 /-- The environment variable that turns timing output on in a checker process: `1` on, otherwise
 off. A coordinator passes it to the workers whose output it shows (`runTypedWorker`). -/
@@ -106,9 +118,10 @@ def showingStream (target : IO.FS.Stream) (display : String → Bool) : IO IO.FS
 
 /-- `runProcess`, also printing to standard output each line of the child's standard output that
 `display` selects (with its newline), as the child writes it. The captured output is the
-child's complete output. -/
+child's complete output. Like `runProcess`, it refuses a toolchain program's bare name. -/
 def runProcessShowing (repo : FilePath) (cmd : String) (args : Array String)
     (env : Array (String × Option String)) (display : String → Bool) : IO ProcessResult := do
+  Regula.Toolchain.refuseBareName cmd args
   let child ← IO.Process.spawn {
     cmd, args, cwd := some repo, env, stdin := .null, stdout := .piped, stderr := .piped }
   -- Drain standard error while standard output is read, so neither pipe can block the child.
@@ -477,7 +490,7 @@ def jsonStringArray (what : String) (value : Json) : IO (Array String) :=
 
 /-- Run `lake query TARGET --json` in `repo` and return its parsed JSON output. -/
 def lakeQuery (repo : FilePath) (target : String) : IO Json := do
-  parseJsonOutput target <| ← runProcess repo "lake" #["query", target, "--json"]
+  parseJsonOutput target <| ← runLake repo #["query", target, "--json"]
 
 /-- The last `count` elements of `lines`, or all of them when there are fewer. -/
 def takeLast (count : Nat) (lines : Array String) : Array String :=
