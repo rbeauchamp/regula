@@ -1547,8 +1547,10 @@ def guide : RuleId → Guide
         kernel stopped before it decided or the attempt raised an error. Root discovery, the \
         kernel's answer and reading each record from the environment and compiler IR are \
         operational. `RegulaPolicy.ExecutionWalk.assemble_account` states that `assemble` builds \
-        the account that the visits and their records give (`AccountOf`). The converse for the \
-        unresolved paths, no extra entry and no false cycle message, is not proved."
+        the account that the visits and their records give (`AccountOf`), the unresolved paths \
+        included. A cycle message lists the names on a cycle of visited replacement edges and the \
+        names from which such a cycle can be reached (`OnReplacementCycle`). It does not state the \
+        order of those names or of the messages for code."
       sources :=
           ["lean/Regula/Probe.lean", "lean/RegulaPolicy/ExecutionWalk.lean",
               "lean/RegulaPolicy/StackWalk.lean", "lean/RegulaCore/Policy.lean",
@@ -1649,9 +1651,11 @@ def guide : RuleId → Guide
         `RegulaPolicy.ExecutionWalk.checked_walk` decides the walk over the records of the probe. \
         Root discovery, the kernel's answer, reading each record from compiler IR and observing \
         module origins are operational. `RegulaPolicy.ExecutionWalk.assemble_account` states that \
-        `assemble` builds the account that the visits and their records give (`AccountOf`). The \
-        converse for the unresolved paths, no extra entry and no false cycle message, is not \
-        proved."
+        `assemble` builds the account that the visits and their records give (`AccountOf`), the \
+        unresolved paths included. A cycle message lists the names on a cycle of visited \
+        replacement edges and the names from which such a cycle can be reached \
+        (`OnReplacementCycle`). It does not state the order of those names or of the messages for \
+        code."
       sources :=
           ["lean/Regula/Probe.lean", "lean/RegulaPolicy/ExecutionWalk.lean",
               "lean/RegulaPolicy/StackWalk.lean", "lean/RegulaCore/Policy.lean",
