@@ -50,9 +50,11 @@ The scripts trust the `PATH` of the shell that starts them to find `elan`, as th
 one of those names, they would run that executable. Regula's own Lean entry points and the Lake
 processes that they start do not use `PATH` to choose a toolchain program.
 
-The verification driver refuses a script that names `lean`, `lake` or `leanchecker` literally and
-bare. A quoted or computed command name is outside that check. The guarantee is the construction:
-each script starts a toolchain program only through that proxy's path.
+A shell program of `scripts/` is a regular file with the extension `sh`, and a new one must have
+the approval of an operator ([`AGENTS.md`](../../AGENTS.md)). The verification driver reads only
+those files. It refuses one that names `lean`, `lake` or `leanchecker` literally and bare. A quoted or
+computed command name is outside that check. The guarantee is the construction: each script
+starts a toolchain program only through that proxy's path.
 
 ```sh
 lake build                         # incremental development check (the regula package)

@@ -733,13 +733,17 @@ def bareWords (text : String) : List (Nat × String) :=
   ((text.splitOn "\n").zipIdx 1).flatMap fun (line, number) =>
     ((shellWords line).toList.filter (scriptToolchainNames.contains ·.toLower)).map (number, ·)
 
-/-- Throws when a file of the repository's `scripts` directory holds a word that names a toolchain
-program (`bareWords`), which `PATH` would resolve, Lake putting a workspace's binary directories
-first. It is a tripwire for literal bare names only: a quoted or computed command name is outside
-it. The guarantee is the scripts' construction: each starts a toolchain program only through
-Elan's `lean` proxy, by its path in the directory of the `elan` that `PATH` resolves. -/
+/-- Throws when a shell program of the repository's `scripts` directory, a regular file with the
+extension `sh`, holds a word that names a toolchain program (`bareWords`), which `PATH` would
+resolve, Lake putting a workspace's binary directories first. It is a tripwire for literal bare
+names only: a quoted or computed command name is outside it. The guarantee is the scripts'
+construction: each starts a toolchain program only through Elan's `lean` proxy, by its path in the
+directory of the `elan` that `PATH` resolves. Any other entry, such as a directory, `.DS_Store` or
+an editor's swap file, is not read. -/
 def refuseBareScriptWords : IO Unit := do
   for entry in ← System.FilePath.readDir "scripts" do
+    unless entry.path.extension == some "sh" do continue
+    unless (← entry.path.metadata).type == .file do continue
     let found := bareWords (← IO.FS.readFile entry.path)
     unless found.isEmpty do
       throw <| IO.userError s!"{entry.path} starts a toolchain program by a bare name that PATH \
