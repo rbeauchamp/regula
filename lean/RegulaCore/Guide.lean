@@ -1550,7 +1550,8 @@ def guide : RuleId → Guide
         correct account from the visits."
       sources :=
           ["lean/Regula/Probe.lean", "lean/RegulaPolicy/ExecutionWalk.lean",
-              "lean/RegulaCore/Policy.lean", "lean/Regula/Checker/RuleDiagnostics.lean"] }
+              "lean/RegulaPolicy/StackWalk.lean", "lean/RegulaCore/Policy.lean",
+              "lean/Regula/Checker/RuleDiagnostics.lean"] }
   | .executionBoundary => {
       problem := "On a surface claiming `\"execution\": \"checked\"`, a reachable boundary the \
         project or a dependency owns lacks kernel-checked correspondence: for example an \
@@ -1650,7 +1651,8 @@ def guide : RuleId → Guide
         `RegulaPolicy.ExecutionWalk.assemble` builds the correct account from the visits."
       sources :=
           ["lean/Regula/Probe.lean", "lean/RegulaPolicy/ExecutionWalk.lean",
-              "lean/RegulaCore/Policy.lean", "website/RegulaStandard/ToolingAndMachineAudit.lean"] }
+              "lean/RegulaPolicy/StackWalk.lean", "lean/RegulaCore/Policy.lean",
+              "website/RegulaStandard/ToolingAndMachineAudit.lean"] }
   | .fenceStructure => {
       problem := "A Markdown file in the checked documentation tree has a malformed Lean fence \
         classification: an orphan, misplaced, duplicated or misspelled marker, an invalid \

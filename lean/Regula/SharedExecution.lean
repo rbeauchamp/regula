@@ -3,6 +3,7 @@ import Regula.Contract
 import Std.Data.HashMap
 import Std.Data.HashSet
 import Regula.Decision
+import RegulaPolicy.StackWalk
 
 /-! # Execution accounts of a result document, stored once per environment
 
@@ -375,6 +376,9 @@ structure Graph where
   /-- One more than the number of queued names of `successors`: a bound on the steps of any
   walk. -/
   fuel : Nat
+  /-- The bound is one more than the number of queued names of `successors`, so every walk over
+  them returns visits (`Graph.walk_accepted`). -/
+  fuel_eq : fuel = successors.foldl (fun count queued => count + queued.size) 1
 
 /-- Decode the shared part of a written account from its object's fields; `none` when a member is
 missing or malformed or an index is out of range. -/
@@ -413,34 +417,77 @@ def graph? (fields : Fields) : Option Graph := do
   return {
     names, modules, compiler, logical, candidate, history, current, active, helper, callers,
     successors, boundaries, unavailable,
-    fuel := successors.foldl (fun count queued => count + queued.size) 1 }
+    fuel := successors.foldl (fun count queued => count + queued.size) 1, fuel_eq := rfl }
 
 /-- The shared part of a written account, decoded from the account. -/
 def graphOf? : Json → Option Graph
   | .obj ⟨⟨fields⟩⟩ => graph? fields
   | _ => none
 
-/-- The walk of the execution collector (`Regula.Probe`) over successor lists: a stack of queued
-names, each with the visit that queued it. A step takes the name queued last; if it was not
-visited, it is visited and its successors are queued in their listed order. The result lists each
-visited name once, in visit order, with the position of the visit that queued it. `fuel` bounds
-the steps; a walk takes one step for each queued name. -/
-def walkLoop (successors : Array (Array Nat)) :
-    Nat → List (Nat × Option Nat) → Std.HashSet Nat → Array (Nat × Option Nat) →
-      Array (Nat × Option Nat)
-  | 0, _, _, visits => visits
-  | _, [], _, visits => visits
-  | fuel + 1, (node, parent) :: queued, visited, visits =>
-      if visited.contains node then walkLoop successors fuel queued visited visits
-      else
-        let position := visits.size
-        let queued := (successors.getD node #[]).foldl
-          (fun queued next => (next, some position) :: queued) queued
-        walkLoop successors fuel queued (visited.insert node) (visits.push (node, parent))
+/-- The successors of each name index, in the order the walk queues them; an index outside the
+table has none. Every index has a list, so a walk over them reaches no index without one. -/
+def Graph.next (graph : Graph) (node : Nat) : Option (Array Nat) :=
+  some (graph.successors.getD node #[])
 
-/-- The visits of the walk from `root`. -/
+/-- The bound of the graph is more than the number of successors of all name indices
+(`StackWalk.Bounds`): the indices of the table are distinct, an index outside it has no
+successor, and the bound is one more than the number of queued names of the table. -/
+theorem Graph.bounds (graph : Graph) : RegulaPolicy.StackWalk.Bounds graph.next graph.fuel := by
+  refine ⟨List.range graph.successors.size, List.nodup_range, ?_, ?_⟩
+  · intro node nonzero
+    rw [List.mem_range]
+    refine Nat.lt_of_not_le fun outside => nonzero ?_
+    simp [RegulaPolicy.StackWalk.degree, Graph.next, Array.getD, Nat.not_lt.mpr outside]
+  · have table : (List.range graph.successors.size).map
+        (RegulaPolicy.StackWalk.degree graph.next) = graph.successors.toList.map Array.size := by
+      apply List.ext_getElem
+      · simp
+      · intro index inRange _
+        simp only [List.length_map, List.length_range] at inRange
+        simp [RegulaPolicy.StackWalk.degree, Graph.next, Array.getD, inRange]
+    rw [table, graph.fuel_eq, ← Array.foldl_toList]
+    generalize graph.successors.toList = lists
+    suffices sums : ∀ start, lists.foldl (fun count queued => count + queued.size) start =
+        start + (lists.map Array.size).sum by
+      rw [sums]
+      omega
+    intro start
+    induction lists generalizing start with
+    | nil => simp
+    | cons first rest step =>
+      simp only [List.foldl_cons, step, List.map_cons, List.sum_cons]
+      omega
+
+/-- **Every walk over the decoded successors returns visits** (`StackWalk.walk_ok`): each index
+has successors, and the bound of the graph is enough (`Graph.bounds`). So the reader's walk never
+stops at its bound. -/
+theorem Graph.walk_accepted (graph : Graph) (root : Nat) :
+    ∃ visits, RegulaPolicy.StackWalk.walk graph.next graph.fuel root = .ok visits :=
+  RegulaPolicy.StackWalk.walk_ok graph.bounds fun _ _ => ⟨_, rfl⟩
+
+/-- The visits of the walk of the execution collector (`Regula.Probe`) from `root` over the decoded
+successors: the producer's stack walk (`StackWalk.walk`), each visited index once, in visit
+order, with the position of the visit that queued it. It returns visits for every graph and root
+(`Graph.walk_accepted`), so its failure branch is unreachable. -/
 def walk (graph : Graph) (root : Nat) : Array (Nat × Option Nat) :=
-  walkLoop graph.successors graph.fuel [(root, none)] {} #[]
+  match walked : RegulaPolicy.StackWalk.walk graph.next graph.fuel root with
+  | .ok visits => visits
+  | .error _ => absurd walked (by
+      obtain ⟨visits, accepted⟩ := graph.walk_accepted root
+      rw [accepted]
+      nofun)
+
+/-- The reader's walk returns the visits of the stack walk over the decoded successors
+(`StackWalk.walk`). -/
+theorem walk_eq (graph : Graph) (root : Nat) :
+    RegulaPolicy.StackWalk.walk graph.next graph.fuel root = .ok (walk graph root) := by
+  unfold walk
+  split
+  · next walked => exact walked
+  · next walked =>
+    obtain ⟨_, accepted⟩ := graph.walk_accepted root
+    rw [accepted] at walked
+    nomatch walked
 
 /-- A sorted array without its repeated elements. -/
 def distinct (sorted : Array Nat) : Array Nat :=
