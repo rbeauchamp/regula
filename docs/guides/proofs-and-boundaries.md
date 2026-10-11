@@ -426,7 +426,8 @@ Before this decision, the site executable removed its output directory, `tmp/sit
 paths, it deleted the content of the target of the link
 ([issue 261](https://github.com/rbeauchamp/regula/issues/261)). At this time, it stops there
 and removes nothing. A relative `--out` is joined to the real path of the working directory, and
-no component that it gives is resolved. Thus a removal at `--out` through a link at one of its components also stops it.
+no component that it gives is resolved. Before it makes anything, the build refuses a link, `.`
+or `..` among the present components of `--out`.
 
 The driver cannot import `RegulaCore.Removal`, because `scripts/verify.sh` operates the driver
 before the build. The site executable cannot import the driver, because each of the two programs
@@ -442,9 +443,20 @@ that `Regula.Removal.libraryRemovals` gives are the only other calls that the ch
 build fails for each different call.
 
 Each call on that list is a call of `IO.FS.removeFile` in Lake or in the tactic `bv_decide`.
-That function removes the one entry that the path names. It does not remove the target of a link
-and it does not read the entries of a directory. A removal of a directory in a library is not on
-the list.
+Each one removes one file that the library manages. A removal of a directory in a library is not
+on the list. Each entry rests on an assumption, and `libraryRemovals` gives it with a source line
+of the library. For example, Lake removes its stale compiled configuration in the workspace that
+it loads, as each `lake` command does.
+
+A declaration that `extern` binds to `lean_io_remove_file` or `lean_io_remove_dir` is also a
+removal function, whatever its name. The check finds such a declaration.
+
+The criterion of the check is honest code, as `SECURITY.md` defines it. Honest code in the site
+executable cannot reach a removal outside `Regula.Removal`, except the calls on the list.
+Deliberate circumvention by the authors of Regula is outside the check
+([issue 286](https://github.com/rbeauchamp/regula/issues/286)). An example is an `extern` binding
+to a different C function that removes. A different example is an observation that the tactic
+`constructor` makes with the private constructor.
 
 The loader of the dependencies of Lake can remove a directory. Thus the site executable loads
 only the root package of the workspace (`withRootPackage`). It refuses a root package that

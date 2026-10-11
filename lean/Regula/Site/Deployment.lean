@@ -33,9 +33,10 @@ These are observations at one time through `curl`, not proofs: GitHub, Pages, it
 network are external. Requests carry a per-attempt query string so that a cached copy is
 unlikely to satisfy the comparison; whether the CDN keys on it is not established.
 
-`verify` reads each fetched page from `curl`'s standard output (`fetch`), so it writes and
-removes no file. This program imports only Lean's core, so it cannot use the removal decision of
-the site executable (`Regula.Removal.removal`); with no removal it has nothing to decide.
+`verify` reads each fetched page from `curl`'s standard output, so it writes and removes no
+file, under the assumption that `fetch` states. This program imports only Lean's core, so it
+cannot use the removal decision of the site executable (`Regula.Removal.removal`); with no
+removal it has nothing to decide.
 -/
 
 namespace Regula.Site.Deployment
@@ -46,10 +47,13 @@ private def fail {α : Type} (message : String) : IO α := throw <|
 
 /-- Fetch `url`: return the HTTP status (0 when no response) and the bytes of the body. curl
 writes the body and then the three digits of the status to its standard output, which this
-process reads from a pipe, so no file is written or removed. -/
+process reads from a pipe. Assumes: with `--disable` as its first argument, curl reads no `.curlrc`
+(curl manual, `-q, --disable`: "If used as the first parameter on the command line, the curlrc
+config file is not read or used"), so no configuration file can make it write the body to a file;
+with the other arguments it writes no file. -/
 def fetch (url : String) : IO (Nat × ByteArray) := do
   let child ← IO.Process.spawn
-      { cmd := "curl", args := #["--silent", "--show-error", "--max-time", "60",
+      { cmd := "curl", args := #["--disable", "--silent", "--show-error", "--max-time", "60",
     "--write-out", "%{http_code}", url], stdin := .null, stdout := .piped, stderr := .inherit }
   let out ← child.stdout.readBinToEnd
   let _ ← child.wait

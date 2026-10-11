@@ -378,11 +378,11 @@ check. A clean build that rendered its release's edition, the release commit's b
 release is published, also writes that edition as the release asset. An unreleased build that
 previews a release not yet published, the release pull request's, writes no asset and says that
 its artifact is not publishable. A relative `out` is taken from the real path of the working
-directory (`Regula.Removal.absolute`); a link, `.` or `..` among its components stops the removal
-there. -/
+directory, and a link, `.` or `..` among its components stops the build before it makes or removes
+anything (`Regula.Removal.ownPath`). -/
 def build (evidencePaths : List FilePath) (out : FilePath) : IO Unit := do
   -- Invalidate an earlier artifact before any step can fail.
-  let out ← Regula.Removal.absolute out
+  let out ← Regula.Removal.ownPath out
   Regula.Removal.removeOwn .directory out
   let root ← rootDirectory
   let ident ← identity root
