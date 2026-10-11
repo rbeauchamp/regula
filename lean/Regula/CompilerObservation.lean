@@ -59,10 +59,14 @@ def legacyPresent (library : System.FilePath) : IO Bool := do
 `LEAN_SYSROOT`, which must be an absolute path. Throws when `LEAN_SYSROOT` is unset or relative;
 no `lean` is run to find the directory, so no program that `PATH` resolves takes part.
 Assumes: Lake sets `LEAN_SYSROOT` for each program it starts (`lake exe`, `lake env`, `lake lint`)
-to the installation it detected (`Lake.Env.baseVars`, `Lake/Config/Env.lean:302` of Lean v4.34.1),
-which for a toolchain `lake` beside its `lean` is the parent of the directory of the running `lake`
-(`Lake.findLakeLeanJointHome?`, `Lake/Config/InstallPath.lean:334`), an absolute path. The
-filesystem's resolution of that path is trusted. -/
+to the installation it detected (`Lake.Env.baseVars`, `Lake/Config/Env.lean:302` of Lean v4.34.1).
+For a toolchain `lake` beside its `lean`, without `LAKE_OVERRIDE_LEAN` set to true, that is the
+parent of the directory of the running `lake` (`Lake.findLakeLeanJointHome?`,
+`Lake/Config/InstallPath.lean:334`), an absolute path. With that override, Lake detects the
+installation instead from the inherited `LEAN_SYSROOT`, or else from the `lean` that `LEAN` or
+`PATH` names (`Lake.findInstall?` and `Lake.findLeanInstall?`, `InstallPath.lean:371`); that
+choice is the caller's, and `identifiedRoot` refuses one whose `lean` is another compiler. The
+filesystem's resolution of the path is trusted. -/
 def toolchainRoot : IO System.FilePath := do
   let some root ← IO.getEnv "LEAN_SYSROOT"
     | throw <| IO.userError "the Lean toolchain is unknown: LEAN_SYSROOT is unset; run this \

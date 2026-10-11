@@ -2,6 +2,7 @@ import Regula.Checker.Admission
 import Regula.Checker.Lake
 import Regula.Collect
 import Regula.Linter.Documentation
+import Regula.Qualification.ProcessStarts
 import RegulaPolicy.Operational
 
 /-! # Checker library self-audit
@@ -57,6 +58,9 @@ structure ModuleObservation where
   material : Array (Name × Option MaterialDocumentationFailure)
   /-- The finding texts of the comparison rule for the module (`jsonFindings`). -/
   jsonFindings : Array String
+  /-- The constants of the module's own data that start a process or find a toolchain program
+  through `PATH` directly (`ProcessStarts.references`). -/
+  starts : Array ProcessStarts.Start
 
 /-- Whether `owner`'s artifact is the pinned toolchain's own `Lake` module. -/
 private def toolchainLakeModule (toolchainLib : FilePath) (owner : Name) : IO Bool := do
@@ -254,9 +258,10 @@ private unsafe def observe (toolchainLib : FilePath) (moduleName : Name) (source
     if Linter.Documentation.selected env name then
       material := material.push (name, ← Linter.Documentation.declarationFailure env name)
   let found := jsonFindings moduleName own
+  let starts := ProcessStarts.references env (own.map (·.1))
   return .ok {
     «module» := moduleName, declarations, admitted, toolchain, header, material,
-    jsonFindings := found }
+    jsonFindings := found, starts }
 
 /-- Text of one violation finding at the declaration's module. -/
 private def declarationText (id : RuleId) (name : Name) (detail : String) (moduleName : Name) :
@@ -309,6 +314,9 @@ structure ModuleResult where
   /-- Each declaration of the module for which Lean's `collectAxioms` omits axioms it reaches in
   the replayed kernel, reported rather than failed. -/
   tableOmissions : Array OmissionReport
+  /-- The constants of the module that start a process or find a toolchain program through `PATH`
+  directly (`ModuleObservation.starts`), decided by the parent (`ProcessStarts.violations`). -/
+  starts : Array ProcessStarts.Start
   deriving ToJson, FromJson
 
 /-- Decide one module's observations with the axioms its own environment attributes to the
@@ -359,7 +367,7 @@ private def decide (o : ModuleObservation) : Except String ModuleResult := do
   return ⟨o.module.toString, o.declarations.size, o.admitted, contracts, violations,
       unsafeDeclarations,
     partialDefinitions,
-    toolchain.names.map toString, dependents, omissions⟩
+    toolchain.names.map toString, dependents, omissions, o.starts⟩
 
 /-- The omission reports of all module results, each kept: no report is merged with another,
 so two modules that declare one name keep a report each. Each module has one result, and a
@@ -390,6 +398,24 @@ unsafe def jsonWorker (moduleName : String) : IO Unit := do
     jsonFindings moduleName.toName (Regula.Probe.ownedConstants env [moduleName.toName])
   IO.println (toJson found).compress
 
+/-- Worker: import `modules` together and print, as JSON, the constants of their own data that
+start a process or find a toolchain program through `PATH` directly (`ProcessStarts.references`).
+The parent gives it the modules of one root library, or one executable root that no library
+holds; none of those defines a second `main`. -/
+unsafe def startsWorker (modules : List String) : IO Unit := do
+  Checker.initializeLeanSearchPath
+  Lean.enableInitializersExecution
+  let names := modules.map (·.toName)
+  let env ← importModules (names.map ({ module := ·, importAll := true })).toArray {} 0
+    (loadExts := true) (level := .private)
+  let own := Regula.Probe.ownedConstants env names
+  IO.println (toJson (ProcessStarts.references env (own.map (·.1)))).compress
+
+/-- The root libraries whose modules the process-start check does not import: `Fixtures` holds
+isolated controls and mutations, many of which deliberately fail to build, and no program runs
+them. -/
+def startsExcluded : List String := ["Fixtures"]
+
 /-- Run the campaign: one fresh worker process per Lake-discovered module of the library.
 Any violation or incomplete module refuses after the full report. -/
 def check (jobs : Nat := 4) : IO Unit := do
@@ -419,7 +445,7 @@ def check (jobs : Nat := 4) : IO Unit := do
   let inLibrary (m : Name) : Bool := inventory.libraries.any (·.modules.contains m)
   let roots := (inventory.executables.map (·.root)).filter (!inLibrary ·)
   let guarded := others.flatMap (·.modules) ++ roots
-  let build ← Checker.runProcess repo "lake"
+  let build ← Checker.runLake repo
     (#["build"] ++ others.map (·.library) ++ roots.map (s!"+{·}"))
   if build.exitCode != 0 then
     throw <| IO.userError s!"self-audit: lake build of the guarded modules failed: \
@@ -434,15 +460,44 @@ def check (jobs : Nat := 4) : IO Unit := do
     | .ok found => return .ok found
     | .error e => return .error s!"{moduleName}: unreadable worker result: {e}"
   let results := outcomes.filterMap fun | .ok r => some r | .error _ => none
+  -- The process-start check also reads every other root library but `startsExcluded`, each in one
+  -- worker, and each executable root that no library holds.
+  let libraries := inventory.libraries.filter fun l =>
+    l.library != library && !startsExcluded.contains l.library
+  let rootExecutables := inventory.executables.filter fun e =>
+    !inventory.libraries.any (·.modules.contains e.root)
+  let groups := libraries.map (fun l => (l.library, l.modules)) ++
+    rootExecutables.map fun e => (s!"executable {e.executable}", #[e.root])
+  let grouped ← Checker.mapWorkQueue jobs groups fun (label, modules) =>
+    show IO (Except String (Array Name × Array ProcessStarts.Start)) from do
+    let result ← Checker.runProcess repo self
+      (#["--under-deadline", "self-audit-starts"] ++ modules.map toString)
+    if result.exitCode != 0 then
+      return .error s!"{label}: worker exit {result.exitCode}: {result.stderr.trimAscii}"
+    match Json.parse result.stdout >>= fromJson? (α := Array ProcessStarts.Start) with
+    | .ok starts => return .ok (modules, starts)
+    | .error e => return .error s!"{label}: unreadable worker result: {e}"
+  let groupedModules : List Name := grouped.toList.flatMap fun
+    | .ok (modules, _) => modules.toList
+    | .error _ => []
+  let audited := results.toList.map (fun (r : ModuleResult) => r.module) ++
+    groupedModules.map toString
+  let starts := results.flatMap (fun (r : ModuleResult) => r.starts) ++
+    grouped.flatMap fun
+      | .ok (_, starts) => starts
+      | .error _ => #[]
+  let processFindings := ProcessStarts.violations starts audited
   let incomplete := outcomes.filterMap fun | .ok _ => none | .error e => some e
   let incomplete := incomplete ++ jsonOutcomes.filterMap fun | .ok _ => none | .error e => some e
   let incomplete := incomplete ++ jsonControls.filterMap fun (label, passed) =>
     if passed then none else some s!"Json comparison control failed: {label}"
+  let incomplete := incomplete ++ grouped.filterMap fun | .ok _ => none | .error e => some e
   let union (field : ModuleResult → Array String) : Array String :=
     (results.foldl (fun acc r => (field r).foldl
       (fun acc n => if acc.contains n then acc else acc.push n) acc) #[]).qsort (· < ·)
   let violations := results.flatMap (·.violations) ++
-    (jsonOutcomes.filterMap fun | .ok found => some found | .error _ => none).flatMap id
+    (jsonOutcomes.filterMap fun | .ok found => some found | .error _ => none).flatMap id ++
+    processFindings
   for line in violations do IO.println line
   for line in incomplete do IO.println s!"INCOMPLETE {line}"
   let declarations := results.foldl (· + ·.declarations) 0
@@ -459,6 +514,10 @@ def check (jobs : Nat := 4) : IO Unit := do
     other libraries but Fixtures and of executable roots {roots.toList} inspected, \
     {jsonComparisonAllowlist.size} allowlisted declaration(s), \
     {(jsonControls.filter (·.2)).length}/{jsonControls.length} control(s) as intended"
+  IO.println s!"process starts: {starts.size} declaration(s) of {audited.length} module(s) of \
+    the root libraries but {startsExcluded} and of the executable roots no library holds start a \
+    process directly, each one an entry of ProcessStarts.allowed unless a finding above says \
+    otherwise; a start through another library function is not seen"
   IO.println s!"reported, not failed: {unsafeDeclarations.size} unsafe \
     declaration(s): {unsafeDeclarations.toList}"
   IO.println s!"reported, not failed: {partialDefinitions.size} partial \
@@ -474,7 +533,7 @@ def check (jobs : Nat := 4) : IO Unit := do
     (the library's executables make no execution claim)"
   unless violations.isEmpty && incomplete.isEmpty do
     throw <| IO.userError s!"operational self-audit: FAIL ({violations.size} \
-      violation(s), {incomplete.size} incomplete module(s))"
+      violation(s), {incomplete.size} incomplete module(s) or group(s))"
   IO.println "operational self-audit: PASS (operational claim only; not a conforming proof surface)"
 
 end Regula.Qualification.SelfAudit

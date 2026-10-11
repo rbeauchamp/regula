@@ -332,7 +332,24 @@ structure Ran where
   /-- The process's standard error. -/
   stderr : String
 
+/-- The programs of the Lean toolchain that provisioning starts only by their paths beside the
+running `lean` (`toolchain`), as `Regula.Toolchain.programNames` names the toolchain's programs. -/
+def toolchainNames : List String :=
+  ["cadical", "clang", "lake", "ld.lld", "ld64.lld", "lean", "leanc", "leanchecker", "leanir",
+    "leanmake", "leantar", "llvm-ar"]
+
+/-- Throws when `cmd`, ignoring the case of ASCII letters and the platform's executable suffix,
+is a name of `toolchainNames`, which `PATH` would resolve. -/
+private def refuseBareName (cmd : String) : IO Unit := do
+  let name := cmd.toLower
+  let suffix := if FilePath.exeExtension.isEmpty then "" else "." ++ FilePath.exeExtension
+  if toolchainNames.any fun program =>
+      name == program || (!suffix.isEmpty && name == program ++ suffix) then
+    throw <| IO.userError s!"provisioning: the toolchain's {cmd} runs by its path (`toolchain`), \
+      not by a bare name that PATH resolves"
+
 private def run (cwd : FilePath) (cmd : String) (args : Array String) : IO Ran := do
+  refuseBareName cmd
   let out ← IO.Process.output {
     cmd, args, cwd := some cwd, env := #[("GHCR_TOKEN", none)], stdin := .null }
   return ⟨out.exitCode, out.stdout, out.stderr⟩
@@ -347,6 +364,7 @@ private def require (cwd : FilePath) (cmd : String) (args : Array String) : IO S
 /-- Run with inherited output, for long steps whose progress the user should see. -/
 private def stream (cwd : FilePath) (cmd : String) (args : Array String)
     (env : Array (String × Option String) := #[]) : IO Unit := do
+  refuseBareName cmd
   let child ← IO.Process.spawn {
     cmd, args, env := env.push ("GHCR_TOKEN", none), cwd := some cwd,
     stdin := .null, stdout := .inherit, stderr := .inherit }
@@ -362,6 +380,21 @@ private def say (line : String) : IO Unit := IO.println s!"provisioning: {line}"
 (`IO.appDir`), never one that `PATH` resolves first. -/
 private def toolchain (name : String) : IO String :=
   return ((← IO.appDir) / name).toString
+
+/-- The environment variables through which Lake chooses a program for the builds it runs
+(`LeanInstall.get`, `Lake/Config/InstallPath.lean:272` of Lean v4.34.1), as
+`Regula.Toolchain.programOverrides` lists them. Lake runs the value of each as it is. -/
+def programOverrides : List String := ["LEAN_AR", "AR", "LEAN_CC", "CC"]
+
+/-- Throws when a variable of `programOverrides` is set, in this program's environment, which the
+builds it starts inherit, to a path that is not absolute, so `PATH` could resolve it. -/
+def refuseRelativeOverrides : IO Unit := do
+  for name in programOverrides do
+    if let some value ← IO.getEnv name then
+      unless (FilePath.mk value).isAbsolute do
+        throw <| IO.userError s!"provisioning: the toolchain program override \
+          {name}={value} is not an absolute path, so PATH could resolve it; unset it or give \
+          an absolute path"
 
 private def nonce : IO String := do
   let bytes ← IO.getRandomBytes 8
@@ -873,6 +906,7 @@ def main (args : List String) : IO Unit := do
   let repo ← IO.FS.realPath (← IO.currentDir)
   unless ← (repo / "lakefile.lean").pathExists do
     throw <| IO.userError "provisioning: run from the repository root"
+  RegulaProvision.refuseRelativeOverrides
   RegulaProvision.requireReleasedSetup repo
   match args with
   | [] =>

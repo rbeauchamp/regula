@@ -329,7 +329,8 @@ def commands (copy pending : String) : Mode → List Command
   -- its default path would only add the rebuild that made the old step exceed its limit.
   | .selfLintDefault => [lake #["lint"]]
   | .selfAudit => [
-      lake #["build", "Regula", "qualify"],
+      lake #["build", "Regula", "qualify", "RegulaCore", "RegulaPolicy", "RegulaQualification",
+        "RegulaVerification", "RegulaProvision", "AuditApp", "+Main"],
       lake #["exe", "qualify", "--under-deadline", "self-audit"]]
   | .ruleExamples => [
       lake #["build", "axiomGate", "ruleExamples", "ruleExampleQualification", "qualify"],
@@ -575,6 +576,94 @@ def toolchainPrograms : List String := ["lake", "lean"]
 def toolchainPath (bin : System.FilePath) (program : String) : String :=
   if toolchainPrograms.contains program then (bin / program).toString else program
 
+/-- The environment variables through which Lake chooses a program for the builds it runs
+(`LeanInstall.get`, `Lake/Config/InstallPath.lean:272` of Lean v4.34.1), as
+`Regula.Toolchain.programOverrides` lists them. Lake runs the value of each as it is. -/
+def programOverrides : List String := ["LEAN_AR", "AR", "LEAN_CC", "CC"]
+
+/-- Throws when a variable of `programOverrides` is set, in this driver's environment, which the
+commands it starts inherit, to a path that is not absolute, so `PATH` could resolve it. -/
+def refuseRelativeOverrides : IO Unit := do
+  for name in programOverrides do
+    if let some value ← IO.getEnv name then
+      unless (System.FilePath.mk value).isAbsolute do
+        throw <| IO.userError s!"the toolchain program override {name}={value} is not an \
+          absolute path, so PATH could resolve it; unset it or give an absolute path"
+
+/-- The programs of the Lean toolchain that a script of this repository starts only by a path
+(`bareWords`). -/
+def scriptToolchainNames : List String := ["lake", "lean", "leanchecker"]
+
+/-- The words of one line of shell source that could name a program: the text before a `#` that
+starts a word, without parameter expansions (`$name` and `${…}`), split at blanks, quotes and the
+characters `;|&()<>`. A lexical over-approximation of the line's command words, not a parse of
+the shell's grammar: a name assembled by quoting, escapes or expansion is not seen. -/
+def shellWords (line : String) : Array String := Id.run do
+  let mut words := #[]
+  let mut word := ""
+  let mut brace := false
+  let mut name := false
+  let mut dollar := false
+  for c in line.toList do
+    if brace then
+      if c == '}' then brace := false
+      continue
+    if dollar then
+      dollar := false
+      if c == '{' then
+        brace := true
+        continue
+      if c.isAlpha || c == '_' then
+        name := true
+        continue
+      word := word.push '$'
+    if name then
+      if c.isAlphanum || c == '_' then continue
+      name := false
+    if c == '$' then
+      dollar := true
+      continue
+    if c == '#' && word.isEmpty then break
+    if " \t\"'`;|&()<>".contains c then
+      unless word.isEmpty do words := words.push word
+      word := ""
+    else word := word.push c
+  unless word.isEmpty do words := words.push word
+  return words
+
+/-- Each line of the shell source `text`, numbered from 1, with a word of it (`shellWords`) that is
+a name of `scriptToolchainNames`, ignoring the case of ASCII letters. -/
+def bareWords (text : String) : List (Nat × String) :=
+  ((text.splitOn "\n").zipIdx 1).flatMap fun (line, number) =>
+    ((shellWords line).toList.filter (scriptToolchainNames.contains ·.toLower)).map (number, ·)
+
+/-- Throws when a file of the repository's `scripts` directory holds a word that names a toolchain
+program (`bareWords`), which `PATH` would resolve, Lake putting a workspace's binary directories
+first. -/
+def refuseBareScriptWords : IO Unit := do
+  for entry in ← System.FilePath.readDir "scripts" do
+    let found := bareWords (← IO.FS.readFile entry.path)
+    unless found.isEmpty do
+      throw <| IO.userError s!"{entry.path} starts a toolchain program by a bare name that PATH \
+        resolves, at {found.map fun (line, word) => s!"line {line} ({word})"}; run the `lean` \
+        that the script resolves by its path instead"
+
+/-- Throws unless the `lean` that runs this driver (`IO.appPath`) is the compiler this revision
+pins. That `lean`, run by its path, elaborates the compiler guard source `RegulaPolicy.Compiler`,
+embedded in this driver and given on its standard input, which refuses any other version or commit
+and prints the identity of the Lean elaborating it; that identity must be this driver's own. A
+program that prints it is taken to be that compiler. -/
+def requireCompiler : IO Unit := do
+  let out ← IO.Process.output {
+    cmd := (← IO.appPath).toString, args := #["--stdin"]
+    env := #[("REGULA_COMPILER_GUARD", some "1"), ("LEAN_PATH", none), ("LEAN_SRC_PATH", none),
+      ("GHCR_TOKEN", none)] }
+    (some (include_str "RegulaPolicy/Compiler.lean"))
+  unless out.exitCode == 0 &&
+      out.stdout.replace "\r" "" == s!"{Lean.versionString}\n{Lean.githash}\n" do
+    throw <| IO.userError s!"verification: the `lean` that runs this driver is not the compiler \
+      this revision pins:\n{out.stdout}{out.stderr}"
+
 /-- `command` with each toolchain program it starts by its path in the binary directory `bin`
 (`toolchainPath`): its own program, and, when that is `lake` and its arguments start with `env`,
 the program that `lake env` starts. -/
@@ -591,19 +680,23 @@ Lake's artifact cache is off for each package whose own configuration does not t
 builds are not the checker's: the gate's own build of the claimed surface uses no artifact cache
 whatever the configuration says (`Regula.Checker.Lake.Build.run`). Its toolchain programs run from
 the directory of the `lean` that runs this driver (`IO.appDir`, `Command.resolve`), the toolchain
-the repository selects. An inherited `REGULA_ORDINARY_LAKEFILES` is removed, so only a command that
-gives it (`ownerAssertion`) runs with the owner's assertion; each variable of the command's `env`
-is set last. Process execution and signal delivery remain trusted. -/
+the repository selects. `ELAN_TOOLCHAIN` is the repository's `lean-toolchain`, as the Elan proxy
+that started a `lean` by its bare name gave it, so Lake names that toolchain where it writes one
+(`lake new`). An inherited `REGULA_ORDINARY_LAKEFILES` is removed, so only a command that gives it
+(`ownerAssertion`) runs with the owner's assertion; each variable of the command's `env` is set
+last. Process execution and signal delivery remain trusted. -/
 def start (priority : Priority) (command : Command) :
     BaseIO (Option (IO.Process.Child stdio)) := do
   announce s!"start {priority.display}{command.display}"
   let spawn : IO (IO.Process.Child stdio) := do
     let (program, args) := (command.resolve (← IO.appDir)).launch priority
+    let toolchain := (← IO.FS.readFile "lean-toolchain").trimAscii.toString
     IO.Process.spawn {
       stdio with
       cmd := program, args := args, cwd := some command.dir,
       env := #[("GHCR_TOKEN", none), ("LEAN_PATH", none), ("LEAN_SRC_PATH", none),
-        ("LAKE_ARTIFACT_CACHE", some "false"), ("REGULA_ORDINARY_LAKEFILES", none)] ++
+        ("LAKE_ARTIFACT_CACHE", some "false"), ("ELAN_TOOLCHAIN", some toolchain),
+        ("REGULA_ORDINARY_LAKEFILES", none)] ++
         command.env.map fun (name, value) => (name, some value) }
   match ← spawn.toBaseIO with
   | .ok child => return some child
@@ -1067,13 +1160,17 @@ preliminary checks and the mode's `prebuild`, it schedules every command of the 
 one it started, and reports success only when `passed` accepts how every one of those commands
 and of the prebuilds ended (`passed_covers`). The first acceptance step promotes the pending
 record of its own gate to the accepted link only then, before the removal of its copy and before
-the success line. It refuses a surface manifest that claims a target its prebuild does not build
-(`prebuildCovers`), makes its copy after the preliminary checks (`makeCopy`), runs its prebuild
-and its commands for that copy (`ordinary_places`), gives the copy's build output to a project
-that has none when the step passed (`Copy.adopt`), and removes the copy in each case
+the success line. Before anything else it refuses a toolchain program override that is not an
+absolute path (`refuseRelativeOverrides`) and a script that names a toolchain program bare
+(`refuseBareScriptWords`). It refuses a surface manifest that claims a target its prebuild does
+not build (`prebuildCovers`), makes its copy after the preliminary checks (`makeCopy`), runs its
+prebuild and its commands for that copy (`ordinary_places`), gives the copy's build output to a
+project that has none when the step passed (`Copy.adopt`), and removes the copy in each case
 (`Copy.remove`). -/
 def run (args : List String) : IO Unit := do
   let some selection := select args | throw <| IO.userError usage
+  refuseRelativeOverrides
+  refuseBareScriptWords
   if selection.val == .ordinary then
     let manifest ← IO.ofExcept (Lean.Json.parse (← IO.FS.readFile "lake-manifest.json"))
     unless dependencyFree manifest do
@@ -1159,8 +1256,13 @@ end RegulaVerification
 
 /-- Standalone cold-start entrypoint; invoke through the timed `scripts/verify.sh`, which
 first runs it with the private `--begin-attempt` protocol flag before setup. The private
-`--copy-control` entry is for the controls of the checker self-test. -/
+`--copy-control` entry is for the controls of the checker self-test. Every entry but that one first
+refuses a `lean` that is not the pinned compiler (`RegulaVerification.requireCompiler`). -/
 def main : List String → IO Unit
-  | "--begin-attempt" :: args => RegulaVerification.beginAttempt args
+  | "--begin-attempt" :: args => do
+    RegulaVerification.requireCompiler
+    RegulaVerification.beginAttempt args
   | ["--copy-control"] => RegulaVerification.copyControl
-  | args => RegulaVerification.run args
+  | args => do
+    RegulaVerification.requireCompiler
+    RegulaVerification.run args

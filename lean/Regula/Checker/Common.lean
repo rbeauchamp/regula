@@ -63,9 +63,10 @@ def scrubbedLeanPathEnv : Array (String × Option String) :=
   #[("LEAN_PATH", none), ("LEAN_SRC_PATH", none)]
 
 /-- Run `cmd` with `args` in directory `repo`, with the environment changes `env`, wait for it
-to finish and return its exit code and captured output. Throws without starting it when `cmd` is
-a toolchain program's bare name, or when `cmd` is a `lake` and any argument is one
-(`Regula.Toolchain.refuseBareName`, `Regula.Toolchain.bareName?_eq_none_iff`). -/
+to finish and return its exit code and captured output. Throws without starting it when `cmd`
+spells a toolchain program's name (`Regula.Toolchain.spellsProgram`), or when `cmd` is a `lake`
+and any argument spells one (`Regula.Toolchain.refuseBareName`,
+`Regula.Toolchain.bareName?_eq_none_iff`). -/
 def runProcess (repo : FilePath) (cmd : String) (args : Array String)
     (env : Array (String × Option String) := #[]) : IO ProcessResult := do
   Regula.Toolchain.refuseBareName cmd args
@@ -76,9 +77,12 @@ def runProcess (repo : FilePath) (cmd : String) (args : Array String)
 def toolchainProgram (name : String) : IO String :=
   return (← Regula.Toolchain.program name).toString
 
-/-- `runProcess` of the toolchain's `lake` (`toolchainProgram`) in directory `dir`. -/
+/-- `runProcess` of the toolchain's `lake` (`toolchainProgram`) in directory `dir`. Throws without
+starting it when the child would see a toolchain program override that is not an absolute path
+(`Regula.Toolchain.refuseRelativeOverrides`). -/
 def runLake (dir : FilePath) (args : Array String) (env : Array (String × Option String) := #[]) :
     IO ProcessResult := do
+  Regula.Toolchain.refuseRelativeOverrides env
   runProcess dir (← toolchainProgram "lake") args env
 
 /-- The environment variable that turns timing output on in a checker process: `1` on, otherwise
@@ -119,8 +123,8 @@ def showingStream (target : IO.FS.Stream) (display : String → Bool) : IO IO.FS
 
 /-- `runProcess`, also printing to standard output each line of the child's standard output that
 `display` selects (with its newline), as the child writes it. The captured output is the
-child's complete output. Like `runProcess`, it throws without starting it when `cmd` is a toolchain
-program's bare name, or when `cmd` is a `lake` and any argument is one. -/
+child's complete output. Like `runProcess`, it throws without starting it when `cmd` spells a
+toolchain program's name, or when `cmd` is a `lake` and any argument spells one. -/
 def runProcessShowing (repo : FilePath) (cmd : String) (args : Array String)
     (env : Array (String × Option String)) (display : String → Bool) : IO ProcessResult := do
   Regula.Toolchain.refuseBareName cmd args

@@ -3952,9 +3952,9 @@ root's; the skill files are read and written at that repository root (the Lake r
 repository).
 
 Regula's `lakefile.lean` executes the core-only source `RegulaPolicy.Compiler` when its
-configuration is elaborated, in a child `lean` that `LEAN_SYSROOT` or `PATH` selects. The
-source guard compares that child's version and full commit with the revision's declared
-identity and then prints them; the lakefile passes only when the child succeeds and the
+configuration is elaborated, in a child `lean`: that of `LEAN_SYSROOT`, else the one
+beside Lake. The source guard compares that child's version and full commit with the
+revision's declared identity and then prints them; the lakefile passes only when the child succeeds and the
 printed pair is the `Lean.versionString` and `Lean.githash` of the Lean elaborating the
 lakefile, so a child that is another compiler, fails or cannot be run is refused, with the
 adopter's remedy. That comparison is an elaboration-time check, not a theorem. The compiled
