@@ -4506,7 +4506,7 @@ claimed-surface `.olean` that a control of these two partitions read from the re
 without the baseline naming it would be absent on a clean checkout and fail that control there;
 on a warm local build it is not detected. `scripts/verify.sh` builds the self-test, `axiomGate`
 and, for a structural or lint-driver selection, the other targets its baseline names
-(none for the first shard) in one Lake invocation
+(none for the first structural shard) in one Lake invocation
 (`RegulaVerification.commands`), so the gate's own modules compile beside the self-test's last
 ones instead of after its link; that command selects nothing, and the baseline build still
 names and builds its targets. The frozen-artifact, cross-surface decision, library cycle, driver
