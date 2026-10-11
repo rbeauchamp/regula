@@ -1546,8 +1546,9 @@ def guide : RuleId → Guide
         and `ofAttempt_error`: a comparison is incomplete, and so unresolved, exactly when the \
         kernel stopped before it decided or the attempt raised an error. Root discovery, the \
         kernel's answer and reading each record from the environment and compiler IR are \
-        operational, and no theorem states that `RegulaPolicy.ExecutionWalk.assemble` builds the \
-        correct account from the visits."
+        operational. `RegulaPolicy.ExecutionWalk.assemble_account` states that `assemble` builds \
+        the account that the visits and their records give (`AccountOf`). The converse for the \
+        unresolved paths, no extra entry and no false cycle message, is not proved."
       sources :=
           ["lean/Regula/Probe.lean", "lean/RegulaPolicy/ExecutionWalk.lean",
               "lean/RegulaPolicy/StackWalk.lean", "lean/RegulaCore/Policy.lean",
@@ -1647,8 +1648,10 @@ def guide : RuleId → Guide
         the answer, also after an admission, leaves it unresolved. \
         `RegulaPolicy.ExecutionWalk.checked_walk` decides the walk over the records of the probe. \
         Root discovery, the kernel's answer, reading each record from compiler IR and observing \
-        module origins are operational, and no theorem states that \
-        `RegulaPolicy.ExecutionWalk.assemble` builds the correct account from the visits."
+        module origins are operational. `RegulaPolicy.ExecutionWalk.assemble_account` states that \
+        `assemble` builds the account that the visits and their records give (`AccountOf`). The \
+        converse for the unresolved paths, no extra entry and no false cycle message, is not \
+        proved."
       sources :=
           ["lean/Regula/Probe.lean", "lean/RegulaPolicy/ExecutionWalk.lean",
               "lean/RegulaPolicy/StackWalk.lean", "lean/RegulaCore/Policy.lean",

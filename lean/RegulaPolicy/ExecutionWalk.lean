@@ -25,6 +25,11 @@ edges reach from the root (`Reach`), and `walk_nodup` that each name is visited 
 name about `StackWalk.walk`, through `reach_iff` and `bounds`. `checked_walk` registers the kind
 `Regula.Decides`: a walk returns visits exactly when each name that the recorded edges reach
 has a record.
+
+`AccountOf` states the account of a root as a relation over the records and the visits, with no
+function of `assemble`: the nodes, the visits, the edge channels, the required and the unavailable
+code, the unresolved paths and the boundaries. `assemble_account` states that `assemble` builds
+that account for each walk that returned its visits.
 -/
 
 namespace RegulaPolicy.ExecutionWalk
@@ -393,5 +398,635 @@ def assemble (rootCompiled : Bool) (walked : Walked) :
     unavailableCode := RegulaPolicy.canonicalNames unavailableCode
   }
   return (boundaries, unresolved, RegulaPolicy.canonicalEdges compilerEdges, closure)
+
+/-! ## What the account of a root is
+
+The account is stated here as a relation over the records of the request and the visits of the
+walk, with no function of `assemble`. Each name and edge set is in its canonical form, as admission
+requires (`ExecutionClosure.Valid`), and holds exactly the names or the edges that the visits and
+their records give. The visits and the boundaries are exactly those of the walk and of the visited
+records, in their order. The unresolved paths hold the paths of the visited records, with no
+statement about other entries. -/
+
+/-- `name` is the name of a visit. -/
+def Visited (visits : Array (Name × Option Nat)) (name : Name) : Prop :=
+  ∃ visit ∈ visits, visit.1 = name
+
+/-- `edge` starts at a visited name, and the record of that name lists its end among `targets`. -/
+def VisitedEdge (records : Records) (visits : Array (Name × Option Nat))
+    (targets : {name : Name} → NodeRecord name → Array Name) (edge : Name × Name) : Prop :=
+  Visited visits edge.1 ∧
+    ∃ record : NodeRecord edge.1, records.get? edge.1 = some record ∧ edge.2 ∈ targets record
+
+/-- An edge set of the account: in canonical form, and exactly the visited edges to `targets`. -/
+def ChannelOf (records : Records) (visits : Array (Name × Option Nat))
+    (targets : {name : Name} → NodeRecord name → Array Name) (edges : Array (Name × Name)) :
+    Prop :=
+  RegulaPolicy.canonicalEdges edges = edges ∧
+    ∀ edge, edge ∈ edges ↔ VisitedEdge records visits targets edge
+
+/-- A name that requires retained code: the root, when the root requires it, and each name that
+the retained compiler body of a visited name calls. -/
+def Required (request : WalkRequest) (visits : Array (Name × Option Nat)) (rootCompiled : Bool)
+    (name : Name) : Prop :=
+  (rootCompiled = true ∧ name = request.root) ∨
+    ∃ caller, VisitedEdge request.records visits (·.compilerDependencies) (caller, name)
+
+/-- A name with available code: its record has a compiled function body or an `extern` body. -/
+def Available (records : Records) (name : Name) : Prop :=
+  ∃ record : NodeRecord name, records.get? name = some record ∧
+    (record.code = .function ∨ record.code = .externBody)
+
+/-- The visited replacement edges have a cycle: some names, at least one, each with a visited
+replacement edge to one of them. -/
+def ReplacementCycle (records : Records) (visits : Array (Name × Option Nat)) : Prop :=
+  ∃ names : List Name, names ≠ [] ∧
+    ∀ name ∈ names, ∃ next ∈ names, VisitedEdge records visits (·.replacementTargets) (name, next)
+
+/-- The boundaries of the visited records, in the order of the visits. -/
+def visitedBoundaries (records : Records) (visits : Array (Name × Option Nat)) :
+    List RegulaPolicy.ExecutionBoundary :=
+  visits.toList.flatMap fun visit =>
+    match records.get? visit.1 with
+    | some record => record.boundaries.toList
+    | none => []
+
+/-- **The account of a root.** `account` is the boundaries, the unresolved paths, the compiler
+edges and the closure that the visits of a walk and their records give:
+
+- The nodes are canonical and are the visited names. The closure's visits are the walk's visits in
+  their order, each with the module of its record and the position of its parent.
+- Each edge channel and the compiler edges are canonical and are the edges from a visited name
+  to a target of that channel in its record.
+- The required code is canonical: the root when `rootCompiled`, and each name that a visited
+  record's compiler body calls. The unavailable code is canonical: the required names with no
+  record that has a function body or an `extern` body.
+- The unresolved paths hold each path of each visited record. They are not empty when code is
+  unavailable or when the visited replacement edges have a cycle.
+- The boundaries are the boundaries of the visited records in the order of the visits. Each has
+  its index as its occurrence, and the callers of its name in the compiler edges as its callers. -/
+def AccountOf (request : WalkRequest) (visits : Array (Name × Option Nat)) (rootCompiled : Bool)
+    (account : Array RegulaPolicy.ExecutionBoundary × Array String × Array (Name × Name) ×
+      RegulaPolicy.ExecutionClosure) : Prop :=
+  let boundaries := account.1
+  let unresolved := account.2.1
+  let compilerEdges := account.2.2.1
+  let closure := account.2.2.2
+  let records := request.records
+  -- The nodes and the visits.
+  (RegulaPolicy.canonicalNames closure.nodes = closure.nodes ∧
+    ∀ name, name ∈ closure.nodes ↔ Visited visits name) ∧
+  (closure.visits.size = visits.size ∧ ∀ (index : Nat) (inVisits : index < visits.size)
+      (inClosure : index < closure.visits.size),
+    closure.visits[index].name = visits[index].1 ∧ closure.visits[index].parent = visits[index].2 ∧
+      ∀ record : NodeRecord visits[index].1, records.get? visits[index].1 = some record →
+        closure.visits[index].moduleName = record.moduleName) ∧
+  -- The edges.
+  ChannelOf records visits (·.compilerDependencies) compilerEdges ∧
+  ChannelOf records visits (·.logicalTargets) closure.logicalEdges ∧
+  ChannelOf records visits (·.candidateTargets) closure.candidateEdges ∧
+  ChannelOf records visits (·.historyTargets) closure.historyEdges ∧
+  ChannelOf records visits (·.currentReplacementTargets) closure.currentReplacementEdges ∧
+  ChannelOf records visits (·.activeSimplificationTargets) closure.activeSimplificationEdges ∧
+  ChannelOf records visits (·.helperTargets) closure.helperEdges ∧
+  -- The code.
+  (RegulaPolicy.canonicalNames closure.requiredCode = closure.requiredCode ∧
+    ∀ name, name ∈ closure.requiredCode ↔ Required request visits rootCompiled name) ∧
+  (RegulaPolicy.canonicalNames closure.unavailableCode = closure.unavailableCode ∧
+    ∀ name, name ∈ closure.unavailableCode ↔
+      Required request visits rootCompiled name ∧ ¬ Available records name) ∧
+  -- The unresolved paths.
+  (∀ name (record : NodeRecord name), Visited visits name → records.get? name = some record →
+    ∀ path ∈ record.unresolved, path ∈ unresolved) ∧
+  (closure.unavailableCode ≠ #[] → unresolved ≠ #[]) ∧
+  (ReplacementCycle records visits → unresolved ≠ #[]) ∧
+  -- The boundaries.
+  boundaries.size = (visitedBoundaries records visits).length ∧
+  ∀ (index : Nat) (inBoundaries : index < boundaries.size)
+    (inVisited : index < (visitedBoundaries records visits).length),
+    boundaries[index].occurrence = index ∧
+    { boundaries[index] with occurrence := 0, compilerCallers := #[] } =
+      { (visitedBoundaries records visits)[index] with occurrence := 0, compilerCallers := #[] } ∧
+    ∀ caller, caller ∈ boundaries[index].compilerCallers ↔
+      VisitedEdge records visits (·.compilerDependencies) (caller, boundaries[index].name)
+
+/-! ## `assemble` gives the account -/
+
+/-- The visits of a walk, each with its record. -/
+private def reachedOf (walked : Walked) :
+    Array ((visit : Name × Option Nat) × NodeRecord visit.1) :=
+  walked.visits.attach.map fun ⟨visit, member⟩ => ⟨visit, walked.record visit member⟩
+
+/-- The edges from each visit to the targets that its record lists, in the order of the visits. -/
+private def edgesFrom (walked : Walked) (targets : {name : Name} → NodeRecord name → Array Name) :
+    Array (Name × Name) :=
+  (reachedOf walked).flatMap fun entry => (targets entry.2).map (entry.1.1, ·)
+
+private theorem assemble_nodes (rootCompiled : Bool) (walked : Walked) :
+    (assemble rootCompiled walked).2.2.2.nodes =
+      RegulaPolicy.canonicalNames (walked.visits.map (·.1)) := by
+  unfold assemble
+  simp only [Id.run]
+  split <;> (try split) <;> rfl
+
+private theorem assemble_visits (rootCompiled : Bool) (walked : Walked) :
+    (assemble rootCompiled walked).2.2.2.visits = (reachedOf walked).map fun entry =>
+      { name := entry.1.1, moduleName := entry.2.moduleName, parent := entry.1.2 } := by
+  unfold assemble
+  simp only [Id.run]
+  split <;> (try split) <;> rfl
+
+private theorem assemble_compilerEdges (rootCompiled : Bool) (walked : Walked) :
+    (assemble rootCompiled walked).2.2.1 =
+      RegulaPolicy.canonicalEdges (edgesFrom walked (·.compilerDependencies)) := by
+  unfold assemble
+  simp only [Id.run]
+  split <;> (try split) <;> rfl
+
+private theorem assemble_channels (rootCompiled : Bool) (walked : Walked) :
+    let closure := (assemble rootCompiled walked).2.2.2
+    closure.logicalEdges = RegulaPolicy.canonicalEdges (edgesFrom walked (·.logicalTargets)) ∧
+    closure.candidateEdges = RegulaPolicy.canonicalEdges (edgesFrom walked (·.candidateTargets)) ∧
+    closure.historyEdges = RegulaPolicy.canonicalEdges (edgesFrom walked (·.historyTargets)) ∧
+    closure.currentReplacementEdges =
+      RegulaPolicy.canonicalEdges (edgesFrom walked (·.currentReplacementTargets)) ∧
+    closure.activeSimplificationEdges =
+      RegulaPolicy.canonicalEdges (edgesFrom walked (·.activeSimplificationTargets)) ∧
+    closure.helperEdges = RegulaPolicy.canonicalEdges (edgesFrom walked (·.helperTargets)) := by
+  unfold assemble
+  simp only [Id.run]
+  split <;> (try split) <;> exact ⟨rfl, rfl, rfl, rfl, rfl, rfl⟩
+
+private theorem assemble_boundaries (rootCompiled : Bool) (walked : Walked) :
+    (assemble rootCompiled walked).1 =
+      ((reachedOf walked).flatMap (·.2.boundaries)).mapIdx fun occurrence boundary =>
+        { boundary with occurrence, compilerCallers :=
+            (edgesFrom walked (·.compilerDependencies)).filterMap fun (caller, callee) =>
+              if callee == boundary.name then some caller else none } := by
+  unfold assemble
+  simp only [Id.run]
+  split <;> (try split) <;> rfl
+
+/-- The names that require retained code: the root, when it requires it, then the calls of the
+compiler body of each visit, in the order of the visits. -/
+private def requiredSet (rootCompiled : Bool) (walked : Walked) : Std.HashSet Name :=
+  (reachedOf walked).foldl (fun names entry =>
+      entry.2.compilerDependencies.foldl (fun names name => names.insert name) names)
+    (if rootCompiled then (∅ : Std.HashSet Name).insert walked.request.root else ∅)
+
+/-- One required name: no change when its record has a function body or an `extern` body, and
+otherwise a message and the name. -/
+private def codeStep (records : Records) (state : Array String × Array Name) (name : Name) :
+    Array String × Array Name :=
+  match ((records.get? name).map (·.code) : Option CodeStatus) with
+  | some .function | some .externBody => state
+  | some .placeholder =>
+      (state.1.push s!"{name}: compiler body is an opaque export placeholder", state.2.push name)
+  | some .missing | none =>
+      (state.1.push s!"{name}: compiled dependency body is unavailable", state.2.push name)
+
+/-- The unresolved paths before the required code: those of each visit, then the message of a
+replacement-only cycle when the search finds one. -/
+private def pathsOf (walked : Walked) : Array String :=
+  let cycles := cyclicReplacementPaths (edgesFrom walked (·.replacementTargets))
+  let paths := (reachedOf walked).flatMap (·.2.unresolved)
+  if !cycles.isEmpty then paths.push s!"replacement-only cycle reachable from {cycles}" else paths
+
+/-- A loop of `Id` whose body always continues with `g` is the fold of `g`. -/
+private theorem forIn_yield_id {α β : Type} (l : List α) (init : β)
+    (f : α → β → Id (ForInStep β)) (g : β → α → β) (h : ∀ a b, f a b = pure (.yield (g b a))) :
+    forIn l init f = pure (l.foldl g init) := by
+  have : f = fun a b => pure (.yield (g b a)) := funext fun a => funext fun b => h a b
+  subst this
+  simp
+
+private theorem codeStep_loop (records : Records) (name : Name)
+    (state : Array String × Array Name) :
+    (match ((records.get? name).map (·.code) : Option CodeStatus) with
+      | some .function => (pure (ForInStep.yield (state.1, state.2)) : Id _)
+      | some .externBody => pure (ForInStep.yield (state.1, state.2))
+      | some .placeholder => pure (ForInStep.yield
+          (state.1.push
+            (toString name ++ toString ": compiler body is an opaque export placeholder"),
+            state.2.push name))
+      | some .missing => pure (ForInStep.yield
+          (state.1.push (toString name ++ toString ": compiled dependency body is unavailable"),
+            state.2.push name))
+      | none => pure (ForInStep.yield
+          (state.1.push (toString name ++ toString ": compiled dependency body is unavailable"),
+            state.2.push name))) =
+      pure (.yield (codeStep records state name)) := by
+  unfold codeStep
+  split <;> rfl
+
+private theorem assemble_code (rootCompiled : Bool) (walked : Walked) :
+    let result := (requiredSet rootCompiled walked).toList.foldl
+      (codeStep walked.request.records) (pathsOf walked, #[])
+    (assemble rootCompiled walked).2.1 = result.1 ∧
+    (assemble rootCompiled walked).2.2.2.requiredCode =
+      RegulaPolicy.canonicalNames (requiredSet rootCompiled walked).toArray ∧
+    (assemble rootCompiled walked).2.2.2.unavailableCode =
+      RegulaPolicy.canonicalNames result.2 := by
+  unfold assemble
+  simp only [Id.run]
+  split
+  all_goals
+    simp only [Array.forIn_pure_yield_eq_foldl, pure_bind]
+    split
+  all_goals
+    rw [Std.HashSet.forIn_eq_forIn_toList, forIn_yield_id _ _ _ (codeStep walked.request.records)
+      (fun name state => codeStep_loop walked.request.records name state)]
+    simp only [pure_bind]
+    refine ⟨?_, ?_, ?_⟩ <;>
+      simp only [requiredSet, pathsOf, reachedOf, edgesFrom, *, ↓reduceIte, Bool.false_eq_true] <;>
+        rfl
+
+/-- The record of a visit is the record that the map holds under its name. -/
+private theorem get?_record (walked : Walked) (visit : Name × Option Nat)
+    (member : visit ∈ walked.visits) :
+    walked.request.records.get? visit.1 = some (walked.record visit member) := by
+  unfold Walked.record
+  exact Std.DHashMap.get?_eq_some_get _
+
+private theorem mem_reachedOf {walked : Walked}
+    {entry : (visit : Name × Option Nat) × NodeRecord visit.1} :
+    entry ∈ reachedOf walked ↔
+      ∃ (visit : Name × Option Nat) (member : visit ∈ walked.visits),
+        entry = ⟨visit, walked.record visit member⟩ := by
+  unfold reachedOf
+  constructor
+  · intro found
+    obtain ⟨⟨visit, member⟩, -, rfl⟩ := Array.mem_map.mp found
+    exact ⟨visit, member, rfl⟩
+  · rintro ⟨visit, member, rfl⟩
+    exact Array.mem_map.mpr ⟨⟨visit, member⟩, Array.mem_attach _ _, rfl⟩
+
+/-- **The edges that `assemble` builds from the records of the visits are the visited edges.** -/
+private theorem mem_edgesFrom {walked : Walked}
+    {targets : {name : Name} → NodeRecord name → Array Name}
+    {edge : Name × Name} :
+    edge ∈ edgesFrom walked targets ↔
+      VisitedEdge walked.request.records walked.visits targets edge := by
+  unfold edgesFrom VisitedEdge Visited
+  constructor
+  · intro found
+    obtain ⟨entry, inReached, inMap⟩ := Array.mem_flatMap.mp found
+    obtain ⟨visit, member, rfl⟩ := mem_reachedOf.mp inReached
+    obtain ⟨target, listed, rfl⟩ := Array.mem_map.mp inMap
+    exact ⟨⟨visit, member, rfl⟩, walked.record visit member, get?_record walked visit member,
+      listed⟩
+  · obtain ⟨source, target⟩ := edge
+    rintro ⟨⟨visit, member, named⟩, record, found, listed⟩
+    obtain ⟨name, parent⟩ := visit
+    simp only at named
+    subst named
+    rw [get?_record walked _ member] at found
+    obtain rfl := Option.some.inj found
+    exact Array.mem_flatMap.mpr ⟨⟨(name, parent), walked.record (name, parent) member⟩,
+      mem_reachedOf.mpr ⟨_, member, rfl⟩, Array.mem_map.mpr ⟨target, listed, rfl⟩⟩
+
+private theorem mem_foldl_insert (names : Array Name) (start : Std.HashSet Name) (name : Name) :
+    name ∈ names.foldl (fun names name => names.insert name) start ↔
+      name ∈ start ∨ name ∈ names := by
+  rw [← Array.foldl_toList, ← Array.mem_toList_iff]
+  induction names.toList generalizing start with
+  | nil => simp
+  | cons first rest ih =>
+    simp only [List.foldl_cons, ih, Std.HashSet.mem_insert, beq_iff_eq, List.mem_cons]
+    constructor
+    · rintro ((rfl | inStart) | inRest)
+      · exact .inr (.inl rfl)
+      · exact .inl inStart
+      · exact .inr (.inr inRest)
+    · rintro (inStart | rfl | inRest)
+      · exact .inl (.inr inStart)
+      · exact .inl (.inl rfl)
+      · exact .inr inRest
+
+/-- **The required names are the root, when it requires retained code, and each name that the
+compiler body of a visited record calls.** -/
+private theorem mem_requiredSet (rootCompiled : Bool) (walked : Walked) (name : Name) :
+    name ∈ requiredSet rootCompiled walked ↔
+      Required walked.request walked.visits rootCompiled name := by
+  have outer : ∀ (entries : List ((visit : Name × Option Nat) × NodeRecord visit.1))
+      (start : Std.HashSet Name),
+      name ∈ entries.foldl (fun names entry =>
+          entry.2.compilerDependencies.foldl (fun names name => names.insert name) names) start ↔
+        name ∈ start ∨ ∃ entry ∈ entries, name ∈ entry.2.compilerDependencies := by
+    intro entries
+    induction entries with
+    | nil => intro start; simp
+    | cons first rest ih =>
+      intro start
+      simp only [List.foldl_cons, ih, mem_foldl_insert, List.mem_cons]
+      constructor
+      · rintro ((inStart | inFirst) | ⟨entry, inRest, listed⟩)
+        · exact .inl inStart
+        · exact .inr ⟨first, .inl rfl, inFirst⟩
+        · exact .inr ⟨entry, .inr inRest, listed⟩
+      · rintro (inStart | ⟨entry, rfl | inRest, listed⟩)
+        · exact .inl (.inl inStart)
+        · exact .inl (.inr listed)
+        · exact .inr ⟨entry, inRest, listed⟩
+  unfold requiredSet Required
+  rw [← Array.foldl_toList, outer]
+  have called : (∃ entry ∈ (reachedOf walked).toList, name ∈ entry.2.compilerDependencies) ↔
+      ∃ caller, VisitedEdge walked.request.records walked.visits (·.compilerDependencies)
+        (caller, name) := by
+    constructor
+    · rintro ⟨entry, inReached, listed⟩
+      refine ⟨entry.1.1, mem_edgesFrom.mp (Array.mem_flatMap.mpr ⟨entry, ?_, ?_⟩)⟩
+      · exact Array.mem_toList_iff.mp inReached
+      · exact Array.mem_map.mpr ⟨name, listed, rfl⟩
+    · rintro ⟨caller, visited⟩
+      obtain ⟨entry, inReached, inMap⟩ := Array.mem_flatMap.mp (mem_edgesFrom.mpr visited)
+      obtain ⟨target, listed, same⟩ := Array.mem_map.mp inMap
+      obtain ⟨-, rfl⟩ := Prod.mk.inj same
+      exact ⟨entry, Array.mem_toList_iff.mpr inReached, listed⟩
+  rw [called]
+  cases rootCompiled
+  · simp
+  · simp only [↓reduceIte, Std.HashSet.mem_insert, beq_iff_eq, true_and]
+    have empty : name ∉ (∅ : Std.HashSet Name) := Std.HashSet.not_mem_empty
+    simp only [empty, or_false]
+    exact or_congr_left ⟨Eq.symm, Eq.symm⟩
+
+/-- One required name keeps the state when its code is available, and otherwise adds a message
+and the name. -/
+private theorem codeStep_cases (records : Records) (state : Array String × Array Name)
+    (name : Name) :
+    (Available records name ∧ codeStep records state name = state) ∨
+      (¬ Available records name ∧
+        ∃ message, codeStep records state name = (state.1.push message, state.2.push name)) := by
+  unfold codeStep Available
+  cases found : records.get? name with
+  | none =>
+    refine .inr ⟨?_, _, rfl⟩
+    rintro ⟨record, inMap, -⟩
+    cases inMap
+  | some record =>
+    cases code : record.code with
+    | function => exact .inl ⟨⟨record, rfl, .inl code⟩, by simp [code]⟩
+    | externBody => exact .inl ⟨⟨record, rfl, .inr code⟩, by simp [code]⟩
+    | placeholder =>
+      refine .inr ⟨?_, toString name ++ toString ": compiler body is an opaque export placeholder",
+        by simp [code]⟩
+      rintro ⟨other, found', function | extern⟩ <;> cases Option.some.inj found' <;>
+        simp_all
+    | missing =>
+      refine .inr ⟨?_, toString name ++ toString ": compiled dependency body is unavailable",
+        by simp [code]⟩
+      rintro ⟨other, found', function | extern⟩ <;> cases Option.some.inj found' <;>
+        simp_all
+
+/-- **The loop over the required names.** The unavailable names are those of the start and the
+listed names with no available code. The paths of the start stay, and a message is added with
+each unavailable name. -/
+private theorem codeStep_fold (records : Records) :
+    ∀ (names : List Name) (paths : Array String) (unavailable : Array Name),
+      (∀ name, name ∈ (names.foldl (codeStep records) (paths, unavailable)).2 ↔
+        name ∈ unavailable ∨ (name ∈ names ∧ ¬ Available records name)) ∧
+      (∀ path ∈ paths, path ∈ (names.foldl (codeStep records) (paths, unavailable)).1) ∧
+      (names.foldl (codeStep records) (paths, unavailable)).1.size + unavailable.size =
+        paths.size + (names.foldl (codeStep records) (paths, unavailable)).2.size := by
+  intro names
+  induction names with
+  | nil => intro paths unavailable; simp
+  | cons first rest ih =>
+    intro paths unavailable
+    rcases codeStep_cases records (paths, unavailable) first with ⟨available, same⟩ |
+      ⟨missing, message, pushed⟩
+    · simp only [List.foldl_cons, same]
+      obtain ⟨members, kept, sizes⟩ := ih paths unavailable
+      refine ⟨fun name => ?_, kept, sizes⟩
+      rw [members]
+      constructor
+      · rintro (old | ⟨inRest, notAvailable⟩)
+        · exact .inl old
+        · exact .inr ⟨List.mem_cons_of_mem _ inRest, notAvailable⟩
+      · rintro (old | ⟨inCons, notAvailable⟩)
+        · exact .inl old
+        · rcases List.mem_cons.mp inCons with rfl | inRest
+          · exact absurd available notAvailable
+          · exact .inr ⟨inRest, notAvailable⟩
+    · simp only [List.foldl_cons, pushed]
+      obtain ⟨members, kept, sizes⟩ := ih (paths.push message) (unavailable.push first)
+      refine ⟨fun name => ?_, fun path inPaths => kept path (Array.mem_push_of_mem _ inPaths), ?_⟩
+      · rw [members, Array.mem_push]
+        constructor
+        · rintro ((old | rfl) | ⟨inRest, notAvailable⟩)
+          · exact .inl old
+          · exact .inr ⟨List.mem_cons_self, missing⟩
+          · exact .inr ⟨List.mem_cons_of_mem _ inRest, notAvailable⟩
+        · rintro (old | ⟨inCons, notAvailable⟩)
+          · exact .inl (.inl old)
+          · rcases List.mem_cons.mp inCons with rfl | inRest
+            · exact .inl (.inr rfl)
+            · exact .inr ⟨inRest, notAvailable⟩
+      · simp only [Array.size_push] at sizes
+        omega
+
+/-- A fold whose step keeps each name and adds the source of its edge holds each source. -/
+private theorem mem_foldl_sources (edges : Array (Name × Name))
+    (step : Array Name → Name × Name → Array Name)
+    (keeps : ∀ names edge, ∀ name ∈ names, name ∈ step names edge)
+    (adds : ∀ names edge, edge.1 ∈ step names edge) (start : Array Name) :
+    ∀ edge ∈ edges, edge.1 ∈ edges.foldl step start := by
+  have stays : ∀ (rest : List (Name × Name)) (names : Array Name) (name : Name), name ∈ names →
+      name ∈ rest.foldl step names := by
+    intro rest
+    induction rest with
+    | nil => intro names name inNames; exact inNames
+    | cons first more ih => intro names name inNames; exact ih _ _ (keeps _ _ _ inNames)
+  intro edge inEdges
+  rw [← Array.foldl_toList]
+  have listed := Array.mem_toList_iff.mpr inEdges
+  generalize edges.toList = list at listed ⊢
+  induction list generalizing start with
+  | nil => cases listed
+  | cons first more ih =>
+    rcases List.mem_cons.mp listed with rfl | inMore
+    · exact stays more _ _ (adds start _)
+    · exact ih _ inMore
+
+/-- A loop of `Id` over a range whose body keeps a property keeps it. -/
+private theorem range_loop_keeps {β : Type} (P : β → Prop) (step : β → β)
+    (keeps : ∀ value, P value → P (step value)) (range : Std.Legacy.Range) (start : β)
+    (holds : P start) :
+    P (Id.run (forIn range start fun _ value => pure (ForInStep.yield (step value)))) := by
+  simp only [Id.run, Std.Legacy.Range.forIn_eq_forIn_range', List.forIn_pure_yield_eq_foldl]
+  generalize List.range' _ _ _ = indices
+  induction indices generalizing start with
+  | nil => exact holds
+  | cons first more ih => exact ih _ (keeps _ holds)
+
+/-- **The search keeps each name of a cycle.** Names, each with an edge to one of them, remain
+after each step of `cyclicReplacementPaths`, so the search returns them. -/
+private theorem cycle_kept (edges : Array (Name × Name)) (names : List Name)
+    (closed : ∀ name ∈ names, ∃ next ∈ names, (name, next) ∈ edges) :
+    ∀ name ∈ names, name ∈ cyclicReplacementPaths edges := by
+  unfold cyclicReplacementPaths
+  apply range_loop_keeps (fun remaining => ∀ name ∈ names, name ∈ remaining)
+  · intro remaining kept name member
+    obtain ⟨next, inNames, edge⟩ := closed name member
+    refine Array.mem_filter.mpr ⟨kept name member, Array.any_eq_true.mpr ?_⟩
+    obtain ⟨index, inBounds, same⟩ := Array.mem_iff_getElem.mp edge
+    exact ⟨index, inBounds, by simp [same, kept next inNames]⟩
+  · intro name member
+    obtain ⟨next, -, edge⟩ := closed name member
+    refine mem_foldl_sources edges _ ?_ ?_ #[] (name, next) edge
+    · intro seen edge name inSeen
+      simp only
+      split <;> split <;> simp_all
+    · intro seen edge
+      simp only
+      split <;> split <;> simp_all
+
+/-- The boundaries that `assemble` numbers are the boundaries of the visited records, in the order
+of the visits. -/
+private theorem boundaries_toList (walked : Walked) :
+    ((reachedOf walked).flatMap (·.2.boundaries)).toList =
+      visitedBoundaries walked.request.records walked.visits := by
+  unfold reachedOf visitedBoundaries
+  simp only [Array.toList_flatMap, Array.toList_map, Array.toList_attach, List.flatMap_map]
+  have general : ∀ (visits : List (Name × Option Nat))
+      (inside : ∀ visit ∈ visits, visit ∈ walked.visits),
+      List.flatMap (fun visit : {visit // visit ∈ walked.visits} =>
+          (walked.record visit.1 visit.2).boundaries.toList)
+        (visits.attachWith (fun visit => visit ∈ walked.visits) inside) =
+      List.flatMap (fun visit =>
+          match walked.request.records.get? visit.1 with
+          | some record => record.boundaries.toList
+          | none => []) visits := by
+    intro visits
+    induction visits with
+    | nil => intro _; rfl
+    | cons first rest ih =>
+      intro inside
+      simp only [List.attachWith_cons, List.flatMap_cons,
+        get?_record walked first (inside first List.mem_cons_self)]
+      rw [ih]
+  exact general _ _
+
+private theorem canonicalEdges_idempotent (edges : Array (Name × Name)) :
+    RegulaPolicy.canonicalEdges (RegulaPolicy.canonicalEdges edges) =
+      RegulaPolicy.canonicalEdges edges := by
+  simp [RegulaPolicy.canonicalEdges]
+
+private theorem channel_of (walked : Walked)
+    (targets : {name : Name} → NodeRecord name → Array Name)
+    {edges : Array (Name × Name)}
+    (same : edges = RegulaPolicy.canonicalEdges (edgesFrom walked targets)) :
+    ChannelOf walked.request.records walked.visits targets edges := by
+  subst same
+  exact ⟨canonicalEdges_idempotent _, fun edge => by
+    rw [RegulaPolicy.mem_canonicalEdges, mem_edgesFrom]⟩
+
+/-- **`assemble` gives the account of the root** (`AccountOf`): for each walk that returned its
+visits, the account that `assemble` builds is the account that the visits and their records
+give. -/
+theorem assemble_account (rootCompiled : Bool) (walked : Walked) :
+    AccountOf walked.request walked.visits rootCompiled (assemble rootCompiled walked) := by
+  obtain ⟨unresolvedEq, requiredEq, unavailableEq⟩ := assemble_code rootCompiled walked
+  obtain ⟨logical, candidate, history, current, active, helper⟩ :=
+    assemble_channels rootCompiled walked
+  obtain ⟨members, kept, sizes⟩ := codeStep_fold walked.request.records
+    (requiredSet rootCompiled walked).toList (pathsOf walked) #[]
+  generalize resultEq : (requiredSet rootCompiled walked).toList.foldl
+    (codeStep walked.request.records) (pathsOf walked, #[]) = result at *
+  unfold AccountOf
+  simp only
+  refine ⟨⟨?_, ?_⟩, ?_, channel_of walked _ (assemble_compilerEdges rootCompiled walked),
+    channel_of walked _ logical, channel_of walked _ candidate, channel_of walked _ history,
+    channel_of walked _ current, channel_of walked _ active, channel_of walked _ helper,
+    ⟨?_, ?_⟩, ⟨?_, ?_⟩, ?_, ?_, ?_, ?_⟩
+  -- The nodes.
+  · rw [assemble_nodes]
+    exact RegulaPolicy.canonicalNames_idempotent _
+  · intro name
+    rw [assemble_nodes, RegulaPolicy.mem_canonicalNames]
+    simp [Visited, Array.mem_map]
+  -- The visits.
+  · simp only [assemble_visits]
+    refine ⟨by simp [reachedOf], fun index inVisits inClosure => ?_⟩
+    refine ⟨by simp [reachedOf], by simp [reachedOf], fun record found => ?_⟩
+    rw [get?_record walked _ (Array.getElem_mem inVisits)] at found
+    cases Option.some.inj found
+    simp [reachedOf]
+  -- The code.
+  · rw [requiredEq]
+    exact RegulaPolicy.canonicalNames_idempotent _
+  · intro name
+    rw [requiredEq, RegulaPolicy.mem_canonicalNames, Std.HashSet.mem_toArray, mem_requiredSet]
+  · rw [unavailableEq]
+    exact RegulaPolicy.canonicalNames_idempotent _
+  · intro name
+    rw [unavailableEq, RegulaPolicy.mem_canonicalNames, members, Std.HashSet.mem_toList,
+      mem_requiredSet]
+    simp
+  -- The unresolved paths.
+  · intro name record visited found path listed
+    rw [unresolvedEq]
+    apply kept
+    obtain ⟨visit, member, rfl⟩ := visited
+    rw [get?_record walked visit member] at found
+    cases Option.some.inj found
+    have inFlat : path ∈ (reachedOf walked).flatMap (·.2.unresolved) :=
+      Array.mem_flatMap.mpr ⟨⟨visit, walked.record visit member⟩,
+        mem_reachedOf.mpr ⟨visit, member, rfl⟩, listed⟩
+    unfold pathsOf
+    dsimp only
+    split
+    · exact Array.mem_push_of_mem _ inFlat
+    · exact inFlat
+  · intro nonempty empty
+    rw [unavailableEq] at nonempty
+    rw [unresolvedEq] at empty
+    have positive : 0 < result.2.size := Nat.pos_of_ne_zero fun zero =>
+      nonempty (by rw [Array.eq_empty_of_size_eq_zero zero]; rfl)
+    rw [empty] at sizes
+    simp at sizes
+    omega
+  · rintro ⟨names, nonempty, closed⟩ empty
+    rw [unresolvedEq] at empty
+    obtain ⟨first, firstIn⟩ := List.exists_mem_of_ne_nil names nonempty
+    have found := cycle_kept (edgesFrom walked (·.replacementTargets)) names
+      (fun name member => (closed name member).imp fun _ ⟨inNames, edge⟩ =>
+        ⟨inNames, mem_edgesFrom.mpr edge⟩) first firstIn
+    have notEmpty : (cyclicReplacementPaths (edgesFrom walked (·.replacementTargets))).isEmpty =
+        false := by
+      simpa [Array.isEmpty_iff] using Array.ne_empty_of_mem found
+    have pushed : ∃ path, path ∈ pathsOf walked := by
+      unfold pathsOf
+      simp only [notEmpty, Bool.not_false, ↓reduceIte]
+      exact ⟨_, Array.mem_push_self⟩
+    obtain ⟨path, inPaths⟩ := pushed
+    have := kept path inPaths
+    rw [empty] at this
+    simp at this
+  -- The boundaries.
+  · have sizeEq : ((reachedOf walked).flatMap (·.2.boundaries)).size =
+        (visitedBoundaries walked.request.records walked.visits).length := by
+      rw [← boundaries_toList, Array.length_toList]
+    simp only [assemble_boundaries, Array.size_mapIdx]
+    refine ⟨sizeEq, fun index inBoundaries inVisited => ?_⟩
+    simp only [Array.getElem_mapIdx]
+    have same : ((reachedOf walked).flatMap (·.2.boundaries))[index]'(by
+          simpa using inBoundaries) =
+        (visitedBoundaries walked.request.records walked.visits)[index] := by
+      simp only [← boundaries_toList, Array.getElem_toList]
+    refine ⟨trivial, by rw [same], fun caller => ?_⟩
+    rw [Array.mem_filterMap]
+    constructor
+    · rintro ⟨⟨source, callee⟩, inEdges, chosen⟩
+      simp only at chosen
+      split at chosen
+      · next named =>
+        cases chosen
+        rw [beq_iff_eq] at named
+        exact mem_edgesFrom.mp (named ▸ inEdges)
+      · cases chosen
+    · intro visited
+      exact ⟨(caller, _), mem_edgesFrom.mpr visited, by simp⟩
 
 end RegulaPolicy.ExecutionWalk
