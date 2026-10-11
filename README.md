@@ -88,7 +88,7 @@ Regula is before version 1.0. A minor release can add a rule or make a rule stri
 
 ## Try it
 
-Regula `v0.11.0` is for the Lean toolchain `leanprover/lean4:v4.34.1`. These commands use [elan](https://lean-lang.org/install/) to make a new project for that toolchain, and add Regula to it:
+Regula `v0.11.1` is for the Lean toolchain `leanprover/lean4:v4.34.1`. These commands use [elan](https://lean-lang.org/install/) to make a new project for that toolchain, and add Regula to it:
 
 ```sh
 lake +leanprover/lean4:v4.34.1 new demo
@@ -98,7 +98,7 @@ cat >> lakefile.toml <<'EOF'
 [[require]]
 name = "regula"
 git = "https://github.com/rbeauchamp/regula"
-rev = "v0.11.0"
+rev = "v0.11.1"
 EOF
 lake update regula
 ```
@@ -113,9 +113,9 @@ The first command that runs Regula compiles it. On a laptop with 14 cores, that 
 
 ## Add it to your project
 
-Regula `v0.11.0` supports only the Lean toolchain `leanprover/lean4:v4.34.1`. For a different Lean release, use the [compatibility table](docs/guides/adoption.md#1-require-regula).
+Regula `v0.11.1` supports only the Lean toolchain `leanprover/lean4:v4.34.1`. For a different Lean release, use the [compatibility table](docs/guides/adoption.md#1-require-regula).
 
-1. Add the `[[require]]` table above to `lakefile.toml`. For `lakefile.lean`, add `require regula from git "https://github.com/rbeauchamp/regula" @ "v0.11.0"`.
+1. Add the `[[require]]` table above to `lakefile.toml`. For `lakefile.lean`, add `require regula from git "https://github.com/rbeauchamp/regula" @ "v0.11.1"`.
 2. Get Regula, set up the project and run the linter:
    ```sh
    lake update regula
