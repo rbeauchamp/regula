@@ -314,7 +314,7 @@ metadata, not authenticated binary identity.
   complete root accounts (name, module, boundaries, unresolved paths, compiler edges and
   closure), as before; `ResultProtocol.writeDocument` writes `SharedExecution.write` of it and
   every reader (`ResultProtocol.readDocument`, the qualification drivers' `readResult`) takes the
-  file through `SharedExecution.read`. The reader (`SharedExecution.restore?`,
+  file through `ResultProtocol.admitDocument`, which runs `SharedExecution.read`. The reader (`SharedExecution.restore?`,
   `SharedExecution.rebuildRoot`) derives a root's account from its entry: its visits are the walk
   from the root over the edges the collector follows (`SharedExecution.walk`, the collector's own
   walk `RegulaPolicy.StackWalk.walk`); its reached names are the visited ones; each channel's

@@ -1659,10 +1659,12 @@ these items:
 of the callers.
 
 - `AxiomGate` reads a result file with `ResultProtocol.readDocument`. That function runs
-  `PolicyCodec.parse` and then `SharedExecution.read`.
+  `PolicyCodec.parse` and then `ResultProtocol.admitDocument`. `admitDocument` runs
+  `SharedExecution.read`, and it refuses a value that does not conform to the written form of the
+  document that it reads.
 - The runner of the rule examples (`Regula.Qualification.RuleExamples`) reads a result file with
   `Qualification.readResult`. That function runs `Json.parse` of Lean and then
-  `SharedExecution.read`. The runner gives the document to `ResultProtocol.admitGuidance`.
+  `ResultProtocol.admitDocument`. The runner gives the document to `ResultProtocol.admitGuidance`.
 - The executable `ruleExampleQualification` reads an evidence file with `PolicyCodec.parse`. A
   record of that file contains a result document. The executable does not run
   `SharedExecution.read`.
@@ -3726,7 +3728,9 @@ parser admits exactly its documented commands (`parseCommand_arguments`, `parseC
 `stagesOf_ordered`, `withDocs_ordered`, `notRun_completedStages_eq_nil_iff`,
 `completedStages_idem`, `guidanceFields_recorded`, `parseStage_stageName`. Result admission:
 `guidanceVerdict_eq_ok_iff`, `guidanceVerdict_completed`, `guidanceVerdict_unblocked`,
-`statusAgrees_observation`, `statusAgrees_iff`. Snapshot size:
+`statusAgrees_observation`, `statusAgrees_iff`, `admitGuidance_eq_ok_iff`, `admitGuidance_completed`,
+`admitGuidance_completed_diagnostics`, `admitDocument_eq_ok_iff`, `admitDocument_write`. Snapshot
+size:
 `snapshotJson_configuration_independent`, `environmentJson_imports_independent` and
 `Environment.resultJson_imports_independent` (`rfl`) show the rendering does not depend on
 dependency text or import lists; the resulting size bound is an argument from construction, not a
