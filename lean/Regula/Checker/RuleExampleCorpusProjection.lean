@@ -66,7 +66,8 @@ private theorem phaseCheck_congr (xs : Array α) (f g : α → Json) (rule phase
     cases ys[0]? <;> simp [hk, hq, Option.map]
 
 private def corpusBody (json : Json) : Except String Unit := do
-  unless (← field json "schemaVersion") == toJson (1 : Nat) do throw "unsupported corpus schema"
+  unless JsonAgreement.conforms (← field json "schemaVersion") (toJson (1 : Nat)) do
+    throw "unsupported corpus schema"
   let selected ← (← (← field json "selected").getArr?).mapM Regula.RegistryCodec.parseRule
   unless decide selected.toList.Nodup do throw "duplicate selected rule"
   let complete ← (← field json "completeCorpus").getBool?
@@ -74,7 +75,8 @@ private def corpusBody (json : Json) : Except String Unit := do
     unless selected.size == Regula.RuleId.all.length && Regula.RuleId.all.all selected.contains do
       throw "incomplete rule corpus: not every registered rule"
   let checkerBefore ← field json "checkerBefore"
-  unless checkerBefore == (← field json "checkerAfter") do throw "checker sources changed"
+  unless JsonAgreement.conforms checkerBefore (← field json "checkerAfter") do
+    throw "checker sources changed"
   let checkerFiles ← sources checkerBefore
   unless !checkerFiles.isEmpty do throw "missing checker source state"
   let records := (← (← field json "records").getArr?).map

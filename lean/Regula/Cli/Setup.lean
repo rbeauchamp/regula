@@ -926,7 +926,7 @@ private def realize (written : IO.Ref (Array Written)) (project : Project) (edit
       -- The parser the audit runs must read the text back as exactly this manifest before it is
       -- written.
       let parsed ← IO.ofExcept <| Manifest.parse "foundation_manifest.json" text
-      unless (Manifest.toJson parsed).compress == (Manifest.toJson manifest).compress do
+      unless Regula.JsonAgreement.conforms (Manifest.toJson parsed) (Manifest.toJson manifest) do
         throw <| IO.userError "the starter manifest text does not read back as the starter"
       write written (Manifest.defaultPath root) text
     | .agentsSection _ =>

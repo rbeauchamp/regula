@@ -14,7 +14,7 @@ imports no Mathlib. Its libraries (`lakefile.lean`, `foundation_manifest.json`):
 | Library | Role | Claim |
 | --- | --- | --- |
 | `RegulaPolicy` | Pure policy: domain types, the one supported compiler identity (`Compiler`), admission, declaration/execution decisions, the acceptance plan and its theorems. Imports only Init, Std, `Lean.PrivateName` (for generated native-axiom names), `Lean.Expr` (the terms the recursion-helper comparison `Erasure.reproduces` and the native-axiom statement decision `NativeStatement.recognize?` decide over; its closure holds no `Lean.Environment`), `Lean.Util.FoldConsts` (for the kernel axiom search `KernelAxioms`, with no `Lean.Environment` in its closure either), the import-free `Regula.Contract` and, to register its decisions, `Regula.Decision` ([below](#the-decision-registration-import)). | Claimed, Standard-Logical |
-| `RegulaCore` | The rule registry (`RuleId`, `Rule`, `Guide`), the pure projections the checker executes (`Policy`, `Coordinates`, `Source`, `Assembly`, `EditorPolicy`, `Lint`, `Account`), agent guidance (`Feedback`, `Guidance`), project setup (`Setup`), the installed-compiler identity and selector decisions (`Toolchain`) and the site's pure decisions (`Edition`, `Site*`). Imports the policy library, never the reverse, Lean's `Lean.Data.Position` but not `Lean.Data.Lsp.Utf16`, whose closure contains `Lean.Environment`, and, to register its decisions, `Regula.Decision`, whose closure contains it too ([below](#the-decision-registration-import)). | Claimed |
+| `RegulaCore` | The rule registry (`RuleId`, `Rule`, `Guide`), the pure projections the checker executes (`Policy`, `Coordinates`, `Source`, `Assembly`, `EditorPolicy`, `Lint`, `Account`), the comparison of a `Json` value with an encoding (`JsonAgreement`), agent guidance (`Feedback`, `Guidance`), project setup (`Setup`), the installed-compiler identity and selector decisions (`Toolchain`) and the site's pure decisions (`Edition`, `Site*`). Imports the policy library, never the reverse, Lean's `Lean.Data.Position` but not `Lean.Data.Lsp.Utf16`, whose closure contains `Lean.Environment`, and, to register its decisions, `Regula.Decision`, whose closure contains it too ([below](#the-decision-registration-import)). | Claimed |
 | `RegulaQualification` | Pure observation requirements and checked contracts for qualification campaigns, not process launchers; testing requirements are not production policy, so they belong neither in `RegulaPolicy` nor in the mathematical `Audit` examples. | Claimed |
 | `RegulaVerification`, `RegulaProvision` | Toolchain-only acceptance runner and dependency provisioning for the pinned release. Pure decision contracts surround trusted build, process and filesystem effects. Each library's `Decisions` module, which no program imports, registers those decisions' kinds with the checker's two interfaces. | Claimed |
 | `AuditApp` (with standalone root `Main`) | A complete application whose admission, update and composition contracts are proved about the definitions its executable runs. | Claimed |
@@ -264,7 +264,8 @@ metadata, not authenticated binary identity.
 - **Registry, schema 4:** the canonical `rules`, whose `normativeClauses` are
   `{section, title, source, url}` objects (the cited section's number, heading, Verso source path
   and URL in the installed build's edition). `parseDescriptor` compares input with canonical
-  re-encoding, refusing unknown or missing fields, changed routes and stale lifecycle data.
+  re-encoding (`JsonAgreement.conforms`). It refuses unknown or missing fields, changed routes,
+  stale lifecycle data and an object tree that is not a search tree.
   Registry admission rejects duplicate external IDs, missing clauses, pages or examples, unknown
   JSON fields or versions, and invalid lifecycle references.
 - **Result, schema 16:** `scope`, `mode`, `status`, `stages` (the stages
@@ -386,7 +387,7 @@ metadata, not authenticated binary identity.
   text back, and `parsePrintedNameJson_str` that the reader admits a string only as that text.
   Admission reads names back with that reader: producer reports through `Regula.Report`'s
   instances and diagnostics through `DiagnosticCodec.parseDiagnostic`, which also refuses a
-  diagnostic that does not agree with its canonical re-encoding (`JsonAgreement.agrees`).
+  diagnostic that does not conform to its canonical re-encoding (`JsonAgreement.conforms`).
 - **Attribution:** the collector records, for each declaration, the declaration Lean generated it
   from, one step (`Collect.generatedFrom?`), by trying the closed families of
   `RegulaPolicy.GeneratedFamily` in the order of `GeneratedFamily.all`, each with its own clause of

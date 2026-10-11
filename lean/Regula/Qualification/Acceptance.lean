@@ -123,7 +123,7 @@ private def qualify (group : String) (evidence : FilePath) (receipt : IO.Ref Jso
         else pure Json.null
       active := active.setObjVal! "resultFile" resultFile
       update "activeCase" active
-      let value ← if resultFile != Json.null then readJson resultEvidence else pure Json.null
+      let value ← if !(resultFile matches .null) then readJson resultEvidence else pure Json.null
       let log := result.stdout ++ result.stderr
       let status := (value.getObjValAs? String "status").toOption
       let hasAcceptance := (value.getObjVal? "acceptance").toOption.isSome

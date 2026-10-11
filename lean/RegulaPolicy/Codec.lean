@@ -163,4 +163,27 @@ theorem checked_parseIdentity : Regula.ExecutableContract parseIdentity
        rfl
      refused := ⟨.text "", by decide⟩ }⟩
 
+/-- A list with the length of a list of distinct names, and with each of those names, is those
+names in some order. `Regula.Checker.PolicyCodec.exactFields_iff` and `Regula.JsonAgreement`
+use it. It is in `RegulaPolicy`, which the import closure of the probe and the claimed libraries
+may both contain. -/
+theorem perm_of_length_of_mem {expected : List String} (distinct : expected.Nodup) :
+    ∀ {actual : List String}, actual.length = expected.length →
+      (∀ name ∈ expected, name ∈ actual) → actual.Perm expected := by
+  induction expected with
+  | nil =>
+    intro actual length _
+    rw [List.length_nil, List.length_eq_zero_iff] at length
+    rw [length]
+  | cons name rest step =>
+    intro actual length members
+    obtain ⟨absent, distinct⟩ := List.nodup_cons.mp distinct
+    have present : name ∈ actual := members name List.mem_cons_self
+    have shorter : (actual.erase name).length = rest.length := by
+      rw [List.length_erase_of_mem present, length, List.length_cons, Nat.add_sub_cancel]
+    have others : ∀ other ∈ rest, other ∈ actual.erase name := fun other member =>
+      (List.mem_erase_of_ne fun (same : other = name) => absent (same ▸ member)).mpr
+        (members other (List.mem_cons_of_mem _ member))
+    exact (List.perm_cons_erase present).trans ((step distinct shorter others).cons name)
+
 end RegulaPolicy.Codec

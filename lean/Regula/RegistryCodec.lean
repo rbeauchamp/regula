@@ -2,6 +2,7 @@ import Regula.Diagnostic
 import Regula.StructuralName
 import Regula.SourceTexts
 import Regula.Decision
+import RegulaCore.JsonAgreement
 
 /-! # Registry transport codec
 
@@ -128,11 +129,43 @@ def descriptorJson (id : RuleId) : Json :=
       | .active _ => Json.null
       | .retired _ _ replacement => (replacement.map (ruleJson ∘ Subtype.val)).getD Json.null),]
 
-/-- Reject metadata drift, unknown fields, missing fields, routes and lifecycle values. -/
+/-- Reject metadata drift, unknown fields, missing fields, routes and lifecycle values: the
+object trees of the input must be search trees, and the input must agree with the
+`descriptorJson` of the rule that its member `id` names (`JsonAgreement.conforms`,
+`parseDescriptor_eq_ok_iff`). -/
 def parseDescriptor (j : Json) : Except String RuleId := do
   let id ← parseRule (← j.getObjVal? "id")
-  if j == descriptorJson id then return id
+  if JsonAgreement.conforms j (descriptorJson id) then return id
   else throw s!"noncanonical or stale descriptor: {id}"
+
+/-- The decoder of a descriptor returns a rule exactly when the member `id` of the input names
+that rule, the object trees of the input are search trees, and the input agrees with the
+descriptor of that rule. -/
+theorem parseDescriptor_eq_ok_iff (j : Json) (id : RuleId) :
+    parseDescriptor j = .ok id ↔ ∃ member, j.getObjVal? "id" = .ok member ∧
+      parseRule member = .ok id ∧ JsonAgreement.Regular j ∧
+        JsonAgreement.Agree j (descriptorJson id) := by
+  unfold parseDescriptor
+  cases found : j.getObjVal? "id" with
+  | error message => simp [bind, Except.bind]
+  | ok member =>
+    cases named : parseRule member with
+    | error message => simp [bind, Except.bind, named]
+    | ok rule =>
+      have test := JsonAgreement.conforms_iff j (descriptorJson rule)
+      by_cases conforming : JsonAgreement.conforms j (descriptorJson rule) = true
+      · simp only [bind, Except.bind, named, conforming, ↓reduceIte, pure, Except.pure,
+          Except.ok.injEq, exists_eq_left']
+        constructor
+        · rintro rfl
+          exact ⟨rfl, test.mp conforming⟩
+        · rintro ⟨same, -⟩
+          exact same
+      · simp only [bind, Except.bind, named, conforming, ↓reduceIte, throw, throwThe,
+          MonadExceptOf.throw, Bool.false_eq_true, Except.ok.injEq, exists_eq_left']
+        refine ⟨(fun h => nomatch h), fun ⟨same, conforms⟩ => ?_⟩
+        subst same
+        exact absurd (test.mpr conforms) conforming
 
 /-- The identity of the build that produced a registry or result: its version, toolchain and
 source revision. -/
@@ -163,10 +196,22 @@ def registryJson (p : ProducerIdentity) : Json :=
       (identityFields p registrySchemaVersion ++
           [("rules", toJson (RuleId.all.map descriptorJson))])
 
-/-- A manifest is accepted only if it is exactly the current closed registry and identity.
-Array ordering is canonical; duplicate, omitted, extra and stale records all fail. -/
+/-- A manifest is accepted only if it is exactly the current closed registry and identity: its
+object trees are search trees, and it agrees with `registryJson p` (`JsonAgreement.conforms`,
+`validateRegistry_eq_ok_iff`). Array ordering is canonical; duplicate, omitted, extra and stale
+records all fail. -/
 def validateRegistry (p : ProducerIdentity) (j : Json) : Except String Unit :=
-  if j == registryJson p then .ok () else .error "registry or producer identity mismatch"
+  if JsonAgreement.conforms j (registryJson p) then .ok ()
+  else .error "registry or producer identity mismatch"
+
+/-- The registry check accepts exactly a value with search trees that agrees with the registry
+of the producer. -/
+theorem validateRegistry_eq_ok_iff (p : ProducerIdentity) (j : Json) :
+    validateRegistry p j = .ok () ↔
+      JsonAgreement.Regular j ∧ JsonAgreement.Agree j (registryJson p) := by
+  rw [← JsonAgreement.conforms_iff]
+  unfold validateRegistry
+  split <;> simp_all
 
 /-- A byte range as JSON: its start offset and its stop offset. -/
 def rangeJson (r : ByteRange) : Json :=

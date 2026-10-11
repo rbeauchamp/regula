@@ -88,8 +88,8 @@ def check : IO Unit := do
         let log := result.stdout ++ result.stderr
         if phase == "root-add" then
           let observation ← readJson record
-          requireChecks [⟨"added root actually built", observation == Json.mkObj [
-            ("buildExit", toJson (0 : Nat)), ("addedBuilt", toJson true)]⟩,
+          requireChecks [⟨"added root actually built", Regula.JsonAgreement.conforms observation
+              (Json.mkObj [("buildExit", toJson (0 : Nat)), ("addedBuilt", toJson true)])⟩,
             ⟨s!"root inventory refusal: {log}\n{packet.compress}", result.exitCode != 0 &&
                 log.contains "root inventory changed:" &&
               !log.contains "accepted " &&

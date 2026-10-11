@@ -2154,6 +2154,31 @@ private def sourceAttributionSource : String :=
   "    type := mkApp3 (mkConst ``Eq [1]) (mkConst ``Nat) (mkConst ``pick) (mkConst ``pick)\n" ++
   "    value := mkApp2 (mkConst ``Eq.refl [1]) (mkConst ``Nat) (mkConst ``pick) }\n"
 
+/-- Whether a value read from a report differs from another value: the first has search trees and
+does not agree with the second (`differs_iff`). A value without search trees is never taken as a
+different one, so a check that requires two values to differ refuses it (`differs_irregular`). -/
+private def differs (received other : Json) : Bool :=
+  JsonAgreement.regular received && !JsonAgreement.agrees received other
+
+/-- `differs` holds exactly when the first value has search trees and does not agree with the
+second. -/
+private theorem differs_iff (received other : Json) :
+    differs received other = true ↔
+      JsonAgreement.Regular received ∧ ¬JsonAgreement.Agree received other := by
+  rw [← JsonAgreement.regular_iff, ← JsonAgreement.agrees_iff]
+  simp [differs]
+
+/-- An end position whose tree is rooted at `line` with `column` in its right subtree: not a search
+tree, since `column` comes before `line`. -/
+private def irregularEnd : Json :=
+  .obj ⟨⟨.inner 2 "line" (.num 1) .leaf (.inner 1 "column" (.num 1) .leaf .leaf)⟩⟩
+
+/-- Control: `irregularEnd` differs from no value, so a check that requires a recorded end to
+differ from another refuses it. -/
+private theorem differs_irregular (other : Json) : differs irregularEnd other = false := by
+  have irregular : JsonAgreement.regular irregularEnd = false := by decide
+  simp [differs, irregular]
+
 /-- The first failed expectation of the source-attribution report, if any: a declaration of every
 `GeneratedFamily` (`Channel`'s constructor, projection, recursor, constructor lemmas and type
 constructions, `Rec.x._default`, `firstIndex.match_1`, `walkDown._f` and `walkDown._sunfold`,
@@ -2186,21 +2211,24 @@ definition Lean generates for the first syntax kind of the `macro_rules` command
 selection range that ends after its range does, and its finding is located at its recorded
 range, which is the admitted selection range too (`RegulaPolicy.Ranges.admitted`). -/
 private def sourceAttributionFailure (report : Json) : Option String := Id.run do
+  let same (received built : Json) : Bool := JsonAgreement.conforms received built
   let some diagnostics := (report.getObjValAs? (Array Json) "diagnostics").toOption
     | return some "no diagnostics"
   let find (name : String) : Option Json := diagnostics.find? fun d =>
-    (d.getObjValD "arguments").getObjValD "declaration" == .str name
+    same ((d.getObjValD "arguments").getObjValD "declaration") (.str name)
   let selection (d : Json) : Json := (d.getObjValD "location").getObjValD "selectionRange"
   let kind (d : Json) : Json := (d.getObjValD "location").getObjValD "kind"
   let source (d : Json) : Json := (d.getObjValD "arguments").getObjValD "sourceDeclaration"
   let relation (d : Json) : Option Json :=
     ((d.getObjValD "related").getArrVal? 0).toOption.map (·.getObjValD "relation")
   let attributed (d owner : Json) (ownerName : String) : Bool :=
-    source d == .str ownerName && kind d == .str "source" && selection d == selection owner &&
-      relation d == some (.str "declared in module")
+    same (source d) (.str ownerName) && same (kind d) (.str "source") &&
+      same (selection d) (selection owner) &&
+      (relation d).any (same · (.str "declared in module"))
   let keepsOwn (d owner : Json) (ownerName : String) (distinct : Bool) : Bool :=
-    source d == .str ownerName && kind d == .str "source" &&
-      d.getObjValD "related" == Json.arr #[] && (!distinct || selection d != selection owner)
+    same (source d) (.str ownerName) && same (kind d) (.str "source") &&
+      same (d.getObjValD "related") (.arr #[]) &&
+        (!distinct || differs (selection d) (selection owner))
   let some channel := find "Channel" | return some "no Channel finding"
   for (name, distinct) in #[("Channel.mk", false), ("Channel.value", true)] do
     let some d := find name | return some s!"no {name} finding"
@@ -2240,18 +2268,18 @@ private def sourceAttributionFailure (report : Json) : Option String := Id.run d
     return some "the auxiliary proof of initialize counter's action is not attributed to and \
       located at counter"
   let some fact := find "Channel.fact" | return some "no Channel.fact finding"
-  unless source fact == .null && kind fact == .str "module" do
+  unless same (source fact) .null && same (kind fact) (.str "module") do
     return some "Channel.fact, which Lean did not generate, was attributed"
   let some word := find "Word" | return some "no Word finding"
   let some ofNat := find "Word.ofNat" | return some "no Word.ofNat finding"
-  unless source ofNat == .null && kind ofNat == .str "source" &&
-      selection ofNat != selection word && ofNat.getObjValD "related" == Json.arr #[] do
+  unless same (source ofNat) .null && same (kind ofNat) (.str "source") &&
+      differs (selection ofNat) (selection word) && same (ofNat.getObjValD "related") (.arr #[]) do
     return some "Word.ofNat, which Lean did not generate, was attributed"
   for name in #["middle._proof_8", "middle._proof_9", "Util._proof_8", "later._proof_8",
       "later.eq_7"] do
     let some d := find name | return some s!"no {name} finding"
-    unless source d == .null && kind d == .str "source" &&
-        d.getObjValD "related" == Json.arr #[] do
+    unless same (source d) .null && same (kind d) (.str "source") &&
+        same (d.getObjValD "related") (.arr #[]) do
       return some s!"{name}, which Lean did not generate, was attributed"
   let some elaborator := diagnostics.find? fun d =>
       match Regula.RegistryCodec.parsePrintedNameJson
@@ -2259,8 +2287,9 @@ private def sourceAttributionFailure (report : Json) : Option String := Id.run d
       | .ok (.str (.str .anonymous "Channel") s) => s.startsWith "_aux_" && s.contains "termVzero"
       | _ => false
     | return some "no finding for the vzero elaborator in Channel's namespace"
-  unless source elaborator == .null && kind elaborator == .str "source" &&
-      selection elaborator != selection channel && elaborator.getObjValD "related" == Json.arr #[] do
+  unless same (source elaborator) .null && same (kind elaborator) (.str "source") &&
+      differs (selection elaborator) (selection channel) &&
+      same (elaborator.getObjValD "related") (.arr #[]) do
     return some "the vzero elaborator, which Lean did not generate from Channel, was attributed"
   let rulesName (name : Json) : Bool :=
     match Regula.RegistryCodec.parsePrintedNameJson name with
@@ -2273,15 +2302,16 @@ private def sourceAttributionFailure (report : Json) : Option String := Id.run d
     | return some "no record of the macro_rules definition of the first syntax kind"
   let recordedEnd (range : String) : Json :=
     ((recorded.getObjValD "ranges").getObjValD range).getObjValD "end"
-  if recordedEnd "range" == recordedEnd "selectionRange" then
-    return some "Lean recorded a selection range inside the range of the macro_rules definition"
+  unless differs (recordedEnd "range") (recordedEnd "selectionRange") do
+    return some "the range and the selection range recorded for the macro_rules definition do not \
+      end at different positions"
   let some rules := diagnostics.find? fun d =>
       rulesName ((d.getObjValD "arguments").getObjValD "declaration")
     | return some "no finding for the macro_rules definition of the first syntax kind"
   let lastLine := (((rules.getObjValD "location").getObjValD "lspRange").getObjValD
     "end").getObjValD "line"
-  unless source rules == .null && kind rules == .str "source" &&
-      (rules.getObjValD "location").getObjValD "range" == selection rules &&
+  unless same (source rules) .null && same (kind rules) (.str "source") &&
+      same ((rules.getObjValD "location").getObjValD "range") (selection rules) &&
       (lastLine.getNat?.toOption.map (· + 1)) ==
         ((recordedEnd "range").getObjValD "line").getNat?.toOption do
     return some "the macro_rules definition is not located at its recorded range"

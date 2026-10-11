@@ -1,6 +1,7 @@
 import RegulaQualification.Json
 import Regula.StructuralName
 import Regula.Decision
+import RegulaCore.JsonAgreement
 
 /-! # Producer observation requirements
 
@@ -10,6 +11,7 @@ foundation fields, diagnostics, and ranges are compared, not inferred from a PAS
 The proofs concern these supplied observations, not Lean/OS authenticity. -/
 namespace RegulaQualification.Producer
 open Lean
+open Regula.JsonAgreement (Conforms)
 
 private def field (j : Json) (key : String) := j.getObjVal? key
 private def array (j : Json) (key : String) := j.getObjValAs? (Array Json) key
@@ -35,6 +37,17 @@ require the expected source fragments; this helper alone does not promise a matc
 private def beforeBytes (source marker : String) : Nat :=
   (source.splitOn marker).head!.utf8ByteSize
 
+/-- The key of the fixture's theorem `reflexive` in module `Example`, as a census lists it. -/
+def declarationKey : Json := toJson #[nameJson "Example", nameJson "reflexive"]
+
+/-- The census of an audit of the producer fixture: the module `Example` and its theorem, and no
+dependency module, execution root or history request. -/
+def censusJson : Json := Json.mkObj [
+  ("modules", toJson #[nameJson "Example"]),
+  ("dependencyModules", toJson (#[] : Array Json)), ("declarations", toJson #[declarationKey]),
+  ("executionRoots", toJson (#[] : Array Json)),
+  ("historyRequests", toJson (#[] : Array Json))]
+
 /-- Build all preserved source-producer requirements. `theoremType` is the first
 observed type shared across invocations; equality is checked, never parsed from prose. It is the
 declaration's `type`, the `repr` of its kernel type expression, which a result carries only when
@@ -45,7 +58,7 @@ def requirements (report : Json) (code : Nat) (rule mode source : String)
   let diagnostics ← array report "diagnostics"
   let ids ← diagnostics.toList.mapM (fun d => text d "id")
   let receipt ← field account "admission"
-  let key := toJson #[nameJson "Example", nameJson "reflexive"]
+  let key := declarationKey
   let required ← array receipt "required"
   let snapshots ← array (← field report "scope") "sources"
   let snapshot ← first snapshots
@@ -71,30 +84,30 @@ def requirements (report : Json) (code : Nat) (rule mode source : String)
     ⟨"exact diagnostic list", ids == (if fixed then [] else [rule])⟩,
     ⟨"exact exit", code == (if fixed then 0 else 1)⟩,
     ⟨"exact status", (← text report "status") == (if fixed then "completed" else "rejected")⟩,
-    ⟨"admission receipt complete", (← field receipt "required") == (← field receipt "admitted")⟩,
+    ⟨"admission receipt complete",
+      decide (Conforms (← field receipt "required") (← field receipt "admitted"))⟩,
     ⟨"exact mode", (← text report "mode") == mode⟩,
     ⟨"no unresolved evidence", (← array report "unresolved").isEmpty⟩,
-    ⟨"exact census", (← field account "census") == Json.mkObj [
-      ("modules", toJson #[nameJson "Example"]),
-      ("dependencyModules", toJson (#[] : Array Json)), ("declarations", toJson #[key]),
-      ("executionRoots", toJson (#[] : Array Json)),
-      ("historyRequests", toJson (#[] : Array Json))]⟩,
-    ⟨"reflexivity admitted", required.contains key⟩,
+    ⟨"exact census", decide (Conforms (← field account "census") censusJson)⟩,
+    ⟨"reflexivity admitted", required.any (decide <| Conforms · key)⟩,
     ⟨"one source snapshot", snapshots.size == 1⟩,
-    ⟨"snapshot module", (← field snapshot "module") == nameJson "Example"⟩,
+    ⟨"snapshot module", decide (Conforms (← field snapshot "module") (nameJson "Example"))⟩,
     ⟨"exact source bytes", (← text snapshot "sourceText") == source⟩,
     ⟨"snapshot filename", (System.FilePath.mk (← text snapshot "path")).fileName ==
         some "Example.lean"⟩,
     ⟨"module documentation",
-      (← field docs "modules") == toJson #[toJson #[nameJson "Example", header]]⟩,
-    ⟨"material selection", (← field docs "materialDeclarations") == toJson material⟩,
-    ⟨"declaration documentation", (← field docs "declarations") == toJson
-        (if material.isEmpty then #[] else #[toJson #[key, doc]])⟩,
+      decide (Conforms (← field docs "modules")
+        (toJson #[toJson #[nameJson "Example", header]]))⟩,
+    ⟨"material selection", decide (Conforms (← field docs "materialDeclarations")
+        (toJson material))⟩,
+    ⟨"declaration documentation", decide (Conforms (← field docs "declarations")
+        (toJson (if material.isEmpty then #[] else #[toJson #[key, doc]])))⟩,
     ⟨"one declaration", declarations.size == 1⟩,
     ⟨"no axioms", (← array declaration "axioms").isEmpty⟩,
     ⟨"safe declaration", !(← declaration.getObjValAs? Bool "isUnsafe")⟩,
     ⟨"total declaration", !(← declaration.getObjValAs? Bool "isPartial")⟩,
-    ⟨"unchanged elaborated theorem", (← field declaration "type") == theoremType⟩]
+    ⟨"unchanged elaborated theorem", decide (Conforms (← field declaration "type")
+        theoremType)⟩]
   if !fixed then
     let finding ← first diagnostics
     let location ← field finding "location"
@@ -108,30 +121,30 @@ def requirements (report : Json) (code : Nat) (rule mode source : String)
       ⟨"error severity", (← text finding "severity") == "error"⟩]
     if rule == "RG5001" then
       checks := checks ++ [
-        ⟨"exact module location", location == Json.mkObj
-            [("kind", .str "module"), ("name", nameJson "Example")]⟩,
-        ⟨"module arguments", (← field finding "arguments") == Json.mkObj
-            [("subject", .str "Example"),
+        ⟨"exact module location", decide (Conforms location (Json.mkObj
+            [("kind", .str "module"), ("name", nameJson "Example")]))⟩,
+        ⟨"module arguments", decide (Conforms (← field finding "arguments")
+            (Json.mkObj [("subject", .str "Example"),
           ("detail",
-              .str "module-documentation: add a module doc comment describing this module")]⟩]
+              .str "module-documentation: add a module doc comment describing this module")]))⟩]
     else
       let start := beforeBytes source "theorem" + "theorem".utf8ByteSize +
         beforeBytes ((source.splitOn "theorem").drop 1 |>.head!) "reflexive"
       checks := checks ++ [
         ⟨"source contains expected selection", source.contains "theorem reflexive" &&
             source.contains "@["⟩,
-        ⟨"material arguments", (← field finding "arguments") == Json.mkObj
-            [("declaration", nameJson "reflexive"), ("sourceDeclaration", .null),
+        ⟨"material arguments", decide (Conforms (← field finding "arguments")
+            (Json.mkObj [("declaration", nameJson "reflexive"), ("sourceDeclaration", .null),
           ("detail", .str "material-documentation: document the claim, assumptions and evidence at \
-            this declaration")]⟩,
+            this declaration")]))⟩,
         ⟨"location binds source", (← text location "sourceText") == source⟩,
         ⟨"location filename", (System.FilePath.mk (← text location "uri")).fileName ==
             some "Example.lean"⟩,
-        ⟨"selection byte range", (← field location "selectionRange") == Json.mkObj
-            [("startByte", toJson start), ("endByte", toJson (start + 9))]⟩,
-        ⟨"declaration byte range", (← field location "range") == Json.mkObj
-            [("startByte", toJson (beforeBytes source "@[")),
-          ("endByte", toJson (source.utf8ByteSize - 1))]⟩]
+        ⟨"selection byte range", decide (Conforms (← field location "selectionRange")
+            (Json.mkObj [("startByte", toJson start), ("endByte", toJson (start + 9))]))⟩,
+        ⟨"declaration byte range", decide (Conforms (← field location "range")
+            (Json.mkObj [("startByte", toJson (beforeBytes source "@[")),
+          ("endByte", toJson (source.utf8ByteSize - 1))]))⟩]
   return checks
 
 /-- Actual executable oracle, with fail-closed mandatory decoding. -/
@@ -181,6 +194,72 @@ theorem checked_validation_law : Regula.ExecutableContract validate (fun run =>
   ⟨⟨fun input => checked_validation.evidence input.1.1.1.1.1.1 input.1.1.1.1.1.2 input.1.1.1.1.2
     input.1.1.1.2 input.1.1.2 input.1.2 input.2⟩⟩
 
+/-- An admitted requirement list holds the census check and the theorem-type check. Each decides
+`Conforms` with `conforms`, with the received value first: the census of the report's account
+against `censusJson`, and the `type` of its first declaration against `theoremType`. -/
+theorem requirements_census_type {report : Json} {code : Nat} {rule mode source : String}
+    {fixed : Bool} {theoremType : Json} {checks : List Check}
+    (h : requirements report code rule mode source fixed theoremType = .ok checks) :
+    ∃ acc census declarations declaration type, account report = .ok acc ∧
+      acc.getObjVal? "census" = .ok census ∧
+      acc.getObjValAs? (Array Json) "declarations" = .ok declarations ∧
+      declarations[0]? = some declaration ∧ declaration.getObjVal? "type" = .ok type ∧
+      ⟨"exact census", decide (Conforms census censusJson)⟩ ∈ checks ∧
+      ⟨"unchanged elaborated theorem", decide (Conforms type theoremType)⟩ ∈ checks := by
+  unfold requirements at h
+  simp only [RegulaPolicy.Guards.bind_eq_ok] at h
+  obtain ⟨acc, hacc, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, declarations, hdecls,
+    declaration, hdecl, _, _, _, _, _, _, _, _, _, _, census, hcensus, rest⟩ := h
+  obtain ⟨_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, type, htype, rest⟩ := rest
+  have firstDeclaration : declarations[0]? = some declaration := by
+    unfold first at hdecl
+    split at hdecl
+    · rename_i value found
+      cases hdecl
+      exact found
+    · cases hdecl
+  refine ⟨acc, census, declarations, declaration, type, hacc, hcensus, hdecls, firstDeclaration,
+    htype, ?_⟩
+  split at rest
+  · simp only [RegulaPolicy.Guards.bind_eq_ok] at rest
+    obtain ⟨_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, rest⟩ := rest
+    split at rest
+    · simp only [RegulaPolicy.Guards.bind_eq_ok, RegulaPolicy.Guards.pure_eq_ok] at rest
+      obtain ⟨_, _, rfl⟩ := rest
+      exact ⟨by simp only [List.mem_append, List.mem_cons, true_or, or_true],
+        by simp only [List.mem_append, List.mem_cons, true_or, or_true]⟩
+    · simp only [RegulaPolicy.Guards.bind_eq_ok, RegulaPolicy.Guards.pure_eq_ok] at rest
+      obtain ⟨_, _, _, _, _, _, _, _, _, _, rfl⟩ := rest
+      exact ⟨by simp only [List.mem_append, List.mem_cons, true_or, or_true],
+        by simp only [List.mem_append, List.mem_cons, true_or, or_true]⟩
+  · simp only [RegulaPolicy.Guards.pure_eq_ok] at rest
+    subst rest
+    exact ⟨by simp only [List.mem_cons, true_or, or_true],
+      by simp only [List.mem_cons, true_or, or_true]⟩
+
+/-- An admitted producer report's census has search trees at each depth and agrees with
+`censusJson`. The `type` of its first declaration has search trees and agrees with
+`theoremType`. The converse is not claimed here: `validate` also requires the other checks
+(`checked_validation`). -/
+theorem validate_census_type {report : Json} {code : Nat} {rule mode source : String}
+    {fixed : Bool} {theoremType : Json}
+    (h : validate report code rule mode source fixed theoremType = .ok ()) :
+    ∃ acc census declarations declaration type, account report = .ok acc ∧
+      acc.getObjVal? "census" = .ok census ∧
+      acc.getObjValAs? (Array Json) "declarations" = .ok declarations ∧
+      declarations[0]? = some declaration ∧ declaration.getObjVal? "type" = .ok type ∧
+      Regula.JsonAgreement.Regular census ∧ Regula.JsonAgreement.Agree census censusJson ∧
+      Regula.JsonAgreement.Regular type ∧ Regula.JsonAgreement.Agree type theoremType := by
+  obtain ⟨checks, hreq, hsat⟩ := (validateDecoded_exact _).mp h
+  obtain ⟨acc, census, declarations, declaration, type, hacc, hcensus, hdecls, hfirst, htype,
+    censusMember, typeMember⟩ := requirements_census_type hreq
+  obtain ⟨censusRegular, censusAgree⟩ :=
+    of_decide_eq_true (hsat _ censusMember)
+  obtain ⟨typeRegular, typeAgree⟩ :=
+    of_decide_eq_true (hsat _ typeMember)
+  exact ⟨acc, census, declarations, declaration, type, hacc, hcensus, hdecls, hfirst, htype,
+    censusRegular, censusAgree, typeRegular, typeAgree⟩
+
 /-- Standalone executable observations, from the executable's own environment report: exact
 intended rejection, module documentation and `main` in the execution-root census. -/
 def standaloneRequirements (report : Json) (code : Nat) (mutated : Bool) : Except String
@@ -192,10 +271,11 @@ def standaloneRequirements (report : Json) (code : Nat) (mutated : Bool) : Excep
     ⟨"standalone diagnostics", ids == (if mutated then ["RG1001"] else [])⟩,
     ⟨"standalone status", (← text report "status") ==
         (if mutated then "rejected" else "completed")⟩,
-    ⟨"standalone documentation", (← array (← field account "documentation") "modules").contains
-      (toJson #[nameJson "SelftestMain", Json.mkObj [("documented", .bool true),
-        ("documentationFirst", .bool true), ("imports", toJson (#[] : Array Json))]])⟩,
-    ⟨"standalone main root", (← array (← field account "census") "executionRoots").contains
-      (toJson #[nameJson "SelftestMain", nameJson "main"])⟩]
+    ⟨"standalone documentation", (← array (← field account "documentation") "modules").any
+      (decide <| Conforms · (toJson #[nameJson "SelftestMain",
+        Json.mkObj [("documented", .bool true), ("documentationFirst", .bool true),
+          ("imports", toJson (#[] : Array Json))]]))⟩,
+    ⟨"standalone main root", (← array (← field account "census") "executionRoots").any
+      (decide <| Conforms · (toJson #[nameJson "SelftestMain", nameJson "main"]))⟩]
 
 end RegulaQualification.Producer

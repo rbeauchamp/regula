@@ -32,7 +32,7 @@ replaced by the logical value. -/
 namespace Regula.SharedExecution
 open Lean
 open Std.DTreeMap.Internal (Impl)
-open Regula.SourceTexts (Fields Cases)
+open Regula.JsonAgreement (Fields Cases)
 
 /-- The member whose value is an environment's execution account: an array of root accounts in
 the logical document and the shared form in the written one. -/

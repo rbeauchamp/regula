@@ -1,8 +1,10 @@
 import Regula.Checker.ModuleName
 import Regula.Checker.Producer
 import Regula.Checker.PolicyCodec
+import RegulaCore.JsonAgreement
 import Regula.Scratch
 import RegulaPolicy.ResultState
+import RegulaPolicy.Guards
 import Lean
 import Lake.Load.Manifest
 import Std.Sync.Mutex
@@ -551,27 +553,64 @@ def sourceWorkerRequest (stage : String) (moduleName : Name) (path : FilePath)
   Json.mkObj [("stage", .str stage), ("module", Regula.RegistryCodec.nameJson moduleName),
     ("source", .str path.toString), ("content", .str content)]
 
-/-- Versioned raw worker transport. Request equality is exact JSON-tree equality;
-this records completion data and never constructs policy acceptance. -/
+/-- The producer member of a worker packet: this checker's identity fields and the commit of its
+toolchain. -/
+def workerProducer : Json := Json.mkObj
+  (Regula.RegistryCodec.identityFields Regula.Checker.Producer.identity ++
+    [("compilerCommit", .str Lean.githash)])
+
+/-- Versioned raw worker transport. The reader admits the received request only when it conforms
+to the sent one (`readWorkerPacket`); this records completion data and never constructs policy
+acceptance. -/
 def workerPacket (request payload : Json) : Json := Json.mkObj [
-  ("schema", toJson (1 : Nat)),
-  ("producer", Json.mkObj
-      (Regula.RegistryCodec.identityFields Regula.Checker.Producer.identity ++
-          [("compilerCommit", .str Lean.githash)])),
+  ("schema", toJson (1 : Nat)), ("producer", workerProducer),
   ("request", request), ("payload", payload)]
 
 /-- The payload of a worker packet whose schema is 1 and whose producer, toolchain commit and
-request equal this checker's and `request`; otherwise an error naming the mismatch. -/
+request are this checker's and `request`; otherwise an error naming the mismatch. The received
+producer and request must have search trees as their object trees and agree with the expected
+values (`JsonAgreement.conforms`, `readWorkerPacket_eq_ok_iff`), so a received object tree that
+gives one name twice and lacks another is refused. -/
 def readWorkerPacket (request packet : Json) : Except String Json := do
   Regula.Checker.PolicyCodec.exactFields packet ["schema", "producer", "request", "payload"]
   unless (← packet.getObjValAs? Nat "schema") == 1 do throw "unsupported worker schema"
-  unless (← packet.getObjVal? "producer") ==
-      Json.mkObj
-          (Regula.RegistryCodec.identityFields Regula.Checker.Producer.identity ++
-              [("compilerCommit", .str Lean.githash)]) do
+  unless JsonAgreement.conforms (← packet.getObjVal? "producer") workerProducer do
     throw "worker producer or toolchain mismatch"
-  unless (← packet.getObjVal? "request") == request do throw "worker request binding mismatch"
+  unless JsonAgreement.conforms (← packet.getObjVal? "request") request do
+    throw "worker request binding mismatch"
   packet.getObjVal? "payload"
+
+/-- The reader of a worker packet returns a payload exactly when the packet has the four members
+of a packet and no other, its schema is 1, its producer and its request have search trees and
+agree with this checker's producer and with `request`, and `payload` is its member `payload`. -/
+theorem readWorkerPacket_eq_ok_iff (request packet payload : Json) :
+    readWorkerPacket request packet = .ok payload ↔
+      Regula.Checker.PolicyCodec.ExactFields packet ["schema", "producer", "request", "payload"] ∧
+      packet.getObjValAs? Nat "schema" = .ok 1 ∧
+      (∃ producer, packet.getObjVal? "producer" = .ok producer ∧
+        JsonAgreement.Regular producer ∧ JsonAgreement.Agree producer workerProducer) ∧
+      (∃ received, packet.getObjVal? "request" = .ok received ∧
+        JsonAgreement.Regular received ∧ JsonAgreement.Agree received request) ∧
+      packet.getObjVal? "payload" = .ok payload := by
+  rw [← Regula.Checker.PolicyCodec.exactFields_iff _ _ (by decide)]
+  unfold readWorkerPacket
+  cases fields : Regula.Checker.PolicyCodec.exactFields packet
+      ["schema", "producer", "request", "payload"] (by decide) with
+  | error message => simp [Except.isOk, Except.toBool]
+  | ok done =>
+    simp only [RegulaPolicy.Guards.bind_eq_ok, RegulaPolicy.Guards.throw_bind,
+      RegulaPolicy.Guards.ite_throw_eq_ok, JsonAgreement.conforms_iff, Except.isOk, Except.toBool,
+      true_and]
+    constructor
+    · rintro ⟨-, schema, readSchema, one, producer, readProducer, producerOk, received, readRequest,
+        requestOk, readPayload⟩
+      obtain rfl : schema = 1 := beq_iff_eq.mp one
+      exact ⟨readSchema, ⟨producer, readProducer, producerOk⟩, ⟨received, readRequest, requestOk⟩,
+        readPayload⟩
+    · rintro ⟨readSchema, ⟨producer, readProducer, producerOk⟩, ⟨received, readRequest, requestOk⟩,
+        readPayload⟩
+      exact ⟨⟨⟩, 1, readSchema, rfl, producer, readProducer, producerOk, received, readRequest,
+        requestOk, readPayload⟩
 
 /-- Indexed raw results retain multiplicity before admission into the fixed key set. -/
 def indexedWorkerPayload {α : Type} [ToJson α] (values : Array α) : Json :=

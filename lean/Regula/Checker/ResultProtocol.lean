@@ -368,15 +368,19 @@ which includes the finding's `remedy` and `text`); every entry of `stages` and `
 is a stage, and `stages` are the required stages of the result's `mode` (`runStages`); a result
 with a `mode` records its `request`, whose documentation stages are exactly those of a
 `projectWithDocs` request;
-`stagesCompleted`, `complete`, `stagesNotRun` and `rules` equal their derivation by the writer's
-own `guidanceFields` from the status, those stages and the diagnostics
-(`guidanceFields_recorded`), so no stage a finding blocks is reported as run and a `completed`
-result reports every stage as run; and an `incomplete` result without an incomplete finding
-reports a stage not run, because only a stage that did not complete can have left it
-incomplete. This is consistency against writer regressions and omissions, not authenticity: a
-report deliberately edited to be self-consistent, such as a rewritten `request.kind`, passes. -/
+`stagesCompleted`, `complete`, `stagesNotRun` and `rules` have search trees and agree with their
+derivation by the writer's own `guidanceFields` (`JsonAgreement.conforms`) from the status,
+those stages and the diagnostics, which the writer's own members reproduce
+(`guidanceFields_recorded`). So a result whose status is not `completed` reports no stage that a
+finding blocks as run, and a `completed` result reports every stage as run, whatever its findings
+(`completedStages` reads no finding for it, https://github.com/rbeauchamp/regula/issues/364); and
+an `incomplete` result without an incomplete finding reports a stage not run, because only a stage
+that did not complete can have left it incomplete. This is consistency against writer regressions
+and omissions, not authenticity: a report deliberately edited to be self-consistent, such as a
+rewritten `request.kind`, passes. -/
 def admitGuidance (j : Json) : Except String Unit := do
-  unless (j.getObjVal? "schemaVersion").toOption == some (toJson schemaVersion) do
+  unless (j.getObjVal? "schemaVersion").toOption.any
+      (JsonAgreement.conforms · (toJson schemaVersion)) do
     throw "unsupported result schema"
   let findings := (← (← (← j.getObjVal? "diagnostics").getArr?).mapM
     DiagnosticCodec.parseDiagnostic).toList
@@ -396,7 +400,7 @@ def admitGuidance (j : Json) : Except String Unit := do
       throw "stages are not the required stages of the result's request"
   let status ← (← j.getObjVal? "status").getStr?
   for (key, value) in guidanceFields (acceptedStatus status) required completed findings do
-    unless (← j.getObjVal? key) == value do throw s!"noncanonical result {key}"
+    unless JsonAgreement.conforms (← j.getObjVal? key) value do throw s!"noncanonical result {key}"
   if status == "incomplete" && !findings.any (·.2.impact == .incomplete) &&
       (notRun required completed).isEmpty then
     throw "incomplete result without an incomplete finding reports every stage as run"
