@@ -65,7 +65,7 @@ def scrubbedLeanPathEnv : Array (String × Option String) :=
 /-- Run `cmd` with `args` in directory `repo`, with the environment changes `env`, wait for it
 to finish and return its exit code and captured output. Throws without starting it when `cmd`
 spells a toolchain program's name (`Regula.Toolchain.spellsProgram`), or when `cmd` is a `lake`
-and any argument spells one (`Regula.Toolchain.refuseBareName`,
+and the program `lake env` starts spells one (`Regula.Toolchain.refuseBareName`,
 `Regula.Toolchain.bareName?_eq_none_iff`). -/
 def runProcess (repo : FilePath) (cmd : String) (args : Array String)
     (env : Array (String × Option String) := #[]) : IO ProcessResult := do
@@ -78,7 +78,7 @@ def toolchainProgram (name : String) : IO String :=
   return (← Regula.Toolchain.program name).toString
 
 /-- `runProcess` of the toolchain's `lake` (`toolchainProgram`) in directory `dir`. Throws without
-starting it when the child would see a toolchain program override that is not an absolute path
+starting it when the child would run a toolchain program override that is not an absolute path
 (`Regula.Toolchain.refuseRelativeOverrides`). The child gets `Regula.Toolchain.lakeChildEnv`, then
 `env`. -/
 def runLake (dir : FilePath) (args : Array String) (env : Array (String × Option String) := #[]) :
@@ -126,7 +126,8 @@ def showingStream (target : IO.FS.Stream) (display : String → Bool) : IO IO.FS
 /-- `runProcess`, also printing to standard output each line of the child's standard output that
 `display` selects (with its newline), as the child writes it. The captured output is the
 child's complete output. Like `runProcess`, it throws without starting it when `cmd` spells a
-toolchain program's name, or when `cmd` is a `lake` and any argument spells one. -/
+toolchain program's name, or when `cmd` is a `lake` and the program `lake env` starts spells
+one. -/
 def runProcessShowing (repo : FilePath) (cmd : String) (args : Array String)
     (env : Array (String × Option String)) (display : String → Bool) : IO ProcessResult := do
   Regula.Toolchain.refuseBareName cmd args
@@ -255,8 +256,8 @@ def repoRoot : IO FilePath := do
 
 /-- Initialize dynamic module lookup from Lake's `LEAN_PATH`. Compiled checker
 executables do not receive the `lean` driver's search-path initialization. The toolchain's
-library comes from `Regula.CompilerObservation.toolchainRoot`, so this throws unless Lake set an
-absolute `LEAN_SYSROOT`. -/
+library comes from `Regula.CompilerObservation.toolchainRoot`, so in a program that is not a
+`lean` this throws unless Lake set an absolute `LEAN_SYSROOT`. -/
 def initializeLeanSearchPath : IO Unit := do
   Lean.initSearchPath (← Regula.CompilerObservation.toolchainRoot)
 

@@ -89,7 +89,7 @@ def allowed : List Allowed := [
   ⟨"Regula.Checker.Snapshot", "Regula.Checker.Snapshot.statusBytes",
     "`git`, found on `PATH`; not a toolchain program"⟩,
   ⟨"Regula.CompilerObservation", "Regula.CompilerObservation.identifiedRoot",
-    "the `bin/lean` of the toolchain root Lake gives (`toolchainRoot`), by its path"⟩,
+    "the `bin/lean` of the toolchain root (`toolchainRoot`), by its path"⟩,
   ⟨"Regula.CompilerProbe", "Regula.Toolchain.selectedLean",
     "`elan`, found on `PATH`: `doctor` reports the compiler the adopter's Elan selects; Elan is \
       not a program of the toolchain"⟩,
