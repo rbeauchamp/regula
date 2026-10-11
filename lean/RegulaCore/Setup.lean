@@ -16,6 +16,10 @@ commands execute over what they observe of a project.
   what is missing, and their effect on the observation.
 - `plan_idempotent`: after `init` applies its plan, the plan of the result is empty, so a second
   run writes nothing.
+- `globEdits`, `unglobbed_run`: `init` gives each library that sets no `globs` and leaves out a
+  module a claimed module imports the glob `Lakefile.globsSetting`, the one `doctor` asks for;
+  afterwards no such library is left. A library with `globs` of its own keeps them, and its
+  left-out modules stay an issue `init` does not fix.
 - `Settled`, `plan_eq_nil_iff_settled`, `issues_unfixable_iff_settled`, `plan_eq_nil_iff`: the plan
   is empty exactly when no fixable issue remains.
 - `issues_run`: applying the plan removes exactly the fixable issues and adds none.
@@ -66,7 +70,10 @@ version and commit reported by the compiler of the toolchain `elan toolchain lis
 project's `lean-toolchain` (a trusted listing and self-report,
 independent of the compiler running `regula`), and the
 modules below a library root that no library includes, split by whether a claimed module
-imports them as Lean's import-header parser reads the package's sources (not a build). The command writes each edit into the lakefile, the
+imports them as Lean's import-header parser reads the package's sources (not a build), and the
+imported ones by whether Lake reports `globs` of the library's own. `apply` of a glob removes
+only that library's entries: the observation counts as imported what a claimed module imports
+once every glob of the plan is written. The command writes each edit into the lakefile, the
 manifest and the guidance files, then observes the project again and refuses unless the new plan
 is empty and each claimed target of both observations, matched by kind and name, has the same
 `Observation.arguedBy` (`arguedBy_run`); that the file edits realize `apply` is that runtime
@@ -198,10 +205,15 @@ structure Observation where
   skills : List (String × Bool)
   /-- The compiler the project's own `lean-toolchain` selects, whichever compiler runs `regula`. -/
   pin : Pin
-  /-- Each root `lean_lib` with its roots and the modules below a root, such as `Foo.Basic` for
-  root `Foo`, that no root library includes and that a claimed module imports, directly or
-  through other modules of the package: the audit finds them outside every library. -/
+  /-- Each root `lean_lib` that sets `globs` of its own with its roots and the modules below a
+  root, such as `Foo.Basic` for root `Foo`, that no root library includes and that a claimed
+  module imports, directly or through other modules of the package, once each library of
+  `unglobbed` includes every module below its roots: the audit finds them outside every
+  library. -/
   uncovered : List (String × List String × List String)
+  /-- The same for each root `lean_lib` that sets no `globs` (Lake's default, its roots alone):
+  `init` gives it the glob that includes every module below its roots. -/
+  unglobbed : List (String × List String × List String)
   /-- The same for the modules below a root that no root library includes and no claimed module
   imports: the audit neither inspects them nor fails, so `doctor` only notes them. -/
   unimported : List (String × List String × List String)
@@ -285,11 +297,16 @@ inductive Issue where
   /-- The project's `lean-toolchain`, `selector`, selects no installed compiler that reports its
   identity (`reason`), so it cannot be compared with the compiler this Regula revision declares. -/
   | toolchainUnresolved (selector reason : String)
-  /-- `lean_lib` `library`, with roots `roots`, includes none of `modules`, which lie below them. -/
+  /-- `lean_lib` `library`, with roots `roots` and `globs` of its own, includes none of `modules`,
+  which lie below them. -/
   | uncovered (library : String) (roots modules : List String)
+  /-- `lean_lib` `library`, with roots `roots` and no `globs`, includes none of `modules`, which
+  lie below them (the glob `init` adds includes them). -/
+  | unglobbed (library : String) (roots modules : List String)
   deriving DecidableEq, Repr
 
-/-- Whether `init` writes the fix. It never replaces another lint driver. -/
+/-- Whether `init` writes the fix. It never replaces another lint driver, nor changes the `globs`
+a library sets. -/
 def Issue.fixable : Issue → Bool
   | .driverUnset => true
   | .driverOther _ => false
@@ -303,6 +320,7 @@ def Issue.fixable : Issue → Bool
   | .toolchain _ _ _ => false
   | .toolchainUnresolved _ _ => false
   | .uncovered _ _ _ => false
+  | .unglobbed _ _ _ => true
 
 /-- `init` writes the starter manifest: there is none, and the package has a library for it to
 claim. -/
@@ -322,6 +340,10 @@ def driverIssues (o : Observation) : List Issue :=
 /-- The issue of one library entry of `Observation.uncovered`. -/
 def uncoveredIssue (entry : String × List String × List String) : Issue :=
   .uncovered entry.1 entry.2.1 entry.2.2
+
+/-- The issue of one library entry of `Observation.unglobbed`. -/
+def unglobbedIssue (entry : String × List String × List String) : Issue :=
+  .unglobbed entry.1 entry.2.1 entry.2.2
 
 /-- The option issues: the options the package must add, then each claimed target's own. -/
 def optionIssues (o : Observation) : List Issue :=
@@ -396,6 +418,7 @@ def issues (o : Observation) : List Issue :=
   (if o.guided then [] else [.guidanceMissing o.agentsFile o.skillFile]) ++
   (staleSkills o).map .skillStale ++
   toolchainIssues o ++
+  o.unglobbed.map unglobbedIssue ++
   o.uncovered.map uncoveredIssue
 
 /-- One edit `init` writes. -/
@@ -414,6 +437,9 @@ inductive Edit where
   | agentsSection (file : String)
   /-- Write the installed skill at `path`. -/
   | skill (path : String)
+  /-- Give `lean_lib` `library`, which sets no `globs`, the glob that includes every module below
+  its roots `roots`. -/
+  | globs (library : String) (roots : List String)
   deriving DecidableEq, Repr
 
 /-- The guidance edit when the project has none: the preference `g`. -/
@@ -430,13 +456,18 @@ def optionEdits (o : Observation) : List Edit :=
   if o.targets.all (fun t => targetMissing o t = []) then []
   else [.targetOptions (o.targets.map fun t => { t with options := targetMissing o t })]
 
+/-- The glob edits: one for each library of `Observation.unglobbed`. -/
+def globEdits (o : Observation) : List Edit :=
+  o.unglobbed.map fun e => .globs e.1 e.2.1
+
 /-- The edits that fix `o`'s fixable issues, each writing only what is missing. -/
 def plan (g : Guidance) (o : Observation) : List Edit :=
   (if o.driver = "" then [.driver] else []) ++
   optionEdits o ++
   (if o.starter then [.manifest] else []) ++
   guidanceEdits g o ++
-  (staleSkills o).map .skill
+  (staleSkills o).map .skill ++
+  globEdits o
 
 /-- Record that the skill file at `path` equals the installed skill. -/
 def markCurrent (path : String) (skills : List (String × Bool)) : List (String × Bool) :=
@@ -455,6 +486,9 @@ def apply (o : Observation) : Edit → Observation
   | .manifest => { o with manifest := true }
   | .agentsSection _ => { o with agentsSection := true }
   | .skill path => { o with skills := markCurrent path o.skills }
+  | .globs library _ => { o with
+      unglobbed := o.unglobbed.filter (·.1 != library)
+      unimported := o.unimported.filter (·.1 != library) }
 
 /-- The observation after applying `edits` in order. -/
 def run (o : Observation) (edits : List Edit) : Observation := edits.foldl apply o
@@ -480,6 +514,11 @@ def Edit.added? : Edit → Option (List Target)
 def Edit.writesSection : Edit → Bool
   | .agentsSection _ => true
   | _ => false
+
+/-- The library an edit gives a glob. -/
+def Edit.library? : Edit → Option String
+  | .globs library _ => some library
+  | _ => none
 
 /-- Mark each of `paths` current, in order. -/
 def markAll (skills : List (String × Bool)) (paths : List String) : List (String × Bool) :=
@@ -573,6 +612,23 @@ theorem run_skills (o : Observation) (es : List Edit) :
     simp only [run, List.foldl_cons] at ih ⊢
     rw [ih]
     cases e <;> simp [apply, Edit.skillFile?, markAll, List.filterMap_cons]
+
+theorem run_unglobbed (o : Observation) (es : List Edit) :
+    (run o es).unglobbed =
+      o.unglobbed.filter fun e => !(es.filterMap Edit.library?).contains e.1 := by
+  induction es generalizing o with
+  | nil => exact (List.filter_eq_self.mpr fun _ _ => rfl).symm
+  | cons e es ih =>
+    simp only [run, List.foldl_cons] at ih ⊢
+    rw [ih]
+    cases e
+    case globs l rs =>
+      rw [List.filterMap_cons_some (show Edit.library? (.globs l rs) = some l from rfl)]
+      simp only [apply, List.filter_filter]
+      refine List.filter_congr fun x _ => ?_
+      rw [List.contains_cons, Bool.not_or, Bool.and_comm]
+      rfl
+    all_goals simp [apply, Edit.library?, List.filterMap_cons]
 
 /-! ## Skill files -/
 
@@ -785,10 +841,27 @@ theorem skills_added (paths : List String) :
   obtain ⟨p, -, rfl⟩ := List.mem_map.mp he
   rfl
 
+theorem globEdits_entries (o : Observation) : (globEdits o).flatMap Edit.entries = [] := by
+  simp [globEdits, List.flatMap_map, Edit.entries]
+
+theorem driver_not_mem_globEdits (o : Observation) : Edit.driver ∉ globEdits o := by
+  simp [globEdits]
+
+theorem manifest_not_mem_globEdits (o : Observation) : Edit.manifest ∉ globEdits o := by
+  simp [globEdits]
+
+theorem globEdits_skillFiles (o : Observation) :
+    (globEdits o).filterMap Edit.skillFile? = [] := by
+  simp [globEdits, List.filterMap_map, Function.comp_def, Edit.skillFile?]
+
+theorem globEdits_added (o : Observation) : (globEdits o).filterMap Edit.added? = [] := by
+  simp [globEdits, List.filterMap_map, Function.comp_def, Edit.added?]
+
 /-- The plan's package entries: the missing ones. -/
 theorem plan_entries (g : Guidance) (o : Observation) :
     (plan g o).flatMap Edit.entries = missing o := by
-  simp only [plan, List.flatMap_append, guidanceEdits_entries, optionEdits_entries]
+  simp only [plan, List.flatMap_append, guidanceEdits_entries, optionEdits_entries,
+    globEdits_entries]
   by_cases hd : o.driver = "" <;> cases hf : o.starter <;>
     simp [hd, Edit.entries, List.flatMap_map]
 
@@ -796,30 +869,48 @@ theorem plan_driver_mem (g : Guidance) (o : Observation) :
     Edit.driver ∈ plan g o ↔ o.driver = "" := by
   have h1 := driver_not_mem_guidanceEdits g o
   have h2 := driver_not_mem_optionEdits o
+  have h3 := driver_not_mem_globEdits o
   by_cases hd : o.driver = "" <;> cases hf : o.starter <;>
-    simp [plan, hd, hf, h1, h2]
+    simp [plan, hd, hf, h1, h2, h3]
 
 theorem plan_manifest_mem (g : Guidance) (o : Observation) :
     Edit.manifest ∈ plan g o ↔ o.starter = true := by
   have h1 := manifest_not_mem_guidanceEdits g o
   have h2 := manifest_not_mem_optionEdits o
+  have h3 := manifest_not_mem_globEdits o
   by_cases hd : o.driver = "" <;> cases hf : o.starter <;>
-    simp [plan, hd, hf, h1, h2]
+    simp [plan, hd, hf, h1, h2, h3]
 
 theorem plan_skillFiles (g : Guidance) (o : Observation) :
     (plan g o).filterMap Edit.skillFile? =
       (if o.guided then [] else match g with | .agentsMd => [] | .skill => [o.skillFile]) ++
         staleSkills o := by
   simp only [plan, List.filterMap_append, guidanceEdits_skillFiles, optionEdits_skillFiles,
-    List.filterMap_map]
+    globEdits_skillFiles, List.filterMap_map, List.append_nil]
   by_cases hd : o.driver = "" <;> cases hf : o.starter <;>
     simp [hd, Edit.skillFile?, Function.comp_def, List.filterMap_cons]
 
 theorem plan_added (g : Guidance) (o : Observation) :
     (plan g o).filterMap Edit.added? = (optionEdits o).filterMap Edit.added? := by
-  simp only [plan, List.filterMap_append, guidanceEdits_added, skills_added]
+  simp only [plan, List.filterMap_append, guidanceEdits_added, skills_added, globEdits_added,
+    List.append_nil]
   by_cases hd : o.driver = "" <;> cases hf : o.starter <;>
     simp [hd, Edit.added?, List.filterMap_cons]
+
+/-- The libraries the plan gives a glob: those of `Observation.unglobbed`. -/
+theorem plan_libraries (g : Guidance) (o : Observation) :
+    (plan g o).filterMap Edit.library? = o.unglobbed.map (·.1) := by
+  have hg : (guidanceEdits g o).filterMap Edit.library? = [] := by
+    unfold guidanceEdits
+    split
+    · rfl
+    · cases g <;> rfl
+  have ho : (optionEdits o).filterMap Edit.library? = [] := by
+    unfold optionEdits
+    split <;> split <;> simp [Edit.library?]
+  simp only [plan, List.filterMap_append, hg, ho, globEdits, List.filterMap_map]
+  by_cases hd : o.driver = "" <;> cases hf : o.starter <;>
+    simp [hd, Edit.library?, Function.comp_def, List.filterMap_cons]
 
 /-! ## Main theorems -/
 
@@ -1084,6 +1175,14 @@ theorem starter_run (g : Guidance) (o : Observation) : (run o (plan g o)).starte
   · have h : Edit.manifest ∈ plan g o := (plan_manifest_mem g o).mpr hs
     simp [h]
 
+/-- After the plan, no library without `globs` leaves out a module that a claimed module
+imports. -/
+theorem unglobbed_run (g : Guidance) (o : Observation) : (run o (plan g o)).unglobbed = [] := by
+  rw [run_unglobbed, plan_libraries, List.filter_eq_nil_iff]
+  intro e he
+  simp
+  exact ⟨e.2.1, e.2.2, he⟩
+
 /-- After `init` applies its plan, the plan of the result is empty: a second run writes
 nothing. -/
 theorem plan_idempotent (g : Guidance) (o : Observation) : plan g (run o (plan g o)) = [] := by
@@ -1092,8 +1191,9 @@ theorem plan_idempotent (g : Guidance) (o : Observation) : plan g (run o (plan g
   have h3 := starter_run g o
   have h4 := guided_run g o
   have h5 := staleSkills_run g o
-  generalize run o (plan g o) = r at h1 h2 h3 h4 h5
-  simp [plan, guidanceEdits, h1, h2, h3, h4, h5]
+  have h6 := unglobbed_run g o
+  generalize run o (plan g o) = r at h1 h2 h3 h4 h5 h6
+  simp [plan, guidanceEdits, globEdits, h1, h2, h3, h4, h5, h6]
 
 theorem guidanceEdits_eq_nil_iff (g : Guidance) (o : Observation) :
     guidanceEdits g o = [] ↔ o.guided = true := by
@@ -1103,12 +1203,12 @@ theorem guidanceEdits_eq_nil_iff (g : Guidance) (o : Observation) :
 /-- The conditions under which nothing is left for `init` to write. -/
 def Settled (o : Observation) : Prop :=
   o.driver ≠ "" ∧ optionEdits o = [] ∧ o.starter = false ∧ o.guided = true ∧
-    staleSkills o = []
+    staleSkills o = [] ∧ o.unglobbed = []
 
 /-- The plan is empty exactly when the observation is settled. -/
 theorem plan_eq_nil_iff_settled (g : Guidance) (o : Observation) :
     plan g o = [] ↔ Settled o := by
-  unfold plan Settled
+  unfold plan Settled globEdits
   rw [← guidanceEdits_eq_nil_iff g o]
   by_cases hd : o.driver = "" <;> cases hf : o.starter <;> simp_all
 
@@ -1157,7 +1257,7 @@ theorem issues_unfixable_iff_settled (o : Observation) :
     (∀ i ∈ issues o, i.fixable = false) ↔ Settled o := by
   constructor
   · intro h
-    refine ⟨fun hd => ?_, ?_, ?_, ?_, ?_⟩
+    refine ⟨fun hd => ?_, ?_, ?_, ?_, ?_, ?_⟩
     · have := h .driverUnset (by simp [issues, driverIssues, hd])
       exact Bool.noConfusion this
     · rw [← optionIssues_eq_nil_iff, List.eq_nil_iff_forall_not_mem]
@@ -1177,7 +1277,13 @@ theorem issues_unfixable_iff_settled (o : Observation) :
       intro p hp
       have := h (.skillStale p) (by simp [issues, hp])
       exact Bool.noConfusion this
-  · rintro ⟨hd, hm, hf, hg, hs⟩ i hi
+    · rw [List.eq_nil_iff_forall_not_mem]
+      intro e he
+      have := h (unglobbedIssue e) (by
+        unfold issues
+        exact List.mem_append_left _ (List.mem_append_right _ (List.mem_map_of_mem he)))
+      exact Bool.noConfusion this
+  · rintro ⟨hd, hm, hf, hg, hs, hu⟩ i hi
     have hopt : optionIssues o = [] := (optionIssues_eq_nil_iff o).mpr hm
     have hdrv : ∀ j ∈ driverIssues o, j.fixable = false := by
       intro j hj
@@ -1200,7 +1306,7 @@ theorem issues_unfixable_iff_settled (o : Observation) :
       intro j hj
       obtain ⟨x, -, rfl⟩ := List.mem_map.mp hj
       rfl
-    simp only [issues, hopt, hf, hg, hs, Bool.false_eq_true, ↓reduceIte, List.map_nil,
+    simp only [issues, hopt, hf, hg, hs, hu, Bool.false_eq_true, ↓reduceIte, List.map_nil,
       List.append_nil, List.mem_append] at hi
     rcases hi with (((hi | hi) | hi) | hi) | hi
     · exact hdrv i hi
@@ -1223,6 +1329,7 @@ theorem issues_run (g : Guidance) (o : Observation) :
   have h3 := starter_run g o
   have h4 := guided_run g o
   have h5 := staleSkills_run g o
+  have h7 := unglobbed_run g o
   have h8 := (run_toolchain o (plan g o)).2
   have h6 : toolchainIssues (run o (plan g o)) = toolchainIssues o := by
     unfold toolchainIssues
@@ -1254,9 +1361,14 @@ theorem issues_run (g : Guidance) (o : Observation) :
   have hl : (if o.libraries = true then [] else [Issue.noLibrary]).filter (!·.fixable) =
       if o.libraries = true then [] else [Issue.noLibrary] := by
     split <;> rfl
-  generalize run o (plan g o) = r at h1 h2 h3 h4 h5 h6 h8 h9 h10
-  simp only [issues, h2, h3, h4, h5, h6, h8, h9, h10, Bool.false_eq_true, ↓reduceIte,
-    List.map_nil, List.append_nil, List.filter_append, hs, ht, hu, hl, hopt, ha]
+  have hug : (o.unglobbed.map unglobbedIssue).filter (!·.fixable) = [] := by
+    rw [List.filter_eq_nil_iff]
+    intro j hj
+    obtain ⟨x, -, rfl⟩ := List.mem_map.mp hj
+    simp [unglobbedIssue, Issue.fixable]
+  generalize run o (plan g o) = r at h1 h2 h3 h4 h5 h6 h7 h8 h9 h10
+  simp only [issues, h2, h3, h4, h5, h6, h7, h8, h9, h10, Bool.false_eq_true, ↓reduceIte,
+    List.map_nil, List.append_nil, List.filter_append, hs, ht, hu, hl, hopt, ha, hug]
   have hf : (if o.starter = true then [Issue.manifestMissing] else []).filter
       (!·.fixable) = [] := by split <;> rfl
   have hg : (if o.guided = true then []
@@ -1319,13 +1431,18 @@ def tomlName (name : String) : String :=
   | .anonymous => name
   | n => n.toString (escape := false)
 
-/-- The glob setting that makes library `l` include every module below its roots `rs`. -/
-def Lakefile.globs (f : Lakefile) (l : String) (rs : List String) : String :=
-  match f with
-  | .toml => "add `globs = [" ++ ", ".intercalate (rs.flatMap fun r => [r.quote, (r ++ ".+").quote]) ++
-      "]` to the `[[lean_lib]]` table named \"" ++ tomlName l ++ "\""
-  | .lean => "add ``globs := #[" ++ ", ".intercalate (rs.map fun r => ".andSubmodules `" ++ r) ++
-      "]`` to `lean_lib " ++ l ++ "`"
+/-- The `globs` setting that makes a library with roots `rs` include every module below them, as
+each format writes it: the text `doctor` asks for and `init` writes. -/
+def Lakefile.globsSetting : Lakefile → List String → String
+  | .toml, rs => "globs = [" ++
+      ", ".intercalate (rs.flatMap fun r => [r.quote, (r ++ ".+").quote]) ++ "]"
+  | .lean, rs => "globs := #[" ++ ", ".intercalate (rs.map fun r => ".andSubmodules `" ++ r) ++ "]"
+
+/-- `globsSetting` as a code span: the `lakefile.lean` setting contains a backtick, so it takes
+two. -/
+def Lakefile.globsCode (f : Lakefile) (rs : List String) : String :=
+  let fence := match f with | .toml => "`" | .lean => "``"
+  fence ++ f.globsSetting rs ++ fence
 
 /-- Where options go in each format. -/
 def Lakefile.optionsPlace : Lakefile → String
@@ -1338,6 +1455,10 @@ def Lakefile.target (f : Lakefile) (exe : Bool) (name : String) : String :=
   match f with
   | .toml => "the `[[" ++ kind ++ "]]` table named \"" ++ tomlName name ++ "\""
   | .lean => "`" ++ kind ++ " " ++ name ++ "`"
+
+/-- The phrase that adds the glob of library `l` with roots `rs` (`globsSetting`). -/
+def Lakefile.globs (f : Lakefile) (l : String) (rs : List String) : String :=
+  "add " ++ f.globsCode rs ++ " to " ++ f.target false l
 
 /-- A library as each format declares it. -/
 def Lakefile.library : Lakefile → String
@@ -1437,10 +1558,10 @@ def Issue.message (f : Lakefile) : Issue → String
           ", selects no installed compiler that reports its identity") ++
       ", so its compiler cannot be compared with the Lean " ++ RegulaPolicy.Compiler.version ++
       " (" ++ RegulaPolicy.Compiler.commit ++ ") this Regula revision supports: " ++ r
-  | .uncovered l _ ms => "setup [" ++ f.name ++ "]: lean_lib `" ++ l ++ "` does not include " ++
-      moduleCount ms ++ " below its roots, but a claimed module imports " ++ pronoun ms ++
-      ", so `lake lint` finds " ++ pronoun ms ++ " outside every library and fails:\n" ++
-      moduleLines ms
+  | .uncovered l _ ms | .unglobbed l _ ms => "setup [" ++ f.name ++ "]: lean_lib `" ++ l ++
+      "` does not include " ++ moduleCount ms ++ " below its roots, but a claimed module \
+      imports " ++ pronoun ms ++ ", so `lake lint` finds " ++ pronoun ms ++ " outside every \
+      library and fails:\n" ++ moduleLines ms
 
 /-- The fix line of an issue's finding. -/
 def Issue.fix (f : Lakefile) : Issue → String
@@ -1477,9 +1598,13 @@ def Issue.fix (f : Lakefile) : Issue → String
   | .toolchainUnresolved _ _ => "  fix: install or link the supported compiler, then set \
       lean-toolchain to its exact installed name; `doctor` resolves the pin among the \
       toolchains `elan toolchain list` names and installs nothing"
-  | .uncovered l rs ms => "  fix: " ++ f.globs l rs ++ ", or remove the " ++
-      (if ms.length == 1 then "import" else "imports") ++ " (`init` never changes a library's \
-      modules)"
+  | .uncovered l rs ms => "  fix: include " ++ pronoun ms ++ " in the `globs` of " ++
+      f.target false l ++ ", for example with " ++ f.globsCode rs ++ ", or remove the " ++
+      (if ms.length == 1 then "import" else "imports") ++ " (`init` never changes the `globs` a \
+      library sets)"
+  | .unglobbed l rs ms => "  fix: " ++ f.globs l rs ++ ", or run `lake exe regula init`, which \
+      adds it because the library sets no `globs`, or remove the " ++
+      (if ms.length == 1 then "import" else "imports")
 
 /-- The note `doctor` prints, without failing, for one library entry of
 `Observation.unimported`: what the library leaves out, then both remedies. -/
@@ -1502,5 +1627,7 @@ def Edit.summary (f : Lakefile) : Edit → String
   | .manifest => "a starter foundation_manifest.json (review each claim and rationale)"
   | .agentsSection a => "the `" ++ agentsHeading ++ "` section in " ++ a
   | .skill p => p ++ ", the installed Regula's skill"
+  | .globs l rs => f.globsCode rs ++ " in " ++ f.target false l ++ " of " ++ f.name ++
+      ", so the library includes every module below its roots"
 
 end Regula.Setup

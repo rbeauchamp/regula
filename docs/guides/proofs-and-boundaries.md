@@ -3673,7 +3673,11 @@ target's own configuration (`run_plan_targets`), so none reaches an excluded tar
 some claimed target's `-D` sets likewise goes only into the configuration of each target that
 builds without it; and `run_options_prefix` and `withAdded_prefix`, the options and extra `lean`
 arguments the package and each claimed target already give are kept. An edit adds a missing
-piece and has no form that replaces a lint driver or an option value. The starter manifest is
+piece and has no form that replaces a lint driver, an option value or a library's `globs`.
+`unglobbed_run` proves that after the plan, no library without `globs` leaves out a module that
+a claimed module imports. The plan gives each such library the glob that `doctor` asks for, and
+one definition, `Lakefile.globsSetting`, gives that glob to the two. A library with its own
+`globs` keeps its left-out modules, as an issue that `init` does not fix. The starter manifest is
 planned exactly when there is no manifest and the package has a `lean_lib` for it to claim
 (`plan_manifest_mem`); a package with none has a setup issue `init` does not fix.
 
@@ -3698,7 +3702,11 @@ library includes is a failing setup issue only when a claimed module (of a libra
 the manifest does not exclude) reaches it by import through the package's modules, which the
 audit rejects as outside every library; any other such module is a `note` that does not count
 toward `doctor`'s exit status. That reachability is read from the sources' import headers, not
-from a build. Each such finding states how many modules the library leaves out and names at most
+from a build. It also counts as claimed the modules below the roots of each claimed library that
+gets a glob. `observe` computes that fixed point, so it counts a module that only they import
+before `init` writes the glob. A library sets no `globs` when Lake reports its globs as its roots
+alone, which is the default of Lake. A lakefile that writes that value as a `globs` field is
+refused, with the setting to write by hand. Each such finding states how many modules the library leaves out and names at most
 `shownModules` of them, wrapped (`moduleLines`, which prints `moduleSummary`'s names grouped by
 `wrapFrom`): `moduleSummary_complete` proves those names are a prefix of the modules and the
 count is exactly the rest, and `wrapFrom_flatten` that grouping keeps each name, in order; that
@@ -3762,7 +3770,11 @@ successfully without printing the running compiler's identity is refused by the 
 comparison, and the same package then loads with the inherited environment. Neither child is
 a compiler. A compiler the policy refuses, an in-process load by a checker executable and
 `doctor`'s resolution of a pin need a second installed compiler or current observations and
-have no retained control.
+have no retained control. The `lint-driver` partition also keeps a control of `init` on the
+templates of Lake. A project from `lake new` in each format gets the glob of its library and a
+complete setup. The `lean_lib` of the `lakefile.lean` project has an empty `where` block. A
+second `init` writes nothing. In the `lakefile.toml` project, `lake lint` then reports only the
+docstrings that the template does not have. It accepts the project when they are written.
 
 **Releases** ([procedure](contributing.md#release)): **Proved** in `lean/Regula/Release.lean`,
 and checked by the kernel each time a step elaborates it: `tagAction`, the decision of the

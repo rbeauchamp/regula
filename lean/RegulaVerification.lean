@@ -329,8 +329,9 @@ def commands (copy pending : String) : Mode → List Command
       selftest #["--partition", "structural", "--shard", "2/2"] #["docFenceAudit", "freshChecker"]
   | .executionFirst => selftest #["--partition", "execution", "--shard", "1/2"]
   | .executionSecond => selftest #["--partition", "execution", "--shard", "2/2"]
-  -- The lint-driver controls also run the `lake lint` driver, which their baseline names.
-  | .lintDriver => selftest #["--partition", "lint-driver"] #["lint"]
+  -- The lint-driver controls also run the `lake lint` driver and `regula init`, which their
+  -- baseline names.
+  | .lintDriver => selftest #["--partition", "lint-driver"] #["lint", "regula"]
   | mode => selftest (#["--partition"] ++ ((arguments mode).drop 1).toArray)
 
 /-- Every mode schedules actual work rather than accepting an empty campaign. -/
