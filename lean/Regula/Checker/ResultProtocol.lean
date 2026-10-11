@@ -19,7 +19,11 @@ open Lean
 /-- This checker build's producer identity, written into every result envelope. -/
 abbrev producer := Regula.Checker.Producer.identity
 
-/-- Result schema 16 adds the acceptance account's `contractEvidence`, the law observer's report
+/-- Result schema 17 records the assumptions about external systems that each declaration rests on:
+a declaration record carries `assumptions` and `checkedOperations`, the declarations with the role
+`assumption` or `checked` (`Regula.Assumption`) that the walk of statements reaches from it in the
+replayed kernel (`RegulaPolicy.Assumptions.RestsOn`). Earlier schemas wrote neither member.
+Schema 16 adds the acceptance account's `contractEvidence`, the law observer's report
 of each registration whose requirement reduces to a decision carrier (`accountJson`), and each
 execution boundary's `exact`: the proof and the required proposition of its checked
 correspondence, each as its exact term beside a display (`RegulaPolicy.CorrespondenceTerms`),
@@ -137,7 +141,7 @@ frozen configuration and dependency text from the snapshot (`snapshotJson`: a cl
 dependency is identified by its pinned revision, a dirty one only by package and `dirty`
 status) and imported-environment module lists (`acceptedJson`,
 `ProducerReport.Environment.resultJson`); schema 1 embedded them. -/
-def schemaVersion : Nat := 16
+def schemaVersion : Nat := 17
 
 /-- Envelope identity of every result file. -/
 def identityFields : List (String × Json) := RegistryCodec.identityFields producer schemaVersion

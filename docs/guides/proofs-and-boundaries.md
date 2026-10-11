@@ -736,7 +736,7 @@ and each field is declared in the part that says where its value comes from
 | --- | --- | --- |
 | `Declaration.KernelChecked` | Kernel-checked declaration data: a field of the constant's `ConstantInfo`, or a pure function of such fields. | `name`, `kind`, `type`, `isUnsafe`, `isPartial`, `safety`, `internal`, `private`, `unsafeRecBase`, `levelParams`, `all`, `hints`, `valueConstants`, `nativeStatement` |
 | `Declaration.ToolchainObserved` | A toolchain observation: the answer of Lean's elaborator, compiler or kernel, or of the checker's own observing code, at inspection. No mark a project writes decides one of these fields. | `module`, `prettyType`, `isProp`, `axioms`, `unsafeRecRegenerated`, `nativeReplay` |
-| `Declaration.ProjectWritten` | Environment state an audited project can write, or an observation such state decides: an extension's entry, an attribute, a declaration range, and the two observations of the checker that read such marks directly. | `instance`, `noncomputable`, `implementedBy`, `extern`, `projection`, `matcher`, `recursive`, `recordedRanges`, `generatedFrom`, `executableContract`, `decisionResult`, `tableOmissions` |
+| `Declaration.ProjectWritten` | Environment state an audited project can write, or an observation such state decides: an extension's entry, an attribute, a declaration range, and the observations of the checker that read such marks directly. | `instance`, `noncomputable`, `implementedBy`, `extern`, `projection`, `matcher`, `recursive`, `recordedRanges`, `generatedFrom`, `executableContract`, `decisionResult`, `tableOmissions`, `assumptions`, `checkedOperations` |
 
 `Declaration.Inspected` is the first two parts, and `Declaration` adds the third. A decision or a
 relation takes the part whose fields it reads, so its signature shows where its inputs come from:
@@ -825,13 +825,14 @@ project writes can still enter a toolchain observation, and the docstring of eac
 how: `isProp` is Lean's answer, which does not unfold an irreducible definition; `prettyType` is
 Lean's printer, which uses the notations in force; `nativeReplay` runs compiled code; and what a
 project writes selects which regeneration `unsafeRecRegenerated` reports, while the pure comparison
-and the kernel decide it. The two observations of the checker that a project-written mark decides
-are fields of `Declaration.ProjectWritten` for that reason. `executableContract` reads Lean's
+and the kernel decide it. The observations of the checker that a project-written mark decides are
+fields of `Declaration.ProjectWritten` for that reason. `executableContract` reads Lean's
 `noncomputable` mark for one refusal. `tableOmissions` compares the axioms of Lean's module table,
-which a project can write, with the axioms that the replayed kernel gives. The decisions of [RG1007]
-and [RG1009] take the recorded contract and no other field, so they read the `noncomputable` mark
-only through it. The decision requirement of [RG1008] takes the name and the registration alone
-(`Declaration.Registration`). The role validators take the role part (`Declaration.Role`): the
+which a project can write, with the axioms that the replayed kernel gives. `assumptions` and
+`checkedOperations` are the declarations with a role that a project writes with an attribute. The
+decisions of [RG1007] and [RG1009] take the recorded contract and no other field, so they read the
+`noncomputable` mark only through it. The decision requirement of [RG1008] takes the name and the
+registration alone (`Declaration.Registration`). The role validators take the role part (`Declaration.Role`): the
 inspected part and the three marks that they read. The declaration decision and the operational
 decision take the assessed part (`Declaration.Assessed`): the inspected part and the recorded
 contract. `policyFor`, `memberFailure` and the editor decision take the whole `Declaration` because
@@ -4694,6 +4695,91 @@ write that stores a compiled body that Lean's compiler did not make and a native
 `_unsafe_rec` companion that [RG1006] does not inspect is also such a change. Thus these changes
 stay trusted boundaries of the execution account of [RG3001] and [RG3002] and of the native replay
 of [RG1004].
+
+## External systems
+
+Regula's code reads and changes systems that no Lean proof can examine. These external systems are
+the file system, processes, the process environment, Lake, Lean, the file locks of the operating
+system and Git. `RegulaPolicy.External.System` gives them. A contract gives what Regula's code
+uses of an operation of such a system. A theorem about code that uses the operation has the
+contract as a hypothesis, and the checker shows it for each declaration. At this time, only the
+file system has contracts.
+
+### Assumptions, checked operations and observers
+
+The module of an external system gives its operations as the structure `Ops` and a model of the
+system as the structure `Model`. A model gives each operation as an action on a state. An
+assumption is a predicate over a model: the contract of one operation, as a `Std.Do` triple. The
+attribute `@[regula_assumption]` of `Regula.Assumption` gives the system and the sources of the
+assumption. An assumption is not an `axiom`: each theorem that uses it has it as a hypothesis.
+
+A checked operation runs an operation and then examines the result. It fails when the
+postcondition of the operation is not true for that result. The attribute `@[regula_checked]`
+gives the theorem that proves its postcondition. That theorem uses the contracts of the operations
+that examine the result, not the contract of the operation that the checked operation runs.
+
+An observer is the code that operates the real system for a Regula program. Code that Regula
+writes over the operations of a model gets the real system only through an observer. The
+attribute `@[regula_observer]` marks it. Regula trusts that each operation of an observer operates
+as the operation of a model that satisfies the assumptions of the system.
+
+### The sources of an assumption
+
+A source is a file of the Lean 4 repository at a release tag, with its lines. It can also be a
+document, or the reason that Regula trusts the assumption when no source states it. A `lean`
+source must be at the release of the Lean that elaborates its module
+(`RegulaPolicy.External.Source.stale`). After an upgrade of the toolchain, each module with a
+source at the earlier release does not elaborate. The writer must read the source again at the
+new release, and then change the release of the source.
+
+The control `Fixtures.Mutations.StaleAssumptionSource` shows this refusal.
+
+### The file system
+
+`RegulaCore.Filesystem` gives the model of the file system and its assumptions.
+`Regula.Filesystem.observer` is its observer for the programs of the package. Each `lean` source
+below is a file of the Lean 4 repository at `v4.34.1`, below `src`.
+
+| Declaration | Status | Contract | Sources |
+| --- | --- | --- | --- |
+| `Model` | trusted | No other process changes the file system while the code operates. | None. This is not true for a computer as a whole. Thus the theorems apply only while no other process changes the entries that they name. |
+| `ReadsEntry` | trusted | `symlinkMetadata` gives the type of the entry at a path and changes nothing. It fails with `noFileOrDirectory` only when no entry is at the path. | [`Init/System/IO.lean#L1151-L1156`](https://github.com/leanprover/lean4/blob/v4.34.1/src/Init/System/IO.lean#L1151-L1156), [`runtime/io.cpp#L1160-L1179`](https://github.com/leanprover/lean4/blob/v4.34.1/src/runtime/io.cpp#L1160-L1179), [`runtime/io.cpp#L276-L279`](https://github.com/leanprover/lean4/blob/v4.34.1/src/runtime/io.cpp#L276-L279), POSIX.1-2024 `lstat()` |
+| `ReadsReal` | trusted | `realPath` gives the real path of a path and changes nothing. It fails only when there is no real path. | [`Init/System/IO.lean#L873-L879`](https://github.com/leanprover/lean4/blob/v4.34.1/src/Init/System/IO.lean#L873-L879), [`runtime/io.cpp#L1054-L1066`](https://github.com/leanprover/lean4/blob/v4.34.1/src/runtime/io.cpp#L1054-L1066), POSIX.1-2024 `realpath()` |
+| `RemovesTree` | trusted | `removeDirAll` of a directory at its real path changes no entry outside the directory, when it succeeds and when it fails. | [`Init/System/IO.lean#L1330-L1342`](https://github.com/leanprover/lean4/blob/v4.34.1/src/Init/System/IO.lean#L1330-L1342), [`runtime/io.cpp#L1160-L1179`](https://github.com/leanprover/lean4/blob/v4.34.1/src/runtime/io.cpp#L1160-L1179), [`runtime/io.cpp#L1197-L1207`](https://github.com/leanprover/lean4/blob/v4.34.1/src/runtime/io.cpp#L1197-L1207), [`runtime/io.cpp#L1351-L1364`](https://github.com/leanprover/lean4/blob/v4.34.1/src/runtime/io.cpp#L1351-L1364), POSIX.1-2024 `lstat()`, `unlink()` and `rmdir()` |
+| `RemovesEntry` | trusted | `removeFile` of a path at its real path changes no entry outside the path, when it succeeds and when it fails. | [`Init/System/IO.lean#L881-L886`](https://github.com/leanprover/lean4/blob/v4.34.1/src/Init/System/IO.lean#L881-L886), [`runtime/io.cpp#L1351-L1364`](https://github.com/leanprover/lean4/blob/v4.34.1/src/runtime/io.cpp#L1351-L1364), POSIX.1-2024 `unlink()` |
+| `removeDirectory` | checked | After a removal that succeeds, no entry is at the path: `removeDirectory_gone`, which uses only `Model` and `ReadsEntry`. | [`Init/System/IO.lean#L1330-L1342`](https://github.com/leanprover/lean4/blob/v4.34.1/src/Init/System/IO.lean#L1330-L1342) |
+| `removeEntry` | checked | After a removal that succeeds, no entry is at the path: `removeEntry_gone`, which uses only `Model` and `ReadsEntry`. | [`Init/System/IO.lean#L881-L886`](https://github.com/leanprover/lean4/blob/v4.34.1/src/Init/System/IO.lean#L881-L886) |
+
+The theorems `removeDirectory_spec` and `removeEntry_spec` are about the removal of a directory or
+of a file at its real path. After a removal that succeeds, no entry is at the path. A removal
+changes no entry outside the path, when it succeeds and when it fails. Their hypotheses are the
+assumptions that they use.
+
+`Model.Unchanged` gives what is outside a path. It is each path with a file name, not in the path,
+if the real path of its parent is that parent before the operation.
+
+The assumptions are for a POSIX system. On Windows, `symlinkMetadata` of Lean 4.34.1 follows a
+symbolic link. Thus the observer refuses that read and each removal of a directory on Windows.
+
+### What the checker shows
+
+The checker walks the statements from each declaration in the kernel that replayed it. It records
+the assumptions and the checked operations that the walk reaches. Result schema 17 gives them as
+`assumptions` and `checkedOperations`. The `--verbose` output gives them as `assumptions=` and
+`checked=`. The walk goes into the type of a theorem and into the type and the value of each other
+constant, but not into a proof. The theorem
+`RegulaPolicy.Assumptions.table_some` proves that the table of the checker gives this walk.
+
+The control `Fixtures.Positive.RestsOnAssumption` shows the two lists.
+
+This section does not establish these properties:
+
+- That the real system satisfies the assumptions. Regula trusts each one, with its sources.
+- That no directory below a removed directory is also mounted at a different place, for example by
+  a bind mount. `RemovesTree` is false for such a directory, because its entries also have names
+  outside the removed directory.
+- That each call of an operation of an external system is in an observer. Regula's code also calls
+  these operations in other places.
 
 ## Operational assumptions
 

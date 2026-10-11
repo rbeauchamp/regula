@@ -888,6 +888,19 @@
    "table-omissions: collectAxioms []"
   ]
  },
+ "Fixtures.Positive.RestsOnAssumption": {
+  "expect": "pass",
+  "claim": "standard-logical",
+  "output": [
+   "assumptions=[\"Fixtures.RestsOnAssumption.Increments\"]",
+   "checked=[\"Fixtures.RestsOnAssumption.checkedStep\"]"
+  ]
+ },
+ "Fixtures.Mutations.StaleAssumptionSource": {
+  "expect": "fail",
+  "reason": "compile-error",
+  "pattern": "this source is pinned to Lean v4.33.0, but Lean .* elaborates this module"
+ },
  "Fixtures.Mutations.ForgedAxiomTableOmission": {
   "expect": "fail",
   "reason": "label-exceeds-claim",

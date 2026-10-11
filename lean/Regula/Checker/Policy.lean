@@ -193,15 +193,20 @@ private def classifyWith (decl : Declaration) (foundation : String) : String :=
   let decisionText := (decl.decisionResult.map (s!" decision-result={·.spelling}")).getD ""
   let omissionText := if decl.tableOmissions.isEmpty then "" else
     s!" table-omissions: {RegulaPolicy.tableOmissionText decl.axioms decl.tableOmissions}"
+  let assumptionText := if decl.assumptions.isEmpty then "" else
+    s!" assumptions={repr (decl.assumptions.toList.map (·.toString))}"
+  let checkedText := if decl.checkedOperations.isEmpty then "" else
+    s!" checked={repr (decl.checkedOperations.toList.map (·.toString))}"
   s!"{decl.name} ({decl.kind}){flagText}{roleText} type={decl.prettyType} " ++
     s!"axioms={repr (decl.axioms.toList.map (·.toString))} -> {foundation}{contractText}" ++
-    evidenceText ++ decisionText ++ omissionText
+    evidenceText ++ decisionText ++ omissionText ++ assumptionText ++ checkedText
 
 /-- One-line text of a declaration for `--verbose` output: its name, kind, flags, roles,
 type, axioms and foundation label, or `invalid-inventory` when the scope has no label for it,
 then its executable-contract record, for a declaration registered with `@[regula_decision]`,
-whether its result type is `Decidable _` (`decision-result=`), and the axioms Lean's
-`collectAxioms` omits for it (`table-omissions:`, `RegulaPolicy.tableOmissionText`). -/
+whether its result type is `Decidable _` (`decision-result=`), the axioms Lean's
+`collectAxioms` omits for it (`table-omissions:`, `RegulaPolicy.tableOmissionText`), and the
+assumptions and checked operations it rests on (`assumptions=`, `checked=`). -/
 def classify (decl : Declaration) (scope : PolicyScope) : String :=
   classifyWith decl ((labelOf decl scope).toOption.map (·.spelling) |>.getD "invalid-inventory")
 

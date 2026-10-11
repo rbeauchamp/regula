@@ -1446,8 +1446,9 @@ writes. State a project writes can still enter an observation, and each field sa
 `prettyType` and `isProp` are Lean's own answers, which read the notations and the reducibility
 statuses in force; `nativeReplay` runs compiled code; and what a project writes selects which
 regeneration `unsafeRecRegenerated` reports, while the pure comparison and the kernel decide it.
-The two observations that a project-written mark does decide, `executableContract` and
-`tableOmissions`, are fields of `Declaration.ProjectWritten`. No policy theorem proves an
+The observations that a project-written mark does decide, `executableContract`,
+`tableOmissions`, `assumptions` and `checkedOperations`, are fields of
+`Declaration.ProjectWritten`. No policy theorem proves an
 observation truthful. -/
 structure Declaration.ToolchainObserved where
   /-- The module that declares the constant, as Lean's import record of the inspected
@@ -1494,11 +1495,11 @@ def tableOmissionText (axioms omissions : Array Lean.Name) : String :=
 
 /-- The part of a declaration's record that is read from environment state an audited project
 can write, or that such state decides: an environment extension's entry, an attribute, a
-declaration range, and the two observations of the checker that read such marks directly
-(`executableContract`, `tableOmissions`). Lean's own commands write this state for the
-declarations they add, and a metaprogram of the audited project can write it for any
-declaration. A decision that reads one of these fields rests on what the project recorded, so no
-field here is evidence that a declaration is what the record says. -/
+declaration range, and the observations of the checker that read such marks directly
+(`executableContract`, `tableOmissions`, `assumptions`, `checkedOperations`). Lean's own commands
+write this state for the declarations they add, and a metaprogram of the audited project can write
+it for any declaration. A decision that reads one of these fields rests on what the project
+recorded, so no field here is evidence that a declaration is what the record says. -/
 structure Declaration.ProjectWritten where
   /-- The constant is registered as a type-class instance. -/
   «instance» : Bool
@@ -1540,6 +1541,14 @@ structure Declaration.ProjectWritten where
   which `collectAxioms` reports an axiom outside `axioms`, so `axioms` without these is what
   `collectAxioms` reports. Empty for an editor snapshot. -/
   tableOmissions : Array Lean.Name := #[]
+  /-- The assumptions about an external system that the declaration rests on: each declaration
+  with the role `assumption` (`Regula.Assumption`) that the walk of statements reaches from it
+  (`RegulaPolicy.Assumptions.RestsOn`), in the kernel that replayed it. The roles are attributes
+  that a project writes. Empty for an editor snapshot. -/
+  assumptions : Array Lean.Name := #[]
+  /-- The checked operations that the declaration rests on: each declaration with the role
+  `checked` that the same walk reaches from it. Empty for an editor snapshot. -/
+  checkedOperations : Array Lean.Name := #[]
   deriving Repr, DecidableEq
 
 /-- The part of a declaration's record that holds no field of `Declaration.ProjectWritten`: its

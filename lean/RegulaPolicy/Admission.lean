@@ -52,7 +52,8 @@ instance (names : Array Lean.Name) : Decidable (UniqueNames names) :=
 
 /-- Every policy-relevant declaration reference is structural and nonanonymous.
 A failed executable-contract observation may lack a root; it remains a refusal. Each axiom the
-record says Lean's `collectAxioms` omits is one of its axioms. -/
+record says Lean's `collectAxioms` omits is one of its axioms. The assumptions and checked
+operations are in canonical order, like the axioms. -/
 def Declaration.Valid (d : Declaration) : Prop :=
   Named d.name ∧ Named d.module ∧
   d.safety = (if d.isPartial then some .partial else if d.isUnsafe then some .unsafe else none) ∧
@@ -61,7 +62,10 @@ def Declaration.Valid (d : Declaration) : Prop :=
   (∀ n ∈ d.all, Named n) ∧
   (∀ n ∈ d.implementedBy, Named n) ∧ (∀ n ∈ d.unsafeRecBase, Named n) ∧
   (∀ c ∈ d.executableContract, c.failure.isSome = true ∨ Named c.root) ∧
-  (∀ a ∈ d.tableOmissions, a ∈ d.axioms)
+  (∀ a ∈ d.tableOmissions, a ∈ d.axioms) ∧
+  canonicalNames d.assumptions = d.assumptions ∧
+  canonicalNames d.checkedOperations = d.checkedOperations ∧
+  (∀ n ∈ d.assumptions, Named n) ∧ (∀ n ∈ d.checkedOperations, Named n)
 instance instDecidableDeclarationValid (d : Declaration) : Decidable d.Valid := by
   unfold Declaration.Valid
   infer_instance

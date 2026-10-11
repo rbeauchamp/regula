@@ -44,11 +44,12 @@ def reporterOnlyModuleNames : Array Name :=
   #[`Regula.Probe, `Regula.Report, `Regula.Checker.PolicyCodec]
 
 /-- The published checker interfaces a claimed module may import by design (standard §7.10):
-the executable-contract type, the material-claim registration attribute and the decision
-registration attribute. The probe force-loads all three, so they are authenticated like the
+the executable-contract type, the material-claim registration attribute, the decision
+registration attribute and the attributes that declare the assumptions, checked operations and
+observers of external systems. The probe force-loads all four, so they are authenticated like the
 reporter and are never owned. -/
 def publishedInterfaceModuleNames : Array Name :=
-  #[`Regula.Contract, `Regula.MaterialClaim, `Regula.Decision]
+  #[`Regula.Contract, `Regula.MaterialClaim, `Regula.Decision, `Regula.Assumption]
 
 /-- Exact reporter identities used only to select authentication obligations. Membership
 alone never grants an exemption. -/

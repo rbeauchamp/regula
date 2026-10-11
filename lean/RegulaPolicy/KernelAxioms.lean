@@ -426,17 +426,17 @@ reached `n`. -/
 def reachedFrom (found : List (Name × Std.HashSet Name)) (n : Name) : Array Name :=
   (found.filterMap fun (a, reaching) => if reaching.contains n then some a else none).toArray
 
-/-- The axioms that each name reachable from `roots` reaches in `find`, under that name: one forward
-search from all of `roots`, then one search back from each axiom it finds, along the edges the
-forward search recorded, so each constant's successors are computed once. The table holds every
-name the forward search reached, so a later search can stop at any of them (`axiomsWith`).
-`none` when a search runs out of `fuel`. -/
-def axiomTable (find : Name → Option ConstantInfo) (fuel : Nat) (roots : Array Name) :
+/-- The leaves that each name reachable from `roots` along `next` reaches, under that name, where a
+leaf is a name that `leaf` accepts: one forward search from all of `roots`, then one search back
+from each leaf it finds, along the edges the forward search recorded, so the names after each name
+are computed once. The table holds every name the forward search reached. `none` when a search runs
+out of `fuel`. `axiomTable` is this table with the axioms of a kernel environment as the leaves;
+`RegulaPolicy.Assumptions` uses it with the assumptions of a claim's statement as the leaves. -/
+def leafTable (next : Name → Array Name) (leaf : Name → Bool) (fuel : Nat) (roots : Array Name) :
     Option (Std.HashMap Name (Array Name)) := do
-  let (seen, edges) ← searchEdges (successors find) fuel roots.toList
+  let (seen, edges) ← searchEdges next fuel roots.toList
   let preds := predecessors edges
-  let found ← searchBack (fun y => (preds.getD y []).toArray) fuel
-    (seen.toList.filter (isAxiomIn find))
+  let found ← searchBack (fun y => (preds.getD y []).toArray) fuel (seen.toList.filter leaf)
   return seen.toList.foldl (init := {}) fun table n => table.insert n (reachedFrom found n)
 
 /-- Folding `insert m (f m)` over `names` gives each name of `names` `f` of it, and leaves every
@@ -480,20 +480,21 @@ private theorem reach_forward {next back : Name → Array Name}
   | refl => exact .refl _
   | step hm _ ih => exact ih.tail (after _ _ hm)
 
-/-- **`axiomTable` holds each name of `roots`, and gives each name it holds exactly the axioms that
-name reaches** (`ReachesAxiom`). -/
-theorem axiomTable_some {find : Name → Option ConstantInfo} {fuel : Nat} {roots : Array Name}
-    {table : Std.HashMap Name (Array Name)} (h : axiomTable find fuel roots = some table) :
-    (∀ n ∈ roots, ∃ axioms, table[n]? = some axioms) ∧
-      ∀ n axioms, table[n]? = some axioms → ∀ a, a ∈ axioms ↔ ReachesAxiom find n a := by
-  unfold axiomTable at h
-  cases hs : searchEdges (successors find) fuel roots.toList with
+/-- **`leafTable` holds each name of `roots`, and gives each name it holds exactly the leaves that
+name reaches along `next`.** -/
+theorem leafTable_some {next : Name → Array Name} {leaf : Name → Bool} {fuel : Nat}
+    {roots : Array Name} {table : Std.HashMap Name (Array Name)}
+    (h : leafTable next leaf fuel roots = some table) :
+    (∀ n ∈ roots, ∃ leaves, table[n]? = some leaves) ∧
+      ∀ n leaves, table[n]? = some leaves → ∀ a, a ∈ leaves ↔ Reach next n a ∧ leaf a = true := by
+  unfold leafTable at h
+  cases hs : searchEdges next fuel roots.toList with
   | none => simp [hs] at h
   | some forward =>
     obtain ⟨seen, edges⟩ := forward
     obtain ⟨complete, sound, hasEdge, edgeOK⟩ := searchEdges_some hs
     let back := fun y => ((predecessors edges).getD y []).toArray
-    cases hb : searchBack back fuel (seen.toList.filter (isAxiomIn find)) with
+    cases hb : searchBack back fuel (seen.toList.filter leaf) with
     | none => simp [hs, hb, back] at h
     | some found =>
       simp only [hs, hb, back, Option.bind_eq_bind, Option.bind_some, Option.pure_def,
@@ -512,34 +513,34 @@ theorem axiomTable_some {find : Name → Option ConstantInfo} {fuel : Nat} {root
       by_cases hseen : n ∈ seen
       · simp only [hseen, ↓reduceIte, Option.some.injEq] at hn
         subst hn
-        have after : ∀ x y, x ∈ back y → y ∈ successors find x := by
+        have after : ∀ x y, x ∈ back y → y ∈ next x := by
           intro x y hx
           simp only [back, List.mem_toArray, mem_predecessors] at hx
           obtain ⟨e, he, rfl, hy⟩ := hx
           rwa [edgeOK e he] at hy
-        have before : ∀ x ∈ seen, ∀ y ∈ successors find x, x ∈ back y := by
+        have before : ∀ x ∈ seen, ∀ y ∈ next x, x ∈ back y := by
           intro x hx y hy
           obtain ⟨e, he, rfl⟩ := hasEdge x hx
           simp only [back, List.mem_toArray, mem_predecessors]
           exact ⟨e, he, rfl, (edgeOK e he) ▸ hy⟩
-        have closed : ∀ x ∈ seen, ∀ y ∈ successors find x, y ∈ seen := by
+        have closed : ∀ x ∈ seen, ∀ y ∈ next x, y ∈ seen := by
           intro x hx y hy
           obtain ⟨s, hs, hr⟩ := sound x hx
           exact complete s hs y (hr.tail hy)
         obtain ⟨searched, entries⟩ := searchBack_some hb
         simp only [reachedFrom, List.mem_toArray, List.mem_filterMap,
-          Option.ite_none_right_eq_some, Option.some.injEq, Prod.exists, ReachesAxiom]
+          Option.ite_none_right_eq_some, Option.some.injEq, Prod.exists]
         constructor
         · rintro ⟨b, reaching, hentry, hcontains, rfl⟩
           obtain ⟨haxiom, hsearch⟩ := entries _ hentry
           obtain ⟨-, hfound⟩ := search_some hsearch
           obtain ⟨s, hs, hr⟩ := hfound n (Std.HashSet.mem_iff_contains.mpr hcontains)
           rw [List.mem_singleton.mp hs] at hr
-          simp only [List.mem_filter, isAxiomIn_iff] at haxiom
+          simp only [List.mem_filter] at haxiom
           exact ⟨reach_forward after hr, haxiom.2⟩
         · rintro ⟨hr, hax⟩
-          have haxiom : a ∈ seen.toList.filter (isAxiomIn find) := by
-            simp only [List.mem_filter, Std.HashSet.mem_toList, isAxiomIn_iff]
+          have haxiom : a ∈ seen.toList.filter leaf := by
+            simp only [List.mem_filter, Std.HashSet.mem_toList]
             obtain ⟨s, hs, hsr⟩ := sound n hseen
             exact ⟨complete s hs a (hsr.trans hr), hax⟩
           obtain ⟨reaching, hentry, hsearch⟩ := searched a haxiom
@@ -548,6 +549,25 @@ theorem axiomTable_some {find : Name → Option ConstantInfo} {fuel : Nat} {root
             Std.HashSet.mem_iff_contains.mp ((search_some hsearch).1 a List.mem_cons_self n hback),
             rfl⟩
       · simp [hseen] at hn
+
+/-- The axioms that each name reachable from `roots` reaches in `find`, under that name: the
+`leafTable` of the constants used (`successors`), with the axioms as the leaves, so each constant's
+successors are computed once. The table holds every name the forward search reached, so a later
+search can stop at any of them (`axiomsWith`). `none` when a search runs out of `fuel`. -/
+def axiomTable (find : Name → Option ConstantInfo) (fuel : Nat) (roots : Array Name) :
+    Option (Std.HashMap Name (Array Name)) :=
+  leafTable (successors find) (isAxiomIn find) fuel roots
+
+/-- **`axiomTable` holds each name of `roots`, and gives each name it holds exactly the axioms that
+name reaches** (`ReachesAxiom`). -/
+theorem axiomTable_some {find : Name → Option ConstantInfo} {fuel : Nat} {roots : Array Name}
+    {table : Std.HashMap Name (Array Name)} (h : axiomTable find fuel roots = some table) :
+    (∀ n ∈ roots, ∃ axioms, table[n]? = some axioms) ∧
+      ∀ n axioms, table[n]? = some axioms → ∀ a, a ∈ axioms ↔ ReachesAxiom find n a :=
+  have ⟨holds, exact⟩ := leafTable_some h
+  ⟨holds, fun n axioms found a => (exact n axioms found a).trans
+    ⟨fun ⟨reach, isAxiom⟩ => ⟨reach, (isAxiomIn_iff find a).mp isAxiom⟩,
+      fun ⟨reach, isAxiom⟩ => ⟨reach, (isAxiomIn_iff find a).mpr isAxiom⟩⟩⟩
 
 /-! ## A search that stops at names of known axioms
 
