@@ -205,11 +205,14 @@ the result (`scope.project`, `scope.manifestPath`) name the audited project and 
 probes of the guard (`probe`), each with one change to the plain shape and the reason that
 decides: a custom target and a library in `needs` each keep the marker. After a marked build, a
 weak argument added to the claimed library makes the driver elaborate it again
-(`Lake.weakArgsRecord`). -/
+(`Lake.weakArgsRecord`), and a warning whose line another process's output corrupted fails both the
+claimed build and the file audit. -/
 private def leanDecisions (probes : Std.Mutex Unit) (repo adopter : FilePath) :
     IO (Array String) := do
   BuildLintQualification.setup repo adopter
   let positive := accepted "lean/positive"
+  let widget := adopter / "Widget.lean"
+  let widgetSource ← IO.FS.readFile widget
   let lakefile := adopter / "lakefile.lean"
   let mut failures : Array String := #[]
   let plain ← leanPlain lakefile
@@ -240,6 +243,26 @@ private def leanDecisions (probes : Std.Mutex Unit) (repo adopter : FilePath) :
   failures := failures ++ (← expect adopter { positive with
     label := "lean/weak-args-rebuilt", contains := positive.contains.push "] Built Widget" })
   IO.FS.writeFile lakefile plain
+  -- A child process that inherits the compiler's standard output prints text without a line
+  -- break before a warning's JSON line, so the line is no Lean message and Lake logs it as
+  -- information. The claimed build refuses it, and so does the file audit at its build of the
+  -- project, before its own compile of the file.
+  mutate widget "import Regula.Contract" "import Regula.Contract\nimport Lean"
+  mutate widget "namespace Widget" "run_cmd do\n  let child ← IO.Process.spawn \
+    { cmd := \"printf\", args := #[\"x\"] }\n  discard child.wait\n  \
+    Lean.logWarning \"a corrupted warning\"\n\nnamespace Widget"
+  failures := failures ++ (← expect adopter {
+      label := "lean/corrupted-warning", exitCode := 3,
+      contains := #["the compiler printed output that is not a Lean message",
+        "a corrupted warning"],
+      excludes := #[s!"regula lint: {acceptanceLabel}"] })
+  failures := failures ++ (← assess {
+      label := "lean/file-corrupted-warning", exitCode := 3,
+      contains := #["the compiler printed output that is not a Lean message",
+        "a corrupted warning"],
+      excludes := #[s!"file audit: {acceptanceLabel}"] }
+    (← fileAudit adopter "Widget.lean"))
+  IO.FS.writeFile widget widgetSource
   let ordinary ← runProcess adopter "lake" #["build", "Widget"] scrubbedLeanPathEnv
   unless ordinary.succeeded && ordinary.output.contains "] Built Widget" do
     failures := failures.push s!"lake-lint/lean/plain-default-marked: the ordinary build reused \

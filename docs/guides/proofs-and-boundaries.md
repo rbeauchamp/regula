@@ -143,8 +143,9 @@ or an INCOMPLETE diagnostic demonstration is not an audit-success certificate.
 the original claimed library targets, preserving their custom facets, and each claimed
 executable's actual root `leanArts` facet. If preflight clears, it builds every original
 claimed target, including the executable links, before full inspection. Only that complete
-build, run with Lake's failure level at `warning`, reaches `Acceptance.buildObservation`, and its
-observation is accepted exactly when the build exited 0 (`buildObservation_ok_iff`).
+build, run with Lake's failure level at `warning`, reaches `Acceptance.buildObservation`. Its
+observation is accepted exactly when the build exited 0 and no claimed module's trace logged
+compiler output that is not a Lean message (`buildObservation_ok_iff`).
 `Lake.ClaimedBuildPlan.completionTargets_exact` binds the deferred build to the original
 target array; `build_completed_iff` records the build stage before preflight exactly when no
 target build remains. A library-only claim keeps one original build

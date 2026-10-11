@@ -438,7 +438,8 @@ def exampleObservation (result : Result) : IO RegulaPolicy.ExampleObservation :=
         RegulaPolicy.ExampleOutcome.elaborated scope.inventory replay.required replay.admitted #[])
   return {
     fence, unitName := raw.compilation.spec.module.toName, units, before, after,
-    warnings := raw.compilation.diagnostics.warnings, declarationCensus := census, outcome }
+    warnings := raw.compilation.diagnostics.warnings, errors := raw.compilation.diagnostics.errors,
+    declarationCensus := census, outcome }
 
 /-- Finalize the frozen document plan using the unchanged output of `auditTasks`,
 which has already collected every task occurrence and refused unknown, duplicate,

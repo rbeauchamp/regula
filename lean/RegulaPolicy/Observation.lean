@@ -126,6 +126,8 @@ structure ExampleObservation.ToolchainObserved where
   after : String
   /-- The warning messages the compiler reported. -/
   warnings : Array String
+  /-- The error messages the compiler reported, and its output that is not a Lean message. -/
+  errors : Array String
   /-- The `(module, name)` of every declaration of the inspected group; empty for a compiler
   rejection. -/
   declarationCensus : Array (Name × Name)
@@ -313,7 +315,7 @@ def ExampleExpectationOK (c : Claim) (fences : Array FenceKey) (f : FenceKey)
   match f.expectation, o.outcome with
   | .positive, .elaborated i required admitted failures =>
       let roles := authorize i
-      i.counted = #[] ∧ o.warnings = #[] ∧
+      i.counted = #[] ∧ o.warnings = #[] ∧ o.errors = #[] ∧
       o.declarationCensus = i.declarations.map (fun d => (d.module, d.name)) ∧
       ExampleSourceOK fences f o i ∧ ExampleAdmissionOK i required admitted failures ∧
       ∀ d ∈ i.declarations, d.module = o.unitName → DeclarationOK d
@@ -326,7 +328,7 @@ def ExampleExpectationOK (c : Claim) (fences : Array FenceKey) (f : FenceKey)
       ∀ pair ∈ expected.zip actual, DiagnosticMatches c pair.1 pair.2
   | .trustedTeaching, .elaborated i required admitted failures =>
       let roles := authorize i
-      i.counted = #[] ∧ o.warnings = #[] ∧
+      i.counted = #[] ∧ o.warnings = #[] ∧ o.errors = #[] ∧
       o.declarationCensus = i.declarations.map (fun d => (d.module, d.name)) ∧
       ExampleSourceOK fences f o i ∧ ExampleAdmissionOK i required admitted failures ∧
       (∀ d ∈ i.declarations, d.module = o.unitName →

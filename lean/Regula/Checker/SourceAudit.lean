@@ -428,11 +428,21 @@ def compileBatch (repo scratch : FilePath) (jobs : Nat) (specs : Array SourceSpe
           throw <| IO.userError "compile batch source snapshot changed"
       return compilations
 
-/-- The process succeeded and, when the specification rejects warnings, its compiler reported no
-warning message (`CompilerDiagnostics.warnings`). -/
+/-- The process succeeded, its compiler reported no error message and printed nothing that is not
+a Lean message (`CompilerDiagnostics.errors`), and, when the specification rejects warnings, it
+reported no warning message (`CompilerDiagnostics.warnings`). -/
 def compilationPassed (value : Compilation) : Bool :=
-  value.process.succeeded
+  value.process.succeeded && value.diagnostics.errors.isEmpty
     && (!value.spec.rejectWarnings || value.diagnostics.warnings.isEmpty)
+
+/-- A compilation passes exactly when its compiler exited 0 with no error and no output that is not
+a Lean message, and with no warning when its specification rejects warnings. -/
+theorem compilationPassed_iff (value : Compilation) :
+    compilationPassed value = true ↔
+      value.process.exitCode = 0 ∧ value.diagnostics.errors = #[] ∧
+        (value.spec.rejectWarnings = true → value.diagnostics.warnings = #[]) := by
+  cases h : value.spec.rejectWarnings <;>
+    simp [compilationPassed, ProcessResult.succeeded, Array.isEmpty_iff, h, and_assoc]
 
 /-- A normal compiler exit with an error or warning message located in the source establishes an
 emitted source diagnostic (`CompilerDiagnostics.sourceLocated`). Crashes, termination and

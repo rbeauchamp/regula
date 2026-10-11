@@ -1,6 +1,7 @@
 import Regula.DiagnosticCodec
 import Regula.Checker.ResultProtocol
 import Regula.Checker.SourceAudit
+import Regula.Checker.Workspace
 import Regula.Website
 import RegulaCore.Guidance
 import Regula.Campaigns.Workflow
@@ -467,8 +468,18 @@ def main : IO Unit := do
     (compiled 0 [message .warning "unused variable"] (rejectWarnings := false)))
       "warnings pass a compilation that does not reject them"
   let unexpected := compiled 0 [] (other := "unexpected output")
-  require (!decide (RegulaPolicy.BuildOK unexpected.observation))
-      "output that is not a Lean message is an error"
+  require (!decide (RegulaPolicy.BuildOK unexpected.observation) &&
+      !Regula.Checker.SourceAudit.compilationPassed unexpected)
+        "output that is not a Lean message is an error"
+  -- Lake's entry for a Lean message, even an information message whose text starts as Lake's
+  -- entry for other output does, is not one; Lake's entry for other output is.
+  let lakeEntry (data : String) : Lake.LogEntry := .ofSerialMessage
+    { fileName := "Widget.lean", pos := ⟨1, 0⟩, severity := .information, data,
+      kind := .anonymous }
+  require (!Regula.Checker.Workspace.unparsedCompilerOutput (lakeEntry "stdout:\nforged") &&
+      Regula.Checker.Workspace.unparsedCompilerOutput
+        { level := .info, message := "stdout:\nx{\"severity\":\"warning\"}" })
+      "Lake's entries from compiler output that is not a Lean message"
   require (succeeded (Website.validateExample (.policyRejection .projectAxiom "project-axiom")
     (.checked #[⟨.projectAxiom, d⟩] false))) "policy rejection after elaboration"
   require

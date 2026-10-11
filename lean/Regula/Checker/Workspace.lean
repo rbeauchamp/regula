@@ -275,6 +275,27 @@ def elaborationTrace (text : String) : Bool :=
   | .ok data => !data.synthetic
   | .error _ => false
 
+/-- Whether `entry` is one that Lake made from output of the Lean compiler that is not a Lean
+message. Lake v4.34.1's `compileLeanModule` runs `lean --json` and logs each message line that
+parses as a Lean message through `LogEntry.ofSerialMessage`, whose text starts with the message's
+file name, a `:` and its line number (`mkErrorStringWithPos`). It logs each run of other standard
+output lines as one information entry, `stdout:`, a line break and the text, and nonempty standard
+error as one information entry, `stderr:`, a line break and the text (`Lake/Build/Actions.lean`,
+lines 66 to 83). A message whose JSON line other output corrupted is one of those runs, whatever its
+severity.
+
+Assumes: Lake v4.34.1 logs compiler output that is not a Lean message only in those two forms. -/
+def unparsedCompilerOutput (entry : _root_.Lake.LogEntry) : Bool :=
+  entry.message.startsWith "stdout:\n" || entry.message.startsWith "stderr:\n"
+
+/-- The entries of the log that the module trace `text` records which Lake made from compiler
+output that is not a Lean message (`unparsedCompilerOutput`), or none when Lake cannot read it as a
+trace. -/
+def unparsedTraceOutput (text : String) : Array String :=
+  match _root_.Lake.BuildMetadata.parse text with
+  | .ok data => (data.log.entries.filter unparsedCompilerOutput).map (·.message)
+  | .error _ => #[]
+
 /-- A trace that records an elaboration is not one that `dropRestoredTraces` removes. -/
 theorem restoredTrace_eq_false_of_elaborationTrace {text : String}
     (h : elaborationTrace text = true) : restoredTrace text = false := by

@@ -72,25 +72,28 @@ def sourceSnapshots (sources : Array ProducerReport.SourceBinding)
     else files := files.push source
   return files
 
-/-- The observation of a warning-checked Lake build: a build that succeeded logged no warning or
-error, since Lake failed it otherwise (`Lake.buildCheckedObservation`), so it has none; a failed
-build keeps its exit code and the warning and error lines of its output, which are read only to
-report it. That Lake fails such a build is read from Lake's source, not proved. -/
+/-- The observation of a warning-checked Lake build: a build that exited 0 with no entry from
+compiler output that is not a Lean message logged no warning or error, since Lake failed it
+otherwise (`Lake.buildCheckedObservation`), so it has none. Any other build keeps its exit code,
+the warning and error lines of its output, which are read only to report it, and those entries
+as errors. That Lake fails such a build is read from Lake's source, not proved. -/
 def buildObservation (build : Lake.CheckedBuild) : BuildObservation :=
-  if build.process.exitCode = 0 then ⟨0, #[], #[]⟩
+  if build.process.exitCode = 0 ∧ build.unparsed = #[] then ⟨0, #[], #[]⟩
   else ⟨build.process.exitCode.toNat, warningLines build.process.output,
-    errorLines build.process.output⟩
+    errorLines build.process.output ++ build.unparsed⟩
 
-/-- A warning-checked build's observation is accepted exactly when the build exited 0, whatever
+/-- A warning-checked build's observation is accepted exactly when the build exited 0 and no
+claimed module's trace holds an entry from compiler output that is not a Lean message, whatever
 its output says. -/
 theorem buildObservation_ok_iff (build : Lake.CheckedBuild) :
-    BuildOK (buildObservation build) ↔ build.process.exitCode = 0 := by
+    BuildOK (buildObservation build) ↔
+      build.process.exitCode = 0 ∧ build.unparsed = #[] := by
   unfold buildObservation BuildOK
   split
   · simp_all
   · rename_i h
-    refine ⟨fun ⟨exit, _⟩ => absurd (UInt32.toNat_inj.mp (by simpa using exit)) h,
-      fun exit => absurd exit h⟩
+    refine ⟨fun ⟨exit, _, errors⟩ => absurd ⟨UInt32.toNat_inj.mp (by simpa using exit),
+      (Array.append_eq_empty_iff.mp errors).2⟩ h, fun ok => absurd ok h⟩
 
 private def moduleKey (snapshot : AdmittedSnapshot) (name : Name) : Except String ModuleKey := do
   return ⟨snapshot, ← admitIdentity name⟩
