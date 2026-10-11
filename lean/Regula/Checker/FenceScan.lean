@@ -4605,10 +4605,11 @@ abbrev Block := Option (Char × Nat)
 
 /-- How one line of a Markdown document moves the open block, by the protocol. Outside a block, a
 line that opens a fence opens a block, and each other line leaves none open. Inside a block, a
-line that closes it closes it, and each other line is a body line. A marker or a violation that
-the scanner records does not stop a line from opening or closing its block, so each document has
-one run of blocks, clean or not. `Permitted.blockStep` relates the permitted transitions to these
-steps. -/
+line that closes it closes it, and each other line is a body line. The relation reads no marker
+and no violation, and the invariant behind `scanLines_fence` follows it on each line. A block and
+a line give one next block (`BlockStep.functional`), so the lines of a document give one run of
+blocks, clean or not (`Run.functional`). `Permitted.blockStep` relates the permitted transitions
+to these steps. -/
 inductive BlockStep : Block → String → Block → Prop
   /-- A line that opens a fence, outside a block. -/
   | opens {line : String} {character : Char} {count : Nat} {info : String} :
@@ -4960,10 +4961,11 @@ theorem scanLines_fence (source : Source) {fence : Fence}
 
 /-- How one line of a Verso source moves the open block, by the protocol. Outside a block, a line
 with a fence run opens a block, and each other line leaves none open. Inside a block, a line that
-closes it with back-ticks closes it, and each other line is a body line. A violation that the
-scanner records, such as a block that opens with tildes, does not stop the line from opening its
-block, so each source has one run of blocks, clean or not. `VersoPermitted.blockStep` relates the
-permitted transitions to these steps. -/
+closes it with back-ticks closes it, and each other line is a body line. The relation reads no
+violation, such as a block that opens with tildes, and the invariant behind `scanVersoLines_fence`
+follows it on each line. A block and a line give one next block (`VersoBlockStep.functional`), so
+the lines of a source give one run of blocks, clean or not (`Run.functional`).
+`VersoPermitted.blockStep` relates the permitted transitions to these steps. -/
 inductive VersoBlockStep : VersoMode → String → VersoMode → Prop
   /-- A line with a fence run, outside a block. -/
   | opens {line : String} {character : Char} {count : Nat} {info : String} :
@@ -4988,6 +4990,68 @@ theorem VersoPermitted.blockStep {mode next : VersoMode} {line : String}
   | opening fence _ _ => exact .opens fence
   | closing closes => exact .closes closes
   | body stays => exact .body stays
+
+/-- **A line moves a block to one block.** -/
+theorem BlockStep.functional {block next next' : Block} {line : String}
+    (one : BlockStep block line next) (two : BlockStep block line next') : next = next' := by
+  cases one with
+  | opens opens =>
+    cases two with
+    | opens opens' => cases lineIs_unique opens opens'; rfl
+    | outside none' => exact absurd opens (none' _ _ _)
+  | outside none' =>
+    cases two with
+    | opens opens' => exact absurd opens' (none' _ _ _)
+    | outside _ => rfl
+  | closes closes =>
+    cases two with
+    | closes _ => rfl
+    | body stays => exact absurd closes stays
+  | body stays =>
+    cases two with
+    | closes closes => exact absurd closes stays
+    | body _ => rfl
+
+/-- **A line moves a Verso block to one block.** -/
+theorem VersoBlockStep.functional {mode next next' : VersoMode} {line : String}
+    (one : VersoBlockStep mode line next) (two : VersoBlockStep mode line next') :
+    next = next' := by
+  cases one with
+  | opens opens =>
+    cases two with
+    | opens opens' =>
+      have same := ((fenceRun?_eq_some_iff _ _ _ _).mpr opens).symm.trans
+        ((fenceRun?_eq_some_iff _ _ _ _).mpr opens')
+      obtain ⟨-, rfl, -⟩ : _ ∧ _ ∧ _ := by simpa using same
+      rfl
+    | outside none' => exact absurd opens (none' _ _ _)
+  | outside none' =>
+    cases two with
+    | opens opens' => exact absurd opens' (none' _ _ _)
+    | outside _ => rfl
+  | closes closes =>
+    cases two with
+    | closes _ => rfl
+    | body stays => exact absurd closes stays
+  | body stays =>
+    cases two with
+    | closes closes => exact absurd closes stays
+    | body _ => rfl
+
+/-- **The lines give one run.** For a step that moves a block to one block, a block and the
+lines give one block at the end of their run. -/
+theorem Run.functional {α : Type} {step : α → String → α → Prop}
+    (functional : ∀ {block next next' line}, step block line next → step block line next' →
+      next = next')
+    {first last last' : α} {lines : List String} (one : Run step first lines last)
+    (two : Run step first lines last') : last = last' := by
+  induction one with
+  | nil => cases two; rfl
+  | cons moves _ ih =>
+    cases two with
+    | cons moves' rest' =>
+      cases functional moves moves'
+      exact ih rest'
 
 /-- The opening line, the body lines and the closing line of a Verso block move the blocks from
 none open to none open. -/
