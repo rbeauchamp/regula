@@ -3714,8 +3714,13 @@ audit, while `doctor` may ask a target that imports no Mathlib for Mathlib's opt
 library includes is a failing setup issue only when a claimed module (of a library or executable
 the manifest does not exclude) reaches it by import through the package's modules, which the
 audit rejects as outside every library; any other such module is a `note` that does not count
-toward `doctor`'s exit status. That reachability is read from the sources' import headers, not
-from a build. For the glob case, Lake's own glob gives the modules that the glob adds.
+toward `doctor`'s exit status. That reachability is read from import headers, not from a
+build, and Lake's own lookup `Workspace.findModule?` gives the file of each import.
+`doctor` and `init` refuse a project in which Lake resolves a module of that closure to a source file that does not exist.
+The module can be a claimed module or a module that a module of the closure imports.
+A build of that module fails when it reads the file (`Module.recFetchInput`).
+The message names the module that imports it, or it names the module as a claimed module.
+For the glob case, Lake's own glob gives the modules that the glob adds.
 `soleDeclared` finds the place of the glob with the walk of the lakefile that writes it. A library
 written as an inline table has no such place. Each such
 finding states how many modules the library leaves out and names at most

@@ -77,11 +77,15 @@ version and commit reported by the compiler of the toolchain `elan toolchain lis
 project's `lean-toolchain` (a trusted listing and self-report,
 independent of the compiler running `regula`), and the
 modules below a library root that no library includes, split by whether a claimed module
-imports them as Lean's import-header parser reads the package's sources (not a build), and
+imports them as Lean's import-header parser reads the package's sources (not a build), each
+import resolved by Lake's own module lookup to a module and its source file, so only the headers
+of that closure are read, and
 the facts of `Observation.globCase`: whether the package's only `lean_lib` has one root, keeps
 Lake's default globs and is declared at the top level with no `globs` field, the modules Lake's
 glob of its root's submodules finds, and the files the claimed modules' import closure read under
-their names, each file by its canonical path. `apply` of the glob removes that library's
+their names, each file by its canonical path. `doctor` and `init` refuse a project in which Lake
+resolves a module of that closure, claimed or imported, to a source file that does not exist; the
+message names the module that imports it, or the claim. `apply` of the glob removes that library's
 `uncovered` entries and its `sole` record. The command writes each edit into the lakefile, the
 manifest and the guidance files, then observes the project again and refuses unless the new plan
 is empty, the new `uncovered` has no entry for a library the plan gave a glob (`uncovered_run`),
@@ -218,10 +222,14 @@ structure Observation where
   pin : Pin
   /-- Each root `lean_lib` with its roots and the modules below a root, such as `Foo.Basic` for
   root `Foo`, that no root library includes and that a claimed module imports, directly or
-  through other modules of the package: the audit finds them outside every library. -/
+  through other modules of the package, each import resolved as Lake resolves it to a module and
+  its source file, which is the file found below that root: the audit finds them outside every
+  library. -/
   uncovered : List (String × List String × List String)
   /-- The same for the modules below a root that no root library includes and no claimed module
-  imports: the audit neither inspects them nor fails, so `doctor` only notes them. -/
+  imports from the file found below that root, such as a file of another library's source
+  directory that Lake does not resolve the import to: the audit neither inspects them nor fails,
+  so `doctor` only notes them. -/
   unimported : List (String × List String × List String)
   /-- The root package's only `lean_lib` with its only root, when the package has exactly one
   library, the library exactly one root, Lake reports its globs as that root alone (Lake's

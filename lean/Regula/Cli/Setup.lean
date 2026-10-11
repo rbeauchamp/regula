@@ -16,10 +16,10 @@ finding for the targets that share a claim and failures.
 
 ## Main declarations
 
-- `observe`, `importClosure`, `soleDeclared`: the `Regula.Setup.Observation` of a project, from
-  Lake's loaded package, the files, the import headers of the root package's modules and the
-  place of its only library's glob, found by the walk that writes it (`tomlPlaces`,
-  `soleLibraryCommand`).
+- `observe`, `resolveImport`, `importClosure`, `soleDeclared`: the `Regula.Setup.Observation` of
+  a project, from Lake's loaded package, the files, the import headers of the root package's
+  modules that Lake's own lookup reaches from the claimed modules, and the place of its only
+  library's glob, found by the walk that writes it (`tomlPlaces`, `soleLibraryCommand`).
 - `pinned`: the compiler the project's own `lean-toolchain` selects, resolved to a toolchain
   `elan toolchain list` names and identified by its reported version and commit.
 - `guidanceDirs`, `guidanceFile`: the repository's `AGENTS.md` that holds or receives the
@@ -53,7 +53,9 @@ Lake: the package's only library, with one root and its globs Lake's default, wh
 place in the configuration file, found by the walk that writes it (`soleDeclared`), and whose
 glob, Lake's own over its source directory, adds only source files the import closure of the
 claimed modules, the claimed roots included, already read under the same name, compared by
-canonical path (`IO.FS.realPath`). That closure reads the headers of its own files alone. A
+canonical path (`IO.FS.realPath`). That closure resolves each import with Lake's own lookup
+(`resolveImport`) and reads the headers of the files Lake gives those modules alone; the files the
+walk below each library root finds decide only what `doctor` reports a library leaves out. A
 `.git` entry marks the repository root for the agent guidance; Git itself is not run. RG2006 in
 `doctor` applies Mathlib's options when the workspace contains Mathlib, where the linter applies
 them to a target whose modules import Mathlib; by
@@ -153,24 +155,50 @@ def pinned (root : FilePath) : IO Pin := do
   | .ok identity => return .compiler selector identity.version identity.commit
   | .error error => return .unresolved selector error.toString
 
-/-- The modules reachable by import from `starts`, the starts included, among the modules whose
-source files `sources` names. Imports are read with Lean's header parser, without building; an
-import of another package or of the toolchain ends its path. -/
-def importClosure (sources : NameMap FilePath) (starts : List Name) : IO NameSet := do
-  let mut reached : NameSet := {}
-  let mut pending := starts
+/-- The module of the root package of `ws` that an import of `name` resolves to: Lake's own lookup,
+`Workspace.findModule?`, which a build of the importing module uses (`Module.recFetchInput`);
+`none` when it finds no module or another package's. -/
+def resolveImport (ws : Lake.Workspace) (name : Name) : Option Lake.Module :=
+  (ws.findModule? name).filter (·.pkg.keyName == ws.root.keyName)
+
+/-- The modules of the root package of `ws` reachable by import from `starts`, the starts
+included, each with the canonical path (`IO.FS.realPath`) of the source file read for it. Each
+import resolves through `resolveImport`, so the closure holds only modules Lake gives it, each
+with the `Module.leanFile` Lake gives that module, and reads only their headers, with Lean's
+header parser, without building. An import of another package or of the toolchain ends its path.
+A module of the closure whose source file does not exist is refused, naming the module and the
+module that imports it, or naming it as a claimed module: Lake's build of that module fails
+reading the file (`Module.recFetchInput`).
+-/
+def importClosure (ws : Lake.Workspace) (starts : List Lake.Module) :
+    IO (List (Name × FilePath)) := do
+  let mut visited : Std.HashSet (Name × String) := {}
+  let mut reached : Array (Name × FilePath) := #[]
+  let mut canonical : Std.HashSet (Name × String) := {}
+  -- Each pending module with the module whose import reached it; a start has none.
+  let mut pending : List (Lake.Module × Option Name) := starts.map (·, none)
   repeat
-    let m :: rest := pending | break
+    let (m, importer) :: rest := pending | break
     pending := rest
-    if reached.contains m then continue
-    reached := reached.insert m
-    let some file := sources.find? m | continue
+    let file := m.leanFile
+    if visited.contains (m.name, file.toString) then continue
+    visited := visited.insert (m.name, file.toString)
+    unless ← file.pathExists do
+      throw <| IO.userError <| match importer with
+        | some i => s!"module {i} imports {m.name}, which Lake resolves to {file}, and that file \
+            does not exist, so Lake cannot build {i}"
+        | none => s!"the source {file} of claimed module {m.name} does not exist, so Lake cannot \
+            build it"
+    let path ← IO.FS.realPath file
+    if canonical.contains (m.name, path.toString) then continue
+    canonical := canonical.insert (m.name, path.toString)
+    reached := reached.push (m.name, path)
     let header ← Lean.parseImports' (← IO.FS.readFile file) file.toString
     -- An entry of module names: the import lines of a project source.
     Regula.Checker.requireSafeModuleNames s!"the imports of {file}" (header.imports.map (·.module))
     for i in header.imports do
-      if sources.contains i.module then pending := i.module :: pending
-  return reached
+      if let some next := resolveImport ws i.module then pending := (next, some m.name) :: pending
+  return reached.toList
 
 /-- The project's manifest with its Lake inventory, refused unless it loads and classifies every
 root target: the audit's own RG2002 functions. -/
@@ -600,13 +628,13 @@ def soleDeclared (kind : Lakefile) (path : FilePath) (name root : String) : IO B
 `leanOptions`, whether it has a `lean_lib`, and the root targets the manifest does not exclude with
 their own `leanOptions` and resolved extra `lean` arguments), whether the workspace contains
 Mathlib, the compiler its `lean-toolchain` selects (`pinned`), the manifest and agent-guidance
-files, the
-modules below a library root that no library includes, split by whether a claimed module imports
-them, and the facts of `Regula.Setup.Observation.globCase`: the package's only `lean_lib` when
-it has one root, Lake reports its globs as that root alone and `soleDeclared` holds, each module
-Lake's glob of the root's submodules finds in its source directory with its `Module.leanFile`, and
-the file the import closure of the claimed modules, the claimed roots included, read under each
-of those names, every file by its canonical path. -/
+files, the modules a walk of each library root's directory finds that no library includes, each
+split by whether the import closure of the claimed modules (`importClosure`) read that module from
+the file the walk found, and the facts of `Regula.Setup.Observation.globCase`: the package's only
+`lean_lib` when it has one root, Lake reports its globs as that root alone and `soleDeclared`
+holds, each module Lake's glob of the root's submodules finds in its source directory with its
+`Module.leanFile`, and the file the import closure of the claimed modules, the claimed roots
+included, read under each of those names, every file by its canonical path. -/
 def observe (root : FilePath) : IO Project := do
   -- Without a manifest every root target is claimed, as in the starter `init` writes; a target the
   -- manifest that loads excludes is not. A manifest that does not load or classify every root
@@ -631,24 +659,24 @@ def observe (root : FilePath) : IO Project := do
       -- any module is resolved or any path is built from a name (`Lake.checkModuleNames`).
       Regula.Checker.Lake.checkWorkspaceModuleNames ws
       let pkg := ws.root
-      -- The source of every module a root library includes and of every executable root, and
-      -- the claimed ones among them.
-      let mut sources : NameMap FilePath := {}
-      let mut claimed : List Name := []
+      -- The names of every module a root library includes and of every executable root, and the
+      -- claimed modules among them, each as Lake gives it.
+      let mut included : NameSet := {}
+      let mut claimed : List _root_.Lake.Module := []
       for lib in pkg.leanLibs do
         for m in ← lib.getModuleArray do
-          sources := sources.insert m.name m.leanFile
+          included := included.insert m.name
           unless excludedLibraries.contains (Manifest.targetSpelling lib.name) do
-            claimed := m.name :: claimed
+            claimed := m :: claimed
       for exe in pkg.leanExes do
-        sources := sources.insert exe.root.name exe.root.leanFile
+        included := included.insert exe.root.name
         unless excludedExecutables.contains (Manifest.targetSpelling exe.name) do
-          claimed := exe.root.name :: claimed
-      let included := sources
-      -- The modules below each library root that no root library includes.
-      let mut missedBy : Array (String × List String × Array Name) := #[]
+          claimed := exe.root :: claimed
+      -- The modules below each library root that no root library includes, with the file the walk
+      -- found for each: what the coverage report states, never a source of the import closure.
+      let mut missedBy : Array (String × List String × Array (Name × FilePath)) := #[]
       for lib in pkg.leanLibs do
-        let mut missed : Array Name := #[]
+        let mut missed : Array (Name × FilePath) := #[]
         for r in lib.roots do
           let dir := Lean.modToFilePath lib.srcDir r ""
           unless ← dir.isDir do continue
@@ -656,9 +684,7 @@ def observe (root : FilePath) : IO Project := do
             if path.extension != some "lean" || (← path.isDir) then continue
             let parts := (path.withExtension "").components.drop dir.components.length
             let name := parts.foldl Name.str r
-            unless included.contains name do
-              missed := missed.push name
-              sources := sources.insert name path
+            unless included.contains name do missed := missed.push (name, path)
         unless missed.isEmpty do
           missedBy := missedBy.push (lib.name.toString, lib.roots.toList.map toString, missed)
       -- The package's only library when it has one root and Lake reports its globs as that root
@@ -674,14 +700,21 @@ def observe (root : FilePath) : IO Project := do
               let found ← IO.mkRef (#[] : Array Name)
               (Lake.Glob.submodules r).forEachModuleIn lib.srcDir fun m => found.modify (·.push m)
               added := (← found.get).map fun m => (m, Lean.modToFilePath lib.srcDir m "lean")
-              for (m, file) in added do
-                unless sources.contains m do sources := sources.insert m file
-      let imported ← importClosure sources claimed
+      -- Each module of the closure Lake resolves, with the canonical path of the file read for it.
+      let imported ← importClosure ws claimed
+      let importedSet : Std.HashSet (Name × String) :=
+        .ofList (imported.map fun (m, path) => (m, path.toString))
       let sorted (names : Array Name) := ((names.map toString).qsort (· < ·)).toList
       let mut uncovered := []
       let mut unimported := []
+      -- A module the walk found is imported when the closure read its name from the same file.
       for (library, roots, missed) in missedBy do
-        let (hit, rest) := missed.partition imported.contains
+        let mut hit := #[]
+        let mut rest := #[]
+        for (name, path) in missed do
+          let file := (← IO.FS.realPath path).toString
+          if importedSet.contains (name, file) then hit := hit.push name
+          else rest := rest.push name
         unless hit.isEmpty do uncovered := uncovered ++ [(library, roots, sorted hit)]
         unless rest.isEmpty do unimported := unimported ++ [(library, roots, sorted rest)]
       let own (options : Array Lean.LeanOption) :=
@@ -701,14 +734,13 @@ def observe (root : FilePath) : IO Project := do
           exes.map (fun exe => target true exe.name exe.config.leanOptions
             (Lake.executableOptions exe))).toList
       let kind := if pkg.configFile.extension == some "toml" then Lakefile.toml else .lean
+      let addedNames := added.foldl (fun s (m, _) => s.insert m) ({} : NameSet)
       return (kind, pkg.configFile, pkg.lintDriver,
         (Lake.buildOptions pkg.leanOptions #[] #[]).options, targets,
         !invalid && libs.size == pkg.leanLibs.size && exes.size == pkg.leanExes.size,
         !pkg.leanLibs.isEmpty,
         ws.packages.any (·.baseName == `mathlib), uncovered, unimported, candidate,
-        added.toList,
-        (added.filterMap fun (m, _) =>
-          if imported.contains m then (sources.find? m).map (m, ·) else none).toList)
+        added.toList, imported.filter fun (m, _) => addedNames.contains m)
   -- The configuration file is read only when the glob could apply: a library with modules for its
   -- glob to add.
   let sole ← match candidate with
