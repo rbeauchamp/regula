@@ -832,8 +832,8 @@ which a project can write, with the axioms that the replayed kernel gives. `assu
 `checkedOperations` are the declarations with a role that a project writes with an attribute. The
 decisions of [RG1007] and [RG1009] take the recorded contract and no other field, so they read the
 `noncomputable` mark only through it. The decision requirement of [RG1008] takes the name and the
-registration alone (`Declaration.Registration`). The role validators take the role part (`Declaration.Role`): the
-inspected part and the three marks that they read. The declaration decision and the operational
+registration alone (`Declaration.Registration`). The role validators take the role part
+(`Declaration.Role`): the inspected part and the three marks that they read. The declaration decision and the operational
 decision take the assessed part (`Declaration.Assessed`): the inspected part and the recorded
 contract. `policyFor`, `memberFailure` and the editor decision take the whole `Declaration` because
 membership of the inventory is a property of the whole record. `policyFor` checks it at the
@@ -4711,9 +4711,9 @@ file system has contracts.
 The module of an external system gives its operations as the structure `Ops` and a model of the
 system as the structure `Model`. A model gives each operation as an action on a state. An
 assumption is a predicate over a model. Each assumption of the file system is the contract of one
-operation, as a `Std.Do` triple. The attribute `@[regula_assumption]` of `Regula.Assumption` gives the system and
-the sources of the assumption. An assumption is not an `axiom`: each theorem that uses it has it
-as a hypothesis.
+operation, as a `Std.Do` triple. The attribute `@[regula_assumption]` of `Regula.Assumption`
+gives the system and the sources of the assumption. An assumption is not an `axiom`: each theorem
+that uses it has it as a hypothesis.
 
 A checked operation runs an operation and then examines the result. It fails when the
 postcondition of the operation is not true for that result. The attribute `@[regula_checked]`
@@ -4803,9 +4803,9 @@ hypothesis. `Regula.Filesystem` gives them for the observer at the model of the 
 
 `Model.Unchanged` gives the frame of a removal. It is each path with a file name, if its parent is
 its own real path before the removal. The path is not the removed path, and the chain of its
-parents does not reach the removed path (`Within`). Before the removal, also no entry is at the path, or the path names a file that is not an
-entry of the removed tree. For each such path, the entry after the removal has the same type as
-before, or no entry is at the path before and after.
+parents does not reach the removed path (`Within`). Before the removal, also no entry is at the
+path, or the path names a file that is not an entry of the removed tree. For each such path, the
+entry after the removal has the same type as before, or no entry is at the path before and after.
 
 `Model.Below` gives the removed tree. The removed path is in its tree. A name in a directory of
 the tree, other than `.` and `..`, is also in the tree. A symbolic link is not a directory, thus
