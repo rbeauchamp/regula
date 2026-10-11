@@ -32,6 +32,11 @@ artifact's exact bytes, and an unpublished route to be answered with HTTP 404 an
 These are observations at one time through `curl`, not proofs: GitHub, Pages, its CDN and the
 network are external. Requests carry a per-attempt query string so that a cached copy is
 unlikely to satisfy the comparison; whether the CDN keys on it is not established.
+
+`verify` reads each fetched page from `curl`'s standard output, so it writes and removes no
+file, under the assumption that `fetch` states. This program imports only Lean's core, so it
+cannot use the removal decision of the site executable (`Regula.Removal.removal`); with no
+removal it has nothing to decide.
 -/
 
 namespace Regula.Site.Deployment
@@ -40,12 +45,40 @@ open Lean System
 private def fail {α : Type} (message : String) : IO α := throw <|
     IO.userError s!"deployment verification: {message}"
 
-/-- Fetch `url` into `path`; returns the HTTP status (0 when no response). -/
-def fetch (url : String) (path : FilePath) : IO Nat := do
-  let out ← IO.Process.output
-      { cmd := "curl", args := #["--silent", "--show-error", "--max-time", "60",
-    "--output", path.toString, "--write-out", "%{http_code}", url] }
-  return out.stdout.trimAscii.toString.toNat?.getD 0
+/-- The variables of this process that `fetch` passes to curl when they are set. -/
+def curlEnvironment : Array String :=
+  #["PATH", "HTTPS_PROXY", "https_proxy", "HTTP_PROXY", "http_proxy", "ALL_PROXY", "all_proxy",
+    "NO_PROXY", "no_proxy", "SSL_CERT_FILE", "SSL_CERT_DIR", "CURL_CA_BUNDLE"]
+
+/-- Fetch `url`: return the HTTP status (0 when no response) and the bytes of the body. curl
+writes the body and then the three digits of the status to its standard output, which this
+process reads from a pipe. curl starts with an environment that has only the variables of
+`curlEnvironment` that are set in this process: it runs as the utility of `env -i NAME=VALUE ...`,
+which by POSIX `env` (`-i`) gets exactly the environment its assignments give. The child is not
+spawned with `inheritEnv := false`, under which the Lean 4.34.1 runtime on macOS crashes the child
+(exit 139) before it runs curl. The variables are `PATH`, by which the child finds curl, the proxy
+variables `HTTPS_PROXY`, `HTTP_PROXY`, `ALL_PROXY`, `NO_PROXY` and their lowercase forms, and the
+certificate variables `SSL_CERT_FILE`, `SSL_CERT_DIR` and `CURL_CA_BUNDLE`. Assumes: by the curl
+manual (its ENVIRONMENT section and the `--cacert` and `--capath` descriptions), these select only
+the proxy curl connects through and the certificates it reads, and none makes it write a file. No
+other variable of this process reaches curl, so for example `SSLKEYLOGFILE` cannot make it write a
+file. Assumes: with `--disable` as its first argument, curl reads no `.curlrc` (curl manual,
+`-q, --disable`: "If used as the first parameter on the command line, the curlrc config file is
+not read or used"), so no configuration file can make it write the body to a file. `url` is the value of `--url`, so a `url` that starts with `-`,
+such as `-K/tmp/x`, is a URL and not an option. With the other arguments and no other variable
+curl writes no file. -/
+def fetch (url : String) : IO (Nat × ByteArray) := do
+  let assignments ← curlEnvironment.filterMapM fun name => do
+    return (← IO.getEnv name).map fun value => s!"{name}={value}"
+  let child ← IO.Process.spawn
+      { cmd := "env", args := #["-i"] ++ assignments ++ #["curl", "--disable", "--silent",
+          "--show-error", "--max-time", "60", "--write-out", "%{http_code}", "--url", url]
+        stdin := .null, stdout := .piped, stderr := .inherit }
+  let out ← child.stdout.readBinToEnd
+  let _ ← child.wait
+  let body := out.extract 0 (out.size - 3)
+  let status := (String.fromUTF8? (out.extract (out.size - 3) out.size)).bind (·.toNat?)
+  return (status.getD 0, body)
 
 private def field (j : Json) (key : String) : IO Json := IO.ofExcept (j.getObjVal? key)
 private def str (j : Json) (key : String) : IO String := do IO.ofExcept (← field j key).getStr?
@@ -85,15 +118,13 @@ def run (artifact : FilePath) (pageUrl : String) : IO Unit := do
   unless pageUrl == site do fail s!"deployed at {pageUrl}, but the artifact is for {site}"
   unless (← field build "dirty") matches .bool false do
       fail "the artifact was built from uncommitted changes"
-  let scratch := artifact.parent.getD "." / "deployment-check"
-  IO.FS.createDirAll scratch
   let probe := s!"?regula-deployment={revision}"
   -- The deployment is atomic; wait until the live identity is this artifact's.
   let mut matched := false
   for attempt in [1:21] do
-    let status ← fetch (site ++ "build.json" ++ probe ++ s!"-{attempt}") (scratch / "build.json")
+    let (status, live) ← fetch (site ++ "build.json" ++ probe ++ s!"-{attempt}")
     if status == 200 then
-      if (← IO.FS.readBinFile (scratch / "build.json")) == recorded then
+      if live == recorded then
         matched := true
         break
     IO.println s!"attempt {attempt}: live build.json is not this artifact yet (HTTP {status}); \
@@ -110,17 +141,14 @@ def run (artifact : FilePath) (pageUrl : String) : IO Unit := do
     routes.map ("dev/" ++ · ++ "index.html") ++
     (editions.filter (· != "dev/")).map (· ++ "build.json") ++ stable
   for file in files do
-    let status ← fetch (site ++ file ++ probe) (scratch / "file")
+    let (status, live) ← fetch (site ++ file ++ probe)
     unless status == 200 do fail s!"{file}: HTTP {status}"
-    unless (← IO.FS.readBinFile (scratch / "file")) == (← IO.FS.readBinFile (artifact / file)) do
+    unless live == (← IO.FS.readBinFile (artifact / file)) do
       fail s!"{file}: live bytes differ from the validated artifact"
-  let status ← fetch (site ++ "v/0.0.0-unpublished/rules/RG1001/" ++ probe)
-      (scratch / "missing.html")
+  let (status, missing) ← fetch (site ++ "v/0.0.0-unpublished/rules/RG1001/" ++ probe)
   unless status == 404 do fail s!"unpublished route answered HTTP {status}, expected 404"
-  unless (← IO.FS.readBinFile (scratch / "missing.html")) ==
-      (← IO.FS.readBinFile (artifact / "404.html")) do
+  unless missing == (← IO.FS.readBinFile (artifact / "404.html")) do
     fail "unpublished route did not serve the artifact's not-available page"
-  IO.FS.removeDirAll scratch
   IO.println s!"deployment verification: PASS ({site} serves the artifact of {revision}: \
     build.json and {files.length} pages and edition records of {editions}, {stable.length} of \
     them stable routes, not-available page); \
