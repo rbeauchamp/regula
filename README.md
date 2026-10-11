@@ -29,11 +29,11 @@ RG1002 [violation; …]: twice: … axioms=["sorryAx"] -> hole
 …
 ```
 
-Each finding gives the rule, the location and the fix. The [rule reference](https://rbeauchamp.github.io/regula/rules/) explains each rule and shows an example with its correction.
+Each finding gives the rule, the location and the fix. The [rule reference](https://rbeauchamp.github.io/regula/rules/) gives each rule and shows an example with its correction.
 
 ## Try it
 
-Regula `v0.11.1` supports the Lean toolchain `leanprover/lean4:v4.34.1`. With [elan](https://lean-lang.org/install/) installed, make a project and add Regula:
+Regula `v0.11.1` is for the Lean toolchain `leanprover/lean4:v4.34.1`. With [elan](https://lean-lang.org/install/) installed, make a project. Then add Regula:
 
 ```sh
 lake +leanprover/lean4:v4.34.1 new demo
@@ -48,7 +48,7 @@ EOF
 lake update regula
 ```
 
-Save the example above as `Shortcut.lean` in `demo`, then examine it:
+Save the example above as `Shortcut.lean` in `demo`. Then examine the file:
 
 ```sh
 lake exe axiomGate --file Shortcut.lean   # exit 1: proof holes in double and twice
@@ -66,7 +66,7 @@ lake exe regula init
 lake lint
 ```
 
-`init` adds missing configuration and runs `doctor`, which reports the remaining setup steps. It does not change values that you set. Correct each finding, then run `lake lint` again.
+`init` adds missing configuration and runs `doctor`, which reports the remaining setup steps. It does not change values that you set. Correct each finding. Then run `lake lint` again.
 
 `lake lint` requires a build with no warnings. The first run often stops at missing docstrings or a `sorry` warning ([RG2003], exit 3). Correct those warnings before the proof checks can run.
 
@@ -80,13 +80,13 @@ Regula checks the libraries and executable roots that your manifest selects. Its
 - Declaration and module coverage, required documentation, build warnings and Lean options.
 - Reachable execution boundaries such as `extern` and `implemented_by`. In `checked` mode, boundaries outside the Lean toolchain require proofs of correspondence ([RG3002]).
 
-A pass does not establish that your theorems express the intended claims. Review their statements, assumptions, invariants and documentation against the [standard's compliance checklist](https://rbeauchamp.github.io/regula/standard/8-compliance-audit/).
+A pass does not show that your theorems state the intended claims. Review their statements, assumptions, invariants and documentation against the [standard's compliance checklist](https://rbeauchamp.github.io/regula/standard/8-compliance-audit/).
 
 Regula trusts Lean's kernel, compiler and runtime, Lake and the operating system. It also trusts packages outside your Git work tree. It does not replay those packages in Lean's kernel. Code loaded by name at runtime and spawned processes are outside its execution account. See the [assurance boundaries](docs/guides/proofs-and-boundaries.md) and [security scope](SECURITY.md#scope) for the full limits.
 
 Keep Lean's warnings and the community linters. For independent kernel replay, run `lake env leanchecker` beside Regula, as described in [Validating a Lean Proof](https://lean-lang.org/doc/reference/latest/ValidatingProofs/).
 
-Regula accepts no `sorry`, so use it when you complete proofs. Mathlib's CI governs Mathlib pull requests. Use [Comparator](https://github.com/leanprover/comparator) to check an untrusted proof against a fixed statement.
+Regula accepts no `sorry`, so use it when you complete proofs. For Mathlib pull requests, use Mathlib's CI. Use [Comparator](https://github.com/leanprover/comparator) to check an untrusted proof against a fixed statement.
 
 ## For coding agents
 
@@ -97,7 +97,7 @@ Regula accepts no `sorry`, so use it when you complete proofs. Mathlib's CI gove
 
 ## Supported toolchain
 
-Each release supports one Lean toolchain. Use the [compatibility table](docs/guides/adoption.md#1-require-regula) to select a release for your project. This repository's pin is [lean-toolchain](lean-toolchain).
+Each release is for one Lean toolchain. Use the [compatibility table](docs/guides/adoption.md#1-require-regula) to select a release for your project. This repository's pin is [lean-toolchain](lean-toolchain).
 
 Regula adds no Mathlib dependency. Only the separate [Mathlib integration check](docs/guides/contributing.md#mathlib-integration-check) uses Mathlib. Before version 1.0, a minor release can add a rule or make a rule stricter.
 
@@ -112,7 +112,7 @@ Regula adds no Mathlib dependency. Only the separate [Mathlib integration check]
 
 ## License
 
-[MIT](LICENSE), except the adapted container recursion of Lean's JSON parser in `lean/Regula/Checker/PolicyCodec.lean`. That code keeps its upstream Apache 2.0 notice ([license text](LICENSES/Apache-2.0.txt), [design influences](docs/guides/design-influences.md#adapted-code-and-licenses)).
+The adapted container recursion of Lean's JSON parser in `lean/Regula/Checker/PolicyCodec.lean` keeps its upstream Apache 2.0 notice ([license text](LICENSES/Apache-2.0.txt), [design influences](docs/guides/design-influences.md#adapted-code-and-licenses)). All other code uses [MIT](LICENSE).
 
 Regula is not affiliated with the Lean FRO or Mathlib.
 
