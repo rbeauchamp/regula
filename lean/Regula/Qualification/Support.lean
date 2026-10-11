@@ -35,7 +35,7 @@ def timeoutCommand : IO String := do
 /-- Run within the public entrypoint's timed process group. Do not detach a nested
 process group: the enclosing deadline must kill descendants holding output pipes too. Throws
 without starting it when `command` spells a toolchain program's name, or when `command` is a
-`lake` and any argument spells one (`Regula.Toolchain.refuseBareName`). -/
+`lake` and the program `lake env` starts spells one (`Regula.Toolchain.refuseBareName`). -/
 def run (root : FilePath) (command : String) (args : Array String)
     (env : Array (String × Option String) := #[]) : IO IO.Process.Output := do
   Regula.Toolchain.refuseBareName command args
@@ -47,7 +47,7 @@ def run (root : FilePath) (command : String) (args : Array String)
   return result
 
 /-- `run` of the toolchain's `lake`, by its path (`Regula.Checker.toolchainProgram`). Throws
-without starting it when the child would see a toolchain program override that is not an absolute
+without starting it when the child would run a toolchain program override that is not an absolute
 path (`Regula.Toolchain.refuseRelativeOverrides`). The child gets `Regula.Toolchain.lakeChildEnv`,
 then `env`. -/
 def runLake (root : FilePath) (args : Array String) (env : Array (String × Option String) := #[]) :

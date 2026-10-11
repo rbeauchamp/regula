@@ -391,19 +391,84 @@ private def toolchain (name : String) : IO String :=
   return ((← IO.appDir) / name).toString
 
 /-- The environment variables through which Lake chooses a program for the builds it runs
-(`LeanInstall.get`, `Lake/Config/InstallPath.lean:272` of Lean v4.34.1), as
-`Regula.Toolchain.programOverrides` lists them. Lake runs the value of each as it is. -/
+(`LeanInstall.get`, `Lake/Config/InstallPath.lean:272` of Lean v4.34.1, `overridesRead`), as
+`Regula.Toolchain.programOverrides` lists them. Lake runs the value it reads as it is. -/
 def programOverrides : List String := ["LEAN_AR", "AR", "LEAN_CC", "CC"]
 
-/-- Throws when a variable of `programOverrides` is set, in this program's environment, which the
-builds it starts inherit, to a path that is not absolute, so `PATH` could resolve it. -/
-def refuseRelativeOverrides : IO Unit := do
+/-- The variable, with its value under `lookup`, from which Lake takes a program: `preferred` when
+it is set, else, when the installation bundles no such program (`bundled` false), `fallback` when
+it is set, as `Regula.Toolchain.override?` gives it. -/
+def override? (lookup : String → Option String) (preferred fallback : String) (bundled : Bool) :
+    Option (String × String) :=
+  match lookup preferred with
+  | some value => some (preferred, value)
+  | none => if bundled then none else (lookup fallback).map (fallback, ·)
+
+/-- The variables, with their values under `lookup`, that Lake's `LeanInstall.get` reads to choose
+its archiver (`findAr`, `Lake/Config/InstallPath.lean:289` of Lean v4.34.1: `LEAN_AR`, else `AR`
+when the installation has no `bin/llvm-ar`, `bundledAr`) and its C compiler (`setCc`, line 300:
+`LEAN_CC`, else `CC` when it has no `bin/clang`, `bundledCc`). -/
+def overridesRead (lookup : String → Option String) (bundledAr bundledCc : Bool) :
+    List (String × String) :=
+  (override? lookup "LEAN_AR" "AR" bundledAr).toList ++
+    (override? lookup "LEAN_CC" "CC" bundledCc).toList
+
+/-- The variables of `overridesRead` whose value is not an absolute path. -/
+def relativeOverrides (lookup : String → Option String) (bundledAr bundledCc : Bool) :
+    List (String × String) :=
+  (overridesRead lookup bundledAr bundledCc).filter fun (_, value) =>
+    !(System.FilePath.mk value).isAbsolute
+
+/-- `override?` gives a variable exactly when it is `preferred` and set, or it is `fallback`, set,
+with `preferred` unset and no bundled program. -/
+theorem override?_eq_some_iff {lookup : String → Option String} {preferred fallback : String}
+    {bundled : Bool} {name value : String} :
+    override? lookup preferred fallback bundled = some (name, value) ↔
+      (name = preferred ∧ lookup preferred = some value) ∨
+      (name = fallback ∧ lookup preferred = none ∧ bundled = false ∧
+        lookup fallback = some value) := by
+  unfold override?
+  split
+  · rename_i set
+    simp [set, eq_comm]
+  · rename_i unset
+    cases bundled <;> simp [unset, eq_comm]
+    exact And.comm
+
+/-- `relativeOverrides` holds a variable exactly when Lake's `findAr` or `setCc` reads it, as
+`overridesRead` states their order, and its value is not an absolute path. -/
+theorem mem_relativeOverrides {lookup : String → Option String} {bundledAr bundledCc : Bool}
+    {name value : String} :
+    (name, value) ∈ relativeOverrides lookup bundledAr bundledCc ↔
+      ((name = "LEAN_AR" ∧ lookup "LEAN_AR" = some value) ∨
+        (name = "AR" ∧ lookup "LEAN_AR" = none ∧ bundledAr = false ∧ lookup "AR" = some value) ∨
+        (name = "LEAN_CC" ∧ lookup "LEAN_CC" = some value) ∨
+        (name = "CC" ∧ lookup "LEAN_CC" = none ∧ bundledCc = false ∧ lookup "CC" = some value)) ∧
+      (System.FilePath.mk value).isAbsolute = false := by
+  simp only [relativeOverrides, overridesRead, List.mem_filter, List.mem_append,
+    Option.mem_toList, override?_eq_some_iff, Bool.not_eq_true', or_assoc]
+
+/-- The variable of `relativeOverrides` that the Lake beside the `lean` that runs this program
+(`IO.appDir`) would run from this program's environment, which the commands it starts inherit, if
+any; whether that installation bundles `llvm-ar` and `clang` is whether its `bin` directory has
+them. -/
+def relativeOverride? : IO (Option (String × String)) := do
+  let mut values : List (String × String) := []
   for name in programOverrides do
-    if let some value ← IO.getEnv name then
-      unless (FilePath.mk value).isAbsolute do
-        throw <| IO.userError s!"provisioning: the toolchain program override \
-          {name}={value} is not an absolute path, so PATH could resolve it; unset it or give \
-          an absolute path"
+    if let some value ← IO.getEnv name then values := (name, value) :: values
+  let bin ← IO.appDir
+  let bundled (name : String) :=
+    (bin / name |>.addExtension System.FilePath.exeExtension).pathExists
+  let lookup := fun name => List.lookup name values
+  return (relativeOverrides lookup (← bundled "llvm-ar") (← bundled "clang")).head?
+
+/-- Throws when the builds this program starts would run a program override that is not an absolute
+path (`relativeOverride?`), so `PATH` could resolve it. -/
+def refuseRelativeOverrides : IO Unit := do
+  if let some (name, value) ← relativeOverride? then
+    throw <| IO.userError s!"provisioning: the toolchain program override {name}={value}, which \
+      Lake runs, is not an absolute path, so PATH could resolve it; unset it or give an absolute \
+      path"
 
 private def nonce : IO String := do
   let bytes ← IO.getRandomBytes 8

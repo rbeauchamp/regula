@@ -56,10 +56,16 @@ def legacyPresent (library : System.FilePath) : IO Bool := do
   throw <| IO.userError "compiler capability: incomplete legacy axiom family"
 
 /-- The installation directory of the Lean toolchain, by its canonical path: the value of
-`LEAN_SYSROOT`, which must be an absolute path. Throws when `LEAN_SYSROOT` is unset or relative;
-no `lean` is run to find the directory, so no program that `PATH` resolves takes part.
+`LEAN_SYSROOT`, which must be an absolute path, or, when it is unset and the running program is a
+`lean` (the file stem of `IO.appPath`), that `lean`'s own installation (`Lean.getBuildDir`, the
+parent of the canonical directory of the running `lean`). Throws when `LEAN_SYSROOT` is relative,
+or unset in any other program; no `lean` is run to find the directory, so no program that `PATH`
+resolves takes part.
 Assumes: Lake sets `LEAN_SYSROOT` for each program it starts (`lake exe`, `lake env`, `lake lint`)
 to the installation it detected (`Lake.Env.baseVars`, `Lake/Config/Env.lean:302` of Lean v4.34.1).
+The `lean` that Lake starts to compile a module gets no `LEAN_SYSROOT`
+(`Lake.compileLeanModule`, `Lake/Build/Actions.lean:29`), so code that runs while it elaborates
+takes that `lean`'s installation, the one Lake detected, whose `bin/lean` Lake ran by its path.
 For a toolchain `lake` beside its `lean`, without `LAKE_OVERRIDE_LEAN` set to true, that is the
 parent of the directory of the running `lake` (`Lake.findLakeLeanJointHome?`,
 `Lake/Config/InstallPath.lean:334`), an absolute path. With that override, Lake detects the
@@ -68,9 +74,12 @@ installation instead from the inherited `LEAN_SYSROOT`, or else from the `lean` 
 choice is the caller's, and `identifiedRoot` refuses one whose `lean` is another compiler. The
 filesystem's resolution of the path is trusted. -/
 def toolchainRoot : IO System.FilePath := do
-  let some root ← IO.getEnv "LEAN_SYSROOT"
-    | throw <| IO.userError "the Lean toolchain is unknown: LEAN_SYSROOT is unset; run this \
-        program through Lake (lake exe, lake env or lake lint), which sets it"
+  let some root ← IO.getEnv "LEAN_SYSROOT" | do
+    unless (← IO.appPath).fileStem == some "lean" do
+      throw <| IO.userError "the Lean toolchain is unknown: LEAN_SYSROOT is unset and this \
+        program is not a `lean`; run it through Lake (lake exe, lake env or lake lint), which \
+        sets it"
+    IO.FS.realPath (← Lean.getBuildDir)
   let root := System.FilePath.mk root
   unless root.isAbsolute do
     throw <| IO.userError s!"the Lean toolchain is unknown: LEAN_SYSROOT is the relative path \
