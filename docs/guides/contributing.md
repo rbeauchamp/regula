@@ -449,7 +449,7 @@ Lake's build API, is not one. Following references into dependencies is the reac
 
 The shards of the self-audit also deal out these libraries and executable roots. A shard reports an
 unfound entry only for a module that it audits. An entry in a module that the campaign does not
-audit fails in every shard.
+audit fails in each shard.
 
 The repository's own checklist rows, which apply to this repository only:
 
