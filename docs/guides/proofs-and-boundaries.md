@@ -716,24 +716,31 @@ historical replacement conservatively, including one that the compiled code no l
 [RG3001] and [RG3002] decisions read the two parts.
 
 **Documentation records.** The rules [RG4001] to [RG4004] and [RG5001] to [RG5003] examine text
-that a project writes. In a documentation record, a field is project-written where it holds text
-of a project file or data of a mark that the project writes. A field that the scanner
-computes from the document is also project-written. A field is observed where it is the answer
-of Lean's parsers or compiler, or of the checker's observing code, about that text.
+that a project writes. In these records, a mark is what the project writes to classify that text
+or to change how Lean reads it. Examples are a module docstring, a fence's marker or language
+word, a syntax declaration, and the elaborators, macros, linters and attributes of imported
+modules. A field is project-written where it holds bytes of a project file or a copy of them or
+where a mark's data enters it. A field is observed where the checker chooses its value, or where
+a fixed reader gives it from the text and no mark enters it.
 
-`ModuleHeader.Observation` has two parts. Lean's environment holds module documentation for the
-module, an entry that a module docstring or a command adds, so `documented` is project-written.
-`documentationFirst` and `imports` are what Lean's parsers read in the source, so they are
-observed. The command parser uses the parser tables of the module's environment, which the syntax
-that the project declares extends.
+`ModuleHeader.Observation` has two parts. Lean's header parser is fixed, so the `imports` that it
+reads are observed. A module docstring or a command adds the module documentation that
+`documented` reads, so that field is project-written. Lean's command parser gives
+`documentationFirst` with parser tables that the project's syntax declarations extend, so it is
+project-written too.
 
-`FenceKey` and `DocumentObservation` have no parts. Each field is a document or what the scanner
-computes from it, and the expectation is what the document declares for the fence. An
-`ExampleObservation` and each of its units have two parts: the fence is project-written, and the
-other fields are observed. The checker chooses the temporary module and the group, and it writes
-the source text that the compiler reads. Compiling the example runs its commands, which can write
-that file, so the text that the checker reads back is what the compilation left there.
-`ExampleExpectationOK` and `ExampleSourceOK` compare these texts with the body of the fence.
+`FenceKey` and `FenceScan.Source` have two parts. The places of a fence's lines, which the scanner
+reads, and the name of a document in a violation, which the checker makes, are observed. Marks
+decide which fences exist but not where their lines are. The document, its lines and the
+expectation, the data of the fence's marker or language word, are project-written.
+`DocumentObservation` has no parts: the marks of the documents decide its fences and violations.
+
+In an `ExampleObservation` and its units, the observed part holds only the names and paths that
+the checker chooses. The source texts that the checker gives the compiler and reads back come from
+the fence's body. Compiling an example runs its commands and the code of the modules that it
+imports. Their marks can enter the group, the warnings, the declarations and the outcome, and the
+commands can write the source file. Thus all these fields are project-written.
+`ExampleExpectationOK` and `ExampleSourceOK` compare the source texts with the body of the fence.
 
 The decisions of [RG5002] and [RG5003] take no record. They take the docstring that Lean's lookup
 gives (`findDocString?`), which is project-written. In the documentation rules, a project-written
@@ -748,8 +755,7 @@ project writes can still enter a toolchain observation, and the docstring of eac
 how: `isProp` is Lean's answer, which does not unfold an irreducible definition; `prettyType` is
 Lean's printer, which uses the notations in force; `nativeReplay` runs compiled code; and what a
 project writes selects which regeneration `unsafeRecRegenerated` reports, while the pure comparison
-and the kernel decide it. In the documentation records, `documentationFirst` and `after` are such
-observations. The two observations of the checker that a project-written mark decides
+and the kernel decide it. The two observations of the checker that a project-written mark decides
 are fields of `Declaration.ProjectWritten` for that reason. `executableContract` reads Lean's
 `noncomputable` mark for one refusal. `tableOmissions` compares the axioms of Lean's module table,
 which a project can write, with the axioms that the replayed kernel gives. The decisions of [RG1007]

@@ -379,8 +379,10 @@ def Fence.key (fence : Fence) : Except String RegulaPolicy.FenceKey := do
         unless fence.body == String.Pos.Raw.extract fence.document.source
             ⟨fence.bodyRange.start⟩ ⟨fence.bodyRange.stop⟩ do
           throw "fence body differs from original document bytes"
-        return ⟨fence.document, fence.opening, fence.bodyRange, fence.closing, expectation,
-            hn, ho, hp⟩
+        return {
+          document := fence.document, opening := fence.opening, body := fence.bodyRange,
+          closing := fence.closing, expectation, nonemptyURI := hn, ordered := ho,
+          validPositions := hp }
       else throw "fence span is not a UTF-8 boundary"
     else throw "unordered fence byte spans"
   else throw "missing fence document identity"
@@ -420,7 +422,7 @@ def exampleObservation (result : Result) : IO RegulaPolicy.ExampleObservation :=
     let key ← IO.ofExcept task.fence.key
     pure ({
       moduleName := compilation.spec.module.toName, fence := key,
-      source := ⟨compilation.sourcePath.toString, compilation.spec.source⟩ } :
+      source := compilation.sourcePath.toString, sourceContent := compilation.spec.source } :
           RegulaPolicy.ExampleUnit)
   let (census, outcome) ← if result.task.kind == .negative then do
       let some errors := raw.compilation.errors

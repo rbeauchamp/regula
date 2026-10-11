@@ -104,7 +104,9 @@ instance : FromJson ModuleHeader.Observation := ⟨fun j => do
 
 /-- Metadata presence is deliberately separate from prose adequacy. The material selector
 is frozen before docstring lookup and retains exact owning modules, including empty modules.
-Each module carries its RG5001 header observation (`RegulaPolicy.ModuleHeader`). -/
+Each module carries its RG5001 header observation (`RegulaPolicy.ModuleHeader`). The record has
+no parts: the `@[regula_material]` mark of the project selects the material keys, the docstrings
+are project-written, and each header observation has its own parts. -/
 structure DocumentationObservation where
   /-- Each claimed module with its RG5001 header observation, read from its bound source. -/
   modules : Array (Name × ModuleHeader.Observation)

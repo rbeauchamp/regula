@@ -532,9 +532,8 @@ private theorem fence_partition (fences : Array FenceKey) :
   | nil => simp
   | cons f fs ih =>
     simp only [List.countP_toArray, List.size_toArray, List.countP_cons, List.length_cons] at *
-    rcases f with ⟨_, _, _, _, expectation, _, _, _⟩
-    cases expectation <;> simp [isPositive, isCompilerRejection, isPolicyRejection,
-      isTrustedTeaching] <;> omega
+    cases h : f.expectation <;> simp [isPositive, isCompilerRejection, isPolicyRejection,
+      isTrustedTeaching, h] <;> omega
 
 theorem coverageOf_fresh_iff (m : EvidenceMode) :
     coverageOf m = .freshWholeProject ↔ m = .freshProject := by

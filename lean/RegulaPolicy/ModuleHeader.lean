@@ -15,8 +15,8 @@ off because it also enforces Mathlib's copyright header.
 
 - `Observation`: what the adapter reads of a module: whether it has module documentation, whether
   the first command after its header is a module docstring, and its header imports in order. The
-  first is project-written (`Observation.ProjectWritten`), and the other two are Lean's parsers'
-  reading of the source (`Observation.ToolchainObserved`).
+  first two are project-written (`Observation.ProjectWritten`): marks of the project enter them.
+  The imports are the reading of Lean's fixed header parser (`Observation.ToolchainObserved`).
 - `failures`: the executed decision, every failure of one observation in a fixed order.
 - `failures_eq_nil_iff`: no failure exactly when `OK` holds.
 - `checked_failures`: that equivalence registered as a two-way decision (`Regula.Decides`), with
@@ -49,23 +49,25 @@ structure ImportSpec where
   isMeta : Bool
   deriving DecidableEq, Repr
 
-/-- The part of a module's header observation that Lean's parsers give: their reading of the
-module's source text. No mark the project writes beside that text is a field here. -/
+/-- The part of a module's header observation that Lean's header parser gives: the imports that it
+reads in the module's source text. The header parser is fixed, so no mark that the project writes
+enters this part. -/
 structure Observation.ToolchainObserved where
-  /-- The first command after the module header is a module docstring (`/-! … -/`), as Lean's
-  command parser reads it. The parser uses the parser tables of the module's environment, which
-  the syntax that the project declares extends. -/
-  documentationFirst : Bool
   /-- The header's imports, in source order, as Lean's header parser reads them. -/
   imports : List ImportSpec
   deriving DecidableEq, Repr
 
-/-- The part of a module's header observation that the project writes: whether Lean's
-environment holds module documentation for the module, an entry that a module docstring or a
-command of the project adds. -/
+/-- The part of a module's header observation that marks of the project enter: the module
+documentation that Lean's environment holds for the module, and the reading of the first command
+by Lean's command parser, whose parser tables the project's syntax declarations extend. -/
 structure Observation.ProjectWritten where
-  /-- The module has a module docstring, in either of Lean's documentation formats. -/
+  /-- The module has a module docstring, in either of Lean's documentation formats: an entry
+  that a module docstring or a command of the project adds. -/
   documented : Bool
+  /-- The first command after the module header is a module docstring (`/-! … -/`), as Lean's
+  command parser reads it. The parser uses the parser tables of the module's environment, which
+  the syntax that the project declares extends. -/
+  documentationFirst : Bool
   deriving DecidableEq, Repr
 
 /-- What the RG5001 decision reads of one claimed module. Each field is declared in the part that
