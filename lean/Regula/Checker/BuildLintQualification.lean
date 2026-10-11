@@ -203,20 +203,11 @@ private def cases : Array Case := #[
     expected := #["execution-trusted-boundary", "unsafe-computation"] }
 ]
 
-/-- Use the checked-in public recipe verbatim apart from the local dependency
-path. Dependencies are inherited exactly as Lake resolves the pinned package;
-only their already-built checkouts are shared across isolated controls. The adopter is a Git
-repository of its own, as an adopter is, so the audit trusts `regula` instead of owning it. -/
-def setup (repo adopter : FilePath) (exampleDir : String := "build-lint")
-    (sources : Array String := #["Widget.lean", "Widget/Additional.lean"])
-    (lakefileName : String := "lakefile.lean") : IO Unit := do
-  let template := repo / "examples" / exampleDir
-  for name in sources ++ #["lean-toolchain", "foundation_manifest.json"] do
-    if let some parent := (adopter / name).parent then IO.FS.createDirAll parent
-    IO.FS.writeFile (adopter / name) (← IO.FS.readFile (template / name))
-  let lakefile ← IO.FS.readFile (template / lakefileName)
-  IO.FS.writeFile (adopter / lakefileName)
-    (lakefile.replace "\"../..\"" (Json.compress (toJson repo.toString)))
+/-- The adopter's manifest entry for `regula` at this checkout, with the checkout's own
+dependencies inherited as Lake resolves them and their already-built checkouts shared, and the
+adopter a Git repository of its own, as an adopter is, so the audit trusts `regula` instead of
+owning it. The adopter's lakefile requires `regula` from this checkout's path. -/
+def requireCheckout (repo adopter : FilePath) : IO Unit := do
   let base ← readJson (repo / "lake-manifest.json")
   let packages : Array Json ← IO.ofExcept <| base.getObjValAs? (Array Json) "packages"
   let dependency := Json.mkObj [
@@ -233,6 +224,20 @@ def setup (repo adopter : FilePath) (exampleDir : String := "build-lint")
   -- a dependency in a different Git work tree, which the audit trusts, as an adopter's is.
   let initialized ← runProcess adopter "git" #["init", "-q"]
   if !initialized.succeeded then throw <| IO.userError initialized.output
+
+/-- Use the checked-in public recipe verbatim apart from the local dependency
+path, which requires this checkout (`requireCheckout`). -/
+def setup (repo adopter : FilePath) (exampleDir : String := "build-lint")
+    (sources : Array String := #["Widget.lean", "Widget/Additional.lean"])
+    (lakefileName : String := "lakefile.lean") : IO Unit := do
+  let template := repo / "examples" / exampleDir
+  for name in sources ++ #["lean-toolchain", "foundation_manifest.json"] do
+    if let some parent := (adopter / name).parent then IO.FS.createDirAll parent
+    IO.FS.writeFile (adopter / name) (← IO.FS.readFile (template / name))
+  let lakefile ← IO.FS.readFile (template / lakefileName)
+  IO.FS.writeFile (adopter / lakefileName)
+    (lakefile.replace "\"../..\"" (Json.compress (toJson repo.toString)))
+  requireCheckout repo adopter
 
 private def build (adopter : FilePath) : IO ProcessResult :=
   runProcess adopter "lake" #["build"] scrubbedLeanPathEnv

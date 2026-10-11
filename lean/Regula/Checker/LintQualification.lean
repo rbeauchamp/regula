@@ -1272,6 +1272,56 @@ private def absentWorker (repo adopter : FilePath) : IO (Array String) := do
   IO.FS.removeFile (repo / ".lake" / "build" / "bin" / "axiomGate")
   expect adopter (accepted "toml/absent-worker")
 
+/-- The first commands of an adopter on Lake's own templates, external boundaries all: the
+template of this toolchain's `lake new`, the lakefile edits of `regula init`, and `lake lint`.
+In each format (`lakefile.toml`, and `lakefile.lean` with `.lean`, whose `lean_lib` has an empty
+`where` block), a project from `lake new` that requires this checkout (`requireCheckout`) gets
+from `lake exe regula init` the glob that includes the module its umbrella imports, then
+`doctor` reports the setup complete, and a second `init` writes nothing. In the `lakefile.toml`
+project, `lake lint` then reports only the docstrings the template lacks ([RG2003]); with them
+written it accepts the project. That the plan of the result is empty in the model is
+`Regula.Setup.plan_idempotent`; these runs observe that the written files realize it. -/
+private def lakeNew (repo scratch : FilePath) : IO (Array String) := do
+  let regula (project : FilePath) : IO ProcessResult :=
+    runProcess project "lake" #["exe", "regula", "init"] scrubbedLeanPathEnv
+  -- `lake new`, the `regula` requirement, then `init` twice: the first must report writing
+  -- `setting`, after which the lakefile must contain `written`.
+  let setUp (name format lakefile require setting written : String) : IO (Array String) := do
+    let made ← runProcess scratch "lake" (#["new", name] ++ (if format.isEmpty then #[] else
+      #[format])) scrubbedLeanPathEnv
+    if !made.succeeded then return #[s!"lake-lint/new/{name}: lake new failed", made.output]
+    let project := scratch / name
+    IO.FS.writeFile (project / lakefile) ((← IO.FS.readFile (project / lakefile)) ++ require)
+    BuildLintQualification.requireCheckout repo project
+    let mut failures ← assess {
+        label := s!"new/{name}/init", exitCode := 0,
+        contains := #["regula init: wrote ", setting, "regula doctor: the setup is complete"] }
+      (← regula project)
+    unless (← IO.FS.readFile (project / lakefile)).contains written do
+      failures := failures.push s!"lake-lint/new/{name}: {lakefile} lacks {written}"
+    return failures ++ (← assess {
+        label := s!"new/{name}/init-again", exitCode := 0,
+        contains := #["regula init: nothing to write", "regula doctor: the setup is complete"] }
+      (← regula project))
+  let path := Json.compress (toJson repo.toString)
+  let mut failures ← setUp "demo" "" "lakefile.toml"
+    s!"\n[[require]]\nname = \"regula\"\npath = {path}\n" "globs = [\"Demo\", \"Demo.+\"]"
+    "globs = [\"Demo\", \"Demo.+\"]"
+  if !failures.isEmpty then return failures
+  let demo := scratch / "demo"
+  failures := failures ++ (← expect demo {
+      label := "new/demo/lint", exitCode := 3,
+      contains := #["RG2003", "hello", "main"], excludes := #["RG2002", "RG2004"] })
+  IO.FS.writeFile (demo / "Demo.lean") "import Demo.Basic\n/-! The `Demo` library. -/\n"
+  IO.FS.writeFile (demo / "Demo" / "Basic.lean")
+    "/-! A greeting. -/\n/-- The subject of the greeting. -/\ndef hello := \"world\"\n"
+  IO.FS.writeFile (demo / "Main.lean") <| "import Demo\n/-! The `demo` executable. -/\n" ++
+    "/-- Print the greeting. -/\ndef main : IO Unit :=\n  IO.println s!\"Hello, {hello}!\"\n"
+  failures := failures ++ (← expect demo (accepted "new/demo/documented"))
+  return failures ++ (← setUp "legacy" ".lean" "lakefile.lean"
+    s!"\nrequire regula from {path}\n" "globs := #[.andSubmodules `Legacy]"
+    "lean_lib «Legacy» where\n  globs := #[.andSubmodules `Legacy]")
+
 /-- The cold compiler guard of Regula's own `lakefile.lean`, through `lake` in a fresh package
 holding only that file, its toolchain pin and the policy source it executes. An inherited
 `LEAN_SYSROOT` whose `lean` is not the compiler running Lake is refused on each branch of the
@@ -1328,7 +1378,7 @@ def qualify (repo scratch : FilePath) (jobs : Nat) : IO (Array String) := do
   let results ← mapWorkQueue jobs
     #[("lean", leanAdopter probes), ("toml", tomlAdopter probes), ("owned-checker", ownedChecker),
       ("path-owned", pathOwned), ("path-names", pathNames), ("path-layout", pathLayout),
-      ("cache", cachedWarning), ("empty-facets", emptyFacetsWarning),
+      ("lake-new", lakeNew), ("cache", cachedWarning), ("empty-facets", emptyFacetsWarning),
       ("dependency-cache", dependencyCachedWarning), ("escaped-name", escapedNameWarning),
       ("guard", compilerGuard)]
     fun (name, control) => runGroup repo scratch name control

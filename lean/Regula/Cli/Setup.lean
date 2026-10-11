@@ -16,21 +16,25 @@ finding for the targets that share a claim and failures.
 
 ## Main declarations
 
-- `observe`, `importClosure`: the `Regula.Setup.Observation` of a project, from Lake's loaded
-  package, the files and the import headers of the root package's modules.
+- `observe`, `importClosure`, `soleDeclared`: the `Regula.Setup.Observation` of a project, from
+  Lake's loaded package, the files, the import headers of the root package's modules and the
+  place of its only library's glob, found by the walk that writes it (`tomlPlaces`,
+  `soleLibraryCommand`).
 - `pinned`: the compiler the project's own `lean-toolchain` selects, resolved to a toolchain
   `elan toolchain list` names and identified by its reported version and commit.
 - `guidanceDirs`, `guidanceFile`: the repository's `AGENTS.md` that holds or receives the
   agent-guidance section, searched from the Lake root up to the Git repository root, and that
   root, where the skill files are.
-- `lakefileText`: the lakefile with the planned `lintDriver` and `leanOptions` edits written into
-  it, located with Lake's own TOML grammar or Lean's parser over the `package`, `lean_lib` and
-  `lean_exe` declarations.
+- `lakefileText`: the lakefile with the planned `lintDriver`, `leanOptions` and `globs` edits
+  written into it, located with Lake's own TOML grammar or Lean's parser over the `package`,
+  `lean_lib` and `lean_exe` declarations.
 - `starterManifest`: every root `lean_lib` claimed `standard-logical`, as a `Manifest` value that
   `Manifest.parse` admits before it is written.
 - `init`: apply the plan, observe again and restore every written file unless the new plan is
-  empty and each claimed target of both observations, matched by kind and name, sets the same
-  required options only with a `-D` (`Regula.Setup.arguedBy_run`); then run `doctor`.
+  empty, the new observation leaves out no module of a library the plan gave a glob
+  (`Regula.Setup.uncovered_run`), and each claimed target of both observations, matched by kind
+  and name, sets the same required options only with a `-D` (`Regula.Setup.arguedBy_run`); then
+  run `doctor`.
 - `doctor`: print the findings and the edits `init` would write, exiting 0 only when there is
   none, and a note, which does not count, for each module outside every library that no claimed
   module imports.
@@ -41,8 +45,15 @@ Lake's loader, the parsers (including Lean's import-header parser), the filesyst
 frontend that locates the `package`, `lean_lib` and `lean_exe` declarations are trusted. That a
 text edit realizes `Regula.Setup.apply` is not proved: `init` observes the project again after
 writing and refuses, restoring the files it wrote, unless the plan of the new observation is
-empty. `init` never changes a value the project already gives: it inserts text only, into the
-package's configuration and each claimed target's as the plan decides, located the same way. A
+empty and its `uncovered` has no entry for a library the plan gave a glob. `init` never changes
+a value the project already gives: it inserts text only, into the package's configuration and
+each claimed target's as the plan decides, and a `globs` setting into
+the library of `Regula.Setup.Observation.globCase`, located the same way. That case is read from
+Lake: the package's only library, with one root and its globs Lake's default, whose glob has a
+place in the configuration file, found by the walk that writes it (`soleDeclared`), and whose
+glob, Lake's own over its source directory, adds only source files the import closure of the
+claimed modules, the claimed roots included, already read under the same name, compared by
+canonical path (`IO.FS.realPath`). That closure reads the headers of its own files alone. A
 `.git` entry marks the repository root for the agent guidance; Git itself is not run. RG2006 in
 `doctor` applies Mathlib's options when the workspace contains Mathlib, where the linter applies
 them to a target whose modules import Mathlib; by
@@ -170,112 +181,6 @@ def validManifest (root : FilePath) : IO (Manifest × Lake.SurfaceInventory) := 
   AxiomGate.checkClassification manifest inventory
   return (manifest, inventory)
 
-/-- Observe the project at `root`: Lake's loaded root package (its `lintDriver`, package-level
-`leanOptions`, whether it has a `lean_lib`, and the root targets the manifest does not exclude with
-their own `leanOptions` and resolved extra `lean` arguments), whether the workspace contains
-Mathlib, the compiler its `lean-toolchain` selects (`pinned`), the manifest and agent-guidance
-files, and the
-modules below a library root that no library includes, split by whether a claimed module imports
-them. -/
-def observe (root : FilePath) : IO Project := do
-  -- Without a manifest every root target is claimed, as in the starter `init` writes; a target the
-  -- manifest that loads excludes is not. A manifest that does not load or classify every root
-  -- target claims none for the option edits until it does (`doctor` reports it as RG2002).
-  let manifestPath := Manifest.defaultPath root
-  let manifestExists ← manifestPath.pathExists
-  let manifest ← if manifestExists then
-      try
-        let text ← IO.FS.readFile manifestPath
-        some <$> IO.ofExcept (Manifest.parse manifestPath.toString text)
-      catch _ => pure none
-    else pure none
-  let invalid ← if manifestExists then
-      try validManifest root *> pure false catch _ => pure true
-    else pure false
-  let excludedLibraries := (manifest.map (·.excludedLibraries.map (·.library))).getD #[]
-  let excludedExecutables := (manifest.map (·.excludedExecutables.map (·.executable))).getD #[]
-  let (lakefile, configFile, driver, options, targets, allClaimed, libraries, mathlib,
-      uncovered, unimported) ← Workspace.withRootWorkspace root fun ws => do
-      -- An entry of module names: the configuration of each package of the workspace, before
-      -- any module is resolved or any path is built from a name (`Lake.checkModuleNames`).
-      Regula.Checker.Lake.checkWorkspaceModuleNames ws
-      let pkg := ws.root
-      -- The source of every module a root library includes and of every executable root, and
-      -- the claimed ones among them.
-      let mut sources : NameMap FilePath := {}
-      let mut claimed : List Name := []
-      for lib in pkg.leanLibs do
-        for m in ← lib.getModuleArray do
-          sources := sources.insert m.name m.leanFile
-          unless excludedLibraries.contains (Manifest.targetSpelling lib.name) do
-            claimed := m.name :: claimed
-      for exe in pkg.leanExes do
-        sources := sources.insert exe.root.name exe.root.leanFile
-        unless excludedExecutables.contains (Manifest.targetSpelling exe.name) do
-          claimed := exe.root.name :: claimed
-      let included := sources
-      -- The modules below each library root that no root library includes.
-      let mut missedBy : Array (String × List String × Array Name) := #[]
-      for lib in pkg.leanLibs do
-        let mut missed : Array Name := #[]
-        for r in lib.roots do
-          let dir := Lean.modToFilePath lib.srcDir r ""
-          unless ← dir.isDir do continue
-          for path in ← dir.walkDir do
-            if path.extension != some "lean" || (← path.isDir) then continue
-            let parts := (path.withExtension "").components.drop dir.components.length
-            let name := parts.foldl Name.str r
-            unless included.contains name do
-              missed := missed.push name
-              sources := sources.insert name path
-        unless missed.isEmpty do
-          missedBy := missedBy.push (lib.name.toString, lib.roots.toList.map toString, missed)
-      let imported ← importClosure sources claimed
-      let sorted (names : Array Name) := ((names.map toString).qsort (· < ·)).toList
-      let mut uncovered := []
-      let mut unimported := []
-      for (library, roots, missed) in missedBy do
-        let (hit, rest) := missed.partition imported.contains
-        unless hit.isEmpty do uncovered := uncovered ++ [(library, roots, sorted hit)]
-        unless rest.isEmpty do unimported := unimported ++ [(library, roots, sorted rest)]
-      let own (options : Array Lean.LeanOption) :=
-        (Lake.buildOptions (.ofArray options) #[] #[]).options
-      let libs := pkg.leanLibs.filter fun lib =>
-        !excludedLibraries.contains (Manifest.targetSpelling lib.name)
-      let exes := pkg.leanExes.filter fun exe =>
-        !excludedExecutables.contains (Manifest.targetSpelling exe.name)
-      -- A target's extra `lean` arguments are the audit inventory's, read by the same functions.
-      -- With a valid manifest, `targets` lists every root target exactly when `allClaimed` holds.
-      let target (exe : Bool) (name : Name) (options : Array Lean.LeanOption)
-          (build : RegulaPolicy.Community.BuildOptions) : Regula.Setup.Target :=
-        ⟨exe, name.toString, own options, build.arguments⟩
-      let targets := if invalid then [] else
-        (libs.map (fun lib => target false lib.name lib.config.leanOptions
-            (Lake.libraryOptions lib)) ++
-          exes.map (fun exe => target true exe.name exe.config.leanOptions
-            (Lake.executableOptions exe))).toList
-      let kind := if pkg.configFile.extension == some "toml" then Lakefile.toml else .lean
-      return (kind, pkg.configFile, pkg.lintDriver,
-        (Lake.buildOptions pkg.leanOptions #[] #[]).options, targets,
-        !invalid && libs.size == pkg.leanLibs.size && exes.size == pkg.leanExes.size,
-        !pkg.leanLibs.isEmpty,
-        ws.packages.any (·.baseName == `mathlib), uncovered, unimported)
-  let guidance ← guidanceFile root
-  let skills ← skillPaths.filterMapM fun (p : String) => do
-    let name := guidance.up ++ p
-    if ← (root / name).pathExists then
-      return some (name, (← IO.FS.readFile (root / name)) == Regula.Guidance.skill)
-    return none
-  return {
-    root, lakefile, configFile, guidance
-    observation := {
-      driver, options, targets, allClaimed, libraries, mathlib
-      manifest := ← (Manifest.defaultPath root).pathExists
-      agentsFile := guidance.name, agentsSection := guidance.hasSection
-      skillFile := guidance.up ++ skillPath, skills
-      pin := ← pinned root
-      uncovered, unimported } }
-
 /-! ## Text edits -/
 
 /-- `s` with each `(position, text)` inserted at its byte position, insertions at one position
@@ -335,6 +240,7 @@ private structure TomlTarget where
   lastEnd : Nat
   inline : Option (Nat × Bool) := none
   unsupported : Bool := false
+  globs : Bool := false
 
 /-- Where a `lakefile.toml` receives the edits: after the last top-level key, into an existing
 `[leanOptions]` table or inline `leanOptions` table, and into each target table. -/
@@ -354,13 +260,20 @@ private def inlinePlace (e : Syntax) : Except String (Option (Nat × Bool)) := d
   if let some lastPair := pairs.back? then return some (← endOf lastPair, true)
   return some (← startOf value[2], false)
 
-/-- `lakefile.toml` with the planned edits: `lintDriver` as a new last top-level key, the missing
-package options appended to the `[leanOptions]` table, to an inline `leanOptions` table, or in a
-new `[leanOptions]` table after the top-level keys, and each target's missing options appended to
-its inline `leanOptions` table or as a new inline table after its last key. A `leanOptions`
-written with dotted keys or as sub-tables is refused, with the entries to add by hand. -/
-def tomlText (input : String) (driver : Bool) (entries : List (Name × OptionValue))
-    (targets : List Regula.Setup.Target) : IO String := do
+/-- The simple keys of TOML syntax `stx`, in order. -/
+private partial def simpleKeys (stx : Syntax) : Array Syntax :=
+  if stx.isOfKind `Lake.Toml.simpleKey then #[stx]
+  else stx.getArgs.foldl (fun acc a => acc ++ simpleKeys a) #[]
+
+/-- The table a key of a `lakefile.toml` belongs to: the top level, the `[leanOptions]` table, a
+`[[lean_lib]]` or `[[lean_exe]]` table, or another. -/
+private inductive TomlSection where
+  | top | options | target | other
+
+/-- Where `lakefile.toml` text `input` receives the edits, from one walk of the file as Lake's
+TOML grammar parses it. Each key is read as Lake's TOML loader reads it (`Lake.Toml.elabSimpleKey`
+for each bare or quoted simple key), and each target's `name` value as the loader decodes it. -/
+private def tomlPlaces (input : String) : IO TomlPlaces := do
   let ictx := Parser.mkInputContext input "lakefile.toml"
   let env ← mkEmptyEnvironment
   let s := Lake.Toml.toml.fn.run ictx { env, options := {} } {}
@@ -381,52 +294,80 @@ def tomlText (input : String) (driver : Bool) (entries : List (Name × OptionVal
     | _ => []
   let stx := s.stxStack.back
   let expressions := stx[1].getArgs.filter fun e => !e.isOfKind nullKind
-  let places ← IO.ofExcept <| expressions.foldlM (init := ({}, none))
-    (fun ((p : TomlPlaces), (table : Option String)) e => do
-      let key ← sourceText input e[0]
-      let keyOf (t : Syntax) : Except String String := do
-        return (← sourceText input t).replace " " ""
+  -- Each expression's key, decoded: a table's header, or a key-value pair's key.
+  let decode (x : Syntax) : IO String := do
+    let ctx : Core.Context := { fileName := ictx.fileName, fileMap := ictx.fileMap }
+    match ← ((Lake.Toml.elabSimpleKey ⟨x⟩).run' ctx { env }).toBaseIO with
+    | .ok key => pure key
+    | .error _ => throw <| IO.userError "lakefile.toml has a key Lake's TOML loader does not read"
+  let keys ← expressions.mapM fun e =>
+    (simpleKeys (if e.isOfKind `Lake.Toml.keyval then e[0] else e)).toList.mapM decode
+  let places ← IO.ofExcept <| (expressions.zip keys).foldlM (init := ({}, TomlSection.top))
+    (fun ((p : TomlPlaces), (current : TomlSection)) (e, key) => do
       let lastTarget (f : TomlTarget → TomlTarget) : TomlPlaces :=
         { p with targets := p.targets.modify (p.targets.size - 1) f }
+      -- A dotted key below `leanOptions`, which `init` does not write into.
+      let dotted := key.head? == some "leanOptions" && key.length > 1
       if e.isOfKind `Lake.Toml.stdTable then
-        let name ← keyOf e[1]
         let headerEnd := lineEnd input (← endOf e)
-        let p := if name == "leanOptions" then { p with table := some headerEnd }
-          else if name.startsWith "leanOptions." then { p with unsupported := true }
-          else if name.startsWith "lean_lib.leanOptions" || name.startsWith "lean_exe.leanOptions"
-            then lastTarget ({ · with unsupported := true })
+        if key == ["leanOptions"] then return ({ p with table := some headerEnd }, .options)
+        let p := if dotted then { p with unsupported := true }
+          else if key.take 2 == ["lean_lib", "leanOptions"] ||
+              key.take 2 == ["lean_exe", "leanOptions"] then
+            lastTarget ({ · with unsupported := true })
           else p
-        return (p, some name)
+        return (p, .other)
       if e.isOfKind `Lake.Toml.arrayTable then
-        let name ← keyOf e[2]
-        if name == "lean_lib" || name == "lean_exe" then
+        if key == ["lean_lib"] || key == ["lean_exe"] then
           let target : TomlTarget :=
-            { exe := name == "lean_exe", lastEnd := lineEnd input (← endOf e) }
-          return ({ p with targets := p.targets.push target }, some ("[[" ++ name ++ "]]"))
-        return (p, some "")
-      let name := key.replace " " ""
-      match table with
-      | none =>
+            { exe := key == ["lean_exe"], lastEnd := lineEnd input (← endOf e) }
+          return ({ p with targets := p.targets.push target }, .target)
+        return (p, .other)
+      match current with
+      | .top =>
         let p := { p with topEnd := some (lineEnd input (← endOf e)) }
-        if name == "leanOptions" then
+        if key == ["leanOptions"] then
           match ← inlinePlace e with
-          | some place => return ({ p with inline := some place }, table)
-          | none => return ({ p with unsupported := true }, table)
-        if name.startsWith "leanOptions." then return ({ p with unsupported := true }, table)
-        return (p, table)
-      | some "leanOptions" => return ({ p with table := some (lineEnd input (← endOf e)) }, table)
-      | some "[[lean_lib]]" | some "[[lean_exe]]" =>
+          | some place => return ({ p with inline := some place }, current)
+          | none => return ({ p with unsupported := true }, current)
+        if dotted then return ({ p with unsupported := true }, current)
+        return (p, current)
+      | .options => return ({ p with table := some (lineEnd input (← endOf e)) }, current)
+      | .target =>
         let lastEnd := lineEnd input (← endOf e)
         let decoded := names.lookup (← startOf e[2])
-        let inline ← if name == "leanOptions" then inlinePlace e else pure none
+        let inline ← if key == ["leanOptions"] then inlinePlace e else pure none
         return (lastTarget fun t => { t with
           lastEnd
-          name := if name == "name" then decoded else t.name
-          inline := if name == "leanOptions" then inline else t.inline
-          unsupported := t.unsupported || name.startsWith "leanOptions." ||
-            (name == "leanOptions" && inline.isNone) }, table)
-      | some _ => return (p, table))
-  let places := places.1
+          name := if key == ["name"] then decoded else t.name
+          inline := if key == ["leanOptions"] then inline else t.inline
+          unsupported := t.unsupported || dotted || (key == ["leanOptions"] && inline.isNone)
+          globs := t.globs || key.head? == some "globs" }, current)
+      | .other => return (p, current))
+  return places.1
+
+/-- The place of the `globs` of library `library` in the walk `places` of a `lakefile.toml`: after
+the last key of its `[[lean_lib]]` table, when that table is the file's only `[[lean_lib]]` table,
+its `name` decodes to `library`, and it has no `globs` key; `none` otherwise, such as for a library
+written as an inline table (`lean_lib = [{ name = "Demo" }]`), which has no table to edit. -/
+private def TomlPlaces.globPlace (places : TomlPlaces) (library : String) : Option Nat :=
+  match places.targets.filter (!·.exe) with
+  | #[t] =>
+    if !t.globs && t.name.any (fun s => (Lake.stringToLegalOrSimpleName s).toString == library)
+    then some t.lastEnd else none
+  | _ => none
+
+/-- `lakefile.toml` with the planned edits: `lintDriver` as a new last top-level key, the missing
+package options appended to the `[leanOptions]` table, to an inline `leanOptions` table, or in a
+new `[leanOptions]` table after the top-level keys, and each target's missing options appended to
+its inline `leanOptions` table or as a new inline table after its last key, and the `globs` of
+each library of `globs` (its name and roots) at `TomlPlaces.globPlace`, the place whose presence
+`soleDeclared` requires. A `leanOptions` written with dotted keys or as sub-tables is refused,
+with the entries to add by hand. -/
+def tomlText (input : String) (driver : Bool) (entries : List (Name × OptionValue))
+    (targets : List Regula.Setup.Target) (globs : List (String × List String)) :
+    IO String := do
+  let places ← tomlPlaces input
   let lines := entries.map (Lakefile.toml.entry ·)
   -- After the last top-level key's line; with none, at the start of the file.
   let (top, before, after) := match places.topEnd with
@@ -459,7 +400,14 @@ def tomlText (input : String) (driver : Bool) (entries : List (Name × OptionVal
     | some (pos, true) => pure (pos, String.join (lines.map (", " ++ ·)))
     | some (pos, false) => pure (pos, " " ++ ", ".intercalate lines ++ " ")
     | none => pure (place.lastEnd, "\nleanOptions = { " ++ ", ".intercalate lines ++ " }")
-  IO.ofExcept <| splice input (driverText ++ optionText ++ targetText)
+  let globText ← globs.mapM fun (library, roots) => do
+    let table := s!"[[lean_lib]] table named \"{tomlName library}\""
+    let setting := Lakefile.toml.globsSetting roots
+    -- `soleDeclared` found this place in the same file before the plan included the edit.
+    let some place := places.globPlace library
+      | throw <| IO.userError s!"lakefile.toml has no {table} to add `{setting}` to"
+    pure (place, "\n" ++ setting)
+  IO.ofExcept <| splice input (driverText ++ optionText ++ targetText ++ globText)
 
 /-- The commands of a `lakefile.lean` as Lean's parser reads them while Lake elaborates the file
 (with the file's own imports and `open` commands in effect), and its first errors. -/
@@ -492,16 +440,23 @@ partial def containsKind (stx : Syntax) (kind : SyntaxNodeKind) : Bool :=
   stx.getKind == kind || stx.getArgs.any (containsKind · kind)
 
 /-- The insertions that write the planned edits into the configuration of declaration `command`
-(`what` names it): `lintDriver` as a new last field, and the missing options appended to the
-`leanOptions` array literal, appended to any other `leanOptions` term with `++`, or as a new last
-field. -/
+(`what` names it): `lintDriver` and the `globs` setting `globs` as new last fields, and the
+missing options appended to the `leanOptions` array literal, appended to any other `leanOptions`
+term with `++`, or as a new last field. A `globs` field already in the declaration, which
+`soleDeclared` rules out for the library that receives one, is refused. An empty `where` block
+receives the `globs` setting alone; any other field into an empty `where` block or structure
+instance is refused. -/
 def configInsertions (input : String) (command : Syntax) (what : String) (driver : Bool)
-    (entries : List (Name × OptionValue)) : Except String (List (Nat × String)) := do
+    (entries : List (Name × OptionValue)) (globs : Option String := none) :
+    Except String (List (Nat × String)) := do
   let fields := declFields command
   let structForm := containsKind command `Lake.DSL.declValStruct
   let whereForm := containsKind command `Lake.DSL.declValWhere
   let rendered := entries.map (Lakefile.lean.entry ·)
   let optionsField := fields.find? fun f => f[0].getId == `leanOptions
+  if let some setting := globs then
+    if fields.any (·[0].getId == `globs) then
+      throw s!"{what} writes `globs`; add `{setting}` to it by hand"
   -- The new fields; a new `leanOptions` array puts one entry per line below the field when the
   -- fields are written one per line at indentation `indent`.
   let newFields (indent : Option String) : List String :=
@@ -511,7 +466,8 @@ def configInsertions (input : String) (command : Syntax) (what : String) (driver
       | some i =>
         ["leanOptions := #[" ++ ",".intercalate (rendered.map (("\n" ++ i ++ "  ") ++ ·)) ++ "]"]
       | none => ["leanOptions := #[" ++ ", ".intercalate rendered ++ "]"]
-    else [])
+    else []) ++
+    globs.toList
   let fieldInsertions ← do
     if (newFields none).isEmpty then pure []
     else match fields.back? with
@@ -523,11 +479,18 @@ def configInsertions (input : String) (command : Syntax) (what : String) (driver
         pure [(lineEnd input (← endOf last),
           String.join ((newFields (some indent)).map (("\n" ++ indent) ++ ·)))]
     | none =>
-      if whereForm || structForm then
+      if structForm || (whereForm && (driver || !entries.isEmpty)) then
         throw s!"{what} has an empty configuration; add the fields by hand"
-      -- A declaration with no configuration: open a `where` block after its name.
-      pure [(← endOf command,
-        " where" ++ String.join ((newFields (some "  ")).map ("\n  " ++ ·)))]
+      if whereForm then
+        -- An empty `where` block, as in Lake's `lake new` template: the glob goes on its own
+        -- line after `where`.
+        let some keyword := command.find? (·.isToken "where")
+          | throw s!"{what} has a `where` block without its keyword; add the fields by hand"
+        pure [(← endOf keyword, String.join ((newFields (some "  ")).map ("\n  " ++ ·)))]
+      else
+        -- A declaration with no configuration: open a `where` block after its name.
+        pure [(← endOf command,
+          " where" ++ String.join ((newFields (some "  ")).map ("\n  " ++ ·)))]
   let optionInsertions ← do
     match optionsField with
     | none => pure []
@@ -551,34 +514,238 @@ def configInsertions (input : String) (command : Syntax) (what : String) (driver
   -- At one position, an edit inside the `leanOptions` value precedes a new field after it.
   return optionInsertions ++ fieldInsertions
 
+/-- The `lean_lib` command of library `name` among the commands of a `lakefile.lean`, when it is
+the file's only `lean_lib` command, at the top level, named `name`, in a `where` block or with no
+configuration, and without a `globs` field, and no other command contains a `lean_lib`, such as
+`meta if`; `none` otherwise. -/
+def soleLibraryCommand (commands : Array Syntax) (name : String) : Option Syntax :=
+  let nested := commands.any fun c =>
+    c.getKind != `Lake.DSL.leanLibCommand && containsKind c `Lake.DSL.leanLibCommand
+  match commands.filter (·.getKind == `Lake.DSL.leanLibCommand) with
+  | #[command] =>
+    if !nested && commandName command == some name &&
+        !containsKind command `Lake.DSL.declValSimple &&
+        !containsKind command `Lake.DSL.declValStruct &&
+        !(declFields command).any (·[0].getId.eraseMacroScopes == `globs) then
+      some command
+    else none
+  | _ => none
+
 /-- `lakefile.lean` with the planned edits in its `package` declaration and in the `lean_lib` and
-`lean_exe` declarations of the targets with entries (`configInsertions`). -/
+`lean_exe` declarations of the targets with entries and of the libraries of `globs` (each name
+with its roots, its declaration `soleLibraryCommand`), one `configInsertions` for each
+declaration. -/
 def leanText (path : FilePath) (input : String) (driver : Bool)
-    (entries : List (Name × OptionValue)) (targets : List Regula.Setup.Target) : IO String := do
+    (entries : List (Name × OptionValue)) (targets : List Regula.Setup.Target)
+    (globs : List (String × List String)) : IO String := do
   let (commands, errors) ← lakefileCommands path input
   let some package := commands.find? (·.getKind == `Lake.DSL.packageCommand)
     | throw <| IO.userError s!"{path}: Lean found no `package` declaration\
         {String.join (errors.map ("\n" ++ ·))}"
   let mut insertions ← IO.ofExcept <|
     configInsertions input package "the `package` declaration" driver entries
-  for t in targets do
-    let declaration := s!"`{if t.exe then "lean_exe" else "lean_lib"} {t.name}`"
-    let kind := if t.exe then `Lake.DSL.leanExeCommand else `Lake.DSL.leanLibCommand
-    let some command := commands.find? fun c => c.getKind == kind && commandName c == some t.name
+  -- Each declaration once: the targets with entries, then the other libraries with a glob.
+  let declared := targets.map (fun t => (t.exe, t.name)) ++
+    (globs.filter fun (l, _) => !targets.any fun t => !t.exe && t.name == l).map (false, ·.1)
+  for (exe, name) in declared do
+    let options := ((targets.find? fun t => t.exe == exe && t.name == name).map (·.options)).getD []
+    let setting := if exe then none else (globs.lookup name).map Lakefile.lean.globsSetting
+    let declaration := s!"`{if exe then "lean_exe" else "lean_lib"} {name}`"
+    let kind := if exe then `Lake.DSL.leanExeCommand else `Lake.DSL.leanLibCommand
+    -- A library with a glob: the command `soleDeclared` found in the same file.
+    let found := if setting.isSome then soleLibraryCommand commands name
+      else commands.find? fun c => c.getKind == kind && commandName c == some name
+    let some command := found
       | throw <| IO.userError s!"{path}: Lean found no {declaration} declaration; add \
-          {", ".intercalate (t.options.map (Lakefile.lean.entry ·))} to its leanOptions by hand"
+          {", ".intercalate (options.map (Lakefile.lean.entry ·) ++ setting.toList)} to it by \
+          hand"
     insertions := insertions ++ (← IO.ofExcept <|
-      configInsertions input command s!"the {declaration} declaration" false t.options)
+      configInsertions input command s!"the {declaration} declaration" false options setting)
   IO.ofExcept <| splice input insertions
 
-/-- The lakefile text after the plan's `lintDriver` and `leanOptions` edits. -/
+/-- The lakefile text after the plan's `lintDriver`, `leanOptions` and `globs` edits. -/
 def lakefileText (project : Project) (input : String) (edits : List Edit) : IO String := do
   let driver := edits.contains .driver
   let entries := edits.flatMap Edit.entries
   let targets := (edits.filterMap Edit.added?).flatten.filter (!·.options.isEmpty)
+  let globs := edits.filterMap fun | .globs library roots => some (library, roots) | _ => none
   match project.lakefile with
-  | .toml => tomlText input driver entries targets
-  | .lean => leanText project.configFile input driver entries targets
+  | .toml => tomlText input driver entries targets globs
+  | .lean => leanText project.configFile input driver entries targets globs
+
+/-! ## Observation -/
+
+/-- Whether the configuration file `path` (of format `kind`) gives the root package's only
+library, `name`, with root `root`, the place where `init` writes its glob, found by the walk that
+writes it: in `lakefile.toml`, `TomlPlaces.globPlace` of `tomlPlaces`, the file's only
+`[[lean_lib]]` table, its `name` decoding to `name`, without a `globs` key; in `lakefile.lean`,
+`soleLibraryCommand`, which `leanText` edits, and `configInsertions` of its glob into it. A
+library written as an inline table, or a walk that fails, has no place, and the glob case does
+not hold. -/
+def soleDeclared (kind : Lakefile) (path : FilePath) (name root : String) : IO Bool := do
+  let input ← IO.FS.readFile path
+  match kind with
+  | .toml =>
+    try return ((← tomlPlaces input).globPlace name).isSome catch _ => return false
+  | .lean =>
+    try
+      let (commands, errors) ← lakefileCommands path input
+      unless errors.isEmpty do return false
+      let setting := Lakefile.lean.globsSetting [root]
+      return (soleLibraryCommand commands name).any fun command =>
+        (configInsertions input command "" false [] (some setting)).toBool
+    catch _ => return false
+
+/-- Observe the project at `root`: Lake's loaded root package (its `lintDriver`, package-level
+`leanOptions`, whether it has a `lean_lib`, and the root targets the manifest does not exclude with
+their own `leanOptions` and resolved extra `lean` arguments), whether the workspace contains
+Mathlib, the compiler its `lean-toolchain` selects (`pinned`), the manifest and agent-guidance
+files, the
+modules below a library root that no library includes, split by whether a claimed module imports
+them, and the facts of `Regula.Setup.Observation.globCase`: the package's only `lean_lib` when
+it has one root, Lake reports its globs as that root alone and `soleDeclared` holds, each module
+Lake's glob of the root's submodules finds in its source directory with its `Module.leanFile`, and
+the file the import closure of the claimed modules, the claimed roots included, read under each
+of those names, every file by its canonical path. -/
+def observe (root : FilePath) : IO Project := do
+  -- Without a manifest every root target is claimed, as in the starter `init` writes; a target the
+  -- manifest that loads excludes is not. A manifest that does not load or classify every root
+  -- target claims none for the option edits until it does (`doctor` reports it as RG2002).
+  let manifestPath := Manifest.defaultPath root
+  let manifestExists ← manifestPath.pathExists
+  let manifest ← if manifestExists then
+      try
+        let text ← IO.FS.readFile manifestPath
+        some <$> IO.ofExcept (Manifest.parse manifestPath.toString text)
+      catch _ => pure none
+    else pure none
+  let invalid ← if manifestExists then
+      try validManifest root *> pure false catch _ => pure true
+    else pure false
+  let excludedLibraries := (manifest.map (·.excludedLibraries.map (·.library))).getD #[]
+  let excludedExecutables := (manifest.map (·.excludedExecutables.map (·.executable))).getD #[]
+  let (lakefile, configFile, driver, options, targets, allClaimed, libraries, mathlib,
+      uncovered, unimported, candidate, added, read) ←
+      Workspace.withRootWorkspace root fun ws => do
+      -- An entry of module names: the configuration of each package of the workspace, before
+      -- any module is resolved or any path is built from a name (`Lake.checkModuleNames`).
+      Regula.Checker.Lake.checkWorkspaceModuleNames ws
+      let pkg := ws.root
+      -- The source of every module a root library includes and of every executable root, and
+      -- the claimed ones among them.
+      let mut sources : NameMap FilePath := {}
+      let mut claimed : List Name := []
+      for lib in pkg.leanLibs do
+        for m in ← lib.getModuleArray do
+          sources := sources.insert m.name m.leanFile
+          unless excludedLibraries.contains (Manifest.targetSpelling lib.name) do
+            claimed := m.name :: claimed
+      for exe in pkg.leanExes do
+        sources := sources.insert exe.root.name exe.root.leanFile
+        unless excludedExecutables.contains (Manifest.targetSpelling exe.name) do
+          claimed := exe.root.name :: claimed
+      let included := sources
+      -- The modules below each library root that no root library includes.
+      let mut missedBy : Array (String × List String × Array Name) := #[]
+      for lib in pkg.leanLibs do
+        let mut missed : Array Name := #[]
+        for r in lib.roots do
+          let dir := Lean.modToFilePath lib.srcDir r ""
+          unless ← dir.isDir do continue
+          for path in ← dir.walkDir do
+            if path.extension != some "lean" || (← path.isDir) then continue
+            let parts := (path.withExtension "").components.drop dir.components.length
+            let name := parts.foldl Name.str r
+            unless included.contains name do
+              missed := missed.push name
+              sources := sources.insert name path
+        unless missed.isEmpty do
+          missedBy := missedBy.push (lib.name.toString, lib.roots.toList.map toString, missed)
+      -- The package's only library when it has one root and Lake reports its globs as that root
+      -- alone, and the modules its glob would add: Lake's own glob of the root's submodules, each
+      -- with the file Lake gives a module of the library, `Module.leanFile`.
+      let mut candidate : Option (String × String) := none
+      let mut added : Array (Name × FilePath) := #[]
+      if let #[lib] := pkg.leanLibs then
+        if let #[r] := lib.roots then
+          if lib.config.globs == #[.one r] then
+            candidate := some (lib.name.toString, r.toString)
+            if ← (Lean.modToFilePath lib.srcDir r "").isDir then
+              let found ← IO.mkRef (#[] : Array Name)
+              (Lake.Glob.submodules r).forEachModuleIn lib.srcDir fun m => found.modify (·.push m)
+              added := (← found.get).map fun m => (m, Lean.modToFilePath lib.srcDir m "lean")
+              for (m, file) in added do
+                unless sources.contains m do sources := sources.insert m file
+      let imported ← importClosure sources claimed
+      let sorted (names : Array Name) := ((names.map toString).qsort (· < ·)).toList
+      let mut uncovered := []
+      let mut unimported := []
+      for (library, roots, missed) in missedBy do
+        let (hit, rest) := missed.partition imported.contains
+        unless hit.isEmpty do uncovered := uncovered ++ [(library, roots, sorted hit)]
+        unless rest.isEmpty do unimported := unimported ++ [(library, roots, sorted rest)]
+      let own (options : Array Lean.LeanOption) :=
+        (Lake.buildOptions (.ofArray options) #[] #[]).options
+      let libs := pkg.leanLibs.filter fun lib =>
+        !excludedLibraries.contains (Manifest.targetSpelling lib.name)
+      let exes := pkg.leanExes.filter fun exe =>
+        !excludedExecutables.contains (Manifest.targetSpelling exe.name)
+      -- A target's extra `lean` arguments are the audit inventory's, read by the same functions.
+      -- With a valid manifest, `targets` lists every root target exactly when `allClaimed` holds.
+      let target (exe : Bool) (name : Name) (options : Array Lean.LeanOption)
+          (build : RegulaPolicy.Community.BuildOptions) : Regula.Setup.Target :=
+        ⟨exe, name.toString, own options, build.arguments⟩
+      let targets := if invalid then [] else
+        (libs.map (fun lib => target false lib.name lib.config.leanOptions
+            (Lake.libraryOptions lib)) ++
+          exes.map (fun exe => target true exe.name exe.config.leanOptions
+            (Lake.executableOptions exe))).toList
+      let kind := if pkg.configFile.extension == some "toml" then Lakefile.toml else .lean
+      return (kind, pkg.configFile, pkg.lintDriver,
+        (Lake.buildOptions pkg.leanOptions #[] #[]).options, targets,
+        !invalid && libs.size == pkg.leanLibs.size && exes.size == pkg.leanExes.size,
+        !pkg.leanLibs.isEmpty,
+        ws.packages.any (·.baseName == `mathlib), uncovered, unimported, candidate,
+        added.toList,
+        (added.filterMap fun (m, _) =>
+          if imported.contains m then (sources.find? m).map (m, ·) else none).toList)
+  -- The configuration file is read only when the glob could apply: a library with modules for its
+  -- glob to add.
+  let sole ← match candidate with
+    | some (name, r) =>
+      if !added.isEmpty && (← soleDeclared lakefile configFile name r) then pure (some (name, r))
+      else pure none
+    | none => pure none
+  -- Each file by its canonical path, `IO.FS.realPath`, so two spellings of one file agree; a file
+  -- it cannot resolve leaves the glob case.
+  let canonical (pairs : List (Name × FilePath)) : IO (Option (List (String × String))) := do
+    let mut out := []
+    for (m, file) in pairs do
+      let path ← try IO.FS.realPath file catch _ => return none
+      out := out ++ [(m.toString, path.toString)]
+    return some out
+  let (sole, added, read) ← match sole with
+    | some s => do
+      match ← canonical added, ← canonical read with
+      | some a, some r => pure (some s, a, r)
+      | _, _ => pure (none, [], [])
+    | none => pure (none, [], [])
+  let guidance ← guidanceFile root
+  let skills ← skillPaths.filterMapM fun (p : String) => do
+    let name := guidance.up ++ p
+    if ← (root / name).pathExists then
+      return some (name, (← IO.FS.readFile (root / name)) == Regula.Guidance.skill)
+    return none
+  return {
+    root, lakefile, configFile, guidance
+    observation := {
+      driver, options, targets, allClaimed, libraries, mathlib
+      manifest := ← (Manifest.defaultPath root).pathExists
+      agentsFile := guidance.name, agentsSection := guidance.hasSection
+      skillFile := guidance.up ++ skillPath, skills
+      pin := ← pinned root
+      uncovered, unimported
+      sole, added, read } }
 
 /-! ## The starter manifest -/
 
@@ -714,7 +881,8 @@ private def restore (written : Array Written) : IO Unit := do
 private def realize (written : IO.Ref (Array Written)) (project : Project) (edits : List Edit) :
     IO Unit := do
   let root := project.root
-  if edits.any (fun e => e == .driver || !e.entries.isEmpty || e.added?.isSome) then
+  if edits.any (fun e => e == .driver || !e.entries.isEmpty || e.added?.isSome ||
+      e.library?.isSome) then
     let input ← IO.FS.readFile project.configFile
     write written project.configFile (← lakefileText project input edits)
   for edit in edits do
@@ -739,7 +907,8 @@ private def realize (written : IO.Ref (Array Written)) (project : Project) (edit
     | _ => pure ()
 
 /-- Write the missing setup of the project at `root` with guidance preference `g`, confirm that
-the plan of the project as written is empty, and run `doctor`. Any failure restores the files
+the plan of the project as written is empty and that no library the plan gave a glob leaves out a
+module, and run `doctor`. Any failure restores the files
 written. -/
 def init (g : Guidance) (root : FilePath) : IO UInt32 := do
   let project ← observe root
@@ -755,6 +924,11 @@ def init (g : Guidance) (root : FilePath) : IO UInt32 := do
       unless left.isEmpty do
         throw <| IO.userError s!"the files as written still need: \
           {", ".intercalate (left.map (·.summary project.lakefile))}"
+      let globbed := edits.filterMap Edit.library?
+      for (library, _, modules) in after.observation.uncovered do
+        if globbed.contains library then
+          throw <| IO.userError s!"the glob written for lean_lib `{library}` still leaves out \
+            {", ".intercalate modules}"
       -- `arguedBy_run`: the plan adds no option to a claimed target that sets it only with a `-D`.
       for t in after.observation.targets do
         let some t₀ := project.observation.targets.find? fun t₀ =>
