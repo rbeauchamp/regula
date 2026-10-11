@@ -213,8 +213,8 @@ directory). That workspace built the driver, so it resolves the same `regula`, d
 toolchain; a failed worker build is `INCOMPLETE`. Lake v4.34.1 does not change the driver's working
 directory, and passes the dispatching workspace's package library directories, then
 `LEAN_SYSROOT/lib/lean`, then any inherited `LEAN_PATH`, as its `LEAN_PATH`. The root package's
-directory is the last of the workspace's. The driver loads only the root configuration of its
-working directory. It requires the library directory of that root just before
+library directory is the last of the workspace's. The driver loads only the root configuration of
+its working directory. It requires the library directory of that root just before
 `LEAN_SYSROOT/lib/lean` (`Regula.Checker.Lint.dispatchedFrom_iff`), and otherwise it refuses with
 exit 2. So a driver started outside Lake, by a Lake not collocated with the toolchain, or with
 `-d` from another project is refused. That assumes that no package sets its build directory to
