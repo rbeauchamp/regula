@@ -965,7 +965,8 @@ def toolchainObservations (environments : Array (String × ExecutionInventory)) 
     root.boundaries.filterMap fun b =>
       b.toolchainOrigin?.map fun o =>
         { reach := (environment.1, root.name), boundary := b, origin := o
-          carriers := (root.boundaries.filter (root.carries · b)).map (·.toolchainKey) }
+          carriers := if root.foldable b then
+            (root.boundaries.filter (root.carries · b)).map (·.toolchainKey) else #[] }
 
 /-- Toolchain keys as a sorted array without duplicates. -/
 def canonicalToolchainKeys (keys : Array ToolchainKey) : Array ToolchainKey :=
@@ -1063,12 +1064,21 @@ def toolchainBase (environments : Array (String × ExecutionInventory)) :
     Array ToolchainBoundary :=
   let observations := toolchainObservations environments
   let byKey := groupByKey (·.boundary.toolchainKey) observations
-  let folded (key : ToolchainKey) : Bool := (byKey.getD key #[]).all (!·.carriers.isEmpty)
+  let foldedKeys := byKey.map fun _ xs => xs.all (!·.carriers.isEmpty)
+  let folded (key : ToolchainKey) : Bool := foldedKeys.getD key true
   let named := groupByKey (·.1) ((observations.filter (folded ·.boundary.toolchainKey)).flatMap
     fun x => x.carriers.map (·, x.boundary.name))
   (canonicalToolchainKeys (observations.map (·.boundary.toolchainKey))).filterMap fun key =>
     if folded key then none
     else toolchainEntryOf (byKey.getD key #[]) (canonicalNames ((named.getD key #[]).map (·.2)))
+
+/-- Testing each key's group once gives the test of the group under any key, absent ones
+included. -/
+private theorem getD_map_all {α : Type} (byKey : Std.HashMap ToolchainKey (Array α))
+    (p : α → Bool) (k : ToolchainKey) :
+    (byKey.map fun _ xs => xs.all p).getD k true = (byKey.getD k #[]).all p := by
+  simp only [Std.HashMap.getD_eq_getD_getElem?, Std.HashMap.getElem?_map]
+  cases byKey[k]? <;> simp
 
 /-- Each entry of `toolchainBase` is `toolchainEntry` of its key over all the observations. -/
 theorem toolchainBase_eq (environments : Array (String × ExecutionInventory)) :
@@ -1076,8 +1086,19 @@ theorem toolchainBase_eq (environments : Array (String × ExecutionInventory)) :
       (canonicalToolchainKeys
         ((toolchainObservations environments).map (·.boundary.toolchainKey))).filterMap
         (toolchainEntry (toolchainObservations environments)) := by
-  simp only [toolchainBase, groupByKey_getD]
+  simp only [toolchainBase, getD_map_all, groupByKey_getD]
   rfl
+
+/-- Only a foldable boundary has a carrier (`ExecutionRoot.carries_spec`), so gathering the
+carriers of a foldable boundary alone gathers them all. -/
+theorem ExecutionRoot.carriers_eq (r : ExecutionRoot) (b : ExecutionBoundary) :
+    (if r.foldable b then (r.boundaries.filter (r.carries · b)).map (·.toolchainKey) else #[]) =
+      (r.boundaries.filter (r.carries · b)).map (·.toolchainKey) := by
+  split
+  · rfl
+  · next unfoldable =>
+    rw [Array.filter_eq_empty_iff.mpr fun a _ h => unfoldable (ExecutionRoot.carries_spec h).1,
+      Array.map_empty]
 
 theorem mem_toolchainObservations {environments : Array (String × ExecutionInventory)}
     {x : ToolchainObservation} :
@@ -1086,8 +1107,8 @@ theorem mem_toolchainObservations {environments : Array (String × ExecutionInve
         x.boundary.toolchainOrigin? = some x.origin ∧
         x.carriers = (r.boundaries.filter (r.carries · x.boundary)).map (·.toolchainKey) := by
   rcases x with ⟨reach, b, o, carriers⟩
-  simp only [toolchainObservations, Array.mem_flatMap, Array.mem_filterMap,
-    Option.map_eq_some_iff, ToolchainObservation.mk.injEq]
+  simp only [toolchainObservations, ExecutionRoot.carriers_eq, Array.mem_flatMap,
+    Array.mem_filterMap, Option.map_eq_some_iff, ToolchainObservation.mk.injEq]
   constructor
   · rintro ⟨e, he, r, hr, b', hb', o', ho', rfl, rfl, rfl, rfl⟩
     exact ⟨e, he, r, hr, rfl, hb', ho', rfl⟩

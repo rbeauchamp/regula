@@ -462,7 +462,11 @@ metadata, not authenticated binary identity.
   first names the second in its `detail`
   (`…, with its implementation NAME (partial-computation)`), and the second has no diagnostic
   and no count of its own, in text and JSON alike (`RegulaPolicy.executionFindings`,
-  `failure_reported`, `executionFindings_empty_iff`). A `partial def` named as the target of a
+  `failure_reported`, `executionFindings_empty_iff`). A pair that the toolchain owns has no
+  diagnostic and one count. When each root that reaches the implementation also carries it, the
+  toolchain trusted base lists the pair as one entry naming the implementation
+  (`RegulaPolicy.toolchainBase`).
+  A `partial def` named as the target of a
   candidate or replacement is that opaque constant, not a `partial` implementation
   (`RegulaPolicy.ExecutionRoot.foldable`): it keeps its own diagnostic and count, and only its
   helper is reported with it. A later record of one trusted boundary
