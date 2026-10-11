@@ -53,8 +53,11 @@ def curlEnvironment : Array String :=
 /-- Fetch `url`: return the HTTP status (0 when no response) and the bytes of the body. curl
 writes the body and then the three digits of the status to its standard output, which this
 process reads from a pipe. curl starts with an environment that has only the variables of
-`curlEnvironment` that are set in this process (`inheritEnv := false`,
-`Init/System/IO.lean:1450`): `PATH`, by which the child finds it, the proxy variables
+`curlEnvironment` that are set in this process: it runs as the utility of `env -i NAME=VALUE ...`,
+which by POSIX `env` (`-i`) gets exactly the environment its assignments give. The child is not
+spawned with `inheritEnv := false`, under which the Lean 4.34.1 runtime on macOS crashes the child
+(exit 139) before it runs curl. The variables are `PATH`, by which the child finds curl, the proxy
+variables
 `HTTPS_PROXY`, `HTTP_PROXY`, `ALL_PROXY`, `NO_PROXY` and their lowercase forms, and the
 certificate variables `SSL_CERT_FILE`, `SSL_CERT_DIR` and `CURL_CA_BUNDLE`. Assumes: by the curl
 manual (its ENVIRONMENT section and the `--cacert` and `--capath` descriptions), these select only
@@ -67,12 +70,12 @@ make it write the body to a file. `url` is the value of `--url`, so a `url` that
 such as `-K/tmp/x`, is a URL and not an option. With the other arguments and no other variable
 curl writes no file. -/
 def fetch (url : String) : IO (Nat × ByteArray) := do
+  let assignments ← curlEnvironment.filterMapM fun name => do
+    return (← IO.getEnv name).map fun value => s!"{name}={value}"
   let child ← IO.Process.spawn
-      { cmd := "curl", args := #["--disable", "--silent", "--show-error", "--max-time", "60",
-          "--write-out", "%{http_code}", "--url", url]
-        stdin := .null, stdout := .piped, stderr := .inherit
-        inheritEnv := false, env := ← curlEnvironment.filterMapM fun name => do
-          return (← IO.getEnv name).map fun value => (name, some value) }
+      { cmd := "env", args := #["-i"] ++ assignments ++ #["curl", "--disable", "--silent",
+          "--show-error", "--max-time", "60", "--write-out", "%{http_code}", "--url", url]
+        stdin := .null, stdout := .piped, stderr := .inherit }
   let out ← child.stdout.readBinToEnd
   let _ ← child.wait
   let body := out.extract 0 (out.size - 3)

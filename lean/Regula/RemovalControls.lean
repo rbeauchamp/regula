@@ -140,6 +140,7 @@ run_cmd do
       primitive == ``IO.FS.removeDirAll && (env.getModuleIdxFor? caller).isNone do
     throwError "the planted initializer is not the only raw removal: {raw}"
 
+-- `fetch` runs curl: it reads a planted file through a `file://` URL.
 -- A URL that starts with `-` is not an option of curl: `fetch` gives `-K` with a configuration
 -- that writes a file, and the file is not written. The configuration is effective: curl writes the
 -- file when it is given as an option.
@@ -147,6 +148,9 @@ run_cmd do
   let base ← IO.FS.realPath (← IO.FS.createTempDir)
   try
     IO.FS.writeFile (base / "body") "body"
+    let (_, read) ← Regula.Site.Deployment.fetch s!"file://{base / "body"}"
+    unless read == "body".toUTF8 do
+      throwError "fetch did not run curl: it read {read.size} bytes of a planted file"
     IO.FS.writeFile (base / "config")
       s!"url = \"file://{base / "body"}\"\noutput = \"{base / "written"}\"\n"
     let _ ← Regula.Site.Deployment.fetch s!"-K{base / "config"}"
