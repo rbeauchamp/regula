@@ -420,7 +420,7 @@ def exampleObservation (result : Result) : IO RegulaPolicy.ExampleObservation :=
     let key ← IO.ofExcept task.fence.key
     pure ({
       moduleName := compilation.spec.module.toName, fence := key,
-      source := ⟨compilation.sourcePath.toString, compilation.spec.source⟩ } :
+      source := compilation.sourcePath.toString, sourceContent := compilation.spec.source } :
           RegulaPolicy.ExampleUnit)
   let (census, outcome) ← if result.task.kind == .negative then do
       let some errors := raw.compilation.errors
