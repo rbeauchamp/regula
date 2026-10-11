@@ -314,12 +314,12 @@ metadata, not authenticated binary identity.
   every reader (`ResultProtocol.readDocument`, the qualification drivers' `readResult`) takes the
   file through `SharedExecution.read`. The reader (`SharedExecution.restore?`,
   `SharedExecution.rebuildRoot`) derives a root's account from its entry: its visits are the walk
-  from the root over the edges the collector follows (`SharedExecution.walkLoop`); its reached
-  names are the visited ones; each channel's edges are those leaving a reached name; its required
-  code is the targets of its compiler edges, and the root if its entry says so; its boundaries
-  are its visited names' records in visit order, each with the reached names that call it. An
-  entry can instead hold a root's account as it is (`explicit`), which the writer uses for a
-  root whose account that derivation does not reproduce.
+  from the root over the edges the collector follows (`SharedExecution.walk`, the collector's own
+  walk `RegulaPolicy.StackWalk.walk`); its reached names are the visited ones; each channel's
+  edges are those leaving a reached name; its required code is the targets of its compiler edges,
+  and the root if its entry says so; its boundaries are its visited names' records in visit order,
+  each with the reached names that call it. An entry can instead hold a root's account as it is
+  (`explicit`), which the writer uses for a root whose account that derivation does not reproduce.
   The writer proposes one shared form (`ExecutionShare.fitted`) and keeps it only if the reader
   returns the logical value itself from it, decided by `SharedExecution.same`
   (`same_eq`: a `true` answer is an equality); otherwise it writes the logical value as it is.

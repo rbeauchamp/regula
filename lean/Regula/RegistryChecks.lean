@@ -39,6 +39,8 @@ run_cmd do
       ``Regula.SharedExecution.same_eq, ``Regula.SharedExecution.restoreMembers_mapMembers,
       ``Regula.SharedExecution.restore?_internValue, ``Regula.SharedExecution.expand_intern,
       ``Regula.SharedExecution.slots_intern, ``Regula.SharedExecution.read_write,
+      ``Regula.SharedExecution.Graph.bounds, ``Regula.SharedExecution.Graph.walk_accepted,
+      ``Regula.SharedExecution.walk_eq, ``Regula.ExecutionShare.walk_agree,
       ``Regula.Checker.ResultProtocol.resultJson_slots] do
     let axioms ← Lean.collectAxioms name
     unless axioms.all RegulaPolicy.standardLogicalAxiom do
