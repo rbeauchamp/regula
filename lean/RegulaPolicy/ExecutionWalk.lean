@@ -449,15 +449,16 @@ def ReplacementCycle (records : Records) (visits : Array (Name × Option Nat)) :
 
 /-- `name` is one of some names, each with a visited replacement edge to one of them. The set is
 not empty, as `name` is in it, and each of its names is visited, as each edge starts at a visited
-name. The names with such a set make the greatest such set: the names from which the visited
-replacement edges go on without end. -/
+name. The names with such a set make the greatest such set: the names on a cycle of visited
+replacement edges and the names from which such a cycle can be reached. -/
 def OnReplacementCycle (records : Records) (visits : Array (Name × Option Nat)) (name : Name) :
     Prop :=
   ∃ names : List Name, name ∈ names ∧
     ∀ member ∈ names, ∃ next ∈ names,
       VisitedEdge records visits (·.replacementTargets) (member, next)
 
-/-- The visited replacement edges have a cycle exactly when some name is on one. -/
+/-- The visited replacement edges have a cycle exactly when some name satisfies
+`OnReplacementCycle`. -/
 theorem replacementCycle_iff {records : Records} {visits : Array (Name × Option Nat)} :
     ReplacementCycle records visits ↔ ∃ name, OnReplacementCycle records visits name := by
   constructor
@@ -504,8 +505,10 @@ edges and the closure that the visits of a walk and their records give:
   record that has a function body or an `extern` body.
 - The unresolved paths are the paths of the visited records in the order of the visits, then the
   message of a replacement-only cycle, then the messages for code. The cycle message is there
-  exactly when some name is on a cycle (`replacementCycle_iff`), and it lists the names on a cycle,
-  each one time. There is one message for each required name with no available code
+  exactly when the visited replacement edges have a cycle (`replacementCycle_iff`). It lists, each
+  one time, the names that satisfy `OnReplacementCycle`: the names on a cycle of visited replacement
+  edges and the names from which such a cycle can be reached. There is one message for each
+  required name with no available code
   (`CodeMessage`). The order of the names in the cycle message and the order of the messages for
   code are not stated.
 - The boundaries are the boundaries of the visited records in the order of the visits. Each has
@@ -1046,9 +1049,10 @@ private theorem cycles_nodup (edges : Array (Name × Name)) :
       exact nodup_push_absent _ _ (nodup_push_absent _ _ nodup)
     · exact List.nodup_nil
 
-/-- **The search returns exactly the names on a cycle.** A name that it returns is one of the names
-that it returns, each with an edge to one of them (`cycles_closed`), and the search keeps each name
-of such a set (`cycle_kept`). -/
+/-- **The search returns exactly the names that satisfy `OnReplacementCycle`:** the names on a
+cycle of visited replacement edges and the names from which such a cycle can be reached. A name
+that it returns is one of the names that it returns, each with an edge to one of them
+(`cycles_closed`), and the search keeps each name of such a set (`cycle_kept`). -/
 private theorem mem_cycles (walked : Walked) (name : Name) :
     name ∈ cyclicReplacementPaths (edgesFrom walked (·.replacementTargets)) ↔
       OnReplacementCycle walked.request.records walked.visits name := by
@@ -1178,7 +1182,8 @@ theorem assemble_account (rootCompiled : Bool) (walked : Walked) :
     dsimp only
     by_cases empty : cyclicReplacementPaths (edgesFrom walked (·.replacementTargets)) = #[]
     · have notPushed :
-          ¬ (!(cyclicReplacementPaths (edgesFrom walked (·.replacementTargets))).isEmpty) = true := by
+          ¬ (!(cyclicReplacementPaths (edgesFrom walked (·.replacementTargets))).isEmpty) =
+            true := by
         simp [empty]
       rw [ite_eq_right notPushed, ite_eq_left empty, List.append_nil, paths_toList]
     · have pushed :
