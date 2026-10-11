@@ -280,7 +280,8 @@ metadata, not authenticated binary identity.
   each stage a stopping finding (an incomplete finding, or an [RG2002] or [RG2003] refusal) left
   unfinished and every later one; `complete` holds exactly when no required stage is missing.
   One function, `ResultProtocol.guidanceFields`, derives these members for writer and reader,
-  and `ResultProtocol.admitGuidance` re-derives them on admission. The
+  and `ResultProtocol.admitGuidance` re-derives them on admission. Admission also refuses a
+  status that the findings do not allow, and findings that are not in run order. The
   [adoption guide](adoption.md#machine-readable-report) documents the members for adopters.
 - **Source texts:** since schema 7 a result file holds each distinct source text once, in its
   top-level `sourceTexts`, and every `sourceText` member (a source location; a `sourceAccount`
@@ -315,7 +316,9 @@ metadata, not authenticated binary identity.
   complete root accounts (name, module, boundaries, unresolved paths, compiler edges and
   closure), as before; `ResultProtocol.writeDocument` writes `SharedExecution.write` of it and
   every reader (`ResultProtocol.readDocument`, the qualification drivers' `readResult`) takes the
-  file through `SharedExecution.read`. The reader (`SharedExecution.restore?`,
+  file through `ResultProtocol.admitDocument`, which runs `SharedExecution.read`. Admission
+  takes the kind of each root entry from the file. The writer chooses that kind by comparing object
+  trees node for node, and a parsed file can have other trees. The reader (`SharedExecution.restore?`,
   `SharedExecution.rebuildRoot`) derives a root's account from its entry: its visits are the walk
   from the root over the edges the collector follows (`SharedExecution.walk`, the collector's own
   walk `RegulaPolicy.StackWalk.walk`); its reached names are the visited ones; each channel's
@@ -641,7 +644,8 @@ source or diagnostic identities, a changed effective package override is refused
 configuration relocation nor a combined `--with-docs` request is authorized. The qualifier also
 compares the actual effective configuration and the file or per-surface claim and execution with
 the request. The campaign applies
-`ResultProtocol.admitGuidance` to every result it admits.
+`ResultProtocol.admitGuidance` to every result it admits. The qualifier applies it again to
+the members that it reads of the result of each record.
 
 An export (corpus schema 1) records the exact sources, commands, original compiler output,
 canonical results, expected locations, mode and checker build identity, the exact checker source

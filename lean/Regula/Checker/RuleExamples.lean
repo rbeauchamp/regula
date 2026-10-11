@@ -209,7 +209,7 @@ unsafe def main (args : List String) : IO UInt32 := do
   match args with
   | "--injected-git-facts" :: facts :: rest =>
     let loaded ← (do
-      let json ← IO.ofExcept (Lean.Json.parse (← IO.FS.readFile facts))
+      let json ← IO.ofExcept (Regula.Checker.PolicyCodec.parse (← IO.FS.readFile facts))
       IO.ofExcept (Lean.fromJson? (α := Array Regula.Checker.Snapshot.GitFacts) json)).toBaseIO
     match loaded with
     | .error error =>
@@ -233,11 +233,13 @@ unsafe def main (args : List String) : IO UInt32 := do
           let production := Regula.Checker.RuleExamples.Production.parse? rest
           pure (← ruleExamplesEntry production, production.map (·.output))
       -- Mark the result so it cannot be mistaken for Git-observed output. The
-      -- qualification-only result view keeps this field and admission ignores it.
+      -- qualification-only result view keeps this field and admission ignores it. The file is
+      -- marked only when it is a written result document (`ResultProtocol.admitDocument`).
       if let some path := output.filter (· != "") then
         unless ← System.FilePath.pathExists path do return code
         let marked ← (do
-          let value ← IO.ofExcept (Lean.Json.parse (← IO.FS.readFile path))
+          let value ← IO.ofExcept (Regula.Checker.PolicyCodec.parse (← IO.FS.readFile path))
+          let _ ← IO.ofExcept (Regula.Checker.ResultProtocol.admitDocument value)
           IO.FS.writeFile path
               ((value.setObjVal! "gitFacts" (.str "injected")).compress ++ "\n")).toBaseIO
         if let .error error := marked then
