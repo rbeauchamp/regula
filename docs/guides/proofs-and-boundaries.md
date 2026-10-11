@@ -478,8 +478,9 @@ removal by a different program, for example `rm`, is not a call that this check 
 
 The deployment program `lean/Regula/Site/Deployment.lean` imports only the Lean core, thus it
 cannot use the decision. It reads each page from the output of `curl` and writes no file. Thus it
-removes nothing. It starts `curl` with no variable of its environment except `PATH`. Thus no
-variable, for example `SSLKEYLOGFILE`, can make `curl` write a file. The URL is the value of the
+removes nothing. It passes to `curl` only `PATH` and the proxy and certificate variables that
+`fetch` lists, none of which makes `curl` write a file. Thus a variable such as `SSLKEYLOGFILE`
+does not reach `curl`. The URL is the value of the
 option `--url`, thus a URL that starts with `-` is not an option.
 
 The driver moves the pending record to `tmp/acceptance-link.json` only if

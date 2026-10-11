@@ -45,11 +45,22 @@ open Lean System
 private def fail {α : Type} (message : String) : IO α := throw <|
     IO.userError s!"deployment verification: {message}"
 
+/-- The variables of this process that `fetch` passes to curl when they are set. -/
+def curlEnvironment : Array String :=
+  #["PATH", "HTTPS_PROXY", "https_proxy", "HTTP_PROXY", "http_proxy", "ALL_PROXY", "all_proxy",
+    "NO_PROXY", "no_proxy", "SSL_CERT_FILE", "SSL_CERT_DIR", "CURL_CA_BUNDLE"]
+
 /-- Fetch `url`: return the HTTP status (0 when no response) and the bytes of the body. curl
 writes the body and then the three digits of the status to its standard output, which this
-process reads from a pipe. curl starts with an environment that has only `PATH`, by which the
-child finds it (`inheritEnv := false`, `Init/System/IO.lean:1450`), so no variable of this
-process, such as `SSLKEYLOGFILE`, can make it write a file. Assumes: with `--disable` as its first
+process reads from a pipe. curl starts with an environment that has only the variables of
+`curlEnvironment` that are set in this process (`inheritEnv := false`,
+`Init/System/IO.lean:1450`): `PATH`, by which the child finds it, the proxy variables
+`HTTPS_PROXY`, `HTTP_PROXY`, `ALL_PROXY`, `NO_PROXY` and their lowercase forms, and the
+certificate variables `SSL_CERT_FILE`, `SSL_CERT_DIR` and `CURL_CA_BUNDLE`. Assumes: by the curl
+manual (its ENVIRONMENT section and the `--cacert` and `--capath` descriptions), these select only
+the proxy curl connects through and the certificates it reads, and none makes it write a file. No
+other variable of this process reaches curl, so for example `SSLKEYLOGFILE` cannot make it write a
+file. Assumes: with `--disable` as its first
 argument, curl reads no `.curlrc` (curl manual, `-q, --disable`: "If used as the first parameter
 on the command line, the curlrc config file is not read or used"), so no configuration file can
 make it write the body to a file. `url` is the value of `--url`, so a `url` that starts with `-`,
@@ -60,7 +71,8 @@ def fetch (url : String) : IO (Nat × ByteArray) := do
       { cmd := "curl", args := #["--disable", "--silent", "--show-error", "--max-time", "60",
           "--write-out", "%{http_code}", "--url", url]
         stdin := .null, stdout := .piped, stderr := .inherit
-        inheritEnv := false, env := #[("PATH", ← IO.getEnv "PATH")] }
+        inheritEnv := false, env := ← curlEnvironment.filterMapM fun name => do
+          return (← IO.getEnv name).map fun value => (name, some value) }
   let out ← child.stdout.readBinToEnd
   let _ ← child.wait
   let body := out.extract 0 (out.size - 3)
