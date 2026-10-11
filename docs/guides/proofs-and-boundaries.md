@@ -1723,9 +1723,9 @@ Lean block of a Verso source after a tab
 returns, and the verdicts of [RG4002], [RG4003] and [RG4004] are about those fences.
 `scanLines_fence` and `scanVersoLines_fence` state where each returned fence lies, for each
 document, clean or not. It opens at a line where the protocol has no block open, and its
-closing line is the first line that closes it. Its body is its body lines joined by line feeds, and a Markdown body drops a
-carriage return at its end. Its byte ranges start after the lines before each part, and
-`Scanned.bytes` states that they hold those lines and that body.
+closing line is the first line that closes it. Its body is its body lines joined by line feeds,
+and a Markdown body drops a carriage return at its end. Its byte ranges start after the lines
+before each part, and `Scanned.bytes` states that they hold those lines and that body.
 
 When a Markdown fence has a marker, the marker is the line before its opening line. The fence
 has the pattern or the trust of that marker. The scanner keeps a marker that waits for one line
