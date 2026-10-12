@@ -8,6 +8,7 @@ import Regula.DiagnosticCodec
 import Regula.SourceTexts
 import Regula.ExecutionShare
 import Regula.Checker.Common
+import Regula.Checker.JsonRoundTrip
 
 /-! # Versioned result protocol
 
@@ -89,10 +90,13 @@ full (`SharedExecution.restore?` states what each written value stands for); eve
 of each root is recoverable either way. Readers of this checker take the document through
 `SharedExecution.read`, which rebuilds each root's account, so the document they see holds an
 array of complete root accounts as before. `SharedExecution.read_write` proves that `read` of
-the `Json` value the writer wrote is the document the writer was given. A reader holds the parse
-of the file instead, which has that value's members but in general not its object trees; that
-`read` of it returns a document with the members of the writer's is observed (`RegistryChecks`,
-the `history` qualification), not proved. The writer treats every member named `execution` this
+the `Json` value the writer wrote is the document the writer was given. A reader parses the file
+with `PolicyCodec.parse`, and `admitDocument_parse_encodeDocument` proves that the parse of the
+text `encodeDocument` gives is that value and that admission returns `JsonCanon.canon` of the
+given document, which has the given document's members when its object trees are search trees
+(`JsonCanon.Regular.canon_agree`). That a file read returns the text written, and the compiled
+core code that the writer and the readers run, are trusted (`writeDocument`,
+`admitDocument_parse_encodeDocument`). The writer treats every member named `execution` this
 way, so the acceptance account's per-environment counts, which earlier schemas also named
 `execution`, are `executionSummary` (`accountJson`); every other member of that name is a string
 or `null`, which the writer leaves as it is. A declaration of a report and a declaration a
@@ -863,20 +867,26 @@ def requestJson (kind project subject : String) (claim execution : Option String
   toJson (⟨kind, project, subject, claim, execution,
     configuration.map fun (path, source) => (path.toString, source)⟩ : Website.ExampleRequest)
 
-/-- Write a result document to `path` in its written form: the `SharedExecution.write` of
-`document` (its `SharedExecution.intern` with the proposal of `ExecutionShare`, then
-`SourceTexts.intern`) as compact JSON and a final newline, creating the parent directories.
-`SharedExecution.read_write` proves a reader's `SharedExecution.read` of the written value is
-`document` itself; that law is about `Json` values, not the file's text. A document
-`SourceTexts.intern` refuses (one without the `null` `sourceTexts` member of `sourceTextsField`,
-or with a `sourceText` member that is not a string) is an error and nothing is written. `span`
-names the write in timing output (`timingSpan`). -/
+/-- The text of a result file for `document`: the `SharedExecution.write` of `document` in the
+form the JSON parser builds (`JsonCanon.canon`; its `SharedExecution.intern` with the proposals of
+`ExecutionShare`, then `SourceTexts.intern`) as compact JSON (`PolicyCodec.compress`) and a final
+newline. A document `SourceTexts.intern` refuses (one without the `null` `sourceTexts` member of
+`sourceTextsField`, or with a `sourceText` member that is not a string) is an error.
+`admitDocument_parse_encodeDocument` proves that a reader's parse of the text is the written
+value and that admission returns the document in that form. -/
+def encodeDocument (document : Json) : Except String String := do
+  let written ← SharedExecution.write ExecutionShare.proposals (JsonCanon.canon document)
+  return PolicyCodec.compress written ++ "\n"
+
+/-- Write a result document to `path`: the text `encodeDocument` gives it, creating the parent
+directories. A document `encodeDocument` refuses is an error and nothing is written. `span` names
+the write in timing output (`timingSpan`). That `IO.FS.readFile` of the file returns the text
+`IO.FS.writeFile` wrote is trusted file-system behavior, not proved. -/
 def writeDocument (path : System.FilePath) (document : Json) (span : String := "writeDocument") :
     IO Unit := do
   if let some parent := path.parent then IO.FS.createDirAll parent
   let spanStart ← IO.monoMsNow
-  let written ← IO.ofExcept (SharedExecution.write ExecutionShare.proposals document)
-  let encoded := Json.compress written ++ "\n"
+  let encoded ← IO.ofExcept (encodeDocument document)
   timingSpan s!"diagnostic span: {span} encode: {(← IO.monoMsNow) - spanStart}ms"
   let writeStart ← IO.monoMsNow
   IO.FS.writeFile path encoded
@@ -931,8 +941,8 @@ each value a writer writes with search trees, at every entry kinds under which t
 back its execution accounts (`admitDocument_of_forms`, `admitDocument_write`,
 `admitDocument_writeAs`). So a source table with an entry that no `sourceText` member names, or an
 execution account with a member a writer does not write, is refused. An account may be explicit
-where its derived entry fits: the writer decides with `SharedExecution.same`, which compares
-object trees node for node, and the document read from a file has the parser's trees. -/
+where its derived entry fits, as a writer with other entry kinds writes it
+(`admitDocument_writeAs`). -/
 def admitDocument (received : Json) : Except String Json := do
   let expanded ← SourceTexts.expand received
   let document ← SharedExecution.expand expanded
@@ -1001,31 +1011,68 @@ theorem admitDocument_write {document written : Json}
   admitDocument_of_forms ExecutionShare.formLike_internValue wrote regular
 
 /-- `admitDocument` admits each value written with any kind of each root entry
-(`ExecutionShare.sharedAs`, the kinds of a value's entries given by `explicit` of the value) under
-which the reader takes back every value or `sharedAs` writes it as it is, when its object trees
-are search trees (`ExecutionShare.formLike_sharedAs`). The writers' own choice, and the one a
-document read back from its file has, are such kinds wherever the reader takes the shared form
-back; that the writers' form is taken back is `SharedExecution.read_write`, and that the parse of
-a written file is a value of this form is not proved: the qualification campaigns, which read
-their result files with `admitDocument`, observe it. -/
+(`ExecutionShare.sharedAs` in the form the JSON parser builds, the kinds of a value's entries given
+by `explicit` of the value) under which the reader takes back every value or `sharedAs` writes it
+as it is, when its object trees are search trees (`ExecutionShare.formLike_sharedAs`). The
+writers' own choice is such kinds wherever the reader takes the shared form back
+(`SharedExecution.read_write`). -/
 theorem admitDocument_writeAs {explicit : Json → Nat → Bool} {document written : Json}
     (restores : ∀ value, ExecutionShare.sharedAs (explicit value) value = value ∨
-      SharedExecution.recovers (ExecutionShare.sharedAs (explicit value) value) value = true)
-    (wrote : SharedExecution.write [fun value => ExecutionShare.sharedAs (explicit value) value]
+      SharedExecution.recovers (JsonCanon.canon (ExecutionShare.sharedAs (explicit value) value))
+        value = true)
+    (wrote : SharedExecution.write
+      [fun value => JsonCanon.canon (ExecutionShare.sharedAs (explicit value) value)]
       document = .ok written)
     (regular : JsonAgreement.Regular written) : admitDocument written = .ok document :=
   admitDocument_of_forms (fun value => by
     have own : SharedExecution.internValue
-        [fun value => ExecutionShare.sharedAs (explicit value) value] value =
-        SharedExecution.internValue [ExecutionShare.sharedAs (explicit value)] value :=
+        [fun value => JsonCanon.canon (ExecutionShare.sharedAs (explicit value) value)] value =
+        SharedExecution.internValue
+          [fun other => JsonCanon.canon (ExecutionShare.sharedAs (explicit value) other)] value :=
       ExecutionShare.internValue_congr rfl
     rw [own]
     exact ExecutionShare.formLike_sharedAs (restores value)) wrote regular
 
+/-- **A reader of a result file gets the value its writer wrote, and admission returns the
+writer's document.** For every document whose text `encodeDocument` gives, the value the writer
+wrote is in the form the JSON parser builds (`ExecutionShare.canonical_write`), so the parse of the
+text (`PolicyCodec.parse`) is that value itself (`JsonRoundTrip.parse_compress_canonical`), and
+`admitDocument` of it returns the document the writer was given, `JsonCanon.canon document`
+(`admitDocument_write`). That document has the members of `document` wherever the object trees of
+`document` are search trees (`JsonCanon.Regular.canon_agree`), and is `document` itself where it
+is already in the parser's form (`JsonCanon.Canonical.canon_eq`). No hypothesis about Lean's JSON
+printer or parser is involved: `PolicyCodec.compress` and `PolicyCodec.parse` are definitions
+here, and they are the functions `writeDocument` and `readDocument` run. The theorem is about
+the logical definitions. Trusted beside the file read (`writeDocument`) is the compiled code of
+the core functions that `writeDocument` and `readDocument` call that has `implemented_by`,
+`extern` or a runtime override, which no kernel proof evaluates. Among them, `Nat.repr` runs
+`Nat.reprFast`, `String.push`, `String.append` and `String.Pos.next` are `extern`, and
+`String.Pos.get` is overridden in the runtime. -/
+theorem admitDocument_parse_encodeDocument {document : Json} {text : String}
+    (encoded : encodeDocument document = .ok text) :
+    ∃ written,
+      SharedExecution.write ExecutionShare.proposals (JsonCanon.canon document) = .ok written ∧
+      PolicyCodec.parse text = .ok written ∧
+      admitDocument written = .ok (JsonCanon.canon document) := by
+  unfold encodeDocument at encoded
+  rcases wrote : SharedExecution.write ExecutionShare.proposals (JsonCanon.canon document) with
+    _ | written
+  · rw [wrote] at encoded
+    cases encoded
+  · rw [wrote] at encoded
+    cases encoded
+    have canonical := ExecutionShare.canonical_write ExecutionShare.canonical_proposals
+      (JsonCanon.canonical_canon document) wrote
+    exact ⟨written, rfl, JsonRoundTrip.parse_compress_canonical canonical,
+      admitDocument_write wrote canonical.regular⟩
+
 /-- Read the result document `writeDocument` wrote at `path`: parsed strictly
-(`PolicyCodec.parse`) and admitted (`admitDocument`), so every `sourceText` member holds its
-text and every `execution` member its roots' accounts. A file that is not a written result
-document is an error. -/
+(`PolicyCodec.parse`, in `readJson`) and admitted (`admitDocument`), so every `sourceText` member
+holds its text and every `execution` member its roots' accounts. For the text `writeDocument`
+wrote for a document, the parse is the value the writer wrote and admission returns the document
+in the form the JSON parser builds (`admitDocument_parse_encodeDocument`); between them
+`requireAuditDocument` refuses a value whose `purpose` is `compiler-qualification`. A file that is
+not a written result document is an error. -/
 def readDocument (path : System.FilePath) : IO Json := do
   IO.ofExcept (admitDocument (← readJson path))
 

@@ -68,6 +68,27 @@ run_cmd do
       ``Regula.ExecutionShare.sharedAs_fitted, ``Regula.ExecutionShare.sharedAs_self,
       ``Regula.ExecutionShare.fitted_self, ``Regula.ExecutionShare.internValue_congr,
       ``Regula.ExecutionShare.formLike_internValue, ``Regula.ExecutionShare.formLike_sharedAs,
+      ``Regula.ExecutionShare.isExplicit_canon_mkObj, ``Regula.ExecutionShare.explicitAt_map_canon,
+      ``Regula.ExecutionShare.rootEntries?_canon_sharedForm, ``Regula.ExecutionShare.fitted_shared,
+      ``Regula.ExecutionShare.sharedAs_shared, ``Regula.ExecutionShare.kinds_canon,
+      ``Regula.ExecutionShare.canonical_mapTexts, ``Regula.ExecutionShare.canonical_mapMembers,
+      ``Regula.ExecutionShare.canonical_setTable, ``Regula.ExecutionShare.firstRecovered_mem,
+      ``Regula.ExecutionShare.canonical_internValue, ``Regula.ExecutionShare.canonical_proposals,
+      ``Regula.ExecutionShare.canonical_write,
+      ``Regula.JsonCanon.mkObj_eq, ``Regula.JsonCanon.members_treeOf, ``Regula.JsonCanon.treeOf_map,
+      ``Regula.JsonCanon.sortMembers_increasing, ``Regula.JsonCanon.sortMembers_of_increasing,
+      ``Regula.JsonCanon.canonical_canon, ``Regula.JsonCanon.Canonical.canon_eq,
+      ``Regula.JsonCanon.Canonical.regular, ``Regula.JsonCanon.Regular.canon_agree,
+      ``Regula.JsonCanon.Canonical.map, ``Regula.JsonCanon.getObjVal?_canon,
+      ``Regula.JsonCanon.Canonical.single, ``Regula.JsonCanon.canonAll_eq,
+      ``Regula.JsonCanon.insertMemberTR_eq, ``Regula.JsonCanon.insertMember_eq_insertMemberImpl,
+      ``Regula.JsonCanon.treeOf_concat, ``Regula.JsonCanon.contains_treeOf,
+      ``Regula.Checker.JsonRoundTrip.strCore_text, ``Regula.Checker.JsonRoundTrip.num_text,
+      ``Regula.Checker.JsonRoundTrip.value_text, ``Regula.Checker.JsonRoundTrip.parse_compress_ws,
+      ``Regula.Checker.JsonRoundTrip.parse_compress_canonical_ws,
+      ``Regula.Checker.JsonRoundTrip.parse_compress,
+      ``Regula.Checker.JsonRoundTrip.parse_compress_canonical,
+      ``Regula.Checker.ResultProtocol.admitDocument_parse_encodeDocument,
       ``Regula.JsonAgreement.Regular.agree_self,
       ``Regula.Checker.ResultProtocol.parseStage_stageName,
       ``Regula.SourceTexts.expand_intern, ``Regula.SourceTexts.intern_isOk_iff,
@@ -275,12 +296,14 @@ def main : IO Unit := do
   require (!succeeded (SourceTexts.expand (written.setObjVal! SourceTexts.tableKey
     (toJson #[(0 : Nat)])))) "stored text that is not a string"
   -- Execution accounts stored once. `SharedExecution.expand_intern` and `read_write` prove that
-  -- the reader recovers every document, whatever the writer proposes; these observe what they
-  -- do not cover: that the writer's proposal is kept for accounts of the form the collector
-  -- produces, built or parsed, so two roots store what both reach once, that the reader returns
-  -- the built account from a parsed shared form, whose object trees are not the written ones,
-  -- what the writer does with an account of another form or without roots, and what the reader
-  -- does with a malformed one.
+  -- the reader recovers every document, whatever the writer proposes, and
+  -- `ResultProtocol.admitDocument_parse_encodeDocument` that the parse of the text
+  -- `encodeDocument` gives is the value written and that admission returns `JsonCanon.canon` of
+  -- the document. They leave open that a built account is already in that form, which the first
+  -- check observes on the built document. Each case after it writes its document as the writer
+  -- does (`encodeDocument`), parses the text as a reader of the file does (`PolicyCodec.parse`,
+  -- in `fileRead`) and gives `admitDocument` the parsed value or that value with a member
+  -- changed; its message names what it observes beyond the theorems.
   let evidence ← IO.ofExcept
     (RegulaPolicy.admitBoundaryEvidence .partialComputation .trusted none none none)
   let account (root : Name) (visits : Array RegulaPolicy.ExecutionVisit) :
@@ -300,9 +323,16 @@ def main : IO Unit := do
     #[{ name := root, moduleName := some `M, parent := none },
       { name := `shared, moduleName := some `M, parent := some 0 }]
   let report (accounts : Array RegulaPolicy.ExecutionRoot) : Json :=
-    Json.mkObj [(SharedExecution.accountKey, toJson accounts)]
+    Json.mkObj [(SharedExecution.accountKey, toJson accounts),
+      Regula.Checker.ResultProtocol.sourceTextsField]
+  let fileRead (document : Json) : IO (Json × Json) := do
+    let stored ← IO.ofExcept (Regula.Checker.PolicyCodec.parse
+      (← IO.ofExcept (Regula.Checker.ResultProtocol.encodeDocument document)))
+    return (stored, ← IO.ofExcept (Regula.Checker.ResultProtocol.admitDocument stored))
   let logical := report #[account `first (walked `first), account `second (walked `second)]
-  let stored := SharedExecution.intern ExecutionShare.proposals logical
+  require (SharedExecution.same (JsonCanon.canon logical) logical)
+    "a built account is in the form the JSON parser builds"
+  let (stored, read) ← fileRead logical
   let storedAccount := stored.getObjValD SharedExecution.accountKey
   let count (member : String) : Option Nat :=
     (storedAccount.getObjValD member).getArr?.toOption.map (·.size)
@@ -311,46 +341,43 @@ def main : IO Unit := do
   require (count "names" == some 3 && count "boundaries" == some 1 &&
     count "compilerEdges" == some 2 && count "logicalEdges" == some 2)
     "two roots store the name and boundary both reach once"
-  require ((SharedExecution.expand stored).toOption == some logical)
-    "the reader rebuilds each root's account"
-  -- The JSON parser builds an account's objects as the codec and the reader do, so a document
-  -- that was read back is written in the shared form again.
-  let reread := Regula.Checker.ResultProtocol.normalize logical
-  require (SharedExecution.same reread logical)
-    "a parsed account is the same value as the built one"
-  require (SharedExecution.derivedOnly ((SharedExecution.intern ExecutionShare.proposals
-      reread).getObjValD SharedExecution.accountKey))
-    "a parsed account is stored as derived root entries"
-  require (match SharedExecution.expand (Regula.Checker.ResultProtocol.normalize stored) with
-    | .ok restored => SharedExecution.same restored logical
-    | .error _ => false)
-    "the reader rebuilds the built account from a parsed shared form"
+  require (SharedExecution.same read logical)
+    "the reader of the file rebuilds each root's account"
+  -- A document read back from its file is written in the shared form again.
+  let (reread, readAgain) ← fileRead read
+  require (SharedExecution.derivedOnly (reread.getObjValD SharedExecution.accountKey) &&
+      SharedExecution.same readAgain logical)
+    "a document read back is stored as derived root entries and read back again"
   let rootless := report #[]
-  let storedNone := SharedExecution.intern ExecutionShare.proposals rootless
+  let (storedNone, readNone) ← fileRead rootless
   require
     (SharedExecution.field? SharedExecution.rootsKey
         (storedNone.getObjValD SharedExecution.accountKey) == some (Json.arr #[]) &&
-      (SharedExecution.expand storedNone).toOption == some rootless)
-    "an environment without roots is stored as a shared form without roots"
+      SharedExecution.same readNone rootless)
+    "an environment without roots is stored as a shared form without roots and read back"
   -- Visits the walk does not produce: the root's entry holds its account as it is, and the
   -- reader still returns the account.
   let other := report #[account `first #[{ name := `shared, moduleName := some `M, parent := none },
       { name := `first, moduleName := some `M, parent := some 0 }],
     account `second (walked `second)]
-  let full := SharedExecution.intern ExecutionShare.proposals other
+  let (full, readFull) ← fileRead other
   let entries := (SharedExecution.field? SharedExecution.rootsKey
     (full.getObjValD SharedExecution.accountKey)).bind SharedExecution.array?
   require
     (entries.map (·.map fun entry => (SharedExecution.field? "explicit" entry).isSome) ==
         some #[true, false] &&
-      (SharedExecution.expand full).toOption == some other)
+      SharedExecution.same readFull other)
     "an account the walk does not reproduce is written as `explicit` and read back"
-  let claim := Json.mkObj [(SharedExecution.accountKey, .str "checked")]
-  require (SharedExecution.intern ExecutionShare.proposals claim == claim &&
-    (SharedExecution.expand claim).toOption == some claim)
-    "an execution member that is not an account is kept"
-  require (!succeeded (SharedExecution.expand (stored.setObjVal! SharedExecution.accountKey
-    (storedAccount.setObjVal! "names" (toJson (#[] : Array Json))))))
+  let claim := Json.mkObj [(SharedExecution.accountKey, .str "checked"),
+    Regula.Checker.ResultProtocol.sourceTextsField]
+  let (storedClaim, readClaim) ← fileRead claim
+  require
+    (SharedExecution.same (storedClaim.getObjValD SharedExecution.accountKey) (.str "checked") &&
+      SharedExecution.same readClaim claim)
+    "an execution member that is not an account is kept and read back"
+  require (!succeeded (Regula.Checker.ResultProtocol.admitDocument
+    (stored.setObjVal! SharedExecution.accountKey
+      (storedAccount.setObjVal! "names" (toJson (#[] : Array Json))))))
     "a shared account whose names do not cover its indices is refused"
   let partialRun := requested "file" <| Regula.Checker.ResultProtocol.resultJson (.str "control")
     .freshFile .rejected #[⟨.projectAxiom, d⟩] fileStages

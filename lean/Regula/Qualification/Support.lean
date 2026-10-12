@@ -81,19 +81,15 @@ def withScratch {α : Type} (root : FilePath) (stem : String) (action : FilePath
 def readJson (path : FilePath) : IO Json := do
   Regula.Checker.requireAuditDocument (← IO.ofExcept (Json.parse (← IO.FS.readFile path)))
 
-/-- Read a result file (`--json-out`) as a logical result document: parsed with the pinned
-Lean JSON implementation and admitted (`Regula.Checker.ResultProtocol.admitDocument`: read by
-`Regula.SharedExecution.read`, and conforming to a form the writers write of the document read,
-with the entry kinds of its own execution accounts), so
-each `sourceText` member holds its text and each `execution` member its roots' accounts.
-`Regula.SharedExecution.read_write` proves that `read` of the `Json` value the writer wrote is
-the writer's document. The parse of the file's text is not that value: the JSON implementation
-is trusted to give it the same members, but its object trees are in general balanced
-differently. That `read` of it returns a document with the members of the writer's is observed
-(`RegistryChecks`, the `history` qualification), not proved, and does not reduce to a JSON round
-trip. A file that is not a written result document is an error. -/
-def readResult (path : FilePath) : IO Json := do
-  IO.ofExcept (Regula.Checker.ResultProtocol.admitDocument (← readJson path))
+/-- Read a result file (`--json-out`) as a logical result document
+(`Regula.Checker.ResultProtocol.readDocument`: parsed with `Regula.Checker.PolicyCodec.parse` and
+admitted with `Regula.Checker.ResultProtocol.admitDocument`), so each `sourceText` member holds its
+text and each `execution` member its roots' accounts. For the text a result writer wrote for a
+document, the parse is the value the writer wrote and admission returns the writer's document
+(`Regula.Checker.ResultProtocol.admitDocument_parse_encodeDocument`). A file that is not a written
+result document is an error. -/
+def readResult (path : FilePath) : IO Json :=
+  Regula.Checker.ResultProtocol.readDocument path
 
 /-- The first line of the runtime's own message for a failed read of `path`: the `IO.Error` text
 before its `file:` line. A control compares a checker's IO refusal with this, the wording of the

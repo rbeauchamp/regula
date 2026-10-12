@@ -25,10 +25,11 @@ equality test proofs unfold (`same_eq`); otherwise it writes the logical value a
 writer was given, object trees included, so whatever a function computes from the read document
 it computes from the written one.
 
-The laws concern `Json` values, not JSON text or the files that hold it: what `Json.parse`
-returns for the text of a written value is outside them, as it is for `SourceTexts`. They do not
-establish that a written value is small: a proposal that `restore?` does not take back is
-replaced by the logical value. -/
+The laws concern `Json` values, not JSON text or the files that hold it. That the parse of the text
+a result writer prints is the value it wrote is `JsonRoundTrip.parse_compress_canonical` with
+`ExecutionShare.canonical_write`, composed in `ResultProtocol.admitDocument_parse_encodeDocument`.
+The laws do not establish that a written value is small: a proposal that `restore?` does not take
+back is replaced by the logical value. -/
 namespace Regula.SharedExecution
 open Lean
 open Std.DTreeMap.Internal (Impl)
@@ -297,10 +298,12 @@ def pair? : Json → Option (Nat × Nat)
 `RegulaPolicy.ExecutionVisit`, `ExecutionBoundary`, `ExecutionClosure` and `ExecutionRoot` build
 the same objects (`ExecutionShare.visit_toJson` and its companions, by `rfl`), so a codec and the
 reader build the same value from the same members. Each lists its members in the order of their
-keys, which is the order the JSON parser inserts the members of a compressed object in: an
-account that was parsed is then the same tree as one that was built, which is what lets the
-writer keep a shared form for a document that was read back. That is an observation about Lean's
-tree insertion (`RegistryChecks` checks it on an account); no law depends on it. -/
+keys, so it is in the form the JSON parser builds (`JsonCanon.Canonical`) when the values of its
+members are, and `JsonCanon.canon`, which a result writer applies to its document, keeps it
+(`JsonCanon.Canonical.canon_eq`): the account the reader rebuilds is then the same tree as the
+account in the document written, which is what lets the writer keep derived entries. That the
+values of a built account's members are in that form is observed (`RegistryChecks` checks it on
+an account), not proved; no law depends on it. -/
 
 /-- A visit of a root's account: its name, its module and the position of the visit that queued
 it. -/

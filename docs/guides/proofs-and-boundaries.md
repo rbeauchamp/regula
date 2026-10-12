@@ -926,10 +926,10 @@ correspondence, detail, toolchain origin and the exact correspondence terms, ref
 incompatible extra evidence, and every representable value round-trips. Accepted canonical
 external spellings re-encode identically. The pure codec proves
 `decode (encode x) = ok x` over a tagged tree; that is not a theorem about JSON text. Worker
-parsing (`Checker.PolicyCodec`, whose container recursion is adapted from Lean's JSON parser under
-Apache-2.0) rejects duplicate fields before building a map, unknown and missing fields,
-unsupported tags and numeric overflow; the parent waits for the child's exit and checks the
-response against its own request.
+parsing (`Checker.PolicyCodec`, whose string, number and container parsers are adapted from
+Lean's JSON parser under Apache-2.0) rejects duplicate fields before building a map, unknown and
+missing fields, unsupported tags and numeric overflow; the parent waits for the child's exit and
+checks the response against its own request.
 
 **Trusted:** these relations concern supplied observations. `InfrastructureOK` binds the exact
 reporter, codec and collector artifacts the IO adapter compares with the running checker's, their
@@ -1740,11 +1740,14 @@ statement shapes, which the theorems decide.
 The reader of a result file, and the reader of the reply of a worker, each have two steps. The
 second step is pure decisions with a kind.
 
-- **The observing pass** turns a text into a `Json` value. The callers use two parsers, and no
-  theorem says what a parser returns. `Checker.PolicyCodec.parse` uses the scalar parsers of Lean,
-  which are `partial`. It refuses an object that gives one name twice, and it builds each object
-  with `Json.mkObj`. `Json.parse` of Lean runs parsers that are `partial`, and it does not refuse
-  a repeated name. It starts each object from the empty tree and adds each member with `insert`.
+- **The observing pass** turns a text into a `Json` value. The callers use two parsers.
+  `Checker.PolicyCodec.parse` is a total definition, and it refuses an object that gives one name
+  twice. `JsonRoundTrip.parse_compress_ws` states what it returns for the text of
+  `PolicyCodec.compress` and any JSON whitespace after it, for a value with search trees as object
+  trees.
+  `Json.parse` of Lean runs parsers that are `partial`, and it does not refuse a repeated name.
+  Each of the two parsers starts each object from the empty tree and adds each member in the
+  order of the text.
 - **Between the two steps**, a reader of a result file gives the value to
   `ResultProtocol.admitDocument`, which runs `SharedExecution.read`. That function puts the source texts and the execution accounts back in the document. It
   rebuilds the objects of the document with maps that keep each name and the shape of each tree.
@@ -1813,12 +1816,13 @@ decisions. `parseLocation` and `parseDiagnostic` are two-way decisions of the fo
 **Hypotheses and trusted boundary.** The theorems start from a `Json` value. They do not prove
 these items:
 
-- What a parser returns for a text, and what a file contains.
+- What a parser returns for a text other than the text of `PolicyCodec.compress` and JSON
+  whitespace after it, and what a file contains. For that text too,
+  `JsonRoundTrip.parse_compress_ws` requires a value with search trees as object trees.
 - That each object tree of a value that a caller gives is a search tree. The theorems do not use
   it: a decoder refuses a different tree. That the callers do not see such a refusal is read from the
-  code. `PolicyCodec.parse` builds each object with `Json.mkObj`, and `Json.parse` builds each
-  object by insertion from the empty tree. The maps of `SharedExecution.read` keep each name and
-  the shape of each tree.
+  code. `PolicyCodec.parse` and `Json.parse` each build an object by insertion from the empty
+  tree. The maps of `SharedExecution.read` keep each name and the shape of each tree.
 - That the form is the intended one. A reviewer examines `LocationWire` and `FindingWire`.
 - That `agrees` returns what the runtime equality of `Json` returns. The two definitions have the
   same cases, which a reader can compare. The agreement of the two is by reading, and a
@@ -1840,8 +1844,8 @@ of the callers.
   write of the document that it reads. That form has the entry kinds of the execution accounts of
   the value.
 - The runner of the rule examples (`Regula.Qualification.RuleExamples`) reads a result file with
-  `Qualification.readResult`. That function runs `Json.parse` of Lean and then
-  `ResultProtocol.admitDocument`. The runner gives the document to `ResultProtocol.admitGuidance`.
+  `Qualification.readResult`. That function is `ResultProtocol.readDocument`. The runner gives
+  the document to `ResultProtocol.admitGuidance`.
 - The executable `ruleExampleQualification` reads an evidence file with `PolicyCodec.parse`. A
   record of that file contains a result document. The executable does not run
   `SharedExecution.read`. It gives the members of that result that
@@ -3937,19 +3941,23 @@ with answers `true` only for equal values) and `slots_intern` (writing the accou
 `null` `sourceTexts` member), for every `Json` value and every list of writer proposals, bounded
 to Standard-Logical by `RegistryChecks`. The equality is of `Json` values, object trees
 included, and `read_write` is about the value the writer wrote: any function of `read` of that
-value is that function of the document the writer was given. It is not about the value a reader
-parses from the file. The JSON implementation is trusted, as for every earlier schema, to parse
-the file's text to a value with the members of the written one, but in general not with its
-object trees: the printer lists an object's members in key order and the parser inserts them in
-that order, while `Json.mkObj` inserts them as listed. So the `history` oracle's theorems
-(`History.validate_importedRootExecuted`, `validate_unsupported_unresolved`) are about the
-document `readResult` returns, and that this document has the members of the document the writer
-was given, with the account the collector produced, is a further correspondence the laws do not
-give. It is not proved and does not reduce to a JSON round trip; it is observed, by
-`RegistryChecks` on one account (`expand` of a parsed shared form is the built account) and by
-the `history` qualification, which reads the collector's real output through `readResult` and
-validates the document it gets, without the writer's to compare it with. The laws do not prove
-either that the written form is smaller than the logical one. That holds when the writer's
+value is that function of the document the writer was given. The file carries that value:
+`ResultProtocol.admitDocument_parse_encodeDocument` proves that the parse (`PolicyCodec.parse`)
+of the text `writeDocument` writes (`encodeDocument`) is the value the writer wrote and that
+admission of it returns the writer's document, `JsonCanon.canon` of the document given. It rests
+on `JsonRoundTrip.parse_compress_canonical_ws` (the parse of the printed text of a value in the
+parser's form, with or without whitespace after it, is that value) and `ExecutionShare.canonical_write` (the writer writes values in
+that form); `PolicyCodec.compress` and `PolicyCodec.parse` are total definitions that the writer
+and the readers run, so no hypothesis about Lean's `partial` printer or parser is involved. The
+writer's document has the members of the document given when the latter's object trees are search
+trees (`JsonCanon.Regular.canon_agree`). That a file read returns the text the write wrote is
+trusted. The compiled code that replaces core functions the writer and the readers call is trusted
+too, since the theorems are about the logical definitions (for example, `Nat.repr` runs
+`Nat.reprFast`, and `String.push`, `String.append`, `String.Pos.get` and `String.Pos.next` have
+runtime code). So the `history` oracle's theorems (`History.validate_importedRootExecuted`,
+`validate_unsupported_unresolved`) are about the writer's document, and that it holds the account
+the collector produced is the collector's correspondence, not a law of the transport. The laws do
+not prove either that the written form is smaller than the logical one. That holds when the writer's
 proposal is kept, which is checked at each write and observed on the collector's real output by
 the `history` qualification (`derivedOnly`) and on built and parsed accounts by
 `RegistryChecks`, not proved. In the excluded library, `RegistryCodec.mode_roundtrip`,
@@ -4420,7 +4428,7 @@ not yet proved, and are labelled so at their definition; they are not correctnes
 | checkerSelftest cli, environments, build-policy, lint-driver | CLI sweep, adopters, clean checkout, ordinary build, `lake lint` exit classes, its claimed build with and without the audit-build marker, cold compiler guard refusal of a failing and of a successful unidentified child process with its restored load, a forged correspondence theorem of an owned path dependency refused by replay and one of a dependency in a Git work tree of its own refused as evidence ([RG3002]) | packaging, Lake and build integration | External | observed |
 | ordinary | `qualify registry`, `qualify native` | CLI output invalidation, registry and site validators; compiler messages and ranges | External | observed |
 | ordinary | `qualify unique-constants` | no constant declared by two modules of a claimed environment, one of them a module of the root package | Proved in part | `UniqueConstants.mem_shared` and `shared_eq_nil` state the decision. The reading of the `.olean` parts and of the import closure is observed. |
-| ordinary | `RegistryChecks` codec, source and execution-account cases | registry, diagnostic and source codecs; the result file's shared execution form | Proved in part | round-trip theorems of `Json` values, with those of each finding and each location (`parseDiagnostic_roundtrip`, `parseLocation_roundtrip`); that the shared form is kept, and that a parsed shared form reads back to the built account, are observed; open: state the remaining refusals as theorems |
+| ordinary | `RegistryChecks` codec, source and execution-account cases | registry, diagnostic and source codecs; the result file's shared execution form | Proved in part | round-trip theorems of `Json` values, with those of each finding and each location (`parseDiagnostic_roundtrip`, `parseLocation_roundtrip`), and of the result file's text (`ResultProtocol.admitDocument_parse_encodeDocument`); observed: the parser-form check (`SharedExecution.same (JsonCanon.canon logical) logical`) on the built document, the read-back check that the reader of the file returns it, and the cases of the shared form, each on a document written and read as the writer and a reader of the file do (`encodeDocument`, `PolicyCodec.parse`, `admitDocument`); open: state the remaining refusals as theorems |
 | standalone | `qualify environments` finalize mutations | `finalize` refusals | Proved relation | `finalize_iff`; instance membership sampled; no transcript substitution: an accepted run has no transcript job (`accepted_no_transcript_subjects`) |
 | standalone | `qualify acceptance fences` packet mutations | worker-packet admission through a real proxy | External transport | admission proved (`checked_indexedResults`) |
 | standalone | snapshots, input inventory, receipts, frozen exits, documentation source, closure, configuration and fence evidence | Git, Lake, filesystem, elaboration-time IO, signals | External | observed |
@@ -4618,8 +4626,9 @@ the identity stage returning the restriction unchanged) covers what the gate rea
 value boundary for any accepted manifest whose restriction keeps a surface. `structuralBase`
 checks that hypothesis at run time, and that the application is the project's only claimed
 library; no theorem links those checks to the hypothesis. The
-text boundary is trusted: `Json.compress` is `partial` and `PolicyCodec.parse` runs core `partial`
-parsers, so no theorem describes them; `parse_of_encodes` names what they must deliver. The
+text boundary is trusted. `PolicyCodec.parse` is total, but no theorem states what it returns for
+the text of a manifest. Lean code prints that text with `Json.compress`, a `partial` function.
+`parse_of_encodes` names what the parse must deliver. The
 variants that rewrite the `AuditApp` surface after derivation are not covered. The lib-only
 variant excludes every actual `AuditApp` executable it stops claiming, and app-omitted-exe
 leaves them unclassified on purpose; claimed-exe keeps claiming them beside its added
