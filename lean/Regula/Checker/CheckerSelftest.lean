@@ -414,10 +414,9 @@ private def structuralProject (manifest : Manifest) (ws : _root_.Lake.Workspace)
   -- The repository's `extraDep` facet, which records the `weakLeanArgs` of the root package in
   -- each module's trace, so an incremental gate decides a module it replays (RG2003) as it does
   -- in the repository, and the module artifacts seeded from the repository's build match.
-  let marker := "\n-- Regula's weak-arguments record."
-  let some facet := ((← IO.FS.readFile pkg.configFile).splitOn marker)[1]?
+  let some facet := Lake.weakArgsDeclarations (← IO.FS.readFile pkg.configFile)
     | throw <| IO.userError s!"self-test: {pkg.configFile} has no weak-arguments facet"
-  lakefile := lakefile ++ marker ++ facet
+  lakefile := lakefile ++ facet
   return {
     lakefile, sources
     libraries := libraries.map (spelling ·.name)
@@ -3579,15 +3578,14 @@ private def retainedBuildControl (repo : FilePath) : IO (Array String) :=
   IO.FS.writeFile (project / "lean-toolchain") (← IO.FS.readFile (repo / "lean-toolchain"))
   -- The weak-arguments facet of Regula's shipped `lakefile.lean`, so the ordinary build records
   -- each module's weak arguments in its trace, as the first acceptance step's build does.
-  let marker := "\n-- Regula's weak-arguments record."
-  let [_, facet] := (← IO.FS.readFile (repo / "lakefile.lean")).splitOn marker
+  let some facet := Lake.weakArgsDeclarations (← IO.FS.readFile (repo / "lakefile.lean"))
     | return #["retained-build/setup: Regula's lakefile has no weak-arguments facet"]
   IO.FS.writeFile (project / "lakefile.lean") <|
     "import Lake\nopen Lake DSL\n\npackage retained_build_control where\n" ++
       "  leanOptions := #[⟨`autoImplicit, false⟩, ⟨`relaxedAutoImplicit, false⟩,\n" ++
       "    ⟨`linter.missingDocs, true⟩]\n\n" ++
       "lean_lib Solo where\n  globs := #[.submodules `Solo]\n\n" ++
-      "lean_lib Extra where\n  globs := #[.submodules `Extra]\n" ++ marker ++ facet
+      "lean_lib Extra where\n  globs := #[.submodules `Extra]\n" ++ facet
   IO.FS.writeFile (Manifest.defaultPath project) <|
     "{\"schema-version\":2,\"surfaces\":[{\"library\":\"Solo\",\"executables\":[]," ++
       "\"claim\":\"standard-logical\",\"execution\":\"report\"," ++

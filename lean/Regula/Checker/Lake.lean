@@ -1026,6 +1026,21 @@ configuration of a fresh dependency before it builds any of that dependency's mo
 `lakefileEncoderAgrees` checks the copy. -/
 def lakefileEncoderName : Name := `weakLeanArgsRecord
 
+/-- The line that opens the weak-arguments declarations of Regula's `lakefile.lean`, with the line
+break before it. -/
+def weakArgsDeclarationsMarker : String := "\n-- Regula's weak-arguments record."
+
+/-- The weak-arguments declarations of the text `shipped` of Regula's `lakefile.lean`: everything
+from `weakArgsDeclarationsMarker` to the end of the file, which declares the encoder
+`lakefileEncoderName` and the facet `regulaFacetName`, or none when the marker is not there exactly
+once. The facet records the weak arguments of the root package's libraries, so a fixture project
+whose own `lakefile.lean` ends with this text records them in each module's trace as Regula's own
+build does, and an unmarked audit can establish a module it replays from that build. -/
+def weakArgsDeclarations (shipped : String) : Option String :=
+  match shipped.splitOn weakArgsDeclarationsMarker with
+  | [_, declarations] => some (weakArgsDeclarationsMarker ++ declarations)
+  | _ => none
+
 /-- Whether the kernel admits `value`, of type `type`, as equal to `weakArgsRecordJson` by
 `Eq.refl`: it adds `value` to `env` as a definition, then that theorem, and discards the result. A
 value of another type, or one that uses a constant `env` lacks or unfolds to another term, is
