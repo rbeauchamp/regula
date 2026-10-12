@@ -673,9 +673,9 @@ lake exe qualify rule-examples --evidence tmp/rule-examples.json
 `--rules RG1001 RG1002` after the evidence path scopes a development run; `--shard K/N` selects
 every rule at corpus position K − 1 modulo N, keeping [RG5002] with [RG5001] so their shared
 fresh-project theorem-type check still runs (`mem_selectRules_shard`,
-`mem_selectRules_some_shard`, `rg5001_rg5002_same_shard`). CI runs the two shards through
-`./scripts/verify.sh diagnostics rule-examples 1/2` and `2/2`, and the site build admits both
-exports again. The `ruleExamples` and `ruleExampleQualification` executables are excluded in the
+`mem_selectRules_some_shard`, `rg5001_rg5002_same_shard`). CI runs the three shards through
+`./scripts/verify.sh diagnostics rule-examples 1/3`, `2/3` and `3/3`, and the site build admits
+the three exports again. The `ruleExamples` and `ruleExampleQualification` executables are excluded in the
 root manifest solely as operational qualification tooling of the excluded `Regula` library; no
 product module or detector is exempted from its applicable qualification. The corpus is
 qualification, not acceptance, and no website, editor, serialized-graph or full-project claim

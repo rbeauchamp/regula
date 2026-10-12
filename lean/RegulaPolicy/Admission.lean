@@ -45,6 +45,12 @@ def distinctDecidable {α : Type} [BEq α] [Hashable α] [LawfulBEq α] [LawfulH
 def Named (n : Lean.Name) : Prop := n ≠ .anonymous
 instance (n : Lean.Name) : Decidable (Named n) := inferInstanceAs (Decidable (n ≠ .anonymous))
 
+-- Realized here, once, for every module that unfolds `Named`: two modules that each realized it
+-- would each hold a copy, and the audit reuses a module only when its constants are its own.
+section
+attribute [local simp] Named.eq_1
+end
+
 /-- Repeated observations are refused even when their payloads agree. -/
 def UniqueNames (names : Array Lean.Name) : Prop := names.toList.Pairwise (· ≠ ·)
 instance (names : Array Lean.Name) : Decidable (UniqueNames names) :=

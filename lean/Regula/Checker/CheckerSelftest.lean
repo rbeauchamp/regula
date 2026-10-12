@@ -50,10 +50,10 @@ builds and inspects the application alone. The controls that need the checker's 
 package as the audited project run in copies of the repository (`structuralSelfHosted`,
 `structuralSelfHostedPositive`).
 
-The controls of the structural and of the execution partition each carry one of two shards
-(`Shard`), and the lint-driver control groups one of `LintQualification.shards`; `--shard` runs
-the controls of one, and the shards of a partition together run every control once
-(`inShard_cover`).
+The controls of the structural partition each carry one of `structuralShards` shards, those of
+the execution partition one of `executionShards`, and the lint-driver control groups one of
+`LintQualification.shards`; `--shard` runs the controls of one, and the shards of a partition
+together run every control once (`shards_cover`, `inShard_cover`).
 
 It is intentionally qualification-only, not an ordinary build.
 -/
@@ -187,55 +187,63 @@ private theorem Partition.baseline_axiomGate (partition : Partition) :
     "axiomGate" ∈ partition.baseline.tools := by
   cases partition <;> simp [baseline, checkerTools]
 
-/-- One of the two shards the controls of the structural and of the execution partition are
-divided into, so that each shard runs under the deadline of its own invocation. -/
-inductive Shard where
-  /-- `1/2`. -/
-  | first
-  /-- `2/2`. -/
-  | second
-  deriving DecidableEq, Repr
+/-- The number of shards the structural partition's controls are divided into, so that each
+shard runs under the deadline of its own invocation. -/
+def structuralShards : Nat := 5
 
-private def Shard.label : Shard → String
-  | .first => "1/2"
-  | .second => "2/2"
+/-- The number of shards the execution partition's controls are divided into. -/
+def executionShards : Nat := 4
 
-/-- The two shards of a list of controls are together a rearrangement of the list: every control
-runs in exactly one shard, and the two shards together run what an unsharded run does
-(`inShard_cover`). This is a statement about the selection. That the two shards select from the
-same list rests on their running the same sources, which it does not state. -/
-private theorem Shard.cover {α : Type} (items : List (Shard × α)) :
-    (inShard (some .first) items ++ inShard (some .second) items).Perm (inShard none items) := by
-  simpa using inShard_cover [Shard.first, .second] (by decide)
-    (fun shard => by cases shard <;> simp) items
-
-/-- The shard of the structural or execution partition that `--shard index/count` selects. -/
-private def Shard.ofSpec? : Nat × Nat → Option Shard
-  | (1, 2) => some .first
-  | (2, 2) => some .second
-  | _ => none
-
-/-- The shard of the lint-driver partition that `--shard index/count` selects: `index` counted
-from 1, of `count`, which must be the partition's number of shards (`LintQualification.shards`). -/
-private def lintShard? : Nat × Nat → Option (Fin LintQualification.shards)
+/-- The shard of a partition of `shards` shards that `--shard index/count` selects: `index`
+counted from 1, of `count`, which must be that number of shards. -/
+private def shardOf? (shards : Nat) : Nat × Nat → Option (Fin shards)
   | (index + 1, count) =>
-      if bound : count = LintQualification.shards ∧ index < LintQualification.shards then
-        some ⟨index, bound.2⟩
-      else none
+      if bound : count = shards ∧ index < shards then some ⟨index, bound.2⟩ else none
   | _ => none
+
+/-- `INDEX/COUNT`, `INDEX` counted from 1. -/
+private def shardLabel {shards : Nat} (shard : Fin shards) : String :=
+  s!"{shard.val + 1}/{shards}"
+
+/-- The shards of a list of controls are together a rearrangement of the list: every control
+runs in exactly one shard, and the shards together run what an unsharded run does
+(`inShard_cover`). This is a statement about the selection. That the shards select from the
+same list rests on their running the same sources, which it does not state. -/
+private theorem shards_cover {shards : Nat} {α : Type} (items : List (Fin shards × α)) :
+    ((List.finRange shards).flatMap fun selected => inShard (some selected) items).Perm
+      (inShard none items) :=
+  inShard_cover _ (List.nodup_finRange shards) List.mem_finRange items
+
+/-- The structural shard `index`, counted from 0. -/
+private def structuralShard (index : Nat) (bound : index < structuralShards := by decide) :
+    Fin structuralShards :=
+  ⟨index, bound⟩
+
+/-- The execution shard `index`, counted from 0. -/
+private def executionShard (index : Nat) (bound : index < executionShards := by decide) :
+    Fin executionShards :=
+  ⟨index, bound⟩
+
+/-- The shard of `structuralSelfHostedPositive`, which holds no other control: its one accepting
+fresh gate builds `RegulaPolicy` from empty output in a copy of the repository, and no cut divides
+it, so it has the processors to itself. -/
+private def selfHostedShard : Fin structuralShards := structuralShard 0
+
+/-- The shard of `structuralSelfHosted`, whose restored copy's fresh input a sharded run compares
+with the positive's through their digests (`selfHostedDigest`). -/
+private def selfHostedRestoredShard : Fin structuralShards := structuralShard 4
 
 /-- The baseline of a run of `partition`, of one of its shards when `shard` selects one. The
-first structural shard holds the two self-hosted clusters, which run `axiomGate` alone, and the
-frozen-artifact controls, which run no checker executable. The clusters that run `docFenceAudit`
-and `freshChecker` are in the second, which keeps the partition's baseline. -/
-private def baselineOf (partition : Partition) (shard : Option Shard) : Baseline :=
-  match partition, shard with
-  | .structural, some .first => ⟨["axiomGate"], false, []⟩
-  | _, _ => partition.baseline
+shard of the self-hosted positive (`selfHostedShard`) runs `axiomGate` alone; every other shard
+keeps the partition's baseline. -/
+private def baselineOf (partition : Partition) (shard : Option (Nat × Nat)) : Baseline :=
+  if partition = .structural ∧ (shard.bind (shardOf? structuralShards)) = some selfHostedShard
+  then ⟨["axiomGate"], false, []⟩
+  else partition.baseline
 
 /-- Every run's baseline build names `axiomGate` (`Partition.baseline_axiomGate`), a shard's
 too. -/
-private theorem baselineOf_axiomGate (partition : Partition) (shard : Option Shard) :
+private theorem baselineOf_axiomGate (partition : Partition) (shard : Option (Nat × Nat)) :
     "axiomGate" ∈ (baselineOf partition shard).tools := by
   unfold baselineOf
   split
@@ -257,9 +265,10 @@ structure Options where
   buildBound : Bool := false
   /-- `--partition NAME`: run only this build-bound group; requires `--build-bound`. -/
   partition : Option Partition := none
-  /-- `--shard INDEX/COUNT`: run only that shard of the selected partition, `INDEX` counted from 1:
-  `1/2` or `2/2` of the structural or execution partition (`Shard.ofSpec?`), or one of the
-  `LintQualification.shards` of the lint-driver partition (`lintShard?`). -/
+  /-- `--shard INDEX/COUNT`: run only that shard of the selected partition, `INDEX` counted from 1
+  and `COUNT` its number of shards: `structuralShards` of the structural partition,
+  `executionShards` of the execution partition and `LintQualification.shards` of the lint-driver
+  partition (`shardOf?`). -/
   shard : Option (Nat × Nat) := none
   /-- `--help` or `-h`: print the usage and exit. -/
   help : Bool := false
@@ -274,8 +283,8 @@ private def usage : String :=
   "fence corpus, external adopters, clean-checkout environment, public controls)\n" ++
   "--partition: run only the named build-bound group; all seven groups are required for full \
     qualification\n" ++
-  s!"--shard: run only that shard of the group: 1/2 or 2/2 of the structural or execution group, \
-    1/{LintQualification.shards} to {LintQualification.shards}/{LintQualification.shards} of the \
+  s!"--shard: run only that shard of the group: INDEX/{structuralShards} of the structural group, \
+    INDEX/{executionShards} of the execution group, INDEX/{LintQualification.shards} of the \
     lint-driver group; all its shards are required for the group"
 
 private def parseArgs : List String → Options → IO Options
@@ -284,13 +293,14 @@ private def parseArgs : List String → Options → IO Options
         throw <| IO.userError "--partition requires --build-bound"
       if let some spec := options.shard then
         let admitted := match options.partition with
-          | some .structural | some .execution => (Shard.ofSpec? spec).isSome
-          | some .lintDriver => (lintShard? spec).isSome
+          | some .structural => (shardOf? structuralShards spec).isSome
+          | some .execution => (shardOf? executionShards spec).isSome
+          | some .lintDriver => (shardOf? LintQualification.shards spec).isSome
           | _ => false
         unless admitted do
-          throw <| IO.userError s!"--shard {spec.1}/{spec.2} requires --partition structural or \
-            --partition execution with 1/2 or 2/2, or --partition lint-driver with INDEX/\
-            {LintQualification.shards}"
+          throw <| IO.userError s!"--shard {spec.1}/{spec.2} requires --partition structural with \
+            INDEX/{structuralShards}, --partition execution with INDEX/{executionShards}, or \
+            --partition lint-driver with INDEX/{LintQualification.shards}"
       if options.structuralOnly && (options.buildBound || options.partition.isSome) then
         throw <| IO.userError "--structural-only conflicts with --build-bound and --partition"
       return options
@@ -1634,11 +1644,21 @@ private def prepareStructuralProject (layout : SourceLayout) (repo copy : FilePa
   IO.FS.writeFile (copy / "foundation_manifest.json")
     ((← structuralManifestText layout repo) ++ "\n")
 
-/-- Structural mutation cluster: discovery of added modules, suppressed
-warnings, and contamination of the claimed library root by excluded fixture
-modules (direct and exact-prefix-lookalike). -/
-private unsafe def structuralPartA (layout : SourceLayout) (repo copy : FilePath) : IO
-    (Array String) := do
+/-- The restored control that ends a structural cluster: once each of its mutations is restored,
+the fresh gate (empty-output elaboration of a copy of the cluster's project) accepts it. A
+cluster cut from a longer chain ends with its own, so every mutation is still followed by the
+fresh gate of a restored copy. -/
+private def restoredControl (repo copy : FilePath) (failures : IO.Ref (Array String)) :
+    IO Unit := do
+  let restored ← runBinaryFrom repo copy "axiomGate" #[]
+  if !restored.succeeded then
+    failures.modify (·.push s!"structural/restored: final fresh gate failed:\n{restored.output}")
+
+/-- Structural mutation cluster: a claimed module whose theorem the kernel never checked, refused
+by the project audit and the build lint (`imported` false), or by the audit of a file and of a
+documentation fence that import it (`imported` true), then the restored control. -/
+private unsafe def structuralPartAAdmission (layout : SourceLayout) (imported : Bool)
+    (repo copy : FilePath) : IO (Array String) := do
   let sources := copy / layout.relativeDir
   let failures ← IO.mkRef (#[] : Array String)
   let gate (args : Array String := #["--incremental"]) :=
@@ -1649,56 +1669,70 @@ private unsafe def structuralPartA (layout : SourceLayout) (repo copy : FilePath
     "  match (← getEnv).addDeclCore 200000 1000 d none false with\n" ++
     "  | .ok env => setEnv env\n  | .error _ => throwError \"construction failed\"\n"
   withNewFile (sources / "AuditApp" / "AdmissionProbe.lean") unchecked do
-    for (name, args) in #[("project-admission", #["--incremental"]),
-        ("build-admission", #["--build-lint"])] do
-      if let some failure := expectedFailure name (← gate args)
-          #["kernel-admission", "admissionFalse"] then
+    if !imported then
+      for (name, args) in #[("project-admission", #["--incremental"]),
+          ("build-admission", #["--build-lint"])] do
+        if let some failure := expectedFailure name (← gate args)
+            #["kernel-admission", "admissionFalse"] then
+          failures.modify (·.push failure)
+    else
+      let imported :=
+          "import AuditApp.AdmissionProbe\ntheorem importedAdmission : False := admissionFalse\n"
+      withNewFile (copy / "ImportedAdmission.lean") imported do
+        if let some failure := expectedFailure "file-imported-admission"
+            (← gate #["--file", "ImportedAdmission.lean"])
+            #["kernel-admission", "admissionFalse"] then
+          failures.modify (·.push failure)
+      withNewFile (copy / "admission-docs" / "example.md") ("```lean\n" ++ imported ++ "```\n") do
+        if let some failure := expectedFailure "fence-imported-admission"
+            (← runBinaryFrom repo copy "docFenceAudit" #["--docs-root", "admission-docs"])
+            #["kernel-admission", "admissionFalse"] then
+          failures.modify (·.push failure)
+  restoredControl repo copy failures
+  failures.get
+
+/-- Structural mutation cluster: discovery of an added module and a suppressed warning
+(`contamination` false), or contamination of the claimed library root by excluded fixture
+modules, direct and exact-prefix-lookalike (`contamination` true), then the restored control. -/
+private unsafe def structuralPartA (layout : SourceLayout) (contamination : Bool)
+    (repo copy : FilePath) : IO (Array String) := do
+  let sources := copy / layout.relativeDir
+  let failures ← IO.mkRef (#[] : Array String)
+  let gate (args : Array String := #["--incremental"]) :=
+    runBinaryFrom repo copy "axiomGate" args
+  if !contamination then
+    withNewFile (sources / "AuditApp" / "DiscoveryAxiom.lean")
+        "/-! Discovery control for an otherwise unused owned axiom. -/\n/-- An unused owned axiom, \
+          which RG1001 rejects. -/\naxiom selftest_discovered_axiom : False\n" do
+      if let some failure := expectedFailure "add-only-discovery" (← gate)
+          #["project-axiom", "selftest_discovered_axiom"] then
         failures.modify (·.push failure)
-    let imported :=
-        "import AuditApp.AdmissionProbe\ntheorem importedAdmission : False := admissionFalse\n"
-    withNewFile (copy / "ImportedAdmission.lean") imported do
-      if let some failure := expectedFailure "file-imported-admission"
-          (← gate #["--file", "ImportedAdmission.lean"])
-          #["kernel-admission", "admissionFalse"] then
+    withNewFile (sources / "AuditApp" / "SuppressedWarning.lean")
+        "set_option warningAsError false in\ndef selftest_suppressed_warning (unused : Nat) : Nat := \
+          1\n" do
+      -- `linter.unusedVariables` occurs only on the warning's continuation
+      -- line, so the transcript must carry the whole diagnostic block.
+      if let some failure := expectedFailure "warning-suppression" (← gate)
+          #["build-failed", "warning", "linter.unusedVariables"] then
         failures.modify (·.push failure)
-    withNewFile (copy / "admission-docs" / "example.md") ("```lean\n" ++ imported ++ "```\n") do
-      if let some failure := expectedFailure "fence-imported-admission"
-          (← runBinaryFrom repo copy "docFenceAudit" #["--docs-root", "admission-docs"])
-          #["kernel-admission", "admissionFalse"] then
+  else
+    let appRoot := sources / "AuditApp.lean"
+    let originalRoot ← IO.FS.readFile appRoot
+    let contaminated := originalRoot.replace "import AuditApp.Demo\n"
+      "import AuditApp.Demo\nimport Fixtures.Mutations.DirectAxiom\n"
+    withReplacedFile appRoot contaminated do
+      if let some failure := expectedFailure "fixture-contamination" (← gate)
+          #["unexpected-project-module", "Fixtures.Mutations.DirectAxiom"] then
         failures.modify (·.push failure)
-  withNewFile (sources / "AuditApp" / "DiscoveryAxiom.lean")
-      "/-! Discovery control for an otherwise unused owned axiom. -/\n/-- An unused owned axiom, \
-        which RG1001 rejects. -/\naxiom selftest_discovered_axiom : False\n" do
-    if let some failure := expectedFailure "add-only-discovery" (← gate)
-        #["project-axiom", "selftest_discovered_axiom"] then
-      failures.modify (·.push failure)
-  withNewFile (sources / "AuditApp" / "SuppressedWarning.lean")
-      "set_option warningAsError false in\ndef selftest_suppressed_warning (unused : Nat) : Nat := \
-        1\n" do
-    -- `linter.unusedVariables` occurs only on the warning's continuation
-    -- line, so the transcript must carry the whole diagnostic block.
-    if let some failure := expectedFailure "warning-suppression" (← gate)
-        #["build-failed", "warning", "linter.unusedVariables"] then
-      failures.modify (·.push failure)
-  let appRoot := sources / "AuditApp.lean"
-  let originalRoot ← IO.FS.readFile appRoot
-  let contaminated := originalRoot.replace "import AuditApp.Demo\n"
-    "import AuditApp.Demo\nimport Fixtures.Mutations.DirectAxiom\n"
-  withReplacedFile appRoot contaminated do
-    if let some failure := expectedFailure "fixture-contamination" (← gate)
-        #["unexpected-project-module", "Fixtures.Mutations.DirectAxiom"] then
-      failures.modify (·.push failure)
-  let prefixFixture := sources / "Fixtures" / "Mutations" / "PrefixLookalike.lean"
-  withNewFile prefixFixture "axiom AuditApp.lookalike_project_axiom : False\n" do
-    let prefixed := originalRoot.replace "import AuditApp.Demo\n"
-      "import AuditApp.Demo\nimport Fixtures.Mutations.PrefixLookalike\n"
-    withReplacedFile appRoot prefixed do
-      if let some failure := expectedFailure "exact-prefix-lookalike" (← gate)
-          #["unexpected-project-module", "Fixtures.Mutations.PrefixLookalike"] then
-        failures.modify (·.push failure)
-  let restored ← gate #[]
-  if !restored.succeeded then
-    failures.modify (·.push s!"structural/restored: final fresh gate failed:\n{restored.output}")
+    let prefixFixture := sources / "Fixtures" / "Mutations" / "PrefixLookalike.lean"
+    withNewFile prefixFixture "axiom AuditApp.lookalike_project_axiom : False\n" do
+      let prefixed := originalRoot.replace "import AuditApp.Demo\n"
+        "import AuditApp.Demo\nimport Fixtures.Mutations.PrefixLookalike\n"
+      withReplacedFile appRoot prefixed do
+        if let some failure := expectedFailure "exact-prefix-lookalike" (← gate)
+            #["unexpected-project-module", "Fixtures.Mutations.PrefixLookalike"] then
+          failures.modify (·.push failure)
+  restoredControl repo copy failures
   failures.get
 
 /-- The self-hosted copy in `copy`: a copy of the repository, by the fresh gate's own copy
@@ -1754,15 +1788,10 @@ private def freshInputDifference (before after : Array (String × Option ByteArr
     | some (b, a) => if b.1 == a.1 then b.1 else s!"{b.1} / {a.1}"
     | none => s!"{before.size} entries before, {after.size} after"
 
-/-- The shard of the two self-hosted clusters and of the comparison of their fresh inputs after
-the queue (`selfHostedIdentity`): one definition, so that the comparison runs in exactly the
-shard whose queue runs the two clusters. -/
-private def selfHostedShard : Shard := .first
-
 /-- The fresh inputs (`freshInput`) that the two self-hosted clusters record: that of the
 restored copy, which `structuralSelfHosted` records after its last restoration, and that of the
-positive's own copy, which `structuralSelfHostedPositive` records before its accepting gate runs
-on that copy. -/
+positive's own copy, which `structuralSelfHostedPositive` records before its fresh gate runs on
+that copy and keeps only when that gate accepted. -/
 private structure SelfHostedInputs where
   restored : IO.Ref (Option (Array (String × Option ByteArray)))
   positive : IO.Ref (Option (Array (String × Option ByteArray)))
@@ -1770,19 +1799,64 @@ private structure SelfHostedInputs where
 private def SelfHostedInputs.new : IO SelfHostedInputs :=
   return { restored := ← IO.mkRef none, positive := ← IO.mkRef none }
 
-/-- The comparison that replaces an accepting fresh gate on the restored copy, run after the
-queue has finished both self-hosted clusters: the restored copy's fresh input must be that of
-the copy the positive's accepting gate ran on, path by path and byte by byte. A cluster that
-stopped before it recorded its fresh input fails the comparison. -/
+/-- The comparison that replaces an accepting fresh gate on the restored copy, run by an
+unsharded run after the queue has finished both self-hosted clusters: the restored copy's fresh
+input must be that of the copy the positive's fresh gate accepted, path by path and byte by
+byte. A missing input, from a cluster that stopped or a positive that was refused, fails it. -/
 private def selfHostedIdentity (inputs : SelfHostedInputs) : IO (Array String) := do
   let (some restored, some positive) := (← inputs.restored.get, ← inputs.positive.get)
     | return #["structural/self-hosted/restored: the restored copy's fresh input was not \
-        compared with that of the positive's copy, because a self-hosted cluster stopped \
-        before it recorded its own"]
+        compared with that of the copy the positive accepted, because a self-hosted cluster \
+        stopped or the positive was refused"]
   return match freshInputDifference positive restored with
     | none => #[]
     | some difference => #[s!"structural/self-hosted/restored: the restored copy is not the \
         copy the positive accepted, for a fresh gate; first difference: {difference}"]
+
+/-- Write the canonical serialization of a fresh input to `path`: its number of entries, then for
+each entry in order its path's UTF-8 length and bytes, then `0` for a directory, or `1` and the
+length and bytes of a file. Every length is eight big-endian bytes, so the serialization is
+prefix-free and two inputs have the same bytes exactly when they are equal. -/
+private def writeFreshInput (path : FilePath) (input : Array (String × Option ByteArray)) :
+    IO Unit := do
+  let word (n : Nat) : ByteArray :=
+    ⟨((List.range 8).reverse.map fun i => (n >>> (8 * i)).toUInt8).toArray⟩
+  IO.FS.withFile path .write fun handle => do
+    handle.write (word input.size)
+    for (entry, content) in input do
+      let name := entry.toUTF8
+      handle.write (word name.size ++ name)
+      match content with
+      | none => handle.write ⟨#[0]⟩
+      | some bytes =>
+        handle.write (⟨#[1]⟩ ++ word bytes.size)
+        handle.write bytes
+
+/-- Where a sharded run writes the SHA-256 digest of the self-hosted fresh input `name`
+(`positive` or `restored`): below the repository's `tmp/`, the place from which the `campaign`
+job uploads it and to which the `diagnostics` job of `.github/workflows/diagnostics.yml`
+downloads it for `Regula.DiagnosticsGate.digestPath`. -/
+private def selfHostedDigestPath (repo : FilePath) (name : String) : FilePath :=
+  repo / "tmp" / "self-hosted-digest" / s!"{name}.sha256"
+
+/-- What a sharded run does in place of `selfHostedIdentity`, after its queue, in the shard of
+the self-hosted cluster that recorded `input`: remove any earlier digest at
+`selfHostedDigestPath`, then write the SHA-256 digest of the canonical serialization of the
+recorded input (`writeFreshInput`). The `diagnostics` gate compares the two shards' digests.
+A missing input fails the shard and writes no digest. -/
+private def selfHostedDigest (repo scratch : FilePath) (name : String)
+    (input : IO.Ref (Option (Array (String × Option ByteArray)))) : IO (Array String) := do
+  let evidence := selfHostedDigestPath repo name
+  if ← evidence.pathExists then IO.FS.removeFile evidence
+  let some recorded ← input.get
+    | return #[s!"structural/self-hosted/{name}: no fresh input was recorded, because its \
+        cluster stopped or the positive was refused, so no digest was written"]
+  let serialized := scratch / s!"self-hosted-input-{name}.bin"
+  writeFreshInput serialized recorded
+  let digest ← sha256File scratch serialized
+  if let some parent := evidence.parent then IO.FS.createDirAll parent
+  IO.FS.writeFile evidence (digest ++ "\n")
+  return #[]
 
 /-- Structural controls that need the checker's own package as the audited project: in
 a copy of the repository, the probe modules are exempt from the environment-level exclusion
@@ -1794,9 +1868,11 @@ module scope too.
 
 On its own copy, the cluster runs the incremental gate on each of the three contaminations,
 each restored before the next, and then records the restored copy's fresh input (`freshInput`)
-in `inputs`. After the queue, `selfHostedIdentity` requires it to equal, path by path and byte
-by byte, the fresh input of the copy on which `structuralSelfHostedPositive` ran its accepting
-fresh gate, and any difference fails the shard. No fresh gate runs in this cluster.
+in `inputs`. It must equal the fresh input of the copy on which `structuralSelfHostedPositive`
+ran its accepting fresh gate. An unsharded run compares the two after the queue
+(`selfHostedIdentity`), path by path and byte by byte. A sharded run, where the positive is in
+another shard, writes each one's SHA-256 digest (`selfHostedDigest`), and the `diagnostics` gate
+compares the two digests. No fresh gate runs in this cluster.
 
 The copy's build directory starts with the module artifacts of the repository's build
 (`seedModuleArtifacts`), so the setup build and the contamination gates build only what that
@@ -1817,8 +1893,9 @@ module build and of `withProbeSearch`, not a theorem.
 The identity stands for an accepting fresh gate on the restored copy, which this cluster ran
 before as the last step of its serial chain. What it establishes is a run-time fact: the
 restorations left the copy with exactly the input that a fresh gate copies from the positive's
-copy, the input that gate accepted. That a fresh gate on the restored copy would then accept
-too rests on a fact that is not a theorem: a fresh gate reads the audited project only through
+copy, the input that gate accepted. Between shards, equal SHA-256 digests are read as equal
+inputs, an assumption of collision resistance, not a theorem. That a fresh gate on the restored
+copy would then accept too rests on a fact that is not a theorem: a fresh gate reads the audited project only through
 its copy operation (`copyProject`, which prunes the project's `.lake`, so the incremental gates'
 build output and the seed here are not read), and builds that copy from empty output; without
 `--with-docs`, as here, it reads no other file of the project, and the packages directory it
@@ -1850,121 +1927,127 @@ private unsafe def structuralSelfHosted (layout : SourceLayout) (repo copy : Fil
   inputs.restored.set (some (← freshInput copy (parent / "self-hosted-input-restored")))
   failures.get
 
-/-- The positive beside `structuralSelfHosted`, a cluster of its own in the same shard: the
-fresh gate accepts the self-hosted copy as prepared (`prepareSelfHosted`), with no setup build
-and no mutation. Before that gate runs, it records the copy's fresh input in `inputs`, which
-`selfHostedIdentity` compares with the restored copy's after the queue. Nothing writes outside
-the copy's `.lake` between that record and the gate's own copy operation; that is a reading of
-this code and of the gate, not a theorem. -/
+/-- The positive of `structuralSelfHosted`, alone in a shard of its own: the fresh gate accepts
+the self-hosted copy as prepared (`prepareSelfHosted`), with no setup build and no mutation.
+Before that gate runs, it reads the copy's fresh input, which it records in `inputs` when the gate
+accepted. An unsharded run compares that input with the restored copy's after the queue
+(`selfHostedIdentity`); a sharded run writes its digest (`selfHostedDigest`) for the `diagnostics`
+gate. Nothing writes outside the copy's `.lake` between that reading and the gate's own copy
+operation; that is a reading of this code and of the gate, not a theorem. -/
 private unsafe def structuralSelfHostedPositive (repo copy : FilePath)
     (inputs : SelfHostedInputs) : IO (Array String) := do
   prepareSelfHosted repo copy
   let some parent := copy.parent
     | throw <| IO.userError s!"self-test: the self-hosted copy {copy} has no parent directory"
-  inputs.positive.set (some (← freshInput copy (parent / "self-hosted-input-positive")))
+  let input ← freshInput copy (parent / "self-hosted-input-positive")
   let accepted ← runBinaryFrom repo copy "axiomGate" #[]
-  if accepted.succeeded then return #[]
+  if accepted.succeeded then
+    inputs.positive.set (some input)
+    return #[]
   return #[s!"structural/self-hosted/positive: fresh gate failed:\n{accepted.output}"]
 
-/-- Structural mutation cluster: unlisted root-owned modules, unclassified
-Lake libraries and executables, claimed standalone executable roots, and
-executable contamination. -/
-private unsafe def structuralPartB (layout : SourceLayout) (repo copy : FilePath) : IO
-    (Array String) := do
+/-- Structural mutation cluster: an unlisted root-owned module and an unclassified Lake library
+(`executables` false), or an unclassified Lake executable, a claimed standalone executable root
+and executable contamination (`executables` true), then the restored control. -/
+private unsafe def structuralPartB (layout : SourceLayout) (executables : Bool)
+    (repo copy : FilePath) : IO (Array String) := do
   let sources := copy / layout.relativeDir
   let failures ← IO.mkRef (#[] : Array String)
   let gate (args : Array String := #["--incremental"]) :=
     runBinaryFrom repo copy "axiomGate" args
-  let appRoot := sources / "AuditApp.lean"
-  let originalRoot ← IO.FS.readFile appRoot
-  -- Library-only variant of the structural manifest: the unlisted root-owned
-  -- module mutation must only build the claimed library (linking the
-  -- application executable would require the unlisted module's initializer,
-  -- which Lake never compiled), so this control claims the `AuditApp` library
-  -- and classifies the application executable as excluded.
-  let libOnlyManifest := copy / "lib-only.json"
-  IO.FS.writeFile libOnlyManifest (← auditAppVariant layout repo #[] true)
-  withNewFile (sources / "AuditLookalike.lean") "axiom Attack.lookalikeAxiom : False\n" do
-    let outputDir := copy / ".lake" / "build" / "lib" / "lean"
-    IO.FS.createDirAll outputDir
-    let compiled ← runProcess copy "lake" #["env", "lean", "-R", sources.toString, "-o",
-      (outputDir / "AuditLookalike.olean").toString,
-      (sources / "AuditLookalike.lean").toString]
-    if !compiled.succeeded then
-      failures.modify (·.push s!"structural/unlisted-root-setup: {compiled.output}")
-    else
-      let unlisted := originalRoot.replace "import AuditApp.Demo\n"
-        "import AuditApp.Demo\nimport AuditLookalike\n"
-      withReplacedFile appRoot unlisted do
-        if let some failure := expectedFailure "unlisted-root-module"
-            (← gate #["--manifest", libOnlyManifest.toString, "--incremental"])
-            #["unexpected-project-module", "AuditLookalike"] then
-          failures.modify (·.push failure)
   let lakefile := copy / "lakefile.lean"
   let originalLakefile ← IO.FS.readFile lakefile
-  withNewFile (sources / "ExtraSurface.lean") "def extraSurfaceValue : Nat := 1\n" do
-    withReplacedFile lakefile
-        (originalLakefile ++ "\nlean_lib «ExtraSurface» where\n  roots := #[`ExtraSurface]\n") do
-      if let some failure := expectedFailure "unclassified-library" (← gate)
-          #["manifest-incomplete", "ExtraSurface"] then
-        failures.modify (·.push failure)
-  let exeDecl :=
-    "\nlean_exe «selftestTool» where\n  root := `SelftestMain\n"
-  let claimedManifest := copy / "claimed-exe.json"
-  -- The claimed-exe controls claim the added executable beside the application's: both roots
-  -- define `main`, so the positive control also requires each root to be inspected in an
-  -- environment of its own (`census_executable_alone`).
-  let claimedManifestText ← auditAppVariant layout repo #["auditApp", "selftestTool"] true
-  let claimedGate := gate #["--manifest", claimedManifest.toString, "--incremental"]
-  withNewFile (sources / "SelftestMain.lean") "/-! Standalone no-effect IO entrypoint. -/\n/-- \
-    Does nothing. -/\ndef main : IO Unit := pure ()\n" do
-    withReplacedFile lakefile (originalLakefile ++ exeDecl) do
-      if let some failure := expectedFailure "unclassified-exe" (← gate)
-          #["manifest-incomplete", "selftestTool"] then
-        failures.modify (·.push failure)
-      IO.FS.writeFile claimedManifest claimedManifestText
-      let claimed ← claimedGate
-      if !claimed.succeeded then
-        failures.modify (·.push
-          s!"structural/claimed-exe: claimed standalone exe root did not pass:\n{claimed.output}")
+  if !executables then
+    let appRoot := sources / "AuditApp.lean"
+    let originalRoot ← IO.FS.readFile appRoot
+    -- Library-only variant of the structural manifest: the unlisted root-owned
+    -- module mutation must only build the claimed library (linking the
+    -- application executable would require the unlisted module's initializer,
+    -- which Lake never compiled), so this control claims the `AuditApp` library
+    -- and classifies the application executable as excluded.
+    let libOnlyManifest := copy / "lib-only.json"
+    IO.FS.writeFile libOnlyManifest (← auditAppVariant layout repo #[] true)
+    withNewFile (sources / "AuditLookalike.lean") "axiom Attack.lookalikeAxiom : False\n" do
+      let outputDir := copy / ".lake" / "build" / "lib" / "lean"
+      IO.FS.createDirAll outputDir
+      let compiled ← runProcess copy "lake" #["env", "lean", "-R", sources.toString, "-o",
+        (outputDir / "AuditLookalike.olean").toString,
+        (sources / "AuditLookalike.lean").toString]
+      if !compiled.succeeded then
+        failures.modify (·.push s!"structural/unlisted-root-setup: {compiled.output}")
       else
-        let plan ← runBinaryFrom repo copy "freshChecker"
-          #["--plan-only", "--manifest", claimedManifest.toString]
-        if !plan.succeeded || !plan.output.contains "SelftestMain" then
-          failures.modify (·.push
-            s!"structural/claimed-exe-fresh: exe root missing its own fresh coverage \
-              root:\n{plan.output}")
-      withRemovedFile (sources / "SelftestMain.lean") do
-        if let some failure := expectedFailure "claimed-exe-source-removed" (← claimedGate)
-            #["lake-query-malformed", "invalid source"] then
+        let unlisted := originalRoot.replace "import AuditApp.Demo\n"
+          "import AuditApp.Demo\nimport AuditLookalike\n"
+        withReplacedFile appRoot unlisted do
+          if let some failure := expectedFailure "unlisted-root-module"
+              (← gate #["--manifest", libOnlyManifest.toString, "--incremental"])
+              #["unexpected-project-module", "AuditLookalike"] then
+            failures.modify (·.push failure)
+    withNewFile (sources / "ExtraSurface.lean") "def extraSurfaceValue : Nat := 1\n" do
+      withReplacedFile lakefile
+          (originalLakefile ++ "\nlean_lib «ExtraSurface» where\n  roots := #[`ExtraSurface]\n") do
+        if let some failure := expectedFailure "unclassified-library" (← gate)
+            #["manifest-incomplete", "ExtraSurface"] then
           failures.modify (·.push failure)
-  withNewFile (sources / "SelftestMain.lean")
-      "import Fixtures.Mutations.DirectAxiom\n/-! Standalone import-contamination control. -/\n/-- \
-        Does nothing. -/\ndef main : IO Unit := pure ()\n" do
-    withReplacedFile lakefile (originalLakefile ++ exeDecl) do
-      IO.FS.writeFile claimedManifest claimedManifestText
-      if let some failure := expectedFailure "exe-contamination" (← claimedGate)
-          #["unexpected-project-module", "Fixtures.Mutations.DirectAxiom"] then
-        failures.modify (·.push failure)
-  let restored ← gate #[]
-  if !restored.succeeded then
-    failures.modify (·.push s!"structural/restored: final fresh gate failed:\n{restored.output}")
+  else
+    let exeDecl :=
+      "\nlean_exe «selftestTool» where\n  root := `SelftestMain\n"
+    let claimedManifest := copy / "claimed-exe.json"
+    -- The claimed-exe controls claim the added executable beside the application's: both roots
+    -- define `main`, so the positive control also requires each root to be inspected in an
+    -- environment of its own (`census_executable_alone`).
+    let claimedManifestText ← auditAppVariant layout repo #["auditApp", "selftestTool"] true
+    let claimedGate := gate #["--manifest", claimedManifest.toString, "--incremental"]
+    withNewFile (sources / "SelftestMain.lean") "/-! Standalone no-effect IO entrypoint. -/\n/-- \
+      Does nothing. -/\ndef main : IO Unit := pure ()\n" do
+      withReplacedFile lakefile (originalLakefile ++ exeDecl) do
+        if let some failure := expectedFailure "unclassified-exe" (← gate)
+            #["manifest-incomplete", "selftestTool"] then
+          failures.modify (·.push failure)
+        IO.FS.writeFile claimedManifest claimedManifestText
+        let claimed ← claimedGate
+        if !claimed.succeeded then
+          failures.modify (·.push
+            s!"structural/claimed-exe: claimed standalone exe root did not pass:\n{claimed.output}")
+        else
+          let plan ← runBinaryFrom repo copy "freshChecker"
+            #["--plan-only", "--manifest", claimedManifest.toString]
+          if !plan.succeeded || !plan.output.contains "SelftestMain" then
+            failures.modify (·.push
+              s!"structural/claimed-exe-fresh: exe root missing its own fresh coverage \
+                root:\n{plan.output}")
+        withRemovedFile (sources / "SelftestMain.lean") do
+          if let some failure := expectedFailure "claimed-exe-source-removed" (← claimedGate)
+              #["lake-query-malformed", "invalid source"] then
+            failures.modify (·.push failure)
+    withNewFile (sources / "SelftestMain.lean")
+        "import Fixtures.Mutations.DirectAxiom\n/-! Standalone import-contamination control. -/\n/-- \
+          Does nothing. -/\ndef main : IO Unit := pure ()\n" do
+      withReplacedFile lakefile (originalLakefile ++ exeDecl) do
+        IO.FS.writeFile claimedManifest claimedManifestText
+        if let some failure := expectedFailure "exe-contamination" (← claimedGate)
+            #["unexpected-project-module", "Fixtures.Mutations.DirectAxiom"] then
+          failures.modify (·.push failure)
+  restoredControl repo copy failures
   failures.get
 
-/-- Structural mutation cluster: omitted executable classification,
-application-surface proof erasure and admission weakening. -/
-private unsafe def structuralPartC (layout : SourceLayout) (repo copy : FilePath) : IO
-    (Array String) := do
+/-- Structural mutation cluster: omitted executable classification and an unproved update
+(`group` 0), trivial and weakened update evidence (`group` 1), or a missing proof field and
+weakened admission (`group` 2) of the application surface. Each mutation is followed by a
+fresh restored gate. -/
+private unsafe def structuralPartC (layout : SourceLayout) (group : Nat) (repo copy : FilePath) :
+    IO (Array String) := do
   let sources := copy / layout.relativeDir
   let failures ← IO.mkRef (#[] : Array String)
   let gate (args : Array String := #["--incremental"]) :=
     runBinaryFrom repo copy "axiomGate" args
-  let appOmittedManifest := copy / "app-omitted-exe.json"
-  IO.FS.writeFile appOmittedManifest (← auditAppVariant layout repo #[] false)
-  if let some failure := expectedFailure "app-omitted-exe"
-      (← gate #["--manifest", appOmittedManifest.toString, "--incremental"])
-      #["manifest-incomplete", "auditApp"] then
-    failures.modify (·.push failure)
+  if group == 0 then
+    let appOmittedManifest := copy / "app-omitted-exe.json"
+    IO.FS.writeFile appOmittedManifest (← auditAppVariant layout repo #[] false)
+    if let some failure := expectedFailure "app-omitted-exe"
+        (← gate #["--manifest", appOmittedManifest.toString, "--incremental"])
+        #["manifest-incomplete", "auditApp"] then
+      failures.modify (·.push failure)
   let appCore := sources / "AuditApp" / "Limiter.lean"
   let originalCore ← IO.FS.readFile appCore
   -- Change exactly one source fragment; a stale fixture is a setup failure.
@@ -1981,20 +2064,23 @@ private unsafe def structuralPartC (layout : SourceLayout) (repo copy : FilePath
       failures.modify (·.push s!"structural/{name}/restored: fresh gate failed:\n{restored.output}")
   let resetProof := "/-- A reset limiter has no slots in use. -/\n" ++
     "theorem reset_inUse (l : Limiter) : (reset l).inUse = 0 := rfl\n"
-  mutate "app-unproved-update" resetProof ""
-    #["build-failed", "Unknown identifier", "reset_inUse"]
-  mutate "app-trivial-update" resetProof
-    "/-- Deliberately unrelated proof. -/\ntheorem reset_inUse : True := True.intro\n"
-    #["build-failed", "Type mismatch", "reset_inUse", "∀ (l : Limiter), (reset l).inUse = 0"]
-  mutate "app-weakened-update" resetProof
-    ("/-- Deliberately conditional proof. -/\n" ++
-      "theorem reset_inUse (l : Limiter) (_h : l.inUse = 0) : (reset l).inUse = 0 := rfl\n")
-    #["build-failed", "Type mismatch", "reset_inUse", "∀ (l : Limiter), (reset l).inUse = 0"]
-  mutate "app-missing-contract-field" "  reset_empty := reset_inUse\n" ""
-    #["build-failed", "Fields missing", "reset_empty"]
-  mutate "app-weakened-admission"
-    "if _h : 0 < capacity then" "if _h : 0 ≤ capacity then"
-    #["build-failed", "hpos", "0 <", "0 ≤"]
+  if group == 0 then
+    mutate "app-unproved-update" resetProof ""
+      #["build-failed", "Unknown identifier", "reset_inUse"]
+  if group == 1 then
+    mutate "app-trivial-update" resetProof
+      "/-- Deliberately unrelated proof. -/\ntheorem reset_inUse : True := True.intro\n"
+      #["build-failed", "Type mismatch", "reset_inUse", "∀ (l : Limiter), (reset l).inUse = 0"]
+    mutate "app-weakened-update" resetProof
+      ("/-- Deliberately conditional proof. -/\n" ++
+        "theorem reset_inUse (l : Limiter) (_h : l.inUse = 0) : (reset l).inUse = 0 := rfl\n")
+      #["build-failed", "Type mismatch", "reset_inUse", "∀ (l : Limiter), (reset l).inUse = 0"]
+  if group == 2 then
+    mutate "app-missing-contract-field" "  reset_empty := reset_inUse\n" ""
+      #["build-failed", "Fields missing", "reset_empty"]
+    mutate "app-weakened-admission"
+      "if _h : 0 < capacity then" "if _h : 0 ≤ capacity then"
+      #["build-failed", "hpos", "0 <", "0 ≤"]
   -- Empty-exclusion acceptance is covered by adopterQualification's fresh
   -- standalone library/executable controls in both Lake formats.
   -- The last mutation's own fresh restored gate is this cluster's final restored control: the
@@ -2070,44 +2156,50 @@ name is attributed to the checked copy, whose axioms the report would show, so t
 have equal axioms. The last mutation keeps two unchecked toolchain-lemma copies that prove each
 other over the toolchain's copies; only the check of the audited environment's kept copies
 refuses it.
-Each refusal is asserted by its own message. -/
-private def duplicateAdmissionControls (sources copy : FilePath)
+Each refusal is asserted by its own message. `group` selects the controls of one cluster: 0 the
+two positives and the kept cycle, 1 the ill-typed copies first and last, 2 the circular and the
+`sorry` copy. -/
+private def duplicateAdmissionControls (group : Nat) (sources copy : FilePath)
     (gate : Array String → IO ProcessResult) : IO (Array String) := do
   let failures ← IO.mkRef (#[] : Array String)
-  withNewFile (sources / "AuditApp" / "RealizedLemma.lean") realizedLemmaSource do
-    for (name, imports) in #[
-        ("realized-duplicate", "import AuditApp.RealizedLemma\nimport Std.Do.WP.SimpLemmas\n"),
-        ("realized-duplicate-kept",
-          "import Std.Do.WP.SimpLemmas\nimport AuditApp.RealizedLemma\n")] do
-      withNewFile (copy / "RealizedDuplicate.lean") (imports ++ realizedDuplicateSource) do
-        let result ← gate #["--file", "RealizedDuplicate.lean"]
-        if !result.succeeded then
-          failures.modify (·.push s!"structural/{name}: expected PASS:\n{result.output}")
-  withNewFile (sources / "AuditApp" / "DuplicateChecked.lean") checkedDuplicateSource do
-    for (name, bogus, first, second, needle) in #[
-        ("unchecked-duplicate-first", uncheckedDuplicateSource "mkConst ``False", "Unchecked",
-          "Checked", "checked as"),
-        ("unchecked-duplicate-last", uncheckedDuplicateSource "mkConst ``False", "Checked",
-          "Unchecked", "while replaying declaration"),
-        ("circular-duplicate-first", uncheckedDuplicateSource "mkConst `selftestDuplicateFact",
-          "Unchecked", "Checked", "uses the name"),
-        ("sorry-duplicate-last", sorryDuplicateSource, "Checked", "Unchecked",
-          "axioms differ")] do
-      withNewFile (sources / "AuditApp" / "DuplicateUnchecked.lean") bogus do
-        withNewFile (copy / "DuplicateAdmission.lean")
-            s!"import AuditApp.Duplicate{first}\nimport AuditApp.Duplicate{second}\n" do
-          if let some failure := expectedFailure name
-              (← gate #["--file", "DuplicateAdmission.lean"])
-              #["kernel-admission", "selftestDuplicateFact", needle] then
-            failures.modify (·.push failure)
-  withNewFile (sources / "AuditApp" / "KeptCycle.lean") keptCycleSource do
-    withNewFile (copy / "KeptCycle.lean")
-        "import Std.Do.WP.SimpLemmas\nimport AuditApp.KeptCycle\n" do
-      if let some failure := expectedFailure "kept-cycle"
-          (← gate #["--file", "KeptCycle.lean"])
-          #["kernel-admission", "Except.mapError.eq_", "audited environment keeps",
-            "uses the name"] then
-        failures.modify (·.push failure)
+  if group == 0 then
+    withNewFile (sources / "AuditApp" / "RealizedLemma.lean") realizedLemmaSource do
+      for (name, imports) in #[
+          ("realized-duplicate", "import AuditApp.RealizedLemma\nimport Std.Do.WP.SimpLemmas\n"),
+          ("realized-duplicate-kept",
+            "import Std.Do.WP.SimpLemmas\nimport AuditApp.RealizedLemma\n")] do
+        withNewFile (copy / "RealizedDuplicate.lean") (imports ++ realizedDuplicateSource) do
+          let result ← gate #["--file", "RealizedDuplicate.lean"]
+          if !result.succeeded then
+            failures.modify (·.push s!"structural/{name}: expected PASS:\n{result.output}")
+  let duplicates := #[
+      (1, "unchecked-duplicate-first", uncheckedDuplicateSource "mkConst ``False", "Unchecked",
+        "Checked", "checked as"),
+      (1, "unchecked-duplicate-last", uncheckedDuplicateSource "mkConst ``False", "Checked",
+        "Unchecked", "while replaying declaration"),
+      (2, "circular-duplicate-first", uncheckedDuplicateSource "mkConst `selftestDuplicateFact",
+        "Unchecked", "Checked", "uses the name"),
+      (2, "sorry-duplicate-last", sorryDuplicateSource, "Checked", "Unchecked",
+        "axioms differ")].filter (·.1 == group)
+  unless duplicates.isEmpty do
+    withNewFile (sources / "AuditApp" / "DuplicateChecked.lean") checkedDuplicateSource do
+      for (_, name, bogus, first, second, needle) in duplicates do
+        withNewFile (sources / "AuditApp" / "DuplicateUnchecked.lean") bogus do
+          withNewFile (copy / "DuplicateAdmission.lean")
+              s!"import AuditApp.Duplicate{first}\nimport AuditApp.Duplicate{second}\n" do
+            if let some failure := expectedFailure name
+                (← gate #["--file", "DuplicateAdmission.lean"])
+                #["kernel-admission", "selftestDuplicateFact", needle] then
+              failures.modify (·.push failure)
+  if group == 0 then
+    withNewFile (sources / "AuditApp" / "KeptCycle.lean") keptCycleSource do
+      withNewFile (copy / "KeptCycle.lean")
+          "import Std.Do.WP.SimpLemmas\nimport AuditApp.KeptCycle\n" do
+        if let some failure := expectedFailure "kept-cycle"
+            (← gate #["--file", "KeptCycle.lean"])
+            #["kernel-admission", "Except.mapError.eq_", "audited environment keeps",
+              "uses the name"] then
+          failures.modify (·.push failure)
   failures.get
 
 /-- A file with a declaration of every `GeneratedFamily` Lean generates: the constructor,
@@ -2414,10 +2506,10 @@ private def sourceAttributionControls (dir : FilePath)
 `AuditApp.DownstreamRegistration` imports it and writes `attribute [regula_decision]
 downstreamCheck`. While no contract decides `downstreamCheck`, the project audit must report it
 under RG1008; once the registering module holds its contract, the audit must accept it and record
-it as registered. Both are run for two plain files and for two `module`s. The registering
-`module` imports the declaring one privately, so Lean saves the registration with that module's
-private data only, which the audit loads. -/
-private def downstreamRegistrationControls (sources : FilePath)
+it as registered. Both are run for two plain files and for two `module`s (`asModules`), each in a cluster of its
+own. The registering `module` imports the declaring one privately, so Lean saves the registration
+with that module's private data only, which the audit loads. -/
+private def downstreamRegistrationControls (asModules : Bool) (sources : FilePath)
     (gate : Array String → IO ProcessResult) : IO (Array String) := do
   let declaring (asModule : Bool) : String :=
     (if asModule then "module\n\n" else "") ++
@@ -2442,7 +2534,7 @@ private def downstreamRegistrationControls (sources : FilePath)
   let registration := sources / "AuditApp" / "DownstreamRegistration.lean"
   let arguments := #["--incremental", "--verbose"]
   let mut failures := #[]
-  for (form, asModule) in #[("files", false), ("modules", true)] do
+  for (form, asModule) in #[("files", false), ("modules", true)].filter (·.2 == asModules) do
     let found ← withNewFile (sources / "AuditApp" / "DownstreamDecision.lean")
         (declaring asModule) do
       let unmet ← withNewFile registration (registering asModule false) do
@@ -2459,44 +2551,46 @@ private def downstreamRegistrationControls (sources : FilePath)
     failures := failures ++ found
   return failures
 
-/-- Structural mutation cluster: fresh-checker coverage of an added module, controls for several
-copies of one name, controls for a decision registered from another module, and the final
-restored-state control. -/
-private unsafe def structuralPartD (layout : SourceLayout) (repo copy : FilePath) : IO
-    (Array String) := do
+/-- Structural mutation cluster: controls for several copies of one name (`group` 0 to 2,
+`duplicateAdmissionControls`), or for a decision registered from another module, as plain files
+(`group` 3) or as `module`s with fresh-checker coverage of an added module (`group` 4), then
+the restored control in fresh mode (empty-output elaboration of the copy), so the harness's
+green-restore evidence covers stale-artifact freedom, not only incremental rebuilds. -/
+private unsafe def structuralPartD (layout : SourceLayout) (group : Nat) (repo copy : FilePath) :
+    IO (Array String) := do
   let sources := copy / layout.relativeDir
   let failures ← IO.mkRef (#[] : Array String)
   let gate (args : Array String := #["--incremental"]) :=
     runBinaryFrom repo copy "axiomGate" args
-  for failure in ← duplicateAdmissionControls sources copy (fun args => gate args) do
-    failures.modify (·.push failure)
-  for failure in ← downstreamRegistrationControls sources (fun args => gate args) do
-    failures.modify (·.push failure)
-  withNewFile (sources / "AuditApp" / "UnimportedSafe.lean")
-      "namespace AuditApp.UnimportedSafe\ndef value : Nat := 1\nend AuditApp.UnimportedSafe\n" do
-    let plan ← runBinaryFrom repo copy "freshChecker" #["--plan-only"]
-    if !plan.succeeded || !plan.output.contains "AuditApp.UnimportedSafe" then
-      failures.modify
-          (·.push s!"structural/fresh-coverage: added module was omitted:\n{plan.output}")
-  -- Restored control in fresh mode (empty-output elaboration of the copy), so the
-  -- harness's green-restore evidence covers stale-artifact freedom, not only
-  -- incremental rebuilds.
-  let restored ← gate #[]
-  if !restored.succeeded then
-    failures.modify (·.push s!"structural/restored: final fresh gate failed:\n{restored.output}")
+  if group < 3 then
+    for failure in ← duplicateAdmissionControls group sources copy (fun args => gate args) do
+      failures.modify (·.push failure)
+  else
+    for failure in ← downstreamRegistrationControls (group == 4) sources (fun args => gate args) do
+      failures.modify (·.push failure)
+  if group == 4 then
+    withNewFile (sources / "AuditApp" / "UnimportedSafe.lean")
+        "namespace AuditApp.UnimportedSafe\ndef value : Nat := 1\nend AuditApp.UnimportedSafe\n" do
+      let plan ← runBinaryFrom repo copy "freshChecker" #["--plan-only"]
+      if !plan.succeeded || !plan.output.contains "AuditApp.UnimportedSafe" then
+        failures.modify
+            (·.push s!"structural/fresh-coverage: added module was omitted:\n{plan.output}")
+  restoredControl repo copy failures
   failures.get
 
 /-- Each restricted-domain/universe mutation starts from its own passing source
 and restores that source through a fresh public file audit. `--file` creates and
 removes a separate elaboration directory for every invocation. The fixed
-negative sweep additionally asserts the exact violation set. -/
-private def correspondenceRestoration (layout : SourceLayout) (repo scratch : FilePath) : IO
-    (Array String) := do
+negative sweep additionally asserts the exact violation set. A cluster runs the control of one
+`fixture`. -/
+private def correspondenceRestoration (layout : SourceLayout) (fixture : String)
+    (repo scratch : FilePath) : IO (Array String) := do
   let failures ← IO.mkRef (#[] : Array String)
   let controls := #[
     ("RepeatedCorrespondence", "Nat := _n\n", "Nat := _m\n"),
     ("OmittedCorrespondence", "Nat := m\n", "Nat := m + _n\n"),
-    ("SpecializedUniverseCorrespondence", "{α : Type}", "{α : Type u}")]
+    ("SpecializedUniverseCorrespondence", "{α : Type}", "{α : Type u}")].filter (·.1 == fixture)
+  if controls.isEmpty then return #[s!"correspondence/{fixture}: no such control"]
   for (fixture, restricted, general) in controls do
     let negative ← IO.FS.readFile
         ((repo / layout.relativeDir) / "Fixtures" / "Mutations" / s!"{fixture}.lean")
@@ -2528,9 +2622,11 @@ private def correspondenceRestoration (layout : SourceLayout) (repo scratch : Fi
 /-- Public project-surface correspondence control, the exact conditional-premise
 mutation, and a fresh restored control. Only the reference body changes: the
 positive reference equals the replacement by reduction; the mutation removes
-that equality and leaves only a theorem requiring False. -/
-private unsafe def structuralCorrespondence (layout : SourceLayout) (repo copy : FilePath) : IO
-    (Array String) := do
+that equality and leaves only a theorem requiring False. The positive (`mutation` false) and the
+mutation with its fresh restored control (`mutation` true) run in clusters of their own; a fresh
+gate reads no build output of its project, so neither reads what the other built. -/
+private unsafe def structuralCorrespondence (layout : SourceLayout) (mutation : Bool)
+    (repo copy : FilePath) : IO (Array String) := do
   let sources := copy / layout.relativeDir
   let failures ← IO.mkRef (#[] : Array String)
   let lakefile := copy / "lakefile.lean"
@@ -2553,19 +2649,21 @@ private unsafe def structuralCorrespondence (layout : SourceLayout) (repo copy :
   withReplacedFile lakefile (originalLakefile ++ "\nlean_lib CorrespondenceControl\n") do
     withReplacedFile manifest checkedManifest do
       withNewFile source positive do
-        let green ← gate
-        if !green.succeeded || !green.output.contains "kernel-defeq" then
-          failures.modify
-              (·.push s!"correspondence/control: expected checked PASS:\n{green.output}")
-        withReplacedFile source negative do
-          if let some failure := expectedFailure "conditional-correspondence" (← gate)
-              #["execution-trusted-boundary", "falseReference",
-                "no kernel-checked unconditional correspondence proof"] then
-            failures.modify (·.push failure)
-        let restored ← gate
-        if !restored.succeeded || !restored.output.contains "kernel-defeq" then
-          failures.modify
-              (·.push s!"correspondence/restored: fresh control failed:\n{restored.output}")
+        if !mutation then
+          let green ← gate
+          if !green.succeeded || !green.output.contains "kernel-defeq" then
+            failures.modify
+                (·.push s!"correspondence/control: expected checked PASS:\n{green.output}")
+        else
+          withReplacedFile source negative do
+            if let some failure := expectedFailure "conditional-correspondence" (← gate)
+                #["execution-trusted-boundary", "falseReference",
+                  "no kernel-checked unconditional correspondence proof"] then
+              failures.modify (·.push failure)
+          let restored ← gate
+          if !restored.succeeded || !restored.output.contains "kernel-defeq" then
+            failures.modify
+                (·.push s!"correspondence/restored: fresh control failed:\n{restored.output}")
   failures.get
 
 /-- One cluster of controls: its own isolated project below `scratch`, prepared by `prepare`
@@ -2604,23 +2702,37 @@ private def qualifyItems (label : String) (jobs : Nat)
 
 /-- The structural mutation clusters, each in its own isolated project, so no two concurrent
 Lake builds ever write one build directory, and each with its shard. Each cluster's project is
-the structural project; the two self-hosted clusters' are copies of the repository. Both are in
-`selfHostedShard`, whose queue runs the accepting fresh gate on the copy as prepared beside the
-contamination gates of `structuralSelfHosted`, and both record their fresh inputs in `inputs`
-for `selfHostedIdentity`, which the caller runs after the queue. They are the first shard's only
-clusters: the four clusters in the structural project are the second's, so none of them takes
-processors from the self-hosted clusters. The longest observed clusters are first. -/
+the structural project; the self-hosted clusters' are copies of the repository. The positive is
+alone in `selfHostedShard`, and the self-hosted cluster is in `selfHostedRestoredShard`; both
+record their fresh inputs in `inputs`, for the caller's comparison after the queue. The other
+clusters are cut from four serial chains (`a` to `d`) at
+points where each chain has restored every file it changed, and each cut ends with a restored
+control of its own (`restoredControl`, or the fresh restored gate of its last mutation). The
+other shards divide them, with the controls of `runStructural`, so that the sums of their
+observed times are similar; the longest observed are first. -/
 private unsafe def structuralClusters (layout : SourceLayout) (repo scratch : FilePath)
-    (inputs : SelfHostedInputs) : List (Shard × String × IO (Array String)) :=
+    (inputs : SelfHostedInputs) : List (Fin structuralShards × String × IO (Array String)) :=
+  let part (name : String) (run : FilePath → FilePath → IO (Array String)) :=
+    projectCluster layout repo scratch name run
   [(selfHostedShard, "self-hosted-positive",
       structuralSelfHostedPositive repo (scratch / "copy-self-hosted-positive") inputs),
-    (selfHostedShard, cluster repo scratch "self-hosted"
+    (structuralShard 1, part "c-update" (structuralPartC layout 1)),
+    (structuralShard 2, part "c-contract" (structuralPartC layout 2)),
+    (structuralShard 3, part "d-realized" (structuralPartD layout 0)),
+    (selfHostedRestoredShard, cluster repo scratch "self-hosted"
       (fun copy => do prepareSelfHosted repo copy; seedModuleArtifacts layout repo copy)
       (applicationTargets layout) (structuralSelfHosted layout · · inputs)),
-    (.second, projectCluster layout repo scratch "a" (structuralPartA layout)),
-    (.second, projectCluster layout repo scratch "d" (structuralPartD layout)),
-    (.second, projectCluster layout repo scratch "c" (structuralPartC layout)),
-    (.second, projectCluster layout repo scratch "b" (structuralPartB layout))]
+    (structuralShard 4, part "b-executables" (structuralPartB layout true)),
+    (structuralShard 1, part "d-modules" (structuralPartD layout 4)),
+    (structuralShard 2, part "a-admission" (structuralPartAAdmission layout false)),
+    (structuralShard 3, part "a-imported-admission" (structuralPartAAdmission layout true)),
+    (structuralShard 2, part "a-contamination" (structuralPartA layout true)),
+    (structuralShard 3, part "a-discovery" (structuralPartA layout false)),
+    (structuralShard 4, part "c-manifest" (structuralPartC layout 0)),
+    (structuralShard 2, part "d-unchecked" (structuralPartD layout 1)),
+    (structuralShard 3, part "d-circular" (structuralPartD layout 2)),
+    (structuralShard 4, part "d-files" (structuralPartD layout 3)),
+    (structuralShard 2, part "b-library" (structuralPartB layout false))]
 
 /-- Structural qualification: the mutation clusters (`structuralClusters`) on `jobs` workers,
 then the comparison of the self-hosted fresh inputs (`selfHostedIdentity`). -/
@@ -2632,24 +2744,48 @@ private unsafe def structuralQualification (layout : SourceLayout) (repo scratch
     ((structuralClusters layout repo scratch inputs).map (·.2)).toArray
   return clusters ++ (← selfHostedIdentity inputs)
 
-/-- Execution qualification: the correspondence controls, in two clusters whose projects are
-the structural project, and the compiler-path cases, each phase of each case in a scratch
-project of its own below `scratch`. All run on `jobs` workers with no batch barrier between
-them, the longest observed first. Each control has its shard: the two correspondence clusters
-are in different shards, and the compiler-path cases alternate in their listed order. With
-`shard`, only that shard's controls run. Returns the names of the controls run and their
-failures. -/
+/-- The execution shard of the compiler-path case `name`, chosen so that the sums of the observed
+times of the shards' controls are similar. A case this list does not name runs in the first. -/
+private def compilerPathShard : String → Fin executionShards
+  | "imported" | "csimp-implemented-by" | "partial-target"
+    | "overwritten-inlined-implementation" => executionShard 0
+  | "init-module-origin" | "implemented-by-csimp" | "partial-helper" => executionShard 1
+  | "lean-module-origin" | "unsupported-history-evaluator" | "unsafe-target" | "overwritten-csimp"
+    | "replacement-cycle" => executionShard 2
+  | "module-system" | "csimp-partial-implementation" | "chained" | "local-csimp"
+    | "proof-valued-csimp" => executionShard 3
+  | _ => executionShard 0
+
+/-- Execution qualification: the correspondence controls, in clusters whose projects are the
+structural project (the positive and the mutation of the conditional correspondence, and each of
+the three restricted-domain and universe restorations), and the compiler-path cases, each phase
+of each case in a scratch project of its own below `scratch`. All run on `jobs` workers with no
+batch barrier between them, the longest observed first. Each control has its shard
+(`compilerPathShard` for the cases). With `shard`, only that shard's controls run. Returns the
+names of the controls run and their failures. -/
 private unsafe def executionQualification (layout : SourceLayout) (repo scratch : FilePath)
-    (jobs : Nat) (shard : Option Shard := none) : IO (Array String × Array String) := do
+    (jobs : Nat) (shard : Option (Fin executionShards) := none) :
+    IO (Array String × Array String) := do
   let compilerPaths := scratch / "compiler-paths"
   IO.FS.createDirAll compilerPaths
-  let controls : List (Shard × String × IO (Array String)) :=
-    [(Shard.second, projectCluster layout repo scratch "correspondence-restoration"
-        (correspondenceRestoration layout)),
-      (Shard.first, projectCluster layout repo scratch "correspondence"
-        (structuralCorrespondence layout))] ++
-    (CompilerPaths.qualifications repo compilerPaths).toList.mapIdx fun index (name, run) =>
-      (if index % 2 == 0 then Shard.first else Shard.second, s!"compiler path {name}", run)
+  let restoration (index : Fin executionShards) (fixture : String) :=
+    (index, projectCluster layout repo scratch s!"restoration-{fixture}"
+      (correspondenceRestoration layout fixture))
+  let cases := (CompilerPaths.qualifications repo compilerPaths).toList.map fun (name, run) =>
+    (compilerPathShard name, name, run)
+  -- The four cases observed to take 60 s or more start first, one in each shard.
+  let long := ["imported", "init-module-origin", "lean-module-origin", "module-system"]
+  let named := fun (cases : List (Fin executionShards × String × IO (Array String))) =>
+    cases.map fun (index, name, run) => (index, s!"compiler path {name}", run)
+  let controls : List (Fin executionShards × String × IO (Array String)) :=
+    named (cases.filter (long.contains ·.2.1)) ++
+    [(executionShard 3, projectCluster layout repo scratch "correspondence-mutation"
+        (structuralCorrespondence layout true))] ++
+    restoration (executionShard 0) "RepeatedCorrespondence" ::
+    restoration (executionShard 1) "OmittedCorrespondence" ::
+    restoration (executionShard 2) "SpecializedUniverseCorrespondence" ::
+    [(executionShard 1, projectCluster layout repo scratch "correspondence"
+        (structuralCorrespondence layout false))] ++ named (cases.filter (!long.contains ·.2.1))
   let selected := ((inShard shard controls).map (·.2)).toArray
   return (selected.map (·.1), ← qualifyItems "execution" jobs selected)
 
@@ -3139,31 +3275,34 @@ Each case runs in a fresh disposable project of its own (`writeCrossSurfaceProje
 mutation shares a workspace or a build artifact with the green control (standard §7.8). The green
 control has the relation and the registration: the audit must accept, and the account must name
 `Proofs` as the surface of the one counted registration. One mutation removes the relation and
-the other the registration: each must report `crossCheck` under RG1008. -/
-private def crossSurfaceDecisionControl (repo : FilePath) : IO (Array String) := do
+the other the registration: each must report `crossCheck` under RG1008. The green control
+(`refusals` false) and the two mutations (`refusals` true) are two items of the queue. -/
+private def crossSurfaceDecisionControl (refusals : Bool) (repo : FilePath) :
+    IO (Array String) := do
   let gate (project : FilePath) (args : Array String) := do
     runProcess project (← toolPath repo "axiomGate").toString
       (#["--project", project.toString, "--incremental"] ++ args) scrubbedLeanPathEnv
+  if !refusals then
+    let green ← withScratch repo "cross-surface-green" fun project =>
+      withScratch repo "cross-surface-result" fun output => do
+        writeCrossSurfaceProject repo project true true
+        let result := output / "result.json"
+        let accepted ← gate project #["--json-out", result.toString]
+        if !accepted.succeeded then
+          return some s!"cross-surface/related: expected PASS:\n{accepted.output}"
+        let json ← requireAuditDocument (← IO.ofExcept (Json.parse (← IO.FS.readFile result)))
+        let counted ← IO.ofExcept <| (json.getObjVal? "acceptance").bind fun acceptance =>
+          (acceptance.getObjVal? "account").bind (·.getObjValAs? (Array Json) "countedContracts")
+        let named (entry : Json) : Bool :=
+          (entry.getObjValAs? String "surface").toOption == some "Exec" &&
+            (entry.getObjValAs? String "source").toOption == some "Proofs" &&
+            (entry.getObjValAs? String "registration").toOption == some "crossCheck_decides" &&
+            (entry.getObjValAs? String "implementation").toOption == some "crossCheck"
+        if counted.size == 1 && counted.all named then return none
+        return some s!"cross-surface/account: expected one counted registration of Proofs for \
+          crossCheck of Exec, found {(Json.arr counted).compress}"
+    return green.toArray
   let mut failures := #[]
-  let green ← withScratch repo "cross-surface-green" fun project =>
-    withScratch repo "cross-surface-result" fun output => do
-      writeCrossSurfaceProject repo project true true
-      let result := output / "result.json"
-      let accepted ← gate project #["--json-out", result.toString]
-      if !accepted.succeeded then
-        return some s!"cross-surface/related: expected PASS:\n{accepted.output}"
-      let json ← requireAuditDocument (← IO.ofExcept (Json.parse (← IO.FS.readFile result)))
-      let counted ← IO.ofExcept <| (json.getObjVal? "acceptance").bind fun acceptance =>
-        (acceptance.getObjVal? "account").bind (·.getObjValAs? (Array Json) "countedContracts")
-      let named (entry : Json) : Bool :=
-        (entry.getObjValAs? String "surface").toOption == some "Exec" &&
-          (entry.getObjValAs? String "source").toOption == some "Proofs" &&
-          (entry.getObjValAs? String "registration").toOption == some "crossCheck_decides" &&
-          (entry.getObjValAs? String "implementation").toOption == some "crossCheck"
-      if counted.size == 1 && counted.all named then return none
-      return some s!"cross-surface/account: expected one counted registration of Proofs for \
-        crossCheck of Exec, found {(Json.arr counted).compress}"
-  if let some failure := green then failures := failures.push failure
   for (name, relation, decided) in #[("unrelated", false, true), ("removed", true, false)] do
     let refused ← withScratch repo s!"cross-surface-{name}" fun project => do
       writeCrossSurfaceProject repo project relation decided
@@ -3397,33 +3536,45 @@ manifest controls share one queue of
 clusters and take the
 workers the first clusters free, instead of competing with the first clusters for the
 processors. Each control has its shard; with `shard`, only that shard's controls run, and only
-the groups it ran report. After the queue, the shard of the self-hosted clusters
-(`selfHostedShard`) compares their fresh inputs (`selfHostedIdentity`). -/
+the groups it ran report. The two parts of the cross-surface decision control share a shard, so
+the shard that reports that control ran all of it. After the queue, an unsharded run compares the
+self-hosted fresh inputs (`selfHostedIdentity`), and the shard of each self-hosted cluster writes
+the digest of the input it recorded (`selfHostedDigest`). -/
 private unsafe def runStructural (layout : SourceLayout) (repo : FilePath) (jobs : Nat)
-    (shard : Option Shard) (failures : IO.Ref (Array String)) : IO Unit := do
+    (shard : Option (Fin structuralShards)) (failures : IO.Ref (Array String)) : IO Unit := do
   -- Every result carries its group, so none is found by its position in the queue.
   let results ← loggedPhase "structural controls" <|
     withScratch repo "checker-structural" fun scratch =>
       withScratch repo "checker-manifest" fun manifests => do
         let inputs ← SelfHostedInputs.new
-        let controls : List (Shard × StructuralGroup × String × IO (Array String)) :=
-          [(Shard.first, StructuralGroup.frozen, "frozen artifact controls",
-              withScratch repo "checker-frozen-artifacts" frozenArtifactControls)] ++
+        let controls : List (Fin structuralShards × StructuralGroup × String × IO (Array String)) :=
           (structuralClusters layout repo scratch inputs).map (fun (assigned, name, run) =>
             (assigned, StructuralGroup.clusters, s!"structural {name}", run)) ++
-          [(Shard.first, StructuralGroup.crossSurface, "cross-surface decision control",
-              crossSurfaceDecisionControl repo),
-            (Shard.second, StructuralGroup.cycle, "library cycle control", libraryCycleControl repo),
-            (Shard.second, StructuralGroup.driverCopy, "driver copy control",
+          [(structuralShard 1, StructuralGroup.crossSurface, "cross-surface decision refusals",
+              crossSurfaceDecisionControl true repo),
+            (structuralShard 1, StructuralGroup.driverCopy, "driver copy control",
               driverCopyControl repo),
-            (Shard.second, StructuralGroup.manifest, "manifest controls",
-              manifestQualification repo manifests)]
+            (structuralShard 1, StructuralGroup.crossSurface, "cross-surface decision control",
+              crossSurfaceDecisionControl false repo),
+            (structuralShard 4, StructuralGroup.cycle, "library cycle control",
+              libraryCycleControl repo),
+            (structuralShard 1, StructuralGroup.manifest, "manifest controls",
+              manifestQualification repo manifests),
+            (structuralShard 1, StructuralGroup.frozen, "frozen artifact controls",
+              withScratch repo "checker-frozen-artifacts" frozenArtifactControls)]
         let mut results ← mapWorkQueue (max 1 jobs) ((inShard shard controls).map (·.2)).toArray
           fun (group, label, run) => do return (group, label, ← loggedPhase label run)
-        -- The queue has finished, so both self-hosted clusters have recorded their inputs.
-        let afterQueue : List (Shard × StructuralGroup × String × IO (Array String)) :=
-          [(selfHostedShard, StructuralGroup.clusters, "structural self-hosted identity",
-            selfHostedIdentity inputs)]
+        -- The queue has finished, so each self-hosted cluster this run ran has recorded its input.
+        let afterQueue : List (Fin structuralShards × StructuralGroup × String × IO (Array String)) :=
+          match shard with
+          | none => [(selfHostedShard, StructuralGroup.clusters, "structural self-hosted identity",
+              selfHostedIdentity inputs)]
+          | some _ =>
+            [(selfHostedShard, StructuralGroup.clusters, "structural self-hosted positive digest",
+                selfHostedDigest repo scratch "positive" inputs.positive),
+              (selfHostedRestoredShard, StructuralGroup.clusters,
+                "structural self-hosted restored digest",
+                selfHostedDigest repo scratch "restored" inputs.restored)]
         for (group, label, run) in (inShard shard afterQueue).map (·.2) do
           results := results.push (group, label, ← loggedPhase label run)
         return results
@@ -3450,8 +3601,14 @@ private unsafe def runStructural (layout : SourceLayout) (repo : FilePath) (jobs
         "app missing/trivial/weakened update evidence, missing proof field, weakened admission, " ++
         "fresh coverage, realized and unchecked duplicate copies, restore; " ++
         "isolated projects, bounded parallelism)"
-      | some selected => shardDescription selected.label 1
-          ((results.filter (·.1 == StructuralGroup.clusters)).map (·.2.1))
+      | some selected => shardDescription (shardLabel selected) (structuralShards - 1)
+          ((results.filter (·.1 == StructuralGroup.clusters)).map (·.2.1)) ++
+          (if selected == selfHostedShard || selected == selfHostedRestoredShard then
+            s!". The self-hosted identity is decided only where both digests are compared: the \
+              CI diagnostics gate compares {selfHostedDigestPath repo "positive"} and \
+              {selfHostedDigestPath repo "restored"}, so a local claim needs the unsharded \
+              structural run or a comparison of those two files."
+          else "")
   if ran .cycle then
     IO.println <| "self-test library cycle: " ++ verdict .cycle ++
       " (two claimed libraries that import one another: accepted, each module replayed in one \
@@ -3474,7 +3631,7 @@ private unsafe def runStructural (layout : SourceLayout) (repo : FilePath) (jobs
 each with its positive, mutation and fresh restoration in an isolated project. With `shard`,
 only that shard's controls run and are named. -/
 private unsafe def runExecution (layout : SourceLayout) (repo : FilePath) (jobs : Nat)
-    (shard : Option Shard) (failures : IO.Ref (Array String)) : IO Unit := do
+    (shard : Option (Fin executionShards)) (failures : IO.Ref (Array String)) : IO Unit := do
   let (names, execution) ← loggedPhase "execution controls" <|
     withScratch repo "checker-execution" fun scratch =>
       executionQualification layout repo scratch jobs shard
@@ -3485,7 +3642,7 @@ private unsafe def runExecution (layout : SourceLayout) (repo : FilePath) (jobs 
       s!" ({CompilerPaths.caseCount} compiler-path cases, conditional correspondence, " ++
       "restricted-domain and universe correspondence restorations; positive, mutation and " ++
       "fresh restoration each; isolated projects, bounded parallelism)"
-    | some selected => shardDescription selected.label 1 names
+    | some selected => shardDescription (shardLabel selected) (executionShards - 1) names
 
 /-- Public CLI fixtures: the complete sweep for qualification, or the unchanged
 smoke subset for the default development tier. -/
@@ -3576,8 +3733,7 @@ private def runLintDriver (repo : FilePath) (jobs : Nat)
     IO.println <| "self-test lake lint driver: " ++ (if lint.isEmpty then "PASS" else "FAIL") ++
       match shard with
       | none => ""
-      | some selected => shardDescription s!"{selected.val + 1}/{LintQualification.shards}"
-          (LintQualification.shards - 1) names
+      | some selected => shardDescription (shardLabel selected) (LintQualification.shards - 1) names
 
 /-- Full and selected runs use the same group implementations. This exhaustive
 match assigns each supported partition exactly one implementation. `fullCli` selects the
@@ -3589,12 +3745,12 @@ private unsafe def runPartition (layout : SourceLayout) (partition : Partition) 
     (fixtures : Array FixtureSpec) (failures : IO.Ref (Array String)) : IO Unit :=
   match partition with
   | .fixtures => runFixtures repo jobs fixtures failures
-  | .structural => runStructural layout repo jobs (shard.bind Shard.ofSpec?) failures
-  | .execution => runExecution layout repo jobs (shard.bind Shard.ofSpec?) failures
+  | .structural => runStructural layout repo jobs (shard.bind (shardOf? structuralShards)) failures
+  | .execution => runExecution layout repo jobs (shard.bind (shardOf? executionShards)) failures
   | .cli => runCli repo jobs fullCli fixtures failures
   | .environments => runEnvironments layout repo failures
   | .buildPolicy => runBuildPolicy repo jobs failures
-  | .lintDriver => runLintDriver repo jobs (shard.bind lintShard?) failures
+  | .lintDriver => runLintDriver repo jobs (shard.bind (shardOf? LintQualification.shards)) failures
 
 /-- The combined public command must preserve Markdown discovery even in
 subdirectories pruned by the generic project copier. Exercise a fresh positive,
@@ -3770,7 +3926,7 @@ unsafe def run (args : List String) : IO UInt32 := do
   -- where one of them reads it, the fixture import anchor, the fixture modules other fixtures
   -- import and the claimed positive surface, so every later phase sees it built.
   let surfaceManifest ← parsedManifest (Manifest.defaultPath repo)
-  let baselines := selected.map (baselineOf · (options.shard.bind Shard.ofSpec?))
+  let baselines := selected.map (baselineOf · options.shard)
   let tools := baselineTools baselines
   let fixtureTargets ← if baselines.any (·.surface) then
       pure (((← importedFixtures repo).filter (· != structuralFixture)).push structuralFixture)

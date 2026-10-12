@@ -11,6 +11,7 @@ import Regula.Qualification.InputInventory
 import Regula.Qualification.ReceiptBoundary
 import Regula.Qualification.Preparation
 import Regula.Qualification.SelfAudit
+import Regula.Qualification.UniqueConstants
 
 /-! # Qualification executable dispatcher
 
@@ -26,7 +27,11 @@ private unsafe def dispatch (args : List String) (attempt : Option String := non
   | ["native"] => Regula.Qualification.NativeLinter.checkAll
   | ["combined"] => do
       Regula.Qualification.RegistryCli.check
+      -- Beside the native controls; both must pass.
+      let unique ← IO.asTask Regula.Qualification.UniqueConstants.check
       Regula.Qualification.NativeLinter.checkAll
+      IO.ofExcept (← IO.wait unique)
+  | ["unique-constants"] => Regula.Qualification.UniqueConstants.check
   | ["native-launcher"] => Regula.Qualification.NativeLinter.paired
   | ["rule-examples", "--evidence", path] => Regula.Qualification.RuleExamples.check
                                               ⟨path⟩ none attempt
@@ -69,8 +74,8 @@ private unsafe def dispatch (args : List String) (attempt : Option String := non
   | ["documentation-source", "--source-read-only"] =>
       Regula.Qualification.DocumentationSource.check true
   | _ => throw <| IO.userError "usage: lake exe qualify \
-    registry|native|combined|native-launcher|producers [--evidence PATH]|environments --evidence \
-    PATH|acceptance GROUP --evidence PATH|acceptance-snapshots \
+    registry|native|combined|unique-constants|native-launcher|producers [--evidence PATH]|\
+    environments --evidence PATH|acceptance GROUP --evidence PATH|acceptance-snapshots \
     dependencies|history|self-audit [--shard K/4]|git-status|all|documentation-dependencies|\
     input-inventory|history|closure-evidence|configuration-capture|fence-evidence|frozen-exits|\
     documentation-source [--source-read-only]|\

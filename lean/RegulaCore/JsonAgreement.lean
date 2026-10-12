@@ -737,7 +737,10 @@ theorem Shaped.member {schema : List Entry} {j : Json} (shaped : Shaped schema j
   obtain ⟨fields, rfl, -, -, lookups, -⟩ := shaped
   obtain ⟨value, found, meaning⟩ := lookups entry present
   refine ⟨value, ?_, meaning⟩
-  simp only [Json.getObjVal?, found]
+  -- `delta`, not `Json.getObjVal?` in the simp set, which would realize here copies of the
+  -- equation lemmas that `RegulaQualification.Registry` also realizes.
+  delta Json.getObjVal?
+  simp only [found]
   rfl
 
 /-- A value of the form of a schema is a value with search trees, when each value of the meaning
