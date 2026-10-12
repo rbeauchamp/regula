@@ -479,74 +479,146 @@ link during the removal. `IO.FS.removeDirAll` examines an entry and then opens i
 Thus it can then remove the entries of a different directory. The checker removes its own
 scratch directories with the same function.
 
-The site executable removes a directory or a file only by the decision `Regula.Removal.removal`
-of `RegulaCore.Removal`. That decision uses the same read and the same comparison as the
-decision of the driver. It also gets the kind of entry that the caller removes: a directory or a
-file. It removes the place only if an entry of that kind is there at its own place
-(`removal_remove_iff`). The theorem `checked_removal` is the decision contract of that function.
+Each program of the package removes or moves an entry only through the filesystem observer,
+`Regula.Filesystem`. The exceptions are the library calls that `Regula.Removal.libraryRemovals`
+gives, and the removals and moves of the two drivers that `Regula.ProgramCheck.Verification` and
+`Regula.ProgramCheck.Provision` give. The observer removes an entry only by the decision
+`Regula.Removal.removal` of `RegulaCore.Removal`. That decision uses the same read and the same
+comparison as the decision of the driver. It also gets the kind of entry that the caller removes:
+a directory, a file or a symbolic link.
+
+A directory or a file is at its own place if its real path is the place. The real path of a
+symbolic link is its target. Thus a link is at its own place if it is a name in a directory at its
+own place. The decision removes the place only if an entry of the kind is there at its own
+place (`removal_remove_iff`). The theorem `checked_removal` is the decision contract of that
+function.
+
+The observer moves a file only by the decision `Regula.Removal.replacement`. It moves a file at
+its own place to a path where nothing is, or where a file is at its own place. The destination
+must be a name in a directory at its own place (`replacement_iff`). A move over a file removes
+that file, thus the decision examines the destination as it examines a removal of a file.
 
 Before this decision, the site executable removed its output directory, `tmp/site-render`,
 `tmp/site-releases` and `website/Generated` with no such read. With a link at one of these
 paths, it deleted the content of the target of the link
-([issue 261](https://github.com/rbeauchamp/regula/issues/261)). At this time, it stops there
-and removes nothing.
+([issue 261](https://github.com/rbeauchamp/regula/issues/261)). The qualification and checker
+code removed directories in the same way
+([issue 361](https://github.com/rbeauchamp/regula/issues/361)). At this time, each program stops
+there and removes nothing.
 
-A relative `--out` is joined to the real path of the working directory, and no component that it
-gives is resolved. Before it reads anything, the build refuses a `.` or `..` component of
-`--out`. Before it makes anything, it refuses a link among the present components.
+The observer joins a relative path to the real path of the working directory, and it resolves no
+component that the path gives. It drops the leading `.` components. Before it reads anything, it
+refuses each other `.` or `..` component. Before it makes anything, it refuses a link among the
+present components (`Regula.Filesystem.ownPath`).
 
-On Windows, the site executable removes nothing and refuses each `--out`. There the runtime reads
-a link's target when asked to read the link itself, so no read that follows no link is available.
+A program resolves some directories to their real path one time (`Regula.Filesystem.ownRoot`).
+These are the scratch area under `.lake`, the build directory of the project and the directory of a
+file that `regula init` wrote. Each scratch directory that a program uses is below the real path of
+that area.
+
+The adopter can make such a directory or one of its parents a symbolic link. The program decides
+each removal below the directory at the real path. Thus a link at `.lake` does not stop the
+removal, but a link below the directory does.
+
+On Windows, the observer reads no entry and removes nothing, and the site executable refuses each
+`--out`. There the runtime reads a link's target when asked to read the link itself, so no read
+that follows no link is available. Thus on Windows each command that removes an entry through the
+observer stops with an error. `lake lint` is such a command, because it removes its scratch
+directories through the observer. `regula doctor` and `regula init` give the toolchain of the
+project as not resolved, because the compiler probe removes its temporary directory. If
+`regula init` fails, it cannot remove the new files that it wrote, and it gives their names.
 
 The driver cannot import `RegulaCore.Removal`, because `scripts/verify.sh` operates the driver
-before the build. The site executable cannot import the driver, because each of the two programs
-declares `main`. Thus the decision has two implementations. The theorem
+before the build. A program of the package cannot import the driver, because each of the two
+programs declares `main`. Thus the decision has two implementations. The theorem
 `RegulaVerification.removal_shared` shows that the two implementations give the same result for a
 directory.
 
-The build of `Regula.Site.Main` reads the compiled code of `main` and of each initializer of the
-modules that the executable links. It also reads the compiled code of each declaration that this
-code calls, in this package and in the libraries. Only `Regula.Removal.removeDecided` and the
-variants of it that the compiler made can call a removal function of the Lean library. The calls
-that `Regula.Removal.libraryRemovals` gives are the only other calls that the check permits. The
-build fails for each different call.
+The build of the root module of each executable reads the compiled code of `main` and of the
+initializers of the linked modules. It also reads the compiled code of each
+declaration that this code calls, in this package and in the libraries. Only the declarations of
+the observer and the variants of them that the compiler made can call a removal function of the
+Lean library. The calls that `Regula.Removal.libraryRemovals` gives are the only other calls that
+the check permits. The build fails for each different call.
 
-Each call on that list removes one file that the library manages, or writes the compiled
-configuration of Lake. A removal of a directory in a library is not on the list. Each entry rests
-on an assumption, and `libraryRemovals` gives it with a source line of the library.
+The check permits the role of the observer only for declarations of `Regula.Filesystem`. If a
+different module gives that role, the build fails.
 
-For example, Lake removes and writes its compiled configuration in `.lake/config/0`. Before Lake
-loads the package, the site executable stops if `.lake`, `.lake/config` or `.lake/config/0` is a
-link. It also stops if one of them is a file or is not at its own place. It also stops if an entry
-of `.lake/config/0` is a link, because Lake and Lean open their files there for writing by name.
-Thus the files that Lake removes and writes there are files of the checkout.
+The calls of Lake on that list are trusted exceptions. Lake makes them itself in the process
+of a program that loads a workspace or builds. Each acts on that workspace, as `lake build` or
+`lake update` would there. Thus its safety rests on the content of the workspace: its configuration,
+the clones of its dependencies and the release archives that it fetches. The adopter trusts that
+content as Lake does. The other entries rest on an assumption, and `libraryRemovals` gives each
+entry with a source line.
+
+A program can also operate Lake in a copy of a project that it made, as
+`Regula.Checker.Lake.copyProject` and the verification driver do. Lake acts on the copy as it would
+act on the workspace that it was given, thus the same reason holds.
+
+This exception has a limit. A copy that `cp -R` makes, as the qualification slot and the
+provisioning driver do, holds the symbolic links of the original. A relative link there resolves
+from the place of the copy. A copy of `copyProject` holds the link that Regula makes to the
+packages directory of the original. The removals of Lake in a copy can operate through these links.
+
+[Issue 399](https://github.com/rbeauchamp/regula/issues/399) asks for copies that hold only
+directories, files and that one link, by construction.
+
+A program that a script operates with `lean --run` cannot import the check. Thus the modules
+`Regula.ProgramCheck` do the same check for each such program. The two drivers remove entries with
+their own code, because they operate before the build. Their modules give each of these removals
+with the declaration that makes it. A removal in a different declaration of a driver makes the
+build fail.
+
+The check permits a call of that list, or of a driver, by the pair of its caller and the removal
+function that it calls. It does not examine the path or the place of the call in the caller. Thus
+each permitted pair is a trusted exception as a whole, together with each further call of the same
+function in the same caller. For example, a second `IO.FS.removeDirAll` in a removal of the
+verification driver passes the check.
+[Issue 389](https://github.com/rbeauchamp/regula/issues/389) asks for a decision of the removals
+of the drivers that a theorem relates to `RegulaCore.Removal`.
+
+The command `lake exe qualify observers` reads the compiled modules of the package. It refuses
+unless the check recorded each program: the root module of each executable, and each module of a
+library that declares `main`. No library module can import `Main`, the root of `auditApp`, thus
+the command does the check of that program itself. The shard `self-audit 4/4` operates the
+command after it builds each library, and so does `diagnostics self-audit`. The first acceptance
+step does not operate it, because the acceptance of the claimed libraries does not rest on it.
+
+The loader `Regula.Checker.Workspace.withRootPackage` keeps its check of `.lake/config/0`
+(`Regula.Filesystem.requireNoLinkedEntries`). Lake and Lean open their files there for writing by
+name. Thus the loader stops if `.lake`, `.lake/config` or `.lake/config/0` is a link, or if an
+entry of `.lake/config/0` is a link.
 
 A removal function removes or replaces an entry, as a rename and the writing of a module do. A
 declaration that `extern` binds to `lean_io_remove_file`, `lean_io_remove_dir`, `lean_io_rename`
 or `lean_compacted_region_save` is also a removal function, whatever its name. These are the C
 functions of the runtime that remove or replace an entry. The check finds such a declaration.
 
-The criterion of the check is honest code, as `SECURITY.md` defines it. Honest code in the site
-executable cannot reach a removal outside `Regula.Removal`, except the calls on the list.
-Deliberate circumvention by the authors of Regula is outside the check
-([issue 286](https://github.com/rbeauchamp/regula/issues/286)). An example is an `extern` binding
-to a different C function that removes. A different example is an observation that the tactic
-`constructor` makes with the private constructor.
-
-The loader of the dependencies of Lake can remove a directory. Thus the site executable loads
-only the root package of the workspace (`withRootPackage`). It refuses a root package that
-declares a dependency.
+The criterion of the check is honest code, as `SECURITY.md` defines it. Honest code in a checked
+program reaches a removal outside the observer only by a call that the list or a driver's module
+gives. Deliberate circumvention by the authors of Regula is outside the
+check ([issue 286](https://github.com/rbeauchamp/regula/issues/286)). An example is an `extern`
+binding to a different C function that removes. A different example is a use of the private
+declarations of `Regula.Filesystem`, with `open private` or a name written by hand.
 
 The build also fails if such a declaration has no compiled code that the check can read. A
-removal by a different program, for example `rm`, is not a call that this check finds. The module
-`Regula.RemovalControls` has controls of the check. The first acceptance step builds that module.
+removal by a different program, for example `rm`, is not a call that this check finds.
+
+The module `Regula.RemovalControls` has controls of the check.
+
+The module `Regula.ProgramCheck.Controls` adds a `main` that removes a file with the removal
+function of the library, and the check refuses it. It also adds a `main` that removes the file
+through the observer, and the check accepts it. It declares an observer in a different module than
+`Regula.Filesystem`, and the check refuses the program that operates it.
+
+Each shard of the self-audit builds the library `Regula`, thus the two modules.
 
 The deployment program `lean/Regula/Site/Deployment.lean` imports only the Lean core, thus it
-cannot use the decision. It reads each page from the output of `curl` and writes no file. Thus it
-removes nothing. It passes to `curl` only `PATH` and the proxy and certificate variables that
-`fetch` lists, none of which makes `curl` write a file. Thus a variable such as `SSLKEYLOGFILE`
-does not reach `curl`. The URL is the value of the option `--url`, thus a URL that starts with
-`-` is not an option.
+cannot use the observer. It reads each page from the output of `curl` and writes no file. The
+check of `Regula.ProgramCheck.SiteDeployment` finds no removal in it. It passes to `curl` only
+`PATH` and the proxy and certificate variables that `fetch` lists, none of which makes `curl`
+write a file. Thus a variable such as `SSLKEYLOGFILE` does not reach `curl`. The URL is the value
+of the option `--url`, thus a URL that starts with `-` is not an option.
 
 The driver moves the pending record to `tmp/acceptance-link.json` only if
 `RegulaVerification.passed` accepts the exit status of each command. The driver does that move
@@ -1254,7 +1326,8 @@ Two-way decisions (`Regula.Decides`), each with an accepted and a refused input:
 | `RegulaVerification.passed` | Each command of a step ended with exit status 0 (`passed_iff`). | The driver of `scripts/verify.sh` uses it before it operates one more command, before its success line and before it moves the acceptance record. |
 | `RegulaVerification.walked` | The path does not start with `tmp`, and no component of it is `.git`, `.lake`, `.cache` or `.regula-scratch` (`walked_iff`). | The files that the driver copies for the first acceptance step. No theorem relates it to the rule of the isolated copy of the checker. |
 | `RegulaVerification.removal` (accepts on `.remove`) | A directory is at the place by a read that follows no link, and its real path is the place (`removal_remove_iff`). | The driver removes its copy and the `_site` directory only by this decision. The two reads of the file system are trusted. |
-| `Regula.Removal.removal` (accepts on `.remove`) | A read that follows no link finds an entry of the given kind at the place, and its real path is the place (`removal_remove_iff`). | The site executable removes a directory or a file only by this decision. The two reads of the file system are trusted. |
+| `Regula.Removal.removal` (accepts on `.remove`) | A read that follows no link finds an entry of the given kind at the place. Its real path is the place, or a symbolic link is a name in a directory at its own place (`removal_remove_iff`). | Each program of the package removes a directory, a file or a symbolic link only by this decision, through `Regula.Filesystem`. The exceptions are the library calls that `Regula.Removal.libraryRemovals` gives, and the removals of the two drivers that `Regula.ProgramCheck.Verification` and `Regula.ProgramCheck.Provision` give. The reads of the file system are trusted. |
+| `Regula.Removal.replacement` (accepts on `true`) | A read that follows no link finds a file at the source, at its own place. Nothing is at the destination, or a file is there at its own place. The destination is a name in a directory at its own place (`replacement_iff`). | Each program of the package moves a file only by this decision, through `Regula.Filesystem`. The exceptions are the library calls that `Regula.Removal.libraryRemovals` gives, and the moves of the two drivers that `Regula.ProgramCheck.Verification` and `Regula.ProgramCheck.Provision` give. The reads of the file system are trusted. |
 | `RegulaVerification.prebuildCovers` | The surface manifest has the shape that `claimedTargets` reads, and each target it claims is in `gateTargets` (`prebuildCovers_iff`). | The driver runs the first acceptance step only on such a manifest. Thus the gate does not build a claimed target beside the step's build. No theorem relates `claimedTargets` to the manifest reader of the checker. |
 | `ScratchCopy.name?` (accepts on `some`) | The path is the scratch area, then one name, then `project` (`name?_eq_some_iff`). | The gate admits a copy of the driver only at such a path. The components come from real paths, which the file system gives. |
 | `ScratchCopy.inside` | The path is the directory with one or more components after it (`inside_iff`). | The gate requires its own executable in the build directory of a copy of the driver. |
@@ -4363,6 +4436,8 @@ The `qualify` campaigns and what they observe:
   observations, and the combined project/documentation positive remains distinct.
 - `receipt-boundaries`: timeout-selection and spawn failures (see
   [Operational assumptions](#operational-assumptions)).
+- `observers`: the record of the removal check of each program of the package, and the check of
+  `Main`, the root of `auditApp`.
 - `acceptance fences`: fence-compilation packet mutations with positive restoration.
 - `acceptance-snapshots`: `dependencies` (ignored Git and non-Git dependency input coverage and
   mutation), `history` ([RG3001] fresh, incremental and build-lint history refusal and restoration)
@@ -4820,7 +4895,8 @@ execution, and calling a proved oracle does not prove the driver or its IO effec
   `RegulaVerification` state the decisions of the copy and of the removal. The theorems
   `ScratchCopy.name?_eq_some_iff` and `ScratchCopy.inside_iff` state the two decisions with which
   the gate admits a copy of the driver. The theorems `Regula.Removal.removal_remove_iff` and
-  `removal_nothing_iff` state the decision of the removals of the site executable, and
+  `removal_nothing_iff` state the decision of the removals of the filesystem observer,
+  `Regula.Filesystem`.
   `RegulaVerification.removal_shared` relates it to the decision of the driver. The reads of the
   file system that give their arguments are trusted.
 - The theorem `BuildReuse.reuse_iff` states the decision by which the fence audit uses the build
@@ -4951,7 +5027,7 @@ operation of the model. This is a relation between two runs, not a property of t
 Thus it is not an assumption. The theorem `corresponds_ofIO` proves it for each `ops`, when the
 states of the model are the worlds (`Model.ofIO`).
 
-The theorems for the observer use that model. Thus they use only the four assumptions of the file
+The theorems for the observer use that model. Thus they use only the five assumptions of the file
 system at that model. Each assumption is a statement about each run from each world.
 
 In `IO`, the world at the end of an operation is the world at the start of the next operation.
@@ -4989,7 +5065,8 @@ statement that does not use its checked operation.
 ### The file system
 
 `RegulaCore.Filesystem` gives the model of the file system and its assumptions.
-`Regula.Filesystem.observer` is its observer for the programs of the package. Each `lean` source
+`Regula.Filesystem.observer` is its observer for the programs of the package.
+`RegulaCore.Removal` gives the last three checked operations of the table. Each `lean` source
 below is a file of the Lean 4 repository at `v4.34.1`, below `src`.
 
 | Declaration | Status | Contract | Sources |
@@ -4997,13 +5074,17 @@ below is a file of the Lean 4 repository at `v4.34.1`, below `src`.
 | `ReadsEntry` | trusted | `symlinkMetadata` gives the type of the entry at a path and changes nothing. It fails with `noFileOrDirectory` only when no entry is at the path. | [`Init/System/IO.lean#L1151-L1156`](https://github.com/leanprover/lean4/blob/v4.34.1/src/Init/System/IO.lean#L1151-L1156), [`runtime/io.cpp#L1160-L1179`](https://github.com/leanprover/lean4/blob/v4.34.1/src/runtime/io.cpp#L1160-L1179), [`runtime/io.cpp#L276-L279`](https://github.com/leanprover/lean4/blob/v4.34.1/src/runtime/io.cpp#L276-L279), POSIX.1-2024 `lstat()` |
 | `ReadsReal` | trusted | `realPath` gives the real path of a path and changes nothing. It fails only when there is no real path. | [`Init/System/IO.lean#L873-L879`](https://github.com/leanprover/lean4/blob/v4.34.1/src/Init/System/IO.lean#L873-L879), [`runtime/io.cpp#L1054-L1066`](https://github.com/leanprover/lean4/blob/v4.34.1/src/runtime/io.cpp#L1054-L1066), POSIX.1-2024 `realpath()`, Apple Libc-1752.120.2 `stdlib/FreeBSD/realpath.c#L216-L243` and `#L348-L358` |
 | `RemovesTree` | trusted | `removeDirAll` of a directory at its real path keeps the entry at each path in its frame (`Model.Unchanged`), when it succeeds and when it fails. | [`Init/System/IO.lean#L1330-L1342`](https://github.com/leanprover/lean4/blob/v4.34.1/src/Init/System/IO.lean#L1330-L1342), [`runtime/io.cpp#L1160-L1179`](https://github.com/leanprover/lean4/blob/v4.34.1/src/runtime/io.cpp#L1160-L1179), [`runtime/io.cpp#L1197-L1207`](https://github.com/leanprover/lean4/blob/v4.34.1/src/runtime/io.cpp#L1197-L1207), [`runtime/io.cpp#L1351-L1364`](https://github.com/leanprover/lean4/blob/v4.34.1/src/runtime/io.cpp#L1351-L1364), POSIX.1-2024 `lstat()`, `unlink()` and `rmdir()`, POSIX.1-2024 `<sys/stat.h>` |
-| `RemovesEntry` | trusted | `removeFile` of a path at its real path keeps the entry at each path in its frame (`Model.Unchanged`), when it succeeds and when it fails. | [`Init/System/IO.lean#L881-L886`](https://github.com/leanprover/lean4/blob/v4.34.1/src/Init/System/IO.lean#L881-L886), [`runtime/io.cpp#L1351-L1364`](https://github.com/leanprover/lean4/blob/v4.34.1/src/runtime/io.cpp#L1351-L1364), POSIX.1-2024 `unlink()`, POSIX.1-2024 `<sys/stat.h>` |
+| `RemovesEntry` | trusted | `removeFile` of a path keeps the entry at each path in its frame (`Model.Unchanged`), when it succeeds and when it fails. The path is at its real path, or it is a symbolic link in a directory at its real path (`Model.InOwnDirectory`). | [`Init/System/IO.lean#L881-L886`](https://github.com/leanprover/lean4/blob/v4.34.1/src/Init/System/IO.lean#L881-L886), [`runtime/io.cpp#L1351-L1364`](https://github.com/leanprover/lean4/blob/v4.34.1/src/runtime/io.cpp#L1351-L1364), POSIX.1-2024 `unlink()`, POSIX.1-2024 `<sys/stat.h>` |
+| `Renames` | trusted | `rename` keeps the entry at each path in the frame of its two paths (`Model.Kept`), when it succeeds and when it fails. The source is at its real path, and the destination has a parent at its real path. | [`Init/System/IO.lean#L903-L909`](https://github.com/leanprover/lean4/blob/v4.34.1/src/Init/System/IO.lean#L903-L909), [`runtime/io.cpp#L1209-L1238`](https://github.com/leanprover/lean4/blob/v4.34.1/src/runtime/io.cpp#L1209-L1238), POSIX.1-2024 `rename()`, POSIX.1-2024 `<sys/stat.h>` |
 | `removeDirectory` | checked | After a removal that succeeds, no entry is at the path: `removeDirectory_gone`, which uses only `ReadsEntry`. | [`Init/System/IO.lean#L1330-L1342`](https://github.com/leanprover/lean4/blob/v4.34.1/src/Init/System/IO.lean#L1330-L1342) |
 | `removeEntry` | checked | After a removal that succeeds, no entry is at the path: `removeEntry_gone`, which uses only `ReadsEntry`. | [`Init/System/IO.lean#L881-L886`](https://github.com/leanprover/lean4/blob/v4.34.1/src/Init/System/IO.lean#L881-L886) |
+| `removeOwnWith` | checked | After a removal that succeeds, no entry is at the path: `removeOwnWith_gone`, which uses only `ReadsEntry`. | [`Init/System/IO.lean#L1330-L1342`](https://github.com/leanprover/lean4/blob/v4.34.1/src/Init/System/IO.lean#L1330-L1342), [`Init/System/IO.lean#L881-L886`](https://github.com/leanprover/lean4/blob/v4.34.1/src/Init/System/IO.lean#L881-L886) |
+| `removeFoundWith` | checked | After a removal that succeeds, no entry is at the path: `removeFoundWith_gone`, which uses only `ReadsEntry`. | [`Init/System/IO.lean#L1330-L1342`](https://github.com/leanprover/lean4/blob/v4.34.1/src/Init/System/IO.lean#L1330-L1342), [`Init/System/IO.lean#L881-L886`](https://github.com/leanprover/lean4/blob/v4.34.1/src/Init/System/IO.lean#L881-L886) |
+| `replaceWith` | checked | After a move that succeeds, nothing is at the source and a file is at the destination: `replaceWith_moved`, which uses only `ReadsEntry`. | [`Init/System/IO.lean#L903-L909`](https://github.com/leanprover/lean4/blob/v4.34.1/src/Init/System/IO.lean#L903-L909) |
 
-The theorems `removeDirectory_spec` and `removeEntry_spec` are about the removal of a directory or
-of a file at its real path, in a model. After a removal that succeeds, no entry is at the path. A
-removal keeps the entry at each path in its frame, when it succeeds and when it fails. Their
+The theorems `removeDirectory_spec` and `removeEntry_spec` are about the removal of a directory, a
+file or a link at its own place, in a model. After a removal that succeeds, no entry is at the
+path. A removal keeps the entry at each path in its frame, when it succeeds and when it fails. Their
 hypotheses are the assumptions that they use. The theorems `removeDirectory_io` and
 `removeEntry_io` give the same result for the code in `IO`, with `Corresponds` as one more
 hypothesis. `Regula.Filesystem` gives them for the observer at the model of the worlds, where

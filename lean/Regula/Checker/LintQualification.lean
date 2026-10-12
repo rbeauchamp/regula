@@ -86,7 +86,7 @@ private def mutate (path : FilePath) (before after : String) : IO Unit := do
 private def restore (adopter : FilePath) (files : Array (FilePath × String)) : IO Unit := do
   for (path, text) in files do IO.FS.writeFile path text
   if ← (adopter / ".lake" / "build").pathExists then
-    IO.FS.removeDirAll (adopter / ".lake" / "build")
+    Regula.Filesystem.removePath .directory (adopter / ".lake" / "build")
 
 /-- A decision probe: after an ordinary `lake build` of `targets`, which leaves the compiled
 lakefile under `.lake/config`, the workspace at `adopter` is loaded in-process as the driver loads
@@ -214,7 +214,7 @@ private def leanDecisions (probes : Std.Mutex Unit) (repo adopter : FilePath) :
     globs := #[.one `Tooling]"
   failures := failures ++ (← probe probes adopter "lean/needed-library-marked" #["Widget"]
     (some "target Widget needs a target of kind lean_lib"))
-  IO.FS.removeFile tooling
+  Regula.Filesystem.removePath .file tooling
   -- Without the owner's assertion the driver keeps the marker, as before the plain
   -- shape existed, and prints no decision, so an ordinary build after it rebuilds. With it the
   -- driver builds without the marker and says so, and an ordinary build and the driver reuse each
@@ -257,7 +257,7 @@ private def leanDecisions (probes : Std.Mutex Unit) (repo adopter : FilePath) :
     failures := failures.push s!"lake-lint/lean/opt-in-reported: scope.project is \
       {(scope.getObjValD "project").compress} and scope.manifestPath is \
       {(scope.getObjValD "manifestPath").compress}"
-  IO.FS.removeFile (adopter / "opt-in.json")
+  Regula.Filesystem.removePath .file (adopter / "opt-in.json")
   return failures
 
 /-- `lakefile.lean` adopter, the third part, which starts from the plain shape. The assertion as a
@@ -336,7 +336,7 @@ private def leanArguments (probes : Std.Mutex Unit) (repo adopter : FilePath) :
   if ← (adopter / "--json-out").pathExists then
     failures := failures.push "lake-lint/lean/option-like-value-refused: the configured value \
       --json-out was written as a destination"
-  IO.FS.removeFile (adopter / "stale.json")
+  Regula.Filesystem.removePath .file (adopter / "stale.json")
   -- The driver decides before it marks a destination, and a refusal keeps the configuration
   -- class though a destination cannot be written: for another project, for `--help`, and for a
   -- configured destination beside the command line's, each of which is marked on its own.
@@ -363,7 +363,7 @@ private def leanArguments (probes : Std.Mutex Unit) (repo adopter : FilePath) :
   unless JsonAgreement.conforms stale (toJson "incomplete") do
     failures := failures.push s!"lake-lint/lean/each-destination-marked: stale.json has status \
       {stale.compress}"
-  IO.FS.removeFile (adopter / "stale.json")
+  Regula.Filesystem.removePath .file (adopter / "stale.json")
   -- The audit reads its arguments once too: a manifest named `--json-out` is the manifest, not
   -- a destination, so the run reads it and writes only the command line's `--json-out`.
   IO.FS.writeFile lakefile plain
@@ -380,8 +380,8 @@ private def leanArguments (probes : Std.Mutex Unit) (repo adopter : FilePath) :
   unless JsonAgreement.conforms named (toJson "completed") do
     failures := failures.push s!"lake-lint/lean/option-like-manifest-read: named.json has status \
       {named.compress}"
-  IO.FS.removeFile (adopter / "--json-out")
-  IO.FS.removeFile (adopter / "named.json")
+  Regula.Filesystem.removePath .file (adopter / "--json-out")
+  Regula.Filesystem.removePath .file (adopter / "named.json")
   -- The corpus producer marks the result where the audit's own plan resolved it: from another
   -- directory, a relative `--json-out` with `--project` is the project's file, and a stale file of
   -- the same name in the working directory is left as it was.
@@ -407,15 +407,15 @@ private def leanArguments (probes : Std.Mutex Unit) (repo adopter : FilePath) :
   | .error error =>
     failures := failures.push s!"lake-lint/lean/rule-examples-project-marked: the project's \
       result.json: {error}"
-  IO.FS.removeDirAll elsewhere
-  IO.FS.removeFile (adopter / "result.json")
+  Regula.Filesystem.removePath .directory elsewhere
+  Regula.Filesystem.removePath .file (adopter / "result.json")
   -- An `input_file` in `needs` keeps the plain shape.
   let notes := adopter / "notes.txt"
   IO.FS.writeFile notes "Widget notes.\n"
   IO.FS.writeFile lakefile <| widgetLibrary "needs := #[`@/widgetNotes]\n\ninput_file widgetNotes \
     where\n  path := \"notes.txt\""
   failures := failures ++ (← probe probes adopter "lean/input-needs-plain" #["Widget"] none)
-  IO.FS.removeFile notes
+  Regula.Filesystem.removePath .file notes
   -- Each of these keeps the marker, for the reason its change gives: Lake's `ilean` facet
   -- declared again with Lake's own configuration, which the compiled configuration file records
   -- as a facet declaration; a field outside the plain shape's list with another value than Lake's
@@ -528,7 +528,7 @@ private def leanRefusals (repo adopter : FilePath) : IO (Array String) := do
   let stages := (← readJson (adopter / "worker-failure.json")).getObjValD "stagesCompleted"
   unless JsonAgreement.conforms stages (toJson #["configuration", "discovery", "build"]) do
     failures := failures.push s!"lake-lint/lean/worker-failure: stagesCompleted {stages.compress}"
-  for file in entryPoints do IO.FS.removeFile file
+  for file in entryPoints do Regula.Filesystem.removePath .file file
   restore adopter originals
   failures := failures ++ (← expect adopter (accepted "lean/fresh-restored"))
   return failures
@@ -578,7 +578,7 @@ private def tomlAudit (repo adopter : FilePath) : IO (Array String) := do
   unless written.isEmpty do
     failures := failures.push s!"lake-lint/toml/foreign-dir-unwritten: the driver wrote {written} \
       in the working directory's project"
-  IO.FS.removeDirAll foreign
+  Regula.Filesystem.removePath .directory foreign
   mutate double "end Gadget" <|
     "set_option linter.regula false in\n/-- A control assumption. -/\n" ++
       "axiom optedOut : True\nend Gadget"
@@ -757,7 +757,7 @@ private def tomlPlain (probes : Std.Mutex Unit) (repo adopter : FilePath) :
   IO.FS.writeFile double doubleSource
   failures := failures ++ (← probe probes adopter "toml/linter-import-marked" #[]
     (some "imports Regula.Linter"))
-  IO.FS.removeDirAll inputs
+  Regula.Filesystem.removePath .directory inputs
   restore adopter (originals ++ targetOriginals)
   failures := failures ++
       (← expect adopter (accepted "toml/fresh-restored" (fresh := true)) #["--", "--fresh"])
@@ -794,7 +794,7 @@ private def cachedWarning (repo adopter : FilePath) : IO (Array String) := do
   failures := failures ++ (← assess (incomplete "cache/fresh-again") (← fresh))
   let build := runProcess adopter "lake" #["build", "Widget"] env
   let built ← build
-  IO.FS.removeDirAll (adopter / ".lake" / "build")
+  Regula.Filesystem.removePath .directory (adopter / ".lake" / "build")
   let restored ← build
   let trace := adopter / ".lake" / "build" / "lib" / "lean" / "Widget" / "Additional.trace"
   let synthetic := match ← (IO.FS.readFile trace).toBaseIO with
@@ -857,7 +857,7 @@ private def dependencyCachedWarning (repo adopter : FilePath) : IO (Array String
   unless filled.succeeded && filled.output.contains warning do
     failures := failures.push s!"lake-lint/dependency-cache/fill: {filled.output}"
   if ← (dependency / ".lake" / "build").pathExists then
-    IO.FS.removeDirAll (dependency / ".lake" / "build")
+    Regula.Filesystem.removePath .directory (dependency / ".lake" / "build")
   let fresh := runProcess adopter "lake" #["lint", "--", "--fresh"] env
   failures := failures ++ (← assess {
       label := "dependency-cache/fresh", exitCode := 3,
@@ -903,7 +903,7 @@ private def emptyFacetsWarning (repo adopter : FilePath) : IO (Array String) := 
   unless built.succeeded && built.output.contains warning do
     failures := failures.push s!"lake-lint/empty-facets/build: {built.output}"
   failures := failures ++ (← assess (reported "empty-facets/incremental") (← incremental))
-  IO.FS.removeDirAll (adopter / ".lake" / "build")
+  Regula.Filesystem.removePath .directory (adopter / ".lake" / "build")
   let restored ← build
   let trace := adopter / ".lake" / "build" / "lib" / "lean" / "Widget" / "Additional.trace"
   let synthetic := match ← (IO.FS.readFile trace).toBaseIO with
@@ -1099,7 +1099,7 @@ private def pathOwned (repo adopter : FilePath) : IO (Array String) := do
   let mut failures ← expect adopter (ownedAccepted "path/owned")
   if !failures.isEmpty then return failures
   -- The fresh audit builds the owned dependency in its copy: the original's output stays absent.
-  IO.FS.removeDirAll (support / ".lake" / "build")
+  Regula.Filesystem.removePath .directory (support / ".lake" / "build")
   failures := failures ++
     (← expect adopter (ownedAccepted "path/owned-fresh" (fresh := true)) #["--", "--fresh"])
   if ← (support / ".lake" / "build").pathExists then
@@ -1156,7 +1156,7 @@ private def pathForged (repo adopter : FilePath) : IO (Array String) := do
     s!"leanLibDir = {toJson (support / ".lake" / "build" / "lib" / "lean").toString |>.compress}\n\
       [[lean_lib]]"
   if ← (support / ".lake" / "build").pathExists then
-    IO.FS.removeDirAll (support / ".lake" / "build")
+    Regula.Filesystem.removePath .directory (support / ".lake" / "build")
   failures := failures ++ (← expect adopter (layout "path/owned-libdir-outside") #["--", "--fresh"])
   if ← (support / ".lake" / "build").pathExists then
     failures := failures.push "lake-lint/path/owned-libdir-outside: the fresh audit wrote the \
@@ -1245,7 +1245,7 @@ private def pathReserved (repo adopter : FilePath) : IO (Array String) := do
   failures := failures ++ (← gate "path/owned-reserved-name-first")
   IO.FS.writeFile adopterLakefile adopterConfiguration
   IO.FS.writeFile supportLakefile supportConfiguration
-  IO.FS.removeDirAll (support / "Regula")
+  Regula.Filesystem.removePath .directory (support / "Regula")
   -- A vendored package in the adopter's work tree that Lake loads under the checker's package name
   -- `regula`, with the same modified `Regula.Contract`: the name grants nothing.
   let vendor := adopter / "vendor"
@@ -1267,7 +1267,7 @@ private def pathReserved (repo adopter : FilePath) : IO (Array String) := do
   failures := failures ++ (← gate "path/vendored-regula-name")
   IO.FS.writeFile adopterLakefile adopterConfiguration
   writeJson vendorManifestPath vendorManifest
-  IO.FS.removeDirAll vendor
+  Regula.Filesystem.removePath .directory vendor
   -- An executable of the root package with root module `Main`, which the executable `auditApp` of
   -- the trusted `regula` also has: a trusted package's executable roots are not counted, so the
   -- incremental audit accepts it. An unused executable of the owned dependency with root module
@@ -1290,8 +1290,8 @@ private def pathReserved (repo adopter : FilePath) : IO (Array String) := do
   IO.FS.writeFile adopterLakefile adopterConfiguration
   IO.FS.writeFile manifestFile adopterManifest
   IO.FS.writeFile supportLakefile supportConfiguration
-  IO.FS.removeFile (adopter / "Main.lean")
-  IO.FS.removeFile (support / "Main.lean")
+  Regula.Filesystem.removePath .file (adopter / "Main.lean")
+  Regula.Filesystem.removePath .file (support / "Main.lean")
   return failures
 
 /-- The sixth part of the path-dependency controls (`pathSetup`, `pathOwned`): a second owned
@@ -1326,7 +1326,7 @@ private def pathEscapes (repo adopter : FilePath) : IO (Array String) := do
   failures := failures ++ (← expect adopter (ambiguous "path/owned-duplicate-provider" "Support"))
   IO.FS.writeFile adopterLakefile adopterConfiguration
   writeJson manifestPath projectManifest
-  IO.FS.removeDirAll second
+  Regula.Filesystem.removePath .directory second
   -- The owned dependency's configuration as a `lakefile.lean`, for the two controls below.
   let asLean (configuration : String) : IO Unit := do
     writeJson manifestPath <| projectManifest.setObjVal! "packages" <| toJson <|
@@ -1334,10 +1334,10 @@ private def pathEscapes (repo adopter : FilePath) : IO (Array String) := do
         if isSupportEntry item then
           item.setObjVal! "configFile" (toJson "lakefile.lean")
         else item
-    IO.FS.removeFile supportLakefile
+    Regula.Filesystem.removePath .file supportLakefile
     IO.FS.writeFile (support / "lakefile.lean") configuration
   let restore : IO Unit := do
-    IO.FS.removeFile (support / "lakefile.lean")
+    Regula.Filesystem.removePath .file (support / "lakefile.lean")
     IO.FS.writeFile supportLakefile supportConfiguration
     writeJson manifestPath projectManifest
   let differs (label : String) : Expectation := {
@@ -1363,7 +1363,7 @@ private def pathEscapes (repo adopter : FilePath) : IO (Array String) := do
   failures := failures ++
     (← expect adopter (differs "path/owned-target-swap-fresh") #["--", "--fresh"])
   restore
-  IO.FS.removeFile (support / "Aux.lean")
+  Regula.Filesystem.removePath .file (support / "Aux.lean")
   -- An owned dependency whose library root is `Regula.«<its own directory>/Payload»`, which a
   -- claimed module imports, with an axiom that nothing uses. The second component is an absolute
   -- path, so `Lean.modToFilePath` places the module's source and artifact at
@@ -1410,7 +1410,7 @@ private def pathEscapes (repo adopter : FilePath) : IO (Array String) := do
   -- The payloads' sources, and any compiled part a build left beside them.
   for directory in #[support, adopter] do
     for entry in ← directory.readDir do
-      if entry.fileName.startsWith "Payload." then IO.FS.removeFile entry.path
+      if entry.fileName.startsWith "Payload." then Regula.Filesystem.removePath .file entry.path
   -- The owned dependency's library selects its modules with `.submodules` of the anonymous name,
   -- the modules of its source directory `src`, and has no root: the glob names no module, so the
   -- audit's admission does not refuse it. Lake itself then takes every module name for the
@@ -1420,7 +1420,7 @@ private def pathEscapes (repo adopter : FilePath) : IO (Array String) := do
   let supportText ← IO.FS.readFile supportFile
   IO.FS.createDirAll (support / "src")
   IO.FS.writeFile (support / "src" / "Support.lean") supportText
-  IO.FS.removeFile supportFile
+  Regula.Filesystem.removePath .file supportFile
   asLean "import Lake\nopen Lake DSL\n\npackage build_lint_support\n\nlean_lib Support where\n  \
     srcDir := \"src\"\n  roots := #[]\n  globs := #[.submodules .anonymous]\n"
   failures := failures ++ (← assess {
@@ -1522,7 +1522,7 @@ one, so the same run's result document must record `regula` in `snapshot.depende
 `owned: true` and `RegulaCore.EditorPolicy` among the `dependencyModules` of an environment. -/
 private def ownedChecker (repo adopter : FilePath) : IO (Array String) := do
   BuildLintQualification.setup repo adopter
-  IO.FS.removeDirAll (adopter / ".git")
+  Regula.Filesystem.removePath .directory (adopter / ".git")
   mutate (adopter / "Widget.lean") "import Regula.Contract\n"
     "import Regula.Contract\nimport Regula.Linter\n"
   let label := "owned-checker/fresh"
@@ -1534,7 +1534,7 @@ private def ownedChecker (repo adopter : FilePath) : IO (Array String) := do
     #["--", "--fresh", "--json-out", "owned-checker.json"]
   unless failures.isEmpty do return failures
   let acceptance := (← readJson resultFile).getObjValD "acceptance"
-  IO.FS.removeFile resultFile
+  Regula.Filesystem.removePath .file resultFile
   let entries (value : Json) : Array Json := value.getArr?.toOption.getD #[]
   let dependencies := entries ((acceptance.getObjValD "snapshot").getObjValD "dependencies")
   unless dependencies.any (fun dependency =>
@@ -1556,7 +1556,7 @@ reaches the accepted result: Lake's lint dispatch itself builds only the driver.
 private def absentWorker (repo adopter : FilePath) : IO (Array String) := do
   BuildLintQualification.setup repo adopter "lake-lint-toml" #["Gadget.lean", "Gadget/Double.lean"]
     "lakefile.toml"
-  IO.FS.removeFile (repo / ".lake" / "build" / "bin" / "axiomGate")
+  Regula.Filesystem.removePath .file (repo / ".lake" / "build" / "bin" / "axiomGate")
   expect adopter (accepted "toml/absent-worker")
 
 /-- The first commands of an adopter on Lake's own templates, external boundaries all: the

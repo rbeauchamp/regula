@@ -115,7 +115,7 @@ private def configuration (paths : Array FilePath) : IO Json := do
 private def save (path : FilePath) (value : Json) : IO Unit := do
   let temporary := FilePath.mk (path.toString ++ ".pending")
   IO.FS.writeFile temporary (value.compress ++ "\n")
-  IO.FS.rename temporary path
+  Regula.Filesystem.replacePath temporary path
 
 /-- Invalidate the previous verdict before any campaign setup or timer acquisition. -/
 def beginAttempt (evidence : FilePath) (attempt : String) : IO Unit := do
@@ -758,7 +758,7 @@ def check (evidence : FilePath) (selection : Option (Array String))
     let expected := (← IO.FS.realPath scratch) / "slot"
     requireChecks [⟨"contained owned cleanup slot", (← IO.FS.realPath slot.root) == expected &&
       (← slot.root.symlinkMetadata).type == .dir⟩]
-    IO.FS.removeDirAll slot.root
+    Regula.Filesystem.removePath .directory slot.root
     return (finalFields, records)
   saveCompleted evidence finalFields records cleaned
   IO.println s!"rule example campaign: COMPLETED ({selected.size} selected rules; diagnostic \

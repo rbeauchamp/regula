@@ -2,7 +2,7 @@ import Lake
 import Lake.Load
 import Regula.Checker.Common
 import Regula.ToolchainProgram
-import Regula.Removal
+import Regula.Filesystem
 
 /-!
 # In-process Lake workspace loading
@@ -57,7 +57,12 @@ private def withLoaded {α : Type} (ws? : Option _root_.Lake.Workspace) (log : _
 `action`. The action runs in the same process, so it must not retain mutable
 workspace state beyond its return value. With `scrubSearchPath`, the inherited
 `LEAN_PATH` and `LEAN_SRC_PATH` are ignored, as for `scrubbedLeanPathEnv`. Setup may disable
-`resolveDependencies` to load only the root configuration without materializing dependencies. -/
+`resolveDependencies` to load only the root configuration without materializing dependencies.
+
+Lake's loader removes and replaces entries of the workspace itself, as `lake build` and
+`lake update` would there: the compiled configuration of each package, and the clones of its
+dependencies. Those removals act on the workspace that the caller asked Lake to load, and they rest
+on its own contents, which its adopter trusts as Lake does (`Regula.Removal.libraryRemovals`). -/
 def withRootWorkspace {α : Type} (repo : FilePath) (action : _root_.Lake.Workspace → IO α)
     (scrubSearchPath := false) (resolveDependencies := true) : IO α := do
   let config ← loadConfig repo scrubSearchPath
@@ -69,19 +74,20 @@ def withRootWorkspace {α : Type} (repo : FilePath) (action : _root_.Lake.Worksp
 to `action`, after refusing a root package that declares a dependency. For a root that declares
 none, `Lake.loadWorkspace` loads no other package, so `action` gets the packages that
 `withRootWorkspace` gives it. The compiled code of this function calls no loader that resolves or
-materializes a dependency, which removes directories (`Regula.Removal.rawRemovals`).
+materializes a dependency, which removes directories (`Regula.Removal.checkProgram`).
 
 Its prerequisite: before the loader runs, it refuses when `.lake` or `.lake/config` below the
-checkout is there and is not a directory at its own place (`Regula.Removal.requireOwnDirectory`).
-It also refuses when the directory of the root package's compiled configuration
-(`Lake.LoadConfig.configDir`, `.lake/config/0`) is not such a directory, or has an entry that is a
-symbolic link (`Regula.Removal.requireNoLinkedEntries`). That directory is the one where the loader
-removes and writes files, the configuration lock among them (`Lake/Load/Lean/Elab.lean:185-187`).
-It removes the stale `lakefile.olean` and the trace (`:244`, `:262`), and opens the lock and the
-trace for writing (`:207`, `:223`, `:294`). `Lean.writeModule` writes the new `lakefile.olean` and
-its siblings (`:256`) through `<file>.tmp.<pid>`, opened with `std::ofstream`
-(`src/library/module.cpp:311-314`). An open of an existing file for writing follows a final link, so
-with this check each file that the loader writes there is the checkout's own. -/
+checkout is there and is not a directory at its own place
+(`Regula.Filesystem.requireOwnDirectory`). It also refuses when the directory of the root
+package's compiled configuration (`Lake.LoadConfig.configDir`, `.lake/config/0`) is not such a
+directory, or has an entry that is a symbolic link (`Regula.Filesystem.requireNoLinkedEntries`).
+That directory is the one where the loader removes and writes files, the configuration lock among
+them (`Lake/Load/Lean/Elab.lean:185-187`). It removes the stale `lakefile.olean` and the trace
+(`:244`, `:262`), and opens the lock and the trace for writing (`:207`, `:223`, `:294`).
+`Lean.writeModule` writes the new `lakefile.olean` and its siblings (`:256`) through
+`<file>.tmp.<pid>`, opened with `std::ofstream` (`src/library/module.cpp:311-314`). An open of an
+existing file for writing follows a final link, so with this check each file that the loader
+writes there is the checkout's own. -/
 def withRootPackage {α : Type} (repo : FilePath) (action : _root_.Lake.Workspace → IO α) :
     IO α := do
   let config ← loadConfig repo false
@@ -89,8 +95,8 @@ def withRootPackage {α : Type} (repo : FilePath) (action : _root_.Lake.Workspac
   let refuse {β : Type} (error : IO.Error) : IO β := throw <| IO.userError
     s!"lake-workspace-load-failed: nothing was loaded: {error}"
   for directory in [lake, lake / "config"] do
-    try Regula.Removal.requireOwnDirectory directory catch error => refuse error
-  try Regula.Removal.requireNoLinkedEntries config.configDir catch error => refuse error
+    try Regula.Filesystem.requireOwnDirectory directory catch error => refuse error
+  try Regula.Filesystem.requireNoLinkedEntries config.configDir catch error => refuse error
   let load : _root_.Lake.LoggerIO _root_.Lake.Workspace := _root_.Lake.loadWorkspaceRoot config
   let (ws?, log) ← load.captureLog
   withLoaded ws? log fun ws => do
@@ -239,15 +245,26 @@ a module, so a build that needs it elaborates it again and records its log. A li
 modules Lake cannot list, such as one whose glob names a directory that does not exist yet,
 contributes none, as it does to a `lake build` of other targets; an audit lists every module of
 each claimed library through Lake (`Lake.surfaceInventory`) before it builds, and fails if it
-cannot. -/
+cannot.
+
+When it finds such a trace, it resolves the root package's build directory once
+(`Regula.Filesystem.ownRoot`), and removes each such trace at the path that Lake gives
+(`Lake.Module.traceFile`) with that real path in place of the build directory. So a `.lake` that
+the adopter made a symbolic link does not make the removal refuse. -/
 def dropRestoredTraces (ws : _root_.Lake.Workspace) : IO Unit := do
-  let drop (mod : _root_.Lake.Module) : IO Unit := do
-    if let .ok text ← (IO.FS.readFile mod.traceFile).toBaseIO then
-      if restoredTrace text then IO.FS.removeFile mod.traceFile
+  let mut modules : Array _root_.Lake.Module := #[]
   for lib in ws.root.leanLibs do
-    if let .ok modules ← lib.getModuleArray.toBaseIO then
-      for mod in modules do drop mod
-  for exe in ws.root.leanExes do drop exe.root
+    if let .ok found ← lib.getModuleArray.toBaseIO then modules := modules ++ found
+  modules := modules ++ ws.root.leanExes.map (·.root)
+  let restored ← modules.filterM fun mod => do
+    match ← (IO.FS.readFile mod.traceFile).toBaseIO with
+    | .ok text => pure (restoredTrace text)
+    | .error _ => pure false
+  if restored.isEmpty then return
+  let build ← Regula.Filesystem.ownRoot ws.root.buildDir
+  for mod in restored do
+    Regula.Filesystem.removeOwn .file
+      (mod.filePath (build / ws.root.config.leanLibDir.normalize) "trace")
 
 /-- Whether `text`, the content of a module's Lake trace file, records an elaboration: Lake can
 read it as a trace, and it does not record a restore from the artifact cache. Lake v4.34.1 writes

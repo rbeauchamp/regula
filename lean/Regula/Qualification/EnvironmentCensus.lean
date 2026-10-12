@@ -18,7 +18,7 @@ open scoped Regula.Report
 private def atomicWrite (path : FilePath) (value : Json) : IO Unit := do
   let temporary := path.addExtension "pending"
   IO.FS.writeFile temporary (value.compress ++ "\n")
-  IO.FS.rename temporary path
+  Regula.Filesystem.replacePath temporary path
 
 private def save (attempt : String) (path : FilePath) (packets records : Array Json)
     (status : String) : IO Unit :=

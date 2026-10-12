@@ -303,8 +303,9 @@ private def runCase (repo adopter : FilePath) (test : Case) : IO (Array String) 
   failures := failures ++ negative test (← build adopter)
   if test.repeatCachedFailure then failures := failures ++ negative test (← build adopter)
   IO.FS.writeFile path original
-  IO.FS.removeDirAll (adopter / ".lake" / "build")
-  if test.support.isSome then IO.FS.removeDirAll (adopter / "support" / ".lake" / "build")
+  Regula.Filesystem.removePath .directory (adopter / ".lake" / "build")
+  if test.support.isSome then
+    Regula.Filesystem.removePath .directory (adopter / "support" / ".lake" / "build")
   failures := failures ++ positive s!"{test.name}/fresh-restored" (← build adopter)
   IO.println s!"build-lint control {test.name}: completed (positive/mutation/fresh restoration)"
   (← IO.getStdout).flush
@@ -332,7 +333,7 @@ private def disabledControl (repo adopter : FilePath) : IO (Array String) := do
     name := "reenabled-cached-axiom", before := "", after := "",
     expected := #["project-axiom", "disabledAssumption"] } (← build adopter)
   IO.FS.writeFile source original
-  IO.FS.removeDirAll (adopter / ".lake" / "build")
+  Regula.Filesystem.removePath .directory (adopter / ".lake" / "build")
   failures := failures ++ positive "reenabled/fresh-restored" (← build adopter)
   return failures
 

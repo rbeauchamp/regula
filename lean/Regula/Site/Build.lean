@@ -2,7 +2,7 @@ import Regula.Qualification.RuleExamples
 import Regula.Checker.ResultProtocol
 import RegulaCore.SiteDocs
 import RegulaCore.SiteTheme
-import Regula.Removal
+import Regula.Filesystem
 
 /-! # Rule-reference site builder
 
@@ -29,13 +29,13 @@ Process, filesystem, Git, network and Verso observations are trusted operational
 decisions (editions, releases and routes, escaping, filters, diffs, links, page structure, colour
 contrast) are proved in `RegulaCore.Edition`, `RegulaCore.Site`, `RegulaCore.SitePage`,
 `RegulaCore.SiteDocs` and `RegulaCore.SiteTheme`.
-Each directory or file that the builder removes is removed by `Regula.Removal.removeOwn` or
-`removeEntry`, only when a read that follows no link finds an entry of its kind at its own place
-(`Regula.Removal.removal_remove_iff`); in every other case the build stops with nothing removed.
-`Regula.Site.Main` fails to build when its `main` or an initializer reaches another removal than
-the single-file removals of the libraries and the writing of Lake's compiled configuration that
+Each directory or file that the builder removes is removed by `Regula.Filesystem.removeOwn` or
+`Regula.Filesystem.removeFound`, only when a read that follows no link finds an entry of its kind
+at its own place (`Regula.Removal.removal_remove_iff`); in every other case the build stops with
+nothing removed. `Regula.Site.Main` fails to build when its `main` or an initializer reaches
+another removal than the observer's and those of Lean's and Lake's libraries that
 `Regula.Removal.libraryRemovals` lists, a removal being a call that removes or replaces an entry
-(`Regula.Removal.rawRemovals`).
+(`Regula.Removal.checkProgram`).
 Workspace paths of the
 disposable qualification projects are displayed as `<example>`, `<scratch>` and `<regula>`; the
 exact records remain in the corpus export this build consumed.
@@ -318,7 +318,7 @@ an unreadable archive, a symbolic link, a copy without a home page, and a copy w
 does not record a clean build of `v` for this site. -/
 def extractRelease (root : FilePath) (v : ReleaseVersion) : IO (List (String × ByteArray)) := do
   let dir := releaseDirectory root / v.spelling
-  Regula.Removal.removeOwn .directory dir
+  Regula.Filesystem.removeOwn .directory dir
   IO.FS.createDirAll dir
   let archive := releaseDirectory root / releaseAsset v
   let extracted ← run root "tar" #["-xzf", archive.toString, "-C", dir.toString]
@@ -402,7 +402,7 @@ stylesheet (`Regula.Site.stylesheet`) as `website/Generated/regula.css`, which t
 package copies to each edition's root. -/
 def generate (root : FilePath) (g : Generated) : IO Unit := do
   let out := root / "website/Generated"
-  Regula.Removal.removeOwn .directory out
+  Regula.Filesystem.removeOwn .directory out
   let top := root / "website/Generated.lean"
   IO.FS.writeFile top (← IO.ofExcept (homePage g.ident))
   IO.FS.createDirAll out

@@ -257,7 +257,7 @@ def checkerPackageLibDir : IO (Option FilePath) := do
     return some libDir
   return none
 
-/-- A fresh scratch directory under `Regula.Scratch.directory repo`
+/-- A fresh scratch directory under the real path of `Regula.Scratch.directory repo`
 (`repo/.lake/regula-scratch`), removed on return; orphans of dead runs are reclaimed
 (`Regula.Scratch`). -/
 def withScratch {α : Type} (repo : FilePath) (stem : String)

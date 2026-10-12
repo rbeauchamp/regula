@@ -1,3 +1,4 @@
+import Regula.Removal
 import Regula.Checker.Documentation
 import Regula.Checker.AxiomGate
 import Regula.Checker.ResultProtocol
@@ -247,3 +248,8 @@ unsafe def main (args : List String) : IO UInt32 := do
           return productionIncomplete
       return code
   | _ => ruleExamplesEntry (Regula.Checker.RuleExamples.Production.parse? args)
+
+-- The removals that the compiled code of `main`, and of the initializers of the modules it links,
+-- reaches are the filesystem observer's and those that `Regula.Removal.libraryRemovals` lists: the
+-- build of this module fails otherwise (`Regula.Removal.checkProgram`).
+run_cmd Regula.Removal.checkProgram

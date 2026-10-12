@@ -1,4 +1,5 @@
 import RegulaCore.Toolchain
+import Regula.Filesystem
 
 /-! # Selected compiler identity
 
@@ -52,7 +53,7 @@ The embedded observer is also the collector's source; Lake tracks it as a librar
 It runs as a standalone program in an automatically removed temporary directory. -/
 def probe (root : FilePath) (selector : String) : IO Identity := do
   let lean ← selectedLean root selector
-  IO.FS.withTempDir fun scratch => do
+  Regula.Filesystem.withOwnTempDir fun scratch => do
     let source := scratch / "Identity.lean"
     IO.FS.writeFile source ((include_str "CompilerObservation.lean") ++ "\n\
       def main : IO Unit := do\n\

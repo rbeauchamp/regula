@@ -64,6 +64,26 @@ theorem triple_iff (x : EStateM ε σ α) (P : σ → Prop) (Q : α → σ → P
 /-- A run of `throw e` fails with `e` and leaves the state. -/
 theorem run_throw (e : ε) (s : σ) : (throw e : EStateM ε σ α).run s = .error e s := rfl
 
+/-- An outcome that satisfies `Q` and `E` satisfies each pair that they imply. -/
+theorem Satisfies.mono {outcome : EStateM.Result ε σ α} {Q Q' : α → σ → Prop}
+    {E E' : ε → σ → Prop} (holds : Satisfies outcome Q E) (results : ∀ a s, Q a s → Q' a s)
+    (errors : ∀ e s, E e s → E' e s) : Satisfies outcome Q' E' := by
+  cases outcome with
+  | ok a s => exact results a s holds
+  | error e s => exact errors e s holds
+
+/-- A run of `x >>= f` satisfies `Q` and `E` when the run of `x` gives a result of `P` or an error
+of `E`, and the run of `f a` from each result `a` of `P` and the state it ends in satisfies `Q` and
+`E`. -/
+theorem Satisfies.bind {x : EStateM ε σ α} {f : α → EStateM ε σ β} {s : σ} {P : α → σ → Prop}
+    {Q : β → σ → Prop} {E : ε → σ → Prop} (first : Satisfies (x.run s) P E)
+    (rest : ∀ a s', P a s' → Satisfies ((f a).run s') Q E) : Satisfies ((x >>= f).run s) Q E := by
+  rw [EStateM.run_bind]
+  revert first
+  cases x.run s with
+  | ok a s' => exact rest a s'
+  | error e s' => exact id
+
 /-- A run of `tryCatchThe ε x handle` gives the result of `x`, or runs `handle` on the error of
 `x` from the state where `x` failed: the state is not restored, which is what the default
 `Backtrackable` instance of a state type does. -/

@@ -255,7 +255,7 @@ checker behavior:
 | `history` | [Source-bound replacement history qualification](proofs-and-boundaries.md#producers). |
 | `self-lint` | This repository's own `REGULA_ORDINARY_LAKEFILES=1 lake lint` through the `regula/lint` driver, in the root and `audit/` packages ([repository conformance](#repository-conformance)). |
 | `self-lint-default` | The root package's `lake lint` without `REGULA_ORDINARY_LAKEFILES`, so with the audit-build marker that an adopter gets by default ([repository conformance](#repository-conformance)). |
-| `self-audit`, `self-audit 1/4` to `self-audit 4/4` | Operational self-audit of the excluded `Regula` library, and the check for one-sided `Json` comparisons in each library except `Fixtures` ([repository conformance](#repository-conformance)). A shard audits a quarter of the modules, and the four shards together audit all of them. |
+| `self-audit`, `self-audit 1/4` to `self-audit 4/4` | Operational self-audit of the excluded `Regula` library, and the check for one-sided `Json` comparisons in each library except `Fixtures` ([repository conformance](#repository-conformance)). A shard audits a quarter of the modules, and the four shards together audit all of them. The shard `self-audit 4/4` and the single run also check that each program of the package runs the removal check (`qualify observers`, [proofs and boundaries](proofs-and-boundaries.md#the-acceptance-boundary)). |
 | `rule-examples`, `rule-examples 1/3` to `rule-examples 3/3` | [Source-owned corpus and diagnostic demonstrations](architecture.md#rule-examples); a shard runs a third of the rules. |
 | `input-inventory` | Root additions and Markdown edits or removals during the prerequisite build of the checker, an actual new-module build and restored fresh controls (`qualify input-inventory`). |
 | `environment-census` | This repository's claimed environments and their mutations (`qualify environments`). |
@@ -563,6 +563,12 @@ four shards in turn. Thus each shard audits a quarter of each list. The theorem
 `SelfAudit.selected_cover` states that the four selections together are a rearrangement of the
 list that the single run audits. The dogfood workflow runs the four shards, and the local command
 `diagnostics self-audit` runs all of them in one invocation.
+
+The shard `self-audit 4/4` also builds each library of the package except `Fixtures`, and the
+executable `auditApp`. Then it runs `lake exe qualify observers`, which refuses unless each
+program records its removal check. The single run does the same. On the slower CI runners, the
+shard 4/4 has the shortest audit of the four. Thus this check runs there, and not in the first
+acceptance step.
 
 Before its `lake lint` in the root package, `diagnostics self-lint` builds the `lint` driver, its
 worker `axiomGate` and the claimed targets in one `lake build`. Lake's lint dispatch, the driver

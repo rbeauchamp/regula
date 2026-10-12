@@ -1,4 +1,5 @@
 import Lake.Config.Defaults
+import Regula.Filesystem
 
 /-! # Owned scratch directories
 
@@ -17,8 +18,13 @@ there. A process that dies, for example at `scripts/verify.sh`'s SIGKILL deadlin
 remove its directory, but the kernel releases its lock. So whenever the lock can be taken
 exclusively, no scratch owner is alive and every marked directory is an orphan; the next
 scratch user removes them, then their markers, before creating its own. Nothing else is
-removed: no unmarked entry, and nothing outside Regula's directory. File locking, exclusive
-creation, process death and directory removal are trusted operating-system effects.
+removed: no unmarked entry, and nothing outside Regula's directory. Each removal is
+`Regula.Filesystem.removeOwn` below the real path of Regula's directory
+(`Regula.Filesystem.ownRoot`), so a symbolic link where a directory or marker is expected is
+refused, not followed, while a `.lake` that the adopter made a link is not. The path that
+`withScratch` gives its action is below that real path too, so each removal and move that the
+action decides below it is decided there. File locking, exclusive creation and process death are
+trusted operating-system effects.
 
 A scratch user that reclaimed converts its exclusive lock to a shared one, without releasing it
 first. Safety does not depend on the conversion: `flock(2)` does not promise that it is atomic,
@@ -59,8 +65,10 @@ private def suffix : IO String := do
 private def kind? (path : FilePath) : IO (Option IO.FS.FileType) := do
   try return some (← path.symlinkMetadata).type catch _ => return none
 
-/-- Remove every marked directory directly under `dir`, then its marker, never following a
-link. The caller holds the scratch lock exclusively. A failed removal is reported, not fatal. -/
+/-- Remove every marked directory directly under `dir`, the real path of Regula's scratch
+directory (`Regula.Filesystem.ownRoot`), then its marker, never following a link
+(`Regula.Filesystem.removeOwn`). The caller holds the scratch lock exclusively. A failed removal
+is reported, not fatal. -/
 private def reclaim (dir : FilePath) : IO Unit := do
   let mut reclaimed := 0
   for entry in ← dir.readDir do
@@ -71,18 +79,19 @@ private def reclaim (dir : FilePath) : IO Unit := do
       if (← kind? entry.path) == some .file then
         match ← kind? path with
         | some .dir =>
-          IO.FS.removeDirAll path
-          IO.FS.removeFile entry.path
+          Regula.Filesystem.removeOwn .directory path
+          Regula.Filesystem.removeOwn .file entry.path
           reclaimed := reclaimed + 1
-        | none => IO.FS.removeFile entry.path
+        | none => Regula.Filesystem.removeOwn .file entry.path
         | some _ => pure ()
     catch error =>
       IO.eprintln s!"scratch: could not reclaim {path}: {error}"
   if reclaimed > 0 then
     IO.eprintln s!"scratch: reclaimed {reclaimed} orphaned scratch directories under {dir}"
 
-/-- Run `action` in a fresh, marked scratch directory under `directory root` and remove it,
-then its marker, on normal or exceptional return, holding the scratch lock shared throughout.
+/-- Run `action` in a fresh, marked scratch directory under the real path of `directory root`
+(`Regula.Filesystem.ownRoot`), given by its path below that real path, and remove it, then its
+marker, on normal or exceptional return, holding the scratch lock shared throughout.
 When no scratch owner is alive, orphans are reclaimed first under the exclusive lock, which is
 then converted to the shared one without an `unlock` between them, so that on macOS the
 conversion wakes every waiter; on Windows, where a shared lock would stack over the exclusive
@@ -91,8 +100,7 @@ releases the lock. Returns the value and the removed directory's path; the path 
 only after its removal returned. Random naming is not a logical freshness proof. -/
 def withScratch {α : Type} (root : FilePath) (stem : String) (action : FilePath → IO α) :
     IO (α × FilePath) := do
-  let dir := directory root
-  IO.FS.createDirAll dir
+  let dir ← Regula.Filesystem.ownRoot (directory root)
   let lock ← IO.FS.Handle.mk (dir / lockName) .append
   if ← lock.tryLock then
     try reclaim dir catch error =>
@@ -108,8 +116,8 @@ def withScratch {α : Type} (root : FilePath) (stem : String) (action : FilePath
     discard <| IO.FS.Handle.mk marker .writeNew
     IO.FS.createDir path
     let value ← try action path finally
-      IO.FS.removeDirAll path
-      IO.FS.removeFile marker
+      Regula.Filesystem.removeOwn .directory path
+      Regula.Filesystem.removeOwn .file marker
     return (value, path)
   finally
     lock.unlock
