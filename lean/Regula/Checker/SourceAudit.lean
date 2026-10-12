@@ -246,9 +246,10 @@ private def compileIn (repo scratch : FilePath) (spec : SourceSpec)
     -- transcript use, so the module's private names agree across all three.
     let args := warningArgs ++ #["-R", scratch.toString,
       "-o", oleanPath.toString, "-i", ileanPath.toString, sourcePath.toString]
-    -- The worker sees only the workspace's own search path: an import that the
-    -- fresh claimed-surface build did not produce fails here instead of
-    -- resolving from the invoking checkout's inherited `LEAN_PATH`.
+    -- The worker sees only the workspace's own search path: an import of a
+    -- root-package module fails here unless the workspace's own build output
+    -- provides it, instead of resolving from the invoking checkout's inherited
+    -- `LEAN_PATH`.
     let compiler ← if insideLakeEnv then do
         let some path ← IO.getEnv "LEAN"
           | throw <| IO.userError "Lake batch environment has no LEAN executable"
