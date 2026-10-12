@@ -144,11 +144,11 @@ the original claimed library targets, preserving their custom facets, and each c
 executable's actual root `leanArts` facet. If preflight clears, it builds every original
 claimed target, including the executable links, before full inspection. Only that complete
 build, run with Lake's failure level at `warning`, reaches `Acceptance.buildObservation`. Its
-observation is accepted exactly when the build ran at that failure level, exited 0 and no
-required job logged compiler output that is not a Lean message (`buildObservation_ok_iff`).
-Without the audit-build
-marker, it also requires a record of `weakLeanArgs` for each claimed module that the build
-replayed from before the run (`mem_reusedModules_iff`). The trace file of that module must hold
+observation is accepted exactly when these conditions hold (`buildObservation_ok_iff`). The
+build ran at that failure level and exited 0, and no required job logged compiler output that is
+not a Lean message. Without the audit-build marker, acceptance also requires a record of
+`weakLeanArgs` for each claimed module that the build replayed from before the run
+(`mem_reusedModules_iff`). The trace file of that module must hold
 the record of its own library: the package, the library and its current `weakLeanArgs`
 (`Lake.traceRecords_ownRecord_iff`). A record of a different library does not count.
 Lake's module trace omits these arguments. Regula's `lakefile.lean` declares an `extraDep` facet
