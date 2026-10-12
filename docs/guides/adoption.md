@@ -948,8 +948,9 @@ audit refuses a `decides` entry that names its own surface or no claimed surface
   record, a build reruns a module after you change them. Thus a build without the audit-build
   marker can settle [RG2003] from replayed messages. The first build after you upgrade to this
   Regula rebuilds the modules of your root package and of Regula one time.
-- If your root package declares an `extraDep` facet, Regula's facet replaces it. Move that work
-  to `extraDepTargets` or `needs`, which Lake's own facet runs.
+- If your root package declares an `extraDep` library facet, Regula's facet replaces it.
+  The [facet report](proofs-and-boundaries.md#replaced-root-library-facets) in `lake lint` and the audit names that declaration.
+  Move that work to `extraDepTargets` or `needs`, which Lake's own facet runs.
 - A dependency that Lake resolves after Regula can declare an `extraDep` facet that replaces
   Regula's. Lake resolves the `require` lines of a package from the last to the first, and then
   the dependencies of those packages. So a build without the marker counts no record when a

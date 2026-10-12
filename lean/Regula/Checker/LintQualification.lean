@@ -62,6 +62,43 @@ private def expect (cwd : FilePath) (e : Expectation) (args : Array String := #[
     (env : Array (String × Option String) := #[]) : IO (Array String) := do
   assess e (← lint cwd args env)
 
+/-- Controls of Lake's compiled-configuration and process-output boundary. The public
+`--explain-config` path runs the same facet report as an audit without running its proof stages.
+The census line proves that the negative control ran the decision. A named root facet is
+reported; a different facet and a text-only decoy are not. Regula's own root facet is not
+reported as replaced by its own declaration. These observations do not prove Lake's loader. -/
+private def facetReport (repo adopter : FilePath) : IO (Array String) := do
+  BuildLintQualification.setup repo adopter
+  let lakefile := adopter / "lakefile.lean"
+  let original ← IO.FS.readFile lakefile
+  let args := #["--", "--explain-config"]
+  let checked := "regula facet report: checked "
+  let empty := "0 root extraDep declarations replaced by Regula"
+  let displaced := "root package 'build_lint_adopter' library facet 'adopterPrerequisite'"
+  IO.FS.writeFile lakefile (original ++ "\n\
+    /-- A facet replaced by a later root declaration, before dependencies load. -/\n\
+    @[«library_facet»] def earlierPrerequisite : LibraryFacetDecl :=\n\
+      .mk LeanLib.extraDepFacet LeanLib.extraDepFacetConfig\n\
+    /-- A prerequisite represented by the root's library facet. -/\n\
+    @[«library_facet»] def adopterPrerequisite : LibraryFacetDecl :=\n\
+      .mk LeanLib.extraDepFacet LeanLib.extraDepFacetConfig\n")
+  let positive : Expectation := {
+    label := "facet-report/replaced", exitCode := 2,
+    contains := #[checked, "1 root extraDep declarations replaced by Regula", displaced,
+      "is replaced by Regula's 'weakLeanArgsTrace'", "Its build step does not run",
+      "Move that work to extraDepTargets or needs"],
+    excludes := #["library facet 'earlierPrerequisite'"] }
+  let mut failures ← expect adopter positive args
+  IO.FS.writeFile lakefile (original ++ "\n\
+    -- @[«library_facet»] def adopterPrerequisite uses LeanLib.extraDepFacet\n\
+    library_facet other : Unit := pure Job.nil\n")
+  let negative : Expectation := {
+    label := "facet-report/not-replaced", exitCode := 2,
+    contains := #[checked, empty], excludes := #[displaced, "Its build step does not run"] }
+  failures := failures ++ (← expect adopter negative args)
+  failures := failures ++ (← expect repo { negative with label := "facet-report/dogfood" } args)
+  return failures
+
 /-- The adopter's `axiomGate --file` audit of `file` against kernel-only, run through Lake. -/
 private def fileAudit (cwd : FilePath) (file : String) (args : Array String := #[]) :
     IO ProcessResult :=
@@ -2105,6 +2142,7 @@ private def queuedGroups (probes : Std.Mutex Unit) : List Group :=
     (numbered 4, "path-escapes", pathEscapes),
     (numbered 2, "empty-facets", emptyFacetsWarning),
     (numbered 0, "path-reserved", pathReserved),
+    (numbered 0, "facet-report", facetReport),
     (numbered 3, "dependency-cache", dependencyCachedWarning),
     (numbered 3, "escaped-name", escapedNameWarning),
     (numbered 1, "guard", compilerGuard)]

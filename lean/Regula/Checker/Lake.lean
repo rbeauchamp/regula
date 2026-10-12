@@ -1,6 +1,7 @@
 import Regula.Checker.Common
 import Regula.Checker.Manifest
 import Regula.Checker.Workspace
+import Regula.Checker.FacetReport
 import RegulaCore.EditorPolicy
 import Lake.CLI.Build
 
@@ -374,7 +375,11 @@ def surfaceInventoryOf (repo : FilePath) (ws : _root_.Lake.Workspace) : IO Surfa
 /-- The inventory (`surfaceInventoryOf`) of the workspace that Lake loads, with its dependencies, for
 the project at `repo`. -/
 def surfaceInventory (repo : FilePath) : IO SurfaceInventory :=
-  Workspace.withRootWorkspace repo (surfaceInventoryOf repo)
+  Workspace.withRootWorkspace repo fun ws => do
+    let some checker ← checkerPackageDir
+      | throw <| IO.userError "facet-report: cannot locate the running checker's package"
+    FacetReport.report ws checker
+    surfaceInventoryOf repo ws
 
 /-- The inventory (`surfaceInventoryOf`) of the root package of the project at `repo`, which must
 declare no dependency (`Workspace.withRootPackage`). It is the inventory that `surfaceInventory`
@@ -1018,7 +1023,7 @@ theorem traceRecords_ownRecord_iff (library : _root_.Lake.LeanLib) (text : Strin
 
 /-- The name of the `extraDep` facet declaration that Regula's own `lakefile.lean` ships, which
 mixes each root library's `weakArgsCaption` into its job's trace. -/
-def regulaFacetName : Name := `weakLeanArgsTrace
+def regulaFacetName : Name := FacetReport.regulaFacetName
 
 /-- The name of the encoder that the facet of Regula's `lakefile.lean` runs to write its record: a
 copy of `weakArgsRecordJson`. The file cannot import Regula's modules, since Lake loads the
