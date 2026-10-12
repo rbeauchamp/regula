@@ -294,12 +294,14 @@ def main : IO Unit := do
   require (!succeeded (SourceTexts.expand (written.setObjVal! SourceTexts.tableKey
     (toJson #[(0 : Nat)])))) "stored text that is not a string"
   -- Execution accounts stored once. `SharedExecution.expand_intern` and `read_write` prove that
-  -- the reader recovers every document, whatever the writer proposes; these observe what they
-  -- do not cover: that the writer's proposal is kept for accounts of the form the collector
-  -- produces, built or parsed, so two roots store what both reach once, that the reader returns
-  -- the built account from a parsed shared form, whose object trees are not the written ones,
-  -- what the writer does with an account of another form or without roots, and what the reader
-  -- does with a malformed one.
+  -- the reader recovers every document, whatever the writer proposes, and
+  -- `ResultProtocol.admitDocument_parse_encodeDocument` that the parse of a result file's text
+  -- is the value written and that admission returns `JsonCanon.canon` of the document given.
+  -- These observe what they do not cover: that the writer's proposal is kept for accounts of the
+  -- form the collector produces, built or parsed, so two roots store what both reach once, that a
+  -- built account is already in the parser's form (`JsonCanon.canon` of it is itself, which a
+  -- parse of its text shows), so the reader returns it unchanged, what the writer does with an
+  -- account of another form or without roots, and what the reader does with a malformed one.
   let evidence ← IO.ofExcept
     (RegulaPolicy.admitBoundaryEvidence .partialComputation .trusted none none none)
   let account (root : Name) (visits : Array RegulaPolicy.ExecutionVisit) :

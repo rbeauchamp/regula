@@ -90,10 +90,13 @@ full (`SharedExecution.restore?` states what each written value stands for); eve
 of each root is recoverable either way. Readers of this checker take the document through
 `SharedExecution.read`, which rebuilds each root's account, so the document they see holds an
 array of complete root accounts as before. `SharedExecution.read_write` proves that `read` of
-the `Json` value the writer wrote is the document the writer was given. A reader holds the parse
-of the file instead, which has that value's members but in general not its object trees; that
-`read` of it returns a document with the members of the writer's is observed (`RegistryChecks`,
-the `history` qualification), not proved. The writer treats every member named `execution` this
+the `Json` value the writer wrote is the document the writer was given. A reader parses the file
+with `PolicyCodec.parse`, and `admitDocument_parse_encodeDocument` proves that the parse of the
+text `encodeDocument` gives is that value and that admission returns `JsonCanon.canon` of the
+given document, which has the given document's members when its object trees are search trees
+(`JsonCanon.Regular.canon_agree`). That a file read returns the text written, and the compiled
+core code that the writer and the readers run, are trusted (`writeDocument`,
+`admitDocument_parse_encodeDocument`). The writer treats every member named `execution` this
 way, so the acceptance account's per-environment counts, which earlier schemas also named
 `execution`, are `executionSummary` (`accountJson`); every other member of that name is a string
 or `null`, which the writer leaves as it is. A declaration of a report and a declaration a
