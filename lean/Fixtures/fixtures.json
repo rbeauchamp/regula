@@ -1021,6 +1021,13 @@
    "fixtures_pair_reference [exported-implementation] correspondence=trusted replacement=fixtures_pair_implementation"
   ]
  },
+ "Fixtures.Positive.SelfExportedExtern": {
+  "expect": "pass",
+  "claim": "standard-logical",
+  "output": [
+   "fixtures_self_reference [external] correspondence=trusted"
+  ]
+ },
  "Fixtures.Positive.CycleAxiomTable": {
   "expect": "pass",
   "claim": "standard-logical",

@@ -108,7 +108,7 @@ inductive BoundaryKind where
   value, and its compiled body is a stub that is never run. -/
   | «initializedValue»
   /-- An `@[extern]` constant outside the toolchain whose C symbol is the `@[export]` name of one
-  Lean declaration: its compiled calls run that declaration's compiled code. The boundary is
+  declaration with emitted Lean code: its compiled calls run that code. The boundary is
   trusted, never checked: no checked evidence of this kind exists (`CheckedEvidence`). -/
   | «exportedImplementation»
   deriving Repr, DecidableEq, Hashable, Inhabited
