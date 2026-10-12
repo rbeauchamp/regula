@@ -5065,7 +5065,8 @@ statement that does not use its checked operation.
 ### The file system
 
 `RegulaCore.Filesystem` gives the model of the file system and its assumptions.
-`Regula.Filesystem.observer` is its observer for the programs of the package. Each `lean` source
+`Regula.Filesystem.observer` is its observer for the programs of the package.
+`RegulaCore.Removal` gives the last three checked operations of the table. Each `lean` source
 below is a file of the Lean 4 repository at `v4.34.1`, below `src`.
 
 | Declaration | Status | Contract | Sources |
@@ -5077,6 +5078,9 @@ below is a file of the Lean 4 repository at `v4.34.1`, below `src`.
 | `Renames` | trusted | `rename` keeps the entry at each path in the frame of its two paths (`Model.Kept`), when it succeeds and when it fails. The source is at its real path, and the destination has a parent at its real path. | [`Init/System/IO.lean#L903-L909`](https://github.com/leanprover/lean4/blob/v4.34.1/src/Init/System/IO.lean#L903-L909), [`runtime/io.cpp#L1209-L1238`](https://github.com/leanprover/lean4/blob/v4.34.1/src/runtime/io.cpp#L1209-L1238), POSIX.1-2024 `rename()`, POSIX.1-2024 `<sys/stat.h>` |
 | `removeDirectory` | checked | After a removal that succeeds, no entry is at the path: `removeDirectory_gone`, which uses only `ReadsEntry`. | [`Init/System/IO.lean#L1330-L1342`](https://github.com/leanprover/lean4/blob/v4.34.1/src/Init/System/IO.lean#L1330-L1342) |
 | `removeEntry` | checked | After a removal that succeeds, no entry is at the path: `removeEntry_gone`, which uses only `ReadsEntry`. | [`Init/System/IO.lean#L881-L886`](https://github.com/leanprover/lean4/blob/v4.34.1/src/Init/System/IO.lean#L881-L886) |
+| `removeOwnWith` | checked | After a removal that succeeds, no entry is at the path: `removeOwnWith_gone`, which uses only `ReadsEntry`. | [`Init/System/IO.lean#L1330-L1342`](https://github.com/leanprover/lean4/blob/v4.34.1/src/Init/System/IO.lean#L1330-L1342), [`Init/System/IO.lean#L881-L886`](https://github.com/leanprover/lean4/blob/v4.34.1/src/Init/System/IO.lean#L881-L886) |
+| `removeFoundWith` | checked | After a removal that succeeds, no entry is at the path: `removeFoundWith_gone`, which uses only `ReadsEntry`. | [`Init/System/IO.lean#L1330-L1342`](https://github.com/leanprover/lean4/blob/v4.34.1/src/Init/System/IO.lean#L1330-L1342), [`Init/System/IO.lean#L881-L886`](https://github.com/leanprover/lean4/blob/v4.34.1/src/Init/System/IO.lean#L881-L886) |
+| `replaceWith` | checked | After a move that succeeds, nothing is at the source and a file is at the destination: `replaceWith_moved`, which uses only `ReadsEntry`. | [`Init/System/IO.lean#L903-L909`](https://github.com/leanprover/lean4/blob/v4.34.1/src/Init/System/IO.lean#L903-L909) |
 
 The theorems `removeDirectory_spec` and `removeEntry_spec` are about the removal of a directory, a
 file or a link at its own place, in a model. After a removal that succeeds, no entry is at the
