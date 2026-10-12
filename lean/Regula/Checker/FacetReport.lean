@@ -32,7 +32,7 @@ structure Declaration where
   facet : Name
   /-- Whether Lake identifies this package as the root. -/
   root : Bool
-  /-- Whether this package has the key of Regula's provider in the loaded workspace. -/
+  /-- Whether the source and provider guards authenticated this package's checker module. -/
   regula : Bool
   deriving DecidableEq
 
@@ -91,8 +91,8 @@ Assumes:
   (`Lake/Load/Package.lean:100`), under `LakeConfig.language`'s assumptions.
 - The loaded files and package directories stay unchanged during this read: trusted filesystem
   and process boundary; this observer does not lock out other processes.
-- `regulaPackage` identifies Regula's provider in this workspace, under `observe`'s assumptions. -/
-def packageDeclarations (ws : _root_.Lake.Workspace) (regulaPackage : Option Name)
+- `regulaPackages` are the authenticated checker providers, under `observe`'s assumptions. -/
+def packageDeclarations (ws : _root_.Lake.Workspace) (regulaPackages : Array Name)
     (package : _root_.Lake.Package) : IO (Array Declaration) := do
   if (← IO.ofExcept (LakeConfig.language package.relConfigFile)) == .toml then return #[]
   let some file := package.configFile.fileName
@@ -101,7 +101,7 @@ def packageDeclarations (ws : _root_.Lake.Workspace) (regulaPackage : Option Nam
     { lakeEnv := ws.lakeEnv, wsDir := ws.dir, pkgIdx := package.wsIdx }
   let compiled := config.configDir / (FilePath.mk file).withExtension "olean"
   let env ← _root_.Lake.importConfigFileCore compiled {}
-  let regula := regulaPackage == some package.keyName
+  let regula := regulaPackages.contains package.keyName
   _root_.Lake.libraryFacetAttr.getAllEntries env |>.mapIdxM fun ordinal name => do
     let facet ← IO.ofExcept <| _root_.Lake.evalConstCheck env {} _root_.Lake.LibraryFacetDecl name
     return {
@@ -117,19 +117,20 @@ Assumes:
   (`Lake/Config/FacetConfig.lean:43-45`).
 - Each package's compiled configuration has the entries read by `packageDeclarations`, under
   that observer's assumptions.
-- Lake v4.34.1's `Workspace.findModule?` gives the package key of the provider of
-  `Regula.Checker.Lake` (`Lake/Config/Workspace.lean:279-280`, `Lake/Config/Module.lean:41-59`).
-  This module identifies Regula under the audit's module-provider and reserved-source guards.
-  The configuration query alone does not authenticate that provider's source. -/
-def observe (ws : _root_.Lake.Workspace) : IO (Array Declaration) := do
-  let regulaPackage := (ws.findModule? `Regula.Checker.Lake).map (·.pkg.keyName)
-  return (← ws.packages.mapM (packageDeclarations ws regulaPackage)).flatten
+- `regulaPackages` come from `Lake.checkReservedModules` over the actual source inventory of
+  `Lake.packageModules`, after `Lake.checkOneProvider` passes. Each provides
+  `Regula.Checker.Lake` with the running checker's source text. This is the audit's existing
+  trusted source-authentication boundary, not an independent glob lookup or an assertion about
+  the configured facet's job. All authenticated providers are retained; the existing provider
+  guard permits duplicate providers among trusted packages. -/
+def observe (ws : _root_.Lake.Workspace) (regulaPackages : Array Name) : IO (Array Declaration) := do
+  return (← ws.packages.mapM (packageDeclarations ws regulaPackages)).flatten
 
 /-- Print the decision's completed census and each replaced declaration, its consequence and
 remedy. This is an advisory about the build configuration; it changes no audit exit class and
-does not restore a displaced build step. Lake loading must have completed first. -/
-def report (ws : _root_.Lake.Workspace) : IO Unit := do
-  let declarations ← observe ws
+does not restore an overridden configuration. Lake loading must have completed first. -/
+def report (ws : _root_.Lake.Workspace) (regulaPackages : Array Name) : IO Unit := do
+  let declarations ← observe ws regulaPackages
   let collisions := replaced declarations
   let replacing := declarations.toList.reverse.find? fun entry => decide (RegulaExtraDep entry)
   IO.eprintln s!"regula facet report: checked {declarations.size} loaded library facet \
@@ -138,9 +139,10 @@ def report (ws : _root_.Lake.Workspace) : IO Unit := do
     let some replacing := replacing
       | throw <| IO.userError "facet-report: replacement selection has no supplying declaration"
     IO.eprintln s!"regula facet report: root package '{entry.package}' library facet \
-      '{entry.declaration}' (extraDep) is replaced by Regula's '{replacing.declaration}' \
+      '{entry.declaration}' (extraDep) has its configuration overridden by Regula's \
+      '{replacing.declaration}' \
       from package '{replacing.package}'. \
-      Its build step does not run. Move that work to extraDepTargets or needs, \
+      Work unique to the overridden facet may be lost. Move that work to extraDepTargets or needs, \
       which Lake's own extraDep facet runs."
 
 end Regula.Checker.FacetReport

@@ -62,11 +62,24 @@ private def expect (cwd : FilePath) (e : Expectation) (args : Array String := #[
     (env : Array (String × Option String) := #[]) : IO (Array String) := do
   assess e (← lint cwd args env)
 
+/-- Replace one exact anchor; a missing or repeated anchor is a harness failure. -/
+private def mutate (path : FilePath) (before after : String) : IO Unit := do
+  let original ← IO.FS.readFile path
+  if (original.splitOn before).length != 2 then
+    throw <| IO.userError s!"lake-lint: expected exactly one anchor {before} in {path}"
+  IO.FS.writeFile path (original.replace before after)
+
 /-- Controls of Lake's compiled-configuration and process-output boundary. The public
 `--explain-config` path runs the same facet report as an audit without running its proof stages.
 The census line proves that the negative control ran the decision. A named root facet is
 reported; a different facet and a text-only decoy are not. Regula's own root facet is not
-reported as replaced by its own declaration. These observations do not prove Lake's loader. -/
+reported as replaced by its own declaration. The empty-Regula-glob case uses the already-built
+auditor's `--project` path: through Lake's lint driver, that glob already stops the run earlier
+by shadowing the driver's Regula imports. Lake v4.34.1 builds that executable before running it
+(`Lake/CLI/Actions.lean:89-99`), resolves imports through workspace lookup
+(`Lake/Build/Module.lean:30-37`), and takes the first configured glob match without checking
+source existence (`Lake/Config/Workspace.lean:279-280`, `Lake/Config/Module.lean:41-59`,
+`Lake/Config/LeanLibConfig.lean:128-130`). These observations do not prove Lake's loader. -/
 private def facetReport (repo adopter : FilePath) : IO (Array String) := do
   BuildLintQualification.setup repo adopter
   let lakefile := adopter / "lakefile.lean"
@@ -86,16 +99,18 @@ private def facetReport (repo adopter : FilePath) : IO (Array String) := do
   let positive : Expectation := {
     label := "facet-report/replaced", exitCode := 2,
     contains := #[checked, "1 root extraDep declarations replaced by Regula", displaced,
-      "is replaced by Regula's 'weakLeanArgsTrace'", "Its build step does not run",
+      "has its configuration overridden by Regula's 'weakLeanArgsTrace'",
+      "Work unique to the overridden facet may be lost",
       "Move that work to extraDepTargets or needs"],
-    excludes := #["library facet 'earlierPrerequisite'"] }
+    excludes := #["library facet 'earlierPrerequisite'", "Its build step does not run"] }
   let mut failures ← expect adopter positive args
   IO.FS.writeFile lakefile (original ++ "\n\
     -- @[«library_facet»] def adopterPrerequisite uses LeanLib.extraDepFacet\n\
     library_facet other : Unit := pure Job.nil\n")
   let negative : Expectation := {
     label := "facet-report/not-replaced", exitCode := 2,
-    contains := #[checked, empty], excludes := #[displaced, "Its build step does not run"] }
+    contains := #[checked, empty], excludes := #[displaced,
+      "Work unique to the overridden facet may be lost", "Its build step does not run"] }
   failures := failures ++ (← expect adopter negative args)
   -- Lake chooses Lean from the relative lakefile.lean, even when the resolved target ends in
   -- .toml. A positive report proves that the root facet was read rather than silently skipped.
@@ -153,6 +168,16 @@ private def facetReport (repo adopter : FilePath) : IO (Array String) := do
     label := "facet-report/elsewhere", exitCode := Lint.Outcome.configuration.exitCode
     contains := positive.contains.push "manifest-incomplete" }
   failures := failures ++ (← assess cross (← runElsewhere))
+  -- External Lake boundary: an empty glob provides no authenticated checker source. Running
+  -- the already-built auditor reaches discovery without asking Lake to build a lint driver.
+  let elsewhereLakefile := elsewhere / "lakefile.lean"
+  let unshadowed ← IO.FS.readFile elsewhereLakefile
+  IO.FS.createDirAll (elsewhere / "Regula")
+  mutate elsewhereLakefile "globs := #[.andSubmodules `Widget]"
+    "globs := #[.andSubmodules `Widget, .submodules `Regula]"
+  failures := failures ++ (← assess { cross with label := "facet-report/empty-glob" }
+    (← runElsewhere))
+  IO.FS.writeFile elsewhereLakefile unshadowed
   IO.FS.writeFile (otherRegula / "lakefile.lean")
     (otherConfig.replace "@[«library_facet»] def weakLeanArgsTrace"
       "@[«library_facet»] def Trace.alternateTrace")
@@ -176,13 +201,6 @@ private def accepted (label : String) (fresh : Bool := false) : Expectation :=
       s!"regula lint: {acceptanceLabel} — fresh whole-project acceptance"
     else s!"regula lint: {acceptanceLabel} — incremental project acceptance"],
     excludes := #["verification phase", "diagnostic span"] }
-
-/-- Replace one exact anchor; a missing or repeated anchor is a harness failure. -/
-private def mutate (path : FilePath) (before after : String) : IO Unit := do
-  let original ← IO.FS.readFile path
-  if (original.splitOn before).length != 2 then
-    throw <| IO.userError s!"lake-lint: expected exactly one anchor {before} in {path}"
-  IO.FS.writeFile path (original.replace before after)
 
 private def restore (adopter : FilePath) (files : Array (FilePath × String)) : IO Unit := do
   for (path, text) in files do IO.FS.writeFile path text
