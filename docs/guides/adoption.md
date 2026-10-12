@@ -325,9 +325,12 @@ libraries' `weakLeanArgs` in each module's build trace, so that reuse can settle
 ([limits](#limits)). The plain shape is a conservative guard under your assertion. It is not a
 guarantee against a lakefile that someone wrote to defeat it.
 
-The plain shape admits one facet declaration by identity. It is the `extraDep` facet of Regula's
-own `lakefile.lean`, in a package with the same `lakefile.lean` text as the running Regula.
-That facet only runs Lake's own `extraDep` facet and adds the record.
+The plain shape admits two facet declarations by identity. They are the `extraDep` and `presetup`
+facets of Regula's own `lakefile.lean`, in a package with the same `lakefile.lean` text as the
+running Regula.
+The first only runs Lake's own `extraDep` facet and adds the record.
+The second runs Lake's own `presetup` facet and adds Regula's elaboration observer to the plugins
+of your root package's modules ([limits](#limits)).
 Without the assertion the driver always builds with the marker ([details](proofs-and-boundaries.md#the-acceptance-boundary)).
 
 Give the assertion in the environment of `lake lint`, which no lakefile sets. The driver refuses
@@ -743,11 +746,15 @@ core-only code.
   exit 3). [RG2006] checks every option above in Lake's resolved configuration of each claimed
   target (`VIOLATION`, exit 1). It also rejects each other target-wide option that is not in the
   accepted set of [RG2006] at an accepted value. It rejects each `-D` in `moreLeanArgs` or
-  `weakLeanArgs` that overrides these options or sets an option outside that set. It does not read
-  `set_option` in source, which review checks. Where the community's guidance accepts an exception, disable that
-  linter for the one declaration (`set_option linter.style.longLine false in`) with a comment
-  giving the reason. Never disable Lean's default warnings, such as `linter.unusedVariables` or
-  `warn.sorry`.
+  `weakLeanArgs` that overrides these options or sets an option outside that set. In each claimed
+  module it also reads the options that the source sets, as Regula's elaboration observer records
+  them. There it accepts an option that the target could set. It also accepts
+  `set_option linter.NAME false in` before one declaration, for a community linter. Where the
+  community's guidance accepts an exception, disable that linter for the one declaration
+  (`set_option linter.style.longLine false in`) with a comment giving the reason. Never disable
+  Lean's default warnings, such as `linter.unusedVariables` or `warn.sorry`. [RG2006] rejects that
+  in source too. It does not read `@[nolint]`, which turns off no linter that reports through a
+  build warning.
 
   To keep Mathlib's header linter on, replace `weak.linter.style.header = false` with `true` and
   give the license line it expects in `weak.linter.style.header.license`, a `String` that defaults
@@ -937,8 +944,8 @@ audit refuses a `decides` entry that names its own surface or no claimed surface
   option only at its default, because a printing option changes the text that some linters
   compare. Put a different printing in your editor or user settings.
 - [RG2006] accepts each resource limit at any number: `maxHeartbeats`,
-  `synthInstance.maxHeartbeats`, `maxRecDepth`, `maxSynthPendingDepth` and
-  `exponentiation.threshold`. When you raise a resource limit, Lean does the work that it
+  `synthInstance.maxHeartbeats`, `synthInstance.maxSize`, `maxRecDepth`, `maxSynthPendingDepth`
+  and `exponentiation.threshold`. When you raise a resource limit, Lean does the work that it
   otherwise stops or skips. For example, Lean then evaluates a power above
   `exponentiation.threshold` and gives no warning about it. The value `0` means no limit for
   `maxHeartbeats`, `synthInstance.maxHeartbeats` and `maxRecDepth`. If your project must have
@@ -958,7 +965,7 @@ audit refuses a `decides` entry that names its own surface or no claimed surface
 - A dependency that Lake resolves after Regula can declare an `extraDep` facet that replaces
   Regula's. Lake resolves the `require` lines of a package from the last to the first, and then
   the dependencies of those packages. So a build without the marker counts no record when a
-  dependency other than Regula declares a library facet. It reports a claimed module as not
+  dependency other than Regula declares a library or module facet. It reports a claimed module as not
   established when it replays that module's messages from before the run.
 - The result is then incomplete. `lake exe axiomGate --incremental` then exits 3, and the
   `lake build` of the build-lint `policy` target exits 1. `lake lint` keeps the marker for such a
@@ -966,6 +973,21 @@ audit refuses a `decides` entry that names its own surface or no claimed surface
 - The incremental gate trusts the build traces that Lake recorded in the checkout, and the record
   is part of them. A facet that forged the record when Lake built a module is outside that
   evidence. A `--fresh` audit rests on no recorded trace.
+- Regula's `lakefile.lean` also declares a facet in place of Lake's `presetup` facet. For each
+  module of your root package, it adds Regula's elaboration observer, a Lean plugin, to the
+  plugins that Lean loads. The observer records in the module's `.olean` the options that its
+  source sets and each `#guard_msgs` and `#guard_panic` command. It also records each warning or
+  error that Lean keeps out of the build's output. It prints nothing. The audit's builds load the
+  observer in the same way, whatever facet the workspace declares. The first build after you
+  upgrade to this Regula rebuilds the modules of your root package one time.
+- [RG2003] fails a claimed module that runs `#guard_msgs` or `#guard_panic`, also from a macro,
+  or that has a warning or error that Lean keeps out of the output. Keep such checks in a test or
+  documentation module outside the claimed surface. [RG2003] also fails a claimed module that the
+  observer did not observe.
+- If your root package declares a `presetup` facet, Regula's facet replaces it.
+- Code that runs while Lean elaborates a module can write or remove the observer's record. An
+  example is an `initialize` declaration or an elaborator of an imported module. The audit trusts
+  that no such code forges the record.
 - The only supported editor is VS Code with the Lean 4 extension, and there is no latency claim.
 - Regula has run on small adopters only, including a Mathlib-importing library accepted
   incrementally and fresh; there is no Mathlib-scale adopter claim. These are bounded

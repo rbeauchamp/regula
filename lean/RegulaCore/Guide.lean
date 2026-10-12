@@ -1354,6 +1354,22 @@ def guide : RuleId → Guide
           manifest checks, not by reading that name as Lake target syntax, in which a `/` names \
           a package; a name that matches none of them, or a library without a module, fails the \
           build.",
+        "The audit's build loads Regula's elaboration observer, a Lean plugin, into the \
+          elaboration of each module of the root package, as the `presetup` facet of Regula's \
+          `lakefile.lean` does in an ordinary build. The observer records in each module's \
+          `.olean` every `#guard_msgs` and `#guard_panic` command it ran, also one a macro \
+          produced, and every warning or error that Lean keeps out of the build's output (a \
+          silent message). A claimed module that runs such a command or has such a message fails \
+          the build, with its line and column. So does a claimed module that the observer did \
+          not observe: the plugin was not among those Lean loaded for it, its `.olean` holds no \
+          complete record, or a command of it was neither linted nor skipped for `#guard_msgs`. \
+          Every build of a claimed surface decides this: those of `lake lint`, `axiomGate`, the \
+          build-lint `policy` target, `freshChecker` and the documentation audit's claimed \
+          build. No lakefile option, environment variable or command-line flag turns it off. The \
+          only build that does not count the observer's findings is the build of a Verso \
+          documentation package that `docFenceAudit --verso` runs, such as Regula's own \
+          standard, whose `lean` blocks show messages with `#guard_msgs`; that build decides no \
+          claim.",
         "In project runs (`lake lint`, `axiomGate`, the build-lint `policy` target) a warning or \
           failed build stops the audit before policy inspection, so the finding is incomplete and \
           the result INCOMPLETE (`lake lint` exit 3). A single-file `axiomGate --file F --claim P` \
@@ -1372,25 +1388,38 @@ def guide : RuleId → Guide
           elaboration that wrote its build trace, where that elaboration ran under the audit-build \
           marker, earlier in the same run, or under the `weakLeanArgs` that the trace file \
           records as its library's current ones. The build requested each claimed module's \
-          artifacts itself, and no claimed module was restored from Lake's artifact cache."]
+          artifacts itself, and no claimed module was restored from Lake's artifact cache. In \
+          each claimed module, Regula's elaboration observer ran on every command that Lean \
+          lints and recorded no `#guard_msgs` or `#guard_panic` and no silent warning or \
+          error."]
       notEstablished := [
         "Fresh source elaboration unless the run is fresh: `lake lint` without `--fresh` is \
           incremental and trusts the build traces Lake recorded in the project's build directory \
           to hold each up-to-date module's messages.",
-        "That no linter was disabled: a disabled linter emits nothing for this rule to reject."]
+        "That no linter was disabled: a disabled linter emits nothing for this rule to reject. \
+          RG2006 rejects a source option that turns off one of Lean's default warnings, and \
+          admits only the one-declaration form for a community linter.",
+        "That the record of the elaboration observer is the observer's own: code that runs in \
+          the module's elaboration, such as an initializer or an elaborator of an imported \
+          module, could write or remove it (standard §7)."]
       configuration := [
         "`warningAsError := false` in the source cannot hide a warning from the audit. Disabling a \
           linter stops it from emitting, which makes this rule pass without establishing the \
           property the linter checks. Never disable Lean's default warnings, such as \
-          `linter.unusedVariables` (for example with `set_option linter.unusedVariables false`).",
+          `linter.unusedVariables` (for example with `set_option linter.unusedVariables false`); \
+          RG2006 rejects it in a claimed module.",
         "A community linter reports through build warnings, so this rule rejects its findings, \
           whether a dependency turns it on for every importer (such as Mathlib's \
           `linter.unusedTactic`) or the project enables it (such as `linter.missingDocs` and \
           Mathlib's `weak.linter.mathlibStandardSet`, which standard §6.7 requires). Where the \
           community's guidance allows an exception, disable that linter for one declaration \
-          (`set_option linter.NAME false in` or `@[nolint NAME]`) with a comment giving the reason \
-          (standard §6.2). The detector sees only emitted warnings, so it cannot tell such a \
-          disable from a forbidden one; review checks them."]
+          (`set_option linter.NAME false in`) with a comment giving the reason (standard §6.2). \
+          RG2006 admits that form and no other; review checks the reason.",
+        "`@[nolint NAME]` is not read: Batteries' `#lint` command reads it, and it turns off no \
+          linter that reports through a build warning, so it hides nothing from this rule.",
+        "Show an expected message in documentation or a test outside the claimed surface: a \
+          claimed module that runs `#guard_msgs` or `#guard_panic` fails, since those commands \
+          drop or replace the messages of the commands they run."]
       limitations := [
         "`lake lint` builds with Regula's audit-build marker, except when the workspace owner \
           sets `REGULA_ORDINARY_LAKEFILES=1` in the environment of `lake lint`, asserting \
@@ -1409,17 +1438,26 @@ def guide : RuleId → Guide
           `extraDepTargets` or `needs`). The report uses Lake's loaded declarations, changes no \
           audit exit class and does not restore the configuration. Without the marker, a claimed module replayed \
           from before the run whose trace lacks its own library's current record is not \
-          established (INCOMPLETE), as when another dependency declares a library facet."]
+          established (INCOMPLETE), as when another dependency declares a library or module facet.",
+        "Regula's `lakefile.lean` and the audit's build replace Lake's `presetup` facet with one \
+          that adds the elaboration observer to the plugins of each module of the root package, \
+          so a `presetup` facet that the root package declares does not run.",
+        "That the observer's record holds what Lean elaborated is read from Lean's source at \
+          the pinned release, not proved.",
+        "That each claimed module's trace records an elaboration is checked after the build \
+          (`Workspace.elaborationTrace`); that Lake replays the messages such a trace holds is \
+          read from Lake's source."]
       residuals := [.qualify]
       checklist := ["DECL-01", "BUILD-01", "DOC-01"]
       linkage := text! "Acceptance side only: an accepted run satisfies `RegulaPolicy.BuildOK`. A \
         Lake build's observation satisfies it exactly when it ran at failure level `warning`, \
         exited 0, no required job (`Lake.observedFetch`) logged an entry that \
         `Workspace.unparsedCompilerOutput` selects, and, without the audit-build marker, each \
-        claimed module replayed from before the run has its own current record \
-        (`Acceptance.buildObservation_ok_iff`, `Lake.mem_reusedModules_iff`, \
-        `Lake.traceRecords_ownRecord_iff`). The collected unparsed compiler output is empty \
-        exactly when no job that is not optional logged such an entry \
+        claimed module replayed from before the run has its own current record, and each claimed \
+        module's observer record is `Complete` (`Acceptance.buildObservation_ok_iff`, \
+        `Lake.mem_reusedModules_iff`, `Lake.traceRecords_ownRecord_iff`, \
+        `RegulaPolicy.Elaboration.failures_eq_nil_iff`). The collected unparsed compiler output \
+        is empty exactly when no job that is not optional logged such an entry \
         (`Lake.unparsedOutput_eq_empty_iff`). \
         Lake's entry for a Lean message whose file name has no line break is never selected \
         (`unparsedCompilerOutput_ofSerialMessage`); `lineBreakSourcePaths` fails the others. A \
@@ -1448,10 +1486,11 @@ def guide : RuleId → Guide
         (`Lake.weakArgsRecordJson_injective`), so a record that a trace holds for another \
         library is never taken for the module's own. That Regula's facet wrote the record when \
         Lake built the module is the trust in recorded traces that standard §7.11 states for \
-        the incremental gate. Regula's own `extraDep` facet is recognized by identity: \
-        `Lake.regulaFacetAdmitted_iff` accepts a package's configuration exactly when its text \
-        and that of the running Regula's `lakefile.lean` are both read and equal, the file \
-        declares one library facet of its own, and it has the facet's constant. With \
+        the incremental gate. Regula's own `extraDep` and `presetup` facets are recognized by \
+        identity: `Lake.regulaFacetAdmitted_iff` accepts a package's configuration exactly when \
+        its text and that of the running Regula's `lakefile.lean` are both read and equal, the \
+        file declares one library facet and one module facet of its own, and it has both \
+        facets' constants. With \
         `REGULA_ORDINARY_LAKEFILES=1`, `lake lint` omits the marker only where the registered \
         decision `Lake.auditMarkerNeeded` admits the workspace: it asks for the marker exactly \
         when a package is not of the plain shape, or a module of the root package does not \
@@ -1463,16 +1502,16 @@ def guide : RuleId → Guide
         Lake's own cache predicates refuse the cache for every package that a package of the \
         build's workspace reaches \
         (`Workspace.uncachedWorkspace_unreadable`, `uncachedWorkspace_unwritable`); that Lake \
-        consults them before each cache access is read from Lake's source. That each claimed \
-        module's trace records an elaboration is checked after the build \
-        (`Workspace.elaborationTrace`), and such a trace is never one removed as a restore from \
-        the cache (`Workspace.restoredTrace_eq_false_of_elaborationTrace`); that Lake replays \
-        the messages such a trace holds is read from Lake's source."
+        consults them before each cache access is read from Lake's source. A trace that records \
+        an elaboration (`Workspace.elaborationTrace`) is never one removed as a restore from the \
+        cache (`Workspace.restoredTrace_eq_false_of_elaborationTrace`)."
       sources :=
           ["lean/Regula/Checker/Lake.lean", "lean/Regula/Checker/LintBuild.lean",
               "lean/Regula/Checker/Workspace.lean",
               "lean/Regula/Checker/Diagnostics.lean", "lean/Regula/Checker/ResultProtocol.lean",
-              "lean/Regula/Checker/Acceptance.lean", "lean/Regula/Checker/SourceAudit.lean"] }
+              "lean/Regula/Checker/Acceptance.lean", "lean/Regula/Checker/SourceAudit.lean",
+              "lean/Regula/Checker/Observer.lean", "lean/RegulaObserver.lean",
+              "lean/RegulaObserver/Record.lean", "lean/RegulaPolicy/Elaboration.lean"] }
   | .coverage => {
       problem := text! "The exact module and declaration inventory from Lake does not match the \
         owned coverage: a claimed library imports an excluded or checker-probe module, a module is \
@@ -1666,7 +1705,8 @@ def guide : RuleId → Guide
           silences nothing its default reports (`RegulaPolicy.Community.warningSettings`); \
           `warningAsError` and \
           `debugAssertions` at `true`, which add checks; the resource limits `maxHeartbeats`, \
-          `synthInstance.maxHeartbeats`, `maxRecDepth`, `maxSynthPendingDepth` and \
+          `synthInstance.maxHeartbeats`, `synthInstance.maxSize`, `maxRecDepth`, \
+          `maxSynthPendingDepth` and \
           `exponentiation.threshold` at any number, since raising a positive one lets Lean do \
           work it would otherwise stop or skip and `0` means no limit for the first three; and \
           each `pp.…` option that Lean, Mathlib or Qq register, at its default \
@@ -1690,6 +1730,18 @@ def guide : RuleId → Guide
           rejected although Lean ignores it; delete it. A string value \
           counts as Lean parses it for the option: `\"false\"` is `false` and `\"0\"` is `0`. \
           One finding per target lists every failure.",
+        "In each module of a claimed surface, the rule also reads the options the module's \
+          source set, as Regula's elaboration observer recorded them while Lean elaborated it \
+          (RG2003): `set_option` as a command, before one command (`… in`), in a term or in a \
+          tactic block, including one that a macro wrote. The proved decision \
+          `RegulaPolicy.Community.sourceFailures` rejects each that the target itself could not \
+          set at that value, with two exceptions: `set_option linter.NAME false in` before one \
+          command, which turns a community linter off for that command (standard §6.2), and an \
+          option that a macro of Lean's own libraries wrote, such as `smartUnfolding` in \
+          `rfl'`. So the source cannot turn one of Lean's default warnings off, set \
+          `linter.all` or `autoImplicit`, or set a `debug.` or `trace.` option, and an option \
+          whose value is not a literal is rejected. The finding names each option with its \
+          module, line and column.",
         "Every `-D` that `lean` reads starts at the first `D` of an argument that begins with a \
           single `-` (`-D`, or after flags as in `-qD`), with its value after the `D` or in the \
           next argument; the rule reads every such candidate, so it can also reject one that \
@@ -1712,10 +1764,13 @@ def guide : RuleId → Guide
           §6.7 exclusions, or with the header linter on and its license line configured; no `-D` \
           extra `lean` argument overrides these options."]
       notEstablished := [
-        "That no module sets an option back in source, such as `set_option autoImplicit true` or \
-          a linter disable; review checks source options (§6.2).",
+        "That a community linter turned off for one declaration has the reason standard §6.2 \
+          requires; review checks it.",
+        "`@[nolint NAME]`, which the rule does not read: Batteries' `#lint` reads it, and it \
+          turns off no linter that reports through a build warning.",
         "Any bound on a resource limit of the accepted set: `maxHeartbeats`, \
-          `synthInstance.maxHeartbeats`, `maxRecDepth`, `maxSynthPendingDepth` and \
+          `synthInstance.maxHeartbeats`, `synthInstance.maxSize`, `maxRecDepth`, \
+          `maxSynthPendingDepth` and \
           `exponentiation.threshold` pass at any number, and raising one lets Lean do the work it \
           would otherwise skip, such as evaluating a power above `exponentiation.threshold` \
           instead of warning that it did not. `0` means no limit for `maxHeartbeats`, \

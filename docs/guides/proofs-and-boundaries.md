@@ -167,7 +167,7 @@ configuration and frozen-artifact checks before the unchanged full inspection an
 freshness checks.
 
 A facet that a later dependency declares can replace Regula's. So a build without the marker
-counts no record when a dependency other than Regula declares a library facet, as
+counts no record when a dependency other than Regula declares a library or module facet, as
 `Lake.onlyRegulaFacets` decides. The record is part of the build traces that Lake recorded in the
 checkout, which the incremental gate trusts. A record counts as written by Regula's facet when
 Lake built the module, as `Lake.traceRecords_ownRecord_iff` assumes. A facet that forged the record
@@ -341,20 +341,28 @@ of a facet of Lake. The driver counts these declarations, and it keeps the marke
 one, except for the facet of Regula below. A file `lakefile.toml` declares no facet and cannot
 set `nativeFacets`. Its filter of an `input_dir` is the default only if it omits the filter or
 writes `"*"`. Lake only reads and hashes an input target. Thus a build in the plain shape runs no
-custom build step except Regula's `extraDep` facet.
+custom build step except Regula's `extraDep` and `presetup` facets.
 
-The driver admits that facet, `weakLeanArgsTrace`, by identity. The package's `lakefile.lean`
-must have the same text as the `lakefile.lean` of the running Regula. Its compiled file must
-declare that constant and one library facet only, as `regulaFacetAdmitted_iff` states. The driver
-then removes that declaration, its encoder `weakLeanArgsRecord` and its attribute entry from what
-it reads, with `ConfigReading.withoutRegulaFacet`. It also removes the encoder's documentation
-comment and the entry that the compilation of the encoder adds to the specialization cache of the
-compiler.
+The driver admits those facets, `weakLeanArgsTrace` and `elaborationObserver`, by identity. The
+package's `lakefile.lean` must have the same text as the `lakefile.lean` of the running Regula.
+Its compiled file must declare both constants, one library facet and one module facet only, as
+`regulaFacetAdmitted_iff` states. The driver then removes both declarations, the proof that Lean
+abstracts from the body of the second, the encoder `weakLeanArgsRecord` and their attribute
+entries from what it reads, with `ConfigReading.withoutRegulaFacet`. It also removes the
+encoder's documentation comment and the entry that the compilation of the encoder adds to the
+specialization cache of the compiler.
 
 The facet runs Lake's own `extraDep` facet, which builds the `extraDepTargets` and `needs` of each
 library. It also adds a trace input that records the identity and the `weakLeanArgs` of each
 library of the root package or of Regula. It compiles no module and sets no option. A package
 named `regula` with different text keeps the marker.
+
+The `presetup` facet runs Lake's own `presetup` facet and, for each module of the root package
+outside Regula's `RegulaObserver` library, adds the shared library of Regula's elaboration
+observer to the plugins that Lean loads and its trace to the module's trace. The observer
+imports only Lean, prints nothing and reads no option that the marker sets, so a build with the
+marker and one without it record the same. The audit's own builds install the same facet in
+the process, over whatever the workspace declares (`Observer.observerPresetup`).
 
 The facet writes the record with `weakLeanArgsRecord`, a copy of `weakArgsRecordJson` in the
 file. The file cannot import the modules of Regula, since Lake loads the configuration of a fresh
@@ -1465,6 +1473,18 @@ gives it (`licensed_iff`); a `-D` extra argument that gives it a value can only 
 fail. That the linter compares the header with that option is read from Mathlib's source and
 assumed.
 
+[RG2006] also decides the options that each claimed module's source sets, as Regula's elaboration
+observer recorded them, with `RegulaPolicy.Community.sourceFailures` (`sourceFailures_eq_nil_iff`,
+`checked_sourceFailures`). The same accepted set decides them, with two more admissions: a
+community linter turned off for one command by `set_option linter.NAME false in`, and an option that
+a macro of Lean's own libraries wrote. [RG2003] decides each claimed module's record with
+`RegulaPolicy.Elaboration.failures` (`failures_eq_nil_iff`, `checked_failures`). Both theorems are
+about the decisions over the recorded data. That the observer records each `set_option`, each
+`#guard_msgs` and `#guard_panic` and each silent message that Lean elaborated is read from Lean's
+source at the pinned release. So is that the frontend writes the record after every linter
+finished, which standard §7.3 states as an assumption. Code that runs in the module's own
+elaboration and forges the record is outside that evidence.
+
 Each other option that a target sets in `leanOptions` or with `-D` must be in the closed accepted
 set `RegulaPolicy.Community.Accepted`, at an accepted value. The function `accepts` decides that
 set (`accepts_iff`). The accepted values were read from the option registrations at Lean
@@ -1642,6 +1662,8 @@ Two-way decisions (`Regula.Decides`), each with an accepted and a refused input:
 | `RegulaPolicy.boundaryFailures`, `executionFailureRecords`, `executionFindings` (accept on `#[]`) | `BoundaryOK`, `ExecutionOK` | [RG3001], [RG3002], for one supplied boundary and for an admitted inventory. |
 | `RegulaPolicy.Intent.hasIntentSection`, `RegulaPolicy.materialDocumentationFailure` | `IntentSection`, `MaterialDocumentationOK` | [RG5002], [RG5003]. |
 | `RegulaPolicy.ModuleHeader.failures`, `RegulaPolicy.Community.failures` (accept on `[]`) | `ModuleHeader.OK`, `Conforming` | [RG5001], [RG2006]. |
+| `RegulaPolicy.Community.sourceFailures` (accepts on `[]`) | Each recorded source option is `SourceAccepted` (`sourceFailures_eq_nil_iff`) | [RG2006], over the options that the elaboration observer recorded for one claimed module. |
+| `RegulaPolicy.Elaboration.failures` (accepts on `[]`) | `Complete`: the observer was loaded, its record is there, no `#guard_msgs` or `#guard_panic`, no silent warning or error, and every command was linted (`failures_eq_nil_iff`) | [RG2003], over one claimed module's record. |
 | `admitSnapshot`, `admitClaim`, `admitInventory`, `admitExecution`, `admitJobKey`, `admitInfrastructureOrigin`, `admitIdentity`, `admitToolchainOrigin`, `admitToolchainAxioms`, `Compiler.admitCapability`, and the scope admission `admitScopeImpl` (accept on `.ok`) | The validity relation each names (`Snapshot.Valid`, `ClaimCandidate.Valid`, `InventoryValid`, `ExecutionValid` and so on) | Admission of decoded records. Which value is returned is each function's `_exact` theorem. |
 | `Compiler.accepts` | `Compiler.Supports` | The compiler-identity guard. |
 | `Regula.Checker.Frontend.coordinateCheck` (accepts on `.ok`) | `CoordinatesAgree` | Transcript coordinates, checked before inventory admission (`checked_scope`). |
