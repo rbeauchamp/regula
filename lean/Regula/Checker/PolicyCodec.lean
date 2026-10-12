@@ -131,7 +131,11 @@ theorem exactFields_iff (j : Json) (expected : List String) (distinct : expected
         if (fields.toList.map (·.1)).length == expected.length &&
             expected.all (fields.toList.map (·.1)).contains then .ok ()
         else .error "unknown or missing JSON object fields" := by
-      simp only [exactFields, Json.getObj?, pure, Except.pure, bind, Except.bind]
+      -- `delta`, not `Json.getObj?` in the simp set, which would realize here a copy of a lemma of
+      -- Lean's `Json.beq'` that `RegulaQualification.Registry` also realizes.
+      simp only [exactFields]
+      delta Json.getObj?
+      simp only [pure, Except.pure, bind, Except.bind]
       split <;> rfl
     rw [unfolded]
     constructor
@@ -153,8 +157,10 @@ theorem exactFields_iff (j : Json) (expected : List String) (distinct : expected
   | _ =>
     constructor
     · intro accepted
-      exact absurd accepted (by simp [exactFields, Json.getObj?, bind, Except.bind,
-        throw, throwThe, MonadExceptOf.throw, Except.isOk, Except.toBool])
+      exact absurd accepted (by
+        simp only [exactFields]
+        delta Json.getObj?
+        simp [bind, Except.bind, throw, throwThe, MonadExceptOf.throw, Except.isOk, Except.toBool])
     · rintro ⟨fields, same, _⟩
       exact absurd same (by simp)
 

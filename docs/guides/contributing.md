@@ -72,6 +72,12 @@ builds the claimed libraries one time.
 In the copy, the driver first builds the claimed targets and the gate. Then the gate runs beside
 the other three commands, which run at low priority.
 
+`qualify combined` also runs `qualify unique-constants`, beside the native controls. That check
+refuses a constant that two modules of one claimed environment declare, if one of them is a module
+of the root package. Lean makes an equation lemma in the first module that unfolds its definition.
+If two modules that do not import each other each make it, the audit replays a module again in
+each environment that loads the two.
+
 If the step passed and the checkout has no build output, the driver moves the build output of
 the copy to `.lake/build` of the checkout. After a step that failed, a checkout with no build
 output stays without it. If the checkout has build output, the driver does not change it.
