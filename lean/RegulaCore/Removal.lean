@@ -28,7 +28,10 @@ checked removal of `Regula.Filesystem` when an entry of the kind is there at its
 refuses otherwise. `removeFoundWith` removes a directory or a file, whichever is there.
 `replaceWith` moves a file at its own place to a destination where nothing is, or a file is at its
 own place, in a directory at its own place (`replacement_iff`), and reads both paths again after
-the move.
+the move. `requirePlacedWith` lists the tree below a directory (`Regula.Filesystem.otherEntries`)
+and stops unless each symbolic link or other kind of entry than a directory and a file that it
+finds is one that the program placed there (`linksPlaced_iff`, `requirePlacedWith_run`), under
+`ReadsEntry` and `ListsEntries`.
 
 Their contracts are of two strengths. What a successful run leaves at the path rests only on
 `ReadsEntry`, since each operation reads the path again before it succeeds (`removeOwnWith_gone`,
@@ -195,102 +198,38 @@ theorem checked_replacement : Regula.ExecutableContract replacement (fun decide 
     ⟨⟨⟨.present .file, true, true⟩, ⟨.absent, false, true⟩⟩, by decide⟩
     ⟨⟨⟨.present .directory, true, true⟩, ⟨.absent, false, true⟩⟩, by decide⟩⟩
 
-/-! ## The places where Lake removes or replaces entries
+/-! ## The links below a directory that a program made
 
-Lake's loader and builds remove and replace entries themselves, with the library's primitives, in
-directories that Lake's own path functions give (`Regula.Checker.Workspace`). Before Lake runs in a
-program's process, the program reads each such place from a directory that is its own real path,
-and Lake runs only when `lakePlacesAdmitted` admits what it read (`lakePlacesAdmitted_iff`). -/
+A program that makes a directory and runs Lake there, such as a copy of a project, may hold no
+symbolic link or other entry than a directory and a file below it except those it placed itself
+(`requirePlacedWith`): Lake follows such an entry when it removes below the directory. -/
 
-/-- A place below which Lake removes or replaces entries: the path `path`, read from the directory
-`base`, or from the ancestor of it that the leading `..` components of `path` name. With `tree`,
-Lake removes or replaces entries at any depth below `path`; without it, only at `path`. -/
-structure LakePlace where
-  /-- The directory that the place is read from, which must be its own real path. -/
-  base : FilePath
-  /-- The place. -/
-  path : FilePath
-  /-- Whether Lake removes or replaces entries at any depth below the place. -/
-  tree : Bool
+/-- The paths below a directory that are symbolic links or other entries than directories and
+files (`Regula.Filesystem.otherEntries`), and the paths of the links that the program placed
+there. -/
+structure TreeLinks where
+  /-- The paths that a walk found. -/
+  found : List FilePath
+  /-- The paths of the links that the program placed. -/
+  placed : List FilePath
   deriving DecidableEq, Repr
 
-/-- The components of `path`, without a `.` or empty component after the first. -/
-def cleanComponents (path : FilePath) : List String :=
-  match path.components with
-  | [] => []
-  | first :: rest => first :: rest.filter fun component => component != "." && component != ""
-
-/-- Where the place is read from, without `.` and empty components: the components of its base
-without as many last ones as `..` components lead the rest of its path, and the components of the
-path after those `..` components. A leading `..` names the parent of a directory, which is its own
-real path when the base is (`LakeObserved.baseOwn`). `none` when the base's components are not a
-prefix of the path's, when a `..` component follows another component of the rest, or when the
-leading ones leave no name of the base: the place is not below its base or one of its ancestors. -/
-def LakePlace.start (place : LakePlace) : Option (List String × List String) :=
-  let base := cleanComponents place.base
-  let path := cleanComponents place.path
-  if base.isPrefixOf path then
-    let rest := path.drop base.length
-    let up := (rest.takeWhile (· == "..")).length
-    let below := rest.drop up
-    if below.contains ".." || base.length < up + 2 then none
-    else some (base.take (base.length - up), below)
-  else none
-
-/-- What was read of a `LakePlace` before Lake runs. -/
-structure LakeObserved where
-  /-- Whether the base is its own real path, so no symbolic link is among its components. -/
-  baseOwn : Bool
-  /-- Each path from where the place is read from down to the place, one component at a time, with
-  what is there by a read that follows no link, up to the first that is not a directory; `none`
-  when the place is not below its base or one of its ancestors (`LakePlace.start`). -/
-  components : Option (List (FilePath × Place))
-  /-- Each entry at any depth below a place with `tree` where a directory is, with what is there by
-  a read that follows no link; a symbolic link is not followed. -/
-  inside : List (FilePath × Place)
-  deriving DecidableEq, Repr
-
-/-- Let Lake run only when, at each observed place, the base is its own real path, the place is
-below its base or one of its ancestors, and no path from there down to the place, and no entry
-below it, is a symbolic link. -/
+/-- Whether each path that the walk found is a link that the program placed. -/
 @[regula_decision]
-def lakePlacesAdmitted (observed : List LakeObserved) : Bool :=
-  observed.all fun seen =>
-    seen.baseOwn &&
-      (match seen.components with
-        | some components => components.all (·.2 != .present .link)
-        | none => false) &&
-      seen.inside.all (·.2 != .present .link)
+def linksPlaced (links : TreeLinks) : Bool :=
+  links.found.all (· ∈ links.placed)
 
-/-- The decision admits exactly the observations in which every base is its own real path, every
-place is below its base or one of its ancestors, and no path read from there down to a place or
-below it is a symbolic link. -/
-theorem lakePlacesAdmitted_iff (observed : List LakeObserved) :
-    lakePlacesAdmitted observed = true ↔
-      ∀ seen ∈ observed, seen.baseOwn = true ∧
-        (∃ components, seen.components = some components ∧
-          ∀ entry ∈ components, entry.2 ≠ .present .link) ∧
-        ∀ entry ∈ seen.inside, entry.2 ≠ .present .link := by
-  unfold lakePlacesAdmitted
-  simp only [List.all_eq_true]
-  refine forall_congr' fun seen => imp_congr_right fun _ => ?_
-  rcases seen with ⟨baseOwn, _ | components, inside⟩ <;> simp [and_assoc]
+/-- The decision admits exactly the walks whose paths are among the placed ones. -/
+theorem linksPlaced_iff (links : TreeLinks) :
+    linksPlaced links = true ↔ links.found ⊆ links.placed := by
+  simp [linksPlaced, List.subset_def]
 
-/-- `lakePlacesAdmitted` admits exactly the observations in which no base, place or entry below a
-place is reached through a symbolic link or is one (`lakePlacesAdmitted_iff`). It admits a place
-whose components are directories, and it refuses one whose last component is a symbolic link. -/
-theorem checked_lakePlacesAdmitted : Regula.ExecutableContract lakePlacesAdmitted (fun decide =>
-    Regula.Decides (· = true)
-      (fun observed : List LakeObserved =>
-        ∀ seen ∈ observed, seen.baseOwn = true ∧
-          (∃ components, seen.components = some components ∧
-            ∀ entry ∈ components, entry.2 ≠ .present .link) ∧
-          ∀ entry ∈ seen.inside, entry.2 ≠ .present .link)
-      decide) :=
-  ⟨.of_iff lakePlacesAdmitted_iff
-    ⟨[⟨true, some [("/w/.lake", .present .directory)], [("/w/.lake/a", .present .file)]⟩],
-      by decide⟩
-    ⟨[⟨true, some [("/w/.lake", .present .link)], []⟩], by decide⟩⟩
+/-- The decision contract of `linksPlaced`. -/
+theorem checked_linksPlaced : Regula.ExecutableContract linksPlaced (fun decide =>
+    Regula.Decides (· = true) (fun links : TreeLinks => links.found ⊆ links.placed) decide) :=
+  ⟨.of_iff linksPlaced_iff
+    ⟨⟨["/w/.lake/packages"], ["/w/.lake/packages"]⟩, by decide⟩
+    ⟨⟨["/w/src/link"], ["/w/.lake/packages"]⟩, by decide⟩⟩
 
 /-! ## Observation -/
 
@@ -402,6 +341,17 @@ def replaceWith (ops : Ops m) (source destination : FilePath) : m Unit := do
     ops.rename source destination
     confirmMoved ops source destination
   else throw (moveRefusal source destination)
+
+/-- Stop unless each path of the listed tree of `root` that is a symbolic link or another kind of
+entry than a directory and a file (`otherEntries`), listing at most `limit` directories, is one of
+`placed`, as `linksPlaced` decides (`requirePlacedWith_run`). -/
+def requirePlacedWith (ops : Ops m) (limit : Nat) (root : FilePath) (placed : List FilePath) :
+    m Unit := do
+  let found ← otherEntries ops limit root
+  unless linksPlaced { found, placed } do
+    let stray := (found.find? fun path => !placed.contains path).getD root
+    throw (IO.userError s!"{stray} is a symbolic link or another kind of entry than a directory \
+      and a file below {root}, and not one of the links placed there: {placed}")
 
 /-! ## Contracts in a model -/
 
@@ -699,6 +649,26 @@ attribute [regula_checked filesystem removeFoundWith_gone
 attribute [regula_checked filesystem replaceWith_moved
   (lean "v4.34.1" "Init/System/IO.lean#L903-L909")] replaceWith
 
+/-- A run of `requirePlacedWith` changes nothing. When it succeeds, each path of the listed tree of
+the root (`Model.Listed`) that is a symbolic link or another kind of entry than a directory and a
+file (`Model.NotPlain`) is one of the placed paths. -/
+theorem requirePlacedWith_run (M : Model) (reads : ReadsEntry M) (lists : ListsEntries M)
+    (limit : Nat) (root : FilePath) (placed : List FilePath) (before : M.World) :
+    Satisfies ((requirePlacedWith M.ops limit root placed).run before)
+      (fun _ w => w = before ∧
+        ∀ path, M.Listed before root path → M.NotPlain before path → path ∈ placed)
+      (fun _ w => w = before) := by
+  simp only [requirePlacedWith]
+  refine Satisfies.bind (otherEntries_run M reads lists limit root before) ?_
+  rintro found w ⟨rfl, below⟩
+  by_cases admitted : linksPlaced { found, placed } = true
+  · simp only [admitted, ↓reduceIte]
+    simp only [EStateM.run_pure, Satisfies]
+    exact ⟨trivial, fun path listed notPlain =>
+      (linksPlaced_iff _).mp admitted (below path listed notPlain)⟩
+  · simp only [Bool.not_eq_true] at admitted
+    simp only [admitted, Bool.false_eq_true, ↓reduceIte, run_throw, Satisfies]
+
 /-! ## The operations in `IO` -/
 
 section IO
@@ -763,7 +733,7 @@ theorem replaceWith_agrees (corresponds : Corresponds ops M view)
   refine Agrees.bind (observe_agrees corresponds destination) fun observedDestination => ?_
   cases replacement { source := observedSource, destination := observedDestination } with
   | true =>
-    exact Agrees.bind (corresponds.2.2.2.2 source destination) fun _ =>
+    exact Agrees.bind (corresponds.2.2.2.2.1 source destination) fun _ =>
       confirmMoved_agrees corresponds source destination
   | false => exact Agrees.throw view _
 
@@ -837,6 +807,34 @@ theorem replaceWith_io (corresponds : Corresponds ops M view) (readsEntry : Read
         (s = view w ∨ Movable M source destination (view w))) :=
   (replaceWith_agrees corresponds source destination).transfer w
     (replaceWith_run M readsEntry readsReal renames source destination (view w))
+
+/-- `requirePlacedWith` at operations that correspond to a model runs as `requirePlacedWith` in
+the model. -/
+theorem requirePlacedWith_agrees (corresponds : Corresponds ops M view) (limit : Nat)
+    (root : FilePath) (placed : List FilePath) :
+    Agrees view (requirePlacedWith ops limit root placed)
+      (requirePlacedWith M.ops limit root placed) := by
+  refine Agrees.bind (otherEntries_agrees corresponds limit root) fun found => ?_
+  by_cases admitted : linksPlaced { found, placed } = true
+  · simp only [admitted, ↓reduceIte]
+    exact Agrees.pure view _
+  · simp only [Bool.not_eq_true] at admitted
+    simp only [admitted, Bool.false_eq_true, ↓reduceIte]
+    exact Agrees.throw view _
+
+/-- `requirePlacedWith` in `IO`, at operations that correspond to a model, ends in a world read as
+the same state, and when it succeeds, each path of the listed tree of the root (`Model.Listed`)
+that is a symbolic link or another kind of entry than a directory and a file (`Model.NotPlain`) is
+one of the placed paths (`requirePlacedWith_run`). -/
+theorem requirePlacedWith_io (corresponds : Corresponds ops M view) (reads : ReadsEntry M)
+    (lists : ListsEntries M) (limit : Nat) (root : FilePath) (placed : List FilePath)
+    (w : Void IO.RealWorld) :
+    RunsTo view (requirePlacedWith ops limit root placed w)
+      (fun _ s => s = view w ∧ ∀ path, M.Listed (view w) root path →
+        M.NotPlain (view w) path → path ∈ placed)
+      (fun _ s => s = view w) :=
+  (requirePlacedWith_agrees corresponds limit root placed).transfer w
+    (requirePlacedWith_run M reads lists limit root placed (view w))
 
 end IO
 

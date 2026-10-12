@@ -485,6 +485,10 @@ private def isolatedCopy (repo scratch : FilePath) : IO Copied := do
   scratch protocol (`Regula.Scratch`);
 * this process's own executable is below the build directory that Lake gives for the copy
   (`ScratchCopy.inside`), so the build output it audits is the one that made this gate.
+* before Lake loads it here, it holds no symbolic link or other kind of entry than a directory
+  and a file (`Regula.Filesystem.requireLinksPlaced` with no placed link): the driver copies each
+  file's bytes and follows each link (`RegulaVerification.copyTree`), so Lake's removals in it
+  reach nothing that the same command in the original could not.
 
 **Not observed, and trusted:** that the driver made the copy new in this run, so that its build
 output held nothing before the driver's build. No file of the directory shows that. A caller that
@@ -507,6 +511,9 @@ private def driverCopy (repo path : FilePath) : IO Copied := do
     | .ok metadata => pure (metadata.type == .file)
     | .error _ => pure false
   unless marked do refuse s!"has no ownership marker {marker}"
+  match ← (Regula.Filesystem.requireLinksPlaced copy []).toBaseIO with
+  | .ok () => pure ()
+  | .error error => refuse s!"holds what the driver's copy does not make: {error}"
   let build ← match ← (Workspace.withRootWorkspace copy fun workspace =>
       IO.FS.realPath workspace.root.buildDir).toBaseIO with
     | .ok build => pure build

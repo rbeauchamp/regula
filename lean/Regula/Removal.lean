@@ -32,12 +32,12 @@ not yet routed through the observer, and each count is recorded and reported, no
 The criterion is honest code, as `SECURITY.md` and `CONTEXT.md` define it: code that does not
 deliberately change Lean's environment, compiler or build to make a check pass. Honest code in a
 checked program cannot reach a removal outside the observer, except the library removals that
-`libraryRemovals` lists with the assumption on which each one rests, and the removals of the two
-programs that `scripts/verify.sh` and `scripts/provision.sh` run, which are admitted by name where
-they are checked (`Regula.ProgramCheck.Verification`, `Regula.ProgramCheck.Provision`).
-Deliberate circumvention by Regula's own authors is outside it (issue 286), for example a
-hand-written `extern` bound to a C function of the runtime that removes other than
-`removalSymbols`, or a use of the private declarations of `Regula.Filesystem`.
+`libraryRemovals` lists, each a trusted exemption of Lake or resting on an assumption, as it states,
+and the removals of the two programs that `scripts/verify.sh` and `scripts/provision.sh` run, which
+are admitted by name where they are checked (`Regula.ProgramCheck.Verification`,
+`Regula.ProgramCheck.Provision`). Deliberate circumvention by Regula's own authors is outside it
+(issue 286), for example a hand-written `extern` bound to a C function of the runtime that removes
+other than `removalSymbols`, or a use of the private declarations of `Regula.Filesystem`.
 
 The check admits a removal of `libraryRemovals` or of a driver by the pair of its caller and the
 primitive that it calls (`admitted`), not by its path or by the call site in the caller. So each
@@ -144,53 +144,43 @@ def observerVariant (env : Environment) (observers : Array Name) (name : Name) :
     name == observer ++ suffix && (suffix.isAnonymous || !env.contains name)
 
 /-- The calls of a removal primitive in Lean's library that a program of the package reaches, each
-with the declaration that makes it, for Lean 4.34.1. Each one calls `IO.FS.removeFile` on one file
-that the library itself manages, or `Lean.writeModule`, except Lake's removal of a dependency's
-clone and its move of a packages directory. Lake makes the first four in places that its own path
-functions give, and the loaders of `Regula.Checker.Workspace`, the only callers of Lake's loaders
-in `lean/` by a search for them, run Lake only when `Regula.Filesystem.requireLakePlaces` admits
-those places: each below a directory that is its own real path, with no symbolic link at a
-component down to it or, where Lake changes entries at any depth, below it
-(`Regula.Removal.lakePlacesAdmitted_iff`). Each rests on an assumption, which the check does not
-establish:
+with the declaration that makes it, for Lean 4.34.1. The check admits each of them without
+establishing what it removes.
 
-- `Lake.importConfigFile`, with `IO.FS.removeFile` and with `Lean.writeModule`. Assumes: these
-  remove and write only files in Lake's directory of a package's compiled configuration
-  (`Lake.LoadConfig.configDir`), `.lake/config/<index>` below the workspace for every package
-  index (`Regula.Checker.Workspace.configDir_eq`). It removes the stale `lakefile.olean` and its
-  trace (`Lake/Load/Lean/Elab.lean:244` and `:262`), and writes the new `lakefile.olean` and its
-  siblings (`:256`), each through a temporary file that it renames over the file and removes when
-  the write fails (`src/library/module.cpp:311-314`, `:403` and `:408`). The loaders admit
-  `.lake/config` at any depth before Lake loads a package (`Regula.Checker.Workspace.configPlace`).
-- `Lake.removeFileIfExists`, `Lake.downloadArtifactCore`, `Lake.download`. Assumes: in a Lake
-  build or query that a program runs in its own process, on a workspace that the loaders gave,
-  these remove only files below the build places of a package of the workspace: its build
-  directory and the directories that Lake joins to it, at any depth, and its build archive and
-  barrel with their traces (`Regula.Checker.Workspace.buildPlaces`, `Lake/Util/IO.lean:23`,
-  `Lake/Build/Common.lean:313-326`, `Lake/Build/Actions.lean:178`). The loaders admit those places
-  before the action that builds. A removal in Lake's artifact cache (`Lake/Config/Cache.lean:558`)
-  runs only in a build that reads or writes the cache, which Regula's builds turn off
-  (`Regula.Checker.Workspace.uncachedWorkspace_unreadable`, `uncachedWorkspace_unwritable`), and
-  its query of imports builds no artifact (`Regula.Checker.LintBuild.moduleImports`). The code of a
-  package's own configuration, such as a custom target, a script or a hook, is that package's, and
-  its removals are outside this check.
+Lake's entries are trusted exemptions. Lake makes these removals and moves itself when a program
+loads a workspace or builds in its own process (`Regula.Checker.Workspace`). Each acts on the
+workspace that the program asked Lake to load or build, as `lake build` or `lake update` would
+there. Its safety rests on that workspace's own contents: its configuration and targets, the clones
+of its dependencies and the release archives that it fetches, which its adopter trusts as Lake
+does. Where a program runs Lake in a copy of a project that it made, what Regula adds is checked
+before Lake runs there: the copy holds no symbolic link or other kind of entry than a directory and
+a file except the link to the original's packages directory that the copy placed
+(`Regula.Checker.Lake.copyProject`, and `Regula.Checker.AxiomGate` for the verification driver's
+copy, through `Regula.Filesystem.requireLinksPlaced`). So Lake's removals in the copy reach nothing
+that the same command in the original could not.
+
+- `Lake.importConfigFile`, with `IO.FS.removeFile` and with `Lean.writeModule`. Trusted exemption,
+  for the reason above: it removes the stale compiled configuration of a package and its trace in
+  `.lake/config/<index>`, and writes the new one and its siblings, each through a temporary file
+  that it renames over the file and removes when the write fails (`Lake/Load/Lean/Elab.lean:244`,
+  `:256` and `:262`, `src/library/module.cpp:311-314`, `:403` and `:408`).
+  `Regula.Checker.Workspace.withRootPackage` keeps its own check of `.lake/config/0` too
+  (`Regula.Filesystem.requireNoLinkedEntries`).
+- `Lake.removeFileIfExists`, `Lake.downloadArtifactCore`, `Lake.download`. Trusted exemption, for
+  the reason above: in a build, they remove stale artifacts, their `.hash` files and no-build
+  traces, and a downloaded archive before it is fetched again and unpacked into a package's build
+  directory (`Lake/Util/IO.lean:23`, `Lake/Build/Common.lean:313-326`,
+  `Lake/Build/Package.lean:140-150`, `Lake/Build/Actions.lean:178`, `Lake/Config/Cache.lean:558`).
+  Regula's builds turn off Lake's artifact cache
+  (`Regula.Checker.Workspace.uncachedWorkspace_unreadable`, `uncachedWorkspace_unwritable`), not
+  the fetch of a release archive.
 - `Lake.updateGitRepo`, specialized at `Lake.materializeGitRepo`, with `IO.FS.removeDirAll`.
-  Assumes: it removes the clone of a dependency, `<workspace>/<packages>/<name>`, only when a
-  directory is there whose remote is not the dependency's URL (`Lake/Load/Materialize.lean:64-82`).
-  Before Lake materializes the dependencies that a manifest locks, the loaders admit each clone
-  that Lake would update, whose `HEAD` is not the manifest's revision
-  (`Regula.Checker.Workspace.clonePlaces`, `Lake/Load/Materialize.lean:251-261`). Before Lake's
-  update of a workspace without a manifest, they admit the packages directory at any depth and the
-  clone of each Git dependency that the root package declares. So the clone that Lake removes is
-  reached through no symbolic link, when no process changes the places between the check and the
-  removal, and when the name of each dependency that Lake learns only during that update, a
-  dependency of a dependency or a Reservoir package, names a place below the packages directory:
-  it has no `..` component and is not absolute.
+  Trusted exemption, for the reason above: it removes the clone of a dependency,
+  `<workspace>/<packages>/<name>`, when a directory is there whose remote is not the dependency's
+  URL (`Lake/Load/Materialize.lean:64-82` and `:251-261`).
 - `Lake.reuseManifest`, specialized at `Lake.Workspace.updateAndMaterializeCore`, with
-  `IO.FS.rename`. Assumes: it moves the packages directory that a loaded manifest names to the
-  workspace's, only when a manifest loads (`Lake/Load/Resolve.lean:252-283`), and
-  `Regula.Checker.Workspace.withRootWorkspace` runs Lake's update only when `Lake.Manifest.load?`
-  finds no manifest, so it moves nothing when no process makes a manifest between the two reads.
+  `IO.FS.rename`. Trusted exemption, for the reason above: it moves the packages directory that a
+  loaded manifest names to the workspace's (`Lake/Load/Resolve.lean:252-283`).
 - The three variants of `IO.FS.withTempFile` in `bv_decide`. Assumes: the program elaborates no
   `bv_decide` proof, so these, which the tactic's initializers reach, do not run; each removes the
   temporary file that `withTempFile` made (`Init/System/IO.lean:1353`). -/

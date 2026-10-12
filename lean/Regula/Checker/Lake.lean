@@ -501,7 +501,14 @@ copy's manifest would not load as the original's load does is given an override
 (`relocateDependencies`). The packages directory is the one the project's manifest records,
 `.lake/packages` by default; a relative one outside the project, such as a nested package's
 `../.lake/packages`, is linked at the same relative place from the copied project, which must lie
-inside `exclude`. -/
+inside `exclude`.
+
+The copy writes each file's bytes and follows each symbolic link of the project, so the only link
+it makes is the one at the packages directory, to the original's. Before it returns, it stops
+unless `exclude`, at any depth, holds no symbolic link or other kind of entry than a directory and
+a file except that link (`Regula.Filesystem.requireLinksPlaced`, `observer_requireLinksPlaced`).
+So Lake's removals in the copy reach nothing that the same command in the original could not
+(`Regula.Removal.libraryRemovals`). -/
 def copyProject (repo target exclude : FilePath) : IO ProjectCopy := do
   IO.FS.createDirAll target
   let root ← IO.FS.realPath repo
@@ -558,7 +565,7 @@ def copyProject (repo target exclude : FilePath) : IO ProjectCopy := do
   let packagesDir := ((← _root_.Lake.Manifest.load? (repo / "lake-manifest.json")).bind
     (·.packagesDir?)).getD _root_.Lake.defaultPackagesDir
   let packages := repo / packagesDir
-  if ← packages.isDir then
+  let placed ← if !(← packages.isDir) then pure [] else do
     let projectComponents := project.normalize.components
     unless excludeComponents.isPrefixOf projectComponents do
       throw <| IO.userError s!"could not link pinned Lake packages: the copy {project} is not \
@@ -575,12 +582,15 @@ def copyProject (repo target exclude : FilePath) : IO ProjectCopy := do
       link.toString]
     if !linked.succeeded then
       throw <| IO.userError s!"could not link pinned Lake packages: {linked.output}"
+    -- The link spelled as the walk below spells it, from `exclude`.
+    pure [(linkComponents.drop excludeComponents.length).foldl (· / FilePath.mk ·) exclude]
   let placeOf (dir : FilePath) : IO FilePath := do
     IO.FS.createDirAll (place dir)
     IO.FS.realPath (place dir)
   let dependencies ← original.dependencies.mapM fun dependency => do
     return (dependency, ← if dependency.owned then placeOf dependency.root else pure dependency.root)
   relocateDependencies project dependencies
+  Regula.Filesystem.requireLinksPlaced exclude placed
   return { project, root := ← IO.FS.realPath target
            selection := {
              root := original.targets
