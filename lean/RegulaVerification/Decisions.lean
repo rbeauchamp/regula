@@ -9,7 +9,7 @@ The decision kind of each pure decision `RegulaVerification` runs, with its
 `@[regula_decision]` registration. The driver imports only the toolchain, because
 `scripts/verify.sh` runs it with `lean --run` before the package is built. This second module of
 its library imports it together with the two checker interfaces and the removal decision of the
-site executable (`RegulaCore.Removal`), and nothing the driver runs imports this module. Each
+filesystem observer (`RegulaCore.Removal`), and nothing the driver runs imports this module. Each
 kind restates theorems of the driver about the same definition and adds the witnesses a kind
 requires. -/
 namespace RegulaVerification
@@ -73,7 +73,7 @@ theorem checked_removal : Regula.ExecutableContract removal
       observed.place = .directory ∧ observed.sameLocation = true)) :=
   ⟨.of_iff removal_remove_iff ⟨⟨.directory, true⟩, rfl⟩ ⟨⟨.absent, false⟩, by decide⟩⟩
 
-/-- The place of the site executable's decision (`Regula.Removal.Place`) that a place of the
+/-- The place of the filesystem observer's decision (`Regula.Removal.Place`) that a place of the
 driver is. The driver does not tell a file or a symbolic link from another entry that is not a
 directory, so its `other` is that decision's `other`; that decision refuses each of them for a
 directory. -/
@@ -82,18 +82,18 @@ def Place.shared : Place → Regula.Removal.Place
   | .directory => .present .directory
   | .other => .other
 
-/-- The result of the site executable's decision (`Regula.Removal.Removal`) that a result of the
+/-- The result of the filesystem observer's decision (`Regula.Removal.Removal`) that a result of the
 driver's decision is. -/
 def Removal.shared : Removal → Regula.Removal.Removal
   | .nothing => .nothing
   | .remove => .remove
   | .refuse => .refuse
 
-/-- The driver's decision is the decision of the site executable for a directory,
+/-- The driver's decision is the decision of the filesystem observer for a directory,
 `Regula.Removal.removal .directory`, on the same observation, whatever is observed of the parent of
 the path, which that decision does not read for a directory. The driver cannot import that
 decision, because `scripts/verify.sh` runs it with `lean --run` before the package is built, and
-the site executable cannot import the driver, because both programs declare `main`. So the
+a program of the package cannot import the driver, because both declare `main`. So the
 decision is written twice, and this theorem relates the two. -/
 theorem removal_shared (observed : Observed) (parentOwn : Bool) :
     (removal observed).shared = Regula.Removal.removal .directory

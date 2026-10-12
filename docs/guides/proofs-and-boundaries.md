@@ -514,8 +514,10 @@ present components (`Regula.Filesystem.ownPath`).
 A program resolves some directories to their real path one time (`Regula.Filesystem.ownRoot`).
 These are the scratch area under `.lake`, the build directory of the project and the directory of a
 file that `regula init` wrote. Each scratch directory that a program uses is below the real path of
-that area. The adopter can make such a directory or one of its parents a symbolic link. The program
-decides each removal below the directory at the real path. Thus a link at `.lake` does not stop the
+that area.
+
+The adopter can make such a directory or one of its parents a symbolic link. The program decides
+each removal below the directory at the real path. Thus a link at `.lake` does not stop the
 removal, but a link below the directory does.
 
 On Windows, the observer reads no entry and removes nothing, and the site executable refuses each
@@ -4435,8 +4437,7 @@ The `qualify` campaigns and what they observe:
 - `receipt-boundaries`: timeout-selection and spawn failures (see
   [Operational assumptions](#operational-assumptions)).
 - `observers`: the record of the removal check of each program of the package, and the check of
-  `Main`, the root of `auditApp`. The shard `self-audit 4/4` operates it, and so does
-  `diagnostics self-audit`.
+  `Main`, the root of `auditApp`.
 - `acceptance fences`: fence-compilation packet mutations with positive restoration.
 - `acceptance-snapshots`: `dependencies` (ignored Git and non-Git dependency input coverage and
   mutation), `history` ([RG3001] fresh, incremental and build-lint history refusal and restoration)
@@ -4894,7 +4895,8 @@ execution, and calling a proved oracle does not prove the driver or its IO effec
   `RegulaVerification` state the decisions of the copy and of the removal. The theorems
   `ScratchCopy.name?_eq_some_iff` and `ScratchCopy.inside_iff` state the two decisions with which
   the gate admits a copy of the driver. The theorems `Regula.Removal.removal_remove_iff` and
-  `removal_nothing_iff` state the decision of the removals of each program of the package.
+  `removal_nothing_iff` state the decision of the removals of the filesystem observer,
+  `Regula.Filesystem`.
   `RegulaVerification.removal_shared` relates it to the decision of the driver. The reads of the
   file system that give their arguments are trusted.
 - The theorem `BuildReuse.reuse_iff` states the decision by which the fence audit uses the build
