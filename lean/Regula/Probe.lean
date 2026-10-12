@@ -9,6 +9,8 @@ import Lean.Compiler.ExternAttr
 import Lean.Compiler.CSimpAttr
 import Lean.Compiler.InitAttr
 import Lean.Compiler.IR.EmitUtil
+import Lean.Compiler.LCNF.PhaseExt
+import Lean.Compiler.LCNF.Types
 import Lean.DeclarationRange
 import Lean.Elab.PreDefinition.Structural.Eqns
 import Lean.Elab.PreDefinition.WF.Eqns
@@ -18,7 +20,6 @@ import Lean.Meta.Eqns
 import Lean.Meta.RecExt
 import Lean.ProjFns
 import Lean.Util.FoldConsts
-import Std.Internal.UV.System
 import Regula.Report
 import Regula.Contract
 import Regula.MaterialClaim
@@ -165,62 +166,66 @@ private def reportPhase {α : Type} (enabled : Bool) (label : String)
 
 /-- Kernel heartbeat budget for one correspondence check: Lean's per-declaration default
 (`maxHeartbeats` at its default value, in the kernel's raw unit), so a checker-added
-correspondence obligation costs no more than a declaration the adopter could write. -/
+correspondence obligation costs no more than a declaration the adopter could write. Each check
+counts from zero (`kernelAnswer`), so this budget alone bounds a check, whatever ran before it. -/
 private def correspondenceHeartbeats : USize := (Core.getMaxHeartbeats {}).toUSize
 
-/-- Resident memory one correspondence check may add above the process's peak resident size at
-the check's start: 1 GiB (`correspondenceBound`). A check that exhausts its limit in a report is
-decided again in a fresh worker (`decideCorrespondence`), whose limit is its own peak after the
-environment import plus this same allowance. -/
-def correspondenceMemoryBytes : Nat := 1024 * 1024 * 1024
+/-- The memory cap of an audit process during its correspondence checks: 8 GiB of resident
+memory for the whole process (`correspondenceMemoryCap`). It bounds no single check: a check that
+reaches it ends the report (`observeNode`), so no verdict comes from it. -/
+def correspondenceMemoryBytes : Nat := 8 * 1024 * 1024 * 1024
 
-/-- The memory limit of one correspondence check, in bytes: the process's peak resident size
-`peak` at the check's start plus `allowance`, and never above the limit `outer` that the shell set
-from `max_memory` when it set one (`0` sets none). It reads its arguments alone, so no earlier
-check fixes it, and the checks before it can only raise `peak`
-(`correspondenceBound_full_iff`, `peak_lt_correspondenceBound_iff`). -/
-def correspondenceBound (outer peak allowance : Nat) : Nat :=
-  if outer = 0 then peak + allowance else min outer (peak + allowance)
+/-- The memory cap in bytes: `cap`, and never above the limit `outer` that the shell set from
+`max_memory` when it set one (`0` sets none). It reads no measurement of the process
+(`correspondenceMemoryCap_eq_iff`). -/
+def correspondenceMemoryCap (outer cap : Nat) : Nat :=
+  if outer = 0 then cap else min outer cap
 
-/-- A check gets its whole allowance above its starting peak exactly when the shell set no limit
-or set one that leaves room for it. -/
-theorem correspondenceBound_full_iff (outer peak allowance : Nat) :
-    correspondenceBound outer peak allowance = peak + allowance ↔
-      outer = 0 ∨ peak + allowance ≤ outer := by
-  unfold correspondenceBound
+/-- The cap is `cap` itself exactly when the shell set no limit or one at least `cap`. -/
+theorem correspondenceMemoryCap_eq_iff (outer cap : Nat) :
+    correspondenceMemoryCap outer cap = cap ↔ outer = 0 ∨ cap ≤ outer := by
+  unfold correspondenceMemoryCap
   split <;> omega
 
-/-- The limit lies above the starting peak, so it does not end a check on memory the process
-already held, exactly when the allowance is positive and the shell's limit, if any, is above the
-peak. -/
-theorem peak_lt_correspondenceBound_iff (outer peak allowance : Nat) :
-    peak < correspondenceBound outer peak allowance ↔
-      0 < allowance ∧ (outer = 0 ∨ peak < outer) := by
-  unfold correspondenceBound
-  split <;> omega
-
-/-- Lean's runtime memory limit in bytes (`lean -M`; `0` disables it). The kernel raises
+/-- Lean's runtime memory limit in bytes (`lean -M`; `0` disables it), one value for the whole
+process (`g_max_memory`, `src/runtime/memory.cpp:114` at v4.34.1). The kernel raises
 `excessiveMemory` at a system check when the process's peak and current resident sizes are both
-at least this limit (`check_memory`, `src/runtime/memory.cpp:145-158` at v4.34.1).
+at least this limit (`check_memory`, `src/runtime/memory.cpp:145-158`).
 `Lean.Shell` keeps its own binding of this runtime symbol private. -/
 @[extern "lean_internal_set_max_memory"]
 private opaque setMaxMemory (bytes : USize) : BaseIO Unit
 
-/-- Whether a kernel check of this process has exhausted its memory limit since the flag was last
-cleared: `kernelAnswer` sets it, and each correspondence check of the walk clears it first
-(`observeNode`). A process runs its correspondence checks sequentially. -/
-private initialize memoryExhausted : IO.Ref Bool ← IO.mkRef false
+/-- Whether a kernel check of this process reached the memory cap since the flag was last
+cleared: `kernelAnswer` sets it, and each correspondence check of the walk clears it first and
+reads it after the check (`observeNode`). A process runs its correspondence checks sequentially. -/
+private initialize memoryCapReached : IO.Ref Bool ← IO.mkRef false
 
-/-- Run `action` under the limit of one correspondence check, `correspondenceBound` of the shell's
-`max_memory` limit, the process's peak resident size now (libuv reports it in KiB) and
-`allowance`, and restore the shell's limit afterward. The runtime limit is process-wide, and a
+/-- Run `action` under the memory cap `correspondenceMemoryCap` of the shell's `max_memory` limit
+and `cap`, and restore the shell's limit afterward. The runtime limit is process-wide, and a
 process runs its correspondence checks sequentially. -/
-private def withCorrespondenceMemory {α : Type} (opts : Options) (allowance : Nat)
-    (action : IO α) : IO α := do
+private def withMemoryCap {α : Type} (opts : Options) (cap : Nat) (action : IO α) : IO α := do
   let outer := (opts.get? `max_memory).getD (0 : Nat) * 1024 * 1024
-  let peak := (← Std.Internal.UV.System.getrusage).maxRSS.toNat * 1024
-  setMaxMemory (correspondenceBound outer peak allowance).toUSize
+  setMaxMemory (correspondenceMemoryCap outer cap).toUSize
   try action finally setMaxMemory outer.toUSize
+
+/-- The outcome of one correspondence check that the walk reports: the check's own `answer` when
+no kernel check of it reached the memory cap, and otherwise the error that ends the report, which
+names the check. -/
+def settleCorrespondence {α : Type} (capReached : Bool) (reference replacement : Name)
+    (answer : α) : Except String α :=
+  if capReached then
+    .error s!"the memory cap was reached during the correspondence check of {reference} and \
+      {replacement}"
+  else .ok answer
+
+/-- The walk reports a verdict exactly when no kernel check of it reached the memory cap, and the
+verdict is then the check's own answer. -/
+theorem settleCorrespondence_ok_iff {α : Type} (capReached : Bool) (reference replacement : Name)
+    (answer verdict : α) :
+    settleCorrespondence capReached reference replacement answer = .ok verdict ↔
+      capReached = false ∧ verdict = answer := by
+  unfold settleCorrespondence
+  cases capReached <;> simp [eq_comm]
 
 /-- Kernel resource exhaustion ends admission without a verdict on the proof. -/
 private def kernelExhausted : Kernel.Exception → Bool
@@ -238,11 +243,24 @@ is complete; the axioms are those the declaration reaches in the kernel
 environment that holds it (`KernelAxioms.axiomsWith`), the search stopping at each name of
 `cached`, the table admission computed in the replayed kernel for the owned declarations' closure,
 and an exhausted search is the kernel's exhaustion; its resource exhaustion or interruption
-(`kernelExhausted`); or any other refusal. The check runs under the limit of
-`withCorrespondenceMemory` for `allowance`, and an exhaustion of that limit sets
-`memoryExhausted`. A proof or proposition with an undischarged variable, and an error while the
-answer is read, raise an error and record no answer. -/
-private def kernelAnswer (cached : Std.HashMap Name (Array Name)) (allowance : Nat)
+(`kernelExhausted`); or any other refusal. The check runs under the memory cap of `withMemoryCap`
+for `cap`, and reaching that cap sets `memoryCapReached`, so the walk reports no verdict from the
+check (`settleCorrespondence`).
+
+The kernel runs the check on a thread of its own (`Task.Priority.dedicated`), so its heartbeat
+count starts at zero and the check's heartbeat budget does not depend on the checks before it.
+Assumes: the kernel counts one heartbeat at each of its system checks, in a counter of its thread,
+and ends the check when the count exceeds the budget (`check_heartbeat`,
+`src/runtime/interrupt.cpp:18`, `51-55` at v4.34.1); `addDeclCore` sets the budget and not the
+count (`lean_add_decl`, `src/kernel/environment.cpp:287-295`); a task of priority above
+`LEAN_MAX_PRIO` runs on a new thread, which sets the count to zero before it runs the task
+(`enqueue`, `spawn_dedicated_worker` and `run_task`, `src/runtime/object.cpp:808-810`, `884-903`).
+Without a task manager, Lean runs a task on the caller's thread (`lean_task_spawn_core`,
+`src/runtime/object.cpp:1200-1206`), and the check is refused as an error then: the thread
+identifier the task reads must differ from the caller's. A proof or proposition with an
+undischarged variable, and an error while the answer is read, raise an error and record no
+answer. -/
+private def kernelAnswer (cached : Std.HashMap Name (Array Name)) (cap : Nat)
     (levels : List Name) (required proof : Expr) : MetaM KernelAnswer := do
   let required ← instantiateMVars required
   let proof ← instantiateMVars proof
@@ -255,11 +273,16 @@ private def kernelAnswer (cached : Std.HashMap Name (Array Name)) (allowance : N
     type := required
     value := proof }
   let env ← getEnv
-  let result ← withCorrespondenceMemory (← getOptions) allowance <|
-    IO.lazyPure fun _ => env.addDeclCore correspondenceHeartbeats 1000 declaration none
+  let caller ← IO.getTID
+  let (thread, result) ← withMemoryCap (← getOptions) cap do
+    let task ← IO.asTask (prio := .dedicated) do
+      return (← IO.getTID, env.addDeclCore correspondenceHeartbeats 1000 declaration none)
+    IO.ofExcept (← IO.wait task)
+  if thread == caller then
+    throwError "the kernel check of a correspondence ran on the caller's thread"
   match result with
   | .error e =>
-    if e matches .excessiveMemory then memoryExhausted.set true
+    if e matches .excessiveMemory then memoryCapReached.set true
     return if kernelExhausted e then .exhausted else .refused
   | .ok checked =>
     let some axioms := RegulaPolicy.KernelAxioms.axiomsWith checked.toKernelEnv.find? cached
@@ -288,7 +311,7 @@ prefix of the actual dependent domain, instantiate its universes and premises,
 match the equality, apply any remaining arguments by congruence, and close over
 exactly the actual domain. Unsolved theorem-only premises remain metavariables
 and cannot pass kernel admission. Search incompleteness never grants evidence. -/
-private def theoremCorrespondence? (cached : Std.HashMap Name (Array Name)) (allowance : Nat)
+private def theoremCorrespondence? (cached : Std.HashMap Name (Array Name)) (cap : Nat)
     (levels : List Name)
     (reference replacement : Expr) (domain : Array Expr) (required : Expr) (name : Name) :
     MetaM (Option (String × CorrespondenceTerms)) := do
@@ -308,7 +331,7 @@ private def theoremCorrespondence? (cached : Std.HashMap Name (Array Name)) (all
             proof ← Meta.mkCongrFun proof arg
           proof ← Meta.mkLambdaFVars domain proof
           let .completed (some terms) ←
-              comparison (kernelAnswer cached allowance levels required proof)
+              comparison (kernelAnswer cached cap levels required proof)
             | return none
           return some (s!"proved: {name}; {terms.text}", terms)
         catch _ => return none
@@ -376,8 +399,8 @@ reference domain, including implicit, dependent, and proof parameters. The
 compiler's positional universe substitution must type-check at those same
 levels. Both definitional and theorem-backed evidence pass the same kernel gate.
 Theorem candidates, supplied then discovered, are tried before definitional
-unfolding, so a kernel-exhausting unfolding cannot consume the memory limit a
-supplied proof needs. A theorem is tried only when `admits` accepts it, which `environmentReport`
+unfolding, and each kernel check has its own heartbeat budget (`kernelAnswer`). A theorem is
+tried only when `admits` accepts it, which `environmentReport`
 gives for a theorem of a module that the environment's admission replayed or reused, or of an
 origin-checked module of the toolchain: the kernel then checked the theorem itself in this audit,
 or it is part of the toolchain's trusted base. A theorem of a dependency that the audit does not
@@ -389,7 +412,7 @@ it built the reflexivity proof or read the answer, is unresolved, never trusted 
 An elaborator resource limit reached while constructing the correspondence is rethrown rather
 than recorded as unresolved. -/
 private def replacementCorrespondence (env : Environment) (cached : Std.HashMap Name (Array Name))
-    (prepared : Thunk (PreparedTheorems env)) (admits : Name → Bool) (allowance : Nat)
+    (prepared : Thunk (PreparedTheorems env)) (admits : Name → Bool) (cap : Nat)
     (reference replacement : Name)
     (proofCandidates : Array Name := #[]) :
     CommandElabM (Correspondence × Option String × Option CorrespondenceTerms) :=
@@ -412,7 +435,7 @@ private def replacementCorrespondence (env : Environment) (cached : Std.HashMap 
         for name in proofCandidates do
           if !admits name then continue
           let evidence? ←
-            theoremCorrespondence? cached allowance levels ref impl domain required name
+            theoremCorrespondence? cached cap levels ref impl domain required name
           if let some (evidence, terms) := evidence? then
             return (.checked, some evidence, some terms)
         for (name, used) in prepared.get.entries do
@@ -420,61 +443,16 @@ private def replacementCorrespondence (env : Environment) (cached : Std.HashMap 
             | continue
           if !admits name then continue
           let evidence? ←
-            theoremCorrespondence? cached allowance levels ref impl domain required name
+            theoremCorrespondence? cached cap levels ref impl domain required name
           if let some (evidence, terms) := evidence? then
             return (.checked, some evidence, some terms)
         let outcome ← comparison do
-          kernelAnswer cached allowance levels required
+          kernelAnswer cached cap levels required
             (← Meta.mkLambdaFVars domain (← Meta.mkEqRefl lhs))
         return (outcome.classify.1, outcome.classify.2, outcome.terms?)
     catch _ =>
       return (.unresolved,
           some s!"cannot construct exact correspondence for {reference} and {replacement}", none)
-
-/-- One correspondence check, as a report asks a fresh worker to decide it after the check
-exhausted its memory limit in the report's process (`decideCorrespondence`): the modules whose
-theorems the check may use (`admitted`, the report's `admits` as a set of modules), the axioms the
-report's admission recorded for the owned declarations (`cached`), the endpoints, and the
-theorems of the compiler's simplification candidates that relate them (`proofs`). -/
-structure CorrespondenceRequest where
-  /-- The modules whose theorems a correspondence may use. -/
-  admitted : Array Name
-  /-- The axioms of each owned declaration, from the report's admission. -/
-  cached : Array (Name × Array Name)
-  /-- The logical definition. -/
-  reference : Name
-  /-- The definition that runs in its place. -/
-  replacement : Name
-  /-- The supplied candidate theorems, tried first. -/
-  proofs : Array Name
-  deriving ToJson, FromJson
-
-/-- The fresh worker's decision of one correspondence check (`--correspondence-worker`), on the
-environment that the worker imported for the report's requested modules:
-`replacementCorrespondence` with the request's `admits` and `cached`, under the limit of
-`correspondenceBound` for `correspondenceMemoryBytes`, whose peak is this process's after its
-import. The worker refuses an environment whose foundation axioms are not the toolchain's, as the
-report does (`Collect.authenticateFoundation`). -/
-def decideCorrespondence (request : CorrespondenceRequest) :
-    CommandElabM (Correspondence × Option String × Option CorrespondenceTerms) := do
-  let env ← getEnv
-  liftIO <| Regula.Collect.authenticateFoundation env
-  let admitted := NameSet.ofArray request.admitted
-  let admits (candidate : Name) : Bool := match env.getModuleIdxFor? candidate with
-    | some idx => admitted.contains env.header.modules[(idx : Nat)]!.module
-    | none => false
-  replacementCorrespondence env (Std.HashMap.ofList request.cached.toList)
-    (Thunk.mk fun _ => prepareTheorems env) admits correspondenceMemoryBytes request.reference
-    request.replacement request.proofs
-
-/-- The words that open the detail of a correspondence check that a fresh worker decided after the
-check exhausted its memory limit in the report's process. -/
-def freshDecision : String :=
-  "decided in a fresh worker after the check exhausted its memory limit in the report's process"
-
-/-- The answer of a fresh worker to a `CorrespondenceRequest`, or the error that ended it. -/
-abbrev FreshCorrespondence := CorrespondenceRequest →
-  IO (Except String (Correspondence × Option String × Option CorrespondenceTerms))
 
 /-- The pinned `CSimp.isConstantReplacement?` shape, indexed independently of
 the final scoped attribute state. This conservative candidate set includes
@@ -609,6 +587,154 @@ private def exportersOf (env : Environment) (symbol : String) : Array Name := Id
       found := found.push declaration
   return found
 
+/-- Whether each parameter a call passes agrees with the parameter at its position in the
+definition that receives it: the same LCNF type (`Expr.eqv`) and the same borrowing, with as many
+parameters on each side. -/
+def parametersAgree :
+    List (Lean.Compiler.LCNF.Param .impure) → List (Lean.Compiler.LCNF.Param .impure) → Bool
+  | [], [] => true
+  | passed :: passing, received :: receiving =>
+      passed.type.eqv received.type && passed.borrow == received.borrow &&
+        parametersAgree passing receiving
+  | _, _ => false
+
+/-- `parametersAgree` holds exactly when the two lists have the same length and pair off,
+position by position, into parameters of the same type and borrowing. -/
+theorem parametersAgree_iff (passing receiving : List (Lean.Compiler.LCNF.Param .impure)) :
+    parametersAgree passing receiving = true ↔
+      passing.length = receiving.length ∧ ∀ pair ∈ passing.zip receiving,
+        pair.1.type.eqv pair.2.type = true ∧ pair.1.borrow = pair.2.borrow := by
+  induction passing generalizing receiving with
+  | nil => cases receiving <;> simp [parametersAgree]
+  | cons passed passing ih =>
+    cases receiving with
+    | nil => simp [parametersAgree]
+    | cons received receiving =>
+      simp only [parametersAgree, Bool.and_eq_true, beq_iff_eq, ih, List.length_cons,
+        Nat.add_right_cancel_iff, List.zip_cons_cons, List.forall_mem_cons]
+      constructor
+      · rintro ⟨⟨h₁, h₂⟩, h₃, h₄⟩
+        exact ⟨h₃, ⟨h₁, h₂⟩, h₄⟩
+      · rintro ⟨h₃, ⟨h₁, h₂⟩, h₄⟩
+        exact ⟨⟨h₁, h₂⟩, h₃, h₄⟩
+
+/-- The parameters of an impure signature that a C call of an `extern` with a standard `c` entry
+passes arguments for: those that are neither void nor erased. -/
+def passedParameters (signature : Lean.Compiler.LCNF.Signature .impure) :
+    List (Lean.Compiler.LCNF.Param .impure) :=
+  (signature.params.filter fun p => !(p.type.isVoid || p.type.isErased)).toList
+
+/-- The parameters of an impure signature that the C definition of a compiled declaration takes:
+those that are not void. -/
+def receivedParameters (signature : Lean.Compiler.LCNF.Signature .impure) :
+    List (Lean.Compiler.LCNF.Param .impure) :=
+  (signature.params.filter fun p => !p.type.isVoid).toList
+
+/-- Whether a C call of the `extern` with the impure signature `external` and the C definition of
+the declaration with the impure signature `exporter` that the call reaches agree: both have
+parameters, their results have the same LCNF type, and the arguments the call passes pair off with
+the parameters the definition takes in type and borrowing (`signaturesAgree_iff`).
+
+Assumes: Lean 4.34.1 emits a call of an `extern` with a standard `c` entry with the arguments of
+the parameters of its impure signature that are neither void nor erased (`emitFap`,
+`src/Lean/Compiler/LCNF/EmitC.lean:638-652`), and the definition of a compiled declaration with
+parameters with those of its parameters that are not void, each of the C type of its LCNF type,
+and with the C type of its result (`emitDecl`, `src/Lean/Compiler/LCNF/EmitC.lean:925-952`); a
+declaration with no parameters is emitted as an initializer there, not as a function. A call
+passes ownership of an argument by the borrowing of the callee's impure signature (`ExplicitRC`,
+`src/Lean/Compiler/LCNF/ExplicitRC.lean:582-584`), which for the call of an `extern` is the
+`extern`'s, and the exporter's code consumes its parameters by its own. `Expr.isVoid` and
+`Expr.isErased` test for `lcVoid` and `lcErased` (`src/Lean/Compiler/LCNF/Types.lean:25-29`).
+Trusted: equal LCNF types give equal C types, and the C linker binds the call to that one
+definition. -/
+def signaturesAgree (external exporter : Lean.Compiler.LCNF.Signature .impure) : Bool :=
+  !external.params.isEmpty && !exporter.params.isEmpty && external.type.eqv exporter.type &&
+    parametersAgree (passedParameters external) (receivedParameters exporter)
+
+/-- The two signatures agree exactly when both have parameters, their result types are equal and
+the passed and the received parameters are as many and pair off in type and borrowing. -/
+theorem signaturesAgree_iff (external exporter : Lean.Compiler.LCNF.Signature .impure) :
+    signaturesAgree external exporter = true ↔
+      external.params.isEmpty = false ∧ exporter.params.isEmpty = false ∧
+      external.type.eqv exporter.type = true ∧
+      (passedParameters external).length = (receivedParameters exporter).length ∧
+      ∀ pair ∈ (passedParameters external).zip (receivedParameters exporter),
+        pair.1.type.eqv pair.2.type = true ∧ pair.1.borrow = pair.2.borrow := by
+  simp only [signaturesAgree, Bool.and_eq_true, Bool.not_eq_true', parametersAgree_iff,
+    and_assoc]
+
+/-- What the compiler runs for a constant, as the walk classifies it before its value: the
+compiled code of the one declaration whose `@[export]` name is the constant's `extern` symbol
+(`exported`, with whether the C signatures agree), other external code (`extern`), the value an
+initializer returned (`initialized`), or neither (`ordinary`). -/
+inductive Lowering where
+  /-- An `extern` whose C symbol `symbol` is the export name of `exporter` alone. -/
+  | exported (symbol : String) (exporter : Name) (agree : Bool)
+  /-- Any other `extern`. -/
+  | extern
+  /-- A constant whose compiled code reads the value initializer `action` returned. -/
+  | initialized (action : Name)
+  /-- Neither. -/
+  | ordinary
+  deriving DecidableEq
+
+/-- The classification of a constant from what Lean records of it: whether it is an `extern`
+(`isExtern`), whether the toolchain declares it (`toolchainOwned`), its C symbol for the `c`
+backend (`symbol`), the declarations whose export name gives a symbol (`exporters`), whether the
+C signatures of the constant and a declaration agree (`agree`) and its initializer
+(`initializer`). The toolchain's own `extern`s are its trusted base and are not paired
+(`lowering_exported_iff`, `lowering_initialized_iff`). -/
+def lowering (isExtern toolchainOwned : Bool) (symbol : Option String)
+    (exporters : String → List Name) (agree : Name → Bool) (initializer : Option Name) :
+    Lowering :=
+  if isExtern then
+    match toolchainOwned, symbol with
+    | false, some symbol => match exporters symbol with
+      | [exporter] => .exported symbol exporter (agree exporter)
+      | _ => .extern
+    | _, _ => .extern
+  else match initializer with
+    | some action => .initialized action
+    | none => .ordinary
+
+/-- A constant is classified as running the code of `exporter` exactly when it is an `extern`
+the toolchain does not declare, whose symbol is the export name of `exporter` alone; `agreed` is
+then whether their C signatures agree. -/
+theorem lowering_exported_iff (isExtern toolchainOwned : Bool) (symbol? : Option String)
+    (exporters : String → List Name) (agree : Name → Bool) (initializer : Option Name)
+    (symbol : String) (exporter : Name) (agreed : Bool) :
+    lowering isExtern toolchainOwned symbol? exporters agree initializer =
+        .exported symbol exporter agreed ↔
+      isExtern = true ∧ toolchainOwned = false ∧ symbol? = some symbol ∧
+        exporters symbol = [exporter] ∧ agree exporter = agreed := by
+  cases isExtern <;> cases toolchainOwned <;> cases symbol?
+  case true.false.some given =>
+    unfold lowering
+    simp only [ite_true, true_and, Option.some.injEq]
+    constructor
+    · intro found
+      split at found
+      · rename_i exporter' single
+        simp only [Lowering.exported.injEq] at found
+        obtain ⟨rfl, rfl, rfl⟩ := found
+        exact ⟨rfl, single, rfl⟩
+      · cases found
+    · rintro ⟨rfl, single, rfl⟩
+      simp [single]
+  all_goals (unfold lowering; (try cases initializer) <;> simp)
+
+/-- A constant is classified as an initialized value exactly when it is not an `extern` and
+Lean records an initializer for it. -/
+theorem lowering_initialized_iff (isExtern toolchainOwned : Bool) (symbol : Option String)
+    (exporters : String → List Name) (agree : Name → Bool) (initializer : Option Name)
+    (action : Name) :
+    lowering isExtern toolchainOwned symbol exporters agree initializer = .initialized action ↔
+      isExtern = false ∧ initializer = some action := by
+  unfold lowering
+  cases isExtern <;> cases toolchainOwned <;> cases symbol <;> cases initializer <;> simp
+  all_goals split <;> simp
+
+
 /-- What a walk observes of one name `name`: the targets of the edges from the name, its
 boundaries and unresolved paths, and its retained compiler body
 (`RegulaPolicy.ExecutionWalk.NodeRecord`). It does not receive the walk's root, so the record is
@@ -653,9 +779,7 @@ private def observeNode (env : Environment) (ownedModules : List Name)
     (proofCache : IO.Ref
       (Std.HashMap (Name × Name) (Correspondence × Option String × Option CorrespondenceTerms)))
     (dependencyCache : IO.Ref (CompilerDependenciesCache env))
-    (preparedTheorems : Thunk (PreparedTheorems env)) (admits : Name → Bool) (allowance : Nat)
-    (decideAfresh : Name → Name → Array Name →
-      IO (Except String (Correspondence × Option String × Option CorrespondenceTerms)))
+    (preparedTheorems : Thunk (PreparedTheorems env)) (admits : Name → Bool) (cap : Nat)
     (timing : Bool)
     (name : Name) : CommandElabM (RegulaPolicy.ExecutionWalk.NodeRecord name) := do
   let moduleOf (name : Name) : Option Name :=
@@ -664,21 +788,16 @@ private def observeNode (env : Environment) (ownedModules : List Name)
     if let some result := (← liftIO proofCache.get)[(reference, target)]? then return result
     let proofs := ((candidates.find? reference).getD #[]).filterMap fun candidate =>
       if candidate.toDeclName == target then some candidate.thmName else none
-    -- A check that exhausted its memory limit here is decided again in a fresh worker, whose
-    -- answer is the one reported, so it does not depend on what this process did before.
-    liftIO <| memoryExhausted.set false
-    let inProcess ← reportPhase timing s!"correspondence {reference} -> {target}" <|
-      replacementCorrespondence env cached preparedTheorems admits allowance reference target
-        proofs
-    let result ← if !(← liftIO memoryExhausted.get) then pure inProcess else
-      reportPhase timing s!"fresh correspondence {reference} -> {target}" do
-        match ← liftIO (decideAfresh reference target proofs) with
-        | .ok (state, detail, terms) =>
-          pure (state, some s!"{freshDecision}; {detail.getD ""}", terms)
-        | .error error =>
-          pure (.unresolved, some s!"{freshDecision}, which failed: {error}", none)
-    liftIO <| proofCache.modify (·.insert (reference, target) result)
-    return result
+    -- A check that reached the memory cap ends the report, so no verdict comes from it.
+    liftIO <| memoryCapReached.set false
+    let answer ← reportPhase timing s!"correspondence {reference} -> {target}" <|
+      replacementCorrespondence env cached preparedTheorems admits cap reference target proofs
+    let capReached ← liftIO memoryCapReached.get
+    match settleCorrespondence capReached reference target answer with
+    | .ok result =>
+      liftIO <| proofCache.modify (·.insert (reference, target) result)
+      return result
+    | .error message => throwError message
   let code : RegulaPolicy.ExecutionWalk.CodeStatus := match Lean.IR.findEnvDecl env name with
     | some (.fdecl ..) => .function
     | some (.extern ..) => if Lean.isExtern env name then .externBody else .placeholder
@@ -736,30 +855,41 @@ private def observeNode (env : Environment) (ownedModules : List Name)
       (some s!"conservative constant-equality candidate={simplification.thmName}; \
         {evidence.getD ""}") terms
     record := { record with boundaries := record.boundaries.push boundary }
-  if Lean.isExtern env name then
+  let impure (declaration : Name) :=
+    Lean.Compiler.LCNF.getSigCore? env Lean.Compiler.LCNF.impureSigExt declaration
+  let agree (exporter : Name) : Bool := match impure name, impure exporter with
+    | some external, some exported => signaturesAgree external exported
+    | _, _ => false
+  match lowering (Lean.isExtern env name) toolchain.isSome (Lean.getExternNameFor env `c name)
+      (fun symbol => (exportersOf env symbol).toList) agree (Lean.getInitFnNameFor? env name) with
+  | .exported symbol exporter agreed =>
     -- An `extern` whose C symbol is the `export` name of exactly one Lean declaration calls that
-    -- declaration's compiled code: the call is a retained compiler call of the `extern`, and its
-    -- correspondence with the exporting declaration is decided as for `@[implemented_by]`.
-    if toolchain.isNone then
-      if let some symbol := Lean.getExternNameFor env `c name then
-        if let #[exporter] := exportersOf env symbol then
-          record := { record with
-            compilerDependencies := record.compilerDependencies.push exporter }
-          let (correspondence, evidence, terms) ← correspondence name exporter
-          let boundary ← entry .exportedImplementation correspondence (some exporter)
-            (some s!"extern symbol {symbol} is the export name of {exporter}; \
-              {evidence.getD ""}") terms
-          return { record with boundaries := record.boundaries.push boundary }
+    -- declaration's compiled code: the call is a retained compiler call of the `extern`. When the
+    -- two C signatures agree, its correspondence with the exporting declaration is decided as for
+    -- `@[implemented_by]`; otherwise the call is trusted to bind that code.
+    record := { record with compilerDependencies := record.compilerDependencies.push exporter }
+    let boundary ← if agreed then do
+        let (correspondence, evidence, terms) ← correspondence name exporter
+        entry .exportedImplementation correspondence (some exporter)
+          (some s!"extern symbol {symbol} is the export name of {exporter}; \
+            {evidence.getD ""}") terms
+      else
+        entry .exportedImplementation .trusted (some exporter)
+          (some s!"extern symbol {symbol} is the export name of {exporter}, whose compiled \
+            parameters, result or borrowing differ from the extern's")
+    return { record with boundaries := record.boundaries.push boundary }
+  | .extern =>
     let boundary ←
       entry (if toolchain.isSome then .nativeRuntime else .external) .trusted none none
     return { record with boundaries := record.boundaries.push boundary }
-  -- A constant with an initializer is compiled to a stub that is never run, and compiled code
-  -- reads the value its initializer action returned at module initialization. The action is a
-  -- retained compiler call of the record (`compilerDependencies`), so the walk follows it.
-  if let some action := Lean.getInitFnNameFor? env name then
+  | .initialized action =>
+    -- A constant with an initializer is compiled to a stub that is never run, and compiled code
+    -- reads the value its initializer action returned at module initialization. The action is a
+    -- retained compiler call of the record (`compilerDependencies`), so the walk follows it.
     let boundary ← entry .initializedValue .trusted none
       (some s!"compiled code reads the value that initializer {action} returned")
     return { record with boundaries := record.boundaries.push boundary }
+  | .ordinary => pure ()
   if let some target := Lean.Compiler.getImplementedBy? env name then
     record := { record with
       currentReplacementTargets := record.currentReplacementTargets.push target }
@@ -870,9 +1000,7 @@ private def executionWalk (env : Environment) (ownedModules : List Name)
       (Std.HashMap (Name × Name) (Correspondence × Option String × Option CorrespondenceTerms)))
     (dependencyCache : IO.Ref (CompilerDependenciesCache env))
     (recordCache : IO.Ref NodeRecordCache)
-    (preparedTheorems : Thunk (PreparedTheorems env)) (admits : Name → Bool) (allowance : Nat)
-    (decideAfresh : Name → Name → Array Name →
-      IO (Except String (Correspondence × Option String × Option CorrespondenceTerms)))
+    (preparedTheorems : Thunk (PreparedTheorems env)) (admits : Name → Bool) (cap : Nat)
     (recursorHelpers : Array Name) (root : Name) (timing : Bool) : CommandElabM
     (Array Regula.Report.ExecutionBoundary ×
       Array String × Array (Name × Name) × RegulaPolicy.ExecutionClosure) := do
@@ -910,8 +1038,7 @@ private def executionWalk (env : Environment) (ownedModules : List Name)
             loaded.modify (·.push moduleName)
             loadReplacementHistory moduleName
           let record ← observeNode env ownedModules toolchainModules cached load
-            candidates proofCache dependencyCache preparedTheorems admits allowance decideAfresh
-            timing name
+            candidates proofCache dependencyCache preparedTheorems admits cap timing name
           let histories ← liftIO loaded.get
           liftIO <| recordCache.modify (·.insert name (record, histories))
           pure record
@@ -1007,16 +1134,16 @@ lists them apart (`Census.dependencyModules`). One report keeps the first answer
 the report, from any root, so a node record kept for a later root is the record its pass would
 make again. A loader that throws returns no answer, and no record is kept from that request. The
 report refuses an environment whose `propext`, `Quot.sound` or `Classical.choice` is not the
-toolchain's (`Collect.authenticateFoundation`). -/
+toolchain's (`Collect.authenticateFoundation`). Its correspondence checks run under the memory cap
+`memoryCap` (`correspondenceMemoryCap`), and a check that reaches it ends the report with an error
+that names the check (`settleCorrespondence`). -/
 def environmentReport (modules : List Name)
     (loadReplacementHistory : Name → IO (Except String (Array (Name × Name))) :=
       fun _ => pure (.error "trusted source-history loader was not supplied"))
     (includeExecution : Bool := true) (includeModuleOrigins : Bool := true)
     (replayed : Option Regula.Collect.Replayed := none) (replayedModules : NameSet := {})
     (dependencies : List Name := [])
-    (correspondenceAllowance : Nat := correspondenceMemoryBytes)
-    (freshCorrespondence : FreshCorrespondence :=
-      fun _ => pure (.error "no fresh correspondence worker was supplied")) :
+    (memoryCap : Nat := correspondenceMemoryBytes) :
     CommandElabM Regula.Report.Collected := do
   let timing := (← IO.getEnv "REGULA_TIMING") == some "1"
   let label := String.intercalate ", " (modules.map toString)
@@ -1105,11 +1232,6 @@ def environmentReport (modules : List Name)
           let moduleName := env.header.modules[(idx : Nat)]!.module
           replayedModules.contains moduleName || toolchainModules.contains moduleName
       | none => false
-    -- A check that exhausts its memory limit here goes to the fresh worker with the same theorem
-    -- modules, as a set, and the same recorded axioms.
-    let admitted := replayedModules.toList.toArray ++ toolchainModules.toList.toArray.map (·.1)
-    let decideAfresh (reference replacement : Name) (proofs : Array Name) :=
-      freshCorrespondence { admitted, cached := cached.toArray, reference, replacement, proofs }
     roots.mapM fun (moduleName, root) => do
       let (boundaries, unresolved, compilerEdges, closure) ←
         reportPhase timing s!"execution walk {root}" <| observing env root "execution walk" <|
@@ -1117,7 +1239,7 @@ def environmentReport (modules : List Name)
             historyRequests.modify fun requests =>
               if requests.contains (root, name) then requests else requests.push (root, name)
             loadHistoryOnce name) candidates proofCache dependencyCache recordCache
-            preparedTheorems admits correspondenceAllowance decideAfresh recursorHelpers root timing
+            preparedTheorems admits memoryCap recursorHelpers root timing
       return ({
         name := root
         «module» := moduleName

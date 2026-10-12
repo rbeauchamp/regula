@@ -1003,41 +1003,37 @@ which stops the warning that a power was not evaluated, because Lean then evalua
 
 **Correspondence resource bound.** `kernelAnswer` gives the kernel the default heartbeats of
 `Core.getMaxHeartbeats`, which Lean gives each declaration. Thus a checker-added obligation costs
-no more than one that the adopter could write. The check also runs under Lean's runtime memory
-limit, which `Probe.correspondenceBound` gives for each check. That limit is the peak resident size
-of the process at the start of the check plus 1 GiB, and never more than a `max_memory` that the
-shell set. The checker sets the limit only while the check runs and then restores the earlier
-limit.
+no more than one that the adopter could write. The kernel counts heartbeats in a counter of its
+thread, and `addDeclCore` sets the budget but not the count. So `kernelAnswer` runs each check on a
+new thread, with `Task.Priority.dedicated`, and the count of that thread starts at zero.
 
-The function reads only its arguments, so no earlier check fixes the limit of a later check.
-`correspondenceBound_full_iff` states when a check gets the full 1 GiB above its starting peak.
-`peak_lt_correspondenceBound_iff` states when the limit is above the memory that the process
-already held. The kernel stops a check only when the peak and the current resident size both
-reach the limit, as `check_memory` in `src/runtime/memory.cpp` of Lean `v4.34.1` shows. This is
-read from the runtime source and is not a theorem.
+The sources are `check_heartbeat` in `src/runtime/interrupt.cpp`, `lean_add_decl` in
+`src/kernel/environment.cpp` and `run_task` in `src/runtime/object.cpp` of Lean `v4.34.1`. This
+is read from the runtime source and is not a theorem. The elaborator part of a check builds the
+proof in its own `liftTermElabM`. So it also counts its heartbeats from the start of the check.
+Thus each verdict of a check, checked, refused or unresolved, is a function of the environment,
+the check and the heartbeat budget. No measurement of the process enters it.
 
-A check that exhausts its limit in the process of the report gets a second decision in one fresh
-worker, `axiomGate --correspondence-worker`. The worker imports the requested modules of the report
-again and decides the same check. Its limit is its own peak after the import plus the same 1 GiB.
-The answer of the worker is the reported answer, and its evidence starts with
-`Probe.freshDecision`. Thus no unresolved result depends on the checks that ran before it in the
-process of the report. A checked result is correct whatever memory it used, because the limit
-decides only whether a check completes and not what the kernel establishes.
+The checks share a lazy index of theorems, and the first check that reads it builds it. That check
+pays for the index from its elaborator budget. A check that reaches that budget ends the report
+with no verdict, so the index changes only the completion of a run.
 
-One residual remains, and it makes no checked result wrong. A check that needs more than its fresh
-allowance can complete in the process of the report when earlier work left a higher peak. Thus the
-set of checked boundaries can be larger in some runs than in others. The limit bounds the growth
-of each check above its starting peak and not the total of the process. Each check can raise the
-peak of the process by at most 1 GiB.
+Memory is one cap for the whole process and not an allowance of each check. While a check runs,
+Lean's runtime memory limit is `Probe.correspondenceMemoryBytes`, 8 GiB, or a lower `max_memory`
+that the shell set, as `correspondenceMemoryCap` states. The kernel stops a check only when the
+peak and the current resident size of the process each reach the limit. The source is
+`check_memory` in `src/runtime/memory.cpp`. A check that reaches the cap ends the report with an
+error that names the check. By `settleCorrespondence_ok_iff`, no verdict comes from that check, and
+an audit records that error as incomplete.
 
-The fresh worker runs only for a check that exhausted its limit, and it runs inside the deadline of
-its caller. A run in which all checks complete in process starts no fresh worker and costs no
-more time than before. The control `freshCorrespondenceControl` of the self-test starts one
-worker. The whole control, with the compilation of its fixture and the report, took 7.7 seconds.
+Thus the earlier work of a process can change only the completion of a run, as a deadline does,
+and not a verdict. The fixture `Fixtures.Positive.HeartbeatCorrespondence` adds about 900 MiB in
+one check, and it is checked under the default cap. The control `memoryCapControl` of the self-test
+inspects it under a 1 GiB cap, below the resident memory of the process. That inspection ends with
+the error of the cap and with no report.
 
-Supplied and then discovered theorem candidates are tried before the kernel-defeq check, to keep a
-kernel-exhausting unfolding within one comparison from consuming the headroom a supplied proof
-needs, so a replacement with both reports `proved:` evidence; kernel resource exhaustion is never
+Supplied and then discovered theorem candidates are tried before the kernel-defeq check, so a
+replacement with both reports `proved:` evidence; kernel resource exhaustion is never
 conflated with rejection; a theorem candidate whose admission exhausts the kernel supplies no
 evidence, like any candidate the deliberately incomplete search cannot use.
 The correspondence cache in `Probe.environmentReport` stores checked results by name pair within one

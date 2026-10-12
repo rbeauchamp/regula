@@ -1997,8 +1997,8 @@ def BoundaryEvidence.detail {k : BoundaryKind} : BoundaryEvidence k → Option S
     | .opaqueBody => some "kernel-checked-body"
   | .trusted s _ | .unresolved s => s
 
-/-- The proof and the required proposition of checked replacement or simplification evidence;
-`none` for any other evidence. -/
+/-- The proof and the required proposition of checked replacement, simplification or exported-
+implementation evidence; `none` for any other evidence. -/
 def BoundaryEvidence.terms? {k : BoundaryKind} : BoundaryEvidence k → Option CorrespondenceTerms
   | .checked evidence => match evidence with
     | .replacement _ terms | .simplification _ terms | .exported _ terms => some terms

@@ -824,13 +824,13 @@
    "required="
   ]
  },
- "Fixtures.Positive.FreshCorrespondence": {
+ "Fixtures.Positive.HeartbeatCorrespondence": {
   "expect": "pass",
   "claim": "choice-free",
   "execution": "checked",
   "output": [
    "correspondence=checked",
-   "fixtures_fresh_large_impl",
+   "fixtures_heartbeat_tree_impl",
    "required="
   ]
  },
@@ -1040,6 +1040,15 @@
   "reason": "execution-trusted-boundary",
   "output": [
    "fixtures_read_counter reaches fixtures_initialized_counter (initialized-value)"
+  ]
+ },
+ "Fixtures.Mutations.ExternExportSignatureMismatch": {
+  "expect": "fail",
+  "claim": "standard-logical",
+  "execution": "checked",
+  "reason": "execution-trusted-boundary",
+  "output": [
+   "fixtures_mismatch_reference reaches fixtures_mismatch_reference (exported-implementation)"
   ]
  }
 }

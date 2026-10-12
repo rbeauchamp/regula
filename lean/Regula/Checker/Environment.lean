@@ -737,56 +737,6 @@ private unsafe def importReportEnvironment (modules : Array Name) : IO Lean.Envi
   requireSafeModuleNames "the loaded environment" env.header.moduleNames
   return env
 
-/-- A correspondence check for a fresh worker: the report's requested modules, which the worker
-imports, and the check (`Probe.CorrespondenceRequest`). -/
-structure FreshCorrespondenceRequest where
-  /-- The report's requested modules. -/
-  modules : Array Name
-  /-- The correspondence check. -/
-  check : Regula.Probe.CorrespondenceRequest
-  deriving ToJson, FromJson
-
-/-- The answer of a fresh `axiomGate --correspondence-worker` process, on the current search path,
-to one correspondence check of a report on `modules` that exhausted its memory limit in the
-report's process, or the error that ended the worker. The worker imports `modules` itself
-(`correspondenceWorker`), so its answer does not depend on what the report's process did before
-the check. -/
-private def freshCorrespondence (modules : Array Name) : Regula.Probe.FreshCorrespondence :=
-  fun check => do
-    try
-      let request : FreshCorrespondenceRequest := { modules, check }
-      withScratch (← IO.currentDir) "correspondence-worker" fun scratch => do
-        let input := scratch / "request.json"
-        let output := scratch / "decision.json"
-        writeJson input (toJson request)
-        let result ← runProcess (← IO.currentDir) (← workerBinary).toString
-          #["--correspondence-worker", input.toString, output.toString]
-          #[("LEAN_PATH", some (SearchPath.toString (← Lean.searchPathRef.get)))]
-        if !result.succeeded then throw <| IO.userError (workerErrorText result.stderr)
-        let json ← IO.ofExcept <| Regula.Checker.PolicyCodec.parse (← IO.FS.readFile output)
-        let payload ← IO.ofExcept <| readWorkerPacket (toJson request) json
-        return .ok (← IO.ofExcept (fromJson? payload))
-    catch error => return .error error.toString
-
-/-- The worker side of `freshCorrespondence`: imports the report's requested modules on the
-current search path, as the report did (`importReportEnvironment`), and decides the check there
-(`Probe.decideCorrespondence`). -/
-unsafe def correspondenceWorker (request : FreshCorrespondenceRequest) :
-    IO (RegulaPolicy.Correspondence × Option String ×
-      Option RegulaPolicy.CorrespondenceTerms) := do
-  let env ← importReportEnvironment request.modules
-  let ctx : Elab.Command.Context := {
-    fileName := "<trusted-correspondence-worker>"
-    fileMap := FileMap.ofString ""
-    snap? := none
-    cancelTk? := none
-  }
-  match ← EIO.toIO' <|
-      ((Regula.Probe.decideCorrespondence request.check).run ctx |>.run (Elab.Command.mkState env))
-  with
-  | .error ex => throw <| IO.userError (← ex.toMessageData.toString)
-  | .ok (decision, _) => return decision
-
 private unsafe def loadReportCoreAtSearchPath (modules : Array Name)
     (sourceRoots : Array FilePath := #[])
     (moduleSources : Array (Name × FilePath) := #[]) (ownership : Ownership := {})
@@ -794,7 +744,7 @@ private unsafe def loadReportCoreAtSearchPath (modules : Array Name)
     (validateReport : Bool := true) (historyMemo : Option (FilePath × String) := none)
     (priors : Array Admission.PriorAdmission := #[])
     (publish : Option FilePath := none) (inspectDependencies : Bool := false)
-    (correspondenceAllowance : Nat := Regula.Probe.correspondenceMemoryBytes) :
+    (memoryCap : Nat := Regula.Probe.correspondenceMemoryBytes) :
     IO (Except ProducerReport.Refusal ProducerReport.Environment) := do
   if modules.isEmpty || modules.toList.eraseDups.length != modules.size then
     throw <| IO.userError "environment report requires unique nonempty modules"
@@ -900,7 +850,7 @@ private unsafe def loadReportCoreAtSearchPath (modules : Array Name)
     match ← timedPhase "declaration report" <| EIO.toIO' <|
         (Regula.Probe.environmentReport requested.toList loadHistory includeExecution
             includeModuleOrigins (some admitted.replayed) replayedModules dependencies.toList
-            correspondenceAllowance (freshCorrespondence requested)).run
+            memoryCap).run
             ctx |>.run state with
     | .error ex => throw <| IO.userError (← ex.toMessageData.toString)
     | .ok (report, _) =>
@@ -1009,12 +959,12 @@ private unsafe def loadReportCore (modules : Array Name) (sourceRoots : Array Fi
     (validateReport : Bool := true) (historyMemo : Option FilePath := none)
     (priors : Array Admission.PriorAdmission := #[]) (publish : Option FilePath := none)
     (inspectDependencies : Bool := false)
-    (correspondenceAllowance : Nat := Regula.Probe.correspondenceMemoryBytes) :
+    (memoryCap : Nat := Regula.Probe.correspondenceMemoryBytes) :
     IO (Except ProducerReport.Refusal ProducerReport.Environment) :=
   withProbeSearch fun searchIdentity =>
     loadReportCoreAtSearchPath modules sourceRoots moduleSources ownership includeExecution
       includeModuleOrigins validateReport (historyMemo.map (·, searchIdentity)) priors publish
-      inspectDependencies correspondenceAllowance
+      inspectDependencies memoryCap
 
 private def withReportSearchRoots {α : Type} (extraSearchRoots : Array FilePath)
     (action : IO α) : IO α := do
@@ -1038,10 +988,10 @@ search-path scope. -/
 unsafe def loadReportCurrentSearchPathOutcome (modules : Array Name)
     (moduleSources : Array (Name × FilePath) := #[]) (ownership : Ownership := {})
     (includeExecution : Bool := true) (includeModuleOrigins : Bool := true)
-    (correspondenceAllowance : Nat := Regula.Probe.correspondenceMemoryBytes) :
+    (memoryCap : Nat := Regula.Probe.correspondenceMemoryBytes) :
     IO (Except ProducerReport.Refusal ProducerReport.Environment) :=
   loadReportCore modules #[] moduleSources ownership includeExecution includeModuleOrigins
-    (correspondenceAllowance := correspondenceAllowance)
+    (memoryCap := memoryCap)
 
 /-- Load exact modules through Lean's import semantics and return their typed
 declaration report. Extra search roots are temporary and restored afterward. Kernel admission
