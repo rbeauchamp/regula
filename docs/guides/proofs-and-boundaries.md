@@ -512,10 +512,11 @@ refuses each other `.` or `..` component. Before it makes anything, it refuses a
 present components (`Regula.Filesystem.ownPath`).
 
 A program resolves some directories to their real path one time (`Regula.Filesystem.ownRoot`).
-These are the scratch directory under `.lake`, the build directory of the project and the directory
-of a file that `regula init` wrote. The adopter can make such a directory or one of its parents a
-symbolic link. The program decides each removal below the directory at the real path. Thus a link
-at `.lake` does not stop the removal, but a link below the directory does.
+These are the scratch area under `.lake`, the build directory of the project and the directory of a
+file that `regula init` wrote. Each scratch directory that a program uses is below the real path of
+that area. The adopter can make such a directory or one of its parents a symbolic link. The program
+decides each removal below the directory at the real path. Thus a link at `.lake` does not stop the
+removal, but a link below the directory does.
 
 On Windows, the observer reads no entry and removes nothing, and the site executable refuses each
 `--out`. There the runtime reads a link's target when asked to read the link itself, so no read

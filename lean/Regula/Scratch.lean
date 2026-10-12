@@ -21,8 +21,10 @@ scratch user removes them, then their markers, before creating its own. Nothing 
 removed: no unmarked entry, and nothing outside Regula's directory. Each removal is
 `Regula.Filesystem.removeOwn` below the real path of Regula's directory
 (`Regula.Filesystem.ownRoot`), so a symbolic link where a directory or marker is expected is
-refused, not followed, while a `.lake` that the adopter made a link is not. File locking,
-exclusive creation and process death are trusted operating-system effects.
+refused, not followed, while a `.lake` that the adopter made a link is not. The path that
+`withScratch` gives its action is below that real path too, so each removal and move that the
+action decides below it is decided there. File locking, exclusive creation and process death are
+trusted operating-system effects.
 
 A scratch user that reclaimed converts its exclusive lock to a shared one, without releasing it
 first. Safety does not depend on the conversion: `flock(2)` does not promise that it is atomic,
@@ -87,8 +89,9 @@ private def reclaim (dir : FilePath) : IO Unit := do
   if reclaimed > 0 then
     IO.eprintln s!"scratch: reclaimed {reclaimed} orphaned scratch directories under {dir}"
 
-/-- Run `action` in a fresh, marked scratch directory under `directory root` and remove it,
-then its marker, on normal or exceptional return, holding the scratch lock shared throughout.
+/-- Run `action` in a fresh, marked scratch directory under the real path of `directory root`
+(`Regula.Filesystem.ownRoot`), given by its path below that real path, and remove it, then its
+marker, on normal or exceptional return, holding the scratch lock shared throughout.
 When no scratch owner is alive, orphans are reclaimed first under the exclusive lock, which is
 then converted to the shared one without an `unlock` between them, so that on macOS the
 conversion wakes every waiter; on Windows, where a shared lock would stack over the exclusive
@@ -97,26 +100,24 @@ releases the lock. Returns the value and the removed directory's path; the path 
 only after its removal returned. Random naming is not a logical freshness proof. -/
 def withScratch {α : Type} (root : FilePath) (stem : String) (action : FilePath → IO α) :
     IO (α × FilePath) := do
-  let dir := directory root
-  let own ← Regula.Filesystem.ownRoot dir
+  let dir ← Regula.Filesystem.ownRoot (directory root)
   let lock ← IO.FS.Handle.mk (dir / lockName) .append
   if ← lock.tryLock then
-    try reclaim own catch error =>
+    try reclaim dir catch error =>
       lock.unlock
       throw error
     if Platform.isWindows then lock.unlock
   lock.lock (exclusive := false)
   try
-    let name := s!"{stem}-{← suffix}"
-    let path := dir / name
+    let path := dir / s!"{stem}-{← suffix}"
     let marker := path.addExtension markerExtension
     if ← path.pathExists then
       throw <| IO.userError s!"refusing to reuse scratch path {path}"
     discard <| IO.FS.Handle.mk marker .writeNew
     IO.FS.createDir path
     let value ← try action path finally
-      Regula.Filesystem.removeOwn .directory (own / name)
-      Regula.Filesystem.removeOwn .file ((own / name).addExtension markerExtension)
+      Regula.Filesystem.removeOwn .directory path
+      Regula.Filesystem.removeOwn .file marker
     return (value, path)
   finally
     lock.unlock
