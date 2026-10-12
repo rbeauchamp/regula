@@ -133,20 +133,24 @@ structure ModuleFacts where
   constants : List Name
 
 /-- The facts of `module`, read from every `.olean` part Lean's import reads for it (the exported
-part, and for a module-system file its server and private parts), as `importModules` reads them.
+part, and when its server part exists its server and private parts), each once; a module-system
+file must have all three parts and any other only the exported one, as `importModules` reads them.
 The parts stay loaded: the names point into them. -/
 def readFacts (module : Name) : IO ModuleFacts := do
   let olean ← findOLean module
   unless ← olean.pathExists do
     throw <| IO.userError s!"unique-constants: {module} has no .olean at {olean}"
-  -- As Lean's import: the server and private parts only of a module-system file.
-  let some (main, _) := (← readModuleDataParts #[olean])[0]?
+  let server := OLeanLevel.server.adjustFileName olean
+  let files := if ← server.pathExists then
+      #[olean, server, OLeanLevel.private.adjustFileName olean]
+    else #[olean]
+  let parts ← readModuleDataParts files
+  let some (main, _) := parts[0]?
     | throw <| IO.userError s!"unique-constants: {olean} could not be read"
-  let parts ← if main.isModule then
-      readModuleDataParts #[olean, OLeanLevel.server.adjustFileName olean,
-        OLeanLevel.private.adjustFileName olean]
-    else pure #[]
-  let names := (#[main] ++ parts.map (·.1)).foldl (fun names data =>
+  unless (parts.size == 3) == main.isModule do
+    throw <| IO.userError s!"unique-constants: {module} has {parts.size} .olean parts, but its \
+      exported part says isModule := {main.isModule}"
+  let names := parts.foldl (fun names (data, _) =>
     data.constNames.foldl NameSet.insert names) ({} : NameSet)
   return { imports := main.imports.map (·.module), constants := names.toList }
 
@@ -202,9 +206,11 @@ def check : IO Unit := do
       refused := refused + 1
       IO.eprintln s!"unique-constants: {environment.label}: {constant} is declared by {found}"
   if refused != 0 then
-    throw <| IO.userError s!"unique-constants: {refused} constants are declared by more than one \
-      module of an environment; realize each once, in a module that every user imports"
-  IO.println s!"unique-constants: PASS ({environments.size} environments, {constants} constants, \
-    each declared by one module)"
+    throw <| IO.userError s!"unique-constants: {refused} occurrences, counted once per \
+      environment, of a constant declared by two modules of one environment where one is a \
+      root-package module; realize each once, in a module that every user imports"
+  IO.println s!"unique-constants: PASS (no constant declared by two modules of one environment \
+    where one is a root-package module; {environments.size} environments, {constants} constant \
+    declarations counted once per environment)"
 
 end Regula.Qualification.UniqueConstants
