@@ -49,6 +49,9 @@ open Lean Std.Internal.Parsec Std.Internal.Parsec.String
 
 /-! ### Parsing -/
 
+/-- The fields of a JSON object, as `Json.obj` stores them. -/
+abbrev Fields := Std.DTreeMap.Internal.Impl String (fun _ => Json)
+
 /-- Parser input: the text and the current position in it. -/
 abbrev Input := Sigma String.Pos
 
@@ -257,7 +260,8 @@ mutual
 input: every recursive call is guarded, and `array`/`object` measure one more than the `value`
 they call at the same input. Lean's `Json.Parser.anyCore`, `arrayCore` and `objectCore` are
 `partial` (`Lean/Data/Json/Parser.lean:233`, `:204`, `:217`, v4.34.1), so no proof unfolds them,
-and `objectCore` keeps the last of two members with one name. -/
+and `objectCore` keeps the last of two members with one name. As `objectCore` does, `object`
+inserts each member into the object's tree as it reads it. -/
 def value (start : Input) : Result Json := (show Parser Json from do
   let c ← peek!
   if c == '[' then
@@ -267,7 +271,7 @@ def value (start : Input) : Result Json := (show Parser Json from do
   else if c == '{' then
     skip; ws
     if (← peek!) == '}' then skip; ws; return Json.mkObj []
-    return Json.mkObj (← descend start fun it _ => object [] it)
+    return .obj ⟨⟨← descend start fun it _ => object .leaf it⟩⟩
   else scalar) start
 termination_by 2 * remaining start
 decreasing_by all_goals omega
@@ -283,18 +287,19 @@ def array (values : Array Json) (start : Input) : Result (Array Json) :=
 termination_by 2 * remaining start + 1
 decreasing_by all_goals omega
 
-/-- The members of an object after `fields`, through its closing brace. A name already among
-`fields` is refused. -/
-def object (fields : List (String × Json)) (start : Input) :
-    Result (List (String × Json)) := (show Parser (List (String × Json)) from do
+/-- The members of an object inserted into the tree `fields`, through its closing brace. A name
+already in `fields` is refused. Each name is looked up in the tree and inserted into it, as
+`objectCore` does, instead of being compared with every member already read and appended to a
+list. -/
+def object (fields : Fields) (start : Input) : Result Fields := (show Parser Fields from do
   Json.Parser.lookahead (· == '"') "object key"
   skip
   let key ← str
-  if fields.any (·.1 == key) then fail s!"duplicate JSON field: {key}"
+  if fields.contains key then fail s!"duplicate JSON field: {key}"
   ws
   Json.Parser.lookahead (· == ':') ":"
   skip; ws
-  let fields := fields ++ [(key, ← descend start fun it _ => value it)]
+  let fields := fields.insert! key (← descend start fun it _ => value it)
   let c ← any
   if c == '}' then ws; return fields
   else if c == ',' then ws; descend start fun it _ => object fields it
@@ -312,9 +317,6 @@ def parse (text : String) : Except String Json :=
   Parser.run (do ws; let j ← value; eof; return j) text
 
 /-! ### Printing -/
-
-/-- The fields of a JSON object, as `Json.obj` stores them. -/
-abbrev Fields := Std.DTreeMap.Internal.Impl String (fun _ => Json)
 
 /-- Append the JSON text of the character `c` inside a string to `acc`: Lean's `escapeAux`
 (`Lean/Data/Json/Printer.lean:36`, v4.34.1). `Json.escape` applies it to each character only

@@ -82,6 +82,7 @@ run_cmd do
       ``Regula.JsonCanon.Canonical.map, ``Regula.JsonCanon.getObjVal?_canon,
       ``Regula.JsonCanon.Canonical.single, ``Regula.JsonCanon.canonAll_eq,
       ``Regula.JsonCanon.insertMemberTR_eq, ``Regula.JsonCanon.insertMember_eq_insertMemberImpl,
+      ``Regula.JsonCanon.treeOf_concat, ``Regula.JsonCanon.contains_treeOf,
       ``Regula.Checker.JsonRoundTrip.strCore_text, ``Regula.Checker.JsonRoundTrip.num_text,
       ``Regula.Checker.JsonRoundTrip.value_text, ``Regula.Checker.JsonRoundTrip.parse_compress,
       ``Regula.Checker.JsonRoundTrip.parse_compress_canonical,

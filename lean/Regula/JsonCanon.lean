@@ -2,16 +2,17 @@ import RegulaCore.JsonAgreement
 
 /-! # The form of a JSON value the parser builds
 
-`PolicyCodec.parse` builds each object with `Json.mkObj` from its members in the order of the text,
-and `PolicyCodec.compress` writes the members of an object in the order of its tree, which for a
-search tree is the order of their names. So the parse of the printed text of a value is `canon` of
-it: each object tree rebuilt with `Json.mkObj` from its members in name order, their values in the
-same form (`JsonRoundTrip.parse_compress`). `Canonical` is the form `canon` gives
-(`canonical_canon`), and `canon` keeps a value in it (`Canonical.canon_eq`); `canon` of a value
-whose object trees are search trees agrees with it (`Regular.canon_agree`). The tree `Json.mkObj`
-builds from members in increasing name order lists them in that order (`members_treeOf`), and a
-value map of a tree keeps its shape (`treeOf_map`), so a writer that builds its objects that way
-and maps their values keeps the form (`ExecutionShare.canonical_write`). -/
+`PolicyCodec.parse` inserts the members of each object into a tree in the order of the text, which
+builds the tree `Json.mkObj` builds from them (`treeOf`), and `PolicyCodec.compress` writes the
+members of an object in the order of its tree, which for a search tree is the order of their
+names. So the parse of the printed text of a value is `canon` of it: each object tree rebuilt
+with `Json.mkObj` from its members in name order, their values in the same form
+(`JsonRoundTrip.parse_compress`). `Canonical` is the form `canon` gives (`canonical_canon`), and
+`canon` keeps a value in it (`Canonical.canon_eq`); `canon` of a value whose object trees are
+search trees agrees with it (`Regular.canon_agree`). The tree `Json.mkObj` builds from members in
+increasing name order lists them in that order (`members_treeOf`), and a value map of a tree keeps
+its shape (`treeOf_map`), so a writer that builds its objects that way and maps their values keeps
+the form (`ExecutionShare.canonical_write`). -/
 
 namespace Regula.JsonCanon
 open Lean JsonAgreement
@@ -95,6 +96,27 @@ theorem members_treeOf {written : List (String × Json)} (increasing : Increasin
 
 theorem treeOf_ordered (written : List (String × Json)) : JsonAgreement.Ordered (treeOf written) :=
   (treeOf_wf written).ordered
+
+theorem treeOf_concat (written : List (String × Json)) (member : String × Json) :
+    treeOf (written ++ [member]) = (treeOf written).insert! member.1 member.2 := by
+  simp [treeOf]
+
+theorem contains_foldl {tree : Fields} (wf : tree.WF) (rest : List (String × Json))
+    (key : String) :
+    (rest.foldl (fun tree member => tree.insert! member.1 member.2) tree).contains key =
+      (rest.any (fun member => compare member.1 key == .eq) || tree.contains key) := by
+  induction rest generalizing tree with
+  | nil => simp
+  | cons member rest step =>
+    simp only [List.foldl_cons, List.any_cons]
+    rw [step wf.insert!, contains_insert! wf, Bool.or_assoc]
+    exact Bool.or_left_comm _ _ _
+
+/-- The tree `Json.mkObj` builds contains exactly the names of its members. -/
+theorem contains_treeOf (written : List (String × Json)) (key : String) :
+    (treeOf written).contains key = written.any fun member => compare member.1 key == .eq := by
+  rw [treeOf, contains_foldl (tree := .leaf) WF.empty]
+  exact Bool.or_false _
 
 theorem size_map (g : String → Json → Json) (tree : Fields) :
     (tree.map g).size = tree.size := by

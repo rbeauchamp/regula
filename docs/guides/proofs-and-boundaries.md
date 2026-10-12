@@ -1740,11 +1740,13 @@ statement shapes, which the theorems decide.
 The reader of a result file, and the reader of the reply of a worker, each have two steps. The
 second step is pure decisions with a kind.
 
-- **The observing pass** turns a text into a `Json` value. The callers use two parsers, and no
-  theorem says what a parser returns. `Checker.PolicyCodec.parse` uses the scalar parsers of Lean,
-  which are `partial`. It refuses an object that gives one name twice, and it builds each object
-  with `Json.mkObj`. `Json.parse` of Lean runs parsers that are `partial`, and it does not refuse
-  a repeated name. It starts each object from the empty tree and adds each member with `insert`.
+- **The observing pass** turns a text into a `Json` value. The callers use two parsers.
+  `Checker.PolicyCodec.parse` is a total definition, and it refuses an object that gives one name
+  twice. `JsonRoundTrip.parse_compress` states what it returns for the text that
+  `PolicyCodec.compress` writes, and no theorem states what it returns for other text.
+  `Json.parse` of Lean runs parsers that are `partial`, and it does not refuse a repeated name.
+  Each of the two parsers starts each object from the empty tree and adds each member in the
+  order of the text.
 - **Between the two steps**, a reader of a result file gives the value to
   `ResultProtocol.admitDocument`, which runs `SharedExecution.read`. That function puts the source texts and the execution accounts back in the document. It
   rebuilds the objects of the document with maps that keep each name and the shape of each tree.
@@ -1813,12 +1815,12 @@ decisions. `parseLocation` and `parseDiagnostic` are two-way decisions of the fo
 **Hypotheses and trusted boundary.** The theorems start from a `Json` value. They do not prove
 these items:
 
-- What a parser returns for a text, and what a file contains.
+- What a parser returns for a text that `PolicyCodec.compress` did not write, and what a file
+  contains.
 - That each object tree of a value that a caller gives is a search tree. The theorems do not use
   it: a decoder refuses a different tree. That the callers do not see such a refusal is read from the
-  code. `PolicyCodec.parse` builds each object with `Json.mkObj`, and `Json.parse` builds each
-  object by insertion from the empty tree. The maps of `SharedExecution.read` keep each name and
-  the shape of each tree.
+  code. `PolicyCodec.parse` and `Json.parse` each build an object by insertion from the empty
+  tree. The maps of `SharedExecution.read` keep each name and the shape of each tree.
 - That the form is the intended one. A reviewer examines `LocationWire` and `FindingWire`.
 - That `agrees` returns what the runtime equality of `Json` returns. The two definitions have the
   same cases, which a reader can compare. The agreement of the two is by reading, and a
@@ -1840,8 +1842,8 @@ of the callers.
   write of the document that it reads. That form has the entry kinds of the execution accounts of
   the value.
 - The runner of the rule examples (`Regula.Qualification.RuleExamples`) reads a result file with
-  `Qualification.readResult`. That function runs `Json.parse` of Lean and then
-  `ResultProtocol.admitDocument`. The runner gives the document to `ResultProtocol.admitGuidance`.
+  `Qualification.readResult`. That function is `ResultProtocol.readDocument`. The runner gives
+  the document to `ResultProtocol.admitGuidance`.
 - The executable `ruleExampleQualification` reads an evidence file with `PolicyCodec.parse`. A
   record of that file contains a result document. The executable does not run
   `SharedExecution.read`. It gives the members of that result that
@@ -4619,8 +4621,9 @@ the identity stage returning the restriction unchanged) covers what the gate rea
 value boundary for any accepted manifest whose restriction keeps a surface. `structuralBase`
 checks that hypothesis at run time, and that the application is the project's only claimed
 library; no theorem links those checks to the hypothesis. The
-text boundary is trusted: `Json.compress` is `partial` and `PolicyCodec.parse` runs core `partial`
-parsers, so no theorem describes them; `parse_of_encodes` names what they must deliver. The
+text boundary is trusted. `PolicyCodec.parse` is total, but no theorem states what it returns for
+the text of a manifest. Lean code prints that text with `Json.compress`, a `partial` function.
+`parse_of_encodes` names what the parse must deliver. The
 variants that rewrite the `AuditApp` surface after derivation are not covered. The lib-only
 variant excludes every actual `AuditApp` executable it stops claiming, and app-omitted-exe
 leaves them unclassified on purpose; claimed-exe keeps claiming them beside its added

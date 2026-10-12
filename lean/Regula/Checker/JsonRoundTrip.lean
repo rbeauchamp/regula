@@ -865,7 +865,8 @@ theorem object_text {ms : List (String × Json)} (each : ∀ m ∈ ms, ValueText
     (names : (acc.map (·.1) ++ ms.map (·.1)).Pairwise fun a b => compare a b = .lt)
     {rest : List Char} {it : Input} (h : At it ((sepText true ms).toList ++ '}' :: rest)) :
     ∃ it', At it' (rest.dropWhile isWs) ∧
-      object acc it = .success it' (acc ++ ms.map fun m => (m.1, canon m.2)) := by
+      object (treeOf acc) it =
+        .success it' (treeOf (acc ++ ms.map fun m => (m.1, canon m.2))) := by
   induction ms generalizing acc it with
   | nil => exact absurd rfl nonempty
   | cons m ms step =>
@@ -875,13 +876,13 @@ theorem object_text {ms : List (String × Json)} (each : ∀ m ∈ ms, ValueText
     obtain ⟨it1, h1, skipped⟩ := skip_at h
     obtain ⟨it2, h2, key⟩ := strCore_text (acc := "") m.1.toList h1
     rw [foldl_push] at key
-    have fresh : acc.any (·.1 == m.1) = false := by
-      rw [List.any_eq_false]
+    have fresh : (treeOf acc).contains m.1 = false := by
+      rw [contains_treeOf, List.any_eq_false]
       intro earlier present same
       rw [beq_iff_eq] at same
       rw [List.pairwise_append] at names
       have less := names.2.2 earlier.1 (List.mem_map_of_mem present) m.1 List.mem_cons_self
-      rw [same, Std.ReflCmp.compare_self (cmp := (compare : String → String → Ordering))] at less
+      rw [same] at less
       cases less
     obtain ⟨it3, h3, white⟩ := ws_at h2
     rw [dropWhile_solid _ (by decide)] at h3
@@ -897,16 +898,17 @@ theorem object_text {ms : List (String × Json)} (each : ∀ m ∈ ms, ValueText
           ((compress m.2).toList ++ ((sepText false ms).toList ++ '}' :: rest))) := by
         simpa using h
       exact remaining_lt h' h5 (by simp)
-    have prefix_ : ∀ (k : Result (List (String × Json))),
-        object acc it = k ↔
+    have prefix_ : ∀ (k : Result PolicyCodec.Fields),
+        object (treeOf acc) it = k ↔
           (any >>= fun c =>
-            if (c == '}') = true then (do PolicyCodec.ws; pure (acc ++ [(m.1, canon m.2)]))
+            if (c == '}') = true then
+              (do PolicyCodec.ws; pure (treeOf (acc ++ [(m.1, canon m.2)])))
             else if (c == ',') = true then (do
               PolicyCodec.ws
-              descend it fun it _ => object (acc ++ [(m.1, canon m.2)]) it)
+              descend it fun it _ => object (treeOf (acc ++ [(m.1, canon m.2)])) it)
             else fail "unexpected character in object") it6 = k := by
       intro k
-      rw [object]
+      rw [treeOf_concat, object]
       show ((Json.Parser.lookahead (· == '"') "object key") >>= _) it = k ↔ _
       have key' : str it1 = .success it2 m.1 := key
       rw [bind_success look, seq_success skipped, bind_success key']
@@ -1118,6 +1120,7 @@ theorem value_text {j : Json} (regular : Regular j) : ValueText j := by
           fun a b => compare a b = .lt := by
         simpa [List.pairwise_map] using (ordered_iff fields).mp ordered
       obtain ⟨it3, h3, inner⟩ := object_text (acc := []) step empty names h2'
+      have inner : object .leaf it2 = _ := inner
       refine ⟨it3, h3, ?_⟩
       have lt : remaining it2 < remaining it :=
         remaining_lt (front := ['{']) (by simpa using h') h2' (by simp)
@@ -1127,7 +1130,7 @@ theorem value_text {j : Json} (regular : Regular j) : ValueText j := by
         seq_success skipped, seq_success white, bind_success (peek!_at h2''),
         ite_eq_right (by decide), bind_success (descend_lt lt |>.trans inner),
         canon_obj,
-        sortMembers_of_increasing (increasing_members ordered fun _ value => canon value)]
+        sortMembers_of_increasing (increasing_members ordered fun _ value => canon value), mkObj_eq]
       simp <;> rfl
 
 

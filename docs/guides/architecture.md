@@ -332,9 +332,9 @@ metadata, not authenticated binary identity.
   So `SharedExecution.expand_intern` and `read_write` hold for every `Json` value whatever is
   proposed: `read` of the `Json` value the writer wrote is exactly the document the writer was
   given. The file's text carries that value. The writer prints it with `PolicyCodec.compress` and
-  every reader parses it with `PolicyCodec.parse`, both total definitions, and the parse of the
-  printed text of a value in the parser's form is that value
-  (`JsonRoundTrip.parse_compress_canonical`). Every value the writer writes is in that form
+  each reader parses it with `PolicyCodec.parse`. The two are total definitions, and the parse of
+  the printed text of a value in the parser's form is that value
+  (`JsonRoundTrip.parse_compress_canonical`). Each value that the writer writes is in that form
   (`ExecutionShare.canonical_write`), so the reader gets the written value and admission returns
   the writer's document (`ResultProtocol.admitDocument_parse_encodeDocument`), which has the
   members of the given document when its object trees are search trees. That a file read returns
