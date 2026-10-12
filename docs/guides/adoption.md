@@ -954,8 +954,9 @@ audit refuses a `decides` entry that names its own surface or no claimed surface
   Regula's. Lake resolves the `require` lines of a package from the last to the first, and then
   the dependencies of those packages. Then a build without the marker reports a claimed module as
   not established when it replays that module's messages from before the run.
-- The result is then incomplete (exit 3). Such builds are `lake exe axiomGate --incremental` and
-  the build-lint `policy` target. `lake lint` keeps the marker for such a workspace.
+- The result is then incomplete. `lake exe axiomGate --incremental` then exits 3, and the
+  `lake build` of the build-lint `policy` target exits 1. `lake lint` keeps the marker for such a
+  workspace.
 - The only supported editor is VS Code with the Lean 4 extension, and there is no latency claim.
 - Regula has run on small adopters only, including a Mathlib-importing library accepted
   incrementally and fresh; there is no Mathlib-scale adopter claim. These are bounded

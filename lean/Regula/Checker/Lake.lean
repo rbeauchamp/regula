@@ -716,31 +716,53 @@ structure Build where
   failLv : _root_.Lake.LogLevel := .error
   deriving Inhabited
 
-/-- The arguments Lake passes to `lean` weakly for each module of `library`: its `weakLeanArgs`,
-the package's followed by the library's (Lake's `LeanLib.weakLeanArgs`), rendered as compressed
-JSON. The root module of an executable belongs to the library that Lake makes from the
-executable's configuration, so for it these are the package's and the executable's. -/
+/-- The record of the weak arguments of the library `library` of the package `package`: an object
+that names the package (its `baseName`, unique in a workspace) and the library, and gives `args`,
+the arguments Lake passes to `lean` weakly for each module of the library. The identity makes a
+record that a trace holds for a different library, nested through that library's `extraDep`
+job, a different record. -/
+def weakArgsRecordJson (package library : Name) (args : Array String) : Json :=
+  Json.mkObj
+    [("package", toJson package), ("library", toJson library), ("weakLeanArgs", toJson args)]
+
+/-- The weak arguments of `library`: its `weakLeanArgs`, the package's followed by the library's
+(Lake's `LeanLib.weakLeanArgs`), in its `weakArgsRecordJson`, rendered as compressed JSON. The
+root module of an executable belongs to the library that Lake makes from the executable's
+configuration, so for it these are the package's and the executable's. -/
 def weakArgsRecord (library : _root_.Lake.LeanLib) : String :=
-  (toJson library.weakLeanArgs).compress
+  (weakArgsRecordJson library.pkg.baseName library.name library.weakLeanArgs).compress
 
 /-- The caption of the trace input that records `library`'s `weakArgsRecord`, as both
 `weakArgsExtraDep` and the `extraDep` facet that Regula's `lakefile.lean` declares write it. -/
 def weakArgsCaption (library : _root_.Lake.LeanLib) : String :=
   s!"weakLeanArgs {weakArgsRecord library}"
 
+/-- A module's trace file records the weak arguments of the module's own library, `library`,
+exactly when Lake reads it as a trace whose inputs hold, at some depth, an input captioned with the
+record that names `library`'s package and `library` itself and gives the library's current weak
+arguments. A record that a trace holds for a different library, nested through that library's
+`extraDep` job, names that library, so it is a different object; that its compressed text is a
+different caption is Lean's JSON rendering of distinct object values, not proved here. -/
+theorem traceRecords_weakArgsCaption_iff (library : _root_.Lake.LeanLib) (text : String) :
+    Workspace.traceRecords (weakArgsCaption library) text = true ↔
+      ∃ data, _root_.Lake.BuildMetadata.parse text = .ok data ∧
+        Workspace.Records s!"weakLeanArgs {(weakArgsRecordJson library.pkg.baseName library.name
+          library.weakLeanArgs).compress}" (toJson data.inputs) :=
+  Workspace.traceRecords_iff _ _
+
 /-- The `extraDep` facet of a library that the workspace configures, `existing` (Lake's own,
 `LeanLib.extraDepFacetConfig`, or one a package declares in its place), with the trace of the
-library's `weakArgsRecord` mixed into its job's when the library belongs to the package `root`.
-The job of `existing` runs for every library, so what it builds or writes is kept. Lake mixes the
-trace of that facet's job into the dependency trace of each module of the library
-(`Lake/Build/Module.lean`, line 591), which sets no option of the module's elaboration. -/
-def weakArgsExtraDep (root : Name)
+library's `weakArgsRecord` mixed into its job's when the library belongs to the root package
+(`Package.isRoot`). The job of `existing` runs for every library, so what it builds or writes is
+kept. Lake mixes the trace of that facet's job into the dependency trace of each module of the
+library (`Lake/Build/Module.lean`, line 591), which sets no option of the module's elaboration. -/
+def weakArgsExtraDep
     (existing : _root_.Lake.LibraryFacetConfig _root_.Lake.LeanLib.extraDepFacet) :
     _root_.Lake.LibraryFacetConfig _root_.Lake.LeanLib.extraDepFacet :=
   _root_.Lake.mkFacetJobConfig (buildable := existing.buildable) (memoize := existing.memoize)
     fun (library : _root_.Lake.LeanLib) => do
       let job : _root_.Lake.Job Unit ← existing.run library
-      if library.pkg.baseName != root then return job
+      if !library.pkg.isRoot then return job
       let trace := _root_.Lake.BuildTrace.ofHash (_root_.Lake.pureHash (weakArgsRecord library))
         (weakArgsCaption library)
       return job.mix (_root_.Lake.Job.ofTask (.pure (.ok () { trace })))
@@ -777,13 +799,13 @@ def elaboratedIn (jobs : Array JobLog) (module : Name) : Bool :=
 /-- The modules of `claimed` whose result in a build that does not settle replayed logs (`settled`
 false) rests on the log of an elaboration from before this process whose weak arguments are not
 known: Lake elaborated none of them in this build (`elaboratedIn`), nor did an earlier build of
-this process (`earlier`), and the trace whose log the build replayed does not record the current
-`weakArgsCaption` of the module's library (`recorded`, `Workspace.traceRecords`). Lake's module
+the same audit (`earlier`), and the trace whose log the build replayed does not record the current
+`weakArgsCaption` of the module's own library (`recorded`, `Workspace.traceRecords`). Lake's module
 trace records the `weakLeanArgs` an elaboration ran under only through an `extraDep` facet that
 mixes them in, such as the one Regula's `lakefile.lean` declares, so without that record a clean
 log can come from weak arguments since removed, and its RG2003 result is not established. A build
-under the audit-build marker settles them, since its own facet records them (`weakArgsExtraDep`);
-so does a build outside an incremental project audit (`CheckedBuild.reused`). -/
+under the audit-build marker settles them, since its own facet records them (`weakArgsExtraDep`).
+-/
 def reusedModules (settled : Bool) (earlier recorded : Array Name) (jobs : Array JobLog)
     (claimed : Array Name) : Array Name :=
   if settled then #[] else claimed.filter fun module => !earlier.contains module &&
@@ -898,16 +920,11 @@ structure CheckedBuild where
   marked : Bool
   /-- The modules of the build's claimed targets (`surfaceRequest`). -/
   claimed : Array Name
-  /-- The modules an earlier build of this process elaborated in the same project
-  (`elaboratedInProcess`). -/
+  /-- The modules that an earlier build of the same audit elaborated (`Elaborated`). -/
   earlier : Array Name
   /-- The claimed modules whose trace file, read after the build, records the current
-  `weakArgsCaption` of the module's library among its inputs (`Workspace.traceRecords`). -/
+  `weakArgsCaption` of the module's own library among its inputs (`Workspace.traceRecords`). -/
   recorded : Array Name := #[]
-  /-- Whether the build is the claimed build of an incremental project audit (`lake lint` without
-  `--fresh`, `axiomGate --incremental`, the build-lint `policy` target), which reads the checkout's
-  existing build output. -/
-  incremental : Bool := false
 
 /-- Each entry of a job of `build` that is not optional which Lake can have made from compiler
 output that is not a Lean message (`unparsedOutput`), such as a warning whose line other output
@@ -915,19 +932,18 @@ corrupted, which Lake logs as information. -/
 def CheckedBuild.unparsed (build : CheckedBuild) : Array String :=
   unparsedOutput build.jobs
 
-/-- The claimed modules of `build` whose RG2003 result is not established, since the build is an
-incremental project audit's without the audit-build marker and their clean log may come from weak
-arguments since removed (`reusedModules`). Only an incremental project audit decides RG2003 from a
-checkout's existing build output: the other callers build a copy from its own configuration or
-decide RG2003 only for a file that the compiler elaborates itself. -/
+/-- The claimed modules of `build` whose RG2003 result is not established: the build has no
+audit-build marker, and it replayed their clean log from an elaboration before the audit whose
+trace does not record the current weak arguments of the module's own library (`reusedModules`).
+Every checked build decides this, whatever reads its output. A build in a fresh copy elaborates
+each claimed module itself, so it has none. -/
 def CheckedBuild.reused (build : CheckedBuild) : Array Name :=
-  reusedModules (build.marked || !build.incremental) build.earlier build.recorded build.jobs
-    build.claimed
+  reusedModules build.marked build.earlier build.recorded build.jobs build.claimed
 
-/-- For each project, by its real path, the claimed modules that a build of this process
-elaborated (`elaboratedIn`). A later build of the same audit that replays their logs rests on that
-elaboration, not on one from before the process. -/
-initialize elaboratedInProcess : IO.Ref (Std.HashMap String (Array Name)) ← IO.mkRef {}
+/-- The claimed modules that the builds of one audit invocation elaborated (`elaboratedIn`). The
+audit creates it at its entry and passes it to each of its builds, so a later build of the same
+audit that replays their logs rests on that elaboration. No other audit reads it. -/
+abbrev Elaborated := IO.Ref (Array Name)
 
 /-- Build `targets` of the workspace at `repo` as `build` describes, in this process through
 Lake's build API, as `lake build` does: its build monitor's text is the output, and a failed build
@@ -960,8 +976,8 @@ path (`Lean.searchPathRef`), which the checker's workers inherit. The run restor
 child `lake build` it leaves the checker's own state as it was. Both are process-wide, so no other
 task of the process may build or read them while it runs; the checker runs its builds one at a
 time. -/
-def Build.runObserved (build : Build) (repo : FilePath) (targets : Array Target) :
-    IO CheckedBuild := do
+def Build.runObserved (build : Build) (repo : FilePath) (targets : Array Target)
+    (elaborated : Option Elaborated := none) : IO CheckedBuild := do
   let buffer ← IO.mkRef ({} : IO.FS.Stream.Buffer)
   let out ← showingStream (IO.FS.Stream.ofBuffer buffer) build.display
   let searchPath ← Lean.searchPathRef.get
@@ -990,16 +1006,15 @@ def Build.runObserved (build : Build) (repo : FilePath) (targets : Array Target)
         if let some spec := specs.find? (!·.buildable) then
           throw <| IO.userError s!"'{spec.info.key.toSimpleString}' is not a buildable target"
         let rootOptions ← build.rootOptions loaded
-        let project := (← IO.FS.realPath repo).toString
         marked.set rootOptions.isSome
         claimed.set (modules.map (·.name))
-        earlier.set ((← elaboratedInProcess.get).getD project #[])
+        if let some elaborated := elaborated then earlier.set (← elaborated.get)
         Workspace.dropRestoredTraces ws
         let (ws, leanOptOverrides) ← match rootOptions with
           | some options =>
             let some existing := ws.findLibraryFacetConfig? _root_.Lake.LeanLib.extraDepFacet
               | throw <| IO.userError "the workspace configures no `extraDep` facet of a library"
-            pure (ws.addLibraryFacetConfig (weakArgsExtraDep ws.root.baseName existing),
+            pure (ws.addLibraryFacetConfig (weakArgsExtraDep existing),
               ({} : NameMap LeanOptions).insert ws.root.baseName options)
           | none => pure (ws, {})
         ws.runBuild (observedFetch ws jobLogs (_root_.Lake.buildSpecs specs)) {
@@ -1015,9 +1030,8 @@ def Build.runObserved (build : Build) (repo : FilePath) (targets : Array Target)
           if text.any (Workspace.traceRecords (weakArgsCaption mod.lib)) then
             recorded.modify (·.push mod.name)
         let jobs ← jobLogs.get
-        let elaborated := (modules.map (·.name)).filter (elaboratedIn jobs)
-        elaboratedInProcess.modify fun recorded =>
-          recorded.insert project (recorded.getD project #[] ++ elaborated)
+        if let some elaborated := elaborated then
+          elaborated.modify (· ++ (modules.map (·.name)).filter (elaboratedIn jobs))
       pure (0 : UInt32)
     catch error =>
       out.putStrLn s!"error: {error}"
@@ -1089,26 +1103,29 @@ error. Lake gives each message of a module's elaboration the level of its Lean s
 (`LogLevel.ofMessageSeverity`), so an information message, whatever its text, never fails the
 build. The build is also refused when a job that Lake's build monitor judged holds an entry Lake
 can have made from compiler output that is not a Lean message (`CheckedBuild.unparsed`), since Lake
-logs it as information whatever it held. When `incremental` says it is the claimed build of an
-incremental project audit and the build has no audit-build marker, a claimed module whose log it
-reused from before this process (`CheckedBuild.reused`) has no established result, and each such
-module is reported. The output is read only to report a failure. Returns the diagnostic lines to
-report on failure. -/
+logs it as information whatever it held. When the build has no audit-build marker, a claimed
+module whose log it replayed from an elaboration before the audit, under weak arguments that its
+trace does not record (`CheckedBuild.reused`), has no established result, and each such module is
+reported. `elaborated` holds the modules that earlier builds of the same audit elaborated, and
+the build adds its own. The output is read only to report a failure. Returns the diagnostic lines
+to report on failure. -/
 def buildCheckedObservation (repo : FilePath) (targets : Array SurfaceTarget)
-    (mode : String) (build : Build := buildTargets) (incremental : Bool := false) :
+    (mode : String) (build : Build := buildTargets) (elaborated : Option Elaborated := none) :
     IO (CheckedBuild × Option (Array String)) := do
-  let observed ← Build.runObserved { build with failLv := .warning } repo (targets.map .surface)
-  let build := { observed with incremental }
+  let build ← Build.runObserved { build with failLv := .warning } repo (targets.map .surface)
+    elaborated
   let process := build.process
   if process.succeeded && build.unparsed.isEmpty && build.reused.isEmpty then
     return (build, none)
   if process.succeeded && build.unparsed.isEmpty then
     return (build, some (#[s!"FAIL[build-reused]: the claimed build {mode} without Regula's \
         audit-build marker reused the log of an elaboration from before this run for each \
-        module below. Lake's module trace does not record the `weakLeanArgs` an elaboration ran \
-        under, so that log can come from weak arguments since removed, and the module's result \
-        is not established. A build with the marker (`lake lint` without \
-        REGULA_ORDINARY_LAKEFILES=1) or a fresh audit elaborates it again."] ++
+        module below, and its trace does not record the current `weakLeanArgs` of the module's \
+        library. Lake's own module trace omits them, and only the `extraDep` facet of Regula's \
+        `lakefile.lean` records them, so that log can come from weak arguments since removed, \
+        and the module's result is not established. A package resolved after Regula that \
+        declares an `extraDep` facet replaces Regula's. A build with the marker (`lake lint` \
+        without REGULA_ORDINARY_LAKEFILES=1) or a fresh audit elaborates it again."] ++
       build.reused.map (s!"not established: {·}")))
   let diagnostics :=
     if !build.unparsed.isEmpty then

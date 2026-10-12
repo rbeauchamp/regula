@@ -77,7 +77,8 @@ compiler output that is not a Lean message logged no warning or error, since Lak
 otherwise (`Lake.buildCheckedObservation`), so it has none. Any other build keeps its exit code,
 the warning and error lines of its output, which are read only to report it, and those entries
 as errors, and names each claimed module whose log a build without Regula's audit-build marker
-reused (`Lake.CheckedBuild.reused`), whose result it does not establish. That Lake fails such a
+reused from before the audit under weak arguments that its trace does not record
+(`Lake.CheckedBuild.reused`), whose result it does not establish. That Lake fails such a
 build is read from Lake's source, not proved. -/
 def buildObservation (build : Lake.CheckedBuild) : BuildObservation :=
   if build.process.exitCode = 0 ∧ build.unparsed = #[] ∧ build.reused = #[] then ⟨0, #[], #[]⟩
@@ -88,7 +89,8 @@ def buildObservation (build : Lake.CheckedBuild) : BuildObservation :=
 /-- A warning-checked build's observation is accepted exactly when the build exited 0 and no job
 that Lake's build monitor judged and that is not optional logged an entry Lake can have made from
 compiler output that is not a Lean message, whatever its output says, and it reused no claimed
-module's log (`Lake.mem_reusedModules_iff` states which modules `build.reused` holds). That
+module's log without a record of its weak arguments (`Lake.mem_reusedModules_iff` states which
+modules `build.reused` holds). That
 `build.jobs` holds the logs of exactly the jobs Lake's monitor judged is `Lake.observedFetch`'s
 construction. -/
 theorem buildObservation_ok_iff (build : Lake.CheckedBuild) :

@@ -935,13 +935,18 @@ def auditRootOptions (ordinary : Bool) (ws : _root_.Lake.Workspace) :
 package, which the `lake build` command line cannot set. The plain shape is a conservative guard
 under the workspace owner's assertion, not a guarantee against a lakefile written to defeat it.
 For that shape the marked build and the unmarked one give the same verdict: a build of `lean_lib`
-and `lean_exe` targets in it runs no custom build step, so it compiles only modules that the root
-package owns, whose imports the decision read (or modules of other packages, which the root
-package's options do not reach), and Regula's only reader of the marker is loaded in none of them.
-That no project module reads the marker itself is assumed. Without the marker the ordinary build
-output is reused as it is, and each claimed module whose messages the build replays from before
-the run is reported unestablished (`CheckedBuild.reused`). Like every checker build it runs as `Build.run` describes, without
-Lake's artifact cache. -/
+and `lean_exe` targets in it runs no custom build step except the one facet the shape admits by
+identity, the `extraDep` facet of the running Regula's own `lakefile.lean`
+(`regulaFacetAdmitted`). That facet runs Lake's own `extraDep` facet, which builds each library's
+`extraDepTargets` and `needs`, and adds a trace input that records a library's weak arguments; it
+compiles no module and sets no option. So the build compiles only modules that the root package
+owns, whose imports the decision read (or modules of other packages, which the root package's
+options do not reach), and Regula's only reader of the marker is loaded in none of them. That no
+project module reads the marker itself is assumed. Without the marker the ordinary build output
+is reused as it is, and each claimed module whose messages the build replays from before the run
+under weak arguments that its trace does not record is reported unestablished
+(`CheckedBuild.reused`). Like every checker build it runs as `Build.run` describes, without Lake's
+artifact cache. -/
 def buildAuditTargets (ordinary : Bool) : Build :=
   { rootOptions := auditRootOptions ordinary, display := isLakeProgressLine }
 

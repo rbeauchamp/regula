@@ -147,11 +147,13 @@ build, run with Lake's failure level at `warning`, reaches `Acceptance.buildObse
 observation is accepted exactly when the build exited 0 and no required job logged
 compiler output that is not a Lean message (`buildObservation_ok_iff`). Without the audit-build
 marker, it also requires a record of `weakLeanArgs` for each claimed module that the build
-replayed from before the run (`mem_reusedModules_iff`). The trace file of that module must record
-the current `weakLeanArgs` of its library (`Workspace.traceRecords_iff`). Lake's module trace
-omits them. Regula's `lakefile.lean` declares an `extraDep` facet that adds this record
-for the libraries of the root package and of Regula. A facet that a later dependency declares
-replaces it.
+replayed from before the run (`mem_reusedModules_iff`). The trace file of that module must hold
+the record of its own library: the package, the library and its current `weakLeanArgs`
+(`Lake.traceRecords_weakArgsCaption_iff`). A record of a different library does not count.
+Lake's module trace omits these arguments. Regula's `lakefile.lean` declares an `extraDep` facet
+that adds this record for the libraries of the root package and of the package that declares the
+facet. Lake identifies each package itself (`Package.isRoot`, `__name__`), not by the name a
+`require` gives it. A facet that a later dependency declares replaces it.
 `Lake.ClaimedBuildPlan.completionTargets_exact` binds the deferred build to the original
 target array; `build_completed_iff` records the build stage before preflight exactly when no
 target build remains. A library-only claim keeps one original build
@@ -328,16 +330,19 @@ The compiled configuration file also records each facet that the file declares, 
 of a facet of Lake. The driver counts these declarations, and it keeps the marker if there is
 one, except for the facet of Regula below. A file `lakefile.toml` declares no facet and cannot
 set `nativeFacets`. Its filter of an `input_dir` is the default only if it omits the filter or
-writes `"*"`. Lake only reads and hashes an input target. Thus a build in the plain shape runs no custom build step except Regula's
-`extraDep` facet.
+writes `"*"`. Lake only reads and hashes an input target. Thus a build in the plain shape runs no
+custom build step except Regula's `extraDep` facet.
 
 The driver admits that facet, `weakLeanArgsTrace`, by identity. The package's `lakefile.lean`
 must have the same text as the `lakefile.lean` of the running Regula. Its compiled file must
 declare that constant and one library facet only, as `regulaFacetAdmitted_iff` states. The driver
 then removes that declaration and its attribute entry from what it reads, with
-`ConfigReading.withoutRegulaFacet`. The facet runs Lake's own `extraDep` facet and adds a trace
-input with the `weakLeanArgs` of a library of the root package or of Regula. A package named
-`regula` with different text keeps the marker.
+`ConfigReading.withoutRegulaFacet`.
+
+The facet runs Lake's own `extraDep` facet, which builds the `extraDepTargets` and `needs` of each
+library. It also adds a trace input that records the identity and the `weakLeanArgs` of each
+library of the root package or of Regula. It compiles no module and sets no option. A package
+named `regula` with different text keeps the marker.
 
 A file `lakefile.lean` must also declare only what the commands of Lake generate. These are the
 definitions of the package, its targets and their configurations, `require` and the name of the
@@ -372,9 +377,10 @@ unknown. The same verdict with and without the marker is a claim for the plain s
 That `Regula.Linter` is the only reader of the marker in Regula is by inspection. That no module
 of the project reads the marker itself is an assumption. That Lake runs no code from the fields
 of the list is read from the source of Lake. The source of Lake also shows that a build in the
-plain shape runs no custom build step. That the listed declarations and extensions add no code to
-a build is read from the source of Lean and of Lake. Lake's discovery of the modules and of their
-imports, and its compiled configuration files, are trusted.
+plain shape runs no custom build step except the admitted facet above. That the listed
+declarations and extensions add no code to a build is read from the source of Lean and of Lake.
+Lake's discovery of the modules and of their imports, and its compiled configuration files, are
+trusted.
 
 The command `./scripts/verify.sh` makes one copy of the checkout, and its first step operates in
 that copy. The driver of that command, `lean/RegulaVerification.lean`, makes the copy before it

@@ -1280,23 +1280,20 @@ def guide : RuleId → Guide
           build warnings there and its policy stages report those rules. `axiomGate` and the \
           build-lint `policy` target keep ordinary options, so in a module that imports \
           `Regula.Linter` a local Regula finding is a build warning and makes the result \
-          INCOMPLETE under this rule. Lake's module trace omits `weakLeanArgs`, so Regula's \
-          `lakefile.lean` replaces Lake's `extraDep` facet with one that runs it and records \
-          the `weakLeanArgs` of the root package and of Regula in each module's trace. A build \
-          without the marker \
-          reports a claimed module whose messages it replayed from before the run as not \
-          established (INCOMPLETE) unless its trace file records the current arguments, which \
-          fails when a dependency resolved after Regula replaces that facet. Regula's facet \
-          replaces an `extraDep` facet that the root package declares."]
+          INCOMPLETE under this rule. Regula's `lakefile.lean` replaces Lake's `extraDep` \
+          facet with one that records each root and Regula library's identity and \
+          `weakLeanArgs` in its modules' traces. Without the marker, a claimed module replayed \
+          from before the run whose trace lacks its own library's current record is not \
+          established (INCOMPLETE), as when a later dependency replaces that facet."]
       residuals := [.qualify]
       checklist := ["DECL-01", "BUILD-01", "DOC-01"]
       linkage := "Acceptance side only: an accepted run satisfies `RegulaPolicy.BuildOK`. A \
         warning-checked Lake build's observation satisfies it exactly when the build exited 0, \
         no required job (`Lake.observedFetch`) logged an entry that \
         `Workspace.unparsedCompilerOutput` selects, and, without the audit-build marker, each \
-        claimed module replayed from before the run has a trace recording its current \
-        `weakLeanArgs` (`Acceptance.buildObservation_ok_iff`, `Lake.mem_reusedModules_iff`, \
-        `Workspace.traceRecords_iff`). \
+        claimed module replayed from before the run has its own current record \
+        (`Acceptance.buildObservation_ok_iff`, `Lake.mem_reusedModules_iff`, \
+        `Lake.traceRecords_weakArgsCaption_iff`). \
         Lake's entry for a Lean message whose file name has no line break is never selected \
         (`unparsedCompilerOutput_ofSerialMessage`); `lineBreakSourcePaths` fails the others. \
         That Lake fails a build whose required job logs an entry at its failure level, and \
