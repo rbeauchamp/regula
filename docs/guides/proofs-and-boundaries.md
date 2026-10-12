@@ -2522,7 +2522,7 @@ inferred from any pure proof.
   safe declaration reads only the replayed kernel. **Trusted:** the kernel and `replay` as above,
   and the constants of the imported, unowned dependencies, which replay does not check. The editor
   has no replayed kernel, thus `KernelAxioms.reachedAxiomTable` searches the constants of its own
-  environment, exact by `KernelAxioms.tableThrough_some`, and for a theorem or an unexposed
+  environment, exact by `KernelAxioms.axiomTableThrough_some`, and for a theorem or an unexposed
   definition that a `module` dependency exports without its body it reads the axioms that the
   dependency's table records, a trusted input. A later search of the editor stops at the imported
   constants that an earlier one searched under the same imports. It finds the same axioms
