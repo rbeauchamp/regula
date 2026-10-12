@@ -330,7 +330,7 @@ facets of Regula's own `lakefile.lean`, in a package with the same `lakefile.lea
 running Regula.
 The first only runs Lake's own `extraDep` facet and adds the record.
 The second runs Lake's own `presetup` facet and adds Regula's elaboration observer to the plugins
-of your root package's modules ([limits](#limits)).
+of your root package's modules.
 Without the assertion the driver always builds with the marker ([details](proofs-and-boundaries.md#the-acceptance-boundary)).
 
 Give the assertion in the environment of `lake lint`, which no lakefile sets. The driver refuses
@@ -965,8 +965,8 @@ audit refuses a `decides` entry that names its own surface or no claimed surface
 - A dependency that Lake resolves after Regula can declare an `extraDep` facet that replaces
   Regula's. Lake resolves the `require` lines of a package from the last to the first, and then
   the dependencies of those packages. So a build without the marker counts no record when a
-  dependency other than Regula declares a library or module facet. It reports a claimed module as not
-  established when it replays that module's messages from before the run.
+  dependency other than Regula declares a library or module facet. It reports a claimed module as
+  not established when it replays that module's messages from before the run.
 - The result is then incomplete. `lake exe axiomGate --incremental` then exits 3, and the
   `lake build` of the build-lint `policy` target exits 1. `lake lint` keeps the marker for such a
   workspace.
@@ -977,12 +977,12 @@ audit refuses a `decides` entry that names its own surface or no claimed surface
   module of your root package, it adds Regula's elaboration observer, a Lean plugin, to the
   plugins that Lean loads. The observer records in the module's `.olean` the options that its
   source sets and each `#guard_msgs` and `#guard_panic` command. It also records each warning or
-  error that Lean keeps out of the build's output. It prints nothing. The audit's builds load the
+  error that Lean keeps out of the build's output, and it prints nothing. The audit's builds load the
   observer in the same way, whatever facet the workspace declares. The first build after you
   upgrade to this Regula rebuilds the modules of your root package one time.
-- [RG2003] fails a claimed module that runs `#guard_msgs` or `#guard_panic`, also from a macro,
-  or that has a warning or error that Lean keeps out of the output. Keep such checks in a test or
-  documentation module outside the claimed surface. [RG2003] also fails a claimed module that the
+- [RG2003] fails a claimed module that runs `#guard_msgs` or `#guard_panic`, also from a macro.
+  Keep such checks in a test or documentation module outside the claimed surface. [RG2003] also
+  fails a claimed module with a warning or error that Lean keeps out of the output, or that the
   observer did not observe.
 - If your root package declares a `presetup` facet, Regula's facet replaces it.
 - Code that runs while Lean elaborates a module can write or remove the observer's record. An
