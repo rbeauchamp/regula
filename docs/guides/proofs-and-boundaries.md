@@ -407,9 +407,7 @@ that copy. The driver of that command, `lean/RegulaVerification.lean`, makes the
 starts a Lake command. The function `RegulaVerification.makeCopy` makes it. The copy is a new
 directory in `.lake/regula-scratch/` of the checkout.
 
-The copy has the files of the checkout, but not the directories `.git`, `.lake`, `.cache` and
-`.regula-scratch`, and not the root directory `tmp`. The theorem `walked_iff` gives that set of
-names. Thus the copy starts with no build output, and the builds in it compile each module.
+The copy selects source files through `Construction.projectRelative` (`checked_projectRelative`). It excludes root `tmp` and, outside `docs`, VCS, build, cache and scratch directories. Documentation includes cache-named subdirectories. An empty `.lake` is constructed at its exact spelling, so no earlier build output enters. The builds compile each module.
 
 The step has four commands, which the function `RegulaVerification.commands` gives. The build,
 the registry checks and the qualification controls operate in the copy. The last command is the
@@ -598,13 +596,37 @@ A program can also operate Lake in a copy of a project that it made, as
 `Regula.Checker.Lake.copyProject` and the verification driver do. Lake acts on the copy as it would
 act on the workspace that it was given, thus the same reason holds.
 
-This exception has a limit. A copy that `cp -R` makes, as the qualification slot and the
-provisioning driver do, holds the symbolic links of the original. A relative link there resolves
-from the place of the copy. A copy of `copyProject` holds the link that Regula makes to the
-packages directory of the original. The removals of Lake in a copy can operate through these links.
+Regula constructs its copies through `Regula.Filesystem`. It refuses source links and special entries through metadata reads that follow no final link. It creates directories and regular files exclusively at their exact destinations. It places no packages link. This construction removes the limit about links preserved or placed by Regula's copies.
 
-[Issue 399](https://github.com/rbeauchamp/regula/issues/399) asks for copies that hold only
-directories, files and that one link, by construction.
+`observer_copy` states the complete selected source receipt and the exact destination tree over the observer's filesystem model. `observer_construct` states the exact tree of generated instructions. `Construction.capture_io` connects captured subtrees to that model.
+
+`observer_appendFile` includes ancestor admission when the leaf writer extends an established plain parent. Its initial tree is a precondition, not an authentication of arbitrary old entries. Errors can leave partial private output. Callers refuse that output before a Lake load. These theorems state entry kinds and locations, not byte fidelity, permissions or later process effects.
+
+Assumes: Lean `v4.34.1` uses POSIX lstat for `symlinkMetadata` (`Init/System/IO.lean:1151-1156`, `runtime/io.cpp:1160-1179`). Windows is refused because this read follows links there.
+
+Assumes: Directory enumeration reaches EOF without error (`Init/System/IO.lean:1141-1142`, `runtime/io.cpp:1076-1098`). This is trusted: the core wrapper does not distinguish EOF from an enumeration error.
+
+Assumes: Exclusive mkdir creates one empty directory (`runtime/io.cpp:1181-1195`). `Mode.writeNew` uses `O_EXCL` (`Init/System/IO.lean:651-660`, `runtime/io.cpp:409`).
+
+Assumes: Exclusive creation fails for any occupied final destination and follows no final link. Source and destination have no concurrent writer. Lean exposes no `O_NOFOLLOW` file-open mode, so byte reads trust that source entries stay fixed after metadata reads.
+
+Modes are not preserved. Copied files receive 0644 and directories receive 0755. Sites that execute a copied program explicitly request 0755, with the reason where they copy it. Lake sets modes on the programs it builds. No permission-reading program participates in construction.
+
+`copyProject` captures the manifest at Lake's loaded `ws.manifestFile`. Its packages fallback is `ws.relPkgsDir`. Each resolved dependency receives a typed path override, including inherited and transitive dependencies. Owned dependencies point into the copy, and trusted dependencies point to their original roots. The copy always retains the captured manifest and runs ordinary loads.
+
+Assumes: Lake `v4.34.1`, `Load/Resolve.lean:590-627`, applies overrides during ordinary materialization. `Load/Resolve.lean:201-235` traverses dependencies transitively. Path entries do not clone packages (`Load/Materialize.lean:239-277`).
+
+Assumes: A full update or a missing manifest bypasses overrides (`Load/Workspace.lean:64-69`, `Load/Resolve.lean:269-333`). Existing-project copies do neither. Generated update fixtures state their closed input domain where they create it.
+
+The cold drivers embed the shared constructor's source with Lean's `include_str` and interpret that source before package artifacts exist. Assumes: Lean `v4.34.1`, `Lean/Elab/BuiltinTerm.lean:437-445`, `elabIncludeStr`, reads those bytes during elaboration. The compiler and interpreter remain trusted. The constructor has one source implementation, with checked correspondence to its filesystem model.
+
+Workspace loading runs only in compiled executables, including its control in `qualify combined`. The interpreted cold drivers run the constructor and external programs, and collect no Lake workspace in their process. Assumes: Lake `v4.34.1` runs its initialization state in the compiled loader (`Load/Lean/Elab.lean:28`). These executables enable `supportInterpreter` to expose core symbols when Lake elaborates configuration (`Config/LeanExeConfig.lean:54-68`).
+
+The interpreter refuses an uninitialized declaration with `Unreachable` (`src/library/ir_interpreter.cpp:919-928`). A seven-line cache observation aborts interpreted and passes compiled. That observation identifies a backend boundary, not a failure of the filesystem-model hypotheses.
+
+The provisioning registration link in the original integration workspace is separate from constructing a copy. Its creation race remains [issue 407](https://github.com/rbeauchamp/regula/issues/407). Lake-generated entries, original trusted dependencies and deliberately planted diagnostic aliases remain outside the plain-copy guarantee.
+
+The reporter's read-only import overlay is an import view. It retains artifact links because byte copies change the real origin that ownership attribution checks. The compiler-path controls likewise plant toolchain aliases deliberately. These import views are outside the directory/file workspace constructor. Regula runs no Lake command in them.
 
 A program that a script operates with `lean --run` cannot import the check. Thus the modules
 `Regula.ProgramCheck` do the same check for each such program. The two drivers remove entries with
@@ -1526,7 +1548,7 @@ Two-way decisions (`Regula.Decides`), each with an accepted and a refused input:
 | `DecidedFunction.covers` | `DecidedFunction.Covers`: a field application covers (`FieldPacking.Covers`), and the number of arguments that a result takes is zero (`DecidedFunction.covers_iff`) | Whether a decision registration's statement is about its implementation on every argument ([RG1007]). It accepts the function itself when no result takes an argument, and refuses it when a result takes one more, which is a kind about a partially applied function. The collector's reading of that number from the kind's result type is not part of this kind. |
 | `Regula.Website.admitExampleRequest`, `admitExampleSources`, `admitDemonstration` (accept on `.ok`) | The observed request is the frozen one; `ExampleSourcesOK`; `DemonstrationOK` | Admission of a rule-example producer's request, sources and diagnostic demonstration. Each returns the admitted value with its proof, so each result type depends on the arguments. The first and the third are decided on the pair of their two arguments, and the second on the structure of its three (`ExampleSourcesInput`). |
 | `RegulaVerification.passed` | Each command of a step ended with exit status 0 (`passed_iff`). | The driver of `scripts/verify.sh` uses it before it operates one more command, before its success line and before it moves the acceptance record. |
-| `RegulaVerification.walked` | The path does not start with `tmp`, and no component of it is `.git`, `.lake`, `.cache` or `.regula-scratch` (`walked_iff`). | The files that the driver copies for the first acceptance step. No theorem relates it to the rule of the isolated copy of the checker. |
+| `Construction.projectRelative` | No root `tmp`. Documentation includes cache-named directories. Elsewhere no component is `.git`, `.lake`, `.cache` or `.regula-scratch` (`checked_projectRelative`). | The selection that the shared cold constructor executes. The constructor's filesystem theorems name their primitive hypotheses. |
 | `RegulaVerification.removal` (accepts on `.remove`) | A directory is at the place by a read that follows no link, and its real path is the place (`removal_remove_iff`). | The driver removes its copy and the `_site` directory only by this decision. The two reads of the file system are trusted. |
 | `Regula.Removal.removal` (accepts on `.remove`) | A read that follows no link finds an entry of the given kind at the place. Its real path is the place, or a symbolic link is a name in a directory at its own place (`removal_remove_iff`). | Each program of the package removes a directory, a file or a symbolic link only by this decision, through `Regula.Filesystem`. The exceptions are the library calls that `Regula.Removal.libraryRemovals` gives, and the removals of the two drivers that `Regula.ProgramCheck.Verification` and `Regula.ProgramCheck.Provision` give. The reads of the file system are trusted. |
 | `Regula.Removal.replacement` (accepts on `true`) | A read that follows no link finds a file at the source, at its own place. Nothing is at the destination, or a file is there at its own place. The destination is a name in a directory at its own place (`replacement_iff`). | Each program of the package moves a file only by this decision, through `Regula.Filesystem`. The exceptions are the library calls that `Regula.Removal.libraryRemovals` gives, and the moves of the two drivers that `Regula.ProgramCheck.Verification` and `Regula.ProgramCheck.Provision` give. The reads of the file system are trusted. |
@@ -1617,7 +1639,7 @@ imports only the toolchain:
   no program imports: `RegulaProvision.Decisions` registers `component?`, `admits`, `mathlibStep`, `cloneStep`, `found`, `prunes`, `retires` and
   `mathlibApplies`;
   `RegulaVerification.Decisions` registers `parseMode`, `dependencyFree`, `select`, `passed`,
-  `walked`, `removal` and `prebuildCovers`.
+  `removal` and `prebuildCovers`. The shared constructor registers `projectRelative` in `RegulaCore.CopyConstruction`.
   Each kind restates a theorem the program proves about the same definition, except that of
   `component?` (`checked_component`).
 
@@ -4981,8 +5003,8 @@ The comparison does not prove that a fresh gate accepts the restored copy. That 
 rests on a fact that is not a theorem. A fresh gate reads the audited project only through
 `copyProject` and builds that copy from empty output. `copyProject` does not copy `.lake`, so
 the gate does not read the output of the setup build, of the seed or of the incremental gates.
-Without `--with-docs`, as here, the gate reads no other file of the project, and it links the
-packages directory of the repository for each copy. The restored fresh gates of the clusters in
+Without `--with-docs`, as here, the gate reads no other file of the project, and its typed path
+overrides point trusted dependencies to their original roots. The restored fresh gates of the clusters in
 the structural project run the same path on a project with such output in its `.lake`.
 
 The copy of the first cluster starts with the module artifacts of the build of the repository
@@ -5253,8 +5275,9 @@ execution, and calling a proved oracle does not prove the driver or its IO effec
   The theorem `prebuildCovers_iff` shows that the driver accepts only a surface manifest with no
   claimed target outside the prebuild. That Lake then builds nothing again is the behaviour of
   Lake. The use of `nice` by the operating system is trusted.
-- The theorems `walked_iff`, `removal_remove_iff` and `removal_nothing_iff` of
-  `RegulaVerification` state the decisions of the copy and of the removal. The theorems
+- The theorem `Construction.checked_projectRelative` states the source selection. `copy_io` and `construct_io` state the shared constructor's filesystem contracts. The theorems `removal_remove_iff` and `removal_nothing_iff` of `RegulaVerification` state its removal decision.
+
+  The theorems
   `ScratchCopy.name?_eq_some_iff` and `ScratchCopy.inside_iff` state the two decisions with which
   the gate admits a copy of the driver. The theorems `Regula.Removal.removal_remove_iff` and
   `removal_nothing_iff` state the decision of the removals of the filesystem observer,

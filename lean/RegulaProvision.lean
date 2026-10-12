@@ -1,4 +1,5 @@
 import Lean.Data.Json
+import Lean.Util.Path
 
 /-! # Dependency provisioning
 
@@ -410,17 +411,41 @@ private def installLink (path : FilePath) (target : String) : IO Unit := do
     if (← kind? staged) matches some _ then IO.FS.removeFile staged
     throw error
 
-/-- Install a writable copy-on-write clone of `source` at the absent `path`. `cp -c` asks for
-APFS clones; elsewhere the plain recursive copy is the fallback. -/
+/-- Shared constructor source embedded by Lean; the cold provisioner imports only the toolchain.
+Assumes: Lean v4.34.1 `Lean/Elab/BuiltinTerm.lean:437-445` elabIncludeStr reads this source at elaboration,
+and the pinned Lean interpreter executes it before project artifacts exist. -/
+def constructionSource : String := include_str "RegulaCore/CopyProgram.lean"
+
+/-- Interpret the one shared constructor in a cold driver. The wrapper is this run's
+exclusive file in a private staging parent, and is removed when the interpreter ends.
+Assumes: the running Lean executable owns its installation (`Lean/Util/Path.lean:85-86`);
+Lean's interpreter executes the embedded source faithfully. -/
+private def runConstruction (parent : FilePath) (domain source : String) (target : FilePath) :
+    IO Unit := do
+  let wrapper := parent / s!".regula-copy-{← nonce}.lean"
+  let handle ← IO.FS.Handle.mk wrapper .writeNew
+  handle.putStr (constructionSource ++ "\n/-- Cold construction entrypoint. -/\n" ++
+    "def main := Regula.Filesystem.Construction.sourceMain\n")
+  handle.flush
+  try
+    let result ← IO.Process.output {
+      cmd := ((← Lean.getBuildDir) / "bin/lean").toString
+      args := #["--run", wrapper.toString, domain, source, target.toString]
+      env := #[("LEAN_PATH", none), ("LEAN_SRC_PATH", none)] }
+    unless result.exitCode == 0 do
+      throw <| IO.userError s!"provisioning construction failed: {result.stdout}{result.stderr}"
+  finally IO.FS.removeFile wrapper
+
+/-- Install an independently writable directory/file copy through the shared constructor.
+Links and special source entries fail before a clone can be installed. Modes are fixed at 0644
+for files and 0755 for directories; callers run Lake's newly built programs. This does not place
+a packages link. `installLink` is the separate shared-cache registration mechanism, outside this
+copy operation; its temporary-link creation race is tracked separately. -/
 private def installClone (path source : FilePath) : IO Unit := do
   let some parent := path.parent | throw <| IO.userError s!"provisioning: {path} has no parent"
   let staged := parent / s!".{path.fileName.getD "clone"}.{← nonce}"
-  let cloned ← run parent "cp" #["-R", "-c", "-p", source.toString, staged.toString]
-  unless cloned.exitCode == 0 do
-    if (← kind? staged) matches some .dir then IO.FS.removeDirAll staged
-    let _ ← require parent "cp" #["-R", "-p", source.toString, staged.toString]
-  let _ ← require parent "chmod" #["-R", "u+w", staged.toString]
-  -- The clone's files are new inodes; refresh the index so Lake's `git diff` stays cheap.
+  runConstruction parent "all" source.toString staged
+  -- New inodes require index refresh; Git metadata itself was constructed as ordinary files.
   let _ ← run staged "git" #["update-index", "-q", "--refresh"]
   try IO.FS.rename staged path
   catch error =>
@@ -544,15 +569,26 @@ The caller holds the lock. -/
 private def create (repo parent final : FilePath) (key : String) (manifest : Json)
     (pins : Pins) : IO Unit := do
   let staging := parent / s!"{key}.staging-{← nonce}"
-  IO.FS.createDir staging
-  IO.FS.writeFile (staging / "lakefile.toml")
-    ("name = \"regula_mathlib_packages\"\n\n[[require]]\nname = \"mathlib\"\n" ++
-      s!"git = \"{pins.mathlibUrl}\"\nrev = \"{pins.mathlibRev}\"\n")
-  IO.FS.writeFile (staging / "lake-manifest.json") ((manifest
+  let lakefile := "name = \"regula_mathlib_packages\"\n\n[[require]]\nname = \"mathlib\"\n" ++
+    s!"git = \"{pins.mathlibUrl}\"\nrev = \"{pins.mathlibRev}\"\n"
+  let lock := (manifest
     |>.setObjVal! "name" (.str "regula_mathlib_packages")
     |>.setObjVal! "packagesDir" (.str ".lake/packages")
-    |>.setObjVal! "packages" (.arr (pins.git.map (·.1)))).pretty ++ "\n")
-  IO.FS.writeFile (staging / "lean-toolchain") (← IO.FS.readFile (repo / "lean-toolchain"))
+    |>.setObjVal! "packages" (.arr (pins.git.map (·.1)))).pretty ++ "\n"
+  let instructions := Json.arr #[
+    Json.mkObj [("relative", toJson (["lakefile.toml"] : List String)), ("text", toJson lakefile)],
+    Json.mkObj [("relative", toJson (["lake-manifest.json"] : List String)), ("text", toJson lock)],
+    Json.mkObj [("relative", toJson (["lean-toolchain"] : List String)),
+      ("source", toJson (repo / "lean-toolchain").toString)]]
+  let descriptor := parent / s!".regula-instructions-{← nonce}.json"
+  let handle ← IO.FS.Handle.mk descriptor .writeNew
+  handle.putStr instructions.compress
+  handle.flush
+  try runConstruction parent "generated" descriptor.toString staging
+  finally IO.FS.removeFile descriptor
+  -- This new shared-store workspace deliberately fetches the manifest's pinned Git packages.
+  -- It has a closed generated configuration, not an existing-project relocation or override
+  -- load. Lake and Git's new checkout contents remain trusted (libraryRemovals).
   try
     let githash := (← require staging "lean" #["--githash"]).trimAscii.toString
     unless githash == Lean.githash do

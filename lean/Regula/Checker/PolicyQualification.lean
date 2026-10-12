@@ -1,4 +1,5 @@
 import Regula.Checker.SourceAudit
+import Regula.Checker.Lake
 
 /-! # Policy transport qualification
 
@@ -145,30 +146,20 @@ private def source : String :=
 
 private def setup (repo adopter : FilePath) : IO Unit := do
   IO.FS.createDirAll adopter
-  IO.FS.writeFile (adopter / "lean-toolchain") (← IO.FS.readFile (repo / "lean-toolchain"))
-  IO.FS.writeFile (adopter / "lakefile.lean") <|
+  Regula.Filesystem.copyFile (repo / "lean-toolchain") (adopter / "lean-toolchain")
+  Regula.Filesystem.writeFile (adopter / "lakefile.lean") <|
     "import Lake\nopen Lake DSL\npackage policy_adopter where\n" ++
       "  leanOptions := #[⟨`autoImplicit, false⟩, ⟨`relaxedAutoImplicit, false⟩, \
         ⟨`linter.missingDocs, true⟩]\n" ++
       "require regula from " ++
       (toJson repo.toString).compress ++ "\n@[default_target] lean_lib PublicApi\n"
-  IO.FS.writeFile (adopter / "foundation_manifest.json") <| Json.compress <| Json.mkObj [
+  Regula.Filesystem.writeFile (adopter / "foundation_manifest.json") <| Json.compress <| Json.mkObj [
     ("schema-version", toJson (2 : Nat)), ("surfaces", toJson #[Json.mkObj [
       ("library", .str "PublicApi"), ("claim", .str "standard-logical"),
       ("execution", .str "checked"), ("rationale", .str "Public policy admission control")]]),
     ("excluded-libraries", toJson (#[] : Array Json)),
     ("excluded-executables", toJson (#[] : Array Json))]
-  let base ← readJson (repo / "lake-manifest.json")
-  let packages : Array Json ← IO.ofExcept <| base.getObjValAs? (Array Json) "packages"
-  let dependency := Json.mkObj [("name", .str "regula"), ("scope", .str ""),
-    ("configFile", .str "lakefile.lean"), ("manifestFile", .str "lake-manifest.json"),
-    ("inherited", .bool false), ("type", .str "path"), ("dir", .str repo.toString)]
-  writeJson (adopter / "lake-manifest.json") <| base.setObjVal! "packages" <|
-    toJson (#[dependency] ++ packages.map (·.setObjVal! "inherited" (.bool true)))
-  IO.FS.createDirAll (adopter / ".lake")
-  let linked ← runProcess adopter "ln" #["-s", (repo / ".lake" / "packages").toString,
-    (adopter / ".lake" / "packages").toString]
-  unless linked.succeeded do throw <| IO.userError linked.output
+  Lake.pinAdopter repo adopter
   -- An adopter is a repository of its own, so `regula`, which it requires from this checkout, is
   -- a dependency in a different Git work tree, which the audit trusts, as an adopter's is.
   let initialized ← runProcess adopter "git" #["init", "-q"]

@@ -1254,7 +1254,6 @@ private unsafe def auditSurface (repo : FilePath) (manifest : Option FilePath)
       | .incremental => repo
     let manifestPath := manifest.getD (Manifest.defaultPath copy)
     observeConfiguration copy (← SourceBinding.configuration copy manifestPath)
-    if withDocs then Documentation.snapshotMarkdown (repo / "docs") (copy / "docs")
     let documents ← if withDocs then Documentation.captureMarkdown (copy / "docs") else pure #[]
     -- The link covers the Markdown and Verso sources the separate documentation step audits.
     let linkedSources : Documentation.Sources := ⟨repo / "docs", verso⟩

@@ -18,8 +18,8 @@ private def first (xs : Array Json) : IO Json := do
 
 /-- Copy the native dispatcher, without generating an interpreter or shell program. -/
 def copyExecutable (source target : FilePath) : IO Unit := do
-  IO.FS.writeBinFile target (← IO.FS.readBinFile source)
-  success (← run (target.parent.getD ".") "chmod" #["755", target.toString])
+  -- The proxy and axiomGate-real are executed by their exact copied paths.
+  Regula.Filesystem.copyFile source target 493
 
 /-- Test-only native proxy; invoked before the dispatcher's outer deadline wrapper. -/
 def worker (args : List String) : IO UInt32 := do
@@ -86,9 +86,7 @@ private def qualify (group : String) (evidence : FilePath) (receipt : IO.Ref Jso
     let bin := scratch / "tool/bin"
     IO.FS.createDirAll bin
     IO.FS.createDirAll (scratch / "tool/lib")
-    success
-        (← run root "ln"
-            #["-s", (root / ".lake/build/lib/lean").toString, (scratch / "tool/lib/lean").toString])
+    discard <| Regula.Filesystem.copy (root / ".lake/build/lib/lean") (scratch / "tool/lib/lean")
     copyExecutable executable (bin / "axiomGate-real")
     copyExecutable (← IO.appPath) (bin / "axiomGate")
     let mut sources : List (String × Json) := []
@@ -211,6 +209,7 @@ def documentationDependencies : IO Unit := do
     IO.FS.writeFile (project / "Example.lean") source
     IO.FS.writeFile
         (project / "docs/control.md") "```lean\nimport Dep\nexample : Dep.n = 1 := rfl\n```\n"
+    -- The complete generated requirement graph is this one path dependency, with no Git source.
     success (← run project "lake" #["update"] cleanEnv)
     for route in #["docFenceAudit", "ruleExamples"] do
       for phase in #["positive", "changed-during-build", "restored"] do

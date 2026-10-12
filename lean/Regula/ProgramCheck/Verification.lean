@@ -16,6 +16,8 @@ the pair of the declaration that makes it and the primitive that it calls
 - the removals of the ownership marker of a scratch directory, a regular file by a read that
   follows no link, in the loop of `RegulaVerification.reclaim` and in
   `RegulaVerification.Copy.remove`;
+- the removal of the cold constructor's wrapper in `RegulaVerification.copyTree`: this run
+  created it exclusively in its private scratch directory before interpreting it;
 - the moves of the copy's build output to an absent path in `RegulaVerification.Copy.adopt`, of
   the pending acceptance record with its `build` field over the pending record in
   `RegulaVerification.Copy.recordBuild`, and of the pending record over the record in the body of
@@ -41,6 +43,7 @@ run_cmd Regula.Removal.checkProgram (named := [
   (reclaimLoop, ``IO.FS.removeDirAll),
   (reclaimLoop, ``IO.FS.removeFile),
   (`RegulaVerification.Copy.remove, ``IO.FS.removeFile),
+  (`RegulaVerification.copyTree, ``IO.FS.removeFile),
   (`RegulaVerification.Copy.adopt, ``IO.FS.rename),
   (`RegulaVerification.Copy.recordBuild, ``IO.FS.rename),
   (`RegulaVerification.run._lam_0, ``IO.FS.rename)])

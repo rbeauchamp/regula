@@ -363,7 +363,7 @@ def otherTargets : List String :=
     "+Regula.RegistryChecks:olean", "+Regula.Linter:olean", "+Regula.Checker.LintMain:olean",
     "+Regula.Checker.RuleExamples:olean", "+Regula.Checker.RuleExampleQualificationMain:olean",
     "+Regula.Cli.Main:olean", "+Regula.Release:olean", "+Regula.DiagnosticsGate:olean",
-    "+Regula.RemovalControls:olean", "+Regula.Campaigns.Verification:olean",
+    "+Regula.RemovalControls:olean", "+Regula.CopyControls:olean", "+Regula.Campaigns.Verification:olean",
     "+Regula.Campaigns.Diagnostics:olean"]
 
 /-- A `qualify` selection under the driver's deadline. -/
@@ -959,59 +959,32 @@ the copy holds only what the commands of this step made, the build reads files t
 process is given, and the step removes nothing of the checkout. The acceptance gate cannot
 observe that this driver made the copy new in this run; that statement rests on `makeCopy`. -/
 
-/-- Whether a path below the project root, given by its components from the root, is part of
-the copy. It is the rule by which the checker makes an isolated copy of a project
-(`Regula.Checker.Lake.copyProject`): VCS data, Lake's directory, artifact caches and the checker's old
-scratch directory are left out at every depth, and so is the root `tmp` directory. The two
-modules cannot import one another, so the rule is written twice. The checker's copy also leaves
-out every compiled module part; this one copies any outside Lake's directory, and that the copy
-held no build output before the driver's build is what a driver-copy audit trusts
-(`AxiomGate.driverCopy`). The copy is the project that the gate audits, whatever this rule copied,
-and a missing file fails the build. -/
-def walked : List String → Bool
-  | "tmp" :: _ => false
-  | relative => relative.all fun component =>
-      !([".git", ".lake", ".cache", ".regula-scratch"].contains component)
 
-/-- `walked` accepts exactly the paths that do not start with `tmp` and have none of the four
-left-out names as a component. -/
-theorem walked_iff (relative : List String) :
-    walked relative = true ↔ relative.head? ≠ some "tmp" ∧ ∀ component ∈ relative,
-      component ≠ ".git" ∧ component ≠ ".lake" ∧ component ≠ ".cache" ∧
-        component ≠ ".regula-scratch" := by
-  unfold walked
-  split
-  · simp
-  · next notTmp =>
-    have head : relative.head? ≠ some "tmp" := by
-      cases relative with
-      | nil => simp
-      | cons first rest =>
-        intro isTmp
-        simp only [List.head?_cons, Option.some.injEq] at isTmp
-        exact notTmp rest (isTmp ▸ rfl)
-    simp [head]
+/-- The shared constructor's exact source, embedded by Lean before any root artifact exists.
+Assumes: Lean v4.34.1 `Lean/Elab/BuiltinTerm.lean:437-445` elabIncludeStr reads this source at elaboration;
+the pinned Lean interpreter executes it. There is no second tree-walk implementation. -/
+def constructionSource : String := include_str "RegulaCore/CopyProgram.lean"
 
-/-- Copy each walked entry of the project at `root` (`walked`) to the same place below `target`,
-and return the path of each file it wrote, relative to `target` and written with `/`.
-A file's bytes are copied; a symbolic link is followed, as `Regula.Checker.Lake.copyProject` follows
-it. Every write is below `target`. -/
+/-- Construct the cold copy before any prebuild through the shared no-follow/exclusive routine.
+The bootstrap wrapper only supplies its main entrypoint. Its regular-file receipt identifies the
+files the same constructor emitted. Regular files use 0644; copied build output is excluded and
+the driver runs freshly built programs, whose executable modes Lake sets. -/
 def copyTree (root target : System.FilePath) : IO (List String) := do
-  let rootComponents := root.normalize.components
-  let included := fun (path : System.FilePath) =>
-    walked (path.normalize.components.drop rootComponents.length)
-  IO.FS.createDirAll target
-  let mut written := #[]
-  for path in ← root.walkDir (fun path => pure (included path)) do
-    unless included path do continue
-    let relative := path.normalize.components.drop rootComponents.length
-    let destination := relative.foldl (· / System.FilePath.mk ·) target
-    if ← path.isDir then IO.FS.createDirAll destination
-    else
-      if let some parent := destination.parent then IO.FS.createDirAll parent
-      IO.FS.writeBinFile destination (← IO.FS.readBinFile path)
-      written := written.push ("/".intercalate relative)
-  return written.toList
+  let some parent := target.parent | throw <| IO.userError "copy target has no parent"
+  let wrapper := parent / "regula-copy.lean"
+  let handle ← IO.FS.Handle.mk wrapper .writeNew
+  handle.putStr (constructionSource ++ "\n/-- Cold construction entrypoint. -/\n" ++
+    "def main := Regula.Filesystem.Construction.sourceMain\n")
+  handle.flush
+  let result ← IO.Process.output {
+    cmd := ((← Lean.getBuildDir) / "bin/lean").toString
+    args := #["--run", wrapper.toString, "project", root.toString, target.toString]
+    env := #[("LEAN_PATH", none), ("LEAN_SRC_PATH", none)] }
+  IO.FS.removeFile wrapper
+  unless result.exitCode == 0 do
+    throw <| IO.userError s!"project construction failed: {result.stdout}{result.stderr}"
+  let json ← IO.ofExcept (Lean.Json.parse result.stdout)
+  IO.ofExcept (Lean.fromJson? json)
 
 /-- The copy of the project that the first acceptance step builds and audits. -/
 structure Copy where

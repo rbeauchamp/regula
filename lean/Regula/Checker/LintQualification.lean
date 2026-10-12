@@ -821,7 +821,7 @@ private def tomlAudit (repo adopter : FilePath) : IO (Array String) := do
   let foreign := adopter / "foreign"
   IO.FS.createDirAll foreign
   IO.FS.writeFile (foreign / "lakefile.toml") "name = \"foreign\"\n"
-  IO.FS.writeFile (foreign / "lean-toolchain") (← IO.FS.readFile (adopter / "lean-toolchain"))
+  Regula.Filesystem.copyFile (adopter / "lean-toolchain") (foreign / "lean-toolchain")
   failures := failures ++ (← expect foreign {
       label := "toml/foreign-dir-unwritten", exitCode := 2,
       contains := #["unknown or incomplete argument: --bogus",
@@ -1812,7 +1812,7 @@ private def pathReserved (repo adopter : FilePath) : IO (Array String) := do
   let vendor := adopter / "vendor"
   IO.FS.createDirAll (vendor / "lean" / "Regula")
   IO.FS.writeFile (vendor / "lean" / "Regula" / "Contract.lean") contract
-  IO.FS.writeFile (vendor / "lean-toolchain") (← IO.FS.readFile (adopter / "lean-toolchain"))
+  Regula.Filesystem.copyFile (adopter / "lean-toolchain") (vendor / "lean-toolchain")
   IO.FS.writeFile (vendor / "lakefile.toml")
     "name = \"regula\"\n[[lean_lib]]\nname = \"Regula\"\nsrcDir = \"lean\"\nroots = [\"Regula.Contract\"]\n"
   let vendorManifestPath := adopter / "lake-manifest.json"
@@ -1870,8 +1870,8 @@ private def pathEscapes (repo adopter : FilePath) : IO (Array String) := do
   -- the name before any build, where Lake's build would refuse the import as ambiguous.
   let second := adopter / "support2"
   IO.FS.createDirAll second
-  IO.FS.writeFile (second / "Support.lean") (← IO.FS.readFile (support / "Support.lean"))
-  IO.FS.writeFile (second / "lean-toolchain") (← IO.FS.readFile (adopter / "lean-toolchain"))
+  Regula.Filesystem.copyFile (support / "Support.lean") (second / "Support.lean")
+  Regula.Filesystem.copyFile (adopter / "lean-toolchain") (second / "lean-toolchain")
   IO.FS.writeFile (second / "lakefile.toml")
     "name = \"build_lint_support_two\"\n[[lean_lib]]\nname = \"Support\"\n"
   let manifestPath := adopter / "lake-manifest.json"
@@ -2002,7 +2002,7 @@ private def pathOverrides (repo adopter : FilePath) : IO (Array String) := do
   let external := adopter / "external"
   IO.FS.createDirAll external
   for name in #["Support.lean", "lakefile.toml", "lean-toolchain"] do
-    IO.FS.writeFile (external / name) (← IO.FS.readFile (support / name))
+    Regula.Filesystem.copyFile (support / name) (external / name)
   let initialized ← runProcess external "git" #["init", "-q"]
   unless initialized.succeeded do
     return failures.push s!"lake-lint/path: git init failed: {initialized.output}"
@@ -2026,7 +2026,7 @@ private def pathOverrides (repo adopter : FilePath) : IO (Array String) := do
   let first := adopter / "external-first"
   IO.FS.createDirAll first
   for name in #["lakefile.toml", "lean-toolchain"] do
-    IO.FS.writeFile (first / name) (← IO.FS.readFile (external / name))
+    Regula.Filesystem.copyFile (external / name) (first / name)
   IO.FS.writeFile (first / "Support.lean") (supportSource true)
   let initializedFirst ← runProcess first "git" #["init", "-q"]
   unless initializedFirst.succeeded do
@@ -2137,6 +2137,9 @@ private def lakeNew (repo scratch : FilePath) : IO (Array String) := do
   -- `lake new`, the `regula` requirement, then `init` twice: the first must report writing
   -- `setting`, after which the lakefile must contain `written`.
   let setUp (name format lakefile require setting written : String) : IO (Array String) := do
+    -- This control observes Lake's own scaffold generator, which cannot be replaced by a copy
+    -- without losing the tested behavior. Its generated package has no dependencies; the only
+    -- added dependency is the explicit root path, pinned by requireCheckout before a load.
     let made ← runProcess scratch "lake" (#["new", name] ++ (if format.isEmpty then #[] else
       #[format])) scrubbedLeanPathEnv
     if !made.succeeded then return #[s!"lake-lint/new/{name}: lake new failed", made.output]
@@ -2195,8 +2198,7 @@ the running compiler's identity and so reaches the identity comparison. A compil
 identity as the child is not exercised here. -/
 private def compilerGuard (repo project : FilePath) : IO (Array String) := do
   for name in #["lakefile.lean", "lean-toolchain", "lean/RegulaPolicy/Compiler.lean"] do
-    if let some parent := (project / name).parent then IO.FS.createDirAll parent
-    IO.FS.writeFile (project / name) (← IO.FS.readFile (repo / name))
+    Regula.Filesystem.copyFile (repo / name) (project / name)
   let path := System.SearchPath.parse ((← IO.getEnv "PATH").getD "")
   let some silent ← path.findM? fun dir => (dir / "true").pathExists
     | throw <| IO.userError "lake-lint: the compiler-guard control found no `true` on PATH"
@@ -2206,8 +2208,8 @@ private def compilerGuard (repo project : FilePath) : IO (Array String) := do
     let sysroot := project / label
     let lean := sysroot / "bin" / "lean"
     IO.FS.createDirAll (sysroot / "bin")
-    let linked ← runProcess project "ln" #["-s", program.toString, lean.toString]
-    if !linked.succeeded then throw <| IO.userError linked.output
+    -- This stand-in is executed by path: construct the regular file with mode 0755.
+    Regula.Filesystem.copyFile program lean 493
     assess { label := s!"guard/{label}", exitCode := 1, contains := #[lean.toString, branch] }
       (← load #[("LEAN_SYSROOT", some sysroot.toString)])
   let failing ← refused "failing-child" ((← Lean.findSysroot) / "bin" / "lake")

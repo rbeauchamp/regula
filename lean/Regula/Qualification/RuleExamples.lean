@@ -219,7 +219,7 @@ private def produce (ctx : Context) (slot : Slot.ProducerSlot) (rule phase : Str
   IO.FS.createDir project
   Slot.prepareSlotProject slot project "rule_examples" "kernel-only"
       "The fixture's exact mathematical claim and scope."
-  IO.FS.writeFile
+  Regula.Filesystem.writeFile
       (project / "Example.lean")
           "/-! The true proposition. -/\ntheorem baseline : True := True.intro\n"
   let folder := root / "examples/rules" / rule
@@ -227,7 +227,7 @@ private def produce (ctx : Context) (slot : Slot.ProducerSlot) (rule phase : Str
   let sourceFile := folder / sourceName
   let displayed ← match sourceText with
     | some text => pure text
-    | none => IO.FS.readFile sourceFile
+    | none => Regula.Filesystem.readFile sourceFile
   let mut paths := #[project / "Example.lean"]
   let mut sourcePath := project / "Example.lean"
   let raw := ctx.rawDirectory / rule / phase
@@ -262,7 +262,7 @@ private def produce (ctx : Context) (slot : Slot.ProducerSlot) (rule phase : Str
               "--execution", "checked"]
     else if rule == "RG2002" then
       IO.FS.writeBinFile (project / "foundation_manifest.json")
-          (← IO.FS.readBinFile (folder / s!"{case}.json"))
+          (← Regula.Filesystem.readBytes (folder / s!"{case}.json"))
       -- Both manifests classify the same layout: library `Example` globs its submodules,
       -- among them `Example.Cli`, the root of `lean_exe cli`.
       let config := project / "lakefile.lean"
@@ -274,8 +274,7 @@ private def produce (ctx : Context) (slot : Slot.ProducerSlot) (rule phase : Str
         "lean_lib Example where\n  globs := #[.andSubmodules `Example]\n\
           lean_exe cli where\n  root := `Example.Cli\n")
       IO.FS.createDir (project / "Example")
-      IO.FS.writeBinFile (project / "Example/Cli.lean")
-          (← IO.FS.readBinFile (folder / "Cli.lean"))
+      Regula.Filesystem.copyFile (folder / "Cli.lean") (project / "Example/Cli.lean")
       paths := paths.push (project / "Example/Cli.lean")
     else if rule == "RG2006" then
       -- The case file is the package's `lakefile.lean`; the run adds its `require` of the
@@ -283,7 +282,7 @@ private def produce (ctx : Context) (slot : Slot.ProducerSlot) (rule phase : Str
       let config := project / "lakefile.lean"
       let require := ((← IO.FS.readFile config).splitOn "\n").filter
         (·.startsWith "require regula ")
-      IO.FS.writeFile config ((← IO.FS.readFile (folder / s!"{case}.lean")) ++ "\n" ++
+      IO.FS.writeFile config ((← Regula.Filesystem.readFile (folder / s!"{case}.lean")) ++ "\n" ++
         "\n".intercalate require ++ "\n")
     else if rule == "RG1003" then
       -- A dependency in a Git repository of its own, so outside the project's work tree and
@@ -295,10 +294,9 @@ private def produce (ctx : Context) (slot : Slot.ProducerSlot) (rule phase : Str
       let initialized ← Regula.Checker.runProcess vendor "git" #["init", "-q"]
       requireChecks [⟨s!"RG1003 dependency repository: {initialized.stderr}",
           initialized.exitCode == 0⟩]
-      IO.FS.writeBinFile (vendor / "Dependency.lean")
-          (← IO.FS.readBinFile (folder / s!"{case}.lean"))
-      IO.FS.writeBinFile (vendor / "lean-toolchain") (← IO.FS.readBinFile (root / "lean-toolchain"))
-      IO.FS.writeFile
+      Regula.Filesystem.copyFile (folder / s!"{case}.lean") (vendor / "Dependency.lean")
+      Regula.Filesystem.copyFile (root / "lean-toolchain") (vendor / "lean-toolchain")
+      Regula.Filesystem.writeFile
           (vendor / "lakefile.toml")
               "name = \"example_dependency\"\n[[lean_lib]]\nname = \"Dependency\"\n"
       let config := project / "lakefile.lean"
@@ -647,11 +645,11 @@ def check (evidence : FilePath) (selection : Option (Array String))
       match rule, phase with
         | "RG1005", "WrongClaim" =>
           produce ctx slot rule phase
-            (some (← IO.FS.readFile (root / "examples/rules/RG1005/Violation.lean")))
+            (some (← Regula.Filesystem.readFile (root / "examples/rules/RG1005/Violation.lean")))
             (some "standard-logical")
         | "RG4004", "TrustedControl" =>
           produce ctx slot rule phase (some ("<!-- lean-trusted-compiler -->\n```lean\n" ++
-            (← IO.FS.readFile (root / "examples/rules/RG1004/Violation.lean")) ++ "```\n"))
+            (← Regula.Filesystem.readFile (root / "examples/rules/RG1004/Violation.lean")) ++ "```\n"))
         | "RG4004", "NegativeControl" =>
           produce ctx slot rule phase
             (some "<!-- lean-fail: Unknown identifier -->\n```lean\n#check missingExample\n```\n")

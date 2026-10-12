@@ -87,113 +87,28 @@ def contained (root path : FilePath) : IO Bool := do
       resolved.toString.startsWith (base.toString ++ "/")
   catch _ => return false
 
-/-- Copy one file as an independent real byte copy (never a hardlink). -/
-def copyFile (source target : FilePath) : IO Unit := do
-  if let some parent := target.parent then IO.FS.createDirAll parent
-  IO.FS.writeBinFile target (← IO.FS.readBinFile source)
+/-- Copy one source file through the shared no-follow/exclusive constructor. -/
+def copyFile (source target : FilePath) : IO Unit :=
+  Regula.Filesystem.copyFile source target
 
-/-- Metadata-preserving subtree copy through the system `cp` (argv only; no
-shell interpolation of paths): `-R` recursive and `-p` permission/time
-preservation on POSIX/Linux. Clone/CoW (`-c`) is optional and attempted first;
-the real-copy `-p` path is the mandatory fallback (Linux CI has no clonefile).
-Failures throw (fail closed). Only used after the guarded enumeration proves
-the subtree has no excluded roots and no symlinks. -/
-def copySubtreeSystem (source target : FilePath) : IO Unit := do
-  let cloned ← run source "cp" #["-R", "-c", "-p", ".", target.toString]
-  if cloned.exitCode == 0 then return
-  let copied ← run source "cp" #["-R", "-p", ".", target.toString]
-  unless copied.exitCode == 0 do
-    throw <| IO.userError s!"slot subtree copy failed: {source} -> {target}\n{copied.stderr}"
-
-private def isDirSafe (path : FilePath) : IO Bool := do
-  try
-    path.isDir
-  catch _ => return false
-
-/-- Fail-closed resolution helper: `none` marks an unresolvable path (classified
-for the materializing fallback and refused at copy). -/
-private def resolveSafe (path : FilePath) : IO (Option FilePath) := do
-  try
-    pure (some (← IO.FS.realPath path))
-  catch _ => return none
-
-/-- Directory depth bound of the slot walks (`scanTree`, `sharedWalk`), which makes them
-total. A walk that reaches it fails closed. Under the trusted OS path limit (`PATH_MAX`:
-4096 bytes on Linux, 1024 on macOS) a descent through real directories cannot reach it,
-since each level adds at least two bytes, a separator and a name. Only `scanTree`, which
-follows symlinks, can reach it, through a chain of more than 4096 distinct directories. -/
-def maxWalkDepth : Nat := 4096
-
-/-- Explicit scan-boundary traversal. Each directory scan carries the resolved
-locations of its descent chain; a directory whose resolved location is already
-on the chain is a cycle and is refused **at the scan boundary** (its entry is
-still enumerated by its parent). Scans and recursion happen **at resolved
-paths**: alias entries are pushed by their parent exactly as the legacy walk
-did, but never produce alias-form children; where an alias re-scans a real
-subtree, duplicate pushes may remain — the preserved claim is the **unique
-legacy path-set** on finite acyclic inputs (not exactly-once). Unresolvable
-entries are classified for the materializing fallback and fail closed at
-copy. The walk terminates on its chain length, bounded by `maxWalkDepth`; a
-deeper chain fails closed. -/
-def scanTree (root : FilePath) (dir : FilePath) (chain : Array String) :
-    IO (Array (FilePath × String × Bool)) := do
-  let resolved ← IO.FS.realPath dir
-  if chain.contains resolved.toString then
-    return #[]
-  if _h : chain.size < maxWalkDepth then
-    let chain := chain.push resolved.toString
-    let mut entries := #[]
-    for d in (← resolved.readDir) do
-      let isDir ← isDirSafe d.path
-      entries := entries.push (d.path, (relativeOf root d.path).toString, isDir)
-      if isDir then
-        match ← resolveSafe d.path with
-        | some target => entries := entries ++ (← scanTree root target chain)
-        | none => pure ()
-    return entries
-  else
-    throw <| IO.userError s!"slot copy walk exceeds {maxWalkDepth} directory levels: {resolved}"
-termination_by maxWalkDepth - chain.size
-decreasing_by simp; omega
-
-/-- Recursively copy `source` into `target`. The guarded enumeration is the
-explicit scan-boundary traversal (`scanTree`) with unchanged semantics: the
-exact copy set with exclusion skipping, fail-closed unresolved containment,
-and symlink classification covering directories and files alike (any entry
-whose resolved location differs from its walked path — including symlinked and
-empty/directories-only subtrees — forces the materializing per-file fallback,
-so `cp` never copies a link). When the tree is guarded-clean, one
-metadata-preserving system `cp` performs the copy (`copySubtreeSystem`);
-otherwise the per-file real byte copy fallback runs with identical
-exclusion/containment semantics. Returns the relative file paths copied, in
-scan order. -/
+/-- Recursively copy a subtree through the shared constructor. No source link or special entry
+is followed or retained, including Git metadata and build-state subtrees. The slot's source and
+destination have no concurrent writer. Copied executable programs are granted 0755 only at the
+places that execute them; all other regular files use 0644. -/
 def copyTree (source target : FilePath) : IO (Array String) := do
-  let sourceRoot ← IO.FS.realPath source
-  IO.FS.createDirAll target
-  let mut copied : Array String := #[]
-  let mut files : Array (FilePath × String) := #[]
-  let mut guarded := true
-  for (path, relative, isDirectory) in (← scanTree sourceRoot sourceRoot #[]) do
-    if excluded relative then
-      guarded := false
-      continue
-    unless (← contained sourceRoot path) do
-      throw <| IO.userError s!"slot copy walk crossed owned root: {path}"
-    let resolved ← resolveSafe path
-    match resolved with
-    | some value => if value.toString != path.toString then guarded := false
-    | none => guarded := false
-    if isDirectory then
-      IO.FS.createDirAll (target / relative)
-    else
-      files := files.push (path, relative)
-      copied := copied.push relative
-  if guarded then
-    copySubtreeSystem source target
-  else
-    for (path, relative) in files do
-      copyFile path (target / relative)
-  return copied
+  let root ← IO.FS.realPath source
+  let base := root.components.length
+  let selected := fun (path : FilePath) =>
+    !excluded ("/".intercalate (path.components.drop base))
+  let some parent := target.parent | throw <| IO.userError "slot copy target has no parent"
+  Regula.Filesystem.Construction.ensureDirectory 4096 parent
+  let items ← Regula.Filesystem.copy root target selected
+  return (items.filterMap fun item => match item.payload with
+    | .directory => none
+    | .file .. => some ("/".intercalate item.relative)).toArray
+
+/-- Directory-depth bound for observation-only walks. Exhaustion fails closed. -/
+def maxWalkDepth : Nat := 4096
 
 /-- Materialize one Git metadata tree into `target` so that `git` operating on
 the copy is self-contained: pointer-file gitdirs, `commondir`,
@@ -392,32 +307,45 @@ def prepareSlot (originalRoot : FilePath) (slot : ProducerSlot)
     (deps : Array Regula.Checker.Snapshot.DependencyObservation) :
     IO SlotProvenance := do
   let copy := slot.root / "root"
-  IO.FS.createDirAll copy
   let mut provenance : Array FileProvenance := #[]
+  let mut instructions := []
   for (path, bytes) in rootSources ++ rootConfigs do
-    let relative := (relativeOf originalRoot path).toString
-    copyFile path (copy / relative)
-    compareBytes (copy / relative) bytes
+    let relative := (relativeOf originalRoot path).components
+    let captured ← Regula.Filesystem.Construction.capture path relative
+    let [⟨_, .file actual _⟩] := captured
+      | throw <| IO.userError s!"slot input is not a regular file: {path}"
+    unless actual == bytes do throw <| IO.userError s!"slot input changed before construction: {path}"
+    instructions := instructions ++ captured
+    let relative := "/".intercalate relative
     provenance := provenance.push ⟨s!"root/{relative}", "source", "byte-identical"⟩
-  -- Truthful relocation of the copied ROOT manifest to the captured shared
-  -- dependency roots (canonical paths from the frozen Lake discovery).
-  let manifestPath := copy / "lake-manifest.json"
-  if (← manifestPath.pathExists) then
-    let manifest ← readJson manifestPath
-    let packages ← IO.ofExcept (manifest.getObjValAs? (Array Json) "packages")
-    let relocated ← packages.mapM fun entry => do
-      match entry.getObjVal? "name" with
-      | .error _ => pure entry
-      | .ok _ =>
-        let name ← IO.ofExcept (entry.getObjValAs? String "name")
-        let some dep := deps.find? (·.package == name)
-          | throw <| IO.userError s!"slot manifest package without captured dependency: {name}"
-        pure ((entry.setObjVal! "dir" (.str dep.root.toString)).setObjVal! "copy" (.bool false))
-    IO.FS.writeFile manifestPath
-      ((manifest.setObjVal! "packages" (toJson relocated)).compress ++ "\n")
-    provenance := provenance.push ⟨"root/lake-manifest.json", "config", "relocated"⟩
+  Regula.Filesystem.construct copy (Regula.Filesystem.Construction.layout instructions)
+  -- Relocate every captured dependency as a typed path entry, so ordinary loads of the slot
+  -- never materialize a Git clone at a packages directory inside the slot.
+  let relocatedManifest ← Regula.Checker.Workspace.withRootWorkspace originalRoot fun ws => do
+    let relative := ws.manifestFile.normalize.components.drop originalRoot.normalize.components.length
+    let manifestPath := Regula.Filesystem.Construction.location copy relative
+    let manifest ← _root_.Lake.Manifest.load manifestPath
+    let relocated ← manifest.packages.mapM fun entry => do
+      let some dep := deps.find? (·.package == entry.name.toString)
+        | throw <| IO.userError s!"slot manifest package without captured dependency: {entry.name}"
+      pure {entry with src := .path dep.root}
+    -- This is an explicit relocation of a file the constructor placed, in a private plain tree.
+    _root_.Lake.Manifest.save {manifest with packages := relocated} manifestPath
+    return "/".intercalate relative
+  provenance := provenance.push ⟨s!"root/{relocatedManifest}", "config", "relocated"⟩
   if (← (originalRoot / ".lake/build").pathExists) then
     let _ ← copyTree (originalRoot / ".lake/build") (copy / ".lake/build")
+    -- Slot producers run the copied axiomGate/ruleExamples dispatchers by path, and Lake can
+    -- invoke any declared executable. Grant 0755 precisely to the root's Lake-declared binaries.
+    Regula.Checker.Workspace.withRootWorkspace originalRoot fun ws => do
+      for executable in ws.root.leanExes do
+        -- Lake v4.34.1 Config/LeanExe.lean:68-73 supplies the executable's exact output path.
+        let relative := executable.file.normalize.components.drop originalRoot.normalize.components.length
+        let path := Regula.Filesystem.Construction.location copy relative
+        match ← Regula.Filesystem.Construction.kindWith Regula.Filesystem.Construction.observer path with
+        | some .file => Regula.Filesystem.makeExecutable path
+        | none => pure ()
+        | _ => throw <| IO.userError s!"slot executable is not regular: {path}"
     provenance := provenance.push ⟨"root/.lake/build", "build", "copy"⟩
   if (← (originalRoot / ".git").pathExists) then
     materializeGit (copy / ".git") (originalRoot / ".git")
@@ -458,32 +386,31 @@ manifest `dir` is a captured shared dependency root, and no `.lake/packages` sym
 created. -/
 def prepareSlotProject (slot : ProducerSlot) (project : FilePath)
     (packageName claim rationale : String) : IO Unit := do
-  IO.FS.writeBinFile (project / "lean-toolchain")
-    (← IO.FS.readBinFile (slot.root / "root" / "lean-toolchain"))
-  IO.FS.writeFile (project / "lakefile.lean")
+  let toolchain ← Regula.Filesystem.Construction.capture
+    (slot.root / "root" / "lean-toolchain") ["lean-toolchain"]
+  Regula.Filesystem.construct project (Regula.Filesystem.Construction.layout toolchain)
+  Regula.Filesystem.writeFile (project / "lakefile.lean")
     s!"import Lake\nopen Lake DSL\npackage {packageName} where\n  leanOptions := #[⟨`autoImplicit, \
       false⟩, ⟨`relaxedAutoImplicit, false⟩, ⟨`linter.missingDocs, true⟩]\nrequire regula \
       from {toJson (slot.root / "root").toString |>.compress}\n@[default_target] lean_lib Example\n"
-  writeJson (project / "foundation_manifest.json") (Json.mkObj [
+  Regula.Filesystem.writeJson (project / "foundation_manifest.json") (Json.mkObj [
     ("schema-version", toJson (2 : Nat)), ("surfaces", toJson #[Json.mkObj [
       ("library", .str "Example"), ("claim", .str claim), ("execution", .str "checked"),
       ("rationale", .str rationale)]]),
     ("excluded-libraries", toJson (#[] : Array Json)),
     ("excluded-executables", toJson (#[] : Array Json))])
-  let manifest ← readJson (slot.root / "root" / "lake-manifest.json")
-  let packages ← IO.ofExcept (manifest.getObjValAs? (Array Json) "packages")
-  -- Genuine path-class entries: `regula` at the slot-private ROOT copy, and
-  -- each inherited entry at the captured shared dependency root. Explicit copy=false
-  -- retains in-place materialization on Lake versions with copied path dependencies;
-  -- older Lake ignores that field. Git pin fields remain inert provenance.
-  let packages := packages.map (fun entry =>
-    let entry := (entry.setObjVal! "inherited" (.bool true)).setObjVal! "type" (.str "path")
-    entry.setObjVal! "copy" (.bool false)) |>.push
-        (Json.mkObj [
-    ("name", .str "regula"), ("scope", .str ""), ("type", .str "path"),
-    ("dir", .str (slot.root / "root").toString), ("configFile", .str "lakefile.lean"),
-    ("manifestFile", .str "lake-manifest.json"), ("inherited", .bool false)])
-  writeJson (project / "lake-manifest.json") (manifest.setObjVal! "packages" (toJson packages))
-  IO.FS.createDirAll (project / ".lake")
+  -- These producer templates require Regula at its prepared ROOT slot. Its default manifest
+  -- was relocated before the frozen producer window. Decode those captured bytes with Lake;
+  -- loading the shared ROOT here would create config/0 during that no-writer window.
+  let manifest ← IO.ofExcept <| _root_.Lake.Manifest.parse
+    (← Regula.Filesystem.readFile (slot.root / "root/lake-manifest.json"))
+  let packages ← manifest.packages.mapM fun entry => do
+    unless entry.src matches .path _ do
+      throw <| IO.userError s!"slot dependency was not prepared as a path: {entry.name}"
+    pure {entry with inherited := true}
+  let rootEntry : _root_.Lake.PackageEntry :=
+    {name := `regula, inherited := false, src := .path (slot.root / "root")}
+  Regula.Filesystem.writeFile (project / "lake-manifest.json")
+    ((toJson {manifest with name := packageName.toName, packages := packages.push rootEntry}).pretty ++ "\n")
 
 end Regula.Qualification.Slot

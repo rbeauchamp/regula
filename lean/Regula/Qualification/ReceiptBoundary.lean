@@ -28,10 +28,8 @@ def check : IO Unit := do
         if fault == "unusable" then
           IO.FS.writeFile (bin / "gtimeout") "not an executable\n"
         if fault == "spawn" then
-          IO.FS.writeBinFile (bin / "gtimeout") (← IO.FS.readBinFile executable)
-          let mode ← IO.Process.output
-              {cmd := "/bin/chmod", args := #["+x", (bin / "gtimeout").toString]}
-          requireChecks [⟨"executable fixture", mode.exitCode == 0⟩]
+          -- This native timeout stand-in is executed by path in the process-boundary control.
+          Regula.Filesystem.copyFile executable (bin / "gtimeout") 493
         writeJson evidence
             (Json.mkObj [("status", toJson "completed"), ("attemptId", toJson "old")])
         let result ← IO.Process.output {

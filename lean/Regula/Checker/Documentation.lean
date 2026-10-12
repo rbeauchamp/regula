@@ -479,19 +479,6 @@ private def relativeDisplay (root path : FilePath) : String :=
     "/".intercalate (pathComponents.drop rootComponents.length)
   else path.toString
 
-/-- Preserve the documentation discovery domain independently of the project
-copy's build/cache exclusions. Only Markdown is consumed by the fence scanner,
-and every such file is copied verbatim, including cache-named subdirectories. -/
-def snapshotMarkdown (source target : FilePath) : IO Unit := do
-  if !(← source.isDir) then return
-  let rootComponents := source.normalize.components
-  for path in ← source.walkDir do
-    if path.extension != some "md" then continue
-    let relative := path.normalize.components.drop rootComponents.length
-    let destination := relative.foldl (fun base part => base / part) target
-    if let some parent := destination.parent then IO.FS.createDirAll parent
-    IO.FS.writeFile destination (← IO.FS.readFile path)
-
 /-- Reads every `.md` file below `root`, recursively, in path order; fails when `root` is not a
 directory. -/
 def captureMarkdown (root : FilePath) : IO (Array RegulaPolicy.SourceSnapshot) := do
