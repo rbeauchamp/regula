@@ -365,7 +365,9 @@ def guide : RuleId → Guide
           pinned Lean 4.34.1 records no axiom for `Float`, whose constructor's type reaches \
           `propext` and `Quot.sound`. `#print axioms` can then show a smaller set, and a lower \
           label, than the checker, and the audit reports the omission (RG2005). The editor, which \
-          has no replayed kernel, reads that table."]
+          has no replayed kernel, searches the constants its environment holds, and reads that \
+          table only for a theorem or an unexposed definition that a `module` dependency exports \
+          without its body."]
       residuals := [.qualify]
       checklist := ["FOUND-03", "FOUND-04", "BUILD-02", "THEOREM-01", "THEOREM-10", "BUILD-01"]
       linkage := declarationLinkage
