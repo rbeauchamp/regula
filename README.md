@@ -112,7 +112,7 @@ Regula adds no Mathlib dependency. Only the separate [Mathlib integration check]
 
 ## License
 
-The parts of `lean/Regula/Checker/PolicyCodec.lean` adapted from the JSON parser and printer of Lean 4 keep their upstream Apache 2.0 notices ([license text](LICENSES/Apache-2.0.txt), [design influences](docs/guides/design-influences.md#adapted-code-and-licenses)). All other code uses [MIT](LICENSE).
+The adapted container recursion of Lean's JSON parser in `lean/Regula/Checker/PolicyCodec.lean` keeps its upstream Apache 2.0 notice ([license text](LICENSES/Apache-2.0.txt), [design influences](docs/guides/design-influences.md#adapted-code-and-licenses)). All other code uses [MIT](LICENSE).
 
 Regula is not affiliated with the Lean FRO or Mathlib.
 
