@@ -4348,11 +4348,12 @@ The `qualify` campaigns and what they observe:
 
 - `registry`: six malformed invocations invalidate stale output; the validators accept real
   exports and refuse each removed field, the previous schema and a missing page.
-- `native`: 51 compiler controls for identity, multiplicity, severity and warning promotion,
+- `native`: 52 compiler controls for identity, multiplicity, severity and warning promotion,
   ranges, current and imported ownership, private and generated coverage and both documentation
   formats. Each control is its own compiler process with its own source path, run four at a time
   in dependency order: imported-artifact controls after the artifacts they import, restored
-  controls after every malformed one.
+  controls after every malformed one. With the compile of the forged prelude, that is 53 compiler
+  launches.
 - `native-launcher`: one paired baseline/cached-environment observation for each compiler launch of
   `native`, each control and the compile of the forged prelude, with exact equality.
 - `producers`: for the incremental and build-lint entrypoints and each of [RG5001]/[RG5002], one

@@ -438,7 +438,9 @@ def checkAll : IO Unit := do
     discard <| checkAt root scratch (← Launcher.create)
 
 /-- Paired baseline-first diagnostic with the same scratch path, source, argv, observed
-outputs, environment and executable. Measurements describe only these actual runs. -/
+outputs, environment and executable. Measurements describe only these actual runs. Each run's
+`controls` and `controlMillis` entries are its compiler launches, the compile of the forged prelude
+included. -/
 def paired : IO Unit := do
   let root ← rootDirectory
   let output := root / "tmp/native-launcher-diagnostic.json"
@@ -456,7 +458,7 @@ def paired : IO Unit := do
         IO.FS.createDir controls
         let launcher ← Launcher.create legacy
         let start ← IO.monoMsNow
-        -- One control at a time keeps both runs' record order identical for the comparison.
+        -- One launch at a time keeps both runs' record order identical for the comparison.
         let count ←
           try checkAt root controls launcher (jobs := 1) finally IO.FS.removeDirAll controls
         counts := counts.push count

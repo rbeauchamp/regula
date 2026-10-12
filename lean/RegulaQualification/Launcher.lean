@@ -45,9 +45,10 @@ theorem admit_complete (raw : String) (env : Environment) (h : decode raw = .ok 
     else Except.error "invalid or incomplete environment capture") = _
   simp [valid]
 
-/-- Full in-memory identity of one real compiler control, excluding measured duration. -/
+/-- Full in-memory identity of one real compiler launch, excluding measured duration: a control, or
+the compile of the forged `Init/Prelude.lean`. -/
 structure Observation where
-  /-- The control's name: the stem of the compiled source file's path. -/
+  /-- The launch's name: the stem of the compiled source file's path. -/
   label : String
   /-- The compiler's arguments, the source path last. -/
   args : Array String
@@ -59,7 +60,8 @@ structure Observation where
   stdout : String
   /-- The compiler's standard error. -/
   stderr : String
-  /-- The captured environment, which the direct launch uses. -/
+  /-- The captured environment, which a direct launch uses; with `first`, that environment with
+  `first` ahead of its `LEAN_PATH`. -/
   environment : Environment
   /-- The resolved path of the `lean` executable, which the direct launch uses. -/
   executable : String
