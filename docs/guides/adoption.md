@@ -608,8 +608,10 @@ the text in each of those members and in every source location (as `source`, `co
 
 `scope` holds the audit's account. Each environment report in it (`scope.surfaces[*].report`,
 each `executables[*].report`, and `scope.report` for a file audit) lists its `declarations`, each
-with `prettyType`, its type as Lean prints it, and its `execution`, the account of what each
-executable root reaches. A declaration also has `type`, the `repr` of its kernel type
+with `prettyType`, its type as Lean prints it, its `execution`, the account of what each
+executable root reaches, and its `imported`, a record of each native-proof axiom of a module it
+does not inspect that its declarations rest on, with the declaration of that module the axiom's
+name is generated under. A declaration also has `type`, the `repr` of its kernel type
 expression, only when the audit is run with `axiomGate`'s `--kernel-types` option (`lake exe
 axiomGate -- --json-out PATH --kernel-types`), which `lake lint` does not take; earlier schemas
 always wrote it. `execution` stores what the environment's roots reach once, and each root as a

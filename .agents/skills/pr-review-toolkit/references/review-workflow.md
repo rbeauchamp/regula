@@ -73,7 +73,8 @@ Keep prose, definitions, and checker policy aligned where they encode the same c
 Preserve module 7's assurance boundary: a recursion helper is admitted only when Lean's own
 recursion compiler regenerates its base from it, up to compilation erasure, whatever evaluator
 produced it, a native-proof axiom
-rests on its natively replayed statement and command provenance instead, and arbitrary process
+rests on its natively replayed statement and, for one of an audited module, command provenance
+instead, and arbitrary process
 or trusted-plugin compromise is outside scope. Module 7 §7.5 also puts code that deliberately
 changes Lean's environment, compiler or build to make a check pass outside scope. An example is the
 attribute `@[cpass]` of a user compiler pass, which no rule or section checks. Where the

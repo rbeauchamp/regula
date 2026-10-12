@@ -126,7 +126,8 @@
 - Respect the assurance boundary stated in standard module 7: a recursion helper is admitted only
   when Lean's own recursion compiler regenerates its base from it, up to compilation erasure,
   whatever evaluator produced it, a
-  native-proof axiom rests on its natively replayed statement and command provenance instead, and a
+  native-proof axiom rests on its natively replayed statement and, for one of an audited module,
+  command provenance instead, and a
   modified Lean executable, compromised process, and arbitrary trusted plugins are outside this
   Lean-source standard. Do not recursively expand reviews into
   stronger threat models after the documented boundary has direct positive and negative evidence.
