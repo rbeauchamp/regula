@@ -1,6 +1,7 @@
 import Regula.Checker.Documentation
 import Regula.Checker.Lake
 import Regula.Checker.AcceptanceLink
+import Regula.Checker.LintBuild
 import RegulaCore.Prose
 
 /-! # Documentation fence audit executable
@@ -32,10 +33,10 @@ structure Options where
   configuration and a `lean-toolchain`, instead of the current one. -/
   project : Option FilePath := none
   /-- `--acceptance-link PATH`: the acceptance link that ordinary acceptance recorded; the
-  audit refuses unless its own inputs have the identity recorded there. When the link also records
-  the build that step left in this project's `.lake/build`, the audit places that build output in
-  its copy before its own build, only as `BuildReuse.reuse` decides (`AcceptanceLink.placeRetained`).
-  -/
+  audit refuses, after every other check, unless its own inputs have the identity recorded there.
+  When the link also records the build that step left in this project's `.lake/build`, the audit
+  places the part of that build output that its claimed build compiles in its copy before its own
+  build, only as `BuildReuse.reuse` decides (`AcceptanceLink.placeRetained`). -/
   acceptanceLink : Option FilePath := none
   /-- `--verso DIR:LIBRARY:RENDER`: the Verso library whose `lean` blocks are also audited,
   and which is then built in its copy in this run, rendered and checked for the anchors and rows
@@ -177,16 +178,39 @@ private def renderVerso (repo copy scratch : FilePath) (verso : VersoPackage)
       "\n".intercalate bare)
   return none
 
+/-- The module path (`AcceptanceLink.modulePath`) of each root-package module that the claimed
+build of `copy` compiles: the modules of the claimed targets of `manifest`, as `inventory` names
+them, and the modules they import transitively, as Lake's `transImports` facet reports them in the
+workspace of `copy` (`Lake.moduleImports`, which builds nothing). `none` when Lake reports none. A
+claimed target that `inventory` does not name adds no module, so its modules are compiled in the
+copy. -/
+private def claimedClosure (copy : FilePath) (inventory : Lake.SurfaceInventory)
+    (manifest : Manifest) : IO (Option (List String)) := do
+  let roots := (Lake.claimedTargets manifest).toList.flatMap fun
+    | .library spelling =>
+        ((inventory.libraries.find? (·.library == spelling)).map (·.modules.toList)).getD []
+    | .executable spelling =>
+        ((inventory.executables.find? (·.executable == spelling)).map ([·.root])).getD []
+    | .moduleArtifacts name => [name]
+  let some imports ← Workspace.withRootWorkspace copy fun ws =>
+      Lake.moduleImports ws roots.toArray
+    | return none
+  let package := inventory.moduleSources.map (·.1)
+  let closure := (roots ++ imports.toList.flatMap (·.2.toList)).filter package.contains
+  return some (closure.map AcceptanceLink.modulePath).eraseDups
+
 /-- Run one documentation fence audit and return its exit code. In an isolated copy of the
 project, which holds no build output, it builds the claimed surfaces; with `--verso` it then builds
 the Verso library there, whose workspace every fence then elaborates in; it compiles every Lean
 fence below the documentation root and, with `--verso`, every `lean` block of the library, then renders the
-library and checks its anchors, checklist rows and rule-ID links. With `--acceptance-link`, it first
-requires the inputs to equal the accepted ones, and it places the first acceptance step's build
-output in the copy before its build when `BuildReuse.reuse` accepts the link's record of it. Each
-compiled artifact of the root package that the fences read was then compiled, in a copy that held no
-earlier build output, from files equal to those of this copy: in this run, or by that step
-(`BuildReuse.reuse_iff`). Its output says which. -/
+library and checks its anchors, checklist rows and rule-ID links. With `--acceptance-link`, it
+places the first acceptance step's build output of the modules its claimed build compiles
+(`claimedClosure`) in the copy before its build when `BuildReuse.reuse` accepts the link's record of
+it, and after every other check it requires the inputs to equal the accepted ones
+(`AcceptanceLink.require`): a missing link, or one that is not accepted, still gives the fresh build
+and every check, and then the refusal. Each compiled artifact of the root package that the fences
+read was compiled, in a copy that held no earlier build output, from files equal to those of this
+copy: in this run, or by that step (`BuildReuse.reuse_iff`). Its output says which. -/
 unsafe def run (args : List String) : IO UInt32 := do
   let options ← parseArgs args {}
   if options.help then IO.println usage; return 0
@@ -211,22 +235,28 @@ unsafe def run (args : List String) : IO UInt32 := do
       let manifest ← Manifest.loadFor manifestPath inventory
       let sources ← SourceBinding.capture inventory.moduleSources
       let dependencies ← Snapshot.dependencies inventory
-      -- A linked run audits only the inputs ordinary acceptance already accepted. It places that
-      -- step's build output in its copy only when `BuildReuse.reuse` accepts the link's record of
-      -- it; otherwise the copy keeps no build output (`AcceptanceLink.placeRetained`).
-      let placed ← match options.acceptanceLink.map (resolve repo) with
+      -- A linked run audits only the inputs ordinary acceptance already accepted, which
+      -- `AcceptanceLink.require` checks after every other check, so a run without a link still
+      -- builds fresh. It places that step's build output of the modules its claimed build
+      -- compiles in its copy only when `BuildReuse.reuse` accepts the link's record of it;
+      -- otherwise the copy keeps no build output (`AcceptanceLink.placeRetained`).
+      let linkPath := options.acceptanceLink.map (resolve repo)
+      let digest ← match linkPath with
+        | none => pure ""
+        | some _ =>
+          AcceptanceLink.identity scratch copy docsRoot sources configuration dependencies linked
+      let placed ← match linkPath with
         | none => pure (.error "no acceptance link was given")
         | some link => do
-          let digest ← AcceptanceLink.identity scratch copy docsRoot sources configuration
-              dependencies linked
-          AcceptanceLink.require link digest
-          IO.println
-              s!"acceptance link: documentation inputs equal the accepted ordinary inputs ({digest})"
           let targets := (Lake.claimedTargets manifest).toList.map fun
             | .library spelling | .executable spelling => spelling
             | .moduleArtifacts name => s!"+{name}"
-          timedPhase "retained build placement" <|
-            AcceptanceLink.placeRetained repo copy scratch link digest targets
+          let modules := inventory.moduleSources.toList.map (AcceptanceLink.modulePath ·.1)
+          match ← timedPhase "claimed module closure" (claimedClosure copy inventory manifest) with
+          | none => pure (.error "Lake did not report the imports of the claimed modules")
+          | some closure =>
+            timedPhase "retained build placement" <|
+              AcceptanceLink.placeRetained repo copy scratch link digest targets modules closure
       SourceBinding.withUnchanged sources configuration do
         SourceBinding.configurationUnchanged configuration
         let (buildProcess, buildResult) ← Lake.buildCheckedObservation copy
@@ -238,9 +268,10 @@ unsafe def run (args : List String) : IO UInt32 := do
           return 1
         IO.println <| match placed with
           | .ok count => s!"claimed surface built from the first acceptance step's fresh build: \
-              {count} files of it placed in this copy, each with the SHA-256 the acceptance link \
-              records, every file of this copy outside .lake equal to that step's copy; Lake \
-              compiled here what its traces required, warning-free"
+              {count} files of it, those of the modules the claimed build compiles, placed in \
+              this copy, each with the SHA-256 the acceptance link records, every file of this \
+              copy outside .lake equal to that step's copy; Lake compiled here what its traces \
+              required, warning-free"
           | .error reason => s!"claimed surface built fresh in this run, in a copy with no \
               earlier build output ({reason})"
         -- With a Verso package, every example elaborates in its workspace, which requires the
@@ -260,16 +291,22 @@ unsafe def run (args : List String) : IO UInt32 := do
             dependencies documents (Acceptance.buildObservation buildProcess) options.jobs
                 options.verbose (verso := verso) (environment := environment)
         if result != 0 then return result
-        let some requested := options.verso | return result
-        if let some failure ← renderVerso repo copy scratch requested linked then
-          IO.println s!"FAIL: Verso documentation {requested.library}: {failure}"
-          return 1
-        Documentation.Sources.checkLinked ⟨docsRoot, verso⟩ repo linked
-        SourceBinding.unchanged sources
-        IO.println s!"Verso documentation {requested.library}: built in this copy in this run \
-          (every `lean` block elaborated where it is written), rendered, defines every anchor the rule registry and \
-          the documentation link, its checklist rows are exactly Regula.checklistRows, and every \
-          rule ID in the rendered prose `Regula.Prose` reads links to its rule page"
+        if let some requested := options.verso then
+          if let some failure ← renderVerso repo copy scratch requested linked then
+            IO.println s!"FAIL: Verso documentation {requested.library}: {failure}"
+            return 1
+          Documentation.Sources.checkLinked ⟨docsRoot, verso⟩ repo linked
+          SourceBinding.unchanged sources
+          IO.println s!"Verso documentation {requested.library}: built in this copy in this run \
+            (every `lean` block elaborated where it is written), rendered, defines every anchor \
+            the rule registry and the documentation link, its checklist rows are exactly \
+            Regula.checklistRows, and every rule ID in the rendered prose `Regula.Prose` reads \
+            links to its rule page"
+        -- The admission of the link, after every other check.
+        if let some link := linkPath then
+          AcceptanceLink.require link digest
+          IO.println s!"acceptance link: documentation inputs equal the accepted ordinary inputs \
+            ({digest})"
         return 0
     let outcome := outcome.bind id
     match outcome with

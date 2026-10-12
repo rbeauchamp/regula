@@ -11,9 +11,14 @@ driver then records, in the acceptance link, the targets of that build, the SHA-
 of its copy outside `.lake` (the tree) and the SHA-256 of every file below `lib` and `ir` of the
 build output it moved (the artifacts).
 
-The documentation step copies those artifacts from the checkout's `.lake/build` into a staging
-directory outside its copy, takes the SHA-256 of each staged file and of each file of its copy
-outside `.lake`, and asks `reuse`. Only when `reuse` accepts does it move the staging directory to
+The documentation step stages only the artifacts of the modules its own claimed build compiles:
+the modules of the claimed targets and those they import transitively, as Lake reports them
+(`closure`). A module that step built for another target, such as a diagnostic executable, stays
+out, so a documentation example sees exactly the modules a fresh build of the step leaves. It copies
+those artifacts from the checkout's `.lake/build` into a staging directory outside its copy,
+takes the SHA-256 of each staged file and of each file of its copy outside `.lake`, and asks
+`reuse`. A module that the later Verso build needs beyond the closure is compiled in the copy, as
+on the fresh path. Only when `reuse` accepts does it move the staging directory to
 its copy's `.lake/build`; otherwise its copy stays as it made it, with no build output, and the
 step builds as it did before this decision existed. Either way the step then runs the same build:
 Lake decides from its own traces whether to use a placed artifact or to compile the module again in
@@ -33,7 +38,11 @@ Assumes:
   path relative to the module's source, and the root package's uses name files of its tree. Trusted.
 - Both builds use the root package's own Lean options and no artifact cache: the driver's
   `lake build` with `LAKE_ARTIFACT_CACHE=false` (`RegulaVerification.start`) and the documentation
-  step's `Build.run` with no option override. -/
+  step's `Build.run` with no option override.
+- Lake writes each artifact of a module below `lib/lean` or `ir` of the build directory at the
+  module's path with an extension (Lean v4.34.1, `Lean.modToFilePath`; Lake `Module.oleanFile` and
+  the other module artifact files), and the root package's build directory holds artifacts of its
+  own modules only. Trusted. -/
 
 namespace Regula.Checker.BuildReuse
 
@@ -73,6 +82,12 @@ structure Run where
   identity : String
   /-- The targets of its claimed build: each claimed library and executable. -/
   targets : List String
+  /-- The module path (`moduleOf`) of every module of the root package: each module of its
+  libraries and each root of its executables. -/
+  modules : List String
+  /-- The module path of each root-package module of its claimed build: the modules of the claimed
+  targets and those they import transitively, as Lake reports them. -/
+  closure : List String
   /-- Every file of its copy outside `.lake`, with its digest. -/
   tree : List Digest
   /-- Every file it staged from the checkout's `.lake/build`, with the digest of the staged file. -/
@@ -85,11 +100,42 @@ documentation step stages only artifacts whose every path is so. -/
 def below (path : String) : Bool :=
   (path.splitOn "/").all fun component => component != "" && component != "." && component != ".."
 
+/-- The module path of the module a file of a build directory belongs to: for `lib/lean/D/F` or
+`ir/D/F`, where `F` holds a dot, the path `D/N` with `N` the part of `F` before its first dot;
+`none` for any other path. Lake writes each artifact of a module below `lib/lean` or `ir` at the
+module's path with an extension (`Lean.modToFilePath`), so when no component of a module name holds
+a dot (`plain`), this is the path of the module that wrote the file. -/
+def moduleOf (path : String) : Option String :=
+  let stem (rest : List String) : Option String :=
+    match rest.reverse with
+    | file :: dirs =>
+      match file.splitOn "." with
+      | name :: _ :: _ => some ("/".intercalate (dirs.reverse ++ [name]))
+      | _ => none
+    | [] => none
+  match path.splitOn "/" with
+  | "lib" :: "lean" :: rest => stem rest
+  | "ir" :: rest => stem rest
+  | _ => none
+
+/-- Whether a module path has no empty component and no component that holds a dot, so that
+`moduleOf` maps each file of its module to it and no file of another module to it. -/
+def plain (stem : String) : Bool :=
+  (stem.splitOn "/").all fun component => component != "" && (component.splitOn ".").length == 1
+
+/-- The recorded artifacts that belong to a module of `closure` (`moduleOf`): the files the
+documentation step stages. -/
+def selected (closure : List String) (artifacts : List Digest) : List Digest :=
+  artifacts.filter fun artifact => match moduleOf artifact.1 with
+    | some stem => closure.contains stem
+    | none => false
+
 /-- Reuse the first step's build exactly when the link is an accepted record of a gate that audited
 the driver's copy, over the run's own identity; it records a build whose targets include each of
-the run's; every recorded artifact path stays below `.lake/build`; the files of the two copies
-outside `.lake` are the same with the same digests; and the staged files are exactly the recorded
-artifacts with the same digests (`reuse_iff`). -/
+the run's; every recorded artifact path stays below `.lake/build`; every module path of the root
+package is `plain`; the files of the two copies outside `.lake` are the same with the same digests;
+and the staged files are exactly the recorded artifacts of the modules of the run's closure, with
+the same digests (`reuse_iff`). -/
 @[regula_decision]
 def reuse (link : Link) (run : Run) : Bool :=
   match link.build with
@@ -97,24 +143,42 @@ def reuse (link : Link) (run : Run) : Bool :=
   | some build =>
       link.accepted && link.identity == run.identity && link.origin == "driverCopy" &&
         run.targets.all build.targets.contains && build.artifacts.all (below ·.1) &&
-        build.tree.isPerm run.tree && build.artifacts.isPerm run.staged
+        run.modules.all plain && build.tree.isPerm run.tree &&
+        (selected run.closure build.artifacts).isPerm run.staged
+
+/-- The recorded artifacts that `selected` keeps are those whose `moduleOf` is a module path of the
+closure. -/
+theorem selected_eq (closure : List String) (artifacts : List Digest) :
+    selected closure artifacts =
+      artifacts.filter fun artifact =>
+        decide (∃ stem ∈ closure, moduleOf artifact.1 = some stem) := by
+  unfold selected
+  congr 1
+  funext artifact
+  cases h : moduleOf artifact.1 <;> simp
 
 /-- `reuse` accepts exactly a link that is accepted, has the run's identity and the `driverCopy`
 origin, and records a build that names each target of the run, whose artifact paths have no empty,
-`.` or `..` component, whose tree is a permutation of the run's tree and whose artifacts are a
-permutation of the staged files' digests. -/
+`.` or `..` component, whose tree is a permutation of the run's tree, and whose artifacts
+that belong to a module of the run's closure are a permutation of the staged files' digests, when
+no module path of the root package has an empty component or a component that holds a dot. -/
 theorem reuse_iff (link : Link) (run : Run) :
     reuse link run = true ↔
       link.accepted = true ∧ link.identity = run.identity ∧ link.origin = "driverCopy" ∧
         ∃ build, link.build = some build ∧ (∀ target ∈ run.targets, target ∈ build.targets) ∧
           (∀ artifact ∈ build.artifacts, ∀ component ∈ artifact.1.splitOn "/",
             component ≠ "" ∧ component ≠ "." ∧ component ≠ "..") ∧
-          build.tree.Perm run.tree ∧ build.artifacts.Perm run.staged := by
+          (∀ stem ∈ run.modules, ∀ component ∈ stem.splitOn "/",
+            component ≠ "" ∧ (component.splitOn ".").length = 1) ∧
+          build.tree.Perm run.tree ∧
+          (build.artifacts.filter fun artifact =>
+            decide (∃ stem ∈ run.closure, moduleOf artifact.1 = some stem)).Perm run.staged := by
   obtain ⟨accepted, identity, origin, build⟩ := link
   cases build with
   | none => simp [reuse]
   | some build =>
-    simp [reuse, below, List.isPerm_iff, List.all_eq_true, Bool.and_eq_true, and_assoc]
+    simp only [reuse, ← selected_eq]
+    simp [below, plain, List.isPerm_iff, List.all_eq_true, Bool.and_eq_true, and_assoc]
 
 /-- `reuse` accepts exactly the links that `reuse_iff` states: it accepts a link that records an
 empty build of the run's identity, and refuses one that records no build. -/
@@ -127,10 +191,15 @@ theorem checked_reuse : Regula.ExecutableContract reuse (fun decide =>
             (∀ target ∈ input.2.targets, target ∈ build.targets) ∧
             (∀ artifact ∈ build.artifacts, ∀ component ∈ artifact.1.splitOn "/",
               component ≠ "" ∧ component ≠ "." ∧ component ≠ "..") ∧
-            build.tree.Perm input.2.tree ∧ build.artifacts.Perm input.2.staged)
+            (∀ stem ∈ input.2.modules, ∀ component ∈ stem.splitOn "/",
+              component ≠ "" ∧ (component.splitOn ".").length = 1) ∧
+            build.tree.Perm input.2.tree ∧
+            (build.artifacts.filter fun artifact =>
+              Decidable.decide (∃ stem ∈ input.2.closure, moduleOf artifact.1 = some stem)).Perm
+                input.2.staged)
       (Function.uncurry decide)) :=
   ⟨.of_iff (fun input => reuse_iff input.1 input.2)
-    ⟨(⟨true, "", "driverCopy", some ⟨[], [], []⟩⟩, ⟨"", [], [], []⟩), by decide⟩
-    ⟨(⟨true, "", "driverCopy", none⟩, ⟨"", [], [], []⟩), by decide⟩⟩
+    ⟨(⟨true, "", "driverCopy", some ⟨[], [], []⟩⟩, ⟨"", [], [], [], [], []⟩), by decide⟩
+    ⟨(⟨true, "", "driverCopy", none⟩, ⟨"", [], [], [], [], []⟩), by decide⟩⟩
 
 end Regula.Checker.BuildReuse

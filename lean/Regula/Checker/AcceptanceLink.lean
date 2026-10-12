@@ -19,8 +19,9 @@ establishes identical captured inputs, not authenticity of the tool or the files
 The verification driver adds a `build` field to the record of its own gate before it promotes it,
 when the first step gave its build output to a checkout that had none: the targets of its build,
 the digests of every file of its copy and of the build output it moved
-(`RegulaVerification.Copy.recordBuild`). The documentation step places that build output in its
-copy only as `BuildReuse.reuse` decides (`placeRetained`). -/
+(`RegulaVerification.Copy.recordBuild`). The documentation step places the part of that build
+output that its claimed build compiles in its copy only as `BuildReuse.reuse` decides
+(`placeRetained`). -/
 namespace Regula.Checker.AcceptanceLink
 open Lean System
 
@@ -120,14 +121,17 @@ def hexDigest (text : String) : Bool :=
   text.length == 64 && text.all fun c => c.isDigit || ('a' ≤ c && c ≤ 'f')
 
 /-- The SHA-256 of each of `paths`, each relative to `dir` and written with `/`, by the external
-`shasum -a 256` run in `dir` on at most 200 paths at a time. For each file it prints the digest, two
-spaces and the path it was given; any other line in a path's place fails, so a path that `shasum`
-would escape fails. The verification driver writes this a second time
+`shasum -a 256` run in `dir` on at most 200 paths at a time. Each path is given as `./` and the
+path, since `shasum` reads standard input for the operand `-`, and a path below `dir` stays the same
+file with that prefix. For each file `shasum` prints the digest, two spaces and the operand; any other
+line in a path's place fails, so a path that `shasum` would escape fails. The record keeps the path
+without the prefix. The verification driver writes this a second time
 (`RegulaVerification.digests`), since it imports only the toolchain.
 
 Assumes: `shasum -a 256` (the Perl `Digest::SHA` script on macOS and Linux) prints, in text mode,
 one line per file, in the order of its arguments: the lowercase digest, two spaces and the name as
-given, with a leading backslash when the name holds a backslash or a newline. Trusted. -/
+given, with a leading backslash when the name holds a backslash or a newline, and that it reads
+standard input only for an operand that is `-` exactly. Trusted. -/
 def digests (dir : FilePath) (paths : List String) : IO (List BuildReuse.Digest) := do
   let batches := paths.foldl (fun (batches : Array (Array String)) path =>
     match batches.back? with
@@ -136,13 +140,13 @@ def digests (dir : FilePath) (paths : List String) : IO (List BuildReuse.Digest)
     | none => #[#[path]]) #[]
   let mut result := #[]
   for batch in batches do
-    let run ← runProcess dir "shasum" (#["-a", "256", "--"] ++ batch)
+    let run ← runProcess dir "shasum" (#["-a", "256", "--"] ++ batch.map ("./" ++ ·))
     let lines := (run.stdout.splitOn "\n").filter (!·.isEmpty)
     unless run.succeeded && lines.length == batch.size do
       throw <| IO.userError s!"shasum gave no digest of each file: {run.output}"
     for (path, line) in batch.toList.zip lines do
       let digest := (line.take 64).toString
-      unless hexDigest digest && line == digest ++ "  " ++ path do
+      unless hexDigest digest && line == digest ++ "  ./" ++ path do
         throw <| IO.userError s!"shasum gave an unexpected line for {path}: {line}"
       result := result.push (path, digest)
   return result.toList
@@ -174,6 +178,11 @@ def reuseLink (value : Json) : BuildReuse.Link :=
                tree := ← build.getObjValAs? (List BuildReuse.Digest) "tree"
                artifacts := ← build.getObjValAs? (List BuildReuse.Digest) "artifacts" } }
 
+/-- The path of the module `name` below a build directory's `lib/lean` or `ir`, without extension and
+written with `/`: its components in order, as `Lean.modToFilePath` joins them. -/
+def modulePath (name : Name) : String :=
+  "/".intercalate (name.components.map (·.toString (escape := false)))
+
 /-- Why `BuildReuse.reuse` refused, for the step's output; the decision itself is `reuse`. -/
 def refusal (link : BuildReuse.Link) (run : BuildReuse.Run) : String :=
   match link.build with
@@ -185,20 +194,28 @@ def refusal (link : BuildReuse.Link) (run : BuildReuse.Run) : String :=
       "the first acceptance step's build does not name every claimed target"
     else if !build.artifacts.all (BuildReuse.below ·.1) then
       "a recorded artifact path leaves .lake/build"
+    else if !run.modules.all BuildReuse.plain then
+      "a module name of the root package has a component that holds a dot"
     else if !build.tree.isPerm run.tree then
       "a file of this copy differs from the first acceptance step's copy"
-    else "the checkout's .lake/build does not hold the recorded files with their recorded digests"
+    else "the checkout's .lake/build does not hold the recorded files of the claimed build's \
+      modules with their recorded digests"
 
-/-- Place the first step's build output in the documentation step's `copy`, which has no build
-output, when `BuildReuse.reuse` accepts, and return how many files it placed; otherwise return
-why not, with the copy as it was. The recorded artifacts are copied from `repo`'s `.lake/build`
-into a new staging directory in `scratch`, outside the copy, and the digests compared are those of
-the staged files and of the copy's own files outside `.lake`. Only after the decision is the staging
-directory renamed to the copy's `.lake/build`, which must not exist. Both are in the scratch
-directory of the run, so the rename is within one file system. Any failure on the way is a
-refusal: the step then builds as without a link. -/
+/-- Place the first step's build output of the modules of `closure` in the documentation step's
+`copy`, which has no build output, when `BuildReuse.reuse` accepts, and return how many files it
+placed; otherwise return why not, with the copy as it was. `modules` is the module path
+(`modulePath`) of every module of the root package, and `closure` that of each root-package module
+the claimed build compiles. A missing `link` is a refusal: the step then builds fresh and refuses
+the missing link after its checks (`require`). The recorded artifacts of `closure`'s modules
+(`BuildReuse.selected`) are copied from `repo`'s `.lake/build` into a new staging directory in
+`scratch`, outside the copy, and the digests compared are those of the staged files and of the
+copy's own files outside `.lake`. Only after the decision is the staging directory renamed to the
+copy's `.lake/build`, which must not exist. Both are in the scratch directory of the run, so the
+rename is within one file system. Any failure on the way is a refusal: the step then builds as
+without a link. -/
 def placeRetained (repo copy scratch link : FilePath) (identity : String)
-    (targets : List String) : IO (Except String Nat) := do
+    (targets modules closure : List String) : IO (Except String Nat) := do
+  unless ← link.pathExists do return .error s!"there is no acceptance link at {link}"
   let attempt : IO (Except String Nat) := do
     let record := reuseLink (← readJson link)
     let tree ← digests copy (← treeFiles copy)
@@ -207,7 +224,7 @@ def placeRetained (repo copy scratch link : FilePath) (identity : String)
       | some build =>
         if build.artifacts.all (BuildReuse.below ·.1) then
           let mut present := #[]
-          for (path, _) in build.artifacts do
+          for (path, _) in BuildReuse.selected closure build.artifacts do
             let source := repo / ".lake" / "build" / path
             let regular ← match ← source.symlinkMetadata.toBaseIO with
               | .ok metadata => pure (metadata.type == .file)
@@ -220,7 +237,7 @@ def placeRetained (repo copy scratch link : FilePath) (identity : String)
           digests staging present.toList
         else pure []
       | none => pure []
-    let run : BuildReuse.Run := { identity, targets, tree, staged }
+    let run : BuildReuse.Run := { identity, targets, modules, closure, tree, staged }
     unless BuildReuse.reuse record run do return .error (refusal record run)
     let target := copy / ".lake" / "build"
     unless (← (target.symlinkMetadata.toBaseIO)) matches .error _ do

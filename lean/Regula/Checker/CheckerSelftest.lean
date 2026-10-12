@@ -3517,14 +3517,19 @@ private def driverCopyControl (repo : FilePath) : IO (Array String) :=
 /-- External-boundary controls of the documentation step's reuse of the first acceptance step's
 build output (`AcceptanceLink.placeRetained`): the filesystem, `shasum` and Lake between the record
 and the fence audit's copy. `BuildReuse.reuse_iff` proves the decision; no control here stands in
-for that theorem. In a project with one library, the gate writes an accepted acceptance link, and
+for that theorem. In a project with one claimed library, the gate writes an accepted acceptance link, and
 the project is then built. The control writes the `build` field the driver writes
 (`RegulaVerification.Copy.recordBuild`) from that build and the project's files, with the origin of
 a driver copy, which only the first acceptance step gives; the positive case with a real driver
-copy is that step and the documentation step on each run. Then `docFenceAudit --acceptance-link`
-must build fresh in its own copy for a link with no `build` field, for one artifact of the build
-altered and for one file of the project outside `.lake` altered, and must place the recorded build
-output when every digest matches. Each case must pass the audit. -/
+copy is that step and the documentation step on each run. Before the gate runs, `docFenceAudit
+--acceptance-link` must build fresh, pass every check and then refuse the missing link. After it,
+the audit must build fresh in its own copy for a link with no `build` field, for one artifact of
+the build altered, for one file of the project outside `.lake` altered and for the file named `-`
+altered, which `shasum` would read as standard input, and must place the recorded build output when
+every digest matches. Each of those cases must pass the audit. The project has a second library
+that the claimed build does not compile but the recorded build holds, as the first step's
+diagnostic targets are, and a documentation example that must fail because its module has no
+compiled file: the audit stages only the modules of its claimed build. -/
 private def retainedBuildControl (repo : FilePath) : IO (Array String) :=
   withScratch repo "retained-build-control" fun scratch => do
   let project := scratch / "project"
@@ -3534,27 +3539,47 @@ private def retainedBuildControl (repo : FilePath) : IO (Array String) :=
   IO.FS.writeFile (project / "lakefile.toml") <|
     "name = \"retained_build_control\"\n[leanOptions]\nautoImplicit = false\n" ++
       "relaxedAutoImplicit = false\nlinter.missingDocs = true\n" ++
-      "[[lean_lib]]\nname = \"Solo\"\nglobs = [\"Solo.+\"]\n"
+      "[[lean_lib]]\nname = \"Solo\"\nglobs = [\"Solo.+\"]\n" ++
+      "[[lean_lib]]\nname = \"Extra\"\nglobs = [\"Extra.+\"]\n"
   IO.FS.writeFile (Manifest.defaultPath project) <|
     "{\"schema-version\":2,\"surfaces\":[{\"library\":\"Solo\",\"executables\":[]," ++
       "\"claim\":\"standard-logical\",\"execution\":\"report\"," ++
       "\"rationale\":\"Retained build control\"}]," ++
-      "\"excluded-libraries\":[],\"excluded-executables\":[]}"
+      "\"excluded-libraries\":[{\"library\":\"Extra\",\"rationale\":\"outside the claim\"}]," ++
+      "\"excluded-executables\":[]}"
   IO.FS.writeFile (project / "Solo" / "Base.lean")
     "/-! The base module of the control. -/\n\n/-- The base value. -/\ndef soloBase : Nat := 7\n"
-  IO.FS.writeFile (project / "docs" / "control.md")
-    "```lean\nimport Solo.Base\nexample : soloBase = 7 := rfl\n```\n"
+  IO.FS.createDirAll (project / "Extra")
+  IO.FS.writeFile (project / "Extra" / "Diag.lean")
+    "/-! A module outside the claimed build. -/\n\n/-- An extra value. -/\ndef extra : Nat := 1\n"
+  IO.FS.writeFile (project / "docs" / "control.md") <|
+    "```lean\nimport Solo.Base\nexample : soloBase = 7 := rfl\n```\n\n" ++
+      "<!-- lean-fail: unknown module prefix|does not exist -->\n```lean\nimport Extra.Diag\n```\n"
   -- A file that no module reads and the link's identity does not capture.
   IO.FS.writeFile (project / "notes.txt") "a file of the project tree\n"
+  -- A file that `shasum` reads as standard input when it is given as an operand alone.
+  IO.FS.writeFile (project / "-") "a file named -\n"
   let env := scrubbedLeanPathEnv.push ("LAKE_ARTIFACT_CACHE", some "false")
   let step (label : String) (cmd : String) (args : Array String) : IO (Option String) := do
     let result ← runProcess project cmd args env
     return if result.succeeded then none else some s!"retained-build/{label}:\n{result.output}"
   if let some failure ← step "setup" "lake" #["update"] then return #[failure]
   let link := scratch / "acceptance-link.json"
+  let fresh (reason : String) :=
+    s!"claimed surface built fresh in this run, in a copy with no earlier build output ({reason})"
+  let unlinked ← runProcess project (← toolPath repo "docFenceAudit").toString
+    #["--project", project.toString, "--acceptance-link", link.toString, "--jobs", "1"] env
+  let mut failures := #[]
+  unless !unlinked.succeeded &&
+      unlinked.output.contains (fresh s!"there is no acceptance link at {link}") &&
+      unlinked.output.contains "acceptance link missing: run ordinary acceptance first" do
+    failures := failures.push s!"retained-build/no-gate: expected a fresh build and the refusal \
+      of the missing link:\n{unlinked.output}"
   if let some failure ← step "gate" (← toolPath repo "axiomGate").toString
-      #["--acceptance-link", link.toString] then return #[failure]
-  if let some failure ← step "build" "lake" #["build", "Solo"] then return #[failure]
+      #["--acceptance-link", link.toString] then return failures.push failure
+  -- The first step builds more than the claimed targets.
+  if let some failure ← step "build" "lake" #["build", "Solo", "Extra"] then
+    return failures.push failure
   let gateRecord ← readJson link
   let build := project / ".lake" / "build"
   let mut artifacts := #[]
@@ -3565,6 +3590,8 @@ private def retainedBuildControl (repo : FilePath) : IO (Array String) :=
         artifacts := artifacts.push ("/".intercalate
           (path.normalize.components.drop build.normalize.components.length))
   let artifactDigests ← AcceptanceLink.digests build artifacts.toList
+  unless artifactDigests.any (·.1.startsWith "lib/lean/Extra/Diag.") do
+    return failures.push "retained-build/setup: the build holds no artifact of Extra.Diag"
   let tree ← AcceptanceLink.digests project (← AcceptanceLink.treeFiles project)
   let recorded := (gateRecord.setObjVal! "origin" (.str "driverCopy")).setObjVal! "build"
     (Json.mkObj [("targets", toJson ["Solo"]), ("tree", toJson tree),
@@ -3578,26 +3605,28 @@ private def retainedBuildControl (repo : FilePath) : IO (Array String) :=
     else if !result.output.contains expected then
       return #[s!"retained-build/{label}: missing {repr expected}:\n{result.output}"]
     else return #[]
-  let fresh (reason : String) :=
-    s!"claimed surface built fresh in this run, in a copy with no earlier build output ({reason})"
-  let mut failures := #[]
   failures := failures ++ (← audit "no-build-field" gateRecord
     (fresh "the acceptance link records no build of the first acceptance step"))
   failures := failures ++
     (← audit "matching" recorded "claimed surface built from the first acceptance step's")
   -- One altered artifact, then one altered file of the project, each restored afterwards.
-  let some (artifact, _) := artifactDigests.head?
-    | return failures.push "retained-build/setup: the build left no artifact"
+  let some (artifact, _) := artifactDigests.find? (·.1.startsWith "lib/lean/Solo/Base.")
+    | return failures.push "retained-build/setup: the build left no artifact of Solo.Base"
   let altered := build / artifact
   let original ← IO.FS.readBinFile altered
   IO.FS.writeBinFile altered (original.push 0)
   failures := failures ++ (← audit "altered-artifact" recorded (fresh
-    "the checkout's .lake/build does not hold the recorded files with their recorded digests"))
+    "the checkout's .lake/build does not hold the recorded files of the claimed build's modules \
+      with their recorded digests"))
   IO.FS.writeBinFile altered original
   IO.FS.writeFile (project / "notes.txt") "an altered file of the project tree\n"
   failures := failures ++ (← audit "altered-tree-file" recorded
     (fresh "a file of this copy differs from the first acceptance step's copy"))
   IO.FS.writeFile (project / "notes.txt") "a file of the project tree\n"
+  IO.FS.writeFile (project / "-") "an altered file named -\n"
+  failures := failures ++ (← audit "altered-dash-file" recorded
+    (fresh "a file of this copy differs from the first acceptance step's copy"))
+  IO.FS.writeFile (project / "-") "a file named -\n"
   return failures
 
 /-- The groups of controls the structural partition reports separately. -/
@@ -3719,9 +3748,11 @@ private unsafe def runStructural (layout : SourceLayout) (repo : FilePath) (jobs
         is not followed)"
   if ran .retainedBuild then
     IO.println <| "self-test retained build: " ++ verdict .retainedBuild ++
-      " (docFenceAudit builds fresh in its own copy for a link with no build record, for an \
-        altered artifact and for an altered file of the project, and places the recorded build \
-        output when every digest matches; each audit passes)"
+      " (docFenceAudit builds fresh and then refuses the missing link before any gate ran; it \
+        builds fresh in its own copy for a link with no build record, for an altered artifact, \
+        for an altered file of the project and for an altered file named -, and places the \
+        recorded build output of its claimed modules when every digest matches, without a \
+        module of another library; each of those audits passes)"
 
 /-- Execution-evidence controls: the correspondence controls and every compiler-path case,
 each with its positive, mutation and fresh restoration in an isolated project. With `shard`,

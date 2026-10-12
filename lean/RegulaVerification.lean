@@ -999,8 +999,9 @@ cannot be taken leaves the record without the field, and the documentation step 
 those modules itself. -/
 
 /-- The SHA-256 of each of `paths`, each relative to `dir` and written with `/`, by the external
-`shasum -a 256` run in `dir` on at most 200 paths at a time; for each file it prints the digest, two
-spaces and the path it was given, and any other line in a path's place fails. It is
+`shasum -a 256` run in `dir` on at most 200 paths at a time, each given as `./` and the path, since
+`shasum` reads standard input for the operand `-`; for each file it prints the digest, two spaces
+and the operand, and any other line in a path's place fails. It is
 `Regula.Checker.AcceptanceLink.digests` written a second time, since this module imports only the
 toolchain. It assumes the output of `shasum` that that function states. -/
 def digests (dir : System.FilePath) (paths : List String) : IO (List (String × String)) := do
@@ -1012,14 +1013,14 @@ def digests (dir : System.FilePath) (paths : List String) : IO (List (String × 
   let mut result := #[]
   for batch in batches do
     let run ← IO.Process.output
-      { cmd := "shasum", args := #["-a", "256", "--"] ++ batch, cwd := some dir }
+      { cmd := "shasum", args := #["-a", "256", "--"] ++ batch.map ("./" ++ ·), cwd := some dir }
     let lines := (run.stdout.splitOn "\n").filter (!·.isEmpty)
     unless run.exitCode == 0 && lines.length == batch.size do
       throw <| IO.userError s!"shasum gave no digest of each file: {run.stdout}{run.stderr}"
     for (path, line) in batch.toList.zip lines do
       let digest := (line.take 64).toString
       unless digest.length == 64 && digest.all (fun c => c.isDigit || ('a' ≤ c && c ≤ 'f')) &&
-          line == digest ++ "  " ++ path do
+          line == digest ++ "  ./" ++ path do
         throw <| IO.userError s!"shasum gave an unexpected line for {path}: {line}"
       result := result.push (path, digest)
   return result.toList

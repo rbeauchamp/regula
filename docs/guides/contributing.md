@@ -85,13 +85,17 @@ first step or the next run of the checker removes it.
 
 After it moves the build output, the driver adds digests to the accepted record. These are the
 SHA-256 of each file of the copy and of that build output. The fence audit of
-`./scripts/verify.sh docs` then puts that build output in its own copy. It does this only if each
-digest is equal to the digest of the file that it reads.
+`./scripts/verify.sh docs` then puts part of that build output in its own copy. That part is the
+files of the modules that its claimed build compiles. It does this only if each digest is equal to the digest of
+the file that it reads.
 
 If a digest is not there or is different, the fence audit builds the claimed libraries in a
 copy with no build output. Thus the libraries that the fences read were compiled from equal files,
 in a copy with no earlier build output. The output of the fence audit tells which build compiled
 them.
+
+The fence audit checks the record after all its other checks. Thus without a record it builds the
+claimed libraries in a copy with no build output, does those checks and then refuses.
 
 Two ordinary attempts at the same time in one checkout are not a supported use.
 
