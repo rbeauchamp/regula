@@ -174,16 +174,16 @@ def nightlyApplies : Event → Bool
 order of the job's matrix: the step `applies` writes them as its output `campaigns`, and the
 matrix reads that output. `Regula.Campaigns.Diagnostics.campaigns_eq` proves them the
 invocations of `Regula.Campaigns.Job.diagnosticsCampaign`, which the inventory of campaigns
-requires to cover every campaign it does not name with a reason. The first environments shard is
-not among them: its one control, the public fence corpus, is too long for a job. -/
+requires to cover every campaign it does not name with a reason. The shards of the fixtures, cli,
+environments and build-policy partitions and the groups `environment-census` and `policy-domain`
+are not among them: each is too long for a job. -/
 def campaigns : List String :=
   let shards (name : String) (count : Nat) : List String :=
     (List.range count).map fun index => s!"diagnostics {name} {index + 1}/{count}"
   ["diagnostics producers", "diagnostics history"] ++ shards "lint-driver" 5 ++
-    shards "structural" 5 ++ shards "execution" 4 ++ shards "fixtures" 5 ++ shards "cli" 6 ++
-    (shards "environments" 6).tail ++ shards "build-policy" 3 ++
-    ["input-inventory", "environment-census", "snapshot-history", "acceptance-controls",
-      "documentation-controls", "focused-controls", "policy-domain"].map ("diagnostics " ++ ·)
+    shards "structural" 5 ++ shards "execution" 4 ++
+    ["input-inventory", "snapshot-history", "acceptance-controls", "documentation-controls",
+      "focused-controls"].map ("diagnostics " ++ ·)
 
 /-- Which partition jobs apply to a run of `event` whose changed paths are `changed`, by job id:
 the decision `applies` writes and each partition job's `if:` reads. -/

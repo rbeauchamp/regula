@@ -2767,6 +2767,13 @@ private def FenceEnvironmentPart.label : FenceEnvironmentPart → String
   | fileMode => "file-mode"
   | freshChecker => "fresh-checker"
 
+/-- The controls of a part, as the summary line of a run names them. -/
+private def FenceEnvironmentPart.controls : FenceEnvironmentPart → String
+  | docFences => "clean-checkout doc fences"
+  | fileMode => "--file"
+  | freshChecker => "freshChecker with no prior build on a two-root control surface whose \
+      workspace provides a failing leanchecker"
+
 /-- Run the repository's tool `name` in `dir` with `LEAN_PATH` scrubbed. -/
 private def runScrubbed (repo dir : FilePath) (name : String) (args : Array String) :
     IO ProcessResult := do
@@ -3875,16 +3882,15 @@ private unsafe def runEnvironments (layout : SourceLayout) (repo : FilePath)
       IO.println <| "self-test external adopters: " ++
         (if adopter.isEmpty then "PASS" else "FAIL") ++
         s!" ({", ".intercalate (adopters.map (·.label))} adopters: empty exclusions, fresh \
-          positive gate, --project, omitted exe, rogue module; the toml adopter also \
-          unlisted-module contamination and fresh plan)"
+          positive gate, --project, omitted exe, rogue module" ++
+        (if adopters.contains .toml then
+          "; the toml adopter also unlisted-module contamination and fresh plan)" else ")")
   let fenceEnv ← IO.ofExcept (← IO.wait fenceEnvTask)
   for failure in fenceEnv do failures.modify (·.push failure)
   unless fenceParts.isEmpty do
     IO.println <| "self-test fence environment: " ++
       (if fenceEnv.isEmpty then "PASS" else "FAIL") ++
-      s!" ({", ".intercalate (fenceParts.map (·.label))}: clean-checkout doc fences, --file, \
-        freshChecker with no prior build on a two-root control surface whose workspace provides \
-        a failing leanchecker)"
+      s!" ({", ".intercalate (fenceParts.map (·.controls))})"
   if runsIn shard (environmentsShard 5) then
     let surface ← loggedPhase "public surface" <| runBinary repo "axiomGate" #["--incremental"]
     if !surface.succeeded then

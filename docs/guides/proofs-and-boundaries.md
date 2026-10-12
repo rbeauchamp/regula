@@ -4673,7 +4673,7 @@ controls: an instrumented run took 513 s, in which 21 gate runs each inspected t
 `RegulaPolicy` library (about 475 s of roughly 1,200 s of control work). `diagnostics
 structural` and `diagnostics execution` then each ran under the 420-second deadline, locally
 and as jobs of the diagnostics workflow, where the slowest hosted `structural` run observed
-(2026-10-02) took 413 s; the workflow now runs each partition as several shards, a job each.
+(2026-10-02) took 413 s; the workflow now runs each of the two as several shards, a job each.
 Observed on 2026-10-01 on a 14-core machine that other
 builds kept at a load average of 10 to 13, `structural` passed in 96 s and `execution` in 90 s
 (102 s and 94 s for the whole `verify.sh` invocation). These are observations of two runs, not

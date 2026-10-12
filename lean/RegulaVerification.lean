@@ -69,7 +69,7 @@ inductive Group where
   | acceptanceControls
   /-- `qualify documentation-dependencies` and `configuration-capture`. -/
   | documentationControls
-  /-- The self-test's focused native-adopter and combined-snapshot controls. -/
+  /-- The self-test's focused native-adopter, combined-snapshot and policy-transport controls. -/
   | focusedControls
   /-- The self-test's focused policy-domain controls: the policy transport and the public paths. -/
   | policyDomain
@@ -394,7 +394,8 @@ def Group.commands : Group → List Command
       qualify #["configuration-capture"]]
   | .focusedControls => [lake #["build", "checkerSelftest", "axiomGate", "Regula.Linter"],
       lake #["exe", "checkerSelftest", "--native-adopter-only"],
-      lake #["exe", "checkerSelftest", "--combined-snapshot-only"]]
+      lake #["exe", "checkerSelftest", "--combined-snapshot-only"],
+      lake #["exe", "checkerSelftest", "--policy-transport-only"]]
   | .policyDomain => [lake #["build", "checkerSelftest", "axiomGate", "Regula.Linter"],
       lake #["exe", "checkerSelftest", "--policy-domain-only"]]
 

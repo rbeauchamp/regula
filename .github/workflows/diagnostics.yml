@@ -2,11 +2,12 @@ name: Diagnostics
 
 # Capability-triggered qualification campaigns (standard §7.8): the producer and history
 # campaigns, the `lake lint` dispatch over the maintained adopter fixtures, which crosses
-# Lake, process and filesystem boundaries that the driver's proofs do not cover, every other
-# partition of the checker self-test, each in shards, and seven groups of `qualify` and focused
-# self-test controls; the controls of a partition's shards together are the partition's. The
-# list is Regula.DiagnosticsGate.campaigns, which the inventory of campaigns (Regula.Campaigns)
-# counts. They are diagnostics, not a partition of ordinary acceptance.
+# Lake, process and filesystem boundaries that the driver's proofs do not cover, the structural
+# and execution partitions of the checker self-test, each in shards, and five groups of `qualify`
+# and focused self-test controls; the controls of a partition's shards together are the
+# partition's. The other partitions and groups are too long for a job. The list is
+# Regula.DiagnosticsGate.campaigns, which the inventory of campaigns (Regula.Campaigns) counts. They
+# are diagnostics, not a partition of ordinary acceptance.
 #
 # The workflow runs on every pull request, every push to main, nightly and on dispatch. Its first
 # job, `applies`, provisions the released compiler and decides which partition jobs apply to the run

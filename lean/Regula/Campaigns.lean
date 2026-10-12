@@ -30,7 +30,7 @@ workflow file and requires them to be `Job.invocations` (`Job.workflowRefusal`).
 Trusted, not proved: that GitHub runs those steps when their triggers and `if:` say, and the
 readings behind `Reason.within`, `Reason.together` and
 `Reason.worker`: that the controls of the campaign not run are among those of the campaigns
-named. -/
+named, and behind `Reason.partly`: that its text names the rest of them. -/
 namespace Regula.Campaigns
 
 open Regula.Qualification Regula.Checker.SelftestArguments
@@ -213,7 +213,8 @@ def runsOf : List String → List Campaign
   | ["diagnostics", "documentation-controls"] =>
       [.qualify .documentationDependencies, .qualify .configurationCapture]
   | ["diagnostics", "focused-controls"] =>
-      [.selftest (.focused .nativeAdopter), .selftest (.focused .combinedSnapshot)]
+      [.selftest (.focused .nativeAdopter), .selftest (.focused .combinedSnapshot),
+        .selftest (.focused .policyTransport)]
   | ["diagnostics", "policy-domain"] => [.selftest (.focused .policyDomain)]
   | ["diagnostics", name] =>
       match Partition.parse name with
@@ -222,16 +223,29 @@ def runsOf : List String → List Campaign
   | ["diagnostics", name, spec] => partitionShardOf name spec
   | _ => []
 
-/-- The first environments shard. Its one control, the public fence corpus, is too long for a job,
-so no job runs it (`reason`). -/
-def publicCorpusShard : SelftestCampaign := .partitionShard .environments ⟨0, by decide⟩
+/-- For a partition whose shards are too long for a job, the check of its slowest shard in CI
+(Diagnostics run 38200295872); none for a partition whose shards a job runs. -/
+def overBudgetShard : Partition → Option String
+  | .fixtures => some "Its slowest shard's check took 172 s in CI."
+  | .cli => some "Its slowest shard's check took 196 s in CI."
+  | .environments => some "Its first shard's check was still running after 203 s in CI, when \
+      the 420-second deadline ended the job."
+  | .buildPolicy => some "Its slowest shard's check took 137 s in CI."
+  | .structural | .execution | .lintDriver => none
 
-/-- The `verify.sh` invocation of `publicCorpusShard`. -/
-def publicCorpusInvocation : List String := ["diagnostics", "environments", "1/6"]
+/-- The groups of `groups` a job runs. `environment-census` and `policy-domain` are too long for a
+job (`reason`). -/
+def jobGroups : List String :=
+  ["input-inventory", "snapshot-history", "acceptance-controls", "documentation-controls",
+    "focused-controls"]
 
-/-- The shards of `partition` that a job runs: all but `publicCorpusShard`. -/
-def jobShardsOf (partition : Partition) : List SelftestCampaign :=
-  (shardsOf partition).erase publicCorpusShard
+/-- The partitions whose shards a job runs. -/
+def jobPartitions : List Partition := [.lintDriver, .structural, .execution]
+
+/-- A job runs the shards of exactly the partitions that are not too long for one. -/
+theorem mem_jobPartitions (partition : Partition) :
+    partition ∈ jobPartitions ↔ overBudgetShard partition = none := by
+  cases partition <;> simp [jobPartitions, overBudgetShard]
 
 /-- A job of a workflow that runs `verify.sh`. -/
 inductive Job where
@@ -269,15 +283,8 @@ def Job.invocations : Job → List (List String)
   | .ciSite => [["site"]]
   | .diagnosticsCampaign =>
       [["diagnostics", "producers"], ["diagnostics", "history"]] ++
-      shardInvocations "lint-driver" Partition.lintDriver.shards ++
-      shardInvocations "structural" Partition.structural.shards ++
-      shardInvocations "execution" Partition.execution.shards ++
-      shardInvocations "fixtures" Partition.fixtures.shards ++
-      shardInvocations "cli" Partition.cli.shards ++
-      (shardInvocations "environments" Partition.environments.shards).erase
-        publicCorpusInvocation ++
-      shardInvocations "build-policy" Partition.buildPolicy.shards ++
-      groups.map (["diagnostics", ·])
+      jobPartitions.flatMap (fun partition => shardInvocations partition.label partition.shards) ++
+      jobGroups.map (["diagnostics", ·])
   | .dogfoodSelf => ["diagnostics", "self-lint"] :: shardInvocations "self-audit" 4
   | .dogfoodDefaultPath => [["diagnostics", "self-lint-default"]]
 
@@ -293,6 +300,9 @@ inductive Reason where
   /-- The campaigns `campaigns` run its controls between them, and each of them runs; `why` says
   how. -/
   | together (campaigns : List Campaign) (why : String)
+  /-- The campaigns `campaigns` run part of its controls, and each of them runs; `why` names the
+  rest and why no job runs them. -/
+  | partly (campaigns : List Campaign) (why : String)
   /-- An internal entry point that `campaign`, which runs, starts for each of its items. -/
   | worker (campaign : Campaign)
   /-- No campaign that runs holds its controls, for the reason `why`. -/
@@ -302,20 +312,19 @@ inductive Reason where
 /-- The condition of a reason: each campaign it names runs. -/
 def Reason.holds : Reason → Bool
   | .within campaign _ | .worker campaign => ran.contains campaign
-  | .together campaigns _ => !campaigns.isEmpty && campaigns.all ran.contains
+  | .together campaigns _ | .partly campaigns _ => !campaigns.isEmpty && campaigns.all ran.contains
   | .notRun _ => true
 
 /-- The text the guide gives for a reason. -/
 def Reason.text : Reason → String
   | .within campaign why => s!"Its controls run in `{campaign.spelling}`: {why}"
-  | .together _ why => why
+  | .together _ why | .partly _ why => why
   | .worker campaign => s!"An internal entry point that `{campaign.spelling}` starts."
   | .notRun why => why
 
-/-- The `verify.sh` invocations of the shards of `partition` that a job runs: all but
-`publicCorpusInvocation`. -/
+/-- The `verify.sh` invocations of the shards of `partition`. -/
 private def partitionShardInvocations (partition : Partition) : List Campaign :=
-  ((shardInvocations partition.label partition.shards).erase publicCorpusInvocation).map .verify
+  (shardInvocations partition.label partition.shards).map .verify
 
 /-- Where the structural shards stand in for the comparison of the self-hosted fresh inputs,
 which an unsharded structural run alone makes (`Regula.Checker.CheckerSelftest.runStructural`):
@@ -332,15 +341,7 @@ private def shardsText (partition : Partition) : String :=
       for the comparison of the self-hosted fresh inputs. Shards 1/{partition.shards} and \
       {partition.shards}/{partition.shards} write the digests of those inputs, and the \
       `diagnostics` gate compares them."
-  else if partition == .environments then
-    s!"Its shards 2/{partition.shards} to {partition.shards}/{partition.shards} run. Together \
-      they run each of its controls one time, but for the public fence corpus of shard \
-      1/{partition.shards}."
   else s!"Its {partition.shards} shards run. Together they run each of its controls one time."
-
-/-- The reason of an unsharded partition whose shards run. -/
-private def shardsRun (partition : Partition) : Reason :=
-  .together (partitionShardInvocations partition) (shardsText partition)
 
 /-- The issue that tracks the sharding of the campaigns too long for a job. -/
 private def overBudget (seconds : Nat) : Reason :=
@@ -349,22 +350,43 @@ private def overBudget (seconds : Nat) : Reason :=
     [Issue 391](https://github.com/rbeauchamp/regula/issues/391) is the work to divide it \
     into shards."
 
+/-- The reason no job runs a partition, or one of its shards, whose shards are too long for a job;
+`figure` is its slowest shard's check (`overBudgetShard`). -/
+private def partitionOverBudget (partition : Partition) (figure : String) : Reason :=
+  .notRun s!"The shards of the `{partition.label}` partition are too long for a job. {figure} A \
+    check of more than 85 s does not leave a quarter of the 420-second deadline. \
+    [Issue 391](https://github.com/rbeauchamp/regula/issues/391) is the work to divide them \
+    into shards that fit."
+
+/-- The reason of an unsharded partition: its shards run, or they are too long for a job. -/
+private def partitionReason (partition : Partition) : Reason :=
+  match overBudgetShard partition with
+  | some figure => partitionOverBudget partition figure
+  | none => .together (partitionShardInvocations partition) (shardsText partition)
+
+/-- What the partitions too long for a job leave out of a campaign over all partitions. -/
+private def otherPartitions : String :=
+  "The shards of the structural, execution and lint-driver partitions run. The shards of the \
+    fixtures, cli, environments and build-policy partitions are too long for a job."
+
 /-- The reason no job runs a campaign; none for a campaign that some job runs. -/
 def reason : Campaign → Option Reason
   | .verify ["serialized-graph"] => some <| .notRun "The optional serialized-graph claim (§7.9), \
       which this repository does not make."
-  | .verify ["diagnostics"] => some <| .together
-      (Partition.all.flatMap partitionShardInvocations)
-      s!"The shards of all partitions run but the first environments shard, the public \
-        fence corpus. {selfHostedDigests}"
+  | .verify ["diagnostics"] => some <| .partly
+      (jobPartitions.flatMap partitionShardInvocations)
+      s!"{otherPartitions} {selfHostedDigests}"
   | .verify ["diagnostics", "rule-examples"] => some <| .together
       ((shardInvocations "rule-examples" 3).map .verify)
       "Its 3 shards run. Together they run the records of each rule one time."
   | .verify ["diagnostics", "self-audit"] => some <| .together
       ((shardInvocations "self-audit" 4).map .verify)
       "Its 4 shards run. Together they audit each module one time."
-  | .verify ["diagnostics", "environments", "1/6"] => some (overBudget 324)
-  | .verify ["diagnostics", name] => (Partition.parse name).map shardsRun
+  | .verify ["diagnostics", "environment-census"] => some (overBudget 172)
+  | .verify ["diagnostics", "policy-domain"] => some (overBudget 158)
+  | .verify ["diagnostics", name] => (Partition.parse name).map partitionReason
+  | .verify ["diagnostics", name, _] => (Partition.parse name).bind fun partition =>
+      (overBudgetShard partition).map (partitionOverBudget partition)
   | .qualify .registry => some <| .within (.qualify .combined) "`combined` runs `registry` first."
   | .qualify .native => some <| .within (.qualify .combined) "`combined` runs `native` second."
   | .qualify .uniqueConstants => some <|
@@ -387,40 +409,42 @@ def reason : Campaign → Option Reason
       [.qualify (.acceptanceSnapshots .dependencies), .qualify (.acceptanceSnapshots .history),
         .qualify (.acceptanceSnapshots .gitStatus)]
       "Its three groups run: `dependencies`, `history` and `git-status`."
+  | .qualify (.environments "PATH") => some (overBudget 172)
   | .qualify .closureEvidence => some (overBudget 105)
   | .qualify .fenceEvidence => some (overBudget 140)
   | .qualify .frozenExits => some (overBudget 240)
   | .qualify .documentationSource => some (overBudget 182)
   | .qualify .documentationSourceReadOnly => some (overBudget 202)
   | .selftest (.focused .forcedCollector) => some (overBudget 336)
-  | .selftest (.partitionShard .environments ⟨0, _⟩) => some (overBudget 324)
-  | .selftest (.focused .policyTransport) => some <| .within (.selftest (.focused .policyDomain))
-      "the policy-domain control runs the transport controls first."
-  | .selftest (.focused .fences) => some <| .together
-      [.selftest (.partitionShard .fixtures ⟨4, by decide⟩),
-        .selftest (.focused .combinedSnapshot)]
-      "The last fixtures shard runs the in-process fence corpus. The focused controls include the \
-        combined snapshot. The public fence corpus is the first environments shard, which is too \
-        long for a job."
-  | .selftest (.focused .buildLint) => some <| .together (shardsOf .buildPolicy |>.map .selftest)
-      "The build-policy shards run its controls."
+  | .selftest (.focused .policyDomain) => some (overBudget 158)
+  | .selftest (.focused .fences) => some <| .partly [.selftest (.focused .combinedSnapshot)]
+      "The focused controls include the combined snapshot. The in-process and public fence \
+        corpora are controls of the fixtures and environments partitions. The shards of those \
+        partitions are too long for a job."
+  | .selftest (.focused .buildLint) => some <| .notRun
+      "Its controls are those of the build-policy partition. The shards of that partition are \
+        too long for a job."
   | .selftest (.focused .compilerPaths) => some <| .together (shardsOf .execution |>.map .selftest)
       "The execution shards run its compiler-path mutations."
-  | .selftest .transcriptWorker =>
-      some (.worker (.selftest (.partitionShard .fixtures ⟨0, by decide⟩)))
-  | .selftest .defaultTier => some <| .together
-      ([Partition.fixtures, .structural, .execution, .cli].flatMap shardsOf |>.map .selftest)
-      s!"The shards of the fixtures, structural, execution and cli partitions run. The real-CLI \
-        smoke controls of the default tier are controls of the cli partition. {selfHostedDigests}"
+  | .selftest .transcriptWorker => some <| .notRun
+      "An internal entry point that the fixtures shards start, which are too long for a job."
+  | .selftest .defaultTier => some <| .partly
+      ([Partition.structural, .execution].flatMap shardsOf |>.map .selftest)
+      s!"The shards of the structural and execution partitions run. It also runs the controls of \
+        the fixtures and cli partitions, and their shards are too long for a job. \
+        {selfHostedDigests}"
   | .selftest .structuralOnly => some <| .together
       ([Partition.structural, .execution].flatMap shardsOf |>.map .selftest)
       s!"The shards of the structural and execution partitions run. {selfHostedDigests}"
-  | .selftest .buildBound => some <| .together
-      (Partition.all.flatMap jobShardsOf |>.map .selftest)
-      s!"The shards of all partitions run but the first environments shard, the public fence \
-        corpus. {selfHostedDigests}"
-  | .selftest (.partition partition) => some <| .together (jobShardsOf partition |>.map .selftest)
-      (shardsText partition)
+  | .selftest .buildBound => some <| .partly
+      (jobPartitions.flatMap shardsOf |>.map .selftest)
+      s!"{otherPartitions} {selfHostedDigests}"
+  | .selftest (.partition partition) => some <|
+      match overBudgetShard partition with
+      | some figure => partitionOverBudget partition figure
+      | none => .together (shardsOf partition |>.map .selftest) (shardsText partition)
+  | .selftest (.partitionShard partition _) =>
+      (overBudgetShard partition).map (partitionOverBudget partition)
   | _ => none
 
 /-- Every campaign: each `verify.sh` invocation, each form of `qualify` selection and each
