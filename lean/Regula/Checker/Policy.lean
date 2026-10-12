@@ -55,9 +55,9 @@ theorem admitScope_eq (observed : RegulaPolicy.Compiler.LegacyCompilerTrust)
   simp only [admitScope, admitted, bind, Except.bind]
   cases checked_scope.run compiler Frontend.validateCoordinates ds ts <;> rfl
 
-/-- When every transcript passes the coordinate check, `admitScope` returns exactly the inventory
-`admitInventory` admits, resting on `imported`, with the roles recomputed for it
-(`ScopeContract`'s second clause composed with `PolicyScope.importing`). -/
+/-- Once the capability is admitted and every transcript passes the coordinate check,
+`admitScope` returns exactly the inventory `admitInventory` admits, resting on `imported`, with the
+roles recomputed for it (`ScopeContract`'s second clause composed with `PolicyScope.importing`). -/
 theorem admitScope_checked (observed : RegulaPolicy.Compiler.LegacyCompilerTrust)
     {compiler : RegulaPolicy.Compiler.Capability}
     (admitted : RegulaPolicy.Compiler.admitCapability observed = .ok compiler)

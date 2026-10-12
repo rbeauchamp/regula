@@ -568,6 +568,14 @@
   "expect": "fail",
   "reason": "compiler-trusting"
  },
+ "Fixtures.Mutations.IROnlyNativeParent": {
+  "expect": "fail",
+  "reason": "project-axiom"
+ },
+ "Fixtures.Mutations.ImportedIROnlyNativeParent": {
+  "expect": "fail",
+  "reason": "unknown-axiom"
+ },
  "Fixtures.Mutations.TrustCompiler": {
   "expect": "fail",
   "reason": { "present": "compiler-trusting", "absent": "project-axiom" }

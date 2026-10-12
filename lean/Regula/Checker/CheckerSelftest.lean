@@ -736,25 +736,18 @@ private unsafe def fixtureVerdicts (repo scratch : FilePath) (jobs : Nat)
       results := results.set! index
         (assessFixtureOutput fixture .rejected compilation.process.output)
     else
-      let (moduleData, _) ← Lean.readModuleData compilation.oleanPath
-      -- A `module` file's `.olean` holds only its exported constants. Its last part, the
-      -- `.olean.private` that `importModules` loads at its default `OLeanLevel.private`, holds
-      -- every constant (`mkModuleData`), such as the private axiom of a public native proof.
-      let moduleData ← if moduleData.isModule then
-          let parts ← Lean.readModuleDataParts #[compilation.oleanPath,
-            Lean.OLeanLevel.server.adjustFileName compilation.oleanPath,
-            Lean.OLeanLevel.private.adjustFileName compilation.oleanPath]
-          pure ((parts.back?.map (·.1)).getD moduleData)
-        else pure moduleData
+      -- Every part of a `module` file, so the census holds its private constants, such as the
+      -- private axiom of a public native proof (`readModuleCensus`).
+      let (moduleData, constants) ← readModuleCensus compilation.oleanPath
       pending := pending.push {
         index, fixture, compilation
-        constantNames := moduleData.constNames.map (·.toString)
+        constantNames := constants.map (·.name.toString)
         importNames := moduleData.imports.map (·.module)
         -- Same transcript predicate as the post-load check, applied to the
         -- raw module constant records with the probe's own kind mapping, so
         -- only fixtures that can need a transcript pay for one. A divergence
         -- (post-load need with no worker transcript) fails closed below.
-        wantsTranscript := moduleData.constants.any fun info =>
+        wantsTranscript := constants.any fun info =>
           Policy.declarationNeedsTranscript (Regula.Probe.kindOf info) info.name
       }
   -- Group by exact constant-name disjointness (the `Documentation.auditTasks`

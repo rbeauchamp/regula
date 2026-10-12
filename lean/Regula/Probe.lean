@@ -76,8 +76,8 @@ declarations are reported by this account without becoming owned.
 Generated-role metadata is descriptive, not provenance. A recursion helper requires
 regeneration by the pinned recursion compiler and the kernel's check of its base's
 recursion equation; no unsafe constructor-index wrapper is admitted. A native-proof axiom requires
-native replay and fresh exact-source frontend provenance. Names, ranges, and extension
-tags alone never waive a rule. Every declaration is still emitted and checked.
+native replay and, for one of an owned module, fresh exact-source frontend provenance. Names,
+ranges, and extension tags alone never waive a rule. Every declaration is still emitted and checked.
 
 The full list of imported module names and each module's Lean-resolved `.olean`
 path are emitted as well, so drivers can reconcile the queried Lake inventory,
@@ -843,20 +843,25 @@ private def executableRoots (env : Environment) (modules : List Name)
 
 /-- The records of the imported native-proof axioms that `entries` rest on. They are the axioms an
 entry lists whose name the `nativeEqTrue` scheme generates (`RegulaPolicy.nativeAxiomOrigin?`) and
-whose module `inspected` does not contain, each once, in the order first listed. Each is followed
-by the record of each constant of the axiom's own module that its generated prefix names, unless
-that constant already has a record: the prefix itself or, for a module-private prefix, the public
-name it hides. A constant of another module that a prefix names gets no record, so it cannot
-displace the declaration of the axiom's module. The axiom's record is a replay candidate, so its
-statement is replayed (`Collect.declaration`); the prefix's record is a snapshot, which has no
-replay and so is never a native role. A name recorded as a prefix and then reached as an axiom
-has its snapshot replaced by a replay candidate, so whichever of the two is reached first, every
-reached axiom is replayed. The axioms of both are those Lean's `collectAxioms` reports, since no
-kernel of this audit replayed an imported module.
+whose module `inspected` does not contain, each once. Each is followed by the record of each
+kernel constant of the axiom's own module that its generated prefix names, unless that constant
+already has a record: the prefix itself or, for a module-private prefix, the public name it
+hides. A constant of another module that a prefix names gets no record, so it cannot displace the
+declaration of the axiom's module, and neither does a name that only the code generator has. The
+axiom's record is a replay candidate, so its statement is replayed (`Collect.declaration`); the
+prefix's record is a snapshot, which has no replay and so is never a native role. A name recorded
+as a prefix and then reached as an axiom has its snapshot replaced by a replay candidate, so
+whichever of the two is reached first, every reached axiom is replayed. Records are in the order
+of their first insertion, prefix snapshots included: a replaced snapshot keeps its position. The
+axioms of both are those Lean's `collectAxioms` reports, since no kernel of this audit replayed an
+imported module.
 
 Assumes:
 - Lean v4.34.1 maps each imported constant to the module that declares it
   (`Environment.getModuleIdxFor?`, `src/lean/Lean/Environment.lean:1195-1197`).
+  That map also holds auxiliary names of the code generator that are not kernel constants
+  (`src/lean/Lean/Environment.lean:241-243`), so a prefix is recorded only when the environment
+  contains it.
 - The audited environment is imported at `OLeanLevel.private`, the default of `importModules`
   (`src/lean/Lean/Environment.lean:2433-2440`), which treats every import as `import all`
   (line 2182). So the constants that a `module` file keeps private, its generated native-proof
@@ -889,7 +894,8 @@ private def importedNativeRecords (env : Environment) (inspected : List Name)
         records := records.push record
       let named := if Lean.isPrivateName pfx then #[pfx, Lean.privateToUserName pfx] else #[pfx]
       for parent in named do
-        if moduleOf? parent == some axiomModule && !index.contains parent then
+        if env.contains parent && moduleOf? parent == some axiomModule
+            && !index.contains parent then
           index := index.insert parent records.size
           records := records.push (← observing env parent "imported native prefix record"
             (Regula.Collect.declaration parent .snapshot scope))

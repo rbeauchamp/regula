@@ -53,10 +53,11 @@ def check : IO Unit := do
   let mut programs := inventory.executables.map (·.root)
   let mut records : Std.HashSet Name := {}
   for module in inLibraries do
-    let (data, _) ← readModuleData (← findOLean module)
-    if data.constNames.contains `main && !programs.contains module then
+    -- Every part of a `module` file, whose exported part omits a constant it does not export.
+    let names := (← Regula.Checker.readModuleCensus (← findOLean module)).2.map (·.name)
+    if names.contains `main && !programs.contains module then
       programs := programs.push module
-    for name in data.constNames do
+    for name in names do
       if Regula.Removal.reached.isPrefixOf name && name != Regula.Removal.reached then
         records := records.insert (name.replacePrefix Regula.Removal.reached .anonymous)
   for root in outside do

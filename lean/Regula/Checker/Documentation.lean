@@ -295,10 +295,11 @@ unsafe def auditTasks (repo scratch : FilePath) (jobs : Nat)
           responses := responses.push (index, { compilationFailure compilation task with
             raw := some ⟨compilation, none, #[(task, compilation)]⟩ })
         else
-          let (moduleData, _) ← Lean.readModuleData compilation.oleanPath
+          -- Every part of a `module` fence, so the disjointness check sees its private constants.
+          let (moduleData, constants) ← readModuleCensus compilation.oleanPath
           let item : PendingPositive := {
             index, task, compilation
-            constantNames := moduleData.constNames.map (·.toString)
+            constantNames := constants.map (·.name.toString)
             importNames := moduleData.imports.map (·.module)
           }
           groups := addToGroups groups item
