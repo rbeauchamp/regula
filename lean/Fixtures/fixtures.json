@@ -824,6 +824,16 @@
    "required="
   ]
  },
+ "Fixtures.Positive.FreshCorrespondence": {
+  "expect": "pass",
+  "claim": "choice-free",
+  "execution": "checked",
+  "output": [
+   "correspondence=checked",
+   "fixtures_fresh_large_impl",
+   "required="
+  ]
+ },
  "Fixtures.Mutations.ConditionalCorrespondence": {
   "expect": "fail",
   "claim": "standard-logical",

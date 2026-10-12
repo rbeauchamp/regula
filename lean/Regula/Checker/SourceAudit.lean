@@ -104,17 +104,22 @@ structure GroupRequest where
   /-- Report each loaded module's `.olean` origin and imports; they are also reported whenever
   `includeExecution` is set. -/
   includeModuleOrigins : Bool := true
+  /-- The memory each correspondence check may add above its starting peak in the report's
+  process (`Probe.correspondenceBound`); a check that exhausts it is decided in a fresh worker. -/
+  correspondenceAllowance : Nat := Regula.Probe.correspondenceMemoryBytes
   deriving ToJson
 
 instance : FromJson GroupRequest := ⟨fun j => do
   Regula.Checker.PolicyCodec.exactFields j
-      ["modules", "sourceBindings", "ownership", "includeExecution", "includeModuleOrigins"]
+      ["modules", "sourceBindings", "ownership", "includeExecution", "includeModuleOrigins",
+        "correspondenceAllowance"]
   return {
     modules := ← j.getObjValAs? _ "modules"
     sourceBindings := ← j.getObjValAs? _ "sourceBindings"
     ownership := ← j.getObjValAs? _ "ownership"
     includeExecution := ← j.getObjValAs? _ "includeExecution"
     includeModuleOrigins := ← j.getObjValAs? _ "includeModuleOrigins"
+    correspondenceAllowance := ← j.getObjValAs? _ "correspondenceAllowance"
   }⟩
 
 /-- The result of one grouped inspection: the worker's report and the coordinator's transcripts. -/
@@ -135,6 +140,7 @@ unsafe def inspectGroupWorker (request : GroupRequest) : IO ProducerReport.Outco
       (source.moduleName, FilePath.mk source.path)
     let outcome ← Environment.loadReportCurrentSearchPathOutcome request.modules moduleSources
       request.ownership request.includeExecution request.includeModuleOrigins
+      request.correspondenceAllowance
     if let .ok report := outcome then
       if let .error failure := SourceBinding.validateAgainst request.sourceBindings report then
         return .error (.admission failure)
@@ -150,7 +156,8 @@ def inspectGroupCurrentSearchPath (modules : Array Name)
     (transcriptSources : Array (Name × FilePath) := #[])
     (moduleSources : Array (Name × FilePath) := #[]) (ownership : Ownership := {})
     (includeExecution : Bool := true) (includeModuleOrigins : Bool := true)
-    (compiledSources : Array ProducerReport.SourceBinding := #[]) :
+    (compiledSources : Array ProducerReport.SourceBinding := #[])
+    (correspondenceAllowance : Nat := Regula.Probe.correspondenceMemoryBytes) :
     IO (Except ProducerReport.Refusal GroupReport) := do
   return (← SourceBinding.withUnchanged (α := Except ProducerReport.Refusal GroupReport)
       compiledSources #[] do
@@ -174,6 +181,7 @@ def inspectGroupCurrentSearchPath (modules : Array Name)
           ownership
           includeExecution
           includeModuleOrigins
+          correspondenceAllowance
         }
         writeJson input (toJson request)
         let result ← runProcess (← IO.currentDir) binary.toString

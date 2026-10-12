@@ -168,42 +168,58 @@ private def reportPhase {α : Type} (enabled : Bool) (label : String)
 correspondence obligation costs no more than a declaration the adopter could write. -/
 private def correspondenceHeartbeats : USize := (Core.getMaxHeartbeats {}).toUSize
 
-/-- Resident memory the correspondence checks of one process may add above its peak resident
-size at its first check: 1 GiB. The limit is fixed once per process, at that first check, to
-that peak plus this allowance. The peak is at least the resident size then, so the first
-check never fires on memory the process already held (its imported environment included).
-Every later check in the process runs under the same limit, so no number of checks, exhausted
-or not, raises the process's resident memory during a check above it. The allowance is shared
-by every later check and all other resident growth in the process, so a later check that
-starts at or above the limit exhausts at once and fails closed. At most three report workers
-run at once, so the checks add at most 3 GiB to their first-check peaks; that increment
-does not bound those peaks or memory used outside the checks. -/
-private def correspondenceMemoryBytes : Nat := 1024 * 1024 * 1024
+/-- Resident memory one correspondence check may add above the process's peak resident size at
+the check's start: 1 GiB (`correspondenceBound`). A check that exhausts its limit in a report is
+decided again in a fresh worker (`decideCorrespondence`), whose limit is its own peak after the
+environment import plus this same allowance. -/
+def correspondenceMemoryBytes : Nat := 1024 * 1024 * 1024
 
-/-- This process's correspondence memory limit in bytes, fixed at its first check. -/
-private initialize correspondenceLimit : IO.Ref (Option Nat) ← IO.mkRef none
+/-- The memory limit of one correspondence check, in bytes: the process's peak resident size
+`peak` at the check's start plus `allowance`, and never above the limit `outer` that the shell set
+from `max_memory` when it set one (`0` sets none). It reads its arguments alone, so no earlier
+check fixes it, and the checks before it can only raise `peak`
+(`correspondenceBound_full_iff`, `peak_lt_correspondenceBound_iff`). -/
+def correspondenceBound (outer peak allowance : Nat) : Nat :=
+  if outer = 0 then peak + allowance else min outer (peak + allowance)
 
-/-- Lean's runtime memory limit in bytes (`lean -M`; `0` disables it). The kernel compares it
-with the process's resident memory at its system checks and raises `excessiveMemory`.
+/-- A check gets its whole allowance above its starting peak exactly when the shell set no limit
+or set one that leaves room for it. -/
+theorem correspondenceBound_full_iff (outer peak allowance : Nat) :
+    correspondenceBound outer peak allowance = peak + allowance ↔
+      outer = 0 ∨ peak + allowance ≤ outer := by
+  unfold correspondenceBound
+  split <;> omega
+
+/-- The limit lies above the starting peak, so it does not end a check on memory the process
+already held, exactly when the allowance is positive and the shell's limit, if any, is above the
+peak. -/
+theorem peak_lt_correspondenceBound_iff (outer peak allowance : Nat) :
+    peak < correspondenceBound outer peak allowance ↔
+      0 < allowance ∧ (outer = 0 ∨ peak < outer) := by
+  unfold correspondenceBound
+  split <;> omega
+
+/-- Lean's runtime memory limit in bytes (`lean -M`; `0` disables it). The kernel raises
+`excessiveMemory` at a system check when the process's peak and current resident sizes are both
+at least this limit (`check_memory`, `src/runtime/memory.cpp:145-158` at v4.34.1).
 `Lean.Shell` keeps its own binding of this runtime symbol private. -/
 @[extern "lean_internal_set_max_memory"]
 private opaque setMaxMemory (bytes : USize) : BaseIO Unit
 
-/-- Run `action` under this process's correspondence limit, fixing it at the first call from
-the peak resident size (libuv reports it in KiB), never above the limit the shell set from
-`max_memory`, and restore that limit afterward. The runtime limit is process-wide, and a
+/-- Whether a kernel check of this process has exhausted its memory limit since the flag was last
+cleared: `kernelAnswer` sets it, and each correspondence check of the walk clears it first
+(`observeNode`). A process runs its correspondence checks sequentially. -/
+private initialize memoryExhausted : IO.Ref Bool ← IO.mkRef false
+
+/-- Run `action` under the limit of one correspondence check, `correspondenceBound` of the shell's
+`max_memory` limit, the process's peak resident size now (libuv reports it in KiB) and
+`allowance`, and restore the shell's limit afterward. The runtime limit is process-wide, and a
 process runs its correspondence checks sequentially. -/
-private def withCorrespondenceMemory {α : Type} (opts : Options) (action : IO α) : IO α := do
+private def withCorrespondenceMemory {α : Type} (opts : Options) (allowance : Nat)
+    (action : IO α) : IO α := do
   let outer := (opts.get? `max_memory).getD (0 : Nat) * 1024 * 1024
-  let bound ← match ← correspondenceLimit.get with
-    | some bound => pure bound
-    | none => do
-      let peak := (← Std.Internal.UV.System.getrusage).maxRSS.toNat * 1024
-      let bound := peak + correspondenceMemoryBytes
-      correspondenceLimit.set (some bound)
-      pure bound
-  let bound := if outer == 0 then bound else min outer bound
-  setMaxMemory bound.toUSize
+  let peak := (← Std.Internal.UV.System.getrusage).maxRSS.toNat * 1024
+  setMaxMemory (correspondenceBound outer peak allowance).toUSize
   try action finally setMaxMemory outer.toUSize
 
 /-- Kernel resource exhaustion ends admission without a verdict on the proof. -/
@@ -221,11 +237,13 @@ implicit arguments and universe levels, and Lean's printer can abbreviate, so on
 is complete; the axioms are those the declaration reaches in the kernel
 environment that holds it (`KernelAxioms.axiomsWith`), the search stopping at each name of
 `cached`, the table admission computed in the replayed kernel for the owned declarations' closure,
-and an exhausted search is the kernel's exhaustion; its resource exhaustion or interruption (`kernelExhausted`);
-or any other refusal. A proof or proposition with an undischarged variable, and an error while the
+and an exhausted search is the kernel's exhaustion; its resource exhaustion or interruption
+(`kernelExhausted`); or any other refusal. The check runs under the limit of
+`withCorrespondenceMemory` for `allowance`, and an exhaustion of that limit sets
+`memoryExhausted`. A proof or proposition with an undischarged variable, and an error while the
 answer is read, raise an error and record no answer. -/
-private def kernelAnswer (cached : Std.HashMap Name (Array Name)) (levels : List Name)
-    (required proof : Expr) : MetaM KernelAnswer := do
+private def kernelAnswer (cached : Std.HashMap Name (Array Name)) (allowance : Nat)
+    (levels : List Name) (required proof : Expr) : MetaM KernelAnswer := do
   let required ← instantiateMVars required
   let proof ← instantiateMVars proof
   if required.hasMVar || proof.hasMVar || required.hasFVar || proof.hasFVar then
@@ -237,10 +255,12 @@ private def kernelAnswer (cached : Std.HashMap Name (Array Name)) (levels : List
     type := required
     value := proof }
   let env ← getEnv
-  let result ← withCorrespondenceMemory (← getOptions) <|
+  let result ← withCorrespondenceMemory (← getOptions) allowance <|
     IO.lazyPure fun _ => env.addDeclCore correspondenceHeartbeats 1000 declaration none
   match result with
-  | .error e => return if kernelExhausted e then .exhausted else .refused
+  | .error e =>
+    if e matches .excessiveMemory then memoryExhausted.set true
+    return if kernelExhausted e then .exhausted else .refused
   | .ok checked =>
     let some axioms := RegulaPolicy.KernelAxioms.axiomsWith checked.toKernelEnv.find? cached
         (RegulaPolicy.KernelAxioms.fuelFor checked 1) name | return .exhausted
@@ -268,7 +288,8 @@ prefix of the actual dependent domain, instantiate its universes and premises,
 match the equality, apply any remaining arguments by congruence, and close over
 exactly the actual domain. Unsolved theorem-only premises remain metavariables
 and cannot pass kernel admission. Search incompleteness never grants evidence. -/
-private def theoremCorrespondence? (cached : Std.HashMap Name (Array Name)) (levels : List Name)
+private def theoremCorrespondence? (cached : Std.HashMap Name (Array Name)) (allowance : Nat)
+    (levels : List Name)
     (reference replacement : Expr) (domain : Array Expr) (required : Expr) (name : Name) :
     MetaM (Option (String × CorrespondenceTerms)) := do
   for count in List.range (domain.size + 1) do
@@ -286,7 +307,8 @@ private def theoremCorrespondence? (cached : Std.HashMap Name (Array Name)) (lev
           for arg in domain.extract count domain.size do
             proof ← Meta.mkCongrFun proof arg
           proof ← Meta.mkLambdaFVars domain proof
-          let .completed (some terms) ← comparison (kernelAnswer cached levels required proof)
+          let .completed (some terms) ←
+              comparison (kernelAnswer cached allowance levels required proof)
             | return none
           return some (s!"proved: {name}; {terms.text}", terms)
         catch _ => return none
@@ -367,7 +389,7 @@ it built the reflexivity proof or read the answer, is unresolved, never trusted 
 An elaborator resource limit reached while constructing the correspondence is rethrown rather
 than recorded as unresolved. -/
 private def replacementCorrespondence (env : Environment) (cached : Std.HashMap Name (Array Name))
-    (prepared : Thunk (PreparedTheorems env)) (admits : Name → Bool)
+    (prepared : Thunk (PreparedTheorems env)) (admits : Name → Bool) (allowance : Nat)
     (reference replacement : Name)
     (proofCandidates : Array Name := #[]) :
     CommandElabM (Correspondence × Option String × Option CorrespondenceTerms) :=
@@ -389,23 +411,70 @@ private def replacementCorrespondence (env : Environment) (cached : Std.HashMap 
         let required ← Meta.mkForallFVars domain (← Meta.mkEq lhs rhs)
         for name in proofCandidates do
           if !admits name then continue
-          let evidence? ← theoremCorrespondence? cached levels ref impl domain required name
+          let evidence? ←
+            theoremCorrespondence? cached allowance levels ref impl domain required name
           if let some (evidence, terms) := evidence? then
             return (.checked, some evidence, some terms)
         for (name, used) in prepared.get.entries do
           let some name := correspondenceCandidate reference replacement (name, used.get)
             | continue
           if !admits name then continue
-          let evidence? ← theoremCorrespondence? cached levels ref impl domain required name
+          let evidence? ←
+            theoremCorrespondence? cached allowance levels ref impl domain required name
           if let some (evidence, terms) := evidence? then
             return (.checked, some evidence, some terms)
         let outcome ← comparison do
-          kernelAnswer cached levels required
+          kernelAnswer cached allowance levels required
             (← Meta.mkLambdaFVars domain (← Meta.mkEqRefl lhs))
         return (outcome.classify.1, outcome.classify.2, outcome.terms?)
     catch _ =>
       return (.unresolved,
           some s!"cannot construct exact correspondence for {reference} and {replacement}", none)
+
+/-- One correspondence check, as a report asks a fresh worker to decide it after the check
+exhausted its memory limit in the report's process (`decideCorrespondence`): the modules whose
+theorems the check may use (`admitted`, the report's `admits` as a set of modules), the axioms the
+report's admission recorded for the owned declarations (`cached`), the endpoints, and the
+theorems of the compiler's simplification candidates that relate them (`proofs`). -/
+structure CorrespondenceRequest where
+  /-- The modules whose theorems a correspondence may use. -/
+  admitted : Array Name
+  /-- The axioms of each owned declaration, from the report's admission. -/
+  cached : Array (Name × Array Name)
+  /-- The logical definition. -/
+  reference : Name
+  /-- The definition that runs in its place. -/
+  replacement : Name
+  /-- The supplied candidate theorems, tried first. -/
+  proofs : Array Name
+  deriving ToJson, FromJson
+
+/-- The fresh worker's decision of one correspondence check (`--correspondence-worker`), on the
+environment that the worker imported for the report's requested modules:
+`replacementCorrespondence` with the request's `admits` and `cached`, under the limit of
+`correspondenceBound` for `correspondenceMemoryBytes`, whose peak is this process's after its
+import. The worker refuses an environment whose foundation axioms are not the toolchain's, as the
+report does (`Collect.authenticateFoundation`). -/
+def decideCorrespondence (request : CorrespondenceRequest) :
+    CommandElabM (Correspondence × Option String × Option CorrespondenceTerms) := do
+  let env ← getEnv
+  liftIO <| Regula.Collect.authenticateFoundation env
+  let admitted := NameSet.ofArray request.admitted
+  let admits (candidate : Name) : Bool := match env.getModuleIdxFor? candidate with
+    | some idx => admitted.contains env.header.modules[(idx : Nat)]!.module
+    | none => false
+  replacementCorrespondence env (Std.HashMap.ofList request.cached.toList)
+    (Thunk.mk fun _ => prepareTheorems env) admits correspondenceMemoryBytes request.reference
+    request.replacement request.proofs
+
+/-- The words that open the detail of a correspondence check that a fresh worker decided after the
+check exhausted its memory limit in the report's process. -/
+def freshDecision : String :=
+  "decided in a fresh worker after the check exhausted its memory limit in the report's process"
+
+/-- The answer of a fresh worker to a `CorrespondenceRequest`, or the error that ended it. -/
+abbrev FreshCorrespondence := CorrespondenceRequest →
+  IO (Except String (Correspondence × Option String × Option CorrespondenceTerms))
 
 /-- The pinned `CSimp.isConstantReplacement?` shape, indexed independently of
 the final scoped attribute state. This conservative candidate set includes
@@ -550,8 +619,8 @@ compiler IR, all supported equality candidates, and observed implementation choi
 metadata supplements source dependencies; neither alone retains all earlier replacements after
 inlining. Equality candidates are not a claim that the compiler selected them. Extern reference
 bodies remain boundary leaves. An `extern` of a project or dependency whose C symbol one Lean
-declaration exports (`exportersOf`) is an exported implementation by that declaration, and a constant
-with an initializer is an initialized value.
+declaration exports (`exportersOf`) is an exported implementation by that declaration, and a
+constant with an initializer is an initialized value.
 
 An opaque constant gets a helper edge to the constant `Lean.Compiler.mkUnsafeRecName` names for it
 when the environment has that constant and it is `partial`. The edge is how the policy pairs a
@@ -584,7 +653,9 @@ private def observeNode (env : Environment) (ownedModules : List Name)
     (proofCache : IO.Ref
       (Std.HashMap (Name × Name) (Correspondence × Option String × Option CorrespondenceTerms)))
     (dependencyCache : IO.Ref (CompilerDependenciesCache env))
-    (preparedTheorems : Thunk (PreparedTheorems env)) (admits : Name → Bool)
+    (preparedTheorems : Thunk (PreparedTheorems env)) (admits : Name → Bool) (allowance : Nat)
+    (decideAfresh : Name → Name → Array Name →
+      IO (Except String (Correspondence × Option String × Option CorrespondenceTerms)))
     (timing : Bool)
     (name : Name) : CommandElabM (RegulaPolicy.ExecutionWalk.NodeRecord name) := do
   let moduleOf (name : Name) : Option Name :=
@@ -593,8 +664,19 @@ private def observeNode (env : Environment) (ownedModules : List Name)
     if let some result := (← liftIO proofCache.get)[(reference, target)]? then return result
     let proofs := ((candidates.find? reference).getD #[]).filterMap fun candidate =>
       if candidate.toDeclName == target then some candidate.thmName else none
-    let result ← reportPhase timing s!"correspondence {reference} -> {target}" <|
-      replacementCorrespondence env cached preparedTheorems admits reference target proofs
+    -- A check that exhausted its memory limit here is decided again in a fresh worker, whose
+    -- answer is the one reported, so it does not depend on what this process did before.
+    liftIO <| memoryExhausted.set false
+    let inProcess ← reportPhase timing s!"correspondence {reference} -> {target}" <|
+      replacementCorrespondence env cached preparedTheorems admits allowance reference target
+        proofs
+    let result ← if !(← liftIO memoryExhausted.get) then pure inProcess else
+      reportPhase timing s!"fresh correspondence {reference} -> {target}" do
+        match ← liftIO (decideAfresh reference target proofs) with
+        | .ok (state, detail, terms) =>
+          pure (state, some s!"{freshDecision}; {detail.getD ""}", terms)
+        | .error error =>
+          pure (.unresolved, some s!"{freshDecision}, which failed: {error}", none)
     liftIO <| proofCache.modify (·.insert (reference, target) result)
     return result
   let code : RegulaPolicy.ExecutionWalk.CodeStatus := match Lean.IR.findEnvDecl env name with
@@ -788,7 +870,9 @@ private def executionWalk (env : Environment) (ownedModules : List Name)
       (Std.HashMap (Name × Name) (Correspondence × Option String × Option CorrespondenceTerms)))
     (dependencyCache : IO.Ref (CompilerDependenciesCache env))
     (recordCache : IO.Ref NodeRecordCache)
-    (preparedTheorems : Thunk (PreparedTheorems env)) (admits : Name → Bool)
+    (preparedTheorems : Thunk (PreparedTheorems env)) (admits : Name → Bool) (allowance : Nat)
+    (decideAfresh : Name → Name → Array Name →
+      IO (Except String (Correspondence × Option String × Option CorrespondenceTerms)))
     (recursorHelpers : Array Name) (root : Name) (timing : Bool) : CommandElabM
     (Array Regula.Report.ExecutionBoundary ×
       Array String × Array (Name × Name) × RegulaPolicy.ExecutionClosure) := do
@@ -826,7 +910,8 @@ private def executionWalk (env : Environment) (ownedModules : List Name)
             loaded.modify (·.push moduleName)
             loadReplacementHistory moduleName
           let record ← observeNode env ownedModules toolchainModules cached load
-            candidates proofCache dependencyCache preparedTheorems admits timing name
+            candidates proofCache dependencyCache preparedTheorems admits allowance decideAfresh
+            timing name
           let histories ← liftIO loaded.get
           liftIO <| recordCache.modify (·.insert name (record, histories))
           pure record
@@ -928,7 +1013,10 @@ def environmentReport (modules : List Name)
       fun _ => pure (.error "trusted source-history loader was not supplied"))
     (includeExecution : Bool := true) (includeModuleOrigins : Bool := true)
     (replayed : Option Regula.Collect.Replayed := none) (replayedModules : NameSet := {})
-    (dependencies : List Name := []) :
+    (dependencies : List Name := [])
+    (correspondenceAllowance : Nat := correspondenceMemoryBytes)
+    (freshCorrespondence : FreshCorrespondence :=
+      fun _ => pure (.error "no fresh correspondence worker was supplied")) :
     CommandElabM Regula.Report.Collected := do
   let timing := (← IO.getEnv "REGULA_TIMING") == some "1"
   let label := String.intercalate ", " (modules.map toString)
@@ -1017,6 +1105,11 @@ def environmentReport (modules : List Name)
           let moduleName := env.header.modules[(idx : Nat)]!.module
           replayedModules.contains moduleName || toolchainModules.contains moduleName
       | none => false
+    -- A check that exhausts its memory limit here goes to the fresh worker with the same theorem
+    -- modules, as a set, and the same recorded axioms.
+    let admitted := replayedModules.toList.toArray ++ toolchainModules.toList.toArray.map (·.1)
+    let decideAfresh (reference replacement : Name) (proofs : Array Name) :=
+      freshCorrespondence { admitted, cached := cached.toArray, reference, replacement, proofs }
     roots.mapM fun (moduleName, root) => do
       let (boundaries, unresolved, compilerEdges, closure) ←
         reportPhase timing s!"execution walk {root}" <| observing env root "execution walk" <|
@@ -1024,7 +1117,7 @@ def environmentReport (modules : List Name)
             historyRequests.modify fun requests =>
               if requests.contains (root, name) then requests else requests.push (root, name)
             loadHistoryOnce name) candidates proofCache dependencyCache recordCache
-            preparedTheorems admits recursorHelpers root timing
+            preparedTheorems admits correspondenceAllowance decideAfresh recursorHelpers root timing
       return ({
         name := root
         «module» := moduleName

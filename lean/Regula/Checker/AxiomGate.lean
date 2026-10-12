@@ -1715,15 +1715,15 @@ private def refuseInvocation (message : String) : IO UInt32 := do
   return Lint.Outcome.configuration.exitCode
 
 /-- Run one `axiomGate` invocation and return its exit code. The internal forms
-`--validate-site`, `--registry-out`, `--validate-registry` and `--replacement-history-worker`
-do only that job; otherwise it reads its arguments once into its plan (`Plan.of`): whether to
-admit them (`admit`), its root and its resolved destinations. It marks each destination
-incomplete, refuses an invalid invocation whatever marking failed, audits the single file or the
-manifested project surfaces under that root, and writes the result JSON and the acceptance link
-at those resolved destinations. An audit returns the exit code
-of the result it recorded (`Lint.gateExitCode`): 0 accepted or classified, 1 violation, 2 invalid
-configuration, 3 incomplete; an invalid invocation returns 2, and `--help` and the internal forms
-0 when they succeed. -/
+`--validate-site`, `--registry-out`, `--validate-registry`, `--correspondence-worker` and
+`--replacement-history-worker` do only that job; otherwise it reads its arguments once into its
+plan (`Plan.of`): whether to admit them (`admit`), its root and its resolved destinations. It marks
+each destination incomplete, refuses an invalid invocation whatever marking failed, audits the
+single file or the manifested project surfaces under that root, and writes the result JSON and the
+acceptance link at those resolved destinations. An audit returns the exit code of the result it
+recorded (`Lint.gateExitCode`): 0 accepted or classified, 1 violation, 2 invalid configuration,
+3 incomplete; an invalid invocation returns 2, and `--help` and the internal forms 0 when they
+succeed. -/
 unsafe def run (args : List String) : IO UInt32 := do
   terminalObservation.set none
   auditedTarget.set none
@@ -1795,6 +1795,11 @@ unsafe def run (args : List String) : IO UInt32 := do
     unless (← IO.FS.readFile source) == before do throw <| IO.userError "diagnostic source changed"
     writeJson out
         (workerPacket (sourceWorkerRequest "diagnostic" moduleName source before) (toJson errors))
+    return 0
+  if let ["--correspondence-worker", input, out] := args then
+    let json ← IO.ofExcept <| Regula.Checker.PolicyCodec.parse (← IO.FS.readFile input)
+    let request ← IO.ofExcept (fromJson? json)
+    writeJson out (workerPacket json (toJson (← Environment.correspondenceWorker request)))
     return 0
   if let ["--replacement-history-worker", moduleWire, source, out] := args then
     let moduleName ← IO.ofExcept <| Regula.RegistryCodec.parseName

@@ -7,10 +7,10 @@ import Regula.Checker.Policy
 
 The project audit's acquisition of every claimed surface environment's report, shared by the
 audit and the environment-census qualification so both observe the same reports. Each report
-comes from its own `--declaration-report-worker` process: a report's correspondence checks run
-under a resource limit fixed once per process (`Regula.Probe`), so a process that inspected an
-earlier environment is not a fresh one for the next. Process launch, the worker's Lean
-elaboration and filesystem reads are trusted IO boundaries. -/
+comes from its own `--declaration-report-worker` process, so the imports of one environment do not
+stay resident while the next is reported. A correspondence check that exhausts its memory limit
+there is decided again in a fresh worker (`Regula.Probe.freshDecision`). Process launch, the
+worker's Lean elaboration and filesystem reads are trusted IO boundaries. -/
 namespace Regula.Checker.Inspection
 
 open Lean System

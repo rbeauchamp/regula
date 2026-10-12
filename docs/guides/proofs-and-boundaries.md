@@ -1001,27 +1001,45 @@ set (`accepts_iff`). The accepted values were read from the option registrations
 from those registrations, not a theorem. The exception is a raised `exponentiation.threshold`,
 which stops the warning that a power was not evaluated, because Lean then evaluates the power.
 
-**Correspondence resource bound.** `kernelAnswer` gives the kernel Lean's
-per-declaration default heartbeats (`Core.getMaxHeartbeats` of the default options), so a
-checker-added obligation costs no more than one the adopter could write, and runs under Lean's
-runtime memory limit. The limit is fixed once per process, at its first correspondence check, to the
-process's peak resident size then plus 1 GiB; it is set only while a check runs, never exceeds a
-`max_memory` the shell set, and is restored afterward. Argued from the Lean runtime source, not
-observed: the kernel throws only when current resident memory reaches the limit, so the first check
-never fires on memory already held, and because the limit never re-reads the peak, an exhausted
-check cannot raise the next one's limit. The 1 GiB is shared by every later check and other growth
-in the worker, so after one exhaustion later checks may exhaust at once; they fail closed as
-unresolved. At most three report workers run, each running its checks sequentially, so checks add at
-most 3 GiB above those workers' first-check peaks; that increment does not by itself bound the
-audit's total memory. Because the allowance is per process, a process that has inspected one
-environment is not fresh for the next, whose checks may then exhaust at once; the audit and the
-`qualify environments` census therefore acquire every claimed environment's report through the same
-code, `Inspection.inspect`, each in its own report worker. Supplied and then discovered theorem
-candidates are tried before the kernel-defeq check, to keep a kernel-exhausting unfolding within one
-comparison from consuming the headroom a supplied proof needs, so a replacement with both reports
-`proved:` evidence; kernel resource exhaustion is never conflated with rejection; a theorem
-candidate whose admission exhausts the kernel supplies no evidence, like any candidate the
-deliberately incomplete search cannot use.
+**Correspondence resource bound.** `kernelAnswer` gives the kernel the default heartbeats of
+`Core.getMaxHeartbeats`, which Lean gives each declaration. Thus a checker-added obligation costs
+no more than one that the adopter could write. The check also runs under Lean's runtime memory
+limit, which `Probe.correspondenceBound` gives for each check. That limit is the peak resident size
+of the process at the start of the check plus 1 GiB, and never more than a `max_memory` that the
+shell set. The checker sets the limit only while the check runs and then restores the earlier
+limit.
+
+The function reads only its arguments, so no earlier check fixes the limit of a later check.
+`correspondenceBound_full_iff` states when a check gets the full 1 GiB above its starting peak.
+`peak_lt_correspondenceBound_iff` states when the limit is above the memory that the process
+already held. The kernel stops a check only when the peak and the current resident size both
+reach the limit, as `check_memory` in `src/runtime/memory.cpp` of Lean `v4.34.1` shows. This is
+read from the runtime source and is not a theorem.
+
+A check that exhausts its limit in the process of the report gets a second decision in one fresh
+worker, `axiomGate --correspondence-worker`. The worker imports the requested modules of the report
+again and decides the same check. Its limit is its own peak after the import plus the same 1 GiB.
+The answer of the worker is the reported answer, and its evidence starts with
+`Probe.freshDecision`. Thus no unresolved result depends on the checks that ran before it in the
+process of the report. A checked result is correct whatever memory it used, because the limit
+decides only whether a check completes and not what the kernel establishes.
+
+One residual remains, and it makes no checked result wrong. A check that needs more than its fresh
+allowance can complete in the process of the report when earlier work left a higher peak. Thus the
+set of checked boundaries can be larger in some runs than in others. The limit bounds the growth
+of each check above its starting peak and not the total of the process. Each check can raise the
+peak of the process by at most 1 GiB.
+
+The fresh worker runs only for a check that exhausted its limit, and it runs inside the deadline of
+its caller. In the acceptance runs of this change, no check of the surfaces of this repository
+exhausted its limit, so the two `verify.sh` steps started no fresh worker in their 420 seconds. The control `freshCorrespondenceControl` of the self-test starts one
+worker. The whole control, with the compilation of its fixture and the report, took 7.7 seconds.
+
+Supplied and then discovered theorem candidates are tried before the kernel-defeq check, to keep a
+kernel-exhausting unfolding within one comparison from consuming the headroom a supplied proof
+needs, so a replacement with both reports `proved:` evidence; kernel resource exhaustion is never
+conflated with rejection; a theorem candidate whose admission exhausts the kernel supplies no
+evidence, like any candidate the deliberately incomplete search cannot use.
 The correspondence cache in `Probe.environmentReport` stores checked results by name pair within one
 fixed environment, and replacement-history worker output is shared within one audit only under
 identical inputs (standard §7.6); no cache crosses environments. A cross-environment cache would

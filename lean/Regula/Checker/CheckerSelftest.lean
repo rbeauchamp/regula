@@ -3068,6 +3068,53 @@ private unsafe def adopterQualification (repo scratch : FilePath) : IO (Array St
           s!"adopter/toml/fresh-plan: exact adopter coverage plan failed:\n{fresh.output}")
   failures.get
 
+/-- External-boundary control of the fresh decision of a correspondence check (standard §7.6):
+`Fixtures/Positive/FreshCorrespondence.lean`, compiled in `scratch`, is inspected through the
+checker's own grouped inspection with a 128 MiB allowance for each check
+(`Probe.correspondenceBound`). Its smaller check raises the report process's peak and completes
+there, so its evidence does not open with `Probe.freshDecision`; its larger check, about 460 MiB,
+exhausts that limit in the report's process and is decided by a fresh worker under the standard
+1 GiB allowance, so it is checked and its evidence opens with `Probe.freshDecision`. That the
+in-process limit and the exhaustion are what the runtime reports is the external mechanism under
+test; `Probe.correspondenceBound_full_iff` states the limit. -/
+private unsafe def freshCorrespondenceControl (repo scratch : FilePath)
+    (leanPath : Array FilePath) : IO (Array String) := do
+  let source ←
+    IO.FS.readFile (repo / "lean" / "Fixtures" / "Positive" / "FreshCorrespondence.lean")
+  let compilation ← IO.ofExcept <| (← SourceAudit.compile repo scratch {
+    «module» := "SelftestFreshCorrespondence", source }).mapError (·.detail)
+  unless SourceAudit.compilationPassed compilation do
+    return #[s!"fresh-correspondence: the fixture did not compile:\n{compilation.process.output}"]
+  let moduleName := `SelftestFreshCorrespondence
+  let selfLib ← checkerPackageLibDir
+  let oldSearchPath ← Lean.searchPathRef.get
+  Lean.searchPathRef.set (scratch :: leanPath.toList ++ selfLib.toList ++ oldSearchPath)
+  let outcome ← try
+      SourceAudit.inspectGroupCurrentSearchPath #[moduleName]
+        (compiledSources :=
+          #[{ moduleName, path := compilation.sourcePath.toString, content := source }])
+        (correspondenceAllowance := 128 * 1024 * 1024)
+    finally Lean.searchPathRef.set oldSearchPath
+  let inspected ← match outcome with
+    | .ok inspected => pure inspected
+    | .error refusal =>
+      return #[s!"fresh-correspondence: the inspection refused: {refusal.detail}"]
+  let boundaries := inspected.report.execution.flatMap (·.boundaries)
+  let mut failures := #[]
+  for (reference, fresh) in [(`fixtures_fresh_small, false), (`fixtures_fresh_large, true)] do
+    let found := boundaries.filter (·.name == reference)
+    if found.isEmpty then
+      failures := failures.push s!"fresh-correspondence: no boundary at {reference}"
+    for boundary in found do
+      let evidence := boundary.evidence.getD ""
+      if boundary.correspondence != .checked then
+        failures := failures.push
+          s!"fresh-correspondence: {reference} is {boundary.correspondence}: {evidence}"
+      if evidence.startsWith Regula.Probe.freshDecision != fresh then
+        failures := failures.push s!"fresh-correspondence: {reference} was \
+          {if fresh then "not " else ""}decided by a fresh worker: {evidence}"
+  return failures
+
 /-- In-process fixture, scanner, and fence-corpus controls. Imports
 remain serialized, and transcript workers finish before parent imports.
 
@@ -3087,6 +3134,13 @@ private unsafe def runFixtures (repo : FilePath) (jobs : Nat)
     IO.println (s!"self-test fixtures: " ++
       (if fixtureResults.all (·.isNone) then "PASS" else "FAIL") ++
       s!" ({fixtures.size} in one process, one environment load per import closure)")
+    let fresh ← loggedPhase "fresh correspondence" <|
+      freshCorrespondenceControl repo scratch inventory.leanPath
+    for failure in fresh do failures.modify (·.push failure)
+    IO.println <| "self-test fresh correspondence: " ++
+      (if fresh.isEmpty then "PASS" else "FAIL") ++
+      " (a check that exhausts its memory limit in the report's process is decided by a fresh \
+        worker; an earlier check that completed there is not)"
   for failure in scannerQualification do failures.modify (·.push failure)
   withScratch repo "checker-fence-corpus" fun scratch => do
     let corpus ← loggedPhase "in-process fence corpus" <|
