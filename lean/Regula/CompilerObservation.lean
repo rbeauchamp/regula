@@ -9,7 +9,9 @@ This operational collector imports only the selected compiler's Core into a sepa
 environment with extension loading disabled. It never inspects the audited environment
 or changes the global search path. Every resolved Core dependency must come from the
 compiler's own library directory. The preparation driver executes this same source
-with the selected compiler; no compiled Regula dependency is required. -/
+with the selected compiler; no compiled Regula dependency is required. It also names the
+toolchain's installation directory (`toolchainRoot`), accepted only once its `lean` reports a
+given version and commit (`identifiedRoot`). -/
 
 public section
 
