@@ -1,5 +1,6 @@
 import Regula.Removal
 import Regula.TaskManagerCheck
+import Regula.Process
 import Regula.Checker.PolicyCodec
 import Regula.Checker.Documentation
 import Regula.Checker.Lake
@@ -598,11 +599,11 @@ private def inspectedAlone (fixture : FixtureSpec) : Bool :=
 
 private def runBinary (repo : FilePath) (name : String)
     (args : Array String) : IO ProcessResult := do
-  runProcess repo (← toolPath repo name).toString args
+  runProcess repo (.stated (← toolPath repo name).toString "The caller selects this resolved non-toolchain executable") args
 
 private def runBinaryFrom (binaryRepo cwd : FilePath) (name : String)
     (args : Array String) : IO ProcessResult := do
-  runProcess cwd (← toolPath binaryRepo name).toString args
+  runProcess cwd (.stated (← toolPath binaryRepo name).toString "The caller selects this resolved non-toolchain executable") args
 
 /-- The record of the declaration `name` in a gate output: the line whose text after its verdict
 tag, `[OK] ` or `[VIOLATION[...]] `, begins with `name (`, then the lines after it up to the next
@@ -806,7 +807,7 @@ private unsafe def fixtureVerdicts (repo scratch : FilePath) (jobs : Nat)
       try
         let out := scratch / s!"transcript-{item.index + 1}.json"
         let spawned ← runProcess repo
-          (repo / ".lake" / "build" / "bin" / "checkerSelftest").toString
+          (.stated (repo / ".lake" / "build" / "bin" / "checkerSelftest") "The diagnostic runs its built transcript worker")
           #["--transcript-worker", (Regula.RegistryCodec.nameJson moduleName.toName).compress,
               item.compilation.sourcePath.toString, toString item.compilation.spec.rejectWarnings,
             out.toString]
@@ -1079,7 +1080,7 @@ private def bvCheckCertificates (repo scratch : FilePath) : IO (FilePath × File
     let source := dir / "Certificate.lean"
     IO.FS.writeFile source <| "import Std.Tactic.BVDecide\n" ++
       s!"theorem certificate (x y : BitVec 2) : (x &&& y) + (x ||| y) = x + y := by {tactic}\n"
-    let result ← runProcess repo "lake" #["env", "lean", source.toString]
+    let result ← runProcess repo (.toolchain .lake) #["env", (← Regula.Process.toolPath .lean).toString, source.toString]
     unless result.succeeded do
       throw <| IO.userError s!"{name} LRAT setup failed: {result.output}"
     let files := (← dir.readDir).filter (·.path.extension == some "lrat")
@@ -1271,7 +1272,7 @@ private unsafe def diagnosticSetupQualification (repo scratch : FilePath) : IO (
   let source := project / "SetupSentinel.lean"
   let artifact := output / "SetupSentinel.olean"
   IO.FS.writeFile source "def setupValue : Nat := 0\n"
-  let build := runProcess project "lake" #["env", "lean", "-o", artifact.toString, source.toString]
+  let build := runProcess project (.toolchain .lake) #["env", (← Regula.Process.toolPath .lean).toString, "-o", artifact.toString, source.toString]
   let first ← build
   if !first.succeeded then return #[s!"diagnostic setup baseline failed: {first.output}"]
   let check (body pattern : String) := do
@@ -1380,12 +1381,12 @@ private unsafe def publicScannerQualification (repo scratch : FilePath) : IO (Ar
   let staleDir := scratch / "stale-lean-path"
   IO.FS.createDirAll staleDir
   IO.FS.writeFile (staleDir / "StaleImport.lean") "def staleImportValue : Nat := 1\n"
-  let compiled ← runProcess repo "lake" #["env", "lean", "-o",
+  let compiled ← runProcess repo (.toolchain .lake) #["env", (← Regula.Process.toolPath .lean).toString, "-o",
     (staleDir / "StaleImport.olean").toString, (staleDir / "StaleImport.lean").toString]
   if !compiled.succeeded then
     return #[s!"scanner/public/stale-setup: {compiled.output}"]
-  let inheritedLeanPath := (← IO.getEnv "LEAN_PATH").getD ""
-  let result ← runProcess repo (← toolPath repo "docFenceAudit").toString
+  let inheritedLeanPath := (← Regula.Process.readEnv "LEAN_PATH").getD ""
+  let result ← runProcess repo (.stated (← toolPath repo "docFenceAudit").toString "The caller selects this resolved non-toolchain executable")
     #["--jobs", "4", "--docs-root", docsRoot.toString]
     #[("LEAN_PATH", some (if inheritedLeanPath.isEmpty then staleDir.toString
       else s!"{staleDir}:{inheritedLeanPath}"))]
@@ -1886,7 +1887,7 @@ private unsafe def structuralSelfHosted (layout : SourceLayout) (repo copy : Fil
   let gate (label : String) (args : Array String := #["--incremental"]) := do
     loggedPhase s!"structural/self-hosted/{label}" do
       if ← timing.get then
-        runProcessShowing copy (← toolPath repo "axiomGate").toString
+        runProcessShowing copy (.stated (← toolPath repo "axiomGate").toString "The caller selects this resolved non-toolchain executable")
           args #[(timingVariable, some "1")] (·.startsWith "verification phase ")
       else
         runBinaryFrom repo copy "axiomGate" args
@@ -1947,7 +1948,7 @@ private unsafe def structuralPartB (layout : SourceLayout) (executables : Bool)
     withNewFile (sources / "AuditLookalike.lean") "axiom Attack.lookalikeAxiom : False\n" do
       let outputDir := copy / ".lake" / "build" / "lib" / "lean"
       IO.FS.createDirAll outputDir
-      let compiled ← runProcess copy "lake" #["env", "lean", "-R", sources.toString, "-o",
+      let compiled ← runProcess copy (.toolchain .lake) #["env", (← Regula.Process.toolPath .lean).toString, "-R", sources.toString, "-o",
         (outputDir / "AuditLookalike.olean").toString,
         (sources / "AuditLookalike.lean").toString]
       if !compiled.succeeded then
@@ -2653,7 +2654,7 @@ private def cluster (repo scratch : FilePath) (name : String) (prepare : FilePat
     let copy := scratch / s!"copy-{name}"
     let setup ← loggedPhase s!"cluster {name} setup" do
       prepare copy
-      runProcess copy "lake" (#["build"] ++ targets)
+      runProcess copy (.toolchain .lake) (#["build"] ++ targets)
     if !setup.succeeded then
       return #[s!"structural/setup: copy-{name} baseline did not build:\n{setup.output}"]
     part repo copy)
@@ -2823,7 +2824,7 @@ private def FenceEnvironmentPart.controls : FenceEnvironmentPart → String
 /-- Run the repository's tool `name` in `dir` with `LEAN_PATH` scrubbed. -/
 private def runScrubbed (repo dir : FilePath) (name : String) (args : Array String) :
     IO ProcessResult := do
-  runProcess dir (← toolPath repo name).toString args scrubbedLeanPathEnv
+  runProcess dir (.stated (← toolPath repo name).toString "The caller selects this resolved non-toolchain executable") args scrubbedLeanPathEnv
 
 /-- The control of `part` in the copied repository `dir`, which has no `.lake/build`, adding each
 failure to `failures`. -/
@@ -2874,17 +2875,17 @@ private unsafe def fenceEnvironmentControl (layout : SourceLayout) (repo : FileP
     -- toolchain's own `lean` (`Regula.Toolchain.program`), which refuses the `--fresh` option, and
     -- the control first runs it with the arguments a `leanchecker` gets for each root below and
     -- requires each run to fail, so an accepted run below did not run it.
-    let failing ← Regula.Toolchain.program "lean"
+    let failing ← Regula.Toolchain.program .lean
     let workspaceBin := dir / ".lake" / "build" / "bin"
     IO.FS.createDirAll workspaceBin
     let plantedPath := workspaceBin / "leanchecker"
-    let planted ← runProcess dir "ln" #["-s", failing.toString, plantedPath.toString]
+    let planted ← runProcess dir (.stated "ln" "until #399 replaces this copy with the construction in Regula.Filesystem") #["-s", failing.toString, plantedPath.toString]
     if !planted.succeeded then throw <| IO.userError planted.output
     unless (← IO.FS.realPath plantedPath) == (← IO.FS.realPath failing) do
       throw <| IO.userError "fence-env/fresh-checker: the planted leanchecker does not resolve \
         to the toolchain's lean"
     for root in expected do
-      let refused ← runProcess dir plantedPath.toString #["--fresh", root]
+      let refused ← runProcess dir (.stated plantedPath.toString "The caller selects this resolved non-toolchain executable") #["--fresh", root]
       if refused.succeeded then
         throw <| IO.userError s!"fence-env/fresh-checker: the planted leanchecker accepted \
           --fresh {root}, so it cannot show that freshChecker did not run it"
@@ -3063,13 +3064,13 @@ private unsafe def adopterQualification (repo scratch : FilePath) (parts : List 
     IO.FS.writeFile (adopter / "foundation_manifest.json") (adopterManifestText ++ "\n")
     writeJson (adopter / "lake-manifest.json") lakeManifest
     IO.FS.createDirAll (adopter / ".lake")
-    let link ← runProcess adopter "ln" #["-s", (repo / ".lake" / "packages").toString,
+    let link ← runProcess adopter (.stated "ln" "until #399 replaces this copy with the construction in Regula.Filesystem") #["-s", (repo / ".lake" / "packages").toString,
       (adopter / ".lake" / "packages").toString]
     if !link.succeeded then
       throw <| IO.userError s!"could not link pinned Lake packages: {link.output}"
     -- An adopter is a repository of its own, so `regula`, which it requires from this checkout, is
     -- a dependency in a different Git work tree, which the audit trusts, as an adopter's is.
-    let initialized ← runProcess adopter "git" #["init", "-q"]
+    let initialized ← runProcess adopter (.stated "git" "Git is the caller-selected repository mechanism") #["init", "-q"]
     if !initialized.succeeded then
       throw <| IO.userError s!"adopter/{label}/setup: git init failed: {initialized.output}"
     let gate (args : Array String := #[]) :=
@@ -3106,7 +3107,7 @@ private unsafe def adopterQualification (repo scratch : FilePath) (parts : List 
       IO.FS.writeFile unlistedSource "axiom widget_unlisted_axiom : False\n"
       let outDir := adopter / ".lake" / "build" / "lib" / "lean"
       IO.FS.createDirAll outDir
-      let compiled ← runProcess adopter "lake" #["env", "lean", "-o",
+      let compiled ← runProcess adopter (.toolchain .lake) #["env", (← Regula.Process.toolPath .lean).toString, "-o",
         (outDir / "WidgetRogue.olean").toString, unlistedSource.toString]
       if !compiled.succeeded then
         failures.modify (·.push s!"adopter/toml/unlisted-setup: {compiled.output}")
@@ -3261,10 +3262,10 @@ private def libraryCycleControl (repo : FilePath) : IO (Array String) :=
         s!"theorem {fact}Top : True := {otherFact}Base\n"
   -- Lake writes the lock manifest of this package without dependencies; without one the fresh
   -- copy's build would create it, a configuration change during the audit.
-  let locked ← runProcess project "lake" #["update"] scrubbedLeanPathEnv
+  let locked ← runProcess project (.toolchain .lake) #["update"] scrubbedLeanPathEnv
   unless locked.succeeded do return #[s!"library-cycle/setup: lake update failed:\n{locked.output}"]
   let result := output / "result.json"
-  let gate ← runProcess project (← toolPath repo "axiomGate").toString
+  let gate ← runProcess project (.stated (← toolPath repo "axiomGate").toString "The caller selects this resolved non-toolchain executable")
     #["--project", project.toString, "--json-out", result.toString] scrubbedLeanPathEnv
   unless gate.succeeded do return #[s!"library-cycle/accepted: expected PASS:\n{gate.output}"]
   let modules := #["Left.Base", "Left.Top", "Right.Base", "Right.Top"]
@@ -3338,11 +3339,11 @@ private def identicalCopiesControl (repo : FilePath) : IO (Array String) :=
       "theorem appFact : positive 1 = (0 < 1) ∧ True := ⟨rightUnfold 1, sharedFact⟩\n"
   -- Lake writes the lock manifest of this package without dependencies; without one the fresh
   -- copy's build would create it, a configuration change during the audit.
-  let locked ← runProcess project "lake" #["update"] scrubbedLeanPathEnv
+  let locked ← runProcess project (.toolchain .lake) #["update"] scrubbedLeanPathEnv
   unless locked.succeeded do
     return #[s!"identical-copies/setup: lake update failed:\n{locked.output}"]
   let result := output / "result.json"
-  let gate ← runProcess project (← toolPath repo "axiomGate").toString
+  let gate ← runProcess project (.stated (← toolPath repo "axiomGate").toString "The caller selects this resolved non-toolchain executable")
     #["--project", project.toString, "--json-out", result.toString] scrubbedLeanPathEnv
   unless gate.succeeded do
     return #[s!"identical-copies/accepted: expected PASS:\n{gate.output}"]
@@ -3437,7 +3438,7 @@ the other the registration: each must report `crossCheck` under RG1008. The gree
 private def crossSurfaceDecisionControl (refusals : Bool) (repo : FilePath) :
     IO (Array String) := do
   let gate (project : FilePath) (args : Array String) := do
-    runProcess project (← toolPath repo "axiomGate").toString
+    runProcess project (.stated (← toolPath repo "axiomGate").toString "The caller selects this resolved non-toolchain executable")
       (#["--project", project.toString, "--incremental"] ++ args) scrubbedLeanPathEnv
   if !refusals then
     let green ← withScratch repo "cross-surface-green" fun project =>
@@ -3511,7 +3512,7 @@ private def driverCopyControl (repo : FilePath) : IO (Array String) :=
       "\"excluded-libraries\":[],\"excluded-executables\":[]}"
   IO.FS.writeFile (project / "Solo" / "Base.lean")
     "/-! The base module of the control. -/\n\ntheorem soloBase : True := True.intro\n"
-  let locked ← runProcess project "lake" #["update"] scrubbedLeanPathEnv
+  let locked ← runProcess project (.toolchain .lake) #["update"] scrubbedLeanPathEnv
   unless locked.succeeded do
     return #[s!"driver-copy/setup: lake update failed:\n{locked.output}"]
   let driver := (repo / "lean" / "RegulaVerification.lean").toString
@@ -3521,11 +3522,11 @@ private def driverCopyControl (repo : FilePath) : IO (Array String) :=
   IO.FS.createDirAll marked
   IO.FS.writeFile (marked / "kept.txt") "kept"
   let link (target place : FilePath) : IO Unit := do
-    let made ← runProcess scratch "ln" #["-s", target.toString, place.toString]
+    let made ← runProcess scratch (.stated "ln" "until #399 replaces this copy with the construction in Regula.Filesystem") #["-s", target.toString, place.toString]
     unless made.succeeded do throw <| IO.userError s!"could not make a link: {made.output}"
   let gate ← toolPath repo "axiomGate"
   let refused (label needle : String) (args : Array String) : IO (Array String) := do
-    let result ← runProcess project gate.toString args scrubbedLeanPathEnv
+    let result ← runProcess project (.stated gate.toString "The caller selects this resolved non-toolchain executable") args scrubbedLeanPathEnv
     if result.succeeded then
       return #[s!"driver-copy/{label}: unexpectedly accepted:\n{result.output}"]
     else if !result.output.contains needle then
@@ -3546,7 +3547,7 @@ private def driverCopyControl (repo : FilePath) : IO (Array String) :=
   -- 1. A live copy, in a project that has build output.
   IO.FS.createDirAll build
   IO.FS.writeFile (build / "kept.txt") "from before the step"
-  let child ← IO.Process.spawn {
+  let child ← Regula.Process.spawn (.toolchain .lean) {
     cmd := "lean", args := #["--run", driver, "--copy-control"], cwd := some project
     env := scrubbedLeanPathEnv, stdin := .piped, stdout := .piped, stderr := .inherit }
   let (input, child) ← child.takeStdin
@@ -3593,7 +3594,7 @@ private def driverCopyControl (repo : FilePath) : IO (Array String) :=
   -- 2. A project with a symbolic link at `.lake/build`, and then a driver that is killed.
   Regula.Filesystem.removePath .directory build
   link marked build
-  let child ← IO.Process.spawn {
+  let child ← Regula.Process.spawn (.toolchain .lean) {
     cmd := "lean", args := #["--run", driver, "--copy-control"], cwd := some project
     env := scrubbedLeanPathEnv, stdin := .piped, stdout := .piped, stderr := .inherit
     setsid := true }
@@ -3621,7 +3622,7 @@ private def driverCopyControl (repo : FilePath) : IO (Array String) :=
   -- 3. A second killed driver, and then a project with no build output: the next driver removes
   -- the copy of the dead one before it makes its own, and the project gets the copy's output.
   Regula.Filesystem.removePath .link build
-  let child ← IO.Process.spawn {
+  let child ← Regula.Process.spawn (.toolchain .lean) {
     cmd := "lean", args := #["--run", driver, "--copy-control"], cwd := some project
     env := scrubbedLeanPathEnv, stdin := .piped, stdout := .piped, stderr := .inherit
     setsid := true }
@@ -3634,7 +3635,7 @@ private def driverCopyControl (repo : FilePath) : IO (Array String) :=
   discard child.wait
   failures := failures ++ expect "dead: a killed driver left no copy or no marker"
     ((← dead.pathExists) && (← deadMarker.pathExists))
-  let child ← IO.Process.spawn {
+  let child ← Regula.Process.spawn (.toolchain .lean) {
     cmd := "lean", args := #["--run", driver, "--copy-control"], cwd := some project
     env := scrubbedLeanPathEnv, stdin := .piped, stdout := .piped, stderr := .inherit }
   let (input, child) ← child.takeStdin
@@ -3655,7 +3656,7 @@ private def driverCopyControl (repo : FilePath) : IO (Array String) :=
   -- 4. The site artifact of an earlier run.
   let site := project / "_site"
   link marked site
-  let stopped ← runProcess project "lean" #["--run", driver, "--begin-attempt", "site"]
+  let stopped ← runProcess project (.toolchain .lean) #["--run", driver, "--begin-attempt", "site"]
     scrubbedLeanPathEnv
   failures := failures ++ expect "site: a link at _site was followed or removed"
     (!stopped.succeeded && stopped.output.contains "nothing was removed" &&
@@ -3663,7 +3664,7 @@ private def driverCopyControl (repo : FilePath) : IO (Array String) :=
   Regula.Filesystem.removePath .link site
   IO.FS.createDirAll (site / "pages")
   IO.FS.writeFile (site / "pages" / "old.html") "an earlier artifact"
-  let removed ← runProcess project "lean" #["--run", driver, "--begin-attempt", "site"]
+  let removed ← runProcess project (.toolchain .lean) #["--run", driver, "--begin-attempt", "site"]
     scrubbedLeanPathEnv
   failures := failures ++ expect "site: an earlier artifact was not removed"
     (removed.succeeded && !(← site.pathExists))
@@ -3723,14 +3724,14 @@ private def retainedBuildControl (repo : FilePath) : IO (Array String) :=
   -- A file that `shasum` reads as standard input when it is given as an operand alone.
   IO.FS.writeFile (project / "-") "a file named -\n"
   let env := scrubbedLeanPathEnv.push ("LAKE_ARTIFACT_CACHE", some "false")
-  let step (label : String) (cmd : String) (args : Array String) : IO (Option String) := do
+  let step (label : String) (cmd : Regula.Process.Program) (args : Array String) : IO (Option String) := do
     let result ← runProcess project cmd args env
     return if result.succeeded then none else some s!"retained-build/{label}:\n{result.output}"
-  if let some failure ← step "setup" "lake" #["update"] then return #[failure]
+  if let some failure ← step "setup" (.toolchain .lake) #["update"] then return #[failure]
   let link := scratch / "acceptance-link.json"
   let fresh (reason : String) :=
     s!"claimed surface built fresh in this run, in a copy with no earlier build output ({reason})"
-  let unlinked ← runProcess project (← toolPath repo "docFenceAudit").toString
+  let unlinked ← runProcess project (.stated (← toolPath repo "docFenceAudit").toString "The caller selects this resolved non-toolchain executable")
     #["--project", project.toString, "--acceptance-link", link.toString, "--jobs", "1"] env
   let mut failures := #[]
   unless !unlinked.succeeded &&
@@ -3738,10 +3739,10 @@ private def retainedBuildControl (repo : FilePath) : IO (Array String) :=
       !unlinked.output.contains "claimed surface built" do
     failures := failures.push s!"retained-build/no-gate: expected the refusal of the missing link \
       before any build:\n{unlinked.output}"
-  if let some failure ← step "gate" (← toolPath repo "axiomGate").toString
+  if let some failure ← step "gate" (.stated (← toolPath repo "axiomGate") "The retained-build diagnostic invokes its built audit worker")
       #["--acceptance-link", link.toString] then return failures.push failure
   -- The first step builds more than the claimed targets.
-  if let some failure ← step "build" "lake" #["build", "Solo", "Extra"] then
+  if let some failure ← step "build" (.toolchain .lake) #["build", "Solo", "Extra"] then
     return failures.push failure
   let gateRecord ← readJson link
   let build := project / ".lake" / "build"
@@ -3761,7 +3762,7 @@ private def retainedBuildControl (repo : FilePath) : IO (Array String) :=
       ("artifacts", toJson artifactDigests)])
   let audit (label : String) (record : Json) (expected : String) : IO (Array String) := do
     writeJson link record
-    let result ← runProcess project (← toolPath repo "docFenceAudit").toString
+    let result ← runProcess project (.stated (← toolPath repo "docFenceAudit").toString "The caller selects this resolved non-toolchain executable")
       #["--project", project.toString, "--acceptance-link", link.toString, "--jobs", "1"] env
     if !result.succeeded then
       return #[s!"retained-build/{label}: the audit failed:\n{result.output}"]
@@ -4033,7 +4034,7 @@ private def taskManagerControl (repo : FilePath) : IO (Option String) :=
     -- A completed result of the gate's own run, the seed of each result destination.
     let completed := scratch / "completed.json"
     let fixture := repo / "lean" / "Fixtures" / "Positive" / "KernelOnly.lean"
-    let seeded ← runProcess repo gate #["--file", fixture.toString, "--claim", "kernel-only",
+    let seeded ← runProcess repo (.stated gate "The caller selects this resolved non-toolchain executable") #["--file", fixture.toString, "--claim", "kernel-only",
       "--json-out", completed.toString] (env := #[("REGULA_TIMING", none)])
     unless seeded.exitCode == 0 && (← completedResult completed) do
       return some s!"task manager: the gate's run on {fixture} did not record a completed result \
@@ -4141,10 +4142,10 @@ private def taskManagerControl (repo : FilePath) : IO (Option String) :=
         #["--json-out", (scratch / "lint.json").toString], without,
         Lint.Outcome.incomplete.exitCode, [result "lint.json"]),
       ("docFenceAudit", (← toolPath repo "docFenceAudit").toString, repo, #[], without, 1, []),
-      ("checkerSelftest", (← IO.appPath).toString, repo, #["--transcript-worker", "\"Planted\"",
+      ("checkerSelftest", (← Regula.Process.appPath).toString, repo, #["--transcript-worker", "\"Planted\"",
         issue.toString, "true", (scratch / "transcript.json").toString], without, 1,
         [packet "transcript.json"]),
-      ("checkerSelftest", (← IO.appPath).toString, project,
+      ("checkerSelftest", (← Regula.Process.appPath).toString, project,
         #["--build-bound", "--partition", "structural", "--shard", "1/5"], without, 1,
         [selfHosted]),
       ("qualify", qualify, repo, #["producers", "--evidence", evidence.path.toString], without, 1,
@@ -4161,7 +4162,8 @@ private def taskManagerControl (repo : FilePath) : IO (Option String) :=
         unless ← destination.completed do
           return some s!"task manager: the seed of {destination.path} is not a completed \
             document of its format"
-      let result ← runProcess cwd path args (env := env)
+      let result ← runProcess cwd (.stated path "The control runs this build's resolved program") args
+        (env := env)
       let line := Regula.TaskManager.refusalLine program reason
       if result.exitCode != code || !result.stdout.isEmpty ||
           !(result.stderr.splitOn "\n").contains line then
@@ -4358,7 +4360,7 @@ private def combinedSnapshotQualification (repo : FilePath) : IO (Array String) 
         control\"}],\"excluded-libraries\":[],\"excluded-executables\":[]}"
     -- Lake writes the lock manifest of a project that has none at its first build; written
     -- before the audits, it is not a configuration change during one.
-    let updated ← runProcess project "lake" #["update"] scrubbedLeanPathEnv
+    let updated ← runProcess project (.toolchain .lake) #["update"] scrubbedLeanPathEnv
     unless updated.succeeded do return #[s!"combined snapshot/update: {updated.output}"]
     let docs := project / "docs" / ".cache"
     IO.FS.createDirAll docs
@@ -4378,7 +4380,7 @@ private def combinedSnapshotQualification (repo : FilePath) : IO (Array String) 
       let body := if phase == "invalid" then "def docWitness : Nat := \"bad\""
         else "theorem docWitness : True := True.intro"
       IO.FS.writeFile (docs / "sentinel.md") s!"```lean\n{body}\n```\n"
-      let result ← runProcess project (← toolPath repo "axiomGate").toString
+      let result ← runProcess project (.stated (← toolPath repo "axiomGate").toString "The caller selects this resolved non-toolchain executable")
         #["--project", project.toString, "--with-docs", "--verbose"] scrubbedLeanPathEnv
       let accepted := if phase == "invalid" then
           !result.succeeded && result.output.contains "[X] .cache/sentinel.md:"
@@ -4419,7 +4421,7 @@ returns `1` when any control fails, `0` otherwise. -/
 private unsafe def runFocused : Focused → IO UInt32
   | .forcedCollector => do
     let repo ← repoRoot
-    let build ← runProcess repo "lake" #["build", "axiomGate"]
+    let build ← runProcess repo (.toolchain .lake) #["build", "axiomGate"]
     if !build.succeeded then IO.println build.output; return 1
     let failures ← withScratch repo "forced-collector-control" (forcedCollectorQualification repo)
     for failure in failures do IO.println s!"FAIL: {failure}"
@@ -4434,14 +4436,14 @@ private unsafe def runFocused : Focused → IO UInt32
     return if failures.isEmpty then 0 else 1
   | .nativeAdopter => do
     let repo ← repoRoot
-    let build ← runProcess repo "lake" #["build", "axiomGate", "Regula.Linter"]
+    let build ← runProcess repo (.toolchain .lake) #["build", "axiomGate", "Regula.Linter"]
     if !build.succeeded then IO.println build.output; return 1
     let failures ← withScratch repo "native-adopter-control" (PolicyQualification.nativeImport repo)
     for failure in failures do IO.println s!"FAIL: {failure}"
     return if failures.isEmpty then 0 else 1
   | .policyDomain => do
     let repo ← repoRoot
-    let build ← runProcess repo "lake" #["build", "axiomGate"]
+    let build ← runProcess repo (.toolchain .lake) #["build", "axiomGate"]
     if !build.succeeded then IO.println build.output; return 1
     let failures ← withScratch repo "policy-domain-controls" fun scratch => do
       return PolicyQualification.transport ++ (← PolicyQualification.publicPaths repo scratch)
@@ -4468,7 +4470,7 @@ private unsafe def runFocused : Focused → IO UInt32
     return if failures.isEmpty then 0 else 1
   | .buildLint => do
     let repo ← repoRoot
-    let build ← runProcess repo "lake" #["build", "axiomGate"]
+    let build ← runProcess repo (.toolchain .lake) #["build", "axiomGate"]
     if !build.succeeded then IO.println build.output; return 1
     return ← withScratch repo "build-lint-controls" fun scratch => do
       let failures ← BuildLintQualification.qualify repo scratch 4
@@ -4477,7 +4479,7 @@ private unsafe def runFocused : Focused → IO UInt32
       return if failures.isEmpty then 0 else 1
   | .compilerPaths => do
     let repo ← repoRoot
-    let build ← runProcess repo "lake" #["build", "axiomGate"]
+    let build ← runProcess repo (.toolchain .lake) #["build", "axiomGate"]
     if !build.succeeded then IO.println build.output; return 1
     return ← withScratch repo "compiler-path-controls" fun scratch => do
       let failures ← CompilerPaths.qualify repo scratch
@@ -4549,7 +4551,7 @@ unsafe def run (args : List String) : IO UInt32 := do
   let fixtureTargets ← if baselines.any (·.surface) then
       pure (((← importedFixtures repo).filter (· != structuralFixture)).push structuralFixture)
     else pure #[]
-  let build ← loggedPhase "baseline build" <| runProcess repo "lake"
+  let build ← loggedPhase "baseline build" <| runProcess repo (.toolchain .lake)
     (#["build"] ++ tools.toArray ++ (baselines.flatMap (·.modules)).eraseDups.toArray ++
       (if baselines.any (·.surface) then
         fixtureTargets.map (·.toString) ++ Manifest.positiveTargets surfaceManifest
@@ -4612,6 +4614,8 @@ end Regula.Checker.CheckerSelftest
 `Regula.Checker.CheckerSelftest.run`, printing any exception as `FAIL:` and returning `1`. -/
 unsafe def checkerSelftestMain (args : List String) : IO UInt32 := do
   try
+    if let some mode ← Regula.Process.readEnv "REGULA_COMPILER_CONTROL" then
+      return ← Regula.Checker.LintQualification.compilerGuardWorker mode
     Regula.Checker.initializeLeanSearchPath
     Lean.enableInitializersExecution
     Regula.Checker.CheckerSelftest.run args

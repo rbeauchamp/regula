@@ -1,4 +1,5 @@
 import Regula.Qualification.Support
+import Regula.Process
 
 /-! # Diagnostic receipt boundary qualification
 
@@ -11,14 +12,14 @@ open Lean System
 disappears before spawn. No production timeout selection hook is needed. -/
 def worker (args : List String) : IO UInt32 := do
   requireChecks [⟨"timeout version probe", args == ["--version"]⟩]
-  Regula.Filesystem.removePath .file (← IO.appPath)
+  Regula.Filesystem.removePath .file (← Regula.Process.appPath)
   IO.println "GNU coreutils qualification substitute"
   return 0
 
 /-- Preserve existing completed evidence only until the next public invocation starts. -/
 def check : IO Unit := do
   let root ← rootDirectory
-  let executable ← IO.appPath
+  let executable ← Regula.Process.appPath
   withScratch root "receipt-boundary" fun scratch => do
     for route in #[#["acceptance", "fences"], #["environments"]] do
       let evidence := scratch / "evidence.json"
@@ -29,12 +30,12 @@ def check : IO Unit := do
           IO.FS.writeFile (bin / "gtimeout") "not an executable\n"
         if fault == "spawn" then
           IO.FS.writeBinFile (bin / "gtimeout") (← IO.FS.readBinFile executable)
-          let mode ← IO.Process.output
+          let mode ← Regula.Process.output (.stated "/bin/chmod" "Make the owned native timer fixture executable")
               {cmd := "/bin/chmod", args := #["+x", (bin / "gtimeout").toString]}
           requireChecks [⟨"executable fixture", mode.exitCode == 0⟩]
         writeJson evidence
             (Json.mkObj [("status", toJson "completed"), ("attemptId", toJson "old")])
-        let result ← IO.Process.output {
+        let result ← Regula.Process.output (.stated executable "The diagnostic selects its own copied dispatcher") {
           cmd := executable.toString, args := route ++ #["--evidence", evidence.toString],
           env := #[("PATH", some bin.toString),
             ("REGULA_QUALIFICATION_WRAPPER", none),

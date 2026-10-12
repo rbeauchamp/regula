@@ -1,4 +1,5 @@
 import Regula.Checker.Admission
+import Regula.Process
 import Regula.Checker.Lake
 import Regula.Collect
 import Regula.Linter.Documentation
@@ -433,7 +434,7 @@ theorem mem_omissionReports {results : Array ModuleResult} {r : OmissionReport} 
 /-- Worker: observe and decide exactly one module, printing only its JSON result. -/
 unsafe def worker (moduleName source : String) : IO Unit := do
   Checker.initializeLeanSearchPath
-  let observation ← IO.ofExcept (← observe (← getLibDir (← findSysroot)) moduleName.toName source)
+  let observation ← IO.ofExcept (← observe (← getLibDir (← Regula.Process.sysroot)) moduleName.toName source)
   IO.println (toJson (← IO.ofExcept (decide observation))).compress
 
 /-- Worker for a module of another library of the package: import it alone and print, as a JSON
@@ -464,11 +465,11 @@ def check (shard : Option (Fin shards) := none) (jobs : Nat := 4) : IO Unit := d
   let modules := selected shard (byName info.modules)
   if modules.isEmpty then
     throw <| IO.userError s!"self-audit{scope}: the shard selects no module of {library}"
-  let self := (← IO.appPath).toString
+  let self := (← Regula.Process.appPath).toString
   let outcomes ← Checker.loggedPhase s!"self-audit modules of {library}{scope}" <|
       Checker.mapWorkQueue jobs modules.toArray fun moduleName =>
     show IO (Except String ModuleResult) from do
-    let result ← Checker.runProcess repo self
+    let result ← Checker.runProcess repo (.stated self "The caller selects this resolved non-toolchain executable")
       #["--under-deadline", "self-audit-module", moduleName.toString,
         ((info.sources.find? (·.«module» == moduleName)).map (·.source.toString)).getD ""]
     if result.exitCode != 0 then
@@ -488,14 +489,14 @@ def check (shard : Option (Fin shards) := none) (jobs : Nat := 4) : IO Unit := d
   let guarded := selected shard (byName (others.flatMap (·.modules) ++ roots))
   unless guarded.isEmpty do
     let build ← Checker.loggedPhase s!"self-audit build of the guarded modules{scope}" <|
-      Checker.runProcess repo "lake" (#["build"] ++ guarded.toArray.map (s!"+{·}"))
+      Checker.runProcess repo (.toolchain .lake) (#["build"] ++ guarded.toArray.map (s!"+{·}"))
     if build.exitCode != 0 then
       throw <| IO.userError s!"self-audit: lake build of the guarded modules failed: \
         {build.stdout.trimAscii} {build.stderr.trimAscii}"
   let jsonOutcomes ← Checker.loggedPhase s!"self-audit Json comparisons{scope}" <|
       Checker.mapWorkQueue jobs guarded.toArray fun moduleName =>
     show IO (Except String (Array String)) from do
-    let result ← Checker.runProcess repo self
+    let result ← Checker.runProcess repo (.stated self "The caller selects this resolved non-toolchain executable")
       #["--under-deadline", "self-audit-json-module", moduleName.toString]
     if result.exitCode != 0 then
       return .error s!"{moduleName}: worker exit {result.exitCode}: {result.stderr.trimAscii}"

@@ -997,6 +997,15 @@
   "reason": "compile-error",
   "pattern": ":12:31: error: a document about Lean or Lake.*has no release that this module checks.*:16:31: error: a document about Lean or Lake.*has no release that this module checks"
  },
+ "Fixtures.ModuleObserver": {
+  "expect": "pass",
+  "claim": "standard-logical"
+ },
+ "Fixtures.Mutations.ModuleImportedRole": {
+  "expect": "fail",
+  "reason": "compile-error",
+  "pattern": "`Fixtures.ModuleObserver.observe` is declared in `Fixtures.ModuleObserver`: a role is given only in the module that declares the constant"
+ },
  "Fixtures.Mutations.ImportedRoleTarget": {
   "expect": "fail",
   "reason": "compile-error",

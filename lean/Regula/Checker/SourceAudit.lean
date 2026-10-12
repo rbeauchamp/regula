@@ -1,4 +1,5 @@
 import Regula.Checker.PolicyCodec
+import Regula.Process
 import Regula.Checker.Environment
 import Regula.Checker.Frontend
 import Regula.Checker.Policy
@@ -260,7 +261,7 @@ def inspectGroupCurrentSearchPath (modules : Array Name)
       unless compiledSources.all sourceBindings.contains do
         return .error
           (.admission ⟨"producer-source: grouped inspection differs from compiled source"⟩)
-      withScratch (← IO.currentDir) "inspection-group" fun scratch => do
+      withScratch (← Regula.Process.currentDir) "inspection-group" fun scratch => do
         let input := scratch / "request.json"
         let output := scratch / "report.json"
         let request : GroupRequest := {
@@ -271,7 +272,7 @@ def inspectGroupCurrentSearchPath (modules : Array Name)
           includeModuleOrigins
         }
         writeJson input (toJson request)
-        let result ← runProcess (← IO.currentDir) binary.toString
+        let result ← runProcess (← Regula.Process.currentDir) (.stated binary.toString "The caller selects this resolved non-toolchain executable")
           #["--inspection-group-worker", input.toString, output.toString]
           #[("LEAN_PATH", some (SearchPath.toString (← Lean.searchPathRef.get)))]
         -- Put the actual failure before timing stdout: documentation displays a
@@ -306,9 +307,10 @@ def inspectGroupCurrentSearchPath (modules : Array Name)
 
 private def compileIn (repo scratch : FilePath) (spec : SourceSpec)
     (insideLakeEnv : Bool) : IO (Except ProducerReport.AdmissionFailure Compilation) := do
-  let spawn := fun cmd args =>
-    if insideLakeEnv then runProcess repo cmd args
-    else runProcess repo "lake" (#["env", cmd] ++ args) scrubbedLeanPathEnv
+  let spawn := fun (program : Regula.Process.Program) (args : Array String) => do
+    if insideLakeEnv then return ← runProcess repo program args
+    let child ← Regula.Process.resolve program
+    runProcess repo (.toolchain .lake) (#["env", child] ++ args) scrubbedLeanPathEnv
   let sourcePath := scratch / s!"{spec.«module»}.lean"
   let oleanPath := scratch / s!"{spec.«module»}.olean"
   let ileanPath := scratch / s!"{spec.«module»}.ilean"
@@ -319,7 +321,7 @@ private def compileIn (repo scratch : FilePath) (spec : SourceSpec)
       let binary ← workerBinary
       let output := scratch / s!"{spec.«module»}.diagnostics.json"
       let workerStart ← IO.monoMsNow
-      let process ← spawn binary.toString
+      let process ← spawn (.stated binary "The diagnostic runs the checker's resolved native worker")
         #["--diagnostic-worker", (Regula.RegistryCodec.nameJson spec.module.toName).compress,
             sourcePath.toString, output.toString]
       timingSpan
@@ -348,15 +350,9 @@ private def compileIn (repo scratch : FilePath) (spec : SourceSpec)
     -- root-package module fails here unless the workspace's own build output
     -- provides it, instead of resolving from the invoking checkout's inherited
     -- `LEAN_PATH`.
-    let compiler ← if insideLakeEnv then do
-        let some path ← IO.getEnv "LEAN"
-          | throw <| IO.userError "Lake batch environment has no LEAN executable"
-        if path.isEmpty || !(FilePath.mk path).isAbsolute then
-          throw <| IO.userError "Lake batch LEAN executable must be absolute"
-        pure path
-      else pure "lean"
     let compileStart ← IO.monoMsNow
-    let (process, diagnostics) := readCompilerOutput sourcePath.toString (← spawn compiler args)
+    let (process, diagnostics) :=
+      readCompilerOutput sourcePath.toString (← spawn (.toolchain .lean) args)
     timingSpan s!"diagnostic span: compileIn compile: {(← IO.monoMsNow) - compileStart}ms"
     return { spec, sourcePath, oleanPath, ileanPath, process, diagnostics }
 
@@ -387,7 +383,7 @@ instance : FromJson CompileBatch := ⟨fun j => do
 has its own compiler/diagnostic process; only Lake environment setup is shared. -/
 def compileBatchWorker (request : CompileBatch) : IO (Array Compilation) := do
   if request.jobs == 0 then throw <| IO.userError "compile batch requires positive jobs"
-  let repo ← IO.currentDir
+  let repo ← Regula.Process.currentDir
   mapWorkQueue request.jobs request.specs fun spec => do
     IO.ofExcept <| (← compileIn repo request.scratch spec true).mapError (·.detail)
 
@@ -406,7 +402,7 @@ def compileBatch (repo scratch : FilePath) (jobs : Nat) (specs : Array SourceSpe
       let input := work / "request.json"
       let output := work / "result.json"
       writeJson input (toJson ({ scratch, jobs, specs } : CompileBatch))
-      let result ← runProcess repo "lake"
+      let result ← runProcess repo (.toolchain .lake)
         #["env", binary.toString, "--compile-batch-worker", input.toString, output.toString]
         scrubbedLeanPathEnv
       if !result.succeeded then throw <| IO.userError result.output

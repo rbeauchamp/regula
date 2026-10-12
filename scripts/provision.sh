@@ -3,4 +3,5 @@
 # docs/guides/contributing.md.
 set -euo pipefail
 cd "$(dirname "$0")/.."
-exec lean --run lean/RegulaProvision.lean
+lean_command="${ELAN_HOME:-$HOME/.elan}/toolchains/leanprover--lean4---v4.34.1/bin/lean"
+exec "$lean_command" --run lean/RegulaProvision.lean

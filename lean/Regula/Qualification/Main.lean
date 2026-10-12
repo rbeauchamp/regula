@@ -1,5 +1,6 @@
 import Regula.Removal
 import Regula.TaskManagerCheck
+import Regula.Process
 import Regula.Qualification.RegistryCli
 import Regula.Qualification.NativeLinter
 import Regula.Qualification.Producer
@@ -113,11 +114,20 @@ private def markEvidence (args : List String) (attempt : String) (reason : Optio
 /-- The form of one `qualify` invocation, read from its arguments and the two variables of its
 environment that select a mode (`Invocation.of`). -/
 private inductive Invocation where
+  /-- `--process-fixtures DIRECTORY`: copy the process controls' committed sources into
+  `DIRECTORY` (`Regula.Qualification.Process.Sources.writePreflight`). -/
+  | processFixtures (directory : String)
+  /-- `--process-cadical-raw` or `--process-cadical-checked`: the solver control's elaboration of
+  its owned source (`Regula.Qualification.Process.cadicalWorker`). -/
+  | processCadical (checked : Bool)
   /-- `REGULA_RECEIPT_TIMER=1` with `--version`: the receipt boundary's worker. -/
   | receiptTimer
   /-- `REGULA_QUALIFICATION_WRAPPER=acceptance`: the test-only proxy of `axiomGate`, with the
   gate's arguments. -/
   | acceptanceProxy
+  /-- `REGULA_QUALIFICATION_WRAPPER=process`: the process controls' planted shadow
+  (`Regula.Qualification.Process.worker`), whatever its arguments. -/
+  | processShadow
   /-- Another value of `REGULA_QUALIFICATION_WRAPPER`, which is refused. -/
   | unknownWrapper
   /-- `--under-deadline [--attempt ATTEMPT] REST`: the command `REST`, run under the deadline that
@@ -126,12 +136,19 @@ private inductive Invocation where
   /-- Any other arguments: a command, run under its own 420-second deadline. -/
   | bounded (args : List String)
 
-/-- The form of the invocation with the arguments `args`, read from them and the environment. -/
+/-- The form of the invocation with the arguments `args`, read from them and the environment
+through the process and environment observer (`Regula.Process.readEnv`). -/
 private def Invocation.of (args : List String) : BaseIO Invocation := do
-  if (← IO.getEnv "REGULA_RECEIPT_TIMER") == some "1" && args == ["--version"] then
+  match args with
+  | ["--process-fixtures", directory] => return .processFixtures directory
+  | ["--process-cadical-raw"] => return .processCadical false
+  | ["--process-cadical-checked"] => return .processCadical true
+  | _ => pure ()
+  if (← Regula.Process.readEnv "REGULA_RECEIPT_TIMER") == some "1" && args == ["--version"] then
     return .receiptTimer
-  match ← IO.getEnv "REGULA_QUALIFICATION_WRAPPER" with
+  match ← Regula.Process.readEnv "REGULA_QUALIFICATION_WRAPPER" with
   | some "acceptance" => return .acceptanceProxy
+  | some "process" => return .processShadow
   | some _ => return .unknownWrapper
   | none => return match args with
     | "--under-deadline" :: "--attempt" :: attempt :: rest => .underDeadline (some attempt) rest
@@ -144,8 +161,13 @@ as a bounded standalone command. Nested commands do not create escaping groups. 
 invocation is read once (`Invocation.of`). -/
 unsafe def qualifyMain (args : List String) : IO UInt32 := do
   match ← Invocation.of args with
+  | .processFixtures directory =>
+    Regula.Qualification.Process.Sources.writePreflight directory
+    return 0
+  | .processCadical checked => Regula.Qualification.Process.cadicalWorker checked
   | .receiptTimer => Regula.Qualification.ReceiptBoundary.worker args
   | .acceptanceProxy => Regula.Qualification.Acceptance.worker args
+  | .processShadow => Regula.Qualification.Process.worker
   | .unknownWrapper => throw <| IO.userError "unknown qualification wrapper mode"
   | .underDeadline attempt rest => dispatch rest attempt; return 0
   | .bounded args =>
@@ -153,7 +175,7 @@ unsafe def qualifyMain (args : List String) : IO UInt32 := do
     -- This must precede timeout selection and spawning, both of which can fail.
     let attempt ← Regula.Qualification.freshAttempt
     markEvidence args attempt
-    Regula.Qualification.runBounded (← IO.currentDir) 420 (← IO.appPath).toString
+    Regula.Qualification.runBounded (← Regula.Process.currentDir) 420 (.stated (← Regula.Process.appPath).toString "The caller selects this resolved non-toolchain executable")
       (#["--under-deadline", "--attempt", attempt] ++ args.toArray)
 
 /-- The refusal of an invocation in a process without Lean's task manager, which the guard of the
@@ -162,8 +184,8 @@ executable runs (`Regula.TaskManager.guard`). It reads the invocation as `qualif
 run uses. The proxy of `axiomGate` is refused as the gate refuses, with the gate's exit code
 (`AxiomGate.refuseWithoutTaskManager`). A command marks its evidence document (`markEvidence`),
 for the attempt that the wrapper's arguments give or otherwise for a fresh one, printing a line
-when it cannot, and returns 1, as do the receipt boundary's worker and an unknown wrapper mode,
-which write no file. No command
+when it cannot, and returns 1, as do the receipt boundary's worker, the process controls' workers
+and an unknown wrapper mode, which write no file. No command
 runs. -/
 private def refuseQualification (reason : String) (args : List String) : IO UInt32 := do
   let mark (rest : List String) (attempt : Option String) : IO Unit := do
@@ -173,7 +195,8 @@ private def refuseQualification (reason : String) (args : List String) : IO UInt
   match ← Invocation.of args with
   | .acceptanceProxy =>
     return ← Regula.Checker.AxiomGate.refuseWithoutTaskManager reason args
-  | .receiptTimer | .unknownWrapper => pure ()
+  | .processFixtures _ | .processCadical _ | .receiptTimer | .processShadow | .unknownWrapper =>
+    pure ()
   | .underDeadline attempt rest => mark rest attempt
   | .bounded rest => mark rest none
   return 1
@@ -185,9 +208,8 @@ marked incomplete with the reason, and the exit code is 1, or the gate's for the
 unsafe def main : List String → IO UInt32 :=
   Regula.TaskManager.guard "qualify" refuseQualification qualifyMain
 
--- The removals that the compiled code of `main`, and of the initializers of the modules it links,
--- reaches are the filesystem observer's and those that `Regula.Removal.libraryRemovals` lists: the
--- build of this module fails otherwise (`Regula.Removal.checkProgram`).
+-- The compiled code of main and linked initializers crosses only each system's observer or its
+-- sourced exemption. This module's build refuses otherwise, using the single boundary table.
 run_cmd Regula.Removal.checkProgram
 
 -- A program that needs Lean's task manager starts through its guard (`Regula.TaskManager.guard`),

@@ -445,10 +445,11 @@ def lakefileCommands (path : FilePath) (input : String) : IO (Array Syntax × Li
   unsafe Lean.enableInitializersExecution
   let inputCtx := Parser.mkInputContext input path.toString
   let (header, parserState, messages) ← Parser.parseHeader inputCtx
-  let (env, messages) ← Elab.processHeader header {} messages inputCtx (mainModule := `lakefile)
+  let options ← Regula.Process.leanOptions
+  let (env, messages) ← Elab.processHeader header options messages inputCtx (mainModule := `lakefile)
   let env := Lake.dirExt.setState env (some ((path.parent.getD ".")))
   let env := Lake.optsExt.setState env (some {})
-  let s ← Elab.IO.processCommands inputCtx parserState (Elab.Command.mkState env messages {})
+  let s ← Elab.IO.processCommands inputCtx parserState (Elab.Command.mkState env messages options)
   let errors ← (s.commandState.messages.toList.filter (·.severity == .error)).mapM (·.toString)
   return (s.commands, errors.take 3)
 

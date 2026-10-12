@@ -61,10 +61,15 @@ import leaves every reporter-only import restriction unchanged. -/
 theorem publishedInterface_not_reporterOnly :
     ∀ n ∈ publishedInterfaceModuleNames, n ∉ reporterOnlyModuleNames := by decide +kernel
 
+/-- Observation modules authenticated only through reporters or a force-only collector. The
+same import condition covers every entry, including the process observer used by that collector. -/
+def observerInfrastructureModuleNames : Array Name :=
+  #[`Regula.CompilerObservation, `Regula.Process]
+
 /-- Exact reporter and observation modules eligible for authenticated infrastructure.
-The collector and compiler observer additionally require their force-only import conditions. -/
+The collector and observers additionally require their force-only import conditions. -/
 def infrastructureModuleNames : Array Name :=
-  reporterModuleNames ++ #[`Regula.StructuralName, `Regula.Collect, `Regula.CompilerObservation]
+  reporterModuleNames ++ #[`Regula.StructuralName, `Regula.Collect] ++ observerInfrastructureModuleNames
 
 /-- Canonical-artifact equality for one exact infrastructure module and snapshot. The
 adapter obtains both paths independently from actual resolution and the checker library;
@@ -357,8 +362,8 @@ def InfrastructureOK (c : Claim) (i : EnvironmentCensus) : Prop :=
       ∃ receipt ∈ i.infrastructure, receipt.moduleKey.name.name = origin.name) ∧
   (∀ receipt ∈ i.infrastructure, receipt.moduleKey.name.name = `Regula.Collect →
     ∀ origin ∈ i.origins, `Regula.Collect ∈ origin.imports → origin.name ∈ reporterModuleNames) ∧
-  (∀ receipt ∈ i.infrastructure, receipt.moduleKey.name.name = `Regula.CompilerObservation →
-    ∀ origin ∈ i.origins, `Regula.CompilerObservation ∈ origin.imports →
+  (∀ receipt ∈ i.infrastructure, receipt.moduleKey.name.name ∈ observerInfrastructureModuleNames →
+    ∀ origin ∈ i.origins, receipt.moduleKey.name.name ∈ origin.imports →
       (origin.name ∈ reporterModuleNames ∨ origin.name = `Regula.Collect) ∧
         ∃ importer ∈ i.infrastructure, importer.moduleKey.name.name = origin.name) ∧
   i.infrastructureSources.toList.Pairwise (fun a b => a.1 ≠ b.1) ∧

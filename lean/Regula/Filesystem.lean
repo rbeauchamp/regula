@@ -1,4 +1,5 @@
 import RegulaCore.Removal
+import Regula.Process
 
 /-! # The observer of the filesystem, and the removals and moves that Regula runs
 
@@ -143,7 +144,7 @@ def ownPath (path : FilePath) : IO FilePath := do
   if components.any (fun component => component == "." || component == "..") then
     throw <| IO.userError s!"nothing was made or removed: {path} has a `.` or `..` component"
   let path ← if path.isAbsolute then pure path else do
-    let directory ← observeRealPath (← IO.currentDir)
+    let directory ← observeRealPath (← Regula.Process.currentDir)
     pure (if components.isEmpty then directory else directory / System.mkFilePath components)
   let refuse {α : Type} (ancestor : FilePath) : IO α := throw <| IO.userError
     s!"nothing was made or removed: {ancestor}, an ancestor of {path}, is not at its own place \

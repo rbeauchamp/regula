@@ -382,15 +382,14 @@ unsafe def run (args : List String) : IO UInt32 := do
       for line in lines do IO.println s!"    {line}"
       return 1
     let frozen ← freezeGraph plan snapshot manifest inventory sources
-    let lake := (← Regula.Toolchain.program "lake").toString
-    let leanchecker := (← Regula.Toolchain.program "leanchecker").toString
+    let leanchecker := (← Regula.Toolchain.program .leanchecker).toString
     let env := #[("LEAN_SYSROOT", some (← Regula.Toolchain.sysroot).toString),
       ("LAKE_OVERRIDE_LEAN", none)]
     for root in plan.roots do
       let covered := (plan.coverage.find? (·.root == root)).map (·.modules) |>.getD #[]
       if options.verbose then
         IO.println s!"fresh root {root}: covers {", ".intercalate covered.toList}"
-      let result ← runProcess repo lake #["env", leanchecker, "--fresh", root] env
+      let result ← runProcess repo (.toolchain .lake) #["env", leanchecker, "--fresh", root] env
       checks := checks.push { root, coveredModules := covered, exitCode := result.exitCode }
       if !result.succeeded then
         let tail := "\n".intercalate (takeLast 20 (outputLines result.output)).toList

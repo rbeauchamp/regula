@@ -1,35 +1,41 @@
 import Lake
+import Lean.Elab.Frontend
 open Lake DSL
 
--- Execute the same source guard used by compiled policy. A fresh dependency has no Regula
--- artifacts yet, so a child `lean` elaborates the policy source, which imports only Init, checks
--- that child's own identity and, asked by `REGULA_COMPILER_GUARD`, prints it. `LEAN_SYSROOT` or
--- `PATH` selects the child, so the guard passes only when the child accepts itself and reports
--- the version and commit of the Lean elaborating this file. Any other child is refused.
+namespace RegulaBootstrap
+run_cmd do
+  let input := Lean.Parser.mkInputContext (include_str "lean/Regula/ProcessSource.inc") "Regula/ProcessSource.inc"
+  let result ← Lean.Elab.IO.processCommands input {} (← get)
+  set result.commandState
+end RegulaBootstrap
+
+-- A fresh dependency has no Regula artifacts. The shared typed observer selects an installed
+-- compiler without PATH and checks its identity, then that compiler elaborates the policy source
+-- and reports its identity. Both the selected child and the Lean elaborating this file must agree.
 run_cmd do
   let running := s!"{Lean.versionString}\n{Lean.githash}\n"
   let refusal : IO (Option String) := do
-    let lean := ((← Lean.findSysroot) / "bin" / "lean").toString
-    let child ← IO.Process.output {
+    let lean := (← RegulaBootstrap.toolPath .lean).toString
+    let child ← RegulaBootstrap.output (.toolchain .lean) {
       cmd := lean, args := #[(__dir__ / "lean/RegulaPolicy/Compiler.lean").toString]
-      env := #[("REGULA_COMPILER_GUARD", some "1"), ("GHCR_TOKEN", none)] }
+      env := #[("GHCR_TOKEN", none)] }
     if child.exitCode != 0 then
       return some s!"Regula's compiler guard stopped: Lake is running Lean \
-        {Lean.versionString} ({Lean.githash}), and `{lean}`, which LEAN_SYSROOT or PATH selects, \
+        {Lean.versionString} ({Lean.githash}), and the selected installed `{lean}` \
         refused Regula's compiler policy or could not compile it. Use a Lean release this \
         Regula revision supports, or a Regula revision qualified for this exact compiler: \
         https://github.com/rbeauchamp/regula/blob/main/docs/guides/adoption.md\
         #when-your-lean-release-has-no-regula-release\n{child.stdout}{child.stderr}"
     if child.stdout.replace "\r" "" == running then return none
-    return some s!"Regula's compiler guard stopped: `{lean}`, which LEAN_SYSROOT or PATH \
-      selects, is not the Lean running Lake, {Lean.versionString} ({Lean.githash}), so Regula's \
-      compiler policy was not checked on that Lean. Run Lake without the LEAN_SYSROOT or PATH \
-      of another toolchain. It reports:\n{child.stdout}{child.stderr}"
+    return some s!"Regula's compiler guard stopped: the selected installed `{lean}` \
+      is not the Lean running Lake, {Lean.versionString} ({Lean.githash}), so Regula's \
+      compiler policy was not checked on that Lean. Select this compiler's installation with \
+      LEAN_SYSROOT or ELAN_TOOLCHAIN. It reports:\n{child.stdout}{child.stderr}"
   match ← refusal.toBaseIO with
   | .ok none => pure ()
   | .ok (some refused) => Lean.logError refused
   | .error error => Lean.logError s!"Regula's compiler guard stopped: it cannot run the `lean` \
-      that LEAN_SYSROOT or PATH selects to check the Lean running Lake, {Lean.versionString} \
+      selected from the installation to check the Lean running Lake, {Lean.versionString} \
       ({Lean.githash}): {error}"
 
 -- The package adopters require: the checker, lint driver, `regula` CLI, rule registry and
@@ -86,11 +92,13 @@ lean_lib «RegulaPolicy» where
 @[default_target]
 lean_lib «RegulaVerification» where
   globs := #[.andSubmodules `RegulaVerification]
+  needs := #[`@/processSource]
 
 -- Dependency setup.
 @[default_target]
 lean_lib «RegulaProvision» where
   globs := #[.andSubmodules `RegulaProvision]
+  needs := #[`@/processSource]
 
 @[default_target]
 lean_lib «RegulaQualification» where
@@ -108,6 +116,16 @@ input_file compilerObservationSource where
   path := "lean/Regula/CompilerObservation.lean"
   text := true
 
+-- Cold drivers and the installed observer elaborate the same policy source with Lean's frontend.
+input_file processSource where
+  path := "lean/Regula/ProcessSource.inc"
+  text := true
+
+-- External-boundary controls are committed Lean sources, embedded without generated layout.
+input_dir processFixtureSources where
+  path := "examples/process-controls"
+  text := true
+
 @[default_target]
 lean_lib «RegulaCore» where
   -- The rule registry and the pure checker projections of policy decisions that the
@@ -119,7 +137,7 @@ lean_lib «Regula» where
   -- Lean-only checker implementation. Operational checker modules are
   -- separately qualified; they are not part of the conforming proof surface.
   globs := #[.submodules `Regula]
-  needs := #[`@/compilerObservationSource]
+  needs := #[`@/compilerObservationSource, `@/processSource, `@/processFixtureSources]
 
 lean_exe «axiomGate» where
   root := `Regula.Checker.AxiomGateMain

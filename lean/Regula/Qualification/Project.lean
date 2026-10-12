@@ -42,9 +42,9 @@ def prepareProject (root project : FilePath) (packageName claim rationale : Stri
     ("manifestFile", .str "lake-manifest.json"), ("inherited", .bool false)])
   writeJson (project / "lake-manifest.json") (manifest.setObjVal! "packages" (toJson packages))
   IO.FS.createDirAll (project / ".lake")
-  let result ← run root "ln"
+  let result ← run root (.stated "ln" "until #399 replaces this copy with the construction in Regula.Filesystem")
       #["-s", (root / ".lake/packages").toString, (project / ".lake/packages").toString]
-  let initialized ← run project "git" #["init", "-q"]
+  let initialized ← run project (.stated "git" "Git is the caller-selected repository mechanism") #["init", "-q"]
   requireChecks [⟨"pinned dependency link", result.exitCode == 0⟩,
     ⟨"adopter repository", initialized.exitCode == 0⟩]
 
@@ -93,7 +93,7 @@ fails it, with Lake's output, which names the jobs that need a build. -/
 def requireRootImportsBuilt (root : FilePath) (sources : Array String) : IO Unit := do
   let mut stale : Array String := #[]
   for (name, _) in ← rootImports root sources do
-    let result ← run root "lake" #["build", "--no-build", s!"+{name}"] cleanEnv
+    let result ← run root (.toolchain .lake) #["build", "--no-build", s!"+{name}"] cleanEnv
     unless result.exitCode == 0 do
       stale := stale.push s!"{name}:\n{result.stdout}{result.stderr}"
   unless stale.isEmpty do
@@ -138,7 +138,7 @@ def rootImportsGuardControl (root scratch : FilePath) (sources : Array String) :
 def observeProject (root project output : FilePath) (flags : Array String) : IO
     (IO.Process.Output × Json) := do
   requireChecks [⟨"result path must be fresh", !(← output.pathExists)⟩]
-  let result ← run project (root / ".lake/build/bin/axiomGate").toString
+  let result ← run project (.stated (root / ".lake/build/bin/axiomGate").toString "The caller selects this resolved non-toolchain executable")
     (#["--project", project.toString] ++ flags ++ #["--json-out", output.toString]) cleanEnv
   return (result, ← readResult output)
 

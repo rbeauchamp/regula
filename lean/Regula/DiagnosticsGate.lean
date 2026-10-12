@@ -1,4 +1,5 @@
 import Lean
+import Regula.Process
 
 /-! # The diagnostics gate
 
@@ -386,14 +387,15 @@ theorem digestRefusals_eq_nil_iff (required : Bool) (positive restored : Option 
 /-! ## Steps -/
 
 private def env (name : String) : IO String := do
-  match ← IO.getEnv name with
+  match ← Regula.Process.readEnv name with
   | some v => if v.isEmpty then fail s!"{name} is empty" else pure v
   | none => fail s!"{name} is not set"
 
 /-- Run `git` with `args` in the checkout; its standard output as it is, or a failure with its
 standard error. -/
 private def git (args : Array String) : IO String := do
-  let out ← IO.Process.output { cmd := "git", args }
+  let out ← Regula.Process.output (.stated "git" "Git supplies the diagnostic gate's repository observation")
+    { cmd := "", args }
   unless out.exitCode == 0 do fail s!"git {args}: {out.stderr}"
   return out.stdout
 

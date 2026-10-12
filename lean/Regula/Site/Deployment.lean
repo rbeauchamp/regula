@@ -1,3 +1,4 @@
+import Lake.Config.InstallPath
 import Lean
 
 /-! # Deployment gate and deployed rule-reference verification
@@ -41,6 +42,21 @@ cannot use the filesystem observer (`Regula.Filesystem`) or its removal decision
 -/
 
 namespace Regula.Site.Deployment
+
+namespace Process
+
+-- Use Lean's own frontend, not a second implementation of the process policy.
+run_cmd do
+  let origin ← Lean.getRef
+  let before ← Lean.getEnv
+  let input := Lean.Parser.mkInputContext (include_str "../ProcessSource.inc") "Regula/ProcessSource.inc"
+  let result ← Lean.Elab.IO.processCommands input {} (← get)
+  set result.commandState
+  for (name, _) in result.commandState.env.constants.toList do
+    unless before.contains name do
+      Lean.Elab.addDeclarationRangesFromSyntax name origin
+
+end Process
 open Lean System
 
 private def fail {α : Type} (message : String) : IO α := throw <|
@@ -70,8 +86,8 @@ such as `-K/tmp/x`, is a URL and not an option. With the other arguments and no 
 curl writes no file. -/
 def fetch (url : String) : IO (Nat × ByteArray) := do
   let assignments ← curlEnvironment.filterMapM fun name => do
-    return (← IO.getEnv name).map fun value => s!"{name}={value}"
-  let child ← IO.Process.spawn
+    return (← Regula.Site.Deployment.Process.readEnv name).map fun value => s!"{name}={value}"
+  let child ← Process.spawn (.stated "/usr/bin/env" "The system environment utility clears all unlisted curl variables")
       { cmd := "env", args := #["-i"] ++ assignments ++ #["curl", "--disable", "--silent",
           "--show-error", "--max-time", "60", "--write-out", "%{http_code}", "--url", url]
         stdin := .null, stdout := .piped, stderr := .inherit }
@@ -85,7 +101,7 @@ private def field (j : Json) (key : String) : IO Json := IO.ofExcept (j.getObjVa
 private def str (j : Json) (key : String) : IO String := do IO.ofExcept (← field j key).getStr?
 
 private def env (name : String) : IO String := do
-  match ← IO.getEnv name with
+  match ← Regula.Site.Deployment.Process.readEnv name with
   | some v => if v.isEmpty then fail s!"{name} is empty" else pure v
   | none => fail s!"{name} is not set"
 
@@ -164,8 +180,8 @@ def main (args : List String) : IO UInt32 := do
   match args with
   | ["gate", artifact] => Regula.Site.Deployment.gate artifact; return 0
   | ["verify", artifact] =>
-    let some pageUrl ← IO.getEnv "REGULA_PAGE_URL" | IO.eprintln
-                                                      "REGULA_PAGE_URL is not set"; return 2
+    let some pageUrl ← Regula.Site.Deployment.Process.readEnv "REGULA_PAGE_URL"
+      | IO.eprintln "REGULA_PAGE_URL is not set"; return 2
     Regula.Site.Deployment.run artifact pageUrl; return 0
   | _ => IO.eprintln "usage: lean --run lean/Regula/Site/Deployment.lean (gate ARTIFACT_DIR | \
     verify ARTIFACT_DIR)"; return 2

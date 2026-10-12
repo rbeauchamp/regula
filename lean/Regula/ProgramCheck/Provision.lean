@@ -42,7 +42,8 @@ def specialized (function : Name) (name : Name) (spec : Name) : Name :=
 end Regula.ProgramCheck.Provision
 
 open Regula.ProgramCheck.Provision in
-run_cmd Regula.Removal.checkProgram (named := [
+run_cmd Regula.Removal.checkProgram (named :=
+  Regula.Removal.bootstrap `RegulaProvision.Process ++ [
   (provisioning `removeObserved, ``IO.FS.removeFile),
   (provisioning `removeObserved, ``IO.FS.removeDirAll),
   (provisioning `removeReadOnly, ``IO.FS.removeDirAll),
@@ -57,5 +58,5 @@ run_cmd Regula.Removal.checkProgram (named := [
   (provisioning `create, ``IO.FS.rename),
   (provisioning `writeRegistry, ``IO.FS.rename),
   (specialized `Array.mapMUnsafe.map `prune `spec_0, ``IO.FS.removeFile),
-  (specialized `Array.forIn'Unsafe.loop `prune `spec_2, ``IO.FS.removeFile),
-  (specialized `Array.forIn'Unsafe.loop `prune `spec_2._lam_0, ``IO.FS.rename)])
+  (specialized `Array.forIn'Unsafe.loop `prune `spec_1, ``IO.FS.removeFile),
+  (specialized `Array.forIn'Unsafe.loop `prune `spec_1._lam_0, ``IO.FS.rename)])

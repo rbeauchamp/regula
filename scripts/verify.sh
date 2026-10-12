@@ -13,7 +13,8 @@ mkdir -p tmp
 printf '{"outcome":"INCOMPLETE","phase":"setup"}\n' > tmp/rule-examples.json
 # The toolchain-only driver invalidates the selected mode's earlier verdicts before setup,
 # so a failed or timed-out provisioning cannot leave an accepted one in place.
-lean --run lean/RegulaVerification.lean --begin-attempt "$@"
+lean_command="${ELAN_HOME:-$HOME/.elan}/toolchains/leanprover--lean4---v4.34.1/bin/lean"
+"$lean_command" --run lean/RegulaVerification.lean --begin-attempt "$@"
 if command -v gtimeout >/dev/null 2>&1; then
   timeout_command=gtimeout
 elif command -v timeout >/dev/null 2>&1; then
@@ -33,4 +34,4 @@ fi
   exit 1
 }
 exec "$timeout_command" --signal=KILL 420s \
-  lean --run lean/RegulaVerification.lean "$@"
+  "$lean_command" --run lean/RegulaVerification.lean "$@"

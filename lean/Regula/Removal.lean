@@ -1,53 +1,41 @@
 import Regula.Filesystem
+import Regula.Process
+import Lake.Build.Actions
+import Lake.Util.Proc
 import Lean.Compiler.IR.EmitUtil
 import Lean.Compiler.InitAttr
 import Lean.Elab.Command
 
-/-! # The check that every removal of a program goes through the observer
+/-! # Compiled reach to external-system primitives
 
-A removal primitive of Lean's library is an operation that removes or replaces an entry
-(`primitives`, `removalSymbols`). `rawRemovalsFrom` follows the compiled code of a program from its
-`main` and the initializers of the modules it links, and finds each call of a removal primitive
-that a declaration makes other than a declaration of `Regula.Filesystem` with the filesystem
-observer's role (`@[regula_observer filesystem]`, `filesystemObservers`) or a call of Lean's library
-that `libraryRemovals` lists. The role given in another module admits nothing, and the check of a
-program refuses it (`foreignObservers`). The observer's removals and its move are private to
-`Regula.Filesystem`, and the operations it exports observe the place and act only on what the
-decisions of `RegulaCore.Removal` decide.
+The name of this module remains compatible with the filesystem check. Its single `boundaries`
+table now gives filesystem replacements, process starts and environment observations. One reach
+walk and one admission decision (`admitted`) serve every row. The walk starts at the program's
+`main` and the initializers of its linked modules, and follows Lean's compiled IR. A primitive or
+an extern bound to a listed native symbol stops the walk and checks its caller. Missing compiled
+code or unfinished traversal fails closed.
 
-`checkProgram` runs the check for the program whose `main` the environment declares, fails the
-build of the module that runs it when the check finds a call, and records the program in the
-module (`reached`). Each program of the package runs it: at the end of the root module of each
-`lean_exe`, or in a module of `Regula.ProgramCheck` that imports a program that `lean --run` runs
-and that cannot import this module. `lake exe qualify observers` refuses a program of the package
-that no module records, and checks itself the one root that no library module can import,
-`auditApp`'s `Main` (`Regula.Qualification.Observers`).
+The observer role is admitted only in its row's observer module: `Regula.Filesystem` or
+`Regula.Process`. A role elsewhere admits nothing. Sourced library pairs, imported toolchain
+environment observations and explicitly named bootstrap pairs are trusted exemptions. The cold
+drivers elaborate the same process source as the compiled observer, with no second policy.
 
-## What the check guarantees
+`checkProgram` refuses a program at build time and records every accepted program under `reached`.
+The existing `qualify observers` campaign checks those records for each executable and standalone
+source driver, and checks the executable root outside the package's libraries itself. It remains
+in self-audit shard 4/4.
 
-The criterion is honest code, as `SECURITY.md` and `CONTEXT.md` define it: code that does not
-deliberately change Lean's environment, compiler or build to make a check pass. Honest code in a
-checked program cannot reach a removal outside the observer, except the library removals that
-`libraryRemovals` lists, each a trusted exemption of Lake or resting on an assumption, as it states,
-and the removals of the two programs that `scripts/verify.sh` and `scripts/provision.sh` run, which
-are admitted by name where they are checked (`Regula.ProgramCheck.Verification`,
-`Regula.ProgramCheck.Provision`). Deliberate circumvention by Regula's own authors is outside it
-(issue 286), for example a hand-written `extern` bound to a C function of the runtime that removes
-other than `removalSymbols`, or a use of the private declarations of `Regula.Filesystem`.
+## Limits
 
-The check admits a removal of `libraryRemovals` or of a driver by the pair of its caller and the
-primitive that it calls (`admitted`), not by its path or by the call site in the caller. So each
-admitted pair is a trusted exception as a whole, together with any further call of the same
-primitive inside the same caller: a second `IO.FS.removeDirAll` in a removal of the verification
-driver passes the check. Issue 389 tracks deciding the drivers' removals with a decision that a
-theorem relates to `RegulaCore.Removal`.
+This is the honest-code boundary of `SECURITY.md` and `CONTEXT.md`: deliberate compiler or
+environment mutation, private-declaration access and arbitrary trusted plugins remain outside it.
+Each named pair admits its whole caller/primitive pair, including a second call of that primitive
+inside the same caller. Issue 389 owns the drivers' filesystem decisions. Lake's source
+configuration, builds and dependent programs remain trusted library behavior.
 
-## Boundaries
-
-The C functions of the runtime are not followed: `removalSymbols` lists the ones that remove or
-replace an entry. A removal by another program that a program starts, such as `rm`, is not a call
-that the check finds. The check reads the compiled code that the environment holds; a declaration
-whose compiled code it does not hold is unknown, and the check fails. -/
+The runtime's C bodies and child programs are not followed. The table identifies the pinned
+runtime symbols at the Lean boundary. A new native binding outside that table needs a sourced
+entry before this check can say anything about its effects. -/
 
 namespace Regula.Removal
 
@@ -81,14 +69,6 @@ def bindsTo (symbol : String) : ExternEntry → Bool
   | .inline _ pattern => (pattern.splitOn symbol).length > 1
   | _ => false
 
-/-- The C function of `removalSymbols` that `name` is bound to, when it is an `extern`
-declaration bound to one. -/
-def boundRemoval (env : Environment) (name : Name) : Option String :=
-  match findEnvDecl env name with
-  | some (.extern _ _ _ data) =>
-    removalSymbols.find? fun symbol => data.entries.any (bindsTo symbol)
-  | _ => none
-
 /-- The suffixes that Lean's compiler appends to the name of a declaration for the compiled
 variants it makes of it: one without its irrelevant arguments, and the boxed form of each. -/
 def compilerSuffixes : List Name :=
@@ -108,10 +88,11 @@ def moduleOf (env : Environment) (name : Name) : Name :=
 /-- The declarations of `env` with the observer's role of the filesystem
 (`@[regula_observer filesystem]`, `Regula.Assumption.roles`), split by whether `observerModule`
 declares them: those it declares, and those of every other module. -/
-def observerRoles (env : Environment) : Array Name × Array Name :=
+def observerRoles (env : Environment) (system : RegulaPolicy.External.System := .filesystem)
+    (owner : Name := observerModule) : Array Name × Array Name :=
   (Regula.Assumption.roles env).foldl (init := (#[], #[])) fun (own, foreign) (name, role) =>
-    if role != .observer .filesystem then (own, foreign)
-    else if moduleOf env name == observerModule then (own.push name, foreign)
+    if role != .observer system then (own, foreign)
+    else if moduleOf env name == owner then (own.push name, foreign)
     else (own, foreign.push name)
 
 /-- The filesystem observers that the check admits: the declarations of `observerModule` with the
@@ -171,9 +152,9 @@ construction, so that it holds only directories, files and that one link.
 - `Lake.reuseManifest`, specialized at `Lake.Workspace.updateAndMaterializeCore`, with
   `IO.FS.rename`. Trusted exemption, for the reason above: it moves the packages directory that a
   loaded manifest names to the workspace's (`Lake/Load/Resolve.lean:252-283`).
-- The three variants of `IO.FS.withTempFile` in `bv_decide`. Assumes: the program elaborates no
-  `bv_decide` proof, so these, which the tactic's initializers reach, do not run; each removes the
-  temporary file that `withTempFile` made (`Init/System/IO.lean:1353`). -/
+- The three variants of `IO.FS.withTempFile` in `bv_decide`. Trusted library exemption: source
+  configuration can elaborate this builtin tactic. Each removes the temporary file that Lean's
+  `withTempFile` made (`Init/System/IO.lean:1348-1357`); its temp-file mechanism remains trusted. -/
 def libraryRemovals : List (Name × Name) :=
   [(`Lake.importConfigFile, ``IO.FS.removeFile),
     (`Lake.importConfigFile, ``Lean.writeModule),
@@ -193,13 +174,161 @@ def libraryRemovals : List (Name × Name) :=
     (`IO.FS.withTempFile._at_.Lean.Elab.Tactic.BVDecide.evalBvDecide.spec_1._redArg._lam_0,
       ``IO.FS.removeFile)]
 
-/-- Whether the call of `primitive` by `caller` is a removal that the check admits: a call by one of
-`observers` or a compiled variant of one (`observerVariant`), or one of `libraryRemovals` or of
-`named`, the removals that a program which cannot import `Regula.Filesystem` names, each as the
-pair of its caller and the primitive that it calls. -/
-def admitted (env : Environment) (observers : Array Name) (named : List (Name × Name))
-    (caller primitive : Name) : Bool :=
-  observerVariant env observers caller || (libraryRemovals ++ named).contains (caller, primitive)
+/-- One system's primitive boundary. All systems use the same reach and admission decision. -/
+structure Boundary where
+  /-- The external system whose primitive calls are controlled. -/
+  system : RegulaPolicy.External.System
+  /-- Lean operations at which traversal stops and checks their caller. -/
+  primitives : List Name
+  /-- Runtime symbols that a differently named extern can bind. -/
+  symbols : List String
+  /-- The only module that can supply an observer for this boundary. -/
+  observer : Name
+  /-- Sourced library exemptions, each a caller and primitive pair. -/
+  library : List (Name × Name) := []
+  /-- Exported library launch entrypoints that project callers may not use directly. -/
+  entrypoints : List Name := []
+  /-- Imported library roots trusted to call these entrypoints within their own mechanisms. -/
+  entrypointCallers : List Name := []
+  /-- Imported library roots trusted to observe this system's primitives. -/
+  libraryCallers : List Name := []
+
+/-- Lake and Lean v4.34.1 start their own processes at these library boundaries.
+Assumes: the caller constructs Lake's environment from the checked installation and refuses
+nonabsolute compiler/archiver overrides before loading or building a workspace. Lake's Git,
+download, extraction and build mechanisms remain trusted, as the workspace's own configuration
+does. Sources: `Lake/Util/Proc.lean:29-91`, `Lake/Build/Actions.lean` and
+`Lake/Config/InstallPath.lean:278-318`. The private updateToolchain specialization delegates an
+alternative-toolchain restart to Elan (`Lake/Load/Resolve.lean:368-430`); Regula's in-process load
+configuration supplies no lakeArgs for that restart. This whole library pair remains trusted.
+Lean's builtin solver start is a trusted library boundary. Regula supplies its checked cadical
+through the initial sat.solver before in-process source elaboration, covering the default solver
+only while source leaves that option unset. A source setting it, including resetting it to empty,
+selects its own program and remains uncovered (issue 411, after issue 279's observer). Sources:
+`Lean/Meta/Tactic/BVDecide/TacticContext.lean:55-66`, `External.lean:98-122`. -/
+def libraryStarts : List (Name × Name) :=
+  [(`Lean.Meta.Tactic.BVDecide.External.runInterruptible, ``IO.Process.spawn),
+    (`Lake.rawProc, ``IO.Process.output),
+    (`Lake.proc, ``IO.Process.output),
+    (`Lake.captureProc?, ``IO.Process.output),
+    (`Lake.captureProc', ``IO.Process.output),
+    (`Lake.compileLeanModule, ``IO.Process.output),
+    (mkPrivateNameCore `Lake.Config.InstallPath `Lake.LeanInstall.get.getGithash, ``IO.Process.output),
+    (mkPrivateNameCore `Lake.Load.Resolve `Lake.Workspace.updateToolchain ++ `_at_ ++
+      mkPrivateNameCore `Lake.Load.Resolve `Lake.Workspace.updateAndMaterializeCore ++ `spec_7,
+      ``IO.Process.spawn),
+    (`Lake.testProc, ``IO.Process.spawn)]
+
+/-- Verso's renderer fetches remote cross-reference data with its fixed curl command. This is a
+trusted library download mechanism, not a checked toolchain selection. Regula's renderers enter
+through `Verso.Genre.Manual.manualMain`; their own audit code never calls this private fetcher.
+Assumes: pinned Verso cad4b633e75ea769b851f12f9ca3b4f0dfcc625f
+`src/multi-verso/MultiVerso.lean:398-408` fixes the program to curl and varies its URL and working
+directory; `:580-674` selects remote sources from Verso's configuration.
+`src/verso-manual/VersoManual.lean:750`, `:839` and `:1049-1075` connect rendering to that mechanism.
+The imported library and its download behavior remain trusted. -/
+def rendererStarts : List (Name × Name) :=
+  [(mkPrivateNameCore `MultiVerso `Verso.Multi.fetchRemote, ``IO.Process.output)]
+
+/-- Narrow environment exemptions used by the renderer's own libraries. They admit no arbitrary
+environment key or tool selection. Their callers are also entrypoints in the same boundary row,
+so a Regula call of one is refused before it can borrow the primitive exemption.
+Assumes: Lean v4.34.1 `Std/Time/Zoned/Database/TZdb.lean:123-139` and `:153-158` read only TZ and
+TZDIR to resolve timezone files. Pinned Verso cad4b633e75ea769b851f12f9ca3b4f0dfcc625f
+`src/multi-verso/MultiVerso.lean:384-396` reads the current directory to find the project;
+`:580-581` enters that search from its own `updateRemotes`. The imported library's filesystem
+observations and configuration remain trusted. -/
+def rendererEnvironment : List (Name × Name) :=
+  [(`Std.Time.Database.TZdb.resolveLocalPath, ``IO.getEnv),
+    (`Std.Time.Database.TZdb.resolveZonesPaths, ``IO.getEnv),
+    (mkPrivateNameCore `MultiVerso `Verso.Multi.findProject, ``IO.currentDir)]
+
+/-- Every launcher whose raw primitive pair is exempted is also an entrypoint boundary,
+derived from that same source inventory. Additional exported forwarding APIs accept the same
+unchecked native program argument. Project calls stop here instead of borrowing a library's
+internal exemption. Assumes: Lean v4.34.1 `Lake/Util/Proc.lean:29-91`,
+`Lake/Build/Actions.lean:29-170`, `Lean/Meta/Tactic/BVDecide/External.lean:147-166` and
+`LRAT/Cert.lean:98-111` define these launchers. Imported Lean and Lake callers retain their
+sourced library mechanisms; toolchain origin and deliberate private access remain trusted. -/
+def libraryLaunchers : List Name :=
+  (libraryStarts ++ rendererStarts).map Prod.fst ++
+    [``Lake.captureProc, ``Lake.compileO, ``Lake.compileStaticLib, ``Lake.compileSharedLib,
+      ``Lake.compileExe, ``Lean.Meta.Tactic.BVDecide.External.satQuery,
+      ``Lean.Meta.Tactic.BVDecide.runExternal]
+
+/-- The single primitive table: filesystem replacement, process starts and environment reads.
+A wrapper around output or run is controlled at that operation, while an extern alias is
+controlled by its runtime binding. Other systems have no entries yet. -/
+def boundaries : List Boundary :=
+  [⟨.filesystem, primitives, removalSymbols, observerModule, libraryRemovals, [], [], []⟩,
+    ⟨.process, [``IO.Process.spawn, ``IO.Process.output, ``IO.Process.run],
+      ["lean_io_process_spawn"], `Regula.Process, libraryStarts ++ rendererStarts, libraryLaunchers,
+      [`Lean, `Lake, `MultiVerso], []⟩,
+    ⟨.environment, [``IO.getEnv, ``IO.currentDir, ``IO.Process.getCurrentDir, ``IO.appPath, ``IO.Process.setCurrentDir],
+      ["lean_io_getenv", "lean_io_current_dir", "lean_io_process_get_current_dir", "lean_io_app_path", "lean_io_process_set_current_dir"],
+      `Regula.Process, rendererEnvironment, rendererEnvironment.map Prod.fst, [`Std, `MultiVerso],
+      [`Init, `Lean, `Lake]⟩]
+
+/-- The cold-start source's native boundaries, instantiated for the driver module and namespace.
+Each driver elaborates the same `ProcessSource.inc`, uses its typed selection and override
+decision, and imports no package artifact. These are named bootstrap exemptions, not a second
+process policy. Their compiler identity reports, Elan resolution and process effects stay trusted. -/
+def bootstrap (scope : Name) : List (Name × Name) :=
+  [(scope ++ `identified, ``IO.Process.output),
+    (scope ++ `spawn, ``IO.Process.spawn),
+    (scope ++ `output, ``IO.Process.output),
+    (scope ++ `readEnv, ``IO.getEnv),
+    (scope ++ `currentDir, ``IO.currentDir),
+    (scope ++ `appPath, ``IO.appPath),
+    (scope ++ `setCurrentDir, ``IO.Process.setCurrentDir)]
+
+/-- Whether an extern binds a runtime symbol of this system's boundary. -/
+def boundPrimitive (env : Environment) (boundary : Boundary) (name : Name) : Option String :=
+  match findEnvDecl env name with
+  | some (.extern _ _ _ data) =>
+    boundary.symbols.find? fun symbol => data.entries.any (bindsTo symbol)
+  | _ => none
+
+/-- Index the named primitives and their authenticated compiled variants from the same table.
+No second primitive list or admission rule is written here. -/
+def primitiveIndex (env : Environment) : Std.HashMap Name Boundary := Id.run do
+  let mut index := {}
+  for boundary in boundaries do
+    for primitive in boundary.primitives ++ boundary.entrypoints do
+      for suffix in compilerSuffixes do
+        let variant := primitive ++ suffix
+        if observerVariant env #[primitive] variant then index := index.insert variant boundary
+  return index
+
+/-- The boundary of a primitive or an extern alias. The compiled declaration is read once, and
+the runtime symbol is compared against the same per-system table. -/
+def boundaryOf (env : Environment) (index : Std.HashMap Name Boundary) (name : Name) : Option Boundary :=
+  if let some boundary := index[name]? then some boundary
+  else match findEnvDecl env name with
+    | some (.extern _ _ _ data) => boundaries.find? fun boundary =>
+      boundary.symbols.any fun symbol => data.entries.any (bindsTo symbol)
+    | _ => none
+
+/-- Whether this caller comes from an imported module under a stated library root. The local
+module never gets a library exemption, even when its name has such a root. The environment row
+trusts Init, Lean and Lake observations, including their search-path and environment decoders.
+Assumes: the imported modules at the table's stated roots are the toolchain's modules; the
+installed toolchain and import mechanism are trusted. Sources: Lean v4.34.1
+`Lean/Util/Path.lean:85-144`, `Lake/Config/Env.lean`, `Lake/Config/InstallPath.lean`. -/
+def libraryCaller (env : Environment) (roots : List Name) (caller : Name) : Bool :=
+  match env.getModuleIdxFor? caller with
+  | some index => roots.contains env.header.moduleNames[index.toNat]!.getRoot
+  | none => false
+
+/-- The one admission decision for a caller and primitive, parameterized by its system's row.
+A named bootstrap exemption and a library pair admit that whole caller/primitive pair. -/
+def admitted (env : Environment) (boundary : Boundary) (observers : Array Name)
+    (named : List (Name × Name)) (caller primitive : Name) : Bool :=
+  observerVariant env observers caller || (boundary.library ++ named).any (fun (source, operation) =>
+    observerVariant env #[source] caller && observerVariant env #[operation] primitive) ||
+    (libraryCaller env boundary.entrypointCallers caller &&
+      observerVariant env boundary.entrypoints.toArray primitive) ||
+    libraryCaller env boundary.libraryCallers caller
 
 /-- The modules that a program whose `main` is in the module `root` links: `root` and each module
 that it imports, directly or through another. -/
@@ -246,30 +375,45 @@ def initializers (env : Environment) : Array Name :=
   initializersOf env (env.header.moduleNames.foldl (·.insert ·)
     (({} : Std.HashSet Name).insert env.mainModule))
 
+/-- A raw call retains its system with the caller and primitive by construction. -/
+structure Call where
+  /-- The system whose observer was bypassed. -/
+  system : RegulaPolicy.External.System
+  /-- The declaration that called the primitive. -/
+  caller : Name
+  /-- The primitive or runtime binding reached. -/
+  primitive : Name
+
 /-- What the compiled code of a set of roots reaches. -/
 structure Reach where
-  /-- Each call of a removal primitive that the check does not admit, with its caller. -/
-  raw : Array (Name × Name)
+  /-- Every primitive call the check refuses, with its system. -/
+  calls : Array Call
   /-- Each reached declaration whose compiled code the environment does not hold. -/
   unknown : Array Name
-  /-- Each declaration of another module than `observerModule` with the filesystem observer's role
-  (`foreignObservers`). -/
-  foreign : Array Name := #[]
+  /-- Each observer role outside the module named by its system's row. -/
+  foreign : Array (RegulaPolicy.External.System × Name) := #[]
 
-/-- Each call of a removal primitive that the compiled code of `roots` reaches and that `admitted`
-does not admit, with the declaration that makes it; and each reached declaration whose compiled
-body `env` does not hold, so that what it calls is unknown. An `extern` declaration bound to a C
-function of `removalSymbols` (`boundRemoval`) is a removal primitive, whatever its name: a call of
-it is admitted or raw as a call of `primitives` is, and as a root it is raw. Every compiled
-declaration is followed, of this package, of Lean's library and of each other package; a C
-function of the runtime is not. -/
+/-- The caller/primitive projection retained for the filesystem controls. -/
+def Reach.raw (reach : Reach) : Array (Name × Name) :=
+  reach.calls.map fun call => (call.caller, call.primitive)
+
+/-- Every primitive call reached from `roots` and refused by the single per-system decision,
+plus missing compiled bodies. Runtime-bound aliases use the same table as named primitives.
+The filesystem observers parameter retains the existing control API; other rows obtain their
+observers from the same role mechanism. Native C bodies are not followed. -/
 def rawRemovalsFrom (env : Environment) (observers : Array Name) (roots : Array Name)
     (named : List (Name × Name) := []) : Reach :=
   Id.run do
+  let index := primitiveIndex env
+  let mut classified : Std.HashMap Name (Option Boundary) := {}
+  let own := boundaries.foldl (fun own boundary =>
+    own.insert boundary.system (if boundary.system == .filesystem then observers
+      else (observerRoles env boundary.system boundary.observer).1))
+    ({} : Std.HashMap RegulaPolicy.External.System (Array Name))
   let mut seen : Std.HashSet Name := {}
   for root in roots do seen := seen.insert root
   let mut work := roots
-  let mut raw := #[]
+  let mut calls := #[]
   let mut unknown := #[]
   -- Each declaration is added to `work` at most once. The bound is far above the number of
   -- compiled declarations that a program of this toolchain reaches (about 200,000); a declaration
@@ -281,25 +425,34 @@ def rawRemovalsFrom (env : Environment) (observers : Array Name) (roots : Array 
     | some decl@(.fdecl ..) =>
       for used in collectUsedDecls env [decl] do
         if used == name then continue
-        if primitives.contains used || (boundRemoval env used).isSome then
-          unless admitted env observers named name used do raw := raw.push (name, used)
+        let boundary := match classified[used]? with
+          | some boundary => boundary
+          | none => boundaryOf env index used
+        classified := classified.insert used boundary
+        if let some boundary := boundary then
+          unless admitted env boundary (own[boundary.system]?.getD #[]) named name used do
+            calls := calls.push ⟨boundary.system, name, used⟩
         else if !seen.contains used then
           seen := seen.insert used
           work := work.push used
     | some (.extern _ _ _ data) =>
       if data.entries.any (· matches .opaque) then unknown := unknown.push name
-      if let some symbol := boundRemoval env name then raw := raw.push (name, Name.mkSimple symbol)
+      for boundary in boundaries do
+        if let some symbol := boundPrimitive env boundary name then
+          calls := calls.push ⟨boundary.system, name, Name.mkSimple symbol⟩
     | none => unknown := unknown.push name
-  return { raw, unknown := unknown ++ work }
+  return { calls, unknown := unknown ++ work }
 
 /-- `rawRemovalsFrom` for a program whose `main` is `main` in the module `root`: from `main` and
-from each initializer of the modules that it links (`linked`, `initializersOf`), with the
-filesystem observers of `env` and the removals `named`, and with the declarations of other
-modules that have the filesystem observer's role (`foreignObservers`). -/
+from each initializer of the modules that it links (`linked`, `initializersOf`). Each row supplies
+its own observers and sourced exemptions; `named` supplies the cold driver's explicit pairs.
+Roles outside each row's boundary module are retained as foreign declarations. -/
 def rawRemovals (env : Environment) (root : Name) (named : List (Name × Name) := []) : Reach :=
   let roots := (initializersOf env (linked env root)).push `main
   { rawRemovalsFrom env (filesystemObservers env) roots named with
-    foreign := foreignObservers env }
+    foreign := boundaries.foldl (fun found boundary =>
+      found ++ ((observerRoles env boundary.system boundary.observer).2.map
+        fun name => (boundary.system, name))) #[] }
 
 /-- The prefix of the marker that `checkProgram` adds for each program that it checked: the
 definition `reached ++ root` of type `Unit`, where `root` is the program's root module. `lake exe
@@ -307,25 +460,25 @@ qualify observers` reads the markers from the module data of the package's modul
 def reached : Name := `Regula.Removal.reached
 
 /-- Why the check refuses the program whose root module is `root`, by what its compiled code
-reaches (`rawRemovals`): each call of a removal primitive that the check does not admit, and each
-reached declaration whose compiled code is unknown, and each declaration of another module than
-`observerModule` with the filesystem observer's role; `none` when there is none of them. -/
+reaches (`rawRemovals`): an unadmitted primitive call, missing compiled code, or an observer role
+outside its system's boundary module; `none` when there is none of them. -/
 def programRefusal (root : Name) (reach : Reach) : Option String :=
   if !reach.raw.isEmpty then
-    some s!"the program of {root} removes without the observer `Regula.Filesystem`: \
-      {reach.raw.toList.map fun (caller, primitive) => s!"{caller} calls {primitive}"}"
+    some s!"the program of {root} acts without its observer: \
+      {reach.calls.toList.map fun call =>
+        s!"{call.system.spelling}: {call.caller} calls {call.primitive}"}"
   else if !reach.unknown.isEmpty then
     some s!"the program of {root} reaches declarations whose compiled code is not available, so \
-      their removals are unknown: {reach.unknown.toList}"
+      their primitive effects are unknown: {reach.unknown.toList}"
   else if !reach.foreign.isEmpty then
-    some s!"the filesystem observer's role is given outside `{observerModule}`, the only module \
-      whose declarations remove: {reach.foreign.toList}"
+    some s!"an observer's role is given outside its boundary module: \
+      {reach.foreign.toList.map fun (system, name) => s!"{system.spelling}: {name}"}"
   else none
 
 /-- Check the program whose `main` the environment declares: fail with the refusal of the
 program (`programRefusal`) when there is one, and otherwise record the program (`reached`).
-`named` admits the removals that a program which cannot import `Regula.Filesystem` names, each as
-the pair of its caller and the primitive that it calls (`admitted`). -/
+`named` admits the explicit bootstrap pairs of a program that cannot import its observers,
+each as its caller and the primitive that it calls (`admitted`). -/
 def checkProgram (named : List (Name × Name) := []) : Elab.Command.CommandElabM Unit := do
   let env ← getEnv
   unless env.contains `main do

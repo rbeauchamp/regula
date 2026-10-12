@@ -1,6 +1,7 @@
 module
 
 public import Lean.Elab.Command
+public import Regula.Process
 public import Lean.Compiler.Old
 public import Lean.Compiler.NoncomputableAttr
 public import Lean.Compiler.ImplementedByAttr
@@ -65,7 +66,7 @@ private initialize toolchainLibrary : IO.Ref (Option System.FilePath) ← IO.mkR
 /-- The library directory of the running Lean toolchain, found once for the process. -/
 private def toolchainLibraryDirectory : IO System.FilePath := do
   if let some directory ← toolchainLibrary.get then return directory
-  let directory ← Lean.getLibDir (← Lean.findSysroot)
+  let directory ← Lean.getLibDir (← Regula.Process.sysroot)
   toolchainLibrary.set (some directory)
   return directory
 
@@ -120,13 +121,12 @@ def authenticateFoundation (env : Environment) : IO Unit := do
   | .ok () => pure ()
   | .error message => throw <| IO.userError message
 
-/-- Memoize the Core capability after independently confirming the resolved compiler's
-identity (`Regula.CompilerObservation.identifiedRoot`). Installation contents and process execution
+/-- Memoize the Core capability after confirming the resolved compiler's
+identity (`Regula.Process.identified`). Installation contents and process execution
 remain trusted. -/
 def compilerCapability : IO RegulaPolicy.Compiler.LegacyCompilerTrust := do
   if let some capability ← capabilityCache.get then return capability
-  let root ← Regula.CompilerObservation.identifiedRoot RegulaPolicy.Compiler.version
-    RegulaPolicy.Compiler.commit
+  let root ← Regula.Process.sysroot
   let capability := if ← Regula.CompilerObservation.legacyPresent (← Lean.getLibDir root)
     then .present else .absent
   let _ ← IO.ofExcept (RegulaPolicy.Compiler.admitCapability capability)

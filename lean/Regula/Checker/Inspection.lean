@@ -1,4 +1,5 @@
 import Regula.Checker.Acceptance
+import Regula.Process
 import Regula.Checker.Frontend
 import Regula.Checker.Manifest
 import Regula.Checker.Policy
@@ -461,7 +462,7 @@ def inspect (inventory : Lake.SurfaceInventory)
       return .error (.admission failure)
     return .ok { info, admitted, transcripts, frontendFailures }
   let count := environments.size
-  let root ← IO.currentDir
+  let root ← Regula.Process.currentDir
   let inspections ← withScratch root "history-memo" fun historyMemo =>
       withScratch root "admissions" fun publications => do
     let publication (index : Nat) : FilePath := publications / s!"{index}.json"

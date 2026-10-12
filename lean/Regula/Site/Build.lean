@@ -60,7 +60,7 @@ def versoRevision (root : FilePath) : IO String := do
   str verso "rev"
 
 private def git (root : FilePath) (args : Array String) : IO String := do
-  let result ← run root "git" args
+  let result ← run root (.stated "git" "Git is the caller-selected repository mechanism") args
   requireChecks [⟨s!"git {args}: {result.stderr}", result.exitCode == 0⟩]
   return result.stdout
 
@@ -86,7 +86,7 @@ def admitShard (root : FilePath) (current : Json) (path : FilePath) : IO Json :=
     ⟨s!"{path}: evidence was recorded for other checker, corpus or configuration sources than this \
       checkout",
       has shard "checkerAfter" current && has shard "checkerBefore" current⟩]
-  let admitted ← run root (root / ".lake/build/bin/ruleExampleQualification").toString
+  let admitted ← run root (.stated (root / ".lake/build/bin/ruleExampleQualification").toString "The caller selects this resolved non-toolchain executable")
       #[path.toString] cleanEnv
   requireChecks
       [⟨s!"{path}: corpus admission refused\n{admitted.stdout}{admitted.stderr}",
@@ -303,7 +303,7 @@ is present and 404 absent; any other answer or a failed transfer refuses. -/
 def downloadRelease (root : FilePath) (v : ReleaseVersion) : IO Bool := do
   IO.FS.createDirAll (releaseDirectory root)
   let archive := releaseDirectory root / releaseAsset v
-  let fetched ← run root "curl" #["--silent", "--show-error", "--location", "--max-time", "120",
+  let fetched ← run root (.stated "curl" "The external curl utility retrieves the stated resource") #["--silent", "--show-error", "--location", "--max-time", "120",
     "--output", archive.toString, "--write-out", "%{http_code}", releaseAssetUrl v]
   requireChecks [⟨s!"release {v.spelling}: {releaseAssetUrl v}\n{fetched.stderr}",
     fetched.exitCode == 0⟩]
@@ -321,7 +321,7 @@ def extractRelease (root : FilePath) (v : ReleaseVersion) : IO (List (String × 
   Regula.Filesystem.removeOwn .directory dir
   IO.FS.createDirAll dir
   let archive := releaseDirectory root / releaseAsset v
-  let extracted ← run root "tar" #["-xzf", archive.toString, "-C", dir.toString]
+  let extracted ← run root (.stated "tar" "The external archive utility handles the stated archive") #["-xzf", archive.toString, "-C", dir.toString]
   requireChecks [⟨s!"release {v.spelling}: extract {releaseAsset v}\n{extracted.stderr}",
     extracted.exitCode == 0⟩]
   for path in ← dir.walkDir do

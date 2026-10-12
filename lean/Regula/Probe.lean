@@ -1,4 +1,5 @@
 import Std.Data.DHashMap.Lemmas
+import Regula.Process
 import Regula.Collect
 import Regula.StructuralName
 import Lean.Elab.Command
@@ -1142,7 +1143,7 @@ def environmentReport (modules : List Name)
     (replayed : Option Regula.Collect.Replayed := none) (replayedModules : NameSet := {})
     (dependencies : List Name := []) :
     CommandElabM Regula.Report.Collected := do
-  let timing := (← IO.getEnv "REGULA_TIMING") == some "1"
+  let timing := (← Regula.Process.readEnv "REGULA_TIMING") == some "1"
   let label := String.intercalate ", " (modules.map toString)
   if modules.isEmpty then
     throwError "environmentReport: no owned module names were supplied"
@@ -1194,7 +1195,7 @@ def environmentReport (modules : List Name)
     -- the exact canonical artifact path in the pinned toolchain's library directory.
     -- Missing origin evidence leaves the module's boundaries owned by the project or a
     -- dependency rather than granting a toolchain exemption.
-    let toolchainLib ← liftIO <| Lean.getLibDir (← Lean.findSysroot)
+    let toolchainLib ← liftIO <| Lean.getLibDir (← Regula.Process.sysroot)
     let mut toolchainModules : NameMap RegulaPolicy.ToolchainOrigin := {}
     for (moduleName, origin) in env.header.moduleNames.zip moduleOrigins do
       if RegulaPolicy.ToolchainRoot moduleName.getRoot then
@@ -1263,9 +1264,9 @@ def environmentReport (modules : List Name)
 /-- `audit_dump_json`: compatibility command for direct interactive use. The
 Lean-native checker calls `environmentReport` directly. -/
 elab (name := auditDumpJsonCmd) "audit_dump_json" : command => do
-  let some pathStr := ← liftIO (IO.getEnv "AUDIT_DUMP_PATH")
+  let some pathStr := ← liftIO (Regula.Process.readEnv "AUDIT_DUMP_PATH")
     | throwError "audit_dump_json: AUDIT_DUMP_PATH is not set"
-  let some modulesRaw := ← liftIO (IO.getEnv "AUDIT_OWN_MODULES")
+  let some modulesRaw := ← liftIO (Regula.Process.readEnv "AUDIT_OWN_MODULES")
     | throwError "audit_dump_json: AUDIT_OWN_MODULES is not set"
   let modules := (modulesRaw.split (· == ',')).toList
     |>.filterMap fun t =>

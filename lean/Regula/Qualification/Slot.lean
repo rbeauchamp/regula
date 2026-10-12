@@ -99,9 +99,9 @@ the real-copy `-p` path is the mandatory fallback (Linux CI has no clonefile).
 Failures throw (fail closed). Only used after the guarded enumeration proves
 the subtree has no excluded roots and no symlinks. -/
 def copySubtreeSystem (source target : FilePath) : IO Unit := do
-  let cloned ← run source "cp" #["-R", "-c", "-p", ".", target.toString]
+  let cloned ← run source (.stated "cp" "until #399 replaces this copy with the construction in Regula.Filesystem") #["-R", "-c", "-p", ".", target.toString]
   if cloned.exitCode == 0 then return
-  let copied ← run source "cp" #["-R", "-p", ".", target.toString]
+  let copied ← run source (.stated "cp" "until #399 replaces this copy with the construction in Regula.Filesystem") #["-R", "-p", ".", target.toString]
   unless copied.exitCode == 0 do
     throw <| IO.userError s!"slot subtree copy failed: {source} -> {target}\n{copied.stderr}"
 
@@ -258,7 +258,7 @@ def checkContainment (slot : ProducerSlot) (copy : FilePath)
   unless (← contained slot.root copy) do
     throw <| IO.userError s!"slot package copy escapes slot: {copy}"
   if (← (copy / ".git").pathExists) then
-    let git ← run copy "git" #["rev-parse", "--git-dir", "--git-common-dir", "--show-toplevel"]
+    let git ← run copy (.stated "git" "Git is the caller-selected repository mechanism") #["rev-parse", "--git-dir", "--git-common-dir", "--show-toplevel"]
     unless git.exitCode == 0 do
       throw <| IO.userError s!"slot git identity unavailable: {copy}\n{git.stdout}{git.stderr}"
     for line in git.stdout.splitOn "\n" do
@@ -426,14 +426,14 @@ def prepareSlot (originalRoot : FilePath) (slot : ProducerSlot)
     provenance := provenance.push ⟨dep.package, "dependency", "shared"⟩
   for dep in deps do
     if let some expected := dep.revision then
-      let git ← run dep.root "git" #["rev-parse", "HEAD"]
+      let git ← run dep.root (.stated "git" "Git observes the pinned shared dependency revision") #["rev-parse", "HEAD"]
       unless git.exitCode == 0 && git.stdout.replace "\n" "" == expected do
         throw <| IO.userError s!"shared dependency git revision mismatch: {dep.package}"
   -- Root revision equality against the captured original (refusal on mismatch).
-  let originalGit ← run originalRoot "git" #["rev-parse", "HEAD"]
+  let originalGit ← run originalRoot (.stated "git" "Git is the caller-selected repository mechanism") #["rev-parse", "HEAD"]
   unless originalGit.exitCode == 0 do
     throw <| IO.userError "original root git revision unavailable"
-  let rootGit ← run copy "git" #["rev-parse", "HEAD"]
+  let rootGit ← run copy (.stated "git" "Git is the caller-selected repository mechanism") #["rev-parse", "HEAD"]
   unless rootGit.exitCode == 0 &&
       rootGit.stdout.replace "\n" "" == originalGit.stdout.replace "\n" "" do
     throw <| IO.userError "slot root git revision mismatch"

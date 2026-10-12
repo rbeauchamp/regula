@@ -1,5 +1,6 @@
 import Regula.Removal
 import Regula.TaskManagerCheck
+import Std.Time.Zoned.Database.TZdb
 
 /-! # Controls of the check that each program runs
 
@@ -65,10 +66,9 @@ run_cmd do
   unless raw.any (·.contains "plantedObserver calls IO.FS.removeFile") do
     throwError "a planted filesystem observer of another module made its removal admitted: {raw}"
   let foreign ← refusal planted (observer `plantedObserver (← `(pure ())))
-  unless foreign.any (·.contains "the filesystem observer's role is given outside") do
+  unless foreign.any (·.contains "an observer's role is given outside its boundary module") do
     throwError "the check accepted a program while a filesystem observer is declared outside \
       Regula.Filesystem: {foreign}"
-
 
 /-- The refusal of the check that a program needing Lean's task manager starts through the guard
 (`Regula.TaskManagerCheck.checkProgram`) for the program that the command `program` declares,
@@ -196,5 +196,78 @@ run_cmd do
   unless bound.any (·.contains "plantedWaitAny), and its `main`") do
     throwError "the task-manager check accepted a program that calls a declaration bound to \
       lean_io_wait_any: {bound}"
+
+/-- Compile this body as the planted global main, without executing it. These controls qualify
+the compiler/reach boundary; they are not observations of a live spawned child. -/
+def bodyRefusal (body : Term) (setup : CommandElabM Unit := pure ()) :
+    CommandElabM (Option String) := withoutModifyingEnv do
+  setup
+  let value ← liftTermElabM do
+    let value ← Term.elabTermEnsuringType body (mkApp (mkConst ``IO) (mkConst ``Unit))
+    Term.synthesizeSyntheticMVarsNoPostponing
+    instantiateMVars value
+  refusal value
+
+-- Each negative changes one route to the primitive. No child is executed by these compile-time
+-- controls; the refusal must name the intended primitive, rather than merely fail compilation.
+run_cmd do
+  for (label, body, primitive) in [
+      ("spawn", ← `(do discard <| IO.Process.spawn { cmd := "planted" }), "IO.Process.spawn"),
+      ("output wrapper", ← `(do
+        let wrapped := IO.Process.output
+        discard <| wrapped { cmd := "planted" }), "IO.Process.output"),
+      ("environment", ← `(do discard <| IO.getEnv "PLANTED"), "IO.getEnv")] do
+    let refused ← bodyRefusal body
+    unless refused.any (·.contains s!"calls {primitive}") do
+      throwError "{label}: the reach check did not refuse the intended primitive: {refused}"
+  let routed ← bodyRefusal (← `(do
+    discard <| Regula.Process.output (.toolchain .lean) { cmd := "", args := #["--version"] }))
+  if let some refused := routed then
+    throwError "the reach check refused a process through the observer: {refused}"
+
+-- Public library launch APIs are boundaries too: a project caller cannot borrow an exemption
+-- for a library's own starts. These controls inspect compiled calls without running a child.
+run_cmd do
+  for (label, body, primitive) in [
+      ("Lake.proc", ← `(do discard <| (Lake.proc { cmd := "planted" }).toBaseIO), "Lake.proc"),
+      ("Lake.captureProc", ← `(do discard <| (Lake.captureProc { cmd := "planted" }).toBaseIO), "Lake.captureProc'"),
+      ("Lean solver launcher", ← `(do
+        let env ← Lean.mkEmptyEnvironment
+        discard <| (Lean.Meta.Tactic.BVDecide.External.runInterruptible 1 { cmd := "planted" }).toIO'
+          { fileName := "planted", fileMap := Lean.FileMap.ofString "" } { env }),
+        "Lean.Meta.Tactic.BVDecide.External.runInterruptible"),
+      ("Std timezone file", ← `(do
+        discard <| Std.Time.Database.TZdb.resolveLocalPath #[]),
+        "Std.Time.Database.TZdb.resolveLocalPath"),
+      ("Std timezone directories", ← `(do
+        discard <| Std.Time.Database.TZdb.resolveZonesPaths Std.Time.Database.TZdb.default),
+        "Std.Time.Database.TZdb.resolveZonesPaths")] do
+    let refused ← bodyRefusal body
+    unless refused.any (·.contains s!"calls {primitive}") do
+      throwError "{label}: a project call borrowed a library-launch exemption: {refused}"
+
+-- A local module name rooted at Lake still receives no imported-library exemption.
+run_cmd do
+  let refused ← bodyRefusal (← `(do discard <| IO.getEnv "PLANTED")) do
+    modifyEnv (·.setMainModule `Lake.PlantedControl)
+  unless refused.any (·.contains "calls IO.getEnv") do
+    throwError "a locally authored Lake-rooted module borrowed a library exemption: {refused}"
+
+-- An arbitrary extern name bound to the process runtime symbol is detected as the same boundary.
+run_cmd do
+  let setup := elabCommand (← `(command|
+    @[extern "lean_io_process_spawn"] opaque plantedSpawn (args : IO.Process.SpawnArgs) :
+      IO (IO.Process.Child args.toStdioConfig)))
+  let refused ← bodyRefusal (← `(do discard <| plantedSpawn { cmd := "planted" })) setup
+  unless refused.any (·.contains "calls Regula.ProgramCheck.Controls.plantedSpawn") do
+    throwError "a differently named process extern escaped the reach check: {refused}"
+
+-- A process observer role belongs only to Regula.Process, even if a foreign declaration is pure.
+run_cmd do
+  let setup := elabCommand (← `(command|
+    @[regula_observer process] def plantedProcessObserver : IO Unit := pure ()))
+  let refused ← bodyRefusal (← `(plantedProcessObserver)) setup
+  unless refused.any (·.contains "an observer's role is given outside its boundary module") do
+    throwError "a foreign process observer escaped the reach check: {refused}"
 
 end Regula.ProgramCheck.Controls

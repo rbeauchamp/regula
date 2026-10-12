@@ -106,12 +106,9 @@ running Lake and the selected executable. The policy's `refusal` supplies the ex
 observed version and full commit, the migration remedy, and a link to the
 [supported-toolchain policy](toolchains.md).
 
-A Lean too old to compile the policy prints its own errors in place of that refusal. The
-guard runs the `lean` that `LEAN_SYSROOT` or `PATH` selects and requires it to be the Lean
-running Lake. When another toolchain's variables are inherited, a `lean` the policy refuses
-stops with that diagnostic, whichever Lean runs Lake, and a `lean` the policy accepts while
-Lake runs another Lean stops with `… is not the Lean running Lake …` instead. Running Lake
-without those variables is the remedy in both cases.
+A Lean too old to compile the policy prints its own errors in place of that refusal. The guard selects an absolute `LEAN_SYSROOT`, or an installed Elan toolchain, without a PATH lookup. It uses `ELAN_TOOLCHAIN` under `ELAN_HOME`, or under `HOME/.elan` when `ELAN_HOME` is absent. Without a selector, it uses the installed release that built Regula.
+
+The selected Lean must report the version and commit of the compiler running Lake. A failed identity check stops before the policy source runs. Supply that compiler's absolute installation or Elan selector to correct a mismatch.
 `lake exe regula doctor` reports the same mismatch for the compiler your own `lean-toolchain`
 selects, whichever compiler an override runs. For a Lean too old to run its identity probe, it
 instead reports that the pin selects no installed compiler that reports its identity, with the

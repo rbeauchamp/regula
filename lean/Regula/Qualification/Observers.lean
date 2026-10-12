@@ -1,18 +1,19 @@
 import Regula.Checker.Lake
 import Regula.Removal
 import Regula.TaskManagerCheck
+import Regula.Qualification.Process
 
-/-! # The removal check and the task-manager check of every program of the package
+/-! # The observer reach check and the task-manager check of every program of the package
 
-Each program of the package runs the check that every removal its compiled code reaches goes
-through the filesystem observer (`Regula.Removal.checkProgram`) when its root module, or a module
-that imports it, is built, and the module records the program (`Regula.Removal.reached`). Each
-compiled program, the root module of an executable, also runs the check that it starts through the
-guard of Lean's task manager when its compiled code needs one
+Each program of the package runs the check that its compiled primitive calls go through their
+system's observer or a sourced exemption (`Regula.Removal.checkProgram`) when its root module, or a
+module that imports it, is built, and the module records the program (`Regula.Removal.reached`).
+Each compiled program, the root module of an executable, also runs the check that it starts through
+the guard of Lean's task manager when its compiled code needs one
 (`Regula.TaskManagerCheck.checkProgram`), and the module records it
 (`Regula.TaskManagerCheck.checked`). This campaign reads the compiled modules of the root package as
 Lake resolves them (`Regula.Checker.Lake.rootSurfaceInventory`) and refuses unless each program is
-recorded: by both checks the root module of each executable, and by the removal check each module
+recorded: by both checks the root module of each executable, and by the reach check each module
 of a library that declares `main`, which a script runs with `lean --run`. The `lean` executable
 starts its own task manager before it elaborates such a module, so that program needs no guard
 (`Regula.TaskManagerCheck`). The `Fixtures` library is not read: it holds the inputs of the
@@ -84,7 +85,7 @@ def check : IO Unit := do
     taskRecords := taskRecords.insert root
   let missing := unrecorded programs records.contains
   unless missing.isEmpty do
-    throw <| IO.userError s!"observers: no module records the removal check of the programs \
+    throw <| IO.userError s!"observers: no module records the observer reach check of the programs \
       {missing.toList}: each runs `Regula.Removal.checkProgram` in its root module or in a \
       module that imports it"
   let unguarded := unrecorded compiled taskRecords.contains
@@ -94,7 +95,9 @@ def check : IO Unit := do
       the end of its root module"
   for program in programs do
     let task := if compiled.contains program then ", task-manager check recorded" else ""
-    IO.println s!"observers: {program}: removal check recorded{task}"
-  IO.println s!"observers: PASS ({programs.size} programs, {compiled.size} compiled)"
+    IO.println s!"observers: {program}: observer reach check recorded{task}"
+  Regula.Qualification.Process.check
+  IO.println s!"observers: PASS ({programs.size} programs, {compiled.size} compiled; filesystem, \
+    process and environment)"
 
 end Regula.Qualification.Observers

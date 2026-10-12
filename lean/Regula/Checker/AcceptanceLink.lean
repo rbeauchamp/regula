@@ -143,7 +143,7 @@ def digests (dir : FilePath) (paths : List String) : IO (List BuildReuse.Digest)
     | none => #[#[path]]) #[]
   let mut result := #[]
   for batch in batches do
-    let run ← runProcess dir "shasum" (#["-a", "256", "--"] ++ batch.map ("./" ++ ·))
+    let run ← runProcess dir (.stated "shasum" "The external SHA-256 utility computes file digests") (#["-a", "256", "--"] ++ batch.map ("./" ++ ·))
     let lines := (run.stdout.splitOn "\n").filter (!·.isEmpty)
     unless run.succeeded && lines.length == batch.size do
       throw <| IO.userError s!"shasum gave no digest of each file: {run.output}"

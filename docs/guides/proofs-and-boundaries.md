@@ -4449,7 +4449,7 @@ root's; the skill files are read and written at that repository root (the Lake r
 repository).
 
 Regula's `lakefile.lean` executes the core-only source `RegulaPolicy.Compiler` when its
-configuration is elaborated, in a child `lean` that `LEAN_SYSROOT` or `PATH` selects. The
+configuration is elaborated. `Regula.Process` selects that child from an identity-checked installation, without a PATH lookup. The
 source guard compares that child's version and full commit with the revision's declared
 identity and then prints them; the lakefile passes only when the child succeeds and the
 printed pair is the `Lean.versionString` and `Lean.githash` of the Lean elaborating the
@@ -5349,13 +5349,14 @@ Regula's code reads and changes systems that no Lean proof can examine. These ex
 the file system, processes, the process environment, Lake, Lean, the file locks of the operating
 system and Git. `RegulaPolicy.External.System` gives them. A contract gives what Regula's code
 uses of an operation of such a system. A theorem about code that uses the operation has the
-contract as a hypothesis, and the checker shows it for each declaration. At this time, only the
-file system has contracts.
+contract as a hypothesis, and the checker shows it for each declaration. The file system,
+processes and the process environment have contracts.
 
 ### Assumptions, checked operations and observers
 
-The module of an external system gives its operations as the structure `Ops` and a model of the
-system as the structure `Model`. A model gives each operation as an action on a state. An
+The filesystem module gives its operations as `Ops` and its model as `Model`. A model gives each operation as an action on a state. The process model describes the actual `IO` worlds.
+
+An
 assumption is a predicate over a model. Each assumption of the file system is the contract of one
 operation, as a `Std.Do` triple. The attribute `@[regula_assumption]` of `Regula.Assumption`
 gives the system and the sources of the assumption. An assumption is not an `axiom`: each theorem
@@ -5504,6 +5505,57 @@ symbolic link. Also, `realPath` gives the path that it got when it cannot find t
 ([`runtime/io.cpp#L1032-L1033`](https://github.com/leanprover/lean4/blob/v4.34.1/src/runtime/io.cpp#L1032-L1033)).
 Thus the observer refuses these two reads and each removal of a directory on Windows.
 
+### Processes and the environment
+
+`Regula.Process` observes process starts and environment reads. Its `Program` selects a closed toolchain tool or a stated external path with its reason. Toolchain tools are `lean`, `lake`, `leanchecker`, `leanc`, `clang`, `llvm-ar` and `cadical`.
+
+The observer selects an absolute `LEAN_SYSROOT`, or an installed Elan toolchain through Lake's own directory construction. It has no PATH fallback and installs nothing. The selected Lean must report the version and commit of the compiler that built the program. The installation contents, compiler self-report and stability between observation and execution remain trusted.
+
+`ResolvedTool` retains that installation and its constructed absolute tool path. `Prepared.absolute` proves that the command emitted for a toolchain launch is absolute. `Prepared.native` proves that the same command passes the native string check. The extension comes from Lean's `FilePath.exeExtension`.
+
+The native string check excludes NUL and, on Windows, quotes, drive-relative `C:clang` and root-relative `\clang`. Lean's absolute-path predicate alone accepts these relative forms. [Microsoft's path reference](https://learn.microsoft.com/en-us/windows/win32/fileio/naming-a-file#fully-qualified-vs-relative-paths) gives their dependence on the current drive or directory.
+
+Lake's compiler and archiver variables are `LEAN_CC`, `CC`, `LEAN_AR` and `AR`. Each inherited and supplied value must be absolute. Each occurrence is checked, including one that a later environment change would remove. This conservative guard does not depend on duplicate-key merge order. The implementation is shared by the observer and the cold source drivers in `ProcessSource.inc`.
+
+The process model describes each actual `IO` world, the selected child command and its initial environment. A returned child does not imply successful execution. On POSIX, Lean returns after `fork`, before `exec` can fail.
+
+| Assumption | What it states | Sources at Lean `v4.34.1` |
+| --- | --- | --- |
+| `ReadsEnvironment` | The named variable has the value reported by the observer, and the read leaves the world unchanged. | [`Init/System/IO.lean#L951-L955`](https://github.com/leanprover/lean4/blob/v4.34.1/src/Init/System/IO.lean#L951-L955), [`runtime/io.cpp#L976-L1011`](https://github.com/leanprover/lean4/blob/v4.34.1/src/runtime/io.cpp#L976-L1011), POSIX `getenv()` |
+| `StartsAbsolute` | An absolute command in the native string domain is the selected child path. | [`Init/System/IO.lean#L1489-L1502`](https://github.com/leanprover/lean4/blob/v4.34.1/src/Init/System/IO.lean#L1489-L1502), [`runtime/process.cpp#L453-L515`](https://github.com/leanprover/lean4/blob/v4.34.1/src/runtime/process.cpp#L453-L515), [`runtime/process.cpp#L191-L196`](https://github.com/leanprover/lean4/blob/v4.34.1/src/runtime/process.cpp#L191-L196), POSIX `execvp()` and the stated Windows trust |
+| `InheritsEnvironment` | On POSIX, a launch with inheritance applies valid native environment changes left to right. | [`Init/System/IO.lean#L1439-L1455`](https://github.com/leanprover/lean4/blob/v4.34.1/src/Init/System/IO.lean#L1439-L1455), [`runtime/process.cpp#L453-L469`](https://github.com/leanprover/lean4/blob/v4.34.1/src/runtime/process.cpp#L453-L469) |
+
+`spawn_toolchain` proves the absolute selected path for each successful run of the actual observer, conditional on `StartsAbsolute`. `Prepared.environment` describes the environment at the actual native start, conditional on `InheritsEnvironment`. It requires POSIX, inheritance and valid native entries. It does not compare that environment with a separate recorded array. The launch retains one environment array for that later work.
+
+The two approved shell wrappers start the installed pinned Lean by path under `ELAN_HOME` or `HOME/.elan`. Their selection does not use PATH. The installed compiler and shell execution remain trusted.
+
+Stated selections keep their reason at each call site. They are external selections, including the doctor's explicitly requested alternative installed compiler. They do not select the default toolchain by a bare program name.
+
+| External selection | Reason |
+| --- | --- |
+| `git`, `gh` | Repository and forge operations use the operator's configured utilities. |
+| `shasum`, `curl`, `tar`, `chmod`, `shellcheck` | Digests, acquisition, extraction, fixture modes and shell diagnostics use stated external utilities. |
+| `elan` | The doctor lists and resolves an explicitly requested installed compiler. Its reported compiler path must be absolute. |
+| `gtimeout`, `timeout`, `/usr/bin/nice` | The external deadline and scheduling utilities receive the prepared child's path and environment. |
+| `/usr/bin/env` | The existing deployment launcher clears unlisted variables. Its environment record remains separate work. |
+| `/bin/bash`, `/bin/chmod` | The controls execute exact approved wrapper copies and set owned fixture modes. |
+| `cp`, `ln` | Existing copy and link sites remain stated selections until [issue 399](https://github.com/rbeauchamp/regula/issues/399) replaces copies by construction. |
+| A resolved package or worker executable | Lake resolves the requested package executable, or the checker selects its own native worker. |
+
+### The compiled observer boundary
+
+`Regula.Removal.boundaries` gives one primitive table for filesystem replacement, process starts and environment observations. The same compiled reach walk and admission decision serve each row. It starts at `main` and linked module initializers. Unknown compiled code or an unfinished bounded traversal makes the check fail.
+
+Each observer role is admitted only in the module named by its row. Lake's starts and Lean's builtin solver start have sourced library exemptions. Their exported launch entrypoints are boundaries for project callers. A direct project call cannot borrow an exemption for the library's own starts.
+
+Regula supplies the checked `cadical` path through the initial `sat.solver` option before in-process configuration elaboration. This covers the default solver only while source leaves that option unset. Source that sets `sat.solver`, including a reset to empty, selects its own program. This route remains uncovered, as a source process start through `run_cmd` can be. No PASS is claimed for it.
+
+[Issue 411](https://github.com/rbeauchamp/regula/issues/411) owns source-option refusal after issue 279's observer lands. Lean `v4.34.1` [`TacticContext.lean:55–66`](https://github.com/leanprover/lean4/blob/v4.34.1/src/Lean/Meta/Tactic/BVDecide/TacticContext.lean#L55-L66) gives the option, sibling and PATH selection order.
+
+The cold drivers elaborate the same process source before package artifacts exist. Their named bootstrap pairs are explicit exemptions. Imported Lean and Lake environment observations also remain trusted library behavior. The drivers' filesystem exemptions remain the scope of issue 389.
+
+`qualify observers` checks the program records and exercises live tool, script, solver and override controls. It stays in self-audit shard `4/4`. Each native shadow first writes a marker and returns its distinct result. The protected route must run its intended tool or give its intended refusal without that marker. These are external observations, not proofs of the operating system. Windows native execution remains unqualified here.
+
 ### What the checker shows
 
 The checker walks the constants from each declaration in the kernel that replayed it. It records
@@ -5535,8 +5587,7 @@ This section does not establish these properties:
   frame does not include such a name.
 - That an entry outside a removed path is the same file, with the same contents, after the
   removal. The frame compares only the type of each entry.
-- That each call of an operation of an external system is in an observer. Regula's code also calls
-  these operations in other places.
+- That each operation of all external systems is in an observer. The compiled table covers only its stated primitives and explicit exemptions.
 
 ## Operational assumptions
 

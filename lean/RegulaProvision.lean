@@ -1,4 +1,5 @@
-import Lean.Data.Json
+import Lake.Config.InstallPath
+import Lean
 
 /-! # Dependency provisioning
 
@@ -23,6 +24,21 @@ The integration preflight requires the integration package's toolchain to match 
 with --require, requires provisioned Mathlib as the first step inside the timed integration check.
 -/
 namespace RegulaProvision
+
+namespace Process
+
+-- Use Lean's own frontend, not a second implementation of the process policy.
+run_cmd do
+  let origin ← Lean.getRef
+  let before ← Lean.getEnv
+  let input := Lean.Parser.mkInputContext (include_str "Regula/ProcessSource.inc") "Regula/ProcessSource.inc"
+  let result ← Lean.Elab.IO.processCommands input {} (← get)
+  set result.commandState
+  for (name, _) in result.commandState.env.constants.toList do
+    unless before.contains name do
+      Lean.Elab.addDeclarationRangesFromSyntax name origin
+
+end Process
 open System Lean
 
 /-! ## Pure decisions -/
@@ -332,12 +348,12 @@ structure Ran where
   /-- The process's standard error. -/
   stderr : String
 
-private def run (cwd : FilePath) (cmd : String) (args : Array String) : IO Ran := do
-  let out ← IO.Process.output {
-    cmd, args, cwd := some cwd, env := #[("GHCR_TOKEN", none)], stdin := .null }
+private def run (cwd : FilePath) (cmd : Process.Program) (args : Array String) : IO Ran := do
+  let out ← Process.output cmd {
+    cmd := "", args, cwd := some cwd, env := #[("GHCR_TOKEN", none)], stdin := .null }
   return ⟨out.exitCode, out.stdout, out.stderr⟩
 
-private def require (cwd : FilePath) (cmd : String) (args : Array String) : IO String := do
+private def require (cwd : FilePath) (cmd : Process.Program) (args : Array String) : IO String := do
   let ran ← run cwd cmd args
   unless ran.exitCode == 0 do
     throw <| IO.userError s!"provisioning: `{cmd} {" ".intercalate args.toList}` in {cwd} \
@@ -345,10 +361,10 @@ private def require (cwd : FilePath) (cmd : String) (args : Array String) : IO S
   return ran.stdout
 
 /-- Run with inherited output, for long steps whose progress the user should see. -/
-private def stream (cwd : FilePath) (cmd : String) (args : Array String)
+private def stream (cwd : FilePath) (cmd : Process.Program) (args : Array String)
     (env : Array (String × Option String) := #[]) : IO Unit := do
-  let child ← IO.Process.spawn {
-    cmd, args, env := env.push ("GHCR_TOKEN", none), cwd := some cwd,
+  let child ← Process.spawn cmd {
+    cmd := "", args, env := env.push ("GHCR_TOKEN", none), cwd := some cwd,
     stdin := .null, stdout := .inherit, stderr := .inherit }
   let exit ← child.wait
   unless exit == 0 do
@@ -365,7 +381,7 @@ private def nonce : IO String := do
 /-- Execute the released Mathlib plan in the workspace whose packages receive the artifacts. -/
 private def buildMathlib (cwd : FilePath) (readOnly : Bool) : IO Unit := do
   for command in mathlibCommands readOnly do
-    stream cwd "lake" command
+    stream cwd (.toolchain .lake) command
 
 private def admitComponent (what text : String) : IO Component := do
   let some name := component? text
@@ -384,9 +400,9 @@ private def observe (path : FilePath) : IO Observed := do
   | some .dir =>
     -- Without its own `.git`, Git would answer for the enclosing repository instead.
     unless ← (path / ".git").pathExists do return .directory none false
-    let head ← run path "git" #["rev-parse", "HEAD"]
+    let head ← run path (.stated "git" "The provisioning plan selects this external git utility") #["rev-parse", "HEAD"]
     let reports ← [#["status", "--porcelain"], #["stash", "list"],
-      #["rev-list", "-n", "1", "HEAD", "--branches", "--not", "--remotes"]].mapM (run path "git")
+      #["rev-list", "-n", "1", "HEAD", "--branches", "--not", "--remotes"]].mapM (run path (.stated "git" "The provisioning plan selects this external git utility"))
     let head := if head.exitCode == 0 then some head.stdout.trimAscii.toString else none
     return .directory head
         (reports.all fun ran => ran.exitCode == 0 && ran.stdout.trimAscii.isEmpty)
@@ -404,7 +420,7 @@ private def installLink (path : FilePath) (target : String) : IO Unit := do
   let some parent := path.parent | throw <| IO.userError s!"provisioning: {path} has no parent"
   IO.FS.createDirAll parent
   let staged := parent / s!".{path.fileName.getD "link"}.{← nonce}"
-  let _ ← require parent "ln" #["-s", target, staged.toString]
+  let _ ← require parent (.stated "ln" "until #399 replaces this copy with the construction in Regula.Filesystem") #["-s", target, staged.toString]
   try IO.FS.rename staged path
   catch error =>
     if (← kind? staged) matches some _ then IO.FS.removeFile staged
@@ -415,13 +431,13 @@ APFS clones; elsewhere the plain recursive copy is the fallback. -/
 private def installClone (path source : FilePath) : IO Unit := do
   let some parent := path.parent | throw <| IO.userError s!"provisioning: {path} has no parent"
   let staged := parent / s!".{path.fileName.getD "clone"}.{← nonce}"
-  let cloned ← run parent "cp" #["-R", "-c", "-p", source.toString, staged.toString]
+  let cloned ← run parent (.stated "cp" "until #399 replaces this copy with the construction in Regula.Filesystem") #["-R", "-c", "-p", source.toString, staged.toString]
   unless cloned.exitCode == 0 do
     if (← kind? staged) matches some .dir then IO.FS.removeDirAll staged
-    let _ ← require parent "cp" #["-R", "-p", source.toString, staged.toString]
-  let _ ← require parent "chmod" #["-R", "u+w", staged.toString]
+    let _ ← require parent (.stated "cp" "until #399 replaces this copy with the construction in Regula.Filesystem") #["-R", "-p", source.toString, staged.toString]
+  let _ ← require parent (.stated "chmod" "The provisioning plan selects this external chmod utility") #["-R", "u+w", staged.toString]
   -- The clone's files are new inodes; refresh the index so Lake's `git diff` stays cheap.
-  let _ ← run staged "git" #["update-index", "-q", "--refresh"]
+  let _ ← run staged (.stated "git" "The provisioning plan selects this external git utility") #["update-index", "-q", "--refresh"]
   try IO.FS.rename staged path
   catch error =>
     IO.FS.removeDirAll staged
@@ -484,9 +500,9 @@ private def readPins (repo : FilePath) : IO (Option (Json × Pins)) := do
     git := decoded.map fun (entry, pin, _) => (entry, pin) })
 
 private def cacheBase : IO FilePath := do
-  if let some base ← IO.getEnv "XDG_CACHE_HOME" then
+  if let some base ← RegulaProvision.Process.readEnv "XDG_CACHE_HOME" then
     if !base.isEmpty then return base
-  let some home ← IO.getEnv "HOME"
+  let some home ← RegulaProvision.Process.readEnv "HOME"
     | throw <| IO.userError "provisioning: HOME is not set"
   return FilePath.mk home / ".cache"
 
@@ -514,13 +530,13 @@ def sharedPackages (dir : FilePath) : FilePath := dir / ".lake" / "packages"
 
 /-- Remove the directory `path`, which may be read-only, never following a link inside it. -/
 private def removeReadOnly (path : FilePath) : IO Unit := do
-  let _ ← require (path.parent.getD ".") "chmod" #["-R", "u+w", path.toString]
+  let _ ← require (path.parent.getD ".") (.stated "chmod" "The provisioning plan selects this external chmod utility") #["-R", "u+w", path.toString]
   IO.FS.removeDirAll path
 
 /-- Remove a shared directory being removed, its receipt last, so that a run killed partway
 leaves it still identified and the next run finishes the removal. -/
 private def removeShared (path : FilePath) : IO Unit := do
-  let _ ← require (path.parent.getD ".") "chmod" #["-R", "u+w", path.toString]
+  let _ ← require (path.parent.getD ".") (.stated "chmod" "The provisioning plan selects this external chmod utility") #["-R", "u+w", path.toString]
   for entry in ← path.readDir do
     unless entry.fileName == receiptName do
       if (← kind? entry.path) == some .dir then IO.FS.removeDirAll entry.path
@@ -531,12 +547,12 @@ private def removeShared (path : FilePath) : IO Unit := do
 /-- Make the staged directory read-only. Each checkout's index is refreshed after its files
 changed mode, before its `.git` becomes read-only, so Lake's `git diff` stays cheap. -/
 private def makeReadOnly (staging : FilePath) (packages : Array FilePath) : IO Unit := do
-  let _ ← require staging "chmod" #["-R", "a-w", staging.toString]
+  let _ ← require staging (.stated "chmod" "The provisioning plan selects this external chmod utility") #["-R", "a-w", staging.toString]
   for package in packages do
     let git := package / ".git"
-    let _ ← require package "chmod" #["u+w", git.toString]
-    let _ ← require package "git" #["update-index", "-q", "--refresh"]
-    let _ ← require package "chmod" #["a-w", (git / "index").toString, git.toString]
+    let _ ← require package (.stated "chmod" "The provisioning plan selects this external chmod utility") #["u+w", git.toString]
+    let _ ← require package (.stated "git" "The provisioning plan selects this external git utility") #["update-index", "-q", "--refresh"]
+    let _ ← require package (.stated "chmod" "The provisioning plan selects this external chmod utility") #["a-w", (git / "index").toString, git.toString]
 
 /-- Create the shared directory `final` from a fresh staging directory, run the stable build
 plan, record and seal it, and publish with one rename.
@@ -554,7 +570,7 @@ private def create (repo parent final : FilePath) (key : String) (manifest : Jso
     |>.setObjVal! "packages" (.arr (pins.git.map (·.1)))).pretty ++ "\n")
   IO.FS.writeFile (staging / "lean-toolchain") (← IO.FS.readFile (repo / "lean-toolchain"))
   try
-    let githash := (← require staging "lean" #["--githash"]).trimAscii.toString
+    let githash := (← require staging (.toolchain .lean) #["--githash"]).trimAscii.toString
     unless githash == Lean.githash do
       throw <|
           IO.userError
@@ -566,7 +582,7 @@ private def create (repo parent final : FilePath) (key : String) (manifest : Jso
     let mut held := #[]
     let mut dirs := #[]
     for entry in ← packagesRoot.readDir do
-      let head := (← require entry.path "git" #["rev-parse", "HEAD"]).trimAscii.toString
+      let head := (← require entry.path (.stated "git" "The provisioning plan selects this external git utility") #["rev-parse", "HEAD"]).trimAscii.toString
       if let some (_, pin) := pins.git.find? (·.2.name == entry.fileName) then
         unless pin.rev == head do
           throw <|
@@ -764,7 +780,7 @@ private def provisionPackages (packages shared : FilePath) (receipt : Receipt) (
 
 /-- Refuse a process using a different compiler from this program. -/
 def requireCompiler (repo : FilePath) : IO Unit := do
-  let githash := (← require repo "lean" #["--githash"]).trimAscii.toString
+  let githash := (← require repo (.toolchain .lean) #["--githash"]).trimAscii.toString
   unless githash == Lean.githash do
     throw <| IO.userError s!"provisioning: this repository's toolchain is {githash}, \
       but this program runs on {Lean.githash}"
@@ -838,14 +854,14 @@ def provisionVerso (repo : FilePath) : IO Unit := do
     throw <| IO.userError s!"provisioning: markdown/lake-manifest.json pins MD4Lean {reader} \
       and website/lake-manifest.json pins MD4Lean {verso}; the two packages keep one checkout, \
       so pin the same commit in the two manifests"
-  stream (repo / "website") "lake" #["build", "verso/VersoManual"]
+  stream (repo / "website") (.toolchain .lake) #["build", "verso/VersoManual"]
 
 /-- Check the exact supported compiler before provisioning any dependency artifacts. -/
 def requireReleasedCompiler (repo : FilePath) : IO Unit := do
   requireCompiler repo
-  let out ← IO.Process.output {
-    cmd := "lean", args := #["lean/RegulaPolicy/Compiler.lean"], cwd := some repo,
-    env := #[("REGULA_COMPILER_GUARD", some "1"), ("GHCR_TOKEN", none)], stdin := .null }
+  let out ← Process.output (.toolchain .lean) {
+    cmd := "", args := #["lean/RegulaPolicy/Compiler.lean"], cwd := some repo,
+    env := #[("GHCR_TOKEN", none)], stdin := .null }
   unless out.exitCode == 0 do
     throw <| IO.userError s!"provisioning: released compiler guard failed:\n{out.stdout}{out.stderr}"
   unless out.stdout.replace "\r" "" == s!"{Lean.versionString}\n{Lean.githash}\n" do
@@ -864,7 +880,9 @@ end RegulaProvision
 
 /-- Standalone released-toolchain setup and explicit Mathlib or Verso provisioning. -/
 def main (args : List String) : IO Unit := do
-  let repo ← IO.FS.realPath (← IO.currentDir)
+  discard RegulaProvision.Process.identified
+  RegulaProvision.Process.requireOverrides
+  let repo ← IO.FS.realPath (← RegulaProvision.Process.currentDir)
   unless ← (repo / "lakefile.lean").pathExists do
     throw <| IO.userError "provisioning: run from the repository root"
   RegulaProvision.requireReleasedSetup repo
@@ -873,7 +891,7 @@ def main (args : List String) : IO Unit := do
     IO.println "provisioning: default verification needs no dependency acquisition"
   | ["mathlib"] =>
     RegulaProvision.requireMathlibApplies repo
-    if (← IO.getEnv "GITHUB_ACTIONS") == some "true" then
+    if (← RegulaProvision.Process.readEnv "GITHUB_ACTIONS") == some "true" then
       RegulaProvision.buildMathlib (repo / RegulaProvision.mathlibPackage) false
     else if System.Platform.isWindows then
       IO.println s!"provisioning: sharing is not supported on Windows; provision with \

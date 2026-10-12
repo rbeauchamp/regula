@@ -1,4 +1,5 @@
 import Regula.Checker.AxiomGate
+import Regula.Process
 import Regula.Checker.LintBuild
 
 /-!
@@ -130,8 +131,8 @@ Any other Lake layout, or a driver run outside Lake, fails the check. It also re
 `lintDriverArgs` of that workspace's default configuration,
 the project root of `project` (the parsed `--project`), and the owner's assertion. -/
 private def observe (dispatching : FilePath) (project : Option String) : IO Observed := do
-  let sysroot ← IO.getEnv "LEAN_SYSROOT"
-  let received := (((← IO.getEnv "LEAN_PATH").map SearchPath.parse).getD []).map toString
+  let sysroot ← Regula.Process.readEnv "LEAN_SYSROOT"
+  let received := (((← Regula.Process.readEnv "LEAN_PATH").map SearchPath.parse).getD []).map toString
   let (root, configured) ← Workspace.withRootWorkspace dispatching (resolveDependencies := false)
     fun ws => pure (ws.root.leanLibDir.toString, ws.root.lintDriverArgs.toList)
   let dispatched := match sysroot with
@@ -142,7 +143,7 @@ private def observe (dispatching : FilePath) (project : Option String) : IO Obse
     | some dir => try (some ∘ toString) <$> findRepoRoot dir catch _ => pure none
     | none => pure none
   return { dispatching := dispatching.toString, dispatched, configured, named,
-           owner := ← IO.getEnv ordinaryLakefilesVariable }
+           owner := ← Regula.Process.readEnv ordinaryLakefilesVariable }
 
 /-- The banner's note of the workspace owner's assertion. -/
 private def ownerAssertionNote : String :=

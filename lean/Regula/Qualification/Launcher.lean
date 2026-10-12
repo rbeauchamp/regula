@@ -40,14 +40,10 @@ def environment (root : FilePath) (state : State) (overrides : Array (String × 
   let start ← IO.monoMsNow
   let result ← if let some (_, capture) := (← state.cache.get).find? (·.1 == overrides) then
       pure capture else do
-    let output ← run root "lake" #["env", "/usr/bin/env", "-0"] overrides
+    let output ← run root (.toolchain .lake) #["env", "/usr/bin/env", "-0"] overrides
     requireChecks [⟨"Lake environment capture", output.exitCode == 0⟩]
     let env ← IO.ofExcept (admit output.stdout)
-    let resolved ← run root "/usr/bin/which" #["lean"] (env.val.map fun (k, v) => (k, some v))
-    requireChecks
-        [⟨"Lean executable resolution", resolved.exitCode == 0 && resolved.stderr.isEmpty &&
-      (resolved.stdout.trimAscii.toString.splitOn "\n").length == 1⟩]
-    let executable := (root / resolved.stdout.trimAscii.toString).toString
+    let executable := (← Regula.Process.toolPath .lean).toString
     let captured : Captured := ⟨env, executable⟩
     state.cache.modify (·.push (overrides, captured))
     pure captured
@@ -77,8 +73,9 @@ def runLean (root : FilePath) (state : State) (args : Array String)
           else value)
   let start ← IO.monoMsNow
   let output ←
-    if state.legacy && first.isNone then run root "lake" (#["env", "lean"] ++ args) overrides
-    else run root capture.executable args (variables.map fun (k, v) => (k, some v))
+    if state.legacy && first.isNone then
+      run root (.toolchain .lake) (#["env", capture.executable] ++ args) overrides
+    else run root (.toolchain .lean) args (variables.map fun (k, v) => (k, some v))
   let elapsed := (← IO.monoMsNow) - start
   state.timings.modify (·.push elapsed)
   state.records.modify (·.push {
@@ -91,7 +88,7 @@ def runLean (root : FilePath) (state : State) (args : Array String)
 Lake environment separately for imported-artifact controls. -/
 def leanPath (root : FilePath) (state : State) : IO String := do
   if state.legacy then
-    let output ← run root "lake" #["env", "printenv", "LEAN_PATH"]
+    let output ← run root (.toolchain .lake) #["env", "printenv", "LEAN_PATH"]
     requireChecks [⟨"Lake path query", output.exitCode == 0⟩]
     return output.stdout.trimAscii.toString
   let captured ← environment root state #[]

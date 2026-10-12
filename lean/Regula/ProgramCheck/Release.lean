@@ -8,4 +8,5 @@ imports only Lean and does not run the check itself. This module imports it, and
 when the compiled code of the program reaches a removal outside the filesystem observer
 (`Regula.Removal.checkProgram`). -/
 
-run_cmd Regula.Removal.checkProgram
+run_cmd Regula.Removal.checkProgram (named :=
+  Regula.Removal.bootstrap `Regula.Release.Process)

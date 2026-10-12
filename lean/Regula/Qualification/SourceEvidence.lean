@@ -38,7 +38,7 @@ def observe (root project : FilePath) (label binary : String) (flags : Array Str
   let output := project / s!"{label}.json"
   requireChecks [⟨"fresh evidence output", !(← output.pathExists)⟩]
   let jsonCommand := binary == "axiomGate"
-  let result ← run project (root / ".lake/build/bin" / binary).toString
+  let result ← run project (.stated (root / ".lake/build/bin" / binary).toString "The caller selects this resolved non-toolchain executable")
     (#["--project", project.toString] ++ flags ++
       if jsonCommand then #["--json-out", output.toString] else #[]) env
   let report ← if jsonCommand then pure (some (← readResult output)) else pure none

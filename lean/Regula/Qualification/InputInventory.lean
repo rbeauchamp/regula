@@ -83,7 +83,7 @@ def check : IO Unit := do
     IO.FS.writeFile (project / "Example.lean") "/-! Empty declared surface. -/\n"
     IO.FS.writeFile (project / "lakefile.lean") lakefile
     manifest project "kernel-only"
-    success (← run project "lake" #["update"] cleanEnv)
+    success (← run project (.toolchain .lake) #["update"] cleanEnv)
     let record := scratch / "build.json"
     let addedSource := scratch / "New.lean"
     IO.FS.writeFile addedSource
@@ -102,7 +102,7 @@ def check : IO Unit := do
           !(← (project / ".lake/build/lib/lean/Example/New.olean").pathExists)⟩]
         removeFile record
         let output := scratch / s!"{mode}-{phase}.json"
-        let result ← run project (root / ".lake/build/bin/axiomGate").toString
+        let result ← run project (.stated (root / ".lake/build/bin/axiomGate").toString "The caller selects this resolved non-toolchain executable")
           #["--project", project.toString, flag, "--json-out", output.toString]
           (env ++ #[("INVENTORY_FAULT", if fault then some phase else none),
             ("INVENTORY_TARGET", some added.toString),
@@ -144,7 +144,7 @@ def check : IO Unit := do
         let output := scratch / s!"{route}-{index}.json"
         let args := if route == "docFenceAudit" then #["--project", project.toString, "--jobs", "1"]
           else #["--documentation", project.toString, docs.toString, output.toString]
-        let result ← run project (root / ".lake/build/bin" / route).toString args
+        let result ← run project (.stated (root / ".lake/build/bin" / route).toString "The caller selects this resolved non-toolchain executable") args
           (env ++ #[("INVENTORY_FAULT", if bad then some phase else none),
             ("INVENTORY_TARGET", some target.toString),
             ("INVENTORY_SOURCE", if phase == "docs-remove" then none

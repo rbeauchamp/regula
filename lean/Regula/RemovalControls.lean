@@ -1,4 +1,5 @@
 import Regula.Removal
+import Regula.Process
 import Regula.Site.Deployment
 import Lean.Elab.Command
 
@@ -47,7 +48,7 @@ open Lean System
 /-- The planted removal of the control of initializers. It removes a directory only when the
 variable `REGULA_REMOVAL_CONTROL_PLANTED` is set, and no program runs it. -/
 initialize plantedInitializer : Unit ← do
-  if (← IO.getEnv "REGULA_REMOVAL_CONTROL_PLANTED").isSome then
+  if (← Regula.Process.readEnv "REGULA_REMOVAL_CONTROL_PLANTED").isSome then
     IO.FS.removeDirAll "/regula-removal-control-planted"
 
 -- A symbolic link above the last component: refused, and nothing is removed through the link. A
@@ -57,7 +58,7 @@ run_cmd do
   try
     IO.FS.createDirAll (base / "target" / "out")
     IO.FS.writeFile (base / "target" / "out" / "keep") "keep"
-    let linked ← IO.Process.output
+    let linked ← Regula.Process.output (.stated "ln" "Plant a symbolic-link filesystem control")
       { cmd := "ln", args := #["-s", (base / "target").toString, (base / "linked").toString] }
     unless linked.exitCode == 0 do throwError "ln -s failed: {linked.stderr}"
     let refused ← (Regula.Filesystem.removeOwn .directory (base / "linked" / "out")).toBaseIO
@@ -75,7 +76,7 @@ run_cmd do
     unless (← (Regula.Filesystem.ownPath (base / "target" / ".." / "linked")).toBaseIO)
         matches .error _ do
       throwError "ownPath accepted a path with a `..` component"
-    let working ← IO.FS.realPath (← IO.currentDir)
+    let working ← IO.FS.realPath (← Regula.Process.currentDir)
     unless (← Regula.Filesystem.ownPath (FilePath.mk "." / "lean")) == working / "lean" do
       throwError "ownPath kept the leading `.` of a relative path"
     for refused in [base / "linked", base / "linked" / "out", base / "target" / "out" / "keep"] do
@@ -86,7 +87,8 @@ run_cmd do
     Regula.Filesystem.requireNoLinkedEntries (base / "absent")
     unless (← (Regula.Filesystem.requireNoLinkedEntries base).toBaseIO) matches .error _ do
       throwError "requireNoLinkedEntries accepted a directory with a linked entry"
-    let dangling ← IO.Process.output { cmd := "ln", args := #["-s", (base / "missing").toString,
+    let dangling ← Regula.Process.output (.stated "ln" "Plant a dangling-link filesystem control")
+      { cmd := "", args := #["-s", (base / "missing").toString,
       (base / "target" / "out" / "dangling").toString] }
     unless dangling.exitCode == 0 do throwError "ln -s failed: {dangling.stderr}"
     unless (← (Regula.Filesystem.requireNoLinkedEntries (base / "target" / "out")).toBaseIO)
@@ -214,7 +216,7 @@ run_cmd do
     let _ ← Regula.Site.Deployment.fetch s!"-K{base / "config"}"
     if ← (base / "written").pathExists then
       throwError "fetch read a URL that starts with `-` as an option of curl"
-    let direct ← IO.Process.output
+    let direct ← Regula.Process.output (.stated "curl" "The negative control proves this curl configuration really writes a file")
       { cmd := "curl", args := #["--disable", "--silent", s!"-K{base / "config"}"] }
     unless direct.exitCode == 0 && (← (base / "written").pathExists) do
       throwError "the planted configuration of curl writes no file: {direct.stderr}"

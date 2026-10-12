@@ -1,3 +1,4 @@
+import Lake.Config.InstallPath
 import Lean
 
 /-! # Release automation
@@ -167,6 +168,21 @@ request's checks and CI's checks of the release commit build them.
 -/
 
 namespace Regula.Release
+
+namespace Process
+
+-- Use Lean's own frontend, not a second implementation of the process policy.
+run_cmd do
+  let origin ← Lean.getRef
+  let before ← Lean.getEnv
+  let input := Lean.Parser.mkInputContext (include_str "ProcessSource.inc") "Regula/ProcessSource.inc"
+  let result ← Lean.Elab.IO.processCommands input {} (← get)
+  set result.commandState
+  for (name, _) in result.commandState.env.constants.toList do
+    unless before.contains name do
+      Lean.Elab.addDeclarationRangesFromSyntax name origin
+
+end Process
 
 open Lean System
 
@@ -1529,18 +1545,18 @@ theorem branchAction_refuse_iff (openPulls : List String) (pull : String) :
 
 /-- The repository `owner/name` the workflow runs in. -/
 private def repository : IO String := do
-  match ← IO.getEnv "GITHUB_REPOSITORY" with
+  match ← Regula.Release.Process.readEnv "GITHUB_REPOSITORY" with
   | some r => if r.isEmpty then fail "GITHUB_REPOSITORY is empty" else pure r
   | none => fail "GITHUB_REPOSITORY is not set"
 
 private def env (name : String) : IO String := do
-  match ← IO.getEnv name with
+  match ← Regula.Release.Process.readEnv name with
   | some v => if v.isEmpty then fail s!"{name} is empty" else pure v
   | none => fail s!"{name} is not set"
 
 /-- Run `gh` with `args`; its standard output, or a failure with its standard error. -/
 private def gh (args : Array String) : IO String := do
-  let out ← IO.Process.output { cmd := "gh", args }
+  let out ← Process.output (.stated "gh" "The release uses the operator's configured GitHub CLI") { cmd := "", args }
   unless out.exitCode == 0 do fail s!"gh {args}: {out.stderr}"
   return out.stdout
 
@@ -1548,7 +1564,8 @@ private def gh (args : Array String) : IO String := do
 or removed. -/
 private def ghPost (method path : String) (body : Json) : IO Json := do
   let args := #["api", "--method", method, path, "--input", "-"]
-  let out ← IO.Process.output { cmd := "gh", args } body.compress
+  let out ← Process.output (.stated "gh" "The release uses the operator's configured GitHub CLI")
+    { cmd := "", args } (some body.compress)
   unless out.exitCode == 0 do fail s!"gh {args}: {out.stderr}"
   IO.ofExcept (Json.parse out.stdout)
 
@@ -1560,7 +1577,7 @@ private def str (j : Json) (key : String) : IO String := IO.ofExcept (j.getObjVa
 /-- Run `git` with `args` in the checkout; its standard output without surrounding whitespace, or
 a failure with its standard error. -/
 private def git (args : Array String) : IO String := do
-  let out ← IO.Process.output { cmd := "git", args }
+  let out ← Process.output (.stated "git" "Git supplies the release's repository observations") { cmd := "", args }
   unless out.exitCode == 0 do fail s!"git {args}: {out.stderr}"
   return out.stdout.trimAscii.toString
 
@@ -1681,7 +1698,7 @@ private def pointBranch (repo branch commit : String) : IO Unit := do
 
 /-- Append `text` to the job summary (`GITHUB_STEP_SUMMARY`), when there is one. -/
 private def summarize (text : String) : IO Unit := do
-  if let some path ← IO.getEnv "GITHUB_STEP_SUMMARY" then
+  if let some path ← Regula.Release.Process.readEnv "GITHUB_STEP_SUMMARY" then
     let handle ← IO.FS.Handle.mk path .append
     handle.putStr text
 
@@ -1772,7 +1789,7 @@ private def messagesSince (prev : Version) : IO (List String) := do
 /-- The version Lake reads from `lakefile.lean`: `lake reservoir-config`, whose `version` is what
 Reservoir indexes a version tag with. -/
 private def lakeVersion : IO Version := do
-  let out ← IO.Process.output { cmd := "lake", args := #["reservoir-config"] }
+  let out ← Process.output (.toolchain .lake) { cmd := "", args := #["reservoir-config"] }
   unless out.exitCode == 0 do fail s!"lake reservoir-config: {out.stderr}"
   let json ← IO.ofExcept (Json.parse out.stdout)
   let text ← IO.ofExcept (json.getObjValAs? String "version")
@@ -1847,7 +1864,7 @@ the branch, a release pull request of that version that is open (`releasePulls`)
 def openRelease : IO Unit := do
   let repo ← repository
   let head ← env "GITHUB_SHA"
-  let requested : Option Bump ← match (← IO.getEnv "RELEASE_BUMP").getD "derived" with
+  let requested : Option Bump ← match (← Regula.Release.Process.readEnv "RELEASE_BUMP").getD "derived" with
     | "derived" => pure none
     | "patch" => pure (some .patch)
     | "minor" => pure (some .minor)

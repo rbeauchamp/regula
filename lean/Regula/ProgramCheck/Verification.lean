@@ -36,7 +36,8 @@ def reclaimLoop : Name :=
 end Regula.ProgramCheck.Verification
 
 open Regula.ProgramCheck.Verification in
-run_cmd Regula.Removal.checkProgram (named := [
+run_cmd Regula.Removal.checkProgram (named :=
+  Regula.Removal.bootstrap `RegulaVerification.Process ++ [
   (`RegulaVerification.removeOwn, ``IO.FS.removeDirAll),
   (reclaimLoop, ``IO.FS.removeDirAll),
   (reclaimLoop, ``IO.FS.removeFile),

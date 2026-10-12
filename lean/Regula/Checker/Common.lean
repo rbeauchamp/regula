@@ -6,6 +6,7 @@ import Regula.Scratch
 import RegulaPolicy.ResultState
 import RegulaPolicy.Guards
 import Lean
+import Regula.Process
 import Lake.Load.Manifest
 import Std.Sync.Mutex
 
@@ -63,15 +64,15 @@ def scrubbedLeanPathEnv : Array (String × Option String) :=
 
 /-- Run `cmd` with `args` in directory `repo`, with the environment changes `env`, wait for it
 to finish and return its exit code and captured output. -/
-def runProcess (repo : FilePath) (cmd : String) (args : Array String)
+def runProcess (repo : FilePath) (cmd : Regula.Process.Program) (args : Array String)
     (env : Array (String × Option String) := #[]) : IO ProcessResult := do
-  let result ← IO.Process.output { cmd, args, cwd := some repo, env }
+  let result ← Regula.Process.output cmd { cmd := "", args, cwd := some repo, env }
   return { exitCode := result.exitCode, stdout := result.stdout, stderr := result.stderr }
 
 /-- The SHA-256 digest of the file at `path`, as 64 lowercase hexadecimal digits, computed in `cwd`
 by the trusted external `shasum -a 256`; any other output fails. -/
 def sha256File (cwd path : FilePath) : IO String := do
-  let result ← runProcess cwd "shasum" #["-a", "256", path.toString]
+  let result ← runProcess cwd (.stated "shasum" "The external SHA-256 utility computes file digests") #["-a", "256", path.toString]
   let digest := (result.stdout.splitOn " ").head!
   unless result.succeeded && digest.length == 64 &&
       digest.toList.all (fun c => c.isDigit || ('a' ≤ c && c ≤ 'f')) do
@@ -85,7 +86,7 @@ def timingVariable : String := "REGULA_TIMING"
 /-- Whether this process prints timing spans (`timedPhase`, `timingSpan`): off by default, on
 with `axiomGate --verbose` (so also `lake lint -- --verbose`) or when `timingVariable` is `1`.
 The spans measure the checker's own cost; they are never findings or results. -/
-initialize timing : IO.Ref Bool ← do IO.mkRef ((← IO.getEnv timingVariable) == some "1")
+initialize timing : IO.Ref Bool ← do IO.mkRef ((← Regula.Process.readEnv timingVariable) == some "1")
 
 /-- Print one timing line when timing output is on. -/
 def timingSpan (line : String) : IO Unit := do
@@ -117,10 +118,10 @@ def showingStream (target : IO.FS.Stream) (display : String → Bool) : IO IO.FS
 /-- `runProcess`, also printing to standard output each line of the child's standard output that
 `display` selects (with its newline), as the child writes it. The captured output is the
 child's complete output. -/
-def runProcessShowing (repo : FilePath) (cmd : String) (args : Array String)
+def runProcessShowing (repo : FilePath) (cmd : Regula.Process.Program) (args : Array String)
     (env : Array (String × Option String)) (display : String → Bool) : IO ProcessResult := do
-  let child ← IO.Process.spawn {
-    cmd, args, cwd := some repo, env, stdin := .null, stdout := .piped, stderr := .piped }
+  let child ← Regula.Process.spawn cmd {
+    cmd := "", args, cwd := some repo, env, stdin := .null, stdout := .piped, stderr := .piped }
   -- Drain standard error while standard output is read, so neither pipe can block the child.
   let errors ← IO.asTask child.stderr.readToEnd .dedicated
   let stdout ← IO.mkRef ""
@@ -240,18 +241,18 @@ def findRepoRoot (start : FilePath) : IO FilePath := do
 
 /-- The project root that `findRepoRoot` finds from the current working directory. -/
 def repoRoot : IO FilePath := do
-  findRepoRoot (← IO.currentDir)
+  findRepoRoot (← Regula.Process.currentDir)
 
 /-- Initialize dynamic module lookup from Lake's `LEAN_PATH`. Compiled checker
 executables do not receive the `lean` driver's search-path initialization. -/
 def initializeLeanSearchPath : IO Unit := do
-  Lean.initSearchPath (← Lean.findSysroot)
+  Lean.initSearchPath (← Regula.Process.sysroot)
 
 /-- The compiled library directory of the running checker executable's own
 package, when it follows Lake's standard layout. The trusted probe module
 resolves from here even when no Lake-provided `LEAN_PATH` is in scope. -/
 def checkerPackageLibDir : IO (Option FilePath) := do
-  let some bin := (← IO.appPath).parent | return none
+  let some bin := (← Regula.Process.appPath).parent | return none
   let libDir := bin / ".." / "lib" / "lean"
   if ← (libDir / "Regula" / "Probe.olean").pathExists then
     return some libDir
@@ -271,7 +272,7 @@ runs without `GIT_DIR` and `GIT_WORK_TREE`, so the work tree is the one Git find
 itself. Git and the filesystem are trusted. -/
 def gitWorkTree (dir : FilePath) : IO (Option FilePath) := do
   let result ← try
-      runProcess dir "git" #["rev-parse", "--show-toplevel"]
+      runProcess dir (.stated "git" "Git is the caller-selected repository mechanism") #["rev-parse", "--show-toplevel"]
         #[("GIT_DIR", none), ("GIT_WORK_TREE", none)]
     catch _ => return none
   let top := result.stdout.trimAscii.toString
@@ -487,7 +488,7 @@ def jsonStringArray (what : String) (value : Json) : IO (Array String) :=
 
 /-- Run `lake query TARGET --json` in `repo` and return its parsed JSON output. -/
 def lakeQuery (repo : FilePath) (target : String) : IO Json := do
-  parseJsonOutput target <| ← runProcess repo "lake" #["query", target, "--json"]
+  parseJsonOutput target <| ← runProcess repo (.toolchain .lake) #["query", target, "--json"]
 
 /-- The last `count` elements of `lines`, or all of them when there are fewer. -/
 def takeLast (count : Nat) (lines : Array String) : Array String :=
@@ -710,11 +711,11 @@ successful worker's is copied to this process's standard error. -/
 def runTypedWorker {α β : Type} [ToJson α] [FromJson β]
     (flag : String) (request : α) : IO β := do
   let binary ← workerBinary
-  withScratch (← IO.currentDir) "typed-worker" fun scratch => do
+  withScratch (← Regula.Process.currentDir) "typed-worker" fun scratch => do
     let input := scratch / "request.json"
     let output := scratch / "report.json"
     writeJson input (toJson request)
-    let child ← IO.Process.spawn {
+    let child ← Regula.Process.spawn (.stated binary "The checker runs its own resolved worker executable") {
       cmd := binary.toString
       args := #[flag, input.toString, output.toString]
       env := #[("LEAN_PATH", some (SearchPath.toString (← Lean.searchPathRef.get))),

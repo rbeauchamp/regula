@@ -25,6 +25,7 @@ the checker's build directory as the installation, and it reads `LAKE_HOME`, whi
 sets to the toolchain's root, as the root of a Lake build tree. The installation's commit is the
 one `Regula.Toolchain.sysroot` checked its `lean` reports. -/
 private def detectEnvironment : IO _root_.Lake.Env := do
+  Regula.Process.requireOverrides
   let sysroot ← Regula.Toolchain.sysroot
   let elan? ← _root_.Lake.findElanInstall?
   let lean ← _root_.Lake.LeanInstall.get sysroot (collocated := true)
@@ -41,7 +42,7 @@ private def loadConfig (repo : FilePath) (scrubSearchPath : Bool) : IO _root_.La
   let lakeEnv ← detectEnvironment
   let lakeEnv := if scrubSearchPath then { lakeEnv with initLeanPath := [], initLeanSrcPath := [] }
     else lakeEnv
-  return { lakeEnv, wsDir := ← IO.FS.realPath repo }
+  return { lakeEnv, wsDir := ← IO.FS.realPath repo, leanOpts := ← Regula.Process.leanOptions }
 
 /-- Pass the workspace that a load gave to `action`, or fail with the messages of its log. -/
 private def withLoaded {α : Type} (ws? : Option _root_.Lake.Workspace) (log : _root_.Lake.Log)

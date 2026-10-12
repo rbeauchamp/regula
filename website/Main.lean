@@ -3,6 +3,7 @@ import RegulaSite
 import Regula.TaskManagerCheck
 import RegulaCore.Site
 import Generated
+import Regula.Removal
 
 /-! Renders the generated rule reference as multi-page HTML. Run through
 `lake exe site build` in the repository root, which generates `Generated` and the site
@@ -40,6 +41,11 @@ def refuseSite (_reason : String) (_args : List String) : IO UInt32 :=
 with exit code 1 (`Regula.TaskManager.guard`). -/
 def main : List String → IO UInt32 :=
   Regula.TaskManager.guard "regula-site" refuseSite renderSite
+
+-- The removals that the compiled code of `main`, and of the initializers of the modules it links,
+-- reaches are the filesystem observer's and those that `Regula.Removal.libraryRemovals` lists: the
+-- build of this module fails otherwise (`Regula.Removal.checkProgram`).
+run_cmd Regula.Removal.checkProgram
 
 -- A program that needs Lean's task manager starts through its guard (`Regula.TaskManager.guard`),
 -- and its refusal needs none: the build of this module fails otherwise

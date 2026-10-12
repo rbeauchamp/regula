@@ -1,4 +1,5 @@
 import Regula.Checker.Common
+import Regula.Process
 import Regula.Checker.Manifest
 import Regula.Checker.Workspace
 import Regula.Checker.FacetReport
@@ -606,7 +607,7 @@ def copyProject (repo target exclude : FilePath)
           {packagesDir} is not a relative path that stays inside {exclude} from the copy"
     let link : FilePath := System.mkFilePath linkComponents
     if let some parent := link.parent then IO.FS.createDirAll parent
-    let linked ← runProcess project "ln" #["-s", (← IO.FS.realPath packages).toString,
+    let linked ← runProcess project (.stated "ln" "until #399 replaces this copy with the construction in Regula.Filesystem") #["-s", (← IO.FS.realPath packages).toString,
       link.toString]
     if !linked.succeeded then
       throw <| IO.userError s!"could not link pinned Lake packages: {linked.output}"
@@ -1157,7 +1158,7 @@ theorem regulaFacetAdmitted_iff (text running : Option String) (ownLibraryFacets
 /-- The text of the `lakefile.lean` of the package whose build directory holds the running
 executable, `<package>/.lake/build/bin/<executable>`, or none when it cannot be read. -/
 def runningLakefile : IO (Option String) := do
-  let app ← IO.FS.realPath (← IO.appPath)
+  let app ← IO.FS.realPath (← Regula.Process.appPath)
   let some package := (app.parent.bind (·.parent)).bind (·.parent) |>.bind (·.parent)
     | return none
   match ← (IO.FS.readFile (package / "lakefile.lean")).toBaseIO with
@@ -1446,7 +1447,7 @@ def Build.runObserved (build : Build) (repo : FilePath) (targets : Array Target)
   let buffer ← IO.mkRef ({} : IO.FS.Stream.Buffer)
   let out ← showingStream (IO.FS.Stream.ofBuffer buffer) build.display
   let searchPath ← Lean.searchPathRef.get
-  let workingDirectory ← IO.currentDir
+  let workingDirectory ← Regula.Process.currentDir
   let jobLogs ← IO.mkRef (#[] : Array JobLog)
   let marked ← IO.mkRef false
   let claimed ← IO.mkRef (#[] : Array Name)
@@ -1455,7 +1456,7 @@ def Build.runObserved (build : Build) (repo : FilePath) (targets : Array Target)
   let exitCode ← try
       Workspace.withRootWorkspace repo (scrubSearchPath := true) fun loaded => do
         let ws := Workspace.uncachedWorkspace loaded
-        IO.Process.setCurrentDir ws.root.dir
+        Regula.Process.setCurrentDir ws.root.dir
         let mut specs := #[]
         let mut modules := #[]
         for target in targets do
@@ -1506,7 +1507,7 @@ def Build.runObserved (build : Build) (repo : FilePath) (targets : Array Target)
       pure 1
     finally
       Lean.searchPathRef.set searchPath
-      IO.Process.setCurrentDir workingDirectory
+      Regula.Process.setCurrentDir workingDirectory
   let observed (process : ProcessResult) : IO CheckedBuild := do
     let jobs ← jobLogs.get
     let marked ← marked.get
@@ -1540,7 +1541,7 @@ def runBuiltExecutable (repo : FilePath) (spelling : String) (args : Array Strin
     pure (exe.file, ws.augmentedEnvVars)
   unless ← file.pathExists do
     throw <| IO.userError s!"executable {spelling} was not built: {file}"
-  runProcess repo file.toString args env
+  runProcess repo (.stated file "Lake resolved this explicitly requested package executable") args env
 
 /-- Build the targets with the root package's own options, printing nothing as it runs. -/
 def buildTargets : Build := {}
