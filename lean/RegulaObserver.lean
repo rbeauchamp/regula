@@ -12,7 +12,7 @@ loads a plugin's shared library alone, without the libraries of its imports.
 
 Lake loads it into the elaboration of each module of the root package through the `presetup`
 facet that Regula's `lakefile.lean` declares, and Regula's audit builds load it the same way
-(`Regula.Checker.Lake.observerPresetup`). Loading the plugin runs this module's initializers,
+(`Regula.Checker.Observer.observerPresetup`). Loading the plugin runs this module's initializers,
 which register the two linters below (`Lean/LoadDynlib.lean` lines 95 to 118).
 
 - The stateful linter folds each command's observations in source order: Lean chains its runs
@@ -25,51 +25,105 @@ which register the two linters below (`Lean/LoadDynlib.lean` lines 95 to 118).
 Assumes: in Lean 4.34.1 Lean runs both linters on every command whose syntax contains no
 `#guard_msgs`, the terminal command included, whatever the options and errors
 (`Lean/Elab/Command.lean` lines 338 to 368 and 865 to 871), with the command's complete info trees
-and messages, silent ones included (lines 520 to 545 and 567 to 597). Each `set_option` form
-records the option's name in the info tree (`Lean/Elab/SetOption.lean` line 65). -/
+(lines 520 to 545 and 567 to 597). The stateful linter reads the command's messages, silent ones
+included, as its own post runs: those of the command's elaboration, of the ordinary linters, whose
+task the stateful linters wait for (lines 541 and 563 to 566), and of each stateful linter's pre
+and of the posts that run before its own (lines 416 to 425). Lean loads the plugin before it runs
+the initializers of the module's imports (`Lean/Environment.lean` line 2446), so a stateful linter
+that imported code registers runs its post after the observer's (`Lean/Elab/Command.lean` lines 190
+to 192), and Lean starts the next command with no messages (`Lean/Language/Lean.lean` line 760).
+Lean gives a plugin no later point at which it can read a command's messages. A message that such a
+linter logs is outside the record: that linter is code that runs inside the audited elaboration,
+like a trusted plugin.
+
+Each `set_option` form records the option's name in the info tree (`Lean/Elab/SetOption.lean` line
+65), and the record holds the options set through `Lean.Elab.elabSetOption` (`setOptionKinds`).
+An option that elaborator code changes directly, such as `autoImplicit`, which the `ToExpr`
+deriving handler sets for its own command (`Lean/Elab/Deriving/ToExpr.lean` line 228), is outside
+the record. Of Lean's builtin commands, only `set_option` and `unlock_limits` change the scope's
+options (`Lean/Elab/BuiltinCommand.lean` lines 520 and 527). `unlock_limits` sets
+`maxHeartbeats`, `maxRecDepth` and `synthInstance.maxHeartbeats` to `0`, which RG2006 accepts
+(`RegulaPolicy.Community.unlockLimits_accepted`), so the observer does not record it. -/
+
 namespace RegulaObserver
 open Lean Elab Command
 
 /-- The syntax kinds of the commands that drop or replace the messages of the commands they run. -/
 def guardKinds : Array Name := #[``Lean.guardMsgsCmd, ``Lean.guardPanicCmd]
 
-/-- The value Lean's `set_option` elaborator reads from `value`: a string, numeral or Boolean
-literal (`Lean.Elab.elabSetOption`, which each `set_option` elaborator gives its fourth argument), or none for any other syntax. -/
-partial def literal (value : Syntax) : Option DataValue :=
+/-- The syntax kinds whose elaborators call `Lean.Elab.elabSetOption` with their second and fourth
+arguments as the option's name and value: the command, term, tactic and `grind` tactic forms of
+`set_option` (`Lean/Elab/BuiltinCommand.lean` line 517, `Lean/Elab/BuiltinTerm.lean` line 416,
+`Lean/Elab/Tactic/BuiltinTactic.lean` line 217, `Lean/Elab/Tactic/Grind/BuiltinTactic.lean` line
+524). The linters that also call it (`Lean/Linter/Basic.lean` line 45,
+`Lean/Linter/MissingDocs.lean` line 321) record no information node, and repeat a `set_option` of
+the source. -/
+def setOptionKinds : Array Name :=
+  #[``Lean.Parser.Command.set_option, ``Lean.Parser.Term.set_option,
+    ``Lean.Parser.Tactic.set_option, ``Lean.Parser.Tactic.Grind.setOption]
+
+/-- The value Lean's `set_option` elaborator establishes from `value`: a string or numeral literal,
+or the atom `true` or `false` (`Lean.Elab.elabSetOption`, `Lean/Elab/SetOption.lean` lines 74 to
+83, which refuses any other syntax), or none for any other syntax. Lean records the option's name
+in the info tree (`Lean.Elab.OptionInfo`, `Lean/Elab/InfoTree/Types.lean` lines 120 to 123) but
+not the value, and the elaborator returns the value only to its caller, so the observer decodes
+the same syntax the same way. -/
+def literal (value : Syntax) : Option DataValue :=
   match value.isStrLit?, value.isNatLit?, value with
   | some s, _, _ => some (.ofString s)
   | none, some n, _ => some (.ofNat n)
   | none, none, .atom _ "true" => some (.ofBool true)
   | none, none, .atom _ "false" => some (.ofBool false)
-  | none, none, .node _ _ #[inner] => literal inner
   | _, _, _ => none
 
 /-- The position of `stx` in the module's file, or the start of the file when it has none. -/
 def positionOf (fileMap : FileMap) (stx : Syntax) : Position :=
   fileMap.toPosition ((stx.getPos? (canonicalOnly := false)).getD 0)
 
-/-- Whether `stx` contains `id`, the same syntax with the same source information. -/
-def mentions (stx id : Syntax) : Bool :=
-  (stx.find? (·.structEq id)).isSome
+/-- Whether `a` and `b` are the same occurrence: the same syntax (`Syntax.structEq`, which ignores
+source information, `Init/Meta/Defs.lean` line 520) at the same start and end position. -/
+def sameOccurrence (a b : Syntax) : Bool :=
+  a.structEq b && a.getPos? (canonicalOnly := false) == b.getPos? (canonicalOnly := false) &&
+    a.getTailPos? (canonicalOnly := false) == b.getTailPos? (canonicalOnly := false)
 
-/-- The form of the `set_option` syntax `setter` that wrote the option name `id`, with `ancestors`
-the syntax of the nodes above it, innermost first: the command form is `commandIn` when an
-ancestor is `cmd in cmd` whose first command is a `set_option` of `id`. -/
-def formOf (setter id : Syntax) (ancestors : List Syntax) : Form :=
-  if setter.isOfKind ``Lean.Parser.Command.set_option then
-    if ancestors.any fun a => a.isOfKind ``Lean.Parser.Command.in &&
-        a[0].isOfKind ``Lean.Parser.Command.set_option && a[0][1].structEq id then .commandIn
-    else .command
-  else if setter.isOfKind ``Lean.Parser.Term.set_option then .term
-  else if setter.isOfKind ``Lean.Parser.Tactic.set_option then .tactic
-  else .elaborated
+/-- Whether `stx` contains the occurrence `id` (`sameOccurrence`). -/
+def mentions (stx id : Syntax) : Bool :=
+  (stx.find? (sameOccurrence · id)).isSome
+
+/-- The `set_option` syntax that wrote the occurrence `id` of an option name: the first node of a
+kind in `setOptionKinds` whose second argument is `id`, in the syntax of the innermost of the
+nodes `ancestors` above it that contains one. -/
+def setterOf (id : Syntax) (ancestors : List Syntax) : Option Syntax :=
+  ancestors.findSome? fun stx =>
+    stx.find? fun n => setOptionKinds.contains n.getKind && sameOccurrence n[1] id
+
+/-- The command that the command form `set_option … in cmd` wraps: `cmd`, through each further
+`set_option … in` that `cmd` is. -/
+partial def wrappedCommand (cmd : Syntax) : Syntax :=
+  if cmd.isOfKind ``Lean.Parser.Command.in && cmd[0].isOfKind ``Lean.Parser.Command.set_option then
+    wrappedCommand cmd[2]
+  else cmd
+
+/-- The form of the `set_option` syntax `setter`, with `ancestors` the syntax of the nodes above
+it, and for the command form before one command the syntax kind of the command it wraps
+(`wrappedCommand`). The command form is `commandIn` when an ancestor is `cmd in cmd` whose first
+command is `setter`; the `grind` tactic form is a tactic form. -/
+def formOf (setter : Option Syntax) (ancestors : List Syntax) : Form × Option Name :=
+  match setter with
+  | none => (.elaborated, none)
+  | some setter =>
+    if setter.isOfKind ``Lean.Parser.Command.set_option then
+      match ancestors.find? fun a => a.isOfKind ``Lean.Parser.Command.in &&
+          sameOccurrence a[0] setter with
+      | some a => (.commandIn, some (wrappedCommand a[2]).getKind)
+      | none => (.command, none)
+    else if setter.isOfKind ``Lean.Parser.Term.set_option then (.term, none)
+    else (.tactic, none)
 
 /-- An option name the `set_option` elaborator recorded, with what the walk knew above it. -/
 structure Found where
   /-- The recorded name. -/
   info : OptionInfo
-  /-- The syntax of the elaborator node directly above it, the `set_option` that wrote it. -/
-  setter : Syntax
   /-- The elaborators and syntax of the nodes above it, innermost first. -/
   ancestors : List (Name × Syntax)
 
@@ -89,9 +143,7 @@ partial def walk (ancestors : List (Name × Syntax)) (acc : Walk) : InfoTree →
     let acc := match info with
       | .ofCommandInfo i => if guardKinds.contains i.stx.getKind then
           { acc with guards := acc.guards.push i.stx } else acc
-      | .ofOptionInfo i =>
-        let setter := (ancestors.head?.map (·.2)).getD .missing
-        { acc with options := acc.options.push { info := i, setter, ancestors := ancestors.drop 1 } }
+      | .ofOptionInfo i => { acc with options := acc.options.push { info := i, ancestors } }
       | _ => acc
     let ancestors := match info with
       | .ofCommandInfo i => (i.elaborator, i.stx) :: ancestors
@@ -100,9 +152,9 @@ partial def walk (ancestors : List (Name × Syntax)) (acc : Walk) : InfoTree →
         | none => ancestors
     children.foldl (walk ancestors) acc
 
-/-- The setting that `found` records: its value and form from its `set_option` syntax, and, when
-its name is not in the module's source text, its origin, the innermost node above whose syntax
-does not contain the name, the macro that wrote it. -/
+/-- The setting that `found` records: its value and form from its `set_option` syntax
+(`setterOf`), and, when its name is not in the module's source text, its origin, the innermost
+node above whose syntax does not contain the name, the macro that wrote it. -/
 def settingOf (env : Environment) (decls : OptionDecls) (fileMap : FileMap) (found : Found) :
     Setting :=
   let id := found.info.stx
@@ -112,12 +164,13 @@ def settingOf (env : Environment) (decls : OptionDecls) (fileMap : FileMap) (fou
       Origin.mk declaration (((env.getModuleIdxFor? declaration).bind fun idx =>
           env.header.moduleNames[idx.toNat]?).getD
         (if env.contains declaration then env.mainModule else .anonymous))
-  let form := formOf found.setter id (found.ancestors.map (·.2))
+  let syntaxes := found.ancestors.map (·.2)
+  let setter := setterOf id syntaxes
+  let (form, wrapped) := formOf setter syntaxes
   { name := found.info.optionName
-    value := if form == .elaborated || !found.setter[1].structEq id then none
-      else literal found.setter[3]
+    value := setter.bind fun setter => literal setter[3]
     registeredDefault := (decls.find? found.info.optionName).map (·.defValue)
-    form, origin
+    form, wrapped, origin
     position := positionOf fileMap id }
 
 /-- The observations of the command `stx`, appended to `fold`. -/

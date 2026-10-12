@@ -25,8 +25,8 @@ namespace RegulaObserver
 open Lean
 
 /-- How the source set an option: a `set_option` command, the command form `set_option … in`
-before one command, the term or tactic form, or an elaboration whose syntax the observer did not
-find, such as one an elaborator ran. -/
+before one command, the term or tactic form (the `grind` tactic form among them), or an
+elaboration whose `set_option` syntax the observer did not find. -/
 inductive Form where
   /-- `set_option name value` as a command. -/
   | command
@@ -60,6 +60,9 @@ structure Setting where
   registeredDefault : Option DataValue
   /-- How the source set it. -/
   form : Form
+  /-- For the form before one command, the syntax kind of the command that `set_option … in`
+  wraps, through each further `set_option … in`; none for the other forms. -/
+  wrapped : Option Name
   /-- The macro whose expansion wrote the option's name, or none when the name is in the module's
   source text. -/
   origin : Option Origin
