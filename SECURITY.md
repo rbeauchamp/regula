@@ -61,15 +61,18 @@ the list.
 
 Regula runs the `#print axioms` step of
 [Validating a Lean Proof](https://lean-lang.org/doc/reference/latest/ValidatingProofs/) over each
-declaration that a project claims. `lake env leanchecker` replays the compiled modules in Lean's
-kernel beside it. [Comparator](https://github.com/leanprover/comparator) judges a proof of a fixed
-statement from a source that you do not trust.
+declaration that a project claims. `lake exe freshChecker` replays the compiled modules in Lean's
+kernel beside it. It runs the toolchain's own `leanchecker` by its path in the toolchain's
+installation directory. `lake env leanchecker` can run a package's own program of that name
+instead, because `lake env` puts the binary directory of each package first on `PATH`.
+[Comparator](https://github.com/leanprover/comparator) judges a proof of a fixed statement from a
+source that you do not trust.
 
-The later steps of that page, `lake env leanchecker` and comparator, replay declarations through
-Lean's kernel. Thus the two refuse a declaration that `debug.skipKernelTC` adds and that the kernel
-does not accept. `lake env leanchecker` does not calculate or compare axiom sets, thus it does not
-find a direct write to the axiom table. Comparator calculates the axioms from the declarations that
-it exports, not from that table. It refuses each axiom that is not one of its permitted axioms.
+The later steps of that page, the toolchain's `leanchecker` and comparator, replay declarations
+through Lean's kernel. Thus the two refuse a declaration that `debug.skipKernelTC` adds and that
+the kernel does not accept. `leanchecker` does not calculate or compare axiom sets, thus it does
+not find a direct write to the axiom table. Comparator calculates the axioms from the declarations
+that it exports, not from that table. It refuses each axiom that is not one of its permitted axioms.
 
 No step of that page checks the changes to compiled code. These are a compiler pass, a direct
 write that stores a compiled body that Lean's compiler did not make and a native build setting. An
