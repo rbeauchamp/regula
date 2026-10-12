@@ -649,8 +649,8 @@ theorem admitToolchainOrigin_isOk_iff (moduleName : Name) (actual expected : Str
       · simp [root, empty, equal, Except.isOk, Except.toBool]
   · simp [root, Except.isOk, Except.toBool]
 
-/-- `admitToolchainOrigin` accepts exactly a module under `Init`, `Std`, `Lean` or `Lake` whose observed
-origin is nonempty and equal to the expected one: it accepts `Init` with equal origins and
+/-- `admitToolchainOrigin` accepts exactly a module under `Init`, `Std`, `Lean` or `Lake` whose
+observed origin is nonempty and equal to the expected one: it accepts `Init` with equal origins and
 refuses the anonymous module. What it returns is `toolchainOrigin_roundtrip`. -/
 theorem checked_admitToolchainOrigin :
     Regula.ExecutableContract admitToolchainOrigin (fun admit =>

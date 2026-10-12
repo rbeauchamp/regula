@@ -88,7 +88,8 @@ run_cmd do
 run_cmd do
   let observed ← Regula.Collect.foundationObservations (← Lean.getEnv)
   unless observed.size == RegulaPolicy.foundationStatements.size do
-    throwError "foundation observations: {observed.size} of {RegulaPolicy.foundationStatements.size}"
+    throwError
+      "foundation observations: {observed.size} of {RegulaPolicy.foundationStatements.size}"
   match RegulaPolicy.admitFoundation observed with
   | .ok () => pure ()
   | .error message => throwError message

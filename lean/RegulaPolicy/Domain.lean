@@ -107,8 +107,8 @@ inductive BoundaryKind where
   its initializer action returned when the module was initialized, not the constant's own
   value, and its compiled body is a stub that is never run. -/
   | «initializedValue»
-  /-- An `@[extern]` constant outside the toolchain whose C symbol is the `@[export]` name of one Lean
-  declaration: its compiled calls run that declaration's compiled code. -/
+  /-- An `@[extern]` constant outside the toolchain whose C symbol is the `@[export]` name of one
+  Lean declaration: its compiled calls run that declaration's compiled code. -/
   | «exportedImplementation»
   deriving Repr, DecidableEq, Hashable, Inhabited
 
@@ -1950,10 +1950,11 @@ inductive CheckedEvidence : BoundaryKind → Type where
 /-- Trusted evidence by kind. A native-runtime `extern` always carries the admitted origin of
 its toolchain module. A runtime replacement, an unsafe or partial computation or an initialized
 value may carry one, which the probe attaches exactly when the declaring module has an admitted
-toolchain origin; without one it is the project's or a dependency's. No other kind can carry one: a compiler
-simplification is registered by its equality's module, an `external` is by definition outside
-the toolchain, the probe reports an opaque constant as checked, unresolved, or through its
-partial helper, and a compiler-trusting proof axiom is the project's use of the compiler. -/
+toolchain origin; without one it is the project's or a dependency's. No other kind can carry
+one: a compiler simplification is registered by its equality's module, an `external` is by
+definition outside the toolchain, the probe reports an opaque constant as checked, unresolved, or
+through its partial helper, and a compiler-trusting proof axiom is the project's use of the
+compiler. -/
 def TrustedEvidence : BoundaryKind → Type
   | .nativeRuntime => ToolchainOrigin
   | .runtimeReplacement | .unsafeComputation | .partialComputation | .initializedValue =>
@@ -2218,11 +2219,11 @@ structure ExecutionBoundary.ProjectWritten where
 executable root. `boundary` is one of `runtime-replacement`, `compiler-simplification`,
 `native-runtime`, `external`, `unsafe-computation`, `partial-computation`, `opaque-computation`,
 `compiler-trusted-proof`, `initialized-value` or `exported-implementation`; `correspondence` is
-`checked`, `trusted`, or `unresolved`. Each field the pass sets at one constant is declared in the part that says where its
-value comes from. Its position and its callers are computed over the walk of the root, through the
-edges of the project-written part of the name records (`ExecutionWalk.NodeRecord.ProjectWritten`),
-so they are fields of the boundary itself. Its callers are the sources of the compiled edges whose
-target is its observed name. -/
+`checked`, `trusted`, or `unresolved`. Each field the pass sets at one constant is declared in
+the part that says where its value comes from. Its position and its callers are computed over the
+walk of the root, through the edges of the project-written part of the name records
+(`ExecutionWalk.NodeRecord.ProjectWritten`), so they are fields of the boundary itself. Its callers
+are the sources of the compiled edges whose target is its observed name. -/
 structure ExecutionBoundary extends ExecutionBoundary.ToolchainObserved,
     ExecutionBoundary.ProjectWritten where
   /-- The boundary's position in its root's boundary list. -/
