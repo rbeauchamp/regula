@@ -8,11 +8,12 @@ import Lean.Elab.Command
 A removal primitive of Lean's library is an operation that removes or replaces an entry
 (`primitives`, `removalSymbols`). `rawRemovalsFrom` follows the compiled code of a program from its
 `main` and the initializers of the modules it links, and finds each call of a removal primitive
-that a declaration makes other than a declaration with the filesystem observer's role
-(`@[regula_observer filesystem]`, `Regula.Filesystem`) or a call of Lean's library that
-`libraryRemovals` lists. The observer's removals and its move are private to `Regula.Filesystem`,
-and the operations it exports observe the place and act only on what the decisions of
-`RegulaCore.Removal` decide.
+that a declaration makes other than a declaration of `Regula.Filesystem` with the filesystem
+observer's role (`@[regula_observer filesystem]`, `filesystemObservers`) or a call of Lean's library
+that `libraryRemovals` lists. The role given in another module admits nothing, and the check of a
+program refuses it (`foreignObservers`). The observer's removals and its move are private to
+`Regula.Filesystem`, and the operations it exports observe the place and act only on what the
+decisions of `RegulaCore.Removal` decide.
 
 `checkProgram` runs the check for the program whose `main` the environment declares, fails the
 build of the module that runs it when the check finds a call, and records the program in the
@@ -33,11 +34,17 @@ deliberately change Lean's environment, compiler or build to make a check pass. 
 checked program cannot reach a removal outside the observer, except the library removals that
 `libraryRemovals` lists with the assumption on which each one rests, and the removals of the two
 programs that `scripts/verify.sh` and `scripts/provision.sh` run, which are admitted by name where
-they are checked (`Regula.ProgramCheck.Verification`, `Regula.ProgramCheck.Provision`, issue
-389). Deliberate
-circumvention by Regula's own authors is outside it (issue 286), for example a hand-written
-`extern` bound to a C function of the runtime that removes other than `removalSymbols`, or a use of
-the private declarations of `Regula.Filesystem`.
+they are checked (`Regula.ProgramCheck.Verification`, `Regula.ProgramCheck.Provision`).
+Deliberate circumvention by Regula's own authors is outside it (issue 286), for example a
+hand-written `extern` bound to a C function of the runtime that removes other than
+`removalSymbols`, or a use of the private declarations of `Regula.Filesystem`.
+
+The check admits a removal of `libraryRemovals` or of a driver by the pair of its caller and the
+primitive that it calls (`admitted`), not by its path or by the call site in the caller. So each
+admitted pair is a trusted exception as a whole, together with any further call of the same
+primitive inside the same caller: a second `IO.FS.removeDirAll` in a removal of the verification
+driver passes the check. Issue 389 tracks deciding the drivers' removals with a decision that a
+theorem relates to `RegulaCore.Removal`.
 
 ## Boundaries
 
@@ -99,11 +106,35 @@ variants it makes of it: one without its irrelevant arguments, and the boxed for
 def compilerSuffixes : List Name :=
   [.anonymous, `_redArg, `_boxed, `_redArg ++ `_boxed]
 
+/-- The module whose declarations may have the filesystem observer's role: `Regula.Filesystem`,
+whose exported operations remove only what the decisions of `RegulaCore.Removal` decide. -/
+def observerModule : Name := `Regula.Filesystem
+
+/-- The module of `env` that declares `name`: the module of the environment's own commands when no
+imported module declares it. -/
+def moduleOf (env : Environment) (name : Name) : Name :=
+  match env.getModuleIdxFor? name with
+  | some index => env.header.moduleNames[index.toNat]!
+  | none => env.mainModule
+
 /-- The declarations of `env` with the observer's role of the filesystem
-(`@[regula_observer filesystem]`, `Regula.Assumption.roles`). -/
+(`@[regula_observer filesystem]`, `Regula.Assumption.roles`), split by whether `observerModule`
+declares them: those it declares, and those of every other module. -/
+def observerRoles (env : Environment) : Array Name × Array Name :=
+  (Regula.Assumption.roles env).foldl (init := (#[], #[])) fun (own, foreign) (name, role) =>
+    if role != .observer .filesystem then (own, foreign)
+    else if moduleOf env name == observerModule then (own.push name, foreign)
+    else (own, foreign.push name)
+
+/-- The filesystem observers that the check admits: the declarations of `observerModule` with the
+observer's role (`observerRoles`). A role given in another module admits nothing. -/
 def filesystemObservers (env : Environment) : Array Name :=
-  (Regula.Assumption.roles env).filterMap fun (name, role) =>
-    if role == .observer .filesystem then some name else none
+  (observerRoles env).1
+
+/-- The declarations of other modules than `observerModule` with the filesystem observer's role,
+each of which the check of a program refuses (`programRefusal`). -/
+def foreignObservers (env : Environment) : Array Name :=
+  (observerRoles env).2
 
 /-- Whether `name` is one of `observers` or a compiled variant that the compiler made of one: a
 name of `compilerSuffixes` after its name, which is not the name of a declaration that a source
@@ -115,38 +146,46 @@ def observerVariant (env : Environment) (observers : Array Name) (name : Name) :
 /-- The calls of a removal primitive in Lean's library that a program of the package reaches, each
 with the declaration that makes it, for Lean 4.34.1. Each one calls `IO.FS.removeFile` on one file
 that the library itself manages, or `Lean.writeModule`, except Lake's removal of a dependency's
-clone and its move of a packages directory. Each rests on an assumption, which the check does not
+clone and its move of a packages directory. Lake makes the first four in places that its own path
+functions give, and the loaders of `Regula.Checker.Workspace`, the only callers of Lake's loaders
+in `lean/` by a search for them, run Lake only when `Regula.Filesystem.requireLakePlaces` admits
+those places: each below a directory that is its own real path, with no symbolic link at a
+component down to it or, where Lake changes entries at any depth, below it
+(`Regula.Removal.lakePlacesAdmitted_iff`). Each rests on an assumption, which the check does not
 establish:
 
 - `Lake.importConfigFile`, with `IO.FS.removeFile` and with `Lean.writeModule`. Assumes: these
-  remove and write only files in the directory of the root package's compiled configuration,
-  `.lake/config/0` below the checkout. It removes the stale `lakefile.olean` and its trace
-  (`Lake/Load/Lean/Elab.lean:244` and `:262`). It writes the new `lakefile.olean` and its
+  remove and write only files in Lake's directory of a package's compiled configuration
+  (`Lake.LoadConfig.configDir`), `.lake/config/<index>` below the workspace for every package
+  index (`Regula.Checker.Workspace.configDir_eq`). It removes the stale `lakefile.olean` and its
+  trace (`Lake/Load/Lean/Elab.lean:244` and `:262`), and writes the new `lakefile.olean` and its
   siblings (`:256`), each through a temporary file that it renames over the file and removes when
-  the write fails (`src/library/module.cpp:311-314`, `:403` and `:408`). That directory and the
-  files written in it are the checkout's own: before the loader runs,
-  `Regula.Checker.Workspace.withRootPackage` and `Regula.Checker.Workspace.withRootWorkspace`
-  refuse when `.lake` or `.lake/config` is there and is not a directory at its own place
-  (`Regula.Filesystem.requireOwnDirectory`), and when `.lake/config/0` is not one or has an entry
-  that is a symbolic link (`Regula.Filesystem.requireNoLinkedEntries`), so no open for writing
-  there follows a link. They are the only callers of Lake's loaders in `lean/`, by a search for
-  them.
-- `Lake.removeFileIfExists`, `Lake.downloadArtifactCore`, `Lake.download`. Assumes: a program that
-  runs no Lake build and no download of Lake's artifact cache in its own process does not run
-  these, which the build functions of Lake's facets reach (`Lake/Util/IO.lean:23`,
-  `Lake/Config/Cache.lean:558`, `Lake/Build/Actions.lean:178`).
+  the write fails (`src/library/module.cpp:311-314`, `:403` and `:408`). The loaders admit
+  `.lake/config` at any depth before Lake loads a package (`Regula.Checker.Workspace.configPlace`).
+- `Lake.removeFileIfExists`, `Lake.downloadArtifactCore`, `Lake.download`. Assumes: in a Lake
+  build or query that a program runs in its own process, on a workspace that the loaders gave,
+  these remove only files below the build places of a package of the workspace: its build
+  directory and the directories that Lake joins to it, at any depth, and its build archive and
+  barrel with their traces (`Regula.Checker.Workspace.buildPlaces`, `Lake/Util/IO.lean:23`,
+  `Lake/Build/Common.lean:313-326`, `Lake/Build/Actions.lean:178`). The loaders admit those places
+  before the action that builds. A removal in Lake's artifact cache (`Lake/Config/Cache.lean:558`)
+  runs only in a build that reads or writes the cache, which Regula's builds turn off
+  (`Regula.Checker.Workspace.uncachedWorkspace_unreadable`, `uncachedWorkspace_unwritable`), and
+  its query of imports builds no artifact (`Regula.Checker.LintBuild.moduleImports`). The code of a
+  package's own configuration, such as a custom target, a script or a hook, is that package's, and
+  its removals are outside this check.
 - `Lake.updateGitRepo`, specialized at `Lake.materializeGitRepo`, with `IO.FS.removeDirAll`.
   Assumes: it removes the clone of a dependency, `<workspace>/<packages>/<name>`, only when a
-  directory is there whose remote is not the dependency's URL (`Lake/Load/Materialize.lean:64-82`),
-  and a program reaches it only through `Regula.Checker.Workspace.withRootWorkspace`, the only
-  caller of Lake's loaders that resolve dependencies in `lean/` by a search for them. Before Lake
-  materializes the dependencies that a manifest locks, that function refuses when the clone of one
-  is not a directory at its own place and its `HEAD` is not the manifest's revision, at which Lake
-  leaves it as it is (`Lake/Load/Materialize.lean:251-261`). Before Lake's update of a workspace
-  without a manifest, it refuses when the packages directory is not a directory at its own place
-  or has an entry that is a symbolic link. So the clone that Lake removes is a directory at its own
-  place, when the name of each package is one path component and no process changes the places
-  between the check and the removal.
+  directory is there whose remote is not the dependency's URL (`Lake/Load/Materialize.lean:64-82`).
+  Before Lake materializes the dependencies that a manifest locks, the loaders admit each clone
+  that Lake would update, whose `HEAD` is not the manifest's revision
+  (`Regula.Checker.Workspace.clonePlaces`, `Lake/Load/Materialize.lean:251-261`). Before Lake's
+  update of a workspace without a manifest, they admit the packages directory at any depth and the
+  clone of each Git dependency that the root package declares. So the clone that Lake removes is
+  reached through no symbolic link, when no process changes the places between the check and the
+  removal, and when the name of each dependency that Lake learns only during that update, a
+  dependency of a dependency or a Reservoir package, names a place below the packages directory:
+  it has no `..` component and is not absolute.
 - `Lake.reuseManifest`, specialized at `Lake.Workspace.updateAndMaterializeCore`, with
   `IO.FS.rename`. Assumes: it moves the packages directory that a loaded manifest names to the
   workspace's, only when a manifest loads (`Lake/Load/Resolve.lean:252-283`), and
@@ -235,6 +274,9 @@ structure Reach where
   unknown : Array Name
   /-- Each call of a primitive of `writePrimitives`, with its caller. -/
   writes : Array (Name × Name)
+  /-- Each declaration of another module than `observerModule` with the filesystem observer's role
+  (`foreignObservers`). -/
+  foreign : Array Name := #[]
 
 /-- Each call of a removal primitive that the compiled code of `roots` reaches and that `admitted`
 does not admit, with the declaration that makes it; each reached declaration whose compiled body
@@ -278,10 +320,12 @@ def rawRemovalsFrom (env : Environment) (observers : Array Name) (roots : Array 
 
 /-- `rawRemovalsFrom` for a program whose `main` is `main` in the module `root`: from `main` and
 from each initializer of the modules that it links (`linked`, `initializersOf`), with the
-filesystem observers of `env` and the removals `named`. -/
+filesystem observers of `env` and the removals `named`, and with the declarations of other
+modules that have the filesystem observer's role (`foreignObservers`). -/
 def rawRemovals (env : Environment) (root : Name) (named : List (Name × Name) := []) : Reach :=
-  rawRemovalsFrom env (filesystemObservers env) ((initializersOf env (linked env root)).push `main)
-    named
+  let roots := (initializersOf env (linked env root)).push `main
+  { rawRemovalsFrom env (filesystemObservers env) roots named with
+    foreign := foreignObservers env }
 
 /-- The prefix of the marker that `checkProgram` adds for each program that it checked: the
 definition `reached ++ root`, where `root` is the program's root module, is the number of calls of
@@ -297,7 +341,8 @@ def toolchainModule (sysroot : System.FilePath) (module : Name) : IO Bool := do
 
 /-- Why the check refuses the program whose root module is `root`, by what its compiled code
 reaches (`rawRemovals`): each call of a removal primitive that the check does not admit, and each
-reached declaration whose compiled code is unknown; `none` when there is neither. -/
+reached declaration whose compiled code is unknown, and each declaration of another module than
+`observerModule` with the filesystem observer's role; `none` when there is none of them. -/
 def programRefusal (root : Name) (reach : Reach) : Option String :=
   if !reach.raw.isEmpty then
     some s!"the program of {root} removes without the observer `Regula.Filesystem`: \
@@ -305,6 +350,9 @@ def programRefusal (root : Name) (reach : Reach) : Option String :=
   else if !reach.unknown.isEmpty then
     some s!"the program of {root} reaches declarations whose compiled code is not available, so \
       their removals are unknown: {reach.unknown.toList}"
+  else if !reach.foreign.isEmpty then
+    some s!"the filesystem observer's role is given outside `{observerModule}`, the only module \
+      whose declarations remove: {reach.foreign.toList}"
   else none
 
 /-- The distinct calls of a write primitive in `reach` that declarations outside the toolchain
@@ -315,9 +363,7 @@ def pendingWrites (env : Environment) (reach : Reach) : IO (Std.HashSet (Name ×
   let mut toolchain : Std.HashMap Name Bool := {}
   let mut pending : Std.HashSet (Name × Name) := {}
   for (caller, primitive) in reach.writes do
-    let module := match env.getModuleIdxFor? caller with
-      | some index => env.header.moduleNames[index.toNat]!
-      | none => env.mainModule
+    let module := moduleOf env caller
     let inToolchain ← match toolchain[module]? with
       | some known => pure known
       | none => do
@@ -337,9 +383,7 @@ def checkProgram (named : List (Name × Name) := []) : Elab.Command.CommandElabM
   let env ← getEnv
   unless env.contains `main do
     throwError "no `main` is declared here, so there is no program to check"
-  let root := match env.getModuleIdxFor? `main with
-    | some index => env.header.moduleNames[index.toNat]!
-    | none => env.mainModule
+  let root := moduleOf env `main
   let reach := rawRemovals env root named
   if let some refused := programRefusal root reach then throwError refused
   let pending ← pendingWrites env reach

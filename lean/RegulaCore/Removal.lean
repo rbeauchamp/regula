@@ -195,6 +195,103 @@ theorem checked_replacement : Regula.ExecutableContract replacement (fun decide 
     ⟨⟨⟨.present .file, true, true⟩, ⟨.absent, false, true⟩⟩, by decide⟩
     ⟨⟨⟨.present .directory, true, true⟩, ⟨.absent, false, true⟩⟩, by decide⟩⟩
 
+/-! ## The places where Lake removes or replaces entries
+
+Lake's loader and builds remove and replace entries themselves, with the library's primitives, in
+directories that Lake's own path functions give (`Regula.Checker.Workspace`). Before Lake runs in a
+program's process, the program reads each such place from a directory that is its own real path,
+and Lake runs only when `lakePlacesAdmitted` admits what it read (`lakePlacesAdmitted_iff`). -/
+
+/-- A place below which Lake removes or replaces entries: the path `path`, read from the directory
+`base`, or from the ancestor of it that the leading `..` components of `path` name. With `tree`,
+Lake removes or replaces entries at any depth below `path`; without it, only at `path`. -/
+structure LakePlace where
+  /-- The directory that the place is read from, which must be its own real path. -/
+  base : FilePath
+  /-- The place. -/
+  path : FilePath
+  /-- Whether Lake removes or replaces entries at any depth below the place. -/
+  tree : Bool
+  deriving DecidableEq, Repr
+
+/-- The components of `path`, without a `.` or empty component after the first. -/
+def cleanComponents (path : FilePath) : List String :=
+  match path.components with
+  | [] => []
+  | first :: rest => first :: rest.filter fun component => component != "." && component != ""
+
+/-- Where the place is read from, without `.` and empty components: the components of its base
+without as many last ones as `..` components lead the rest of its path, and the components of the
+path after those `..` components. A leading `..` names the parent of a directory, which is its own
+real path when the base is (`LakeObserved.baseOwn`). `none` when the base's components are not a
+prefix of the path's, when a `..` component follows another component of the rest, or when the
+leading ones leave no name of the base: the place is not below its base or one of its ancestors. -/
+def LakePlace.start (place : LakePlace) : Option (List String × List String) :=
+  let base := cleanComponents place.base
+  let path := cleanComponents place.path
+  if base.isPrefixOf path then
+    let rest := path.drop base.length
+    let up := (rest.takeWhile (· == "..")).length
+    let below := rest.drop up
+    if below.contains ".." || base.length < up + 2 then none
+    else some (base.take (base.length - up), below)
+  else none
+
+/-- What was read of a `LakePlace` before Lake runs. -/
+structure LakeObserved where
+  /-- Whether the base is its own real path, so no symbolic link is among its components. -/
+  baseOwn : Bool
+  /-- Each path from where the place is read from down to the place, one component at a time, with
+  what is there by a read that follows no link, up to the first that is not a directory; `none`
+  when the place is not below its base or one of its ancestors (`LakePlace.start`). -/
+  components : Option (List (FilePath × Place))
+  /-- Each entry at any depth below a place with `tree` where a directory is, with what is there by
+  a read that follows no link; a symbolic link is not followed. -/
+  inside : List (FilePath × Place)
+  deriving DecidableEq, Repr
+
+/-- Let Lake run only when, at each observed place, the base is its own real path, the place is
+below its base or one of its ancestors, and no path from there down to the place, and no entry
+below it, is a symbolic link. -/
+@[regula_decision]
+def lakePlacesAdmitted (observed : List LakeObserved) : Bool :=
+  observed.all fun seen =>
+    seen.baseOwn &&
+      (match seen.components with
+        | some components => components.all (·.2 != .present .link)
+        | none => false) &&
+      seen.inside.all (·.2 != .present .link)
+
+/-- The decision admits exactly the observations in which every base is its own real path, every
+place is below its base or one of its ancestors, and no path read from there down to a place or
+below it is a symbolic link. -/
+theorem lakePlacesAdmitted_iff (observed : List LakeObserved) :
+    lakePlacesAdmitted observed = true ↔
+      ∀ seen ∈ observed, seen.baseOwn = true ∧
+        (∃ components, seen.components = some components ∧
+          ∀ entry ∈ components, entry.2 ≠ .present .link) ∧
+        ∀ entry ∈ seen.inside, entry.2 ≠ .present .link := by
+  unfold lakePlacesAdmitted
+  simp only [List.all_eq_true]
+  refine forall_congr' fun seen => imp_congr_right fun _ => ?_
+  rcases seen with ⟨baseOwn, _ | components, inside⟩ <;> simp [and_assoc]
+
+/-- `lakePlacesAdmitted` admits exactly the observations in which no base, place or entry below a
+place is reached through a symbolic link or is one (`lakePlacesAdmitted_iff`). It admits a place
+whose components are directories, and it refuses one whose last component is a symbolic link. -/
+theorem checked_lakePlacesAdmitted : Regula.ExecutableContract lakePlacesAdmitted (fun decide =>
+    Regula.Decides (· = true)
+      (fun observed : List LakeObserved =>
+        ∀ seen ∈ observed, seen.baseOwn = true ∧
+          (∃ components, seen.components = some components ∧
+            ∀ entry ∈ components, entry.2 ≠ .present .link) ∧
+          ∀ entry ∈ seen.inside, entry.2 ≠ .present .link)
+      decide) :=
+  ⟨.of_iff lakePlacesAdmitted_iff
+    ⟨[⟨true, some [("/w/.lake", .present .directory)], [("/w/.lake/a", .present .file)]⟩],
+      by decide⟩
+    ⟨[⟨true, some [("/w/.lake", .present .link)], []⟩], by decide⟩⟩
+
 /-! ## Observation -/
 
 /-- The name of the kind in a message. -/

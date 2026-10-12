@@ -18,8 +18,9 @@ code of Regula calls one other than through this module. A deliberate use of the
 declarations, with `open private` or a hand-written name, is outside that criterion, as for the
 private observation of issue 261.
 
-The observer's reads are public: `ownPath`, `requireOwnDirectory` and `requireNoLinkedEntries`
-check a place before a program makes or loads something there.
+The observer's reads are public: `ownPath` checks a place before a program makes something there,
+and `requireLakePlaces` checks the places where Lake removes or replaces entries before Lake runs
+in the program's process.
 
 Each operation is `@[noinline]`, so its call of the library's operation stays in its own compiled
 code and is not copied into a caller's. On Windows, Lean 4.34.1's
@@ -106,8 +107,13 @@ def replace (source destination : FilePath) : IO Unit :=
   replaceWith observer source destination
 
 /-- A new directory that `IO.FS.createTempDir` makes, by its real path, so `removeOwn` removes it:
-on macOS the temporary directory is below `/var`, a symbolic link to `/private/var`. -/
+on macOS the temporary directory is below `/var`, a symbolic link to `/private/var`. On Windows,
+where the observer reads no real path (`observeRealPath`), it stops before it makes the directory,
+so it leaves none behind. -/
 def ownTempDir : IO FilePath := do
+  if System.Platform.isWindows then
+    throw (windowsRefusal "createTempDir" "(nothing was made)"
+      "IO.FS.realPath gives a path it did not resolve")
   observeRealPath (← IO.FS.createTempDir)
 
 /-- Run `action` in a new temporary directory (`ownTempDir`), and remove the directory with
@@ -160,27 +166,92 @@ def removeFoundPath (path : FilePath) : IO Unit := do
 def replacePath (source destination : FilePath) : IO Unit := do
   replace (← ownPath source) (← ownPath destination)
 
-/-- Stop unless nothing is at `path` or a directory is there at its own place, by the observation
-that `removeOwn` makes. These are the places on which `removal .directory` does not refuse
-(`removal_remove_iff`, `removal_nothing_iff`), so a symbolic link, a file and a path through a
-symbolic link at `path` make it stop. -/
-def requireOwnDirectory (path : FilePath) : IO Unit := do
-  if removal .directory (← observe observer path) == .refuse then
-    throw <| IO.userError s!"{path} is not a directory at its own place (a symbolic link, a file, \
-      or a path through a symbolic link is there)"
+/-! ## The places where Lake removes or replaces entries -/
 
-/-- Stop unless nothing is at `path`, or a directory is there at its own place
-(`requireOwnDirectory`) and each of its entries is a directory or a file, by a read that follows no
-link at the entry. A symbolic link among the entries, also one whose target is absent, makes it
-stop, so a file that a later operation opens by its name in this directory is not reached through
-a link, when no process makes one after this check, which is trusted. -/
-def requireNoLinkedEntries (path : FilePath) : IO Unit := do
-  requireOwnDirectory path
-  unless (← place path) matches .present .directory do return
-  for entry in ← path.readDir do
-    unless (← place entry.path) matches .present .directory | .present .file do
-      throw <| IO.userError s!"{entry.path} is not a directory or a file (a symbolic link or \
-        another kind of entry is there)"
+/-- The bound on the number of directories that `entriesBelow` reads. -/
+def maxDirectories : Nat := 10_000_000
+
+/-- Each entry at any depth below the directory `directory`, with what is there by a read that
+follows no link: the walk descends into each directory that it finds and into no symbolic link. It
+stops with an error when it would read more than `maxDirectories` directories. -/
+private def entriesBelow (directory : FilePath) : IO (List (FilePath × Place)) := do
+  let mut found := #[]
+  let mut work := #[directory]
+  for _ in [:maxDirectories] do
+    let some current := work.back? | return found.toList
+    work := work.pop
+    for entry in ← current.readDir do
+      let seen ← place entry.path
+      found := found.push (entry.path, seen)
+      if seen matches .present .directory then work := work.push entry.path
+  throw <| IO.userError s!"nothing was loaded or built: {directory} has more than \
+    {maxDirectories} directories below it"
+
+/-- Read `place` before Lake runs (`Regula.Removal.LakeObserved`): whether its base is its own real
+path, what is at each path from where the place is read from down to the place, by a read that
+follows no link, up to the first that is not a directory, and, with `walk`, each entry below the
+place when a directory is there (`entriesBelow`). The base is read without its `.` and empty
+components, which name no other directory, and the place is read from the base or the ancestor of
+it that the place's leading `..` components name (`LakePlace.start`). -/
+def observeLakePlace (place : LakePlace) (walk : Bool) : IO LakeObserved := do
+  let baseOwn ← atOwnPlace observer (System.mkFilePath (cleanComponents place.base))
+  let some (start, below) := place.start | return { baseOwn, components := none, inside := [] }
+  let mut components := #[]
+  let mut current := System.mkFilePath start
+  let mut last ← Regula.Filesystem.place current
+  for name in below do
+    unless last matches .present .directory do break
+    current := current / name
+    last ← Regula.Filesystem.place current
+    components := components.push (current, last)
+  let inside ← if walk && place.tree && last matches .present .directory then
+      entriesBelow current else pure []
+  return { baseOwn, components := some components.toList, inside }
+
+/-- Whether `place` is a tree place below another tree place of `places`, by the components of
+each from where it is read from down to it (`LakePlace.start`): the walk of that other place reads
+each entry of this one, so it is not walked again (`requireLakePlaces`). Of two such places at the
+same path, the earlier one is walked. -/
+def walkedElsewhere (places : List LakePlace) (index : Nat) (place : LakePlace) : Bool :=
+  let full (place : LakePlace) : Option (List String) := place.start.map fun (start, below) =>
+    start ++ below
+  place.tree && (places.zipIdx.any fun (other, otherIndex) =>
+    other.tree && otherIndex != index &&
+      match full other, full place with
+      | some outer, some inner =>
+        outer.isPrefixOf inner && (outer.length < inner.length || otherIndex < index)
+      | _, _ => false)
+
+/-- Why `lakePlacesAdmitted` refuses the observation `seen` of `place`. -/
+def lakeRefusal (place : LakePlace) (seen : LakeObserved) : String :=
+  let linked := ((seen.components.getD []) ++ seen.inside).find? (·.2 == .present .link)
+  if !seen.baseOwn then s!"{place.base} is not its own real path (a symbolic link is among its \
+    components, or nothing is there)"
+  else if seen.components.isNone then s!"{place.path} is not below {place.base} or one of its \
+    ancestors (a `..` component after another component, or a path outside it)"
+  else match linked with
+    | some (path, _) => s!"{path} is a symbolic link"
+    | none => s!"{place.path} was refused"
+
+/-- Stop unless Lake may run at `places`: read each (`observeLakePlace`) and decide on all of them
+at once (`lakePlacesAdmitted`, `lakePlacesAdmitted_iff`). It admits them exactly when each base is
+its own real path, each place is below its base or one of its ancestors, and no path from there
+down to a place, and no entry at any depth below a place with `tree`, is a symbolic link. A tree
+place below another tree place is not walked again (`walkedElsewhere`): the walk of the other place
+reads each of its entries, since the decision admits a `..` component only before every other
+component of a place below its base. Each ancestor of a base that is its own real path is its own
+real path too. The reads are trusted, and a process that makes a link at a place after this check
+is outside it. -/
+def requireLakePlaces (places : List LakePlace) : IO Unit := do
+  let observed ← places.zipIdx.mapM fun (place, index) =>
+    observeLakePlace place (!walkedElsewhere places index place)
+  unless lakePlacesAdmitted observed do
+    let refused := (places.zip observed).find? fun (_, seen) => !lakePlacesAdmitted [seen]
+    let detail := match refused with
+      | some (place, seen) => lakeRefusal place seen
+      | none => "a place was refused"
+    throw <| IO.userError s!"nothing was loaded or built: Lake removes or replaces entries \
+      there, and {detail}"
 
 /-! ## The operations at the observer -/
 

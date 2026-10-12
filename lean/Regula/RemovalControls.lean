@@ -1,4 +1,5 @@
 import Regula.Removal
+import Regula.Checker.Workspace
 import Regula.Site.Deployment
 import Lean.Elab.Command
 
@@ -31,9 +32,15 @@ planted initializer never runs. The planted removals below are the calls of a re
 - An absent output below a linked ancestor, and an output with a `.` or `..` component after the
   first: `ownPath` refuses each before anything is made. It drops the leading `.` of a relative
   path.
-- A symbolic link, a path through one and a file where a directory is checked:
-  `requireOwnDirectory` refuses each, and accepts a directory at its own place and an absent path.
-  `requireNoLinkedEntries` refuses a directory with a symbolic link among its entries.
+- A symbolic link where Lake removes or replaces entries, loaded through the loaders of
+  `Regula.Checker.Workspace`: at `.lake/config/1`, the compiled configuration of a dependency; at
+  `.lake/build/lib`; below the packages directory of a workspace without a manifest, at the clone
+  of a dependency named `foo/sub`, and at `other/sub`, which only a dependency of a dependency
+  could name; and at a clone that Lake would update. Each load stops before Lake runs, and the
+  link's target keeps its content. A load also stops at a build directory with a `..` component
+  after another one. A workspace without them loads, also with its packages directory beside it
+  (`../plain-packages`), and so does one whose clone is a link at the manifest's revision, which
+  Lake leaves as it is.
 - A URL of `Regula.Site.Deployment.fetch` that starts with `-`: curl does not read it as an
   option.
 
@@ -78,21 +85,6 @@ run_cmd do
     let working ← IO.FS.realPath (← IO.currentDir)
     unless (← Regula.Filesystem.ownPath (FilePath.mk "." / "lean")) == working / "lean" do
       throwError "ownPath kept the leading `.` of a relative path"
-    for refused in [base / "linked", base / "linked" / "out", base / "target" / "out" / "keep"] do
-      unless (← (Regula.Filesystem.requireOwnDirectory refused).toBaseIO) matches .error _ do
-        throwError "requireOwnDirectory accepted {refused}"
-    Regula.Filesystem.requireOwnDirectory (base / "target" / "out")
-    Regula.Filesystem.requireNoLinkedEntries (base / "target" / "out")
-    Regula.Filesystem.requireNoLinkedEntries (base / "absent")
-    unless (← (Regula.Filesystem.requireNoLinkedEntries base).toBaseIO) matches .error _ do
-      throwError "requireNoLinkedEntries accepted a directory with a linked entry"
-    let dangling ← IO.Process.output { cmd := "ln", args := #["-s", (base / "missing").toString,
-      (base / "target" / "out" / "dangling").toString] }
-    unless dangling.exitCode == 0 do throwError "ln -s failed: {dangling.stderr}"
-    unless (← (Regula.Filesystem.requireNoLinkedEntries (base / "target" / "out")).toBaseIO)
-        matches .error _ do
-      throwError "requireNoLinkedEntries accepted a directory with a dangling linked entry"
-    Regula.Filesystem.requireOwnDirectory (base / "absent")
     unless ← (base / "target" / "out" / "keep").pathExists do
       throwError "removeOwn removed an entry below a linked component"
     -- Moves: a file over a file and to an absent path; none through the link, of a directory, or
@@ -147,6 +139,103 @@ run_cmd do
   unless reach.raw == #[(planted, ``IO.FS.removeDirAll)] && reach.unknown.isEmpty do
     throwError "the planted declaration {planted} is not a raw removal: {reach.raw}, \
       unknown {reach.unknown}"
+
+/-- The manifest of the control of a clone that Lake would update: one Git entry, `dep`, at a
+revision that no clone has. -/
+def lockedManifest (name : String) : String :=
+  "{\"version\": \"1.2.0\", \"packagesDir\": \".lake/packages\", \"packages\": [{\"url\": \
+    \"https://example.invalid/dep.git\", \"type\": \"git\", \"subDir\": null, \"scope\": \"\", \
+    \"rev\": \"0000000000000000000000000000000000000000\", \"name\": \"dep\", \"manifestFile\": \
+    \"lake-manifest.json\", \"inputRev\": null, \"inherited\": false, \"configFile\": \
+    \"lakefile.toml\"}], \"name\": \"" ++ name ++ "\", \"lakeDir\": \".lake\", \
+    \"fixedToolchain\": false}"
+
+-- The places where Lake removes or replaces entries (`Regula.Checker.Workspace`): a symbolic link
+-- at `.lake/config/1`, at `.lake/build/lib`, below the packages directory of a workspace without
+-- a manifest, at a place that the root's dependency names and at one that only a dependency of a
+-- dependency could name, and at a clone that Lake would update makes the loaders stop before Lake
+-- runs, and the link's target keeps its content; a load also stops at a build directory with a `..`
+-- component after another one. A workspace with none of them loads, also with its packages
+-- directory beside it, and so does one whose clone is a link at the manifest's revision, which Lake
+-- leaves as it is.
+run_cmd do
+  let base ← Regula.Filesystem.ownTempDir
+  try
+    let target := base / "target"
+    IO.FS.createDirAll target
+    IO.FS.writeFile (target / "keep") "keep"
+    let link (to place : FilePath) : IO Unit := do
+      if let some parent := place.parent then IO.FS.createDirAll parent
+      let made ← IO.Process.output { cmd := "ln", args := #["-s", to.toString, place.toString] }
+      unless made.exitCode == 0 do throw <| IO.userError s!"ln -s failed: {made.stderr}"
+    let workspace (name : String) (rest : String := "") : IO FilePath := do
+      IO.FS.createDirAll (base / name)
+      IO.FS.writeFile (base / name / "lakefile.toml") s!"name = \"{name}\"\n{rest}"
+      return base / name
+    let refused (label : String) (load : IO Unit) (reason := "is a symbolic link") :
+        Elab.Command.CommandElabM Unit := do
+      match ← load.toBaseIO with
+      | .ok () => throwError "the loader ran Lake with {label}"
+      | .error error =>
+        unless (toString error).contains reason do
+          throwError "the loader stopped with {label} for another reason: {error}"
+    let plain ← workspace "plain" "packagesDir = \"../plain-packages\"\n"
+    for directory in [".lake/config/0", ".lake/build/lib", ".lake/packages"] do
+      IO.FS.createDirAll (plain / directory)
+    unless ← Regula.Checker.Workspace.withRootWorkspace plain fun _ => pure true do
+      throwError "the loader did not run the action on a workspace without links"
+    let config ← workspace "config"
+    link target (config / ".lake" / "config" / "1")
+    refused "a link at .lake/config/1"
+      (Regula.Checker.Workspace.withRootPackage config fun _ => pure ())
+    let build ← workspace "build"
+    link target (build / ".lake" / "build" / "lib")
+    refused "a link at .lake/build/lib"
+      (Regula.Checker.Workspace.withRootPackage build fun _ => pure ())
+    let escape ← workspace "escape" "buildDir = \"out/../../escape-build\"\n"
+    refused "a build directory that a `..` after another component names"
+      (Regula.Checker.Workspace.withRootPackage escape fun _ => pure ()) "is not below"
+    let update ← workspace "update"
+      "[[require]]\nname = \"foo/sub\"\ngit = \"https://example.invalid/sub.git\"\n"
+    link target (update / ".lake" / "packages" / "foo" / "sub")
+    refused "a link below the packages directory of a workspace without a manifest"
+      (Regula.Checker.Workspace.withRootWorkspace update fun _ => pure ())
+    let transitive ← workspace "transitive"
+      "[[require]]\nname = \"dep\"\ngit = \"https://example.invalid/dep.git\"\n"
+    link target (transitive / ".lake" / "packages" / "other" / "sub")
+    refused "a link below the packages directory that only a dependency's dependency names"
+      (Regula.Checker.Workspace.withRootWorkspace transitive fun _ => pure ())
+    let locked ← workspace "locked"
+      "[[require]]\nname = \"dep\"\ngit = \"https://example.invalid/dep.git\"\n"
+    IO.FS.writeFile (locked / "lake-manifest.json") (lockedManifest "locked")
+    link target (locked / ".lake" / "packages" / "dep")
+    refused "a link at a clone that Lake would update"
+      (Regula.Checker.Workspace.withRootWorkspace locked fun _ => pure ())
+    unless (← target.readDir).map (·.fileName) == #["keep"] &&
+        (← IO.FS.readFile (target / "keep")) == "keep" do
+      throwError "a refused load changed the target of a link"
+    -- A clone that is a link at the manifest's revision: Lake leaves it as it is.
+    let clone := base / "clone"
+    IO.FS.createDirAll clone
+    IO.FS.writeFile (clone / "lakefile.toml") "name = \"dep\"\n"
+    let git (args : Array String) : IO String := do
+      let out ← IO.Process.output { cmd := "git", args := #["-C", clone.toString] ++ args }
+      unless out.exitCode == 0 do throw <| IO.userError s!"git {args} failed: {out.stderr}"
+      return out.stdout.trimAscii.toString
+    let _ ← git #["init", "--quiet"]
+    let _ ← git #["-c", "user.name=control", "-c", "user.email=control@example.invalid",
+      "commit", "--quiet", "--allow-empty", "-m", "control"]
+    let revision ← git #["rev-parse", "HEAD"]
+    let atRevision ← workspace "revision"
+      "[[require]]\nname = \"dep\"\ngit = \"https://example.invalid/dep.git\"\n"
+    IO.FS.writeFile (atRevision / "lake-manifest.json")
+      ((lockedManifest "revision").replace "0000000000000000000000000000000000000000" revision)
+    link clone (atRevision / ".lake" / "packages" / "dep")
+    unless ← Regula.Checker.Workspace.withRootWorkspace atRevision fun ws =>
+        pure (ws.packages.size == 2) do
+      throwError "the loader did not load a clone that is a link at the manifest's revision"
+  finally
+    Regula.Filesystem.removeOwn .directory base
 
 /-- The planted binding of the control of `extern` declarations: a declaration of another name
 bound to the C function of `IO.FS.removeFile`. No program calls it. -/
