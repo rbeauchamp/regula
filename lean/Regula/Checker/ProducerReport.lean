@@ -70,8 +70,10 @@ structure AdmissionReceipt where
   first (claimed libraries that import one another). -/
   reused : Array Name
   /-- The replayed modules containing a copy of a name that the replay base or another replayed
-  module also declares. Their admission depends on which copy this environment keeps, so no
-  later environment reuses it. -/
+  module also declares, where some loaded copy of the name is not `identical` to the constant this
+  environment keeps or a module outside the owned ones declares it
+  (`Admission.AdmitRequest.pinned`). Their
+  admission depends on which copy this environment keeps, so no later environment reuses it. -/
   shared : Array Name
   deriving Repr, DecidableEq, ToJson
 
@@ -197,7 +199,7 @@ instance : ToJson Environment := ⟨fun r => Json.mkObj [
   ("toolchain", toJson r.toolchain), ("modules", toJson r.modules),
   ("compilerCapability", toJson r.compilerCapability),
   ("moduleOrigins", toJson r.moduleOrigins), ("declarations", toJson r.declarations),
-  ("execution", toJson r.execution), ("census", toJson r.census),
+  ("execution", toJson r.execution), ("imported", toJson r.imported), ("census", toJson r.census),
   ("admission", toJson r.admission), ("documentation", toJson r.documentation),
   ("histories", toJson r.histories), ("sourceBindings", toJson r.sourceBindings)]⟩
 
@@ -239,16 +241,19 @@ def declarationResultJson (d : Regula.Report.Declaration) (kernelTypes : Bool :=
 
 /-- Result-file rendering: the transport fields except `modules` and `moduleOrigins`, which
 list every module of the imported environment (the whole import closure) and are
-recomputable from the pinned inputs, and, unless `kernelTypes`, except each declaration's `type`
-(`declarationResultJson`). Owned modules remain in `census.modules`. Source texts, in
-`sourceBindings` and completed `histories`, are `sourceText` members. `execution` is the array of
-root accounts; a result file holds what `SharedExecution.intern` writes for it. Checker
-decisions use the in-memory report; worker transport keeps the full `ToJson` shape. -/
+recomputable from the pinned inputs, and, unless `kernelTypes`, except the `type` of each
+declaration and imported record (`declarationResultJson`). Owned modules remain in
+`census.modules`. Source texts, in `sourceBindings` and completed `histories`, are `sourceText`
+members. `execution` is the array of root accounts; a result file holds what
+`SharedExecution.intern` writes for it. Checker decisions use the in-memory report; worker
+transport keeps the full `ToJson` shape. -/
 def Environment.resultJson (r : Environment) (kernelTypes : Bool := false) : Json := Json.mkObj [
   ("toolchain", toJson r.toolchain),
   ("compilerCapability", toJson r.compilerCapability),
   ("declarations", toJson (r.declarations.map (declarationResultJson · kernelTypes))),
-  ("execution", toJson r.execution), ("census", toJson r.census),
+  ("execution", toJson r.execution),
+  ("imported", toJson (r.imported.map (declarationResultJson · kernelTypes))),
+  ("census", toJson r.census),
   ("admission", toJson r.admission), ("documentation", toJson r.documentation),
   ("histories", toJson (r.histories.map fun (name, outcome) => (name, outcome.resultJson))),
   ("sourceBindings", toJson (r.sourceBindings.map SourceBinding.resultJson))]
@@ -930,7 +935,7 @@ theorem checked_validate : Regula.ExecutableContract Environment.validate Transp
 /-- Field decoding only; admission is the separate `checked_validate` step. -/
 def Environment.decodeFields (j : Json) : Except String Environment := do
   exactFields j ["toolchain", "compilerCapability", "modules", "moduleOrigins", "declarations", "execution",
-    "census", "admission", "documentation", "histories", "sourceBindings"]
+    "imported", "census", "admission", "documentation", "histories", "sourceBindings"]
   let compilerCapability ← j.getObjValAs? _ "compilerCapability"
   let _ ← Compiler.admitCapability compilerCapability
   return {
@@ -940,6 +945,7 @@ def Environment.decodeFields (j : Json) : Except String Environment := do
     moduleOrigins := ← j.getObjValAs? _ "moduleOrigins"
     declarations := ← j.getObjValAs? _ "declarations"
     execution := ← j.getObjValAs? _ "execution"
+    imported := ← j.getObjValAs? _ "imported"
     census := ← j.getObjValAs? _ "census"
     admission := ← j.getObjValAs? _ "admission"
     documentation := ← j.getObjValAs? _ "documentation"

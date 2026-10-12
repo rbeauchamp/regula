@@ -2264,6 +2264,10 @@ structure Environment where
   /-- The execution account of each owned executable root; empty when execution is not
   inspected. -/
   execution : Array ExecutionRoot
+  /-- A record for each imported native-proof axiom that a record of `declarations` rests on, of a
+  module the report does not inspect, and for the declaration its generated prefix names, if that
+  is a constant of the axiom's module. -/
+  imported : Array Declaration := #[]
   deriving Repr, DecidableEq
 
 

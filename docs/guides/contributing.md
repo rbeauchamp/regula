@@ -74,8 +74,10 @@ the other three commands, which run at low priority.
 
 `qualify unique-constants` refuses a constant that two modules of one claimed environment
 declare, if one of them is a module of the root package. Lean makes an equation lemma in the first
-module that unfolds its definition. If two modules that do not import each other each make it, the
-audit replays a module again in each environment that loads the two.
+module that unfolds its definition. If two modules that do not import each other each make it, an
+environment that loads the two can replay a module again. It does so if the two copies are
+different or if a module that the audit does not own also declares the name.
+[Admission reuse](proofs-and-boundaries.md#producers) states the conditions.
 
 If the step passed and the checkout has no build output, the driver moves the build output of
 the copy to `.lake/build` of the checkout. After a step that failed, a checkout with no build

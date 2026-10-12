@@ -8,7 +8,7 @@ meta import Regula.Decision
 
 /-! # Generated native-proof axiom names
 
-In the Lean 4.34.0 sources cited below, every proof by native evaluation goes through
+In the Lean 4.34.1 sources cited below, every proof by native evaluation goes through
 `Lean.Meta.nativeEqTrue tacticName e` (`Lean/Meta/Native.lean`). After compiling and running `e`,
 it adds an axiom `e = true` named `mkAuxDeclName (`_native ++ tacticName ++ `ax)`, and
 `DeclNameGenerator.mkUniqueName` (`Lean/CoreM.lean`) turns that infix into

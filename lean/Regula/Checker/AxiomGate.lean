@@ -960,6 +960,7 @@ private unsafe def auditSurfaceAt (repo manifestPath : FilePath)
                 .incomplete)
         let scope ← IO.ofExcept <|
           Policy.admitScope report.compilerCapability report.declarations transcripts
+            report.imported
         let scope := scope.counting <| RegulaPolicy.countedContracts assignments countedInputs
           surface.library report.declarations report.moduleOrigins
         let native := scope.native
@@ -1437,6 +1438,7 @@ private unsafe def auditFile (repo path : FilePath) (claim : Option Profile)
               Name.quickLt left.name right.name
             let scope ← IO.ofExcept <|
               Policy.admitScope inspected.report.compilerCapability declarations inspected.transcripts
+                inspected.report.imported
             let native := scope.native
             let unsafeHelpers := scope.helpers
             let mut reasons : Array String := #[]
