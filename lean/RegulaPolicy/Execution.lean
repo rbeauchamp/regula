@@ -5,8 +5,9 @@ import Regula.Decision
 /-! # Execution decisions
 
 Executable execution decisions and their exact finite-observation specification, and the
-toolchain trusted-base report that lists each toolchain-owned boundary once across an audit's
-environments.
+toolchain trusted-base report, which gives each toolchain-owned boundary of an audit's environments
+an entry of its own or, when every root that reaches it carries it, names it as a `partial`
+implementation in the entry of each boundary that carries it.
 Neither policy equivalence nor admitted origin data proves extraction or native runtime
 correctness. -/
 namespace RegulaPolicy
@@ -923,7 +924,8 @@ def ExecutionBoundary.toolchainKey (b : ExecutionBoundary) : ToolchainKey := (b.
 contains the root, and the root's name. -/
 abbrev ToolchainReach := String × Lean.Name
 
-/-- One toolchain-owned boundary of the audited execution accounts, reported once. -/
+/-- One entry of the toolchain trusted base: a toolchain-owned boundary of the audited execution
+accounts, with the `partial` implementations it carries that have no entry of their own. -/
 structure ToolchainBoundary where
   /-- The constant at the boundary. -/
   name : Lean.Name

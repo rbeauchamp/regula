@@ -127,7 +127,8 @@ Schema 5 attributes the toolchain's own boundaries to it: a boundary a toolchain
 module (`Init`, `Std` or `Lean`, loaded from the toolchain's library) owns carries its
 `toolchainOrigin` (formerly `nativeOrigin`, which only native-runtime boundaries carried), and
 each `axiomGate` project and file result's `scope.toolchainBase` lists every such boundary once
-for the whole audit, with the environments and roots that reach it. Schema 4 inspected each
+for the whole audit, with the environments and roots that reach it (until schema 18 named a
+folded `partial` implementation in the entries that carry it instead). Schema 4 inspected each
 claimed executable's root in an environment of its own: a project `scope.surfaces[*]` entry's
 `modules` and `report` cover only its library's environment (the library's modules other than
 its claimed executables' roots), and each claimed executable has its own `executables[*]` entry
