@@ -871,7 +871,7 @@ The facet observer itself does not authenticate source or establish the behavior
 
 The inventory reads the modules and sources of each package (`Lake.packageModules`) and applies the source guard (`Lake.checkReservedModules`).
 The source guard gives the keys of packages that provide `Regula.Checker.Lake` with the running checker's source text.
-A package whose inventory fails gives no key, and the inventory raises that failure after the report.
+If the inventory of a package fails, that package gives no key, and the inventory raises that failure after the report.
 The report receives the keys when the provider guard (`Lake.checkOneProvider`) passes over the inventories that completed.
 It uses all those keys, since the provider guard permits duplicate providers among trusted packages.
 This includes a dependency at a different directory or with a different assigned name.
@@ -900,7 +900,7 @@ The negative controls require the census line of `--explain-config`, so absence 
 The audit controls require the report without the census line.
 These controls observe Lake and process output, not a universal property of the loader.
 
-Another control reports the root facet when a root glob covers Regula submodules over an empty directory.
+One more control reports the root facet when a root glob covers Regula submodules over an empty directory.
 Three audit controls stop after discovery on an incomplete fixture manifest, before any target build.
 Two audit controls name a facet that generates a configured directory and source, then refuse because these are absent.
 One control names the source explicitly, and the other has a glob over the directory.
