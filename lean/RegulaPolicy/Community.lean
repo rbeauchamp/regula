@@ -1,8 +1,9 @@
 module
 
-meta import Regula.Decision
 import all Init.Meta.Defs
 public import RegulaPolicy.Compiler
+public import RegulaPolicy.Domain
+meta import Regula.Decision
 
 /-! # Community build configuration decision
 
@@ -1481,15 +1482,21 @@ theorem unlicensed_header_fails :
 
 /-! ## Options set in a claimed module's source
 
-Regula's elaboration observer records each option a claimed module's source sets, with the value
-and form of its `set_option` syntax (`RegulaObserver.Setting`). The same accepted set decides
-them as decides a target's options, with one permission that standard §6.2 gives: a community
-linter turned off for the one command after `set_option linter.NAME false in`. Lean's default
+Regula's elaboration observer records each option that a claimed module's source sets through
+Lean's `set_option` elaborator, with the value and form of its `set_option` syntax
+(`RegulaObserver.Setting`). The same accepted set decides them as decides a target's options, with
+the one permission that standard §6.2 gives: a community linter turned off for one declaration by
+`set_option linter.NAME false in` before a declaration command (`declarationKind`). Lean's default
 warnings, the `linter.` and `warn.` options Lean registers (`leanWarningSettings`) whose registered
 default is not `false`, are never community linters, and neither are `linter.all` and
 `linter.mathlibStandardSet`, which switch many linters at once. An option that a macro of the
-Lean toolchain wrote, such as `smartUnfolding` in `rfl'`, is that macro's implementation and
-passes. The source sets no `debug.` or `trace.` option, since the accepted set lists none. -/
+pinned toolchain wrote, such as `smartUnfolding` in `rfl'`, is that macro's implementation and
+passes, when the operational adapter authenticated the macro's module as the toolchain's own
+artifact (`toolchain`); a module's name gives no such receipt. The source sets no `debug.` or
+`trace.` option, since the accepted set lists none. An option that elaborator code changes without
+`set_option` is not recorded; of Lean's builtin commands only `unlock_limits` does, and RG2006
+accepts what it sets (`unlockLimits_accepted`). -/
+
 
 /-- How a claimed module's source set an option (`RegulaObserver.Form`). -/
 inductive SourceForm where
@@ -1516,16 +1523,24 @@ structure SourceSetting where
   registeredDefault : Option OptionValue
   /-- How the source set it. -/
   form : SourceForm
+  /-- For the form before one command, the syntax kind of the command that `set_option … in`
+  wraps, through each further `set_option … in`; none otherwise. -/
+  wrapped : Option Name := none
   /-- The module that declares the macro whose expansion wrote the option's name, or none when the
   name is in the module's source text. -/
   origin : Option Name
+  /-- The operational adapter's receipt that a module was loaded from its own `.olean` in the
+  pinned toolchain's library directory (`admitToolchainOrigin`), when it gave one for `origin`;
+  the module's name alone gives none. -/
+  toolchain : Option ToolchainOrigin := none
   /-- Where the option's name is in the module, line and column, as Lean reports them; only the
   report reads it. -/
   location : Nat × Nat := (0, 0)
   deriving DecidableEq, Repr
 
-/-- The roots of the Lean toolchain's modules. -/
-def toolchainRoots : List Name := [`Init, `Std, `Lean, `Lake]
+/-- The syntax kind of a declaration command (`Lean.Parser.Command.declaration`): one `def`,
+`theorem`, `instance`, `structure`, `inductive` or other declaration with its modifiers. -/
+def declarationKind : Name := `Lean.Parser.Command.declaration
 
 /-- The linter options that switch many linters at once: `linter.all` sets the default of every
 linter Lean reads through `Lean.Linter.getLinterValue` (`Lean/Linter/Init.lean:130`), Lean's
@@ -1538,15 +1553,64 @@ def defaultWarning (name : Name) (registeredDefault : Option OptionValue) : Bool
   leanWarningSettings.any (·.1 == name) &&
     !registeredDefault.any (·.readsAs (.bool false))
 
-/-- A community linter turned off for one command: `set_option linter.NAME false in`, where
-`linter.NAME` is not a default warning of Lean and switches no set of linters. -/
-def communityDisable (s : SourceSetting) : Bool :=
-  s.form == .commandIn && s.name.getRoot == `linter && !linterSwitches.contains s.name &&
-    s.value.any (·.readsAs (.bool false)) && !defaultWarning s.name s.registeredDefault
+/-- `defaultWarning`, stated by quantifiers: Lean registers the option as one of its warnings, and
+no known registered default reads as `false`. -/
+def DefaultWarning (name : Name) (registeredDefault : Option OptionValue) : Prop :=
+  (∃ e ∈ leanWarningSettings, e.1 = name) ∧
+    ∀ d, registeredDefault = some d → ¬ d.ReadsAs (.bool false)
 
-/-- A macro of the Lean toolchain wrote the option's name. -/
+/-- `defaultWarning` decides exactly `DefaultWarning`. -/
+theorem defaultWarning_iff (name : Name) (registeredDefault : Option OptionValue) :
+    defaultWarning name registeredDefault = true ↔ DefaultWarning name registeredDefault := by
+  cases registeredDefault <;>
+    simp [defaultWarning, DefaultWarning, ← OptionValue.readsAs_iff]
+
+/-- A community linter turned off for one declaration: `set_option linter.NAME false in` before a
+declaration command, where `linter.NAME` is not a default warning of Lean and switches no set of
+linters. -/
+def communityDisable (s : SourceSetting) : Bool :=
+  s.form == .commandIn && s.wrapped == some declarationKind && s.name.getRoot == `linter &&
+    !linterSwitches.contains s.name && s.value.any (·.readsAs (.bool false)) &&
+    !defaultWarning s.name s.registeredDefault
+
+/-- `communityDisable`, stated by its parts: the form before one command, which wraps a declaration
+command, an option under `linter`, outside `linterSwitches`, whose value reads as `false`, and not a
+default warning of Lean. -/
+def CommunityDisable (s : SourceSetting) : Prop :=
+  s.form = .commandIn ∧ s.wrapped = some declarationKind ∧ s.name.getRoot = `linter ∧
+    s.name ∉ linterSwitches ∧ (∃ v, s.value = some v ∧ v.ReadsAs (.bool false)) ∧
+    ¬ DefaultWarning s.name s.registeredDefault
+
+/-- `communityDisable` decides exactly `CommunityDisable`. -/
+theorem communityDisable_iff (s : SourceSetting) :
+    communityDisable s = true ↔ CommunityDisable s := by
+  have hd := defaultWarning_iff s.name s.registeredDefault
+  cases hv : s.value <;>
+    simp [communityDisable, CommunityDisable, hv, ← hd, ← OptionValue.readsAs_iff, and_assoc]
+
+/-- A macro that a module of the pinned toolchain declares wrote the option's name: the adapter
+gave a receipt for the module `origin` names. -/
 def toolchainWritten (s : SourceSetting) : Bool :=
-  s.origin.any (toolchainRoots.contains ·.getRoot)
+  match s.origin, s.toolchain with
+  | some m, some r => r.moduleName == m
+  | _, _ => false
+
+/-- `toolchainWritten`, stated by its receipt: some toolchain receipt names the macro's module. -/
+def ToolchainWritten (s : SourceSetting) : Prop :=
+  ∃ r, s.toolchain = some r ∧ s.origin = some r.moduleName
+
+/-- `toolchainWritten` decides exactly `ToolchainWritten`. -/
+theorem toolchainWritten_iff (s : SourceSetting) :
+    toolchainWritten s = true ↔ ToolchainWritten s := by
+  unfold toolchainWritten ToolchainWritten
+  cases s.origin with
+  | none => simp
+  | some m =>
+    cases s.toolchain with
+    | none => simp
+    | some r =>
+      simp only [beq_iff_eq, Option.some.injEq, exists_eq_left']
+      exact ⟨Eq.symm, Eq.symm⟩
 
 /-- RG2006 accepts the option a claimed module's source set, for a target with options `o` that
 imports Mathlib when `mathlib`: a toolchain macro wrote it, it turns a community linter off for
@@ -1563,7 +1627,7 @@ def sourceAccepted (o : BuildOptions) (mathlib : Bool) (s : SourceSetting) : Boo
 
 /-- The relation `sourceAccepted` decides, stated without the executed decisions on the value. -/
 def SourceAccepted (o : BuildOptions) (mathlib : Bool) (s : SourceSetting) : Prop :=
-  toolchainWritten s = true ∨ communityDisable s = true ∨
+  ToolchainWritten s ∨ CommunityDisable s ∨
     ∃ v, s.value = some v ∧
       ((∃ r ∈ required mathlib, r.1 = s.name ∧
           (∀ r' ∈ required mathlib, r'.1 = s.name → r' = r) ∧
@@ -1580,7 +1644,7 @@ theorem sourceAccepted_iff (o : BuildOptions) (mathlib : Bool) (s : SourceSettin
     sourceAccepted o mathlib s = true ↔ SourceAccepted o mathlib s := by
   unfold sourceAccepted SourceAccepted
   simp only [Bool.or_eq_true, or_assoc]
-  refine or_congr Iff.rfl (or_congr Iff.rfl ?_)
+  refine or_congr (toolchainWritten_iff s) (or_congr (communityDisable_iff s) ?_)
   cases hv : s.value with
   | none => simp
   | some v =>
@@ -1651,12 +1715,22 @@ theorem missingDocs_command_fails (o : BuildOptions) (mathlib : Bool) :
     sourceAccepted o mathlib (written `linter.missingDocs (.bool false) .command) = false := by
   cases mathlib <;> rfl
 
-/-- `set_option linter.missingDocs false in` before one command passes: `linter.missingDocs` is a
-community linter (standard §6.2), Lean's default for it being `false`. -/
+/-- `set_option linter.missingDocs false in` before one declaration passes: `linter.missingDocs` is
+a community linter (standard §6.2), Lean's default for it being `false`. -/
 theorem missingDocs_in_passes (o : BuildOptions) (mathlib : Bool) :
     sourceAccepted o mathlib { written `linter.missingDocs (.bool false) .commandIn with
-      registeredDefault := some (.bool false) } = true := by
+      registeredDefault := some (.bool false), wrapped := some declarationKind } = true := by
   cases mathlib <;> rfl
+
+/-- `set_option linter.missingDocs false in` before a `section` fails: Lean's expansion of
+`cmd in section …` closes the `section` it opens with the `end` that the source wrote for its own
+`section`, so the setting reaches every declaration up to that `end`. -/
+theorem missingDocs_in_section_fails (o : BuildOptions) (mathlib : Bool) :
+    sourceAccepted o mathlib { written `linter.missingDocs (.bool false) .commandIn with
+      registeredDefault := some (.bool false),
+      wrapped := some `Lean.Parser.Command.section } = false := by
+  cases mathlib <;> rfl
+
 
 /-- `set_option linter.unusedVariables false in` fails: it turns one of Lean's default warnings
 off. -/
@@ -1697,10 +1771,30 @@ theorem unread_source_fails (o : BuildOptions) (mathlib : Bool) (name : Name)
   simp [sourceAccepted, toolchainWritten, communityDisable]
 
 /-- `smartUnfolding` set to `false` by a macro that `Init.Tactics` declares, as `rfl'` does,
-passes. -/
+passes when the adapter gave a receipt for `Init.Tactics`. -/
 theorem toolchain_macro_passes (o : BuildOptions) (mathlib : Bool) :
     sourceAccepted o mathlib { written `smartUnfolding (.bool false) .tactic with
-      origin := some `Init.Tactics } = true := by
+      origin := some `Init.Tactics,
+      toolchain := some ⟨`Init.Tactics, "Init/Tactics.olean", "Init/Tactics.olean",
+        by decide, by decide, rfl⟩ } = true := by
   rfl
+
+/-- `set_option autoImplicit true in`, written by a macro that a module named `Lean.Adopter`
+declares, fails without a receipt for that module: a module's name does not make it the
+toolchain's. -/
+theorem nameOnly_macro_fails (o : BuildOptions) (mathlib : Bool) :
+    sourceAccepted o mathlib { written `autoImplicit (.bool true) .commandIn with
+      origin := some `Lean.Adopter, wrapped := some declarationKind } = false := by
+  cases mathlib <;> rfl
+
+/-- The options that `unlock_limits` sets, each to `0` (`Lean/Elab/BuiltinCommand.lean` lines 522
+to 527), pass. -/
+theorem unlockLimits_accepted (o : BuildOptions) (mathlib : Bool) :
+    ∀ name ∈ [`maxHeartbeats, `maxRecDepth, `synthInstance.maxHeartbeats],
+      sourceAccepted o mathlib (written name (.nat 0) .command) = true := by
+  intro name h
+  simp only [List.mem_cons, List.not_mem_nil, or_false] at h
+  rcases h with rfl | rfl | rfl <;> cases mathlib <;> rfl
+
 
 end RegulaPolicy.Community
