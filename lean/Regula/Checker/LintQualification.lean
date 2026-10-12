@@ -1102,8 +1102,7 @@ private def weakArgsProbes (probes : Std.Mutex Unit) (repo adopter : FilePath) :
   -- in another lakefile, and one whose facet of that name has another body: neither is the
   -- Regula that runs the probe, so each keeps the marker.
   let shipped ← IO.FS.readFile (repo / "lakefile.lean")
-  let some facetText := (shipped.splitOn "\n-- Regula's weak-arguments record.").getLast?.map
-      ("-- Regula's weak-arguments record." ++ ·)
+  let some facetText := Lake.weakArgsDeclarations shipped
     | return failures.push "lake-lint/weak-args: Regula's lakefile has no weak-arguments facet"
   let fake := adopter / "fake-regula"
   IO.FS.createDirAll fake
