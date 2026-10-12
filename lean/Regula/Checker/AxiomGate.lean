@@ -1073,8 +1073,8 @@ private unsafe def auditSurfaceAt (repo manifestPath : FilePath)
           s!"{summary.boundaries} boundary(ies) ({summary.checked} checked, " ++
           s!"{summary.trusted} trusted), {summary.unresolved} unresolved"
         -- Every root and boundary is always in `--json-out`; text lists them only on request.
-        -- Toolchain-owned boundaries are listed once for the whole audit, after every
-        -- environment.
+        -- Toolchain-owned boundaries are listed for the whole audit, after every environment:
+        -- each as an entry or as a `partial` implementation an entry names.
         if verbose then
           for line in Policy.executionAccountLines executionInventory do
             IO.println line
@@ -1104,8 +1104,8 @@ private unsafe def auditSurfaceAt (repo manifestPath : FilePath)
           | some _, none =>
               throw <| IO.userError "internal error: executable environment before its library"
       let toolchainBase := Policy.toolchainBase executionAccounts
-      -- Each toolchain-owned boundary once for the whole audit; its size always, its entries
-      -- only on request.
+      -- The toolchain trusted base of the whole audit (`Policy.toolchainBase`); its size always,
+      -- its entries only on request.
       for line in Policy.toolchainBaseLines toolchainBase verbose do
         IO.println line
       let ownedModules := environments.foldl (fun count environment =>

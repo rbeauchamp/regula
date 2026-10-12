@@ -1653,12 +1653,16 @@ def guide : RuleId → Guide
         "The toolchain owns a replacement, `extern`, or unsafe or partial computation declared in \
           one of its own `Init`, `Std` or `Lean` modules, decided by where Lean loaded that module \
           from (the pinned toolchain's library, an observation of the probe), not by its name. \
-          Such a boundary is the toolchain's trusted base: it passes and is reported once for the \
-          whole audit, with every environment and root that reaches it, in the audit's toolchain \
-          trusted base.",
+          Such a boundary is the toolchain's trusted base: it passes and is reported for the whole \
+          audit in the audit's toolchain trusted base, as one entry with every environment and \
+          root that reaches it or as a `partial` implementation that such an entry names.",
         "A `partial` implementation that a trusted boundary names as the code run in its place \
-          is reported with that boundary where both are trusted and neither is the toolchain's, \
-          as one finding that names both and one counted boundary. A `partial` implementation is \
+          is reported with that boundary where both are trusted and have the same owner (both \
+          the toolchain's, or neither): the coverage counts take the two as one boundary, and \
+          where neither is the toolchain's, they are one finding that names both. A \
+          toolchain-owned pair has no finding, and the toolchain trusted base lists \
+          it as one entry that names the implementation, unless a root reaches the \
+          implementation without the boundary that carries it. A `partial` implementation is \
           a constant of `partial` definition safety: the implementation a metaprogram such as \
           Mathlib's `compile_inductive%` adds for a recursor, named as the target of a `csimp` \
           candidate or of an `implemented_by` replacement, or the `_unsafe_rec` helper Lean \
@@ -1694,9 +1698,11 @@ def guide : RuleId → Guide
           that reports the first record (`RegulaPolicy.failure_reported`). Every finding is a \
           record (`RegulaPolicy.executionFindings_sound`), and the findings are empty exactly \
           when the records are (`RegulaPolicy.executionFindings_empty_iff`).",
-        "Each toolchain-owned boundary of every environment an audit inspects is in exactly one \
-          entry of the audit's toolchain trusted base, which lists exactly the environments and \
-          roots that reach it (`RegulaPolicy.checked_toolchainBase`)."]
+        "Each toolchain-owned boundary of every environment an audit inspects is the boundary of \
+          exactly one entry of the audit's toolchain trusted base or, when every root that \
+          reaches it carries it, an implementation that the entry of a boundary carrying it \
+          names; each entry lists exactly the environments and roots that reach it \
+          (`RegulaPolicy.checked_toolchainBase`)."]
       notEstablished := [
         "Correctness of the toolchain's own replacements, unsafe code and native primitives, the \
           compiler or external code; a Lean equality does not prove external machine code. These \

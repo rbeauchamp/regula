@@ -64,14 +64,17 @@ private def cases : Array Case := #[
         "replacement=_private.Lean.Data.Name.0.Lean.Name.quickCmpImpl toolchain " ++
         "(module Lean.Data.Name)",
       "Lean.Syntax.structEq [partial-computation] correspondence=trusted toolchain " ++
-        "(module Init.Meta.Defs)",
+        "(module Init.Meta.Defs) implementations=Lean.Syntax.structEq._unsafe_rec reached-by=",
       "Array.foldlMUnsafe.fold [unsafe-computation] correspondence=trusted toolchain"]
     -- `Array.foldlMUnsafe.fold`, reached above, passes the proof placeholder `lcProof`, an
     -- `unsafe axiom` of `Init.Prelude`. Whether a constant's type is a proposition is Lean's
     -- `Meta.isProp` observation, an external elaborator boundary: this qualifies it on the pin
     -- (without the probe's erasure guard, `lcProof` is a toolchain unsafe-computation boundary),
     -- and is not a proof that every proof-typed constant is erased.
-    absent := #["boundary lcProof ["]
+    -- The helper Lean compiles the toolchain `partial def` `Lean.Syntax.structEq` through is
+    -- named by its entry above and has no entry of its own: the collector's helper edge between
+    -- the two is an observation of the toolchain's environment, qualified here on the pin.
+    absent := #["boundary lcProof [", "boundary Lean.Syntax.structEq._unsafe_rec ["]
     project := true },
   { name := "imported"
     body := "/-- The identity. -/\ndef target (n : Nat) := n\n" ++

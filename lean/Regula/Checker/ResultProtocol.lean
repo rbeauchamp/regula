@@ -21,7 +21,13 @@ open RegulaPolicy.Guards (bind_eq_ok)
 /-- This checker build's producer identity, written into every result envelope. -/
 abbrev producer := Regula.Checker.Producer.identity
 
-/-- Result schema 17 records the assumptions about external systems that each declaration rests on:
+/-- Result schema 18 lists a toolchain `partial def` and the `_unsafe_rec` helper Lean compiles it
+through as one trusted step: each `scope.toolchainBase` entry carries `implementations`, the
+`partial` implementations its boundary carries that have no entry of their own because every root
+that reaches one holds a boundary that carries it there (`RegulaPolicy.checked_toolchainBase`).
+The coverage counts of `executionSummary` count such a pair once, as they already counted a pair
+the project or a dependency owns. Earlier schemas gave the helper an entry and a count of its own.
+Schema 17 records the assumptions about external systems that each declaration rests on:
 a declaration record carries `assumptions` and `checkedOperations`, the declarations with the role
 `assumption` or `checked` (`Regula.Assumption`) that the walk of the constants it uses, proofs
 included, reaches from it in the replayed kernel (`RegulaPolicy.Assumptions.RestsOn`). Earlier
@@ -121,7 +127,8 @@ Schema 5 attributes the toolchain's own boundaries to it: a boundary a toolchain
 module (`Init`, `Std` or `Lean`, loaded from the toolchain's library) owns carries its
 `toolchainOrigin` (formerly `nativeOrigin`, which only native-runtime boundaries carried), and
 each `axiomGate` project and file result's `scope.toolchainBase` lists every such boundary once
-for the whole audit, with the environments and roots that reach it. Schema 4 inspected each
+for the whole audit, with the environments and roots that reach it (until schema 18 named a
+folded `partial` implementation in the entries that carry it instead). Schema 4 inspected each
 claimed executable's root in an environment of its own: a project `scope.surfaces[*]` entry's
 `modules` and `report` cover only its library's environment (the library's modules other than
 its claimed executables' roots), and each claimed executable has its own `executables[*]` entry
@@ -144,7 +151,7 @@ frozen configuration and dependency text from the snapshot (`snapshotJson`: a cl
 dependency is identified by its pinned revision, a dirty one only by package and `dirty`
 status) and imported-environment module lists (`acceptedJson`,
 `ProducerReport.Environment.resultJson`); schema 1 embedded them. -/
-def schemaVersion : Nat := 17
+def schemaVersion : Nat := 18
 
 /-- Envelope identity of every result file. -/
 def identityFields : List (String × Json) := RegistryCodec.identityFields producer schemaVersion
