@@ -357,9 +357,12 @@ The `extraDep` facet runs Lake's own `extraDep` facet, which builds the `extraDe
 library of the root package or of Regula. It compiles no module and sets no option. A package
 named `regula` with different text keeps the marker.
 
-The `presetup` facet runs Lake's own `presetup` facet. For each module of the root package outside
-the `RegulaObserver` library, it then adds the observer's shared library to the plugins that Lean
-loads. It also adds that library's trace to the module's trace.
+The `presetup` facet runs Lake's own `presetup` facet. It then acts on each module of the root
+package and of Regula, outside the `RegulaObserver` library. It adds the observer's shared library
+to the plugins that Lean loads, and that library's trace to the module's trace. Thus a module of
+Regula has the same trace as a root and as a dependency. An adopter that requires a checkout of
+Regula by path does not build its modules again.
+
 The observer imports only Lean, prints nothing and reads no option that the marker sets. So a
 build with the marker and a build without it write the same record. The audit's own builds install
 the same facet in the process with `Observer.observerPresetup`, over whatever the workspace
@@ -1477,9 +1480,22 @@ assumed.
 
 [RG2006] also decides the options that each claimed module's source sets, as Regula's elaboration
 observer recorded them, with `RegulaPolicy.Community.sourceFailures` (`sourceFailures_eq_nil_iff`,
-`checked_sourceFailures`). The same accepted set decides them, with two more admissions. The first
-is a community linter turned off for one command by `set_option linter.NAME false in`. The second
-is an option that a macro of Lean's own libraries wrote.
+`checked_sourceFailures`). The same accepted set decides them, with two more admissions.
+
+The first admission is a community linter turned off by `set_option linter.NAME false in` before
+one declaration. The observer records the kind of the command that the form wraps. The decision
+admits only a declaration there, so a `section` of several declarations fails. The theorems
+`communityDisable_iff` and `missingDocs_in_section_fails` state this.
+
+The second admission is an option that a macro of Lean's own libraries wrote. The audit finds the
+macro's module as an `.olean` of the toolchain's library with `admitToolchainOrigin`, as the probe
+does. Thus a project's own module named `Lean.Adopter` is not one, as `nameOnly_macro_fails`
+states.
+
+The observer records the options that Lean's `set_option` elaborator set. Of the builtin commands
+of Lean v4.34.1, only `unlock_limits` also changes options. It sets three resource limits to `0`,
+which [RG2006] accepts, as `unlockLimits_accepted` states. An option that elaborator code changes
+directly, such as `autoImplicit` in the `ToExpr` deriving handler, is outside the record.
 
 [RG2003] decides each claimed module's record with `RegulaPolicy.Elaboration.failures`
 (`failures_eq_nil_iff`, `checked_failures`). The two theorems are about the decisions over the
@@ -1488,6 +1504,11 @@ recorded data. Lean's source at the pinned release shows that the observer recor
 the frontend writes the record after all linters finished, which standard §7.3 states as an
 assumption. Code that runs in the module's own elaboration and forges the record
 is outside that evidence.
+
+A stateful linter that an imported module registers runs after the observer's linter on each
+command, since Lean loads the plugin first. Lean gives a plugin no later point to read the
+messages, so a silent message from such a linter is outside the record too. A file audit with a
+claim loads the observer into its compilation and decides on that record.
 
 
 Each other option that a target sets in `leanOptions` or with `-D` must be in the closed accepted

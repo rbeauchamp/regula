@@ -983,11 +983,15 @@ audit refuses a `decides` entry that names its own surface or no claimed surface
 - [RG2003] fails a claimed module that runs `#guard_msgs` or `#guard_panic`, also from a macro.
   Keep such checks in a test or documentation module outside the claimed surface. [RG2003] also
   fails a claimed module with a warning or error that Lean keeps out of the output, or that the
-  observer did not observe.
+  observer did not observe. A file audit with a claim (`axiomGate --file`) loads the observer into
+  its compilation and fails the file in the same way.
 - If your root package declares a `presetup` facet, Regula's facet replaces it.
 - Code that runs while Lean elaborates a module can write or remove the observer's record. An
   example is an `initialize` declaration or an elaborator of an imported module. The audit trusts
-  that no such code forges the record.
+  that no such code forges the record. A stateful linter of an imported module runs after the
+  observer, so a silent message that it logs is outside the record.
+- [RG2006] reads the options that Lean's `set_option` elaborator sets. An option that elaborator
+  code changes directly, such as a deriving handler, is outside the record.
 - The only supported editor is VS Code with the Lean 4 extension, and there is no latency claim.
 - Regula has run on small adopters only, including a Mathlib-importing library accepted
   incrementally and fresh; there is no Mathlib-scale adopter claim. These are bounded

@@ -1365,7 +1365,9 @@ def guide : RuleId → Guide
           complete record, or a command of it was neither linted nor skipped for `#guard_msgs`. \
           Every build of a claimed surface decides this: those of `lake lint`, `axiomGate`, the \
           build-lint `policy` target, `freshChecker` and the documentation audit's claimed \
-          build. No lakefile option, environment variable or command-line flag turns it off. The \
+          build. A file audit with a claim (`axiomGate --file F --claim P`) loads the observer \
+          into its compilation of `F` and decides on that record in the same way, naming `F`. \
+          No lakefile option, environment variable or command-line flag turns it off. The \
           only build that does not count the observer's findings is the build of a Verso \
           documentation package that `docFenceAudit --verso` runs, such as Regula's own \
           standard, whose `lean` blocks show messages with `#guard_msgs`; that build decides no \
@@ -1401,7 +1403,11 @@ def guide : RuleId → Guide
           admits only the one-declaration form for a community linter.",
         "That the record of the elaboration observer is the observer's own: code that runs in \
           the module's elaboration, such as an initializer or an elaborator of an imported \
-          module, could write or remove it (standard §7)."]
+          module, could write or remove it (standard §7).",
+        "A message that a stateful linter of an imported module logs after the observer's own \
+          linter ran on the command: Lean loads the plugin before the imports' initializers, so \
+          such a linter runs later, and Lean gives a plugin no later point to read the messages. \
+          That linter is code that runs in the module's elaboration (standard §7)."]
       configuration := [
         "`warningAsError := false` in the source cannot hide a warning from the audit. Disabling a \
           linter stops it from emitting, which makes this rule pass without establishing the \
@@ -1708,7 +1714,8 @@ def guide : RuleId → Guide
           `synthInstance.maxHeartbeats`, `synthInstance.maxSize`, `maxRecDepth`, \
           `maxSynthPendingDepth` and \
           `exponentiation.threshold` at any number, since raising a positive one lets Lean do \
-          work it would otherwise stop or skip and `0` means no limit for the first three; and \
+          work it would otherwise stop or skip, and `0` means no limit for `maxHeartbeats`, \
+          `synthInstance.maxHeartbeats` and `maxRecDepth`; and \
           each `pp.…` option that Lean, Mathlib or Qq register, at its default \
           (`RegulaPolicy.Community.printSettings`). A pretty-printer option changes the text \
           some linters compare, such as Mathlib's whitespace linter with `pp.unicode` off, so a \
@@ -1732,16 +1739,26 @@ def guide : RuleId → Guide
           One finding per target lists every failure.",
         "In each module of a claimed surface, the rule also reads the options the module's \
           source set, as Regula's elaboration observer recorded them while Lean elaborated it \
-          (RG2003): `set_option` as a command, before one command (`… in`), in a term or in a \
-          tactic block, including one that a macro wrote. The proved decision \
-          `RegulaPolicy.Community.sourceFailures` rejects each that the target itself could not \
-          set at that value, with two exceptions: `set_option linter.NAME false in` before one \
-          command, which turns a community linter off for that command (standard §6.2), and an \
-          option that a macro of Lean's own libraries wrote, such as `smartUnfolding` in \
-          `rfl'`. So the source cannot turn one of Lean's default warnings off, set \
+          (RG2003): `set_option` as a command, before one command (`… in`), in a term, in a \
+          tactic block or in a `grind` block, including one that a macro wrote. The proved \
+          decision `RegulaPolicy.Community.sourceFailures` rejects each that the target itself \
+          could not set at that value, with two exceptions. The first is \
+          `set_option linter.NAME false in` before one declaration, which turns a community \
+          linter off for it (standard §6.2); before any other command, such as a `section` of \
+          several declarations, it is rejected. The second is an option that a macro of Lean's \
+          own libraries wrote, such as `smartUnfolding` in `rfl'`, when the audit finds the \
+          macro's module as an `.olean` of the toolchain's library; a project's own module named \
+          `Lean.…` is not one. So the source cannot turn one of Lean's default warnings off, set \
           `linter.all` or `autoImplicit`, or set a `debug.` or `trace.` option, and an option \
           whose value is not a literal is rejected. The finding names each option with its \
           module, line and column.",
+        "The rule reads the options that Lean's `set_option` elaborator \
+          (`Lean.Elab.elabSetOption`) set. Of Lean v4.34.1's builtin commands, one other changes \
+          options: `unlock_limits` sets `maxHeartbeats`, `maxRecDepth` and \
+          `synthInstance.maxHeartbeats` to `0`, which the rule accepts \
+          (`RegulaPolicy.Community.unlockLimits_accepted`). An option that elaborator code \
+          changes directly is not read, such as `autoImplicit`, which the `ToExpr` deriving \
+          handler sets for its own command.",
         "Every `-D` that `lean` reads starts at the first `D` of an argument that begins with a \
           single `-` (`-D`, or after flags as in `-qD`), with its value after the `D` or in the \
           next argument; the rule reads every such candidate, so it can also reject one that \
