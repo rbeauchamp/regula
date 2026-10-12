@@ -205,9 +205,8 @@ def refusal (link : BuildReuse.Link) (run : BuildReuse.Run) : String :=
 `copy`, which has no build output, when `BuildReuse.reuse` accepts, and return how many files it
 placed; otherwise return why not, with the copy as it was. `modules` is the module path
 (`modulePath`) of every module of the root package, and `closure` that of each root-package module
-the claimed build compiles. A missing `link` is a refusal: the step then builds fresh and refuses
-the missing link after its checks (`require`). The recorded artifacts of `closure`'s modules
-(`BuildReuse.selected`) are copied from `repo`'s `.lake/build` into a new staging directory in
+the claimed build compiles. The step calls it only after `require` admitted `link`. The recorded
+artifacts of `closure`'s modules (`BuildReuse.selected`) are copied from `repo`'s `.lake/build` into a new staging directory in
 `scratch`, outside the copy, and the digests compared are those of the staged files and of the
 copy's own files outside `.lake`. Only after the decision is the staging directory renamed to the
 copy's `.lake/build`, which must not exist. Both are in the scratch directory of the run, so the
@@ -215,7 +214,6 @@ rename is within one file system. Any failure on the way is a refusal: the step 
 without a link. -/
 def placeRetained (repo copy scratch link : FilePath) (identity : String)
     (targets modules closure : List String) : IO (Except String Nat) := do
-  unless ← link.pathExists do return .error s!"there is no acceptance link at {link}"
   let attempt : IO (Except String Nat) := do
     let record := reuseLink (← readJson link)
     let tree ← digests copy (← treeFiles copy)

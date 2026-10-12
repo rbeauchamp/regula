@@ -33,7 +33,7 @@ structure Options where
   configuration and a `lean-toolchain`, instead of the current one. -/
   project : Option FilePath := none
   /-- `--acceptance-link PATH`: the acceptance link that ordinary acceptance recorded; the
-  audit refuses, after every other check, unless its own inputs have the identity recorded there.
+  audit first refuses, before its build, unless its own inputs have the identity recorded there.
   When the link also records the build that step left in this project's `.lake/build`, the audit
   places the part of that build output that its claimed build compiles in its copy before its own
   build, only as `BuildReuse.reuse` decides (`AcceptanceLink.placeRetained`). -/
@@ -204,11 +204,10 @@ project, which holds no build output, it builds the claimed surfaces; with `--ve
 the Verso library there, whose workspace every fence then elaborates in; it compiles every Lean
 fence below the documentation root and, with `--verso`, every `lean` block of the library, then renders the
 library and checks its anchors, checklist rows and rule-ID links. With `--acceptance-link`, it
-places the first acceptance step's build output of the modules its claimed build compiles
-(`claimedClosure`) in the copy before its build when `BuildReuse.reuse` accepts the link's record of
-it, and after every other check it requires the inputs to equal the accepted ones
-(`AcceptanceLink.require`): a missing link, or one that is not accepted, still gives the fresh build
-and every check, and then the refusal. Each compiled artifact of the root package that the fences
+first requires the inputs to equal the accepted ones (`AcceptanceLink.require`), so a missing link,
+or one that is not accepted, refuses at once, before any build. It then places the first acceptance
+step's build output of the modules its claimed build compiles (`claimedClosure`) in the copy before
+its build when `BuildReuse.reuse` accepts the link's record of it. Each compiled artifact of the root package that the fences
 read was compiled, in a copy that held no earlier build output, from files equal to those of this
 copy: in this run, or by that step (`BuildReuse.reuse_iff`). Its output says which. -/
 unsafe def run (args : List String) : IO UInt32 := do
@@ -235,19 +234,18 @@ unsafe def run (args : List String) : IO UInt32 := do
       let manifest ← Manifest.loadFor manifestPath inventory
       let sources ← SourceBinding.capture inventory.moduleSources
       let dependencies ← Snapshot.dependencies inventory
-      -- A linked run audits only the inputs ordinary acceptance already accepted, which
-      -- `AcceptanceLink.require` checks after every other check, so a run without a link still
-      -- builds fresh. It places that step's build output of the modules its claimed build
-      -- compiles in its copy only when `BuildReuse.reuse` accepts the link's record of it;
-      -- otherwise the copy keeps no build output (`AcceptanceLink.placeRetained`).
-      let linkPath := options.acceptanceLink.map (resolve repo)
-      let digest ← match linkPath with
-        | none => pure ""
-        | some _ =>
-          AcceptanceLink.identity scratch copy docsRoot sources configuration dependencies linked
-      let placed ← match linkPath with
+      -- A linked run audits only the inputs ordinary acceptance already accepted. It places
+      -- that step's build output of the modules its claimed build compiles in its copy only
+      -- when `BuildReuse.reuse` accepts the link's record of it; otherwise the copy keeps no
+      -- build output (`AcceptanceLink.placeRetained`).
+      let placed ← match options.acceptanceLink.map (resolve repo) with
         | none => pure (.error "no acceptance link was given")
         | some link => do
+          let digest ← AcceptanceLink.identity scratch copy docsRoot sources configuration
+              dependencies linked
+          AcceptanceLink.require link digest
+          IO.println
+              s!"acceptance link: documentation inputs equal the accepted ordinary inputs ({digest})"
           let targets := (Lake.claimedTargets manifest).toList.map fun
             | .library spelling | .executable spelling => spelling
             | .moduleArtifacts name => s!"+{name}"
@@ -302,11 +300,6 @@ unsafe def run (args : List String) : IO UInt32 := do
             the rule registry and the documentation link, its checklist rows are exactly \
             Regula.checklistRows, and every rule ID in the rendered prose `Regula.Prose` reads \
             links to its rule page"
-        -- The admission of the link, after every other check.
-        if let some link := linkPath then
-          AcceptanceLink.require link digest
-          IO.println s!"acceptance link: documentation inputs equal the accepted ordinary inputs \
-            ({digest})"
         return 0
     let outcome := outcome.bind id
     match outcome with

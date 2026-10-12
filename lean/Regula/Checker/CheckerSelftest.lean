@@ -3522,7 +3522,7 @@ the project is then built. The control writes the `build` field the driver write
 (`RegulaVerification.Copy.recordBuild`) from that build and the project's files, with the origin of
 a driver copy, which only the first acceptance step gives; the positive case with a real driver
 copy is that step and the documentation step on each run. Before the gate runs, `docFenceAudit
---acceptance-link` must build fresh, pass every check and then refuse the missing link. After it,
+--acceptance-link` must refuse the missing link at once, before any build. After it,
 the audit must build fresh in its own copy for a link with no `build` field, for one artifact of
 the build altered, for one file of the project outside `.lake` altered and for the file named `-`
 altered, which `shasum` would read as standard input, and must place the recorded build output when
@@ -3571,10 +3571,10 @@ private def retainedBuildControl (repo : FilePath) : IO (Array String) :=
     #["--project", project.toString, "--acceptance-link", link.toString, "--jobs", "1"] env
   let mut failures := #[]
   unless !unlinked.succeeded &&
-      unlinked.output.contains (fresh s!"there is no acceptance link at {link}") &&
-      unlinked.output.contains "acceptance link missing: run ordinary acceptance first" do
-    failures := failures.push s!"retained-build/no-gate: expected a fresh build and the refusal \
-      of the missing link:\n{unlinked.output}"
+      unlinked.output.contains "acceptance link missing: run ordinary acceptance first" &&
+      !unlinked.output.contains "claimed surface built" do
+    failures := failures.push s!"retained-build/no-gate: expected the refusal of the missing link \
+      before any build:\n{unlinked.output}"
   if let some failure ← step "gate" (← toolPath repo "axiomGate").toString
       #["--acceptance-link", link.toString] then return failures.push failure
   -- The first step builds more than the claimed targets.
@@ -3748,7 +3748,7 @@ private unsafe def runStructural (layout : SourceLayout) (repo : FilePath) (jobs
         is not followed)"
   if ran .retainedBuild then
     IO.println <| "self-test retained build: " ++ verdict .retainedBuild ++
-      " (docFenceAudit builds fresh and then refuses the missing link before any gate ran; it \
+      " (docFenceAudit refuses the missing link before any build, before any gate ran; it \
         builds fresh in its own copy for a link with no build record, for an altered artifact, \
         for an altered file of the project and for an altered file named -, and places the \
         recorded build output of its claimed modules when every digest matches, without a \

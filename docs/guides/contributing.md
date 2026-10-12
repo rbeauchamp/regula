@@ -94,8 +94,8 @@ copy with no build output. Thus the libraries that the fences read were compiled
 in a copy with no earlier build output. The output of the fence audit tells which build compiled
 them.
 
-The fence audit checks the record after all its other checks. Thus without a record it builds the
-claimed libraries in a copy with no build output, does those checks and then refuses.
+The fence audit checks the record first, before it builds. Thus without an accepted record it
+refuses immediately and builds nothing.
 
 Two ordinary attempts at the same time in one checkout are not a supported use.
 
