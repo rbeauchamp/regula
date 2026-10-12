@@ -90,7 +90,7 @@ Choose checks from AGENTS.md and the applicable checklist rows:
 | Checker behavior or detection claims | Focused qualification of affected capabilities and invocation paths. |
 | Lake lint driver, build target or editor adapter | `diagnostics lint-driver` or `build-policy` as affected; `qualify native` for linter messages; recorded client observation for editor interaction. |
 | Optional serialized-graph claim | Supported fresh-checker evidence for that exact graph. |
-| Rule metadata, explanations, fixtures or site generation | Both corpus shards and `./scripts/verify.sh site` at the same commit; browser observation of affected pages; semantic review of the explanation. |
+| Rule metadata, explanations, fixtures or site generation | The three corpus shards and `./scripts/verify.sh site` at the same commit; browser observation of affected pages; semantic review of the explanation. |
 | Instructions or editorial changes with unchanged Lean claims and inputs | References, instruction behavior, and scoped review. |
 
 Reuse prior semantic or diagnostic evidence when its relevant inputs, toolchain, and claim

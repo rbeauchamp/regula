@@ -26,6 +26,20 @@ def lintDriverShards : Nat := 5
 toolchain, so it cannot read that; `qualify` refuses a shard it does not have. -/
 def selfAuditShards : Nat := 4
 
+/-- The number of shards of the self-test's structural partition, which
+`Regula.Checker.CheckerSelftest.structuralShards` states for the self-test; the self-test refuses
+a shard it does not have. -/
+def structuralShards : Nat := 5
+
+/-- The number of shards of the self-test's execution partition, which
+`Regula.Checker.CheckerSelftest.executionShards` states for the self-test; the self-test refuses
+a shard it does not have. -/
+def executionShards : Nat := 4
+
+/-- The number of shards of the rule-example corpus (`Regula.Qualification.RuleExamples.check`
+selects any `K/N`), each a required check of CI with its own evidence file (`shardEvidence`). -/
+def ruleExampleShards : Nat := 3
+
 /-- Closed vocabulary of supported verification invocations. -/
 inductive Mode where
   /-- No argument: the first acceptance step, which makes a private copy of the project, builds
@@ -51,14 +65,12 @@ inductive Mode where
   | structural
   /-- `diagnostics execution`: the self-test's execution partition. -/
   | execution
-  /-- `diagnostics structural 1/2`: the first of the structural partition's two shards. -/
-  | structuralFirst
-  /-- `diagnostics structural 2/2`: the second of the structural partition's two shards. -/
-  | structuralSecond
-  /-- `diagnostics execution 1/2`: the first of the execution partition's two shards. -/
-  | executionFirst
-  /-- `diagnostics execution 2/2`: the second of the execution partition's two shards. -/
-  | executionSecond
+  /-- `diagnostics structural INDEX/5`: one of the structural partition's shards, `index` counted
+  from 0 and `INDEX` from 1. -/
+  | structuralShard (index : Fin structuralShards)
+  /-- `diagnostics execution INDEX/4`: one of the execution partition's shards, `index` counted
+  from 0 and `INDEX` from 1. -/
+  | executionShard (index : Fin executionShards)
   /-- `diagnostics cli`: the self-test's command-line partition. -/
   | cli
   /-- `diagnostics environments`: the self-test's environments partition. -/
@@ -86,10 +98,9 @@ inductive Mode where
   | selfAuditShard (index : Fin selfAuditShards)
   /-- `diagnostics rule-examples`: the whole rule-example corpus in one run. -/
   | ruleExamples
-  /-- `diagnostics rule-examples 1/2`: the first of the corpus's two shards. -/
-  | ruleExamplesFirst
-  /-- `diagnostics rule-examples 2/2`: the second of the corpus's two shards. -/
-  | ruleExamplesSecond
+  /-- `diagnostics rule-examples INDEX/3`: one of the corpus's shards, `index` counted from 0 and
+  `INDEX` from 1. -/
+  | ruleExamplesShard (index : Fin ruleExampleShards)
   /-- `site`: build and check the rule-reference site artifact from the shards' evidence. -/
   | site
   /-- `mathlib`: the separate Mathlib integration check, never part of acceptance: the fresh
@@ -108,10 +119,10 @@ def arguments : Mode → List String
   | .fixtures => ["diagnostics", "fixtures"]
   | .structural => ["diagnostics", "structural"]
   | .execution => ["diagnostics", "execution"]
-  | .structuralFirst => ["diagnostics", "structural", "1/2"]
-  | .structuralSecond => ["diagnostics", "structural", "2/2"]
-  | .executionFirst => ["diagnostics", "execution", "1/2"]
-  | .executionSecond => ["diagnostics", "execution", "2/2"]
+  | .structuralShard index =>
+      ["diagnostics", "structural", s!"{index.val + 1}/{structuralShards}"]
+  | .executionShard index =>
+      ["diagnostics", "execution", s!"{index.val + 1}/{executionShards}"]
   | .cli => ["diagnostics", "cli"]
   | .environments => ["diagnostics", "environments"]
   | .buildPolicy => ["diagnostics", "build-policy"]
@@ -126,18 +137,20 @@ def arguments : Mode → List String
   | .selfAuditShard index =>
       ["diagnostics", "self-audit", s!"{index.val + 1}/{selfAuditShards}"]
   | .ruleExamples => ["diagnostics", "rule-examples"]
-  | .ruleExamplesFirst => ["diagnostics", "rule-examples", "1/2"]
-  | .ruleExamplesSecond => ["diagnostics", "rule-examples", "2/2"]
+  | .ruleExamplesShard index =>
+      ["diagnostics", "rule-examples", s!"{index.val + 1}/{ruleExampleShards}"]
   | .site => ["site"]
   | .mathlib => ["mathlib"]
 
 /-- Every supported mode occurs once; the parser searches only this closed vocabulary. -/
 def modes : List Mode := [.ordinary, .docs, .graph, .diagnostics, .fixtures, .structural,
-  .execution, .structuralFirst, .structuralSecond, .executionFirst, .executionSecond, .cli,
-  .environments, .buildPolicy, .lintDriver, .producers, .history, .selfLint, .selfLintDefault,
-  .selfAudit, .ruleExamples, .ruleExamplesFirst, .ruleExamplesSecond, .site, .mathlib] ++
+  .execution, .cli, .environments, .buildPolicy, .lintDriver, .producers, .history, .selfLint,
+  .selfLintDefault, .selfAudit, .ruleExamples, .site, .mathlib] ++
+  (List.finRange structuralShards).map .structuralShard ++
+  (List.finRange executionShards).map .executionShard ++
   (List.finRange lintDriverShards).map .lintDriverShard ++
-  (List.finRange selfAuditShards).map .selfAuditShard
+  (List.finRange selfAuditShards).map .selfAuditShard ++
+  (List.finRange ruleExampleShards).map .ruleExamplesShard
 
 /-- Argument parsing never accepts a prefix of a supported invocation. -/
 def parseMode (args : List String) : Option Mode :=
@@ -152,8 +165,8 @@ theorem parseMode_sound (args : List String) (mode : Mode)
 /-- Every documented invocation is accepted; this excludes an always-refusing parser. -/
 theorem parseMode_roundtrip (mode : Mode) : parseMode (arguments mode) = some mode := by
   cases mode with
-  | lintDriverShard index => revert index; decide
-  | selfAuditShard index => revert index; decide
+  | structuralShard index | executionShard index | lintDriverShard index
+    | selfAuditShard index | ruleExamplesShard index => revert index; decide
   | _ => rfl
 
 /-- Selection carries the argument-binding proof required by the operational caller. -/
@@ -219,7 +232,7 @@ requires the checklist's rows to be exactly `Regula.checklistRows`. -/
 def versoStandard : String := "website:RegulaStandard:regula-standard"
 
 /-- Evidence receipt of one rule-example shard. -/
-def shardEvidence (index : Nat) : String := s!"tmp/rule-examples-{index}of2.json"
+def shardEvidence (index : Nat) : String := s!"tmp/rule-examples-{index}of{ruleExampleShards}.json"
 
 /-- The package of the Markdown checks: md4c's reader and the `regula-markdown` executable. It
 requires only the md4c binding and the root package. -/
@@ -232,11 +245,12 @@ def proseControls : String := "../lean/Fixtures/ControlledProse"
 /-- Rule-reference site artifact directory (the GitHub Pages upload). -/
 def siteOutput : String := "_site"
 
-/-- One of two disjoint corpus shards, selected by rule position in the corpus. -/
+/-- One of `ruleExampleShards` disjoint corpus shards, selected by rule position in the corpus,
+`index` counted from 1. -/
 private def ruleExampleShard (index : Nat) : List Command := [
   lake #["build", "axiomGate", "ruleExamples", "ruleExampleQualification", "qualify"],
   lake #["exe", "qualify", "--under-deadline", "rule-examples", "--evidence", shardEvidence index,
-    "--shard", s!"{index}/2"]]
+    "--shard", s!"{index}/{ruleExampleShards}"]]
 
 /-- A checker self-test run with the `checkerSelftest` arguments `selection`. The first command
 builds the self-test together with `axiomGate`, which the baseline build of every partition
@@ -357,13 +371,12 @@ def commands (copy pending : String) : Mode → List Command
       lake
           #["exe", "qualify", "--under-deadline", "rule-examples", "--evidence",
               "tmp/rule-examples.json"]]
-  | .ruleExamplesFirst => ruleExampleShard 1
-  | .ruleExamplesSecond => ruleExampleShard 2
+  | .ruleExamplesShard index => ruleExampleShard (index.val + 1)
   | .site => [
       lake #["build", "axiomGate", "ruleExampleQualification", "site"],
       lake
           (#["exe", "site", "build", "--out", siteOutput, "--evidence"] ++
-              #[shardEvidence 1, shardEvidence 2])]
+              ((List.range ruleExampleShards).map (shardEvidence <| · + 1)).toArray)]
   -- The Mathlib integration check: the integration package's fresh acceptance and lint, as a
   -- Mathlib adopter of `regula` runs them. Its Mathlib is provisioned beforehand, as setup; the
   -- first command refuses a copy the check does not apply to (another toolchain than that package selects) and one whose Mathlib is not provisioned, so an
@@ -374,12 +387,13 @@ def commands (copy pending : String) : Mode → List Command
       lakeIn mathlibPackage #["exe", "axiomGate"], lakeIn mathlibPackage #["lint"]]
   | .structural => selftest #["--partition", "structural"] #["docFenceAudit", "freshChecker"]
   -- A shard of a partition: the partition's name, then the shard after `--shard`. The first
-  -- structural shard's controls run `axiomGate` alone; the second's also run the other two.
-  | .structuralFirst => selftest #["--partition", "structural", "--shard", "1/2"]
-  | .structuralSecond =>
-      selftest #["--partition", "structural", "--shard", "2/2"] #["docFenceAudit", "freshChecker"]
-  | .executionFirst => selftest #["--partition", "execution", "--shard", "1/2"]
-  | .executionSecond => selftest #["--partition", "execution", "--shard", "2/2"]
+  -- structural shard holds only the self-hosted positive, whose control runs `axiomGate` alone,
+  -- so its build is the self-test and the gate; the other shards also run the other two.
+  | .structuralShard index =>
+      selftest #["--partition", "structural", "--shard", s!"{index.val + 1}/{structuralShards}"]
+        (if index.val == 0 then #[] else #["docFenceAudit", "freshChecker"])
+  | .executionShard index =>
+      selftest #["--partition", "execution", "--shard", s!"{index.val + 1}/{executionShards}"]
   -- The lint-driver controls also run the `lake lint` driver, `regula init` and the corpus
   -- producer `ruleExamples`, and their adopters import `Regula.Linter`, which their baseline
   -- names.
@@ -979,9 +993,9 @@ def report (ends : List (Command × Option UInt32)) : String :=
 
 private def usage : String :=
   "usage: scripts/verify.sh [docs | serialized-graph | site | mathlib | diagnostics \
-    [fixtures|structural [1/2|2/2]|execution [1/2|2/2]|cli|environments|build-policy|\
-    lint-driver [1/5|2/5|3/5|4/5|5/5]|producers|history|self-lint|self-lint-default|self-audit \
-    [1/4|2/4|3/4|4/4]|rule-examples [1/2|2/2]]]"
+    [fixtures|structural [1/5..5/5]|execution [1/4..4/4]|cli|environments|\
+    build-policy|lint-driver [1/5..5/5]|producers|history|self-lint|self-lint-default|\
+    self-audit [1/4..4/4]|rule-examples [1/3..3/3]]]"
 
 /-- The earlier verdicts an attempt of `mode` invalidates, each with the constant text recording
 it as incomplete. Ordinary acceptance invalidates the accepted link, so it is not accepted from
@@ -990,10 +1004,8 @@ def invalidated : Mode → List (String × String)
   | .ordinary => [(linkPath, incompleteLink)]
   | .ruleExamples =>
       [("tmp/rule-examples.json", "{\"outcome\":\"INCOMPLETE\",\"phase\":\"setup\"}\n")]
-  | .ruleExamplesFirst =>
-      [(shardEvidence 1, "{\"outcome\":\"INCOMPLETE\",\"phase\":\"setup\"}\n")]
-  | .ruleExamplesSecond =>
-      [(shardEvidence 2, "{\"outcome\":\"INCOMPLETE\",\"phase\":\"setup\"}\n")]
+  | .ruleExamplesShard index =>
+      [(shardEvidence (index.val + 1), "{\"outcome\":\"INCOMPLETE\",\"phase\":\"setup\"}\n")]
   | _ => []
 
 /-- The package adopters require stays dependency-free: its lock manifest records no package. Lake

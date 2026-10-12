@@ -351,7 +351,7 @@ structure Generated where
   /-- The admitted corpus shard exports, in the order given. -/
   shards : List Json
 
-/-- Admit both shards and derive every rule's example. The two shards must select disjoint
+/-- Admit the shards and derive every rule's example. The shards must select disjoint
 rules whose union is the registry, and contain one fix and one violation record per rule. -/
 def evidence (root : FilePath) (ident : Identity) (shardPaths : List FilePath) : IO Generated := do
   let inventory ← Regula.Checker.Lake.rootSurfaceInventory root
