@@ -5,6 +5,7 @@ import Regula.Checker.Workspace
 import Regula.Website
 import RegulaCore.Guidance
 import Regula.Campaigns.Workflow
+import Regula.Checker.Lake
 
 /-! # Registry transport qualification
 
@@ -80,6 +81,27 @@ run_cmd do
     let axioms ← Lean.collectAxioms name
     unless axioms.all RegulaPolicy.standardLogicalAxiom do
       throwError "registry theorem {name} exceeds Standard-Logical: {axioms}"
+
+-- The facet of Regula's `lakefile.lean` writes its record with a copy of `weakArgsRecordJson`,
+-- since a configuration file cannot import Regula's modules. The kernel must admit the copy that
+-- Lake compiled for this checkout as equal to it, and refuse it with one literal changed.
+run_cmd do
+  let file ← IO.FS.realPath (← getFileName)
+  let some root := file.parent.bind (·.parent) |>.bind (·.parent)
+    | throwError "registry: this file has no repository root"
+  let (config, _) ← readModuleData (root / ".lake" / "config" / "0" / "lakefile.olean")
+  let env ← getEnv
+  if let .error reason := Regula.Checker.Lake.lakefileEncoderAgrees env config then
+    throwError "registry: {reason}"
+  let some (.defnInfo encoder) :=
+      config.constants.find? (·.name == Regula.Checker.Lake.lakefileEncoderName)
+    | throwError "registry: Regula's lakefile has no encoder"
+  let changed := encoder.value.replace fun
+    | .lit (.strVal "weakLeanArgs") => some (.lit (.strVal "weakLeanArgz"))
+    | _ => none
+  unless changed != encoder.value &&
+      !Regula.Checker.Lake.agreesWithRecordJson env encoder.type changed do
+    throwError "registry: the kernel admits an encoder that writes another word"
 
 private def require (ok : Bool) (claim : String) : IO Unit :=
   unless ok do throw <| IO.userError s!"registry qualification failed: {claim}"

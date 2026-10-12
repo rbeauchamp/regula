@@ -834,53 +834,71 @@ theorem nameOfJson?_eq_some_iff (json : Json) (name : Name) :
   · rintro rfl
     simp [nameOfJson?, nameJson, foldlM_nameStep_components]
 
-/-- The strings of `items`, each a JSON string, or none when one is another value. -/
-def stringsOf? : List Json → Option (List String)
-  | [] => some []
-  | .str text :: rest => (stringsOf? rest).map (text :: ·)
-  | _ :: _ => none
-
-/-- The strings of `json`, an array of strings, or none for any other value. -/
-def stringsOfJson? : Json → Option (Array String)
-  | .arr items => (stringsOf? items.toList).map List.toArray
-  | _ => none
-
-/-- `stringsOf?` reads `texts` exactly from the list of their JSON strings. -/
-theorem stringsOf?_eq_some_iff : ∀ (items : List Json) (texts : List String),
-    stringsOf? items = some texts ↔ items = texts.map .str
-  | [], texts => by cases texts <;> simp [stringsOf?]
+/-- `List.mapM Json.getStr?`, the traversal of Lean's `fromJson?` for an array of strings, reads
+`texts` exactly from the list of their JSON strings. -/
+theorem mapM_getStr?_eq_ok_iff : ∀ (items : List Json) (texts : List String),
+    items.mapM Json.getStr? = .ok texts ↔ items = texts.map .str
+  | [], texts => by cases texts <;> simp [pure, Except.pure]
   | .str text :: rest, texts => by
-    cases texts with
-    | nil => simp [stringsOf?]
-    | cons head tail =>
-      simp only [stringsOf?, Option.map_eq_some_iff, List.cons.injEq, List.map_cons,
-        Json.str.injEq, stringsOf?_eq_some_iff rest]
-      constructor
-      · rintro ⟨_, rfl, rfl, rfl⟩; exact ⟨rfl, rfl⟩
-      · rintro ⟨rfl, rfl⟩; exact ⟨_, rfl, rfl, rfl⟩
+    have ih := mapM_getStr?_eq_ok_iff rest
+    rw [List.mapM_cons]
+    cases hRest : rest.mapM Json.getStr? with
+    | error _ =>
+      simp only [Json.getStr?, bind, Except.bind, pure, Except.pure, reduceCtorEq, false_iff]
+      rintro hEq
+      cases texts with
+      | nil => cases hEq
+      | cons _ tail =>
+        simp only [List.map_cons, List.cons.injEq] at hEq
+        have := (ih tail).mpr hEq.2
+        rw [hRest] at this; cases this
+    | ok values =>
+      simp only [Json.getStr?, bind, Except.bind, pure, Except.pure, Except.ok.injEq]
+      have hValues := (ih values).mp hRest
+      cases texts with
+      | nil => simp
+      | cons _ tail =>
+        simp only [List.cons.injEq, List.map_cons, Json.str.injEq]
+        constructor
+        · rintro ⟨rfl, rfl⟩; exact ⟨rfl, hValues⟩
+        · rintro ⟨rfl, hTail⟩
+          refine ⟨rfl, ?_⟩
+          have := (ih tail).mpr hTail
+          rw [hRest] at this
+          cases this; rfl
   | .null :: _, texts | .bool _ :: _, texts | .num _ :: _, texts | .arr _ :: _, texts
-  | .obj _ :: _, texts => by cases texts <;> simp [stringsOf?]
+  | .obj _ :: _, texts => by
+    cases texts <;> simp [List.mapM_cons, Json.getStr?, bind, Except.bind, throw, throwThe,
+      MonadExceptOf.throw]
 
-/-- `stringsOfJson?` reads `strings` exactly from the array of their JSON strings. -/
-theorem stringsOfJson?_eq_some_iff (json : Json) (strings : Array String) :
-    stringsOfJson? json = some strings ↔ json = .arr (strings.map .str) := by
+/-- Lean's `fromJson?` for an array of strings reads `strings` exactly from the array of their
+JSON strings. -/
+theorem fromJson?_strings_eq_ok_iff (json : Json) (strings : Array String) :
+    fromJson? (α := Array String) json = .ok strings ↔ json = .arr (strings.map .str) := by
   cases json with
   | arr items =>
     cases items with
     | mk items =>
       cases strings with
       | mk texts =>
-        simp only [stringsOfJson?, List.map_toArray]
-        constructor
-        · intro h
-          obtain ⟨_, h', hEq⟩ := Option.map_eq_some_iff.mp h
-          cases hEq
-          simp [(stringsOf?_eq_some_iff items texts).mp h']
-        · intro h
-          have hItems : items = texts.map .str := by
-            simpa using congrArg Array.toList (Json.arr.inj h)
-          simp [(stringsOf?_eq_some_iff items texts).mpr hItems]
-  | _ => simp [stringsOfJson?]
+        simp only [fromJson?, Lean.Array.fromJson?, List.mapM_toArray, List.map_toArray]
+        cases hItems : items.mapM Json.getStr? with
+        | error _ =>
+          simp only [Functor.map, Except.map, reduceCtorEq, false_iff]
+          intro hEq
+          have := (mapM_getStr?_eq_ok_iff items texts).mpr
+            (by simpa using congrArg Array.toList (Json.arr.inj hEq))
+          rw [hItems] at this; cases this
+        | ok values =>
+          simp only [Functor.map, Except.map, Except.ok.injEq, Json.arr.injEq]
+          have := (mapM_getStr?_eq_ok_iff items values).mp hItems
+          constructor
+          · intro h; cases h; simp [this]
+          · intro h
+            have hTexts : items = texts.map .str := by simpa using congrArg Array.toList h
+            have := (mapM_getStr?_eq_ok_iff items texts).mpr hTexts
+            rw [hItems] at this; cases this; rfl
+  | _ => simp [fromJson?, Lean.Array.fromJson?, throw, throwThe, MonadExceptOf.throw]
 
 /-- The record of the weak arguments of the library `library` of the package `package`: the word
 `weakLeanArgs`, the package's `baseName` (unique in a workspace) and the library's name as
@@ -895,8 +913,8 @@ def weakArgsRecordOf? : Json → Option (Name × Name × Array String)
   | .arr items =>
     match items.toList with
     | [.str "weakLeanArgs", package, library, args] =>
-      match nameOfJson? package, nameOfJson? library, stringsOfJson? args with
-      | some package, some library, some args => some (package, library, args)
+      match nameOfJson? package, nameOfJson? library, fromJson? (α := Array String) args with
+      | some package, some library, .ok args => some (package, library, args)
       | _, _, _ => none
     | _ => none
   | _ => none
@@ -920,7 +938,7 @@ theorem weakArgsRecordOf?_eq_some_iff (json : Json) (package library : Name)
           have hArray : items = #[.str "weakLeanArgs", packageJson, libraryJson, argsJson] := by
             cases items; simp_all
           rw [hArray, (nameOfJson?_eq_some_iff _ _).mp hPackage,
-            (nameOfJson?_eq_some_iff _ _).mp hLibrary, (stringsOfJson?_eq_some_iff _ _).mp hArgs]
+            (nameOfJson?_eq_some_iff _ _).mp hLibrary, (fromJson?_strings_eq_ok_iff _ _).mp hArgs]
           rfl
         · cases h
       · cases h
@@ -928,7 +946,7 @@ theorem weakArgsRecordOf?_eq_some_iff (json : Json) (package library : Name)
   · rintro rfl
     have hPackage := (nameOfJson?_eq_some_iff (nameJson package) package).mpr rfl
     have hLibrary := (nameOfJson?_eq_some_iff (nameJson library) library).mpr rfl
-    have hArgs := (stringsOfJson?_eq_some_iff (.arr (args.map .str)) args).mpr rfl
+    have hArgs := (fromJson?_strings_eq_ok_iff (.arr (args.map .str)) args).mpr rfl
     simp [weakArgsRecordOf?, weakArgsRecordJson, hPackage, hLibrary, hArgs]
 
 /-- The record is injective in the library's identity and its weak arguments: records of two
@@ -985,8 +1003,9 @@ is a different record (`weakArgsRecordJson_injective`), whatever the names. That
 `weakArgsExtraDep` writes, rendered as text, reads back as itself is Lean's JSON rendering, not
 proved here; the build-policy controls observe it.
 
-Assumes: Regula's facet (`weakArgsExtraDep`, or the `extraDep` facet of Regula's `lakefile.lean`)
-wrote the record when Lake built the module. This is the trust in the build traces that Lake
+Assumes: Regula's facet (`weakArgsExtraDep`, or the `extraDep` facet of Regula's `lakefile.lean`,
+whose encoder acceptance checks equal to `weakArgsRecordJson` by `lakefileEncoderAgrees`) wrote
+the record when Lake built the module. This is the trust in the build traces that Lake
 recorded in the checkout, which standard §7.11 states for the incremental gate. A facet that wrote a
 forged record when the module was built is outside this evidence; `--fresh` rests on no recorded
 trace. -/
@@ -999,6 +1018,52 @@ theorem traceRecords_ownRecord_iff (library : _root_.Lake.LeanLib) (text : Strin
 /-- The name of the `extraDep` facet declaration that Regula's own `lakefile.lean` ships, which
 mixes each root library's `weakArgsCaption` into its job's trace. -/
 def regulaFacetName : Name := `weakLeanArgsTrace
+
+/-- The name of the encoder that the facet of Regula's `lakefile.lean` runs to write its record: a
+copy of `weakArgsRecordJson`, since Lake elaborates a configuration file with only Lake's and
+Lean's library directories on its search path (`Lake/Config/Env.lean`, lines 343-344), so the file
+cannot import Regula's modules. `lakefileEncoderAgrees` checks the copy. -/
+def lakefileEncoderName : Name := `weakLeanArgsRecord
+
+/-- Whether the kernel admits `value`, of type `type`, as equal to `weakArgsRecordJson` by
+`Eq.refl`: it adds `value` to `env` as a definition, then that theorem, and discards the result. A
+value of another type, or one that uses a constant `env` lacks or unfolds to another term, is
+refused. -/
+def agreesWithRecordJson (env : Environment) (type value : Expr) : Bool :=
+  let copy := `_regula_lakefile_encoder
+  let definition : DefinitionVal :=
+    { name := copy, levelParams := [], type, value, hints := ReducibilityHints.abbrev
+      safety := .safe }
+  let equality : TheoremVal :=
+    { name := copy ++ `agrees, levelParams := []
+      type := mkApp3 (mkConst ``Eq [.one]) type (mkConst copy) (mkConst ``weakArgsRecordJson)
+      value := mkApp2 (mkConst ``Eq.refl [.one]) type (mkConst copy) }
+  let checked := do
+    let env ← env.addDeclCore 0 defaultMaxRecDepth.toUSize (.defnDecl definition) none
+    env.addDeclCore 0 defaultMaxRecDepth.toUSize (.thmDecl equality) none
+  checked matches .ok _
+
+/-- Whether the compiled configuration `config` of Regula's `lakefile.lean` writes its record with
+`weakArgsRecordJson`: its declaration `lakefileEncoderName` has no universe parameters and is
+equal to `weakArgsRecordJson` by `Eq.refl` in `env` (`agreesWithRecordJson`), and the value of
+its facet declaration (`regulaFacetName`) uses that declaration. This checks the elaborated
+declarations that Lake compiles and runs, not their source text. It does not check how the facet
+forms the record's arguments or the caption, which the build-lint qualification exercises, and
+Lean's compiler is trusted to run the checked value. -/
+def lakefileEncoderAgrees (env : Environment) (config : ModuleData) : Except String Unit := do
+  let find (name : Name) : Except String (Expr × Expr) :=
+    match config.constants.find? (·.name == name) with
+    | some (.defnInfo info) =>
+      if info.levelParams.isEmpty then .ok (info.type, info.value)
+      else .error s!"the declaration {name} of Regula's lakefile has universe parameters"
+    | _ => .error s!"Regula's lakefile has no definition {name}"
+  let (type, value) ← find lakefileEncoderName
+  unless agreesWithRecordJson env type value do
+    throw s!"the kernel does not admit {lakefileEncoderName} of Regula's lakefile as equal to \
+      {``weakArgsRecordJson}"
+  let (_, facet) ← find regulaFacetName
+  unless facet.getUsedConstants.contains lakefileEncoderName do
+    throw s!"the facet {regulaFacetName} of Regula's lakefile does not use {lakefileEncoderName}"
 
 /-- Whether a package's compiled configuration holds exactly Regula's own `extraDep` facet
 declaration: the text of its configuration file (`text`) is the text of the `lakefile.lean` of the

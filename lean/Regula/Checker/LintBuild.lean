@@ -717,21 +717,24 @@ def tomlReading : ConfigReading :=
     attributes := 0, strayInlines := 0 }
 
 /-- The name of the compiler's specialization cache, an environment extension. Compiling the
-facet of Regula's `lakefile.lean` adds one entry to it, for its call of `List.map` with a function
-of its own, which Lean's compiler specializes. -/
+facet of Regula's `lakefile.lean` adds one entry to it, for the call of `List.map` with a function
+of its own in its encoder (`lakefileEncoderName`), which Lean's compiler specializes. -/
 def specializationCache : String :=
   "_private.Lean.Compiler.LCNF.Specialize.0.Lean.Compiler.LCNF.Specialize.specCacheExt"
 
-/-- The reading of a configuration with Regula's own facet declaration set aside: one facet fewer,
-no `regulaFacetName` declaration, and no entries of `Lake.libraryFacetAttr` or of the
-specialization cache (`specializationCache`) that the facet's compilation fills. Every other facet,
-declaration and extension is read as before. -/
+/-- The reading of a configuration with Regula's own facet declaration and its encoder set aside:
+one facet fewer, no `regulaFacetName` or `lakefileEncoderName` declaration, and no entries of
+`Lake.libraryFacetAttr`, of the specialization cache (`specializationCache`) that the encoder's
+compilation fills, or of `Lean.docStringExt`, which holds the encoder's documentation comment.
+Every other facet, declaration and extension is read as before. -/
 def ConfigReading.withoutRegulaFacet (reading : ConfigReading) : ConfigReading :=
   { reading with
     facets := reading.facets.map (· - 1)
-    declarations := reading.declarations.filter (·.1 != regulaFacetName)
+    declarations := reading.declarations.filter fun (name, _) =>
+      name != regulaFacetName && name != lakefileEncoderName
     extensions := reading.extensions.filter fun extension =>
-      extension != "Lake.libraryFacetAttr" && extension != specializationCache }
+      extension != "Lake.libraryFacetAttr" && extension != specializationCache &&
+        extension != "Lean.docStringExt" }
 
 /-- What Regula reads of the compiled configuration of a package whose configuration file is
 `lakefile.lean` (`ConfigReading`). Lake keeps the compiled file at `.lake/config/<index>/` of the

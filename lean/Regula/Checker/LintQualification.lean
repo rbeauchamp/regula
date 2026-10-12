@@ -874,89 +874,141 @@ private def tomlPlain (probes : Std.Mutex Unit) (repo adopter : FilePath) :
       (← expect adopter (accepted "toml/fresh-restored" (fresh := true)) #["--", "--fresh"])
   return failures
 
-/-- Controls of the weak-arguments record (`Lake.weakArgsCaption`) that the `extraDep` facet of
+/-! Controls of the weak-arguments record (`Lake.weakArgsCaption`) that the `extraDep` facet of
 Regula's `lakefile.lean` mixes into each root module's trace, in the three modes whose build reads
 the checkout's existing output without the audit-build marker: `lake lint` under the owner's
 assertion on the plain shape, `axiomGate --incremental`, and the build-lint `policy` target. A
 claimed theorem leaves an unused `have`, which the weak argument `-Dlinter.unusedVariables=false`
-hides. In each mode, after an ordinary build under that weak argument, removing it changes the
-record in Widget's trace, so the mode elaborates the module again and reports the warning; without
-the theorem, a second run with nothing changed replays the modules and is accepted. A path
-dependency resolved after Regula that declares Lake's own `extraDep` facet replaces Regula's, so
-the trace records no weak arguments; one that also writes a record of a different library,
-`Helper`, in every trace stands for another facet that writes records. After the same ordinary
-build and removal, `axiomGate --incremental` and the `policy` target replay the modules and report
-them not established in both cases, since a dependency declares a library facet other than
-Regula's (`Lake.onlyRegulaFacets`), and `lake lint` keeps the marker, since a package declares a
-facet, and reports the warning. A dependency that declares a library facet of another name leaves
-Regula's facet in effect, so Widget's trace holds its own record, and the two unmarked modes still
-report a replayed module not established. Decision probes of the plain shape: Regula's own
-facet is admitted (the lint mode's marker-free runs), while a root package named `regula` that
-declares the same facet in another `lakefile.lean`, or a facet of that name with another body,
-keeps the marker. A workspace that requires Regula as `checker` and an unrelated package as
-`regula` records weak arguments for its root library and none for the unrelated package's:
-Regula's facet decides by Lake's identity of its own package, not by name. -/
-private def weakArgsReuse (probes : Std.Mutex Unit) (repo adopter : FilePath) :
-    IO (Array String) := do
+hides. The controls were one chain, cut into four groups (`weakArgsModes`, `weakArgsOverrides`,
+`weakArgsDeclared`, `weakArgsProbes`) at the points where the chain restored the files it changed.
+Each group starts from the adopter as `BuildLintQualification.setup` writes it, in a workspace of
+its own (`WeakArgsAdopter`), and recreates what it reads: the override package and its
+`lake update override` where it uses them. The first run of a later group starts from no build
+output, where in the chain it started from the output of the controls before it. -/
+
+/-- The weak argument of the weak-arguments controls, added to the library `Widget` of `text`. -/
+private def withWeak (text : String) : String :=
+  text.replace "globs := #[.andSubmodules `Widget]"
+    "globs := #[.andSubmodules `Widget]\n  weakLeanArgs := #[\"-Dlinter.unusedVariables=false\"]"
+
+/-- The lakefile `text` with the path dependency `override` required above Regula. Lake resolves a
+package's `require` lines from the last to the first, so a `require` above Regula's is resolved
+after it, and its facet declarations replace Regula's. -/
+private def withOverride (text : String) : String :=
+  text.replace "\nrequire regula " "\nrequire override from \"override\"\n\nrequire regula "
+
+/-- The warning of the claimed theorem whose proof leaves an unused `have`. -/
+private def weakArgsWarning := "Variable name `unused` is not explicitly referenced"
+
+/-- The `lakefile.lean` adopter of the weak-arguments controls as `BuildLintQualification.setup`
+writes it: its lakefile with the `policy` target (`full`) and in the plain shape (`plain`), the
+module `Widget.Additional` as written (`original`) and with a claimed theorem whose proof leaves an
+unused `have` (`warned`), and the three modes. -/
+private structure WeakArgsAdopter where
+  adopter : FilePath
+  lakefile : FilePath
+  full : String
+  plain : String
+  additional : FilePath
+  original : String
+  warned : String
+  /-- Each mode: its label, its run, the lakefile it runs under, and its exit code on an
+  incomplete result (`lake build` fails the `policy` target with exit 1). -/
+  modes : Array (String × IO ProcessResult × String × UInt32)
+
+/-- `BuildLintQualification.setup` in `adopter`, read as the adopter of the weak-arguments
+controls. -/
+private def weakArgsSetup (repo adopter : FilePath) : IO WeakArgsAdopter := do
   BuildLintQualification.setup repo adopter
   let lakefile := adopter / "lakefile.lean"
   let full ← IO.FS.readFile lakefile
-  let plain ← match full.splitOn "\n/-- The sole default target" with
-    | [declarations, _] => pure declarations
-    | _ => throw <| IO.userError "lake-lint: expected one policy target in the adopter's lakefile"
-  let withWeak (text : String) : String :=
-    text.replace "globs := #[.andSubmodules `Widget]"
-      "globs := #[.andSubmodules `Widget]\n  weakLeanArgs := #[\"-Dlinter.unusedVariables=false\"]"
-  -- Lake resolves a package's `require` lines from the last to the first, so a `require` above
-  -- Regula's is resolved after it, and its facet declarations replace Regula's.
-  let withOverride (text : String) : String :=
-    text.replace "\nrequire regula " "\nrequire override from \"override\"\n\nrequire regula "
+  let plain ← leanPlain lakefile
   let additional := adopter / "Widget" / "Additional.lean"
   let original ← IO.FS.readFile additional
   let warned := original.replace "end Widget.Additional" <|
     "/-- A claimed theorem whose proof leaves an unused `have`. -/\n" ++
       "theorem withUnused (n : Nat) : n = n :=\n  have unused : 0 = 0 := rfl\n  rfl\n\n" ++
       "end Widget.Additional"
-  let warning := "Variable name `unused` is not explicitly referenced"
   let env := scrubbedLeanPathEnv
   let lint : IO ProcessResult := runProcess adopter "lake" #["lint"] (env ++ optIn)
   let gate : IO ProcessResult := runProcess adopter "lake" #["exe", "axiomGate", "--incremental"] env
   let policy : IO ProcessResult := runProcess adopter "lake" #["build"] env
-  -- Each mode: its label, its run, the lakefile it runs under, and its exit code on an
-  -- incomplete result (`lake build` fails the `policy` target with exit 1).
-  let modes : Array (String × IO ProcessResult × String × UInt32) :=
-    #[("lint", lint, plain, 3), ("incremental", gate, plain, 3), ("policy", policy, full, 1)]
+  return {
+    adopter := adopter, lakefile := lakefile, full := full, plain := plain
+    additional := additional, original := original, warned := warned
+    modes := #[("lint", lint, plain, 3), ("incremental", gate, plain, 3),
+      ("policy", policy, full, 1)] }
+
+/-- An ordinary build of Widget under the weak argument, which hides the warning, after which the
+lakefile is `text` again. -/
+private def WeakArgsAdopter.hidden (w : WeakArgsAdopter) (label text : String) :
+    IO (Array String) := do
+  IO.FS.writeFile w.additional w.warned
+  IO.FS.writeFile w.lakefile (withWeak text)
+  let ordinary ← runProcess w.adopter "lake" #["build", "Widget"] scrubbedLeanPathEnv
+  IO.FS.writeFile w.lakefile text
+  if ordinary.succeeded && !ordinary.output.contains weakArgsWarning then return #[]
+  return #[s!"lake-lint/weak-args/{label}: the ordinary build under the weak argument did not \
+    hide the warning:\n{ordinary.output}", ordinary.output]
+
+/-- The lakefile of the path dependency `override`, which declares `facet`. -/
+private def overrideLakefile (facet : String) : String :=
+  "import Lake\nopen Lake DSL\n\npackage override\n\n" ++ facet
+
+/-- The path dependency `override`, whose lakefile declares `facet`, required above Regula in the
+plain shape of the adopter's lakefile and resolved by `lake update override`, which adds it to the
+adopter's manifest. Returns the failures. -/
+private def WeakArgsAdopter.requireOverride (w : WeakArgsAdopter) (facet : String) :
+    IO (Array String) := do
+  let override := w.adopter / "override"
+  IO.FS.createDirAll override
+  IO.FS.writeFile (override / "lean-toolchain") (← IO.FS.readFile (w.adopter / "lean-toolchain"))
+  IO.FS.writeFile (override / "lakefile.lean") (overrideLakefile facet)
   let mut failures := #[]
-  -- An ordinary build of Widget under the weak argument, which hides the warning.
-  let hidden (label text : String) : IO (Array String) := do
-    IO.FS.writeFile additional warned
-    IO.FS.writeFile lakefile (withWeak text)
-    let ordinary ← runProcess adopter "lake" #["build", "Widget"] env
-    IO.FS.writeFile lakefile text
-    if ordinary.succeeded && !ordinary.output.contains warning then return #[]
-    return #[s!"lake-lint/weak-args/{label}: the ordinary build under the weak argument did not \
-      hide the warning:\n{ordinary.output}", ordinary.output]
-  for (mode, run, text, incomplete) in modes do
-    failures := failures ++ (← hidden s!"{mode}-hidden" text)
+  if withOverride w.plain == w.plain then
+    failures := failures.push "lake-lint/weak-args: the adopter's lakefile has no `require regula`"
+  IO.FS.writeFile w.lakefile (withOverride w.plain)
+  let updated ← runProcess w.adopter "lake" #["update", "override"] scrubbedLeanPathEnv
+  unless updated.succeeded do
+    failures := failures.push s!"lake-lint/weak-args: `lake update override` failed:\n\
+      {updated.output}"
+  return failures
+
+/-- Weak-arguments controls, the first group: in each mode, after an ordinary build under the weak
+argument, removing it changes the record in Widget's trace, so the mode elaborates the module again
+and reports the warning; without the theorem, a second run with nothing changed replays the modules
+and is accepted. -/
+private def weakArgsModes (repo adopter : FilePath) : IO (Array String) := do
+  let w ← weakArgsSetup repo adopter
+  let mut failures := #[]
+  for (mode, run, text, incomplete) in w.modes do
+    failures := failures ++ (← w.hidden s!"{mode}-hidden" text)
     failures := failures ++ (← assess {
         label := s!"weak-args/{mode}-rebuilt", exitCode := incomplete,
-        contains := if mode == "lint" then #[warning, "RG2003", markerOmitted] else #[warning],
+        contains := if mode == "lint" then #[weakArgsWarning, "RG2003", markerOmitted]
+          else #[weakArgsWarning],
         excludes := #["not established"] } (← run))
-    IO.FS.writeFile additional original
+    IO.FS.writeFile w.additional w.original
     let passed : Expectation :=
       { label := s!"weak-args/{mode}-accepted", exitCode := 0
-        excludes := #["not established", warning] }
+        excludes := #["not established", weakArgsWarning] }
     failures := failures ++ (← assess passed (← run))
     failures := failures ++ (← assess { passed with label := s!"weak-args/{mode}-reused" } (← run))
+  return failures
+
+/-- Weak-arguments controls, the second group: a path dependency resolved after Regula that declares
+Lake's own `extraDep` facet replaces Regula's, so the trace records no weak arguments; one that also
+writes a record of a different library, `Helper`, in every trace stands for another facet that
+writes records. After the same ordinary build and removal, `axiomGate --incremental` and the
+`policy` target replay the modules and report them not established in both cases, since a
+dependency declares a library facet other than Regula's (`Lake.onlyRegulaFacets`), and `lake lint`
+keeps the marker, since a package declares a facet, and reports the warning. -/
+private def weakArgsOverrides (repo adopter : FilePath) : IO (Array String) := do
+  let w ← weakArgsSetup repo adopter
   -- A dependency resolved after Regula declares an `extraDep` facet in place of Regula's: Lake's
   -- own (`override`), and one that also writes a record of a library `Helper` of the adopter in
   -- the trace of each library (`forged`). A package that declares a library facet other than
   -- Regula's leaves every replayed module not established, whatever the traces record.
-  let override := adopter / "override"
-  IO.FS.createDirAll override
-  IO.FS.writeFile (override / "lean-toolchain") (← IO.FS.readFile (adopter / "lean-toolchain"))
-  let overrideLakefile (facet : String) : String :=
-    "import Lake\nopen Lake DSL\n\npackage override\n\n" ++ facet
   let variants : Array (String × String) := #[
     ("override", "@[«library_facet»] def lakeExtraDep : LibraryFacetDecl :=\n  \
       .mk LeanLib.extraDepFacet LeanLib.extraDepFacetConfig\n"),
@@ -969,42 +1021,44 @@ private def weakArgsReuse (probes : Std.Mutex Unit) (repo adopter : FilePath) :
       name `Helper, .arr #[]]).compress\n    \
       return job.mix <| Job.ofTask <| .pure <| .ok () {\n      \
       trace := BuildTrace.ofHash (pureHash record) record }\n")]
-  IO.FS.writeFile (override / "lakefile.lean") (overrideLakefile variants[0]!.2)
-  -- The manifest of the adopter gains the dependency, and is restored after these controls.
-  let manifest := adopter / "lake-manifest.json"
-  let resolved ← IO.FS.readFile manifest
-  if withOverride plain == plain then
-    failures := failures.push "lake-lint/weak-args: the adopter's lakefile has no `require regula`"
-  IO.FS.writeFile lakefile (withOverride plain)
-  let updated ← runProcess adopter "lake" #["update", "override"] env
-  unless updated.succeeded do
-    failures := failures.push s!"lake-lint/weak-args: `lake update override` failed:\n\
-      {updated.output}"
+  let mut failures ← w.requireOverride variants[0]!.2
   for (variant, facet) in variants do
-    IO.FS.writeFile (override / "lakefile.lean") (overrideLakefile facet)
-    for (mode, run, text, incomplete) in modes do
-      failures := failures ++ (← hidden s!"{mode}-{variant}-hidden" (withOverride text))
+    IO.FS.writeFile (adopter / "override" / "lakefile.lean") (overrideLakefile facet)
+    for (mode, run, text, incomplete) in w.modes do
+      failures := failures ++ (← w.hidden s!"{mode}-{variant}-hidden" (withOverride text))
       let expectation : Expectation := if mode == "lint" then
           { label := s!"weak-args/{mode}-{variant}-marked", exitCode := 3,
-            contains := #[warning, "RG2003", markerKept, "facet declaration"],
+            contains := #[weakArgsWarning, "RG2003", markerKept, "facet declaration"],
             excludes := #["not established"] }
         else
           { label := s!"weak-args/{mode}-{variant}-unestablished", exitCode := incomplete,
-            contains := #["not established: Widget"], excludes := #[warning] }
+            contains := #["not established: Widget"], excludes := #[weakArgsWarning] }
       failures := failures ++ (← assess expectation (← run))
+  return failures
+
+/-- Weak-arguments controls, the third group: a dependency that declares a library facet of another
+name leaves Regula's facet in effect, so Widget's trace holds its own record. The two unmarked
+modes accept a run that elaborates Widget again and still report Widget not established when it
+replays. -/
+private def weakArgsDeclared (repo adopter : FilePath) : IO (Array String) := do
+  let w ← weakArgsSetup repo adopter
   -- A dependency that declares a library facet of another name leaves Regula's `extraDep` facet in
   -- effect, so Widget's trace holds its own library's record. The unmarked builds still count no
-  -- record (`Lake.onlyRegulaFacets`): after a first run, which elaborates the changed module and
-  -- may replay the others, a second run replays Widget and reports it not established.
-  IO.FS.writeFile (override / "lakefile.lean")
-    (overrideLakefile "library_facet other : Unit := pure Job.nil\n")
+  -- record (`Lake.onlyRegulaFacets`): a first run without Widget's trace elaborates Widget and
+  -- the changed module again, and a second run replays Widget and reports it not established.
+  let mut failures ← w.requireOverride "library_facet other : Unit := pure Job.nil\n"
   let record := "[\\\"weakLeanArgs\\\",[\\\"build_lint_adopter\\\"],[\\\"Widget\\\"],[]]"
   let widgetTrace := adopter / ".lake" / "build" / "lib" / "lean" / "Widget.trace"
-  for (mode, run, text, incomplete) in modes do
+  for (mode, run, text, incomplete) in w.modes do
     if mode == "lint" then continue
-    IO.FS.writeFile additional (original ++ s!"\n-- declared {mode}\n")
-    IO.FS.writeFile lakefile (withOverride text)
-    let _ ← run
+    IO.FS.writeFile w.additional (w.original ++ s!"\n-- declared {mode}\n")
+    IO.FS.writeFile w.lakefile (withOverride text)
+    -- Without this, Widget replays from the previous mode's build.
+    if ← widgetTrace.pathExists then IO.FS.removeFile widgetTrace
+    let rebuilt : Expectation :=
+      { label := s!"weak-args/{mode}-declared-rebuilt", exitCode := 0
+        excludes := #["not established"] }
+    failures := failures ++ (← assess rebuilt (← run))
     let trace ← match ← (IO.FS.readFile widgetTrace).toBaseIO with
       | .ok text => pure text
       | .error _ => pure ""
@@ -1015,10 +1069,19 @@ private def weakArgsReuse (probes : Std.Mutex Unit) (repo adopter : FilePath) :
       { label := s!"weak-args/{mode}-declared-unestablished", exitCode := incomplete
         contains := #["not established: Widget"] }
     failures := failures ++ (← assess unestablished (← run))
-  IO.FS.writeFile additional original
-  IO.FS.writeFile lakefile full
-  IO.FS.writeFile manifest resolved
-  IO.FS.removeDirAll override
+  return failures
+
+/-- Weak-arguments controls, the fourth group. Decision probes of the plain shape: Regula's own
+facet is admitted (the lint mode's marker-free runs of `weakArgsModes`), while a root package named
+`regula` that declares the same facet in another `lakefile.lean`, or a facet of that name with
+another body, keeps the marker. A workspace that requires Regula as `checker` and an unrelated
+package as `regula` records weak arguments for its root library and none for the unrelated
+package's: Regula's facet decides by Lake's identity of its own package, not by name. -/
+private def weakArgsProbes (probes : Std.Mutex Unit) (repo adopter : FilePath) :
+    IO (Array String) := do
+  BuildLintQualification.setup repo adopter
+  let env := scrubbedLeanPathEnv
+  let mut failures := #[]
   -- A root package named `regula` that declares the facet of Regula's `lakefile.lean`, verbatim,
   -- in another lakefile, and one whose facet of that name has another body: neither is the
   -- Regula that runs the probe, so each keeps the marker.
@@ -1991,20 +2054,27 @@ private def aloneGroups : List Group :=
 /-- The other groups, which run on the workers of `mapWorkQueue`, each with the shard it is in.
 They are listed longest first, so the shorter ones fill the workers that the longer ones free; in
 a shard, its groups keep that order. Each shard's groups add up to a similar time, and its longest
-group is a part of a chain: the chains of the two adopters and of the path dependency are cut into
-parts (`leanOriginals`, `tomlSetup`, `pathSetup`), so that no group is longer than about a quarter
-of a shard's time, apart from the owned-checker control, one `lake lint -- --fresh`, which shares
-its shard only with the short compiler-guard control `guard`. The order and the shards follow the
-times of the groups in the slowest CI run of the campaign before the cut
-(`docs/guides/proofs-and-boundaries.md` names the run). -/
+group is a part of a chain: the chains of the two adopters, of the path dependency and of the
+weak-arguments controls are cut into parts (`leanOriginals`, `tomlSetup`, `pathSetup`,
+`WeakArgsAdopter`), so that no group is longer than about a quarter of a shard's time, apart from
+the owned-checker control, one `lake lint -- --fresh`, which shares its shard only with the short
+compiler-guard control `guard`. The order and the shards follow the times of the groups in the
+slowest CI run of the campaign before the cut (`docs/guides/proofs-and-boundaries.md` names the
+run). No CI run timed the weak-arguments groups: the chain they were cut from took about 163 s
+locally, and each is placed by its share of the chain's Lake invocations, the two longest
+(`weakArgsOverrides`, `weakArgsModes`) first, each of the four in a shard of its own other than
+the owned-checker control's. -/
 private def queuedGroups (probes : Std.Mutex Unit) : List Group :=
-  [(numbered 1, "weak-args", weakArgsReuse probes),
+  [(numbered 2, "weak-args-overrides", weakArgsOverrides),
+    (numbered 4, "weak-args-modes", weakArgsModes),
     (numbered 1, "owned-checker", ownedChecker),
     (numbered 2, "path-overrides", pathOverrides),
     (numbered 3, "lean-decisions", leanDecisions probes),
     (numbered 3, "lean-arguments", leanArguments probes),
     (numbered 4, "path-owned", pathOwned),
     (numbered 0, "lean-audit", leanAudit),
+    (numbered 3, "weak-args-declared", weakArgsDeclared),
+    (numbered 0, "weak-args-probes", weakArgsProbes probes),
     (numbered 0, "path-owned-checks", pathOwnedChecks),
     (numbered 4, "path-config", pathConfig),
     (numbered 3, "lake-new", lakeNew),

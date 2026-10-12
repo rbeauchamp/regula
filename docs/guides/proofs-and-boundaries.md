@@ -343,14 +343,21 @@ custom build step except Regula's `extraDep` facet.
 The driver admits that facet, `weakLeanArgsTrace`, by identity. The package's `lakefile.lean`
 must have the same text as the `lakefile.lean` of the running Regula. Its compiled file must
 declare that constant and one library facet only, as `regulaFacetAdmitted_iff` states. The driver
-then removes that declaration and its attribute entry from what it reads, with
-`ConfigReading.withoutRegulaFacet`. It also removes the entry that the compilation of the facet
-adds to the specialization cache of the compiler.
+then removes that declaration, its encoder `weakLeanArgsRecord` and its attribute entry from what
+it reads, with `ConfigReading.withoutRegulaFacet`. It also removes the encoder's documentation
+comment and the entry that the compilation of the encoder adds to the specialization cache of the
+compiler.
 
 The facet runs Lake's own `extraDep` facet, which builds the `extraDepTargets` and `needs` of each
 library. It also adds a trace input that records the identity and the `weakLeanArgs` of each
 library of the root package or of Regula. It compiles no module and sets no option. A package
 named `regula` with different text keeps the marker.
+
+The facet writes the record with `weakLeanArgsRecord`, a copy of `weakArgsRecordJson` in the
+file, because a configuration file cannot import the modules of Regula. Acceptance has the kernel
+admit the compiled copy as equal to `weakArgsRecordJson` (`lakefileEncoderAgrees`, run by
+`Regula.RegistryChecks`). So the injectivity of the record, which is proved for
+`weakArgsRecordJson`, holds for the copy that Lake runs. Lean's compiler is trusted to run it.
 
 A file `lakefile.lean` must also declare only what the commands of Lake generate. These are the
 definitions of the package, its targets and their configurations, `require` and the name of the
