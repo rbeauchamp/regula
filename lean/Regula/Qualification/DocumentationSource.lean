@@ -35,7 +35,7 @@ def check (sourceReadOnly : Bool) : IO Unit := do
     let some facet := Regula.Checker.Lake.weakArgsDeclarations
         (← IO.FS.readFile (root / "lakefile.lean"))
       | throw <| IO.userError "Regula's lakefile has no weak-arguments facet"
-    IO.FS.removeFile (project / "lakefile.toml")
+    Regula.Filesystem.removePath .file (project / "lakefile.toml")
     IO.FS.writeFile (project / "lakefile.lean") <|
       "import Lake\nopen Lake DSL\n\npackage documentation_adopter where\n" ++
         "  leanOptions := #[⟨`autoImplicit, false⟩, ⟨`relaxedAutoImplicit, false⟩,\n" ++

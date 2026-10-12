@@ -285,7 +285,7 @@ private def leanDecisions (probes : Std.Mutex Unit) (repo adopter : FilePath) :
       contains := #["the compiler printed output that is not a Lean message",
         "a corrupted tooling warning"],
       excludes := #[s!"regula lint: {acceptanceLabel}"] })
-  IO.FS.removeFile tooling
+  Regula.Filesystem.removePath .file tooling
   -- A library outside the claim whose source directory has a line break: the file name of its
   -- messages could then read as Lake's entry for other output, so the build refuses the module.
   let breakDirectory := adopter / "line\nbreak"
@@ -297,7 +297,7 @@ private def leanDecisions (probes : Std.Mutex Unit) (repo adopter : FilePath) :
       label := "lean/line-break-source-path", exitCode := 3,
       contains := #["Tooling", "has a line break, so its log cannot tell"],
       excludes := #[s!"regula lint: {acceptanceLabel}"] })
-  IO.FS.removeDirAll breakDirectory
+  Regula.Filesystem.removePath .directory breakDirectory
   IO.FS.writeFile manifest manifestText
   -- A module facet `input` the package declares in place of Lake's returns, for Widget, a copy of
   -- its source in a directory whose name has a line break. Lake compiles a module from that result
@@ -316,7 +316,7 @@ private def leanDecisions (probes : Std.Mutex Unit) (repo adopter : FilePath) :
       contains := #["module Widget", "has a line break, so its log cannot tell"],
       excludes := #[s!"regula lint: {acceptanceLabel}"] })
   IO.FS.writeFile lakefile plain
-  if ← breakDirectory.pathExists then IO.FS.removeDirAll breakDirectory
+  Regula.Filesystem.removePath .directory breakDirectory
   -- A target in the claimed library's `extraDepTargets` writes a file that the claimed module's
   -- elaboration reads. Regula's `extraDep` facet replaces one that the root package declares, and
   -- runs Lake's own, which builds those targets, so the audit build runs it.
@@ -327,12 +327,12 @@ private def leanDecisions (probes : Std.Mutex Unit) (repo adopter : FilePath) :
   mutate widget "namespace Widget" "namespace Widget\n\n\
     /-- Text that a target of the library's `extraDepTargets` writes. -/\n\
     def generated : String := include_str \"generated.txt\"\n"
-  if ← generated.pathExists then IO.FS.removeFile generated
+  Regula.Filesystem.removePath .file generated
   failures := failures ++ (← expect adopter { positive with
     label := "lean/extra-dep-target", contains := positive.contains.push "] Built Widget" })
   IO.FS.writeFile widget widgetSource
   IO.FS.writeFile lakefile plain
-  if ← generated.pathExists then IO.FS.removeFile generated
+  Regula.Filesystem.removePath .file generated
   let ordinary ← runProcess adopter "lake" #["build", "Widget"] scrubbedLeanPathEnv
   unless ordinary.succeeded && ordinary.output.contains "] Built Widget" do
     failures := failures.push s!"lake-lint/lean/plain-default-marked: the ordinary build reused \
@@ -1070,7 +1070,7 @@ private def weakArgsDeclared (repo adopter : FilePath) : IO (Array String) := do
     IO.FS.writeFile w.additional (w.original ++ s!"\n-- declared {mode}\n")
     IO.FS.writeFile w.lakefile (withOverride text)
     -- Without this, Widget replays from the previous mode's build.
-    if ← widgetTrace.pathExists then IO.FS.removeFile widgetTrace
+    Regula.Filesystem.removePath .file widgetTrace
     let rebuilt : Expectation :=
       { label := s!"weak-args/{mode}-declared-rebuilt", exitCode := 0
         excludes := #["not established"] }
@@ -1150,8 +1150,8 @@ private def weakArgsProbes (probes : Std.Mutex Unit) (repo adopter : FilePath) :
       `regula` has a record or no trace:\n{probeTrace}"
   else
     IO.println "lake-lint control weak-args/renamed: completed"
-  IO.FS.removeDirAll renamed
-  IO.FS.removeDirAll fake
+  Regula.Filesystem.removePath .directory renamed
+  Regula.Filesystem.removePath .directory fake
   return failures
 
 /-- Counterexample control for issue 291, at an external boundary: Lake's artifact cache, whose

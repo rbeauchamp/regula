@@ -334,7 +334,7 @@ private def phase (repo scratch : FilePath) (test : Case) (negative : Bool) : IO
           "\",\"rationale\":\"isolated imported control\"}]," ++
       "\"excluded-executables\":[]}")
   let wrapperTrace := scratch / ".lake" / "build" / "lib" / "lean" / "Wrapper.trace"
-  if ← wrapperTrace.pathExists then IO.FS.removeFile wrapperTrace
+  Regula.Filesystem.removePath .file wrapperTrace
   failures := failures ++ check
       (← runProcess scratch binary
           #["--file", "Wrapper.lean", "--execution", "checked", "--verbose"])
