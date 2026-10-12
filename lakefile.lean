@@ -173,19 +173,24 @@ lean_exe «auditApp» where
 -- that build. This facet wraps Lake's own `extraDep` facet and, for libraries of the root package
 -- and of the package that declares it (Lake's own identity of each: `Package.isRoot`, and the
 -- package key `__name__` that Lake gives this file in the workspace), mixes into the trace a
--- caption that records the library's identity and its `weakLeanArgs`. A change of those arguments
--- then rebuilds the library's modules, and the audit decides a replayed module from the record of
--- its own library (`Regula.Checker.Lake.traceRecords_weakArgsCaption_iff`). Regula's own modules
--- get the record whether Regula is the root or a dependency, so the two share one build. Other
--- dependencies' traces stay unchanged. A dependency resolved after this package that declares an
--- `extraDep` facet replaces this one: Lake resolves a package's `require` lines from the last to
--- the first, then their dependencies.
+-- caption that records the library's identity and its `weakLeanArgs`. Each name is written by its
+-- components, as `Regula.Checker.Lake.weakArgsRecordJson` writes it, so distinct names give
+-- distinct records. A change of those arguments then rebuilds the library's modules, and the
+-- audit decides a replayed module from the record of its own library
+-- (`Regula.Checker.Lake.traceRecords_ownRecord_iff`). Regula's own modules get the record whether
+-- Regula is the root or a dependency, so the two share one build. Other dependencies' traces stay
+-- unchanged. A dependency resolved after this package that declares an `extraDep` facet replaces
+-- this one: Lake resolves a package's `require` lines from the last to the first, then their
+-- dependencies. The audit counts no record when a dependency declares another library facet.
 @[«library_facet»] def weakLeanArgsTrace : LibraryFacetDecl :=
   .mk LeanLib.extraDepFacet <| mkFacetJobConfig fun library => do
     let job ← LeanLib.extraDepFacetConfig.run library
     unless library.pkg.isRoot || library.pkg.keyName == __name__ do return job
-    let record := (Lean.Json.mkObj [("package", Lean.toJson library.pkg.baseName),
-      ("library", Lean.toJson library.name),
-      ("weakLeanArgs", Lean.toJson library.weakLeanArgs)]).compress
+    let component := fun (component : Lean.Name) =>
+      if component.isNum then Lean.Json.arr #[.str (component.toString (escape := false))]
+      else Lean.Json.str component.getString!
+    let name := fun (name : Lean.Name) => Lean.Json.arr (name.components.map component).toArray
+    let record := (Lean.Json.arr #[.str "weakLeanArgs", name library.pkg.baseName,
+      name library.name, .arr (library.weakLeanArgs.map .str)]).compress
     return job.mix <| Job.ofTask <| .pure <| .ok () {
-      trace := BuildTrace.ofHash (pureHash record) s!"weakLeanArgs {record}" }
+      trace := BuildTrace.ofHash (pureHash record) record }

@@ -317,10 +317,10 @@ private def phase (repo scratch : FilePath) (test : Case) (negative : Bool) : IO
           support\"},{\"library\":\"Wrapper\",\"claim\":\"standard-logical\"," ++
         "\"execution\":\"checked\",\"rationale\":\"checked consumer\"}]," ++
         "\"excluded-libraries\":[],\"excluded-executables\":[]}")
-    -- The project audit runs before the file audit. This project does not require Regula, so its
-    -- traces lack the `weakLeanArgs` record of Regula's `extraDep` facet, and an `--incremental`
-    -- audit reports each claimed module that it replays from an earlier build as not established
-    -- (RG2003). The file audit's build would be such an earlier build.
+    -- This project does not require Regula, so its traces lack the `weakLeanArgs` record of
+    -- Regula's `extraDep` facet, and each checked build reports a claimed module that it replays
+    -- from an earlier build as not established (RG2003). The project audit runs first, and the
+    -- file audit's claimed module `Wrapper` loses its trace before that audit builds it again.
     -- Preserve the toolchain-only symlink overlay in this case. The claimed
     -- adopter sources are still built afresh in each independent phase.
     -- Boundary evidence lines are printed only in verbose mode.
@@ -333,6 +333,8 @@ private def phase (repo scratch : FilePath) (test : Case) (negative : Bool) : IO
       "\"excluded-libraries\":[{\"library\":\"" ++ test.supportModule ++
           "\",\"rationale\":\"isolated imported control\"}]," ++
       "\"excluded-executables\":[]}")
+  let wrapperTrace := scratch / ".lake" / "build" / "lib" / "lean" / "Wrapper.trace"
+  if ← wrapperTrace.pathExists then IO.FS.removeFile wrapperTrace
   failures := failures ++ check
       (← runProcess scratch binary
           #["--file", "Wrapper.lean", "--execution", "checked", "--verbose"])

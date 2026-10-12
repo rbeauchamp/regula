@@ -149,11 +149,11 @@ compiler output that is not a Lean message (`buildObservation_ok_iff`). Without 
 marker, it also requires a record of `weakLeanArgs` for each claimed module that the build
 replayed from before the run (`mem_reusedModules_iff`). The trace file of that module must hold
 the record of its own library: the package, the library and its current `weakLeanArgs`
-(`Lake.traceRecords_weakArgsCaption_iff`). A record of a different library does not count.
+(`Lake.traceRecords_ownRecord_iff`). A record of a different library does not count.
 Lake's module trace omits these arguments. Regula's `lakefile.lean` declares an `extraDep` facet
 that adds this record for the libraries of the root package and of the package that declares the
 facet. Lake identifies each package itself (`Package.isRoot`, `__name__`), not by the name a
-`require` gives it. A facet that a later dependency declares replaces it.
+`require` gives it.
 `Lake.ClaimedBuildPlan.completionTargets_exact` binds the deferred build to the original
 target array; `build_completed_iff` records the build stage before preflight exactly when no
 target build remains. A library-only claim keeps one original build
@@ -162,6 +162,13 @@ not by Lake target syntax. Both phases use the selected build adapter and warnin
 including the lint driver's options. A deferred build is followed by the source,
 configuration and frozen-artifact checks before the unchanged full inspection and terminal
 freshness checks.
+
+A facet that a later dependency declares can replace Regula's. So a build without the marker
+counts no record when a dependency other than Regula declares a library facet, as
+`Lake.onlyRegulaFacets` decides. The record is part of the build traces that Lake recorded in the
+checkout, which the incremental gate trusts. A record counts as written by Regula's facet when
+Lake built the module, as `Lake.traceRecords_ownRecord_iff` assumes. A facet that forged the record
+then is outside the gate's evidence. A `--fresh` audit rests on no recorded trace.
 
 The preflight reads the first module graphs of three environments at a time, each in a worker
 process of its own. The rest of each environment's scope, which in a copy can build owned modules
@@ -337,7 +344,8 @@ The driver admits that facet, `weakLeanArgsTrace`, by identity. The package's `l
 must have the same text as the `lakefile.lean` of the running Regula. Its compiled file must
 declare that constant and one library facet only, as `regulaFacetAdmitted_iff` states. The driver
 then removes that declaration and its attribute entry from what it reads, with
-`ConfigReading.withoutRegulaFacet`.
+`ConfigReading.withoutRegulaFacet`. It also removes the entry that the compilation of the facet
+adds to the specialization cache of the compiler.
 
 The facet runs Lake's own `extraDep` facet, which builds the `extraDepTargets` and `needs` of each
 library. It also adds a trace input that records the identity and the `weakLeanArgs` of each

@@ -1284,7 +1284,7 @@ def guide : RuleId → Guide
           facet with one that records each root and Regula library's identity and \
           `weakLeanArgs` in its modules' traces. Without the marker, a claimed module replayed \
           from before the run whose trace lacks its own library's current record is not \
-          established (INCOMPLETE), as when a later dependency replaces that facet."]
+          established (INCOMPLETE), as when another dependency declares a library facet."]
       residuals := [.qualify]
       checklist := ["DECL-01", "BUILD-01", "DOC-01"]
       linkage := "Acceptance side only: an accepted run satisfies `RegulaPolicy.BuildOK`. A \
@@ -1293,7 +1293,7 @@ def guide : RuleId → Guide
         `Workspace.unparsedCompilerOutput` selects, and, without the audit-build marker, each \
         claimed module replayed from before the run has its own current record \
         (`Acceptance.buildObservation_ok_iff`, `Lake.mem_reusedModules_iff`, \
-        `Lake.traceRecords_weakArgsCaption_iff`). \
+        `Lake.traceRecords_ownRecord_iff`). \
         Lake's entry for a Lean message whose file name has no line break is never selected \
         (`unparsedCompilerOutput_ofSerialMessage`); `lineBreakSourcePaths` fails the others. \
         That Lake fails a build whose required job logs an entry at its failure level, and \

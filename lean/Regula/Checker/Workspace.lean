@@ -323,8 +323,8 @@ theorem sizeOf_lt_of_pairOf? {item : Json} {caption : String} {value : Json}
   omega
 
 /-- Whether the trace inputs `json`, an array of inputs as `pairOf?` reads them, hold an input
-captioned `caption`, at any depth. -/
-def valueRecords (caption : String) : Json → Bool
+whose caption `admits` accepts, at any depth. -/
+def valueRecords (admits : String → Bool) : Json → Bool
   | .arr items => items.attach.any fun ⟨item, member⟩ =>
       match hPair : pairOf? item with
       | some (other, value) =>
@@ -332,24 +332,24 @@ def valueRecords (caption : String) : Json → Bool
           have := Array.sizeOf_lt_of_mem member
           have := sizeOf_lt_of_pairOf? hPair
           omega
-        other == caption || valueRecords caption value
+        admits other || valueRecords admits value
       | none => false
   | _ => false
 termination_by json => sizeOf json
 
-/-- Trace inputs `json` record an input captioned `caption`: one of its two-element arrays starts
-with that caption, or starts with another and its value records it. -/
-inductive Records (caption : String) : Json → Prop where
-  /-- An input of the array has the caption. -/
-  | here {items : Array Json} {value : Json} :
-      Json.arr #[.str caption, value] ∈ items → Records caption (.arr items)
+/-- Trace inputs `json` record an input whose caption `admits` accepts: one of its two-element
+arrays starts with such a caption, or starts with another and its value records one. -/
+inductive Records (admits : String → Bool) : Json → Prop where
+  /-- An input of the array has an admitted caption. -/
+  | here {items : Array Json} {caption : String} {value : Json} :
+      Json.arr #[.str caption, value] ∈ items → admits caption = true → Records admits (.arr items)
   /-- The inputs of an input of the array record it. -/
   | deeper {items : Array Json} {other : String} {value : Json} :
-      Json.arr #[.str other, value] ∈ items → Records caption value → Records caption (.arr items)
+      Json.arr #[.str other, value] ∈ items → Records admits value → Records admits (.arr items)
 
 /-- `valueRecords` decides `Records`. -/
-theorem valueRecords_iff (caption : String) : ∀ json : Json,
-    valueRecords caption json = true ↔ Records caption json
+theorem valueRecords_iff (admits : String → Bool) : ∀ json : Json,
+    valueRecords admits json = true ↔ Records admits json
   | .arr items => by
     rw [valueRecords.eq_1, Array.any_eq_true']
     constructor
@@ -360,25 +360,23 @@ theorem valueRecords_iff (caption : String) : ∀ json : Json,
         have hItem := pairOf?_eq_some_iff.mp hPair
         subst hItem
         rcases Bool.or_eq_true_iff.mp h with hEq | hDeep
-        · rw [beq_iff_eq] at hEq
-          subst hEq
-          exact .here member
+        · exact .here member hEq
         · have : sizeOf value < 1 + sizeOf items := by
             have := Array.sizeOf_lt_of_mem member
             simp at this
             omega
-          exact .deeper member ((valueRecords_iff caption value).mp hDeep)
+          exact .deeper member ((valueRecords_iff admits value).mp hDeep)
       · simp at h
     · intro h
       cases h with
-      | here member =>
+      | here member admitted =>
         refine ⟨⟨_, member⟩, Array.mem_attach _ _, ?_⟩
         dsimp only
         split
         · rename_i other value hPair
           rw [pairOf?_eq_some_iff] at hPair
           simp at hPair
-          simp [hPair.1]
+          simp [← hPair.1, admitted]
         · rename_i hNone
           simp [pairOf?] at hNone
       | deeper member records =>
@@ -394,7 +392,7 @@ theorem valueRecords_iff (caption : String) : ∀ json : Json,
           rw [pairOf?_eq_some_iff] at hPair
           simp at hPair
           obtain ⟨rfl, rfl⟩ := hPair
-          simp [(valueRecords_iff caption value).mpr records]
+          simp [(valueRecords_iff admits value).mpr records]
         · rename_i hNone
           simp [pairOf?] at hNone
   | .null | .bool _ | .num _ | .str _ | .obj _ => by
@@ -403,22 +401,23 @@ theorem valueRecords_iff (caption : String) : ∀ json : Json,
 termination_by json => sizeOf json
 
 /-- Whether `text`, the content of a module's Lake trace file, records among the inputs of the
-elaboration it holds one captioned `caption`. Lake v4.34.1 writes, with an elaboration's log, the
-caption of each input of its trace at any depth (`BuildMetadata.ofBuildCore`, `serializeInputs`,
-`Lake/Build/Common.lean` lines 129 to 145).
+elaboration it holds one whose caption `admits` accepts. Lake v4.34.1 writes, with an elaboration's
+log, the caption of each input of its trace at any depth (`BuildMetadata.ofBuildCore`,
+`serializeInputs`, `Lake/Build/Common.lean` lines 129 to 145).
 
 Assumes: Lake v4.34.1 writes a module's trace file in this form, with the inputs of the elaboration
 whose log it holds. -/
-def traceRecords (caption text : String) : Bool :=
+def traceRecords (admits : String → Bool) (text : String) : Bool :=
   match _root_.Lake.BuildMetadata.parse text with
-  | .ok data => valueRecords caption (toJson data.inputs)
+  | .ok data => valueRecords admits (toJson data.inputs)
   | .error _ => false
 
-/-- A trace file records `caption` exactly when Lake reads it as a trace whose inputs record it. -/
-theorem traceRecords_iff (caption text : String) :
-    traceRecords caption text = true ↔
+/-- A trace file records an admitted caption exactly when Lake reads it as a trace whose inputs
+record one. -/
+theorem traceRecords_iff (admits : String → Bool) (text : String) :
+    traceRecords admits text = true ↔
       ∃ data, _root_.Lake.BuildMetadata.parse text = .ok data ∧
-        Records caption (toJson data.inputs) := by
+        Records admits (toJson data.inputs) := by
   unfold traceRecords
   split
   · rename_i data hData

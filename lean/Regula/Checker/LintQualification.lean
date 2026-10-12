@@ -883,16 +883,19 @@ hides. In each mode, after an ordinary build under that weak argument, removing 
 record in Widget's trace, so the mode elaborates the module again and reports the warning; without
 the theorem, a second run with nothing changed replays the modules and is accepted. A path
 dependency resolved after Regula that declares Lake's own `extraDep` facet replaces Regula's, so
-the trace records no weak arguments; one that also records the current weak arguments of a
-different library, `Helper`, in every trace stands for a record nested through that library's
-`extraDep` job. After the same ordinary build and removal, `axiomGate --incremental` and the
-`policy` target replay the modules and report them not established in both cases, and `lake lint`
-keeps the marker, since a package declares a facet, and reports the warning. Decision probes of
-the plain shape: Regula's own facet is admitted (the lint mode's marker-free runs), while a root
-package named `regula` that declares the same facet in another `lakefile.lean`, or a facet of
-that name with another body, keeps the marker. A workspace that requires Regula as `checker` and an
-unrelated package as `regula` records weak arguments for its root library and none for the
-unrelated package's: Regula's facet decides by Lake's identity of its own package, not by name. -/
+the trace records no weak arguments; one that also writes a record of a different library,
+`Helper`, in every trace stands for another facet that writes records. After the same ordinary
+build and removal, `axiomGate --incremental` and the `policy` target replay the modules and report
+them not established in both cases, since a dependency declares a library facet other than
+Regula's (`Lake.onlyRegulaFacets`), and `lake lint` keeps the marker, since a package declares a
+facet, and reports the warning. A dependency that declares a library facet of another name leaves
+Regula's facet in effect, and the two unmarked modes still report a replayed module not
+established. Decision probes of the plain shape: Regula's own facet is admitted (the lint mode's
+marker-free runs), while a root package named `regula` that declares the same facet in another
+`lakefile.lean`, or a facet of that name with another body, keeps the marker. A workspace
+that requires Regula as `checker` and an unrelated package as `regula` records weak arguments for
+its root library and none for the unrelated package's: Regula's facet decides by Lake's identity of
+its own package, not by name. -/
 private def weakArgsReuse (probes : Std.Mutex Unit) (repo adopter : FilePath) :
     IO (Array String) := do
   BuildLintQualification.setup repo adopter
@@ -946,9 +949,9 @@ private def weakArgsReuse (probes : Std.Mutex Unit) (repo adopter : FilePath) :
     failures := failures ++ (← assess passed (← run))
     failures := failures ++ (← assess { passed with label := s!"weak-args/{mode}-reused" } (← run))
   -- A dependency resolved after Regula declares an `extraDep` facet in place of Regula's: Lake's
-  -- own (`override`), and one that also records the current weak arguments of a library `Helper`
-  -- of the adopter in the trace of each library (`forged`), as a record nested through a
-  -- different library's `extraDep` job would be. Only a library's own record establishes it.
+  -- own (`override`), and one that also writes a record of a library `Helper` of the adopter in
+  -- the trace of each library (`forged`). A package that declares a library facet other than
+  -- Regula's leaves every replayed module not established, whatever the traces record.
   let override := adopter / "override"
   IO.FS.createDirAll override
   IO.FS.writeFile (override / "lean-toolchain") (← IO.FS.readFile (adopter / "lean-toolchain"))
@@ -960,10 +963,12 @@ private def weakArgsReuse (probes : Std.Mutex Unit) (repo adopter : FilePath) :
     ("forged", "@[«library_facet»] def forgedExtraDep : LibraryFacetDecl :=\n  \
       .mk LeanLib.extraDepFacet <| mkFacetJobConfig fun library => do\n    \
       let job ← LeanLib.extraDepFacetConfig.run library\n    \
-      let record := (Lean.Json.mkObj [(\"package\", Lean.toJson library.pkg.baseName),\n      \
-      (\"library\", Lean.toJson `Helper), (\"weakLeanArgs\", Lean.toJson (#[] : Array String))]).compress\n    \
+      let name := fun (name : Lean.Name) => Lean.Json.arr \
+        (name.components.map (Lean.Json.str ·.getString!)).toArray\n    \
+      let record := (Lean.Json.arr #[.str \"weakLeanArgs\", name library.pkg.baseName,\n      \
+      name `Helper, .arr #[]]).compress\n    \
       return job.mix <| Job.ofTask <| .pure <| .ok () {\n      \
-      trace := BuildTrace.ofHash (pureHash record) s!\"weakLeanArgs {record}\" }\n")]
+      trace := BuildTrace.ofHash (pureHash record) record }\n")]
   IO.FS.writeFile (override / "lakefile.lean") (overrideLakefile variants[0]!.2)
   -- The manifest of the adopter gains the dependency, and is restored after these controls.
   let manifest := adopter / "lake-manifest.json"
@@ -987,6 +992,24 @@ private def weakArgsReuse (probes : Std.Mutex Unit) (repo adopter : FilePath) :
           { label := s!"weak-args/{mode}-{variant}-unestablished", exitCode := incomplete,
             contains := #["not established: Widget"], excludes := #[warning] }
       failures := failures ++ (← assess expectation (← run))
+  -- A dependency that declares a library facet of another name leaves Regula's `extraDep` facet in
+  -- effect, so each trace holds its own library's record. The unmarked builds still count no
+  -- record (`Lake.onlyRegulaFacets`): the first run elaborates Widget again, since its source
+  -- changed, and the second replays it and reports it not established.
+  IO.FS.writeFile (override / "lakefile.lean")
+    (overrideLakefile "library_facet other : Unit := pure Job.nil\n")
+  for (mode, run, text, incomplete) in modes do
+    if mode == "lint" then continue
+    IO.FS.writeFile additional (original ++ s!"\n-- declared {mode}\n")
+    IO.FS.writeFile lakefile (withOverride text)
+    let rebuilt : Expectation :=
+      { label := s!"weak-args/{mode}-declared-rebuilt", exitCode := 0
+        excludes := #["not established"] }
+    failures := failures ++ (← assess rebuilt (← run))
+    let unestablished : Expectation :=
+      { label := s!"weak-args/{mode}-declared-unestablished", exitCode := incomplete
+        contains := #["not established: Widget"] }
+    failures := failures ++ (← assess unestablished (← run))
   IO.FS.writeFile additional original
   IO.FS.writeFile lakefile full
   IO.FS.writeFile manifest resolved
@@ -1007,9 +1030,9 @@ private def weakArgsReuse (probes : Std.Mutex Unit) (repo adopter : FilePath) :
   IO.FS.writeFile (fake / "lakefile.lean") (fakeLakefile facetText)
   failures := failures ++ (← probe probes fake "weak-args/regula-elsewhere" #["Probe"]
     (some "facet declaration"))
-  let rewritten := facetText.replace "weakLeanArgs {" "otherLeanArgs {"
+  let rewritten := facetText.replace "\"weakLeanArgs\"" "\"otherLeanArgs\""
   if rewritten == facetText then
-    failures := failures.push "lake-lint/weak-args: the facet's body has no caption `weakLeanArgs`"
+    failures := failures.push "lake-lint/weak-args: the facet's body has no word `weakLeanArgs`"
   IO.FS.writeFile (fake / "lakefile.lean") (fakeLakefile rewritten)
   failures := failures ++ (← probe probes fake "weak-args/regula-other-body" #["Probe"]
     (some "facet declaration"))
@@ -1035,7 +1058,8 @@ private def weakArgsReuse (probes : Std.Mutex Unit) (repo adopter : FilePath) :
   if !resolvedRenamed.succeeded || !builtRenamed.succeeded then
     failures := failures.push s!"lake-lint/weak-args/renamed: the workspace did not build:\n\
       {resolvedRenamed.output}\n{builtRenamed.output}"
-  else if !rootTrace.contains "weakLeanArgs {\\\"package\\\":\\\"renamed\\\"" then
+  else if !rootTrace.contains
+      "[\\\"weakLeanArgs\\\",[\\\"renamed\\\"],[\\\"Root\\\"],[" then
     failures := failures.push s!"lake-lint/weak-args/renamed: the root library has no record:\n\
       {rootTrace}"
   else if probeTrace.isEmpty || probeTrace.contains "weakLeanArgs" then

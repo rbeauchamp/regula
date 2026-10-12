@@ -716,58 +716,22 @@ def tomlReading : ConfigReading :=
   { facets := some 0, functions := false, declarations := #[], extensions := #[], imports := #[],
     attributes := 0, strayInlines := 0 }
 
-/-- The name of the `extraDep` facet declaration that Regula's own `lakefile.lean` ships, which
-mixes each root library's `weakArgsCaption` into its job's trace. -/
-def regulaFacetName : Name := `weakLeanArgsTrace
-
-/-- Whether a package's compiled configuration holds exactly Regula's own `extraDep` facet
-declaration: the text of its configuration file (`text`) is the text of the `lakefile.lean` of the
-Regula that runs this decision (`running`, `runningLakefile`), that file declares exactly one library
-facet itself (`ownLibraryFacets`), and `regulaFacetName` is among its constants. -/
-def regulaFacetAdmitted (text running : Option String) (ownLibraryFacets : Nat)
-    (constants : Array Name) : Bool :=
-  match text, running with
-  | some text, some running =>
-    text == running && ownLibraryFacets == 1 && constants.contains regulaFacetName
-  | _, _ => false
-
-/-- Regula's facet is admitted exactly when both configuration texts are read and equal, the file
-declares one library facet of its own, and it has a constant named `regulaFacetName`. -/
-theorem regulaFacetAdmitted_iff (text running : Option String) (ownLibraryFacets : Nat)
-    (constants : Array Name) :
-    regulaFacetAdmitted text running ownLibraryFacets constants = true ↔
-      ∃ source, text = some source ∧ running = some source ∧ ownLibraryFacets = 1 ∧
-        regulaFacetName ∈ constants := by
-  cases text with
-  | none => simp [regulaFacetAdmitted]
-  | some source =>
-    cases running with
-    | none => simp [regulaFacetAdmitted]
-    | some other =>
-      simp only [regulaFacetAdmitted, Bool.and_eq_true, beq_iff_eq, Array.contains_iff_mem,
-        Option.some.injEq]
-      constructor
-      · rintro ⟨⟨rfl, h1⟩, h2⟩; exact ⟨_, rfl, rfl, h1, h2⟩
-      · rintro ⟨_, rfl, rfl, h1, h2⟩; exact ⟨⟨rfl, h1⟩, h2⟩
+/-- The name of the compiler's specialization cache, an environment extension. Compiling the
+facet of Regula's `lakefile.lean` adds one entry to it, for its call of `List.map` with a function
+of its own, which Lean's compiler specializes. -/
+def specializationCache : String :=
+  "_private.Lean.Compiler.LCNF.Specialize.0.Lean.Compiler.LCNF.Specialize.specCacheExt"
 
 /-- The reading of a configuration with Regula's own facet declaration set aside: one facet fewer,
-no `regulaFacetName` declaration and no entries of `Lake.libraryFacetAttr`. Every other facet,
+no `regulaFacetName` declaration, and no entries of `Lake.libraryFacetAttr` or of the
+specialization cache (`specializationCache`) that the facet's compilation fills. Every other facet,
 declaration and extension is read as before. -/
 def ConfigReading.withoutRegulaFacet (reading : ConfigReading) : ConfigReading :=
   { reading with
     facets := reading.facets.map (· - 1)
     declarations := reading.declarations.filter (·.1 != regulaFacetName)
-    extensions := reading.extensions.filter (· != "Lake.libraryFacetAttr") }
-
-/-- The text of the `lakefile.lean` of the package whose build directory holds the running
-executable, `<package>/.lake/build/bin/<executable>`, or none when it cannot be read. -/
-def runningLakefile : IO (Option String) := do
-  let app ← IO.FS.realPath (← IO.appPath)
-  let some package := (app.parent.bind (·.parent)).bind (·.parent) |>.bind (·.parent)
-    | return none
-  match ← (IO.FS.readFile (package / "lakefile.lean")).toBaseIO with
-  | .ok text => return some text
-  | .error _ => return none
+    extensions := reading.extensions.filter fun extension =>
+      extension != "Lake.libraryFacetAttr" && extension != specializationCache }
 
 /-- What Regula reads of the compiled configuration of a package whose configuration file is
 `lakefile.lean` (`ConfigReading`). Lake keeps the compiled file at `.lake/config/<index>/` of the
