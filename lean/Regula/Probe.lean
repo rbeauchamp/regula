@@ -555,54 +555,45 @@ private theorem compilerDependenciesLookup_frame (env : Environment) (name other
   cases h : cache.get? name <;>
     simp [compilerDependenciesLookup, h, Std.DHashMap.get?_insert, different]
 
-/-- The declarations of `env` whose `@[export]` name gives the C symbol `symbol`: an export name
-`.str .anonymous s` is the C name `s`, and Lean refuses to emit code for any other export name.
+/-- Every `@[export]` entry of `env`, a declaration with its export name: the entries of each
+imported module, then those of the current one.
 
-Assumes: Lean 4.34.1 emits the code of a declaration with the export name `.str .anonymous s`
-under the C symbol `s` (`toCName`, `src/Lean/Compiler/LCNF/EmitC.lean:244-250`), and emits each
-call of an `extern` with a standard entry for the backend `c` as a call of the C symbol
-`getExternNameFor` returns (`emitFap`, `src/Lean/Compiler/LCNF/EmitC.lean:638-652`); `@[export]`
-is a parametric attribute, whose entries are those of each module and of the current one
-(`src/Lean/Compiler/ExportAttr.lean:53-67`). An exporter defines that symbol only when the compiler
-emitted Lean code for it (`emitsLeanCode`), which `lowering` requires. Trusted: the C linker binds
-the call to the one definition of that symbol. Regula compares neither C signature, so the pair is
-a trusted boundary (`BoundaryKind.exportedImplementation`). -/
-private def exportersOf (env : Environment) (symbol : String) : Array Name := Id.run do
-  let exported (exportName : Name) := exportName == .str .anonymous symbol
-  let mut found := #[]
-  for idx in [0:env.header.moduleNames.size] do
-    for (declaration, exportName) in Lean.exportAttr.ext.getModuleEntries env idx do
-      if exported exportName && !found.contains declaration then
-        found := found.push declaration
-  for (declaration, exportName) in (Lean.exportAttr.ext.getState env).2.toList do
-    if exported exportName && !found.contains declaration then
-      found := found.push declaration
-  return found
+Assumes: Lean 4.34.1 stores the `@[export]` name of a declaration of an imported module among the
+entries of that module, and of a declaration of the current module in the attribute's state
+(`getParamFromExt?`, `src/Lean/Attributes.lean:306-318`). -/
+private def exportEntries (env : Environment) : List (Name × Name) :=
+  ((List.range env.header.moduleNames.size).flatMap fun idx =>
+      (Lean.exportAttr.ext.getModuleEntries env idx).toList) ++
+    (Lean.exportAttr.ext.getState env).2.toList
 
-/-- Whether the compiler emitted Lean code for `name`: its compiled IR is a function body, not an
-`extern` declaration, and no initializer runs it instead.
+/-- The declarations among `entries` whose export name is the C symbol `symbol`, each once: the
+export name `.str .anonymous s` is the C name `s`, and Lean refuses to emit code for any other
+export name (`toCName`, `src/Lean/Compiler/LCNF/EmitC.lean:244-250`). The match reads the
+attribute names alone: it does not decide which body, if any, runs under that symbol
+(`mem_exportersOf_iff`). -/
+def exportersOf (entries : List (Name × Name)) (symbol : String) : List Name :=
+  (entries.filterMap fun (declaration, exportName) =>
+    if exportName == .str .anonymous symbol then some declaration else none).eraseDups
 
-Assumes: Lean 4.34.1 compiles a constant with an `extern` attribute from that attribute alone to an
-extern declaration (`toDecl`, `src/Lean/Compiler/LCNF/ToDecl.lean:148-151`), lowers a declaration
-with code, and only one, to a function body `.fdecl` of the IR it stores (`lowerDecl`,
-`src/Lean/Compiler/IR/ToIR.lean:188-202`; `run`, `src/Lean/Compiler/LCNF/Main.lean:210-212`),
-and emits no C code for an extern declaration or a declaration with an initializer (`emitDecl`,
-`src/Lean/Compiler/LCNF/EmitC.lean:925-930`). It also emits a simple ground declaration as static
-data, not a function; the compiler keeps no record of those for imported modules, so they are not
-told apart here, and their pair stays a trusted boundary like any other. -/
-private def emitsLeanCode (env : Environment) (name : Name) : Bool :=
-  (match Lean.IR.findEnvDecl env name with | some (.fdecl ..) => true | _ => false) &&
-    !Lean.hasInitAttr env name
+/-- A declaration is listed exactly when one of the entries gives it the export name of the
+symbol. -/
+theorem mem_exportersOf_iff (entries : List (Name × Name)) (symbol : String) (declaration : Name) :
+    declaration ∈ exportersOf entries symbol ↔
+      (declaration, Name.str .anonymous symbol) ∈ entries := by
+  simp only [exportersOf, List.mem_eraseDups, List.mem_filterMap]
+  constructor
+  · rintro ⟨⟨found, exportName⟩, member, matched⟩
+    by_cases same : exportName = .str .anonymous symbol
+    · simp only [same, beq_self_eq_true, ite_true, Option.some.injEq] at matched
+      exact matched ▸ same ▸ member
+    · simp [same] at matched
+  · intro member
+    exact ⟨_, member, by simp⟩
 
-/-- What the compiler runs for a constant, as the walk classifies it before its value: the
-compiled code of the one declaration with emitted Lean code whose `@[export]` name is the
-constant's `extern` symbol (`exported`), other external code (`extern`), the value an initializer
-returned (`initialized`), or neither (`ordinary`). -/
+/-- What the compiler runs for a constant, as the walk classifies it before its value: external
+code (`extern`), the value an initializer returned (`initialized`), or neither (`ordinary`). -/
 inductive Lowering where
-  /-- An `extern` whose C symbol `symbol` is the export name of `exporter` alone among the
-  declarations with emitted Lean code. -/
-  | exported (symbol : String) (exporter : Name)
-  /-- Any other `extern`. -/
+  /-- An `extern`. -/
   | extern
   /-- A constant whose compiled code reads the value initializer `action` returned. -/
   | initialized (action : Name)
@@ -611,76 +602,20 @@ inductive Lowering where
   deriving DecidableEq
 
 /-- The classification of a constant from what Lean records of it: whether it is an `extern`
-(`isExtern`), whether the toolchain declares it (`toolchainOwned`), its C symbol for the `c`
-backend (`symbol`), the declarations whose export name gives a symbol (`exporters`), whether the
-compiler emitted Lean code for a declaration (`emitsCode`) and its initializer (`initializer`).
-An exporter with no emitted Lean code, such as an `extern` that exports its own symbol, defines no
-C function, so it is not counted. The toolchain's own `extern`s are its trusted base and are not
-paired (`lowering_exported_iff`, `lowering_exported_emitsCode`, `lowering_initialized_iff`). -/
-def lowering (isExtern toolchainOwned : Bool) (symbol : Option String)
-    (exporters : String → List Name) (emitsCode : Name → Bool) (initializer : Option Name) :
-    Lowering :=
-  if isExtern then
-    match toolchainOwned, symbol with
-    | false, some symbol => match (exporters symbol).filter emitsCode with
-      | [exporter] => .exported symbol exporter
-      | _ => .extern
-    | _, _ => .extern
+(`isExtern`) and its initializer (`initializer`) (`lowering_initialized_iff`). -/
+def lowering (isExtern : Bool) (initializer : Option Name) : Lowering :=
+  if isExtern then .extern
   else match initializer with
     | some action => .initialized action
     | none => .ordinary
 
-/-- A constant is classified as running the code of `exporter` exactly when it is an `extern`
-the toolchain does not declare, whose symbol is the export name of `exporter` alone among the
-declarations with emitted Lean code. -/
-theorem lowering_exported_iff (isExtern toolchainOwned : Bool) (symbol? : Option String)
-    (exporters : String → List Name) (emitsCode : Name → Bool) (initializer : Option Name)
-    (symbol : String) (exporter : Name) :
-    lowering isExtern toolchainOwned symbol? exporters emitsCode initializer =
-        .exported symbol exporter ↔
-      isExtern = true ∧ toolchainOwned = false ∧ symbol? = some symbol ∧
-        (exporters symbol).filter emitsCode = [exporter] := by
-  cases isExtern <;> cases toolchainOwned <;> cases symbol?
-  case true.false.some given =>
-    unfold lowering
-    simp only [ite_true, true_and, Option.some.injEq]
-    constructor
-    · intro found
-      split at found
-      · rename_i exporter' single
-        simp only [Lowering.exported.injEq] at found
-        obtain ⟨rfl, rfl⟩ := found
-        exact ⟨rfl, single⟩
-      · cases found
-    · rintro ⟨rfl, single⟩
-      simp [single]
-  all_goals (unfold lowering; (try cases initializer) <;> simp)
-
-/-- The declaration a constant is classified as running is one with emitted Lean code; in
-particular an `extern` that exports its own symbol is never classified as running itself. -/
-theorem lowering_exported_emitsCode (isExtern toolchainOwned : Bool) (symbol? : Option String)
-    (exporters : String → List Name) (emitsCode : Name → Bool) (initializer : Option Name)
-    (symbol : String) (exporter : Name)
-    (classified : lowering isExtern toolchainOwned symbol? exporters emitsCode initializer =
-      .exported symbol exporter) :
-    emitsCode exporter = true := by
-  obtain ⟨-, -, -, single⟩ :=
-    (lowering_exported_iff isExtern toolchainOwned symbol? exporters emitsCode initializer symbol
-      exporter).mp classified
-  have member : exporter ∈ (exporters symbol).filter emitsCode := by simp [single]
-  exact (List.mem_filter.mp member).2
-
 /-- A constant is classified as an initialized value exactly when it is not an `extern` and
 Lean records an initializer for it. -/
-theorem lowering_initialized_iff (isExtern toolchainOwned : Bool) (symbol : Option String)
-    (exporters : String → List Name) (emitsCode : Name → Bool) (initializer : Option Name)
-    (action : Name) :
-    lowering isExtern toolchainOwned symbol exporters emitsCode initializer =
-        .initialized action ↔
+theorem lowering_initialized_iff (isExtern : Bool) (initializer : Option Name) (action : Name) :
+    lowering isExtern initializer = .initialized action ↔
       isExtern = false ∧ initializer = some action := by
   unfold lowering
-  cases isExtern <;> cases toolchainOwned <;> cases symbol <;> cases initializer <;> simp
-  all_goals split <;> simp
+  cases isExtern <;> cases initializer <;> simp
 
 
 /-- What a walk observes of one name `name`: the targets of the edges from the name, its
@@ -692,9 +627,10 @@ definition of the targets (`NodeRecord.successors`). The record reads source val
 compiler IR, all supported equality candidates, and observed implementation choices. Compiler
 metadata supplements source dependencies; neither alone retains all earlier replacements after
 inlining. Equality candidates are not a claim that the compiler selected them. Extern reference
-bodies remain boundary leaves. An `extern` of a project or dependency whose C symbol exactly one
-declaration with emitted Lean code exports (`exportersOf`, `emitsLeanCode`) is an exported
-implementation by that declaration, and a constant with an initializer is an initialized value.
+bodies remain boundary leaves. Every `extern` is a trusted boundary with no execution edge; one of a
+project or dependency names the declarations whose `@[export]` name is its C symbol
+(`exportersOf`), with no claim that they run. A constant with an initializer is an initialized
+value.
 
 An opaque constant gets a helper edge to the constant `Lean.Compiler.mkUnsafeRecName` names for it
 when the environment has that constant and it is `partial`. The edge is how the policy pairs a
@@ -809,20 +745,19 @@ private def observeNode (env : Environment) (ownedModules : List Name)
       (some s!"conservative constant-equality candidate={simplification.thmName}; \
         {evidence.getD ""}") terms
     record := { record with boundaries := record.boundaries.push boundary }
-  match lowering (Lean.isExtern env name) toolchain.isSome (Lean.getExternNameFor env `c name)
-      (fun symbol => (exportersOf env symbol).toList) (emitsLeanCode env)
-      (Lean.getInitFnNameFor? env name) with
-  | .exported symbol exporter =>
-    -- An `extern` whose C symbol is the `export` name of exactly one declaration with emitted Lean
-    -- code calls that code: the call is a retained compiler call of the `extern`, which
-    -- the walk follows. The C linker's binding of the two is trusted, and nothing is checked.
-    record := { record with compilerDependencies := record.compilerDependencies.push exporter }
-    let boundary ← entry .exportedImplementation .trusted (some exporter)
-      (some s!"extern symbol {symbol} is the export name of {exporter}")
-    return { record with boundaries := record.boundaries.push boundary }
+  match lowering (Lean.isExtern env name) (Lean.getInitFnNameFor? env name) with
   | .extern =>
+    -- Every `extern` is a trusted boundary with no execution edge. An `extern` outside the
+    -- toolchain names the declarations whose `@[export]` name is its C symbol, read from the
+    -- attribute names alone: which body runs under the symbol is not decided.
+    let exporters := match toolchain, Lean.getExternNameFor env `c name with
+      | none, some symbol => (symbol, exportersOf (exportEntries env) symbol)
+      | _, _ => ("", [])
+    let evidence := if exporters.2.isEmpty then none else
+      some s!"the symbol {exporters.1} is also exported by \
+        {", ".intercalate (exporters.2.map (·.toString))}"
     let boundary ←
-      entry (if toolchain.isSome then .nativeRuntime else .external) .trusted none none
+      entry (if toolchain.isSome then .nativeRuntime else .external) .trusted none evidence
     return { record with boundaries := record.boundaries.push boundary }
   | .initialized action =>
     -- A constant with an initializer is compiled to a stub that is never run, and compiled code

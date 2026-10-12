@@ -13,9 +13,6 @@ open Lean System RegulaQualification.Launcher
 structure Captured where
   /-- The variables `lake env /usr/bin/env -0` printed, admitted by `admit` as `Valid`. -/
   environment : {env : RegulaQualification.Launcher.Environment // Valid env}
-  /-- The names of the variables a child of this process inherits, as `/usr/bin/env -0` printed
-  them with no modification. -/
-  inherited : Array String
   /-- The `lean` path that `which` resolved under that environment, joined to the root. -/
   executable : String
 
@@ -37,25 +34,21 @@ structure State where
 def create (legacy : Bool := false) : IO State :=
   return ⟨← IO.mkRef #[], ← IO.mkRef #[], ← IO.mkRef #[], ← IO.mkRef 0, legacy⟩
 
-/-- Capture via argv, not shell syntax; validate before using any variable. The resolution of
-`lean` runs in the environment a launch uses (`launchEnvironment`). -/
+/-- Capture via argv, not shell syntax; validate before using any variable. -/
 def environment (root : FilePath) (state : State) (overrides : Array (String × Option String)) :
     IO Captured := do
   let start ← IO.monoMsNow
   let result ← if let some (_, capture) := (← state.cache.get).find? (·.1 == overrides) then
       pure capture else do
-    let parent ← run root "/usr/bin/env" #["-0"]
-    requireChecks [⟨"inherited environment capture", parent.exitCode == 0⟩]
-    let inherited := (← IO.ofExcept (decode parent.stdout)).map (·.1)
     let output ← run root "lake" #["env", "/usr/bin/env", "-0"] overrides
     requireChecks [⟨"Lake environment capture", output.exitCode == 0⟩]
     let env ← IO.ofExcept (admit output.stdout)
-    let resolved ← run root "/usr/bin/which" #["lean"] (launchEnvironment env.val inherited)
+    let resolved ← run root "/usr/bin/which" #["lean"] (env.val.map fun (k, v) => (k, some v))
     requireChecks
         [⟨"Lean executable resolution", resolved.exitCode == 0 && resolved.stderr.isEmpty &&
       (resolved.stdout.trimAscii.toString.splitOn "\n").length == 1⟩]
     let executable := (root / resolved.stdout.trimAscii.toString).toString
-    let captured : Captured := ⟨env, inherited, executable⟩
+    let captured : Captured := ⟨env, executable⟩
     state.cache.modify (·.push (overrides, captured))
     pure captured
   let elapsed := (← IO.monoMsNow) - start
@@ -66,11 +59,8 @@ def environment (root : FilePath) (state : State) (overrides : Array (String × 
 Record source and full environment in memory for the separate paired diagnostic only.
 With `first`, the launch puts `first` ahead of the captured `LEAN_PATH` and runs the captured
 executable in either mode: `lake env` puts the workspace's own entries before an inherited
-`LEAN_PATH`, so no launch through it can put a directory first. A direct launch applies exactly
-the modifications the record holds (`launch`), which set the captured variables and unset every
-other inherited one (`launchEnvironment_set`, `launchEnvironment_unset_iff`). A baseline launch
-through `lake env` records the same value: Lake gives its child the environment the capture
-printed, which is trusted, not checked. -/
+`LEAN_PATH`, so no launch through it can put a directory first. The record holds the environment
+the launch used. -/
 def runLean (root : FilePath) (state : State) (args : Array String)
     (overrides : Array (String × Option String)) (first : Option FilePath := none) :
     IO IO.Process.Output := do
@@ -85,17 +75,16 @@ def runLean (root : FilePath) (state : State) (args : Array String)
       pure <| capture.environment.val.map fun (key, value) =>
         (key, if key == "LEAN_PATH" then SearchPath.toString (first :: SearchPath.parse value)
           else value)
-  let launch := launchEnvironment variables capture.inherited
   let start ← IO.monoMsNow
   let output ←
     if state.legacy && first.isNone then run root "lake" (#["env", "lean"] ++ args) overrides
-    else run root capture.executable args launch
+    else run root capture.executable args (variables.map fun (k, v) => (k, some v))
   let elapsed := (← IO.monoMsNow) - start
   state.timings.modify (·.push elapsed)
   state.records.modify (·.push {
     label := (FilePath.mk path).fileStem.getD path, args, source, exitCode := output.exitCode.toNat,
     stdout := output.stdout, stderr := output.stderr,
-    environment := launch, executable := capture.executable })
+    environment := variables, executable := capture.executable })
   return output
 
 /-- Preserve the original stripped LEAN_PATH query, then capture the augmented actual

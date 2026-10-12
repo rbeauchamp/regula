@@ -45,33 +45,6 @@ theorem admit_complete (raw : String) (env : Environment) (h : decode raw = .ok 
     else Except.error "invalid or incomplete environment capture") = _
   simp [valid]
 
-/-- The environment modifications of one direct launch: a variable set to `some` value, or unset
-by `none`. -/
-abbrev Launch := Array (String × Option String)
-
-/-- The modifications that give a child of this process exactly the variables `captured`, where
-`inherited` names the variables the child would otherwise inherit: every captured variable set,
-and every other inherited name unset. A child inherits its parent's environment and then applies
-the modifications, so an inherited variable the capture omits, such as one an override or Lake
-unset, would otherwise reach the child. -/
-def launchEnvironment (captured : Environment) (inherited : Array String) : Launch :=
-  captured.map (fun (name, value) => (name, some value)) ++
-    (inherited.filter fun name => !captured.any (·.1 == name)).map (·, none)
-
-/-- The variables a launch sets are exactly the captured mapping, in its order. -/
-theorem launchEnvironment_set (captured : Environment) (inherited : Array String) :
-    (launchEnvironment captured inherited).filterMap
-        (fun (name, value) => value.map (name, ·)) = captured := by
-  apply Array.ext'
-  simp [launchEnvironment, List.filterMap_map, Function.comp_def]
-
-/-- A launch unsets a name exactly when the child would inherit it and the capture omits it. -/
-theorem launchEnvironment_unset_iff (captured : Environment) (inherited : Array String)
-    (name : String) :
-    (name, none) ∈ launchEnvironment captured inherited ↔
-      name ∈ inherited ∧ captured.any (·.1 == name) = false := by
-  simp [launchEnvironment]
-
 /-- Full in-memory identity of one real compiler control, excluding measured duration. -/
 structure Observation where
   /-- The control's name: the stem of the compiled source file's path. -/
@@ -86,9 +59,8 @@ structure Observation where
   stdout : String
   /-- The compiler's standard error. -/
   stderr : String
-  /-- The environment modifications the launch used (`launchEnvironment`), whose set variables
-  are the captured environment (`launchEnvironment_set`). -/
-  environment : Launch
+  /-- The captured environment, which the direct launch uses. -/
+  environment : Environment
   /-- The resolved path of the `lean` executable, which the direct launch uses. -/
   executable : String
   deriving BEq, DecidableEq

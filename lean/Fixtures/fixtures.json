@@ -1018,14 +1018,14 @@
   "expect": "pass",
   "claim": "standard-logical",
   "output": [
-   "fixtures_pair_reference [exported-implementation] correspondence=trusted replacement=fixtures_pair_implementation"
+   "fixtures_pair_reference [external] correspondence=trusted evidence=the symbol fixtures_pair_symbol is also exported by fixtures_pair_implementation"
   ]
  },
  "Fixtures.Positive.SelfExportedExtern": {
   "expect": "pass",
   "claim": "standard-logical",
   "output": [
-   "fixtures_self_reference [external] correspondence=trusted"
+   "fixtures_self_reference [external] correspondence=trusted evidence=the symbol fixtures_self_symbol is also exported by fixtures_self_reference"
   ]
  },
  "Fixtures.Positive.CycleAxiomTable": {
@@ -1054,7 +1054,7 @@
   "execution": "checked",
   "reason": "execution-trusted-boundary",
   "output": [
-   "fixtures_mismatch_reference reaches fixtures_mismatch_reference (exported-implementation)"
+   "fixtures_mismatch_reference reaches fixtures_mismatch_reference (external)"
   ]
  }
 }
