@@ -254,7 +254,7 @@ lake exe axiomGate --with-docs --json-out tmp/result.json
 ```
 
 Each export is versioned on its own: the surface manifest is schema 2, the registry schema 4, the
-result schema 17, the worker packet schema 1, the rule-example corpus export schema 1, the
+result schema 18, the worker packet schema 1, the rule-example corpus export schema 1, the
 acceptance link schema 1 and the site's `build.json` schema 2. Registry and result envelopes carry
 `schemaVersion`, `producerVersion`, `toolchain` and `sourceRevision` from
 `Regula.Checker.Producer.identity`: `producerVersion` is the installed release's spelling
@@ -270,7 +270,7 @@ metadata, not authenticated binary identity.
   stale lifecycle data and an object tree that is not a search tree.
   Registry admission rejects duplicate external IDs, missing clauses, pages or examples, unknown
   JSON fields or versions, and invalid lifecycle references.
-- **Result, schema 17:** `scope`, `mode`, `status`, `stages` (the stages
+- **Result, schema 18:** `scope`, `mode`, `status`, `stages` (the stages
   `RegulaPolicy.requiredStages` requires for the mode, plus the documentation stages of a
   `--with-docs` run), `stagesCompleted`, `complete`, `stagesNotRun`, `diagnostics` (each with its
   `remedy`, in run order), `rules` (the guidance of every rule that fired, once each, in registry
@@ -462,7 +462,11 @@ metadata, not authenticated binary identity.
   first names the second in its `detail`
   (`…, with its implementation NAME (partial-computation)`), and the second has no diagnostic
   and no count of its own, in text and JSON alike (`RegulaPolicy.executionFindings`,
-  `failure_reported`, `executionFindings_empty_iff`). A `partial def` named as the target of a
+  `failure_reported`, `executionFindings_empty_iff`). A pair that the toolchain owns has no
+  diagnostic and one count. When each root that reaches the implementation also carries it, the
+  toolchain trusted base lists the pair as one entry naming the implementation
+  (`RegulaPolicy.toolchainBase`).
+  A `partial def` named as the target of a
   candidate or replacement is that opaque constant, not a `partial` implementation
   (`RegulaPolicy.ExecutionRoot.foldable`): it keeps its own diagnostic and count, and only its
   helper is reported with it. A later record of one trusted boundary
@@ -480,9 +484,11 @@ metadata, not authenticated binary identity.
   executable's root, inspected alone) keep the complete observed declaration and execution
   inventories, including trusted boundaries and correspondence evidence; in `axiomGate` results
   `scope.toolchainBase` lists every boundary the toolchain owns once for the whole audit, with
-  the environments and roots that reach it; project scope also keeps its source snapshots, Lake
-  library inventory and completed stage names. File scope keeps its nullable foundation claim,
-  execution claim and exact source even without findings.
+  the environments and roots that reach it, except a `partial` implementation that all roots
+  reaching it carry, which the `implementations` of each entry that carries it name since schema
+  18; project scope also keeps its source snapshots, Lake library inventory and completed stage
+  names. File scope keeps its
+  nullable foundation claim, execution claim and exact source even without findings.
 - **Build origin:** In `axiomGate` project results, `scope.buildOrigin` names the origin of the
   build output. It is `isolatedCopy`, `driverCopy` or `incrementalBuild`.
 - **Audited target:** In `axiomGate` project results, `scope.project` names the audited project

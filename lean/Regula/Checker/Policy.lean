@@ -78,9 +78,12 @@ def describeBoundaryAs (label : String) (boundary : Regula.Report.ExecutionBound
 def describeBoundary (boundary : Regula.Report.ExecutionBoundary) : String :=
   describeBoundaryAs "boundary" boundary
 
-/-- The toolchain trusted base of an audit's labeled execution accounts: each toolchain-owned
-boundary once, with every environment and root that reaches it, through
-`RegulaPolicy.checked_toolchainBase`. -/
+/-- The toolchain trusted base of an audit's labeled execution accounts, through
+`RegulaPolicy.checked_toolchainBase`: each toolchain-owned boundary is either the boundary of
+exactly one entry, which lists every environment and root that reaches it, or, when every root
+that reaches it holds a boundary that carries it, a `partial` implementation that the entry of
+one such boundary of the same root names in `implementations` and which lists that environment
+and root. -/
 def toolchainBase (environments : Array (String × ExecutionInventory)) :
     Array RegulaPolicy.ToolchainBoundary :=
   RegulaPolicy.checked_toolchainBase.run environments
@@ -96,21 +99,26 @@ private def reachGroups (entry : RegulaPolicy.ToolchainBoundary) : Array (String
     | none => groups.push (label, #[root])
 
 /-- One-line rendering of one toolchain trusted-base entry: always trusted, attributed to the
-toolchain, with the environments and roots that reach it. -/
+toolchain, with the `partial` implementations it names, when there are any, and the environments
+and roots that reach it. -/
 def describeToolchainBoundary (entry : RegulaPolicy.ToolchainBoundary) : String :=
   let replacement := entry.replacement.map (fun value => s!" replacement={value}") |>.getD ""
   let reached := (reachGroups entry).toList.map fun (label, roots) =>
     s!"{label}: {", ".intercalate (roots.toList.map toString)}"
+  let implementations := if entry.implementations.isEmpty then "" else
+    s!" implementations={", ".intercalate (entry.implementations.toList.map toString)}"
   s!"boundary {entry.name} [{entry.boundary}] correspondence=trusted{replacement} toolchain " ++
-    s!"(module {entry.module}) reached-by={"; ".intercalate reached}"
+    s!"(module {entry.module}){implementations} reached-by={"; ".intercalate reached}"
 
-/-- The JSON form of one toolchain trusted-base entry, with its admitted origin and the
-environments and roots that reach it. -/
+/-- The JSON form of one toolchain trusted-base entry, with its admitted origin, the `partial`
+implementations it names (`implementations`, possibly empty) and the environments and roots that
+reach it. -/
 def toolchainBoundaryJson (entry : RegulaPolicy.ToolchainBoundary) : Lean.Json :=
   Lean.Json.mkObj [
     ("name", Lean.toJson entry.name), ("module", Lean.toJson entry.module),
     ("boundary", Lean.toJson entry.boundary), ("replacement", Lean.toJson entry.replacement),
     ("toolchainOrigin", Lean.toJson entry.origin),
+    ("implementations", Lean.toJson entry.implementations),
     ("reachedBy", Lean.Json.arr <| (reachGroups entry).map fun (label, roots) =>
       Lean.Json.mkObj [("environment", Lean.toJson label), ("roots", Lean.toJson roots)])]
 

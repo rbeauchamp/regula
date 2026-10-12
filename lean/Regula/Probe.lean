@@ -527,7 +527,23 @@ definition of the targets (`NodeRecord.successors`). The record reads source val
 compiler IR, all supported equality candidates, and observed implementation choices. Compiler
 metadata supplements source dependencies; neither alone retains all earlier replacements after
 inlining. Equality candidates are not a claim that the compiler selected them. Extern reference
-bodies remain boundary leaves. -/
+bodies remain boundary leaves.
+
+An opaque constant gets a helper edge to the constant `Lean.Compiler.mkUnsafeRecName` names for it
+when the environment has that constant and it is `partial`. The edge is how the policy pairs a
+`partial def`, the project's or the toolchain's, with its helper
+(`RegulaPolicy.ExecutionRoot.carries`); no name is parsed.
+
+Assumes:
+- Lean v4.34.1 compiles an opaque constant through the constant `mkUnsafeRecName` names for it,
+  when the environment has one: the code generator looks that name up before the constant itself
+  (`getDeclInfo?`, `src/lean/Lean/Compiler/LCNF/ToDecl.lean:105-107`; `declIsNotUnsafe`, lines
+  109-118).
+- Lean v4.34.1 elaborates a `partial def` by adding the opaque constant and then its helper under
+  that name with `partial` definition safety, in one command (`addAndCompilePartial`,
+  `src/lean/Lean/Elab/PreDefinition/Main.lean:20-36`; `addAndCompilePartialRec`,
+  `src/lean/Lean/Elab/PreDefinition/Basic.lean:280-294`), so the two share a declaring module and
+  so a toolchain origin. -/
 private def observeNode (env : Environment) (ownedModules : List Name)
     (toolchainModules : NameMap RegulaPolicy.ToolchainOrigin)
     (cached : Std.HashMap Name (Array Name))

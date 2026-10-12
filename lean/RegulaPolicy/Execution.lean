@@ -5,8 +5,9 @@ import Regula.Decision
 /-! # Execution decisions
 
 Executable execution decisions and their exact finite-observation specification, and the
-toolchain trusted-base report that lists each toolchain-owned boundary once across an audit's
-environments.
+toolchain trusted-base report, which gives each toolchain-owned boundary of an audit's environments
+an entry of its own or, when every root that reaches it carries it, names it as a `partial`
+implementation in the entry of each boundary that carries it.
 Neither policy equivalence nor admitted origin data proves extraction or native runtime
 correctness. -/
 namespace RegulaPolicy
@@ -239,8 +240,13 @@ only its helper is reported with it.
 The account keeps every record, and the decision's records (`executionFailureRecords`) one failure
 for each. The findings (`executionFindings`) and the coverage counts (`executionSummary`) report a
 restated boundary with the first record of it and a `partial` implementation with the boundary
-that runs it, where both are trusted and neither is the toolchain's: one finding, which names the
-implementation, and one counted boundary. Both relations are read
+that runs it, where both are trusted and have the same owner (both the toolchain's, with one
+admitted origin, or neither): one counted boundary, and, where neither is the toolchain's, one
+finding, which names the implementation. A toolchain-owned pair has no finding
+(`boundaryFailures`). The toolchain trusted base lists it as one entry that names the
+implementation when every root that reaches the implementation holds a boundary that carries it,
+and otherwise gives the implementation an entry of its own (`toolchainBase`,
+`ToolchainBaseContract`). Both relations are read
 from the account's own members and edges, which the collector takes from the declared equalities,
 the `implemented_by` attribute and the compiler's helper lookup; no name is parsed. Only trusted
 records are folded, and a folded record fails and passes with the record it is reported with
@@ -261,25 +267,26 @@ def ExecutionRoot.repeated (r : ExecutionRoot) (b : ExecutionBoundary) : Bool :=
     r.boundaries.any fun a => a.occurrence < b.occurrence && a.restates b
 
 /-- `b` is the boundary the account records for a `partial` implementation (a constant of
-`partial` definition safety) that the project or a dependency owns: a trusted partial-computation
-boundary with no toolchain origin, whose constant is the source of no helper edge. The account
-records an opaque constant compiled through a partial helper (an author's `partial def`) under
-the same kind (`BoundaryKind.partialComputation`), with a helper edge from it
-(`ExecutionClosure.helperEdges`); that boundary is not foldable, whichever boundary names its
-constant. -/
+`partial` definition safety), whoever owns it: a trusted partial-computation boundary whose
+constant is the source of no helper edge. The account records an opaque constant compiled through
+a partial helper (a `partial def`) under the same kind (`BoundaryKind.partialComputation`), with a
+helper edge from it (`ExecutionClosure.helperEdges`); that boundary is not foldable, whichever
+boundary names its constant. -/
 def ExecutionRoot.foldable (r : ExecutionRoot) (b : ExecutionBoundary) : Bool :=
   b.boundary == .partialComputation && b.correspondence == .trusted &&
-    b.toolchainOrigin?.isNone && !r.closure.helperEdges.any (·.1 == b.name)
+    !r.closure.helperEdges.any (·.1 == b.name)
 
 /-- Boundary `a` of root `r` carries boundary `b`: `a` names `b`'s constant as the code that
 runs in its place, by its replacement or, for an opaque constant, by a helper edge; `a` is
-trusted, has no toolchain origin and is not itself foldable; and `b` is foldable. A boundary
-whose replacement names an author's `partial def` does not carry it, because that opaque
-constant's boundary is not foldable; the `partial def`'s own boundary carries its helper. -/
+trusted, has the same toolchain origin as `b` (both the toolchain's under one admitted origin, or
+neither) and is not itself foldable; and `b` is foldable. A boundary whose replacement names a
+`partial def` does not carry it, because that opaque constant's boundary is not foldable; the
+`partial def`'s own boundary carries its helper. -/
 def ExecutionRoot.carries (r : ExecutionRoot) (a b : ExecutionBoundary) : Bool :=
   (a.replacement == some b.name ||
       (a.boundary == .partialComputation && r.closure.helperEdges.contains (a.name, b.name))) &&
-    a.correspondence == .trusted && a.toolchainOrigin?.isNone && !r.foldable a && r.foldable b
+    a.correspondence == .trusted && a.toolchainOrigin? == b.toolchainOrigin? && !r.foldable a &&
+      r.foldable b
 
 /-- Boundary `b` of root `r` has no finding and no count of its own: it repeats an earlier
 record (`ExecutionRoot.repeated`), or it is a `partial` implementation that a boundary of `r`
@@ -326,26 +333,25 @@ theorem boundaryFailures_restates (r : ExecutionRoot) (c : ExecutionClaim)
   obtain ⟨ta, tb, n, k, -, o⟩ := ExecutionBoundary.restates_spec h
   simp [boundaryFailures, ta, tb, n, k, o]
 
-/-- A foldable boundary is a trusted partial-computation boundary the toolchain does not own. -/
+/-- A foldable boundary is a trusted partial-computation boundary. -/
 theorem ExecutionRoot.foldable_spec {r : ExecutionRoot} {b : ExecutionBoundary}
     (h : r.foldable b = true) :
-    b.boundary = .partialComputation ∧ b.correspondence = .trusted ∧
-      b.toolchainOrigin? = none := by
-  simp only [ExecutionRoot.foldable, Bool.and_eq_true, beq_iff_eq, Option.isNone_iff_eq_none] at h
-  exact ⟨h.1.1.1, h.1.1.2, h.1.2⟩
+    b.boundary = .partialComputation ∧ b.correspondence = .trusted := by
+  simp only [ExecutionRoot.foldable, Bool.and_eq_true, beq_iff_eq] at h
+  exact ⟨h.1.1, h.1.2⟩
 
 /-- What carrying requires of both boundaries: the carried one is foldable; the carrying one is
-trusted, not toolchain-owned and not foldable; and it names the carried constant by its
-replacement or, as a partial-computation boundary, by a helper edge. -/
+trusted, has the carried one's toolchain origin and is not foldable; and it names the carried
+constant by its replacement or, as a partial-computation boundary, by a helper edge. -/
 theorem ExecutionRoot.carries_spec {r : ExecutionRoot} {a b : ExecutionBoundary}
     (h : r.carries a b = true) :
     r.foldable b = true ∧ r.foldable a = false ∧ a.correspondence = .trusted ∧
-      a.toolchainOrigin? = none ∧
+      a.toolchainOrigin? = b.toolchainOrigin? ∧
       (a.replacement = some b.name ∨
         (a.boundary = .partialComputation ∧
           r.closure.helperEdges.contains (a.name, b.name) = true)) := by
   simp only [ExecutionRoot.carries, Bool.and_eq_true, Bool.or_eq_true, beq_iff_eq,
-    Option.isNone_iff_eq_none, Bool.not_eq_true'] at h
+    Bool.not_eq_true'] at h
   exact ⟨h.2, h.1.2, h.1.1.1.2, h.1.1.2, h.1.1.1.1⟩
 
 /-- A record of the same trusted boundary carries what the boundary carries. -/
@@ -383,8 +389,8 @@ theorem ExecutionRoot.first_record (r : ExecutionRoot) {b : ExecutionBoundary}
 restates, a boundary `b'` of the root that is itself reported on its own or is an implementation
 of a boundary reported on its own. So a boundary without a finding or a count of its own is a
 later record of a trusted boundary that has them, or a trusted `partial` implementation
-(`ExecutionRoot.foldable`) that the toolchain does not own (or a later record of one) carried by
-a boundary that has them. -/
+(`ExecutionRoot.foldable`), or a later record of one, carried by a boundary with the same owner
+that has them. -/
 theorem ExecutionRoot.boundary_reported (r : ExecutionRoot) {b : ExecutionBoundary}
     (hb : b ∈ r.boundaries) :
     ∃ a ∈ r.reported, ∃ b' ∈ r.boundaries, (b' = b ∨ b'.restates b = true) ∧
@@ -413,7 +419,7 @@ theorem ExecutionRoot.folded_trusted {r : ExecutionRoot} {b : ExecutionBoundary}
     beq_iff_eq] at h
   rcases h with ⟨trusted, -⟩ | ⟨foldable, -⟩
   · exact trusted
-  · exact (ExecutionRoot.foldable_spec foldable).2.1
+  · exact (ExecutionRoot.foldable_spec foldable).2
 
 /-- The text a finding adds for the implementations its boundary carries: each one's constant
 and kind, in order; empty when there is none. -/
@@ -459,17 +465,16 @@ def executionFindings (inventory : ExecutionInventory)
     (claim : ExecutionClaim) : Array ExecutionFailure :=
   inventory.roots.flatMap (fun root => rootFindings root claim)
 
-/-- The failure of a trusted boundary the toolchain does not own: one `executionBoundary` record
-under a checked claim, and none under a report claim. -/
+/-- The failure of a trusted boundary: one `executionBoundary` record under a checked claim when
+the toolchain does not own it, and none otherwise. -/
 private theorem boundaryFailures_trusted (r : ExecutionRoot) (c : ExecutionClaim)
-    {b : ExecutionBoundary} (trusted : b.correspondence = .trusted)
-    (owner : b.toolchainOrigin? = none) :
+    {b : ExecutionBoundary} (trusted : b.correspondence = .trusted) :
     boundaryFailures r c b =
-      if c = .checked then
+      if c = .checked ∧ b.toolchainOrigin? = none then
         #[⟨.executionBoundary, r, s!"{r.name} reaches {b.name} ({b.boundary})"⟩]
       else #[] := by
   unfold boundaryFailures
-  cases c <;> simp [trusted, owner]
+  cases c <;> cases owner : b.toolchainOrigin? <;> simp [trusted]
 
 /-- The findings of a boundary reported on its own are its failures, each with the
 implementations it carries named after its detail. -/
@@ -496,10 +501,10 @@ private theorem boundaryFailures_empty_of_findings {r : ExecutionRoot} {c : Exec
         simp only [Bool.and_eq_true] at this
         exact this.1
       obtain ⟨foldable, -, trusted, owner, -⟩ := ExecutionRoot.carries_spec carried
-      obtain ⟨-, trusted', owner'⟩ := ExecutionRoot.foldable_spec foldable
-      rw [boundaryFailures_trusted r c trusted owner] at passes
-      rw [boundaryFailures_trusted r c trusted' owner']
-      cases c <;> simp_all
+      obtain ⟨-, trusted'⟩ := ExecutionRoot.foldable_spec foldable
+      rw [boundaryFailures_trusted r c trusted] at passes
+      rw [boundaryFailures_trusted r c trusted', ← owner]
+      by_cases fails : c = .checked ∧ a.toolchainOrigin? = none <;> simp_all
   rcases same with rfl | same
   · exact passes'
   · rw [← boundaryFailures_restates r c same]; exact passes'
@@ -686,18 +691,17 @@ theorem failure_reported {i : ExecutionInventory} {r : ExecutionRoot} (hr : r �
       simp only [Bool.and_eq_true] at this
       exact this.1
     obtain ⟨foldable, -, trusted, owner, -⟩ := ExecutionRoot.carries_spec carried
-    obtain ⟨-, trusted', owner'⟩ := ExecutionRoot.foldable_spec foldable
-    rw [boundaryFailures_trusted r c trusted' owner'] at hf'
-    have checked : c = .checked := by
-      cases c
-      · simp at hf'
-      · rfl
-    subst checked
-    simp only [ite_true, Array.mem_singleton] at hf'
-    have failure : (⟨.executionBoundary, r, s!"{r.name} reaches {a.name} ({a.boundary})"⟩ :
-        ExecutionFailure) ∈ boundaryFailures r .checked a := by
-      simp [boundaryFailures_trusted r .checked trusted owner]
-    exact ⟨_, failure, by rw [hf'], rfl, reported _ failure⟩
+    obtain ⟨-, trusted'⟩ := ExecutionRoot.foldable_spec foldable
+    rw [boundaryFailures_trusted r c trusted'] at hf'
+    split at hf'
+    next fails =>
+      obtain ⟨rfl, unowned⟩ := fails
+      rw [Array.mem_singleton] at hf'
+      have failure : (⟨.executionBoundary, r, s!"{r.name} reaches {a.name} ({a.boundary})"⟩ :
+          ExecutionFailure) ∈ boundaryFailures r .checked a := by
+        simp [boundaryFailures_trusted r .checked trusted, owner.trans unowned]
+      exact ⟨_, failure, by rw [hf'], rfl, reported _ failure⟩
+    next => simp at hf'
 
 /-- Every unresolved path of a root of the inventory is a finding, unchanged. -/
 theorem unresolved_reported {i : ExecutionInventory} {r : ExecutionRoot} (hr : r ∈ i.roots)
@@ -903,7 +907,12 @@ theorem checked_summary : Regula.ExecutableContract executionSummary SummaryCont
 
 A toolchain-owned boundary passes every claim, so it never becomes a failure record. The
 report lists it instead once across every audited environment, with every environment and root
-that reaches it, rather than once per root or once per environment. -/
+that reaches it, rather than once per root or once per environment. A `partial` implementation
+the toolchain owns (the `_unsafe_rec` helper Lean compiles a toolchain `partial def` through) is
+one trusted step with the boundary that carries it (`ExecutionRoot.carries`): when every root of
+the audit that reaches the implementation also holds a boundary that carries it there, the
+implementation has no entry of its own, and the entry of each boundary that carries it names it
+(`ToolchainBoundary.implementations`). Otherwise it keeps its own entry. -/
 
 /-- A toolchain boundary's identity in the trusted-base report: its constant and kind. -/
 abbrev ToolchainKey := Lean.Name × BoundaryKind
@@ -915,7 +924,8 @@ def ExecutionBoundary.toolchainKey (b : ExecutionBoundary) : ToolchainKey := (b.
 contains the root, and the root's name. -/
 abbrev ToolchainReach := String × Lean.Name
 
-/-- One toolchain-owned boundary of the audited execution accounts, reported once. -/
+/-- One entry of the toolchain trusted base: a toolchain-owned boundary of the audited execution
+accounts, with the `partial` implementations it carries that have no entry of their own. -/
 structure ToolchainBoundary where
   /-- The constant at the boundary. -/
   name : Lean.Name
@@ -929,18 +939,39 @@ structure ToolchainBoundary where
   origin : ToolchainOrigin
   /-- Every environment and root whose account reaches it, sorted and without duplicates. -/
   reachedBy : Array ToolchainReach
+  /-- The constants of the `partial` implementations this boundary carries
+  (`ExecutionRoot.carries`) that have no entry of their own, because every root that reaches one
+  holds a boundary that carries it there (`toolchainFolded`), sorted and without duplicates: a
+  toolchain `partial def`'s entry names the `_unsafe_rec` helper Lean compiles it through. -/
+  implementations : Array Lean.Name
   deriving Repr, DecidableEq
 
 /-- The report's key of an entry: its constant and kind. -/
 def ToolchainBoundary.key (t : ToolchainBoundary) : ToolchainKey := (t.name, t.boundary)
 
+/-- One toolchain-owned boundary observation of the labeled accounts. -/
+structure ToolchainObservation where
+  /-- The environment and root that reach the boundary. -/
+  reach : ToolchainReach
+  /-- The boundary record. -/
+  boundary : ExecutionBoundary
+  /-- Its admitted toolchain origin. -/
+  origin : ToolchainOrigin
+  /-- The keys of the boundaries of the same root that carry it (`ExecutionRoot.carries`), in
+  the root's order; empty when no boundary of the root carries it. -/
+  carriers : Array ToolchainKey
+
 /-- Every toolchain-owned boundary observation of the labeled accounts, with the environment and
-root that reach it and its admitted origin, in environment and root order. -/
+root that reach it, its admitted origin and the boundaries of its root that carry it, in
+environment and root order. -/
 def toolchainObservations (environments : Array (String × ExecutionInventory)) :
-    Array (ToolchainReach × ExecutionBoundary × ToolchainOrigin) :=
+    Array ToolchainObservation :=
   environments.flatMap fun environment => environment.2.roots.flatMap fun root =>
     root.boundaries.filterMap fun b =>
-      b.toolchainOrigin?.map fun o => ((environment.1, root.name), b, o)
+      b.toolchainOrigin?.map fun o =>
+        { reach := (environment.1, root.name), boundary := b, origin := o
+          carriers := if root.foldable b then
+            (root.boundaries.filter (root.carries · b)).map (·.toolchainKey) else #[] }
 
 /-- Toolchain keys as a sorted array without duplicates. -/
 def canonicalToolchainKeys (keys : Array ToolchainKey) : Array ToolchainKey :=
@@ -968,130 +999,210 @@ def canonicalToolchainReaches (reaches : Array ToolchainReach) : Array Toolchain
   let : Ord ToolchainReach := lexOrd
   simp [canonicalToolchainReaches, Std.ExtTreeSet.mem_toList]
 
-/-- The report entry of the observations `reaching` under one key: the constant, module, kind,
-replacement and origin of the first, with every environment and root among them; `none` when
-there is none. -/
-def toolchainEntryOf (reaching : Array (ToolchainReach × ExecutionBoundary × ToolchainOrigin)) :
+/-- The report entry of the observations `reaching` under one key, naming `implementations`:
+the constant, module, kind, replacement and origin of the first, with every environment and root
+among them; `none` when there is none. -/
+def toolchainEntryOf (reaching : Array ToolchainObservation)
+    (implementations : Array Lean.Name) : Option ToolchainBoundary :=
+  reaching[0]?.map fun x =>
+    { name := x.boundary.name, «module» := x.boundary.module, boundary := x.boundary.boundary
+      replacement := x.boundary.replacement, origin := x.origin
+      reachedBy := canonicalToolchainReaches (reaching.map (·.reach))
+      implementations := implementations }
+
+/-- The key has no entry of its own: every observation under it is carried in its root, so every
+root that reaches the boundary also holds a boundary that carries it. -/
+def toolchainFolded (observations : Array ToolchainObservation) (key : ToolchainKey) : Bool :=
+  (observations.filter (·.boundary.toolchainKey == key)).all (!·.carriers.isEmpty)
+
+/-- The constants an entry of the key names as its implementations: those of the observations
+under a folded key (`toolchainFolded`) that a boundary under the key carries, sorted and without
+duplicates. -/
+def toolchainImplementations (observations : Array ToolchainObservation) (key : ToolchainKey) :
+    Array Lean.Name :=
+  canonicalNames
+    ((((observations.filter (toolchainFolded observations ·.boundary.toolchainKey)).flatMap
+      fun x => x.carriers.map (·, x.boundary.name)).filter (·.1 == key)).map (·.2))
+
+/-- The report entry of one key: `none` when the key is folded (`toolchainFolded`) or nothing is
+observed under it, and otherwise the constant, module, kind, replacement and origin of the key's
+first observation, with every environment and root that reaches the key and the implementations
+it carries (`toolchainImplementations`). -/
+def toolchainEntry (observations : Array ToolchainObservation) (key : ToolchainKey) :
     Option ToolchainBoundary :=
-  reaching[0]?.map fun (_, b, origin) =>
-    { name := b.name, «module» := b.module, boundary := b.boundary
-      replacement := b.replacement, origin
-      reachedBy := canonicalToolchainReaches (reaching.map (·.1)) }
+  if toolchainFolded observations key then none
+  else toolchainEntryOf (observations.filter (·.boundary.toolchainKey == key))
+    (toolchainImplementations observations key)
 
-/-- The report entry of one key: the constant, module, kind, replacement and origin of the
-key's first observation, with every environment and root that reaches the key; `none` when
-nothing is observed under the key. -/
-def toolchainEntry (observations : Array (ToolchainReach × ExecutionBoundary × ToolchainOrigin))
-    (key : ToolchainKey) : Option ToolchainBoundary :=
-  toolchainEntryOf (observations.filter (·.2.1.toolchainKey == key))
+/-- The elements under each key, in their order (`groupByKey_getD`), gathered in one pass
+instead of one pass for each key, each key's array updated in place. -/
+def groupByKey {α : Type} (key : α → ToolchainKey) (xs : Array α) :
+    Std.HashMap ToolchainKey (Array α) :=
+  xs.foldl (init := {}) fun byKey x => byKey.alter (key x) fun a? => some ((a?.getD #[]).push x)
 
-/-- The observations under each key, in their order (`observationsByKey_getD`), gathered in one
-pass instead of one pass for each key, each key's array updated in place. -/
-def observationsByKey
-    (observations : Array (ToolchainReach × ExecutionBoundary × ToolchainOrigin)) :
-    Std.HashMap ToolchainKey (Array (ToolchainReach × ExecutionBoundary × ToolchainOrigin)) :=
-  observations.foldl (init := {}) fun byKey x =>
-    byKey.alter x.2.1.toolchainKey fun a? => some ((a?.getD #[]).push x)
-
-private theorem foldl_observationsByKey_getD
-    (l : List (ToolchainReach × ExecutionBoundary × ToolchainOrigin))
-    (byKey : Std.HashMap ToolchainKey
-      (Array (ToolchainReach × ExecutionBoundary × ToolchainOrigin)))
-    (key : ToolchainKey) :
-    (l.foldl (fun byKey x =>
-        byKey.alter x.2.1.toolchainKey fun a? => some ((a?.getD #[]).push x)) byKey).getD
-          key #[] =
-      byKey.getD key #[] ++ (l.filter (·.2.1.toolchainKey == key)).toArray := by
+private theorem foldl_groupByKey_getD {α : Type} (key : α → ToolchainKey) (l : List α)
+    (byKey : Std.HashMap ToolchainKey (Array α)) (k : ToolchainKey) :
+    (l.foldl (fun byKey x => byKey.alter (key x) fun a? => some ((a?.getD #[]).push x))
+        byKey).getD k #[] =
+      byKey.getD k #[] ++ (l.filter (key · == k)).toArray := by
   induction l generalizing byKey with
   | nil => simp
   | cons x l ih =>
     rw [List.foldl_cons, ih, Std.HashMap.getD_alter]
-    by_cases same : x.2.1.toolchainKey = key
+    by_cases same : key x = k
     · subst same
       simp [Std.HashMap.getD_eq_getD_getElem?]
     · simp [same]
 
-/-- The observations `observationsByKey` gathers under a key are exactly those under it, in
-their order. -/
-theorem observationsByKey_getD
-    (observations : Array (ToolchainReach × ExecutionBoundary × ToolchainOrigin))
-    (key : ToolchainKey) :
-    (observationsByKey observations).getD key #[] =
-      observations.filter (·.2.1.toolchainKey == key) := by
-  rw [observationsByKey, ← Array.foldl_toList, foldl_observationsByKey_getD]
+/-- The elements `groupByKey` gathers under a key are exactly those under it, in their order. -/
+theorem groupByKey_getD {α : Type} (key : α → ToolchainKey) (xs : Array α) (k : ToolchainKey) :
+    (groupByKey key xs).getD k #[] = xs.filter (key · == k) := by
+  rw [groupByKey, ← Array.foldl_toList, foldl_groupByKey_getD]
   rw [Std.HashMap.getD_empty, Array.empty_append, ← Array.toList_filter, Array.toArray_toList]
 
 /-- The toolchain trusted base of the labeled execution accounts of one audit: each
-toolchain-owned boundary once, in key order, with every environment and root that reaches it
-(`checked_toolchainBase`). Each key's entry is built from the observations gathered under it
-(`toolchainBase_eq`). -/
+toolchain-owned boundary once, in key order, with every environment and root that reaches it,
+except a `partial` implementation that every root reaching it carries, which the entry of each
+boundary carrying it names instead (`checked_toolchainBase`). Each key's entry is built from the
+observations gathered under it (`toolchainBase_eq`). -/
 def toolchainBase (environments : Array (String × ExecutionInventory)) :
     Array ToolchainBoundary :=
   let observations := toolchainObservations environments
-  let byKey := observationsByKey observations
-  (canonicalToolchainKeys (observations.map (·.2.1.toolchainKey))).filterMap fun key =>
-    toolchainEntryOf (byKey.getD key #[])
+  let byKey := groupByKey (·.boundary.toolchainKey) observations
+  let foldedKeys := byKey.map fun _ xs => xs.all (!·.carriers.isEmpty)
+  let folded (key : ToolchainKey) : Bool := foldedKeys.getD key true
+  let named := groupByKey (·.1) ((observations.filter (folded ·.boundary.toolchainKey)).flatMap
+    fun x => x.carriers.map (·, x.boundary.name))
+  (canonicalToolchainKeys (observations.map (·.boundary.toolchainKey))).filterMap fun key =>
+    if folded key then none
+    else toolchainEntryOf (byKey.getD key #[]) (canonicalNames ((named.getD key #[]).map (·.2)))
+
+/-- Testing each key's group once gives the test of the group under any key, absent ones
+included. -/
+private theorem getD_map_all {α : Type} (byKey : Std.HashMap ToolchainKey (Array α))
+    (p : α → Bool) (k : ToolchainKey) :
+    (byKey.map fun _ xs => xs.all p).getD k true = (byKey.getD k #[]).all p := by
+  simp only [Std.HashMap.getD_eq_getD_getElem?, Std.HashMap.getElem?_map]
+  cases byKey[k]? <;> simp
 
 /-- Each entry of `toolchainBase` is `toolchainEntry` of its key over all the observations. -/
 theorem toolchainBase_eq (environments : Array (String × ExecutionInventory)) :
     toolchainBase environments =
       (canonicalToolchainKeys
-        ((toolchainObservations environments).map (·.2.1.toolchainKey))).filterMap
+        ((toolchainObservations environments).map (·.boundary.toolchainKey))).filterMap
         (toolchainEntry (toolchainObservations environments)) := by
-  simp only [toolchainBase, observationsByKey_getD]
+  simp only [toolchainBase, getD_map_all, groupByKey_getD]
   rfl
 
+/-- Only a foldable boundary has a carrier (`ExecutionRoot.carries_spec`), so gathering the
+carriers of a foldable boundary alone gathers them all. -/
+theorem ExecutionRoot.carriers_eq (r : ExecutionRoot) (b : ExecutionBoundary) :
+    (if r.foldable b then (r.boundaries.filter (r.carries · b)).map (·.toolchainKey) else #[]) =
+      (r.boundaries.filter (r.carries · b)).map (·.toolchainKey) := by
+  split
+  · rfl
+  · next unfoldable =>
+    rw [Array.filter_eq_empty_iff.mpr fun a _ h => unfoldable (ExecutionRoot.carries_spec h).1,
+      Array.map_empty]
+
 theorem mem_toolchainObservations {environments : Array (String × ExecutionInventory)}
-    {x : ToolchainReach × ExecutionBoundary × ToolchainOrigin} :
+    {x : ToolchainObservation} :
     x ∈ toolchainObservations environments ↔
-      ∃ e ∈ environments, ∃ r ∈ e.2.roots, x.1 = (e.1, r.name) ∧ x.2.1 ∈ r.boundaries ∧
-        x.2.1.toolchainOrigin? = some x.2.2 := by
-  rcases x with ⟨reach, b, o⟩
-  simp only [toolchainObservations, Array.mem_flatMap, Array.mem_filterMap,
-    Option.map_eq_some_iff, Prod.mk.injEq]
+      ∃ e ∈ environments, ∃ r ∈ e.2.roots, x.reach = (e.1, r.name) ∧ x.boundary ∈ r.boundaries ∧
+        x.boundary.toolchainOrigin? = some x.origin ∧
+        x.carriers = (r.boundaries.filter (r.carries · x.boundary)).map (·.toolchainKey) := by
+  rcases x with ⟨reach, b, o, carriers⟩
+  simp only [toolchainObservations, ExecutionRoot.carriers_eq, Array.mem_flatMap,
+    Array.mem_filterMap, Option.map_eq_some_iff, ToolchainObservation.mk.injEq]
   constructor
-  · rintro ⟨e, he, r, hr, b', hb', o', ho', rfl, rfl, rfl⟩
-    exact ⟨e, he, r, hr, rfl, hb', ho'⟩
-  · rintro ⟨e, he, r, hr, rfl, hb, ho⟩
-    exact ⟨e, he, r, hr, b, hb, o, ho, rfl, rfl, rfl⟩
+  · rintro ⟨e, he, r, hr, b', hb', o', ho', rfl, rfl, rfl, rfl⟩
+    exact ⟨e, he, r, hr, rfl, hb', ho', rfl⟩
+  · rintro ⟨e, he, r, hr, rfl, hb, ho, rfl⟩
+    exact ⟨e, he, r, hr, b, hb, o, ho, rfl, rfl, rfl, rfl⟩
 
-/-- What an entry reports: its key, the fields of an observation under that key, and reaches
-that each reach the key. -/
-theorem toolchainEntry_sound {observations : Array (ToolchainReach × ExecutionBoundary ×
-    ToolchainOrigin)} {key : ToolchainKey} {t : ToolchainBoundary}
-    (h : toolchainEntry observations key = some t) :
-    t.key = key ∧
-      (∃ x ∈ observations, x.2.1.toolchainKey = key ∧ t.module = x.2.1.module ∧
-        t.replacement = x.2.1.replacement ∧ t.origin = x.2.2) ∧
-      ∀ reach ∈ t.reachedBy, ∃ y ∈ observations, y.1 = reach ∧ y.2.1.toolchainKey = key := by
-  unfold toolchainEntry toolchainEntryOf at h
-  simp only [Option.map_eq_some_iff] at h
-  obtain ⟨⟨n, b, o⟩, hfirst, rfl⟩ := h
-  have hmem := Array.mem_filter.mp (Array.mem_of_getElem? hfirst)
-  have hkey : b.toolchainKey = key := beq_iff_eq.mp hmem.2
-  refine ⟨hkey, ⟨(n, b, o), hmem.1, hkey, rfl, rfl, rfl⟩, ?_⟩
-  intro m hm
-  obtain ⟨y, hy, rfl⟩ := Array.mem_map.mp ((mem_canonicalToolchainReaches _ _).mp hm)
-  have hy := Array.mem_filter.mp hy
-  exact ⟨y, hy.1, rfl, beq_iff_eq.mp hy.2⟩
+/-- An observation's carriers are empty exactly when no boundary of its root carries it. -/
+theorem carriers_isEmpty {x : ToolchainObservation} {r : ExecutionRoot}
+    (hcarriers : x.carriers = (r.boundaries.filter (r.carries · x.boundary)).map
+      (·.toolchainKey)) :
+    x.carriers.isEmpty = true ↔ ∀ a ∈ r.boundaries, r.carries a x.boundary = false := by
+  rw [hcarriers, Array.isEmpty_iff, Array.map_eq_empty_iff, Array.filter_eq_empty_iff]
+  simp
 
-/-- Every observation under a key yields that key's entry, which lists the observation's
-environment and root. -/
-theorem toolchainEntry_complete {observations : Array (ToolchainReach × ExecutionBoundary ×
-    ToolchainOrigin)} {x : ToolchainReach × ExecutionBoundary × ToolchainOrigin}
-    (hx : x ∈ observations) :
-    ∃ t, toolchainEntry observations x.2.1.toolchainKey = some t ∧ x.1 ∈ t.reachedBy := by
-  have hreach : x ∈ observations.filter (·.2.1.toolchainKey == x.2.1.toolchainKey) :=
+/-- A key is folded exactly when every observation under it has a carrier. -/
+theorem toolchainFolded_eq_false {observations : Array ToolchainObservation}
+    {key : ToolchainKey} :
+    toolchainFolded observations key = false ↔
+      ∃ x ∈ observations, x.boundary.toolchainKey = key ∧ x.carriers.isEmpty = true := by
+  simp only [toolchainFolded, Array.all_eq_false', Array.mem_filter, beq_iff_eq,
+    Bool.not_eq_true']
+  constructor
+  · rintro ⟨x, ⟨hx, hkey⟩, empty⟩
+    exact ⟨x, hx, hkey, by simpa using empty⟩
+  · rintro ⟨x, hx, hkey, empty⟩
+    exact ⟨x, ⟨hx, hkey⟩, by simpa using empty⟩
+
+/-- The implementations of a key are the constants of the observations under folded keys that
+a boundary under the key carries. -/
+theorem mem_toolchainImplementations {observations : Array ToolchainObservation}
+    {key : ToolchainKey} {n : Lean.Name} :
+    n ∈ toolchainImplementations observations key ↔
+      ∃ x ∈ observations, toolchainFolded observations x.boundary.toolchainKey = true ∧
+        key ∈ x.carriers ∧ x.boundary.name = n := by
+  simp only [toolchainImplementations, mem_canonicalNames, Array.mem_map, Array.mem_filter,
+    Array.mem_flatMap, beq_iff_eq]
+  constructor
+  · rintro ⟨⟨k, m⟩, ⟨⟨x, ⟨hx, folded⟩, c, hc, same⟩, rfl⟩, rfl⟩
+    simp only [Prod.mk.injEq] at same
+    obtain ⟨rfl, rfl⟩ := same
+    exact ⟨x, hx, folded, hc, rfl⟩
+  · rintro ⟨x, hx, folded, hc, rfl⟩
+    exact ⟨(key, x.boundary.name), ⟨⟨x, ⟨hx, folded⟩, key, hc, rfl⟩, rfl⟩, rfl⟩
+
+/-- What an entry reports: its key, which is not folded, the fields of an observation under that
+key, reaches that each reach the key, and the key's implementations. -/
+theorem toolchainEntry_sound {observations : Array ToolchainObservation} {key : ToolchainKey}
+    {t : ToolchainBoundary} (h : toolchainEntry observations key = some t) :
+    t.key = key ∧ toolchainFolded observations key = false ∧
+      (∃ x ∈ observations, x.boundary.toolchainKey = key ∧ t.module = x.boundary.module ∧
+        t.replacement = x.boundary.replacement ∧ t.origin = x.origin) ∧
+      (∀ reach ∈ t.reachedBy, ∃ y ∈ observations, y.reach = reach ∧
+        y.boundary.toolchainKey = key) ∧
+      t.implementations = toolchainImplementations observations key := by
+  unfold toolchainEntry at h
+  split at h
+  · cases h
+  next unfolded =>
+    unfold toolchainEntryOf at h
+    simp only [Option.map_eq_some_iff] at h
+    obtain ⟨x, hfirst, rfl⟩ := h
+    have hmem := Array.mem_filter.mp (Array.mem_of_getElem? hfirst)
+    have hkey : x.boundary.toolchainKey = key := beq_iff_eq.mp hmem.2
+    refine ⟨hkey, by simpa using unfolded, ⟨x, hmem.1, hkey, rfl, rfl, rfl⟩, ?_, rfl⟩
+    intro m hm
+    obtain ⟨y, hy, rfl⟩ := Array.mem_map.mp ((mem_canonicalToolchainReaches _ _).mp hm)
+    have hy := Array.mem_filter.mp hy
+    exact ⟨y, hy.1, rfl, beq_iff_eq.mp hy.2⟩
+
+/-- Every observation under a key that is not folded yields that key's entry, which lists the
+observation's environment and root. -/
+theorem toolchainEntry_complete {observations : Array ToolchainObservation}
+    {x : ToolchainObservation} (hx : x ∈ observations)
+    (unfolded : toolchainFolded observations x.boundary.toolchainKey = false) :
+    ∃ t, toolchainEntry observations x.boundary.toolchainKey = some t ∧ x.reach ∈ t.reachedBy := by
+  have hreach :
+      x ∈ observations.filter (·.boundary.toolchainKey == x.boundary.toolchainKey) :=
     Array.mem_filter.mpr ⟨hx, beq_self_eq_true _⟩
-  obtain ⟨⟨n, b, o⟩, hfirst⟩ : ∃ y,
-      (observations.filter (·.2.1.toolchainKey == x.2.1.toolchainKey))[0]? = some y := by
-    cases h : (observations.filter (·.2.1.toolchainKey == x.2.1.toolchainKey))[0]? with
+  obtain ⟨y, hfirst⟩ : ∃ y,
+      (observations.filter (·.boundary.toolchainKey == x.boundary.toolchainKey))[0]? =
+        some y := by
+    cases h : (observations.filter (·.boundary.toolchainKey == x.boundary.toolchainKey))[0]? with
     | none =>
         have := Array.getElem?_eq_none_iff.mp h
         have := Array.size_pos_of_mem hreach
         omega
     | some y => exact ⟨y, rfl⟩
-  refine ⟨_, by simp only [toolchainEntry, toolchainEntryOf, hfirst, Option.map_some]; rfl, ?_⟩
+  refine ⟨_, by simp only [toolchainEntry, unfolded, toolchainEntryOf, hfirst, Option.map_some,
+    Bool.false_eq_true, ↓reduceIte]; rfl, ?_⟩
   exact (mem_canonicalToolchainReaches _ _).mpr (Array.mem_map.mpr ⟨x, hreach, rfl⟩)
 
 private theorem nodup_map_filterMap {α β : Type} {f : α → Option β} {g : β → α} {l : List α}
@@ -1130,55 +1241,158 @@ theorem toolchainBase_keys_nodup (environments : Array (String × ExecutionInven
   exact nodup_map_filterMap (canonicalToolchainKeys_nodup _)
     (fun _ _ h => (toolchainEntry_sound h).1)
 
+/-- Every entry of the toolchain trusted base is the entry of its own key. -/
+theorem toolchainBase_entry {environments : Array (String × ExecutionInventory)}
+    {t : ToolchainBoundary} (ht : t ∈ toolchainBase environments) :
+    toolchainEntry (toolchainObservations environments) t.key = some t := by
+  obtain ⟨key, -, hentry⟩ := Array.mem_filterMap.mp (toolchainBase_eq environments ▸ ht)
+  exact (toolchainEntry_sound hentry).1 ▸ hentry
+
+/-- The entry of an observation's key that is not folded is in the toolchain trusted base, and
+lists the observation's environment and root. -/
+theorem toolchainBase_complete {environments : Array (String × ExecutionInventory)}
+    {x : ToolchainObservation} (hx : x ∈ toolchainObservations environments)
+    (unfolded : toolchainFolded (toolchainObservations environments)
+      x.boundary.toolchainKey = false) :
+    ∃ t ∈ toolchainBase environments, t.key = x.boundary.toolchainKey ∧ x.reach ∈ t.reachedBy := by
+  obtain ⟨t, ht, hreach⟩ := toolchainEntry_complete hx unfolded
+  exact ⟨t, toolchainBase_eq environments ▸ Array.mem_filterMap.mpr ⟨x.boundary.toolchainKey,
+    (mem_canonicalToolchainKeys _ _).mpr (Array.mem_map.mpr ⟨_, hx, rfl⟩), ht⟩,
+    (toolchainEntry_sound ht).1, hreach⟩
+
+/-- The observation of a toolchain-owned boundary of a root of the labeled accounts. -/
+theorem observation_of_boundary {environments : Array (String × ExecutionInventory)}
+    {e : String × ExecutionInventory} (he : e ∈ environments) {r : ExecutionRoot}
+    (hr : r ∈ e.2.roots) {b : ExecutionBoundary} (hb : b ∈ r.boundaries)
+    {o : ToolchainOrigin} (ho : b.toolchainOrigin? = some o) :
+    ({ reach := (e.1, r.name), boundary := b, origin := o
+       carriers := (r.boundaries.filter (r.carries · b)).map (·.toolchainKey) } :
+        ToolchainObservation) ∈ toolchainObservations environments :=
+  mem_toolchainObservations.mpr ⟨e, he, r, hr, rfl, hb, ho, rfl⟩
+
 /-- Required meaning of the toolchain trusted-base report over the labeled execution accounts
-of one audit: each toolchain-owned boundary of every account appears in exactly one entry, under
-its constant and kind, which records the environment and root that reach it; every entry is such
-a boundary with that boundary's module, replacement and origin, and every environment and root
-it lists reaches it. -/
+of one audit. No two entries share a constant and kind. Each toolchain-owned boundary of every
+account is in the report for the environment and root that reach it, in exactly one of two ways:
+as the boundary of the one entry under its constant and kind, which lists that environment and
+root; or, when no entry has its constant and kind, as an implementation named by the entry of a
+boundary of the same root that carries it (`ExecutionRoot.carries`), which lists that
+environment and root. Its constant and kind have no entry exactly when every root of the audit
+that reaches it holds a boundary that carries it. Every entry is such a boundary with that
+boundary's module, replacement and origin, every environment and root it lists reaches it, and
+every implementation it names is a toolchain-owned boundary without an entry that a boundary
+under the entry's key carries in some root. -/
 def ToolchainBaseContract
     (base : Array (String × ExecutionInventory) → Array ToolchainBoundary) : Prop :=
   ∀ environments,
     ((base environments).map (·.key)).toList.Nodup ∧
     (∀ e ∈ environments, ∀ r ∈ e.2.roots, ∀ b ∈ r.boundaries, b.toolchainOrigin?.isSome →
-      ∃ t ∈ base environments, t.key = b.toolchainKey ∧ (e.1, r.name) ∈ t.reachedBy ∧
-        ∀ t' ∈ base environments, t'.key = b.toolchainKey → t' = t) ∧
+      (∃ t ∈ base environments, t.key = b.toolchainKey ∧ (e.1, r.name) ∈ t.reachedBy ∧
+        ∀ t' ∈ base environments, t'.key = b.toolchainKey → t' = t) ∨
+      ((∀ t ∈ base environments, t.key ≠ b.toolchainKey) ∧
+        ∃ t ∈ base environments, (e.1, r.name) ∈ t.reachedBy ∧ b.name ∈ t.implementations ∧
+          ∃ a ∈ r.boundaries, a.toolchainKey = t.key ∧ r.carries a b = true)) ∧
+    (∀ e ∈ environments, ∀ r ∈ e.2.roots, ∀ b ∈ r.boundaries, b.toolchainOrigin?.isSome →
+      ((∃ t ∈ base environments, t.key = b.toolchainKey) ↔
+        ∃ e' ∈ environments, ∃ r' ∈ e'.2.roots, ∃ b' ∈ r'.boundaries,
+          b'.toolchainOrigin?.isSome ∧ b'.toolchainKey = b.toolchainKey ∧
+            ∀ a ∈ r'.boundaries, r'.carries a b' = false)) ∧
     (∀ t ∈ base environments, ∃ e ∈ environments, ∃ r ∈ e.2.roots, ∃ b ∈ r.boundaries,
       b.toolchainKey = t.key ∧ b.module = t.module ∧ b.replacement = t.replacement ∧
         b.toolchainOrigin? = some t.origin) ∧
     (∀ t ∈ base environments, ∀ reach ∈ t.reachedBy, ∃ e ∈ environments, e.1 = reach.1 ∧
       ∃ r ∈ e.2.roots, r.name = reach.2 ∧
-        ∃ b ∈ r.boundaries, b.toolchainKey = t.key ∧ b.toolchainOrigin?.isSome)
+        ∃ b ∈ r.boundaries, b.toolchainKey = t.key ∧ b.toolchainOrigin?.isSome) ∧
+    (∀ t ∈ base environments, ∀ n ∈ t.implementations, ∃ e ∈ environments, ∃ r ∈ e.2.roots,
+      ∃ a ∈ r.boundaries, ∃ b ∈ r.boundaries, a.toolchainKey = t.key ∧ b.name = n ∧
+        b.toolchainOrigin?.isSome ∧ r.carries a b = true ∧
+          ∀ t' ∈ base environments, t'.key ≠ b.toolchainKey)
+
+/-- No entry of the toolchain trusted base has a folded key. -/
+private theorem toolchainBase_unfolded {environments : Array (String × ExecutionInventory)}
+    {t : ToolchainBoundary} (ht : t ∈ toolchainBase environments) :
+    toolchainFolded (toolchainObservations environments) t.key = false :=
+  (toolchainEntry_sound (toolchainBase_entry ht)).2.1
 
 /-- The gate reports the toolchain trusted base through this registration, whose `run` is
-exactly `toolchainBase`. It does not establish that the toolchain's code is correct. -/
+exactly `toolchainBase`. It does not establish that the toolchain's code is correct, or that
+the collector recorded which constant Lean compiles through which helper truthfully. -/
 theorem checked_toolchainBase : Regula.ExecutableContract toolchainBase ToolchainBaseContract := by
-  refine ⟨fun environments => ⟨toolchainBase_keys_nodup environments, ?_, ?_, ?_⟩⟩
+  refine ⟨fun environments => ⟨toolchainBase_keys_nodup environments, ?_, ?_, ?_, ?_, ?_⟩⟩
   · intro e he r hr b hb ho
     obtain ⟨o, ho⟩ := Option.isSome_iff_exists.mp ho
-    have hx : ((e.1, r.name), b, o) ∈ toolchainObservations environments :=
-      mem_toolchainObservations.mpr ⟨e, he, r, hr, rfl, hb, ho⟩
-    obtain ⟨t, ht, hreach⟩ := toolchainEntry_complete hx
-    have hkey := (toolchainEntry_sound ht).1
-    have hmem : t ∈ toolchainBase environments :=
-      toolchainBase_eq environments ▸ Array.mem_filterMap.mpr ⟨b.toolchainKey,
-        (mem_canonicalToolchainKeys _ _).mpr (Array.mem_map.mpr ⟨_, hx, rfl⟩), ht⟩
-    refine ⟨t, hmem, hkey, hreach, fun t' ht' hkey' => ?_⟩
-    have nodup := toolchainBase_keys_nodup environments
-    rw [Array.toList_map] at nodup
-    exact eq_of_nodup_map nodup (Array.mem_toList_iff.mpr ht') (Array.mem_toList_iff.mpr hmem)
-      (hkey'.trans hkey.symm)
+    have hx := observation_of_boundary he hr hb ho
+    cases hfolded : toolchainFolded (toolchainObservations environments) b.toolchainKey
+    · obtain ⟨t, hmem, hkey, hreach⟩ := toolchainBase_complete hx hfolded
+      refine Or.inl ⟨t, hmem, hkey, hreach, fun t' ht' hkey' => ?_⟩
+      have nodup := toolchainBase_keys_nodup environments
+      rw [Array.toList_map] at nodup
+      exact eq_of_nodup_map nodup (Array.mem_toList_iff.mpr ht') (Array.mem_toList_iff.mpr hmem)
+        (hkey'.trans hkey.symm)
+    · refine Or.inr ⟨fun t ht same => ?_, ?_⟩
+      · have := toolchainBase_unfolded ht
+        rw [same, hfolded] at this
+        cases this
+      -- The observation is carried: its key is folded, so it has a carrier `a`.
+      have carried : ((r.boundaries.filter (r.carries · b)).map (·.toolchainKey)).isEmpty =
+          false := by
+        cases empty : ((r.boundaries.filter (r.carries · b)).map (·.toolchainKey)).isEmpty
+        · rfl
+        · have := toolchainFolded_eq_false.mpr ⟨_, hx, rfl, empty⟩
+          rw [hfolded] at this
+          cases this
+      obtain ⟨k, hk⟩ := Array.isEmpty_eq_false_iff_exists_mem.mp carried
+      obtain ⟨a, ha, rfl⟩ := Array.mem_map.mp hk
+      obtain ⟨ha, carries⟩ := Array.mem_filter.mp ha
+      obtain ⟨-, unfoldable, -, owner, -⟩ := ExecutionRoot.carries_spec carries
+      -- The carrier has the same origin, and nothing carries it, since it is not foldable.
+      have hxa := observation_of_boundary he hr ha (owner.trans ho)
+      have uncarried : ∀ a' ∈ r.boundaries, r.carries a' a = false := fun a' _ => by
+        cases h : r.carries a' a
+        · rfl
+        · rw [(ExecutionRoot.carries_spec h).1] at unfoldable
+          cases unfoldable
+      have aUnfolded := toolchainFolded_eq_false.mpr ⟨_, hxa, rfl,
+        (carriers_isEmpty (r := r) rfl).mpr uncarried⟩
+      obtain ⟨t, hmem, hkey, hreach⟩ := toolchainBase_complete hxa aUnfolded
+      refine ⟨t, hmem, hreach, ?_, a, ha, hkey.symm, carries⟩
+      rw [(toolchainEntry_sound (toolchainBase_entry hmem)).2.2.2.2, hkey]
+      exact mem_toolchainImplementations.mpr ⟨_, hx, hfolded, hk, rfl⟩
+  · intro e he r hr b hb ho
+    constructor
+    · rintro ⟨t, ht, hkey⟩
+      obtain ⟨y, hy, hykey, empty⟩ := toolchainFolded_eq_false.mp (toolchainBase_unfolded ht)
+      obtain ⟨e', he', r', hr', -, hb', ho', hcarriers⟩ := mem_toolchainObservations.mp hy
+      exact ⟨e', he', r', hr', y.boundary, hb', by simp [ho'], hykey.trans hkey,
+        (carriers_isEmpty hcarriers).mp empty⟩
+    · rintro ⟨e', he', r', hr', b', hb', ho', hkey, uncarried⟩
+      obtain ⟨o', ho'⟩ := Option.isSome_iff_exists.mp ho'
+      have hy := observation_of_boundary he' hr' hb' ho'
+      have unfolded := toolchainFolded_eq_false.mpr ⟨_, hy, rfl,
+        (carriers_isEmpty (r := r') rfl).mpr uncarried⟩
+      obtain ⟨t, ht, htkey, -⟩ := toolchainBase_complete hy unfolded
+      exact ⟨t, ht, htkey.trans hkey⟩
   · intro t ht
-    obtain ⟨key, -, hentry⟩ := Array.mem_filterMap.mp (toolchainBase_eq environments ▸ ht)
-    obtain ⟨hkey, ⟨x, hx, hxkey, hmodule, hreplacement, horigin⟩, -⟩ := toolchainEntry_sound hentry
-    obtain ⟨e, he, r, hr, -, hb, ho⟩ := mem_toolchainObservations.mp hx
-    exact ⟨e, he, r, hr, x.2.1, hb, hxkey.trans hkey.symm, hmodule.symm, hreplacement.symm,
-      horigin ▸ ho⟩
+    obtain ⟨hkey, -, ⟨x, hx, hxkey, hmodule, hreplacement, horigin⟩, -⟩ :=
+      toolchainEntry_sound (toolchainBase_entry ht)
+    obtain ⟨e, he, r, hr, -, hb, ho, -⟩ := mem_toolchainObservations.mp hx
+    exact ⟨e, he, r, hr, x.boundary, hb, hxkey, hmodule.symm, hreplacement.symm, horigin ▸ ho⟩
   · intro t ht reach hreach
-    obtain ⟨key, -, hentry⟩ := Array.mem_filterMap.mp (toolchainBase_eq environments ▸ ht)
-    obtain ⟨hkey, -, hreaches⟩ := toolchainEntry_sound hentry
+    obtain ⟨-, -, -, hreaches, -⟩ := toolchainEntry_sound (toolchainBase_entry ht)
     obtain ⟨y, hy, rfl, hykey⟩ := hreaches reach hreach
-    obtain ⟨e, he, r, hr, hname, hb, ho⟩ := mem_toolchainObservations.mp hy
-    exact ⟨e, he, by rw [hname], r, hr, by rw [hname], y.2.1, hb, hykey.trans hkey.symm,
-      by simp [ho]⟩
+    obtain ⟨e, he, r, hr, hname, hb, ho, -⟩ := mem_toolchainObservations.mp hy
+    exact ⟨e, he, by rw [hname], r, hr, by rw [hname], y.boundary, hb, hykey, by simp [ho]⟩
+  · intro t ht n hn
+    obtain ⟨-, -, -, -, himpl⟩ := toolchainEntry_sound (toolchainBase_entry ht)
+    rw [himpl] at hn
+    obtain ⟨x, hx, folded, hk, rfl⟩ := mem_toolchainImplementations.mp hn
+    obtain ⟨e, he, r, hr, -, hb, ho, hcarriers⟩ := mem_toolchainObservations.mp hx
+    rw [hcarriers] at hk
+    obtain ⟨a, ha, hakey⟩ := Array.mem_map.mp hk
+    obtain ⟨ha, carries⟩ := Array.mem_filter.mp ha
+    refine ⟨e, he, r, hr, a, ha, x.boundary, hb, hakey, rfl, by simp [ho], carries,
+      fun t' ht' same => ?_⟩
+    have := toolchainBase_unfolded ht'
+    rw [same, folded] at this
+    cases this
 
 end RegulaPolicy
