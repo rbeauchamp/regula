@@ -1226,9 +1226,10 @@ def run (args : List String) : IO Unit := do
       whose source paths are tracked files, and the controls of that check gave the expected \
       results; the example package in audit/ accepted \
       fresh; every docs/ Lean fence and every lean block of the Verso standard, which built in \
-      this run and rendered, against root-package build output compiled, in a copy with no \
-      earlier build output, from files equal to those checked: in this run or, where the \
-      docFenceAudit line says so, by the first acceptance step with every SHA-256 equal; every rule ID in the prose `Regula.Prose` reads in the rendered \
+      this run and rendered, against root-package build output compiled from files equal to \
+      those checked: in this run, in a copy with no earlier build output or, where the \
+      docFenceAudit line says so, partly by the first acceptance step in such a copy of its own, \
+      every SHA-256 equal, and the rest in this run against those artifacts; every rule ID in the prose `Regula.Prose` reads in the rendered \
       standard links to its rule page; inputs equal the accepted ordinary inputs)"
     | .graph => "serialized-graph diagnostic: PASS (not ordinary verification)"
     | .site => "site build and check: PASS (rule-reference artifact in _site; separate from \

@@ -24,9 +24,11 @@ step builds as it did before this decision existed. Either way the step then run
 Lake decides from its own traces whether to use a placed artifact or to compile the module again in
 the copy, and the build still requires exit status 0, no warning, and a trace that records an
 elaboration for each claimed module (`Regula.Checker.Lake.Build.run`), whose log Lake replays when
-it uses the trace. So every compiled artifact of the root package the step reads was compiled, in a
-copy that held no earlier build output, from files equal to those of the copy the step captures and
-checks: in this run, or in the first step whose record `reuse` accepted (`reuse_iff`).
+it uses the trace. So every compiled artifact of the root package the step reads was compiled from
+files equal to those of the copy the step captures and checks: by the first step whose record
+`reuse` accepted (`reuse_iff`), in a copy that held no earlier build output, or in this run, against
+artifacts of these two kinds. A module that this run compiles after the placement is compiled in a
+copy that already holds the placed artifacts, so only the first step's copy started empty.
 
 Assumes:
 - SHA-256 is collision resistant: equal digests are taken to mean equal bytes. The digests are

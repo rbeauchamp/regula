@@ -207,9 +207,10 @@ library and checks its anchors, checklist rows and rule-ID links. With `--accept
 first requires the inputs to equal the accepted ones (`AcceptanceLink.require`), so a missing link,
 or one that is not accepted, refuses at once, before any build. It then places the first acceptance
 step's build output of the modules its claimed build compiles (`claimedClosure`) in the copy before
-its build when `BuildReuse.reuse` accepts the link's record of it. Each compiled artifact of the root package that the fences
-read was compiled, in a copy that held no earlier build output, from files equal to those of this
-copy: in this run, or by that step (`BuildReuse.reuse_iff`). Its output says which. -/
+its build when `BuildReuse.reuse` accepts the link's record of it. Each compiled artifact of the
+root package that the fences read was compiled from files equal to those of this copy: by that
+step, in a copy that held no earlier build output (`BuildReuse.reuse_iff`), or in this run, against
+artifacts of these two kinds. Its output says which. -/
 unsafe def run (args : List String) : IO UInt32 := do
   let options ← parseArgs args {}
   if options.help then IO.println usage; return 0

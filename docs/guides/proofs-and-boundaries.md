@@ -600,10 +600,11 @@ end with exit status 0 and with no warning, and the trace of each claimed module
 elaboration. Lake replays the log of that elaboration, and Lake decides from its traces which
 modules it compiles again in the copy.
 
-Thus a build compiled each artifact of the root package that the fences read in a copy with no
-earlier build output. It compiled it from files that are equal to the files of the copy of the
-fence audit. That build is the build of this run or the build of the first step. The output of the
-fence audit tells which.
+Thus each artifact of the root package that the fences read was compiled from files equal to
+those of the copy of the fence audit. The first step compiled it in a copy with no
+earlier build output, or this run compiled it against artifacts of those two kinds. After a
+placement, this run compiles in a copy that already holds the placed files. The output of the fence
+audit tells which build placed or compiled them.
 
 The fence audit checks the link first, before it builds. So if the link is not there or is not
 accepted, the fence audit refuses immediately and builds nothing.

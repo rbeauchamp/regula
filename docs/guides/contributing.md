@@ -90,9 +90,9 @@ files of the modules that its claimed build compiles. It does this only if each 
 the file that it reads.
 
 If a digest is not there or is different, the fence audit builds the claimed libraries in a
-copy with no build output. Thus the libraries that the fences read were compiled from equal files,
-in a copy with no earlier build output. The output of the fence audit tells which build compiled
-them.
+copy with no build output. Thus the libraries that the fences read were compiled from equal files.
+The first step compiled them in a copy with no earlier build output, or this run compiled them. The
+output of the fence audit tells which build compiled them.
 
 The fence audit checks the record first, before it builds. Thus without an accepted record it
 refuses immediately and builds nothing.
