@@ -2757,6 +2757,10 @@ private theorem FenceEnvironmentPart.mem_all (part : FenceEnvironmentPart) :
     part ∈ FenceEnvironmentPart.all := by
   cases part <;> decide
 
+/-- `FenceEnvironmentPart.all` lists no part twice. -/
+private theorem FenceEnvironmentPart.all_nodup : FenceEnvironmentPart.all.Nodup := by
+  decide
+
 /-- The name of a part in its phase, scratch directory and failures. -/
 private def FenceEnvironmentPart.label : FenceEnvironmentPart → String
   | docFences => "doc-fences"
@@ -2949,6 +2953,10 @@ private def AdopterVariant.all : List AdopterVariant := [toml, lean, relative]
 private theorem AdopterVariant.mem_all (variant : AdopterVariant) :
     variant ∈ AdopterVariant.all := by
   cases variant <;> decide
+
+/-- `AdopterVariant.all` lists no variant twice. -/
+private theorem AdopterVariant.all_nodup : AdopterVariant.all.Nodup := by
+  decide
 
 /-- The name of a variant in its scratch directory and failures. -/
 private def AdopterVariant.label : AdopterVariant → String
@@ -3819,7 +3827,8 @@ private def fenceEnvironmentParts : List (Fin environmentsShards × FenceEnviron
     (environmentsShard 3, .freshChecker)]
 
 /-- `fenceEnvironmentParts` gives every part exactly one shard: its parts are
-`FenceEnvironmentPart.all`, in order. -/
+`FenceEnvironmentPart.all`, in order, which lists every part (`FenceEnvironmentPart.mem_all`) and
+none twice (`FenceEnvironmentPart.all_nodup`). -/
 private theorem fenceEnvironmentParts_parts :
     fenceEnvironmentParts.map (·.2) = FenceEnvironmentPart.all :=
   rfl
@@ -3831,7 +3840,8 @@ private def adopterParts : List (Fin environmentsShards × AdopterVariant) :=
   [(environmentsShard 1, .toml), (environmentsShard 2, .lean), (environmentsShard 2, .relative)]
 
 /-- `adopterParts` gives every variant exactly one shard: its variants are `AdopterVariant.all`, in
-order. -/
+order, which lists every variant (`AdopterVariant.mem_all`) and none twice
+(`AdopterVariant.all_nodup`). -/
 private theorem adopterParts_variants : adopterParts.map (·.2) = AdopterVariant.all :=
   rfl
 
