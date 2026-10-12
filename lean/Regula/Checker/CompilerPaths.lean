@@ -273,28 +273,16 @@ private def phase (repo scratch : FilePath) (test : Case) (negative : Bool) : IO
   let configured ← runProcess scratch "lake" #["update"]
   if !configured.succeeded then
     return #[s!"{test.name}: configuration setup failed:\n{configured.output}"]
-  -- Lean resolves an entire module prefix from one search directory. Supply the unchanged
-  -- toolchain artifacts of the lookalike's root (`Init` or `Lean`) by symlink alongside the
-  -- isolated adopter module; never write into the actual toolchain. Each phase starts in a
-  -- new scratch tree, including the restored control.
+  -- Supply the toolchain's artifacts of the lookalike's root beside the isolated adopter module
+  -- (`exposeToolchainRoot`). Each phase starts in a new scratch tree, including the restored
+  -- control.
   let lookalikeRoot := supportName.getRoot
   let lookalike := decide (RegulaPolicy.ToolchainRoot lookalikeRoot)
   if lookalike then
-    let toolchainLib ← Lean.getLibDir (← Lean.findSysroot)
-    let output := scratch / ".lake" / "build" / "lib" / "lean"
-    let prefixDirectory := lookalikeRoot.toString
-    IO.FS.createDirAll (output / prefixDirectory)
     -- This control deliberately exposes the real toolchain through aliases; it is an input
     -- to the compiler-path classifier, not a project copy accepted for a Lake build.
-    let link (sources : Array FilePath) (directory : FilePath) := do
-      unless sources.isEmpty do
-        let result ← runProcess scratch "ln"
-          (#["-s"] ++ sources.map (·.toString) ++ #[directory.toString])
-        if !result.succeeded then
-          throw <| IO.userError s!"could not expose toolchain control: {result.output}"
-    link (((← toolchainLib.readDir).filter
-      (·.fileName.startsWith s!"{prefixDirectory}.")).map (·.path)) output
-    link ((← (toolchainLib / prefixDirectory).readDir).map (·.path)) (output / prefixDirectory)
+    exposeToolchainRoot scratch (scratch / ".lake" / "build" / "lib" / "lean")
+      lookalikeRoot.toString
   let binary := (repo / ".lake" / "build" / "bin" / "axiomGate").toString
   let check (result : ProcessResult) : Array String := Id.run do
     if negative then

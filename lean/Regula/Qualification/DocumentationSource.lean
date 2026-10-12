@@ -31,7 +31,9 @@ def check (sourceReadOnly : Bool) : IO Unit := do
     -- project's configuration is a `lakefile.lean` that declares the weak-arguments facet of
     -- Regula's shipped `lakefile.lean`, so that build records `Example`'s weak arguments and the
     -- audit establishes the replayed module (RG2003). Each phase then reaches the source refusal it
-    -- tests. Its options and library are those of `prepareCoreProject`'s `lakefile.toml`.
+    -- tests. Its options and library are those of `prepareCoreProject`'s `lakefile.toml`. Only the
+    -- weak-arguments section is copied (`weakArgsDeclarations`): the observer's library and
+    -- `presetup` facet need Regula's own package, and the audit's build installs that facet itself.
     let some facet := Regula.Checker.Lake.weakArgsDeclarations
         (← IO.FS.readFile (root / "lakefile.lean"))
       | throw <| IO.userError "Regula's lakefile has no weak-arguments facet"

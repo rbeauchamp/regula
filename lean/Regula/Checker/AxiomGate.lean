@@ -1012,14 +1012,17 @@ private unsafe def auditSurfaceAt (repo manifestPath : FilePath)
         for moduleName in info.modules do
           if sourceReported.contains moduleName then continue
           sourceReported := sourceReported.insert moduleName
-          let detail := match buildProcess.records.find? (·.1 == moduleName) with
-            | some (_, some record) =>
+          let detail ← match buildProcess.records.find? (·.1 == moduleName) with
+            | some (_, some record) => do
+              -- A macro's module counts as the toolchain's only by its receipt
+              -- (`Observer.toolchainReceipts`), never by its name.
+              let receipts ← Observer.toolchainReceipts report.moduleOrigins record
               let failed := RegulaPolicy.Community.sourceFailures options mathlib
-                (Observer.settings record)
-              if failed.isEmpty then none
-              else some (RegulaPolicy.Community.sourceDetail moduleName failed)
-            | _ => some s!"community-configuration: {moduleName} has no record of Regula's \
-                elaboration observer, so the options its source set are unknown"
+                (Observer.settings receipts record)
+              pure <| if failed.isEmpty then none
+                else some (RegulaPolicy.Community.sourceDetail moduleName failed)
+            | _ => pure <| some s!"community-configuration: {moduleName} has no record of \
+                Regula's elaboration observer, so the options its source set are unknown"
           if let some detail := detail then
             let finding ← IO.ofExcept <| Regula.makeDiagnostic .communityConfiguration
               ⟨target, detail⟩ (.project reportRoot.toString) mode (some surface.claim.toString)
@@ -1422,6 +1425,15 @@ private unsafe def auditFile (repo path : FilePath) (claim : Option Profile)
           return 1
         let .ok compilation := compilationOutcome
           | throw <| IO.userError "unreachable compilation outcome"
+        -- RG2003: what the compilation's messages do not show, from the record of Regula's
+        -- elaboration observer, which the compilation loaded (`Compilation.observerFailures`).
+        if claim.isSome && SourceAudit.compilationPassed compilation then
+          let hidden ← compilation.observerFailures path.toString
+          unless hidden.isEmpty do
+            reportContextFailure .sourceBuild path.toString .freshFile .incomplete [.discovery]
+              ("\n".intercalate (Observer.hiddenReport s!"the compilation of {path}" hidden).toList)
+              composed resultOut sources
+            return 1
         let sourceRejected := !SourceAudit.compilationPassed compilation &&
             SourceAudit.sourceDiagnosticFailure compilation
         -- `none` when the source does not elaborate; otherwise the inspection's outcome, or the

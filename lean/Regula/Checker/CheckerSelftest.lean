@@ -3722,7 +3722,9 @@ private def retainedBuildControl (repo : FilePath) : IO (Array String) :=
   IO.FS.createDirAll (project / "docs")
   Regula.Filesystem.copyFile (repo / "lean-toolchain") (project / "lean-toolchain")
   -- The weak-arguments facet of Regula's shipped `lakefile.lean`, so the ordinary build records
-  -- each module's weak arguments in its trace, as the first acceptance step's build does.
+  -- each module's weak arguments in its trace, as the first acceptance step's build does. Only
+  -- that section is copied (`Lake.weakArgsDeclarations`): the observer's library and `presetup`
+  -- facet need Regula's own package, and the audit's build installs that facet itself.
   let some facet := Lake.weakArgsDeclarations (← IO.FS.readFile (repo / "lakefile.lean"))
     | return #["retained-build/setup: Regula's lakefile has no weak-arguments facet"]
   IO.FS.writeFile (project / "lakefile.lean") <|

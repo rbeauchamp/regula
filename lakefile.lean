@@ -126,7 +126,7 @@ lean_lib «Regula» where
   -- Lean-only checker implementation. Operational checker modules are
   -- separately qualified; they are not part of the conforming proof surface.
   globs := #[.submodules `Regula]
-  needs := #[`@/compilerObservationSource, `@/RegulaObserver:shared]
+  needs := #[`@/compilerObservationSource]
 
 lean_exe «axiomGate» where
   root := `Regula.Checker.AxiomGateMain
@@ -187,7 +187,7 @@ lean_exe «auditApp» where
 -- dependencies' traces stay unchanged. A dependency resolved after this package that declares an
 -- `extraDep` facet replaces this one: Lake resolves a package's `require` lines from the last to
 -- the first, then their dependencies. The audit counts no record when a dependency declares
--- another library facet.
+-- a library or module facet.
 
 /-- The record of the weak arguments `args` of the library `libraryName` of the package
 `packageName`, each name written by its components, so that distinct names give distinct records.
@@ -212,6 +212,8 @@ def weakLeanArgsRecord (packageName libraryName : Lean.Name) (args : Array Strin
     return job.mix <| Job.ofTask <| .pure <| .ok () {
       trace := BuildTrace.ofHash (pureHash record) record }
 
+-- End of Regula's weak-arguments record.
+
 -- Regula's elaboration observer: a Lean plugin that records in each module's `.olean` what a
 -- build's messages do not show (the options its source set, `#guard_msgs` and `#guard_panic`,
 -- silent messages), from which the audit decides RG2003 and RG2006. Its one root module and the
@@ -221,18 +223,21 @@ lean_lib «RegulaObserver» where
   globs := #[.andSubmodules `RegulaObserver]
 
 -- The facet below wraps Lake's own `presetup` module facet, which decides the plugins Lean loads
--- while elaborating a module. For each module of the root package, outside this package's
--- `RegulaObserver` library, it adds the observer's shared library to the plugins and mixes that
--- library's trace into the module's trace, so a module replayed under that trace was elaborated
--- with this observer. The package that declares it is found by the key `__name__` that Lake gives
--- this file in the workspace, whether Regula is the root or a dependency. It replaces a `presetup`
+-- while elaborating a module. For each module of the root package and of this package, outside
+-- this package's `RegulaObserver` library, it adds the observer's shared library to the plugins
+-- and mixes that library's trace into the module's trace, so a module replayed under that trace
+-- was elaborated with this observer. This package's own modules get it whether it is the root or a
+-- dependency, so their trace is the same in both builds, and an adopter that requires a checkout
+-- of it by path does not rebuild that checkout's modules. The package that declares it is found
+-- by the key `__name__` that Lake gives this file in the workspace. It replaces a `presetup`
 -- facet that the root package declares, as Lake inserts the root's facets before those of its
 -- dependencies, and the audit reports that replacement. The audit's own builds install the same
 -- facet themselves (`Regula.Checker.Observer.observerPresetup`), whatever this file declares.
 @[«module_facet»] def elaborationObserver : ModuleFacetDecl :=
   .mk Module.presetupFacet <| mkFacetJobConfig (buildable := false) fun mod => do
     let job ← Module.presetupFacetConfig.run mod
-    if !mod.pkg.isRoot || (mod.pkg.keyName == __name__ && mod.lib.name == `RegulaObserver) then
+    let regula := mod.pkg.keyName == __name__
+    if !(mod.pkg.isRoot || regula) || (regula && mod.lib.name == `RegulaObserver) then
       return job
     let observer := (← findPackageByKey? __name__).bind (·.findLeanLib? `RegulaObserver)
     let shared ← observer.elim

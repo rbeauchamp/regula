@@ -735,8 +735,12 @@ command with an unused `have` is no control: Lean 4.34.1 elaborates the guarded 
 `elabCommandTopLevel` (`Lean/Elab/GuardMsgs.lean` line 200), which lints it, since only a command
 that contains `#guard_msgs` goes unlinted (`Lean/Elab/Command.lean` line 868), and the warning
 the docstring does not expect fails the build with an error (`Lean/Elab/GuardMsgs.lean` line
-248). A one-declaration disable of `linter.missingDocs`, a community linter, is accepted, as is
-the restored module. -/
+248). A one-declaration disable of `linter.missingDocs`, a community linter, is accepted; the same
+disable before a section of two definitions is a violation, as is the option that a macro of the
+adopter's own module `Lean.Adopter` writes, which only the toolchain's authenticated `.olean`
+would license. The `grind` tactic's `set_option` at an accepted value is accepted, as is the
+restored module. The file audit's compilation (`axiomGate --file`) fails a `#guard_msgs` that
+drops a warning with the same `FAIL[elaboration-hidden]`. -/
 private def observerEscapes (repo adopter : FilePath) : IO (Array String) := do
   BuildLintQualification.setup repo adopter
   let originals ← leanOriginals adopter
@@ -787,8 +791,56 @@ private def observerEscapes (repo adopter : FilePath) : IO (Array String) := do
   write <| "-- The control's reason: a declaration the documentation linter may skip.\n\
     set_option linter.missingDocs false in\ntheorem undocumented : True := trivial"
   failures := failures ++ (← expect adopter (accepted "observer/community-disable"))
+  -- Lean's `set_option … in` opens a section around the command and closes it after; the
+  -- command's own `section` takes that `end`, so the disable covers both definitions.
+  write <| "-- The control's reason: a section the documentation linter skips.\n\
+    set_option linter.missingDocs false in\nsection\n\ndef first : Nat := 0\n\n\
+    def second : Nat := 1\n\nend"
+  failures := failures ++ (← expect adopter {
+      label := "observer/community-disable-section", exitCode := 1,
+      contains := #["RG2006", "Widget.Additional:10:11: set_option linter.missingDocs false",
+        "regula lint: VIOLATION (exit 1)"],
+      excludes := #["FAIL[elaboration-hidden]"] })
+  -- A module of the adopter under the toolchain's root name is not the toolchain: the macro's
+  -- module has no `.olean` in the toolchain's library. The adopter's build output supplies the
+  -- toolchain's `Lean` modules beside it (`exposeToolchainRoot`); without them its `Lean` directory
+  -- hides the toolchain's, and the audit's worker cannot load `Lean.Elab.Command` (RG2001).
+  let impostor := adopter / "Lean" / "Adopter.lean"
+  write "adopterLoose theorem loosened : True := trivial"
+  IO.FS.createDirAll (adopter / "Lean")
+  IO.FS.writeFile impostor "/-! An adopter module under the toolchain's root name. -/\n\n\
+    /-- Sets `autoImplicit` for a command. -/\nmacro \"adopterLoose \" c:command : command =>\n  \
+    `(command| set_option autoImplicit true in $c)\n"
+  mutate (adopter / "lakefile.lean") "globs := #[.andSubmodules `Widget]"
+    "globs := #[.andSubmodules `Widget, .one `Lean.Adopter]"
+  mutate additional "/-! A configured module" "import Lean.Adopter\n/-! A configured module"
+  exposeToolchainRoot adopter (adopter / ".lake" / "build" / "lib" / "lean") "Lean"
+  failures := failures ++ (← expect adopter {
+      label := "observer/name-only-toolchain", exitCode := 1,
+      contains := #["RG2006",
+        "Widget.Additional:10:0: set_option autoImplicit true, written by a macro of Lean.Adopter",
+        "regula lint: VIOLATION (exit 1)"],
+      excludes := #["FAIL[elaboration-hidden]"] })
+  Regula.Filesystem.removePath .directory (adopter / "Lean")
+  -- The `grind` tactic's own `set_option` form, at a value RG2006 accepts.
+  write "/-- A control. -/\ntheorem grindSet (a : Nat) : a + 0 = a := by\n  \
+    grind => set_option maxHeartbeats 400000 in skip"
+  failures := failures ++ (← expect adopter (accepted "observer/grind-option"))
   restore adopter originals
   failures := failures ++ (← expect adopter (accepted "observer/restored"))
+  -- The file audit's compilation loads the observer too, and its record decides the same way. The
+  -- file is outside the claimed library, so the claimed build that precedes it passes.
+  let standalone := adopter / "Standalone.lean"
+  IO.FS.writeFile standalone "#guard_msgs (drop warning) in\n/-- A control. -/\n\
+    def guardedUnused (unused : Nat) : Nat := 0\n"
+  failures := failures ++ (← assess {
+      label := "observer/file-hidden", exitCode := 3,
+      contains := #["FAIL[elaboration-hidden]", "the compilation of", "(RG2003)",
+        s!"Standalone.lean:1:0: {guardMsgs}"],
+      excludes := #[s!"file audit: {acceptanceLabel}", "the claimed build"] }
+    (← fileAudit adopter "Standalone.lean"))
+  Regula.Filesystem.removePath .file standalone
+  restore adopter originals
   return failures
 
 /-- `lakefile.lean` adopter, the fifth part: the configuration and invocation exit classes, an

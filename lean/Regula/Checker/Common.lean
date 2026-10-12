@@ -70,6 +70,25 @@ def runProcess (repo : FilePath) (cmd : String) (args : Array String)
     { cmd, args, cwd := some repo, env })
   return { exitCode := result.exitCode, stdout := result.stdout, stderr := result.stderr }
 
+/-- Supply the toolchain's artifacts under the module root `root` (`Init` or `Lean`) by symlink in
+the build output `output` of a project at `cwd`, beside the project's own modules under that root
+that a control places there. Lean resolves a module from the first search directory that has a
+directory or file of its root's name (`SearchPath.findWithExt`, `Lean/Util/Path.lean` lines 61 to
+65), so such a module hides the toolchain's modules under that root unless they are there too.
+Nothing is written into the toolchain, and `Regula.Filesystem.removeOwn` removes each link, not
+the file it points to. -/
+def exposeToolchainRoot (cwd output : FilePath) (root : String) : IO Unit := do
+  let toolchainLib ← Lean.getLibDir (← Lean.findSysroot)
+  IO.FS.createDirAll (output / root)
+  -- One `ln` per directory links every source under its own file name.
+  let link (sources : Array FilePath) (directory : FilePath) := do
+    unless sources.isEmpty do
+      let result ← runProcess cwd "ln" (#["-s"] ++ sources.map (·.toString) ++ #[directory.toString])
+      if !result.succeeded then
+        throw <| IO.userError s!"could not expose toolchain control: {result.output}"
+  link (((← toolchainLib.readDir).filter (·.fileName.startsWith s!"{root}.")).map (·.path)) output
+  link ((← (toolchainLib / root).readDir).map (·.path)) (output / root)
+
 /-- The SHA-256 digest of the file at `path`, as 64 lowercase hexadecimal digits, computed in `cwd`
 by the trusted external `shasum -a 256`; any other output fails. -/
 def sha256File (cwd path : FilePath) : IO String := do

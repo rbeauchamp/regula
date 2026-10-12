@@ -1237,16 +1237,26 @@ def lakefileEncoderName : Name := `weakLeanArgsRecord
 break before it. -/
 def weakArgsDeclarationsMarker : String := "\n-- Regula's weak-arguments record."
 
+/-- The line that closes the weak-arguments declarations of Regula's `lakefile.lean`, with the line
+break before it. -/
+def weakArgsDeclarationsEnd : String := "\n-- End of Regula's weak-arguments record."
+
 /-- The weak-arguments declarations of the text `shipped` of Regula's `lakefile.lean`: everything
-from `weakArgsDeclarationsMarker` to the end of the file, which declares the encoder
-`lakefileEncoderName` and the facet `regulaFacetName`, or none when the marker is not there exactly
-once. The facet records the weak arguments of the root package's libraries, so a fixture project
-whose own `lakefile.lean` ends with this text records them in each module's trace as Regula's own
-build does, and an unmarked audit can establish a module it replays from that build. -/
+from `weakArgsDeclarationsMarker` to `weakArgsDeclarationsEnd`, both included, with a final line
+break, which declares the encoder `lakefileEncoderName` and the facet `regulaFacetName` and nothing
+after them, or none unless each marker is there exactly once, the end after the start. The facet
+records the weak arguments of the root package's libraries, so a fixture project whose own
+`lakefile.lean` ends with this text records them in each module's trace as Regula's own build does,
+and an unmarked audit can establish a module it replays from that build. -/
 def weakArgsDeclarations (shipped : String) : Option String :=
   match shipped.splitOn weakArgsDeclarationsMarker with
-  | [_, declarations] => some (weakArgsDeclarationsMarker ++ declarations)
+  | [_, rest] =>
+    match rest.splitOn weakArgsDeclarationsEnd with
+    | [declarations, _] =>
+      some (weakArgsDeclarationsMarker ++ declarations ++ weakArgsDeclarationsEnd ++ "\n")
+    | _ => none
   | _ => none
+
 
 /-- Whether the kernel admits `value`, of type `type`, as equal to `weakArgsRecordJson` by
 `Eq.refl`: it adds `value` to `env` as a definition, then that theorem, and discards the result. A
@@ -1687,12 +1697,14 @@ def Build.runObserved (build : Build) (repo : FilePath) (targets : Array Target)
             pure (ws.addLibraryFacetConfig (weakArgsExtraDep existing),
               ({} : NameMap LeanOptions).insert ws.root.baseName options)
           | none => pure (ws, {})
-        -- Every build loads Regula's elaboration observer into the root package's modules, from
-        -- the running Regula, whatever facet the workspace configures.
+        -- Every build loads Regula's elaboration observer into the modules of the root package and
+        -- of the running Regula outside the observer's library, from the running Regula, whatever
+        -- facet the workspace configures, as Regula's `lakefile.lean` does in an ordinary build.
         let (plugin, pluginFile, regula?) ← Observer.observerPlugin ws
-        let own (mod : _root_.Lake.Module) :=
-          regula? == some mod.pkg.keyName && mod.lib.name == Observer.observerLibrary
-        let ws := ws.addModuleFacetConfig (Observer.observerPresetup plugin own)
+        let observed (mod : _root_.Lake.Module) :=
+          let regula := regula? == some mod.pkg.keyName
+          (mod.pkg.isRoot || regula) && !(regula && mod.lib.name == Observer.observerLibrary)
+        let ws := ws.addModuleFacetConfig (Observer.observerPresetup plugin observed)
         let fetch := observedFetch ws jobLogs (_root_.Lake.buildSpecs specs) (fun built => store.set (some built))
         ws.runBuild fetch {
           out := .stream out, ansiMode := .noAnsi, showSuccess := true, leanOptOverrides,
@@ -1715,7 +1727,7 @@ def Build.runObserved (build : Build) (repo : FilePath) (targets : Array Target)
             | .ok record => pure record
             | .error _ => pure none
           records.modify (·.push (mod.name, record))
-          observer.modify (· ++ Observer.elaborationFailures mod.name loaded record)
+          observer.modify (· ++ Observer.elaborationFailures mod.name.toString loaded record)
         let jobs ← jobLogs.get
         if let some elaborated := elaborated then
           elaborated.modify (· ++ (modules.map (·.name)).filter (elaboratedIn jobs))
@@ -1808,12 +1820,7 @@ def checkedFailure (build : CheckedBuild) (mode : String) : Option (Array String
         audit elaborates it again."] ++
       build.reused.map (s!"not established: {·}")
     let hidden := if build.observer.isEmpty then #[] else
-      #[s!"FAIL[elaboration-hidden]: the claimed build {mode} is not established warning-free \
-        (RG2003): Regula's elaboration observer recorded, in a claimed module, a command that \
-        drops or replaces the messages of the commands it runs, or a warning or error that Lean \
-        keeps out of the build's output, or it did not observe the module's elaboration. \
-        Remove `#guard_msgs` and `#guard_panic` from the claimed modules, and fix what the \
-        silent message reports."] ++ build.observer
+      Observer.hiddenReport s!"the claimed build {mode}" build.observer
     return some (reused ++ hidden)
   let diagnostics :=
     if !build.unparsed.isEmpty then

@@ -18,6 +18,7 @@ import Lean.Meta.Eqns
 import Lean.Meta.RecExt
 import Lean.ProjFns
 import Lean.Util.FoldConsts
+import Lean.Util.Path
 import Regula.Report
 import Regula.Contract
 import Regula.MaterialClaim
@@ -95,6 +96,31 @@ namespace Regula.Probe
 open Lean Elab Command
 open RegulaPolicy (DeclarationKind BoundaryKind Correspondence CorrespondenceTerms DefeqComparison
   KernelAnswer Safety Reducibility RecursionOrigin)
+
+/-! ## Toolchain ownership of a loaded module
+
+Whether a module that an environment loaded is the pinned toolchain's own: a module's name does not
+establish it, since an adopter or a dependency can supply a module named `Init.…`, `Std.…` or
+`Lean.…`. The receipt (`RegulaPolicy.ToolchainOrigin`) holds when the `.olean` file the module was
+loaded from is the module's `.olean` in the toolchain's library directory. The execution walk
+(this module) and the RG2006 decision over the options a macro wrote in a claimed module's
+source (`Regula.Checker.Observer.settings`) take toolchain ownership from this receipt alone.
+
+The filesystem's resolution of the two paths (`IO.FS.realPath`) is a trusted observation. -/
+
+/-- The receipt that `moduleName`, loaded from the `.olean` file `olean`, is the module of that name
+in the toolchain's library directory `toolchainLib`: the name is under `Init`, `Std` or `Lean`,
+that directory has the module's `.olean`, and the two files resolve to the same path
+(`RegulaPolicy.admitToolchainOrigin`); none otherwise. -/
+def toolchainOrigin? (toolchainLib : System.FilePath) (moduleName : Lean.Name)
+    (olean : System.FilePath) :
+    IO (Option RegulaPolicy.ToolchainOrigin) := do
+  unless decide (RegulaPolicy.ToolchainRoot moduleName.getRoot) do return none
+  let expected := Lean.modToFilePath toolchainLib moduleName "olean"
+  unless ← expected.pathExists do return none
+  let actual ← IO.FS.realPath olean
+  let expected ← IO.FS.realPath expected
+  return (RegulaPolicy.admitToolchainOrigin moduleName actual.toString expected.toString).toOption
 
 /-- Compatibility name for the shared closed constant-kind mapping. -/
 abbrev kindOf := Regula.Collect.kindOf
@@ -1193,20 +1219,13 @@ def environmentReport (modules : List Name)
     -- can supply Init.*, Std.* or Lean.* modules. Resolve each candidate once, and require
     -- the exact canonical artifact path in the pinned toolchain's library directory.
     -- Missing origin evidence leaves the module's boundaries owned by the project or a
-    -- dependency rather than granting a toolchain exemption.
+    -- dependency rather than granting a toolchain exemption (`toolchainOrigin?`).
     let toolchainLib ← liftIO <| Lean.getLibDir (← Lean.findSysroot)
     let mut toolchainModules : NameMap RegulaPolicy.ToolchainOrigin := {}
     for (moduleName, origin) in env.header.moduleNames.zip moduleOrigins do
-      if RegulaPolicy.ToolchainRoot moduleName.getRoot then
-        let actual ← liftIO <| IO.FS.realPath origin.olean
-        let expected := Lean.modToFilePath toolchainLib moduleName "olean"
-        if ← liftIO expected.pathExists then
-          if actual == (← liftIO <| IO.FS.realPath expected) then
-            let receipt ← match RegulaPolicy.admitToolchainOrigin moduleName actual.toString
-                (← liftIO <| IO.FS.realPath expected).toString with
-              | .ok receipt => pure receipt
-              | .error error => throwError "{error}"
-            toolchainModules := toolchainModules.insert origin.name receipt
+      if let some receipt ←
+          liftIO <| toolchainOrigin? toolchainLib moduleName origin.olean then
+        toolchainModules := toolchainModules.insert origin.name receipt
     let recursorHelpers := brecOnHelpers env own
     let candidates := simplificationCandidates env
     let proofCache ← liftIO <| IO.mkRef

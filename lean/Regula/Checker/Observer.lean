@@ -4,6 +4,8 @@ import Lake.Build.Common
 import RegulaObserver.Record
 import RegulaPolicy.Community
 import RegulaPolicy.Elaboration
+import Regula.Probe
+import Regula.ToolchainProgram
 
 /-! # Regula's elaboration observer in a Lake build
 
@@ -16,7 +18,7 @@ The `presetup` facet of a module decides the plugins Lean loads while elaboratin
 (`Lake/Build/Module.lean` lines 545 to 622, `ModulePreSetup.plugins`), and Lake fetches it
 through the workspace's facet table, so a facet that a package declares replaces Lake's own.
 `observerPresetup` wraps Lake's own facet: it adds the observer's shared library to the plugins
-of each module of the root package outside the observer's own library, and mixes that library's
+of each module of the root package and of Regula outside the observer's own library, and mixes that library's
 trace into the module's trace, which Lake compares to decide whether to replay the module
 (`Lake/Build/Module.lean` lines 1008 and 1062). A module replayed under that trace was elaborated
 with that plugin. Regula's `lakefile.lean` declares the same facet for ordinary builds, and the
@@ -39,26 +41,38 @@ def runningPackageDir : IO (Option FilePath) := do
   return (app.parent.bind (·.parent)).bind (·.parent) |>.bind (·.parent)
 
 /-- The `presetup` facet of a module with Regula's observer: Lake's own facet
-(`Lake.Module.presetupFacetConfig`), and for a module of the root package for which `own` does not
-hold, the observer's shared library that `plugin` fetches added to the module's plugins, with that
-library's trace mixed into the module's trace. -/
+(`Lake.Module.presetupFacetConfig`), and for a module for which `observed` holds, the observer's
+shared library that `plugin` fetches added to the module's plugins, with that library's trace mixed
+into the module's trace. -/
 def observerPresetup (plugin : _root_.Lake.FetchM (_root_.Lake.Job _root_.Lake.Dynlib))
-    (own : _root_.Lake.Module → Bool) :
+    (observed : _root_.Lake.Module → Bool) :
     _root_.Lake.ModuleFacetConfig _root_.Lake.Module.presetupFacet :=
   _root_.Lake.mkFacetJobConfig (buildable := false) fun (mod : _root_.Lake.Module) => do
     let job ← _root_.Lake.Module.presetupFacetConfig.run mod
-    if !mod.pkg.isRoot || own mod then return job
+    if !observed mod then return job
     let shared ← plugin
     job.bindM (sync := true) fun setup => shared.mapM (sync := true) fun dynlib =>
       return { setup with
         plugins := setup.plugins.push dynlib
         trace := setup.trace.mix (shared.getTrace.withCaption "Regula's elaboration observer") }
 
+/-- The observer's shared library that the running Regula's build wrote, which the `presetup` facet
+of Regula's `lakefile.lean` builds before each of Regula's modules:
+`<package>/.lake/build/lib/<library>` beside the running executable (`runningPackageDir`). An error
+when the file is not there. -/
+def observerFile : IO (FilePath × String) := do
+  let some dir ← runningPackageDir
+    | throw <| IO.userError "the running executable is not in a package's build directory"
+  let name := mkModuleInitializationStem observerLibrary (some regulaPackage)
+  let file := dir / ".lake" / "build" / "lib" / _root_.Lake.nameToSharedLib name
+  unless ← file.pathExists do
+    throw <| IO.userError s!"the running Regula has not built its elaboration observer: {file}"
+  return (file, name)
+
 /-- Where the audit takes the observer's shared library from in a build of the workspace `ws`:
 from the package of `ws` that is the running Regula, through Lake's own job for the observer's
 library, so that the build has the trace of an ordinary build of that workspace; otherwise from
-the file the running Regula's build wrote, which its `Regula` library needs. Returns the job and
-the file. -/
+the file the running Regula's build wrote (`observerFile`). Returns the job and the file. -/
 def observerPlugin (ws : _root_.Lake.Workspace) :
     IO (_root_.Lake.FetchM (_root_.Lake.Job _root_.Lake.Dynlib) × FilePath × Option Name) := do
   let some dir ← runningPackageDir
@@ -68,14 +82,12 @@ def observerPlugin (ws : _root_.Lake.Workspace) :
       let some lib := pkg.findLeanLib? observerLibrary
         | throw <| IO.userError s!"the running Regula's package has no library {observerLibrary}"
       return (lib.shared.fetch, lib.sharedLibFile, some pkg.keyName)
-  let name := mkModuleInitializationStem observerLibrary (some regulaPackage)
-  let file := dir / ".lake" / "build" / "lib" / _root_.Lake.nameToSharedLib name
-  unless ← file.pathExists do
-    throw <| IO.userError s!"the running Regula has not built its elaboration observer: {file}"
+  let (file, name) ← observerFile
   let fetch : _root_.Lake.FetchM (_root_.Lake.Job _root_.Lake.Dynlib) := do
     let job ← _root_.Lake.inputBinFile file
     return job.map fun path => { path, name, plugin := true }
   return (fetch, file, none)
+
 
 /-- The plugins of the completed `presetup` of `module` of `package` in the build's `store`, or
 none when the store holds no completed one. -/
@@ -159,8 +171,10 @@ def form : RegulaObserver.Form → RegulaPolicy.Community.SourceForm
   | .tactic => .tactic
   | .elaborated => .elaborated
 
-/-- The options a record says the module's source set, as RG2006 reads them. -/
-def settings (record : RegulaObserver.Record) : List RegulaPolicy.Community.SourceSetting :=
+/-- The options a record says the module's source set, as RG2006 reads them, with `toolchain` the
+receipt for each module that declares a macro (`toolchainReceipts`). -/
+def settings (toolchain : Name → Option RegulaPolicy.ToolchainOrigin)
+    (record : RegulaObserver.Record) : List RegulaPolicy.Community.SourceSetting :=
   match record.fold with
   | none => []
   | some fold => fold.settings.toList.map fun s => ({
@@ -168,11 +182,33 @@ def settings (record : RegulaObserver.Record) : List RegulaPolicy.Community.Sour
       value := s.value.bind optionValue
       registeredDefault := s.registeredDefault.bind optionValue
       form := form s.form
+      wrapped := s.wrapped
       origin := s.origin.map (·.«module»)
+      toolchain := s.origin.bind (toolchain ·.«module»)
       location := location s.position })
 
-/-- One RG2003 failure of a module's record, as a line of the build's report. -/
-def failureLine (module : Name) : RegulaPolicy.Elaboration.Failure → String
+/-- The receipt (`Regula.Probe.toolchainOrigin?`) for each module that declares a macro that wrote
+an option in `record`, among the modules that `origins` reports loaded with their `.olean` files,
+checked against the library directory of the toolchain whose `lean` reports the pinned identity
+(`Regula.Toolchain.sysroot`). A module that `origins` does not report gets none. -/
+def toolchainReceipts (origins : Array RegulaPolicy.ModuleOrigin) (record : RegulaObserver.Record) :
+    IO (Name → Option RegulaPolicy.ToolchainOrigin) := do
+  let some fold := record.fold | return fun _ => none
+  unless fold.settings.any (·.origin.isSome) do return fun _ => none
+  let toolchainLib ← Lean.getLibDir (← Regula.Toolchain.sysroot)
+  let mut receipts : Std.HashMap Name RegulaPolicy.ToolchainOrigin := {}
+  for setting in fold.settings do
+    let some origin := setting.origin | continue
+    let m := origin.«module»
+    if receipts.contains m then continue
+    let some loaded := origins.find? (·.name == m) | continue
+    if let some receipt ← Regula.Probe.toolchainOrigin? toolchainLib m loaded.olean then
+      receipts := receipts.insert m receipt
+  return (receipts[·]?)
+
+/-- One RG2003 failure of a module's record, as a line of the build's report that names the module
+`module`: its name, or the file that a standalone compilation compiled. -/
+def failureLine (module : String) : RegulaPolicy.Elaboration.Failure → String
   | .unloaded => s!"not observed: Regula's elaboration observer was not among the plugins Lean \
       loaded to elaborate {module}"
   | .absent => s!"not observed: {module} has no complete record of Regula's elaboration observer"
@@ -193,9 +229,19 @@ def failureLine (module : Name) : RegulaPolicy.Elaboration.Failure → String
 
 /-- The RG2003 failures of the claimed module `module` (`RegulaPolicy.Elaboration.failures`), with
 `loaded` whether Lean loaded the observer for it (`pluginLoaded`) and `record` its record
-(`readRecord`), as lines of the build's report. -/
-def elaborationFailures (module : Name) (loaded : Bool) (record : Option RegulaObserver.Record) :
+(`readRecord`), as lines of the build's report that name it as `module` (`failureLine`). -/
+def elaborationFailures (module : String) (loaded : Bool) (record : Option RegulaObserver.Record) :
     Array String :=
   (RegulaPolicy.Elaboration.failures loaded (record.bind observed)).toArray.map (failureLine module)
 
+/-- The report of RG2003 failures of the observer's records (`elaborationFailures`), `lines`, for a
+build that `subject` names: `FAIL[elaboration-hidden]` with the remedy, then each line. -/
+def hiddenReport (subject : String) (lines : Array String) : Array String :=
+  #[s!"FAIL[elaboration-hidden]: {subject} is not established warning-free (RG2003): Regula's \
+    elaboration observer recorded, in a claimed module, a command that drops or replaces the \
+    messages of the commands it runs, or a warning or error that Lean keeps out of the build's \
+    output, or it did not observe the module's elaboration. Remove `#guard_msgs` and \
+    `#guard_panic` from the claimed modules, and fix what the silent message reports."] ++ lines
+
 end Regula.Checker.Observer
+
