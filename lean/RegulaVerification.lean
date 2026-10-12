@@ -53,7 +53,9 @@ inductive Mode where
   these checks, the fresh acceptance of the `audit/` package whose modules the standard's
   examples import, then
   the documentation audit and the Verso standard's build and render, refused unless its inputs
-  have the content identity the first step recorded. -/
+  have the content identity the first step recorded. The audit reuses the build output that the
+  first step left only as `Regula.Checker.BuildReuse.reuse` decides from the record of it
+  (`Copy.recordBuild`), and builds in a copy with no build output otherwise. -/
   | docs
   /-- `serialized-graph`: the separate serialized-graph check (`freshChecker`). -/
   | graph
@@ -218,7 +220,9 @@ only after `passed` accepted every command, before it removes its copy and befor
 line (`run`), so an accepted record here means
 that every command of the step exited 0. The gate of a run records the identity in the pending
 record of that run (`Copy.pending`), and that record becomes this one only by that promotion, so
-a run that fails or is killed before then leaves this record incomplete. -/
+a run that fails or is killed before then leaves this record incomplete. Before the promotion the
+driver may add the record of the build output it left (`Copy.recordBuild`); it changes no other
+field. -/
 def linkPath : String := "tmp/acceptance-link.json"
 
 /-- The text of an acceptance record that is not accepted. -/
@@ -845,22 +849,26 @@ theorem walked_iff (relative : List String) :
         exact notTmp rest (isTmp ▸ rfl)
     simp [head]
 
-/-- Copy each walked entry of the project at `root` (`walked`) to the same place below `target`.
+/-- Copy each walked entry of the project at `root` (`walked`) to the same place below `target`,
+and return the path of each file it wrote, relative to `target` and written with `/`.
 A file's bytes are copied; a symbolic link is followed, as `Regula.Checker.Lake.copyProject` follows
 it. Every write is below `target`. -/
-def copyTree (root target : System.FilePath) : IO Unit := do
+def copyTree (root target : System.FilePath) : IO (List String) := do
   let rootComponents := root.normalize.components
   let included := fun (path : System.FilePath) =>
     walked (path.normalize.components.drop rootComponents.length)
   IO.FS.createDirAll target
+  let mut written := #[]
   for path in ← root.walkDir (fun path => pure (included path)) do
     unless included path do continue
-    let destination := (path.normalize.components.drop rootComponents.length).foldl
-      (· / System.FilePath.mk ·) target
+    let relative := path.normalize.components.drop rootComponents.length
+    let destination := relative.foldl (· / System.FilePath.mk ·) target
     if ← path.isDir then IO.FS.createDirAll destination
     else
       if let some parent := destination.parent then IO.FS.createDirAll parent
       IO.FS.writeBinFile destination (← IO.FS.readBinFile path)
+      written := written.push ("/".intercalate relative)
+  return written.toList
 
 /-- The copy of the project that the first acceptance step builds and audits. -/
 structure Copy where
@@ -878,6 +886,8 @@ structure Copy where
   pending : System.FilePath
   /-- The handle that holds the shared lock of the scratch area while the copy is in use. -/
   lock : IO.FS.Handle
+  /-- Each file `copyTree` wrote, by its path below `project` written with `/`. -/
+  files : List String
 
 /-- Remove each marked scratch directory of `area`, then its marker: the reclamation of
 `Regula.Scratch`, with its conditions in its order. The caller holds the lock of the area
@@ -944,19 +954,20 @@ def makeCopy (root : System.FilePath) : IO Copy := do
   discard <| IO.FS.Handle.mk marker .writeNew
   IO.FS.createDir scratch
   let project := scratch / "project"
-  copyTree root project
+  let files ← copyTree root project
   let pending := scratch / "acceptance-link.pending.json"
   let record ← IO.FS.Handle.mk pending .writeNew
   record.putStr incompleteLink
   record.flush
-  return { scratch, marker, project, pending, lock }
+  return { scratch, marker, project, pending, lock, files }
 
 /-- Give the build output of the copy to the project at `root`, when the project has none:
 rename the copy's `.lake/build` to the project's, only when nothing is at that place by a read
 that follows no link. A project with build output, or with anything else at that place, keeps
 it. The rename is in one file system, deletes nothing, and does not follow a link at its target.
 It returns whether it renamed. A rename that fails is reported and is no error of the step: the
-documentation step then builds what it needs. -/
+documentation step then builds what it needs. A rename makes the build output one that the
+documentation step may reuse (`Copy.recordBuild`). -/
 def Copy.adopt (copy : Copy) (root : System.FilePath) : BaseIO Bool := do
   let made := copy.project / ".lake" / "build"
   let target := root / ".lake" / "build"
@@ -974,6 +985,79 @@ def Copy.adopt (copy : Copy) (root : System.FilePath) : BaseIO Bool := do
   | .error error =>
       announce s!"could not move the copy's build output to {target}: {error}"
       return false
+
+/-! ## The record of the build the step leaves
+
+When the step passed and gave its build output to a project that had none (`Copy.adopt`), the
+documentation step may use that build output instead of compiling the same modules again, but only
+as `Regula.Checker.BuildReuse.reuse` decides from what the record says of it: the targets of the
+step's build, the SHA-256 of every file of the copy, taken before any command ran in it, and the
+SHA-256 of every file below `lib` and `ir` of the build output it moved. The record is the pending
+record of the run's own gate with that `build` field added, before the driver promotes it to
+`linkPath`. Nothing else of the step changes: no command, no result and no removal. A digest that
+cannot be taken leaves the record without the field, and the documentation step then compiles
+those modules itself. -/
+
+/-- The SHA-256 of each of `paths`, each relative to `dir` and written with `/`, by the external
+`shasum -a 256` run in `dir` on at most 200 paths at a time, each given as `./` and the path, since
+`shasum` reads standard input for the operand `-`; for each file it prints the digest, two spaces
+and the operand, and any other line in a path's place fails. It is
+`Regula.Checker.AcceptanceLink.digests` written a second time, since this module imports only the
+toolchain. It assumes the output of `shasum` that that function states. -/
+def digests (dir : System.FilePath) (paths : List String) : IO (List (String × String)) := do
+  let batches := paths.foldl (fun (batches : Array (Array String)) path =>
+    match batches.back? with
+    | some last => if last.size < 200 then batches.pop.push (last.push path)
+        else batches.push #[path]
+    | none => #[#[path]]) #[]
+  let mut result := #[]
+  for batch in batches do
+    let run ← IO.Process.output
+      { cmd := "shasum", args := #["-a", "256", "--"] ++ batch.map ("./" ++ ·), cwd := some dir }
+    let lines := (run.stdout.splitOn "\n").filter (!·.isEmpty)
+    unless run.exitCode == 0 && lines.length == batch.size do
+      throw <| IO.userError s!"shasum gave no digest of each file: {run.stdout}{run.stderr}"
+    for (path, line) in batch.toList.zip lines do
+      let digest := (line.take 64).toString
+      unless digest.length == 64 && digest.all (fun c => c.isDigit || ('a' ≤ c && c ≤ 'f')) &&
+          line == digest ++ "  ./" ++ path do
+        throw <| IO.userError s!"shasum gave an unexpected line for {path}: {line}"
+      result := result.push (path, digest)
+  return result.toList
+
+/-- Each regular file below `lib` and `ir` of the build directory `build`, by its path relative
+to `build` written with `/`. A directory missing there has none. -/
+def buildFiles (build : System.FilePath) : IO (List String) := do
+  let prefixLength := build.normalize.components.length
+  let mut files := #[]
+  for part in ["lib", "ir"] do
+    unless (← place (build / part)) == .directory do continue
+    for path in ← (build / part).walkDir do
+      if (← path.symlinkMetadata).type == .file then
+        files := files.push ("/".intercalate (path.normalize.components.drop prefixLength))
+  return files.toList
+
+/-- Add the `build` field to the copy's pending record: the targets of the step's build, the
+copy's digests `tree`, and the digests of the build output that `Copy.adopt` moved to `root`'s
+`.lake/build`. The new record is written beside the pending one and renamed over it, so a failure
+leaves the pending record as the gate wrote it; it is reported and is no error of the step. -/
+def Copy.recordBuild (copy : Copy) (root : System.FilePath) (tree : List (String × String)) :
+    BaseIO Unit := do
+  let record : IO Unit := do
+    let started ← IO.monoMsNow
+    let build := root / ".lake" / "build"
+    let artifacts ← digests build (← buildFiles build)
+    let value ← IO.ofExcept (Lean.Json.parse (← IO.FS.readFile copy.pending))
+    let value := value.setObjVal! "build" (Lean.Json.mkObj [
+      ("targets", Lean.toJson (gateTargets ++ otherTargets)),
+      ("tree", Lean.toJson tree), ("artifacts", Lean.toJson artifacts)])
+    let written := copy.scratch / "acceptance-link.build.json"
+    IO.FS.writeFile written (value.compress ++ "\n")
+    IO.FS.rename written copy.pending
+    announce s!"recorded the digests of {tree.length} files of the copy and {artifacts.length} \
+      files of its build output in {(← IO.monoMsNow) - started} ms"
+  if let .error error ← record.toBaseIO then
+    announce s!"the record names no build output for the documentation step to reuse: {error}"
 
 /-- Remove the copy: its scratch directory, then its marker, then the lock, in the order of
 `Regula.Scratch.withScratch`. The directory is removed only as `removeOwn` decides. A failure is
@@ -1083,8 +1167,8 @@ record of its own gate to the accepted link only then, before the removal of its
 the success line. It refuses a surface manifest that claims a target its prebuild does not build
 (`prebuildCovers`), makes its copy after the preliminary checks (`makeCopy`), runs its prebuild
 and its commands for that copy (`ordinary_places`), gives the copy's build output to a project
-that has none when the step passed (`Copy.adopt`), and removes the copy in each case
-(`Copy.remove`). -/
+that has none when the step passed (`Copy.adopt`) and then records it (`Copy.recordBuild`), and
+removes the copy in each case (`Copy.remove`). -/
 def run (args : List String) : IO Unit := do
   let some selection := select args | throw <| IO.userError usage
   if selection.val == .ordinary then
@@ -1107,6 +1191,15 @@ def run (args : List String) : IO Unit := do
   let copy ← if selection.val == .ordinary && passed early.statuses then
       some <$> makeCopy root
     else pure none
+  -- The digests of the copy's files, before any command runs in it (`Copy.recordBuild`).
+  let tree ← match copy with
+    | none => pure none
+    | some copy => do
+      match ← (digests copy.project copy.files).toBaseIO with
+      | .ok tree => pure (some tree)
+      | .error error =>
+          announce s!"could not take the digests of the copy's files: {error}"
+          pure none
   let place := (copy.map (·.project.toString)).getD "."
   let pending := (copy.map (·.pending.toString)).getD ""
   let prebuilt ← executeInOrder .normal early.statuses (prebuild place selection.val)
@@ -1118,7 +1211,8 @@ def run (args : List String) : IO Unit := do
     -- the removal of the copy, which follows in each case.
     try
       if passed all.statuses then
-        discard <| copy.adopt root
+        if (← copy.adopt root) then
+          if let some tree := tree then copy.recordBuild root tree
         IO.FS.rename copy.pending linkPath
         announce s!"every command exited 0: moved {copy.pending} to {linkPath}"
     finally copy.remove
@@ -1131,8 +1225,11 @@ def run (args : List String) : IO Unit := do
       tracked Markdown document links to its rule page; CONTEXT.md is the print of a vocabulary \
       whose source paths are tracked files, and the controls of that check gave the expected \
       results; the example package in audit/ accepted \
-      fresh; every docs/ Lean fence and every lean block of the Verso standard, which built \
-      fresh and rendered; every rule ID in the prose `Regula.Prose` reads in the rendered \
+      fresh; every docs/ Lean fence and every lean block of the Verso standard, which built in \
+      this run and rendered, against root-package build output compiled from files equal to \
+      those checked: in this run, in a copy with no earlier build output or, where the \
+      docFenceAudit line says so, partly by the first acceptance step in such a copy of its own, \
+      every SHA-256 equal, and the rest in this run against those artifacts; every rule ID in the prose `Regula.Prose` reads in the rendered \
       standard links to its rule page; inputs equal the accepted ordinary inputs)"
     | .graph => "serialized-graph diagnostic: PASS (not ordinary verification)"
     | .site => "site build and check: PASS (rule-reference artifact in _site; separate from \

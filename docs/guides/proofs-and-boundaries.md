@@ -133,7 +133,7 @@ or an INCOMPLETE diagnostic demonstration is not an audit-success certificate.
 | `AxiomGate.auditSurfaceAt` (fresh, `--driver-copy`, `--incremental`, `--build-lint`) | `Acceptance.freeze` reconciles Lake modules, sources, configuration, dependencies, reports, replay inventories and origins; `Acceptance.finish` returns `AcceptedRun` with checked equality to `finalize` (`finalize_collection_error`, `finalize_of_collected`). Cached build artifacts never cache a policy decision, and build-lint has no second exit-code-only PASS branch. |
 | `Lint.run` (`lake lint`) | The same project audit; exit 0 only through the claimed `Lint.classify` (`checked_classify`, `accepted_sound`): a zero audit exit and a recorded `completed` account of the requested mode. Exits 1, 2, 3 classify rejected, configuration-only and incomplete statuses; a missing or disagreeing status is 3. The audit's own exit code is the recorded `Lint.Observation`'s, or 3 when it recorded none or failed after recording a success (`gateExitCode`, `gateExitCode_some`, `gateExitCode_eq_zero`); an error escaping the audit discards any recorded result, so both sides are 3 (`AxiomGate.entry`). The driver reports the code the audit returned for its recorded result (`classify_gateExitCode`); the observation also decides the result status and the summary counts, each the number of findings of its impact (`Observation.status`, `Observation.tally`, `tally_eq`), and an incomplete finding exits 3 (`exitCode_incomplete`). Which findings a run records is operational. That the recorded observation is this invocation's audit is checked by inspection. `--explain-config` validates the manifest and Lake scope with the audit's own functions (`Manifest.loadFor`, `Acceptance.surfaceAssignments`, `AxiomGate.checkClassification`) and issues no audit certificate; it and `--help` are read-only, exit 2, and refuse `--json-out` and `--verbose`. The driver reads its arguments one time (`read`). It decides before it writes a result destination or an audited artifact (`decision`, `decision_of_parse_error`, `decision_run`). The driver loads only the root configuration for that decision, so it resolves no dependency. Lake may write its configuration directory, lock file, trace and compiled configuration in that load. Then it marks each parsed `--json-out` incomplete on its own, where the run writes it. A refusal keeps exit 2 whatever marking failed (`Decision.settled`, `settled_refuse`). The audited project is the dispatching workspace, and a `--project` naming a different root is exit 2. A relative `--json-out` is in that workspace. The success line and `scope.project`, `scope.manifestPath` name the audited project and manifest. As an extra refusal, default-configuration `lintDriverArgs` that give an option outside `Options.packageConfigurable` are exit 2 (`configuredRefusal_eq_none`, under assumptions that no guarantee here rests on). An error escaping `Lint.run` is exit 3, or 2 for a `manifest-` refusal, never 0 or 1. |
 | `AxiomGate.auditSurface --with-docs` | One process: the project plan and the documentation plan over the same snapshot and build, joined by `combineAccepted`; no evidence crosses a process boundary between the stages. The documentation stage runs inside the project's frozen-input guard (`withSourceEvidenceOr`): a source or configuration change during it is the project's [RG2005] refusal, which replaces the stage's result. |
-| `--acceptance-link PATH` (`axiomGate`, `docFenceAudit`) | `axiomGate` records the link for fresh project success only (no `--with-docs`): after `AcceptedRun`, the SHA-256 of the copy-relative accepted sources, configuration, dependency captures, `docs/` Markdown and, with `--verso`, the Verso library's inputs; `docFenceAudit` computes the same identity from its own fresh capture before building and refuses unless it is equal. `axiomGate` invalidates PATH before the audit starts and records the identity only after its outer configuration recheck passes, so any refusal leaves it incomplete. Equality establishes identical captured inputs; `shasum` and the filesystem are trusted. |
+| `--acceptance-link PATH` (`axiomGate`, `docFenceAudit`) | `axiomGate` records the link for fresh project success only (no `--with-docs`): after `AcceptedRun`, the SHA-256 of the copy-relative accepted sources, configuration, dependency captures, `docs/` Markdown and, with `--verso`, the Verso library's inputs; `docFenceAudit` computes the same identity from its own fresh capture and refuses before building unless the link is there and the identity is equal. `axiomGate` invalidates PATH before the audit starts and records the identity only after its outer configuration recheck passes, so any refusal leaves it incomplete. Equality establishes identical captured inputs; `shasum` and the filesystem are trusted. The driver can add a field `build` to the record. With it, `docFenceAudit` puts part of the build output of the first step in its copy before its build, only as `BuildReuse.reuse` decides (`reuse_iff`). That part is the files of the modules that its claimed build compiles. |
 | `--driver-copy DIR` (`axiomGate`, internal to `scripts/verify.sh`) | The gate audits the build output of `DIR` and makes no copy of its own. It admits `DIR` only by the facts that [the acceptance boundary](#the-acceptance-boundary) gives. The result names that origin, and the statement that the copy was new rests on the driver. |
 | `AxiomGate.auditFile` with a conforming profile | A `freshFile` plan and `AcceptedRun`; dependencies stay incremental. No profile or a compiler-trusting file without a finding is `CLASSIFIED` (exit 0); the file audit's other exits follow its recorded observation as a project audit's do. |
 | `Documentation.auditBuiltProject`, `DocFenceAudit.run` | Markdown (and Verso) bytes, fence spans and task identities frozen before compiling; `finishDocuments` calls `finalize`. A corpus with a structural problem has no request plan: it reports each located problem and is refused. Group observations retain every unit and authenticate roles against the whole reconciled inventory; policy selection is per original fence. With `--verso`, the fresh build and render of the standard, then `Regula.Site.missingAnchors_nil_iff` for the registry's and the docs' links into it and `rowsMismatch_eq_none_iff` for its checklist rows. Also with `--verso`, `Regula.Prose.htmlErrors_nil_iff` for the rule IDs in the prose of the rendered pages: each is a registered rule linked to its page, for the runs the HTML scanner extracts, which is operational. `Documentation.Sources.check` compares the documentation inventory and bytes before fence work and before `finishDocuments`; that terminal recheck (with `Snapshot.inputsUnchanged`) and the fence audit run in `BaseIO`, so a failure of either is rethrown only after the structural problems and the fence results obtained are reported. With `--verso`, `Sources.checkLinked` rechecks the linked inputs after the Verso build. |
@@ -567,6 +567,59 @@ Only a gate that accepted the root-package inputs of that identity writes such a
 function `AcceptanceLink.record` has one caller in the code, which is the gate after its
 accepted result. The identity also has the `docs/` Markdown and the Verso
 sources, which the gate does not audit.
+
+The documentation step can use the build output of the first step. If the first step passed and
+the checkout had no build output, the driver moves that build output to the checkout
+(`Copy.adopt`). Then it adds the field `build` to the pending record before it
+moves that record (`Copy.recordBuild`). The field has the targets of the build of the step.
+
+The field `build` also has the SHA-256 of each file of the copy, which the driver takes before the
+first command. It also has the SHA-256 of each file below `lib` and `ir` of the build output that
+the driver moved. If the driver cannot take a digest, the record has no field `build`. The first
+step passes or fails as before, and the driver removes the same things.
+
+The fence audit of the documentation step copies only the files of the modules that its claimed
+build compiles. These are the modules of the claimed targets and the modules that they import, as
+the facet `transImports` of Lake gives them. Thus a module that the first step built for a
+diagnostic is not in the copy, as after a fresh build. The fence audit copies the files from
+`.lake/build` of the checkout to a directory outside its own copy. The build of the Verso standard
+compiles in the copy any other module of the root package that it imports.
+
+It takes the SHA-256 of each of those files and of each file of its copy outside `.lake`. Then the
+decision `BuildReuse.reuse` decides (`reuse_iff`). It accepts only an accepted record with the
+identity of the fence audit and the origin `driverCopy`. The field `build` must also name each
+claimed target. The two copies must have the same files with the same digests.
+
+The files that the fence audit copied must be the files of the record for those modules, with the
+same digests. A file goes with the module of its name before its first dot. Thus no component of a
+module name of the root package can hold a dot. The fence audit gives each file to `shasum` as
+`./` and its path, because `shasum` reads standard input for the name `-`.
+
+If the decision accepts, the fence audit moves those files to `.lake/build` of its copy. If not,
+its copy has no build output, as before. The build after that is the same in the two cases. It must
+end with exit status 0 and with no warning, and the trace of each claimed module must record an
+elaboration. Lake replays the log of that elaboration, and Lake decides from its traces which
+modules it compiles again in the copy.
+
+Thus each artifact of the root package that the fences read was compiled from files equal to
+those of the copy of the fence audit. The first step compiled it in a copy with no
+earlier build output, or this run compiled it against artifacts of those two kinds. After a
+placement, this run compiles in a copy that already holds the placed files. The output of the fence
+audit tells if it placed the files of the first step. It does not tell which build compiled each
+artifact.
+
+The fence audit checks the link first, before it builds. So if the link is not there or is not
+accepted, the fence audit refuses immediately and builds nothing.
+
+This rests on statements that are not theorems. SHA-256 has no known collision, and `shasum` gives
+the correct digest. The driver made its copy new, as for the gate. During elaboration, the root
+package reads no file outside its tree, except the files of the toolchain. The facet
+`transImports` of Lake gives the correct imports. Lake writes each file of a module at the path of
+the module with an extension.
+
+The identity of the record does not include the files that `include_str` reads, for example the
+files below `examples/rules`. The digests of all the files of the two copies include them. Thus the
+decision does not rest on the traces of Lake. The hash of a trace is not a cryptographic hash.
 
 Each run has its own pending record. The driver makes it in the scratch directory of its copy,
 with a call that fails if the file is there (`Copy.pending`). It gives that path to its gate,
@@ -1220,6 +1273,7 @@ Two-way decisions (`Regula.Decides`), each with an accepted and a refused input:
 | `RegulaVerification.prebuildCovers` | The surface manifest has the shape that `claimedTargets` reads, and each target it claims is in `gateTargets` (`prebuildCovers_iff`). | The driver runs the first acceptance step only on such a manifest. Thus the gate does not build a claimed target beside the step's build. No theorem relates `claimedTargets` to the manifest reader of the checker. |
 | `ScratchCopy.name?` (accepts on `some`) | The path is the scratch area, then one name, then `project` (`name?_eq_some_iff`). | The gate admits a copy of the driver only at such a path. The components come from real paths, which the file system gives. |
 | `ScratchCopy.inside` | The path is the directory with one or more components after it (`inside_iff`). | The gate requires its own executable in the build directory of a copy of the driver. |
+| `BuildReuse.reuse` | The record is accepted, with the identity of the run and the origin `driverCopy`. It names a build with the targets of the run among its targets. No component of an artifact path is empty, `.` or `..`. No component of a module name of the root package is empty or holds a dot. Its files of the copy are a permutation of the digests of the copy of the run. Its artifacts of the modules that the claimed build compiles are a permutation of the digests of the staged files (`reuse_iff`). | The fence audit puts the build output of the first acceptance step in its copy only by this decision. The digests come from `shasum`, which is trusted. The modules of the claimed build come from the facet `transImports` of Lake, which is trusted. |
 
 Sound only, each a declared choice:
 
@@ -4582,8 +4636,8 @@ and, for a structural or lint-driver selection, the other targets its baseline n
 (`RegulaVerification.commands`), so the gate's own modules compile beside the self-test's last
 ones instead of after its link; that command selects nothing, and the baseline build still
 names and builds its targets. The frozen-artifact, cross-surface decision, library cycle, driver
-copy and manifest controls run in the structural clusters' queue, so no more of them run at
-once than the queue has workers.
+copy, retained build and manifest controls run in the structural clusters' queue, so no more of
+them run at once than the queue has workers.
 
 The lint-driver controls run `lake lint` in adopters of their own, which require `regula` as a
 Lake path dependency of the checkout. The two guards and the clean-checkout argument above do not
@@ -4603,8 +4657,11 @@ exactly one shard.
 The shards of a partition list the same controls because they run the same sources, which no
 theorem states. The first structural shard holds `self-hosted-positive` alone. The other four hold
 the chain `self-hosted` and the clusters cut from `a`, `b`, `c` and `d`. They also hold the
-frozen-artifact, cross-surface decision, library cycle, driver copy and manifest controls. The
-execution shards divide the correspondence clusters and the compiler-path cases. A shard's PASS
+frozen-artifact, cross-surface decision, library cycle, driver copy, retained build and manifest
+controls. The retained build control is in shard `4/5`, because the baseline of that shard builds
+`docFenceAudit`.
+
+The execution shards divide the correspondence clusters and the compiler-path cases. A shard's PASS
 names the controls or the groups that it ran and is not the partition's.
 
 Each of the chains `a`, `b`, `c` and `d` ran its mutations one after another in one project. On
@@ -4780,6 +4837,9 @@ execution, and calling a proved oracle does not prove the driver or its IO effec
   `removal_nothing_iff` state the decision of the removals of the site executable, and
   `RegulaVerification.removal_shared` relates it to the decision of the driver. The reads of the
   file system that give their arguments are trusted.
+- The theorem `BuildReuse.reuse_iff` states the decision by which the fence audit uses the build
+  output of the first acceptance step. The digests that give its arguments come from `shasum`, and
+  the modules of the claimed build come from the facet `transImports` of Lake.
 - The theorems `RegulaVerification.passed_iff` and `passed_covers` are about the function
   `passed`. If `passed` accepts the entries of the commands of a step, each command has an entry
   with exit status 0. The driver reports success only after `passed` accepts. That
