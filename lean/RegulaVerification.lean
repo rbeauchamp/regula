@@ -399,6 +399,16 @@ def Group.commands : Group → List Command
   | .policyDomain => [lake #["build", "checkerSelftest", "axiomGate", "Regula.Linter"],
       lake #["exe", "checkerSelftest", "--policy-domain-only"]]
 
+/-- The targets whose modules `qualify observers` reads: each library of the package except
+`Fixtures`, and `auditApp`, whose root `Main` is in no library. -/
+def observerTargets : Array String :=
+  #["Regula", "RegulaPolicy", "RegulaVerification", "RegulaProvision", "RegulaQualification",
+    "RegulaCore", "AuditApp", "auditApp", "qualify"]
+
+/-- The self-audit shard that also runs `qualify observers`: the fourth, whose audit was the
+shortest of the four on the slower CI runners. -/
+def observersShard : Fin selfAuditShards := ⟨3, by decide⟩
+
 /-- Existing acceptance and diagnostic recipes, executed inside the outer deadline.
 Qualification's private flag retains the already timed process group. `copy` is the root of the
 copy that the first acceptance step builds in, and `pending` the pending record of that run,
@@ -470,14 +480,23 @@ def commands (copy pending : String) : Mode → List Command
   -- assertion, so with the audit-build marker. The `audit/` package runs the same driver code, and
   -- its default path would only add the rebuild that made the old step exceed its limit.
   | .selfLintDefault => [lake #["lint"]]
+  -- The self-audit, and the record of the removal check of each program of the package, with the
+  -- check of `auditApp`'s `Main` (`qualify observers`), which reads the modules of
+  -- `observerTargets`.
   | .selfAudit => [
-      lake #["build", "Regula", "qualify"],
-      lake #["exe", "qualify", "--under-deadline", "self-audit"]]
+      lake (#["build"] ++ observerTargets),
+      lake #["exe", "qualify", "--under-deadline", "self-audit"],
+      lake #["exe", "qualify", "--under-deadline", "observers"]]
   -- A shard of the self-audit: its modules of each list the campaign deals (`SelfAudit.selected`).
-  | .selfAuditShard index => [
-      lake #["build", "Regula", "qualify"],
-      lake #["exe", "qualify", "--under-deadline", "self-audit", "--shard",
-        s!"{index.val + 1}/{selfAuditShards}"]]
+  -- The shard `observersShard` also runs `qualify observers`.
+  | .selfAuditShard index =>
+      lake (#["build"] ++
+          if index == observersShard then observerTargets else #["Regula", "qualify"])
+        :: lake #["exe", "qualify", "--under-deadline", "self-audit", "--shard",
+          s!"{index.val + 1}/{selfAuditShards}"]
+        :: if index == observersShard then
+          [lake #["exe", "qualify", "--under-deadline", "observers"]]
+        else []
   | .ruleExamples => [
       lake #["build", "axiomGate", "ruleExamples", "ruleExampleQualification", "qualify"],
       lake
@@ -827,9 +846,10 @@ while the removal runs. `IO.FS.removeDirAll` examines each entry and then opens 
 so such a process can make it remove the entries of a different directory. The checker removes
 its own scratch directories with the same function (`Regula.Scratch`).
 
-The site executable decides its removals with `Regula.Removal.removal`, which this module cannot
-import. `RegulaVerification.removal_shared`, in the module `RegulaVerification.Decisions`, proves
-that `removal` is that decision for a directory. -/
+The filesystem observer of the package's programs (`Regula.Filesystem`) decides its removals with
+`Regula.Removal.removal`, which this module cannot import. `RegulaVerification.removal_shared`, in
+the module `RegulaVerification.Decisions`, proves that `removal` is that decision for a
+directory. -/
 
 /-- What is at a path, observed without following a symbolic link at the path itself. -/
 inductive Place where

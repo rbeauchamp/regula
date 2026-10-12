@@ -320,8 +320,14 @@ REGULA_ORDINARY_LAKEFILES=1 lake lint      # you assert your lakefiles are ordin
 
 With `REGULA_ORDINARY_LAKEFILES=1` you, as the owner of the workspace, assert that its lakefiles
 are ordinary configuration. The driver then omits its audit-build marker for a workspace of the
-plain shape, and it reuses your ordinary build output. The plain shape is a conservative guard
-under your assertion. It is not a guarantee against a lakefile that someone wrote to defeat it.
+plain shape, and it reuses your ordinary build output. Regula's `lakefile.lean` records your
+libraries' `weakLeanArgs` in each module's build trace, so that reuse can settle [RG2003]
+([limits](#limits)). The plain shape is a conservative guard under your assertion. It is not a
+guarantee against a lakefile that someone wrote to defeat it.
+
+The plain shape admits one facet declaration by identity. It is the `extraDep` facet of Regula's
+own `lakefile.lean`, in a package with the same `lakefile.lean` text as the running Regula.
+That facet only runs Lake's own `extraDep` facet and adds the record.
 Without the assertion the driver always builds with the marker ([details](proofs-and-boundaries.md#the-acceptance-boundary)).
 
 Give the assertion in the environment of `lake lint`, which no lakefile sets. The driver refuses
@@ -564,13 +570,13 @@ relation between it and the type.
 
 ## Machine-readable report
 
-`lake lint -- --json-out PATH` writes one JSON document, result schema 18, whatever the outcome;
+`lake lint -- --json-out PATH` writes one JSON document, result schema 19, whatever the outcome;
 the path is first written as an incomplete result, so a stale report is never mistaken for this
 run's. Its main members:
 
 | Member | Meaning |
 | --- | --- |
-| `schemaVersion` | `18`. Also `producerVersion`, `toolchain` and `sourceRevision` of the Regula build. |
+| `schemaVersion` | `19`. Also `producerVersion`, `toolchain` and `sourceRevision` of the Regula build. |
 | `status` | `completed` (accepted), `rejected` (a violation was established and no finding is incomplete), `incomplete` (evidence was missing) or `classified` (a file inspection with no conforming claim). For an audit that recorded its result and then finished, it and the diagnostics determine the exit code. |
 | `stages`, `stagesCompleted`, `stagesNotRun`, `complete` | The run's required stages and which completed, including the stages that finished before the run stopped. `complete` is `false` when the run stopped early, so fixing the reported findings can reveal more. |
 | `diagnostics` | Every finding in printed order, one per declaration even where the text groups them, with `id`, `impact`, `severity`, `mode`, `claim`, `location` (for source, its `uri`, byte and LSP ranges and its `sourceText`, an index into `sourceTexts`; for a module, its `name`), `arguments`, `text`, `remedy` and `helpUrl`. `arguments.declaration` (or `root` for an execution finding) is the name as Lean prints it, such as `"Widget.countdown.eq_1"`. For a declaration-policy finding of a project or file audit or of a rule example ([RG1005] and the other rules decided per audited declaration), `arguments.sourceDeclaration` names the declaration Lean generated the declaration from, at the end of that chain, or is `null` for a declaration Lean did not generate from another; for a generated declaration, `location` is its own range when Lean recorded one, and otherwise that source declaration's range when Lean recorded one, with `related` naming the declaration's own module. Other declaration findings carry no attribution: a documentation example's, a material-documentation one ([RG5002], [RG5003]) and the editor linter's record `null` and the declaration's own location. A declaration whose recorded selection range leaves its recorded range, as Lean records for the definitions of a `macro_rules` command over several syntax kinds, is located at its range, which is then its selection range too. |
@@ -602,8 +608,10 @@ the text in each of those members and in every source location (as `source`, `co
 
 `scope` holds the audit's account. Each environment report in it (`scope.surfaces[*].report`,
 each `executables[*].report`, and `scope.report` for a file audit) lists its `declarations`, each
-with `prettyType`, its type as Lean prints it, and its `execution`, the account of what each
-executable root reaches. A declaration also has `type`, the `repr` of its kernel type
+with `prettyType`, its type as Lean prints it, its `execution`, the account of what each
+executable root reaches, and its `imported`, a record of each native-proof axiom of a module it
+does not inspect that its declarations rest on, with the declaration of that module the axiom's
+name is generated under. A declaration also has `type`, the `repr` of its kernel type
 expression, only when the audit is run with `axiomGate`'s `--kernel-types` option (`lake exe
 axiomGate -- --json-out PATH --kernel-types`), which `lake lint` does not take; earlier schemas
 always wrote it. `execution` stores what the environment's roots reach once, and each root as a
@@ -936,6 +944,25 @@ audit refuses a `decides` entry that names its own surface or no claimed surface
   fixed resource limits, add your own check of these options.
 - [RG2006] reads an option by its name alone. It rejects a `weak.` entry for an option that no
   module declares, although Lean ignores that entry. Delete such an entry.
+- Regula's `lakefile.lean` declares a facet in place of Lake's `extraDep` facet. For the
+  libraries of your root package and of Regula, it runs Lake's own facet and records their
+  `weakLeanArgs` in each module's build trace. Lake's own trace omits these arguments. With the
+  record, a build reruns a module after you change them. Thus a build without the audit-build
+  marker can settle [RG2003] from replayed messages. The first build after you upgrade to this
+  Regula rebuilds the modules of your root package and of Regula one time.
+- If your root package declares an `extraDep` facet, Regula's facet replaces it. Move that work
+  to `extraDepTargets` or `needs`, which Lake's own facet runs.
+- A dependency that Lake resolves after Regula can declare an `extraDep` facet that replaces
+  Regula's. Lake resolves the `require` lines of a package from the last to the first, and then
+  the dependencies of those packages. So a build without the marker counts no record when a
+  dependency other than Regula declares a library facet. It reports a claimed module as not
+  established when it replays that module's messages from before the run.
+- The result is then incomplete. `lake exe axiomGate --incremental` then exits 3, and the
+  `lake build` of the build-lint `policy` target exits 1. `lake lint` keeps the marker for such a
+  workspace.
+- The incremental gate trusts the build traces that Lake recorded in the checkout, and the record
+  is part of them. A facet that forged the record when Lake built a module is outside that
+  evidence. A `--fresh` audit rests on no recorded trace.
 - The only supported editor is VS Code with the Lean 4 extension, and there is no latency claim.
 - Regula has run on small adopters only, including a Mathlib-importing library accepted
   incrementally and fresh; there is no Mathlib-scale adopter claim. These are bounded

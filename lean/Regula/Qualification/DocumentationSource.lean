@@ -26,6 +26,20 @@ def check (sourceReadOnly : Bool) : IO Unit := do
   let root ← rootDirectory
   withScratch root "documentation-source" fun project => do
     prepareCoreProject root project "documentation_adopter" "kernel-only"
+    -- The `file` stage's `--file` audits build `Example` in place without the audit-build marker
+    -- and keep that build between phases, so each phase after the first replays `Example`. The
+    -- project's configuration is a `lakefile.lean` that declares the weak-arguments facet of
+    -- Regula's shipped `lakefile.lean`, so that build records `Example`'s weak arguments and the
+    -- audit establishes the replayed module (RG2003). Each phase then reaches the source refusal it
+    -- tests. Its options and library are those of `prepareCoreProject`'s `lakefile.toml`.
+    let some facet := Regula.Checker.Lake.weakArgsDeclarations
+        (← IO.FS.readFile (root / "lakefile.lean"))
+      | throw <| IO.userError "Regula's lakefile has no weak-arguments facet"
+    Regula.Filesystem.removePath .file (project / "lakefile.toml")
+    IO.FS.writeFile (project / "lakefile.lean") <|
+      "import Lake\nopen Lake DSL\n\npackage documentation_adopter where\n" ++
+        "  leanOptions := #[⟨`autoImplicit, false⟩, ⟨`relaxedAutoImplicit, false⟩,\n" ++
+        "    ⟨`linter.missingDocs, true⟩]\n\nlean_lib Example\n" ++ facet
     IO.FS.writeFile (project / "Example.lean") source
     let manifest ← IO.FS.readFile (project / "foundation_manifest.json")
     -- What this runtime reports for reads that fail the two ways the controls cause: a file that
@@ -35,7 +49,7 @@ def check (sourceReadOnly : Bool) : IO Unit := do
     for (binary, flags) in
         #[("docFenceAudit", #["--jobs", "1", "--verbose"]), ("axiomGate", #["--with-docs"])] do
       if binary == "axiomGate" then
-        IO.FS.removeFile (project / "Example.lean")
+        Regula.Filesystem.removePath .file (project / "Example.lean")
         let _ ← observe root project "setup-missing" binary flags {
           failure := true, status := "incomplete", ids := ["RG2001"] }
         IO.FS.writeFile (project / "Example.lean") source
@@ -88,9 +102,9 @@ def check (sourceReadOnly : Bool) : IO Unit := do
                   "source-unreadable", "restored"]
         for index in [:phases.size] do
           let phase := phases[index]!
-          if ← target.isDir then IO.FS.removeDir target
+          if ← target.isDir then Regula.Filesystem.removePath .directory target
           if phase == "initial-missing" then
-            if ← target.pathExists then IO.FS.removeFile target
+            if ← target.pathExists then Regula.Filesystem.removePath .file target
           else
             let operation := if phase == "source-change" then "append" else if phase ==
                                                                              "source-missing" then

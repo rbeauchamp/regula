@@ -75,8 +75,8 @@ declarations are reported by this account without becoming owned.
 Generated-role metadata is descriptive, not provenance. A recursion helper requires
 regeneration by the pinned recursion compiler and the kernel's check of its base's
 recursion equation; no unsafe constructor-index wrapper is admitted. A native-proof axiom requires
-native replay and fresh exact-source frontend provenance. Names, ranges, and extension
-tags alone never waive a rule. Every declaration is still emitted and checked.
+native replay and, for one of an owned module, fresh exact-source frontend provenance. Names,
+ranges, and extension tags alone never waive a rule. Every declaration is still emitted and checked.
 
 The full list of imported module names and each module's Lean-resolved `.olean`
 path are emitted as well, so drivers can reconcile the queried Lake inventory,
@@ -995,6 +995,66 @@ private def executableRoots (env : Environment) (modules : List Name)
       roots := roots.push action
   return roots
 
+/-- The records of the imported native-proof axioms that `entries` rest on. They are the axioms an
+entry lists whose name the `nativeEqTrue` scheme generates (`RegulaPolicy.nativeAxiomOrigin?`) and
+whose module `inspected` does not contain, each once. Each is followed by the record of each
+kernel constant of the axiom's own module that its generated prefix names, unless that constant
+already has a record: the prefix itself or, for a module-private prefix, the public name it
+hides. A constant of another module that a prefix names gets no record, so it cannot displace the
+declaration of the axiom's module, and neither does a name that only the code generator has. The
+axiom's record is a replay candidate, so its statement is replayed (`Collect.declaration`); the
+prefix's record is a snapshot, which has no replay and so is never a native role. A name recorded
+as a prefix and then reached as an axiom has its snapshot replaced by a replay candidate, so
+whichever of the two is reached first, every reached axiom is replayed. Records are in the order
+of their first insertion, prefix snapshots included: a replaced snapshot keeps its position. The
+axioms of both are those Lean's `collectAxioms` reports, since no kernel of this audit replayed an
+imported module.
+
+Assumes:
+- Lean v4.34.1 maps each imported constant to the module that declares it
+  (`Environment.getModuleIdxFor?`, `src/lean/Lean/Environment.lean:1195-1197`).
+  That map also holds auxiliary names of the code generator that are not kernel constants
+  (`src/lean/Lean/Environment.lean:241-243`), so a prefix is recorded only when the environment
+  contains it.
+- The audited environment is imported at `OLeanLevel.private`, the default of `importModules`
+  (`src/lean/Lean/Environment.lean:2433-2440`), which treats every import as `import all`
+  (line 2182). So the constants that a `module` file keeps private, its generated native-proof
+  axioms among them, are in the environment.
+- Lean v4.34.1 gives a generated name the private form of its module while a `module` file
+  elaborates without exporting (`DeclNameGenerator.mkUniqueName.curr`,
+  `src/lean/Lean/CoreM.lean:121-125`), and `privateToUserName` removes that form
+  (`src/lean/Lean/PrivateName.lean:29-30`, `:32-35`, `:62-64`). -/
+private def importedNativeRecords (env : Environment) (inspected : List Name)
+    (entries : Array Regula.Report.Declaration) (scope : Regula.Collect.ContractScope) :
+    CommandElabM (Array Regula.Report.Declaration) := do
+  let moduleOf? (name : Name) : Option Name :=
+    (env.getModuleIdxFor? name).map fun idx => env.header.modules[(idx : Nat)]!.module
+  let mut reached : NameSet := {}
+  let mut index : Std.HashMap Name Nat := {}
+  let mut records := #[]
+  for entry in entries do
+    for name in entry.axioms do
+      if reached.contains name then continue
+      reached := reached.insert name
+      let some (pfx, _) := RegulaPolicy.nativeAxiomOrigin? name | continue
+      let some axiomModule := moduleOf? name | continue
+      if inspected.contains axiomModule then continue
+      let record ← observing env name "imported native axiom record"
+        (Regula.Collect.declaration name .replayCandidate scope)
+      match index[name]? with
+      | some i => records := records.set! i record
+      | none =>
+        index := index.insert name records.size
+        records := records.push record
+      let named := if Lean.isPrivateName pfx then #[pfx, Lean.privateToUserName pfx] else #[pfx]
+      for parent in named do
+        if env.contains parent && moduleOf? parent == some axiomModule
+            && !index.contains parent then
+          index := index.insert parent records.size
+          records := records.push (← observing env parent "imported native prefix record"
+            (Regula.Collect.declaration parent .snapshot scope))
+  return records
+
 /-- Build the complete report for exact requested module names. The trusted
 runner calls this function directly, without parsing a command in the audited
 module's frontend extension environment. Each declaration record has the axioms `replayed` holds
@@ -1007,14 +1067,15 @@ kernel checked in this audit, those the environment's admission replayed or reus
 account accepts a correspondence theorem only from one of them or from an origin-checked toolchain
 module (`replacementCorrespondence`). `dependencies` names the modules of owned dependencies that
 `modules` import: the report records their declarations and executable roots too, and its census
-lists them apart (`Census.dependencyModules`). One report keeps the first answer that
-`loadReplacementHistory` returns for each module and gives it to every later history request of
-the report, from any root, so a node record kept for a later root is the record its pass would
-make again. A loader that throws returns no answer, and no record is kept from that request. The
-report refuses an environment whose `propext`, `Quot.sound` or `Classical.choice` is not the
-toolchain's (`Collect.authenticateFoundation`). Each correspondence check runs on a task of its
-own (`runCheck`), and a report whose process cannot run one there ends with an error before any
-check (`requireDedicatedThreads`). -/
+lists them apart (`Census.dependencyModules`). The report also records the imported native-proof
+axioms its declarations rest on, outside those modules (`importedNativeRecords`). One report keeps
+the first answer that `loadReplacementHistory` returns for each module and gives it to every later
+history request of the report, from any root, so a node record kept for a later root is the record
+its pass would make again. A loader that throws returns no answer, and no record is kept from that
+request. The report refuses an environment whose `propext`, `Quot.sound` or `Classical.choice` is
+not the toolchain's (`Collect.authenticateFoundation`). Each correspondence check runs on a task
+of its own (`runCheck`), and a report whose process cannot run one there ends with an error before
+any check (`requireDedicatedThreads`). -/
 def environmentReport (modules : List Name)
     (loadReplacementHistory : Name → IO (Except String (Array (Name × Name))) :=
       fun _ => pure (.error "trusted source-history loader was not supplied"))
@@ -1052,6 +1113,8 @@ def environmentReport (modules : List Name)
   let entries ← reportPhase timing s!"declaration records [{label}]" <| own.mapM fun (name, _) =>
     observing env name "declaration record"
       (Regula.Collect.declaration name .replayCandidate scope replayed)
+  let imported ← reportPhase timing s!"imported native axiom records [{label}]" <|
+    importedNativeRecords env inspected entries scope
   let roots ← reportPhase timing s!"execution root census [{label}]" <| if includeExecution then do
     let mut roots ← executableRoots env inspected own
     for entry in entries do
@@ -1131,6 +1194,7 @@ def environmentReport (modules : List Name)
     moduleOrigins
     declarations := entries
     execution
+    imported
     census := { modules := modules.toArray, dependencyModules := dependencies.toArray
                 declarations := declarationKeys
                 executionRoots := if includeExecution then some roots else none

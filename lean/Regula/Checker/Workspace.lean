@@ -2,7 +2,7 @@ import Lake
 import Lake.Load
 import Regula.Checker.Common
 import Regula.ToolchainProgram
-import Regula.Removal
+import Regula.Filesystem
 
 /-!
 # In-process Lake workspace loading
@@ -57,7 +57,12 @@ private def withLoaded {α : Type} (ws? : Option _root_.Lake.Workspace) (log : _
 `action`. The action runs in the same process, so it must not retain mutable
 workspace state beyond its return value. With `scrubSearchPath`, the inherited
 `LEAN_PATH` and `LEAN_SRC_PATH` are ignored, as for `scrubbedLeanPathEnv`. Setup may disable
-`resolveDependencies` to load only the root configuration without materializing dependencies. -/
+`resolveDependencies` to load only the root configuration without materializing dependencies.
+
+Lake's loader removes and replaces entries of the workspace itself, as `lake build` and
+`lake update` would there: the compiled configuration of each package, and the clones of its
+dependencies. Those removals act on the workspace that the caller asked Lake to load, and they rest
+on its own contents, which its adopter trusts as Lake does (`Regula.Removal.libraryRemovals`). -/
 def withRootWorkspace {α : Type} (repo : FilePath) (action : _root_.Lake.Workspace → IO α)
     (scrubSearchPath := false) (resolveDependencies := true) : IO α := do
   let config ← loadConfig repo scrubSearchPath
@@ -69,19 +74,20 @@ def withRootWorkspace {α : Type} (repo : FilePath) (action : _root_.Lake.Worksp
 to `action`, after refusing a root package that declares a dependency. For a root that declares
 none, `Lake.loadWorkspace` loads no other package, so `action` gets the packages that
 `withRootWorkspace` gives it. The compiled code of this function calls no loader that resolves or
-materializes a dependency, which removes directories (`Regula.Removal.rawRemovals`).
+materializes a dependency, which removes directories (`Regula.Removal.checkProgram`).
 
 Its prerequisite: before the loader runs, it refuses when `.lake` or `.lake/config` below the
-checkout is there and is not a directory at its own place (`Regula.Removal.requireOwnDirectory`).
-It also refuses when the directory of the root package's compiled configuration
-(`Lake.LoadConfig.configDir`, `.lake/config/0`) is not such a directory, or has an entry that is a
-symbolic link (`Regula.Removal.requireNoLinkedEntries`). That directory is the one where the loader
-removes and writes files, the configuration lock among them (`Lake/Load/Lean/Elab.lean:185-187`).
-It removes the stale `lakefile.olean` and the trace (`:244`, `:262`), and opens the lock and the
-trace for writing (`:207`, `:223`, `:294`). `Lean.writeModule` writes the new `lakefile.olean` and
-its siblings (`:256`) through `<file>.tmp.<pid>`, opened with `std::ofstream`
-(`src/library/module.cpp:311-314`). An open of an existing file for writing follows a final link, so
-with this check each file that the loader writes there is the checkout's own. -/
+checkout is there and is not a directory at its own place
+(`Regula.Filesystem.requireOwnDirectory`). It also refuses when the directory of the root
+package's compiled configuration (`Lake.LoadConfig.configDir`, `.lake/config/0`) is not such a
+directory, or has an entry that is a symbolic link (`Regula.Filesystem.requireNoLinkedEntries`).
+That directory is the one where the loader removes and writes files, the configuration lock among
+them (`Lake/Load/Lean/Elab.lean:185-187`). It removes the stale `lakefile.olean` and the trace
+(`:244`, `:262`), and opens the lock and the trace for writing (`:207`, `:223`, `:294`).
+`Lean.writeModule` writes the new `lakefile.olean` and its siblings (`:256`) through
+`<file>.tmp.<pid>`, opened with `std::ofstream` (`src/library/module.cpp:311-314`). An open of an
+existing file for writing follows a final link, so with this check each file that the loader
+writes there is the checkout's own. -/
 def withRootPackage {α : Type} (repo : FilePath) (action : _root_.Lake.Workspace → IO α) :
     IO α := do
   let config ← loadConfig repo false
@@ -89,8 +95,8 @@ def withRootPackage {α : Type} (repo : FilePath) (action : _root_.Lake.Workspac
   let refuse {β : Type} (error : IO.Error) : IO β := throw <| IO.userError
     s!"lake-workspace-load-failed: nothing was loaded: {error}"
   for directory in [lake, lake / "config"] do
-    try Regula.Removal.requireOwnDirectory directory catch error => refuse error
-  try Regula.Removal.requireNoLinkedEntries config.configDir catch error => refuse error
+    try Regula.Filesystem.requireOwnDirectory directory catch error => refuse error
+  try Regula.Filesystem.requireNoLinkedEntries config.configDir catch error => refuse error
   let load : _root_.Lake.LoggerIO _root_.Lake.Workspace := _root_.Lake.loadWorkspaceRoot config
   let (ws?, log) ← load.captureLog
   withLoaded ws? log fun ws => do
@@ -239,15 +245,26 @@ a module, so a build that needs it elaborates it again and records its log. A li
 modules Lake cannot list, such as one whose glob names a directory that does not exist yet,
 contributes none, as it does to a `lake build` of other targets; an audit lists every module of
 each claimed library through Lake (`Lake.surfaceInventory`) before it builds, and fails if it
-cannot. -/
+cannot.
+
+When it finds such a trace, it resolves the root package's build directory once
+(`Regula.Filesystem.ownRoot`), and removes each such trace at the path that Lake gives
+(`Lake.Module.traceFile`) with that real path in place of the build directory. So a `.lake` that
+the adopter made a symbolic link does not make the removal refuse. -/
 def dropRestoredTraces (ws : _root_.Lake.Workspace) : IO Unit := do
-  let drop (mod : _root_.Lake.Module) : IO Unit := do
-    if let .ok text ← (IO.FS.readFile mod.traceFile).toBaseIO then
-      if restoredTrace text then IO.FS.removeFile mod.traceFile
+  let mut modules : Array _root_.Lake.Module := #[]
   for lib in ws.root.leanLibs do
-    if let .ok modules ← lib.getModuleArray.toBaseIO then
-      for mod in modules do drop mod
-  for exe in ws.root.leanExes do drop exe.root
+    if let .ok found ← lib.getModuleArray.toBaseIO then modules := modules ++ found
+  modules := modules ++ ws.root.leanExes.map (·.root)
+  let restored ← modules.filterM fun mod => do
+    match ← (IO.FS.readFile mod.traceFile).toBaseIO with
+    | .ok text => pure (restoredTrace text)
+    | .error _ => pure false
+  if restored.isEmpty then return
+  let build ← Regula.Filesystem.ownRoot ws.root.buildDir
+  for mod in restored do
+    Regula.Filesystem.removeOwn .file
+      (mod.filePath (build / ws.root.config.leanLibDir.normalize) "trace")
 
 /-- Whether `text`, the content of a module's Lake trace file, records an elaboration: Lake can
 read it as a trace, and it does not record a restore from the artifact cache. Lake v4.34.1 writes
@@ -257,6 +274,306 @@ def elaborationTrace (text : String) : Bool :=
   match _root_.Lake.BuildMetadata.parse text with
   | .ok data => !data.synthetic
   | .error _ => false
+
+/-- The caption and value of one input of a Lake trace file as Lake v4.34.1 writes it, a
+two-element array of the caption and either a hash or the array of that input's own inputs
+(`serializeInputs`, `Lake/Build/Common.lean` lines 129 to 136), or none for other JSON. -/
+def pairOf? : Json → Option (String × Json)
+  | .arr items =>
+    if h : items.size = 2 then
+      match items[0] with
+      | .str caption => some (caption, items[1])
+      | _ => none
+    else none
+  | _ => none
+
+/-- `pairOf?` reads exactly a two-element array whose first element is a string. -/
+theorem pairOf?_eq_some_iff {item : Json} {caption : String} {value : Json} :
+    pairOf? item = some (caption, value) ↔ item = .arr #[.str caption, value] := by
+  constructor
+  · intro h
+    unfold pairOf? at h
+    split at h
+    · rename_i items
+      split at h
+      · rename_i hSize
+        split at h
+        · rename_i c hc
+          simp only [Option.some.injEq, Prod.mk.injEq] at h
+          obtain ⟨rfl, rfl⟩ := h
+          congr 1
+          apply Array.ext
+          · simp [hSize]
+          · intro i h1 h2
+            simp only [List.size_toArray, List.length_cons, List.length_nil] at h2
+            match i, h2 with
+            | 0, _ => simpa using hc
+            | 1, _ => rfl
+        · simp at h
+      · simp at h
+    · simp at h
+  · rintro rfl
+    simp [pairOf?]
+
+/-- The value that `pairOf?` reads is smaller than the input it reads it from. -/
+theorem sizeOf_lt_of_pairOf? {item : Json} {caption : String} {value : Json}
+    (h : pairOf? item = some (caption, value)) : sizeOf value < sizeOf item := by
+  rw [pairOf?_eq_some_iff.mp h]
+  simp
+  omega
+
+/-- Whether the trace inputs `json`, an array of inputs as `pairOf?` reads them, hold an input
+whose caption `admits` accepts, at any depth. -/
+def valueRecords (admits : String → Bool) : Json → Bool
+  | .arr items => items.attach.any fun ⟨item, member⟩ =>
+      match hPair : pairOf? item with
+      | some (other, value) =>
+        have : sizeOf value < 1 + sizeOf items := by
+          have := Array.sizeOf_lt_of_mem member
+          have := sizeOf_lt_of_pairOf? hPair
+          omega
+        admits other || valueRecords admits value
+      | none => false
+  | _ => false
+termination_by json => sizeOf json
+
+/-- Trace inputs `json` record an input whose caption `admits` accepts: one of its two-element
+arrays starts with such a caption, or starts with another and its value records one. -/
+inductive Records (admits : String → Bool) : Json → Prop where
+  /-- An input of the array has an admitted caption. -/
+  | here {items : Array Json} {caption : String} {value : Json} :
+      Json.arr #[.str caption, value] ∈ items → admits caption = true → Records admits (.arr items)
+  /-- The inputs of an input of the array record it. -/
+  | deeper {items : Array Json} {other : String} {value : Json} :
+      Json.arr #[.str other, value] ∈ items → Records admits value → Records admits (.arr items)
+
+/-- `valueRecords` decides `Records`. -/
+theorem valueRecords_iff (admits : String → Bool) : ∀ json : Json,
+    valueRecords admits json = true ↔ Records admits json
+  | .arr items => by
+    rw [valueRecords.eq_1, Array.any_eq_true']
+    constructor
+    · rintro ⟨⟨item, member⟩, -, h⟩
+      dsimp only at h
+      split at h
+      · rename_i other value hPair
+        have hItem := pairOf?_eq_some_iff.mp hPair
+        subst hItem
+        rcases Bool.or_eq_true_iff.mp h with hEq | hDeep
+        · exact .here member hEq
+        · have : sizeOf value < 1 + sizeOf items := by
+            have := Array.sizeOf_lt_of_mem member
+            simp at this
+            omega
+          exact .deeper member ((valueRecords_iff admits value).mp hDeep)
+      · simp at h
+    · intro h
+      cases h with
+      | here member admitted =>
+        refine ⟨⟨_, member⟩, Array.mem_attach _ _, ?_⟩
+        dsimp only
+        split
+        · rename_i other value hPair
+          rw [pairOf?_eq_some_iff] at hPair
+          simp at hPair
+          simp [← hPair.1, admitted]
+        · rename_i hNone
+          simp [pairOf?] at hNone
+      | deeper member records =>
+        rename_i other value
+        have : sizeOf value < 1 + sizeOf items := by
+          have := Array.sizeOf_lt_of_mem member
+          simp at this
+          omega
+        refine ⟨⟨_, member⟩, Array.mem_attach _ _, ?_⟩
+        dsimp only
+        split
+        · rename_i other' value' hPair
+          rw [pairOf?_eq_some_iff] at hPair
+          simp at hPair
+          obtain ⟨rfl, rfl⟩ := hPair
+          simp [(valueRecords_iff admits value).mpr records]
+        · rename_i hNone
+          simp [pairOf?] at hNone
+  | .null | .bool _ | .num _ | .str _ | .obj _ => by
+    simp only [valueRecords, Bool.false_eq_true, false_iff]
+    intro h; cases h
+termination_by json => sizeOf json
+
+/-- Whether `text`, the content of a module's Lake trace file, records among the inputs of the
+elaboration it holds one whose caption `admits` accepts. Lake v4.34.1 writes, with an elaboration's
+log, the caption of each input of its trace at any depth (`BuildMetadata.ofBuildCore`,
+`serializeInputs`, `Lake/Build/Common.lean` lines 129 to 145).
+
+Assumes: Lake v4.34.1 writes a module's trace file in this form, with the inputs of the elaboration
+whose log it holds. -/
+def traceRecords (admits : String → Bool) (text : String) : Bool :=
+  match _root_.Lake.BuildMetadata.parse text with
+  | .ok data => valueRecords admits (toJson data.inputs)
+  | .error _ => false
+
+/-- A trace file records an admitted caption exactly when Lake reads it as a trace whose inputs
+record one. -/
+theorem traceRecords_iff (admits : String → Bool) (text : String) :
+    traceRecords admits text = true ↔
+      ∃ data, _root_.Lake.BuildMetadata.parse text = .ok data ∧
+        Records admits (toJson data.inputs) := by
+  unfold traceRecords
+  split
+  · rename_i data hData
+    rw [valueRecords_iff]
+    exact ⟨fun h => ⟨data, hData, h⟩, fun ⟨_, hOk, h⟩ => by cases hData.symm.trans hOk; exact h⟩
+  · rename_i error hError
+    simp only [Bool.false_eq_true, false_iff]
+    rintro ⟨_, hOk, -⟩
+    cases hError.symm.trans hOk
+
+/-- The characters `stdout:` and a line break, with which Lake v4.34.1 starts the information
+entry it logs for a run of output lines of a program that are not a message of it
+(`unparsedCompilerOutput`). -/
+def stdoutPrefix : List Char := ['s', 't', 'd', 'o', 'u', 't', ':', '\n']
+
+/-- Whether `entry` is one that Lake can have made from output of the Lean compiler that is not a
+Lean message. Lake v4.34.1's `compileLeanModule` runs `lean --json`, which prints each message as
+one JSON line on its standard output, and logs each line that parses as a Lean message through
+`LogEntry.ofSerialMessage`. It logs each run of other standard output lines as one information
+entry, `stdout:`, a line break and the text (`Lake/Build/Actions.lean`, lines 66 to 81), so a
+message whose JSON line other output corrupted is in such an entry, whatever its severity. Lake
+writes the standard output of other programs it runs in the same form (`logOutput`,
+`Lake/Util/Proc.lean`, lines 22 to 27), at the level its caller chooses, and this selects such an
+entry only at information level: `proc (quiet := true)` logs a successful program's output at trace
+level (line 44), which neither this nor a warning failure level catches. Standard error, which Lake
+logs after `stderr:`, holds no Lean message, so this does not select it.
+An entry Lake made from a Lean message whose file name has no line break is never selected
+(`unparsedCompilerOutput_ofSerialMessage`), and `lineBreakSourcePaths` refuses the modules whose
+message file name has one.
+
+Assumes: Lake v4.34.1 logs the standard output of `lean --json` that is not a Lean message only as
+such an entry. -/
+def unparsedCompilerOutput (entry : _root_.Lake.LogEntry) : Bool :=
+  entry.level == .info && stdoutPrefix.isPrefixOf entry.message.toList
+
+/-- A list that starts with a file name with no line break, then `:` and a character other than a
+line break, does not start with `stdoutPrefix`. -/
+theorem not_stdoutPrefix_prefix {name : List Char} {next : Char} (hName : '\n' ∉ name)
+    (hNext : next ≠ '\n') (rest : List Char) :
+    ¬ stdoutPrefix <+: name ++ ':' :: next :: rest := by
+  rcases name with
+    _ | ⟨c0, _ | ⟨c1, _ | ⟨c2, _ | ⟨c3, _ | ⟨c4, _ | ⟨c5, _ | ⟨c6, _ | ⟨c7, t⟩⟩⟩⟩⟩⟩⟩⟩ <;>
+    simp_all [stdoutPrefix, List.cons_prefix_cons] <;>
+    exact fun _ _ _ _ _ _ h => hNext h.symm
+
+/-- The decimal rendering of a natural number starts with a character other than a line break. -/
+theorem toString_nat_head (n : Nat) :
+    ∃ first rest, (toString n).toList = first :: rest ∧ first ≠ '\n' := by
+  cases h : (toString n).toList with
+  | nil => simp [toString, Nat.repr] at h
+  | cons first rest =>
+    refine ⟨first, rest, rfl, fun hFirst => ?_⟩
+    have digit : first ∈ Nat.toDigits 10 n := by
+      have : first ∈ (toString n).toList := by rw [h]; exact List.mem_cons_self
+      simpa [toString, Nat.repr] using this
+    have := Nat.isDigit_of_mem_toDigits (by decide) (by decide) digit
+    simp [hFirst] at this
+
+/-- Lake's entry for a Lean message (`LogEntry.ofSerialMessage`, whose text is the file name, `:`,
+the line number and the rest, `mkErrorStringWithPos`) is never one that `unparsedCompilerOutput`
+selects when the message's file name has no line break. -/
+theorem unparsedCompilerOutput_ofSerialMessage (message : SerialMessage)
+    (h : '\n' ∉ message.fileName.toList) :
+    unparsedCompilerOutput (_root_.Lake.LogEntry.ofSerialMessage message) = false := by
+  obtain ⟨first, rest, hLine, hFirst⟩ := toString_nat_head message.pos.line
+  obtain ⟨tail, hText⟩ : ∃ tail, (_root_.Lake.LogEntry.ofSerialMessage message).message.toList =
+      message.fileName.toList ++ ':' :: first :: tail := by
+    simp only [_root_.Lake.LogEntry.ofSerialMessage, mkErrorStringWithPos, String.toList_append]
+    rw [show toString message.fileName = message.fileName from rfl,
+      show (toString ":").toList = [':'] from rfl, hLine]
+    exact ⟨_, by simp only [List.append_assoc, List.cons_append, List.nil_append]; rfl⟩
+  simp only [unparsedCompilerOutput, Bool.and_eq_false_iff, hText]
+  right
+  cases hPrefix : stdoutPrefix.isPrefixOf (message.fileName.toList ++ ':' :: first :: tail)
+  · rfl
+  · exact absurd (List.isPrefixOf_iff_prefix.mp hPrefix) (not_stdoutPrefix_prefix h hFirst tail)
+
+/-- The file name Lake v4.34.1 gives each message of the elaboration of a module of `pkg` from
+`srcFile`, the source file of its `presetup` facet's result: `Module.buildLean` passes `lean` that
+file and its path relative to the package's directory (`Lake/Build/Module.lean` lines 981 to 989),
+and `compileLeanModule` names each parsed message by `mkRelPathString` of that relative path
+(`Lake/Build/Actions.lean` line 72).
+
+Assumes: Lake v4.34.1 names each message of a module's elaboration as this does, and its `leanArts`
+facet compiles from its `presetup` facet's result. -/
+def messageFileName (pkg : _root_.Lake.Package) (srcFile : System.FilePath) : String :=
+  _root_.Lake.mkRelPathString (_root_.Lake.relPathFrom pkg.dir srcFile)
+
+/-- The source file of the completed `presetup` job of module `module` of package `package` in the
+build `store`, the file that Lake's `leanArts` facet compiles the module from
+(`Module.recBuildLean`, `Lake/Build/Module.lean` lines 1006 to 1009), or none when the store holds
+no such job or the job failed. The store's job has that facet's data type by unfolding
+`BuildData`, and Lake's `ofFamily` casts it to the presetup result through Lake's facet axiom, so
+no proof of this module rests on that axiom. -/
+def presetupSource? (store : _root_.Lake.BuildStore) (package module : Name) :
+    Option System.FilePath :=
+  let job? : Option (_root_.Lake.Job (_root_.Lake.FacetOut _root_.Lake.Module.presetupFacet)) :=
+    store.get? (_root_.Lake.BuildKey.packageModuleFacet package module
+      _root_.Lake.Module.presetupFacet)
+  job?.bind fun job => job.task.get.result?.map fun data =>
+    (_root_.Lake.ofFamily data : _root_.Lake.ModulePreSetup).srcFile
+
+/-- Why the messages of the module that the build key `key` compiles, if any, are not covered by
+`unparsedCompilerOutput_ofSerialMessage`, or none when they are or `key` compiles nothing, with
+`source?` giving the source file of each module's completed `presetup` result (`presetupSource?`
+of the build's store). A key compiles a module when it is the module's `leanArts` job. Its
+messages are covered when a package of `ws` has the key's package name and the file name Lake gives
+them (`messageFileName`, from that source file) has no line break. -/
+def sourcePathFailure? (ws : _root_.Lake.Workspace)
+    (source? : Name → Name → Option System.FilePath)
+    (key : _root_.Lake.BuildKey) : Option String :=
+  match key with
+  | .facet (.packageModule package module) facet =>
+    if facet != _root_.Lake.Module.leanArtsFacet then none else
+    match ws.packages.find? (·.keyName == package), source? package module with
+    | none, _ => some s!"no package of the workspace is {package}, which has module {module}, so \
+        the file name Lake gives its messages is unknown"
+    | _, none => some s!"the build holds no completed presetup of module {module}, so the file \
+        name Lake gives its messages is unknown"
+    | some pkg, some srcFile =>
+      if '\n' ∈ (messageFileName pkg srcFile).toList then
+        some s!"the file name Lake gives each message of module {module}, \
+          {(messageFileName pkg srcFile).quote}, has a line break"
+      else none
+  | _ => none
+
+/-- A key that compiles a module and has no `sourcePathFailure?` names a package of `ws` and a
+source file, given by `source?`, from which Lake names the module's messages with no line break,
+the hypothesis of `unparsedCompilerOutput_ofSerialMessage`. -/
+theorem sourcePathFailure?_eq_none {ws : _root_.Lake.Workspace}
+    {source? : Name → Name → Option System.FilePath} {package module : Name}
+    (h : sourcePathFailure? ws source?
+      (.facet (.packageModule package module) _root_.Lake.Module.leanArtsFacet) = none) :
+    ∃ pkg srcFile, ws.packages.find? (·.keyName == package) = some pkg ∧
+      source? package module = some srcFile ∧
+      '\n' ∉ (messageFileName pkg srcFile).toList := by
+  simp only [sourcePathFailure?, bne_self_eq_false, Bool.false_eq_true, ite_false] at h
+  split at h
+  · simp at h
+  · simp at h
+  · rename_i pkg srcFile hPkg hSrc
+    refine ⟨pkg, srcFile, hPkg, hSrc, fun hBreak => ?_⟩
+    simp [hBreak] at h
+
+/-- Each `sourcePathFailure?` of the keys of the build `store` of `ws`, with `source?` the
+`presetupSource?` of `store`. -/
+def lineBreakSourcePaths (ws : _root_.Lake.Workspace) (store : _root_.Lake.BuildStore)
+    (source? : Name → Name → Option System.FilePath) : Array String :=
+  store.keys.toArray.filterMap (sourcePathFailure? ws source?)
+
+/-- `lineBreakSourcePaths` is empty exactly when no key of the store has a `sourcePathFailure?`. -/
+theorem lineBreakSourcePaths_eq_empty_iff (ws : _root_.Lake.Workspace)
+    (store : _root_.Lake.BuildStore) (source? : Name → Name → Option System.FilePath) :
+    lineBreakSourcePaths ws store source? = #[] ↔
+      ∀ key ∈ store.keys, sourcePathFailure? ws source? key = none := by
+  simp [lineBreakSourcePaths]
 
 /-- A trace that records an elaboration is not one that `dropRestoredTraces` removes. -/
 theorem restoredTrace_eq_false_of_elaborationTrace {text : String}

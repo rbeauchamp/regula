@@ -144,7 +144,18 @@ or an INCOMPLETE diagnostic demonstration is not an audit-success certificate.
 the original claimed library targets, preserving their custom facets, and each claimed
 executable's actual root `leanArts` facet. If preflight clears, it builds every original
 claimed target, including the executable links, before full inspection. Only that complete
-build's successful, warning-free process observation reaches `Acceptance.buildObservation`.
+build, run with Lake's failure level at `warning`, reaches `Acceptance.buildObservation`. Its
+observation is accepted exactly when these conditions hold (`buildObservation_ok_iff`). The
+build ran at that failure level and exited 0, and no required job logged compiler output that is
+not a Lean message. Without the audit-build marker, acceptance also requires a record of
+`weakLeanArgs` for each claimed module that the build replayed from before the run
+(`mem_reusedModules_iff`). The trace file of that module must hold
+the record of its own library: the package, the library and its current `weakLeanArgs`
+(`Lake.traceRecords_ownRecord_iff`). A record of a different library does not count.
+Lake's module trace omits these arguments. Regula's `lakefile.lean` declares an `extraDep` facet
+that adds this record for the libraries of the root package and of the package that declares the
+facet. Lake identifies each package itself (`Package.isRoot`, `__name__`), not by the name a
+`require` gives it.
 `Lake.ClaimedBuildPlan.completionTargets_exact` binds the deferred build to the original
 target array; `build_completed_iff` records the build stage before preflight exactly when no
 target build remains. A library-only claim keeps one original build
@@ -153,6 +164,13 @@ not by Lake target syntax. Both phases use the selected build adapter and warnin
 including the lint driver's options. A deferred build is followed by the source,
 configuration and frozen-artifact checks before the unchanged full inspection and terminal
 freshness checks.
+
+A facet that a later dependency declares can replace Regula's. So a build without the marker
+counts no record when a dependency other than Regula declares a library facet, as
+`Lake.onlyRegulaFacets` decides. The record is part of the build traces that Lake recorded in the
+checkout, which the incremental gate trusts. A record counts as written by Regula's facet when
+Lake built the module, as `Lake.traceRecords_ownRecord_iff` assumes. A facet that forged the record
+then is outside the gate's evidence. A `--fresh` audit rests on no recorded trace.
 
 The preflight reads the first module graphs of three environments at a time, each in a worker
 process of its own. The rest of each environment's scope, which in a copy can build owned modules
@@ -319,9 +337,31 @@ of Lake, for the filter `Pattern.star`, except for its proofs. Any other term ke
 
 The compiled configuration file also records each facet that the file declares, new or in place
 of a facet of Lake. The driver counts these declarations, and it keeps the marker if there is
-one. A file `lakefile.toml` declares no facet and cannot set `nativeFacets`. Its filter of an
-`input_dir` is the default only if it omits the filter or writes `"*"`. Lake only reads and hashes
-an input target. Thus a build in the plain shape runs no custom build step.
+one, except for the facet of Regula below. A file `lakefile.toml` declares no facet and cannot
+set `nativeFacets`. Its filter of an `input_dir` is the default only if it omits the filter or
+writes `"*"`. Lake only reads and hashes an input target. Thus a build in the plain shape runs no
+custom build step except Regula's `extraDep` facet.
+
+The driver admits that facet, `weakLeanArgsTrace`, by identity. The package's `lakefile.lean`
+must have the same text as the `lakefile.lean` of the running Regula. Its compiled file must
+declare that constant and one library facet only, as `regulaFacetAdmitted_iff` states. The driver
+then removes that declaration, its encoder `weakLeanArgsRecord` and its attribute entry from what
+it reads, with `ConfigReading.withoutRegulaFacet`. It also removes the encoder's documentation
+comment and the entry that the compilation of the encoder adds to the specialization cache of the
+compiler.
+
+The facet runs Lake's own `extraDep` facet, which builds the `extraDepTargets` and `needs` of each
+library. It also adds a trace input that records the identity and the `weakLeanArgs` of each
+library of the root package or of Regula. It compiles no module and sets no option. A package
+named `regula` with different text keeps the marker.
+
+The facet writes the record with `weakLeanArgsRecord`, a copy of `weakArgsRecordJson` in the
+file. The file cannot import the modules of Regula, since Lake loads the configuration of a fresh
+dependency before it builds any of its modules. Acceptance has the kernel admit the compiled copy
+of the shipped file as equal to `weakArgsRecordJson` (`lakefileEncoderAgrees`, run by
+`Regula.RegistryChecks`). This catches a drift between that file and the proved encoder. It
+establishes nothing about a configuration that an adopter or a dependency changes, which is a
+forged facet outside the evidence of the incremental gate.
 
 A file `lakefile.lean` must also declare only what the commands of Lake generate. These are the
 definitions of the package, its targets and their configurations, `require` and the name of the
@@ -356,9 +396,10 @@ unknown. The same verdict with and without the marker is a claim for the plain s
 That `Regula.Linter` is the only reader of the marker in Regula is by inspection. That no module
 of the project reads the marker itself is an assumption. That Lake runs no code from the fields
 of the list is read from the source of Lake. The source of Lake also shows that a build in the
-plain shape runs no custom build step. That the listed declarations and extensions add no code to
-a build is read from the source of Lean and of Lake. Lake's discovery of the modules and of their
-imports, and its compiled configuration files, are trusted.
+plain shape runs no custom build step except the admitted facet above. That the listed
+declarations and extensions add no code to a build is read from the source of Lean and of Lake.
+Lake's discovery of the modules and of their imports, and its compiled configuration files, are
+trusted.
 
 The command `./scripts/verify.sh` makes one copy of the checkout, and its first step operates in
 that copy. The driver of that command, `lean/RegulaVerification.lean`, makes the copy before it
@@ -480,74 +521,146 @@ link during the removal. `IO.FS.removeDirAll` examines an entry and then opens i
 Thus it can then remove the entries of a different directory. The checker removes its own
 scratch directories with the same function.
 
-The site executable removes a directory or a file only by the decision `Regula.Removal.removal`
-of `RegulaCore.Removal`. That decision uses the same read and the same comparison as the
-decision of the driver. It also gets the kind of entry that the caller removes: a directory or a
-file. It removes the place only if an entry of that kind is there at its own place
-(`removal_remove_iff`). The theorem `checked_removal` is the decision contract of that function.
+Each program of the package removes or moves an entry only through the filesystem observer,
+`Regula.Filesystem`. The exceptions are the library calls that `Regula.Removal.libraryRemovals`
+gives, and the removals and moves of the two drivers that `Regula.ProgramCheck.Verification` and
+`Regula.ProgramCheck.Provision` give. The observer removes an entry only by the decision
+`Regula.Removal.removal` of `RegulaCore.Removal`. That decision uses the same read and the same
+comparison as the decision of the driver. It also gets the kind of entry that the caller removes:
+a directory, a file or a symbolic link.
+
+A directory or a file is at its own place if its real path is the place. The real path of a
+symbolic link is its target. Thus a link is at its own place if it is a name in a directory at its
+own place. The decision removes the place only if an entry of the kind is there at its own
+place (`removal_remove_iff`). The theorem `checked_removal` is the decision contract of that
+function.
+
+The observer moves a file only by the decision `Regula.Removal.replacement`. It moves a file at
+its own place to a path where nothing is, or where a file is at its own place. The destination
+must be a name in a directory at its own place (`replacement_iff`). A move over a file removes
+that file, thus the decision examines the destination as it examines a removal of a file.
 
 Before this decision, the site executable removed its output directory, `tmp/site-render`,
 `tmp/site-releases` and `website/Generated` with no such read. With a link at one of these
 paths, it deleted the content of the target of the link
-([issue 261](https://github.com/rbeauchamp/regula/issues/261)). At this time, it stops there
-and removes nothing.
+([issue 261](https://github.com/rbeauchamp/regula/issues/261)). The qualification and checker
+code removed directories in the same way
+([issue 361](https://github.com/rbeauchamp/regula/issues/361)). At this time, each program stops
+there and removes nothing.
 
-A relative `--out` is joined to the real path of the working directory, and no component that it
-gives is resolved. Before it reads anything, the build refuses a `.` or `..` component of
-`--out`. Before it makes anything, it refuses a link among the present components.
+The observer joins a relative path to the real path of the working directory, and it resolves no
+component that the path gives. It drops the leading `.` components. Before it reads anything, it
+refuses each other `.` or `..` component. Before it makes anything, it refuses a link among the
+present components (`Regula.Filesystem.ownPath`).
 
-On Windows, the site executable removes nothing and refuses each `--out`. There the runtime reads
-a link's target when asked to read the link itself, so no read that follows no link is available.
+A program resolves some directories to their real path one time (`Regula.Filesystem.ownRoot`).
+These are the scratch area under `.lake`, the build directory of the project and the directory of a
+file that `regula init` wrote. Each scratch directory that a program uses is below the real path of
+that area.
+
+The adopter can make such a directory or one of its parents a symbolic link. The program decides
+each removal below the directory at the real path. Thus a link at `.lake` does not stop the
+removal, but a link below the directory does.
+
+On Windows, the observer reads no entry and removes nothing, and the site executable refuses each
+`--out`. There the runtime reads a link's target when asked to read the link itself, so no read
+that follows no link is available. Thus on Windows each command that removes an entry through the
+observer stops with an error. `lake lint` is such a command, because it removes its scratch
+directories through the observer. `regula doctor` and `regula init` give the toolchain of the
+project as not resolved, because the compiler probe removes its temporary directory. If
+`regula init` fails, it cannot remove the new files that it wrote, and it gives their names.
 
 The driver cannot import `RegulaCore.Removal`, because `scripts/verify.sh` operates the driver
-before the build. The site executable cannot import the driver, because each of the two programs
-declares `main`. Thus the decision has two implementations. The theorem
+before the build. A program of the package cannot import the driver, because each of the two
+programs declares `main`. Thus the decision has two implementations. The theorem
 `RegulaVerification.removal_shared` shows that the two implementations give the same result for a
 directory.
 
-The build of `Regula.Site.Main` reads the compiled code of `main` and of each initializer of the
-modules that the executable links. It also reads the compiled code of each declaration that this
-code calls, in this package and in the libraries. Only `Regula.Removal.removeDecided` and the
-variants of it that the compiler made can call a removal function of the Lean library. The calls
-that `Regula.Removal.libraryRemovals` gives are the only other calls that the check permits. The
-build fails for each different call.
+The build of the root module of each executable reads the compiled code of `main` and of the
+initializers of the linked modules. It also reads the compiled code of each
+declaration that this code calls, in this package and in the libraries. Only the declarations of
+the observer and the variants of them that the compiler made can call a removal function of the
+Lean library. The calls that `Regula.Removal.libraryRemovals` gives are the only other calls that
+the check permits. The build fails for each different call.
 
-Each call on that list removes one file that the library manages, or writes the compiled
-configuration of Lake. A removal of a directory in a library is not on the list. Each entry rests
-on an assumption, and `libraryRemovals` gives it with a source line of the library.
+The check permits the role of the observer only for declarations of `Regula.Filesystem`. If a
+different module gives that role, the build fails.
 
-For example, Lake removes and writes its compiled configuration in `.lake/config/0`. Before Lake
-loads the package, the site executable stops if `.lake`, `.lake/config` or `.lake/config/0` is a
-link. It also stops if one of them is a file or is not at its own place. It also stops if an entry
-of `.lake/config/0` is a link, because Lake and Lean open their files there for writing by name.
-Thus the files that Lake removes and writes there are files of the checkout.
+The calls of Lake on that list are trusted exceptions. Lake makes them itself in the process
+of a program that loads a workspace or builds. Each acts on that workspace, as `lake build` or
+`lake update` would there. Thus its safety rests on the content of the workspace: its configuration,
+the clones of its dependencies and the release archives that it fetches. The adopter trusts that
+content as Lake does. The other entries rest on an assumption, and `libraryRemovals` gives each
+entry with a source line.
+
+A program can also operate Lake in a copy of a project that it made, as
+`Regula.Checker.Lake.copyProject` and the verification driver do. Lake acts on the copy as it would
+act on the workspace that it was given, thus the same reason holds.
+
+This exception has a limit. A copy that `cp -R` makes, as the qualification slot and the
+provisioning driver do, holds the symbolic links of the original. A relative link there resolves
+from the place of the copy. A copy of `copyProject` holds the link that Regula makes to the
+packages directory of the original. The removals of Lake in a copy can operate through these links.
+
+[Issue 399](https://github.com/rbeauchamp/regula/issues/399) asks for copies that hold only
+directories, files and that one link, by construction.
+
+A program that a script operates with `lean --run` cannot import the check. Thus the modules
+`Regula.ProgramCheck` do the same check for each such program. The two drivers remove entries with
+their own code, because they operate before the build. Their modules give each of these removals
+with the declaration that makes it. A removal in a different declaration of a driver makes the
+build fail.
+
+The check permits a call of that list, or of a driver, by the pair of its caller and the removal
+function that it calls. It does not examine the path or the place of the call in the caller. Thus
+each permitted pair is a trusted exception as a whole, together with each further call of the same
+function in the same caller. For example, a second `IO.FS.removeDirAll` in a removal of the
+verification driver passes the check.
+[Issue 389](https://github.com/rbeauchamp/regula/issues/389) asks for a decision of the removals
+of the drivers that a theorem relates to `RegulaCore.Removal`.
+
+The command `lake exe qualify observers` reads the compiled modules of the package. It refuses
+unless the check recorded each program: the root module of each executable, and each module of a
+library that declares `main`. No library module can import `Main`, the root of `auditApp`, thus
+the command does the check of that program itself. The shard `self-audit 4/4` operates the
+command after it builds each library, and so does `diagnostics self-audit`. The first acceptance
+step does not operate it, because the acceptance of the claimed libraries does not rest on it.
+
+The loader `Regula.Checker.Workspace.withRootPackage` keeps its check of `.lake/config/0`
+(`Regula.Filesystem.requireNoLinkedEntries`). Lake and Lean open their files there for writing by
+name. Thus the loader stops if `.lake`, `.lake/config` or `.lake/config/0` is a link, or if an
+entry of `.lake/config/0` is a link.
 
 A removal function removes or replaces an entry, as a rename and the writing of a module do. A
 declaration that `extern` binds to `lean_io_remove_file`, `lean_io_remove_dir`, `lean_io_rename`
 or `lean_compacted_region_save` is also a removal function, whatever its name. These are the C
 functions of the runtime that remove or replace an entry. The check finds such a declaration.
 
-The criterion of the check is honest code, as `SECURITY.md` defines it. Honest code in the site
-executable cannot reach a removal outside `Regula.Removal`, except the calls on the list.
-Deliberate circumvention by the authors of Regula is outside the check
-([issue 286](https://github.com/rbeauchamp/regula/issues/286)). An example is an `extern` binding
-to a different C function that removes. A different example is an observation that the tactic
-`constructor` makes with the private constructor.
-
-The loader of the dependencies of Lake can remove a directory. Thus the site executable loads
-only the root package of the workspace (`withRootPackage`). It refuses a root package that
-declares a dependency.
+The criterion of the check is honest code, as `SECURITY.md` defines it. Honest code in a checked
+program reaches a removal outside the observer only by a call that the list or a driver's module
+gives. Deliberate circumvention by the authors of Regula is outside the
+check ([issue 286](https://github.com/rbeauchamp/regula/issues/286)). An example is an `extern`
+binding to a different C function that removes. A different example is a use of the private
+declarations of `Regula.Filesystem`, with `open private` or a name written by hand.
 
 The build also fails if such a declaration has no compiled code that the check can read. A
-removal by a different program, for example `rm`, is not a call that this check finds. The module
-`Regula.RemovalControls` has controls of the check. The first acceptance step builds that module.
+removal by a different program, for example `rm`, is not a call that this check finds.
+
+The module `Regula.RemovalControls` has controls of the check.
+
+The module `Regula.ProgramCheck.Controls` adds a `main` that removes a file with the removal
+function of the library, and the check refuses it. It also adds a `main` that removes the file
+through the observer, and the check accepts it. It declares an observer in a different module than
+`Regula.Filesystem`, and the check refuses the program that operates it.
+
+Each shard of the self-audit builds the library `Regula`, thus the two modules.
 
 The deployment program `lean/Regula/Site/Deployment.lean` imports only the Lean core, thus it
-cannot use the decision. It reads each page from the output of `curl` and writes no file. Thus it
-removes nothing. It passes to `curl` only `PATH` and the proxy and certificate variables that
-`fetch` lists, none of which makes `curl` write a file. Thus a variable such as `SSLKEYLOGFILE`
-does not reach `curl`. The URL is the value of the option `--url`, thus a URL that starts with
-`-` is not an option.
+cannot use the observer. It reads each page from the output of `curl` and writes no file. The
+check of `Regula.ProgramCheck.SiteDeployment` finds no removal in it. It passes to `curl` only
+`PATH` and the proxy and certificate variables that `fetch` lists, none of which makes `curl`
+write a file. Thus a variable such as `SSLKEYLOGFILE` does not reach `curl`. The URL is the value
+of the option `--url`, thus a URL that starts with `-` is not an option.
 
 The driver moves the pending record to `tmp/acceptance-link.json` only if
 `RegulaVerification.passed` accepts the exit status of each command. The driver does that move
@@ -794,8 +907,8 @@ capability is absent (unsatisfiable on this stable revision, whose compiled capa
 theorems show that a retired name cannot become a compiler axiom or an authenticated native
 axiom and its singleton axiom set is unknown. A dependent non-axiom declaration without an
 earlier proof-hole failure receives the unknown-axiom refusal even in teaching mode.
-Native-proof authentication retains its separate statement, replay and command-provenance
-requirements.
+Native-proof authentication retains its separate statement and replay requirements, and the
+command-provenance requirement for an axiom of an audited module.
 
 **Admission by construction** (`RegulaPolicy.Domain`, `Admission`): declaration kinds, boundary
 kinds, correspondence, foundation classes, profiles, modes, safety and evaluator roles are closed
@@ -814,10 +927,10 @@ correspondence, detail, toolchain origin and the exact correspondence terms, ref
 incompatible extra evidence, and every representable value round-trips. Accepted canonical
 external spellings re-encode identically. The pure codec proves
 `decode (encode x) = ok x` over a tagged tree; that is not a theorem about JSON text. Worker
-parsing (`Checker.PolicyCodec`, whose container recursion is adapted from Lean's JSON parser under
-Apache-2.0) rejects duplicate fields before building a map, unknown and missing fields,
-unsupported tags and numeric overflow; the parent waits for the child's exit and checks the
-response against its own request.
+parsing (`Checker.PolicyCodec`, whose string, number and container parsers are adapted from
+Lean's JSON parser under Apache-2.0) rejects duplicate fields before building a map, unknown and
+missing fields, unsupported tags and numeric overflow; the parent waits for the child's exit and
+checks the response against its own request.
 
 **Trusted:** these relations concern supplied observations. `InfrastructureOK` binds the exact
 reporter, codec and collector artifacts the IO adapter compares with the running checker's, their
@@ -872,7 +985,7 @@ use that takes a narrower part. What takes which part:
 | `NativeStatement.recognize?` ([below](#the-native-axiom-statement-decision-and-observing-pass)) | No record: a `NativeStatement.Candidate` | The tactic and the prefix that `nativeAxiomOrigin?` reads from the name, and the kernel-checked type. |
 | `declarationFailure`, `DeclarationOK`, `declarationRequirements` and their theorems | `Declaration.Assessed` | The inspected part and the recorded contract: they join the relations above, so through `ContractOK` and `SharedTestOK` they read the recorded contract. |
 | `decisionFailure`, `DecisionOK` | `Declaration.Registration` | The name and `decisionResult`, the project's own registration, alone. |
-| `NativeTeachingOK`, `RecursiveHelperOK` and the `authorized…` validators | `Declaration.Role`, and the role parts of an inventory (`roleRecords`), with the observed parts of its transcripts (`observedTranscripts`) | The inspected part and three project-written marks: the replacement, the `extern` mark and the recorded ranges. A native-proof axiom must have no replacement and no `extern` implementation. A recursion helper must have no replacement, no `extern` implementation and no recorded range, and its base no replacement and no `extern` implementation. These marks can refuse a role but do not grant one: `authorizedNativeAxioms_neutral` and `authorizedUnsafeRecHelpers_neutral` prove that each name the executed validator admits is admitted with all marks of the inventory at their neutral values (`Declaration.Role.neutral`). |
+| `NativeTeachingOK`, `ImportedNativeOK`, `RecursiveHelperOK` and the `authorized…` validators | `Declaration.Role`, and the role parts of an inventory (`roleRecords`) and of its imported records (`Inventory.imported`), with the observed parts of its transcripts (`observedTranscripts`) | The inspected part and three project-written marks: the replacement, the `extern` mark and the recorded ranges. A native-proof axiom must have no replacement and no `extern` implementation. A recursion helper must have no replacement, no `extern` implementation and no recorded range, and its base no replacement and no `extern` implementation. These marks can refuse a role but do not grant one: `authorizedNativeAxioms_neutral`, `authorizedImportedNativeAxioms_neutral` and `authorizedUnsafeRecHelpers_neutral` prove that each name the executed validator admits is admitted with all marks of the inventory at their neutral values (`Declaration.Role.neutral`). |
 | `policyFor`, `memberFailure`, the editor decision, `policyRequirements` | `Declaration` | Membership of the inventory, which is of the whole record. `policyFor` checks it at its admission boundary (`recordFailure`), and `memberFailure` and the editor decision take a proof of it. The decision on an admitted record is `policyForName`, which takes its name alone. `policyFor`, `memberFailure` and `policyRequirements` join the assessed part and the registration part. The editor decision reads only the assessed part: `declarationFailure` takes `Declaration.Assessed` and `needsRoleEvidence` takes `Declaration.Inspected`. |
 | `operationalFailure`, `OperationalOK`, `operationalView`, `operationalAxioms` | `Declaration.Assessed` | `kind`, `isProp`, `axioms` and, through `ContractOK` and `SharedTestOK`, the recorded contract. The view also clears `isUnsafe` and `isPartial`. |
 
@@ -960,10 +1073,10 @@ editor decision reads only the assessed part: it joins the declaration decision 
 `needsRoleEvidence`, which takes `Declaration.Inspected`.
 
 **No project-written mark admits.** The marks of the role part and the refusals of the recorded
-contract can refuse but do not admit. `NativeTeachingOK.neutral` and
-`RecursiveHelperOK.neutral` show that a role still holds with all marks of the inventory at their
-neutral values. The `_neutral` theorems of the two validators carry that to the executed
-functions. For the refusals of the recorded contract, `DeclarationOK.neutral` and
+contract can refuse but do not admit. `NativeTeachingOK.neutral`, `ImportedNativeOK.neutral` and
+`RecursiveHelperOK.neutral` show that a role still holds with all marks of the inventory and of its
+imported records at their neutral values. The `_neutral` theorems of the three validators carry
+that to the executed functions. For the refusals of the recorded contract, `DeclarationOK.neutral` and
 `OperationalOK.neutral` show the same. `declarationFailure_neutral` and
 `operationalFailure_neutral` carry it to the executed declaration and operational decisions.
 
@@ -992,7 +1105,7 @@ other rules still check it.
 
 | Operational caller | Proved pure function | Remaining boundary |
 | --- | --- | --- |
-| `Checker/Policy.admitScope`, with `Frontend.validateCoordinates` | `checked_scope` (first coordinate refusal in transcript order, then exactly `admitInventory` with `authorize`; success iff all coordinate checks and `InventoryValid` hold, retaining both input arrays); `checked_coordinates` (claimed `RegulaCore.Coordinates`: success iff `CoordinatesAgree`, refusal with the first unmet obligation in traversal order) | Lean's UTF-16 column function (`FileMap.leanPosToLspPos`) and `FileMap`; source and compiler observation acquisition. |
+| `Checker/Policy.admitScope`, with `Frontend.validateCoordinates` | `checked_scope` (first coordinate refusal in transcript order, then exactly `admitInventory` with `authorize`; success iff all coordinate checks and `InventoryValid` hold, retaining both input arrays), the stage before the imported records, with `admitScope_eq` and `admitScope_checked` for the composed adapter (for an admitted capability: that stage's refusals, and its scope resting on `imported` through `PolicyScope.importing`, which keeps the two arrays and recomputes the roles); `checked_coordinates` (claimed `RegulaCore.Coordinates`: success iff `CoordinatesAgree`, refusal with the first unmet obligation in traversal order) | Lean's UTF-16 column function (`FileMap.leanPosToLspPos`) and `FileMap`; source and compiler observation acquisition. |
 | `request`, `ruleFor`/`reasonFor`, `ruleForMember` (claimed `RegulaCore.Policy`) | `checked_request`, `checked_rule`, `checked_memberRule` over `policyFor`; `ruleForFailure_injective`, `reasonFor_eq_some_iff` | Registry descriptor text; adequacy of the mapped rule set. |
 | `labelOf`, `labelOfMember`, `classify`, `classifyMember` | `foundationFor`; `checked_memberFoundation`, `labelOf_member`, `classifyMember_eq` | Transitive axiom sets from the replayed kernel (`KernelAxioms.axiomTable`) and module ownership. |
 | `executionFindings`, `executionFailures`, `executionSummary`, `toolchainBase` | `checked_executionFailures` (line `k` renders finding `k`, none added or dropped, so the lines are empty iff `ExecutionOK`), `executionRule_injective`, `checked_summary` (the boundary counts range over the boundaries reported on their own: a later record of one trusted boundary of a root, and a `partial` implementation reported with the boundary that runs it, are counted with that boundary, not again), `checked_toolchainBase` | Root collection, retained compiler edges, correspondence admission, source history, module origins and the text and JSON rendering of the toolchain trusted base. The records of the execution walk are observed. `ExecutionWalk.assemble_account` states the account that `assemble` builds from them, the unresolved paths included. |
@@ -1025,7 +1138,7 @@ the call through each success owner.
 | Rules | Proved relation | Remaining boundary |
 | --- | --- | --- |
 | [RG1001]–[RG1003] | `declarationFailure_iff`, `policyFor_ordered`, `foundationFor_iff` | Ownership and transitive-axiom acquisition in the replayed kernel (`KernelAxioms.axiomTable`). The [deliberate changes](#changes-to-leans-environment-compiler-or-build) to Lean's environment, compiler or build are trusted boundaries. |
-| [RG1004] | The above plus `authorizedNativeAxioms_iff`, `native_generated`, `native_provenance`, `compilerTrustingAxiomName_iff`. For the statement that the replay reads: `NativeStatement.asserted?_sound`, `NativeStatement.asserted?_complete` and the kind `NativeStatement.checked_recognize` ([below](#the-native-axiom-statement-decision-and-observing-pass)). | Transcript and replay truth; authorization permits teaching only. The replay evaluates compiled code, and its result is an observation. The recorded text of a statement is not proved to identify its expression. The [deliberate changes](#changes-to-leans-environment-compiler-or-build) to Lean's environment, compiler or build are trusted boundaries. |
+| [RG1004] | The above plus `authorizedNativeAxioms_iff`, `authorizedImportedNativeAxioms_iff`, `Roles.native_owned`, `native_generated`, `native_provenance`, `compilerTrustingAxiomName_iff`. For the statement that the replay reads: `NativeStatement.asserted?_sound`, `NativeStatement.asserted?_complete` and the kind `NativeStatement.checked_recognize` ([below](#the-native-axiom-statement-decision-and-observing-pass)). | Transcript and replay truth; authorization permits teaching only. The replay evaluates compiled code, and its result is an observation. The recorded text of a statement is not proved to identify its expression. The [deliberate changes](#changes-to-leans-environment-compiler-or-build) to Lean's environment, compiler or build are trusted boundaries. |
 | [RG1005] | `foundationFor_least`, `leastFoundation_ext`, `policyFor_conforming_iff` | The least containing profile of the observed axioms, not the least possible axioms for the proposition. The [deliberate changes](#changes-to-leans-environment-compiler-or-build) to Lean's environment, compiler or build are trusted boundaries. |
 | [RG1006] | The helper authorization `_iff` theorems, `Roles.safetyHelpers_iff`, `policyFor_conforming_iff`, `subject_contract`, `partialParent_rule`; for the comparison that records a recursion helper's observation, `Erasure.equalWithin_iff`, `Erasure.reproduces_iff` and the kind `Erasure.checked_reproduces` ([below](#the-recursion-helper-comparison-decision-and-observing-pass)) | Exact helper metadata, the recorded recursion-helper observation and the base's axioms are checked. A `partial def`'s helper always has a finding naming its opaque parent when that parent is in the inventory. A recursion helper's observation is recorded only where Lean's kernel checked, at that audit, the base's recursion equation for each helper of the group (`Collect.recursionEquationChecked`); that check is the collector's, not a theorem of the policy. The collector observations, the step from the recursion equation to the values the helper returns, compiled-code correspondence and execution coverage are not proved. A recursion helper's termination still trusts Lean's well-founded preprocessing (standard §7.4). No constructor-index wrapper is admitted. |
 | [RG1007] | `ContractOK` through `ruleFor`; `DecisionKind.ofStructureName?_eq_some_iff` (a head constant is read as a decision kind exactly when it is that kind's structure); `DecidedFunction.covers_iff` with `FieldPacking.covers_iff` (a decided function of a form that is read is accepted exactly when the kind's result type has no leading binder and, for a field application, the type has one constructor and no index and the arguments are its fields, each once and in order), with `Regula.Decides.of_packing` and its one-way forms (a kind on a packing that reaches every tuple of arguments is the kind of the function) and `Regula.Decides.iff_slice` (a kind with an argument left whose acceptance predicate reads the result at one fixed value of that argument is the kind of one slice). For the searches that guard each reduction and find a mention of the implementation: `MentionSearch.search_sound`, `search_complete` and the kind `MentionSearch.checked_search`. | Recorded contract failures are enforced; Probe's extraction of the proposition and root, the reduction that exposes a requirement's head constant, the reading of the decided function as the implementation on its arguments, on every field of one structure or on a product (`Function.uncurry`), or with its result erased (`Regula.Dependent.isSome`, `isOk`), the reading of each field from the kernel-checked definition of its projection and of the constructor and index counts from the kernel-checked inductive type, and of the number of leading binders of the kind's result type, which give `DecidedFunction.covers` its input, the two steps from those numbers to "every tuple of arguments is the fields of a value" and "no argument is left", which are argued and not machine-checked ([below](#decision-kinds-of-regulas-own-decisions)), the reading of the universe levels, what each record of the searches lists, that a constant with no record leads to no target, proof admission and adequacy are not proved by this relation. |
@@ -1269,7 +1382,8 @@ Two-way decisions (`Regula.Decides`), each with an accepted and a refused input:
 | `RegulaVerification.passed` | Each command of a step ended with exit status 0 (`passed_iff`). | The driver of `scripts/verify.sh` uses it before it operates one more command, before its success line and before it moves the acceptance record. |
 | `RegulaVerification.walked` | The path does not start with `tmp`, and no component of it is `.git`, `.lake`, `.cache` or `.regula-scratch` (`walked_iff`). | The files that the driver copies for the first acceptance step. No theorem relates it to the rule of the isolated copy of the checker. |
 | `RegulaVerification.removal` (accepts on `.remove`) | A directory is at the place by a read that follows no link, and its real path is the place (`removal_remove_iff`). | The driver removes its copy and the `_site` directory only by this decision. The two reads of the file system are trusted. |
-| `Regula.Removal.removal` (accepts on `.remove`) | A read that follows no link finds an entry of the given kind at the place, and its real path is the place (`removal_remove_iff`). | The site executable removes a directory or a file only by this decision. The two reads of the file system are trusted. |
+| `Regula.Removal.removal` (accepts on `.remove`) | A read that follows no link finds an entry of the given kind at the place. Its real path is the place, or a symbolic link is a name in a directory at its own place (`removal_remove_iff`). | Each program of the package removes a directory, a file or a symbolic link only by this decision, through `Regula.Filesystem`. The exceptions are the library calls that `Regula.Removal.libraryRemovals` gives, and the removals of the two drivers that `Regula.ProgramCheck.Verification` and `Regula.ProgramCheck.Provision` give. The reads of the file system are trusted. |
+| `Regula.Removal.replacement` (accepts on `true`) | A read that follows no link finds a file at the source, at its own place. Nothing is at the destination, or a file is there at its own place. The destination is a name in a directory at its own place (`replacement_iff`). | Each program of the package moves a file only by this decision, through `Regula.Filesystem`. The exceptions are the library calls that `Regula.Removal.libraryRemovals` gives, and the moves of the two drivers that `Regula.ProgramCheck.Verification` and `Regula.ProgramCheck.Provision` give. The reads of the file system are trusted. |
 | `RegulaVerification.prebuildCovers` | The surface manifest has the shape that `claimedTargets` reads, and each target it claims is in `gateTargets` (`prebuildCovers_iff`). | The driver runs the first acceptance step only on such a manifest. Thus the gate does not build a claimed target beside the step's build. No theorem relates `claimedTargets` to the manifest reader of the checker. |
 | `ScratchCopy.name?` (accepts on `some`) | The path is the scratch area, then one name, then `project` (`name?_eq_some_iff`). | The gate admits a copy of the driver only at such a path. The components come from real paths, which the file system gives. |
 | `ScratchCopy.inside` | The path is the directory with one or more components after it (`inside_iff`). | The gate requires its own executable in the build directory of a copy of the driver. |
@@ -1304,7 +1418,7 @@ Decisions with no kind, and what stands instead:
 | `Regula.Checker.Admission.checkProof` | Its theorem is soundness, and a sound kind requires an accepted input; it succeeds only after `checkRenamed`, which asks Lean's kernel to accept a declaration, and no proof evaluates that call. | `checkProof_ok`, and the kind of `checkCopies`, which calls it. |
 | `Regula.Checker.Manifest.parse` | It adds the JSON text parser, about which nothing is proved, so only soundness is stated, and an accepted input would evaluate that parser. | `parse_sound`, and the kind of `parseValue`, the stage it runs after parsing. |
 | `Regula.SharedExecution.restore?` | Its writer `internValue` chooses a written form by running the reader (`recovers`), so "a form the writer writes" is stated through `restore?` itself, and a kind's specification must not mention its implementation. | `restore?_internValue`, which holds for every value and proposal list, and the kind of `read`, the document reader that calls it. |
-| `labelOf`, `foundationFor`, `authorizedNativeAxioms`, `authorizedUnsafeRecHelpers`, `DefeqComparison.classify`, `DefeqComparison.ofAttempt`, `Regula.Checker.Lint.classify` | These classify into several classes or select a set; they do not accept or refuse an input. | Their exact-value theorems (`labelOf_iff`, `foundationFor_iff`, the `authorized…_iff` theorems, `classify_checked_iff` and its companions, `ofAttempt_checked_iff` and its companions, `ClassifyContract`). |
+| `labelOf`, `foundationFor`, `authorizedNativeAxioms`, `authorizedImportedNativeAxioms`, `authorizedNativeRoles`, `authorizedUnsafeRecHelpers`, `DefeqComparison.classify`, `DefeqComparison.ofAttempt`, `Regula.Checker.Lint.classify` | These classify into several classes or select a set; they do not accept or refuse an input. | Their exact-value theorems (`labelOf_iff`, `foundationFor_iff`, the `authorized…_iff` theorems, `classify_checked_iff` and its companions, `ofAttempt_checked_iff` and its companions, `ClassifyContract`). |
 | The other registered contracts (`checked_request`, `checked_rule`, `checked_subject`, `checked_account`, `checked_summary`, `checked_executionFailures` and the census assembly contracts) | Each fixes a computed value, such as a rendered line or an assembled record, not a verdict. `checked_executionFailures` renders `executionFindings`, which has a kind. | The registered requirement, reported with no kind. |
 | `RegulaProvision.isObjectName`, `isComponent` | `isObjectName` defines the written form that it admits, and no separate relation is stated for it. `IsComponent` states a path component over the text and its characters. The text is not empty. It does not start with a period. Each character is an ASCII letter, an ASCII digit, `-`, `_` or `.`. The theorem `isComponent_iff` connects it to the test `isComponent`. | `IsComponent` is the specification of the kind of `component?`. A reviewer examines if the written forms are the intended ones. |
 
@@ -1632,8 +1746,9 @@ collector reads the name, and the decision reads the type. The controls show the
 those controls only.
 
 **Observed.** `checkerSelftest fixtures` does the pass and the decision on the pinned toolchain.
-The seven native controls of `lean/Fixtures/Mutations` each get the reason that `fixtures.json`
-gives. Those fixtures are tests of the boundary to the compiler. They are not tests of the
+The twenty-three native controls of `lean/Fixtures/Mutations` each get the reason that
+`fixtures.json` gives. The helper fixture `ForeignPrivatePrefix`, which
+`ImportedForeignPrivatePrefix` imports, passes under Kernel-only. Those fixtures are tests of the boundary to the compiler. They are not tests of the
 statement shapes, which the theorems decide.
 
 ### The diagnostic and policy codecs: decisions and observing pass
@@ -1641,11 +1756,14 @@ statement shapes, which the theorems decide.
 The reader of a result file, and the reader of the reply of a worker, each have two steps. The
 second step is pure decisions with a kind.
 
-- **The observing pass** turns a text into a `Json` value. The callers use two parsers, and no
-  theorem says what a parser returns. `Checker.PolicyCodec.parse` uses the scalar parsers of Lean,
-  which are `partial`. It refuses an object that gives one name twice, and it builds each object
-  with `Json.mkObj`. `Json.parse` of Lean runs parsers that are `partial`, and it does not refuse
-  a repeated name. It starts each object from the empty tree and adds each member with `insert`.
+- **The observing pass** turns a text into a `Json` value. The callers use two parsers.
+  `Checker.PolicyCodec.parse` is a total definition, and it refuses an object that gives one name
+  twice. `JsonRoundTrip.parse_compress_ws` states what it returns for the text of
+  `PolicyCodec.compress` and any JSON whitespace after it, for a value with search trees as object
+  trees.
+  `Json.parse` of Lean runs parsers that are `partial`, and it does not refuse a repeated name.
+  Each of the two parsers starts each object from the empty tree and adds each member in the
+  order of the text.
 - **Between the two steps**, a reader of a result file gives the value to
   `ResultProtocol.admitDocument`, which runs `SharedExecution.read`. That function puts the source texts and the execution accounts back in the document. It
   rebuilds the objects of the document with maps that keep each name and the shape of each tree.
@@ -1714,12 +1832,13 @@ decisions. `parseLocation` and `parseDiagnostic` are two-way decisions of the fo
 **Hypotheses and trusted boundary.** The theorems start from a `Json` value. They do not prove
 these items:
 
-- What a parser returns for a text, and what a file contains.
+- What a parser returns for a text other than the text of `PolicyCodec.compress` and JSON
+  whitespace after it, and what a file contains. For that text too,
+  `JsonRoundTrip.parse_compress_ws` requires a value with search trees as object trees.
 - That each object tree of a value that a caller gives is a search tree. The theorems do not use
   it: a decoder refuses a different tree. That the callers do not see such a refusal is read from the
-  code. `PolicyCodec.parse` builds each object with `Json.mkObj`, and `Json.parse` builds each
-  object by insertion from the empty tree. The maps of `SharedExecution.read` keep each name and
-  the shape of each tree.
+  code. `PolicyCodec.parse` and `Json.parse` each build an object by insertion from the empty
+  tree. The maps of `SharedExecution.read` keep each name and the shape of each tree.
 - That the form is the intended one. A reviewer examines `LocationWire` and `FindingWire`.
 - That `agrees` returns what the runtime equality of `Json` returns. The two definitions have the
   same cases, which a reader can compare. The agreement of the two is by reading, and a
@@ -1741,8 +1860,8 @@ of the callers.
   write of the document that it reads. That form has the entry kinds of the execution accounts of
   the value.
 - The runner of the rule examples (`Regula.Qualification.RuleExamples`) reads a result file with
-  `Qualification.readResult`. That function runs `Json.parse` of Lean and then
-  `ResultProtocol.admitDocument`. The runner gives the document to `ResultProtocol.admitGuidance`.
+  `Qualification.readResult`. That function is `ResultProtocol.readDocument`. The runner gives
+  the document to `ResultProtocol.admitGuidance`.
 - The executable `ruleExampleQualification` reads an evidence file with `PolicyCodec.parse`. A
   record of that file contains a result document. The executable does not run
   `SharedExecution.read`. It gives the members of that result that
@@ -2026,8 +2145,9 @@ of `docs/` and on the Verso sources of the standard. It compiles each fence that
   that is not in the second. `checked_checkTable` registers the kind `Regula.Decides` against
   `Admission.TableWithin`.
 - **The observing pass** is the rest of `validate`. It computes the replay set (`replaySet`) and
-  the reported modules, imports the replay base and replays the copies (`replayMap`). It computes
-  the axioms of the owned declarations, gives a failure of a decision its text and catches the
+  the reported modules, imports the replay base and replays the copies (`replayMap`). When a copy
+  is shared, it computes `offerable` with `ownedUniform` over `duplicatesIn` of the audited
+  environment. It computes the axioms of the owned declarations, gives a failure of a decision its text and catches the
   exceptions of the replay.
 
 The import of the replay base runs before the handler of `validate`, as before this split. Thus an
@@ -2072,6 +2192,9 @@ items:
 - That `shared` names the copies of a name that the base or a different replayed module also
   declares. The pass computes it from the base and from `nameCounts`, and that step is read from
   the code.
+- That `offerable` is the decision of the pass. When a copy is shared, the pass computes it with
+  `ownedUniform` over `duplicatesIn` of the audited environment and `ownedModules`. Otherwise it
+  accepts each name. These steps are read from the code.
 - The text of a failure.
 
 **The verdicts are the same.** No theorem compares the producer before this split with the
@@ -2495,9 +2618,12 @@ inferred from any pure proof.
   constant, that kept copy must also pass `checkProof`, its reach computed in the audited
   environment. A copy the audited environment discards is checked in the replayed kernel, where
   the names its proof uses denote the replayed kernel's constants (the base's, where the base
-  declares them). Modules containing any copy of such a shared name are listed in the receipt's
-  `shared` and never offered for reuse, since their admission depends on which copy an environment
-  keeps. **Proved** about the executed definitions: `Admission.sameTheorem_iff_subsumesInfo`
+  declares them). A module containing a copy of such a shared name is listed in the receipt's
+  `shared` and never offered for reuse, since its admission depends on which copy an environment
+  keeps, unless each loaded copy of the name is `Identical` to the kept constant and only owned
+  modules declare it (`Admission.ownedUniform` and `Admission.AdmitRequest.pinned`, in **Reuse
+  with identical copies** below). **Proved** about the executed definitions:
+  `Admission.sameTheorem_iff_subsumesInfo`
   (private in the `module` file `Regula.Checker.SharedName`, whose `import all Lean.Environment`
   reaches Lean's private `subsumesInfo`: on two theorems the condition equals `subsumesInfo` in
   either direction, which the pinned `Lean.finalizeImport` requires of a second constant of one
@@ -2615,18 +2741,20 @@ inferred from any pure proof.
   in the replay base instead of replaying it (`Admission.reusedModules`; the receipt's `reused`)
   only when (1) an offered admission replayed it over the identical import closure
   (`Admission.importClosure`: the same modules, canonical `.olean` paths and import edges) and
-  did not list it as `shared` (a module containing a copy of a name another module of that
-  environment declares); (2) the module and every owned module of that closure is a claimed
+  did not list it as `shared` (a module with a shared copy of a name that has a different copy there or
+  that an unowned module declares); (2) the module and every owned module of that closure is a claimed
   library module all of whose `.olean` parts (the `.olean` and, for a module-system file, the
   `.olean.server` and the `.olean.private` Lean takes its kernel constants from) the coordinator
   read before the first inspection, read again as this environment started with the frozen
   presence and bytes (`Inspection.readings`, `Admission.Unchanged`), and compares again after the
   last inspection (a change is [RG2005], incomplete); (3) each declaration of each owned module of
-  the closure refers only to constants of its own closure (`Admission.referencesWithin` over
-  `ConstantInfo.getUsedConstantsAsSet`, the dependencies `Kernel.Environment.replay` replays
-  first); (4) every constant of the module is attributed to it in this environment and is the
-  copy this environment keeps (`Admission.uniquelyKept`), so no module here declares a different
-  copy of its names; and (5) every owned module of the closure is reused too: a candidate
+  the closure refers only to constants of its own closure, where a name counts when all its
+  copies are `Identical` to the kept constant and a module of the closure declares one
+  (`Admission.referencesWithin` over `ConstantInfo.getUsedConstantsAsSet`, the dependencies
+  `Kernel.Environment.replay` replays first); (4) each loaded copy of each name of the
+  module's constants is `Identical` to the constant this environment keeps, and a constant that is
+  not a theorem is the only copy of its name, attributed to the module
+  (`Admission.copiesIdentical`), so no module here declares a different copy of its names; and (5) every owned module of the closure is reused too: a candidate
   (`Admission.candidates`, a module meeting (1) to (4)) whose closure contains an owned module
   that is not a candidate is removed, so a module that cannot be reused takes the modules above
   it out with it. One pass settles this: a member's closure lies within the closure
@@ -2642,8 +2770,8 @@ inferred from any pure proof.
   (`Admission.accountsFor`), no module as both (`ProducerReport.Environment.receiptOK`), and the
   admission its worker published is the one the report records (`Completed.ofReport`, compared by
   decidable equality); otherwise the environment is [RG2005], incomplete. **Proved** about the
-  executed definitions: `Admission.mem_reusedModules` (a reused module is owned and satisfies the
-  offer of (1), (3), (4) and (5)); `Admission.importClosure_some` and
+  executed definitions: `Admission.mem_reusedModules_iff` and `Admission.mem_candidates_iff` (a
+  module is reused exactly when it is owned and satisfies the offer of (1), (3), (4) and (5)); `Admission.importClosure_some` and
   `Admission.importClosure_trans` (over an index that holds every origin under its own name, as
   `Admission.originIndex_keyed` proves of the executed index: each origin of a closure is the one
   the index holds under its name, its name has every property of the module's name that passes
@@ -2704,8 +2832,9 @@ inferred from any pure proof.
   declares a different copy of their names, and another copy here of a base module's name is
   checked by this environment when a replayed module holds it (`Admission.checkCopies`) and
   trusted when another unreplayed module does; by (1) and (2) that closure is the same bytes in
-  both environments, and by (1) none of its names had a second copy in the earlier environment,
-  so the earlier environment's successful replay is the one this environment would repeat. This
+  both environments, and by (1) each of its names with a second copy in the earlier environment
+  had only `Identical` copies there, all in owned modules (**Reuse with identical copies**
+  below), so the earlier environment's successful replay is the one this environment would repeat. This
   rests on the stated trusted boundary: authentic imported artifacts unchanged during the audit
   (as the history memo already assumes), filesystem reads, and no change restored between two
   byte observations. No theorem models the kernel. Where the conditions fail, a module is
@@ -2716,6 +2845,128 @@ inferred from any pure proof.
   probe loads, such as `Regula.StructuralName` in this repository), whose `.olean` is not frozen,
   with the reporter modules that import it; and a claimed library that an environment reaches
   only through a module without a bound source, which the import headers do not show.
+- **Reuse with identical copies.** Lean realizes an equation lemma in the first module that uses
+  it. Thus two modules that do not import each other can each declare the same lemma, for example
+  `RegulaPolicy.Named.eq_1` in `RegulaPolicy.Decision` and in `RegulaPolicy.Execution`. An
+  environment that loads the two modules keeps one constant under the name, and it attributes the
+  name to the module that it loaded first. Reuse accepts such a module when all the copies of its
+  names are identical. A module with a different copy of one of its names is replayed, as before.
+
+  Two copies of `Lean.Json.getObjVal?.eq_2` are an example of different copies. Each proof uses a
+  private match-equation lemma of its own module.
+
+  One pass, `Admission.duplicatesOf`, reads the constants of all the modules that the environment
+  loaded. A name is uniform if each loaded copy of the name is `Identical` to the constant that the
+  environment keeps. The theorems `Admission.identical_iff` and `Admission.not_mem_differing_iff`
+  state this. Three decisions use the pass:
+
+  - `Admission.copiesIdentical` is the fourth condition of reuse. For each constant of the module,
+    the name must be uniform. A constant that is not a theorem must also be the only copy of its
+    name, attributed to the module.
+  - `Admission.referencesWithin` is the third condition. Each name that a constant uses must have
+    its attribution to a module of the closure. Or the name must be uniform, and a module of the
+    closure must declare a copy.
+  - `Admission.ownedUniform` decides the offer of a replayed module that holds a shared copy. The
+    environment offers the module only if the name is uniform and only owned modules declare it.
+    Otherwise the receipt lists the module as `shared`, through `Admission.AdmitRequest.pinned`.
+
+  The argument below uses four facts about Lean v4.34.1. The docstrings of
+  `Admission.duplicatesIn` and `Admission.copiesIdentical` give their source lines under
+  `Assumes:`. First, Lean's import keeps one of the copies that it read under each name, and
+  attributes the name to the first module that lists it. Second, `Expr.eqv` is an equivalence
+  relation, thus `Identical` is symmetric and transitive. Third, the kernel gives the same result
+  for two `Identical` constants. Fourth, replay regenerates each constructor and recursor, and it
+  accepts the stored record when it is `Identical` to the regenerated one.
+
+  The third fact is about the C++ kernel, and no theorem models it. Thus the third fact is
+  trusted, as `Admission.checkOwn` already trusts it. These source lines of Lean v4.34.1
+  support it:
+
+  - `src/kernel/expr_eq_fn.cpp:98-110`: the structural equality `expr_eq_fn<false>` of the kernel
+    ignores only the binder names and annotations of lambdas and foralls and the names of lets. It
+    compares all other parts, for example metadata, projections, constant names, universe levels,
+    literals, bound variables and the `nondep` flag of a let. `lean_expr_eqv`, which is
+    `Expr.eqv`, and the `operator==` of the kernel are that function, at lines `123-132` and in
+    `src/kernel/expr_eq_fn.h:14-15`. By `src/lean/Lean/Expr.lean:488`, `497` and `506`, the hash of
+    a binder or of a let mixes only its subterms. Thus the hash test at
+    `src/kernel/expr_eq_fn.cpp:46` does not separate alpha-equivalent expressions.
+  - `src/kernel/type_checker.h:26-42`, with `src/kernel/expr_maps.h:15` and
+    `src/kernel/expr.h:164-165`: the infer, whnf, unfold and definitional-equality caches of the
+    type checker use that `operator==` as their key. Thus in one check, the kernel already gives an
+    expression the result that it computed for an equal expression under `Expr.eqv`.
+  - `src/kernel/type_checker.cpp:135`, `153`, `223`, `803`, `1261` and `1269` read binder names
+    and annotations only to label a local declaration. A fresh name from `m_ngen` gives the
+    identity of that declaration. Line `879` copies them into an eta-expanded lambda, and line
+    `219` uses a let name only in an error message. `src/kernel/local_ctx.cpp:104-113` and
+    `src/kernel/inductive.cpp:227`, `707`, `934`, `1142` and `1167` copy them only into the
+    binders, parameters and records that they make. Apart from `expr_eq_fn`, only
+    `src/kernel/expr_cache.cpp:12` in `src/kernel` compares binder names or annotations, and its
+    stricter key can only miss more often.
+
+  Thus no decision of the kernel uses a part that `Expr.eqv` ignores. Reuse changes no input of the
+  other checks of Regula, because these checks read the audited environment and the axiom and
+  assumption tables of `validate`. As the text below shows, these inputs are the same if a module
+  is replayed or reused. The reuse set goes only to `Admission.validate`, from the
+  `Admission.reusedModules` call in `Regula.Checker.Environment`. The declaration report gets
+  `admission.modules ++ admission.reused`, which is the same set if a module is replayed or reused.
+  In `validate`, reuse changes only the copies that `replayMap` gives to the kernel and the copies
+  that the replay base holds.
+
+  `Admission.checkShared` compares with `sameTheorem`, and `Admission.checkOwn` and
+  `Admission.checkKept` with `identical` and `sameTheorem`, which compare expressions with
+  `Expr.eqv`. A receipt key is a module and a name from the data of the module, as
+  `Admission.mem_required` states. The axiom and assumption searches read only the constant names
+  that `KernelAxioms.successorsOf` gives, and `Expr.eqv` compares these names.
+
+  The argument is about the safe, total constants of a module. `Kernel.Environment.replay` skips
+  each `unsafe` or `partial` constant, for example the `_unsafe_rec` helper of a recursive
+  definition. Thus no replay checks such a constant, and a fresh replay of the module does not
+  check it either. Reuse changes nothing for it, and the boundary of such helpers stays as
+  admission states it.
+
+  **The offer:** each safe, total constant of an offered module is `Identical` to a constant that a
+  kernel of the audit accepted. A name with one copy in a replayed module is replayed by the
+  kernel itself, as `Admission.replayMap_sound` states. A shared name is uniform, so each copy is
+  `Identical` to the kept constant and to the held constant. If the base does not declare the
+  name, the held constant is a replayed constant. If the base declares the name, only owned
+  modules declare it, thus a reused module supplies the held constant. An earlier environment offered that module,
+  and induction on the start order gives the result.
+
+  **The reuse:** let an environment reuse a module. The replay base then holds the module, and
+  admission does not check its constants. By the fourth condition, the base, the replayed kernel
+  and the audited environment hold a constant `Identical` to the module's own under each name.
+  Thus `replayMap`, `checkShared`, `checkOwn` and `checkKept` read there a constant `Identical` to
+  the one in a replay of the module. A copy in a replayed module passes `checkShared`, because two
+  `Identical` theorems are a `SameTheorem`. It passes the two other checks with no proof check.
+
+  **A fresh replay:** a replay of the module in this environment would also admit its constants.
+  A shared copy of a theorem is a `SameTheorem` with the held constant. A constant that is not a
+  theorem has one copy by the fourth condition, thus it is not shared. Lean's import accepts two
+  `Identical` axioms of one name, but `checkShared` refuses them. This is why the fourth condition
+  requires a theorem where a different module declares the name.
+
+  **The references and the keys:** the kernel's check of a declaration also reads the constants
+  that the declaration uses. The third condition accepts a used name with its attribution outside
+  the closure only if the name is uniform and the closure declares a copy. Then each constant that
+  the environment holds under that name is `Identical` to the copy of the closure. The receipt
+  requires the key of each safe, total constant of a reused module of the request. Admission reads
+  the key from the data of the module, not from the attribution of the name.
+  `Admission.reuseJustified` accepts the key only if the replaying environment admitted it.
+
+  **Proved** about the executed definitions: `Admission.identical_iff`,
+  `Admission.not_mem_differing_iff` and `Admission.mem_others_iff` give what the pass records.
+  `Admission.copiesIdentical_iff`, `Admission.referencesWithin_iff` and
+  `Admission.ownedUniform_iff` show that each decision accepts exactly the inputs that its
+  proposition admits. `Admission.mem_reusedModules_iff` shows that a module is reused exactly when
+  it is a candidate and each owned module of its closure is a candidate.
+  `Admission.offerable_of_unpinned` shows that an offered module holds a shared copy only of an
+  `offerable` name. **Argued, not machine-checked:** the arguments above, and that
+  `Admission.validate` gives `ownedUniform` to admission as `offerable`.
+
+  **Observed, an external boundary:** the `identical-copies` control of the structural partition
+  of `checkerSelftest` audits a project with `Identical` copies and with different copies.
+  The census still gives a shared name to the module that Lean's import attributes it to, through
+  `Probe.ownedConstants`.
 - **Documentation.** `Environment.loadReportCoreAtSearchPath` freezes the `@[regula_material]`
   selector from the completed owned environment and reads module docs (Markdown and Verso) and
   docstrings with `Lean.findDocString?`, the same lookup as native feedback, so the project gate's
@@ -3851,19 +4102,23 @@ with answers `true` only for equal values) and `slots_intern` (writing the accou
 `null` `sourceTexts` member), for every `Json` value and every list of writer proposals, bounded
 to Standard-Logical by `RegistryChecks`. The equality is of `Json` values, object trees
 included, and `read_write` is about the value the writer wrote: any function of `read` of that
-value is that function of the document the writer was given. It is not about the value a reader
-parses from the file. The JSON implementation is trusted, as for every earlier schema, to parse
-the file's text to a value with the members of the written one, but in general not with its
-object trees: the printer lists an object's members in key order and the parser inserts them in
-that order, while `Json.mkObj` inserts them as listed. So the `history` oracle's theorems
-(`History.validate_importedRootExecuted`, `validate_unsupported_unresolved`) are about the
-document `readResult` returns, and that this document has the members of the document the writer
-was given, with the account the collector produced, is a further correspondence the laws do not
-give. It is not proved and does not reduce to a JSON round trip; it is observed, by
-`RegistryChecks` on one account (`expand` of a parsed shared form is the built account) and by
-the `history` qualification, which reads the collector's real output through `readResult` and
-validates the document it gets, without the writer's to compare it with. The laws do not prove
-either that the written form is smaller than the logical one. That holds when the writer's
+value is that function of the document the writer was given. The file carries that value:
+`ResultProtocol.admitDocument_parse_encodeDocument` proves that the parse (`PolicyCodec.parse`)
+of the text `writeDocument` writes (`encodeDocument`) is the value the writer wrote and that
+admission of it returns the writer's document, `JsonCanon.canon` of the document given. It rests
+on `JsonRoundTrip.parse_compress_canonical_ws` (the parse of the printed text of a value in the
+parser's form, with or without whitespace after it, is that value) and `ExecutionShare.canonical_write` (the writer writes values in
+that form); `PolicyCodec.compress` and `PolicyCodec.parse` are total definitions that the writer
+and the readers run, so no hypothesis about Lean's `partial` printer or parser is involved. The
+writer's document has the members of the document given when the latter's object trees are search
+trees (`JsonCanon.Regular.canon_agree`). That a file read returns the text the write wrote is
+trusted. The compiled code that replaces core functions the writer and the readers call is trusted
+too, since the theorems are about the logical definitions (for example, `Nat.repr` runs
+`Nat.reprFast`, and `String.push`, `String.append`, `String.Pos.get` and `String.Pos.next` have
+runtime code). So the `history` oracle's theorems (`History.validate_importedRootExecuted`,
+`validate_unsupported_unresolved`) are about the writer's document, and that it holds the account
+the collector produced is the collector's correspondence, not a law of the transport. The laws do
+not prove either that the written form is smaller than the logical one. That holds when the writer's
 proposal is kept, which is checked at each write and observed on the collector's real output by
 the `history` qualification (`derivedOnly`) and on built and parsed accounts by
 `RegistryChecks`, not proved. In the excluded library, `RegistryCodec.mode_roundtrip`,
@@ -4334,7 +4589,7 @@ not yet proved, and are labelled so at their definition; they are not correctnes
 | checkerSelftest cli, environments, build-policy, lint-driver | CLI sweep, adopters, clean checkout, ordinary build, `lake lint` exit classes, its claimed build with and without the audit-build marker, cold compiler guard refusal of a failing and of a successful unidentified child process with its restored load, a forged correspondence theorem of an owned path dependency refused by replay and one of a dependency in a Git work tree of its own refused as evidence ([RG3002]) | packaging, Lake and build integration | External | observed |
 | ordinary | `qualify registry`, `qualify native` | CLI output invalidation, registry and site validators; compiler messages and ranges | External | observed |
 | ordinary | `qualify unique-constants` | no constant declared by two modules of a claimed environment, one of them a module of the root package | Proved in part | `UniqueConstants.mem_shared` and `shared_eq_nil` state the decision. The reading of the `.olean` parts and of the import closure is observed. |
-| ordinary | `RegistryChecks` codec, source and execution-account cases | registry, diagnostic and source codecs; the result file's shared execution form | Proved in part | round-trip theorems of `Json` values, with those of each finding and each location (`parseDiagnostic_roundtrip`, `parseLocation_roundtrip`); that the shared form is kept, and that a parsed shared form reads back to the built account, are observed; open: state the remaining refusals as theorems |
+| ordinary | `RegistryChecks` codec, source and execution-account cases | registry, diagnostic and source codecs; the result file's shared execution form | Proved in part | round-trip theorems of `Json` values, with those of each finding and each location (`parseDiagnostic_roundtrip`, `parseLocation_roundtrip`), and of the result file's text (`ResultProtocol.admitDocument_parse_encodeDocument`); observed: the parser-form check (`SharedExecution.same (JsonCanon.canon logical) logical`) on the built document, the read-back check that the reader of the file returns it, and the cases of the shared form, each on a document written and read as the writer and a reader of the file do (`encodeDocument`, `PolicyCodec.parse`, `admitDocument`); open: state the remaining refusals as theorems |
 | standalone | `qualify environments` finalize mutations | `finalize` refusals | Proved relation | `finalize_iff`; instance membership sampled; no transcript substitution: an accepted run has no transcript job (`accepted_no_transcript_subjects`) |
 | standalone | `qualify acceptance fences` packet mutations | worker-packet admission through a real proxy | External transport | admission proved (`checked_indexedResults`) |
 | standalone | snapshots, input inventory, receipts, frozen exits, documentation source, closure, configuration and fence evidence | Git, Lake, filesystem, elaboration-time IO, signals | External | observed |
@@ -4342,7 +4597,8 @@ not yet proved, and are labelled so at their definition; they are not correctnes
 | project audit | changed import, changed `.olean` part | an owned module is replayed unless an offer covers it over its closure here and over artifacts read again with their frozen parts | Proved | `Admission.replayed_unless_offered`, `Admission.replayed_of_changed`, `Admission.replayed_of_changed_import`; an artifact not read again with its frozen parts cannot support an offer (`Admission.Unchanged`) |
 | checkerSelftest structural | a changed, removed and added `.olean`, `.olean.server` and `.olean.private`, each restored, for a module with three parts and with one, through `Inspection.readings` and `Admission.currentOffers` | reading the frozen parts: each change withdraws the offer and `Inspection.changedArtifact?` reports it | External | observed |
 | checkerSelftest structural | a fresh audit of two claimed libraries that import one another | the report workers, Lean's import and the kernel reuse a requested module: accepted, each module replayed in one environment, the reused module's key required | External | observed; the decision is `Admission.reuseJustified_admitted` and `Admission.replayed_of_loaded` |
-| project audit | none | a frozen `.olean` part that changes during the audit is [RG2005] | External | open: MUT-02 not yet evidenced through the gate; reading the parts is observed directly (two rows above), and no intended-reason control rewrites a part between the freeze and the final comparison |
+| checkerSelftest structural | a fresh audit of a library with identical copies of one lemma and different copies of one theorem, and of a library that imports it | Lean's realization and import of the copies, the report workers and the kernel: the identical copies are reused, the different copies are replayed again | External | observed. The decisions are `Admission.copiesIdentical_iff`, `Admission.referencesWithin_iff` and `Admission.ownedUniform_iff` |
+| project audit | none | a frozen `.olean` part that changes during the audit is [RG2005] | External | open: MUT-02 not yet evidenced through the gate; reading the parts is observed directly (three rows above), and no intended-reason control rewrites a part between the freeze and the final comparison |
 
 The `qualify` campaigns and what they observe:
 
@@ -4392,6 +4648,8 @@ The `qualify` campaigns and what they observe:
   observations, and the combined project/documentation positive remains distinct.
 - `receipt-boundaries`: timeout-selection and spawn failures (see
   [Operational assumptions](#operational-assumptions)).
+- `observers`: the record of the removal check of each program of the package, and the check of
+  `Main`, the root of `auditApp`.
 - `acceptance fences`: fence-compilation packet mutations with positive restoration.
 - `acceptance-snapshots`: `dependencies` (ignored Git and non-Git dependency input coverage and
   mutation), `history` ([RG3001] fresh, incremental and build-lint history refusal and restoration)
@@ -4532,8 +4790,9 @@ the identity stage returning the restriction unchanged) covers what the gate rea
 value boundary for any accepted manifest whose restriction keeps a surface. `structuralBase`
 checks that hypothesis at run time, and that the application is the project's only claimed
 library; no theorem links those checks to the hypothesis. The
-text boundary is trusted: `Json.compress` is `partial` and `PolicyCodec.parse` runs core `partial`
-parsers, so no theorem describes them; `parse_of_encodes` names what they must deliver. The
+text boundary is trusted. `PolicyCodec.parse` is total, but no theorem states what it returns for
+the text of a manifest. Lean code prints that text with `Json.compress`, a `partial` function.
+`parse_of_encodes` names what the parse must deliver. The
 variants that rewrite the `AuditApp` surface after derivation are not covered. The lib-only
 variant excludes every actual `AuditApp` executable it stops claiming, and app-omitted-exe
 leaves them unclassified on purpose; claimed-exe keeps claiming them beside its added
@@ -4637,8 +4896,9 @@ and, for a structural or lint-driver selection, the other targets its baseline n
 (none for the first structural shard) in one Lake invocation
 (`RegulaVerification.commands`), so the gate's own modules compile beside the self-test's last
 ones instead of after its link; that command selects nothing, and the baseline build still
-names and builds its targets. The frozen-artifact, cross-surface decision, library cycle, driver
-copy, retained build and manifest controls run in the structural clusters' queue, so no more of
+names and builds its targets. The frozen-artifact, cross-surface decision, library cycle,
+identical copies, driver copy, retained build and manifest controls run in the structural clusters'
+queue, so no more of
 them run at once than the queue has workers.
 
 The lint-driver controls run `lake lint` in adopters of their own, which require `regula` as a
@@ -4665,8 +4925,8 @@ exactly one shard.
 The shards of a partition list the same controls because they run the same sources, which no
 theorem states. The first structural shard holds `self-hosted-positive` alone. The other four hold
 the chain `self-hosted` and the clusters cut from `a`, `b`, `c` and `d`. They also hold the
-frozen-artifact, cross-surface decision, library cycle, driver copy, retained build and manifest
-controls. The retained build control is in shard `4/5`, because the baseline of that shard builds
+frozen-artifact, cross-surface decision, library cycle, identical copies, driver copy, retained
+build and manifest controls. The retained build control is in shard `4/5`, because the baseline of that shard builds
 `docFenceAudit`.
 
 The execution shards divide the correspondence clusters and the compiler-path cases.
@@ -4850,7 +5110,8 @@ execution, and calling a proved oracle does not prove the driver or its IO effec
   `RegulaVerification` state the decisions of the copy and of the removal. The theorems
   `ScratchCopy.name?_eq_some_iff` and `ScratchCopy.inside_iff` state the two decisions with which
   the gate admits a copy of the driver. The theorems `Regula.Removal.removal_remove_iff` and
-  `removal_nothing_iff` state the decision of the removals of the site executable, and
+  `removal_nothing_iff` state the decision of the removals of the filesystem observer,
+  `Regula.Filesystem`.
   `RegulaVerification.removal_shared` relates it to the decision of the driver. The reads of the
   file system that give their arguments are trusted.
 - The theorem `BuildReuse.reuse_iff` states the decision by which the fence audit uses the build
@@ -4981,7 +5242,7 @@ operation of the model. This is a relation between two runs, not a property of t
 Thus it is not an assumption. The theorem `corresponds_ofIO` proves it for each `ops`, when the
 states of the model are the worlds (`Model.ofIO`).
 
-The theorems for the observer use that model. Thus they use only the four assumptions of the file
+The theorems for the observer use that model. Thus they use only the five assumptions of the file
 system at that model. Each assumption is a statement about each run from each world.
 
 In `IO`, the world at the end of an operation is the world at the start of the next operation.
@@ -5019,7 +5280,8 @@ statement that does not use its checked operation.
 ### The file system
 
 `RegulaCore.Filesystem` gives the model of the file system and its assumptions.
-`Regula.Filesystem.observer` is its observer for the programs of the package. Each `lean` source
+`Regula.Filesystem.observer` is its observer for the programs of the package.
+`RegulaCore.Removal` gives the last three checked operations of the table. Each `lean` source
 below is a file of the Lean 4 repository at `v4.34.1`, below `src`.
 
 | Declaration | Status | Contract | Sources |
@@ -5027,13 +5289,17 @@ below is a file of the Lean 4 repository at `v4.34.1`, below `src`.
 | `ReadsEntry` | trusted | `symlinkMetadata` gives the type of the entry at a path and changes nothing. It fails with `noFileOrDirectory` only when no entry is at the path. | [`Init/System/IO.lean#L1151-L1156`](https://github.com/leanprover/lean4/blob/v4.34.1/src/Init/System/IO.lean#L1151-L1156), [`runtime/io.cpp#L1160-L1179`](https://github.com/leanprover/lean4/blob/v4.34.1/src/runtime/io.cpp#L1160-L1179), [`runtime/io.cpp#L276-L279`](https://github.com/leanprover/lean4/blob/v4.34.1/src/runtime/io.cpp#L276-L279), POSIX.1-2024 `lstat()` |
 | `ReadsReal` | trusted | `realPath` gives the real path of a path and changes nothing. It fails only when there is no real path. | [`Init/System/IO.lean#L873-L879`](https://github.com/leanprover/lean4/blob/v4.34.1/src/Init/System/IO.lean#L873-L879), [`runtime/io.cpp#L1054-L1066`](https://github.com/leanprover/lean4/blob/v4.34.1/src/runtime/io.cpp#L1054-L1066), POSIX.1-2024 `realpath()`, Apple Libc-1752.120.2 `stdlib/FreeBSD/realpath.c#L216-L243` and `#L348-L358` |
 | `RemovesTree` | trusted | `removeDirAll` of a directory at its real path keeps the entry at each path in its frame (`Model.Unchanged`), when it succeeds and when it fails. | [`Init/System/IO.lean#L1330-L1342`](https://github.com/leanprover/lean4/blob/v4.34.1/src/Init/System/IO.lean#L1330-L1342), [`runtime/io.cpp#L1160-L1179`](https://github.com/leanprover/lean4/blob/v4.34.1/src/runtime/io.cpp#L1160-L1179), [`runtime/io.cpp#L1197-L1207`](https://github.com/leanprover/lean4/blob/v4.34.1/src/runtime/io.cpp#L1197-L1207), [`runtime/io.cpp#L1351-L1364`](https://github.com/leanprover/lean4/blob/v4.34.1/src/runtime/io.cpp#L1351-L1364), POSIX.1-2024 `lstat()`, `unlink()` and `rmdir()`, POSIX.1-2024 `<sys/stat.h>` |
-| `RemovesEntry` | trusted | `removeFile` of a path at its real path keeps the entry at each path in its frame (`Model.Unchanged`), when it succeeds and when it fails. | [`Init/System/IO.lean#L881-L886`](https://github.com/leanprover/lean4/blob/v4.34.1/src/Init/System/IO.lean#L881-L886), [`runtime/io.cpp#L1351-L1364`](https://github.com/leanprover/lean4/blob/v4.34.1/src/runtime/io.cpp#L1351-L1364), POSIX.1-2024 `unlink()`, POSIX.1-2024 `<sys/stat.h>` |
+| `RemovesEntry` | trusted | `removeFile` of a path keeps the entry at each path in its frame (`Model.Unchanged`), when it succeeds and when it fails. The path is at its real path, or it is a symbolic link in a directory at its real path (`Model.InOwnDirectory`). | [`Init/System/IO.lean#L881-L886`](https://github.com/leanprover/lean4/blob/v4.34.1/src/Init/System/IO.lean#L881-L886), [`runtime/io.cpp#L1351-L1364`](https://github.com/leanprover/lean4/blob/v4.34.1/src/runtime/io.cpp#L1351-L1364), POSIX.1-2024 `unlink()`, POSIX.1-2024 `<sys/stat.h>` |
+| `Renames` | trusted | `rename` keeps the entry at each path in the frame of its two paths (`Model.Kept`), when it succeeds and when it fails. The source is at its real path, and the destination has a parent at its real path. | [`Init/System/IO.lean#L903-L909`](https://github.com/leanprover/lean4/blob/v4.34.1/src/Init/System/IO.lean#L903-L909), [`runtime/io.cpp#L1209-L1238`](https://github.com/leanprover/lean4/blob/v4.34.1/src/runtime/io.cpp#L1209-L1238), POSIX.1-2024 `rename()`, POSIX.1-2024 `<sys/stat.h>` |
 | `removeDirectory` | checked | After a removal that succeeds, no entry is at the path: `removeDirectory_gone`, which uses only `ReadsEntry`. | [`Init/System/IO.lean#L1330-L1342`](https://github.com/leanprover/lean4/blob/v4.34.1/src/Init/System/IO.lean#L1330-L1342) |
 | `removeEntry` | checked | After a removal that succeeds, no entry is at the path: `removeEntry_gone`, which uses only `ReadsEntry`. | [`Init/System/IO.lean#L881-L886`](https://github.com/leanprover/lean4/blob/v4.34.1/src/Init/System/IO.lean#L881-L886) |
+| `removeOwnWith` | checked | After a removal that succeeds, no entry is at the path: `removeOwnWith_gone`, which uses only `ReadsEntry`. | [`Init/System/IO.lean#L1330-L1342`](https://github.com/leanprover/lean4/blob/v4.34.1/src/Init/System/IO.lean#L1330-L1342), [`Init/System/IO.lean#L881-L886`](https://github.com/leanprover/lean4/blob/v4.34.1/src/Init/System/IO.lean#L881-L886) |
+| `removeFoundWith` | checked | After a removal that succeeds, no entry is at the path: `removeFoundWith_gone`, which uses only `ReadsEntry`. | [`Init/System/IO.lean#L1330-L1342`](https://github.com/leanprover/lean4/blob/v4.34.1/src/Init/System/IO.lean#L1330-L1342), [`Init/System/IO.lean#L881-L886`](https://github.com/leanprover/lean4/blob/v4.34.1/src/Init/System/IO.lean#L881-L886) |
+| `replaceWith` | checked | After a move that succeeds, nothing is at the source and a file is at the destination: `replaceWith_moved`, which uses only `ReadsEntry`. | [`Init/System/IO.lean#L903-L909`](https://github.com/leanprover/lean4/blob/v4.34.1/src/Init/System/IO.lean#L903-L909) |
 
-The theorems `removeDirectory_spec` and `removeEntry_spec` are about the removal of a directory or
-of a file at its real path, in a model. After a removal that succeeds, no entry is at the path. A
-removal keeps the entry at each path in its frame, when it succeeds and when it fails. Their
+The theorems `removeDirectory_spec` and `removeEntry_spec` are about the removal of a directory, a
+file or a link at its own place, in a model. After a removal that succeeds, no entry is at the
+path. A removal keeps the entry at each path in its frame, when it succeeds and when it fails. Their
 hypotheses are the assumptions that they use. The theorems `removeDirectory_io` and
 `removeEntry_io` give the same result for the code in `IO`, with `Corresponds` as one more
 hypothesis. `Regula.Filesystem` gives them for the observer at the model of the worlds, where

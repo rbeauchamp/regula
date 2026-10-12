@@ -651,11 +651,11 @@ private def historyWorkerOutput (memo : Option FilePath) (inputs : HistoryMemo)
       try
         let staged := directory / s!"{key}.staged"
         IO.FS.writeFile staged (toJson { inputs with output }).compress
-        IO.FS.rename staged record
+        Regula.Filesystem.replacePath staged record
       catch _ => pure ()
       return output
     finally
-      try IO.FS.removeFile lock catch _ => pure ()
+      try Regula.Filesystem.removePath .file lock catch _ => pure ()
   -- Another worker holds the key: wait while it does, for at most ten minutes (beyond the
   -- audit's own deadline), then compute here.
   let start ← IO.monoMsNow
@@ -803,7 +803,7 @@ private unsafe def loadReportCoreAtSearchPath (modules : Array Name)
       let staged := path.addExtension "staged"
       IO.FS.writeFile staged
         (toJson ({ receipt := admission, origins } : Admission.Completed)).compress
-      IO.FS.rename staged path
+      Regula.Filesystem.replacePath staged path
     -- In a project audit, the modules of owned dependencies that the environment owns are
     -- inspected with the requested ones (`EnvironmentOwnership.dependencies`), each of them owned
     -- and so replayed above: their declarations, roots, documentation and sources.

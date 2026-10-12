@@ -213,7 +213,8 @@ def guide : RuleId → Guide
           `sorryAx` (RG1002) or a compiler-trusting axiom (RG1004) is unknown, and the declaration \
           is rejected with applicability `unknown-axiom`.",
         "Imported axioms are not exempt: an owned theorem that uses a dependency's axiom is \
-          rejected even though the axiom is declared elsewhere."]
+          rejected even though the axiom is declared elsewhere. A dependency's authenticated \
+          native-proof axiom is compiler-trusting (RG1004) instead."]
       rationaleDetail := [
         foundationTable]
       proofShape := [
@@ -254,16 +255,19 @@ def guide : RuleId → Guide
           shape, and an independent native replay of `e` returns `true`; and a fresh \
           re-elaboration shows that the command introducing that declaration adds an axiom of \
           the same origin and statement, and that no `axiom` declaration occurs in that \
-          command's syntax or macro expansions. The axiom and every declaration depending on it \
+          command's syntax or macro expansions. An axiom of an imported module that the audit \
+          does not own is no project axiom, so it needs only the first two, with the replay run \
+          on the imported constant. The axiom and every declaration depending on it \
           are then classified compiler-trusting and rejected with applicability \
           `compiler-trusting`. The legacy `Lean.trustCompiler`, `Lean.ofReduceBool` \
           and `Lean.ofReduceNat` names are compiler-trusting only when an isolated, origin-checked \
           Core observation confirms the complete family and matches the compiled policy. If the \
           compiler has removed them, project or dependency axioms with those names receive no \
           compiler exception.",
-        "Final environment metadata cannot authorize a generated native-proof axiom; fresh \
-          re-elaboration of the exact source establishes it. An unauthenticated axiom that only \
-          looks native is not compiler-trusting."]
+        "Final environment metadata cannot authorize a generated native-proof axiom. For an \
+          axiom of an audited module, fresh re-elaboration of the exact source establishes it; \
+          for one of an imported module, the native replay of its statement does. An \
+          unauthenticated axiom that only looks native is not compiler-trusting."]
       rationaleDetail := []
       proofShape := [
         "The replacement proof proves the same proposition. Kernel reduction (`decide`, `rfl`) is \
@@ -298,19 +302,28 @@ def guide : RuleId → Guide
         "The build is matched to the fresh re-elaboration by generated origin and asserted \
           statement. When two commands add axioms of the same origin and statement, for \
           example an authored spoof beside the genuine proof, neither is authenticated and both \
-          fail closed as RG1001 and RG1003."]
+          fail closed as RG1001 and RG1003.",
+        "An imported native-proof axiom has no command provenance. A dependency's authored \
+          `axiom` with a generated native name under a declaration of its own module, whose \
+          statement replays `true`, is compiler-trusting where an audited declaration uses it: \
+          the classification states a reliance on the compiler, not which code added the axiom. \
+          One whose statement does not replay `true`, or whose name's prefix names no declaration \
+          of its module, is an unknown axiom (RG1003)."]
       residuals := [.qualify, .cost]
       checklist :=
           ["FOUND-05", "FOUND-03", "THEOREM-10", "THEOREM-01", "THEOREM-06", "DECL-03", "COMP-01",
               "BUILD-01"]
       linkage := declarationLinkage ++ " The compiler-trusting and native role sets come from \
         `RegulaPolicy.authorize`. `RegulaPolicy.authorizedNativeAxioms_iff` characterizes the \
-        authenticated native roles, and `native_generated` shows that each is a name Lean's \
-        `nativeEqTrue` scheme generates for `native_decide`, `decide +native` or `bv_decide` \
-        under a prefix related to an inventory declaration by `GeneratedPrefix`, and \
-        `native_provenance` that its statement was natively replayed and that a command of its \
-        module's fresh transcript adds an axiom of the same origin and statement while its \
-        recorded syntax declares no axiom. `generatedPrefix_iff` shows that, for a declaration \
+        authenticated owned native roles and `authorizedImportedNativeAxioms_iff` the imported \
+        ones (`ImportedNativeOK`), and `Roles.native_owned` shows that no imported record \
+        classifies an owned declaration. `native_generated` shows that each native role is a \
+        name Lean's `nativeEqTrue` scheme generates for `native_decide`, `decide +native` or \
+        `bv_decide` under a prefix related to an inventory declaration or imported record by \
+        `GeneratedPrefix`, and `native_provenance` that its statement was natively replayed and \
+        either that a command of its module's fresh transcript adds an axiom of the same origin \
+        and statement while its recorded syntax declares no axiom, or that it is an imported \
+        record of a module of no inventory declaration. `generatedPrefix_iff` shows that, for a declaration \
         name without macro scopes, these are exactly the names the generator gives that \
         declaration in its own module in either privacy mode. The execution probe classifies by \
         `RegulaPolicy.compilerTrustingAxiomName`, which `compilerTrustingAxiomName_iff` \
@@ -1208,10 +1221,22 @@ def guide : RuleId → Guide
       problem := "The claimed source did not elaborate warning-free under the audit's build: the \
         build failed or emitted a warning."
       trigger := [
-        "The audit builds the claimed targets itself and checks both the exit status and every \
-          emitted diagnostic. Any warning fails, including when the source sets `warningAsError` \
-          to false locally (for a single-file audit, when any `--claim` is requested). The \
-          original compiler message is preserved in the finding.",
+        "The audit builds the claimed targets itself with Lake's failure level at `warning`, as \
+          `lake build --wfail` does, so the build fails when a job it requires logs a warning or \
+          an error. Any warning fails, including when the source sets `warningAsError` to false \
+          locally (for a single-file audit, when any `--claim` is requested). Lake gives each \
+          message the level of its Lean severity, so an information message never fails the \
+          build, whatever its text. Lake logs standard output of the compiler that is not a \
+          Lean message as information, so the build also fails when a job it requires logs \
+          such an entry, which can be a warning whose line other output corrupted. Lake logs \
+          other programs' standard output in the same form, and such an entry at information \
+          level fails the build too; output Lake logs at trace level, as for a quiet program \
+          that succeeds, does not. A module compiled from a source path that, as Lake names it \
+          in messages, has a line break or is unknown fails the build, since its messages could \
+          not be told from such output. A single-file audit \
+          compiles the file with `lean --json` and reads each message's severity in the same \
+          way; output that is not a Lean message counts as an error. The original compiler \
+          message is preserved in the finding.",
         "The audit's builds neither read nor write Lake's artifact cache, whatever the project's \
           `enableArtifactCache` or the `LAKE_ARTIFACT_CACHE` environment variable says, and a \
           claimed module whose build trace records a restore from that cache is elaborated again. \
@@ -1241,7 +1266,9 @@ def guide : RuleId → Guide
       established := [
         "Every claimed module elaborated from source without errors or warnings under the audit's \
           build: the build elaborated it, or, in an incremental run, replayed the messages of the \
-          elaboration that wrote its build trace. The build requested each claimed module's \
+          elaboration that wrote its build trace, where that elaboration ran under the audit-build \
+          marker, earlier in the same run, or under the `weakLeanArgs` that the trace file \
+          records as its library's current ones. The build requested each claimed module's \
           artifacts itself, and no claimed module was restored from Lake's artifact cache."]
       notEstablished := [
         "Fresh source elaboration unless the run is fresh: `lake lint` without `--fresh` is \
@@ -1270,21 +1297,41 @@ def guide : RuleId → Guide
           build warnings there and its policy stages report those rules. `axiomGate` and the \
           build-lint `policy` target keep ordinary options, so in a module that imports \
           `Regula.Linter` a local Regula finding is a build warning and makes the result \
-          INCOMPLETE under this rule."]
+          INCOMPLETE under this rule. Regula's `lakefile.lean` replaces Lake's `extraDep` \
+          facet with one that records each root and Regula library's identity and \
+          `weakLeanArgs` in its modules' traces. Without the marker, a claimed module replayed \
+          from before the run whose trace lacks its own library's current record is not \
+          established (INCOMPLETE), as when another dependency declares a library facet."]
       residuals := [.qualify]
       checklist := ["DECL-01", "BUILD-01", "DOC-01"]
-      linkage := "Acceptance side only: an accepted run satisfies `RegulaPolicy.BuildOK`. Reading \
-        Lake's build result is operational. That the audit's builds keep Lake's artifact cache \
-        off is proved of Lake's own cache predicates for every package of the build's workspace \
-        (`Workspace.uncachedWorkspace_unreadable`, `uncachedWorkspace_unwritable`); that Lake \
-        consults them before each access to the cache is read from Lake's source. That each \
-        claimed module's trace records an elaboration is checked of the trace file after the \
+      linkage := "Acceptance side only: an accepted run satisfies `RegulaPolicy.BuildOK`. A \
+        Lake build's observation satisfies it exactly when it ran at failure level `warning`, \
+        exited 0, \
+        no required job (`Lake.observedFetch`) logged an entry that \
+        `Workspace.unparsedCompilerOutput` selects, and, without the audit-build marker, each \
+        claimed module replayed from before the run has its own current record \
+        (`Acceptance.buildObservation_ok_iff`, `Lake.mem_reusedModules_iff`, \
+        `Lake.traceRecords_ownRecord_iff`). \
+        Lake's entry for a Lean message whose file name has no line break is never selected \
+        (`unparsedCompilerOutput_ofSerialMessage`); `lineBreakSourcePaths` fails the others. \
+        That Lake fails a build whose required job logs an entry at its failure level, and \
+        the forms of its entries, are read from Lake's source. A single-file compilation adds no \
+        diagnostic for an information message, a warning for a warning message and an error for \
+        output that is not a message (`SourceAudit.diagnose_information`, \
+        `diagnose_warning`, `diagnose_other`), and it passes exactly when the compiler exited 0 \
+        with no error and, where warnings are refused, no warning \
+        (`SourceAudit.compilationPassed_iff`). Lake's own cache predicates refuse the cache for every \
+        package of the build's workspace (`Workspace.uncachedWorkspace_unreadable`, \
+        `uncachedWorkspace_unwritable`); that Lake consults them before each cache access is \
+        read from Lake's source. That each \
+        claimed module's trace records an elaboration is checked after the \
         build (`Workspace.elaborationTrace`); that Lake replays the messages such a trace holds \
         is read from Lake's source."
       sources :=
           ["lean/Regula/Checker/Lake.lean", "lean/Regula/Checker/LintBuild.lean",
               "lean/Regula/Checker/Workspace.lean",
-              "lean/Regula/Checker/Diagnostics.lean", "lean/Regula/Checker/ResultProtocol.lean"] }
+              "lean/Regula/Checker/Diagnostics.lean", "lean/Regula/Checker/ResultProtocol.lean",
+              "lean/Regula/Checker/Acceptance.lean", "lean/Regula/Checker/SourceAudit.lean"] }
   | .coverage => {
       problem := "The exact module and declaration inventory from Lake does not match the owned \
         coverage: a claimed library imports an excluded or checker-probe module, a module is \
@@ -1437,7 +1484,8 @@ def guide : RuleId → Guide
         two-way), and `mem_required` states the required keys. These \
         theorems are about the request that the decisions take. The module data, the replay \
         set, the reported and reused modules, the lookup `kept`, the import of the replay base, \
-        `shared` and the replayed kernel are observed or trusted, as the section \"Receipt \
+        `shared`, `offerable` (`ownedUniform` over `duplicatesIn` of the audited environment and \
+        the owned modules) and the replayed kernel are observed or trusted, as the section \"Receipt \
         validation: decisions and observing pass\" of the guide of proofs and boundaries says. \
         The editor's deferral to the project audit of a result that needs generated-role \
         evidence is \
@@ -1912,8 +1960,8 @@ def guide : RuleId → Guide
         authentication failed."
       trigger := [
         "A teaching fence must elaborate warning-free and the checker must authenticate at least \
-          one compiler-trusting declaration in it, using the same fresh-frontend evidence as \
-          RG1004. If none is found, or authentication fails, the fence is rejected with \
+          one compiler-trusting declaration in it, using the same evidence as RG1004. If none is \
+          found, or authentication fails, the fence is rejected with \
           applicability `trusted-example`.",
         "The fence is also rejected, with the underlying finding, when any declaration in it fails \
           the declaration rules under the teaching request (for example RG1001 for an axiom or \

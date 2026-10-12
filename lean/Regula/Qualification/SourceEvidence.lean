@@ -129,8 +129,10 @@ def configuration : IO Unit := do
         ("freshFile", #["--file", (project / "Example.lean").toString, "--claim", "kernel-only"])]
             do
       for phase in #["positive", "directory", "restored"] do
-        if phase == "directory" then IO.FS.removeFile manifest; IO.FS.createDir manifest
-        if phase == "restored" then IO.FS.removeDir manifest; IO.FS.writeFile manifest saved
+        if phase == "directory" then
+          Regula.Filesystem.removePath .file manifest; IO.FS.createDir manifest
+        if phase == "restored" then
+          Regula.Filesystem.removePath .directory manifest; IO.FS.writeFile manifest saved
         clearBuild project
         let bad := phase == "directory"
         let (process, some result) ← observe root project s!"{mode}-{phase}" "axiomGate"

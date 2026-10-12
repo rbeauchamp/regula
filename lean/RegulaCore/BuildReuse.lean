@@ -18,7 +18,7 @@ out, so a documentation example sees exactly the modules a fresh build of the st
 those artifacts from the checkout's `.lake/build` into a staging directory outside its copy,
 takes the SHA-256 of each staged file and of each file of its copy outside `.lake`, and asks
 `reuse`. A module that the later Verso build needs beyond the closure is compiled in the copy, as
-on the fresh path. Only when `reuse` accepts does it move the staging directory to
+on the fresh path. Only when `reuse` accepts does it move each staged file to its place in
 its copy's `.lake/build`; otherwise its copy stays as it made it, with no build output, and the
 step builds as it did before this decision existed. Either way the step then runs the same build:
 Lake decides from its own traces whether to use a placed artifact or to compile the module again in

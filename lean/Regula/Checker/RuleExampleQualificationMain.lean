@@ -1,3 +1,4 @@
+import Regula.Removal
 import Regula.Checker.RuleExampleQualification
 
 /-! # Rule-example qualification executable
@@ -24,3 +25,8 @@ def main (args : List String) : IO Unit := do
               (record.setObjVal! "checkerSources" before))
   else IO.ofExcept (Regula.Checker.RuleExampleQualification.qualifyCorpus json)
   IO.println "rule example evidence: PASS (scoped diagnostic qualification; no Accepted claim)"
+
+-- The removals that the compiled code of `main`, and of the initializers of the modules it links,
+-- reaches are the filesystem observer's and those that `Regula.Removal.libraryRemovals` lists: the
+-- build of this module fails otherwise (`Regula.Removal.checkProgram`).
+run_cmd Regula.Removal.checkProgram

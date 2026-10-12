@@ -69,7 +69,7 @@ def prepareCoreProject (root project : FilePath) (packageName claim : String) : 
 
 /-- Delete only this owned scratch project's build output before a restored control. -/
 def clearBuild (project : FilePath) : IO Unit := do
-  if ← (project / ".lake/build").pathExists then IO.FS.removeDirAll (project / ".lake/build")
+  Regula.Filesystem.removePath .directory (project / ".lake/build")
 
 /-- The modules of the root package of the workspace at `root` that the headers of `sources`
 import, each with its source file: Lean's header parser reads each header (`Lean.parseImports'`),

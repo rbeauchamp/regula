@@ -32,13 +32,44 @@ abbrev ExecutionClaim.toString (x : ExecutionClaim) : String :=
 
 /-- Admit the scope through `checked_scope` with the frontend's coordinate check, itself
 `checked_coordinates.run`. `ScopeContract`, instantiated at `Frontend.validateCoordinates`,
-is its exact relation, and `CoordinateContract` that check's. Transcript bytes are not
-authenticated. -/
+is the exact relation of that stage, and `CoordinateContract` that check's. The admitted scope
+then rests on `imported`, the records of the imported native-proof axioms the declarations reach
+(`PolicyScope.importing`), which admit no declaration and decide only which imported names are
+native roles: `admitScope_eq` and `admitScope_checked` state the composed result. Transcript
+bytes are not authenticated. -/
 def admitScope (observed : RegulaPolicy.Compiler.LegacyCompilerTrust)
-    (ds : Array Declaration) (ts : Array Frontend.Transcript := #[]) :
-    Except String PolicyScope := do
+    (ds : Array Declaration) (ts : Array Frontend.Transcript := #[])
+    (imported : Array Declaration := #[]) : Except String PolicyScope := do
   let compiler ← RegulaPolicy.Compiler.admitCapability observed
-  checked_scope.run compiler Frontend.validateCoordinates ds ts
+  return (← checked_scope.run compiler Frontend.validateCoordinates ds ts).importing imported
+
+/-- Once the capability is admitted, `admitScope` refuses exactly as `checked_scope` does, and
+its scope is `checked_scope`'s resting on `imported`. -/
+theorem admitScope_eq (observed : RegulaPolicy.Compiler.LegacyCompilerTrust)
+    {compiler : RegulaPolicy.Compiler.Capability}
+    (admitted : RegulaPolicy.Compiler.admitCapability observed = .ok compiler)
+    (ds : Array Declaration) (ts : Array Frontend.Transcript) (imported : Array Declaration) :
+    admitScope observed ds ts imported =
+      (checked_scope.run compiler Frontend.validateCoordinates ds ts).map
+        (·.importing imported) := by
+  simp only [admitScope, admitted, bind, Except.bind]
+  cases checked_scope.run compiler Frontend.validateCoordinates ds ts <;> rfl
+
+/-- Once the capability is admitted and every transcript passes the coordinate check,
+`admitScope` returns exactly the inventory `admitInventory` admits, resting on `imported`, with the
+roles recomputed for it (`ScopeContract`'s second clause composed with `PolicyScope.importing`). -/
+theorem admitScope_checked (observed : RegulaPolicy.Compiler.LegacyCompilerTrust)
+    {compiler : RegulaPolicy.Compiler.Capability}
+    (admitted : RegulaPolicy.Compiler.admitCapability observed = .ok compiler)
+    (ds : Array Declaration) (ts : Array Frontend.Transcript) (imported : Array Declaration)
+    (checked : ∀ t ∈ ts, Frontend.validateCoordinates ds t = .ok ()) :
+    admitScope observed ds ts imported =
+      (RegulaPolicy.admitInventory compiler ds ts).map fun inventory =>
+        PolicyScope.importing ⟨inventory, RegulaPolicy.authorize inventory⟩ imported := by
+  rw [admitScope_eq observed admitted]
+  have inner := (checked_scope.evidence compiler Frontend.validateCoordinates).2.1 ds ts checked
+  refine (congrArg (Except.map (·.importing imported)) inner).trans ?_
+  cases RegulaPolicy.admitInventory compiler ds ts <;> rfl
 
 /-- Whether a declaration with these fields could receive a generated-role exception and so
 needs a fresh frontend transcript (`RegulaPolicy.declarationNeedsTranscript`). -/

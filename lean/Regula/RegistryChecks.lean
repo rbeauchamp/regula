@@ -1,9 +1,11 @@
 import Regula.DiagnosticCodec
 import Regula.Checker.ResultProtocol
 import Regula.Checker.SourceAudit
+import Regula.Checker.Workspace
 import Regula.Website
 import RegulaCore.Guidance
 import Regula.Campaigns.Workflow
+import Regula.Checker.Lake
 
 /-! # Registry transport qualification
 
@@ -66,6 +68,27 @@ run_cmd do
       ``Regula.ExecutionShare.sharedAs_fitted, ``Regula.ExecutionShare.sharedAs_self,
       ``Regula.ExecutionShare.fitted_self, ``Regula.ExecutionShare.internValue_congr,
       ``Regula.ExecutionShare.formLike_internValue, ``Regula.ExecutionShare.formLike_sharedAs,
+      ``Regula.ExecutionShare.isExplicit_canon_mkObj, ``Regula.ExecutionShare.explicitAt_map_canon,
+      ``Regula.ExecutionShare.rootEntries?_canon_sharedForm, ``Regula.ExecutionShare.fitted_shared,
+      ``Regula.ExecutionShare.sharedAs_shared, ``Regula.ExecutionShare.kinds_canon,
+      ``Regula.ExecutionShare.canonical_mapTexts, ``Regula.ExecutionShare.canonical_mapMembers,
+      ``Regula.ExecutionShare.canonical_setTable, ``Regula.ExecutionShare.firstRecovered_mem,
+      ``Regula.ExecutionShare.canonical_internValue, ``Regula.ExecutionShare.canonical_proposals,
+      ``Regula.ExecutionShare.canonical_write,
+      ``Regula.JsonCanon.mkObj_eq, ``Regula.JsonCanon.members_treeOf, ``Regula.JsonCanon.treeOf_map,
+      ``Regula.JsonCanon.sortMembers_increasing, ``Regula.JsonCanon.sortMembers_of_increasing,
+      ``Regula.JsonCanon.canonical_canon, ``Regula.JsonCanon.Canonical.canon_eq,
+      ``Regula.JsonCanon.Canonical.regular, ``Regula.JsonCanon.Regular.canon_agree,
+      ``Regula.JsonCanon.Canonical.map, ``Regula.JsonCanon.getObjVal?_canon,
+      ``Regula.JsonCanon.Canonical.single, ``Regula.JsonCanon.canonAll_eq,
+      ``Regula.JsonCanon.insertMemberTR_eq, ``Regula.JsonCanon.insertMember_eq_insertMemberImpl,
+      ``Regula.JsonCanon.treeOf_concat, ``Regula.JsonCanon.contains_treeOf,
+      ``Regula.Checker.JsonRoundTrip.strCore_text, ``Regula.Checker.JsonRoundTrip.num_text,
+      ``Regula.Checker.JsonRoundTrip.value_text, ``Regula.Checker.JsonRoundTrip.parse_compress_ws,
+      ``Regula.Checker.JsonRoundTrip.parse_compress_canonical_ws,
+      ``Regula.Checker.JsonRoundTrip.parse_compress,
+      ``Regula.Checker.JsonRoundTrip.parse_compress_canonical,
+      ``Regula.Checker.ResultProtocol.admitDocument_parse_encodeDocument,
       ``Regula.JsonAgreement.Regular.agree_self,
       ``Regula.Checker.ResultProtocol.parseStage_stageName,
       ``Regula.SourceTexts.expand_intern, ``Regula.SourceTexts.intern_isOk_iff,
@@ -95,6 +118,30 @@ run_cmd do
   | .ok () => pure ()
   | .error message => throwError message
 
+/-- The check that the encoder of Regula's own `lakefile.lean` is `weakArgsRecordJson`
+(`Lake.lakefileEncoderAgrees`), which acceptance runs with this file's `main` from the root of the
+checkout, never a library build. Lake keeps the compiled configuration of a workspace's root at
+`.lake/config/0/` of the workspace (`Lake/Load/Config.lean`, lines 83-84, and
+`Lake/Load/Workspace.lean`, line 34), and `lake env` loads it before it runs this file. The kernel
+must admit that copy as equal to `weakArgsRecordJson` and refuse it with one literal changed. -/
+private def lakefileEncoderCheck : IO Unit := do
+  let root ← IO.currentDir
+  unless ← (root / "lakefile.lean").pathExists do
+    throw <| IO.userError s!"registry: {root} has no lakefile.lean"
+  let (config, _) ← readModuleData (root / ".lake" / "config" / "0" / "lakefile.olean")
+  let env ← importModules #[{ module := `Regula.Checker.Lake }] {}
+  if let .error reason := Regula.Checker.Lake.lakefileEncoderAgrees env config then
+    throw <| IO.userError s!"registry: {reason}"
+  let some (.defnInfo encoder) :=
+      config.constants.find? (·.name == Regula.Checker.Lake.lakefileEncoderName)
+    | throw <| IO.userError "registry: Regula's lakefile has no encoder"
+  let changed := encoder.value.replace fun
+    | .lit (.strVal "weakLeanArgs") => some (.lit (.strVal "weakLeanArgz"))
+    | _ => none
+  unless changed != encoder.value &&
+      !Regula.Checker.Lake.agreesWithRecordJson env encoder.type changed do
+    throw <| IO.userError "registry: the kernel admits an encoder that writes another word"
+
 private def require (ok : Bool) (claim : String) : IO Unit :=
   unless ok do throw <| IO.userError s!"registry qualification failed: {claim}"
 
@@ -103,10 +150,12 @@ private def succeeded {ε : Type u} {α : Type v} : Except ε α → Bool
 
 /-- The registry transport qualification that acceptance runs with `lean --run`: it checks
 every rule's descriptor codec, the embedded example pairs against their corpus files, the
-committed agent skill, and fixed accept and refuse controls for registry, page, source,
-result, diagnostic and example admission, throwing on the first failed check and printing
-`PASS` otherwise. These controls are observations, not proofs of the laws. -/
+committed agent skill, the encoder of Regula's `lakefile.lean` (`lakefileEncoderCheck`), and
+fixed accept and refuse controls for registry, page, source, result, diagnostic and example
+admission, throwing on the first failed check and printing `PASS` otherwise. These controls are
+observations, not proofs of the laws. -/
 def main : IO Unit := do
+  lakefileEncoderCheck
   let producer := Regula.Checker.ResultProtocol.producer
   let manifest := registryJson producer
   -- Where no classification line is printed (the editor, the self-audit and a documentation
@@ -262,12 +311,14 @@ def main : IO Unit := do
   require (!succeeded (SourceTexts.expand (written.setObjVal! SourceTexts.tableKey
     (toJson #[(0 : Nat)])))) "stored text that is not a string"
   -- Execution accounts stored once. `SharedExecution.expand_intern` and `read_write` prove that
-  -- the reader recovers every document, whatever the writer proposes; these observe what they
-  -- do not cover: that the writer's proposal is kept for accounts of the form the collector
-  -- produces, built or parsed, so two roots store what both reach once, that the reader returns
-  -- the built account from a parsed shared form, whose object trees are not the written ones,
-  -- what the writer does with an account of another form or without roots, and what the reader
-  -- does with a malformed one.
+  -- the reader recovers every document, whatever the writer proposes, and
+  -- `ResultProtocol.admitDocument_parse_encodeDocument` that the parse of the text
+  -- `encodeDocument` gives is the value written and that admission returns `JsonCanon.canon` of
+  -- the document. They leave open that a built account is already in that form, which the first
+  -- check observes on the built document. Each case after it writes its document as the writer
+  -- does (`encodeDocument`), parses the text as a reader of the file does (`PolicyCodec.parse`,
+  -- in `fileRead`) and gives `admitDocument` the parsed value or that value with a member
+  -- changed; its message names what it observes beyond the theorems.
   let evidence ← IO.ofExcept
     (RegulaPolicy.admitBoundaryEvidence .partialComputation .trusted none none none)
   let account (root : Name) (visits : Array RegulaPolicy.ExecutionVisit) :
@@ -287,9 +338,16 @@ def main : IO Unit := do
     #[{ name := root, moduleName := some `M, parent := none },
       { name := `shared, moduleName := some `M, parent := some 0 }]
   let report (accounts : Array RegulaPolicy.ExecutionRoot) : Json :=
-    Json.mkObj [(SharedExecution.accountKey, toJson accounts)]
+    Json.mkObj [(SharedExecution.accountKey, toJson accounts),
+      Regula.Checker.ResultProtocol.sourceTextsField]
+  let fileRead (document : Json) : IO (Json × Json) := do
+    let stored ← IO.ofExcept (Regula.Checker.PolicyCodec.parse
+      (← IO.ofExcept (Regula.Checker.ResultProtocol.encodeDocument document)))
+    return (stored, ← IO.ofExcept (Regula.Checker.ResultProtocol.admitDocument stored))
   let logical := report #[account `first (walked `first), account `second (walked `second)]
-  let stored := SharedExecution.intern ExecutionShare.proposals logical
+  require (SharedExecution.same (JsonCanon.canon logical) logical)
+    "a built account is in the form the JSON parser builds"
+  let (stored, read) ← fileRead logical
   let storedAccount := stored.getObjValD SharedExecution.accountKey
   let count (member : String) : Option Nat :=
     (storedAccount.getObjValD member).getArr?.toOption.map (·.size)
@@ -298,46 +356,43 @@ def main : IO Unit := do
   require (count "names" == some 3 && count "boundaries" == some 1 &&
     count "compilerEdges" == some 2 && count "logicalEdges" == some 2)
     "two roots store the name and boundary both reach once"
-  require ((SharedExecution.expand stored).toOption == some logical)
-    "the reader rebuilds each root's account"
-  -- The JSON parser builds an account's objects as the codec and the reader do, so a document
-  -- that was read back is written in the shared form again.
-  let reread := Regula.Checker.ResultProtocol.normalize logical
-  require (SharedExecution.same reread logical)
-    "a parsed account is the same value as the built one"
-  require (SharedExecution.derivedOnly ((SharedExecution.intern ExecutionShare.proposals
-      reread).getObjValD SharedExecution.accountKey))
-    "a parsed account is stored as derived root entries"
-  require (match SharedExecution.expand (Regula.Checker.ResultProtocol.normalize stored) with
-    | .ok restored => SharedExecution.same restored logical
-    | .error _ => false)
-    "the reader rebuilds the built account from a parsed shared form"
+  require (SharedExecution.same read logical)
+    "the reader of the file rebuilds each root's account"
+  -- A document read back from its file is written in the shared form again.
+  let (reread, readAgain) ← fileRead read
+  require (SharedExecution.derivedOnly (reread.getObjValD SharedExecution.accountKey) &&
+      SharedExecution.same readAgain logical)
+    "a document read back is stored as derived root entries and read back again"
   let rootless := report #[]
-  let storedNone := SharedExecution.intern ExecutionShare.proposals rootless
+  let (storedNone, readNone) ← fileRead rootless
   require
     (SharedExecution.field? SharedExecution.rootsKey
         (storedNone.getObjValD SharedExecution.accountKey) == some (Json.arr #[]) &&
-      (SharedExecution.expand storedNone).toOption == some rootless)
-    "an environment without roots is stored as a shared form without roots"
+      SharedExecution.same readNone rootless)
+    "an environment without roots is stored as a shared form without roots and read back"
   -- Visits the walk does not produce: the root's entry holds its account as it is, and the
   -- reader still returns the account.
   let other := report #[account `first #[{ name := `shared, moduleName := some `M, parent := none },
       { name := `first, moduleName := some `M, parent := some 0 }],
     account `second (walked `second)]
-  let full := SharedExecution.intern ExecutionShare.proposals other
+  let (full, readFull) ← fileRead other
   let entries := (SharedExecution.field? SharedExecution.rootsKey
     (full.getObjValD SharedExecution.accountKey)).bind SharedExecution.array?
   require
     (entries.map (·.map fun entry => (SharedExecution.field? "explicit" entry).isSome) ==
         some #[true, false] &&
-      (SharedExecution.expand full).toOption == some other)
+      SharedExecution.same readFull other)
     "an account the walk does not reproduce is written as `explicit` and read back"
-  let claim := Json.mkObj [(SharedExecution.accountKey, .str "checked")]
-  require (SharedExecution.intern ExecutionShare.proposals claim == claim &&
-    (SharedExecution.expand claim).toOption == some claim)
-    "an execution member that is not an account is kept"
-  require (!succeeded (SharedExecution.expand (stored.setObjVal! SharedExecution.accountKey
-    (storedAccount.setObjVal! "names" (toJson (#[] : Array Json))))))
+  let claim := Json.mkObj [(SharedExecution.accountKey, .str "checked"),
+    Regula.Checker.ResultProtocol.sourceTextsField]
+  let (storedClaim, readClaim) ← fileRead claim
+  require
+    (SharedExecution.same (storedClaim.getObjValD SharedExecution.accountKey) (.str "checked") &&
+      SharedExecution.same readClaim claim)
+    "an execution member that is not an account is kept and read back"
+  require (!succeeded (Regula.Checker.ResultProtocol.admitDocument
+    (stored.setObjVal! SharedExecution.accountKey
+      (storedAccount.setObjVal! "names" (toJson (#[] : Array Json))))))
     "a shared account whose names do not cover its indices is refused"
   let partialRun := requested "file" <| Regula.Checker.ResultProtocol.resultJson (.str "control")
     .freshFile .rejected #[⟨.projectAxiom, d⟩] fileStages
@@ -445,18 +500,60 @@ def main : IO Unit := do
   require (native.pos.line == 1 && native.pos.column == 1 &&
     native.endPos == some ⟨1, 2⟩) "native codepoint coordinates"
   require ((← native.data.toString) == d.text) "native/text agreement"
-  let compilation : Regula.Checker.SourceAudit.Compilation := {
-    spec := { «module» := "Control", source := "" }
-    sourcePath := "/control.lean", oleanPath := "/control.olean", ileanPath := "/control.ilean"
-    process := { exitCode := 1, stdout := "/control.lean:1:0: error: intended", stderr := "" } }
+  -- A compilation of `/control.lean` whose compiler printed `messages` with `lean --json`, or
+  -- `other` output, and exited with `exitCode`.
+  let compiled (exitCode : UInt32) (messages : List Lean.SerialMessage) (other : String := "")
+      (rejectWarnings := true) : Regula.Checker.SourceAudit.Compilation :=
+    let stdout := String.join (messages.map fun message => (toJson message).compress ++ "\n")
+    let (process, diagnostics) := Regula.Checker.SourceAudit.readCompilerOutput "/control.lean"
+      { exitCode, stdout := stdout ++ other, stderr := "" }
+    { spec := { «module» := "Control", source := "", rejectWarnings }
+      sourcePath := "/control.lean", oleanPath := "/control.olean", ileanPath := "/control.ilean"
+      process, diagnostics }
+  let message (severity : Lean.MessageSeverity) (data : String) : Lean.SerialMessage :=
+    { fileName := "/control.lean", pos := ⟨1, 0⟩, severity, data, kind := .anonymous }
+  let compilation := compiled 1 [message .error "intended"]
   require (Regula.Checker.SourceAudit.sourceDiagnosticFailure compilation)
       "completed source diagnostic"
+  require (compilation.process.stdout == "/control.lean:1:0: error: intended\n")
+      "a message is printed as without --json"
   require (!Regula.Checker.SourceAudit.sourceDiagnosticFailure
     { compilation with process := { compilation.process with exitCode := 137 } })
         "termination is incomplete"
   require (!Regula.Checker.SourceAudit.sourceDiagnosticFailure
-    { compilation with process := { compilation.process with stdout := "compiler crashed" } })
-        "crash is incomplete"
+    (compiled 1 [] (other := "compiler crashed"))) "crash is incomplete"
+  -- Lean prints an information message as its bare text, so one that reads as a warning line is
+  -- a warning line of the printed output, yet the compiler reported no warning.
+  let forged := compiled 0 [message .information "/control.lean:1:0: warning: forged"]
+  require (!(Regula.Checker.warningLines forged.process.output).isEmpty)
+      "an information message can print as a warning line"
+  require (Regula.Checker.SourceAudit.compilationPassed forged &&
+      decide (RegulaPolicy.BuildOK forged.observation)) "an information message is no warning"
+  let warned := compiled 0 [message .warning "unused variable"]
+  require (!Regula.Checker.SourceAudit.compilationPassed warned &&
+      !decide (RegulaPolicy.BuildOK warned.observation) &&
+      Regula.Checker.SourceAudit.sourceDiagnosticFailure warned) "a warning message is a warning"
+  require (Regula.Checker.SourceAudit.compilationPassed
+    (compiled 0 [message .warning "unused variable"] (rejectWarnings := false)))
+      "warnings pass a compilation that does not reject them"
+  let unexpected := compiled 0 [] (other := "unexpected output")
+  require (!decide (RegulaPolicy.BuildOK unexpected.observation) &&
+      !Regula.Checker.SourceAudit.compilationPassed unexpected)
+        "output that is not a Lean message is an error"
+  -- Lake's entry for a Lean message, even an information message whose text starts as Lake's
+  -- entry for other output does, is not one; Lake's entry for other standard output is, and its
+  -- entry for standard error or for output it logs only verbosely is not. A file name with a line
+  -- break, which `lineBreakSourcePaths` refuses, makes a message's entry look like other output.
+  let lakeEntry (fileName data : String) : Lake.LogEntry := .ofSerialMessage
+    { fileName, pos := ⟨1, 0⟩, severity := .information, data, kind := .anonymous }
+  let selects := Regula.Checker.Workspace.unparsedCompilerOutput
+  require (!selects (lakeEntry "Widget.lean" "stdout:\nforged") &&
+      !selects (lakeEntry "stdout" "\nforged") &&
+      selects { level := .info, message := "stdout:\nx{\"severity\":\"warning\"}" } &&
+      !selects { level := .info, message := "stderr:\nx{\"severity\":\"warning\"}" } &&
+      !selects { level := .trace, message := "stdout:\nx" } &&
+      selects (lakeEntry "stdout:\n" "forged"))
+      "Lake's entries from compiler output that is not a Lean message"
   require (succeeded (Website.validateExample (.policyRejection .projectAxiom "project-axiom")
     (.checked #[⟨.projectAxiom, d⟩] false))) "policy rejection after elaboration"
   require

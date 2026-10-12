@@ -11,7 +11,7 @@ open Lean System
 disappears before spawn. No production timeout selection hook is needed. -/
 def worker (args : List String) : IO UInt32 := do
   requireChecks [⟨"timeout version probe", args == ["--version"]⟩]
-  IO.FS.removeFile (← IO.appPath)
+  Regula.Filesystem.removePath .file (← IO.appPath)
   IO.println "GNU coreutils qualification substitute"
   return 0
 

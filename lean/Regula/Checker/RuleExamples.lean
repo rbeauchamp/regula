@@ -1,3 +1,4 @@
+import Regula.Removal
 import Regula.Checker.Documentation
 import Regula.Checker.AxiomGate
 import Regula.Checker.ResultProtocol
@@ -46,6 +47,7 @@ unsafe def inspectNegative (repo path output : FilePath) : IO UInt32 := do
             Name.quickLt a.name b.name
         let scope ← IO.ofExcept <|
           Policy.admitScope inspected.report.compilerCapability declarations inspected.transcripts
+            inspected.report.imported
         let mut findings := #[]
         let index := Regula.Findings.declarationIndex declarations
         let helpers := scope.helpers
@@ -234,16 +236,21 @@ unsafe def main (args : List String) : IO UInt32 := do
           pure (← ruleExamplesEntry production, production.map (·.output))
       -- Mark the result so it cannot be mistaken for Git-observed output. The
       -- qualification-only result view keeps this field and admission ignores it. The file is
-      -- marked only when it is a written result document (`ResultProtocol.admitDocument`).
+      -- marked only when it is a written result document (`ResultProtocol.readDocument`), and the
+      -- marked document is written as every result document is (`ResultProtocol.writeDocument`).
       if let some path := output.filter (· != "") then
         unless ← System.FilePath.pathExists path do return code
         let marked ← (do
-          let value ← IO.ofExcept (Regula.Checker.PolicyCodec.parse (← IO.FS.readFile path))
-          let _ ← IO.ofExcept (Regula.Checker.ResultProtocol.admitDocument value)
-          IO.FS.writeFile path
-              ((value.setObjVal! "gitFacts" (.str "injected")).compress ++ "\n")).toBaseIO
+          let document ← Regula.Checker.ResultProtocol.readDocument path
+          Regula.Checker.ResultProtocol.writeDocument path
+            (document.setObjVal! "gitFacts" (.str "injected")) "injectedFactsMarker").toBaseIO
         if let .error error := marked then
           IO.eprintln s!"rule example production incomplete: injected-facts marker: {error}"
           return productionIncomplete
       return code
   | _ => ruleExamplesEntry (Regula.Checker.RuleExamples.Production.parse? args)
+
+-- The removals that the compiled code of `main`, and of the initializers of the modules it links,
+-- reaches are the filesystem observer's and those that `Regula.Removal.libraryRemovals` lists: the
+-- build of this module fails otherwise (`Regula.Removal.checkProgram`).
+run_cmd Regula.Removal.checkProgram

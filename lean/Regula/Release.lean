@@ -1544,14 +1544,13 @@ private def gh (args : Array String) : IO String := do
   unless out.exitCode == 0 do fail s!"gh {args}: {out.stderr}"
   return out.stdout
 
-/-- `gh api` with the JSON `body` sent as the request. -/
+/-- `gh api` with the JSON `body` sent as the request on its standard input, so no file is written
+or removed. -/
 private def ghPost (method path : String) (body : Json) : IO Json := do
-  IO.FS.createDirAll "tmp"
-  let file : FilePath := "tmp/release-request.json"
-  IO.FS.writeFile file body.compress
-  let out ← gh #["api", "--method", method, path, "--input", file.toString]
-  IO.FS.removeFile file
-  IO.ofExcept (Json.parse out)
+  let args := #["api", "--method", method, path, "--input", "-"]
+  let out ← IO.Process.output { cmd := "gh", args } body.compress
+  unless out.exitCode == 0 do fail s!"gh {args}: {out.stderr}"
+  IO.ofExcept (Json.parse out.stdout)
 
 private def ghGet (path : String) : IO Json := do
   IO.ofExcept (Json.parse (← gh #["api", path]))

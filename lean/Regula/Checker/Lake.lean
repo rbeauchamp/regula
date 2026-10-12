@@ -700,8 +700,9 @@ private def surfaceRequest (ws : _root_.Lake.Workspace) (target : SurfaceTarget)
     return (#[← artifacts mod], #[mod])
 
 /-- A build the checker runs: the Lean options it sets on the root package, if any, and the lines
-of its output it also shows as it runs. A `Build` holds no way to run it other than `Build.run`,
-so every checker build runs as `Build.run` describes. -/
+of its output it also shows as it runs. A `Build` holds no way to run it other than
+`Build.runObserved`, whose process result is `Build.run`, so every checker build runs as
+`Build.runObserved` describes. -/
 structure Build where
   /-- The Lean options set on the root package, over its own, or none, chosen from the workspace as
   Lake loads it, before `Build.run` turns off its artifact cache. It runs before the build, and an
@@ -709,7 +710,667 @@ structure Build where
   rootOptions : _root_.Lake.Workspace → IO (Option LeanOptions) := fun _ => pure none
   /-- Selects the output lines also printed to standard output as the build writes them. -/
   display : String → Bool := fun _ => false
+  /-- The lowest level of a log entry that fails the build (Lake's `failLv`, which
+  `lake build --wfail` sets to `warning`): Lake's build monitor counts a required job as failed
+  when its log, or the log it replays from its trace, holds an entry of that level or above. -/
+  failLv : _root_.Lake.LogLevel := .error
   deriving Inhabited
+
+/-- A component of a name as `nameJson` writes it: a string component is its text, and a numeric
+one is an array that holds its digits, so neither form is the other. The expression matches on no
+value, so the `extraDep` facet of Regula's `lakefile.lean`, whose admission by identity allows no
+matcher, writes the same one. -/
+def componentJson (component : Name) : Json :=
+  if component.isNum then .arr #[.str (component.toString (escape := false))]
+  else .str component.getString!
+
+/-- A name by its components (`Name.components`), each as `componentJson` writes it. Unlike `toJson`
+of a name, which writes its text and gives the distinct names `` `«?a.b» `` and `` `«?a».b `` the
+same one, `nameOfJson?` inverts it (`nameOfJson?_eq_some_iff`), so distinct names have distinct
+values. -/
+def nameJson (name : Name) : Json :=
+  .arr (name.components.map componentJson).toArray
+
+/-- The name `name` followed by the component that `json` gives as `componentJson` writes it, or
+none for any other value. A numeric component's digits must be those `Nat.repr` writes, so each
+value read is one that `componentJson` writes. -/
+def nameStep (name : Name) : Json → Option Name
+  | .str text => some (.str name text)
+  | .arr items =>
+    if h : items.size = 1 then
+      match items[0] with
+      | .str digits => digits.toNat?.bind fun n =>
+          if Nat.repr n = digits then some (.num name n) else none
+      | _ => none
+    else none
+  | _ => none
+
+/-- The name whose `nameJson` is `json`, or none when `json` is no such value. -/
+def nameOfJson? : Json → Option Name
+  | .arr items => items.toList.foldlM nameStep .anonymous
+  | _ => none
+
+/-- The components of `name.str text`: those of `name`, then `text`. -/
+theorem components_str (name : Name) (text : String) :
+    (Name.str name text).components = name.components ++ [.str .anonymous text] := by
+  simp [Name.components, Name.componentsRev, Name.mkStr]
+
+/-- The components of `name.num n`: those of `name`, then `n`. -/
+theorem components_num (name : Name) (n : Nat) :
+    (Name.num name n).components = name.components ++ [.num .anonymous n] := by
+  simp [Name.components, Name.componentsRev, Name.mkNum]
+
+/-- A string component is written as its text. -/
+theorem componentJson_str (text : String) : componentJson (.str .anonymous text) = .str text := by
+  simp [componentJson, Name.isNum, Name.getString!]
+
+/-- A numeric component is written as the array of its digits, as `Nat.repr` writes them. -/
+theorem componentJson_num (n : Nat) :
+    componentJson (.num .anonymous n) = .arr #[.str (Nat.repr n)] := by
+  simp only [componentJson, Name.isNum, ite_true]
+  rfl
+
+/-- A step that `nameStep` reads extends the written components by the value it read. -/
+theorem nameStep_eq_some {name next : Name} {json : Json} (h : nameStep name json = some next) :
+    next.components.map componentJson = name.components.map componentJson ++ [json] := by
+  unfold nameStep at h
+  split at h
+  · cases h; simp [components_str, componentJson_str]
+  · rename_i items
+    split at h
+    · rename_i hSize
+      split at h
+      · rename_i digits hDigits
+        simp only [Option.bind_eq_some_iff] at h
+        obtain ⟨n, -, hNext⟩ := h
+        split at hNext
+        · rename_i hRepr
+          cases hNext
+          have hItems : items = #[.str digits] := by
+            apply Array.ext (by simp [hSize])
+            intro i hi _
+            have : i = 0 := by omega
+            subst this; simp [hDigits]
+          simp [components_num, componentJson_num, hItems, hRepr]
+        · cases hNext
+      · cases h
+    · cases h
+  · cases h
+
+/-- What `nameStep` reads from `items`, starting at `start`, has the written components of `start`
+followed by `items`. -/
+theorem foldlM_nameStep_eq_some : ∀ (items : List Json) (start name : Name),
+    items.foldlM nameStep start = some name →
+      name.components.map componentJson = start.components.map componentJson ++ items
+  | [], start, name, h => by cases h; simp
+  | item :: rest, start, name, h => by
+    simp only [List.foldlM_cons, Option.bind_eq_bind, Option.bind_eq_some_iff] at h
+    obtain ⟨next, hNext, hRest⟩ := h
+    rw [foldlM_nameStep_eq_some rest next name hRest, nameStep_eq_some hNext]
+    simp
+
+/-- `nameStep` reads the written components of `name` back to `name`. -/
+theorem foldlM_nameStep_components (name : Name) :
+    (name.components.map componentJson).foldlM nameStep .anonymous = some name := by
+  induction name with
+  | anonymous => rfl
+  | str prefix_ text ih =>
+    simp [components_str, List.foldlM_append, ih, componentJson_str, nameStep]
+  | num prefix_ n ih =>
+    simp [components_num, List.foldlM_append, ih, componentJson_num, nameStep, Nat.toNat?_repr]
+
+/-- `nameOfJson?` reads `name` from `json` exactly when `json` is `nameJson name`: it inverts
+`nameJson`, so distinct names have distinct values, whatever their components. -/
+theorem nameOfJson?_eq_some_iff (json : Json) (name : Name) :
+    nameOfJson? json = some name ↔ json = nameJson name := by
+  constructor
+  · intro h
+    cases json <;> simp only [nameOfJson?, reduceCtorEq] at h
+    rename_i items
+    have hItems : name.components.map componentJson = items.toList := by
+      have := foldlM_nameStep_eq_some items.toList .anonymous name h
+      rwa [show Name.anonymous.components = [] from rfl, List.map_nil, List.nil_append] at this
+    simp [nameJson, hItems]
+  · rintro rfl
+    simp [nameOfJson?, nameJson, foldlM_nameStep_components]
+
+/-- `List.mapM Json.getStr?`, the traversal of Lean's `fromJson?` for an array of strings, reads
+`texts` exactly from the list of their JSON strings. -/
+theorem mapM_getStr?_eq_ok_iff : ∀ (items : List Json) (texts : List String),
+    items.mapM Json.getStr? = .ok texts ↔ items = texts.map .str
+  | [], texts => by cases texts <;> simp [pure, Except.pure]
+  | .str text :: rest, texts => by
+    have ih := mapM_getStr?_eq_ok_iff rest
+    rw [List.mapM_cons]
+    cases hRest : rest.mapM Json.getStr? with
+    | error _ =>
+      simp only [Json.getStr?, bind, Except.bind, pure, Except.pure, reduceCtorEq, false_iff]
+      rintro hEq
+      cases texts with
+      | nil => cases hEq
+      | cons _ tail =>
+        simp only [List.map_cons, List.cons.injEq] at hEq
+        have := (ih tail).mpr hEq.2
+        rw [hRest] at this; cases this
+    | ok values =>
+      simp only [Json.getStr?, bind, Except.bind, pure, Except.pure, Except.ok.injEq]
+      have hValues := (ih values).mp hRest
+      cases texts with
+      | nil => simp
+      | cons _ tail =>
+        simp only [List.cons.injEq, List.map_cons, Json.str.injEq]
+        constructor
+        · rintro ⟨rfl, rfl⟩; exact ⟨rfl, hValues⟩
+        · rintro ⟨rfl, hTail⟩
+          refine ⟨rfl, ?_⟩
+          have := (ih tail).mpr hTail
+          rw [hRest] at this
+          cases this; rfl
+  | .null :: _, texts | .bool _ :: _, texts | .num _ :: _, texts | .arr _ :: _, texts
+  | .obj _ :: _, texts => by
+    cases texts <;> simp [List.mapM_cons, Json.getStr?, bind, Except.bind, throw, throwThe,
+      MonadExceptOf.throw]
+
+/-- Lean's `fromJson?` for an array of strings reads `strings` exactly from the array of their
+JSON strings. -/
+theorem fromJson?_strings_eq_ok_iff (json : Json) (strings : Array String) :
+    fromJson? (α := Array String) json = .ok strings ↔ json = .arr (strings.map .str) := by
+  cases json with
+  | arr items =>
+    cases items with
+    | mk items =>
+      cases strings with
+      | mk texts =>
+        simp only [fromJson?, Lean.Array.fromJson?, List.mapM_toArray, List.map_toArray]
+        cases hItems : items.mapM Json.getStr? with
+        | error _ =>
+          simp only [Functor.map, Except.map, reduceCtorEq, false_iff]
+          intro hEq
+          have := (mapM_getStr?_eq_ok_iff items texts).mpr
+            (by simpa using congrArg Array.toList (Json.arr.inj hEq))
+          rw [hItems] at this; cases this
+        | ok values =>
+          simp only [Functor.map, Except.map, Except.ok.injEq, Json.arr.injEq]
+          have := (mapM_getStr?_eq_ok_iff items values).mp hItems
+          constructor
+          · intro h; cases h; simp [this]
+          · intro h
+            have hTexts : items = texts.map .str := by simpa using congrArg Array.toList h
+            have := (mapM_getStr?_eq_ok_iff items texts).mpr hTexts
+            rw [hItems] at this; cases this; rfl
+  | _ => simp [fromJson?, Lean.Array.fromJson?, throw, throwThe, MonadExceptOf.throw]
+
+/-- The record of the weak arguments of the library `library` of the package `package`: the word
+`weakLeanArgs`, the package's `baseName` (unique in a workspace) and the library's name as
+`nameJson` writes them, and `args`, the arguments Lake passes to `lean` weakly for each module of
+the library. -/
+def weakArgsRecordJson (package library : Name) (args : Array String) : Json :=
+  .arr #[.str "weakLeanArgs", nameJson package, nameJson library, .arr (args.map .str)]
+
+/-- The package, library and weak arguments that `json` records as `weakArgsRecordJson` writes it,
+or none when it is no such record. -/
+def weakArgsRecordOf? : Json → Option (Name × Name × Array String)
+  | .arr items =>
+    match items.toList with
+    | [.str "weakLeanArgs", package, library, args] =>
+      match nameOfJson? package, nameOfJson? library, fromJson? (α := Array String) args with
+      | some package, some library, .ok args => some (package, library, args)
+      | _, _, _ => none
+    | _ => none
+  | _ => none
+
+/-- `weakArgsRecordOf?` reads a package, a library and weak arguments from `json` exactly when
+`json` is their record: it inverts `weakArgsRecordJson`, whatever the names. -/
+theorem weakArgsRecordOf?_eq_some_iff (json : Json) (package library : Name)
+    (args : Array String) :
+    weakArgsRecordOf? json = some (package, library, args) ↔
+      json = weakArgsRecordJson package library args := by
+  constructor
+  · intro h
+    unfold weakArgsRecordOf? at h
+    split at h
+    · rename_i items
+      split at h
+      · rename_i packageJson libraryJson argsJson hItems
+        split at h
+        · rename_i hPackage hLibrary hArgs
+          cases h
+          have hArray : items = #[.str "weakLeanArgs", packageJson, libraryJson, argsJson] := by
+            cases items; simp_all
+          rw [hArray, (nameOfJson?_eq_some_iff _ _).mp hPackage,
+            (nameOfJson?_eq_some_iff _ _).mp hLibrary, (fromJson?_strings_eq_ok_iff _ _).mp hArgs]
+          rfl
+        · cases h
+      · cases h
+    · cases h
+  · rintro rfl
+    have hPackage := (nameOfJson?_eq_some_iff (nameJson package) package).mpr rfl
+    have hLibrary := (nameOfJson?_eq_some_iff (nameJson library) library).mpr rfl
+    have hArgs := (fromJson?_strings_eq_ok_iff (.arr (args.map .str)) args).mpr rfl
+    simp [weakArgsRecordOf?, weakArgsRecordJson, hPackage, hLibrary, hArgs]
+
+/-- The record is injective in the library's identity and its weak arguments: records of two
+libraries that differ in the package or in the library's name are different values. -/
+theorem weakArgsRecordJson_injective {package library package' library' : Name}
+    {args args' : Array String}
+    (h : weakArgsRecordJson package library args = weakArgsRecordJson package' library' args') :
+    package = package' ∧ library = library' ∧ args = args' := by
+  have hRead := (weakArgsRecordOf?_eq_some_iff _ package library args).mpr rfl
+  rw [h, (weakArgsRecordOf?_eq_some_iff _ package' library' args').mpr rfl] at hRead
+  simp only [Option.some.injEq, Prod.mk.injEq] at hRead
+  exact ⟨hRead.1.symm, hRead.2.1.symm, hRead.2.2.symm⟩
+
+/-- The record of `library`: its package's `baseName`, its name and its `weakLeanArgs`, the
+package's followed by the library's (Lake's `LeanLib.weakLeanArgs`), in `weakArgsRecordJson`. The
+root module of an executable belongs to the library that Lake makes from the executable's
+configuration, so for it these are the package's and the executable's. -/
+def weakArgsRecord (library : _root_.Lake.LeanLib) : Json :=
+  weakArgsRecordJson library.pkg.baseName library.name library.weakLeanArgs
+
+/-- The caption of the trace input that records `library`'s `weakArgsRecord`, as both
+`weakArgsExtraDep` and the `extraDep` facet that Regula's `lakefile.lean` declares write it: the
+record rendered as compressed JSON. -/
+def weakArgsCaption (library : _root_.Lake.LeanLib) : String :=
+  (weakArgsRecord library).compress
+
+/-- Whether the trace input caption `caption` is a current record of `library`: it reads as JSON
+whose record (`weakArgsRecordOf?`) names `library`'s package and `library` and gives its current
+weak arguments. -/
+def ownRecord (library : _root_.Lake.LeanLib) (caption : String) : Bool :=
+  match Json.parse caption with
+  | .ok json =>
+    decide (weakArgsRecordOf? json =
+      some (library.pkg.baseName, library.name, library.weakLeanArgs))
+  | .error _ => false
+
+/-- A caption is a current record of `library` exactly when Lean's JSON parser reads it as
+`library`'s record (`weakArgsRecord`), by `weakArgsRecordOf?_eq_some_iff`. -/
+theorem ownRecord_iff (library : _root_.Lake.LeanLib) (caption : String) :
+    ownRecord library caption = true ↔ Json.parse caption = .ok (weakArgsRecord library) := by
+  unfold ownRecord
+  split
+  · rename_i json hParse
+    rw [hParse, decide_eq_true_iff, weakArgsRecordOf?_eq_some_iff]
+    simp [weakArgsRecord]
+  · rename_i hParse
+    simp [hParse]
+
+/-- A module's trace file records the weak arguments of the module's own library, `library`,
+exactly when Lake reads it as a trace whose inputs hold, at some depth, an input whose caption is
+a current record of `library` (`ownRecord_iff`). A record that the trace holds for a different
+library, nested through that library's `extraDep` job, names that library or its package, so it
+is a different record (`weakArgsRecordJson_injective`), whatever the names. That the record
+`weakArgsExtraDep` writes, rendered as text, reads back as itself is Lean's JSON rendering, not
+proved here; the build-policy controls observe it.
+
+Assumes: Regula's facet (`weakArgsExtraDep`, or the `extraDep` facet of Regula's `lakefile.lean`)
+wrote the record when Lake built the module. This is the trust in the build traces that Lake
+recorded in the checkout, which standard §7.11 states for the incremental gate. A facet that wrote
+a forged record when the module was built is outside this evidence; `--fresh` rests on no recorded
+trace. For Regula's shipped `lakefile.lean`, acceptance checks only that its encoder's elaborated
+value is equal to `weakArgsRecordJson` (`lakefileEncoderAgrees`), nothing about a configuration
+that an adopter or a dependency changes. -/
+theorem traceRecords_ownRecord_iff (library : _root_.Lake.LeanLib) (text : String) :
+    Workspace.traceRecords (ownRecord library) text = true ↔
+      ∃ data, _root_.Lake.BuildMetadata.parse text = .ok data ∧
+        Workspace.Records (ownRecord library) (toJson data.inputs) :=
+  Workspace.traceRecords_iff _ _
+
+/-- The name of the `extraDep` facet declaration that Regula's own `lakefile.lean` ships, which
+mixes each root library's `weakArgsCaption` into its job's trace. -/
+def regulaFacetName : Name := `weakLeanArgsTrace
+
+/-- The name of the encoder that the facet of Regula's `lakefile.lean` runs to write its record: a
+copy of `weakArgsRecordJson`. The file cannot import Regula's modules, since Lake loads the
+configuration of a fresh dependency before it builds any of that dependency's modules.
+`lakefileEncoderAgrees` checks the copy. -/
+def lakefileEncoderName : Name := `weakLeanArgsRecord
+
+/-- The line that opens the weak-arguments declarations of Regula's `lakefile.lean`, with the line
+break before it. -/
+def weakArgsDeclarationsMarker : String := "\n-- Regula's weak-arguments record."
+
+/-- The weak-arguments declarations of the text `shipped` of Regula's `lakefile.lean`: everything
+from `weakArgsDeclarationsMarker` to the end of the file, which declares the encoder
+`lakefileEncoderName` and the facet `regulaFacetName`, or none when the marker is not there exactly
+once. The facet records the weak arguments of the root package's libraries, so a fixture project
+whose own `lakefile.lean` ends with this text records them in each module's trace as Regula's own
+build does, and an unmarked audit can establish a module it replays from that build. -/
+def weakArgsDeclarations (shipped : String) : Option String :=
+  match shipped.splitOn weakArgsDeclarationsMarker with
+  | [_, declarations] => some (weakArgsDeclarationsMarker ++ declarations)
+  | _ => none
+
+/-- Whether the kernel admits `value`, of type `type`, as equal to `weakArgsRecordJson` by
+`Eq.refl`: it adds `value` to `env` as a definition, then that theorem, and discards the result. A
+value of another type, or one that uses a constant `env` lacks or unfolds to another term, is
+refused. -/
+def agreesWithRecordJson (env : Environment) (type value : Expr) : Bool :=
+  let copy := `_regula_lakefile_encoder
+  let definition : DefinitionVal :=
+    { name := copy, levelParams := [], type, value, hints := ReducibilityHints.abbrev
+      safety := .safe }
+  let equality : TheoremVal :=
+    { name := copy ++ `agrees, levelParams := []
+      type := mkApp3 (mkConst ``Eq [.one]) type (mkConst copy) (mkConst ``weakArgsRecordJson)
+      value := mkApp2 (mkConst ``Eq.refl [.one]) type (mkConst copy) }
+  let checked := do
+    let env ← env.addDeclCore 0 defaultMaxRecDepth.toUSize (.defnDecl definition) none
+    env.addDeclCore 0 defaultMaxRecDepth.toUSize (.thmDecl equality) none
+  checked matches .ok _
+
+/-- Whether the compiled configuration `config` of Regula's `lakefile.lean` has an encoder equal to
+`weakArgsRecordJson`: its declaration `lakefileEncoderName` has no universe parameters and is
+equal to `weakArgsRecordJson` by `Eq.refl` in `env` (`agreesWithRecordJson`), and the value of
+its facet declaration (`regulaFacetName`) mentions that declaration. This checks the elaborated
+declarations that Lake compiles, not their source text.
+
+Acceptance runs it on the configuration of Regula's own checkout (`Regula.RegistryChecks`), to
+catch a drift between the encoder of Regula's shipped `lakefile.lean` and `weakArgsRecordJson`.
+It establishes that this encoder's elaborated value is equal to `weakArgsRecordJson` by
+`Eq.refl`, and that the facet's value mentions it. It establishes nothing about a configuration
+that an adopter or a dependency changes, which is the case of a forged facet outside the
+incremental gate's evidence (`traceRecords_ownRecord_iff`). Nor does it show that the facet
+runs the encoder, how the facet forms the record's arguments or the caption (the build-lint
+qualification exercises these), or that no runtime replacement such as `implemented_by` changes
+the code Lean's compiler emits for it. -/
+def lakefileEncoderAgrees (env : Environment) (config : ModuleData) : Except String Unit := do
+  let find (name : Name) : Except String (Expr × Expr) :=
+    match config.constants.find? (·.name == name) with
+    | some (.defnInfo info) =>
+      if info.levelParams.isEmpty then .ok (info.type, info.value)
+      else .error s!"the declaration {name} of Regula's lakefile has universe parameters"
+    | _ => .error s!"Regula's lakefile has no definition {name}"
+  let (type, value) ← find lakefileEncoderName
+  unless agreesWithRecordJson env type value do
+    throw s!"the kernel does not admit {lakefileEncoderName} of Regula's lakefile as equal to \
+      {``weakArgsRecordJson}"
+  let (_, facet) ← find regulaFacetName
+  unless facet.getUsedConstants.contains lakefileEncoderName do
+    throw s!"the facet {regulaFacetName} of Regula's lakefile does not use {lakefileEncoderName}"
+
+/-- Whether a package's compiled configuration holds exactly Regula's own `extraDep` facet
+declaration: the text of its configuration file (`text`) is the text of the `lakefile.lean` of the
+Regula that runs this decision (`running`, `runningLakefile`), that file declares exactly one library
+facet itself (`ownLibraryFacets`), and `regulaFacetName` is among its constants. -/
+def regulaFacetAdmitted (text running : Option String) (ownLibraryFacets : Nat)
+    (constants : Array Name) : Bool :=
+  match text, running with
+  | some text, some running =>
+    text == running && ownLibraryFacets == 1 && constants.contains regulaFacetName
+  | _, _ => false
+
+/-- Regula's facet is admitted exactly when both configuration texts are read and equal, the file
+declares one library facet of its own, and it has a constant named `regulaFacetName`. -/
+theorem regulaFacetAdmitted_iff (text running : Option String) (ownLibraryFacets : Nat)
+    (constants : Array Name) :
+    regulaFacetAdmitted text running ownLibraryFacets constants = true ↔
+      ∃ source, text = some source ∧ running = some source ∧ ownLibraryFacets = 1 ∧
+        regulaFacetName ∈ constants := by
+  cases text with
+  | none => simp [regulaFacetAdmitted]
+  | some source =>
+    cases running with
+    | none => simp [regulaFacetAdmitted]
+    | some other =>
+      simp only [regulaFacetAdmitted, Bool.and_eq_true, beq_iff_eq, Array.contains_iff_mem,
+        Option.some.injEq]
+      constructor
+      · rintro ⟨⟨rfl, h1⟩, h2⟩; exact ⟨_, rfl, rfl, h1, h2⟩
+      · rintro ⟨_, rfl, rfl, h1, h2⟩; exact ⟨⟨rfl, h1⟩, h2⟩
+
+/-- The text of the `lakefile.lean` of the package whose build directory holds the running
+executable, `<package>/.lake/build/bin/<executable>`, or none when it cannot be read. -/
+def runningLakefile : IO (Option String) := do
+  let app ← IO.FS.realPath (← IO.appPath)
+  let some package := (app.parent.bind (·.parent)).bind (·.parent) |>.bind (·.parent)
+    | return none
+  match ← (IO.FS.readFile (package / "lakefile.lean")).toBaseIO with
+  | .ok text => return some text
+  | .error _ => return none
+
+/-- The number of library facets that the compiled configuration of `package` declares, itself or
+through its imports, other than Regula's own `extraDep` facet when the file is the running Regula's
+`lakefile.lean` (`regulaFacetAdmitted`, with `running` its text). Lake inserts each into the
+workspace's facets in turn (`Workspace.addFacetDecls`), so one named `extraDep` replaces the facet
+that Regula's `lakefile.lean` declares when its package is resolved later. A `lakefile.toml`
+declares none. A configuration file that cannot be read fails. -/
+def otherLibraryFacets (ws : _root_.Lake.Workspace) (running : Option String)
+    (package : _root_.Lake.Package) : IO Nat := do
+  if package.configFile.extension == some "toml" then return 0
+  let some file := package.configFile.fileName
+    | throw <| IO.userError s!"the configuration {package.configFile} names no file"
+  let compiled := ws.root.dir / _root_.Lake.defaultLakeDir / "config" / toString package.wsIdx /
+    (FilePath.mk file).withExtension "olean"
+  let (config, _) ← readModuleData compiled
+  -- An entry of module names: the import lines of a Lean configuration.
+  requireSafeModuleNames s!"the configuration {package.configFile}" (config.imports.map (·.module))
+  let imported ← _root_.Lake.importModulesUsingCache config.imports {} 1024
+  let own := ((config.entries.find? (·.1 == _root_.Lake.libraryFacetAttr.ext.name)).map
+    (·.2.size)).getD 0
+  let text ← match ← (IO.FS.readFile package.configFile).toBaseIO with
+    | .ok text => pure (some text)
+    | .error _ => pure none
+  let admitted := regulaFacetAdmitted text running own (config.constants.map (·.name))
+  return (_root_.Lake.libraryFacetAttr.getAllEntries imported).size + own -
+    if admitted then 1 else 0
+
+/-- Whether no dependency can have replaced the `extraDep` facet of Regula's `lakefile.lean`: no
+package other than the root declares a library facet other than Regula's own
+(`otherLibraryFacets`). Lake inserts the root's facets before those of its dependencies
+(`Lake/Load/Workspace.lean`, line 39), so a facet of the root replaces none that a dependency
+declares. It is in effect only where no dependency declares one, and a record that it writes is
+then the root configuration's own, which the incremental gate trusts as it trusts the traces Lake
+recorded (`traceRecords_ownRecord_iff`). The unmarked build counts no record otherwise
+(`Build.runObserved`). A failure to read a configuration counts as another facet. -/
+def onlyRegulaFacets (ws : _root_.Lake.Workspace) : IO Bool := do
+  try
+    let running ← runningLakefile
+    let dependencies := ws.packages.filter (!·.isRoot)
+    return (← dependencies.mapM (otherLibraryFacets ws running)).all (· == 0)
+  catch _ => return false
+
+/-- The `extraDep` facet of a library that the workspace configures, `existing` (Lake's own,
+`LeanLib.extraDepFacetConfig`, or one a package declares in its place), with the trace of the
+library's `weakArgsRecord` mixed into its job's when the library belongs to the root package
+(`Package.isRoot`). The job of `existing` runs for every library, so what it builds or writes is
+kept. Lake mixes the trace of that facet's job into the dependency trace of each module of the
+library (`Lake/Build/Module.lean`, line 591), which sets no option of the module's elaboration. -/
+def weakArgsExtraDep
+    (existing : _root_.Lake.LibraryFacetConfig _root_.Lake.LeanLib.extraDepFacet) :
+    _root_.Lake.LibraryFacetConfig _root_.Lake.LeanLib.extraDepFacet :=
+  _root_.Lake.mkFacetJobConfig (buildable := existing.buildable) (memoize := existing.memoize)
+    fun (library : _root_.Lake.LeanLib) => do
+      let job : _root_.Lake.Job Unit ← existing.run library
+      if !library.pkg.isRoot then return job
+      let caption := weakArgsCaption library
+      let trace := _root_.Lake.BuildTrace.ofHash (_root_.Lake.pureHash caption) caption
+      return job.mix (_root_.Lake.Job.ofTask (.pure (.ok () { trace })))
+
+/-- The log of one job of a build, as Lake's build monitor judges it: Lake counts a job that is not
+optional as failed when its log holds an entry at the build's failure level or above
+(`Monitor.reportJob`, `Lake/Build/Run.lean` lines 119 to 129). -/
+structure JobLog where
+  /-- The job's caption in Lake's build monitor. -/
+  caption : String
+  /-- Whether the job is optional, so that its log fails no build. -/
+  optional : Bool
+  /-- The job's log, with what it replayed from a trace. -/
+  entries : Array _root_.Lake.LogEntry
+  /-- The most significant action Lake recorded for the job (`JobState.action`): `build` when it
+  ran a build action, such as a module's elaboration, and `replay` when it replayed the log of an
+  earlier one from a trace. -/
+  action : _root_.Lake.JobAction := .unknown
+  deriving Inhabited
+
+/-- Whether `jobs` show that Lake elaborated `module` in this build: some job has the caption Lake
+gives a module's job, its name (`Module.recBuildLean`, `Lake/Build/Module.lean` line 1005), and
+each such job ran a build action. Lake resets a job's action when it registers the job
+(`JobState.renew`, `Lake/Build/Job/Register.lean` lines 20 and 44), so the action of a module's job
+is that of its own work, and that job runs a build action only to elaborate the module
+(`Module.buildLean`).
+
+Assumes: in Lake v4.34.1 a module's job is the only job captioned with its name that records a
+build action, and records one exactly when the build elaborated the module. -/
+def elaboratedIn (jobs : Array JobLog) (module : Name) : Bool :=
+  let named := jobs.filter (·.caption == module.toString)
+  !named.isEmpty && named.all (·.action == .build)
+
+/-- The modules of `claimed` whose result in a build that does not settle replayed logs (`settled`
+false) rests on the log of an elaboration from before this audit invocation whose weak arguments
+are not known: Lake elaborated none of them in this build (`elaboratedIn`), nor did an earlier
+build of the same audit invocation (`earlier`), and the trace whose log the build replayed does not
+record a current record of the module's own library (`recorded`, `traceRecords_ownRecord_iff`).
+Lake's module trace records the `weakLeanArgs` an elaboration ran under only through an `extraDep`
+facet that mixes them in, such as the one Regula's `lakefile.lean` declares, so without that record
+a clean log can come from weak arguments since removed, and its RG2003 result is not established.
+A build under the audit-build marker settles them, since its own facet records them
+(`weakArgsExtraDep`). A record counts only as written by Regula's facet when the module was built,
+the trust in recorded traces that `traceRecords_ownRecord_iff` assumes.
+-/
+def reusedModules (settled : Bool) (earlier recorded : Array Name) (jobs : Array JobLog)
+    (claimed : Array Name) : Array Name :=
+  if settled then #[] else claimed.filter fun module => !earlier.contains module &&
+    !recorded.contains module && !elaboratedIn jobs module
+
+/-- A module is reused exactly when the build does not settle replayed logs, the module is
+claimed, no earlier build of this audit invocation elaborated it, its replayed trace does not
+record its weak arguments, and either no job of the build is captioned with its name or one such
+job ran no build action. -/
+theorem mem_reusedModules_iff (settled : Bool) (earlier recorded : Array Name)
+    (jobs : Array JobLog) (claimed : Array Name) (module : Name) :
+    module ∈ reusedModules settled earlier recorded jobs claimed ↔
+      settled = false ∧ module ∈ claimed ∧ module ∉ earlier ∧ module ∉ recorded ∧
+        ((∀ job ∈ jobs, job.caption ≠ module.toString) ∨
+          ∃ job ∈ jobs, job.caption = module.toString ∧ job.action ≠ .build) := by
+  cases settled
+  · have hAll : ((jobs.filter (·.caption == module.toString)).all
+        (·.action == .build)) = false ↔
+        ∃ job ∈ jobs, job.caption = module.toString ∧ job.action ≠ .build := by
+      rw [← Bool.not_eq_true, Array.all_eq_true_iff_forall_mem]
+      simp [Array.mem_filter]
+    simp only [reusedModules, elaboratedIn, Bool.false_eq_true, ite_false, Array.mem_filter,
+      Bool.and_eq_true, Bool.not_eq_true', true_and, Bool.and_eq_false_iff, Bool.not_eq_false',
+      Array.isEmpty_iff, Array.filter_eq_empty_iff, hAll, beq_iff_eq, ne_eq]
+    rw [Bool.eq_false_iff, ne_eq, Array.contains_iff_mem, and_assoc, Bool.eq_false_iff, ne_eq,
+      Array.contains_iff_mem]
+  · simp [reusedModules]
+
+/-- Each entry of a log in `jobs` of a job that is not optional which Lake can have made from
+output of the Lean compiler that is not a Lean message (`Workspace.unparsedCompilerOutput`), after
+its job's caption. -/
+def unparsedOutput (jobs : Array JobLog) : Array String :=
+  jobs.flatMap fun job =>
+    if job.optional then #[]
+    else (job.entries.filter Workspace.unparsedCompilerOutput).map (s!"{job.caption}: {·.message}")
+
+/-- `unparsedOutput` is empty exactly when no job that is not optional logged an entry that
+`Workspace.unparsedCompilerOutput` selects. -/
+theorem unparsedOutput_eq_empty_iff (jobs : Array JobLog) :
+    unparsedOutput jobs = #[] ↔ ∀ job ∈ jobs, job.optional = false →
+      ∀ entry ∈ job.entries, Workspace.unparsedCompilerOutput entry = false := by
+  simp only [unparsedOutput, Array.flatMap_eq_empty_iff]
+  apply forall₂_congr
+  intro job _
+  cases job.optional <;> simp [Array.filter_eq_empty_iff]
+
+/-- Move the jobs registered in `own` to `lake`, the queue Lake's build monitor reads, and wait for
+each, until `own` is empty; returns `forwarded` with each job moved. A job can register more jobs
+while it runs, so `own` is read again once the jobs it held have finished. -/
+partial def forwardJobs (own lake : IO.Ref (Array _root_.Lake.OpaqueJob))
+    (forwarded : Array _root_.Lake.OpaqueJob) : BaseIO (Array _root_.Lake.OpaqueJob) := do
+  let new ← own.modifyGet fun jobs => (jobs, #[])
+  if new.isEmpty then return forwarded
+  lake.modify (· ++ new)
+  for job in new do
+    discard <| IO.wait job.task
+  forwardJobs own lake (forwarded ++ new)
+
+/-- `build`, with each job it registers kept in `record` as Lake's build monitor reads it. Lake's
+monitor judges the jobs registered in the build's job queue and the job that runs the build itself
+(`Workspace.runBuild`, `Lake/Build/Run.lean` lines 427 to 436). This runs `build` with a queue of
+its own, moves each job registered there to Lake's queue once registered (`forwardJobs`), waits for
+each and for the job `build` returns, and records the log of each and that of the job that runs it,
+so `record` holds exactly the logs Lake's monitor judges. A registered job's log is read from its
+completed task, after Lake's own capture of its standard output and error (`Job.async`,
+`Lake/Build/Job/Monad.lean` line 173) has added its entry. The job that runs the build is also
+captured that way (`Workspace.startBuild`, `Lake/Build/Run.lean` line 363), but only after this
+returns, so this runs `build` under the same capture (`withLoggedIO`, `Lake/Util/Log.lean` line
+437) and records that job's log afterwards: the rest of this writes nothing to standard output or
+error, so Lake's capture adds no entry. A module of the build whose messages
+`unparsedCompilerOutput_ofSerialMessage` does not cover (`Workspace.lineBreakSourcePaths`) is
+logged as an error of the job that runs the build, which fails it. -/
+def observedFetch (ws : _root_.Lake.Workspace) (record : IO.Ref (Array JobLog))
+    (build : _root_.Lake.FetchM (_root_.Lake.Job Unit)) :
+    _root_.Lake.FetchM (_root_.Lake.Job Unit) :=
+  _root_.Lake.FetchM.ofFn fun fetch pkg? stack store context log => do
+    let own ← IO.mkRef #[]
+    let result ← (_root_.Lake.withLoggedIO build).toFn fetch pkg? stack store
+      { context with registeredJobs := own } log
+    let mut jobs ← forwardJobs own context.registeredJobs #[]
+    if let .ok job _ := result then
+      discard <| IO.wait job.task
+      jobs ← forwardJobs own context.registeredJobs jobs
+    let built ← store.get
+    let lineBreaks := Workspace.lineBreakSourcePaths ws built (Workspace.presetupSource? built)
+    let addErrors (log : _root_.Lake.Log) := lineBreaks.foldl (init := log) fun log reason =>
+      log.push (.error s!"{reason}, so its log cannot tell those messages from other output of \
+        the compiler")
+    let result := match result with
+      | .ok job log => .ok job (addErrors log)
+      | .error position log => .error position (addErrors log)
+    let ownLog := match result with
+      | .ok _ log => log
+      | .error _ log => log
+    record.set <| (jobs.map fun job => {
+        caption := job.caption, optional := job.optional,
+        entries := job.task.get.state.log.entries,
+        action := job.task.get.state.action : JobLog }).push
+      { caption := "the build's computation", optional := false, entries := ownLog.entries }
+    return result
+
+/-- The result of a build that `Build.runObserved` ran. -/
+structure CheckedBuild where
+  /-- The build's exit code and output. Lake's build monitor failed the build, and
+  `Build.runObserved` exited 1, when a required job logged an entry at the build's failure level
+  or above. -/
+  process : ProcessResult
+  /-- The failure level the build ran at (`Build.failLv`). -/
+  failLv : _root_.Lake.LogLevel
+  /-- The log of each job that Lake's build monitor judged (`observedFetch`). -/
+  jobs : Array JobLog
+  /-- Whether the build set Lean options on the root package (`Build.rootOptions`), the audit
+  build's marker among them, so that its libraries take their `extraDep` facet from
+  `weakArgsExtraDep`. -/
+  marked : Bool
+  /-- The modules of the build's claimed targets (`surfaceRequest`). -/
+  claimed : Array Name
+  /-- The modules that an earlier build of the same audit invocation elaborated (`Elaborated`). -/
+  earlier : Array Name
+  /-- The claimed modules whose trace file, read after the build, records a current record of the
+  module's own library among its inputs (`traceRecords_ownRecord_iff`), when no dependency
+  declares a library facet other than Regula's (`onlyRegulaFacets`); none otherwise. -/
+  recorded : Array Name := #[]
+
+/-- Each entry of a job of `build` that is not optional which Lake can have made from compiler
+output that is not a Lean message (`unparsedOutput`), such as a warning whose line other output
+corrupted, which Lake logs as information. -/
+def CheckedBuild.unparsed (build : CheckedBuild) : Array String :=
+  unparsedOutput build.jobs
+
+/-- The claimed modules of `build` whose RG2003 result is not established: the build has no
+audit-build marker, and it replayed their clean log from an elaboration before the audit whose
+trace does not record the current weak arguments of the module's own library (`reusedModules`),
+or a dependency declares a library facet other than Regula's (`onlyRegulaFacets`). Every
+checked build decides this, whatever reads its output. A build in a fresh copy elaborates each
+claimed module itself, so it has none. -/
+def CheckedBuild.reused (build : CheckedBuild) : Array Name :=
+  reusedModules build.marked build.earlier build.recorded build.jobs build.claimed
+
+/-- The claimed modules that the builds of one audit invocation elaborated (`elaboratedIn`). The
+audit creates it at its entry and passes it to each of its builds, so a later build of the same
+audit that replays their logs rests on that elaboration. No other audit reads it. -/
+abbrev Elaborated := IO.Ref (Array Name)
 
 /-- Build `targets` of the workspace at `repo` as `build` describes, in this process through
 Lake's build API, as `lake build` does: its build monitor's text is the output, and a failed build
@@ -724,19 +1385,35 @@ library's default facets, so Lake elaborates each such module or replays the log
 elaboration that wrote its trace, and its warnings are in the output. Afterwards each such
 module's trace must record an elaboration (`Workspace.elaborationTrace`), or the build fails: a
 module restored from the cache has no log of its elaboration, so its warnings would be missing
-from the output. The `lean` processes Lake starts inherit this process's working directory, which
-a module's elaboration can read (`IO.currentDir`), and Lake reads a target spec that names a path
-from it, so the build runs with the root package's directory as the working directory, as a
-`lake build` run there does. Lake's loader sets this process's Lean search path
-(`Lean.searchPathRef`), which the checker's workers inherit. The run restores both, so like a
+from the output. The build fails when a required job logs an entry at `build.failLv` or above.
+With root-package options (`Build.rootOptions`), the build's libraries also take their `extraDep`
+facet from `weakArgsExtraDep`, around the one the workspace configures. Lake's module trace
+records a module's Lean options but not the `weakLeanArgs` Lake passes to `lean`, so without it a
+module elaborated under weak arguments since changed would stay up to date and replay the log of
+that elaboration. With it, a change to a weak
+argument of the root package or of one of its targets changes the dependency trace of each module
+that the arguments reach, and Lake elaborates each such module again; that Lake mixes that facet's
+trace into the module's is read from Lake's source. The modules of other packages keep Lake's own
+traces. The build runs through `observedFetch`, so the run returns beside the process result the
+log of each job that Lake's build monitor judged. The `lean` processes Lake starts inherit this
+process's working directory, which a module's elaboration can read (`IO.currentDir`), and Lake
+reads a target spec that names a path from it, so the build runs with the root package's directory
+as the working directory, as a `lake build` run there does. Lake's loader sets this process's Lean search
+path (`Lean.searchPathRef`), which the checker's workers inherit. The run restores both, so like a
 child `lake build` it leaves the checker's own state as it was. Both are process-wide, so no other
 task of the process may build or read them while it runs; the checker runs its builds one at a
 time. -/
-def Build.run (build : Build) (repo : FilePath) (targets : Array Target) : IO ProcessResult := do
+def Build.runObserved (build : Build) (repo : FilePath) (targets : Array Target)
+    (elaborated : Option Elaborated := none) : IO CheckedBuild := do
   let buffer ← IO.mkRef ({} : IO.FS.Stream.Buffer)
   let out ← showingStream (IO.FS.Stream.ofBuffer buffer) build.display
   let searchPath ← Lean.searchPathRef.get
   let workingDirectory ← IO.currentDir
+  let jobLogs ← IO.mkRef (#[] : Array JobLog)
+  let marked ← IO.mkRef false
+  let claimed ← IO.mkRef (#[] : Array Name)
+  let earlier ← IO.mkRef (#[] : Array Name)
+  let recorded ← IO.mkRef (#[] : Array Name)
   let exitCode ← try
       Workspace.withRootWorkspace repo (scrubSearchPath := true) fun loaded => do
         let ws := Workspace.uncachedWorkspace loaded
@@ -756,19 +1433,35 @@ def Build.run (build : Build) (repo : FilePath) (targets : Array Target) : IO Pr
         if let some spec := specs.find? (!·.buildable) then
           throw <| IO.userError s!"'{spec.info.key.toSimpleString}' is not a buildable target"
         let rootOptions ← build.rootOptions loaded
+        marked.set rootOptions.isSome
+        claimed.set (modules.map (·.name))
+        if let some elaborated := elaborated then earlier.set (← elaborated.get)
         Workspace.dropRestoredTraces ws
-        let leanOptOverrides := match rootOptions with
-          | some options => ({} : NameMap LeanOptions).insert ws.root.baseName options
-          | none => {}
-        ws.runBuild (_root_.Lake.buildSpecs specs) {
-          out := .stream out, ansiMode := .noAnsi, showSuccess := true, leanOptOverrides }
+        -- A record counts only when no dependency declares a library facet that can replace
+        -- Regula's `extraDep` facet; the marked build settles replayed logs without one.
+        let recordsOwn ← if rootOptions.isSome then pure false else onlyRegulaFacets ws
+        let (ws, leanOptOverrides) ← match rootOptions with
+          | some options =>
+            let some existing := ws.findLibraryFacetConfig? _root_.Lake.LeanLib.extraDepFacet
+              | throw <| IO.userError "the workspace configures no `extraDep` facet of a library"
+            pure (ws.addLibraryFacetConfig (weakArgsExtraDep existing),
+              ({} : NameMap LeanOptions).insert ws.root.baseName options)
+          | none => pure (ws, {})
+        ws.runBuild (observedFetch ws jobLogs (_root_.Lake.buildSpecs specs)) {
+          out := .stream out, ansiMode := .noAnsi, showSuccess := true, leanOptOverrides,
+          failLv := build.failLv }
         for mod in modules do
-          let recorded ← match ← (IO.FS.readFile mod.traceFile).toBaseIO with
-            | .ok text => pure (Workspace.elaborationTrace text)
-            | .error _ => pure false
-          unless recorded do
+          let text ← match ← (IO.FS.readFile mod.traceFile).toBaseIO with
+            | .ok text => pure (some text)
+            | .error _ => pure none
+          unless text.any Workspace.elaborationTrace do
             throw <| IO.userError s!"the build left no trace of an elaboration of {mod.name}, \
               so its messages were not observed"
+          if recordsOwn && text.any (Workspace.traceRecords (ownRecord mod.lib)) then
+            recorded.modify (·.push mod.name)
+        let jobs ← jobLogs.get
+        if let some elaborated := elaborated then
+          elaborated.modify (· ++ (modules.map (·.name)).filter (elaboratedIn jobs))
       pure (0 : UInt32)
     catch error =>
       out.putStrLn s!"error: {error}"
@@ -776,9 +1469,20 @@ def Build.run (build : Build) (repo : FilePath) (targets : Array Target) : IO Pr
     finally
       Lean.searchPathRef.set searchPath
       IO.Process.setCurrentDir workingDirectory
+  let observed (process : ProcessResult) : IO CheckedBuild := do
+    let jobs ← jobLogs.get
+    let marked ← marked.get
+    let claimed ← claimed.get
+    let earlier ← earlier.get
+    let recorded ← recorded.get
+    return { process, failLv := build.failLv, jobs, marked, claimed, earlier, recorded }
   let some stdout := String.fromUTF8? (← buffer.get).data
-    | return { exitCode := 1, stdout := "", stderr := "error: build output is not UTF-8" }
-  return { exitCode, stdout, stderr := "" }
+    | observed { exitCode := 1, stdout := "", stderr := "error: build output is not UTF-8" }
+  observed { exitCode, stdout, stderr := "" }
+
+/-- The process result of `Build.runObserved`. -/
+def Build.run (build : Build) (repo : FilePath) (targets : Array Target) : IO ProcessResult :=
+  (·.process) <$> build.runObserved repo targets
 
 instance : CoeFun Build (fun _ => FilePath → Array Target → IO ProcessResult) := ⟨Build.run⟩
 
@@ -823,21 +1527,49 @@ package resolves to its one source and none imports the marker's reader
 (`AxiomGate.claimedBuild`). -/
 def auditLeanOptions : LeanOptions := .ofArray #[⟨Regula.Linter.auditBuildOption, .ofBool true⟩]
 
-/-- Build the claimed Lake targets and require success with no warnings.
-Returns the diagnostic lines to report on failure. -/
+/-- Build the claimed Lake targets and require success with no warnings: the build runs with
+Lake's failure level at `warning`, so it succeeds only when no required job logged a warning or an
+error. Lake gives each message of a module's elaboration the level of its Lean severity
+(`LogLevel.ofMessageSeverity`), so an information message, whatever its text, never fails the
+build. The build is also refused when a job that Lake's build monitor judged holds an entry Lake
+can have made from compiler output that is not a Lean message (`CheckedBuild.unparsed`), since Lake
+logs it as information whatever it held. When the build has no audit-build marker, a claimed
+module whose log it replayed from an elaboration before the audit, under weak arguments that its
+trace does not record (`CheckedBuild.reused`), has no established result, and each such module is
+reported. `elaborated` holds the modules that earlier builds of the same audit elaborated, and
+the build adds its own. The output is read only to report a failure. Returns the diagnostic lines
+to report on failure. -/
 def buildCheckedObservation (repo : FilePath) (targets : Array SurfaceTarget)
-    (mode : String) (build : Build := buildTargets) :
-    IO (ProcessResult × Option (Array String)) := do
-  let build ← build repo (targets.map .surface)
-  if build.succeeded && (warningLines build.output).isEmpty then return (build, none)
+    (mode : String) (build : Build := buildTargets) (elaborated : Option Elaborated := none) :
+    IO (CheckedBuild × Option (Array String)) := do
+  let build ← Build.runObserved { build with failLv := .warning } repo (targets.map .surface)
+    elaborated
+  let process := build.process
+  if process.succeeded && build.unparsed.isEmpty && build.reused.isEmpty then
+    return (build, none)
+  if process.succeeded && build.unparsed.isEmpty then
+    return (build, some (#[s!"FAIL[build-reused]: the claimed build {mode} without Regula's \
+        audit-build marker reused the log of an elaboration from before this run for each \
+        module below, and its trace does not record the current `weakLeanArgs` of the module's \
+        library. Lake's own module trace omits them, and only the `extraDep` facet of Regula's \
+        `lakefile.lean` records them, so that log can come from weak arguments since removed, \
+        and the module's result is not established. A record counts only when no dependency \
+        declares a library facet other than Regula's, since one can replace Regula's. A build \
+        with the marker (`lake lint` without REGULA_ORDINARY_LAKEFILES=1) or a fresh audit \
+        elaborates it again."] ++
+      build.reused.map (s!"not established: {·}")))
   let diagnostics :=
+    if !build.unparsed.isEmpty then
+      #["the compiler printed output that is not a Lean message, which Lake logs as \
+        information whatever it held:"] ++ build.unparsed
     -- A warning's payload (the unused simp argument, the hint) sits on the
     -- continuation lines after its head; report the whole block.
-    if !(warningLines build.output).isEmpty then diagnosticBlocks build.output isWarningLine
+    else if !(warningLines process.output).isEmpty then
+      diagnosticBlocks process.output isWarningLine
     -- Lean's expected type and supplied proof are continuation lines. Keep
     -- that context so public-gate qualification can identify the obligation.
-    else if !(errorLines build.output).isEmpty then outputLines build.output
-    else takeLast 20 (outputLines build.output)
+    else if !(errorLines process.output).isEmpty then outputLines process.output
+    else takeLast 20 (outputLines process.output)
   return (build, some
       (#[s!"FAIL[build-failed]: positive surface did not build {mode} and warning-free"]
     ++ diagnostics))

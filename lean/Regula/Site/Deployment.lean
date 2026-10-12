@@ -35,8 +35,9 @@ unlikely to satisfy the comparison; whether the CDN keys on it is not establishe
 
 `verify` reads each fetched page from `curl`'s standard output, so it writes and removes no
 file, under the assumption that `fetch` states. This program imports only Lean's core, so it
-cannot use the removal decision of the site executable (`Regula.Removal.removal`); with no
-removal it has nothing to decide.
+cannot use the filesystem observer (`Regula.Filesystem`) or its removal decision
+(`Regula.Removal.removal`); with no removal it has nothing to decide, and
+`Regula.ProgramCheck.SiteDeployment` checks that its compiled code reaches none.
 -/
 
 namespace Regula.Site.Deployment

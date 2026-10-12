@@ -39,8 +39,11 @@ executable entry when every library entry is known
 (`unknownEntry?_some`); a text `parse` refuses keeps that earlier refusal. `parseValue_toJson`
 is the round trip at the `Json` value boundary; `structural_roundtrip` and `restrict_roundtrip`
 apply it, with the identity stage, to the self-hosted structural copy and to the structural
-project's manifest. The text boundary (`Json.compress`, which is `partial`,
-and `PolicyCodec.parse`, which runs core `partial` parsers) stays trusted.
+project's manifest. The text boundary stays trusted: `PolicyCodec.parse` is total and
+`JsonRoundTrip.parse_compress_ws` states its parse of the text `PolicyCodec.compress` writes for
+a value whose object trees are search trees, followed by any run of JSON whitespace, none
+included, but no theorem here relates the text of a manifest to `toJson`, and manifests written in Lean are
+printed with `Json.compress`, which is `partial`.
 The refusal-class theorems prove the message of malformed JSON, an unknown top-level or surface
 key, a non-2 schema version, empty surfaces and a bad surface `execution`, each given an
 otherwise accepted prefix. `loadFor`, the only file reader, adds only file IO to `parseFor`. -/
@@ -2055,9 +2058,10 @@ def toJson (m : Manifest) : Json :=
     ("excluded-executables", Json.arr (m.excludedExecutables.map excludedExecutableJson))]
 
 /-! Round trip. `toJson` encodes every manifest, so the JSON value stage of the executed `parse`
-recovers exactly the valid ones (`parseValue_toJson`). The text stage is not covered:
-`Json.compress` is `partial` and `PolicyCodec.parse` runs core `partial` parsers, so no Lean
-theorem can state their behaviour; `parse_of_encodes` names what they must deliver. -/
+recovers exactly the valid ones (`parseValue_toJson`). The text stage is not covered: no theorem
+here states what `PolicyCodec.parse` returns for the text of a manifest (`Json.compress`, which
+writes the manifests printed in Lean, is `partial`); `parse_of_encodes` names what the parse must
+deliver. -/
 
 theorem keysAllowed_of_keys {value : Json} {object : Std.TreeMap.Raw String Json compare}
     {keys allowed : Array String} (hobj : value.getObj? = .ok object)

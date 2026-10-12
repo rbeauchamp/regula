@@ -1,3 +1,4 @@
+import Regula.Removal
 import Regula.Checker.Acceptance
 import Regula.Checker.ResultProtocol
 import RegulaCore.Lint
@@ -275,7 +276,7 @@ private unsafe def freezeGraph (plan : Plan) (snapshot : RegulaPolicy.AdmittedSn
   return ⟨claim, census, admitted, fun slot =>
       RegulaPolicy.authorize census.environments[slot].policy⟩
 
-private def finishGraph (frozen : FrozenGraph) (build : ProcessResult) (checks : Array Check) :
+private def finishGraph (frozen : FrozenGraph) (build : Lake.CheckedBuild) (checks : Array Check) :
     Except String (RegulaPolicy.AcceptedRun frozen.claim) := do
   let checked ← checks.mapM fun check => do
     let [key] :=
@@ -418,3 +419,8 @@ unsafe def main (args : List String) : IO UInt32 := do
   catch error =>
     IO.eprintln s!"FAIL: {error}"
     return 1
+
+-- The removals that the compiled code of `main`, and of the initializers of the modules it links,
+-- reaches are the filesystem observer's and those that `Regula.Removal.libraryRemovals` lists: the
+-- build of this module fails otherwise (`Regula.Removal.checkProgram`).
+run_cmd Regula.Removal.checkProgram

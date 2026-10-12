@@ -1,3 +1,4 @@
+import Regula.Removal
 import Regula.Checker.PolicyCodec
 import Regula.Checker.Documentation
 import Regula.Checker.Lake
@@ -318,7 +319,8 @@ fixture module and every root-package module they import, directly or not. The p
 the repository's name, source directory and Lean options, and each target the roots, globs,
 source directory and Lean options of its own configuration, as Lake reports them, so a kept
 library owns in the project exactly its modules whose sources are present, and a target a
-control adds inherits the package's options as it would in the repository. The project
+control adds inherits the package's options as it would in the repository. The project also
+declares the repository's weak-arguments `extraDep` facet, verbatim. The project
 requires no package, and the checker probe's own imports outside it resolve to the running
 checker's library, so no gate in it builds or inspects a library the application does not
 import. -/
@@ -409,6 +411,12 @@ private def structuralProject (manifest : Manifest) (ws : _root_.Lake.Workspace)
       s!"  root := `{executable.root.name}\n" ++
       s!"  supportInterpreter := {executable.supportInterpreter}\n" ++
       s!"  leanOptions := {renderOptions executable.config.leanOptions}\n"
+  -- The repository's `extraDep` facet, which records the `weakLeanArgs` of the root package in
+  -- each module's trace, so an incremental gate decides a module it replays (RG2003) as it does
+  -- in the repository, and the module artifacts seeded from the repository's build match.
+  let some facet := Lake.weakArgsDeclarations (← IO.FS.readFile pkg.configFile)
+    | throw <| IO.userError s!"self-test: {pkg.configFile} has no weak-arguments facet"
+  lakefile := lakefile ++ facet
   return {
     lakefile, sources
     libraries := libraries.map (spelling ·.name)
@@ -675,8 +683,9 @@ private def renderFileAudit (observed : RegulaPolicy.Compiler.LegacyCompilerTrus
     (fixture : FixtureSpec) (_moduleName : String)
     (declarations : Array Regula.Report.Declaration)
     (roots : Array Regula.Report.ExecutionRoot)
-    (transcripts : Array Frontend.Transcript) : String × Bool := Id.run do
-  let .ok scope := Policy.admitScope observed declarations transcripts
+    (transcripts : Array Frontend.Transcript) (imported : Array Regula.Report.Declaration) :
+    String × Bool := Id.run do
+  let .ok scope := Policy.admitScope observed declarations transcripts imported
     | return ("invalid policy observation inventory", false)
   let execution := match fixture.execution with
     | some mode => (ExecutionClaim.parse? mode).getD .report
@@ -727,16 +736,18 @@ private unsafe def fixtureVerdicts (repo scratch : FilePath) (jobs : Nat)
       results := results.set! index
         (assessFixtureOutput fixture .rejected compilation.process.output)
     else
-      let (moduleData, _) ← Lean.readModuleData compilation.oleanPath
+      -- Every part of a `module` file, so the census holds its private constants, such as the
+      -- private axiom of a public native proof (`readModuleCensus`).
+      let (moduleData, constants) ← readModuleCensus compilation.oleanPath
       pending := pending.push {
         index, fixture, compilation
-        constantNames := moduleData.constNames.map (·.toString)
+        constantNames := constants.map (·.name.toString)
         importNames := moduleData.imports.map (·.module)
         -- Same transcript predicate as the post-load check, applied to the
         -- raw module constant records with the probe's own kind mapping, so
         -- only fixtures that can need a transcript pay for one. A divergence
         -- (post-load need with no worker transcript) fails closed below.
-        wantsTranscript := moduleData.constants.any fun info =>
+        wantsTranscript := constants.any fun info =>
           Policy.declarationNeedsTranscript (Regula.Probe.kindOf info) info.name
       }
   -- Group by exact constant-name disjointness (the `Documentation.auditTasks`
@@ -800,7 +811,8 @@ private unsafe def fixtureVerdicts (repo scratch : FilePath) (jobs : Nat)
   -- Complete all transcript workers before starting isolated report workers.
   let transcripts ← IO.ofExcept (← IO.wait transcriptTask)
   let mut inspected : Array (CompiledFixture × Array Regula.Report.Declaration ×
-      Array Regula.Report.ExecutionRoot × RegulaPolicy.Compiler.LegacyCompilerTrust) := #[]
+      Array Regula.Report.ExecutionRoot × RegulaPolicy.Compiler.LegacyCompilerTrust ×
+      Array Regula.Report.Declaration) := #[]
   Lean.searchPathRef.set scopedPath
   try
     for (_, items) in groups do
@@ -828,7 +840,8 @@ private unsafe def fixtureVerdicts (repo scratch : FilePath) (jobs : Nat)
             let declarations := report.declarations.filter (·.«module» == moduleName.toName)
               |>.qsort fun left right => Name.quickLt left.name right.name
             let roots := report.execution.filter (·.«module» == moduleName.toName)
-            inspected := inspected.push (item, declarations, roots, report.compilerCapability)
+            inspected := inspected.push
+              (item, declarations, roots, report.compilerCapability, report.imported)
       catch error =>
         -- An inspection that throws has no report: the gate reports it as incomplete.
         for item in items do
@@ -836,13 +849,13 @@ private unsafe def fixtureVerdicts (repo scratch : FilePath) (jobs : Nat)
             (assessFixtureOutput item.fixture .incomplete error.toString)
     pure ()
   finally Lean.searchPathRef.set oldSearchPath
-  for (item, declarations, roots, observed) in inspected do
+  for (item, declarations, roots, observed, imported) in inspected do
     let moduleName := item.compilation.spec.«module»
     if Policy.needsFrontendTranscript declarations then
       match transcripts.find? (·.1 == moduleName) with
       | some (_, some transcript) =>
         let (output, succeeded) := renderFileAudit observed item.fixture moduleName
-          declarations roots #[transcript]
+          declarations roots #[transcript] imported
         results := results.set! item.index
           (assessFixtureOutput item.fixture (if succeeded then .accepted else .rejected) output)
       | _ =>
@@ -854,7 +867,7 @@ private unsafe def fixtureVerdicts (repo scratch : FilePath) (jobs : Nat)
               s!"transcript need pre-filter diverged for {moduleName}"))
     else
       let (output, succeeded) := renderFileAudit observed item.fixture moduleName
-        declarations roots #[]
+        declarations roots #[] imported
       results := results.set! item.index
         (assessFixtureOutput item.fixture (if succeeded then .accepted else .rejected) output)
   return results
@@ -1088,8 +1101,13 @@ private def fenceCorpusCases (certificate grindCertificate : FilePath) : Array (
   ("positive", "```lean\ntheorem nested_ok : 1 = 1 := rfl\n```\n", "positive.md:1 PASS"),
   ("raw-import", "```lean\ntheorem missing_import : Glossary.Time = Glossary.Time := rfl\n```\n",
       "did not elaborate verbatim"),
+  -- The unused-variables linter runs after the `in` scope, under the compile's
+  -- `warningAsError`, so its warning is an error.
   ("warning", "```lean\nset_option warningAsError false in\ndef hidden_warning (unused : Nat) : \
-    Nat := 1\n```\n", "emitted warning"),
+    Nat := 1\n```\n", "error: Variable name `unused` is not explicitly referenced"),
+  -- Lean prints an information message as its bare text; this one reads as a warning line.
+  ("information", "```lean\n#print \"information.md:1:0: warning: an information message\"\n\
+    theorem information_ok : 1 = 1 := rfl\n```\n", "information.md:1 PASS"),
   ("hole", "```lean\ntheorem docs_hole : False := by sorry\n```\n", "hole.md:1 FAIL"),
   ("project-axiom", "```lean\naxiom docs_axiom : False\n```\n", "project-axiom"),
   ("valid-negative", "<!-- lean-fail: Type mismatch -->\n```lean\ndef n : Nat := \"x\"\n```\n",
@@ -1207,7 +1225,7 @@ private def fenceCorpusCases (certificate grindCertificate : FilePath) : Array (
       "<!-- lean-trusted-compiler -->\n```lean\ntheorem plain : 1 = 1 := rfl\n```\n",
           "trusted marker found no compiler-trusting declaration"),
   -- The pinned renderer prints a named diagnostic as `warning(name):`
-  -- (`Lean.mkErrorStringWithPos`); the audit must reject that form too.
+  -- (`Lean.mkErrorStringWithPos`); its severity is still `warning`, which the audit rejects.
   ("named-warning", "```lean\nimport Lean\nopen Lean\nset_option warningAsError false in\nrun_cmd \
     Lean.logNamedWarningAt (← getRef) `lean.selftestNamedWarning m!\"named\"\n```\n",
         "emitted warning")
@@ -1477,7 +1495,7 @@ private def withNewFile {α : Type} (path : FilePath) (text : String) (action : 
   if let some parent := path.parent then IO.FS.createDirAll parent
   IO.FS.writeFile path text
   try action
-  finally if ← path.pathExists then IO.FS.removeFile path
+  finally if ← path.pathExists then Regula.Filesystem.removePath .file path
 
 private def withReplacedFile {α : Type} (path : FilePath) (text : String) (action : IO α) :
     IO α := do
@@ -1488,7 +1506,7 @@ private def withReplacedFile {α : Type} (path : FilePath) (text : String) (acti
 
 private def withRemovedFile {α : Type} (path : FilePath) (action : IO α) : IO α := do
   let original ← IO.FS.readFile path
-  IO.FS.removeFile path
+  Regula.Filesystem.removePath .file path
   try action
   finally IO.FS.writeFile path original
 
@@ -1778,7 +1796,7 @@ A missing input fails the shard and writes no digest. -/
 private def selfHostedDigest (repo scratch : FilePath) (name : String)
     (input : IO.Ref (Option (Array (String × Option ByteArray)))) : IO (Array String) := do
   let evidence := selfHostedDigestPath repo name
-  if ← evidence.pathExists then IO.FS.removeFile evidence
+  if ← evidence.pathExists then Regula.Filesystem.removePath .file evidence
   let some recorded ← input.get
     | return #[s!"structural/self-hosted/{name}: no fresh input was recorded, because its \
         cluster stopped or the positive was refused, so no digest was written"]
@@ -2430,7 +2448,7 @@ private def sourceAttributionControls (dir : FilePath)
           one block"
       return #[]
     finally
-      if ← report.pathExists then IO.FS.removeFile report
+      if ← report.pathExists then Regula.Filesystem.removePath .file report
 
 /-- Controls for a decision registered from another module of its inventory (standard §7.11).
 `AuditApp.DownstreamDecision` declares `downstreamCheck` without importing `Regula.Decision`, and
@@ -3141,7 +3159,7 @@ private def frozenArtifactControls (scratch : FilePath) : IO (Array String) := d
     for ((level, _), isPresent) in levels.zip present do
       let part := level.adjustFileName olean
       if isPresent then IO.FS.writeBinFile part frozenBytes
-      else if ← part.pathExists then IO.FS.removeFile part
+      else if ← part.pathExists then Regula.Filesystem.removePath .file part
     let some artifact ← Inspection.freezeArtifact `Frozen olean
       | failures := failures.push s!"frozen-artifact/{layout}: the artifact was not frozen"
         continue
@@ -3163,10 +3181,11 @@ private def frozenArtifactControls (scratch : FilePath) : IO (Array String) := d
     for ((level, extension), isPresent) in levels.zip present do
       let part := level.adjustFileName olean
       let restore : IO Unit :=
-        if isPresent then IO.FS.writeBinFile part frozenBytes else IO.FS.removeFile part
+        if isPresent then IO.FS.writeBinFile part frozenBytes
+        else Regula.Filesystem.removePath .file part
       let mutations : Array (String × IO Unit) :=
         if isPresent then #[("changed", IO.FS.writeBinFile part (ByteArray.mk #[1, 2, 4])),
-          ("removed", IO.FS.removeFile part)]
+          ("removed", Regula.Filesystem.removePath .file part)]
         else #[("added", IO.FS.writeBinFile part frozenBytes)]
       for (mutation, mutate) in mutations do
         mutate
@@ -3245,6 +3264,91 @@ private def libraryCycleControl (repo : FilePath) : IO (Array String) :=
       library == "Right" && required.contains ("Right.Base", "rightBase")) do
     failures := failures.push "library-cycle/reused-key: the Right environment does not require \
       the key of its reused module Right.Base"
+  return failures
+
+/-- External-boundary control for reuse with identical copies, where Lean's realization and import
+of several copies of one name, the report workers and the kernel are the external mechanism
+(`Admission.copiesIdentical_iff`, `Admission.referencesWithin_iff` and `Admission.ownedUniform_iff`
+state the decisions). `Lib.Left` and `Lib.Right` do not import each other, and each realizes its
+own copy of `positive.eq_1` of `Lib.Base` and uses it, so the two copies are identical. `Lib.Odd`
+and `Lib.Even` each declare `sharedFact` with a different proof. `App.Main` imports the four. The
+fresh audit must accept; the `Lib` environment replays its five modules, with both copies of each
+name, and lists only `Lib.Odd` and `Lib.Even` as `shared`; the `App` environment reuses `Lib.Base`,
+`Lib.Left` and `Lib.Right`, though it attributes the copy of `Lib.Right` to `Lib.Left`, and replays
+`Lib.Odd`, `Lib.Even` and `App.Main`, again listing `Lib.Odd` and `Lib.Even` as `shared`. -/
+private def identicalCopiesControl (repo : FilePath) : IO (Array String) :=
+  withScratch repo "identical-copies-control" fun project =>
+    withScratch repo "identical-copies-result" fun output => do
+  IO.FS.writeFile (project / "lean-toolchain") (← IO.FS.readFile (repo / "lean-toolchain"))
+  IO.FS.writeFile (project / "lakefile.toml") <|
+    "name = \"identical_copies_control\"\n[leanOptions]\nautoImplicit = false\n" ++
+      "relaxedAutoImplicit = false\nlinter.missingDocs = true\n" ++
+      "[[lean_lib]]\nname = \"Lib\"\nglobs = [\"Lib.+\"]\n" ++
+      "[[lean_lib]]\nname = \"App\"\nglobs = [\"App.+\"]\n"
+  let surface (library : String) : String :=
+    "{\"library\":\"" ++ library ++ "\",\"executables\":[],\"claim\":\"standard-logical\"," ++
+      "\"execution\":\"report\",\"rationale\":\"Identical copies control\"}"
+  IO.FS.writeFile (Manifest.defaultPath project) <|
+    "{\"schema-version\":2,\"surfaces\":[" ++ surface "Lib" ++ "," ++ surface "App" ++
+      "],\"excluded-libraries\":[],\"excluded-executables\":[]}"
+  IO.FS.createDirAll (project / "Lib")
+  IO.FS.createDirAll (project / "App")
+  IO.FS.writeFile (project / "Lib" / "Base.lean") <|
+    "/-! The definition whose equation lemma two modules realize. -/\n\n" ++
+      "/-- A positive number. -/\ndef positive (n : Nat) : Prop := 0 < n\n"
+  for side in #["left", "right"] do
+    IO.FS.writeFile (project / "Lib" / s!"{side.capitalize}.lean") <|
+      s!"import Lib.Base\n\n/-! Realizes its own copy of `positive.eq_1`. -/\n\n" ++
+        s!"theorem {side}Unfold (n : Nat) : positive n = (0 < n) := positive.eq_1 n\n"
+  for (parity, proof) in #[("Odd", "True.intro"), ("Even", "trivial")] do
+    IO.FS.writeFile (project / "Lib" / s!"{parity}.lean") <|
+      s!"/-! Declares `sharedFact` with the proof `{proof}`. -/\n\n" ++
+        s!"theorem sharedFact : True := {proof}\n"
+  IO.FS.writeFile (project / "App" / "Main.lean") <|
+    "import Lib.Left\nimport Lib.Right\nimport Lib.Odd\nimport Lib.Even\n\n" ++
+      "/-! Loads both copies of `positive.eq_1` and of `sharedFact`. -/\n\n" ++
+      "theorem appFact : positive 1 = (0 < 1) ∧ True := ⟨rightUnfold 1, sharedFact⟩\n"
+  -- Lake writes the lock manifest of this package without dependencies; without one the fresh
+  -- copy's build would create it, a configuration change during the audit.
+  let locked ← runProcess project "lake" #["update"] scrubbedLeanPathEnv
+  unless locked.succeeded do
+    return #[s!"identical-copies/setup: lake update failed:\n{locked.output}"]
+  let result := output / "result.json"
+  let gate ← runProcess project (← toolPath repo "axiomGate").toString
+    #["--project", project.toString, "--json-out", result.toString] scrubbedLeanPathEnv
+  unless gate.succeeded do
+    return #[s!"identical-copies/accepted: expected PASS:\n{gate.output}"]
+  let modules := #["Lib.Base", "Lib.Even", "Lib.Left", "Lib.Odd", "Lib.Right", "App.Main"]
+  let json ← requireAuditDocument (← IO.ofExcept (Json.parse (← IO.FS.readFile result)))
+  let surfaces ← IO.ofExcept <|
+    (json.getObjVal? "scope").bind (·.getObjValAs? (Array Json) "surfaces")
+  let mut found : Array (String × Array String × Array String × Array String) := #[]
+  let mut required : Array (String × String) := #[]
+  for surface in surfaces do
+    let library ← IO.ofExcept <| surface.getObjValAs? String "library"
+    let admission ← IO.ofExcept <|
+      (surface.getObjVal? "report").bind (·.getObjVal? "admission")
+    let reused ← IO.ofExcept <| admission.getObjValAs? (Array String) "reused"
+    let shared ← IO.ofExcept <| admission.getObjValAs? (Array String) "shared"
+    let keys ← IO.ofExcept <| admission.getObjValAs? (Array (String × String)) "required"
+    let replayed := modules.filter fun m => !reused.contains m && keys.any (·.1 == m)
+    found := found.push (library, replayed, modules.filter reused.contains,
+      modules.filter shared.contains)
+    if library == "Lib" then required := keys
+  let expected : Array (String × Array String × Array String × Array String) := #[
+    ("Lib", #["Lib.Base", "Lib.Even", "Lib.Left", "Lib.Odd", "Lib.Right"], #[],
+      #["Lib.Even", "Lib.Odd"]),
+    ("App", #["Lib.Even", "Lib.Odd", "App.Main"], #["Lib.Base", "Lib.Left", "Lib.Right"],
+      #["Lib.Even", "Lib.Odd"])]
+  let mut failures := #[]
+  -- Each copy is a key of the module that declares it, so both copies of each name exist.
+  for key in #[("Lib.Left", "positive.eq_1"), ("Lib.Right", "positive.eq_1"),
+      ("Lib.Odd", "sharedFact"), ("Lib.Even", "sharedFact")] do
+    unless required.contains key do
+      failures := failures.push s!"identical-copies/copies: the Lib environment does not \
+        require {key}, so the project does not hold the copies this control is about"
+  unless found == expected do
+    failures := failures.push s!"identical-copies/reuse: expected {expected}, found {found}"
   return failures
 
 /-- Writes the project of `crossSurfaceDecisionControl` into the empty directory `project`. It
@@ -3459,7 +3563,7 @@ private def driverCopyControl (repo : FilePath) : IO (Array String) :=
   failures := failures ++ expect "remove: the copy or its marker is still there"
     (!(← copy.pathExists) && !(← marker.pathExists))
   -- 2. A project with a symbolic link at `.lake/build`, and then a driver that is killed.
-  IO.FS.removeDirAll build
+  Regula.Filesystem.removePath .directory build
   link marked build
   let child ← IO.Process.spawn {
     cmd := "lean", args := #["--run", driver, "--copy-control"], cwd := some project
@@ -3488,7 +3592,7 @@ private def driverCopyControl (repo : FilePath) : IO (Array String) :=
     killed driver" (!(← survivesReclamation copy) && !(← marker.pathExists))
   -- 3. A second killed driver, and then a project with no build output: the next driver removes
   -- the copy of the dead one before it makes its own, and the project gets the copy's output.
-  IO.FS.removeFile build
+  Regula.Filesystem.removePath .link build
   let child ← IO.Process.spawn {
     cmd := "lean", args := #["--run", driver, "--copy-control"], cwd := some project
     env := scrubbedLeanPathEnv, stdin := .piped, stdout := .piped, stderr := .inherit
@@ -3528,7 +3632,7 @@ private def driverCopyControl (repo : FilePath) : IO (Array String) :=
   failures := failures ++ expect "site: a link at _site was followed or removed"
     (!stopped.succeeded && stopped.output.contains "nothing was removed" &&
       (← (marked / "kept.txt").pathExists) && (← site.symlinkMetadata).type == .symlink)
-  IO.FS.removeFile site
+  Regula.Filesystem.removePath .link site
   IO.FS.createDirAll (site / "pages")
   IO.FS.writeFile (site / "pages" / "old.html") "an earlier artifact"
   let removed ← runProcess project "lean" #["--run", driver, "--begin-attempt", "site"]
@@ -3549,7 +3653,10 @@ copy is that step and the documentation step on each run. Before the gate runs, 
 the audit must build fresh in its own copy for a link with no `build` field, for one artifact of
 the build altered, for one file of the project outside `.lake` altered and for the file named `-`
 altered, which `shasum` would read as standard input, and must place the recorded build output when
-every digest matches. Each of those cases must pass the audit. The project has a second library
+every digest matches. Each of those cases must pass the audit. The project declares the
+weak-arguments facet of Regula's shipped `lakefile.lean`, as the repository does, so the recorded
+build's traces record each module's weak arguments and the audit establishes the modules it replays
+from that build. The project has a second library
 that the claimed build does not compile but the recorded build holds, as the first step's
 diagnostic targets are, and a documentation example that must fail because its module has no
 compiled file: the audit stages only the modules of its claimed build. -/
@@ -3559,11 +3666,16 @@ private def retainedBuildControl (repo : FilePath) : IO (Array String) :=
   IO.FS.createDirAll (project / "Solo")
   IO.FS.createDirAll (project / "docs")
   IO.FS.writeFile (project / "lean-toolchain") (← IO.FS.readFile (repo / "lean-toolchain"))
-  IO.FS.writeFile (project / "lakefile.toml") <|
-    "name = \"retained_build_control\"\n[leanOptions]\nautoImplicit = false\n" ++
-      "relaxedAutoImplicit = false\nlinter.missingDocs = true\n" ++
-      "[[lean_lib]]\nname = \"Solo\"\nglobs = [\"Solo.+\"]\n" ++
-      "[[lean_lib]]\nname = \"Extra\"\nglobs = [\"Extra.+\"]\n"
+  -- The weak-arguments facet of Regula's shipped `lakefile.lean`, so the ordinary build records
+  -- each module's weak arguments in its trace, as the first acceptance step's build does.
+  let some facet := Lake.weakArgsDeclarations (← IO.FS.readFile (repo / "lakefile.lean"))
+    | return #["retained-build/setup: Regula's lakefile has no weak-arguments facet"]
+  IO.FS.writeFile (project / "lakefile.lean") <|
+    "import Lake\nopen Lake DSL\n\npackage retained_build_control where\n" ++
+      "  leanOptions := #[⟨`autoImplicit, false⟩, ⟨`relaxedAutoImplicit, false⟩,\n" ++
+      "    ⟨`linter.missingDocs, true⟩]\n\n" ++
+      "lean_lib Solo where\n  globs := #[.submodules `Solo]\n\n" ++
+      "lean_lib Extra where\n  globs := #[.submodules `Extra]\n" ++ facet
   IO.FS.writeFile (Manifest.defaultPath project) <|
     "{\"schema-version\":2,\"surfaces\":[{\"library\":\"Solo\",\"executables\":[]," ++
       "\"claim\":\"standard-logical\",\"execution\":\"report\"," ++
@@ -3657,6 +3769,7 @@ private inductive StructuralGroup where
   | frozen
   | clusters
   | cycle
+  | copies
   | crossSurface
   | driverCopy
   | retainedBuild
@@ -3671,8 +3784,8 @@ private def shardDescription (label : String) (others : Nat) (names : Array Stri
 
 /-- Structural mutations and manifest controls retain their isolated projects, worker joins,
 and complete failure accumulation. The frozen-artifact controls, the mutation clusters, the
-cross-surface decision control, the library cycle control, the driver copy control, the retained
-build control and the manifest controls share one queue of
+cross-surface decision control, the library cycle control, the identical copies control, the
+driver copy control, the retained build control and the manifest controls share one queue of
 `jobs` workers, so no more than `jobs` of them run at once. The short controls wait behind the
 clusters and take the
 workers the first clusters free, instead of competing with the first clusters for the
@@ -3701,6 +3814,8 @@ private unsafe def runStructural (layout : SourceLayout) (repo : FilePath) (jobs
               crossSurfaceDecisionControl false repo),
             (structuralShard 4, StructuralGroup.cycle, "library cycle control",
               libraryCycleControl repo),
+            (structuralShard 1, StructuralGroup.copies, "identical copies control",
+              identicalCopiesControl repo),
             (structuralShard 1, StructuralGroup.manifest, "manifest controls",
               manifestQualification repo manifests),
             (structuralShard 1, StructuralGroup.frozen, "frozen artifact controls",
@@ -3756,6 +3871,10 @@ private unsafe def runStructural (layout : SourceLayout) (repo : FilePath) (jobs
     IO.println <| "self-test library cycle: " ++ verdict .cycle ++
       " (two claimed libraries that import one another: accepted, each module replayed in one \
         environment, a requested module reused with its keys)"
+  if ran .copies then
+    IO.println <| "self-test identical copies: " ++ verdict .copies ++
+      " (two modules that realize identical copies of one lemma: reused in a later environment; \
+        two modules with different copies of one theorem: replayed again)"
   if ran .crossSurface then
     IO.println <| "self-test cross-surface decisions: " ++ verdict .crossSurface ++
       " (a registered function whose only decision registration is in another claimed library: \
@@ -4211,3 +4330,8 @@ unsafe def main (args : List String) : IO UInt32 := do
   catch error =>
     IO.eprintln s!"FAIL: {error}"
     return 1
+
+-- The removals that the compiled code of `main`, and of the initializers of the modules it links,
+-- reaches are the filesystem observer's and those that `Regula.Removal.libraryRemovals` lists: the
+-- build of this module fails otherwise (`Regula.Removal.checkProgram`).
+run_cmd Regula.Removal.checkProgram

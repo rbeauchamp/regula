@@ -208,7 +208,8 @@ def checkAt (root scratch : FilePath) (launcher : Launcher.State) (jobs : Nat :=
         ids := ["RG1007"] },
       { label := "Pending", source := base ++
           "theorem nativeTruth : (2 + 2 : Nat) = 4 := by native_decide\n",
-        ids := ["RG2005"], detail := some "fresh generated-role evidence remains required" },
+        ids := ["RG2005"], detail := some "fresh generated-role evidence remains required",
+        output := true },
       -- `decide +native` and `bv_decide` name their `nativeEqTrue` axioms after their own
       -- tactic; the editor defers them like `native_decide` rather than reporting RG1001.
       { label := "PendingDecideNative", source := base ++
@@ -407,6 +408,13 @@ def checkAt (root scratch : FilePath) (launcher : Launcher.State) (jobs : Nat :=
       ({ label := "SharedTestHiddenSpec", source := sharedHiddenSpec, ids := ["RG2005"],
          detail := some "AdmitSpec has no value" }, env),
       ({ label := "RestoredRange", source := restored, ids := ["RG1001"] }, #[]),
+      -- The editor runs no replay, so a theorem that rests on an imported native-proof axiom stays
+      -- pending, as an owned one does: never an unknown axiom (RG1003) or compiler-trusting
+      -- (RG1004).
+      ({ label := "ImportedPending", source := "import Pending\n" ++
+          "/-! An imported native-proof axiom remains pending in the editor. -/\n" ++
+          "theorem importedTruth : (2 + 2 : Nat) = 4 := nativeTruth\n", ids := ["RG2005"],
+         detail := some "fresh generated-role evidence remains required" }, env),
       ({ label := "Restored", source := base }, #[])] ++ retired.map fun (label, name) =>
       ({ label := label ++ "Importer", source := s!"import {label}\n" ++
           "/-! An imported retired compiler name remains an unknown axiom. -/\n" ++
@@ -445,7 +453,7 @@ def paired : IO Unit := do
   let root ← rootDirectory
   let output := root / "tmp/native-launcher-diagnostic.json"
   IO.FS.createDirAll (root / "tmp")
-  if ← output.pathExists then IO.FS.removeFile output
+  if ← output.pathExists then Regula.Filesystem.removePath .file output
   let started ← IO.monoMsNow
   let report ← IO.mkRef (Json.mkObj [("outcome", .str "INCOMPLETE"), ("equivalent", .bool false)])
   try
@@ -460,7 +468,8 @@ def paired : IO Unit := do
         let start ← IO.monoMsNow
         -- One launch at a time keeps both runs' record order identical for the comparison.
         let count ←
-          try checkAt root controls launcher (jobs := 1) finally IO.FS.removeDirAll controls
+          try checkAt root controls launcher (jobs := 1)
+          finally Regula.Filesystem.removePath .directory controls
         counts := counts.push count
         let elapsed := (← IO.monoMsNow) - start
         let records ← launcher.records.get

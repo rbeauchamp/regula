@@ -1,3 +1,4 @@
+import Regula.Removal
 import Regula.Qualification.RegistryCli
 import Regula.Qualification.NativeLinter
 import Regula.Qualification.Producer
@@ -13,6 +14,7 @@ import Regula.Qualification.Preparation
 import Regula.Qualification.SelfAudit
 import Regula.Qualification.UniqueConstants
 import Regula.Qualification.Command
+import Regula.Qualification.Observers
 
 /-! # Qualification executable dispatcher
 
@@ -64,6 +66,7 @@ private unsafe def runCommand (attempt : Option String) : Command → IO Unit
   | .documentationDependencies => Regula.Qualification.Acceptance.documentationDependencies
   | .inputInventory => Regula.Qualification.InputInventory.check
   | .receiptBoundaries => Regula.Qualification.ReceiptBoundary.check
+  | .observers => Regula.Qualification.Observers.check
   | .closureEvidence => Regula.Qualification.SourceEvidence.closure
   | .configurationCapture => Regula.Qualification.SourceEvidence.configuration
   | .fenceEvidence => Regula.Qualification.SourceEvidence.fences
@@ -81,7 +84,8 @@ private unsafe def dispatch (args : List String) (attempt : Option String := non
     producers-combined|\
     environments --evidence PATH|acceptance fences --evidence PATH|acceptance-snapshots \
     dependencies|history|git-status|all|history|self-audit [--shard K/4]|\
-    documentation-dependencies|input-inventory|receipt-boundaries|prep-measure|closure-evidence|\
+    documentation-dependencies|input-inventory|receipt-boundaries|observers|prep-measure|\
+    closure-evidence|\
     configuration-capture|fence-evidence|frozen-exits|documentation-source [--source-read-only]|\
     rule-examples --evidence PATH [--rules RULE ... | --shard K/N]"
 
@@ -112,3 +116,8 @@ unsafe def main (args : List String) : IO UInt32 := do
     | _ => pure ()
     Regula.Qualification.runBounded (← IO.currentDir) 420 (← IO.appPath).toString
       (#["--under-deadline", "--attempt", attempt] ++ args.toArray)
+
+-- The removals that the compiled code of `main`, and of the initializers of the modules it links,
+-- reaches are the filesystem observer's and those that `Regula.Removal.libraryRemovals` lists: the
+-- build of this module fails otherwise (`Regula.Removal.checkProgram`).
+run_cmd Regula.Removal.checkProgram

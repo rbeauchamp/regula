@@ -110,6 +110,8 @@ inductive Command where
   | inputInventory
   /-- `receipt-boundaries`. -/
   | receiptBoundaries
+  /-- `observers`: each program of the package recorded its removal check. -/
+  | observers
   /-- `closure-evidence`. -/
   | closureEvidence
   /-- `configuration-capture`. -/
@@ -150,6 +152,7 @@ def Command.arguments : Command → List String
   | .documentationDependencies => ["documentation-dependencies"]
   | .inputInventory => ["input-inventory"]
   | .receiptBoundaries => ["receipt-boundaries"]
+  | .observers => ["observers"]
   | .closureEvidence => ["closure-evidence"]
   | .configurationCapture => ["configuration-capture"]
   | .fenceEvidence => ["fence-evidence"]
@@ -186,6 +189,7 @@ def Command.parse : List String → Option Command
   | ["documentation-dependencies"] => some .documentationDependencies
   | ["input-inventory"] => some .inputInventory
   | ["receipt-boundaries"] => some .receiptBoundaries
+  | ["observers"] => some .observers
   | ["closure-evidence"] => some .closureEvidence
   | ["configuration-capture"] => some .configurationCapture
   | ["fence-evidence"] => some .fenceEvidence

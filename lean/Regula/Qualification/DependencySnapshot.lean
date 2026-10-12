@@ -14,7 +14,7 @@ def success (result : IO.Process.Output) : IO Unit :=
 
 /-- Removes the file at `path` when it exists; a missing file is not an error. -/
 def removeFile (path : FilePath) : IO Unit := do
-  if ← path.pathExists then IO.FS.removeFile path
+  if ← path.pathExists then Regula.Filesystem.removePath .file path
 
 /-- Copies the Regula root's `lean-toolchain` file into the directory `target`. -/
 def toolchain (root target : FilePath) : IO Unit := do
@@ -65,7 +65,7 @@ private def control (project dependency : FilePath) : IO Unit := do
     let changed ← unchanged.toBaseIO
     match original with
     | some text => IO.FS.writeFile path text
-    | none => IO.FS.removeFile path
+    | none => Regula.Filesystem.removePath .file path
     match changed with
     | .ok _ => throw <| IO.userError s!"accepted changed dependency input: {name}"
     | .error error =>
@@ -149,11 +149,11 @@ private def gitStatusControls (root : FilePath) : IO Unit :=
     success (← run repository "git" #["mv", "A/a.lean", "B.lean"])
     expectCase "staged rename with the original declared" #[repository / "A/a.lean"]
       "dirty" "dirty" (·.startsWith "R  B.lean\x00A/a.lean\x00")
-    IO.FS.rename (repository / "A/a.lean") (repository / "C.lean")
+    Regula.Filesystem.replacePath (repository / "A/a.lean") (repository / "C.lean")
     success (← run repository "git" #["add", "-N", "C.lean"])
     expectCase "worktree rename with the original declared" #[repository / "A/a.lean"]
       "dirty" "dirty" (·.startsWith " R C.lean\x00A/a.lean\x00")
-    IO.FS.removeFile (repository / "A/a.lean")
+    Regula.Filesystem.removePath .file (repository / "A/a.lean")
     expectCase "deleted tracked input" base "dirty" "dirty"
     IO.FS.writeFile (repository / "sp ä\nx.lean") "untracked\n"
     expectCase "NUL-framed input name" #[repository / "sp ä\nx.lean"] "dirty" "dirty"
@@ -215,13 +215,13 @@ def check (group : String) : IO Unit := do
     if group != "history" then
       manifest project "standard-logical"
       for kind in #["git", "non-git"] do
-        if kind == "non-git" then IO.FS.removeDirAll (dependency / ".git")
+        if kind == "non-git" then Regula.Filesystem.removePath .directory (dependency / ".git")
         for path in #[dependency / "build", project / ".lake/build"] do
-          if ← path.pathExists then IO.FS.removeDirAll path
+          if ← path.pathExists then Regula.Filesystem.removePath .directory path
         for name in #[".env", "unrelated.txt"] do
           IO.FS.writeFile (dependency / name) "R4_SYNTHETIC_UNRELATED"
         control project dependency
-        IO.FS.removeDirAll (dependency / "build")
+        Regula.Filesystem.removePath .directory (dependency / "build")
         let output := scratch / s!"scope-{kind}.json"
         let (result, packet) ← observeProject root project output #[]
         success result

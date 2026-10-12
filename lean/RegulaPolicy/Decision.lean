@@ -26,6 +26,11 @@ def authorizedNativeAxioms (ds : Array Declaration.Role)
     (ts : Array Transcript.ToolchainObserved := #[]) : Array Name :=
   (ds.filter (fun a => decide (NativeTeachingOK ds ts a))).map (·.name)
 
+/-- Execute the finite imported native relation (`ImportedNativeOK`) over `ps`, the role parts of
+the imported records, against `ds`, those of the owned ones; preserve the order of `ps`. -/
+def authorizedImportedNativeAxioms (ds ps : Array Declaration.Role) : Array Name :=
+  (ps.filter (fun a => decide (ImportedNativeOK ds ps a))).map (·.name)
+
 /-- Execute the finite independent recursive-helper relation; no caller whitelist. It takes the
 role parts of the records. -/
 def authorizedUnsafeRecHelpers (ds : Array Declaration.Role) : Array Name :=
@@ -73,6 +78,85 @@ theorem authorizedNativeAxioms_not_logical (ds : Array Declaration.Role)
   all_goals
     rw [ha, hp] at hshape
     simp at hshape
+
+/-- Authorization of an imported native-proof axiom is equivalent to existence of the imported
+relation at this name. -/
+theorem authorizedImportedNativeAxioms_iff (ds ps : Array Declaration.Role) (n : Name) :
+    n ∈ authorizedImportedNativeAxioms ds ps ↔
+      ∃ a ∈ ps, a.name = n ∧ ImportedNativeOK ds ps a := by
+  simp [authorizedImportedNativeAxioms, Array.mem_map, Array.mem_filter, and_left_comm, and_comm]
+
+/-- The marks of the owned and the imported records can remove an imported native role but never
+add one, as for an owned role (`authorizedNativeAxioms_neutral`). -/
+theorem authorizedImportedNativeAxioms_neutral {ds ps : Array Declaration.Role} {n : Name}
+    (hn : n ∈ authorizedImportedNativeAxioms ds ps) :
+    n ∈ authorizedImportedNativeAxioms (ds.map Declaration.Role.neutral)
+      (ps.map Declaration.Role.neutral) := by
+  obtain ⟨a, ha, rfl, ok⟩ := (authorizedImportedNativeAxioms_iff ds ps n).mp hn
+  exact (authorizedImportedNativeAxioms_iff _ _ _).mpr
+    ⟨a.neutral, Array.mem_map_of_mem ha, rfl, ok.neutral⟩
+
+/-- No name the imported native validator admits is a Standard-Logical axiom, for any records. -/
+theorem authorizedImportedNativeAxioms_not_logical (ds ps : Array Declaration.Role) (n : Name)
+    (hn : n ∈ authorizedImportedNativeAxioms ds ps) : ¬ Permitted .standardLogical n := by
+  rw [authorizedImportedNativeAxioms_iff] at hn
+  rcases hn with ⟨a, _, ha, hrole⟩
+  rcases hrole.2.2.2 with ⟨_, _, _, hparent, _⟩
+  obtain ⟨_, _, hshape⟩ := nativeAxiomOrigin?_shape hparent
+  intro hp
+  rcases hp with hp | hp | hp
+  all_goals
+    rw [ha, hp] at hshape
+    simp at hshape
+
+/-- No owned record's name is an imported native role: the imported relation requires that no
+owned record has the axiom's name (`ImportedNativeOK`). So an owned `axiom` declaration is
+classified by the owned relation alone. -/
+theorem authorizedImportedNativeAxioms_not_owned {ds ps : Array Declaration.Role}
+    {d : Declaration.Role} (hd : d ∈ ds) : d.name ∉ authorizedImportedNativeAxioms ds ps := by
+  intro hn
+  obtain ⟨a, _, ha, ok⟩ := (authorizedImportedNativeAxioms_iff ds ps _).mp hn
+  exact (ok.2.2.1 d hd).2 ha.symm
+
+/-- The names of the native-proof axioms admitted as generated roles: the owned ones
+(`authorizedNativeAxioms`), then the imported ones (`authorizedImportedNativeAxioms`). -/
+def authorizedNativeRoles (ds ps : Array Declaration.Role)
+    (ts : Array Transcript.ToolchainObserved) : Array Name :=
+  authorizedNativeAxioms ds ts ++ authorizedImportedNativeAxioms ds ps
+
+/-- A name is a native role exactly when it is an owned or an imported one. -/
+theorem authorizedNativeRoles_iff (ds ps : Array Declaration.Role)
+    (ts : Array Transcript.ToolchainObserved) (n : Name) :
+    n ∈ authorizedNativeRoles ds ps ts ↔
+      (∃ a ∈ ds, a.name = n ∧ NativeTeachingOK ds ts a) ∨
+        ∃ a ∈ ps, a.name = n ∧ ImportedNativeOK ds ps a := by
+  rw [authorizedNativeRoles, Array.mem_append, authorizedNativeAxioms_iff,
+    authorizedImportedNativeAxioms_iff]
+
+/-- The marks of the records can remove a native role but never add one. -/
+theorem authorizedNativeRoles_neutral {ds ps : Array Declaration.Role}
+    {ts : Array Transcript.ToolchainObserved} {n : Name} (hn : n ∈ authorizedNativeRoles ds ps ts) :
+    n ∈ authorizedNativeRoles (ds.map Declaration.Role.neutral) (ps.map Declaration.Role.neutral)
+      ts := by
+  rcases Array.mem_append.mp hn with hn | hn
+  · exact Array.mem_append_left _ (authorizedNativeAxioms_neutral hn)
+  · exact Array.mem_append_right _ (authorizedImportedNativeAxioms_neutral hn)
+
+/-- No native role is a Standard-Logical axiom, for any records. -/
+theorem authorizedNativeRoles_not_logical (ds ps : Array Declaration.Role)
+    (ts : Array Transcript.ToolchainObserved) (n : Name) (hn : n ∈ authorizedNativeRoles ds ps ts) :
+    ¬ Permitted .standardLogical n := by
+  rcases Array.mem_append.mp hn with hn | hn
+  · exact authorizedNativeAxioms_not_logical ds ts n hn
+  · exact authorizedImportedNativeAxioms_not_logical ds ps n hn
+
+/-- An owned record's name is a native role exactly when the owned relation admits it
+(`authorizedImportedNativeAxioms_not_owned`). -/
+theorem authorizedNativeRoles_owned {ds ps : Array Declaration.Role}
+    {ts : Array Transcript.ToolchainObserved} {d : Declaration.Role} (hd : d ∈ ds) :
+    d.name ∈ authorizedNativeRoles ds ps ts ↔ d.name ∈ authorizedNativeAxioms ds ts := by
+  rw [authorizedNativeRoles, Array.mem_append]
+  exact or_iff_left (authorizedImportedNativeAxioms_not_owned hd)
 
 /-- The implementations the inventory's decision contracts decide: the implementation of every
 recorded contract that states a decision kind and was not refused, in inventory order. It reads
@@ -355,9 +439,9 @@ theorem decisionFailure_eq_some_iff (d : Declaration.Registration) (decided : Ar
 inventory counts (`Inventory.decisionContracts`). Supplying arbitrary name arrays cannot authorize
 a role or discharge a decision requirement: every equation must be proved for this inventory. -/
 structure Roles (inventory : Inventory) where
-  /-- Names of the declarations that satisfy `NativeTeachingOK`: the native-proof axioms of
-  `native_decide`, `decide +native` and `bv_decide` admitted as generated roles, in inventory
-  order. -/
+  /-- Names of the native-proof axioms of `native_decide`, `decide +native` and `bv_decide`
+  admitted as generated roles: the declarations that satisfy `NativeTeachingOK`, in inventory
+  order, then the imported records that satisfy `ImportedNativeOK`, in their order. -/
   native : Array Name
   /-- Names of the declarations that satisfy `RecursiveHelperOK`: the generated `_unsafe_rec`
   helpers admitted as generated roles, in inventory order. -/
@@ -366,10 +450,10 @@ structure Roles (inventory : Inventory) where
   (`DecisionRegistered` of `Inventory.decisionContracts`): those of its own declarations, in
   inventory order, then those it counts from other surfaces. -/
   decided : Array Name
-  /-- `native` is what `authorizedNativeAxioms` computes from this inventory. -/
+  /-- `native` is what `authorizedNativeRoles` computes from this inventory. -/
   native_exact :
-    native = authorizedNativeAxioms (roleRecords inventory.declarations)
-      (observedTranscripts inventory.transcripts)
+    native = authorizedNativeRoles (roleRecords inventory.declarations)
+      (roleRecords inventory.imported) (observedTranscripts inventory.transcripts)
   /-- `helpers` is what `authorizedUnsafeRecHelpers` computes from this inventory. -/
   helpers_exact : helpers = authorizedUnsafeRecHelpers (roleRecords inventory.declarations)
   /-- `decided` is what `decidedImplementations` computes from the contracts this inventory
@@ -382,6 +466,35 @@ the inventory counts decides it: one of its own, or one it counts from another s
 theorem Roles.decided_iff {i : Inventory} (roles : Roles i) (n : Name) :
     n ∈ roles.decided ↔ DecisionRegistered i.decisionContracts n := by
   rw [roles.decided_exact, decidedImplementations_iff]
+
+/-- A name is a native role of an inventory exactly when the owned relation admits a record of the
+inventory with that name or the imported relation admits an imported record with it. -/
+theorem Roles.native_iff {i : Inventory} (roles : Roles i) (n : Name) :
+    n ∈ roles.native ↔
+      (∃ a ∈ roleRecords i.declarations, a.name = n ∧
+        NativeTeachingOK (roleRecords i.declarations) (observedTranscripts i.transcripts) a) ∨
+      ∃ a ∈ roleRecords i.imported, a.name = n ∧
+        ImportedNativeOK (roleRecords i.declarations) (roleRecords i.imported) a := by
+  rw [roles.native_exact, authorizedNativeRoles_iff]
+
+/-- The name of an inventory member is a native role exactly when the owned relation admits it:
+no imported record classifies an owned declaration (`authorizedNativeRoles_owned`). -/
+theorem Roles.native_owned {i : Inventory} (roles : Roles i) {d : Declaration}
+    (hd : d ∈ i.declarations) :
+    d.name ∈ roles.native ↔
+      d.name ∈ authorizedNativeAxioms (roleRecords i.declarations)
+        (observedTranscripts i.transcripts) := by
+  rw [roles.native_exact]
+  exact authorizedNativeRoles_owned (d := d.role) (mem_roleRecords.mpr ⟨d, hd, rfl⟩)
+
+/-- Every native role has a name the `nativeEqTrue` scheme generates (`nativeAxiomOrigin?`). -/
+theorem Roles.native_origin {i : Inventory} (roles : Roles i) {n : Name}
+    (hn : n ∈ roles.native) : ∃ o, o ∈ nativeAxiomOrigin? n := by
+  rcases (roles.native_iff n).mp hn with ⟨a, _, rfl, hrole⟩ | ⟨a, _, rfl, hrole⟩
+  · obtain ⟨_, _, o, ho, _⟩ := hrole.2.2
+    exact ⟨o, ho⟩
+  · obtain ⟨_, _, o, ho, _⟩ := hrole.2.2.2
+    exact ⟨o, ho⟩
 
 /-- The generated declarations the safety policy admits: the recursion helpers. No unsafe
 constructor-index wrapper is admitted (`RoleSpecification`). -/
@@ -404,7 +517,8 @@ theorem Roles.partialParent_not_safetyHelper {i : Inventory} (roles : Roles i)
 
 /-- Recompute every validator from the admitted data; no serialized proof is trusted. -/
 def authorize (i : Inventory) : Roles i :=
-  ⟨authorizedNativeAxioms (roleRecords i.declarations) (observedTranscripts i.transcripts),
+  ⟨authorizedNativeRoles (roleRecords i.declarations) (roleRecords i.imported)
+     (observedTranscripts i.transcripts),
    authorizedUnsafeRecHelpers (roleRecords i.declarations),
    decidedImplementations i.decisionContracts, rfl, rfl, rfl⟩
 
@@ -776,18 +890,20 @@ theorem declarationFailure_of_subset {d : Declaration.Assessed} {r : InspectionR
 
 /-- No mark of the role part and no refusal of the recorded contract admits a declaration under
 the executed declaration decision. Take a record that the decision passes under the roles that an
-inventory's validators compute. The decision also passes the record with its contract refusing
-nothing. It does so under the roles computed with all marks of the inventory at their neutral
-values. The decision requirement of RG1008 is `decisionFailure_marks_refuse_only`. -/
-theorem declarationFailure_marks_refuse_only (ds : Array Declaration.Role)
+inventory's validators compute from its records `ds` and imported records `ps`. The decision also
+passes the record with its contract refusing nothing. It does so under the roles computed with all
+marks of the inventory at their neutral values. The decision requirement of RG1008 is
+`decisionFailure_marks_refuse_only`. -/
+theorem declarationFailure_marks_refuse_only (ds ps : Array Declaration.Role)
     (ts : Array Transcript.ToolchainObserved) {d : Declaration.Assessed} {r : InspectionRequest}
-    (h : declarationFailure d r (authorizedNativeAxioms ds ts) (authorizedUnsafeRecHelpers ds) =
+    (h : declarationFailure d r (authorizedNativeRoles ds ps ts) (authorizedUnsafeRecHelpers ds) =
       none) :
-    declarationFailure d.neutral r (authorizedNativeAxioms (ds.map Declaration.Role.neutral) ts)
+    declarationFailure d.neutral r
+      (authorizedNativeRoles (ds.map Declaration.Role.neutral) (ps.map Declaration.Role.neutral) ts)
       (authorizedUnsafeRecHelpers (ds.map Declaration.Role.neutral)) = none :=
   declarationFailure_neutral <| declarationFailure_of_subset h
-    (fun _ => authorizedNativeAxioms_neutral) (fun _ => authorizedUnsafeRecHelpers_neutral)
-    (authorizedNativeAxioms_not_logical _ _)
+    (fun _ => authorizedNativeRoles_neutral) (fun _ => authorizedUnsafeRecHelpers_neutral)
+    (authorizedNativeRoles_not_logical _ _ _)
 
 /-- A smaller decided set makes the executed decision requirement pass nothing more
 (`DecisionOK.of_subset`). -/
@@ -1065,7 +1181,7 @@ def ConformingProfile.foundationClass : ConformingProfile → FoundationClass
 theorem native_not_logical (i : Inventory) (roles : Roles i) (n : Name)
     (hn : n ∈ roles.native) : ¬ Permitted .standardLogical n := by
   rw [roles.native_exact] at hn
-  exact authorizedNativeAxioms_not_logical _ _ n hn
+  exact authorizedNativeRoles_not_logical _ _ _ n hn
 
 /-- The compiled classifier uses exactly the legacy capability retained by inventory admission. -/
 theorem builtinCompilerAxiom_inventory (i : Inventory) (n : Name) :
@@ -1078,14 +1194,12 @@ theorem builtinCompilerAxiom_inventory (i : Inventory) (n : Name) :
 theorem legacy_not_native (i : Inventory) (roles : Roles i) (n : Name)
     (legacy : legacyCompilerAxiom n = true) : n ∉ roles.native := by
   intro hn
-  rw [roles.native_exact, authorizedNativeAxioms_iff] at hn
-  rcases hn with ⟨a, _, ha, hrole⟩
-  rcases hrole.2.2 with ⟨_, _, _, hparent, _⟩
+  obtain ⟨_, hparent⟩ := roles.native_origin hn
   obtain ⟨_, _, hshape⟩ := nativeAxiomOrigin?_shape hparent
   simp only [legacyCompilerAxiom, Bool.or_eq_true, beq_iff_eq] at legacy
   rcases legacy with (legacy | legacy) | legacy
   all_goals
-    rw [ha, legacy] at hshape
+    rw [legacy] at hshape
     simp at hshape
 
 /-- A retired compiler name receives no compiler classification, including through generated roles. -/
@@ -1122,37 +1236,48 @@ theorem retired_dependency_failure (i : Inventory) (roles : Roles i) (d : Declar
   simp [declarationFailure, notAxiom, noHole, unknown]
 
 /-- Every authenticated native role is a name the `nativeEqTrue` scheme generates for a native
-tactic, under a generated prefix of an inventory declaration in that declaration's own module
-(`GeneratedPrefix`, characterized by `generatedPrefix_iff`). -/
+tactic, under a generated prefix of an inventory declaration or of an imported record, in that
+declaration's own module (`GeneratedPrefix`, characterized by `generatedPrefix_iff`). -/
 theorem native_generated (i : Inventory) (roles : Roles i) (n : Name) (hn : n ∈ roles.native) :
-    ∃ p ∈ i.declarations, ∃ pfx t idxs, GeneratedPrefix p.module p.name pfx ∧
+    ∃ p ∈ i.declarations ++ i.imported, ∃ pfx t idxs, GeneratedPrefix p.module p.name pfx ∧
       NativeGenerated pfx idxs ∧ n = nativeAxiomName pfx t idxs := by
-  rw [roles.native_exact, authorizedNativeAxioms_iff] at hn
-  rcases hn with ⟨a, _, rfl, hrole⟩
-  rcases hrole.2.2 with ⟨p, hp, ⟨pfx, t⟩, hparent, _, hprefix, _⟩
-  obtain ⟨idxs, hg, h⟩ := nativeAxiomOrigin?_sound hparent
-  obtain ⟨dp, hdp, rfl⟩ := mem_roleRecords.mp hp
-  exact ⟨dp, hdp, pfx, t, idxs, hprefix, hg, h⟩
+  rcases (roles.native_iff n).mp hn with ⟨a, _, rfl, hrole⟩ | ⟨a, _, rfl, hrole⟩
+  · rcases hrole.2.2 with ⟨p, hp, ⟨pfx, t⟩, hparent, _, hprefix, _⟩
+    obtain ⟨idxs, hg, h⟩ := nativeAxiomOrigin?_sound hparent
+    obtain ⟨dp, hdp, rfl⟩ := mem_roleRecords.mp hp
+    exact ⟨dp, Array.mem_append_left _ hdp, pfx, t, idxs, hprefix, hg, h⟩
+  · rcases hrole.2.2.2 with ⟨p, hp, ⟨pfx, t⟩, hparent, _, hprefix⟩
+    obtain ⟨idxs, hg, h⟩ := nativeAxiomOrigin?_sound hparent
+    obtain ⟨dp, hdp, rfl⟩ := mem_roleRecords.mp hp
+    exact ⟨dp, Array.mem_append_right _ hdp, pfx, t, idxs, hprefix, hg, h⟩
 
 /-- The execution probe's name-level classification agrees on every authenticated native role. -/
 theorem native_compilerTrustingAxiomName (i : Inventory) (roles : Roles i) (n : Name)
     (hn : n ∈ roles.native) : compilerTrustingAxiomName n = true := by
-  rw [roles.native_exact, authorizedNativeAxioms_iff] at hn
-  rcases hn with ⟨a, _, rfl, hrole⟩
-  rcases hrole.2.2 with ⟨_, _, _, hparent, _⟩
+  obtain ⟨_, hparent⟩ := roles.native_origin hn
   simp [compilerTrustingAxiomName, Option.mem_def.mp hparent]
 
-/-- Every authenticated native role is an inventory axiom whose asserted statement an independent
-native evaluation confirmed, and some command of its module's fresh transcripts adds an axiom of
-the same generated origin and statement while no `axiom` declaration occurs in its recorded
-syntax. -/
+/-- Every authenticated native role is one of two. It is an inventory axiom whose asserted
+statement an independent native evaluation confirmed, and some command of its module's fresh
+transcripts adds an axiom of the same generated origin and statement while no `axiom` declaration
+occurs in its recorded syntax. Or it is an imported record whose statement an independent native
+evaluation confirmed, of a module of no inventory declaration, with no command provenance. -/
 theorem native_provenance (i : Inventory) (roles : Roles i) (n : Name) (hn : n ∈ roles.native) :
-    ∃ a ∈ i.declarations, a.name = n ∧ a.nativeReplay = some true ∧
+    (∃ a ∈ i.declarations, a.name = n ∧ a.nativeReplay = some true ∧
       ∃ c ∈ moduleCommands (observedTranscripts i.transcripts) a.module,
         (∃ d ∈ c.addedDeclarations, nativeAxiomOrigin? d.name = nativeAxiomOrigin? n ∧
           d.kind = .«axiom» ∧ d.nativeStatement = a.nativeStatement) ∧
-        c.declaresAxiom = false := by
-  rw [roles.native_exact, authorizedNativeAxioms_iff] at hn
+        c.declaresAxiom = false) ∨
+      ∃ a ∈ i.imported, a.name = n ∧ a.nativeReplay = some true ∧
+        ∀ d ∈ i.declarations, d.module ≠ a.module := by
+  rcases (roles.native_iff n).mp hn with hn | ⟨a, ha, rfl, hshape, _, foreign, _⟩
+  rotate_left
+  · right
+    obtain ⟨-, -, -, -, -, -, -, -, hreplay, -⟩ := hshape
+    obtain ⟨da, hda, rfl⟩ := mem_roleRecords.mp ha
+    exact ⟨da, hda, rfl, hreplay,
+      fun d hd => (foreign d.role (mem_roleRecords.mpr ⟨d, hd, rfl⟩)).1⟩
+  left
   rcases hn with ⟨a, ha, rfl, hshape, _, _, _, o, ho, _, _, c, _, hintro, hundecl⟩
   obtain ⟨-, -, -, -, -, -, -, -, hreplay, -⟩ := hshape
   have hc : c ∈ (moduleCommands (observedTranscripts i.transcripts) a.module).filter (fun cmd =>

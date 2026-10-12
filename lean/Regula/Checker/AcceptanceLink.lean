@@ -69,7 +69,7 @@ def identity (scratch projectRoot docsRoot : FilePath)
   let path := scratch / "acceptance-link-identity.json"
   IO.FS.writeFile path
     (identityJson projectRoot docsRoot sources configuration dependencies documents).compress
-  try sha256File scratch path finally IO.FS.removeFile path
+  try sha256File scratch path finally Regula.Filesystem.removePath .file path
 
 /-- Replace any earlier record before the ordinary audit starts. -/
 def invalidate (path : FilePath) : IO Unit :=
@@ -208,10 +208,12 @@ placed; otherwise return why not, with the copy as it was. `modules` is the modu
 the claimed build compiles. The step calls it only after `require` admitted `link`. The recorded
 artifacts of `closure`'s modules (`BuildReuse.selected`) are copied from `repo`'s `.lake/build` into a new staging directory in
 `scratch`, outside the copy, and the digests compared are those of the staged files and of the
-copy's own files outside `.lake`. Only after the decision is the staging directory renamed to the
-copy's `.lake/build`, which must not exist. Both are in the scratch directory of the run, so the
-rename is within one file system. Any failure on the way is a refusal: the step then builds as
-without a link. -/
+copy's own files outside `.lake`. Only after the decision is each staged file moved to its place in
+the copy's `.lake/build`, which must not exist, through the filesystem observer
+(`Regula.Filesystem.replacePath`). Both are in the scratch directory of the run, so each move is
+within one file system. Any failure on the way is a refusal, and a move that fails first removes
+the copy's `.lake/build` through the observer (`Regula.Filesystem.removePath`): the step then
+builds as without a link. -/
 def placeRetained (repo copy scratch link : FilePath) (identity : String)
     (targets modules closure : List String) : IO (Except String Nat) := do
   let attempt : IO (Except String Nat) := do
@@ -240,8 +242,14 @@ def placeRetained (repo copy scratch link : FilePath) (identity : String)
     let target := copy / ".lake" / "build"
     unless (← (target.symlinkMetadata.toBaseIO)) matches .error _ do
       return .error s!"{target} already exists"
-    IO.FS.createDirAll (copy / ".lake")
-    IO.FS.rename staging target
+    try
+      for (path, _) in staged do
+        let destination := target / path
+        if let some parent := destination.parent then IO.FS.createDirAll parent
+        Regula.Filesystem.replacePath (staging / path) destination
+    catch error =>
+      Regula.Filesystem.removePath .directory target
+      throw error
     return .ok staged.length
   match ← attempt.toBaseIO with
   | .ok outcome => return outcome
