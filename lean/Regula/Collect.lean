@@ -65,7 +65,7 @@ private initialize toolchainLibrary : IO.Ref (Option System.FilePath) ← IO.mkR
 /-- The library directory of the running Lean toolchain, found once for the process. -/
 private def toolchainLibraryDirectory : IO System.FilePath := do
   if let some directory ← toolchainLibrary.get then return directory
-  let directory ← Lean.getLibDir (← Regula.CompilerObservation.toolchainRoot)
+  let directory ← Lean.getLibDir (← Lean.findSysroot)
   toolchainLibrary.set (some directory)
   return directory
 

@@ -332,35 +332,9 @@ structure Ran where
   /-- The process's standard error. -/
   stderr : String
 
-/-- The programs of the Lean toolchain that provisioning starts only by their paths beside the
-running `lean` (`toolchain`), as `Regula.Toolchain.programNames` names the toolchain's programs. -/
-def toolchainNames : List String :=
-  ["cadical", "clang", "lake", "ld.lld", "ld64.lld", "lean", "leanc", "leanchecker", "leanir",
-    "leanmake", "leantar", "llvm-ar"]
-
-/-- Throws when `cmd`, ignoring the case of ASCII letters and the platform's executable suffix,
-is a name of `toolchainNames`, which `PATH` would resolve. -/
-private def refuseBareName (cmd : String) : IO Unit := do
-  let name := cmd.toLower
-  let suffix := if FilePath.exeExtension.isEmpty then "" else "." ++ FilePath.exeExtension
-  if toolchainNames.any fun program =>
-      name == program || (!suffix.isEmpty && name == program ++ suffix) then
-    throw <| IO.userError s!"provisioning: the toolchain's {cmd} runs by its path (`toolchain`), \
-      not by a bare name that PATH resolves"
-
-/-- The environment changes that each Lake process this program starts gets, as
-`Regula.Toolchain.lakeChildEnv` gives them: `LEAN_SYSROOT` is the installation of the `lean` that
-runs this program (`IO.appDir`), and `LAKE_OVERRIDE_LEAN` is unset, so a child `lake` reads no
-`lean` that `PATH` resolves to find its installation. -/
-def lakeChildEnv : IO (Array (String × Option String)) := do
-  let some root := (← IO.appDir).parent
-    | throw <| IO.userError "the lean that runs this program has no installation directory"
-  return #[("LEAN_SYSROOT", some root.toString), ("LAKE_OVERRIDE_LEAN", none)]
-
 private def run (cwd : FilePath) (cmd : String) (args : Array String) : IO Ran := do
-  refuseBareName cmd
   let out ← IO.Process.output {
-    cmd, args, cwd := some cwd, env := (← lakeChildEnv).push ("GHCR_TOKEN", none), stdin := .null }
+    cmd, args, cwd := some cwd, env := #[("GHCR_TOKEN", none)], stdin := .null }
   return ⟨out.exitCode, out.stdout, out.stderr⟩
 
 private def require (cwd : FilePath) (cmd : String) (args : Array String) : IO String := do
@@ -373,9 +347,8 @@ private def require (cwd : FilePath) (cmd : String) (args : Array String) : IO S
 /-- Run with inherited output, for long steps whose progress the user should see. -/
 private def stream (cwd : FilePath) (cmd : String) (args : Array String)
     (env : Array (String × Option String) := #[]) : IO Unit := do
-  refuseBareName cmd
   let child ← IO.Process.spawn {
-    cmd, args, env := ((← lakeChildEnv) ++ env).push ("GHCR_TOKEN", none), cwd := some cwd,
+    cmd, args, env := env.push ("GHCR_TOKEN", none), cwd := some cwd,
     stdin := .null, stdout := .inherit, stderr := .inherit }
   let exit ← child.wait
   unless exit == 0 do
@@ -385,91 +358,6 @@ private def stream (cwd : FilePath) (cmd : String) (args : Array String)
 
 private def say (line : String) : IO Unit := IO.println s!"provisioning: {line}"
 
-/-- The toolchain program `name` by its path beside the `lean` that runs this program
-(`IO.appDir`), never one that `PATH` resolves first. -/
-private def toolchain (name : String) : IO String :=
-  return ((← IO.appDir) / name).toString
-
-/-- The environment variables through which Lake chooses a program for the builds it runs
-(`LeanInstall.get`, `Lake/Config/InstallPath.lean:272` of Lean v4.34.1, `overridesRead`), as
-`Regula.Toolchain.programOverrides` lists them. Lake runs the value it reads as it is. -/
-def programOverrides : List String := ["LEAN_AR", "AR", "LEAN_CC", "CC"]
-
-/-- The variable, with its value under `lookup`, from which Lake takes a program: `preferred` when
-it is set, else, when the installation bundles no such program (`bundled` false), `fallback` when
-it is set, as `Regula.Toolchain.override?` gives it. -/
-def override? (lookup : String → Option String) (preferred fallback : String) (bundled : Bool) :
-    Option (String × String) :=
-  match lookup preferred with
-  | some value => some (preferred, value)
-  | none => if bundled then none else (lookup fallback).map (fallback, ·)
-
-/-- The variables, with their values under `lookup`, that Lake's `LeanInstall.get` reads to choose
-its archiver (`findAr`, `Lake/Config/InstallPath.lean:289` of Lean v4.34.1: `LEAN_AR`, else `AR`
-when the installation has no `bin/llvm-ar`, `bundledAr`) and its C compiler (`setCc`, line 300:
-`LEAN_CC`, else `CC` when it has no `bin/clang`, `bundledCc`). -/
-def overridesRead (lookup : String → Option String) (bundledAr bundledCc : Bool) :
-    List (String × String) :=
-  (override? lookup "LEAN_AR" "AR" bundledAr).toList ++
-    (override? lookup "LEAN_CC" "CC" bundledCc).toList
-
-/-- The variables of `overridesRead` whose value is not an absolute path. -/
-def relativeOverrides (lookup : String → Option String) (bundledAr bundledCc : Bool) :
-    List (String × String) :=
-  (overridesRead lookup bundledAr bundledCc).filter fun (_, value) =>
-    !(System.FilePath.mk value).isAbsolute
-
-/-- `override?` gives a variable exactly when it is `preferred` and set, or it is `fallback`, set,
-with `preferred` unset and no bundled program. -/
-theorem override?_eq_some_iff {lookup : String → Option String} {preferred fallback : String}
-    {bundled : Bool} {name value : String} :
-    override? lookup preferred fallback bundled = some (name, value) ↔
-      (name = preferred ∧ lookup preferred = some value) ∨
-      (name = fallback ∧ lookup preferred = none ∧ bundled = false ∧
-        lookup fallback = some value) := by
-  unfold override?
-  split
-  · rename_i set
-    simp [set, eq_comm]
-  · rename_i unset
-    cases bundled <;> simp [unset, eq_comm]
-    exact And.comm
-
-/-- `relativeOverrides` holds a variable exactly when Lake's `findAr` or `setCc` reads it, as
-`overridesRead` states their order, and its value is not an absolute path. -/
-theorem mem_relativeOverrides {lookup : String → Option String} {bundledAr bundledCc : Bool}
-    {name value : String} :
-    (name, value) ∈ relativeOverrides lookup bundledAr bundledCc ↔
-      ((name = "LEAN_AR" ∧ lookup "LEAN_AR" = some value) ∨
-        (name = "AR" ∧ lookup "LEAN_AR" = none ∧ bundledAr = false ∧ lookup "AR" = some value) ∨
-        (name = "LEAN_CC" ∧ lookup "LEAN_CC" = some value) ∨
-        (name = "CC" ∧ lookup "LEAN_CC" = none ∧ bundledCc = false ∧ lookup "CC" = some value)) ∧
-      (System.FilePath.mk value).isAbsolute = false := by
-  simp only [relativeOverrides, overridesRead, List.mem_filter, List.mem_append,
-    Option.mem_toList, override?_eq_some_iff, Bool.not_eq_true', or_assoc]
-
-/-- The variable of `relativeOverrides` that the Lake beside the `lean` that runs this program
-(`IO.appDir`) would run from this program's environment, which the commands it starts inherit, if
-any; whether that installation bundles `llvm-ar` and `clang` is whether its `bin` directory has
-them. -/
-def relativeOverride? : IO (Option (String × String)) := do
-  let mut values : List (String × String) := []
-  for name in programOverrides do
-    if let some value ← IO.getEnv name then values := (name, value) :: values
-  let bin ← IO.appDir
-  let bundled (name : String) :=
-    (bin / name |>.addExtension System.FilePath.exeExtension).pathExists
-  let lookup := fun name => List.lookup name values
-  return (relativeOverrides lookup (← bundled "llvm-ar") (← bundled "clang")).head?
-
-/-- Throws when the builds this program starts would run a program override that is not an absolute
-path (`relativeOverride?`), so `PATH` could resolve it. -/
-def refuseRelativeOverrides : IO Unit := do
-  if let some (name, value) ← relativeOverride? then
-    throw <| IO.userError s!"provisioning: the toolchain program override {name}={value}, which \
-      Lake runs, is not an absolute path, so PATH could resolve it; unset it or give an absolute \
-      path"
-
 private def nonce : IO String := do
   let bytes ← IO.getRandomBytes 8
   return s!"{← IO.Process.getPID}-{bytes.foldl (fun value byte => value * 256 + byte.toNat) 0}"
@@ -477,7 +365,7 @@ private def nonce : IO String := do
 /-- Execute the released Mathlib plan in the workspace whose packages receive the artifacts. -/
 private def buildMathlib (cwd : FilePath) (readOnly : Bool) : IO Unit := do
   for command in mathlibCommands readOnly do
-    stream cwd (← toolchain "lake") command
+    stream cwd "lake" command
 
 private def admitComponent (what text : String) : IO Component := do
   let some name := component? text
@@ -666,8 +554,11 @@ private def create (repo parent final : FilePath) (key : String) (manifest : Jso
     |>.setObjVal! "packages" (.arr (pins.git.map (·.1)))).pretty ++ "\n")
   IO.FS.writeFile (staging / "lean-toolchain") (← IO.FS.readFile (repo / "lean-toolchain"))
   try
-    -- The staged `lean-toolchain` is the repository's, which `requireCompiler` accepted before
-    -- `provision` reached this, and each command here runs the running toolchain's `lake`.
+    let githash := (← require staging "lean" #["--githash"]).trimAscii.toString
+    unless githash == Lean.githash do
+      throw <|
+          IO.userError
+              s!"provisioning: the staged toolchain is {githash}, not the running {Lean.githash}"
     -- `cache get` unpacks into the workspace's default `.lake/packages` and ignores a custom
     -- packages directory, so the staging workspace keeps the default.
     buildMathlib staging true
@@ -871,16 +762,12 @@ private def provisionPackages (packages shared : FilePath) (receipt : Receipt) (
   unless cloned.isEmpty do
     say s!"cloned {", ".intercalate cloned.toList} (writable copy-on-write clones)"
 
-/-- Refuse a repository whose `lean-toolchain` does not select the release of the `lean` running
-this program: its text, without surrounding whitespace, must be `leanprover/lean4:v` followed by
-that `lean`'s version. No program is run to observe the selection; that Elan runs the release
-this selector names is trusted, as it is for the `lean` running this program. -/
+/-- Refuse a process using a different compiler from this program. -/
 def requireCompiler (repo : FilePath) : IO Unit := do
-  let selected := (← IO.FS.readFile (repo / "lean-toolchain")).trimAscii.toString
-  let running := s!"leanprover/lean4:v{Lean.versionString}"
-  unless selected == running do
-    throw <| IO.userError s!"provisioning: this repository's lean-toolchain selects {selected}, \
-      but this program runs on {running} ({Lean.githash})"
+  let githash := (← require repo "lean" #["--githash"]).trimAscii.toString
+  unless githash == Lean.githash do
+    throw <| IO.userError s!"provisioning: this repository's toolchain is {githash}, \
+      but this program runs on {Lean.githash}"
 
 /-- Observe whether the integration package selects the root's toolchain. -/
 def mathlibApplicability (repo : FilePath) : IO (Bool × String) := do
@@ -951,13 +838,13 @@ def provisionVerso (repo : FilePath) : IO Unit := do
     throw <| IO.userError s!"provisioning: markdown/lake-manifest.json pins MD4Lean {reader} \
       and website/lake-manifest.json pins MD4Lean {verso}; the two packages keep one checkout, \
       so pin the same commit in the two manifests"
-  stream (repo / "website") (← toolchain "lake") #["build", "verso/VersoManual"]
+  stream (repo / "website") "lake" #["build", "verso/VersoManual"]
 
 /-- Check the exact supported compiler before provisioning any dependency artifacts. -/
 def requireReleasedCompiler (repo : FilePath) : IO Unit := do
   requireCompiler repo
   let out ← IO.Process.output {
-    cmd := ← toolchain "lean", args := #["lean/RegulaPolicy/Compiler.lean"], cwd := some repo,
+    cmd := "lean", args := #["lean/RegulaPolicy/Compiler.lean"], cwd := some repo,
     env := #[("REGULA_COMPILER_GUARD", some "1"), ("GHCR_TOKEN", none)], stdin := .null }
   unless out.exitCode == 0 do
     throw <| IO.userError s!"provisioning: released compiler guard failed:\n{out.stdout}{out.stderr}"
@@ -980,7 +867,6 @@ def main (args : List String) : IO Unit := do
   let repo ← IO.FS.realPath (← IO.currentDir)
   unless ← (repo / "lakefile.lean").pathExists do
     throw <| IO.userError "provisioning: run from the repository root"
-  RegulaProvision.refuseRelativeOverrides
   RegulaProvision.requireReleasedSetup repo
   match args with
   | [] =>

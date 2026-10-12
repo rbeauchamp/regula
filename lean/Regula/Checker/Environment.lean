@@ -685,7 +685,7 @@ private def replacementHistory (sourceRoots : Array FilePath)
         pure source
       else if ← alongside.pathExists then pure alongside else
         Lean.findLean (sourceRoots.toList ++ (← Lean.getSrcSearchPath) ++
-          [(← Regula.CompilerObservation.toolchainRoot) / "src" / "lean"])
+          [(← Lean.findSysroot) / "src" / "lean"])
           moduleName
     let some bin := (← IO.appPath).parent
       | throw <| IO.userError "checker binary directory unavailable"

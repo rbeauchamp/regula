@@ -894,7 +894,7 @@ def environmentReport (modules : List Name)
     -- the exact canonical artifact path in the pinned toolchain's library directory.
     -- Missing origin evidence leaves the module's boundaries owned by the project or a
     -- dependency rather than granting a toolchain exemption.
-    let toolchainLib ← liftIO <| Lean.getLibDir (← Regula.CompilerObservation.toolchainRoot)
+    let toolchainLib ← liftIO <| Lean.getLibDir (← Lean.findSysroot)
     let mut toolchainModules : NameMap RegulaPolicy.ToolchainOrigin := {}
     for (moduleName, origin) in env.header.moduleNames.zip moduleOrigins do
       if RegulaPolicy.ToolchainRoot moduleName.getRoot then

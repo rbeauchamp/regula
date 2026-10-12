@@ -107,11 +107,11 @@ observed version and full commit, the migration remedy, and a link to the
 [supported-toolchain policy](toolchains.md).
 
 A Lean too old to compile the policy prints its own errors in place of that refusal. The
-guard runs the `lean` of `LEAN_SYSROOT`, else the one beside the running Lake, and requires it to
-be the Lean running Lake. When another toolchain's `LEAN_SYSROOT` is inherited, a `lean` the
-policy refuses stops with that diagnostic, whichever Lean runs Lake, and a `lean` the policy
-accepts while Lake runs another Lean stops with `… is not the Lean running Lake …` instead.
-Running Lake without that variable is the remedy in both cases.
+guard runs the `lean` that `LEAN_SYSROOT` or `PATH` selects and requires it to be the Lean
+running Lake. When another toolchain's variables are inherited, a `lean` the policy refuses
+stops with that diagnostic, whichever Lean runs Lake, and a `lean` the policy accepts while
+Lake runs another Lean stops with `… is not the Lean running Lake …` instead. Running Lake
+without those variables is the remedy in both cases.
 `lake exe regula doctor` reports the same mismatch for the compiler your own `lean-toolchain`
 selects, whichever compiler an override runs. For a Lean too old to run its identity probe, it
 instead reports that the pin selects no installed compiler that reports its identity, with the
@@ -451,10 +451,7 @@ Lake details that affect what ran:
   [build-lint example](../../examples/build-lint/)'s sole-default `policy` target
   ([standard §7.11](https://rbeauchamp.github.io/regula/dev/standard/7-tooling-and-machine-audit/#711-opt-in-enforcing-build-linter));
   `lakefile.toml` has no custom targets. Direct `lean`, editor elaboration and an explicit
-  build of another target never run the strict gate. The target starts `axiomGate` with the
-  environment that `lake exe` gives a program. Without that environment, `axiomGate` uses an
-  inherited absolute `LEAN_SYSROOT`. Without it, `axiomGate` uses the toolchain that
-  `ELAN_TOOLCHAIN` names in the Elan home of `ELAN_HOME`, and with neither variable it fails.
+  build of another target never run the strict gate.
 - `lake exe axiomGate` runs the same audit body directly: fresh by default, over the incremental
   build with `--incremental`, and as the build-lint `policy` target runs it with `--build-lint`
   (`lake exe axiomGate -- --help` lists every option);

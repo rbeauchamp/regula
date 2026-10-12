@@ -1,5 +1,4 @@
 import RegulaMarkdown
-import Regula.ToolchainProgram
 import RegulaCore.ProseBaseline
 
 /-! Checks every Markdown document the repository tracks: for a rule ID in prose that is not a
@@ -394,32 +393,23 @@ def documentsOf (root : System.FilePath) (tracked : List String) : IO (List Docu
     return ⟨path, source, read source⟩
 
 /-- The variables that the Lake running this program sets for it, and that the Lake and the Lean
-that `runOutside` starts must not inherit, so that they read the workspace of their directory as
-a run outside Lake does. That Lake and that Lean are the toolchain's own, by their paths
-(`Regula.Toolchain.program`), never ones that the `PATH` this Lake gives the program resolves. -/
+that `runOutside` starts must not inherit, so that they read the workspace of their directory with
+the toolchain that its `lean-toolchain` selects. -/
 def lakeVariables : List String :=
   ["ELAN_TOOLCHAIN", "LAKE", "LAKE_ARTIFACT_CACHE", "LAKE_CACHE_DIR", "LAKE_HOME", "LAKE_NO_CACHE",
     "LAKE_PKG_URL_MAP", "LAKE_RESTORE_ARTIFACTS", "LEAN", "LEAN_AR", "LEAN_GITHASH", "LEAN_PATH",
     "LEAN_RECURSION_COUNT", "LEAN_SRC_PATH", "LEAN_SYSROOT"]
 
-/-- Run `cmd` with `args` in `directory`, without the variables `lakeVariables` but with
-`Regula.Toolchain.lakeChildEnv`: the identity-checked `LEAN_SYSROOT`, without `LAKE_OVERRIDE_LEAN`,
-so a child `lake` reads no `lean` that `PATH` resolves to find its installation. Throws without
-starting it when `cmd` spells a toolchain program's name, or is a `lake` and the program `lake env`
-starts spells one (`Regula.Toolchain.refuseBareName`), or when the child would run a toolchain
-program override that is not an absolute path (`Regula.Toolchain.refuseRelativeOverrides`). -/
+/-- Run `cmd` with `args` in `directory`, without the variables `lakeVariables`. -/
 def runOutside (directory : System.FilePath) (cmd : String) (args : Array String) :
-    IO IO.Process.Output := do
-  let env := (lakeVariables.map fun name => (name, none)).toArray ++
-    (← Regula.Toolchain.lakeChildEnv)
-  Regula.Toolchain.refuseBareName cmd args
-  Regula.Toolchain.refuseRelativeOverrides env
-  IO.Process.output { cmd, args, cwd := some directory, env }
+    IO IO.Process.Output :=
+  IO.Process.output {
+    cmd, args, cwd := some directory, env := (lakeVariables.map fun name => (name, none)).toArray }
 
 /-- The `description` of the package at the repository root `root`, as Lake reads it from the
 lakefile (`lake reservoir-config`), or why Lake does not give it. -/
 def lakeDescription (root : System.FilePath) : IO (Except String String) := do
-  let out ← runOutside root (← Regula.Toolchain.program "lake").toString #["reservoir-config"]
+  let out ← runOutside root "lake" #["reservoir-config"]
   if out.exitCode != 0 then
     return .error s!"lakefile.lean: lake reservoir-config failed: {out.stderr.trimAscii}"
   match Lean.Json.parse out.stdout >>= (·.getObjValAs? String "description") with
@@ -449,7 +439,7 @@ def openingRefusals (root : System.FilePath) (documents : List Document) :
 `line:column: severity: text`, or why Lean gives none. -/
 def leanMessages (directory : System.FilePath) (file : String) :
     IO (Except String (List String)) := do
-  let out ← runOutside directory (← Regula.Toolchain.program "lean").toString #["--json", file]
+  let out ← runOutside directory "lean" #["--json", file]
   let read := ((out.stdout.splitOn "\n").filter (!·.isEmpty)).mapM fun line => do
     let message ← Lean.Json.parse line
     let position ← message.getObjVal? "pos"
@@ -484,8 +474,7 @@ def observeDemonstration (root : System.FilePath) : IO (Except String Demonstrat
     let messages ← match ← leanMessages project file with
       | .ok messages => pure messages
       | .error reason => return .error reason
-    let gate ← runOutside project (← Regula.Toolchain.program "lake").toString
-      #["exe", "axiomGate", "--file", file]
+    let gate ← runOutside project "lake" #["exe", "axiomGate", "--file", file]
     return .ok ⟨module, messages, gate.stdout, gate.exitCode.toNat, gate.stderr⟩
 
 /-- The refusals of the example of the root `README.md` among `documents`

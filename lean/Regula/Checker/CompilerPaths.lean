@@ -266,7 +266,7 @@ private def phase (repo scratch : FilePath) (test : Case) (negative : Bool) : IO
   -- Resolve configuration before the checker captures its immutable source
   -- binding. A later first Lake invocation would otherwise create the manifest
   -- inside the checked interval, correctly invalidating that binding.
-  let configured ← runLake scratch #["update"]
+  let configured ← runProcess scratch "lake" #["update"]
   if !configured.succeeded then
     return #[s!"{test.name}: configuration setup failed:\n{configured.output}"]
   -- Lean resolves an entire module prefix from one search directory. Supply the unchanged
@@ -276,7 +276,7 @@ private def phase (repo scratch : FilePath) (test : Case) (negative : Bool) : IO
   let lookalikeRoot := supportName.getRoot
   let lookalike := decide (RegulaPolicy.ToolchainRoot lookalikeRoot)
   if lookalike then
-    let toolchainLib ← Lean.getLibDir (← Regula.CompilerObservation.toolchainRoot)
+    let toolchainLib ← Lean.getLibDir (← Lean.findSysroot)
     let output := scratch / ".lake" / "build" / "lib" / "lean"
     let prefixDirectory := lookalikeRoot.toString
     IO.FS.createDirAll (output / prefixDirectory)
@@ -317,8 +317,8 @@ private def phase (repo scratch : FilePath) (test : Case) (negative : Bool) : IO
   if negative then
     if let some symbol := test.emittedSymbol then
       let cFile := scratch / "wrapper.c"
-      let compiled ← runLake scratch
-          #["env", (← toolchainProgram "lean"), "-c", cFile.toString, "Wrapper.lean"]
+      let compiled ← runProcess scratch "lake"
+          #["env", "lean", "-c", cFile.toString, "Wrapper.lean"]
       if !compiled.succeeded then
         failures :=
             failures.push s!"{test.name}: C diagnostic compilation failed:\n{compiled.output}"

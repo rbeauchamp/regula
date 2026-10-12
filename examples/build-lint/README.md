@@ -28,8 +28,7 @@ the dependency manifest; no files named `Audit` or `Fixtures` are required. The 
 requires no other package, so the lock manifest records only `regula`.
 
 `policy` is the sole default target. It builds the checker via Lake's executable target,
-then invokes the Lean build linter. It gives the linter the environment that `lake exe` gives a
-program, so the linter uses the toolchain of that Lake. The linter builds every manifested surface by its
+then invokes the Lean build linter. The linter builds every manifested surface by its
 explicit Lake target and inspects the completed environment. It does not recursively invoke
 the default target, and it never caches a successful policy verdict. An unchanged second
 `lake build` still runs policy inspection.

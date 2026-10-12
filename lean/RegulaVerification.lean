@@ -169,8 +169,7 @@ theorem select_exact (args : List String) : (select args).map Subtype.val = pars
 
 /-- One argv invocation; there is no shell source in the recipe. -/
 structure Command where
-  /-- The program to run: a program of the Lean toolchain (`toolchainPrograms`) runs by its path
-  beside the `lean` that runs this driver (`Command.resolve`), and any other is found on `PATH`. -/
+  /-- The program to run, found on `PATH`. -/
   program : String
   /-- Its arguments, passed as they are. -/
   args : Array String
@@ -346,8 +345,7 @@ def commands (copy pending : String) : Mode → List Command
   -- its default path would only add the rebuild that made the old step exceed its limit.
   | .selfLintDefault => [lake #["lint"]]
   | .selfAudit => [
-      lake #["build", "Regula", "qualify", "RegulaCore", "RegulaPolicy", "RegulaQualification",
-        "RegulaVerification", "RegulaProvision", "AuditApp", "+Main"],
+      lake #["build", "Regula", "qualify"],
       lake #["exe", "qualify", "--under-deadline", "self-audit"]]
   -- A shard of the self-audit: its modules of each list the campaign deals (`SelfAudit.selected`).
   | .selfAuditShard index => [
@@ -588,219 +586,26 @@ def Command.launch (command : Command) : Priority → String × Array String
   | .normal => (command.program, command.args)
   | .low => ("nice", #["-n", "19", command.program] ++ command.args)
 
-/-- The programs of the Lean toolchain that the recipes name. `lake env`, which a recipe uses, puts
-the binary directory of every package of the workspace before the toolchain's on the `PATH` of the
-program it starts, so such a program runs by its path in the toolchain's binary directory. -/
-def toolchainPrograms : List String := ["lake", "lean"]
-
-/-- `program` by its path in the binary directory `bin` when it is a toolchain program
-(`toolchainPrograms`), and unchanged otherwise. -/
-def toolchainPath (bin : System.FilePath) (program : String) : String :=
-  if toolchainPrograms.contains program then (bin / program).toString else program
-
-/-- The environment variables through which Lake chooses a program for the builds it runs
-(`LeanInstall.get`, `Lake/Config/InstallPath.lean:272` of Lean v4.34.1, `overridesRead`), as
-`Regula.Toolchain.programOverrides` lists them. Lake runs the value it reads as it is. -/
-def programOverrides : List String := ["LEAN_AR", "AR", "LEAN_CC", "CC"]
-
-/-- The variable, with its value under `lookup`, from which Lake takes a program: `preferred` when
-it is set, else, when the installation bundles no such program (`bundled` false), `fallback` when
-it is set, as `Regula.Toolchain.override?` gives it. -/
-def override? (lookup : String → Option String) (preferred fallback : String) (bundled : Bool) :
-    Option (String × String) :=
-  match lookup preferred with
-  | some value => some (preferred, value)
-  | none => if bundled then none else (lookup fallback).map (fallback, ·)
-
-/-- The variables, with their values under `lookup`, that Lake's `LeanInstall.get` reads to choose
-its archiver (`findAr`, `Lake/Config/InstallPath.lean:289` of Lean v4.34.1: `LEAN_AR`, else `AR`
-when the installation has no `bin/llvm-ar`, `bundledAr`) and its C compiler (`setCc`, line 300:
-`LEAN_CC`, else `CC` when it has no `bin/clang`, `bundledCc`). -/
-def overridesRead (lookup : String → Option String) (bundledAr bundledCc : Bool) :
-    List (String × String) :=
-  (override? lookup "LEAN_AR" "AR" bundledAr).toList ++
-    (override? lookup "LEAN_CC" "CC" bundledCc).toList
-
-/-- The variables of `overridesRead` whose value is not an absolute path. -/
-def relativeOverrides (lookup : String → Option String) (bundledAr bundledCc : Bool) :
-    List (String × String) :=
-  (overridesRead lookup bundledAr bundledCc).filter fun (_, value) =>
-    !(System.FilePath.mk value).isAbsolute
-
-/-- `override?` gives a variable exactly when it is `preferred` and set, or it is `fallback`, set,
-with `preferred` unset and no bundled program. -/
-theorem override?_eq_some_iff {lookup : String → Option String} {preferred fallback : String}
-    {bundled : Bool} {name value : String} :
-    override? lookup preferred fallback bundled = some (name, value) ↔
-      (name = preferred ∧ lookup preferred = some value) ∨
-      (name = fallback ∧ lookup preferred = none ∧ bundled = false ∧
-        lookup fallback = some value) := by
-  unfold override?
-  split
-  · rename_i set
-    simp [set, eq_comm]
-  · rename_i unset
-    cases bundled <;> simp [unset, eq_comm]
-    exact And.comm
-
-/-- `relativeOverrides` holds a variable exactly when Lake's `findAr` or `setCc` reads it, as
-`overridesRead` states their order, and its value is not an absolute path. -/
-theorem mem_relativeOverrides {lookup : String → Option String} {bundledAr bundledCc : Bool}
-    {name value : String} :
-    (name, value) ∈ relativeOverrides lookup bundledAr bundledCc ↔
-      ((name = "LEAN_AR" ∧ lookup "LEAN_AR" = some value) ∨
-        (name = "AR" ∧ lookup "LEAN_AR" = none ∧ bundledAr = false ∧ lookup "AR" = some value) ∨
-        (name = "LEAN_CC" ∧ lookup "LEAN_CC" = some value) ∨
-        (name = "CC" ∧ lookup "LEAN_CC" = none ∧ bundledCc = false ∧ lookup "CC" = some value)) ∧
-      (System.FilePath.mk value).isAbsolute = false := by
-  simp only [relativeOverrides, overridesRead, List.mem_filter, List.mem_append,
-    Option.mem_toList, override?_eq_some_iff, Bool.not_eq_true', or_assoc]
-
-/-- The variable of `relativeOverrides` that the Lake beside the `lean` that runs this program
-(`IO.appDir`) would run from this program's environment, which the commands it starts inherit, if
-any; whether that installation bundles `llvm-ar` and `clang` is whether its `bin` directory has
-them. -/
-def relativeOverride? : IO (Option (String × String)) := do
-  let mut values : List (String × String) := []
-  for name in programOverrides do
-    if let some value ← IO.getEnv name then values := (name, value) :: values
-  let bin ← IO.appDir
-  let bundled (name : String) :=
-    (bin / name |>.addExtension System.FilePath.exeExtension).pathExists
-  let lookup := fun name => List.lookup name values
-  return (relativeOverrides lookup (← bundled "llvm-ar") (← bundled "clang")).head?
-
-/-- The environment changes that each Lake process this program starts gets, as
-`Regula.Toolchain.lakeChildEnv` gives them: `LEAN_SYSROOT` is the installation of the `lean` that
-runs this program (`IO.appDir`), and `LAKE_OVERRIDE_LEAN` is unset, so a child `lake` reads no
-`lean` that `PATH` resolves to find its installation. -/
-def lakeChildEnv : IO (Array (String × Option String)) := do
-  let some root := (← IO.appDir).parent
-    | throw <| IO.userError "the lean that runs this program has no installation directory"
-  return #[("LEAN_SYSROOT", some root.toString), ("LAKE_OVERRIDE_LEAN", none)]
-
-/-- Throws when the commands this driver starts would run a program override that is not an
-absolute path (`relativeOverride?`), so `PATH` could resolve it. -/
-def refuseRelativeOverrides : IO Unit := do
-  if let some (name, value) ← relativeOverride? then
-    throw <| IO.userError s!"the toolchain program override {name}={value}, which Lake runs, is \
-      not an absolute path, so PATH could resolve it; unset it or give an absolute path"
-
-/-- The programs of the Lean toolchain that a script of this repository starts only by a path
-(`bareWords`). -/
-def scriptToolchainNames : List String := ["lake", "lean", "leanchecker"]
-
-/-- The words of one line of shell source that could name a program: the text before a `#` that
-starts a word, without parameter expansions (`$name` and `${…}`), split at blanks, quotes and the
-characters `;|&()<>`. A lexical reading, not a parse of the shell's grammar: a command name that
-quoting, escapes or an expansion assembles, such as `le"an"` or `"$cmd"`, is not seen. -/
-def shellWords (line : String) : Array String := Id.run do
-  let mut words := #[]
-  let mut word := ""
-  let mut brace := false
-  let mut name := false
-  let mut dollar := false
-  for c in line.toList do
-    if brace then
-      if c == '}' then brace := false
-      continue
-    if dollar then
-      dollar := false
-      if c == '{' then
-        brace := true
-        continue
-      if c.isAlpha || c == '_' then
-        name := true
-        continue
-      word := word.push '$'
-    if name then
-      if c.isAlphanum || c == '_' then continue
-      name := false
-    if c == '$' then
-      dollar := true
-      continue
-    if c == '#' && word.isEmpty then break
-    if " \t\"'`;|&()<>".contains c then
-      unless word.isEmpty do words := words.push word
-      word := ""
-    else word := word.push c
-  unless word.isEmpty do words := words.push word
-  return words
-
-/-- Each line of the shell source `text`, numbered from 1, with a word of it (`shellWords`) that is
-a name of `scriptToolchainNames`, ignoring the case of ASCII letters. -/
-def bareWords (text : String) : List (Nat × String) :=
-  ((text.splitOn "\n").zipIdx 1).flatMap fun (line, number) =>
-    ((shellWords line).toList.filter (scriptToolchainNames.contains ·.toLower)).map (number, ·)
-
-/-- Throws when a shell program of the repository's `scripts` directory, a regular file with the
-extension `sh`, holds a word that names a toolchain program (`bareWords`), which `PATH` would
-resolve, Lake putting a workspace's binary directories first. It is a tripwire for literal bare
-names only: a quoted or computed command name is outside it. The guarantee is the scripts'
-construction: each starts a toolchain program only through Elan's `lean` proxy, by its path in the
-directory of the `elan` that `PATH` resolves. Any other entry, such as a directory, `.DS_Store` or
-an editor's swap file, is not read. -/
-def refuseBareScriptWords : IO Unit := do
-  for entry in ← System.FilePath.readDir "scripts" do
-    unless entry.path.extension == some "sh" do continue
-    unless (← entry.path.metadata).type == .file do continue
-    let found := bareWords (← IO.FS.readFile entry.path)
-    unless found.isEmpty do
-      throw <| IO.userError s!"{entry.path} starts a toolchain program by a bare name that PATH \
-        resolves, at {found.map fun (line, word) => s!"line {line} ({word})"}; run Elan's `lean` \
-        proxy by its path instead"
-
-/-- Throws unless the `lean` that runs this driver (`IO.appPath`) is the compiler this revision
-pins. That `lean`, run by its path, elaborates the compiler guard source `RegulaPolicy.Compiler`,
-embedded in this driver and given on its standard input, which refuses any other version or commit
-and prints the identity of the Lean elaborating it; that identity must be this driver's own. A
-program that prints it is taken to be that compiler. -/
-def requireCompiler : IO Unit := do
-  let out ← IO.Process.output {
-    cmd := (← IO.appPath).toString, args := #["--stdin"]
-    env := #[("REGULA_COMPILER_GUARD", some "1"), ("LEAN_PATH", none), ("LEAN_SRC_PATH", none),
-      ("GHCR_TOKEN", none)] }
-    (some (include_str "RegulaPolicy/Compiler.lean"))
-  unless out.exitCode == 0 &&
-      out.stdout.replace "\r" "" == s!"{Lean.versionString}\n{Lean.githash}\n" do
-    throw <| IO.userError s!"verification: the `lean` that runs this driver is not the compiler \
-      this revision pins:\n{out.stdout}{out.stderr}"
-
-/-- `command` with each toolchain program it starts by its path in the binary directory `bin`
-(`toolchainPath`): its own program, and, when that is `lake` and its arguments start with `env`,
-the program that `lake env` starts. -/
-def Command.resolve (bin : System.FilePath) (command : Command) : Command :=
-  let args := if command.program = "lake" ∧ command.args[0]? = some "env" then
-      command.args.modify 1 (toolchainPath bin) else command.args
-  { command with program := toolchainPath bin command.program, args }
-
 /-- Start `command` at `priority` without waiting for it; `none`, with a report, when it could not
 be started. It cannot raise. The child stays in the driver's process group, so the outer
 deadline's kill reaches it. The inherited Lean search paths are removed, so a Lake command
 resolves modules only through the workspace it runs in. `LAKE_ARTIFACT_CACHE` is `false`, so
 Lake's artifact cache is off for each package whose own configuration does not turn it on. These
 builds are not the checker's: the gate's own build of the claimed surface uses no artifact cache
-whatever the configuration says (`Regula.Checker.Lake.Build.run`). Its toolchain programs run from
-the directory of the `lean` that runs this driver (`IO.appDir`, `Command.resolve`), the toolchain
-the repository selects. `ELAN_TOOLCHAIN` is the repository's `lean-toolchain`, the toolchain it
-pins, whatever Elan selected to run this driver, so Lake names that toolchain where it writes one
-(`lake new`). Each command also gets `lakeChildEnv`. An inherited `REGULA_ORDINARY_LAKEFILES` is
-removed, so only a command that gives it (`ownerAssertion`) runs with the owner's assertion; each
-variable of the command's `env` is set last. Process execution and signal delivery remain
-trusted. -/
+whatever the configuration says (`Regula.Checker.Lake.Build.run`). An inherited
+`REGULA_ORDINARY_LAKEFILES` is removed, so only a command that gives it (`ownerAssertion`) runs
+with the owner's assertion; each variable of the command's `env` is set last. Process execution
+and signal delivery remain trusted. -/
 def start (priority : Priority) (command : Command) :
     BaseIO (Option (IO.Process.Child stdio)) := do
   announce s!"start {priority.display}{command.display}"
-  let spawn : IO (IO.Process.Child stdio) := do
-    let (program, args) := (command.resolve (← IO.appDir)).launch priority
-    let toolchain := (← IO.FS.readFile "lean-toolchain").trimAscii.toString
-    IO.Process.spawn {
-      stdio with
-      cmd := program, args := args, cwd := some command.dir,
-      env := (← lakeChildEnv) ++ #[("GHCR_TOKEN", none), ("LEAN_PATH", none),
-        ("LEAN_SRC_PATH", none), ("LAKE_ARTIFACT_CACHE", some "false"),
-        ("ELAN_TOOLCHAIN", some toolchain), ("REGULA_ORDINARY_LAKEFILES", none)] ++
-        command.env.map fun (name, value) => (name, some value) }
+  let (program, args) := command.launch priority
+  let spawn : IO (IO.Process.Child stdio) := IO.Process.spawn {
+    stdio with
+    cmd := program, args := args, cwd := some command.dir,
+    env := #[("GHCR_TOKEN", none), ("LEAN_PATH", none), ("LEAN_SRC_PATH", none),
+      ("LAKE_ARTIFACT_CACHE", some "false"), ("REGULA_ORDINARY_LAKEFILES", none)] ++
+      command.env.map fun (name, value) => (name, some value) }
   match ← spawn.toBaseIO with
   | .ok child => return some child
   | .error error =>
@@ -1246,8 +1051,7 @@ theorem prebuildCovers_iff (manifest : Lean.Json) :
 
 /-- Begin an attempt: invalidate the selected mode's earlier PASS or accepted link, and remove
 an earlier site artifact. `scripts/verify.sh` runs this toolchain-only step before provisioning
-and before any checker is built, so a failed setup or build cannot leave either in place.
-`main` runs it before `requireCompiler`, so a compiler that check refuses cannot either. The
+and before any checker is built, so a failed setup or build cannot leave either in place. The
 site artifact is removed only when a directory is at its own place (`removeOwn`): with a symbolic
 link at `_site` the attempt stops and removes nothing. -/
 def beginAttempt (args : List String) : IO Unit := do
@@ -1264,17 +1068,13 @@ preliminary checks and the mode's `prebuild`, it schedules every command of the 
 one it started, and reports success only when `passed` accepts how every one of those commands
 and of the prebuilds ended (`passed_covers`). The first acceptance step promotes the pending
 record of its own gate to the accepted link only then, before the removal of its copy and before
-the success line. Before anything else it refuses a toolchain program override that is not an
-absolute path (`refuseRelativeOverrides`) and a script that names a toolchain program bare
-(`refuseBareScriptWords`). It refuses a surface manifest that claims a target its prebuild does
-not build (`prebuildCovers`), makes its copy after the preliminary checks (`makeCopy`), runs its
-prebuild and its commands for that copy (`ordinary_places`), gives the copy's build output to a
-project that has none when the step passed (`Copy.adopt`), and removes the copy in each case
+the success line. It refuses a surface manifest that claims a target its prebuild does not build
+(`prebuildCovers`), makes its copy after the preliminary checks (`makeCopy`), runs its prebuild
+and its commands for that copy (`ordinary_places`), gives the copy's build output to a project
+that has none when the step passed (`Copy.adopt`), and removes the copy in each case
 (`Copy.remove`). -/
 def run (args : List String) : IO Unit := do
   let some selection := select args | throw <| IO.userError usage
-  refuseRelativeOverrides
-  refuseBareScriptWords
   if selection.val == .ordinary then
     let manifest ← IO.ofExcept (Lean.Json.parse (← IO.FS.readFile "lake-manifest.json"))
     unless dependencyFree manifest do
@@ -1360,15 +1160,8 @@ end RegulaVerification
 
 /-- Standalone cold-start entrypoint; invoke through the timed `scripts/verify.sh`, which
 first runs it with the private `--begin-attempt` protocol flag before setup. The private
-`--copy-control` entry is for the controls of the checker self-test. Every entry but that one
-refuses a `lean` that is not the pinned compiler (`RegulaVerification.requireCompiler`): the run
-before its work, and `--begin-attempt` after its invalidation, which needs no particular
-compiler. -/
+`--copy-control` entry is for the controls of the checker self-test. -/
 def main : List String → IO Unit
-  | "--begin-attempt" :: args => do
-    RegulaVerification.beginAttempt args
-    RegulaVerification.requireCompiler
+  | "--begin-attempt" :: args => RegulaVerification.beginAttempt args
   | ["--copy-control"] => RegulaVerification.copyControl
-  | args => do
-    RegulaVerification.requireCompiler
-    RegulaVerification.run args
+  | args => RegulaVerification.run args

@@ -9,12 +9,11 @@ process. Captured values are never printed or persisted; acquisition is trusted 
 namespace Regula.Qualification.Launcher
 open Lean System RegulaQualification.Launcher
 
-/-- One validated mapping plus the toolchain's `lean`, which a launch runs under it. -/
+/-- One validated mapping plus its actual PATH-resolved executable. -/
 structure Captured where
   /-- The variables `lake env /usr/bin/env -0` printed, admitted by `admit` as `Valid`. -/
   environment : {env : RegulaQualification.Launcher.Environment // Valid env}
-  /-- The path of the toolchain's `lean` (`Regula.Checker.toolchainProgram`), not one that the
-  environment's `PATH` resolves, where the workspace's packages come first. -/
+  /-- The `lean` path that `which` resolved under that environment, joined to the root. -/
   executable : String
 
 /-- Invocation-local cache. No state survives a qualification invocation. -/
@@ -41,10 +40,14 @@ def environment (root : FilePath) (state : State) (overrides : Array (String × 
   let start ← IO.monoMsNow
   let result ← if let some (_, capture) := (← state.cache.get).find? (·.1 == overrides) then
       pure capture else do
-    let output ← runLake root #["env", "/usr/bin/env", "-0"] overrides
+    let output ← run root "lake" #["env", "/usr/bin/env", "-0"] overrides
     requireChecks [⟨"Lake environment capture", output.exitCode == 0⟩]
     let env ← IO.ofExcept (admit output.stdout)
-    let executable ← Regula.Checker.toolchainProgram "lean"
+    let resolved ← run root "/usr/bin/which" #["lean"] (env.val.map fun (k, v) => (k, some v))
+    requireChecks
+        [⟨"Lean executable resolution", resolved.exitCode == 0 && resolved.stderr.isEmpty &&
+      (resolved.stdout.trimAscii.toString.splitOn "\n").length == 1⟩]
+    let executable := (root / resolved.stdout.trimAscii.toString).toString
     let captured : Captured := ⟨env, executable⟩
     state.cache.modify (·.push (overrides, captured))
     pure captured
@@ -60,8 +63,7 @@ def runLean (root : FilePath) (state : State) (args : Array String)
   let some path := args.back? | throw <| IO.userError "missing compiler source argument"
   let source ← IO.FS.readFile path
   let start ← IO.monoMsNow
-  let lean ← Regula.Checker.toolchainProgram "lean"
-  let output ← if state.legacy then runLake root (#["env", lean] ++ args) overrides
+  let output ← if state.legacy then run root "lake" (#["env", "lean"] ++ args) overrides
     else run root capture.executable args (capture.environment.val.map fun (k, v) => (k, some v))
   let elapsed := (← IO.monoMsNow) - start
   state.timings.modify (·.push elapsed)
@@ -75,7 +77,7 @@ def runLean (root : FilePath) (state : State) (args : Array String)
 Lake environment separately for imported-artifact controls. -/
 def leanPath (root : FilePath) (state : State) : IO String := do
   if state.legacy then
-    let output ← runLake root #["env", "printenv", "LEAN_PATH"]
+    let output ← run root "lake" #["env", "printenv", "LEAN_PATH"]
     requireChecks [⟨"Lake path query", output.exitCode == 0⟩]
     return output.stdout.trimAscii.toString
   let captured ← environment root state #[]

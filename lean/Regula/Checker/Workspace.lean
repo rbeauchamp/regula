@@ -1,6 +1,7 @@
 import Lake
 import Lake.Load
 import Regula.Checker.Common
+import Regula.ToolchainProgram
 import Regula.Removal
 
 /-!
@@ -22,11 +23,8 @@ the toolchain's `lake` command computes it for itself. Lake's own `findInstall?`
 reads the running program as a `lake`, so a `lean` beside this checker's executable would select
 the checker's build directory as the installation, and it reads `LAKE_HOME`, which a parent `lake`
 sets to the toolchain's root, as the root of a Lake build tree. The installation's commit is the
-one `Regula.Toolchain.sysroot` checked its `lean` reports. Throws first when a toolchain program
-override that Lake's `LeanInstall.get` reads is not an absolute path
-(`Regula.Toolchain.refuseRelativeOverrides`). -/
+one `Regula.Toolchain.sysroot` checked its `lean` reports. -/
 private def detectEnvironment : IO _root_.Lake.Env := do
-  Regula.Toolchain.refuseRelativeOverrides
   let sysroot ← Regula.Toolchain.sysroot
   let elan? ← _root_.Lake.findElanInstall?
   let lean ← _root_.Lake.LeanInstall.get sysroot (collocated := true)

@@ -1,6 +1,7 @@
 import Regula.Checker.Acceptance
 import Regula.Checker.ResultProtocol
 import RegulaCore.Lint
+import Regula.ToolchainProgram
 
 /-!
 # Serialized-environment qualification
@@ -314,7 +315,8 @@ parse; otherwise it builds the plan, and unless `--plan-only` builds the positiv
 `RegulaPolicy.finalize`, then writes the JSON result when requested. `lake` and `leanchecker` are
 the toolchain's own, run by their paths in its identity-checked installation
 (`Regula.Toolchain.program`), so a program that the workspace's packages put on the `PATH` of
-`lake env` under either name is never run. Returns `1` when the build or a check fails and `0`
+`lake env` under either name is never run; that `lake` gets the installation as `LEAN_SYSROOT`,
+without `LAKE_OVERRIDE_LEAN`. Returns `1` when the build or a check fails and `0`
 otherwise. -/
 unsafe def run (args : List String) : IO UInt32 := do
   let read := arguments args
@@ -358,11 +360,15 @@ unsafe def run (args : List String) : IO UInt32 := do
       for line in lines do IO.println s!"    {line}"
       return 1
     let frozen ← freezeGraph plan snapshot manifest inventory sources
+    let lake := (← Regula.Toolchain.program "lake").toString
+    let leanchecker := (← Regula.Toolchain.program "leanchecker").toString
+    let env := #[("LEAN_SYSROOT", some (← Regula.Toolchain.sysroot).toString),
+      ("LAKE_OVERRIDE_LEAN", none)]
     for root in plan.roots do
       let covered := (plan.coverage.find? (·.root == root)).map (·.modules) |>.getD #[]
       if options.verbose then
         IO.println s!"fresh root {root}: covers {", ".intercalate covered.toList}"
-      let result ← runLake repo #["env", (← toolchainProgram "leanchecker"), "--fresh", root]
+      let result ← runProcess repo lake #["env", leanchecker, "--fresh", root] env
       checks := checks.push { root, coveredModules := covered, exitCode := result.exitCode }
       if !result.succeeded then
         let tail := "\n".intercalate (takeLast 20 (outputLines result.output)).toList

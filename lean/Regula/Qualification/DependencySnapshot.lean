@@ -211,7 +211,7 @@ def check (group : String) : IO Unit := do
         false\nlinter.missingDocs = true\n[[require]]\nname = \"dep\"\npath = \
         \"../dependency\"\n[[lean_lib]]\nname = \"Example\"\n"
     IO.FS.writeFile (project / "Example.lean") "import Dep\n/-! Snapshot control. -/\n"
-    success (← runLake project #["update"] cleanEnv)
+    success (← run project "lake" #["update"] cleanEnv)
     if group != "history" then
       manifest project "standard-logical"
       for kind in #["git", "non-git"] do
@@ -238,7 +238,7 @@ def check (group : String) : IO Unit := do
       \"history_control\"\n[leanOptions]\nautoImplicit = false\nrelaxedAutoImplicit = \
       false\nlinter.missingDocs = true\n[[lean_lib]]\nname = \"Example\"\n"
     removeFile (project / "lake-manifest.json")
-    success (← runLake project #["update"] cleanEnv)
+    success (← run project "lake" #["update"] cleanEnv)
     manifest project "standard-logical"
     for (mode, flags) in
         #[("fresh", #[]), ("incremental", #["--incremental"]), ("build-lint", #["--build-lint"])] do

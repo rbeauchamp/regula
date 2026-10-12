@@ -39,23 +39,6 @@ last two tools. Verification runs offline against those pinned dependencies. Non
 commands below downloads, caches, imports or builds Mathlib; the
 [Mathlib integration check](#mathlib-integration-check) is a separate command with its own setup.
 
-`scripts/verify.sh` and `scripts/provision.sh` run Elan's `lean` proxy by its path, not a
-`lean` that `PATH` resolves. That path is in the directory of the `elan` that `PATH` resolves
-(`~/.elan/bin` for elan-init, the Homebrew `bin` for Homebrew). That `elan` is trusted to be Elan.
-Elan selects the toolchain, and the verification driver refuses any compiler but the one this
-revision pins.
-
-The scripts trust the `PATH` of the shell that starts them to find `elan`, as they do for
-`timeout` or `gtimeout`. Started under `lake env` in a workspace that provides an executable with
-one of those names, they would run that executable. Regula's own Lean entry points and the Lake
-processes that they start do not use `PATH` to choose a toolchain program.
-
-A shell program of `scripts/` is a regular file with the extension `sh`, and a new one must have
-the approval of an operator ([`AGENTS.md`](../../AGENTS.md)). The verification driver reads only
-those files. It refuses one that names `lean`, `lake` or `leanchecker` literally and bare. A quoted or
-computed command name is outside that check. The guarantee is the construction: each script
-starts a toolchain program only through that proxy's path.
-
 ```sh
 lake build                         # incremental development check (the regula package)
 lake -d audit build                # the standard's example library
@@ -436,22 +419,6 @@ Before its `lake lint` in the root package, `diagnostics self-lint` builds the `
 worker `axiomGate` and the claimed targets in one `lake build`. Lake's lint dispatch, the driver
 and the audit otherwise build them in sequence. Each of these builds still runs, and it
 builds what is not built.
-
-The self-audit also reads which declarations start a process. Its campaign builds each other root
-library but `Fixtures`, and the executable roots that no library holds. It imports them library by
-library. A declaration that refers to a function that starts a process in its kernel value or type
-must be an entry of `Regula.Qualification.ProcessStarts.allowed`. That entry says how its program
-is chosen.
-
-No declaration may refer to a function that finds a toolchain program through `PATH`. An entry
-that the audit does not find also fails (`violations_eq_empty`). The check is a tripwire for direct
-references to the listed starters only. A process started through a different function, such as
-Lake's build API, is not one. Following references into dependencies is the reach check of issue
-#362.
-
-The shards of the self-audit also deal out these libraries and executable roots. A shard reports an
-unfound entry only for a module that it audits. An entry in a module that the campaign does not
-audit fails in each shard.
 
 The repository's own checklist rows, which apply to this repository only:
 
