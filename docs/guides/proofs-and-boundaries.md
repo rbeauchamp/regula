@@ -1742,8 +1742,9 @@ second step is pure decisions with a kind.
 
 - **The observing pass** turns a text into a `Json` value. The callers use two parsers.
   `Checker.PolicyCodec.parse` is a total definition, and it refuses an object that gives one name
-  twice. `JsonRoundTrip.parse_compress` states what it returns for the text of
-  `PolicyCodec.compress` with a final newline, for a value with search trees as object trees.
+  twice. `JsonRoundTrip.parse_compress_ws` states what it returns for the text of
+  `PolicyCodec.compress` and any JSON whitespace after it, for a value with search trees as object
+  trees.
   `Json.parse` of Lean runs parsers that are `partial`, and it does not refuse a repeated name.
   Each of the two parsers starts each object from the empty tree and adds each member in the
   order of the text.
@@ -1815,9 +1816,9 @@ decisions. `parseLocation` and `parseDiagnostic` are two-way decisions of the fo
 **Hypotheses and trusted boundary.** The theorems start from a `Json` value. They do not prove
 these items:
 
-- What a parser returns for a text other than the text of `PolicyCodec.compress` with a final
-  newline, and what a file contains. For that text too, `JsonRoundTrip.parse_compress` requires a
-  value with search trees as object trees.
+- What a parser returns for a text other than the text of `PolicyCodec.compress` and JSON
+  whitespace after it, and what a file contains. For that text too,
+  `JsonRoundTrip.parse_compress_ws` requires a value with search trees as object trees.
 - That each object tree of a value that a caller gives is a search tree. The theorems do not use
   it: a decoder refuses a different tree. That the callers do not see such a refusal is read from the
   code. `PolicyCodec.parse` and `Json.parse` each build an object by insertion from the empty
@@ -3944,8 +3945,8 @@ value is that function of the document the writer was given. The file carries th
 `ResultProtocol.admitDocument_parse_encodeDocument` proves that the parse (`PolicyCodec.parse`)
 of the text `writeDocument` writes (`encodeDocument`) is the value the writer wrote and that
 admission of it returns the writer's document, `JsonCanon.canon` of the document given. It rests
-on `JsonRoundTrip.parse_compress_canonical` (the parse of the printed text of a value in the
-parser's form is that value) and `ExecutionShare.canonical_write` (the writer writes values in
+on `JsonRoundTrip.parse_compress_canonical_ws` (the parse of the printed text of a value in the
+parser's form, with or without whitespace after it, is that value) and `ExecutionShare.canonical_write` (the writer writes values in
 that form); `PolicyCodec.compress` and `PolicyCodec.parse` are total definitions that the writer
 and the readers run, so no hypothesis about Lean's `partial` printer or parser is involved. The
 writer's document has the members of the document given when the latter's object trees are search
@@ -4427,7 +4428,7 @@ not yet proved, and are labelled so at their definition; they are not correctnes
 | checkerSelftest cli, environments, build-policy, lint-driver | CLI sweep, adopters, clean checkout, ordinary build, `lake lint` exit classes, its claimed build with and without the audit-build marker, cold compiler guard refusal of a failing and of a successful unidentified child process with its restored load, a forged correspondence theorem of an owned path dependency refused by replay and one of a dependency in a Git work tree of its own refused as evidence ([RG3002]) | packaging, Lake and build integration | External | observed |
 | ordinary | `qualify registry`, `qualify native` | CLI output invalidation, registry and site validators; compiler messages and ranges | External | observed |
 | ordinary | `qualify unique-constants` | no constant declared by two modules of a claimed environment, one of them a module of the root package | Proved in part | `UniqueConstants.mem_shared` and `shared_eq_nil` state the decision. The reading of the `.olean` parts and of the import closure is observed. |
-| ordinary | `RegistryChecks` codec, source and execution-account cases | registry, diagnostic and source codecs; the result file's shared execution form | Proved in part | round-trip theorems of `Json` values, with those of each finding and each location (`parseDiagnostic_roundtrip`, `parseLocation_roundtrip`), and of the result file's text (`ResultProtocol.admitDocument_parse_encodeDocument`); that the shared form is kept, and that a built account is in the parser's form (`JsonCanon.canon` of it is itself), are observed; open: state the remaining refusals as theorems |
+| ordinary | `RegistryChecks` codec, source and execution-account cases | registry, diagnostic and source codecs; the result file's shared execution form | Proved in part | round-trip theorems of `Json` values, with those of each finding and each location (`parseDiagnostic_roundtrip`, `parseLocation_roundtrip`), and of the result file's text (`ResultProtocol.admitDocument_parse_encodeDocument`); observed on a document read back as a reader of its file does (`encodeDocument`, `PolicyCodec.parse`, `admitDocument`): that the shared form is kept, and that a built account is in the parser's form (`JsonCanon.canon` of it is itself); open: state the remaining refusals as theorems |
 | standalone | `qualify environments` finalize mutations | `finalize` refusals | Proved relation | `finalize_iff`; instance membership sampled; no transcript substitution: an accepted run has no transcript job (`accepted_no_transcript_subjects`) |
 | standalone | `qualify acceptance fences` packet mutations | worker-packet admission through a real proxy | External transport | admission proved (`checked_indexedResults`) |
 | standalone | snapshots, input inventory, receipts, frozen exits, documentation source, closure, configuration and fence evidence | Git, Lake, filesystem, elaboration-time IO, signals | External | observed |

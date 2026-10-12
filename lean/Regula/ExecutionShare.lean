@@ -623,8 +623,10 @@ theorem walk_agree {graph : SharedExecution.Graph} {root : Nat}
 
 /-! ### The written value is in the parser's form
 
-`JsonCanon.Canonical` is the form of the values the JSON parser builds
-(`JsonRoundTrip.parse_compress_canonical`). Each step of `SharedExecution.write` maps the values
+`JsonCanon.Canonical` is the form of the values the JSON parser builds from the compact text of a
+value whose object trees are search trees (`JsonRoundTrip.parse_compress_ws`,
+`JsonCanon.canonical_canon`), and the parse of the compact text of a value in that form is the
+value itself (`JsonRoundTrip.parse_compress_canonical_ws`). Each step of `SharedExecution.write` maps the values
 of object trees and keeps their names and shapes, so it keeps that form where every value it
 writes in place of another is in it. -/
 

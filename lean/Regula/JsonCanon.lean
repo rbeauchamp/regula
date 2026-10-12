@@ -5,9 +5,10 @@ import RegulaCore.JsonAgreement
 `PolicyCodec.parse` inserts the members of each object into a tree in the order of the text, which
 builds the tree `Json.mkObj` builds from them (`treeOf`), and `PolicyCodec.compress` writes the
 members of an object in the order of its tree, which for a search tree is the order of their
-names. So the parse of the printed text of a value is `canon` of it: each object tree rebuilt
-with `Json.mkObj` from its members in name order, their values in the same form
-(`JsonRoundTrip.parse_compress`). `Canonical` is the form `canon` gives (`canonical_canon`), and
+names. So the parse of the printed text of a value whose object trees are search trees, followed
+by any run of JSON whitespace, none included, is `canon` of it: each object tree rebuilt with
+`Json.mkObj` from its members in name order, their values in the same form
+(`JsonRoundTrip.parse_compress_ws`). `Canonical` is the form `canon` gives (`canonical_canon`), and
 `canon` keeps a value in it (`Canonical.canon_eq`); `canon` of a value whose object trees are
 search trees agrees with it (`Regular.canon_agree`). The tree `Json.mkObj` builds from members in
 increasing name order lists them in that order (`members_treeOf`), and a value map of a tree keeps

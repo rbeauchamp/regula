@@ -84,7 +84,9 @@ run_cmd do
       ``Regula.JsonCanon.insertMemberTR_eq, ``Regula.JsonCanon.insertMember_eq_insertMemberImpl,
       ``Regula.JsonCanon.treeOf_concat, ``Regula.JsonCanon.contains_treeOf,
       ``Regula.Checker.JsonRoundTrip.strCore_text, ``Regula.Checker.JsonRoundTrip.num_text,
-      ``Regula.Checker.JsonRoundTrip.value_text, ``Regula.Checker.JsonRoundTrip.parse_compress,
+      ``Regula.Checker.JsonRoundTrip.value_text, ``Regula.Checker.JsonRoundTrip.parse_compress_ws,
+      ``Regula.Checker.JsonRoundTrip.parse_compress_canonical_ws,
+      ``Regula.Checker.JsonRoundTrip.parse_compress,
       ``Regula.Checker.JsonRoundTrip.parse_compress_canonical,
       ``Regula.Checker.ResultProtocol.admitDocument_parse_encodeDocument,
       ``Regula.JsonAgreement.Regular.agree_self,
@@ -295,13 +297,15 @@ def main : IO Unit := do
     (toJson #[(0 : Nat)])))) "stored text that is not a string"
   -- Execution accounts stored once. `SharedExecution.expand_intern` and `read_write` prove that
   -- the reader recovers every document, whatever the writer proposes, and
-  -- `ResultProtocol.admitDocument_parse_encodeDocument` that the parse of a result file's text
-  -- is the value written and that admission returns `JsonCanon.canon` of the document given.
-  -- These observe what they do not cover: that the writer's proposal is kept for accounts of the
-  -- form the collector produces, built or parsed, so two roots store what both reach once, that a
-  -- built account is already in the parser's form (`JsonCanon.canon` of it is itself, which a
-  -- parse of its text shows), so the reader returns it unchanged, what the writer does with an
-  -- account of another form or without roots, and what the reader does with a malformed one.
+  -- `ResultProtocol.admitDocument_parse_encodeDocument` that the parse of the text
+  -- `encodeDocument` gives is the value written and that admission returns `JsonCanon.canon` of
+  -- the document. These read a document back as a reader of its file does (`encodeDocument`,
+  -- `PolicyCodec.parse`, `admitDocument`) and observe what the theorems do not cover: that a
+  -- built account is already in the parser's form (`JsonCanon.canon` of it is itself), so the
+  -- reader returns it unchanged, that the writer's proposal is kept for accounts of the form the
+  -- collector produces, built or read back, so two roots store what both reach once, what the
+  -- writer does with an account of another form or without roots, and what the reader does with
+  -- a malformed one.
   let evidence ← IO.ofExcept
     (RegulaPolicy.admitBoundaryEvidence .partialComputation .trusted none none none)
   let account (root : Name) (visits : Array RegulaPolicy.ExecutionVisit) :
@@ -321,9 +325,15 @@ def main : IO Unit := do
     #[{ name := root, moduleName := some `M, parent := none },
       { name := `shared, moduleName := some `M, parent := some 0 }]
   let report (accounts : Array RegulaPolicy.ExecutionRoot) : Json :=
-    Json.mkObj [(SharedExecution.accountKey, toJson accounts)]
+    Json.mkObj [(SharedExecution.accountKey, toJson accounts),
+      Regula.Checker.ResultProtocol.sourceTextsField]
+  let fileRead (document : Json) : IO Json := do
+    IO.ofExcept (Regula.Checker.PolicyCodec.parse
+      (← IO.ofExcept (Regula.Checker.ResultProtocol.encodeDocument document)))
   let logical := report #[account `first (walked `first), account `second (walked `second)]
-  let stored := SharedExecution.intern ExecutionShare.proposals logical
+  require (SharedExecution.same (JsonCanon.canon logical) logical)
+    "a built account is in the form the JSON parser builds"
+  let stored ← fileRead logical
   let storedAccount := stored.getObjValD SharedExecution.accountKey
   let count (member : String) : Option Nat :=
     (storedAccount.getObjValD member).getArr?.toOption.map (·.size)
@@ -332,20 +342,13 @@ def main : IO Unit := do
   require (count "names" == some 3 && count "boundaries" == some 1 &&
     count "compilerEdges" == some 2 && count "logicalEdges" == some 2)
     "two roots store the name and boundary both reach once"
-  require ((SharedExecution.expand stored).toOption == some logical)
-    "the reader rebuilds each root's account"
-  -- The JSON parser builds an account's objects as the codec and the reader do, so a document
-  -- that was read back is written in the shared form again.
-  let reread := Regula.Checker.ResultProtocol.normalize logical
-  require (SharedExecution.same reread logical)
-    "a parsed account is the same value as the built one"
-  require (SharedExecution.derivedOnly ((SharedExecution.intern ExecutionShare.proposals
-      reread).getObjValD SharedExecution.accountKey))
-    "a parsed account is stored as derived root entries"
-  require (match SharedExecution.expand (Regula.Checker.ResultProtocol.normalize stored) with
-    | .ok restored => SharedExecution.same restored logical
-    | .error _ => false)
-    "the reader rebuilds the built account from a parsed shared form"
+  let read ← IO.ofExcept (Regula.Checker.ResultProtocol.admitDocument stored)
+  require (SharedExecution.same read logical)
+    "the reader of the file rebuilds each root's account"
+  -- A document read back from its file is written in the shared form again.
+  require (SharedExecution.derivedOnly
+      ((← fileRead read).getObjValD SharedExecution.accountKey))
+    "a document read back is stored as derived root entries"
   let rootless := report #[]
   let storedNone := SharedExecution.intern ExecutionShare.proposals rootless
   require

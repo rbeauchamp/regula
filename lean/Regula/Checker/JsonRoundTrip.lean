@@ -3,12 +3,14 @@ import Regula.JsonCanon
 
 /-! # The parse of compact JSON text
 
-`parse_compress` proves, for every `Json` value whose object trees are search trees
+`parse_compress_ws` proves, for every `Json` value whose object trees are search trees
 (`JsonAgreement.Regular`), that `PolicyCodec.parse` of the text `PolicyCodec.compress` writes for
-it, with a final newline, is the value with each object tree as the parser builds it
-(`JsonCanon.canon`), which agrees with it (`JsonCanon.Regular.canon_agree`). For a value whose
-object trees are already the parser's (`JsonCanon.Canonical`) the parse is the value itself
-(`parse_compress_canonical`). Both are about the logical definitions of the parser and the
+it, followed by any run of JSON whitespace (`PolicyCodec.isWs`), none included, is the value with
+each object tree as the parser builds it (`JsonCanon.canon`), which agrees with it
+(`JsonCanon.Regular.canon_agree`). For a value whose object trees are already the parser's
+(`JsonCanon.Canonical`) the parse is the value itself (`parse_compress_canonical_ws`).
+`parse_compress` and `parse_compress_canonical` are the case of a final newline, the text a
+result writer writes. These are about the logical definitions of the parser and the
 printer that callers run. The compiled code of the core functions they call that has
 `implemented_by`, `extern` or a runtime override is trusted, since no kernel proof evaluates it.
 Among them, `Nat.repr` runs `Nat.reprFast`, `String.push`, `String.append` and
@@ -455,14 +457,35 @@ theorem nat_repr (k : Nat) {rest : List Char} {it : Input} (stop : NoDigit rest)
       (lookahead_at (by simp [low, high]) h)).trans ?_
     rw [read, Nat.ofDigitChars_ten_toDigits]
 
-/-- What can follow a value in compact JSON text: nothing, a separator, a closing bracket or the
-final newline. -/
+/-- What can follow a value in compact JSON text: nothing, a separator, a closing bracket or JSON
+whitespace. -/
 def Follow (rest : List Char) : Prop :=
-  ∀ c, rest.head? = some c → c = ',' ∨ c = ']' ∨ c = '}' ∨ c = '\n'
+  ∀ c, rest.head? = some c → c = ',' ∨ c = ']' ∨ c = '}' ∨ isWs c = true
 
-theorem Follow.noDigit {rest : List Char} (follow : Follow rest) : NoDigit rest := by
-  intro c head
-  rcases follow c head with rfl | rfl | rfl | rfl <;> rfl
+/-- What can follow a value is not a digit, a `.`, an `e` or an `E`. -/
+theorem Follow.stop {rest : List Char} (follow : Follow rest) {c : Char}
+    (head : rest.head? = some c) :
+    c.isDigit = false ∧ c ≠ '.' ∧ (c == 'e' || c == 'E') = false := by
+  rcases follow c head with rfl | rfl | rfl | white
+  · decide
+  · decide
+  · decide
+  · simp only [isWs, Bool.or_eq_true, decide_eq_true_eq] at white
+    rcases white with ((rfl | rfl) | rfl) | rfl <;> decide
+
+theorem Follow.noDigit {rest : List Char} (follow : Follow rest) : NoDigit rest :=
+  fun _ head => (follow.stop head).1
+
+theorem Follow.of_ws {cs : List Char} (white : ∀ c ∈ cs, isWs c = true) : Follow cs :=
+  fun c head => .inr (.inr (.inr (white c (List.mem_of_head? head))))
+
+theorem dropWhile_ws {cs : List Char} (white : ∀ c ∈ cs, isWs c = true) :
+    cs.dropWhile isWs = [] := by
+  induction cs with
+  | nil => rfl
+  | cons c cs step =>
+    simp only [List.dropWhile_cons, white c List.mem_cons_self, ite_true]
+    exact step fun d mem => white d (List.mem_cons_of_mem c mem)
 
 theorem int_repr_toList (m : Int) :
     m.repr.toList = (if m < 0 then ['-'] else []) ++ Nat.toDigits 10 m.natAbs := by
@@ -541,7 +564,7 @@ theorem num_text (n : JsonNumber) {rest : List Char} {it : Input} (follow : Foll
   · subst zero
     simp only [ite_true, List.append_nil] at h
     obtain ⟨it1, h1, int⟩ := numWithDecimals_repr m follow.noDigit
-      (fun c head => by rcases follow c head with rfl | rfl | rfl | rfl <;> decide) h
+      (fun _ head => (follow.stop head).2.1) h
     refine ⟨it1, h1, ?_⟩
     rw [bind_success int]
     unfold exponent
@@ -553,9 +576,7 @@ theorem num_text (n : JsonNumber) {rest : List Char} {it : Input} (follow : Foll
       rw [bind_success (isEof_cons h1)]
       simp only [Bool.false_eq_true, ite_false]
       rw [bind_success (peek!_at h1)]
-      have : (c == 'e' || c == 'E') = false := by
-        rcases follow c rfl with rfl | rfl | rfl | rfl <;> decide
-      rw [this]
+      rw [(follow.stop rfl).2.2]
       rfl
   · simp only [zero, ite_false, List.append_assoc, List.cons_append] at h
     obtain ⟨it1, h1, int⟩ := numWithDecimals_repr m (rest := 'e' :: _)
@@ -1141,21 +1162,34 @@ theorem value_text {j : Json} (regular : Regular j) : ValueText j := by
 
 /-! ### The document -/
 
-/-- **The parse of the compact text of a value whose object trees are search trees, with a final
-newline, is the value with each object tree as the parser builds it** (`JsonCanon.canon`), which
-agrees with the value (`JsonCanon.Regular.canon_agree`). -/
-theorem parse_compress {j : Json} (regular : Regular j) :
-    parse (compress j ++ "\n") = .ok (canon j) := by
-  have start := At.start (compress j ++ "\n")
-  rw [String.toList_append, show "\n".toList = ['\n'] by simp] at start
-  obtain ⟨it1, h1, white⟩ := ws_at start
+/-- **The parse of the compact text of a value whose object trees are search trees, followed by
+any run of JSON whitespace, none included, is the value with each object tree as the parser builds
+it** (`JsonCanon.canon`), which agrees with the value (`JsonCanon.Regular.canon_agree`). -/
+theorem parse_compress_ws {j : Json} (regular : Regular j) {s : String}
+    (white : ∀ c ∈ s.toList, isWs c = true) :
+    parse (compress j ++ s) = .ok (canon j) := by
+  have start := At.start (compress j ++ s)
+  rw [String.toList_append] at start
+  obtain ⟨it1, h1, skipped⟩ := ws_at start
   rw [dropWhile_compress] at h1
-  obtain ⟨it2, h2, parsed⟩ := value_text regular _ _ (fun c head => by
-    cases head; decide) h1
-  have h2' : At it2 [] := by simpa [isWs] using h2
+  obtain ⟨it2, h2, parsed⟩ := value_text regular _ _ (Follow.of_ws white) h1
+  rw [dropWhile_ws white] at h2
   simp only [parse, Parser.run]
-  rw [seq_success white, bind_success parsed, seq_success (eof_nil h2')]
+  rw [seq_success skipped, bind_success parsed, seq_success (eof_nil h2)]
   rfl
+
+/-- **The parse of the compact text of a value whose object trees are the parser's, followed by
+any run of JSON whitespace, none included, is the value itself.** -/
+theorem parse_compress_canonical_ws {j : Json} (canonical : Canonical j) {s : String}
+    (white : ∀ c ∈ s.toList, isWs c = true) :
+    parse (compress j ++ s) = .ok j :=
+  (parse_compress_ws canonical.regular white).trans (congrArg _ canonical.canon_eq)
+
+/-- **The parse of the compact text of a value whose object trees are search trees, with a final
+newline, is the value with each object tree as the parser builds it** (`parse_compress_ws`). -/
+theorem parse_compress {j : Json} (regular : Regular j) :
+    parse (compress j ++ "\n") = .ok (canon j) :=
+  parse_compress_ws regular (by rw [show "\n".toList = ['\n'] by simp]; decide)
 
 /-- **The parse of the compact text of a value whose object trees are the parser's, with a final
 newline, is the value itself.** -/
