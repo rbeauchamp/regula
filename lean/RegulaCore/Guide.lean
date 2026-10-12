@@ -1480,7 +1480,8 @@ def guide : RuleId → Guide
         two-way), and `mem_required` states the required keys. These \
         theorems are about the request that the decisions take. The module data, the replay \
         set, the reported and reused modules, the lookup `kept`, the import of the replay base, \
-        `shared` and the replayed kernel are observed or trusted, as the section \"Receipt \
+        `shared`, `offerable` (`ownedUniform` over `duplicatesIn` of the audited environment and \
+        the owned modules) and the replayed kernel are observed or trusted, as the section \"Receipt \
         validation: decisions and observing pass\" of the guide of proofs and boundaries says. \
         The editor's deferral to the project audit of a result that needs generated-role \
         evidence is \
