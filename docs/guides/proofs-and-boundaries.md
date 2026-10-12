@@ -4818,9 +4818,9 @@ execution, and calling a proved oracle does not prove the driver or its IO effec
   reason strings.
 - `Launcher.admit`: a proof-bearing mapping with nonempty unique names and both required search
   paths, admitting every valid decoded mapping; `checked_equivalence` requires one observation for
-  each control the qualification ran and full ordered equality of source, arguments, streams,
-  exit, environment and resolved executable. Lake's environment is cached only within one fixed
-  parent and workspace invocation, separately for the imported-control search-path override;
+  each compiler launch the qualification made and full ordered equality of source, arguments,
+  streams, exit, environment and resolved executable. Lake's environment is cached only within one
+  fixed parent and workspace invocation, separately for the imported-control search-path override;
   neither observations nor compiled artifacts are reused, environment values are not exported, and
   durations are observations, not a speed guarantee or compiler-equivalence theorem.
 - `Template.instantiate`: the required `Maps` proof for the recursive JSON transformation (array
