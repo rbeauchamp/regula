@@ -1212,9 +1212,11 @@ def guide : RuleId → Guide
           build, whatever its text. Lake logs standard output of the compiler that is not a \
           Lean message as information, so the build also fails when a job it requires logs \
           such an entry, which can be a warning whose line other output corrupted. Lake logs \
-          other programs' standard output in the same form, so that output fails the build too. \
-          A module whose source path, as Lake names it in messages, has a line break fails the \
-          build, since its messages could not be told from such output. A single-file audit \
+          other programs' standard output in the same form, and such an entry at information \
+          level fails the build too; output Lake logs at trace level, as for a quiet program \
+          that succeeds, does not. A module compiled from a source path that, as Lake names it \
+          in messages, has a line break or is unknown fails the build, since its messages could \
+          not be told from such output. A single-file audit \
           compiles the file with `lean --json` and reads each message's severity in the same \
           way; output that is not a Lean message counts as an error. The original compiler \
           message is preserved in the finding.",
@@ -1247,7 +1249,9 @@ def guide : RuleId → Guide
       established := [
         "Every claimed module elaborated from source without errors or warnings under the audit's \
           build: the build elaborated it, or, in an incremental run, replayed the messages of the \
-          elaboration that wrote its build trace. The build requested each claimed module's \
+          elaboration that wrote its build trace, where that elaboration ran under the audit-build \
+          marker, earlier in the same run, or under the `weakLeanArgs` that the trace file \
+          records as its library's current ones. The build requested each claimed module's \
           artifacts itself, and no claimed module was restored from Lake's artifact cache."]
       notEstablished := [
         "Fresh source elaboration unless the run is fresh: `lake lint` without `--fresh` is \
@@ -1276,25 +1280,35 @@ def guide : RuleId → Guide
           build warnings there and its policy stages report those rules. `axiomGate` and the \
           build-lint `policy` target keep ordinary options, so in a module that imports \
           `Regula.Linter` a local Regula finding is a build warning and makes the result \
-          INCOMPLETE under this rule."]
+          INCOMPLETE under this rule. Lake's module trace omits `weakLeanArgs`, so Regula's \
+          `lakefile.lean` replaces Lake's `extraDep` facet with one that runs it and records \
+          the `weakLeanArgs` of the root package and of Regula in each module's trace. A build \
+          without the marker \
+          reports a claimed module whose messages it replayed from before the run as not \
+          established (INCOMPLETE) unless its trace file records the current arguments, which \
+          fails when a dependency resolved after Regula replaces that facet. Regula's facet \
+          replaces an `extraDep` facet that the root package declares."]
       residuals := [.qualify]
       checklist := ["DECL-01", "BUILD-01", "DOC-01"]
       linkage := "Acceptance side only: an accepted run satisfies `RegulaPolicy.BuildOK`. A \
-        warning-checked Lake build's observation satisfies it exactly when the build exited 0 \
-        and no required job (`Lake.observedFetch`) logged an entry that \
-        `Workspace.unparsedCompilerOutput` selects (`Acceptance.buildObservation_ok_iff`). \
+        warning-checked Lake build's observation satisfies it exactly when the build exited 0, \
+        no required job (`Lake.observedFetch`) logged an entry that \
+        `Workspace.unparsedCompilerOutput` selects, and, without the audit-build marker, each \
+        claimed module replayed from before the run has a trace recording its current \
+        `weakLeanArgs` (`Acceptance.buildObservation_ok_iff`, `Lake.mem_reusedModules_iff`, \
+        `Workspace.traceRecords_iff`). \
         Lake's entry for a Lean message whose file name has no line break is never selected \
         (`unparsedCompilerOutput_ofSerialMessage`); `lineBreakSourcePaths` fails the others. \
         That Lake fails a build whose required job logs an entry at its failure level, and \
-        the forms of its entries, are read from Lake's source. A single-file compilation's \
-        diagnostics are read from message severities: an information message adds none, a warning message adds a warning, and \
-        output that is not a message adds an error (`SourceAudit.diagnose_information`, \
+        the forms of its entries, are read from Lake's source. A single-file compilation adds no \
+        diagnostic for an information message, a warning for a warning message and an error for \
+        output that is not a message (`SourceAudit.diagnose_information`, \
         `diagnose_warning`, `diagnose_other`), and it passes exactly when the compiler exited 0 \
         with no error and, where warnings are refused, no warning \
-        (`SourceAudit.compilationPassed_iff`). That the audit's builds keep Lake's artifact cache \
-        off is proved of Lake's own cache predicates for every package of the build's workspace \
-        (`Workspace.uncachedWorkspace_unreadable`, `uncachedWorkspace_unwritable`); that Lake \
-        consults them before each access to the cache is read from Lake's source. That each \
+        (`SourceAudit.compilationPassed_iff`). Lake's own cache predicates refuse the cache for every \
+        package of the build's workspace (`Workspace.uncachedWorkspace_unreadable`, \
+        `uncachedWorkspace_unwritable`); that Lake consults them before each cache access is \
+        read from Lake's source. That each \
         claimed module's trace records an elaboration is checked of the trace file after the \
         build (`Workspace.elaborationTrace`); that Lake replays the messages such a trace holds \
         is read from Lake's source."

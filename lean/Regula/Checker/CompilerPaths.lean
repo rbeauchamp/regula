@@ -293,13 +293,6 @@ private def phase (repo scratch : FilePath) (test : Case) (negative : Bool) : IO
     link (((← toolchainLib.readDir).filter
       (·.fileName.startsWith s!"{prefixDirectory}.")).map (·.path)) output
     link ((← (toolchainLib / prefixDirectory).readDir).map (·.path)) (output / prefixDirectory)
-  IO.FS.writeFile (scratch / "foundation_manifest.json")
-    ("{\"schema-version\":2,\"surfaces\":[{\"library\":\"Wrapper\",\"claim\":\"standard-logical\","
-        ++
-      "\"execution\":\"checked\",\"rationale\":\"imported compiler control\"}]," ++
-      "\"excluded-libraries\":[{\"library\":\"" ++ test.supportModule ++
-          "\",\"rationale\":\"isolated imported control\"}]," ++
-      "\"excluded-executables\":[]}")
   let binary := (repo / ".lake" / "build" / "bin" / "axiomGate").toString
   let check (result : ProcessResult) : Array String := Id.run do
     if negative then
@@ -314,7 +307,33 @@ private def phase (repo scratch : FilePath) (test : Case) (negative : Bool) : IO
     if let some present := test.absent.find? (result.output.contains ·) then
       return #[s!"{test.name}: unexpectedly reported {present}:\n{result.output}"]
     return #[]
-  let mut failures := check
+  let mut failures := #[]
+  if test.project then
+    IO.FS.writeFile (scratch / "foundation_manifest.json")
+      ("{\"schema-version\":2,\"surfaces\":[{\"library\":\"" ++ test.supportModule ++
+          "\",\"claim\":\"standard-logical\"," ++
+        (if lookalike then "\"execution\":\"checked\"," else "") ++
+        "\"rationale\":\"reported \
+          support\"},{\"library\":\"Wrapper\",\"claim\":\"standard-logical\"," ++
+        "\"execution\":\"checked\",\"rationale\":\"checked consumer\"}]," ++
+        "\"excluded-libraries\":[],\"excluded-executables\":[]}")
+    -- The project audit runs before the file audit. This project does not require Regula, so its
+    -- traces lack the `weakLeanArgs` record of Regula's `extraDep` facet, and an `--incremental`
+    -- audit reports each claimed module that it replays from an earlier build as not established
+    -- (RG2003). The file audit's build would be such an earlier build.
+    -- Preserve the toolchain-only symlink overlay in this case. The claimed
+    -- adopter sources are still built afresh in each independent phase.
+    -- Boundary evidence lines are printed only in verbose mode.
+    let args := (if lookalike then #["--incremental"] else #[]) ++ #["--verbose"]
+    failures := check (← runProcess scratch binary args)
+  IO.FS.writeFile (scratch / "foundation_manifest.json")
+    ("{\"schema-version\":2,\"surfaces\":[{\"library\":\"Wrapper\",\"claim\":\"standard-logical\","
+        ++
+      "\"execution\":\"checked\",\"rationale\":\"imported compiler control\"}]," ++
+      "\"excluded-libraries\":[{\"library\":\"" ++ test.supportModule ++
+          "\",\"rationale\":\"isolated imported control\"}]," ++
+      "\"excluded-executables\":[]}")
+  failures := failures ++ check
       (← runProcess scratch binary
           #["--file", "Wrapper.lean", "--execution", "checked", "--verbose"])
   if negative then
@@ -327,20 +346,6 @@ private def phase (repo scratch : FilePath) (test : Case) (negative : Bool) : IO
             failures.push s!"{test.name}: C diagnostic compilation failed:\n{compiled.output}"
       else if !(← IO.FS.readFile cFile).contains symbol then
         failures := failures.push s!"{test.name}: emitted C omitted diagnostic symbol {symbol}"
-  if test.project then
-    IO.FS.writeFile (scratch / "foundation_manifest.json")
-      ("{\"schema-version\":2,\"surfaces\":[{\"library\":\"" ++ test.supportModule ++
-          "\",\"claim\":\"standard-logical\"," ++
-        (if lookalike then "\"execution\":\"checked\"," else "") ++
-        "\"rationale\":\"reported \
-          support\"},{\"library\":\"Wrapper\",\"claim\":\"standard-logical\"," ++
-        "\"execution\":\"checked\",\"rationale\":\"checked consumer\"}]," ++
-        "\"excluded-libraries\":[],\"excluded-executables\":[]}")
-    -- Preserve the toolchain-only symlink overlay in this case. The claimed
-    -- adopter sources are still built afresh in each independent phase.
-    -- Boundary evidence lines are printed only in verbose mode.
-    let args := (if lookalike then #["--incremental"] else #[]) ++ #["--verbose"]
-    failures := failures ++ check (← runProcess scratch binary args)
   return failures
 
 /-- One case: a positive, one mutation, and a separately rebuilt restoration, each in a scratch

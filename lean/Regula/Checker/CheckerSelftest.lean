@@ -319,7 +319,8 @@ fixture module and every root-package module they import, directly or not. The p
 the repository's name, source directory and Lean options, and each target the roots, globs,
 source directory and Lean options of its own configuration, as Lake reports them, so a kept
 library owns in the project exactly its modules whose sources are present, and a target a
-control adds inherits the package's options as it would in the repository. The project
+control adds inherits the package's options as it would in the repository. The project also
+declares the repository's weak-arguments `extraDep` facet, verbatim. The project
 requires no package, and the checker probe's own imports outside it resolve to the running
 checker's library, so no gate in it builds or inspects a library the application does not
 import. -/
@@ -410,6 +411,13 @@ private def structuralProject (manifest : Manifest) (ws : _root_.Lake.Workspace)
       s!"  root := `{executable.root.name}\n" ++
       s!"  supportInterpreter := {executable.supportInterpreter}\n" ++
       s!"  leanOptions := {renderOptions executable.config.leanOptions}\n"
+  -- The repository's `extraDep` facet, which records the `weakLeanArgs` of the root package in
+  -- each module's trace, so an incremental gate decides a module it replays (RG2003) as it does
+  -- in the repository, and the module artifacts seeded from the repository's build match.
+  let marker := "\n-- Regula's weak-arguments record."
+  let some facet := ((← IO.FS.readFile pkg.configFile).splitOn marker)[1]?
+    | throw <| IO.userError s!"self-test: {pkg.configFile} has no weak-arguments facet"
+  lakefile := lakefile ++ marker ++ facet
   return {
     lakefile, sources
     libraries := libraries.map (spelling ·.name)

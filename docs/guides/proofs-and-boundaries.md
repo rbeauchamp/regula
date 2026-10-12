@@ -145,7 +145,13 @@ executable's actual root `leanArts` facet. If preflight clears, it builds every 
 claimed target, including the executable links, before full inspection. Only that complete
 build, run with Lake's failure level at `warning`, reaches `Acceptance.buildObservation`. Its
 observation is accepted exactly when the build exited 0 and no required job logged
-compiler output that is not a Lean message (`buildObservation_ok_iff`).
+compiler output that is not a Lean message (`buildObservation_ok_iff`). Without the audit-build
+marker, it also requires a record of `weakLeanArgs` for each claimed module that the build
+replayed from before the run (`mem_reusedModules_iff`). The trace file of that module must record
+the current `weakLeanArgs` of its library (`Workspace.traceRecords_iff`). Lake's module trace
+omits them. Regula's `lakefile.lean` declares an `extraDep` facet that adds this record
+for the libraries of the root package and of Regula. A facet that a later dependency declares
+replaces it.
 `Lake.ClaimedBuildPlan.completionTargets_exact` binds the deferred build to the original
 target array; `build_completed_iff` records the build stage before preflight exactly when no
 target build remains. A library-only claim keeps one original build
@@ -320,9 +326,18 @@ of Lake, for the filter `Pattern.star`, except for its proofs. Any other term ke
 
 The compiled configuration file also records each facet that the file declares, new or in place
 of a facet of Lake. The driver counts these declarations, and it keeps the marker if there is
-one. A file `lakefile.toml` declares no facet and cannot set `nativeFacets`. Its filter of an
-`input_dir` is the default only if it omits the filter or writes `"*"`. Lake only reads and hashes
-an input target. Thus a build in the plain shape runs no custom build step.
+one, except for the facet of Regula below. A file `lakefile.toml` declares no facet and cannot
+set `nativeFacets`. Its filter of an `input_dir` is the default only if it omits the filter or
+writes `"*"`. Lake only reads and hashes an input target. Thus a build in the plain shape runs no custom build step except Regula's
+`extraDep` facet.
+
+The driver admits that facet, `weakLeanArgsTrace`, by identity. The package's `lakefile.lean`
+must have the same text as the `lakefile.lean` of the running Regula. Its compiled file must
+declare that constant and one library facet only, as `regulaFacetAdmitted_iff` states. The driver
+then removes that declaration and its attribute entry from what it reads, with
+`ConfigReading.withoutRegulaFacet`. The facet runs Lake's own `extraDep` facet and adds a trace
+input with the `weakLeanArgs` of a library of the root package or of Regula. A package named
+`regula` with different text keeps the marker.
 
 A file `lakefile.lean` must also declare only what the commands of Lake generate. These are the
 definitions of the package, its targets and their configurations, `require` and the name of the

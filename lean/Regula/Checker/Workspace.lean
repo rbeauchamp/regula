@@ -275,6 +275,160 @@ def elaborationTrace (text : String) : Bool :=
   | .ok data => !data.synthetic
   | .error _ => false
 
+/-- The caption and value of one input of a Lake trace file as Lake v4.34.1 writes it, a
+two-element array of the caption and either a hash or the array of that input's own inputs
+(`serializeInputs`, `Lake/Build/Common.lean` lines 129 to 136), or none for other JSON. -/
+def pairOf? : Json → Option (String × Json)
+  | .arr items =>
+    if h : items.size = 2 then
+      match items[0] with
+      | .str caption => some (caption, items[1])
+      | _ => none
+    else none
+  | _ => none
+
+/-- `pairOf?` reads exactly a two-element array whose first element is a string. -/
+theorem pairOf?_eq_some_iff {item : Json} {caption : String} {value : Json} :
+    pairOf? item = some (caption, value) ↔ item = .arr #[.str caption, value] := by
+  constructor
+  · intro h
+    unfold pairOf? at h
+    split at h
+    · rename_i items
+      split at h
+      · rename_i hSize
+        split at h
+        · rename_i c hc
+          simp only [Option.some.injEq, Prod.mk.injEq] at h
+          obtain ⟨rfl, rfl⟩ := h
+          congr 1
+          apply Array.ext
+          · simp [hSize]
+          · intro i h1 h2
+            simp only [List.size_toArray, List.length_cons, List.length_nil] at h2
+            match i, h2 with
+            | 0, _ => simpa using hc
+            | 1, _ => rfl
+        · simp at h
+      · simp at h
+    · simp at h
+  · rintro rfl
+    simp [pairOf?]
+
+/-- The value that `pairOf?` reads is smaller than the input it reads it from. -/
+theorem sizeOf_lt_of_pairOf? {item : Json} {caption : String} {value : Json}
+    (h : pairOf? item = some (caption, value)) : sizeOf value < sizeOf item := by
+  rw [pairOf?_eq_some_iff.mp h]
+  simp
+  omega
+
+/-- Whether the trace inputs `json`, an array of inputs as `pairOf?` reads them, hold an input
+captioned `caption`, at any depth. -/
+def valueRecords (caption : String) : Json → Bool
+  | .arr items => items.attach.any fun ⟨item, member⟩ =>
+      match hPair : pairOf? item with
+      | some (other, value) =>
+        have : sizeOf value < 1 + sizeOf items := by
+          have := Array.sizeOf_lt_of_mem member
+          have := sizeOf_lt_of_pairOf? hPair
+          omega
+        other == caption || valueRecords caption value
+      | none => false
+  | _ => false
+termination_by json => sizeOf json
+
+/-- Trace inputs `json` record an input captioned `caption`: one of its two-element arrays starts
+with that caption, or starts with another and its value records it. -/
+inductive Records (caption : String) : Json → Prop where
+  /-- An input of the array has the caption. -/
+  | here {items : Array Json} {value : Json} :
+      Json.arr #[.str caption, value] ∈ items → Records caption (.arr items)
+  /-- The inputs of an input of the array record it. -/
+  | deeper {items : Array Json} {other : String} {value : Json} :
+      Json.arr #[.str other, value] ∈ items → Records caption value → Records caption (.arr items)
+
+/-- `valueRecords` decides `Records`. -/
+theorem valueRecords_iff (caption : String) : ∀ json : Json,
+    valueRecords caption json = true ↔ Records caption json
+  | .arr items => by
+    rw [valueRecords.eq_1, Array.any_eq_true']
+    constructor
+    · rintro ⟨⟨item, member⟩, -, h⟩
+      dsimp only at h
+      split at h
+      · rename_i other value hPair
+        have hItem := pairOf?_eq_some_iff.mp hPair
+        subst hItem
+        rcases Bool.or_eq_true_iff.mp h with hEq | hDeep
+        · rw [beq_iff_eq] at hEq
+          subst hEq
+          exact .here member
+        · have : sizeOf value < 1 + sizeOf items := by
+            have := Array.sizeOf_lt_of_mem member
+            simp at this
+            omega
+          exact .deeper member ((valueRecords_iff caption value).mp hDeep)
+      · simp at h
+    · intro h
+      cases h with
+      | here member =>
+        refine ⟨⟨_, member⟩, Array.mem_attach _ _, ?_⟩
+        dsimp only
+        split
+        · rename_i other value hPair
+          rw [pairOf?_eq_some_iff] at hPair
+          simp at hPair
+          simp [hPair.1]
+        · rename_i hNone
+          simp [pairOf?] at hNone
+      | deeper member records =>
+        rename_i other value
+        have : sizeOf value < 1 + sizeOf items := by
+          have := Array.sizeOf_lt_of_mem member
+          simp at this
+          omega
+        refine ⟨⟨_, member⟩, Array.mem_attach _ _, ?_⟩
+        dsimp only
+        split
+        · rename_i other' value' hPair
+          rw [pairOf?_eq_some_iff] at hPair
+          simp at hPair
+          obtain ⟨rfl, rfl⟩ := hPair
+          simp [(valueRecords_iff caption value).mpr records]
+        · rename_i hNone
+          simp [pairOf?] at hNone
+  | .null | .bool _ | .num _ | .str _ | .obj _ => by
+    simp only [valueRecords, Bool.false_eq_true, false_iff]
+    intro h; cases h
+termination_by json => sizeOf json
+
+/-- Whether `text`, the content of a module's Lake trace file, records among the inputs of the
+elaboration it holds one captioned `caption`. Lake v4.34.1 writes, with an elaboration's log, the
+caption of each input of its trace at any depth (`BuildMetadata.ofBuildCore`, `serializeInputs`,
+`Lake/Build/Common.lean` lines 129 to 145).
+
+Assumes: Lake v4.34.1 writes a module's trace file in this form, with the inputs of the elaboration
+whose log it holds. -/
+def traceRecords (caption text : String) : Bool :=
+  match _root_.Lake.BuildMetadata.parse text with
+  | .ok data => valueRecords caption (toJson data.inputs)
+  | .error _ => false
+
+/-- A trace file records `caption` exactly when Lake reads it as a trace whose inputs record it. -/
+theorem traceRecords_iff (caption text : String) :
+    traceRecords caption text = true ↔
+      ∃ data, _root_.Lake.BuildMetadata.parse text = .ok data ∧
+        Records caption (toJson data.inputs) := by
+  unfold traceRecords
+  split
+  · rename_i data hData
+    rw [valueRecords_iff]
+    exact ⟨fun h => ⟨data, hData, h⟩, fun ⟨_, hOk, h⟩ => by cases hData.symm.trans hOk; exact h⟩
+  · rename_i error hError
+    simp only [Bool.false_eq_true, false_iff]
+    rintro ⟨_, hOk, -⟩
+    cases hError.symm.trans hOk
+
 /-- The characters `stdout:` and a line break, with which Lake v4.34.1 starts the information
 entry it logs for a run of output lines of a program that are not a message of it
 (`unparsedCompilerOutput`). -/
@@ -286,9 +440,11 @@ one JSON line on its standard output, and logs each line that parses as a Lean m
 `LogEntry.ofSerialMessage`. It logs each run of other standard output lines as one information
 entry, `stdout:`, a line break and the text (`Lake/Build/Actions.lean`, lines 66 to 81), so a
 message whose JSON line other output corrupted is in such an entry, whatever its severity. Lake
-logs the standard output of other programs it runs in the same form (`logOutput`,
-`Lake/Util/Proc.lean`, lines 22 to 27), which this also selects. Standard error, which Lake logs
-after `stderr:`, holds no Lean message, so this does not select it.
+writes the standard output of other programs it runs in the same form (`logOutput`,
+`Lake/Util/Proc.lean`, lines 22 to 27), at the level its caller chooses, and this selects such an
+entry only at information level: `proc (quiet := true)` logs a successful program's output at trace
+level (line 44), which neither this nor a warning failure level catches. Standard error, which Lake
+logs after `stderr:`, holds no Lean message, so this does not select it.
 An entry Lake made from a Lean message whose file name has no line break is never selected
 (`unparsedCompilerOutput_ofSerialMessage`), and `lineBreakSourcePaths` refuses the modules whose
 message file name has one.
@@ -340,37 +496,80 @@ theorem unparsedCompilerOutput_ofSerialMessage (message : SerialMessage)
   · rfl
   · exact absurd (List.isPrefixOf_iff_prefix.mp hPrefix) (not_stdoutPrefix_prefix h hFirst tail)
 
-/-- The file name Lake v4.34.1 gives each message of the elaboration of `mod`: the path of its
-source file relative to its package's directory (`Module.buildLean` and `compileLeanModule`,
-`Lake/Build/Module.lean` lines 981 to 989 and `Lake/Build/Actions.lean` line 74, with the source
-file `Module.leanFile`, line 31 of that module).
+/-- The file name Lake v4.34.1 gives each message of the elaboration of a module of `pkg` from
+`srcFile`, the source file of its `presetup` facet's result: `Module.buildLean` passes `lean` that
+file and its path relative to the package's directory (`Lake/Build/Module.lean` lines 981 to 989),
+and `compileLeanModule` names each parsed message by `mkRelPathString` of that relative path
+(`Lake/Build/Actions.lean` line 72).
 
-Assumes: Lake v4.34.1 names each message of a module's elaboration as this does. -/
-def messageFileName (mod : _root_.Lake.Module) : String :=
-  _root_.Lake.mkRelPathString (_root_.Lake.relPathFrom mod.pkg.dir mod.leanFile)
+Assumes: Lake v4.34.1 names each message of a module's elaboration as this does, and its `leanArts`
+facet compiles from its `presetup` facet's result. -/
+def messageFileName (pkg : _root_.Lake.Package) (srcFile : System.FilePath) : String :=
+  _root_.Lake.mkRelPathString (_root_.Lake.relPathFrom pkg.dir srcFile)
 
-/-- Each module of the build `store` of `ws`, by the name Lake keys its facets with, whose message
-file name (`messageFileName`) holds a line break, so that `unparsedCompilerOutput_ofSerialMessage`
-does not cover its messages. A module key names a package and a module; each module of a library of
-that package with that name and each executable of it with that root counts, and a key that names
-none is reported too, since its file name is unknown. -/
+/-- The source file of the completed `presetup` job of module `module` of package `package` in the
+build `store`, the file that Lake's `leanArts` facet compiles the module from
+(`Module.recBuildLean`, `Lake/Build/Module.lean` lines 1006 to 1009), or none when the store holds
+no such job or the job failed. -/
+def presetupSource? (store : _root_.Lake.BuildStore) (package module : Name) :
+    Option System.FilePath :=
+  let key := _root_.Lake.BuildKey.packageModuleFacet package module
+    _root_.Lake.Module.presetupFacet
+  have data : _root_.Lake.BuildData key = _root_.Lake.ModulePreSetup := by
+    unfold _root_.Lake.BuildData; simp [key]
+  (store.get? key).bind fun job => (cast data <$> job.task.get.result?).map (·.srcFile)
+
+/-- Why the messages of the module that the build key `key` compiles, if any, are not covered by
+`unparsedCompilerOutput_ofSerialMessage`, or none when they are or `key` compiles nothing. A key
+compiles a module when it is the module's `leanArts` job. Its messages are covered when a package of
+`ws` has the key's package name and the file name Lake gives them (`messageFileName`, from the
+module's completed `presetup` result, `presetupSource?`) has no line break. -/
+def sourcePathFailure? (ws : _root_.Lake.Workspace) (store : _root_.Lake.BuildStore)
+    (key : _root_.Lake.BuildKey) : Option String :=
+  match key with
+  | .facet (.packageModule package module) facet =>
+    if facet != _root_.Lake.Module.leanArtsFacet then none else
+    match ws.packages.find? (·.keyName == package), presetupSource? store package module with
+    | none, _ => some s!"no package of the workspace is {package}, which has module {module}, so \
+        the file name Lake gives its messages is unknown"
+    | _, none => some s!"the build holds no completed presetup of module {module}, so the file \
+        name Lake gives its messages is unknown"
+    | some pkg, some srcFile =>
+      if '\n' ∈ (messageFileName pkg srcFile).toList then
+        some s!"the file name Lake gives each message of module {module}, \
+          {(messageFileName pkg srcFile).quote}, has a line break"
+      else none
+  | _ => none
+
+/-- A key of `store` that compiles a module and has no `sourcePathFailure?` names a package of
+`ws` and a completed `presetup` source file from which Lake names the module's messages with no
+line break, the hypothesis of `unparsedCompilerOutput_ofSerialMessage`. -/
+theorem sourcePathFailure?_eq_none {ws : _root_.Lake.Workspace} {store : _root_.Lake.BuildStore}
+    {package module : Name}
+    (h : sourcePathFailure? ws store
+      (.facet (.packageModule package module) _root_.Lake.Module.leanArtsFacet) = none) :
+    ∃ pkg srcFile, ws.packages.find? (·.keyName == package) = some pkg ∧
+      presetupSource? store package module = some srcFile ∧
+      '\n' ∉ (messageFileName pkg srcFile).toList := by
+  simp only [sourcePathFailure?, bne_self_eq_false, Bool.false_eq_true, ite_false] at h
+  split at h
+  · simp at h
+  · simp at h
+  · rename_i pkg srcFile hPkg hSrc
+    refine ⟨pkg, srcFile, hPkg, hSrc, fun hBreak => ?_⟩
+    simp [hBreak] at h
+
+/-- Each `sourcePathFailure?` of the keys of the build `store` of `ws`. -/
 def lineBreakSourcePaths (ws : _root_.Lake.Workspace) (store : _root_.Lake.BuildStore) :
-    Array String := Id.run do
-  let mut found := #[]
-  let mut seen : Std.HashSet (Name × Name) := {}
-  for key in store.keys do
-    let .facet (.packageModule package module) _ := key | continue
-    if seen.contains (package, module) then continue
-    seen := seen.insert (package, module)
-    let candidates := (ws.packages.filter (·.keyName == package)).flatMap fun pkg =>
-      pkg.leanLibs.filterMap (·.findModule? module) ++
-        (pkg.leanExes.filter (·.root.name == module)).map (·.root)
-    if candidates.isEmpty then
-      found := found.push s!"{module}: no library or executable of package {package} has it"
-    for mod in candidates do
-      if '\n' ∈ (messageFileName mod).toList then
-        found := found.push s!"{module}: {(messageFileName mod).quote}"
-  return found
+    Array String :=
+  store.keys.toArray.filterMap (sourcePathFailure? ws store)
+
+/-- `lineBreakSourcePaths` is empty exactly when no key of the store has a `sourcePathFailure?`. -/
+theorem lineBreakSourcePaths_eq_empty_iff (ws : _root_.Lake.Workspace)
+    (store : _root_.Lake.BuildStore) :
+    lineBreakSourcePaths ws store = #[] ↔
+      ∀ key ∈ store.keys, sourcePathFailure? ws store key = none := by
+  simp [lineBreakSourcePaths]
 
 /-- A trace that records an elaboration is not one that `dropRestoredTraces` removes. -/
 theorem restoredTrace_eq_false_of_elaborationTrace {text : String}

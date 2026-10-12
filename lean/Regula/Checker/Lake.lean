@@ -723,6 +723,11 @@ executable's configuration, so for it these are the package's and the executable
 def weakArgsRecord (library : _root_.Lake.LeanLib) : String :=
   (toJson library.weakLeanArgs).compress
 
+/-- The caption of the trace input that records `library`'s `weakArgsRecord`, as both
+`weakArgsExtraDep` and the `extraDep` facet that Regula's `lakefile.lean` declares write it. -/
+def weakArgsCaption (library : _root_.Lake.LeanLib) : String :=
+  s!"weakLeanArgs {weakArgsRecord library}"
+
 /-- The `extraDep` facet of a library that the workspace configures, `existing` (Lake's own,
 `LeanLib.extraDepFacetConfig`, or one a package declares in its place), with the trace of the
 library's `weakArgsRecord` mixed into its job's when the library belongs to the package `root`.
@@ -736,9 +741,8 @@ def weakArgsExtraDep (root : Name)
     fun (library : _root_.Lake.LeanLib) => do
       let job : _root_.Lake.Job Unit ← existing.run library
       if library.pkg.baseName != root then return job
-      let record := weakArgsRecord library
-      let trace := _root_.Lake.BuildTrace.ofHash (_root_.Lake.pureHash record)
-        s!"weakLeanArgs {record}"
+      let trace := _root_.Lake.BuildTrace.ofHash (_root_.Lake.pureHash (weakArgsRecord library))
+        (weakArgsCaption library)
       return job.mix (_root_.Lake.Job.ofTask (.pure (.ok () { trace })))
 
 /-- The log of one job of a build, as Lake's build monitor judges it: Lake counts a job that is not
@@ -751,7 +755,62 @@ structure JobLog where
   optional : Bool
   /-- The job's log, with what it replayed from a trace. -/
   entries : Array _root_.Lake.LogEntry
+  /-- The most significant action Lake recorded for the job (`JobState.action`): `build` when it
+  ran a build action, such as a module's elaboration, and `replay` when it replayed the log of an
+  earlier one from a trace. -/
+  action : _root_.Lake.JobAction := .unknown
   deriving Inhabited
+
+/-- Whether `jobs` show that Lake elaborated `module` in this build: some job has the caption Lake
+gives a module's job, its name (`Module.recBuildLean`, `Lake/Build/Module.lean` line 1005), and
+each such job ran a build action. Lake resets a job's action when it registers the job
+(`JobState.renew`, `Lake/Build/Job/Register.lean` lines 20 and 44), so the action of a module's job
+is that of its own work, and that job runs a build action only to elaborate the module
+(`Module.buildLean`).
+
+Assumes: in Lake v4.34.1 a module's job is the only job captioned with its name that records a
+build action, and records one exactly when the build elaborated the module. -/
+def elaboratedIn (jobs : Array JobLog) (module : Name) : Bool :=
+  let named := jobs.filter (·.caption == module.toString)
+  !named.isEmpty && named.all (·.action == .build)
+
+/-- The modules of `claimed` whose result in a build that does not settle replayed logs (`settled`
+false) rests on the log of an elaboration from before this process whose weak arguments are not
+known: Lake elaborated none of them in this build (`elaboratedIn`), nor did an earlier build of
+this process (`earlier`), and the trace whose log the build replayed does not record the current
+`weakArgsCaption` of the module's library (`recorded`, `Workspace.traceRecords`). Lake's module
+trace records the `weakLeanArgs` an elaboration ran under only through an `extraDep` facet that
+mixes them in, such as the one Regula's `lakefile.lean` declares, so without that record a clean
+log can come from weak arguments since removed, and its RG2003 result is not established. A build
+under the audit-build marker settles them, since its own facet records them (`weakArgsExtraDep`);
+so does a build outside an incremental project audit (`CheckedBuild.reused`). -/
+def reusedModules (settled : Bool) (earlier recorded : Array Name) (jobs : Array JobLog)
+    (claimed : Array Name) : Array Name :=
+  if settled then #[] else claimed.filter fun module => !earlier.contains module &&
+    !recorded.contains module && !elaboratedIn jobs module
+
+/-- A module is reused exactly when the build does not settle replayed logs, the module is
+claimed, no earlier build of this process elaborated it, its replayed trace does not record its
+weak arguments, and either no job of the build is captioned with its name or one such job ran no
+build action. -/
+theorem mem_reusedModules_iff (settled : Bool) (earlier recorded : Array Name)
+    (jobs : Array JobLog) (claimed : Array Name) (module : Name) :
+    module ∈ reusedModules settled earlier recorded jobs claimed ↔
+      settled = false ∧ module ∈ claimed ∧ module ∉ earlier ∧ module ∉ recorded ∧
+        ((∀ job ∈ jobs, job.caption ≠ module.toString) ∨
+          ∃ job ∈ jobs, job.caption = module.toString ∧ job.action ≠ .build) := by
+  cases settled
+  · have hAll : ((jobs.filter (·.caption == module.toString)).all
+        (·.action == .build)) = false ↔
+        ∃ job ∈ jobs, job.caption = module.toString ∧ job.action ≠ .build := by
+      rw [← Bool.not_eq_true, Array.all_eq_true_iff_forall_mem]
+      simp [Array.mem_filter]
+    simp only [reusedModules, elaboratedIn, Bool.false_eq_true, ite_false, Array.mem_filter,
+      Bool.and_eq_true, Bool.not_eq_true', true_and, Bool.and_eq_false_iff, Bool.not_eq_false',
+      Array.isEmpty_iff, Array.filter_eq_empty_iff, hAll, beq_iff_eq, ne_eq]
+    rw [Bool.eq_false_iff, ne_eq, Array.contains_iff_mem, and_assoc, Bool.eq_false_iff, ne_eq,
+      Array.contains_iff_mem]
+  · simp [reusedModules]
 
 /-- Each entry of a log in `jobs` of a job that is not optional which Lake can have made from
 output of the Lean compiler that is not a Lean message (`Workspace.unparsedCompilerOutput`), after
@@ -788,23 +847,30 @@ monitor judges the jobs registered in the build's job queue and the job that run
 (`Workspace.runBuild`, `Lake/Build/Run.lean` lines 427 to 436). This runs `build` with a queue of
 its own, moves each job registered there to Lake's queue once registered (`forwardJobs`), waits for
 each and for the job `build` returns, and records the log of each and that of the job that runs it,
-so `record` holds exactly the logs Lake's monitor judges. A module of the build whose message file
-name has a line break (`Workspace.lineBreakSourcePaths`) is logged as an error of the job that runs
-the build, which fails it. -/
+so `record` holds exactly the logs Lake's monitor judges. A registered job's log is read from its
+completed task, after Lake's own capture of its standard output and error (`Job.async`,
+`Lake/Build/Job/Monad.lean` line 173) has added its entry. The job that runs the build is also
+captured that way (`Workspace.startBuild`, `Lake/Build/Run.lean` line 363), but only after this
+returns, so this runs `build` under the same capture (`withLoggedIO`, `Lake/Util/Log.lean` line
+437) and records that job's log afterwards: the rest of this writes nothing to standard output or
+error, so Lake's capture adds no entry. A module of the build whose messages
+`unparsedCompilerOutput_ofSerialMessage` does not cover (`Workspace.lineBreakSourcePaths`) is
+logged as an error of the job that runs the build, which fails it. -/
 def observedFetch (ws : _root_.Lake.Workspace) (record : IO.Ref (Array JobLog))
     (build : _root_.Lake.FetchM (_root_.Lake.Job Unit)) :
     _root_.Lake.FetchM (_root_.Lake.Job Unit) :=
   _root_.Lake.FetchM.ofFn fun fetch pkg? stack store context log => do
     let own ← IO.mkRef #[]
-    let result ← build.toFn fetch pkg? stack store { context with registeredJobs := own } log
+    let result ← (_root_.Lake.withLoggedIO build).toFn fetch pkg? stack store
+      { context with registeredJobs := own } log
     let mut jobs ← forwardJobs own context.registeredJobs #[]
     if let .ok job _ := result then
       discard <| IO.wait job.task
       jobs ← forwardJobs own context.registeredJobs jobs
     let lineBreaks := Workspace.lineBreakSourcePaths ws (← store.get)
-    let addErrors (log : _root_.Lake.Log) := lineBreaks.foldl (init := log) fun log path =>
-      log.push (.error s!"the file name Lake gives each message of module {path} has a line \
-        break, so its log cannot tell those messages from other output of the compiler")
+    let addErrors (log : _root_.Lake.Log) := lineBreaks.foldl (init := log) fun log reason =>
+      log.push (.error s!"{reason}, so its log cannot tell those messages from other output of \
+        the compiler")
     let result := match result with
       | .ok job log => .ok job (addErrors log)
       | .error position log => .error position (addErrors log)
@@ -813,9 +879,55 @@ def observedFetch (ws : _root_.Lake.Workspace) (record : IO.Ref (Array JobLog))
       | .error _ log => log
     record.set <| (jobs.map fun job => {
         caption := job.caption, optional := job.optional,
-        entries := job.task.get.state.log.entries : JobLog }).push
+        entries := job.task.get.state.log.entries,
+        action := job.task.get.state.action : JobLog }).push
       { caption := "the build's computation", optional := false, entries := ownLog.entries }
     return result
+
+/-- The result of a build that `Build.runObserved` ran. -/
+structure CheckedBuild where
+  /-- The build's exit code and output. Lake's build monitor failed the build, and
+  `Build.runObserved` exited 1, when a required job logged an entry at the build's failure level
+  or above. -/
+  process : ProcessResult
+  /-- The log of each job that Lake's build monitor judged (`observedFetch`). -/
+  jobs : Array JobLog
+  /-- Whether the build set Lean options on the root package (`Build.rootOptions`), the audit
+  build's marker among them, so that its libraries take their `extraDep` facet from
+  `weakArgsExtraDep`. -/
+  marked : Bool
+  /-- The modules of the build's claimed targets (`surfaceRequest`). -/
+  claimed : Array Name
+  /-- The modules an earlier build of this process elaborated in the same project
+  (`elaboratedInProcess`). -/
+  earlier : Array Name
+  /-- The claimed modules whose trace file, read after the build, records the current
+  `weakArgsCaption` of the module's library among its inputs (`Workspace.traceRecords`). -/
+  recorded : Array Name := #[]
+  /-- Whether the build is the claimed build of an incremental project audit (`lake lint` without
+  `--fresh`, `axiomGate --incremental`, the build-lint `policy` target), which reads the checkout's
+  existing build output. -/
+  incremental : Bool := false
+
+/-- Each entry of a job of `build` that is not optional which Lake can have made from compiler
+output that is not a Lean message (`unparsedOutput`), such as a warning whose line other output
+corrupted, which Lake logs as information. -/
+def CheckedBuild.unparsed (build : CheckedBuild) : Array String :=
+  unparsedOutput build.jobs
+
+/-- The claimed modules of `build` whose RG2003 result is not established, since the build is an
+incremental project audit's without the audit-build marker and their clean log may come from weak
+arguments since removed (`reusedModules`). Only an incremental project audit decides RG2003 from a
+checkout's existing build output: the other callers build a copy from its own configuration or
+decide RG2003 only for a file that the compiler elaborates itself. -/
+def CheckedBuild.reused (build : CheckedBuild) : Array Name :=
+  reusedModules (build.marked || !build.incremental) build.earlier build.recorded build.jobs
+    build.claimed
+
+/-- For each project, by its real path, the claimed modules that a build of this process
+elaborated (`elaboratedIn`). A later build of the same audit that replays their logs rests on that
+elaboration, not on one from before the process. -/
+initialize elaboratedInProcess : IO.Ref (Std.HashMap String (Array Name)) ← IO.mkRef {}
 
 /-- Build `targets` of the workspace at `repo` as `build` describes, in this process through
 Lake's build API, as `lake build` does: its build monitor's text is the output, and a failed build
@@ -849,12 +961,16 @@ child `lake build` it leaves the checker's own state as it was. Both are process
 task of the process may build or read them while it runs; the checker runs its builds one at a
 time. -/
 def Build.runObserved (build : Build) (repo : FilePath) (targets : Array Target) :
-    IO (ProcessResult × Array JobLog) := do
+    IO CheckedBuild := do
   let buffer ← IO.mkRef ({} : IO.FS.Stream.Buffer)
   let out ← showingStream (IO.FS.Stream.ofBuffer buffer) build.display
   let searchPath ← Lean.searchPathRef.get
   let workingDirectory ← IO.currentDir
   let jobLogs ← IO.mkRef (#[] : Array JobLog)
+  let marked ← IO.mkRef false
+  let claimed ← IO.mkRef (#[] : Array Name)
+  let earlier ← IO.mkRef (#[] : Array Name)
+  let recorded ← IO.mkRef (#[] : Array Name)
   let exitCode ← try
       Workspace.withRootWorkspace repo (scrubSearchPath := true) fun loaded => do
         let ws := Workspace.uncachedWorkspace loaded
@@ -874,6 +990,10 @@ def Build.runObserved (build : Build) (repo : FilePath) (targets : Array Target)
         if let some spec := specs.find? (!·.buildable) then
           throw <| IO.userError s!"'{spec.info.key.toSimpleString}' is not a buildable target"
         let rootOptions ← build.rootOptions loaded
+        let project := (← IO.FS.realPath repo).toString
+        marked.set rootOptions.isSome
+        claimed.set (modules.map (·.name))
+        earlier.set ((← elaboratedInProcess.get).getD project #[])
         Workspace.dropRestoredTraces ws
         let (ws, leanOptOverrides) ← match rootOptions with
           | some options =>
@@ -892,6 +1012,12 @@ def Build.runObserved (build : Build) (repo : FilePath) (targets : Array Target)
           unless text.any Workspace.elaborationTrace do
             throw <| IO.userError s!"the build left no trace of an elaboration of {mod.name}, \
               so its messages were not observed"
+          if text.any (Workspace.traceRecords (weakArgsCaption mod.lib)) then
+            recorded.modify (·.push mod.name)
+        let jobs ← jobLogs.get
+        let elaborated := (modules.map (·.name)).filter (elaboratedIn jobs)
+        elaboratedInProcess.modify fun recorded =>
+          recorded.insert project (recorded.getD project #[] ++ elaborated)
       pure (0 : UInt32)
     catch error =>
       out.putStrLn s!"error: {error}"
@@ -899,14 +1025,20 @@ def Build.runObserved (build : Build) (repo : FilePath) (targets : Array Target)
     finally
       Lean.searchPathRef.set searchPath
       IO.Process.setCurrentDir workingDirectory
+  let observed (process : ProcessResult) : IO CheckedBuild := do
+    let jobs ← jobLogs.get
+    let marked ← marked.get
+    let claimed ← claimed.get
+    let earlier ← earlier.get
+    let recorded ← recorded.get
+    return { process, jobs, marked, claimed, earlier, recorded }
   let some stdout := String.fromUTF8? (← buffer.get).data
-    | return ({ exitCode := 1, stdout := "", stderr := "error: build output is not UTF-8" },
-        ← jobLogs.get)
-  return ({ exitCode, stdout, stderr := "" }, ← jobLogs.get)
+    | observed { exitCode := 1, stdout := "", stderr := "error: build output is not UTF-8" }
+  observed { exitCode, stdout, stderr := "" }
 
 /-- The process result of `Build.runObserved`. -/
 def Build.run (build : Build) (repo : FilePath) (targets : Array Target) : IO ProcessResult :=
-  (·.1) <$> build.runObserved repo targets
+  (·.process) <$> build.runObserved repo targets
 
 instance : CoeFun Build (fun _ => FilePath → Array Target → IO ProcessResult) := ⟨Build.run⟩
 
@@ -951,36 +1083,33 @@ package resolves to its one source and none imports the marker's reader
 (`AxiomGate.claimedBuild`). -/
 def auditLeanOptions : LeanOptions := .ofArray #[⟨Regula.Linter.auditBuildOption, .ofBool true⟩]
 
-/-- The result of a build that `buildCheckedObservation` ran with Lake's failure level at
-`warning`. -/
-structure CheckedBuild where
-  /-- The build's exit code and output. Lake's build monitor failed the build, and
-  `Build.runObserved` exited 1, when a required job logged an entry of level `warning` or above. -/
-  process : ProcessResult
-  /-- The log of each job that Lake's build monitor judged (`observedFetch`). -/
-  jobs : Array JobLog
-
-/-- Each entry of a job of `build` that is not optional which Lake can have made from compiler
-output that is not a Lean message (`unparsedOutput`), such as a warning whose line other output
-corrupted, which Lake logs as information. -/
-def CheckedBuild.unparsed (build : CheckedBuild) : Array String :=
-  unparsedOutput build.jobs
-
 /-- Build the claimed Lake targets and require success with no warnings: the build runs with
 Lake's failure level at `warning`, so it succeeds only when no required job logged a warning or an
 error. Lake gives each message of a module's elaboration the level of its Lean severity
 (`LogLevel.ofMessageSeverity`), so an information message, whatever its text, never fails the
 build. The build is also refused when a job that Lake's build monitor judged holds an entry Lake
 can have made from compiler output that is not a Lean message (`CheckedBuild.unparsed`), since Lake
-logs it as information whatever it held. The output is read only to report a failure. Returns the
-diagnostic lines to report on failure. -/
+logs it as information whatever it held. When `incremental` says it is the claimed build of an
+incremental project audit and the build has no audit-build marker, a claimed module whose log it
+reused from before this process (`CheckedBuild.reused`) has no established result, and each such
+module is reported. The output is read only to report a failure. Returns the diagnostic lines to
+report on failure. -/
 def buildCheckedObservation (repo : FilePath) (targets : Array SurfaceTarget)
-    (mode : String) (build : Build := buildTargets) :
+    (mode : String) (build : Build := buildTargets) (incremental : Bool := false) :
     IO (CheckedBuild × Option (Array String)) := do
-  let (process, jobs) ← Build.runObserved { build with failLv := .warning } repo
-    (targets.map .surface)
-  let build : CheckedBuild := { process, jobs }
-  if process.succeeded && build.unparsed.isEmpty then return (build, none)
+  let observed ← Build.runObserved { build with failLv := .warning } repo (targets.map .surface)
+  let build := { observed with incremental }
+  let process := build.process
+  if process.succeeded && build.unparsed.isEmpty && build.reused.isEmpty then
+    return (build, none)
+  if process.succeeded && build.unparsed.isEmpty then
+    return (build, some (#[s!"FAIL[build-reused]: the claimed build {mode} without Regula's \
+        audit-build marker reused the log of an elaboration from before this run for each \
+        module below. Lake's module trace does not record the `weakLeanArgs` an elaboration ran \
+        under, so that log can come from weak arguments since removed, and the module's result \
+        is not established. A build with the marker (`lake lint` without \
+        REGULA_ORDINARY_LAKEFILES=1) or a fresh audit elaborates it again."] ++
+      build.reused.map (s!"not established: {·}")))
   let diagnostics :=
     if !build.unparsed.isEmpty then
       #["the compiler printed output that is not a Lean message, which Lake logs as \

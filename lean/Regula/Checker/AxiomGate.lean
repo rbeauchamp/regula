@@ -624,6 +624,7 @@ private unsafe def auditSurfaceAt (repo manifestPath : FilePath)
       let (initialBuild, buildResult) ← timedPhase "claimed-source build" <|
           Lake.buildCheckedObservation repo buildPlan.initialTargets
               origin.label (← claimedBuild.get)
+              (incremental := origin matches .incremental)
       SourceBinding.unchanged allBindings
       SourceBinding.configurationUnchanged configuration
       if let some lines := buildResult then
@@ -788,7 +789,7 @@ private unsafe def auditSurfaceAt (repo manifestPath : FilePath)
         | some targets => do
             let build ← claimedBuild.get
             timedPhase "deferred claimed-source build" (Lake.buildCheckedObservation repo targets
-              origin.label build)
+              origin.label build (incremental := origin matches .incremental))
       SourceBinding.unchanged allBindings
       SourceBinding.configurationUnchanged configuration
       if let some lines := buildResult then

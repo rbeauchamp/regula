@@ -167,3 +167,22 @@ lean_exe «site» where
 lean_exe «auditApp» where
   root := `Main
   supportInterpreter := true
+
+-- Regula's weak-arguments record. Lake's module trace omits a library's `weakLeanArgs`, so a
+-- module replayed from a build under weak arguments since removed would reproduce messages of
+-- that build. This facet wraps Lake's own `extraDep` facet and, for libraries of the root package
+-- and of Regula itself, mixes a caption that records the library's `weakLeanArgs` into the trace.
+-- A change of those arguments then rebuilds the root's modules, and the audit decides a replayed
+-- module from this caption (`Regula.Checker.Workspace.traceRecords`). Regula's own modules get the
+-- caption whether Regula is the root or a dependency, so the two share one build. Other
+-- dependencies' traces stay unchanged. A
+-- dependency resolved after this package that declares an `extraDep` facet replaces this one:
+-- Lake resolves a package's `require` lines from the last to the first, then their dependencies.
+@[«library_facet»] def weakLeanArgsTrace : LibraryFacetDecl :=
+  .mk LeanLib.extraDepFacet <| mkFacetJobConfig fun library => do
+    let job ← LeanLib.extraDepFacetConfig.run library
+    let root := (← getRootPackage).baseName
+    if library.pkg.baseName != root && library.pkg.baseName != `regula then return job
+    let record := (Lean.toJson library.weakLeanArgs).compress
+    return job.mix <| Job.ofTask <| .pure <| .ok () {
+      trace := BuildTrace.ofHash (pureHash record) s!"weakLeanArgs {record}" }

@@ -76,27 +76,35 @@ def sourceSnapshots (sources : Array ProducerReport.SourceBinding)
 compiler output that is not a Lean message logged no warning or error, since Lake failed it
 otherwise (`Lake.buildCheckedObservation`), so it has none. Any other build keeps its exit code,
 the warning and error lines of its output, which are read only to report it, and those entries
-as errors. That Lake fails such a build is read from Lake's source, not proved. -/
+as errors, and names each claimed module whose log a build without Regula's audit-build marker
+reused (`Lake.CheckedBuild.reused`), whose result it does not establish. That Lake fails such a
+build is read from Lake's source, not proved. -/
 def buildObservation (build : Lake.CheckedBuild) : BuildObservation :=
-  if build.process.exitCode = 0 ∧ build.unparsed = #[] then ⟨0, #[], #[]⟩
+  if build.process.exitCode = 0 ∧ build.unparsed = #[] ∧ build.reused = #[] then ⟨0, #[], #[]⟩
   else ⟨build.process.exitCode.toNat, warningLines build.process.output,
-    errorLines build.process.output ++ build.unparsed⟩
+    errorLines build.process.output ++ build.unparsed ++
+      build.reused.map (s!"RG2003 not established for reused module {·}")⟩
 
 /-- A warning-checked build's observation is accepted exactly when the build exited 0 and no job
 that Lake's build monitor judged and that is not optional logged an entry Lake can have made from
-compiler output that is not a Lean message, whatever its output says. That `build.jobs` holds the
-logs of exactly the jobs Lake's monitor judged is `Lake.observedFetch`'s construction. -/
+compiler output that is not a Lean message, whatever its output says, and it reused no claimed
+module's log (`Lake.mem_reusedModules_iff` states which modules `build.reused` holds). That
+`build.jobs` holds the logs of exactly the jobs Lake's monitor judged is `Lake.observedFetch`'s
+construction. -/
 theorem buildObservation_ok_iff (build : Lake.CheckedBuild) :
     BuildOK (buildObservation build) ↔
-      build.process.exitCode = 0 ∧ ∀ job ∈ build.jobs, job.optional = false →
-        ∀ entry ∈ job.entries, Workspace.unparsedCompilerOutput entry = false := by
+      build.process.exitCode = 0 ∧ (∀ job ∈ build.jobs, job.optional = false →
+        ∀ entry ∈ job.entries, Workspace.unparsedCompilerOutput entry = false) ∧
+        build.reused = #[] := by
   rw [← Lake.unparsedOutput_eq_empty_iff, ← Lake.CheckedBuild.unparsed]
   unfold buildObservation BuildOK
   split
   · simp_all
   · rename_i h
-    refine ⟨fun ⟨exit, _, errors⟩ => absurd ⟨UInt32.toNat_inj.mp (by simpa using exit),
-      (Array.append_eq_empty_iff.mp errors).2⟩ h, fun ok => absurd ok h⟩
+    refine ⟨fun ⟨exit, _, errors⟩ => absurd ?_ h, fun ok => absurd ok h⟩
+    obtain ⟨front, reused⟩ := Array.append_eq_empty_iff.mp errors
+    exact ⟨UInt32.toNat_inj.mp (by simpa using exit), (Array.append_eq_empty_iff.mp front).2,
+      by simpa using reused⟩
 
 private def moduleKey (snapshot : AdmittedSnapshot) (name : Name) : Except String ModuleKey := do
   return ⟨snapshot, ← admitIdentity name⟩

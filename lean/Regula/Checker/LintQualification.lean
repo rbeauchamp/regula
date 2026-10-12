@@ -208,8 +208,8 @@ weak argument added to the claimed library makes the driver elaborate it again
 (`Lake.weakArgsRecord`), and a warning whose line another process's output corrupted fails both the
 claimed build and the file audit, and fails the claimed build also in a library outside the claim
 that the claimed library needs. A module of such a library whose source directory has a line break
-fails the build, and a library facet `extraDep` that the package declares in place of Lake's still
-runs in the audit build. -/
+fails the build, and a target of the claimed library's `extraDepTargets` still runs in the audit
+build. -/
 private def leanDecisions (probes : Std.Mutex Unit) (repo adopter : FilePath) :
     IO (Array String) := do
   BuildLintQualification.setup repo adopter
@@ -299,24 +299,37 @@ private def leanDecisions (probes : Std.Mutex Unit) (repo adopter : FilePath) :
       excludes := #[s!"regula lint: {acceptanceLabel}"] })
   IO.FS.removeDirAll breakDirectory
   IO.FS.writeFile manifest manifestText
-  -- A library facet `extraDep` the package declares in place of Lake's writes a file that the
-  -- claimed module's elaboration reads; the audit build runs it, adding only its record of the
-  -- weak arguments.
+  -- A module facet `input` the package declares in place of Lake's returns, for Widget, a copy of
+  -- its source in a directory whose name has a line break. Lake compiles a module from that result
+  -- and names its messages by it, not by `Module.leanFile`, so the build refuses the module.
+  IO.FS.writeFile lakefile (plain ++ "\n@[«module_facet»] def copiedInput : ModuleFacetDecl :=\n  \
+    .mk Module.inputFacet <| mkFacetJobConfig (buildable := false) fun (mod : Module) => do\n    \
+    let job ← Module.inputFacetConfig.run mod\n    \
+    if mod.name != `Widget then return job\n    \
+    job.mapM fun input => do\n      \
+    let directory := mod.pkg.dir / \"line\\nbreak\"\n      \
+    IO.FS.createDirAll directory\n      \
+    IO.FS.writeFile (directory / \"Widget.lean\") (← IO.FS.readFile input.path)\n      \
+    return {input with path := directory / \"Widget.lean\"}\n")
+  failures := failures ++ (← expect adopter {
+      label := "lean/line-break-input-copy", exitCode := 3,
+      contains := #["module Widget", "has a line break, so its log cannot tell"],
+      excludes := #[s!"regula lint: {acceptanceLabel}"] })
+  IO.FS.writeFile lakefile plain
+  if ← breakDirectory.pathExists then IO.FS.removeDirAll breakDirectory
+  -- A target in the claimed library's `extraDepTargets` writes a file that the claimed module's
+  -- elaboration reads. Regula's `extraDep` facet replaces one that the root package declares, and
+  -- runs Lake's own, which builds those targets, so the audit build runs it.
   let generated := adopter / "generated.txt"
-  -- Lake applies a declared facet to every library of the workspace, so it runs Lake's own
-  -- facet and writes the file only for Widget, and the `regula` package's modules keep their
-  -- traces.
-  IO.FS.writeFile lakefile (plain ++ "\n@[«library_facet»] def generatedExtraDep : \
-    LibraryFacetDecl :=\n  .mk LeanLib.extraDepFacet <| mkFacetJobConfig fun (lib : LeanLib) => do\n    \
-    let job : Job Unit ← LeanLib.extraDepFacetConfig.run lib\n    \
-    if lib.name == `Widget then IO.FS.writeFile (lib.pkg.dir / \"generated.txt\") \"ready\"\n    \
-    return job\n")
+  IO.FS.writeFile lakefile (widgetLibrary "extraDepTargets := #[`generate]" ++
+    "\ntarget generate pkg : Unit := do\n  \
+    IO.FS.writeFile (pkg.dir / \"generated.txt\") \"ready\"\n  return Job.nil\n")
   mutate widget "namespace Widget" "namespace Widget\n\n\
-    /-- Text that the package's `extraDep` facet writes. -/\n\
+    /-- Text that a target of the library's `extraDepTargets` writes. -/\n\
     def generated : String := include_str \"generated.txt\"\n"
   if ← generated.pathExists then IO.FS.removeFile generated
   failures := failures ++ (← expect adopter { positive with
-    label := "lean/declared-extra-dep", contains := positive.contains.push "] Built Widget" })
+    label := "lean/extra-dep-target", contains := positive.contains.push "] Built Widget" })
   IO.FS.writeFile widget widgetSource
   IO.FS.writeFile lakefile plain
   if ← generated.pathExists then IO.FS.removeFile generated
@@ -859,6 +872,129 @@ private def tomlPlain (probes : Std.Mutex Unit) (repo adopter : FilePath) :
   restore adopter (originals ++ targetOriginals)
   failures := failures ++
       (← expect adopter (accepted "toml/fresh-restored" (fresh := true)) #["--", "--fresh"])
+  return failures
+
+/-- Controls of the weak-arguments record (`Lake.weakArgsCaption`) that the `extraDep` facet of
+Regula's `lakefile.lean` mixes into each root module's trace, in the three modes whose build reads
+the checkout's existing output without the audit-build marker: `lake lint` under the owner's
+assertion on the plain shape, `axiomGate --incremental`, and the build-lint `policy` target. A
+claimed theorem leaves an unused `have`, which the weak argument `-Dlinter.unusedVariables=false`
+hides. In each mode, after an ordinary build under that weak argument, removing it changes the
+record in Widget's trace, so the mode elaborates the module again and reports the warning; without
+the theorem, a second run with nothing changed replays the modules and is accepted. A path
+dependency required after Regula that declares Lake's own `extraDep` facet replaces Regula's, so
+the trace records no weak arguments: after the same ordinary build and removal,
+`axiomGate --incremental` and the `policy` target replay the modules and report them not
+established, and `lake lint` keeps the marker, since a package declares a facet, and reports the
+warning. Decision probes of the plain shape: Regula's own facet is admitted (the lint mode's
+marker-free runs), while a root package named `regula` that declares the same facet in another
+`lakefile.lean`, or a facet of that name with another body, keeps the marker. -/
+private def weakArgsReuse (probes : Std.Mutex Unit) (repo adopter : FilePath) :
+    IO (Array String) := do
+  BuildLintQualification.setup repo adopter
+  let lakefile := adopter / "lakefile.lean"
+  let full ← IO.FS.readFile lakefile
+  let plain ← match full.splitOn "\n/-- The sole default target" with
+    | [declarations, _] => pure declarations
+    | _ => throw <| IO.userError "lake-lint: expected one policy target in the adopter's lakefile"
+  let withWeak (text : String) : String :=
+    text.replace "globs := #[.andSubmodules `Widget]"
+      "globs := #[.andSubmodules `Widget]\n  weakLeanArgs := #[\"-Dlinter.unusedVariables=false\"]"
+  -- Lake resolves a package's `require` lines from the last to the first, so a `require` above
+  -- Regula's is resolved after it, and its facet declarations replace Regula's.
+  let withOverride (text : String) : String :=
+    text.replace "\nrequire regula " "\nrequire override from \"override\"\n\nrequire regula "
+  let additional := adopter / "Widget" / "Additional.lean"
+  let original ← IO.FS.readFile additional
+  let warned := original.replace "end Widget.Additional" <|
+    "/-- A claimed theorem whose proof leaves an unused `have`. -/\n" ++
+      "theorem withUnused (n : Nat) : n = n :=\n  have unused : 0 = 0 := rfl\n  rfl\n\n" ++
+      "end Widget.Additional"
+  let warning := "Variable name `unused` is not explicitly referenced"
+  let env := scrubbedLeanPathEnv
+  let lint : IO ProcessResult := runProcess adopter "lake" #["lint"] (env ++ optIn)
+  let gate : IO ProcessResult := runProcess adopter "lake" #["exe", "axiomGate", "--incremental"] env
+  let policy : IO ProcessResult := runProcess adopter "lake" #["build"] env
+  -- Each mode: its label, its run, the lakefile it runs under, and its exit code on an
+  -- incomplete result (`lake build` fails the `policy` target with exit 1).
+  let modes : Array (String × IO ProcessResult × String × UInt32) :=
+    #[("lint", lint, plain, 3), ("incremental", gate, plain, 3), ("policy", policy, full, 1)]
+  let mut failures := #[]
+  -- An ordinary build of Widget under the weak argument, which hides the warning.
+  let hidden (label text : String) : IO (Array String) := do
+    IO.FS.writeFile additional warned
+    IO.FS.writeFile lakefile (withWeak text)
+    let ordinary ← runProcess adopter "lake" #["build", "Widget"] env
+    IO.FS.writeFile lakefile text
+    if ordinary.succeeded && !ordinary.output.contains warning then return #[]
+    return #[s!"lake-lint/weak-args/{label}: the ordinary build under the weak argument did not \
+      hide the warning:\n{ordinary.output}", ordinary.output]
+  for (mode, run, text, incomplete) in modes do
+    failures := failures ++ (← hidden s!"{mode}-hidden" text)
+    failures := failures ++ (← assess {
+        label := s!"weak-args/{mode}-rebuilt", exitCode := incomplete,
+        contains := if mode == "lint" then #[warning, "RG2003", markerOmitted] else #[warning],
+        excludes := #["not established"] } (← run))
+    IO.FS.writeFile additional original
+    let passed : Expectation :=
+      { label := s!"weak-args/{mode}-accepted", exitCode := 0
+        excludes := #["not established", warning] }
+    failures := failures ++ (← assess passed (← run))
+    failures := failures ++ (← assess { passed with label := s!"weak-args/{mode}-reused" } (← run))
+  -- A dependency resolved after Regula declares Lake's own `extraDep` facet in place of Regula's.
+  let override := adopter / "override"
+  IO.FS.createDirAll override
+  IO.FS.writeFile (override / "lean-toolchain") (← IO.FS.readFile (adopter / "lean-toolchain"))
+  IO.FS.writeFile (override / "lakefile.lean") "import Lake\nopen Lake DSL\n\npackage override\n\n\
+    @[«library_facet»] def lakeExtraDep : LibraryFacetDecl :=\n  \
+    .mk LeanLib.extraDepFacet LeanLib.extraDepFacetConfig\n"
+  -- The manifest of the adopter gains the dependency, and is restored after these controls.
+  let manifest := adopter / "lake-manifest.json"
+  let resolved ← IO.FS.readFile manifest
+  if withOverride plain == plain then
+    failures := failures.push "lake-lint/weak-args: the adopter's lakefile has no `require regula`"
+  IO.FS.writeFile lakefile (withOverride plain)
+  let updated ← runProcess adopter "lake" #["update", "override"] env
+  unless updated.succeeded do
+    failures := failures.push s!"lake-lint/weak-args: `lake update override` failed:\n\
+      {updated.output}"
+  for (mode, run, text, incomplete) in modes do
+    failures := failures ++ (← hidden s!"{mode}-override-hidden" (withOverride text))
+    let expectation : Expectation := if mode == "lint" then
+        { label := s!"weak-args/{mode}-override-marked", exitCode := 3,
+          contains := #[warning, "RG2003", markerKept, "facet declaration"],
+          excludes := #["not established"] }
+      else
+        { label := s!"weak-args/{mode}-override-unestablished", exitCode := incomplete,
+          contains := #["not established: Widget"], excludes := #[warning] }
+    failures := failures ++ (← assess expectation (← run))
+  IO.FS.writeFile additional original
+  IO.FS.writeFile lakefile full
+  IO.FS.writeFile manifest resolved
+  IO.FS.removeDirAll override
+  -- A root package named `regula` that declares the facet of Regula's `lakefile.lean`, verbatim,
+  -- in another lakefile, and one whose facet of that name has another body: neither is the
+  -- Regula that runs the probe, so each keeps the marker.
+  let shipped ← IO.FS.readFile (repo / "lakefile.lean")
+  let some facetText := (shipped.splitOn "\n-- Regula's weak-arguments record.").getLast?.map
+      ("-- Regula's weak-arguments record." ++ ·)
+    | return failures.push "lake-lint/weak-args: Regula's lakefile has no weak-arguments facet"
+  let fake := adopter / "fake-regula"
+  IO.FS.createDirAll fake
+  IO.FS.writeFile (fake / "lean-toolchain") (← IO.FS.readFile (adopter / "lean-toolchain"))
+  IO.FS.writeFile (fake / "Probe.lean") "/-! A module of the probe. -/\n"
+  let fakeLakefile (facet : String) : String :=
+    s!"import Lake\nopen Lake DSL\n\npackage «regula»\n\nlean_lib Probe\n\n{facet}"
+  IO.FS.writeFile (fake / "lakefile.lean") (fakeLakefile facetText)
+  failures := failures ++ (← probe probes fake "weak-args/regula-elsewhere" #["Probe"]
+    (some "facet declaration"))
+  let rewritten := facetText.replace "weakLeanArgs {" "otherLeanArgs {"
+  if rewritten == facetText then
+    failures := failures.push "lake-lint/weak-args: the facet's body has no caption `weakLeanArgs`"
+  IO.FS.writeFile (fake / "lakefile.lean") (fakeLakefile rewritten)
+  failures := failures ++ (← probe probes fake "weak-args/regula-other-body" #["Probe"]
+    (some "facet declaration"))
+  IO.FS.removeDirAll fake
   return failures
 
 /-- Counterexample control for issue 291, at an external boundary: Lake's artifact cache, whose
@@ -1783,7 +1919,8 @@ its shard only with the short compiler-guard control `guard`. The order and the 
 times of the groups in the slowest CI run of the campaign before the cut
 (`docs/guides/proofs-and-boundaries.md` names the run). -/
 private def queuedGroups (probes : Std.Mutex Unit) : List Group :=
-  [(numbered 1, "owned-checker", ownedChecker),
+  [(numbered 1, "weak-args", weakArgsReuse probes),
+    (numbered 1, "owned-checker", ownedChecker),
     (numbered 2, "path-overrides", pathOverrides),
     (numbered 3, "lean-decisions", leanDecisions probes),
     (numbered 3, "lean-arguments", leanArguments probes),
