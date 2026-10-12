@@ -2870,9 +2870,11 @@ inferred from any pure proof.
     `src/kernel/expr_cache.cpp:12` in `src/kernel` compares binder names or annotations, and its
     stricter key can only miss more often.
 
-  Thus no decision of the kernel uses a part that `Expr.eqv` ignores. Also, no check of Regula on a
-  reused module reads such a part. The reuse set goes only to `Admission.validate`, from the
-  `Admission.reusedModules` call in `Regula.Checker.Environment`. The declaration report gets
+  Thus no decision of the kernel uses a part that `Expr.eqv` ignores. Reuse changes no input of the
+  other checks of Regula, because these checks read the audited environment. The audited
+  environment is the same if a module is replayed or reused. The reuse set goes only to
+  `Admission.validate`, from the `Admission.reusedModules` call in `Regula.Checker.Environment`.
+  The declaration report gets
   `admission.modules ++ admission.reused`, which is the same set if a module is replayed or reused.
   In `validate`, reuse changes only the copies that `replayMap` gives to the kernel and the copies
   that the replay base holds.
@@ -4859,8 +4861,9 @@ and, for a structural or lint-driver selection, the other targets its baseline n
 (none for the first structural shard) in one Lake invocation
 (`RegulaVerification.commands`), so the gate's own modules compile beside the self-test's last
 ones instead of after its link; that command selects nothing, and the baseline build still
-names and builds its targets. The frozen-artifact, cross-surface decision, library cycle, driver
-copy, retained build and manifest controls run in the structural clusters' queue, so no more of
+names and builds its targets. The frozen-artifact, cross-surface decision, library cycle,
+identical copies, driver copy, retained build and manifest controls run in the structural clusters'
+queue, so no more of
 them run at once than the queue has workers.
 
 The lint-driver controls run `lake lint` in adopters of their own, which require `regula` as a
@@ -4887,8 +4890,8 @@ exactly one shard.
 The shards of a partition list the same controls because they run the same sources, which no
 theorem states. The first structural shard holds `self-hosted-positive` alone. The other four hold
 the chain `self-hosted` and the clusters cut from `a`, `b`, `c` and `d`. They also hold the
-frozen-artifact, cross-surface decision, library cycle, driver copy, retained build and manifest
-controls. The retained build control is in shard `4/5`, because the baseline of that shard builds
+frozen-artifact, cross-surface decision, library cycle, identical copies, driver copy, retained
+build and manifest controls. The retained build control is in shard `4/5`, because the baseline of that shard builds
 `docFenceAudit`.
 
 The execution shards divide the correspondence clusters and the compiler-path cases.

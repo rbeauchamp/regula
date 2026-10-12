@@ -740,8 +740,9 @@ owned (`ownedUniform`). So each safe, total constant of a reused module is `Iden
 the kernel of an environment of the audit accepted (by induction on the order in which the
 environments start, with the symmetry and transitivity of `Identical`).
 
-Nothing else Regula checks on a reused module reads what `Identical` ignores. The reuse set
-reaches only `validate` (`Regula.Checker.Environment`, the `reused` that `reusedModules` gives),
+Reuse changes no input of any other check of Regula: those checks read the audited environment,
+which is the same whether a module is replayed or reused. The reuse set reaches only `validate`
+(`Regula.Checker.Environment`, the `reused` that `reusedModules` gives),
 and the declaration report receives the receipt's `modules ++ reused`, the same set whether a
 module is replayed or reused. Within `validate`, reuse changes only which copies `replayMap` hands
 the kernel and which the replay base holds. `checkShared` compares with `sameTheorem`, and
