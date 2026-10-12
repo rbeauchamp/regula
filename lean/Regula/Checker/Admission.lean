@@ -772,10 +772,11 @@ states the decision.
 This is the condition on a module's own constants under which an environment reuses an earlier
 environment's replay of it (`candidates`), and why that is the replay this environment would
 repeat. An environment that reuses the module imports it into the replay base and checks none of
-its constants. Every other constant it holds under one of the module's names is the same copy
-(`SameCopy`) as the module's own: the replay base's (one of the loaded copies, `finalizeImport`),
-the replayed kernel's (the kept constant, `replayMap_sound`) and the audited environment's (the
-kept constant), so `replayMap`, `checkShared`, `checkOwn` and `checkKept` meet, under that name,
+its constants. Every other constant it holds under one of the module's names is `Identical` to the
+module's own: the replay base's (one of the loaded copies, `finalizeImport`) and the audited
+environment's (the kept constant) are the same copy (`SameCopy`), and the replayed kernel's is the
+base's or the kept constant (`replayMap_sound`), which the kernel may hold as a record it
+regenerated and accepted as `Identical` to the stored one, so `replayMap`, `checkShared`, `checkOwn` and `checkKept` meet, under that name,
 the constant they would meet if the module were replayed. A copy in a replayed module passes
 `checkShared` against it (the same copies are `Identical`, and two `Identical` theorems are a
 `SameTheorem`) and `checkOwn` and `checkKept` without a proof check, as it would in a replay of
@@ -788,9 +789,11 @@ whichever module the name is attributed to (`mem_required`), and `reuseJustified
 when the environment that replayed the module admitted that key. That environment offered the
 module only when each of its copies was admitted there with every copy of a shared name the same
 copy as the kept one and every module declaring that name owned (`ownedUniform`). So each safe,
-total constant of a reused module is the same copy as one that the kernel of an environment of the
+total constant of a reused module is `Identical` to one that the kernel of an environment of the
 audit accepted (by induction on the order in which the environments start, with the symmetry and
-transitivity of `SameCopy`).
+transitivity of `Identical`, which `SameCopy` implies). The relation with the kernel's constant is
+`Identical`, not `SameCopy`: the kernel regenerates each constructor and recursor from its
+inductive type and replay accepts the stored record when it is `Identical` to the regenerated one.
 
 An `unsafe` or `partial` constant of the module, such as the `_unsafe_rec` helper Lean adds for a
 recursive definition, is outside that statement: no replay checks it, since
@@ -809,7 +812,12 @@ Assumes:
 - Trusted, the boundary `checkOwn` already rests on: the kernel's check of a declaration, and of
   every declaration that consults it, is the same for two `Identical` constants, and so for two
   that are the same copy, since it reads neither binder names nor binder annotations.
-- Lean v4.34.1, `src/lean/Lean/Replay.lean:176-187` (trusted, as for every replay):
+- Lean v4.34.1, `src/lean/Lean/Replay.lean:120-128` and `148-163`: replay adds an inductive type
+  through the kernel, which generates its constructors and recursors, and accepts the stored
+  record of each when the derived `==`, which compares expressions with `Expr.eqv`, equates it
+  with the generated one (`152`, `163`). So the kernel may hold a record that is `Identical` to the
+  stored copy but not the same copy.
+- Lean v4.34.1, `src/lean/Lean/Replay.lean:176-189` (trusted, as for every replay):
   `Kernel.Environment.replay` checks each constant it adds, and it adds only the constants that
   are neither `unsafe` nor `partial` (`180-183`), replaying a dependency only when it is one of
   them (`replayConstant`, `74-77`). -/
@@ -1637,8 +1645,10 @@ abbrev Copy.name (copy : Copy) : Name := copy.info.name
 /-- The constants replayed under their own names: every name of a copy that the replay base
 `base` lacks, mapped to the constant the audited environment `kept` holds under it. That is the
 copy `Environment.find?` returns (the last one loaded, `Lean.finalizeImport`), whose statement
-and value reports read, so on these names the replayed kernel holds exactly the audited
-environment's constants. -/
+and value reports read, so on these names the replayed kernel holds the audited environment's
+constants, except that for a constructor or a recursor it holds the record it regenerates from the
+inductive type, which replay accepts only when it is `Identical` to the stored one
+(`src/lean/Lean/Replay.lean:148-163` in Lean v4.34.1). -/
 def replayMap (base kept : Name → Option ConstantInfo) (copies : Array Copy) :
     Std.HashMap Name ConstantInfo :=
   copies.foldl (init := {}) fun replay copy =>

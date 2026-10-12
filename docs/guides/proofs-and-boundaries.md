@@ -2839,12 +2839,15 @@ inferred from any pure proof.
     environment offers the module only if the name is uniform and only owned modules declare it.
     Otherwise the receipt lists the module as `shared`, through `Admission.AdmitRequest.pinned`.
 
-  The argument below uses three facts about Lean v4.34.1. The docstrings of
+  The argument below uses four facts about Lean v4.34.1. The docstrings of
   `Admission.duplicatesIn` and `Admission.copiesIdentical` give their source lines under
   `Assumes:`. First, Lean's import keeps one of the copies that it read under each name, and
   attributes the name to the first module that lists it. Second, `Expr.eqv` and `Expr.equal` are
-  equivalence relations, thus `Admission.SameCopy` is symmetric and transitive. Third, the kernel
-  gives the same result for two `Identical` constants, as `Admission.checkOwn` already trusts.
+  equivalence relations, thus `Identical` and `Admission.SameCopy` are symmetric and transitive.
+  Third, the kernel gives the same result for two `Identical` constants, as `Admission.checkOwn`
+  already trusts.
+  Fourth, replay regenerates each constructor and recursor, and it accepts the stored record when
+  it is `Identical` to the regenerated one.
 
   The argument is about the safe, total constants of a module. `Kernel.Environment.replay` skips
   each `unsafe` or `partial` constant, for example the `_unsafe_rec` helper of a recursive
@@ -2852,11 +2855,11 @@ inferred from any pure proof.
   check it either. Reuse changes nothing for it, and the boundary of such helpers stays as
   admission states it.
 
-  **The offer:** each safe, total constant of an offered module is the same copy as a constant
-  that a kernel of the audit accepted. A name with one copy in a replayed module is replayed by the
-  kernel itself, as `Admission.replayMap_sound` states. A shared name is uniform, so each copy is the same
-  copy as the kept constant and as the held constant. If the base does not declare the name, the
-  held constant is a replayed constant. If the base declares the name, only owned modules declare
+  **The offer:** each safe, total constant of an offered module is `Identical` to a constant that a
+  kernel of the audit accepted. A name with one copy in a replayed module is replayed by the
+  kernel itself, as `Admission.replayMap_sound` states. A shared name is uniform, so each copy is
+  the same copy as the kept constant and `Identical` to the held constant. If the base does not
+  declare the name, the held constant is a replayed constant. If the base declares the name, only owned modules declare
   it, thus a reused module supplies the held constant. An earlier environment offered that module,
   and induction on the start order gives the result.
 
