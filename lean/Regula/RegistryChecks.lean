@@ -3,6 +3,7 @@ import Regula.Checker.ResultProtocol
 import Regula.Checker.SourceAudit
 import Regula.Website
 import RegulaCore.Guidance
+import Regula.Campaigns
 
 /-! # Registry transport qualification
 
@@ -135,6 +136,13 @@ def main : IO Unit := do
     | throw <| IO.userError "registry qualification failed: RG1005 names no generated families"
   require (((← IO.FS.readFile "docs/guides/adoption.md").splitOn s!"\n> {families}\n").length == 2)
     "docs/guides/adoption.md quotes the RG1005 generated-family guidance once, verbatim"
+  -- The contributor guide shows, once and verbatim, the table of the campaigns no workflow job
+  -- runs, with the reason for each, rendered from the inventory whose coverage the kernel checks
+  -- (`Regula.Campaigns.covered_all`).
+  require (((← IO.FS.readFile "docs/guides/contributing.md").splitOn
+      s!"\n{Regula.Campaigns.table}\n").length == 2)
+    "docs/guides/contributing.md shows Regula.Campaigns.table, the campaigns no workflow job runs, \
+      once, verbatim"
   require
       (!succeeded (validateRegistry producer (manifest.setObjVal! "sourceRevision" (.str "stale"))))
     "stale revision"

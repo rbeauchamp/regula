@@ -45,7 +45,10 @@ def transport : Array String := Id.run do
       #[("unknown-category", "boundary", .str "unknown", "unknown BoundaryKind"),
       -- A deliberate homoglyph: `trusted` with the Cyrillic letter U+0435 in place of `e`.
       ("typo-category", "correspondence", .str "trust\u0435d", "unknown Correspondence"),
-      ("malformed-name", "name", .str "sample", "array expected"),
+      -- A name is its printed text (`parsePrintedNameJson`) or its structural components: a
+      -- number is neither, and a text Lean does not print for the name it reads is refused.
+      ("malformed-name", "name", toJson (7 : Nat), "array expected"),
+      ("unprinted-name", "name", .str "«sample»", "not a Lean name as Lean prints it"),
       ("extra-field", "extra", .bool true, "unknown or missing JSON object fields")] do
     failures := failures ++ expectError label expected (decode (encoded.setObjVal! field value))
   let .ok toolchainOrigin := RegulaPolicy.admitToolchainOrigin `Init
@@ -115,17 +118,22 @@ def transport : Array String := Id.run do
 private def source : String :=
   "import Regula.Diagnostic\nimport Regula.StructuralName\nimport Lean\n" ++
   "/-! Public name-codec proof and compiler-root classification controls. -/\n" ++
-  "inductive Branch where\n  | node : List Branch → Branch\n" ++
+  "/-- A recursive datatype whose compiler-generated helpers the controls classify. -/\n" ++
+  "inductive Branch where\n" ++
+  "  /-- A node with its children. -/\n  | node : List Branch → Branch\n" ++
   "theorem publicNameRoundtrip (n : Lean.Name) :\n" ++
   "    Regula.RegistryCodec.parseName (Regula.RegistryCodec.nameJson n) = .ok n :=\n" ++
   "  Regula.RegistryCodec.name_roundtrip n\n" ++
+  "/-- An authored lookalike of a generated recursion helper. -/\n" ++
   "abbrev Pretend.brecOn.go : PProd Nat Nat := ⟨0, 0⟩\n" ++
+  "/-- The authored lookalike's entry, marked as an auxiliary recursor below. -/\n" ++
   "abbrev Pretend.brecOn : Nat := Pretend.brecOn.go.1\n" ++
   "run_cmd Lean.modifyEnv fun env => Lean.markAuxRecursor env `Pretend.brecOn\n" ++
-  "def ordinaryUnused : Nat := 0\n" ++
-  "def auxUnused : Nat := 0\n" ++
+  "/-- An unused ordinary root. -/\ndef ordinaryUnused : Nat := 0\n" ++
+  "/-- An unused root marked as an auxiliary recursor below. -/\ndef auxUnused : Nat := 0\n" ++
+  "/-- An unused root marked as a no-confusion helper below. -/\n" ++
   "def confusionUnused : Nat := 0\n" ++
-  "def match_unused : Nat := 0\n" ++
+  "/-- An unused root registered as a matcher below. -/\ndef match_unused : Nat := 0\n" ++
   "run_cmd Lean.modifyEnv fun env => Lean.markAuxRecursor env `auxUnused\n" ++
   "run_cmd Lean.modifyEnv fun env => Lean.markNoConfusion env `confusionUnused (.regular 0 0 \
     0)\n" ++

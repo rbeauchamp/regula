@@ -36,9 +36,59 @@ def structuralShards : Nat := 5
 a shard it does not have. -/
 def executionShards : Nat := 4
 
+/-- The number of shards of each of the self-test's fixtures, cli, environments and build-policy
+partitions, which `Regula.Checker.SelftestArguments.Partition.shards` states for the self-test; the
+self-test refuses a shard it does not have. -/
+def fixturesShards : Nat := 5
+
+@[inherit_doc fixturesShards]
+def cliShards : Nat := 6
+
+@[inherit_doc fixturesShards]
+def environmentsShards : Nat := 6
+
+@[inherit_doc fixturesShards]
+def buildPolicyShards : Nat := 3
+
 /-- The number of shards of the rule-example corpus (`Regula.Qualification.RuleExamples.check`
 selects any `K/N`), each a required check of CI with its own evidence file (`shardEvidence`). -/
 def ruleExampleShards : Nat := 3
+
+/-- A group of qualification controls that neither the self-test's partitions nor another mode
+runs, each run under the deadline of its own `diagnostics` invocation. -/
+inductive Group where
+  /-- `qualify input-inventory`: root and Markdown inventory faults injected during the checker's
+  own build. -/
+  | inputInventory
+  /-- `qualify environments`: this repository's claimed environments and their mutations. -/
+  | environmentCensus
+  /-- `qualify acceptance-snapshots history`: history refusal and restoration. -/
+  | snapshotHistory
+  /-- `qualify acceptance fences`, the `dependencies` and `git-status` snapshot groups,
+  `receipt-boundaries` and `prep-measure`. -/
+  | acceptanceControls
+  /-- `qualify documentation-dependencies` and `configuration-capture`. -/
+  | documentationControls
+  /-- The self-test's focused native-adopter and combined-snapshot controls. -/
+  | focusedControls
+  /-- The self-test's focused policy-domain controls: the policy transport and the public paths. -/
+  | policyDomain
+  deriving DecidableEq
+
+/-- The name of the group after `diagnostics`. -/
+def Group.label : Group → String
+  | .inputInventory => "input-inventory"
+  | .environmentCensus => "environment-census"
+  | .snapshotHistory => "snapshot-history"
+  | .acceptanceControls => "acceptance-controls"
+  | .documentationControls => "documentation-controls"
+  | .focusedControls => "focused-controls"
+  | .policyDomain => "policy-domain"
+
+/-- Every group once. -/
+def Group.all : List Group :=
+  [.inputInventory, .environmentCensus, .snapshotHistory, .acceptanceControls,
+    .documentationControls, .focusedControls, .policyDomain]
 
 /-- Closed vocabulary of supported verification invocations. -/
 inductive Mode where
@@ -73,6 +123,15 @@ inductive Mode where
   /-- `diagnostics execution INDEX/4`: one of the execution partition's shards, `index` counted
   from 0 and `INDEX` from 1. -/
   | executionShard (index : Fin executionShards)
+  /-- `diagnostics fixtures INDEX/5`: one of the fixtures partition's shards, `index` counted from
+  0 and `INDEX` from 1. -/
+  | fixturesShard (index : Fin fixturesShards)
+  /-- `diagnostics cli INDEX/6`: one of the cli partition's shards. -/
+  | cliShard (index : Fin cliShards)
+  /-- `diagnostics environments INDEX/6`: one of the environments partition's shards. -/
+  | environmentsShard (index : Fin environmentsShards)
+  /-- `diagnostics build-policy INDEX/3`: one of the build-policy partition's shards. -/
+  | buildPolicyShard (index : Fin buildPolicyShards)
   /-- `diagnostics cli`: the self-test's command-line partition. -/
   | cli
   /-- `diagnostics environments`: the self-test's environments partition. -/
@@ -103,6 +162,8 @@ inductive Mode where
   /-- `diagnostics rule-examples INDEX/3`: one of the corpus's shards, `index` counted from 0 and
   `INDEX` from 1. -/
   | ruleExamplesShard (index : Fin ruleExampleShards)
+  /-- `diagnostics GROUP`: a group of qualification controls (`Group`). -/
+  | diagnostic (group : Group)
   /-- `site`: build and check the rule-reference site artifact from the shards' evidence. -/
   | site
   /-- `mathlib`: the separate Mathlib integration check, never part of acceptance: the fresh
@@ -125,6 +186,12 @@ def arguments : Mode → List String
       ["diagnostics", "structural", s!"{index.val + 1}/{structuralShards}"]
   | .executionShard index =>
       ["diagnostics", "execution", s!"{index.val + 1}/{executionShards}"]
+  | .fixturesShard index => ["diagnostics", "fixtures", s!"{index.val + 1}/{fixturesShards}"]
+  | .cliShard index => ["diagnostics", "cli", s!"{index.val + 1}/{cliShards}"]
+  | .environmentsShard index =>
+      ["diagnostics", "environments", s!"{index.val + 1}/{environmentsShards}"]
+  | .buildPolicyShard index =>
+      ["diagnostics", "build-policy", s!"{index.val + 1}/{buildPolicyShards}"]
   | .cli => ["diagnostics", "cli"]
   | .environments => ["diagnostics", "environments"]
   | .buildPolicy => ["diagnostics", "build-policy"]
@@ -141,6 +208,7 @@ def arguments : Mode → List String
   | .ruleExamples => ["diagnostics", "rule-examples"]
   | .ruleExamplesShard index =>
       ["diagnostics", "rule-examples", s!"{index.val + 1}/{ruleExampleShards}"]
+  | .diagnostic group => ["diagnostics", group.label]
   | .site => ["site"]
   | .mathlib => ["mathlib"]
 
@@ -150,9 +218,13 @@ def modes : List Mode := [.ordinary, .docs, .graph, .diagnostics, .fixtures, .st
   .selfLintDefault, .selfAudit, .ruleExamples, .site, .mathlib] ++
   (List.finRange structuralShards).map .structuralShard ++
   (List.finRange executionShards).map .executionShard ++
+  (List.finRange fixturesShards).map .fixturesShard ++
+  (List.finRange cliShards).map .cliShard ++
+  (List.finRange environmentsShards).map .environmentsShard ++
+  (List.finRange buildPolicyShards).map .buildPolicyShard ++
   (List.finRange lintDriverShards).map .lintDriverShard ++
   (List.finRange selfAuditShards).map .selfAuditShard ++
-  (List.finRange ruleExampleShards).map .ruleExamplesShard
+  (List.finRange ruleExampleShards).map .ruleExamplesShard ++ Group.all.map .diagnostic
 
 /-- Argument parsing never accepts a prefix of a supported invocation. -/
 def parseMode (args : List String) : Option Mode :=
@@ -167,8 +239,10 @@ theorem parseMode_sound (args : List String) (mode : Mode)
 /-- Every documented invocation is accepted; this excludes an always-refusing parser. -/
 theorem parseMode_roundtrip (mode : Mode) : parseMode (arguments mode) = some mode := by
   cases mode with
-  | structuralShard index | executionShard index | lintDriverShard index
+  | structuralShard index | executionShard index | fixturesShard index | cliShard index
+    | environmentsShard index | buildPolicyShard index | lintDriverShard index
     | selfAuditShard index | ruleExamplesShard index => revert index; decide
+  | diagnostic group => cases group <;> rfl
   | _ => rfl
 
 /-- Selection carries the argument-binding proof required by the operational caller. -/
@@ -289,7 +363,40 @@ def otherTargets : List String :=
     "+Regula.RegistryChecks:olean", "+Regula.Linter:olean", "+Regula.Checker.LintMain:olean",
     "+Regula.Checker.RuleExamples:olean", "+Regula.Checker.RuleExampleQualificationMain:olean",
     "+Regula.Cli.Main:olean", "+Regula.Release:olean", "+Regula.DiagnosticsGate:olean",
-    "+Regula.RemovalControls:olean"]
+    "+Regula.RemovalControls:olean", "+Regula.Campaigns.Verification:olean",
+    "+Regula.Campaigns.Diagnostics:olean"]
+
+/-- A `qualify` selection under the driver's deadline. -/
+private def qualify (selection : Array String) : Command :=
+  lake (#["exe", "qualify", "--under-deadline"] ++ selection)
+
+/-- The commands of a group: one build of what its controls run, then its selections one after
+another. The `qualify` controls run `axiomGate`, `docFenceAudit` and `ruleExamples` from the
+repository's build; the focused self-test controls run `axiomGate`, and the native-adopter
+control's adopter imports `Regula.Linter`. -/
+def Group.commands : Group → List Command
+  | .inputInventory => [lake #["build", "axiomGate", "docFenceAudit", "ruleExamples", "qualify"],
+      qualify #["input-inventory"]]
+  | .environmentCensus => [lake #["build", "axiomGate", "qualify"],
+      qualify #["environments", "--evidence", "tmp/environment-census.json"]]
+  | .snapshotHistory => [lake #["build", "axiomGate", "qualify"],
+      qualify #["acceptance-snapshots", "history"]]
+  | .acceptanceControls => [
+      lake #["build", "axiomGate", "docFenceAudit", "ruleExamples", "qualify"],
+      qualify #["acceptance", "fences", "--evidence", "tmp/acceptance-fences.json"],
+      qualify #["acceptance-snapshots", "dependencies"],
+      qualify #["acceptance-snapshots", "git-status"],
+      qualify #["receipt-boundaries"],
+      qualify #["prep-measure"]]
+  | .documentationControls => [
+      lake #["build", "axiomGate", "docFenceAudit", "ruleExamples", "qualify"],
+      qualify #["documentation-dependencies"],
+      qualify #["configuration-capture"]]
+  | .focusedControls => [lake #["build", "checkerSelftest", "axiomGate", "Regula.Linter"],
+      lake #["exe", "checkerSelftest", "--native-adopter-only"],
+      lake #["exe", "checkerSelftest", "--combined-snapshot-only"]]
+  | .policyDomain => [lake #["build", "checkerSelftest", "axiomGate", "Regula.Linter"],
+      lake #["exe", "checkerSelftest", "--policy-domain-only"]]
 
 /-- Existing acceptance and diagnostic recipes, executed inside the outer deadline.
 Qualification's private flag retains the already timed process group. `copy` is the root of the
@@ -376,6 +483,7 @@ def commands (copy pending : String) : Mode → List Command
           #["exe", "qualify", "--under-deadline", "rule-examples", "--evidence",
               "tmp/rule-examples.json"]]
   | .ruleExamplesShard index => ruleExampleShard (index.val + 1)
+  | .diagnostic group => group.commands
   | .site => [
       lake #["build", "axiomGate", "ruleExampleQualification", "site"],
       lake
@@ -398,6 +506,15 @@ def commands (copy pending : String) : Mode → List Command
         (if index.val == 0 then #[] else #["docFenceAudit", "freshChecker"])
   | .executionShard index =>
       selftest #["--partition", "execution", "--shard", s!"{index.val + 1}/{executionShards}"]
+  | .fixturesShard index =>
+      selftest #["--partition", "fixtures", "--shard", s!"{index.val + 1}/{fixturesShards}"]
+  | .cliShard index =>
+      selftest #["--partition", "cli", "--shard", s!"{index.val + 1}/{cliShards}"]
+  | .environmentsShard index =>
+      selftest #["--partition", "environments", "--shard",
+        s!"{index.val + 1}/{environmentsShards}"]
+  | .buildPolicyShard index =>
+      selftest #["--partition", "build-policy", "--shard", s!"{index.val + 1}/{buildPolicyShards}"]
   -- The lint-driver controls also run the `lake lint` driver, `regula init` and the corpus
   -- producer `ruleExamples`, and their adopters import `Regula.Linter`, which their baseline
   -- names.
@@ -410,7 +527,9 @@ def commands (copy pending : String) : Mode → List Command
 /-- Every mode schedules actual work rather than accepting an empty campaign. -/
 theorem commands_nonempty (copy pending : String) (mode : Mode) :
     commands copy pending mode ≠ [] := by
-  cases mode <;> simp [commands, ruleExampleShard, selftest]
+  cases mode with
+  | diagnostic group => cases group <;> simp [commands, Group.commands]
+  | _ => simp [commands, ruleExampleShard, selftest]
 
 /-- The first acceptance step runs its build, the registry checks and the combined qualification
 in the copy, and the gate from the repository root: the gate is the last of its commands, and it
@@ -1077,9 +1196,11 @@ def report (ends : List (Command × Option UInt32)) : String :=
 
 private def usage : String :=
   "usage: scripts/verify.sh [docs | serialized-graph | site | mathlib | diagnostics \
-    [fixtures|structural [1/5..5/5]|execution [1/4..4/4]|cli|environments|\
-    build-policy|lint-driver [1/5..5/5]|producers|history|self-lint|self-lint-default|\
-    self-audit [1/4..4/4]|rule-examples [1/3..3/3]]]"
+    [fixtures [1/5..5/5]|structural [1/5..5/5]|execution [1/4..4/4]|cli [1/6..6/6]|\
+    environments [1/6..6/6]|build-policy [1/3..3/3]|lint-driver [1/5..5/5]|producers|history|\
+    self-lint|self-lint-default|self-audit [1/4..4/4]|rule-examples [1/3..3/3]|input-inventory|\
+    environment-census|snapshot-history|acceptance-controls|documentation-controls|\
+    focused-controls|policy-domain]]"
 
 /-- The earlier verdicts an attempt of `mode` invalidates, each with the constant text recording
 it as incomplete. Ordinary acceptance invalidates the accepted link, so it is not accepted from

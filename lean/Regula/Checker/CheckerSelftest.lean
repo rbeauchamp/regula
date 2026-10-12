@@ -9,6 +9,7 @@ import Regula.Checker.Inspection
 import RegulaCore.ScratchCopy
 import Regula.ToolchainProgram
 import Regula.Checker.AcceptanceLink
+import Regula.Checker.SelftestArguments
 
 /-!
 # Checker qualification suite
@@ -42,7 +43,7 @@ scanner, and fence corpus), `structural` (structural and manifest controls),
 complete CLI sweep), `environments` (packaging and fresh-state controls), `build-policy`
 (ordinary-build enforcement), and `lint-driver` (`lake lint` dispatch and exit classes).
 Each starts with the baseline build of what its own controls read from the repository's build
-(`Partition.baseline`).
+(`partitionBaseline`).
 Their disjoint union is the full run; no partition alone reports full qualification.
 
 The structural and correspondence clusters run in the structural project
@@ -51,10 +52,14 @@ builds and inspects the application alone. The controls that need the checker's 
 package as the audited project run in copies of the repository (`structuralSelfHosted`,
 `structuralSelfHostedPositive`).
 
-The controls of the structural partition each carry one of `structuralShards` shards, those of
-the execution partition one of `executionShards`, and the lint-driver control groups one of
-`LintQualification.shards`; `--shard` runs the controls of one, and the shards of a partition
-together run every control once (`shards_cover`, `inShard_cover`).
+Every partition's controls are divided into its `Partition.shards` shards: those of the structural
+partition each carry one of `structuralShards`, those of the execution partition one of
+`executionShards`, the lint-driver control groups one of `LintQualification.shards` and the
+build-policy controls one of `BuildLintQualification.shards`. A fixture of the fixtures and cli
+partitions is in the shard its position in the fixture manifest gives (`fixtureShard`), and each
+other control of those two and of the environments partition has a shard of its own choosing.
+`--shard` runs the controls of one, and the shards of a partition together run every control once
+(`shards_cover`, `inShard_cover`).
 
 It is intentionally qualification-only, not an ordinary build.
 -/
@@ -65,6 +70,7 @@ open Lean System
 open Regula.Checker
 open Regula.Checker.Documentation
 open Regula.Checker.Policy
+open Regula.Checker.SelftestArguments
 
 /-- The verdict a fixture declares in `fixtures.json` (`expect`). -/
 inductive Expectation where
@@ -102,44 +108,6 @@ structure FixtureSpec where
   records : Array (String × Array String) := #[]
   deriving Repr
 
-/-- Disjoint groups whose union is the complete build-bound qualification. -/
-inductive Partition where
-  /-- In-process fixture verdicts, the Markdown scanner and the fence corpus. -/
-  | fixtures
-  /-- Structural and manifest controls. -/
-  | structural
-  /-- Execution-evidence controls: the compiler-path mutations and the correspondence
-  controls, each with its positive and fresh restoration. -/
-  | execution
-  /-- Every fixture through a real `axiomGate --file` invocation, and the source-attribution
-  controls. -/
-  | cli
-  /-- The end-to-end fence corpus and the external-adopter and clean-checkout controls. -/
-  | environments
-  /-- Ordinary-build enforcement controls (`build-policy`). -/
-  | buildPolicy
-  /-- `lake lint` dispatch and exit-class controls (`lint-driver`). -/
-  | lintDriver
-  deriving Repr, BEq, DecidableEq
-
-private def Partition.label : Partition → String
-  | .fixtures => "fixtures"
-  | .structural => "structural"
-  | .execution => "execution"
-  | .cli => "cli"
-  | .environments => "environments"
-  | .buildPolicy => "build-policy"
-  | .lintDriver => "lint-driver"
-
-/-- The full run enumerates each supported partition exactly once. -/
-private def Partition.all : List Partition :=
-    [.fixtures, .structural, .execution, .cli, .environments, .buildPolicy, .lintDriver]
-
-private theorem Partition.all_complete (partition : Partition) : partition ∈ all := by
-  cases partition <;> simp [all]
-
-private theorem Partition.all_nodup : all.Nodup := by decide
-
 /-- The checker executables the self-test's controls run from the repository's build. -/
 private def checkerTools : List String := ["axiomGate", "lint", "docFenceAudit", "freshChecker"]
 
@@ -175,7 +143,7 @@ dependency of the checkout
 (`BuildLintQualification.setup`), so an adopter's Lake builds such a module into the repository's
 build on demand, possibly in several groups at once, instead of a refusal, and no guard detects
 that. The other partitions keep the complete baseline. -/
-private def Partition.baseline : Partition → Baseline
+private def partitionBaseline : Partition → Baseline
   | .structural => ⟨["axiomGate", "docFenceAudit", "freshChecker"], false, []⟩
   | .execution => ⟨["axiomGate"], false, []⟩
   | .lintDriver => ⟨["axiomGate", "lint", "ruleExamples"], false, ["Regula.Linter"]⟩
@@ -185,23 +153,32 @@ private def Partition.baseline : Partition → Baseline
 partition run, some by its path in the repository's build instead of through `toolPath`
 (`CompilerPaths`, `PolicyQualification`), and that the cold-start driver builds together with the
 self-test (`RegulaVerification.commands`). -/
-private theorem Partition.baseline_axiomGate (partition : Partition) :
-    "axiomGate" ∈ partition.baseline.tools := by
-  cases partition <;> simp [baseline, checkerTools]
+private theorem partitionBaseline_axiomGate (partition : Partition) :
+    "axiomGate" ∈ (partitionBaseline partition).tools := by
+  cases partition <;> simp [partitionBaseline, checkerTools]
 
 /-- The number of shards the structural partition's controls are divided into, so that each
-shard runs under the deadline of its own invocation. -/
-def structuralShards : Nat := 5
+shard runs under the deadline of its own invocation (`Partition.shards`). -/
+def structuralShards : Nat := Partition.structural.shards
 
 /-- The number of shards the execution partition's controls are divided into. -/
-def executionShards : Nat := 4
+def executionShards : Nat := Partition.execution.shards
 
-/-- The shard of a partition of `shards` shards that `--shard index/count` selects: `index`
-counted from 1, of `count`, which must be that number of shards. -/
-private def shardOf? (shards : Nat) : Nat × Nat → Option (Fin shards)
-  | (index + 1, count) =>
-      if bound : count = shards ∧ index < shards then some ⟨index, bound.2⟩ else none
-  | _ => none
+/-- The number of shards the fixtures partition's controls are divided into. -/
+def fixturesShards : Nat := Partition.fixtures.shards
+
+/-- The number of shards the cli partition's controls are divided into. -/
+def cliShards : Nat := Partition.cli.shards
+
+/-- The number of shards the environments partition's controls are divided into. -/
+def environmentsShards : Nat := Partition.environments.shards
+
+/-- The lint-driver and build-policy partitions are divided into the shards their qualifications
+select from. -/
+theorem qualification_shards :
+    Partition.lintDriver.shards = LintQualification.shards ∧
+      Partition.buildPolicy.shards = BuildLintQualification.shards :=
+  ⟨rfl, rfl⟩
 
 /-- `INDEX/COUNT`, `INDEX` counted from 1. -/
 private def shardLabel {shards : Nat} (shard : Fin shards) : String :=
@@ -226,6 +203,28 @@ private def executionShard (index : Nat) (bound : index < executionShards := by 
     Fin executionShards :=
   ⟨index, bound⟩
 
+/-- The shard of the fixture at `position` in the fixture manifest, of a partition of `shards`
+shards that divides the fixtures among them in turn. -/
+private def fixtureShard {shards : Nat} (position : Nat) (positive : 0 < shards := by decide) :
+    Fin shards :=
+  ⟨position % shards, Nat.mod_lt _ positive⟩
+
+/-- The environments shard `index`, counted from 0. -/
+private def environmentsShard (index : Nat) (bound : index < environmentsShards := by decide) :
+    Fin environmentsShards :=
+  ⟨index, bound⟩
+
+/-- What a sharded run of a partition whose controls are not named one by one prints after its
+verdict: the shard it ran, which is not the whole partition. -/
+private def shardNote {shards : Nat} : Option (Fin shards) → String
+  | none => ""
+  | some selected => s!" (shard {shardLabel selected}; the other shards run the rest)"
+
+/-- Whether a control assigned to `assigned` runs in a run of `shard`: in every unsharded run and
+in that shard alone (`inShard`). -/
+private def runsIn {shards : Nat} (shard : Option (Fin shards)) (assigned : Fin shards) : Bool :=
+  !(inShard shard [(assigned, ())]).isEmpty
+
 /-- The shard of `structuralSelfHostedPositive`, which holds no other control: its one accepting
 fresh gate builds `RegulaPolicy` from empty output in a copy of the repository, and no cut divides
 it, so it has the processors to itself. -/
@@ -241,39 +240,20 @@ keeps the partition's baseline. -/
 private def baselineOf (partition : Partition) (shard : Option (Nat × Nat)) : Baseline :=
   if partition = .structural ∧ (shard.bind (shardOf? structuralShards)) = some selfHostedShard
   then ⟨["axiomGate"], false, []⟩
-  else partition.baseline
+  else partitionBaseline partition
 
-/-- Every run's baseline build names `axiomGate` (`Partition.baseline_axiomGate`), a shard's
+/-- Every run's baseline build names `axiomGate` (`partitionBaseline_axiomGate`), a shard's
 too. -/
 private theorem baselineOf_axiomGate (partition : Partition) (shard : Option (Nat × Nat)) :
     "axiomGate" ∈ (baselineOf partition shard).tools := by
   unfold baselineOf
   split
   · simp
-  · exact partition.baseline_axiomGate
+  · exact partitionBaseline_axiomGate partition
 
 /-- The checker executables `baselines` name, each once. -/
 private def baselineTools (baselines : List Baseline) : List String :=
   (baselines.flatMap (·.tools)).eraseDups
-
-/-- The parsed `checkerSelftest` command-line options. -/
-structure Options where
-  /-- `--jobs N`: the number of parallel workers; must be positive. -/
-  jobs : Nat := 4
-  /-- `--structural-only`: run only the structural and execution controls after the baseline
-  build. -/
-  structuralOnly : Bool := false
-  /-- `--build-bound`: also run the conditional, build-bound tier. -/
-  buildBound : Bool := false
-  /-- `--partition NAME`: run only this build-bound group; requires `--build-bound`. -/
-  partition : Option Partition := none
-  /-- `--shard INDEX/COUNT`: run only that shard of the selected partition, `INDEX` counted from 1
-  and `COUNT` its number of shards: `structuralShards` of the structural partition,
-  `executionShards` of the execution partition and `LintQualification.shards` of the lint-driver
-  partition (`shardOf?`). -/
-  shard : Option (Nat × Nat) := none
-  /-- `--help` or `-h`: print the usage and exit. -/
-  help : Bool := false
 
 private def usage : String :=
   "usage: lake exe checkerSelftest -- [--jobs N] [--structural-only] [--build-bound [--partition \
@@ -285,62 +265,10 @@ private def usage : String :=
   "fence corpus, external adopters, clean-checkout environment, public controls)\n" ++
   "--partition: run only the named build-bound group; all seven groups are required for full \
     qualification\n" ++
-  s!"--shard: run only that shard of the group: INDEX/{structuralShards} of the structural group, \
-    INDEX/{executionShards} of the execution group, INDEX/{LintQualification.shards} of the \
-    lint-driver group; all its shards are required for the group"
-
-private def parseArgs : List String → Options → IO Options
-  | [], options => do
-      if options.partition.isSome && !options.buildBound then
-        throw <| IO.userError "--partition requires --build-bound"
-      if let some spec := options.shard then
-        let admitted := match options.partition with
-          | some .structural => (shardOf? structuralShards spec).isSome
-          | some .execution => (shardOf? executionShards spec).isSome
-          | some .lintDriver => (shardOf? LintQualification.shards spec).isSome
-          | _ => false
-        unless admitted do
-          throw <| IO.userError s!"--shard {spec.1}/{spec.2} requires --partition structural with \
-            INDEX/{structuralShards}, --partition execution with INDEX/{executionShards}, or \
-            --partition lint-driver with INDEX/{LintQualification.shards}"
-      if options.structuralOnly && (options.buildBound || options.partition.isSome) then
-        throw <| IO.userError "--structural-only conflicts with --build-bound and --partition"
-      return options
-  | "--" :: rest, options => parseArgs rest options
-  | "--jobs" :: value :: rest, options => do
-      let jobs ← parseNatArg "--jobs" value
-      parseArgs rest { options with jobs }
-  | "--structural-only" :: rest, options => do
-      if options.structuralOnly then throw <| IO.userError "duplicate --structural-only"
-      parseArgs rest { options with structuralOnly := true }
-  | "--build-bound" :: rest, options => do
-      if options.buildBound then throw <| IO.userError "duplicate --build-bound"
-      parseArgs rest { options with buildBound := true }
-  | "--partition" :: value :: rest, options => do
-      if options.partition.isSome then throw <| IO.userError "duplicate --partition"
-      let partition ← match value with
-        | "fixtures" => pure Partition.fixtures
-        | "structural" => pure Partition.structural
-        | "execution" => pure Partition.execution
-        | "cli" => pure Partition.cli
-        | "environments" => pure Partition.environments
-        | "build-policy" => pure Partition.buildPolicy
-        | "lint-driver" => pure Partition.lintDriver
-        | _ => throw <| IO.userError s!"unknown partition: {value}"
-      parseArgs rest { options with partition := some partition }
-  | "--shard" :: value :: rest, options => do
-      if options.shard.isSome then throw <| IO.userError "duplicate --shard"
-      let shard ← match value.splitOn "/" with
-        | [index, count] => match index.toNat?, count.toNat? with
-          | some index, some count =>
-            if value == s!"{index}/{count}" then pure (index, count)
-            else throw <| IO.userError s!"unknown shard: {value}"
-          | _, _ => throw <| IO.userError s!"unknown shard: {value}"
-        | _ => throw <| IO.userError s!"unknown shard: {value}"
-      parseArgs rest { options with shard := some shard }
-  | "--help" :: rest, options | "-h" :: rest, options =>
-      parseArgs rest { options with help := true }
-  | flag :: _, _ => throw <| IO.userError s!"unknown or incomplete argument: {flag}"
+  "--shard: run only that shard of the group, INDEX from 1 and COUNT its number of shards: " ++
+    ", ".intercalate
+      (Partition.all.map fun partition => s!"{partition.shards} of {partition.label}") ++
+    "; all its shards are required for the group"
 
 private def requiredString (value : Json) (key where_ : String) : IO String := do
   let field ← IO.ofExcept <| value.getObjVal? key
@@ -616,7 +544,7 @@ private def toolPath (repo : FilePath) (name : String) : IO FilePath := do
   if let some built ← builtTools.get then
     unless built.contains name do
       throw <| IO.userError s!"self-test: the baseline build of this run names {built}, not \
-        {name}; add it to the baseline of the partition that runs it (Partition.baseline)"
+        {name}; add it to the baseline of the partition that runs it (partitionBaseline)"
   return repo / ".lake" / "build" / "bin" / name
 
 /-- How a fixture's run ended, apart from what it printed. -/
@@ -2813,21 +2741,24 @@ project-owned modules must itself build the claimed libraries when the main
 build directory is empty, instead of relying on a prior `lake build`. Each
 control starts from a copied repository with no `.lake/build` at all. The
 freshChecker control then gives its workspace a `leanchecker` that fails, which an accepted run
-never ran. -/
-private unsafe def fenceEnvironmentQualification (layout : SourceLayout) (repo scratch : FilePath) :
-    IO (Array String) := do
+never ran. Only the controls `parts` names run: `doc-fences`, `file-mode` and `fresh-checker`
+(`fenceEnvironmentParts`). -/
+private unsafe def fenceEnvironmentQualification (layout : SourceLayout) (repo scratch : FilePath)
+    (parts : List String) : IO (Array String) := do
   let failures ← IO.mkRef (#[] : Array String)
   let runScrubbed (dir : FilePath) (name : String) (args : Array String) : IO ProcessResult := do
     runProcess dir (← toolPath repo name).toString args
       scrubbedLeanPathEnv
   let unbuilt (name : String) (action : FilePath → IO Unit) : IO Unit := do
-    let dir := scratch / name
-    IO.FS.createDirAll dir
-    prepareScratchRepo repo dir
-    if ← (dir / ".lake" / "build").pathExists then
-      failures.modify (·.push s!"fence-env/{name}: setup unexpectedly has a build directory")
-    action dir
-  loggedPhase "clean-checkout/doc-fences" <| unbuilt "doc-fences" fun dir => do
+    unless parts.contains name do return
+    loggedPhase s!"clean-checkout/{name}" do
+      let dir := scratch / name
+      IO.FS.createDirAll dir
+      prepareScratchRepo repo dir
+      if ← (dir / ".lake" / "build").pathExists then
+        failures.modify (·.push s!"fence-env/{name}: setup unexpectedly has a build directory")
+      action dir
+  unbuilt "doc-fences" fun dir => do
     let corpus := dir / "fence-corpus"
     IO.FS.createDirAll corpus
     IO.FS.writeFile (corpus / "owned-import.md")
@@ -2838,7 +2769,7 @@ private unsafe def fenceEnvironmentQualification (layout : SourceLayout) (repo s
       failures.modify (·.push
         s!"fence-env/doc-fences: fence importing an owned module failed from unbuilt \
           state:\n{result.output}")
-  loggedPhase "clean-checkout/file-mode" <| unbuilt "file-mode" fun dir => do
+  unbuilt "file-mode" fun dir => do
     let result ← runScrubbed dir "axiomGate"
       #["--file",
           ((dir / layout.relativeDir) / "Fixtures" / "Positive" / "ExternalUse.lean").toString,
@@ -2853,7 +2784,7 @@ private unsafe def fenceEnvironmentQualification (layout : SourceLayout) (repo s
   -- `leanchecker --fresh` on the real claimed graph replays Init and Lean
   -- once per root, which is the separate optional serialized-graph
   -- claim (`scripts/verify.sh serialized-graph`), not a clean-checkout property.
-  loggedPhase "clean-checkout/fresh-checker" <| unbuilt "fresh-checker" fun dir => do
+  unbuilt "fresh-checker" fun dir => do
     let sources := dir / layout.relativeDir
     let expected := freshControlStems.map (s!"FreshControl.{·}")
     IO.FS.createDirAll (sources / "FreshControl")
@@ -2976,8 +2907,10 @@ The scratch projects contain nothing named `Audit` or `Fixtures` and share only
 the pinned dependency checkouts. The `relative` variant requires the checker
 by a relative path (the form a project nested inside another repository
 uses), which the §7.3 isolated copy must re-anchor to the original project;
-its setup verifies that the relative path really names this repository. -/
-private unsafe def adopterQualification (repo scratch : FilePath) : IO (Array String) := do
+its setup verifies that the relative path really names this repository. Only the variants named
+in `parts` run. -/
+private unsafe def adopterQualification (repo scratch : FilePath) (parts : List String) :
+    IO (Array String) := do
   let failures ← IO.mkRef (#[] : Array String)
   let depth := (← IO.FS.realPath scratch).components.length + 1 -
     (← IO.FS.realPath repo).components.length
@@ -2987,6 +2920,7 @@ private unsafe def adopterQualification (repo scratch : FilePath) : IO (Array St
     ("relative", "toml", "/".intercalate (List.replicate depth ".."), adopterTomlLakefile)
   ]
   for (label, format, checkerDir, lakefileText) in variants do
+    unless parts.contains label do continue
     let adopter := scratch / label
     IO.FS.createDirAll (adopter / "Widget")
     if !(FilePath.mk checkerDir).isAbsolute then
@@ -3070,8 +3004,21 @@ private unsafe def adopterQualification (repo scratch : FilePath) : IO (Array St
           s!"adopter/toml/fresh-plan: exact adopter coverage plan failed:\n{fresh.output}")
   failures.get
 
+/-- The fixtures a run of a partition of `shards` shards that divides the fixtures among them in
+turn checks: each fixture of the manifest in the shard of its position (`fixtureShard`), every
+fixture without `shard`. -/
+private def fixturesOfShard {shards : Nat} (positive : 0 < shards) (shard : Option (Fin shards))
+    (fixtures : Array FixtureSpec) : Array FixtureSpec :=
+  ((inShard shard (fixtures.toList.mapIdx fun position fixture =>
+    (fixtureShard position positive, fixture))).map (·.2)).toArray
+
+/-- The shard of the scanner controls and the in-process fence corpus: the last. -/
+private def fenceCorpusShard : Fin fixturesShards := ⟨fixturesShards - 1, by decide⟩
+
 /-- In-process fixture, scanner, and fence-corpus controls. Imports
-remain serialized, and transcript workers finish before parent imports.
+remain serialized, and transcript workers finish before parent imports. With `shard`, the
+fixtures of that shard (`fixturesOfShard`) are checked, and the scanner controls and the fence
+corpus run in their shard alone (`fenceCorpusShard`).
 
 The recursion-helper fixtures among them (the positive recursion modules and the
 `…UnsafeRecForge` mutations of `Fixtures/fixtures.json`) test an external boundary: the observing
@@ -3079,24 +3026,27 @@ pass of the comparison and the regeneration, against the pinned toolchain. They 
 the comparison's rules: `RegulaPolicy.Erasure.equalWithin_iff` proves the executed comparison
 against its relation for every pair of terms and every observation, and no fixture stands in for
 that theorem. -/
-private unsafe def runFixtures (repo : FilePath) (jobs : Nat)
+private unsafe def runFixtures (repo : FilePath) (jobs : Nat) (shard : Option (Fin fixturesShards))
     (fixtures : Array FixtureSpec) (failures : IO.Ref (Array String)) : IO Unit := do
   let inventory ← Lake.surfaceInventory repo
+  let selected := fixturesOfShard (by decide) shard fixtures
   withScratch repo "checker-fixtures" fun scratch => do
     let fixtureResults ← loggedPhase "in-process fixtures" <|
-      fixtureVerdicts repo scratch jobs fixtures inventory.leanPath
+      fixtureVerdicts repo scratch jobs selected inventory.leanPath
     for result in fixtureResults do appendFailure failures result
     IO.println (s!"self-test fixtures: " ++
       (if fixtureResults.all (·.isNone) then "PASS" else "FAIL") ++
-      s!" ({fixtures.size} in one process, one environment load per import closure)")
-  for failure in scannerQualification do failures.modify (·.push failure)
-  withScratch repo "checker-fence-corpus" fun scratch => do
-    let corpus ← loggedPhase "in-process fence corpus" <|
-      fenceCorpusQualification repo scratch jobs
-    for failure in corpus do failures.modify (·.push failure)
-    IO.println <| "self-test Markdown: " ++
-      (if corpus.isEmpty then "PASS" else "FAIL") ++
-      s!" (scanner controls + {(fenceCorpusCases "" "").size} in-process corpus cases)"
+      s!" ({selected.size} in one process, one environment load per import closure)" ++
+      shardNote shard)
+  if runsIn shard fenceCorpusShard then
+    for failure in scannerQualification do failures.modify (·.push failure)
+    withScratch repo "checker-fence-corpus" fun scratch => do
+      let corpus ← loggedPhase "in-process fence corpus" <|
+        fenceCorpusQualification repo scratch jobs
+      for failure in corpus do failures.modify (·.push failure)
+      IO.println <| "self-test Markdown: " ++
+        (if corpus.isEmpty then "PASS" else "FAIL") ++
+        s!" (scanner controls + {(fenceCorpusCases "" "").size} in-process corpus cases)"
 
 /-- External-boundary control for the frozen `.olean` parts that admission reuse rests on, where
 reading the files is the external mechanism (`Admission.reuseJustified_frozen`,
@@ -3771,23 +3721,29 @@ private unsafe def runExecution (layout : SourceLayout) (repo : FilePath) (jobs 
       "fresh restoration each; isolated projects, bounded parallelism)"
     | some selected => shardDescription (shardLabel selected) (executionShards - 1) names
 
-/-- Public CLI fixtures: the complete sweep for qualification, or the unchanged
-smoke subset for the default development tier. -/
+/-- The shard of the source-attribution controls of the complete CLI sweep: the last. -/
+private def cliAttributionShard : Fin cliShards := ⟨cliShards - 1, by decide⟩
+
+/-- Public CLI fixtures: the complete sweep for qualification, or the unchanged smoke subset for
+the default development tier, then, in the complete sweep, the source-attribution controls. With
+`shard`, the sweep checks that shard's fixtures (`fixturesOfShard`), and the source-attribution
+controls run in their shard alone (`cliAttributionShard`). -/
 private def runCli (repo : FilePath) (jobs : Nat) (fullCli : Bool)
-    (fixtures : Array FixtureSpec) (failures : IO.Ref (Array String)) : IO Unit := do
+    (shard : Option (Fin cliShards)) (fixtures : Array FixtureSpec)
+    (failures : IO.Ref (Array String)) : IO Unit := do
   let smokeFixtures := fixtures.filter (smokeFixtureNames.contains ·.moduleName)
   if smokeFixtures.size != smokeFixtureNames.size then
     failures.modify (·.push "smoke: expected smoke fixtures are missing from the manifest")
   -- The build-bound sweep contains every smoke control; each runs once.
-  let cliFixtures := if fullCli then fixtures else smokeFixtures
+  let cliFixtures := if fullCli then fixturesOfShard (by decide) shard fixtures else smokeFixtures
   let cliLabel := if fullCli then "full CLI sweep" else "CLI smoke"
   let cliResults ← loggedPhase cliLabel <|
     mapConcurrent jobs cliFixtures (checkFixtureCli repo)
   for result in cliResults do appendFailure failures result
   IO.println <| s!"self-test {cliLabel}: " ++
     (if cliResults.all (·.isNone) then "PASS" else "FAIL") ++
-    s!" ({cliFixtures.size} real axiomGate --file invocations)"
-  if fullCli then
+    s!" ({cliFixtures.size} real axiomGate --file invocations)" ++ shardNote shard
+  if fullCli && runsIn shard cliAttributionShard then
     let attribution ← loggedPhase "source attribution" <|
       withScratch repo "checker-source-attribution" fun scratch =>
         sourceAttributionControls scratch (runBinary repo "axiomGate" ·)
@@ -3798,51 +3754,77 @@ private def runCli (repo : FilePath) (jobs : Nat) (fullCli : Bool)
         block; a metaprogram theorem, a user-written ofNat and an elaborator under a structure's \
         name, and user-written theorems named like auxiliary proofs, not attributed)"
 
+/-- The parts of the clean-checkout environment controls (`fenceEnvironmentQualification`), each
+with its shard. -/
+private def fenceEnvironmentParts : List (Fin environmentsShards × String) :=
+  [(environmentsShard 3, "doc-fences"), (environmentsShard 4, "file-mode"),
+    (environmentsShard 3, "fresh-checker")]
+
+/-- The variants of the external-adopter controls (`adopterQualification`), each with its shard:
+the `lakefile.toml` adopter, which also runs the unlisted-module and fresh-plan controls, in one,
+and the `lakefile.lean` and relative-path adopters in the next. -/
+private def adopterParts : List (Fin environmentsShards × String) :=
+  [(environmentsShard 1, "toml"), (environmentsShard 2, "lean"), (environmentsShard 2, "relative")]
+
 /-- Build-bound packaging and fresh-state controls, each retaining its isolated
-source/build directory and exact failure accumulation. -/
+source/build directory and exact failure accumulation. With `shard`, each runs in its shard alone:
+the public fence corpus in the first, the external-adopter variants in theirs (`adopterParts`), the
+parts of the clean-checkout environment controls in theirs (`fenceEnvironmentParts`) and the public
+surface in the last. -/
 private unsafe def runEnvironments (layout : SourceLayout) (repo : FilePath)
-    (failures : IO.Ref (Array String)) : IO Unit := do
+    (shard : Option (Fin environmentsShards)) (failures : IO.Ref (Array String)) : IO Unit := do
+  let fenceParts := (inShard shard fenceEnvironmentParts).map (·.2)
+  let adopters := (inShard shard adopterParts).map (·.2)
   -- This tier only starts after the earlier subprocess tasks have joined.
   -- Its builds live in isolated copies; the other public controls cannot
   -- consume or alter those owned outputs.
   let fenceEnvTask ← IO.asTask (prio := .dedicated) do
+    if fenceParts.isEmpty then return #[]
     loggedPhase "clean-checkout environments" <|
       withScratch repo "checker-fence-env" fun scratch =>
-        fenceEnvironmentQualification layout repo scratch
-  withScratch repo "checker-scanner" fun scratch => do
-    for failure in ← loggedPhase "public fence corpus" (publicScannerQualification repo scratch) do
-      failures.modify (·.push failure)
-  IO.println s!"self-test public fence corpus: completed \
-    ({(fenceCorpusCases "" "" ++ publicOnlyFenceCases).size} end-to-end cases)"
-  withScratch repo "checker-adopter" fun scratch => do
-    let adopter ← loggedPhase "external adopters" (adopterQualification repo scratch)
-    for failure in adopter do failures.modify (·.push failure)
-    IO.println <| "self-test external adopters: " ++
-      (if adopter.isEmpty then "PASS" else "FAIL") ++
-      " (lakefile.toml + lakefile.lean + relative-path require: empty exclusions, fresh positive \
-        gate, --project, omitted exe, " ++
-      "rogue module, unlisted-module contamination, fresh plan)"
+        fenceEnvironmentQualification layout repo scratch fenceParts
+  if runsIn shard (environmentsShard 0) then
+    withScratch repo "checker-scanner" fun scratch => do
+      for failure in ← loggedPhase "public fence corpus" (publicScannerQualification repo scratch) do
+        failures.modify (·.push failure)
+    IO.println s!"self-test public fence corpus: completed \
+      ({(fenceCorpusCases "" "" ++ publicOnlyFenceCases).size} end-to-end cases)"
+  unless adopters.isEmpty do
+    withScratch repo "checker-adopter" fun scratch => do
+      let adopter ← loggedPhase "external adopters" (adopterQualification repo scratch adopters)
+      for failure in adopter do failures.modify (·.push failure)
+      IO.println <| "self-test external adopters: " ++
+        (if adopter.isEmpty then "PASS" else "FAIL") ++
+        s!" ({", ".intercalate adopters} adopters: empty exclusions, fresh positive gate, \
+          --project, omitted exe, rogue module; the toml adopter also unlisted-module \
+          contamination and fresh plan)"
   let fenceEnv ← IO.ofExcept (← IO.wait fenceEnvTask)
   for failure in fenceEnv do failures.modify (·.push failure)
-  IO.println <| "self-test fence environment: " ++
-    (if fenceEnv.isEmpty then "PASS" else "FAIL") ++
-    " (clean-checkout doc fences, --file, freshChecker with no prior build on a two-root control \
-      surface whose workspace provides a failing leanchecker)"
-  let surface ← loggedPhase "public surface" <| runBinary repo "axiomGate" #["--incremental"]
-  if !surface.succeeded then
-    failures.modify (·.push s!"surface/baseline: public incremental gate failed:\n{surface.output}")
-  IO.println "self-test public controls: completed (surface)"
+  unless fenceParts.isEmpty do
+    IO.println <| "self-test fence environment: " ++
+      (if fenceEnv.isEmpty then "PASS" else "FAIL") ++
+      s!" ({", ".intercalate fenceParts}: clean-checkout doc fences, --file, freshChecker with no \
+        prior build on a two-root control surface whose workspace provides a failing \
+        leanchecker)"
+  if runsIn shard (environmentsShard 5) then
+    let surface ← loggedPhase "public surface" <| runBinary repo "axiomGate" #["--incremental"]
+    if !surface.succeeded then
+      failures.modify (·.push
+        s!"surface/baseline: public incremental gate failed:\n{surface.output}")
+    IO.println "self-test public controls: completed (surface)"
 
 /-- Ordinary-build controls are a separate required partition so they do not
-share the clean-checkout environment controls' CI time budget. -/
+share the clean-checkout environment controls' CI time budget. With `shard`, only that shard's
+controls run (`BuildLintQualification.qualify`). -/
 private def runBuildPolicy (repo : FilePath) (jobs : Nat)
-    (failures : IO.Ref (Array String)) : IO Unit := do
+    (shard : Option (Fin BuildLintQualification.shards)) (failures : IO.Ref (Array String)) :
+    IO Unit := do
   withScratch repo "checker-build-lint" fun scratch => do
     let buildLint ← loggedPhase "ordinary-build policy controls" <|
-      BuildLintQualification.qualify repo scratch jobs
+      BuildLintQualification.qualify repo scratch jobs shard
     for failure in buildLint do failures.modify (·.push failure)
     IO.println <| "self-test build policy linter: " ++
-      (if buildLint.isEmpty then "PASS" else "FAIL")
+      (if buildLint.isEmpty then "PASS" else "FAIL") ++ shardNote shard
 
 /-- `lake lint` driver controls: Lake dispatch in both lakefile formats and exit classes, and
 the cold compiler guard of `lakefile.lean`, which refuses an inherited `LEAN_SYSROOT` child
@@ -3865,18 +3847,19 @@ private def runLintDriver (repo : FilePath) (jobs : Nat)
 /-- Full and selected runs use the same group implementations. This exhaustive
 match assigns each supported partition exactly one implementation. `fullCli` selects the
 complete CLI sweep of the build-bound tier instead of the default tier's smoke subset, and
-`shard` one shard of the structural, execution or lint-driver partition (`parseArgs` admits it
-with no other). -/
+`shard` one shard of the partition (`Options.validate` admits only a shard the partition has). -/
 private unsafe def runPartition (layout : SourceLayout) (partition : Partition) (repo : FilePath)
     (jobs : Nat) (fullCli : Bool) (shard : Option (Nat × Nat))
     (fixtures : Array FixtureSpec) (failures : IO.Ref (Array String)) : IO Unit :=
   match partition with
-  | .fixtures => runFixtures repo jobs fixtures failures
+  | .fixtures => runFixtures repo jobs (shard.bind (shardOf? fixturesShards)) fixtures failures
   | .structural => runStructural layout repo jobs (shard.bind (shardOf? structuralShards)) failures
   | .execution => runExecution layout repo jobs (shard.bind (shardOf? executionShards)) failures
-  | .cli => runCli repo jobs fullCli fixtures failures
-  | .environments => runEnvironments layout repo failures
-  | .buildPolicy => runBuildPolicy repo jobs failures
+  | .cli => runCli repo jobs fullCli (shard.bind (shardOf? cliShards)) fixtures failures
+  | .environments =>
+      runEnvironments layout repo (shard.bind (shardOf? environmentsShards)) failures
+  | .buildPolicy =>
+      runBuildPolicy repo jobs (shard.bind (shardOf? BuildLintQualification.shards)) failures
   | .lintDriver => runLintDriver repo jobs (shard.bind (shardOf? LintQualification.shards)) failures
 
 /-- The combined public command must preserve Markdown discovery even in
@@ -3896,6 +3879,10 @@ private def combinedSnapshotQualification (repo : FilePath) : IO (Array String) 
         panion\",\"executables\":[],\"claim\":\"standard-logical\",\"execution\":\"report\",\"ratio\
         nale\":\"Parallel surface \
         control\"}],\"excluded-libraries\":[],\"excluded-executables\":[]}"
+    -- Lake writes the lock manifest of a project that has none at its first build; written
+    -- before the audits, it is not a configuration change during one.
+    let updated ← runProcess project "lake" #["update"] scrubbedLeanPathEnv
+    unless updated.succeeded do return #[s!"combined snapshot/update: {updated.output}"]
     let docs := project / "docs" / ".cache"
     IO.FS.createDirAll docs
     let mut failures := #[]
@@ -3904,12 +3891,13 @@ private def combinedSnapshotQualification (repo : FilePath) : IO (Array String) 
             "source-restored"] do
       IO.FS.writeFile (project / "Snapshot.lean") <|
         "/-! Source used for fence-import isolation qualification. -/\n" ++
-        (if phase == "invalid-source" then "axiom unproved : True\n"
-        else "theorem snapshot_ok : True := True.intro\n")
+        (if phase == "invalid-source" then "/-- An unproved assumption. -/\naxiom unproved : True\n"
+        else "/-- A proved control. -/\ntheorem snapshot_ok : True := True.intro\n")
       IO.FS.writeFile (project / "Companion.lean") <|
         "/-! Companion surface for fence-import isolation qualification. -/\n" ++
-        (if phase == "invalid-companion" then "axiom companion_unproved : True\n"
-        else "theorem companion_ok : True := True.intro\n")
+        (if phase == "invalid-companion" then
+          "/-- An unproved assumption. -/\naxiom companion_unproved : True\n"
+        else "/-- A proved control. -/\ntheorem companion_ok : True := True.intro\n")
       let body := if phase == "invalid" then "def docWitness : Nat := \"bad\""
         else "theorem docWitness : True := True.intro"
       IO.FS.writeFile (docs / "sentinel.md") s!"```lean\n{body}\n```\n"
@@ -3949,12 +3937,10 @@ private def forcedCollectorQualification (repo scratch : FilePath) : IO (Array S
                                 failures.push s!"forced-collector-restored: {restored.output}"
   return failures
 
-/-- Runs the qualification suite: one of the focused `--…-only` controls or the internal
-transcript worker when the arguments name it, otherwise the baseline build and then the
-selected tiers or partition. Prints each failure and returns `1` when any control fails, `0`
-otherwise. -/
-unsafe def run (args : List String) : IO UInt32 := do
-  if args == ["--forced-collector-only"] then
+/-- Runs one focused control, each over the repository's own build. Prints each failure and
+returns `1` when any control fails, `0` otherwise. -/
+private unsafe def runFocused : Focused → IO UInt32
+  | .forcedCollector => do
     let repo ← repoRoot
     let build ← runProcess repo "lake" #["build", "axiomGate"]
     if !build.succeeded then IO.println build.output; return 1
@@ -3964,19 +3950,19 @@ unsafe def run (args : List String) : IO UInt32 := do
         IO.println "forced collector qualification: PASS (fresh positive, excluded-source refusal, \
           restored)"
     return if failures.isEmpty then 0 else 1
-  if args == ["--policy-transport-only"] then
+  | .policyTransport => do
     let failures := PolicyQualification.transport
     for failure in failures do IO.println s!"FAIL: {failure}"
     if failures.isEmpty then IO.println "policy transport qualification: PASS"
     return if failures.isEmpty then 0 else 1
-  if args == ["--native-adopter-only"] then
+  | .nativeAdopter => do
     let repo ← repoRoot
     let build ← runProcess repo "lake" #["build", "axiomGate", "Regula.Linter"]
     if !build.succeeded then IO.println build.output; return 1
     let failures ← withScratch repo "native-adopter-control" (PolicyQualification.nativeImport repo)
     for failure in failures do IO.println s!"FAIL: {failure}"
     return if failures.isEmpty then 0 else 1
-  if args == ["--policy-domain-only"] then
+  | .policyDomain => do
     let repo ← repoRoot
     let build ← runProcess repo "lake" #["build", "axiomGate"]
     if !build.succeeded then IO.println build.output; return 1
@@ -3986,12 +3972,12 @@ unsafe def run (args : List String) : IO UInt32 := do
     if failures.isEmpty then
         IO.println "policy domain qualification: PASS (transport and public paths)"
     return if failures.isEmpty then 0 else 1
-  if args == ["--combined-snapshot-only"] then
+  | .combinedSnapshot => do
     let failures ← combinedSnapshotQualification (← repoRoot)
     for failure in failures do IO.println s!"FAIL: {failure}"
     if failures.isEmpty then IO.println "combined snapshot qualification: PASS"
     return if failures.isEmpty then 0 else 1
-  if args == ["--fences-only"] then
+  | .fences => do
     let repo ← repoRoot
     let inProcess ← withScratch repo "checker-focused-fences" fun scratch =>
       fenceCorpusQualification repo scratch 4
@@ -4003,7 +3989,7 @@ unsafe def run (args : List String) : IO UInt32 := do
       IO.println "focused fence qualification: PASS (in-process, import setup/restoration, public \
         corpus; not full qualification)"
     return if failures.isEmpty then 0 else 1
-  if args == ["--build-lint-only"] then
+  | .buildLint => do
     let repo ← repoRoot
     let build ← runProcess repo "lake" #["build", "axiomGate"]
     if !build.succeeded then IO.println build.output; return 1
@@ -4012,7 +3998,7 @@ unsafe def run (args : List String) : IO UInt32 := do
       for failure in failures do IO.println s!"FAIL: {failure}"
       if failures.isEmpty then IO.println "build policy linter qualification: PASS"
       return if failures.isEmpty then 0 else 1
-  if args == ["--compiler-paths-only"] then
+  | .compilerPaths => do
     let repo ← repoRoot
     let build ← runProcess repo "lake" #["build", "axiomGate"]
     if !build.succeeded then IO.println build.output; return 1
@@ -4020,21 +4006,33 @@ unsafe def run (args : List String) : IO UInt32 := do
       let failures ← CompilerPaths.qualify repo scratch
       for failure in failures do IO.println s!"FAIL: {failure}"
       return if failures.isEmpty then 0 else 1
-  -- Internal transcript worker: one isolated fresh-frontend re-elaboration
-  -- with the checker's own pinned frontend, serialized as JSON. The batched
-  -- fixture pipeline spawns these so every transcript is built in exactly the
-  -- isolated process environment the public CLI provides (a fresh process can
-  -- never see the harness's imported attribute state), before the parent
-  -- shared environment load.
-  if let ["--transcript-worker", moduleWire, source, rejectWarnings, out] := args then
-    let moduleName ← IO.ofExcept <| Regula.RegistryCodec.parseName
-        (← IO.ofExcept <| Regula.Checker.PolicyCodec.parse moduleWire)
-    let transcript ← Frontend.buildCurrentSearchPath moduleName source (rejectWarnings != "false")
-    writeJson out
-        (workerPacket (sourceWorkerRequest "transcript" moduleName source transcript.sourceContent)
-            (toJson transcript))
-    return 0
-  let options ← parseArgs args {}
+
+/-- Internal transcript worker: one isolated fresh-frontend re-elaboration with the checker's own
+pinned frontend, serialized as JSON. The batched fixture pipeline spawns these so every transcript
+is built in exactly the isolated process environment the public CLI provides (a fresh process can
+never see the harness's imported attribute state), before the parent shared environment load. -/
+private unsafe def runTranscriptWorker (moduleWire source rejectWarnings out : String) :
+    IO UInt32 := do
+  let moduleName ← IO.ofExcept <| Regula.RegistryCodec.parseName
+      (← IO.ofExcept <| Regula.Checker.PolicyCodec.parse moduleWire)
+  let transcript ← Frontend.buildCurrentSearchPath moduleName source (rejectWarnings != "false")
+  writeJson out
+      (workerPacket (sourceWorkerRequest "transcript" moduleName source transcript.sourceContent)
+          (toJson transcript))
+  return 0
+
+/-- Runs the qualification suite: one of the focused `--…-only` controls or the internal
+transcript worker when the arguments name it (`Selection.parse`), otherwise the baseline build and
+then the selected tiers or partition. Prints each failure and returns `1` when any control fails,
+`0` otherwise. -/
+unsafe def run (args : List String) : IO UInt32 := do
+  let selection ← IO.ofExcept ((Selection.parse args).mapError IO.userError)
+  let mut options : SelftestArguments.Options := {}
+  match selection with
+  | .focused control => return ← runFocused control
+  | .transcriptWorker moduleWire source rejectWarnings out =>
+    return ← runTranscriptWorker moduleWire source rejectWarnings out
+  | .suite selected => options := selected
   if options.help then IO.println usage; return 0
   if options.jobs == 0 then throw <| IO.userError "--jobs must be positive"
   let repo ← repoRoot

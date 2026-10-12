@@ -244,12 +244,12 @@ checker behavior:
 
 | Partition | Focus |
 | --- | --- |
-| `fixtures` | Positive controls and intentionally invalid Lean declarations. |
+| `fixtures`, `fixtures 1/5` to `fixtures 5/5` | Positive controls and intentionally invalid Lean declarations, then the Markdown scanner controls and the in-process fence corpus. A shard checks one fixture in five, by its position in the fixture manifest. The last shard also runs the scanner controls and the fence corpus. |
 | `structural`, `structural 1/5` to `structural 5/5` | Surface discovery, ownership, contamination, required application contracts, decision contracts that one surface counts for a different surface, and admission reuse between environments; a shard runs part of the controls. The shards together run all of them but the self-hosted identity. Shards 1/5 and 5/5 write its two digests, `tmp/self-hosted-digest/positive.sha256` and `restored.sha256`. Only the CI `diagnostics` gate compares them, so a local claim rests on the unsharded `structural` run or a comparison of the two files. |
 | `execution`, `execution 1/4` to `execution 4/4` | Execution evidence: each compiler-path mutation and correspondence control with its positive and fresh restoration; a shard runs part of the controls, and the shards together run all of them. |
-| `cli` | Command-line behavior and diagnostics. |
-| `environments` | Isolated environments, documentation scanning, and external adopters. |
-| `build-policy` | Enforcement through the example's ordinary Lake build. |
+| `cli`, `cli 1/6` to `cli 6/6` | Command-line behavior and diagnostics: each fixture through a real `axiomGate --file` run, then the source-attribution controls. A shard checks one fixture in six, by its position. The last shard also runs the source-attribution controls. |
+| `environments`, `environments 1/6` to `environments 6/6` | Isolated environments, documentation scanning, and external adopters. Shard 1/6 runs the public fence corpus. Shard 2/6 runs the `lakefile.toml` adopter, and 3/6 runs the `lakefile.lean` and relative-path adopters. Shard 4/6 runs the clean-checkout documentation fences and `freshChecker`. Shard 5/6 runs the clean-checkout `--file` control, and 6/6 runs the public surface. |
+| `build-policy`, `build-policy 1/3` to `build-policy 3/3` | Enforcement through the example's ordinary Lake build. A shard runs one mutation case in three. The last shard also runs the disabled-policy control. |
 | `lint-driver`, `lint-driver 1/5` to `lint-driver 5/5` | `lake lint` dispatch and exit classes in both shipped adopters, and the cold compiler guard of `lakefile.lean`: refusal of an inherited `LEAN_SYSROOT` child that fails and of one that succeeds without reporting the running compiler's identity, then a restored load. In a plain workspace the driver keeps the audit-build marker without `REGULA_ORDINARY_LAKEFILES=1`, and with it omits the marker, reports it and reuses the ordinary build. Under the assertion, an import of `Regula.Linter` keeps the marker, and the driver reports the reason. Decision probes of the guard load a changed adopter in the process and check its decision and reason without an audit. A custom target, a library in `needs`, a facet of Lake declared again and a library field outside the list keep the marker. So do a different `nativeFacets`, a lakefile declaration, a theorem that equates two functions, a TOML filter other than `"*"` and an import of `Regula.Linter`. An input file in `needs` and the filter `"*"` keep the plain shape. Lake's artifact cache is on in a private directory, and a claimed module warns. Then two identical `--fresh` runs and an incremental audit of the module that Lake restored from the cache each report [RG2003]. The same holds when only a path dependency turns the cache on in its own configuration, and its module warns. It also holds when the claimed library builds no module by default, and the module was elaborated or restored by an ordinary build. The claimed library can also have the name `foo/bar`, and Lake target syntax reads its spelling `«foo/bar»` as a library of a dependency. Then an incremental audit also reports it. Without the warning, a fresh run is accepted. An adopter's path dependency is replayed in its Git work tree, also with `--fresh`, and trusted and named in a work tree of its own. An adopter in the checker's own work tree owns `regula` and imports `Regula.Linter`. Its fresh audit owns no `Regula` or `RegulaPolicy` module of `regula` and accepts the adopter. On a project from `lake new` in each format, `regula init` writes the glob of its library, and a second run writes nothing. In the `lakefile.toml` project, `lake lint` then reports the missing docstrings, and it accepts the project when they are written. A shard runs part of the control groups, and the five shards together run all of them. |
 | `producers` | [Project producer and documentation qualification](proofs-and-boundaries.md#producers). |
 | `history` | [Source-bound replacement history qualification](proofs-and-boundaries.md#producers). |
@@ -257,6 +257,13 @@ checker behavior:
 | `self-lint-default` | The root package's `lake lint` without `REGULA_ORDINARY_LAKEFILES`, so with the audit-build marker that an adopter gets by default ([repository conformance](#repository-conformance)). |
 | `self-audit`, `self-audit 1/4` to `self-audit 4/4` | Operational self-audit of the excluded `Regula` library, and the check for one-sided `Json` comparisons in each library except `Fixtures` ([repository conformance](#repository-conformance)). A shard audits a quarter of the modules, and the four shards together audit all of them. |
 | `rule-examples`, `rule-examples 1/3` to `rule-examples 3/3` | [Source-owned corpus and diagnostic demonstrations](architecture.md#rule-examples); a shard runs a third of the rules. |
+| `input-inventory` | Root additions and Markdown edits or removals during the prerequisite build of the checker, an actual new-module build and restored fresh controls (`qualify input-inventory`). |
+| `environment-census` | This repository's claimed environments and their mutations (`qualify environments`). |
+| `snapshot-history` | Fresh, incremental and build-lint history refusal and restoration over the dependency snapshot (`qualify acceptance-snapshots history`). |
+| `acceptance-controls` | Fence-compilation packet mutations with positive restoration, and the `dependencies` and `git-status` snapshot groups. Also timeout-selection and spawn failures, and the preparation of a shared producer slot. The commands are `qualify acceptance fences`, `acceptance-snapshots dependencies` and `git-status`, `receipt-boundaries` and `prep-measure`. |
+| `documentation-controls` | The two documentation commands keep their pre-build dependency observations. An initial configuration IO failure goes through the project and file result protocols. The commands are `qualify documentation-dependencies` and `configuration-capture`. |
+| `focused-controls` | The self-test's focused native-adopter and combined-snapshot controls (`checkerSelftest --native-adopter-only`, `--combined-snapshot-only`). |
+| `policy-domain` | The self-test's focused policy-domain controls, the policy transport and the public paths (`checkerSelftest --policy-domain-only`). |
 
 The `environments` clean-checkout `freshChecker` control claims two import-free modules
 written into a copy with no build directory. It establishes that `freshChecker` builds its
@@ -295,9 +302,10 @@ invocation. Diagnostics do not replace a failed acceptance run.
 The [diagnostics workflow](../../.github/workflows/diagnostics.yml) runs on every pull request,
 every push to `main`, nightly and on dispatch. Its first job, `applies`
 (`lean --run lean/Regula/DiagnosticsGate.lean applies`), provisions the pinned release and
-decides which jobs apply. It runs
-`producers`, `history`, the five shards each of `lint-driver` and `structural` and the four
-shards of `execution` as parallel jobs, each with its own hard 420-second limit, on a pull
+decides which jobs apply. It runs the
+invocations that `Regula.DiagnosticsGate.campaigns` lists, and `applies` writes them for the matrix
+of the `campaign` job. These are `producers`, `history`, the shards of all partitions of the
+self-test and the seven groups of qualification controls. They run as parallel jobs, each with its own hard 420-second limit, on a pull
 request exactly when it changes one of the paths `Regula.DiagnosticsGate.inputs` lists (the checker, rules, rule examples, the
 adopter fixtures in `examples/lake-lint-toml` and `examples/build-lint`, the application and
 fixture sources the structural and execution controls mutate, Lake configuration, manifests, or
@@ -324,6 +332,71 @@ When the campaigns apply, the `diagnostics` job also compares two digests. The s
 `structural 1/5` uploads the SHA-256 digest of the fresh input that the self-hosted positive's
 fresh gate accepted. The shard `structural 5/5` uploads that of its restored self-hosted copy.
 The gate refuses unless the two are present, well-formed and equal.
+
+### Campaigns no workflow runs
+
+The inventory `Regula.Campaigns` lists each invocation of `./scripts/verify.sh`, each form of a
+`qualify` selection and each campaign of `checkerSelftest`. Each one runs in a workflow job, or
+the table below gives the reason that no job runs it. The inventory also states which jobs run
+which invocations. The kernel checks its theorem `covered_all` when the module builds. A campaign
+that runs has no reason. Each other campaign has a reason, and the campaigns that the reason
+names run.
+
+Two modules tie the inventory to the programs with theorems. `Regula.Campaigns.Verification`
+relates it to the modes and commands of the verification driver. `Regula.Campaigns.Diagnostics`
+relates it to the matrix of the diagnostics workflow. The first acceptance step builds the two
+modules, and `Regula.RegistryChecks` requires this table without a change.
+
+Two statements are readings, not theorems. The first is that `ci.yml` and `dogfood.yml` run the
+invocations that the inventory gives. The second is that the campaigns a reason names have the
+controls of the campaign that does not run.
+
+| Campaign | Why no workflow job runs it |
+| --- | --- |
+| `./scripts/verify.sh serialized-graph` | The optional serialized-graph claim (§7.9), which this repository does not make. |
+| `./scripts/verify.sh diagnostics` | The shards of all partitions run. Together they run each control of each partition one time. |
+| `./scripts/verify.sh diagnostics fixtures` | Its 5 shards run. Together they run each of its controls one time. |
+| `./scripts/verify.sh diagnostics structural` | Its 5 shards run. Together they run each of its controls one time. |
+| `./scripts/verify.sh diagnostics execution` | Its 4 shards run. Together they run each of its controls one time. |
+| `./scripts/verify.sh diagnostics cli` | Its 6 shards run. Together they run each of its controls one time. |
+| `./scripts/verify.sh diagnostics environments` | Its 6 shards run. Together they run each of its controls one time. |
+| `./scripts/verify.sh diagnostics build-policy` | Its 3 shards run. Together they run each of its controls one time. |
+| `./scripts/verify.sh diagnostics lint-driver` | Its 5 shards run. Together they run each of its controls one time. |
+| `./scripts/verify.sh diagnostics self-audit` | Its 4 shards run. Together they audit each module one time. |
+| `./scripts/verify.sh diagnostics rule-examples` | Its 3 shards run. Together they run the records of each rule one time. |
+| `lake exe qualify registry` | Its controls run in `lake exe qualify combined`: `combined` runs `registry` first. |
+| `lake exe qualify native` | Its controls run in `lake exe qualify combined`: `combined` runs `native` second. |
+| `lake exe qualify unique-constants` | Its controls run in `lake exe qualify combined`: `combined` runs `unique-constants` beside `native`. |
+| `lake exe qualify native-launcher` | Too long for a job. Its check took 92 s, and a check of more than 85 s does not leave a quarter of the 420-second deadline. [Issue 391](https://github.com/rbeauchamp/regula/issues/391) is the work to divide it into shards. |
+| `lake exe qualify rule-examples --evidence PATH` | Its controls run in `lake exe qualify rule-examples --evidence PATH --shard K/N`: the shards together run the whole corpus. |
+| `lake exe qualify rule-examples --evidence PATH --rules RULE ...` | Its controls run in `lake exe qualify rule-examples --evidence PATH --shard K/N`: each rule's records are in one shard. |
+| `lake exe qualify producers --evidence PATH` | Its controls run in `lake exe qualify producers`: the same campaign, which also writes its evidence. |
+| `lake exe qualify producers-combined` | `producers` and `history` run, each in a job of its own. |
+| `lake exe qualify self-audit` | Its controls run in `lake exe qualify self-audit --shard K/4`: the four shards together audit all modules. |
+| `lake exe qualify self-audit-module MODULE SOURCE` | An internal entry point that `lake exe qualify self-audit --shard K/4` starts. |
+| `lake exe qualify self-audit-json-module MODULE` | An internal entry point that `lake exe qualify self-audit --shard K/4` starts. |
+| `lake exe qualify acceptance-snapshots all` | Its three groups run: `dependencies`, `history` and `git-status`. |
+| `lake exe qualify closure-evidence` | Too long for a job. Its check took 105 s, and a check of more than 85 s does not leave a quarter of the 420-second deadline. [Issue 391](https://github.com/rbeauchamp/regula/issues/391) is the work to divide it into shards. |
+| `lake exe qualify fence-evidence` | Too long for a job. Its check took 140 s, and a check of more than 85 s does not leave a quarter of the 420-second deadline. [Issue 391](https://github.com/rbeauchamp/regula/issues/391) is the work to divide it into shards. |
+| `lake exe qualify frozen-exits` | Too long for a job. Its check took 240 s, and a check of more than 85 s does not leave a quarter of the 420-second deadline. [Issue 391](https://github.com/rbeauchamp/regula/issues/391) is the work to divide it into shards. |
+| `lake exe qualify documentation-source` | Too long for a job. Its check took 182 s, and a check of more than 85 s does not leave a quarter of the 420-second deadline. [Issue 391](https://github.com/rbeauchamp/regula/issues/391) is the work to divide it into shards. |
+| `lake exe qualify documentation-source --source-read-only` | Too long for a job. Its check took 202 s, and a check of more than 85 s does not leave a quarter of the 420-second deadline. [Issue 391](https://github.com/rbeauchamp/regula/issues/391) is the work to divide it into shards. |
+| `lake exe checkerSelftest --forced-collector-only` | Too long for a job. Its check took 336 s, and a check of more than 85 s does not leave a quarter of the 420-second deadline. [Issue 391](https://github.com/rbeauchamp/regula/issues/391) is the work to divide it into shards. |
+| `lake exe checkerSelftest --policy-transport-only` | Its controls run in `lake exe checkerSelftest --policy-domain-only`: the policy-domain control runs the transport controls first. |
+| `lake exe checkerSelftest --fences-only` | The last fixtures shard runs the in-process fence corpus. The first environments shard runs the public fence corpus. The focused controls include the combined snapshot. |
+| `lake exe checkerSelftest --build-lint-only` | The build-policy shards run its controls. |
+| `lake exe checkerSelftest --compiler-paths-only` | The execution shards run its compiler-path mutations. |
+| `lake exe checkerSelftest --transcript-worker MODULE SOURCE REJECT OUT` | An internal entry point that `lake exe checkerSelftest --build-bound --partition fixtures --shard 1/5 --jobs 4` starts. |
+| `lake exe checkerSelftest --jobs 4` | The shards of the fixtures, structural, execution and cli partitions run. The real-CLI smoke controls of the default tier are controls of the cli partition. |
+| `lake exe checkerSelftest --structural-only --jobs 4` | The shards of the structural and execution partitions run. |
+| `lake exe checkerSelftest --build-bound --jobs 4` | The shards of all partitions run. |
+| `lake exe checkerSelftest --build-bound --partition fixtures --jobs 4` | Its 5 shards run. Together they run each of its controls one time. |
+| `lake exe checkerSelftest --build-bound --partition structural --jobs 4` | Its 5 shards run. Together they run each of its controls one time. |
+| `lake exe checkerSelftest --build-bound --partition execution --jobs 4` | Its 4 shards run. Together they run each of its controls one time. |
+| `lake exe checkerSelftest --build-bound --partition cli --jobs 4` | Its 6 shards run. Together they run each of its controls one time. |
+| `lake exe checkerSelftest --build-bound --partition environments --jobs 4` | Its 6 shards run. Together they run each of its controls one time. |
+| `lake exe checkerSelftest --build-bound --partition build-policy --jobs 4` | Its 3 shards run. Together they run each of its controls one time. |
+| `lake exe checkerSelftest --build-bound --partition lint-driver --jobs 4` | Its 5 shards run. Together they run each of its controls one time. |
 
 ## Implementation and qualification layout
 
