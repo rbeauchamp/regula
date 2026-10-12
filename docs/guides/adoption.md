@@ -314,7 +314,7 @@ From the project root:
 lake lint                                  # incremental elaboration + current policy
 lake lint -- --fresh                       # isolated copy built from empty output
 lake lint -- --json-out tmp/regula.json    # also write the JSON report
-lake lint -- --explain-config              # read-only: manifest, scope, profiles, stages
+lake lint -- --explain-config              # read-only: manifest, scope, profiles, stages, facet report
 REGULA_ORDINARY_LAKEFILES=1 lake lint      # you assert your lakefiles are ordinary configuration
 ```
 
