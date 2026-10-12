@@ -244,7 +244,7 @@ number := false
   * Compare environment constant counts and exact names; classify `isProp` from the elaborated type and validate the trusted-runner report. Qualification includes an audited module registering a colliding observer-command token.
 *
   * {checklistRow}[DECL-03]
-  * Ownership uses Lean/Lake semantics. Generated-role exceptions require independent evidence: regeneration by Lean's own recursion compiler and the kernel's check of the base's recursion equation for recursive helpers (§7.4), and native replay with fresh-frontend command provenance for native-proof axioms (§7.5); names or forgeable final metadata alone cannot authorize them.
+  * Ownership uses Lean/Lake semantics. Generated-role exceptions require independent evidence: regeneration by Lean's own recursion compiler and the kernel's check of the base's recursion equation for recursive helpers (§7.4), and native replay for native-proof axioms, with fresh-frontend command provenance for one of an audited module (§7.5); names or forgeable final metadata alone cannot authorize them.
   * {ref "72-define-surfaces-through-lake-semantics"}[7 §7.2], {ref "74-inventory-every-owned-declaration"}[7 §7.4]
   * Inspect ownership and every claimed exception. Qualification: exact-prefix lookalikes, private and auxiliary-looking names, native-name spoofs, custom-command `addDecl`, and nested-`run_tac` generated-role forgeries receive their intended classification or rejection.
 *

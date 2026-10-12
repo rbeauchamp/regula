@@ -844,32 +844,53 @@ private def executableRoots (env : Environment) (modules : List Name)
 /-- The records of the imported native-proof axioms that `entries` rest on. They are the axioms an
 entry lists whose name the `nativeEqTrue` scheme generates (`RegulaPolicy.nativeAxiomOrigin?`) and
 whose module `inspected` does not contain, each once, in the order first listed. Each is followed
-by the record of the constant its generated prefix names, if there is one: the prefix itself or,
-for a module-private prefix, the public name it hides. The axiom's record is a replay candidate,
-so its statement is replayed (`Collect.declaration`); the prefix's record is a snapshot, which has
-no replay and so is never a native role. The axioms of both are those Lean's `collectAxioms`
-reports, since no kernel of this audit replayed an imported module. -/
+by the record of each constant of the axiom's own module that its generated prefix names, unless
+that constant already has a record: the prefix itself or, for a module-private prefix, the public
+name it hides. A constant of another module that a prefix names gets no record, so it cannot
+displace the declaration of the axiom's module. The axiom's record is a replay candidate, so its
+statement is replayed (`Collect.declaration`); the prefix's record is a snapshot, which has no
+replay and so is never a native role. A name recorded as a prefix and then reached as an axiom
+has its snapshot replaced by a replay candidate, so whichever of the two is reached first, every
+reached axiom is replayed. The axioms of both are those Lean's `collectAxioms` reports, since no
+kernel of this audit replayed an imported module.
+
+Assumes:
+- Lean v4.34.1 maps each imported constant to the module that declares it
+  (`Environment.getModuleIdxFor?`, `src/lean/Lean/Environment.lean:1195-1197`).
+- The audited environment is imported at `OLeanLevel.private`, the default of `importModules`
+  (`src/lean/Lean/Environment.lean:2433-2440`), which treats every import as `import all`
+  (line 2182). So the constants that a `module` file keeps private, its generated native-proof
+  axioms among them, are in the environment.
+- Lean v4.34.1 gives a generated name the private form of its module while a `module` file
+  elaborates without exporting (`DeclNameGenerator.mkUniqueName.curr`,
+  `src/lean/Lean/CoreM.lean:121-125`), and `privateToUserName` removes that form
+  (`src/lean/Lean/PrivateName.lean:29-30`, `:32-35`, `:62-64`). -/
 private def importedNativeRecords (env : Environment) (inspected : List Name)
     (entries : Array Regula.Report.Declaration) (scope : Regula.Collect.ContractScope) :
     CommandElabM (Array Regula.Report.Declaration) := do
-  let mut seen : NameSet := {}
+  let moduleOf? (name : Name) : Option Name :=
+    (env.getModuleIdxFor? name).map fun idx => env.header.modules[(idx : Nat)]!.module
+  let mut reached : NameSet := {}
+  let mut index : Std.HashMap Name Nat := {}
   let mut records := #[]
   for entry in entries do
     for name in entry.axioms do
-      if seen.contains name then continue
-      seen := seen.insert name
+      if reached.contains name then continue
+      reached := reached.insert name
       let some (pfx, _) := RegulaPolicy.nativeAxiomOrigin? name | continue
-      let some idx := env.getModuleIdxFor? name | continue
-      if inspected.contains env.header.modules[(idx : Nat)]!.module then continue
-      records := records.push (← observing env name "imported native axiom record"
-        (Regula.Collect.declaration name .replayCandidate scope))
-      let hidden := Lean.privateToUserName pfx
-      let parent := if env.contains pfx then some pfx
-        else if Lean.isPrivateName pfx && env.contains hidden then some hidden
-        else none
-      if let some parent := parent then
-        unless seen.contains parent do
-          seen := seen.insert parent
+      let some axiomModule := moduleOf? name | continue
+      if inspected.contains axiomModule then continue
+      let record ← observing env name "imported native axiom record"
+        (Regula.Collect.declaration name .replayCandidate scope)
+      match index[name]? with
+      | some i => records := records.set! i record
+      | none =>
+        index := index.insert name records.size
+        records := records.push record
+      let named := if Lean.isPrivateName pfx then #[pfx, Lean.privateToUserName pfx] else #[pfx]
+      for parent in named do
+        if moduleOf? parent == some axiomModule && !index.contains parent then
+          index := index.insert parent records.size
           records := records.push (← observing env parent "imported native prefix record"
             (Regula.Collect.declaration parent .snapshot scope))
   return records

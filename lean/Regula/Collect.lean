@@ -3726,7 +3726,7 @@ private def declarationReading (name : Name) (stage : Stage) (scope? : Option Co
   }, contract?.bind (·.2))
 
 /-- Construct the canonical record from this command's actual environment.
-Replay candidates still require the existing fresh transcript and admission guards;
+Replay candidates still require the admission guards, and an owned one the fresh transcript;
 these observations alone never authorize a generated role. A caller recording several declarations
 of one environment passes one `ContractScope.new` of it, so its memo is shared; without one, a
 fresh scope is built. Every observation runs with smart unfolding off (`withoutSmartUnfolding`).

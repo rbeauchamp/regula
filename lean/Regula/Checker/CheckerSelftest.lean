@@ -737,6 +737,15 @@ private unsafe def fixtureVerdicts (repo scratch : FilePath) (jobs : Nat)
         (assessFixtureOutput fixture .rejected compilation.process.output)
     else
       let (moduleData, _) ← Lean.readModuleData compilation.oleanPath
+      -- A `module` file's `.olean` holds only its exported constants. Its last part, the
+      -- `.olean.private` that `importModules` loads at its default `OLeanLevel.private`, holds
+      -- every constant (`mkModuleData`), such as the private axiom of a public native proof.
+      let moduleData ← if moduleData.isModule then
+          let parts ← Lean.readModuleDataParts #[compilation.oleanPath,
+            Lean.OLeanLevel.server.adjustFileName compilation.oleanPath,
+            Lean.OLeanLevel.private.adjustFileName compilation.oleanPath]
+          pure ((parts.back?.map (·.1)).getD moduleData)
+        else pure moduleData
       pending := pending.push {
         index, fixture, compilation
         constantNames := moduleData.constNames.map (·.toString)
