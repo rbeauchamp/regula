@@ -391,7 +391,7 @@ def paired : IO Unit := do
   let root ← rootDirectory
   let output := root / "tmp/native-launcher-diagnostic.json"
   IO.FS.createDirAll (root / "tmp")
-  if ← output.pathExists then IO.FS.removeFile output
+  if ← output.pathExists then Regula.Filesystem.removePath .file output
   let started ← IO.monoMsNow
   let report ← IO.mkRef (Json.mkObj [("outcome", .str "INCOMPLETE"), ("equivalent", .bool false)])
   try
@@ -406,7 +406,8 @@ def paired : IO Unit := do
         let start ← IO.monoMsNow
         -- One control at a time keeps both runs' record order identical for the comparison.
         let count ←
-          try checkAt root controls launcher (jobs := 1) finally IO.FS.removeDirAll controls
+          try checkAt root controls launcher (jobs := 1)
+          finally Regula.Filesystem.removePath .directory controls
         counts := counts.push count
         let elapsed := (← IO.monoMsNow) - start
         let records ← launcher.records.get

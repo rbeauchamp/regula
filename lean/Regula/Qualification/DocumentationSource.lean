@@ -35,7 +35,7 @@ def check (sourceReadOnly : Bool) : IO Unit := do
     for (binary, flags) in
         #[("docFenceAudit", #["--jobs", "1", "--verbose"]), ("axiomGate", #["--with-docs"])] do
       if binary == "axiomGate" then
-        IO.FS.removeFile (project / "Example.lean")
+        Regula.Filesystem.removePath .file (project / "Example.lean")
         let _ ← observe root project "setup-missing" binary flags {
           failure := true, status := "incomplete", ids := ["RG2001"] }
         IO.FS.writeFile (project / "Example.lean") source
@@ -88,9 +88,9 @@ def check (sourceReadOnly : Bool) : IO Unit := do
                   "source-unreadable", "restored"]
         for index in [:phases.size] do
           let phase := phases[index]!
-          if ← target.isDir then IO.FS.removeDir target
+          if ← target.isDir then Regula.Filesystem.removePath .directory target
           if phase == "initial-missing" then
-            if ← target.pathExists then IO.FS.removeFile target
+            if ← target.pathExists then Regula.Filesystem.removePath .file target
           else
             let operation := if phase == "source-change" then "append" else if phase ==
                                                                              "source-missing" then

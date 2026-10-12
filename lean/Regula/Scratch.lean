@@ -1,4 +1,5 @@
 import Lake.Config.Defaults
+import Regula.Filesystem
 
 /-! # Owned scratch directories
 
@@ -17,8 +18,10 @@ there. A process that dies, for example at `scripts/verify.sh`'s SIGKILL deadlin
 remove its directory, but the kernel releases its lock. So whenever the lock can be taken
 exclusively, no scratch owner is alive and every marked directory is an orphan; the next
 scratch user removes them, then their markers, before creating its own. Nothing else is
-removed: no unmarked entry, and nothing outside Regula's directory. File locking, exclusive
-creation, process death and directory removal are trusted operating-system effects.
+removed: no unmarked entry, and nothing outside Regula's directory. Each removal is
+`Regula.Filesystem.removeOwn` at the own path of the entry (`Regula.Filesystem.ownPath`), so a
+symbolic link where a directory or marker is expected is refused, not followed. File locking,
+exclusive creation and process death are trusted operating-system effects.
 
 A scratch user that reclaimed converts its exclusive lock to a shared one, without releasing it
 first. Safety does not depend on the conversion: `flock(2)` does not promise that it is atomic,
@@ -60,8 +63,10 @@ private def kind? (path : FilePath) : IO (Option IO.FS.FileType) := do
   try return some (← path.symlinkMetadata).type catch _ => return none
 
 /-- Remove every marked directory directly under `dir`, then its marker, never following a
-link. The caller holds the scratch lock exclusively. A failed removal is reported, not fatal. -/
+link (`Regula.Filesystem.removeOwn`). The caller holds the scratch lock exclusively. A failed
+removal is reported, not fatal. -/
 private def reclaim (dir : FilePath) : IO Unit := do
+  let own ← Regula.Filesystem.ownPath dir
   let mut reclaimed := 0
   for entry in ← dir.readDir do
     unless entry.path.extension == some markerExtension do continue
@@ -71,10 +76,10 @@ private def reclaim (dir : FilePath) : IO Unit := do
       if (← kind? entry.path) == some .file then
         match ← kind? path with
         | some .dir =>
-          IO.FS.removeDirAll path
-          IO.FS.removeFile entry.path
+          Regula.Filesystem.removeOwn .directory (own / name)
+          Regula.Filesystem.removeOwn .file (own / entry.fileName)
           reclaimed := reclaimed + 1
-        | none => IO.FS.removeFile entry.path
+        | none => Regula.Filesystem.removeOwn .file (own / entry.fileName)
         | some _ => pure ()
     catch error =>
       IO.eprintln s!"scratch: could not reclaim {path}: {error}"
@@ -103,13 +108,15 @@ def withScratch {α : Type} (root : FilePath) (stem : String) (action : FilePath
   try
     let path := dir / s!"{stem}-{← suffix}"
     let marker := path.addExtension markerExtension
+    let ownDirectory ← Regula.Filesystem.ownPath path
+    let ownMarker ← Regula.Filesystem.ownPath marker
     if ← path.pathExists then
       throw <| IO.userError s!"refusing to reuse scratch path {path}"
     discard <| IO.FS.Handle.mk marker .writeNew
     IO.FS.createDir path
     let value ← try action path finally
-      IO.FS.removeDirAll path
-      IO.FS.removeFile marker
+      Regula.Filesystem.removeOwn .directory ownDirectory
+      Regula.Filesystem.removeOwn .file ownMarker
     return (value, path)
   finally
     lock.unlock

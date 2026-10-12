@@ -2,7 +2,7 @@ import Lake
 import Lake.Load
 import Regula.Checker.Common
 import Regula.ToolchainProgram
-import Regula.Removal
+import Regula.Filesystem
 
 /-!
 # In-process Lake workspace loading
@@ -53,46 +53,104 @@ private def withLoaded {α : Type} (ws? : Option _root_.Lake.Workspace) (log : _
       throw <| IO.userError <|
         s!"lake-workspace-load-failed: {"; ".intercalate messages.toList}"
 
-/-- Load the workspace rooted at `repo` with Lake's loader and pass it to
-`action`. The action runs in the same process, so it must not retain mutable
-workspace state beyond its return value. With `scrubSearchPath`, the inherited
-`LEAN_PATH` and `LEAN_SRC_PATH` are ignored, as for `scrubbedLeanPathEnv`. Setup may disable
-`resolveDependencies` to load only the root configuration without materializing dependencies. -/
-def withRootWorkspace {α : Type} (repo : FilePath) (action : _root_.Lake.Workspace → IO α)
-    (scrubSearchPath := false) (resolveDependencies := true) : IO α := do
-  let config ← loadConfig repo scrubSearchPath
-  let (ws?, log) ← (if resolveDependencies then _root_.Lake.loadWorkspace config
-    else _root_.Lake.loadWorkspaceRoot config).captureLog
-  withLoaded ws? log action
+/-- Load the root package of the workspace that `config` describes (`Lake.loadWorkspaceRoot`),
+with the messages of its log, after its prerequisite.
 
-/-- Load only the root package of the workspace at `repo` (`Lake.loadWorkspaceRoot`) and pass it
-to `action`, after refusing a root package that declares a dependency. For a root that declares
-none, `Lake.loadWorkspace` loads no other package, so `action` gets the packages that
-`withRootWorkspace` gives it. The compiled code of this function calls no loader that resolves or
-materializes a dependency, which removes directories (`Regula.Removal.rawRemovals`).
-
-Its prerequisite: before the loader runs, it refuses when `.lake` or `.lake/config` below the
-checkout is there and is not a directory at its own place (`Regula.Removal.requireOwnDirectory`).
-It also refuses when the directory of the root package's compiled configuration
-(`Lake.LoadConfig.configDir`, `.lake/config/0`) is not such a directory, or has an entry that is a
-symbolic link (`Regula.Removal.requireNoLinkedEntries`). That directory is the one where the loader
-removes and writes files, the configuration lock among them (`Lake/Load/Lean/Elab.lean:185-187`).
-It removes the stale `lakefile.olean` and the trace (`:244`, `:262`), and opens the lock and the
-trace for writing (`:207`, `:223`, `:294`). `Lean.writeModule` writes the new `lakefile.olean` and
-its siblings (`:256`) through `<file>.tmp.<pid>`, opened with `std::ofstream`
-(`src/library/module.cpp:311-314`). An open of an existing file for writing follows a final link, so
-with this check each file that the loader writes there is the checkout's own. -/
-def withRootPackage {α : Type} (repo : FilePath) (action : _root_.Lake.Workspace → IO α) :
-    IO α := do
-  let config ← loadConfig repo false
+The prerequisite: before the loader runs, it refuses when `.lake` or `.lake/config` below the
+checkout is there and is not a directory at its own place
+(`Regula.Filesystem.requireOwnDirectory`). It also refuses when the directory of the root
+package's compiled configuration (`Lake.LoadConfig.configDir`, `.lake/config/0`) is not such a
+directory, or has an entry that is a symbolic link (`Regula.Filesystem.requireNoLinkedEntries`).
+That directory is the one where the loader removes and writes files, the configuration lock among
+them (`Lake/Load/Lean/Elab.lean:185-187`). It removes the stale `lakefile.olean` and the trace
+(`:244`, `:262`), and opens the lock and the trace for writing (`:207`, `:223`, `:294`).
+`Lean.writeModule` writes the new `lakefile.olean` and its siblings (`:256`) through
+`<file>.tmp.<pid>`, opened with `std::ofstream` (`src/library/module.cpp:311-314`). An open of an
+existing file for writing follows a final link, so with this check each file that the loader
+writes there is the checkout's own. -/
+private def loadRoot (config : _root_.Lake.LoadConfig) :
+    IO (Option _root_.Lake.Workspace × _root_.Lake.Log) := do
   let lake := config.wsDir / _root_.Lake.defaultLakeDir
   let refuse {β : Type} (error : IO.Error) : IO β := throw <| IO.userError
     s!"lake-workspace-load-failed: nothing was loaded: {error}"
   for directory in [lake, lake / "config"] do
-    try Regula.Removal.requireOwnDirectory directory catch error => refuse error
-  try Regula.Removal.requireNoLinkedEntries config.configDir catch error => refuse error
+    try Regula.Filesystem.requireOwnDirectory directory catch error => refuse error
+  try Regula.Filesystem.requireNoLinkedEntries config.configDir catch error => refuse error
   let load : _root_.Lake.LoggerIO _root_.Lake.Workspace := _root_.Lake.loadWorkspaceRoot config
-  let (ws?, log) ← load.captureLog
+  load.captureLog
+
+/-- Stop unless each clone that Lake's materialization of the locked dependencies could remove is a
+directory at its own place. Those dependencies are the Git entries of `manifest`, of the
+workspace's package overrides file and of `overrides`, a later entry of a name replacing an earlier
+one, as `Lake.Workspace.materializeDeps` merges them. Lake keeps the clone of an entry at
+`<workspace>/<packages>/<name>`, with the manifest's packages directory, or the workspace's when
+the manifest names none. When a directory is there whose `HEAD` is not the entry's revision, Lake
+updates it, and it removes the clone with `IO.FS.removeDirAll` when its remote is not the entry's
+URL (`Lake.PackageEntry.materialize`, `Lake.updateGitRepo`). So it stops when a clone is not a
+directory at its own place (`Regula.Filesystem.requireOwnDirectory`) and its `HEAD` is not the
+entry's revision: a clone that is a symbolic link at that revision, as `RegulaProvision` links
+Mathlib, Lake leaves as it is. -/
+private def requireLockedClones (ws : _root_.Lake.Workspace) (manifest : _root_.Lake.Manifest)
+    (overrides : Array _root_.Lake.PackageEntry) : IO Unit := do
+  let packages := ws.dir / (manifest.packagesDir?.getD ws.relPkgsDir)
+  let fromFile ← _root_.Lake.Manifest.tryLoadEntries ws.packageOverridesFile
+  let mut entries : Std.HashMap Name _root_.Lake.PackageEntry := {}
+  for entry in manifest.packages ++ fromFile ++ overrides do
+    entries := entries.insert entry.name entry
+  for (_, entry) in entries do
+    let .git (rev := rev) .. := entry.src | continue
+    let clone := packages / entry.dirName
+    try Regula.Filesystem.requireOwnDirectory clone
+    catch error =>
+      unless (← (_root_.Lake.GitRepo.mk clone).getHeadRevision?) == some rev do
+        throw <| IO.userError s!"lake-workspace-load-failed: no dependency was materialized: \
+          Lake would update the clone of {entry.name} at {clone}, whose HEAD is not the \
+          manifest's revision {rev}, and it is not a directory at its own place: {error}"
+
+/-- Load the workspace rooted at `repo` with Lake's loader and pass it to
+`action`. The action runs in the same process, so it must not retain mutable
+workspace state beyond its return value. With `scrubSearchPath`, the inherited
+`LEAN_PATH` and `LEAN_SRC_PATH` are ignored, as for `scrubbedLeanPathEnv`. Setup may disable
+`resolveDependencies` to load only the root configuration without materializing dependencies.
+
+The root package is loaded after its prerequisite (`loadRoot`). With `resolveDependencies`, the
+dependencies are resolved as `Lake.loadWorkspace` resolves them: from the manifest when there is
+one (`Lake.Workspace.materializeDeps`), and otherwise by Lake's update
+(`Lake.Workspace.updateAndMaterialize`). Before Lake materializes them, it stops when a clone that
+the materialization could remove is not a directory at its own place (`requireLockedClones`), and
+before an update, when the workspace's packages directory is not a directory at its own place or
+has an entry that is a symbolic link (`Regula.Filesystem.requireNoLinkedEntries`). So each
+removal of a clone that Lake makes is of a directory at its own place, as the check of each
+program assumes (`Regula.Removal.libraryRemovals`). -/
+def withRootWorkspace {α : Type} (repo : FilePath) (action : _root_.Lake.Workspace → IO α)
+    (scrubSearchPath := false) (resolveDependencies := true) : IO α := do
+  let config ← loadConfig repo scrubSearchPath
+  let (ws?, log) ← loadRoot config
+  withLoaded ws? log fun ws => do
+    unless resolveDependencies do return ← action ws
+    let refuse {β : Type} (error : IO.Error) : IO β :=
+      throw <| IO.userError s!"lake-workspace-load-failed: {error}"
+    let manifest ← try _root_.Lake.Manifest.load? ws.manifestFile catch error => refuse error
+    let resolve ← match manifest with
+      | some manifest => do
+          requireLockedClones ws manifest config.packageOverrides
+          pure (ws.materializeDeps manifest config.leanOpts config.reconfigure
+            config.packageOverrides)
+      | none => do
+          try Regula.Filesystem.requireNoLinkedEntries ws.pkgsDir catch error =>
+            refuse (IO.userError s!"no dependency was resolved: {error}")
+          pure (ws.updateAndMaterialize {} config.leanOpts config.updateToolchain)
+    let (ws?, log) ← resolve.captureLog
+    withLoaded ws? log action
+
+/-- Load only the root package of the workspace at `repo`, after its prerequisite (`loadRoot`),
+and pass it to `action`, after refusing a root package that declares a dependency. For a root that
+declares none, `Lake.loadWorkspace` loads no other package, so `action` gets the packages that
+`withRootWorkspace` gives it. The compiled code of this function calls no loader that resolves or
+materializes a dependency, which removes directories (`Regula.Removal.checkProgram`). -/
+def withRootPackage {α : Type} (repo : FilePath) (action : _root_.Lake.Workspace → IO α) :
+    IO α := do
+  let (ws?, log) ← loadRoot (← loadConfig repo false)
   withLoaded ws? log fun ws => do
     unless ws.root.depConfigs.isEmpty do
       throw <| IO.userError s!"lake-workspace-load-failed: the root package at {repo} declares \
@@ -243,7 +301,7 @@ cannot. -/
 def dropRestoredTraces (ws : _root_.Lake.Workspace) : IO Unit := do
   let drop (mod : _root_.Lake.Module) : IO Unit := do
     if let .ok text ← (IO.FS.readFile mod.traceFile).toBaseIO then
-      if restoredTrace text then IO.FS.removeFile mod.traceFile
+      if restoredTrace text then Regula.Filesystem.removePath .file mod.traceFile
   for lib in ws.root.leanLibs do
     if let .ok modules ← lib.getModuleArray.toBaseIO then
       for mod in modules do drop mod

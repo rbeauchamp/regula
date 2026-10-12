@@ -2,33 +2,43 @@ import Regula.Removal
 import Regula.Site.Deployment
 import Lean.Elab.Command
 
-/-! # Controls of the removal decision and its reach check
+/-! # Controls of the removal operations and of the reach check
 
-Planted cases that the operations of `Regula.Removal` must refuse, each a control of one way a
-removal could escape the decision. The first acceptance step builds this module, and its build
-fails when a control does not give the expected result. No executable imports this module, so no
-planted declaration below is linked into a program, and its planted initializer never runs.
+Planted cases that the operations of `Regula.Filesystem` and the reach check of `Regula.Removal`
+must refuse, each a control of one way a removal could escape the decision. The first acceptance
+step builds this module, and its build fails when a control does not give the expected result. No
+program imports this module, so no planted declaration below is linked into a program, and its
+planted initializer never runs. The planted removals below are the calls of a removal primitive in
+`lean/Regula` that do not go through the decision, each the subject of its control.
 
 - A symbolic link at a component above the last one: `removeOwn` refuses `linked/out`, where
   `linked` is a link to a directory that has `out`, and removes nothing there. It removes the same
-  directory at its own place. This control is about the file system, a trusted boundary: it
-  observes the operation on the toolchain's file system calls, and it proves nothing.
-- A name that extends the name of `removeDecided`: a declaration with that name that calls a
-  removal primitive is a raw removal (`rawRemovalsFrom`), so only `removeDecided` and the variants
-  that the compiler made of it are admitted (`decidedVariants`).
-- A removal in an initializer: `rawRemovals` starts at each initializer that an executable runs
-  (`initializers`), so it finds a removal that no call from `main` reaches.
+  directory at its own place. A symbolic link at its own place is removed as a link, and its target
+  stays; the link is refused as a directory or a file. `replace` moves a file at its own place over
+  another and refuses a move through the link, of a directory and onto a directory. These controls
+  are about the file system, a trusted boundary: they observe the operations on the toolchain's
+  file system calls, and they prove nothing.
+- A name that extends the name of an observer of the filesystem: a declaration with that name that
+  calls a removal primitive is a raw removal (`rawRemovalsFrom`), so only the declarations with the
+  observer's role and the variants that the compiler made of them are admitted
+  (`observerVariant`).
+- A removal in an initializer: the check starts at each initializer that a program runs
+  (`initializersOf`), so it finds a removal that no call from `main` reaches.
 - A declaration of another name bound to a C function of the runtime that removes: a call of it is
   a raw removal (`removalSymbols`).
 - A rename and the writing of a module, which replace an entry: each call is a raw removal
-  (`primitives`).
-- An absent output below a linked ancestor, and an output with a `.` or `..` component: `ownPath`
-  refuses each before anything is made.
+  (`primitives`). A write of a file is counted, not refused (`writePrimitives`).
+- An absent output below a linked ancestor, and an output with a `.` or `..` component after the
+  first: `ownPath` refuses each before anything is made. It drops the leading `.` of a relative
+  path.
 - A symbolic link, a path through one and a file where a directory is checked:
   `requireOwnDirectory` refuses each, and accepts a directory at its own place and an absent path.
   `requireNoLinkedEntries` refuses a directory with a symbolic link among its entries.
 - A URL of `Regula.Site.Deployment.fetch` that starts with `-`: curl does not read it as an
-  option. -/
+  option.
+
+`Regula.ProgramCheck.Controls` runs the check that each program runs (`checkProgram`) on a planted
+program. -/
 
 namespace Regula.RemovalControls
 
@@ -40,64 +50,103 @@ initialize plantedInitializer : Unit ← do
   if (← IO.getEnv "REGULA_REMOVAL_CONTROL_PLANTED").isSome then
     IO.FS.removeDirAll "/regula-removal-control-planted"
 
--- A symbolic link above the last component: refused, and nothing is removed through the link.
+-- A symbolic link above the last component: refused, and nothing is removed through the link. A
+-- link at its own place is removed as a link. A move of a file, and the moves it refuses.
 run_cmd do
-  let base ← IO.FS.realPath (← IO.FS.createTempDir)
+  let base ← Regula.Filesystem.ownTempDir
   try
     IO.FS.createDirAll (base / "target" / "out")
     IO.FS.writeFile (base / "target" / "out" / "keep") "keep"
     let linked ← IO.Process.output
       { cmd := "ln", args := #["-s", (base / "target").toString, (base / "linked").toString] }
     unless linked.exitCode == 0 do throwError "ln -s failed: {linked.stderr}"
-    let refused ← (Regula.Removal.removeOwn .directory (base / "linked" / "out")).toBaseIO
+    let refused ← (Regula.Filesystem.removeOwn .directory (base / "linked" / "out")).toBaseIO
     unless refused matches .error _ do throwError "removeOwn removed through a linked component"
-    unless (← (Regula.Removal.ownPath (base / "linked" / "new")).toBaseIO) matches .error _ do
+    for kind in [Regula.Removal.Kind.directory, .file] do
+      unless (← (Regula.Filesystem.removeOwn kind (base / "linked")).toBaseIO) matches .error _ do
+        throwError "removeOwn removed a symbolic link as a {kind.noun}"
+    unless (← (Regula.Filesystem.ownPath (base / "linked" / "new")).toBaseIO) matches .error _ do
       throwError "ownPath accepted an absent path below a linked component"
-    unless (← Regula.Removal.ownPath (base / "target" / "new")) == base / "target" / "new" do
+    unless (← Regula.Filesystem.ownPath (base / "target" / "new")) == base / "target" / "new" do
       throwError "ownPath changed a path below its own place"
-    unless (← (Regula.Removal.ownPath (base / "fresh" / "." / "out")).toBaseIO)
+    unless (← (Regula.Filesystem.ownPath (base / "fresh" / "." / "out")).toBaseIO)
         matches .error _ do
       throwError "ownPath accepted a path with a `.` component"
-    unless (← (Regula.Removal.ownPath (base / "target" / ".." / "linked")).toBaseIO)
+    unless (← (Regula.Filesystem.ownPath (base / "target" / ".." / "linked")).toBaseIO)
         matches .error _ do
       throwError "ownPath accepted a path with a `..` component"
+    let working ← IO.FS.realPath (← IO.currentDir)
+    unless (← Regula.Filesystem.ownPath (FilePath.mk "." / "lean")) == working / "lean" do
+      throwError "ownPath kept the leading `.` of a relative path"
     for refused in [base / "linked", base / "linked" / "out", base / "target" / "out" / "keep"] do
-      unless (← (Regula.Removal.requireOwnDirectory refused).toBaseIO) matches .error _ do
+      unless (← (Regula.Filesystem.requireOwnDirectory refused).toBaseIO) matches .error _ do
         throwError "requireOwnDirectory accepted {refused}"
-    Regula.Removal.requireOwnDirectory (base / "target" / "out")
-    Regula.Removal.requireNoLinkedEntries (base / "target" / "out")
-    Regula.Removal.requireNoLinkedEntries (base / "absent")
-    unless (← (Regula.Removal.requireNoLinkedEntries base).toBaseIO) matches .error _ do
+    Regula.Filesystem.requireOwnDirectory (base / "target" / "out")
+    Regula.Filesystem.requireNoLinkedEntries (base / "target" / "out")
+    Regula.Filesystem.requireNoLinkedEntries (base / "absent")
+    unless (← (Regula.Filesystem.requireNoLinkedEntries base).toBaseIO) matches .error _ do
       throwError "requireNoLinkedEntries accepted a directory with a linked entry"
     let dangling ← IO.Process.output { cmd := "ln", args := #["-s", (base / "missing").toString,
       (base / "target" / "out" / "dangling").toString] }
     unless dangling.exitCode == 0 do throwError "ln -s failed: {dangling.stderr}"
-    unless (← (Regula.Removal.requireNoLinkedEntries (base / "target" / "out")).toBaseIO)
+    unless (← (Regula.Filesystem.requireNoLinkedEntries (base / "target" / "out")).toBaseIO)
         matches .error _ do
       throwError "requireNoLinkedEntries accepted a directory with a dangling linked entry"
-    Regula.Removal.requireOwnDirectory (base / "absent")
+    Regula.Filesystem.requireOwnDirectory (base / "absent")
     unless ← (base / "target" / "out" / "keep").pathExists do
       throwError "removeOwn removed an entry below a linked component"
-    Regula.Removal.removeOwn .directory (base / "target" / "out")
+    -- Moves: a file over a file and to an absent path; none through the link, of a directory, or
+    -- onto a directory.
+    IO.FS.writeFile (base / "staged") "staged"
+    IO.FS.writeFile (base / "published") "earlier"
+    Regula.Filesystem.replace (base / "staged") (base / "published")
+    unless (← IO.FS.readFile (base / "published")) == "staged" &&
+        !(← (base / "staged").pathExists) do
+      throwError "replace did not move a file over a file"
+    Regula.Filesystem.replace (base / "published") (base / "moved")
+    unless (← (base / "moved").pathExists) && !(← (base / "published").pathExists) do
+      throwError "replace did not move a file to an absent path"
+    for (source, destination) in [(base / "moved", base / "linked" / "out" / "moved"),
+        (base / "target" / "out", base / "directory"), (base / "moved", base / "target")] do
+      unless (← (Regula.Filesystem.replace source destination).toBaseIO) matches .error _ do
+        throwError "replace moved {source} to {destination}"
+    unless ← (base / "moved").pathExists do
+      throwError "a refused move changed its source"
+    Regula.Filesystem.removeOwn .link (base / "linked")
+    unless !(← (base / "linked").pathExists) && (← (base / "target" / "out" / "keep").pathExists) do
+      throwError "removeOwn did not remove a symbolic link at its own place, or removed its target"
+    Regula.Filesystem.removeOwn .directory (base / "target" / "out")
     if ← (base / "target" / "out").pathExists then
       throwError "removeOwn kept a directory at its own place"
   finally
-    IO.FS.removeDirAll base
+    Regula.Filesystem.removeOwn .directory base
 
--- A declaration whose name extends the name of `removeDecided` is not admitted.
+-- A declaration whose name extends the name of an observer of the filesystem is not admitted, and
+-- the observers are the declarations of `Regula.Filesystem` that call the primitives.
 run_cmd do
-  let planted := Regula.Removal.decidedName ++ `unchecked
+  let env ← getEnv
+  let observers := Regula.Removal.filesystemObservers env
+  unless observers.size ≥ 5 && observers.all fun observer =>
+      (env.getModuleIdxFor? observer).map (env.header.moduleNames[·.toNat]!) ==
+        some `Regula.Filesystem do
+    throwError "the observers of the filesystem are not declarations of Regula.Filesystem: \
+      {observers}"
+  let some observer := observers.find? fun observer =>
+      (Regula.Removal.rawRemovalsFrom env #[] #[observer]).raw.any (·.2 == ``IO.FS.removeDirAll)
+    | throwError "no observer of the filesystem calls IO.FS.removeDirAll"
+  unless (Regula.Removal.rawRemovalsFrom env observers #[observer]).raw.isEmpty do
+    throwError "the observer {observer} is not admitted"
+  let planted := observer ++ `_redArg
   Elab.Command.liftTermElabM do
     let type := mkForall `path .default (mkConst ``FilePath) (mkApp (mkConst ``IO) (mkConst ``Unit))
     let value := mkLambda `path .default (mkConst ``FilePath)
       (mkApp (mkConst ``IO.FS.removeDirAll) (mkBVar 0))
     addAndCompile (.defnDecl { name := planted, levelParams := [], type, value
                                hints := .opaque, safety := .safe })
-  let (raw, unknown) := Regula.Removal.rawRemovalsFrom (← getEnv) #[planted]
-  unless raw == #[(planted, ``IO.FS.removeDirAll)] && unknown.isEmpty do
-    throwError "the planted declaration {planted} is not a raw removal: {raw}, unknown {unknown}"
-  unless Regula.Removal.decidedVariants (← getEnv) Regula.Removal.decidedName do
-    throwError "removeDecided itself is not admitted"
+  let reach := Regula.Removal.rawRemovalsFrom (← getEnv) observers #[planted]
+  unless reach.raw == #[(planted, ``IO.FS.removeDirAll)] && reach.unknown.isEmpty do
+    throwError "the planted declaration {planted} is not a raw removal: {reach.raw}, \
+      unknown {reach.unknown}"
 
 /-- The planted binding of the control of `extern` declarations: a declaration of another name
 bound to the C function of `IO.FS.removeFile`. No program calls it. -/
@@ -110,42 +159,53 @@ def callsPlantedRemoval (path : FilePath) : IO Unit := plantedRemoval path
 -- A call of a declaration bound to a removal symbol of the runtime is a raw removal, whatever the
 -- declaration's name, and so is the declaration as a root.
 run_cmd do
-  let (raw, unknown) := Regula.Removal.rawRemovalsFrom (← getEnv) #[``callsPlantedRemoval]
-  unless raw == #[(``callsPlantedRemoval, ``plantedRemoval)] && unknown.isEmpty do
-    throwError "the call of the planted binding is not a raw removal: {raw}, unknown {unknown}"
-  let (raw, _) := Regula.Removal.rawRemovalsFrom (← getEnv) #[``plantedRemoval]
-  unless raw == #[(``plantedRemoval, `lean_io_remove_file)] do
-    throwError "the planted binding is not a raw removal as a root: {raw}"
+  let env ← getEnv
+  let observers := Regula.Removal.filesystemObservers env
+  let reach := Regula.Removal.rawRemovalsFrom env observers #[``callsPlantedRemoval]
+  unless reach.raw == #[(``callsPlantedRemoval, ``plantedRemoval)] && reach.unknown.isEmpty do
+    throwError "the call of the planted binding is not a raw removal: {reach.raw}, unknown \
+      {reach.unknown}"
+  let reach := Regula.Removal.rawRemovalsFrom env observers #[``plantedRemoval]
+  unless reach.raw == #[(``plantedRemoval, `lean_io_remove_file)] do
+    throwError "the planted binding is not a raw removal as a root: {reach.raw}"
 
-/-- A caller of the library's operations that replace an entry: a rename and the writing of a
-module. No program calls it. -/
+/-- A caller of the library's operations that replace an entry, a rename and the writing of a
+module, and of one that writes a file. No program calls it. -/
 def callsReplacements (env : Environment) (source target : FilePath) : IO Unit := do
   IO.FS.rename source target
   Lean.writeModule env target
+  IO.FS.writeFile target ""
 
--- A rename and the writing of a module are removals that the check finds.
+-- A rename and the writing of a module are removals that the check finds; the write is counted.
 run_cmd do
-  let (raw, unknown) := Regula.Removal.rawRemovalsFrom (← getEnv) #[``callsReplacements]
+  let env ← getEnv
+  let reach := Regula.Removal.rawRemovalsFrom env (Regula.Removal.filesystemObservers env)
+    #[``callsReplacements]
   let replacements := [``IO.FS.rename, ``Lean.writeModule]
-  unless raw.size == 2 && replacements.all (fun replacement => raw.contains
-      (``callsReplacements, replacement)) && unknown.isEmpty do
-    throwError "the planted replacements are not raw removals: {raw}, unknown {unknown}"
+  unless reach.raw.size == 2 && replacements.all (fun replacement => reach.raw.contains
+      (``callsReplacements, replacement)) && reach.unknown.isEmpty do
+    throwError "the planted replacements are not raw removals: {reach.raw}, unknown \
+      {reach.unknown}"
+  unless reach.writes.contains (``callsReplacements, ``IO.FS.writeFile) do
+    throwError "the planted write is not counted: {reach.writes}"
 
 -- The planted initializer is found, and no other initializer of this module's imports removes.
 run_cmd do
   let env ← getEnv
-  let (raw, unknown) := Regula.Removal.rawRemovalsFrom env (Regula.Removal.initializers env)
-  unless unknown.isEmpty do throwError "initializers with unknown compiled code: {unknown}"
-  unless raw.size == 1 && raw.all fun (caller, primitive) =>
+  let reach := Regula.Removal.rawRemovalsFrom env (Regula.Removal.filesystemObservers env)
+    (Regula.Removal.initializers env)
+  unless reach.unknown.isEmpty do
+    throwError "initializers with unknown compiled code: {reach.unknown}"
+  unless reach.raw.size == 1 && reach.raw.all fun (caller, primitive) =>
       primitive == ``IO.FS.removeDirAll && (env.getModuleIdxFor? caller).isNone do
-    throwError "the planted initializer is not the only raw removal: {raw}"
+    throwError "the planted initializer is not the only raw removal: {reach.raw}"
 
 -- `fetch` runs curl: it reads a planted file through a `file://` URL.
 -- A URL that starts with `-` is not an option of curl: `fetch` gives `-K` with a configuration
 -- that writes a file, and the file is not written. The configuration is effective: curl writes the
 -- file when it is given as an option.
 run_cmd do
-  let base ← IO.FS.realPath (← IO.FS.createTempDir)
+  let base ← Regula.Filesystem.ownTempDir
   try
     IO.FS.writeFile (base / "body") "body"
     let (_, read) ← Regula.Site.Deployment.fetch s!"file://{base / "body"}"
@@ -161,6 +221,6 @@ run_cmd do
     unless direct.exitCode == 0 && (← (base / "written").pathExists) do
       throwError "the planted configuration of curl writes no file: {direct.stderr}"
   finally
-    IO.FS.removeDirAll base
+    Regula.Filesystem.removeOwn .directory base
 
 end Regula.RemovalControls

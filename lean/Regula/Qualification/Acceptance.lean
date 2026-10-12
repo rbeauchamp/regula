@@ -55,7 +55,7 @@ private def save (path : FilePath) (receipt : Json) : IO Unit := do
       (path.toString ++ "." ++ suffix.foldl (fun s b => s ++ s!"{b.toNat}-") "")
   try
     writeJson temporary receipt
-    IO.FS.rename temporary path
+    Regula.Filesystem.replacePath temporary path
   finally
     removeFile temporary
 
@@ -123,7 +123,7 @@ private def qualify (group : String) (evidence : FilePath) (receipt : IO.Ref Jso
       update "activeCase" active
       let resultEvidence := evidence.addExtension s!"result-{records.size}.json"
       let resultFile ← if ← output.pathExists then do
-        IO.FS.rename output resultEvidence
+        Regula.Filesystem.replacePath output resultEvidence
         pure (toJson resultEvidence.toString)
         else pure Json.null
       active := active.setObjVal! "resultFile" resultFile

@@ -57,7 +57,7 @@ def qualifyForms : List Command :=
     form (.selfAuditModule "" ""), form (.selfAuditJsonModule ""), form (.environments ""),
     form (.acceptance .fences ""), .acceptanceSnapshots .dependencies,
     .acceptanceSnapshots .history, .acceptanceSnapshots .gitStatus, .acceptanceSnapshots .all,
-    .prepMeasure, .documentationDependencies, .inputInventory, .receiptBoundaries,
+    .prepMeasure, .documentationDependencies, .inputInventory, .receiptBoundaries, .observers,
     .closureEvidence, .configurationCapture, .fenceEvidence, .frozenExits, .documentationSource,
     .documentationSourceReadOnly]
 
@@ -199,7 +199,10 @@ def runsOf : List String → List Campaign
   | ["diagnostics"] => [.selftest .buildBound]
   | ["diagnostics", "producers"] => [.qualify .producers]
   | ["diagnostics", "history"] => [.qualify .history]
-  | ["diagnostics", "self-audit"] => [.qualify .selfAudit]
+  | ["diagnostics", "self-audit"] => [.qualify .selfAudit, .qualify .observers]
+  -- The fourth shard also runs `qualify observers` (`RegulaVerification.observersShard`).
+  | ["diagnostics", "self-audit", "4/4"] =>
+      [.qualify (form (.selfAuditShard "")), .qualify .observers]
   | ["diagnostics", "self-audit", _] => [.qualify (form (.selfAuditShard ""))]
   | ["diagnostics", "rule-examples"] => [.qualify (form (.ruleExamples ""))]
   | ["diagnostics", "rule-examples", _] => [.qualify (form (.ruleExamplesShard "" ""))]

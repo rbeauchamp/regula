@@ -69,7 +69,7 @@ def identity (scratch projectRoot docsRoot : FilePath)
   let path := scratch / "acceptance-link-identity.json"
   IO.FS.writeFile path
     (identityJson projectRoot docsRoot sources configuration dependencies documents).compress
-  try sha256File scratch path finally IO.FS.removeFile path
+  try sha256File scratch path finally Regula.Filesystem.removePath .file path
 
 /-- Replace any earlier record before the ordinary audit starts. -/
 def invalidate (path : FilePath) : IO Unit :=

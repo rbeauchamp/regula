@@ -907,7 +907,7 @@ private def restore (written : Array Written) : IO Unit := do
   for w in written.reverse do
     match w.previous with
     | some text => IO.FS.writeFile w.path text
-    | none => if ← w.path.pathExists then IO.FS.removeFile w.path
+    | none => if ← w.path.pathExists then Regula.Filesystem.removePath .file w.path
 
 /-- Write the plan's edits into the project's files. -/
 private def realize (written : IO.Ref (Array Written)) (project : Project) (edits : List Edit) :

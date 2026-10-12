@@ -1,3 +1,4 @@
+import Regula.Removal
 import Regula.Checker.PolicyCodec
 import Regula.Checker.Documentation
 import Regula.Checker.Lake
@@ -1477,7 +1478,7 @@ private def withNewFile {α : Type} (path : FilePath) (text : String) (action : 
   if let some parent := path.parent then IO.FS.createDirAll parent
   IO.FS.writeFile path text
   try action
-  finally if ← path.pathExists then IO.FS.removeFile path
+  finally if ← path.pathExists then Regula.Filesystem.removePath .file path
 
 private def withReplacedFile {α : Type} (path : FilePath) (text : String) (action : IO α) :
     IO α := do
@@ -1488,7 +1489,7 @@ private def withReplacedFile {α : Type} (path : FilePath) (text : String) (acti
 
 private def withRemovedFile {α : Type} (path : FilePath) (action : IO α) : IO α := do
   let original ← IO.FS.readFile path
-  IO.FS.removeFile path
+  Regula.Filesystem.removePath .file path
   try action
   finally IO.FS.writeFile path original
 
@@ -1778,7 +1779,7 @@ A missing input fails the shard and writes no digest. -/
 private def selfHostedDigest (repo scratch : FilePath) (name : String)
     (input : IO.Ref (Option (Array (String × Option ByteArray)))) : IO (Array String) := do
   let evidence := selfHostedDigestPath repo name
-  if ← evidence.pathExists then IO.FS.removeFile evidence
+  if ← evidence.pathExists then Regula.Filesystem.removePath .file evidence
   let some recorded ← input.get
     | return #[s!"structural/self-hosted/{name}: no fresh input was recorded, because its \
         cluster stopped or the positive was refused, so no digest was written"]
@@ -2430,7 +2431,7 @@ private def sourceAttributionControls (dir : FilePath)
           one block"
       return #[]
     finally
-      if ← report.pathExists then IO.FS.removeFile report
+      if ← report.pathExists then Regula.Filesystem.removePath .file report
 
 /-- Controls for a decision registered from another module of its inventory (standard §7.11).
 `AuditApp.DownstreamDecision` declares `downstreamCheck` without importing `Regula.Decision`, and
@@ -3141,7 +3142,7 @@ private def frozenArtifactControls (scratch : FilePath) : IO (Array String) := d
     for ((level, _), isPresent) in levels.zip present do
       let part := level.adjustFileName olean
       if isPresent then IO.FS.writeBinFile part frozenBytes
-      else if ← part.pathExists then IO.FS.removeFile part
+      else if ← part.pathExists then Regula.Filesystem.removePath .file part
     let some artifact ← Inspection.freezeArtifact `Frozen olean
       | failures := failures.push s!"frozen-artifact/{layout}: the artifact was not frozen"
         continue
@@ -3163,10 +3164,11 @@ private def frozenArtifactControls (scratch : FilePath) : IO (Array String) := d
     for ((level, extension), isPresent) in levels.zip present do
       let part := level.adjustFileName olean
       let restore : IO Unit :=
-        if isPresent then IO.FS.writeBinFile part frozenBytes else IO.FS.removeFile part
+        if isPresent then IO.FS.writeBinFile part frozenBytes
+        else Regula.Filesystem.removePath .file part
       let mutations : Array (String × IO Unit) :=
         if isPresent then #[("changed", IO.FS.writeBinFile part (ByteArray.mk #[1, 2, 4])),
-          ("removed", IO.FS.removeFile part)]
+          ("removed", Regula.Filesystem.removePath .file part)]
         else #[("added", IO.FS.writeBinFile part frozenBytes)]
       for (mutation, mutate) in mutations do
         mutate
@@ -3459,7 +3461,7 @@ private def driverCopyControl (repo : FilePath) : IO (Array String) :=
   failures := failures ++ expect "remove: the copy or its marker is still there"
     (!(← copy.pathExists) && !(← marker.pathExists))
   -- 2. A project with a symbolic link at `.lake/build`, and then a driver that is killed.
-  IO.FS.removeDirAll build
+  Regula.Filesystem.removePath .directory build
   link marked build
   let child ← IO.Process.spawn {
     cmd := "lean", args := #["--run", driver, "--copy-control"], cwd := some project
@@ -3488,7 +3490,7 @@ private def driverCopyControl (repo : FilePath) : IO (Array String) :=
     killed driver" (!(← survivesReclamation copy) && !(← marker.pathExists))
   -- 3. A second killed driver, and then a project with no build output: the next driver removes
   -- the copy of the dead one before it makes its own, and the project gets the copy's output.
-  IO.FS.removeFile build
+  Regula.Filesystem.removePath .link build
   let child ← IO.Process.spawn {
     cmd := "lean", args := #["--run", driver, "--copy-control"], cwd := some project
     env := scrubbedLeanPathEnv, stdin := .piped, stdout := .piped, stderr := .inherit
@@ -3528,7 +3530,7 @@ private def driverCopyControl (repo : FilePath) : IO (Array String) :=
   failures := failures ++ expect "site: a link at _site was followed or removed"
     (!stopped.succeeded && stopped.output.contains "nothing was removed" &&
       (← (marked / "kept.txt").pathExists) && (← site.symlinkMetadata).type == .symlink)
-  IO.FS.removeFile site
+  Regula.Filesystem.removePath .link site
   IO.FS.createDirAll (site / "pages")
   IO.FS.writeFile (site / "pages" / "old.html") "an earlier artifact"
   let removed ← runProcess project "lean" #["--run", driver, "--begin-attempt", "site"]
@@ -4211,3 +4213,8 @@ unsafe def main (args : List String) : IO UInt32 := do
   catch error =>
     IO.eprintln s!"FAIL: {error}"
     return 1
+
+-- The removals that the compiled code of `main`, and of the initializers of the modules it links,
+-- reaches are the filesystem observer's and those that `Regula.Removal.libraryRemovals` lists: the
+-- build of this module fails otherwise (`Regula.Removal.checkProgram`).
+run_cmd Regula.Removal.checkProgram
