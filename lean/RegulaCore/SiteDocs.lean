@@ -261,10 +261,14 @@ def creditsPage (ident : Identity) : Except String String := do
       4 and Lake by the Lean FRO and contributors (Apache 2.0), used through the pinned toolchain \
       as dependencies. The editor's *View explanation* link is Lean's own error-description \
       widget, shown in the infoview of the VS Code Lean 4 extension (leanprover/vscode-lean4). The \
-      linter's strict JSON parser adapts the container recursion of Lean's \
+      linter's strict JSON parser adapts the string, number and container parsers of Lean's \
       `Lean/Data/Json/Parser.lean` (Copyright (c) 2019 Gabriel Ebner; authors Gabriel Ebner and \
-      Marc Huisinga; Apache 2.0) to reject duplicate keys; its notice is kept in the source and \
-      the [Apache 2.0 license text](" ++ blobUrl ident "LICENSES/Apache-2.0.txt" ++
+      Marc Huisinga; Apache 2.0), made total and rejecting duplicate keys, and restates the \
+      whitespace and literal parsing of `Std/Internal/Parsec/String.lean` (Copyright (c) 2021 \
+      Microsoft Corporation; authors Dany Fabian and Henrik Böving; Apache 2.0); its compact \
+      printer adapts `Lean/Data/Json/Printer.lean` (Copyright (c) 2019 Gabriel Ebner; authors \
+      Gabriel Ebner, Marc Huisinga and Wojciech Nawrocki; Apache 2.0). Their notices are kept in \
+      the source and the [Apache 2.0 license text](" ++ blobUrl ident "LICENSES/Apache-2.0.txt" ++
           ") is in the repository.\n\n" ++
     "**Verso.** This site is generated with [Verso](https://github.com/leanprover/verso) by the \
       Lean FRO and contributors (Apache 2.0), pinned at revision `" ++ ident.versoRevision ++

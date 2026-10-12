@@ -314,11 +314,11 @@ metadata, not authenticated binary identity.
   boundary record once, with the index of its name as `node`), `unavailableCode`, and `roots`,
   one entry per root. Checker code builds and reads the document with `execution` as an array of
   complete root accounts (name, module, boundaries, unresolved paths, compiler edges and
-  closure), as before; `ResultProtocol.writeDocument` writes `SharedExecution.write` of it and
-  every reader (`ResultProtocol.readDocument`, the qualification drivers' `readResult`) takes the
-  file through `ResultProtocol.admitDocument`, which runs `SharedExecution.read`. Admission
-  takes the kind of each root entry from the file. The writer chooses that kind by comparing object
-  trees node for node, and a parsed file can have other trees. The reader (`SharedExecution.restore?`,
+  closure), as before; `ResultProtocol.writeDocument` writes `SharedExecution.write` of it in the
+  form the JSON parser builds (`JsonCanon.canon`), and every reader (`ResultProtocol.readDocument`,
+  the qualification drivers' `readResult`) takes the file through `ResultProtocol.admitDocument`,
+  which runs `SharedExecution.read`. Admission takes the kind of each root entry from the file.
+  The writer chooses that kind by comparing object trees node for node. The reader (`SharedExecution.restore?`,
   `SharedExecution.rebuildRoot`) derives a root's account from its entry: its visits are the walk
   from the root over the edges the collector follows (`SharedExecution.walk`, the collector's own
   walk `RegulaPolicy.StackWalk.walk`); its reached names are the visited ones; each channel's
@@ -331,23 +331,20 @@ metadata, not authenticated binary identity.
   (`same_eq`: a `true` answer is an equality); otherwise it writes the logical value as it is.
   So `SharedExecution.expand_intern` and `read_write` hold for every `Json` value whatever is
   proposed: `read` of the `Json` value the writer wrote is exactly the document the writer was
-  given. The law is about that written value, not about a file. A reader holds the parse of the
-  file's text, which the JSON implementation is trusted, as for earlier schemas, to give the
-  members of the written value, but in general not its object trees: the printer lists an
-  object's members in key order and the parser inserts them in that order, while `Json.mkObj`
-  inserts them as listed. So `read_write` does not apply to the parsed value, and the checker's
-  and the qualification oracles' theorems are about the document `read` returns for it. That
-  this document has the members of the writer's is not proved and does not reduce to a JSON
-  round trip. It is observed: `RegistryChecks` compares the two on one account (`expand` of a
-  parsed shared form with the built account), and the `history` qualification reads the
-  collector's real output this way and validates the document it gets, without the writer's to
-  compare it with. That the proposal is kept, and so that the file is small, is not a theorem:
+  given. The file's text carries that value. The writer prints it with `PolicyCodec.compress` and
+  every reader parses it with `PolicyCodec.parse`, both total definitions, and the parse of the
+  printed text of a value in the parser's form is that value
+  (`JsonRoundTrip.parse_compress_canonical`). Every value the writer writes is in that form
+  (`ExecutionShare.canonical_write`), so the reader gets the written value and admission returns
+  the writer's document (`ResultProtocol.admitDocument_parse_encodeDocument`), which has the
+  members of the given document when its object trees are search trees. That a file read returns
+  the text the write wrote is trusted. That the proposal is kept, and so that the file is small, is not a theorem:
   it holds when the collector's accounts have the form the reader derives, which
   `Probe.executionWalk` is written to produce (the names that it queues after a record,
   `ExecutionWalk.NodeRecord.successors`, are the channels of the reader in its order, each in the
   order of `canonicalNames`), and when a rebuilt account is the same tree as the logical one, for
-  which the account codecs and the reader list each object's members in key order, as the JSON
-  parser inserts them. The `history` qualification and `RegistryChecks` observe both. A kept proposal
+  which the account codecs and the reader list each object's members in key order, the form
+  `JsonCanon.canon` keeps. The `history` qualification and `RegistryChecks` observe both. A kept proposal
   whose every root entry is derived holds each reached name, edge and boundary record once per
   environment and a constant-size entry per root, where the logical member repeats them for
   every root that reaches them.

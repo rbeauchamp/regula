@@ -926,10 +926,10 @@ correspondence, detail, toolchain origin and the exact correspondence terms, ref
 incompatible extra evidence, and every representable value round-trips. Accepted canonical
 external spellings re-encode identically. The pure codec proves
 `decode (encode x) = ok x` over a tagged tree; that is not a theorem about JSON text. Worker
-parsing (`Checker.PolicyCodec`, whose container recursion is adapted from Lean's JSON parser under
-Apache-2.0) rejects duplicate fields before building a map, unknown and missing fields,
-unsupported tags and numeric overflow; the parent waits for the child's exit and checks the
-response against its own request.
+parsing (`Checker.PolicyCodec`, whose string, number and container parsers are adapted from
+Lean's JSON parser under Apache-2.0) rejects duplicate fields before building a map, unknown and
+missing fields, unsupported tags and numeric overflow; the parent waits for the child's exit and
+checks the response against its own request.
 
 **Trusted:** these relations concern supplied observations. `InfrastructureOK` binds the exact
 reporter, codec and collector artifacts the IO adapter compares with the running checker's, their
@@ -3937,19 +3937,20 @@ with answers `true` only for equal values) and `slots_intern` (writing the accou
 `null` `sourceTexts` member), for every `Json` value and every list of writer proposals, bounded
 to Standard-Logical by `RegistryChecks`. The equality is of `Json` values, object trees
 included, and `read_write` is about the value the writer wrote: any function of `read` of that
-value is that function of the document the writer was given. It is not about the value a reader
-parses from the file. The JSON implementation is trusted, as for every earlier schema, to parse
-the file's text to a value with the members of the written one, but in general not with its
-object trees: the printer lists an object's members in key order and the parser inserts them in
-that order, while `Json.mkObj` inserts them as listed. So the `history` oracle's theorems
-(`History.validate_importedRootExecuted`, `validate_unsupported_unresolved`) are about the
-document `readResult` returns, and that this document has the members of the document the writer
-was given, with the account the collector produced, is a further correspondence the laws do not
-give. It is not proved and does not reduce to a JSON round trip; it is observed, by
-`RegistryChecks` on one account (`expand` of a parsed shared form is the built account) and by
-the `history` qualification, which reads the collector's real output through `readResult` and
-validates the document it gets, without the writer's to compare it with. The laws do not prove
-either that the written form is smaller than the logical one. That holds when the writer's
+value is that function of the document the writer was given. The file carries that value:
+`ResultProtocol.admitDocument_parse_encodeDocument` proves that the parse (`PolicyCodec.parse`)
+of the text `writeDocument` writes (`encodeDocument`) is the value the writer wrote and that
+admission of it returns the writer's document, `JsonCanon.canon` of the document given. It rests
+on `JsonRoundTrip.parse_compress_canonical` (the parse of the printed text of a value in the
+parser's form is that value) and `ExecutionShare.canonical_write` (the writer writes values in
+that form); `PolicyCodec.compress` and `PolicyCodec.parse` are total definitions that the writer
+and the readers run, so no hypothesis about Lean's `partial` printer or parser is involved. The
+writer's document has the members of the document given when the latter's object trees are search
+trees (`JsonCanon.Regular.canon_agree`). That a file read returns the text the write wrote is
+trusted. So the `history` oracle's theorems (`History.validate_importedRootExecuted`,
+`validate_unsupported_unresolved`) are about the writer's document, and that it holds the account
+the collector produced is the collector's correspondence, not a law of the transport. The laws do
+not prove either that the written form is smaller than the logical one. That holds when the writer's
 proposal is kept, which is checked at each write and observed on the collector's real output by
 the `history` qualification (`derivedOnly`) and on built and parsed accounts by
 `RegistryChecks`, not proved. In the excluded library, `RegistryCodec.mode_roundtrip`,

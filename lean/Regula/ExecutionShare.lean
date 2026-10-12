@@ -1,6 +1,7 @@
 import Regula.Report
 import Regula.SharedExecution
 import RegulaPolicy.ExecutionWalk
+import Regula.JsonCanon
 
 /-! # Shared forms of execution accounts
 
@@ -198,18 +199,21 @@ def fitted (value : Json) : Json :=
       | none => value
   | none => value
 
-/-- The proposals of a result writer: `fitted` alone. -/
-def proposals : List (Json → Json) := [fitted]
+/-- The proposals of a result writer: `fitted` in the form the JSON parser builds
+(`JsonCanon.canon`), so that the parse of the written text is the written value itself
+(`JsonRoundTrip.parse_compress_canonical`). -/
+def proposals : List (Json → Json) := [fun value => JsonCanon.canon (fitted value)]
 
 /-! ### The forms a writer gives a value
 
 `fitted` writes a root's derived entry when the reader rebuilds from it a value `same` as the
-root's logical account, a test that compares object trees node for node. A document read back from
-its file has its object trees in the shape the parser builds, which can differ from the shape of
-the document the writer was given, so the derived entry of a root can rebuild the read account
-where the writer wrote an explicit one. `sharedAs` is the shared form with the kind of each entry
-given, and `formLike` is the form a writer gives a value with the entry kinds of a written value:
-`formLike_internValue` and `formLike_sharedAs` state that it returns each writer's own form. -/
+root's logical account, a test that compares object trees node for node, so the kind of a root's
+entry depends on the shapes of the trees of the document the writer was given. `sharedAs` is the
+shared form with the kind of each entry given, and `formLike` is the form a writer gives a value
+with the entry kinds of a written value, the shared form in the parser's form (`JsonCanon.canon`):
+`formLike_internValue` and `formLike_sharedAs` state that it returns each writer's own form, so
+admission (`ResultProtocol.admitDocument`) accepts a written value at every entry kinds under
+which the reader takes its accounts back (`ResultProtocol.admitDocument_writeAs`). -/
 
 /-- The shared form of `value` with the root entry at each position explicit where `explicit`
 holds of the position, and derived elsewhere; `value` itself where `fitted` writes it as it is. -/
@@ -243,7 +247,9 @@ kinds of the written value `written`: the writer's form with `sharedAs` at the k
 `written` has no root entries. -/
 def formLike (written value : Json) : Json :=
   match rootEntries? written with
-  | some entries => SharedExecution.internValue [sharedAs (explicitAt entries)] value
+  | some entries =>
+      SharedExecution.internValue
+        [fun value => JsonCanon.canon (sharedAs (explicitAt entries) value)] value
   | none => SharedExecution.internValue proposals value
 
 /-- The last member of an object built from a list is found by its name. -/
@@ -421,6 +427,96 @@ theorem internValue_congr {propose other : Json → Json} {value : Json}
 /-- An array has no root entries. -/
 theorem rootEntries?_arr (elems : Array Json) : rootEntries? (.arr elems) = none := rfl
 
+/-! ### Entry kinds in the parser's form
+
+The written value of a result writer is the parser's form (`JsonCanon.canon`) of `fitted`'s value.
+Each root entry is an object built with `Json.mkObj`, whose tree is a search tree, so the parser's
+form of an entry has the same members (`JsonCanon.getObjVal?_canon`) and the same kind. -/
+
+/-- An entry built from a list of members has the kind of its parser's form. -/
+theorem isExplicit_canon_mkObj (members : List (String × Json)) :
+    isExplicit (JsonCanon.canon (Json.mkObj members)) = isExplicit (Json.mkObj members) := by
+  simp only [isExplicit]
+  rw [JsonCanon.mkObj_eq, JsonCanon.getObjVal?_canon (JsonCanon.treeOf_ordered members)]
+  cases Json.getObjVal? _ "explicit" <;> rfl
+
+/-- Root entries built from lists of members have the kinds of their parser's forms. -/
+theorem explicitAt_map_canon {entries : Array Json}
+    (built : ∀ entry ∈ entries, ∃ members, entry = Json.mkObj members) :
+    explicitAt (entries.map JsonCanon.canon) = explicitAt entries := by
+  funext position
+  simp only [explicitAt, Array.getD_eq_getD_getElem?, Array.getElem?_map]
+  rcases found : entries[position]? with _ | entry
+  · rfl
+  · obtain ⟨members, rfl⟩ := built _ (Array.mem_of_getElem? found)
+    exact isExplicit_canon_mkObj members
+
+/-- The root entries of the parser's form of a shared form are the parser's forms of its root
+entries. -/
+theorem rootEntries?_canon_sharedForm (tables : Tables) (entries : Array Json) :
+    rootEntries? (JsonCanon.canon (sharedForm tables entries)) =
+      some (entries.map JsonCanon.canon) := by
+  have found := getObjVal?_mkObj_last tables.members SharedExecution.rootsKey (.arr entries)
+  unfold rootEntries? sharedForm
+  rw [JsonCanon.mkObj_eq, JsonCanon.getObjVal?_canon (JsonCanon.treeOf_ordered _),
+    ← JsonCanon.mkObj_eq, found]
+  simp [Except.map, JsonCanon.canon_arr]
+
+/-- Each element of an array mapped by a function that builds every value from a list of members
+is built from a list of members. -/
+theorem built_map {α : Type} {pairs : Array α} {entry : Json} {build : α → Json}
+    (each : ∀ pair, ∃ members, build pair = Json.mkObj members)
+    (present : entry ∈ pairs.map build) :
+    ∃ members, entry = Json.mkObj members := by
+  obtain ⟨pair, _, rfl⟩ := Array.mem_map.mp present
+  exact each pair
+
+/-- As `built_map`, for a map with positions. -/
+theorem built_mapIdx {α : Type} {pairs : Array α} {entry : Json} {build : Nat → α → Json}
+    (each : ∀ position pair, ∃ members, build position pair = Json.mkObj members)
+    (present : entry ∈ pairs.mapIdx build) : ∃ members, entry = Json.mkObj members := by
+  obtain ⟨position, inside, rfl⟩ := Array.mem_mapIdx.mp present
+  exact each position _
+
+/-- What `fitted` writes, where it does not write the value as it is, is a shared form whose root
+entries are each built from a list of members. -/
+theorem fitted_shared {value : Json} (kept : ¬fitted value = value) :
+    ∃ tables entries, fitted value = sharedForm tables entries ∧
+      ∀ entry ∈ entries, ∃ members, entry = Json.mkObj members := by
+  rcases listed : roots? value with _ | ⟨roots, accounts⟩
+  · exact absurd (by simp [fitted, listed]) kept
+  · rcases decoded : SharedExecution.graphOf? (sharedForm (tables roots accounts) #[]) with
+      _ | graph
+    · exact absurd (by simp [fitted, listed, decoded]) kept
+    · simp only [fitted, listed, decoded]
+      refine ⟨_, _, rfl, fun entry present => built_map (fun pair => ?_) present⟩
+      split <;> exact ⟨_, rfl⟩
+
+/-- What `sharedAs` writes, where it does not write the value as it is, is a shared form whose
+root entries are each built from a list of members. -/
+theorem sharedAs_shared {explicit : Nat → Bool} {value : Json}
+    (kept : ¬sharedAs explicit value = value) :
+    ∃ tables entries, sharedAs explicit value = sharedForm tables entries ∧
+      ∀ entry ∈ entries, ∃ members, entry = Json.mkObj members := by
+  rcases listed : roots? value with _ | ⟨roots, accounts⟩
+  · exact absurd (by simp [sharedAs, listed]) kept
+  · rcases decoded : SharedExecution.graphOf? (sharedForm (tables roots accounts) #[]) with
+      _ | graph
+    · exact absurd (by simp [sharedAs, listed, decoded]) kept
+    · simp only [sharedAs, listed, decoded]
+      refine ⟨_, _, rfl, fun entry present => built_mapIdx (fun position pair => ?_) present⟩
+      split <;> exact ⟨_, rfl⟩
+
+/-- The entry kinds of the parser's form of a shared form with entries built from lists of
+members are the kinds of its own entries. -/
+theorem kinds_canon {tables : Tables} {entries found : Array Json}
+    (built : ∀ entry ∈ entries, ∃ members, entry = Json.mkObj members)
+    (listed : rootEntries? (JsonCanon.canon (sharedForm tables entries)) = some found) :
+    explicitAt found = explicitAt entries := by
+  rw [rootEntries?_canon_sharedForm] at listed
+  cases listed
+  exact explicitAt_map_canon built
+
 /-- **`formLike` returns the result writers' form.** For every logical execution value, the form
 `formLike` gives it with the entry kinds of the writers' written form is that written form. -/
 theorem formLike_internValue (value : Json) :
@@ -429,16 +525,21 @@ theorem formLike_internValue (value : Json) :
   unfold formLike
   split
   · next entries found =>
-    show SharedExecution.internValue [sharedAs (explicitAt entries)] value =
-      SharedExecution.internValue [fitted] value
     by_cases kept : fitted value = value
-    · exact internValue_congr ((fitted_self kept _).trans kept.symm)
+    · exact internValue_congr (congrArg JsonCanon.canon ((fitted_self kept _).trans kept.symm))
     · apply internValue_congr
-      by_cases recovered : SharedExecution.recovers (fitted value) value = true
-      · have written : SharedExecution.internValue proposals value = fitted value := by
+      by_cases recovered :
+          SharedExecution.recovers (JsonCanon.canon (fitted value)) value = true
+      · have written : SharedExecution.internValue proposals value =
+            JsonCanon.canon (fitted value) := by
           simp [proposals, SharedExecution.internValue, SharedExecution.firstRecovered, recovered]
         rw [written] at found
-        exact sharedAs_fitted found
+        obtain ⟨tables, shared, form, built⟩ := fitted_shared kept
+        rw [form] at found
+        have kinds := kinds_canon built found
+        have own : rootEntries? (fitted value) = some shared := by
+          rw [form, rootEntries?_sharedForm]
+        rw [kinds, sharedAs_fitted own]
       · exfalso
         have written : SharedExecution.internValue proposals value =
             if SharedExecution.recovers value value then value
@@ -457,38 +558,46 @@ theorem formLike_internValue (value : Json) :
 
 /-- **`formLike` returns the form at every entry kinds whose shared form the reader takes back.**
 For every logical execution value and every choice of explicit positions under which `sharedAs`
-writes the value as it is or the reader returns the value from it, the form `formLike` gives the
-value with the entry kinds of the form written with that choice is that form. -/
+writes the value as it is or the reader returns the value from the parser's form of the shared
+form, the form `formLike` gives the value with the entry kinds of the parser's form written with
+that choice is that form. -/
 theorem formLike_sharedAs {explicit : Nat → Bool} {value : Json}
     (restores : sharedAs explicit value = value ∨
-      SharedExecution.recovers (sharedAs explicit value) value = true) :
-    formLike (SharedExecution.internValue [sharedAs explicit] value) value =
-      SharedExecution.internValue [sharedAs explicit] value := by
+      SharedExecution.recovers (JsonCanon.canon (sharedAs explicit value)) value = true) :
+    formLike (SharedExecution.internValue [fun value => JsonCanon.canon (sharedAs explicit value)]
+        value) value =
+      SharedExecution.internValue [fun value => JsonCanon.canon (sharedAs explicit value)]
+        value := by
   by_cases kept : sharedAs explicit value = value
   · obtain ⟨fittedKept, others⟩ := sharedAs_self kept
     unfold formLike
     split
-    · exact internValue_congr ((others _).trans kept.symm)
-    · exact internValue_congr (fittedKept.trans kept.symm)
+    · exact internValue_congr (congrArg JsonCanon.canon ((others _).trans kept.symm))
+    · exact internValue_congr (congrArg JsonCanon.canon (fittedKept.trans kept.symm))
   · have recovered := restores.resolve_left kept
-    have written : SharedExecution.internValue [sharedAs explicit] value =
-        sharedAs explicit value := by
+    have written : SharedExecution.internValue
+        [fun value => JsonCanon.canon (sharedAs explicit value)] value =
+        JsonCanon.canon (sharedAs explicit value) := by
       simp [SharedExecution.internValue, SharedExecution.firstRecovered, recovered]
     rw [written]
+    obtain ⟨tables, shared, form, built⟩ := sharedAs_shared kept
     unfold formLike
     split
     · next entries found =>
-      rw [internValue_congr (sharedAs_explicitAt found)]
+      rw [form] at found
+      have kinds := kinds_canon built found
+      have own : rootEntries? (sharedAs explicit value) = some shared := by
+        rw [form, rootEntries?_sharedForm]
+      have same : SharedExecution.internValue
+          [fun value => JsonCanon.canon (sharedAs (explicitAt shared) value)] value =
+          SharedExecution.internValue [fun value => JsonCanon.canon (sharedAs explicit value)]
+            value :=
+        internValue_congr (congrArg JsonCanon.canon (sharedAs_explicitAt own))
+      rw [kinds, same]
       simp [SharedExecution.internValue, SharedExecution.firstRecovered, recovered]
     · next absent =>
-      exfalso
-      rcases listed : roots? value with _ | ⟨roots, accounts⟩
-      · exact kept (by simp [sharedAs, listed])
-      · rcases decoded : SharedExecution.graphOf? (sharedForm (tables roots accounts) #[]) with
-          _ | graph
-        · exact kept (by simp [sharedAs, listed, decoded])
-        · simp only [sharedAs, listed, decoded, rootEntries?_sharedForm] at absent
-          cases absent
+      rw [form, rootEntries?_canon_sharedForm] at absent
+      cases absent
 
 /-! ### The reader's walk is the producer's walk -/
 
@@ -511,5 +620,137 @@ theorem walk_agree {graph : SharedExecution.Graph} {root : Nat}
     visits = (SharedExecution.walk graph root).map (Prod.map rename id) :=
   StackWalk.walk_agree injective (fun node reach => carried node reach)
     (SharedExecution.walk_eq graph root) (by rw [rooted]; exact accepted)
+
+/-! ### The written value is in the parser's form
+
+`JsonCanon.Canonical` is the form of the values the JSON parser builds
+(`JsonRoundTrip.parse_compress_canonical`). Each step of `SharedExecution.write` maps the values
+of object trees and keeps their names and shapes, so it keeps that form where every value it
+writes in place of another is in it. -/
+
+section Canonical
+open JsonCanon (Canonical)
+
+/-- Applying `leaf` to every `sourceText` member keeps the parser's form where `leaf` does. -/
+theorem canonical_mapTexts {leaf : Json → Json}
+    (each : ∀ value, Canonical value → Canonical (leaf value)) {value : Json}
+    (canonical : Canonical value) : Canonical (SourceTexts.mapTexts leaf value) := by
+  induction canonical with
+  | null => simpa [SourceTexts.mapTexts] using Canonical.null
+  | bool b => simpa [SourceTexts.mapTexts] using Canonical.bool b
+  | num n => simpa [SourceTexts.mapTexts] using Canonical.num n
+  | str s => simpa [SourceTexts.mapTexts] using Canonical.str s
+  | @arr elements _ step =>
+    simp only [SourceTexts.mapTexts]
+    exact .arr fun value present => by
+      obtain ⟨original, inside, rfl⟩ := Array.mem_map.mp present
+      exact step original inside
+  | @obj written increasing members step =>
+    have object := Canonical.obj increasing members
+    rw [JsonCanon.mkObj_eq] at object ⊢
+    simp only [SourceTexts.mapTexts, SourceTexts.mapFields_eq_map]
+    refine object.map _ fun member present => ?_
+    rw [JsonCanon.members_treeOf increasing] at present
+    split
+    · exact each _ (members member present)
+    · exact step member present
+
+/-- Applying `leaf` to every member named `key` keeps the parser's form where `leaf` does. -/
+theorem canonical_mapMembers {key : String} {leaf : Json → Json}
+    (each : ∀ value, Canonical value → Canonical (leaf value)) {value : Json}
+    (canonical : Canonical value) : Canonical (SharedExecution.mapMembers key leaf value) := by
+  induction canonical with
+  | null => simpa [SharedExecution.mapMembers] using Canonical.null
+  | bool b => simpa [SharedExecution.mapMembers] using Canonical.bool b
+  | num n => simpa [SharedExecution.mapMembers] using Canonical.num n
+  | str s => simpa [SharedExecution.mapMembers] using Canonical.str s
+  | @arr elements _ step =>
+    simp only [SharedExecution.mapMembers]
+    exact .arr fun value present => by
+      obtain ⟨original, inside, rfl⟩ := Array.mem_map.mp present
+      exact step original inside
+  | @obj written increasing members step =>
+    have object := Canonical.obj increasing members
+    rw [JsonCanon.mkObj_eq] at object ⊢
+    simp only [SharedExecution.mapMembers, SharedExecution.mapMemberFields_eq_map]
+    refine object.map _ fun member present => ?_
+    rw [JsonCanon.members_treeOf increasing] at present
+    split
+    · exact each _ (members member present)
+    · exact step member present
+
+/-- Replacing the top-level `sourceTexts` members with a value in the parser's form keeps the
+form. -/
+theorem canonical_setTable {table value : Json} (listed : Canonical table)
+    (canonical : Canonical value) : Canonical (SourceTexts.setTable table value) := by
+  cases canonical with
+  | @obj written increasing members =>
+    have object := Canonical.obj increasing members
+    rw [JsonCanon.mkObj_eq] at object ⊢
+    simp only [SourceTexts.setTable, SourceTexts.setFields]
+    refine object.map _ fun member present => ?_
+    rw [JsonCanon.members_treeOf increasing] at present
+    split
+    · exact listed
+    · exact members member present
+  | null => exact .null
+  | bool b => exact .bool b
+  | num n => exact .num n
+  | str s => exact .str s
+  | arr each => exact .arr each
+
+/-- The value a proposal list's writer chooses is one of the proposals' values. -/
+theorem firstRecovered_mem {value written : Json} {proposals : List (Json → Json)}
+    (found : SharedExecution.firstRecovered value proposals = some written) :
+    ∃ propose ∈ proposals, written = propose value := by
+  induction proposals with
+  | nil => cases found
+  | cons propose rest step =>
+    simp only [SharedExecution.firstRecovered] at found
+    split at found
+    · cases found
+      exact ⟨propose, List.mem_cons_self, rfl⟩
+    · obtain ⟨other, inside, rfl⟩ := step found
+      exact ⟨other, List.mem_cons_of_mem _ inside, rfl⟩
+
+/-- The written form of an execution value in the parser's form is in it, when every proposal's
+value is. -/
+theorem canonical_internValue {proposals : List (Json → Json)}
+    (each : ∀ propose ∈ proposals, ∀ value, Canonical (propose value)) {value : Json}
+    (canonical : Canonical value) :
+    Canonical (SharedExecution.internValue proposals value) := by
+  unfold SharedExecution.internValue
+  split
+  · next written found =>
+    obtain ⟨propose, inside, rfl⟩ := firstRecovered_mem found
+    exact each propose inside value
+  · split
+    · exact canonical
+    · exact JsonCanon.Canonical.single canonical
+
+/-- Every value a result writer proposes is in the parser's form. -/
+theorem canonical_proposals : ∀ propose ∈ proposals, ∀ value, Canonical (propose value) := by
+  intro propose inside value
+  rw [List.mem_singleton.mp inside]
+  exact JsonCanon.canonical_canon _
+
+/-- **The value a result writer writes is in the parser's form.** For every document in it, and
+every list of proposals whose values are in it, what `SharedExecution.write` writes is in it. -/
+theorem canonical_write {proposals : List (Json → Json)} {document written : Json}
+    (each : ∀ propose ∈ proposals, ∀ value, Canonical (propose value))
+    (canonical : Canonical document)
+    (wrote : SharedExecution.write proposals document = .ok written) : Canonical written := by
+  obtain ⟨_, _, _, _, rfl⟩ := SourceTexts.intern_eq_ok wrote
+  refine canonical_setTable (.arr fun text present => ?_)
+    (canonical_mapTexts (fun value inner => ?_)
+      (canonical_mapMembers (fun _ inner => canonical_internValue each inner) canonical))
+  · simp only [List.mem_toArray, List.mem_map] at present
+    obtain ⟨_, _, rfl⟩ := present
+    exact .str _
+  · cases value with
+    | str text => exact .num _
+    | _ => exact inner
+
+end Canonical
 
 end Regula.ExecutionShare
