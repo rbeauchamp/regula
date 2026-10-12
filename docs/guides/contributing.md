@@ -55,7 +55,7 @@ It refuses a root lock manifest that records any dependency. It records the cont
 identity of the inputs it accepted in `tmp/acceptance-link.json`. `./scripts/verify.sh docs`
 then refuses a rule ID in the prose of a tracked Markdown document that is not a link to its rule page ([rule IDs in documentation](#rule-ids-in-documentation)), refuses a link of the root `README.md` to the rule-reference site that is not a stable address ([links of the root README](#links-of-the-root-readme)), refuses a root `README.md` or adoption guide that does not open with the summary of Regula ([opening of the root README](#opening-of-the-root-readme)), refuses a root `README.md` if its example does not show its module and what Lean and `axiomGate --file` give for it ([example of the root README](#the-example-of-the-root-readme)), audits the `audit/` package's claimed surface from fresh output, checks every Lean example
 under `docs/` and in the Verso standard (each elaborated in the Verso package's workspace, which
-requires both packages), builds and renders the standard fresh, refuses such a rule ID in the prose of the rendered standard, and refuses unless its own freshly captured inputs have the same identity. That command also operates the controls of the [checks of the prose](#the-prose-of-markdown-documents) and of the [check of the vocabulary](#the-vocabulary-of-the-project), and then does those checks. `DOC-*` rows need both commands. Each
+requires both packages), builds the standard in its own copy and renders it, refuses such a rule ID in the prose of the rendered standard, and refuses unless its own freshly captured inputs have the same identity. That command also operates the controls of the [checks of the prose](#the-prose-of-markdown-documents) and of the [check of the vocabulary](#the-vocabulary-of-the-project), and then does those checks. `DOC-*` rows need both commands. Each
 acceptance step performs Lake-semantic discovery and a clean, warning-free build before
 inspection, so a redundant preliminary clean build is unnecessary; `lake build` remains the
 development command. Each command has its own hard seven-minute
@@ -82,6 +82,21 @@ the copy to `.lake/build` of the checkout. After a step that failed, a checkout 
 output stays without it. If the checkout has build output, the driver does not change it.
 The driver removes the copy at the end of the step. A killed step leaves its copy. The next
 first step or the next run of the checker removes it.
+
+After it moves the build output, the driver adds digests to the accepted record. These are the
+SHA-256 of each file of the copy and of that build output. The fence audit of
+`./scripts/verify.sh docs` then puts part of that build output in its own copy. That part is the
+files of the modules that its claimed build compiles. It does this only if each digest is equal to the digest of
+the file that it reads.
+
+If a digest is not there or is different, the fence audit builds the claimed libraries in a
+copy with no build output. Thus the libraries that the fences read were compiled from equal files.
+The first step compiled them in a copy with no earlier build output, or this run compiled them. The
+output of the fence audit tells if it placed the first step's build. It does not tell which build
+compiled each library.
+
+The fence audit checks the record first, before it builds. Thus without an accepted record it
+refuses immediately and builds nothing.
 
 Two ordinary attempts at the same time in one checkout are not a supported use.
 
