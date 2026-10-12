@@ -17,8 +17,8 @@ remain subject to generated-role policy; they cannot supply logical evidence.
 An owned module that an earlier environment of the same audit admitted over the
 identical, frozen import closure is reused instead of replayed again (`reusedModules`,
 `offers`, `reuseJustified_frozen`), also when another loaded module declares a copy of one of its
-names, provided every copy is the kept constant (`copiesIdentical`); every other owned module is
-replayed (`mem_replaySet`). A
+names, provided every copy is `Identical` to the kept constant (`copiesIdentical`); every other
+owned module is replayed (`mem_replaySet`). A
 member's import closure lies within the closure (`importClosure_trans`), so one pass decides
 which candidates have every owned module of their closure reused too.
 Replay reads each replayed module's own constants (`Copy`), so a name that several
@@ -474,8 +474,9 @@ name to the first module that lists it. One pass over the constants of every loa
 (`duplicatesOf`) records each name some module declares with a constant that is not `identical`
 to the kept one (`Duplicates.differing`) and, for each name, the modules that declare it other
 than the module it is attributed to (`Duplicates.others`). For a name outside `differing`, every
-copy is the kept constant (`Uniform`, `not_mem_differing_iff`), so which copy Lean keeps, or which
-module it attributes the name to, changes no constant the kernel reads. Reuse rests on such names
+copy is `Identical` to the kept constant (`Uniform`, `not_mem_differing_iff`), so which copy Lean
+keeps, or which module it attributes the name to, changes the constant the kernel reads only up to
+`Identical`. Reuse rests on such names
 (`copiesIdentical`, `referencesWithin`), and so does the offer of a replayed module that holds a
 copy of one (`ownedUniform`). What these rest on about Lean is listed under `Assumes:` in the
 docstrings of `duplicatesIn` and `copiesIdentical`. -/
@@ -643,7 +644,8 @@ private theorem mem_copies {modules : Array ModuleData} {info : ConstantInfo} {i
   · rintro ⟨data, hdata, hinfo⟩
     exact ⟨(data, idx), Array.mem_zipIdx_iff_getElem?.mpr hdata, info, hinfo, rfl, rfl⟩
 
-/-- **A name is outside `differing` exactly when every copy of it is the kept constant.** -/
+/-- **A name is outside `differing` exactly when every copy of it is `Identical` to the kept
+constant.** -/
 theorem not_mem_differing_iff {find : Name → Option ConstantInfo}
     {attributed : Name → Option Nat} {modules : Array ModuleData} {n : Name} :
     n ∉ (duplicatesOf find attributed modules).differing ↔ Uniform find modules n := by
@@ -707,8 +709,8 @@ def duplicatesIn (env : Environment) : Duplicates :=
 
 /-! ### The constants of a reused module -/
 
-/-- Whether the module at index `owner` keeps its constants whichever copy of each of its names
-Lean's import keeps: no loaded module declares a copy of a name of one of its constants that is
+/-- Whether each constant of the module at index `owner` is `Identical` to the constant Lean's
+import keeps under its name, whichever copy that is: no loaded module declares a copy of a name of one of its constants that is
 not `identical` to the kept constant (`Duplicates.differing`), and a constant that is not a
 theorem has no copy in another module (its name is attributed to `owner` and has no `others`).
 `none`, a module the environment did not load, is refused. `copiesIdentical_iff` states the
@@ -807,7 +809,7 @@ def copiesIdentical (modules : Array ModuleData) (attributed : Name → Option N
             (dups.others.getD info.name #[]).isEmpty)
 
 /-- The module at index `owner` has data, and for each of its constants every copy of the name is
-the constant `find` keeps (`Uniform`), and the constant is a theorem or the only copy of its name,
+`Identical` to the constant `find` keeps (`Uniform`), and the constant is a theorem or the only copy of its name,
 in the module the name is attributed to. -/
 def CopiesIdentical (find : Name → Option ConstantInfo) (attributed : Name → Option Nat)
     (modules : Array ModuleData) (owner : Nat) : Prop :=
@@ -860,7 +862,7 @@ def usedNames (info : ConstantInfo) : List Name :=
 
 /-- Whether a reference to `used` stays within the modules named in `allowed`: the module the
 name is attributed to is one of them, or no loaded module declares a copy of the name that is not
-the kept constant (`Duplicates.differing`) and one of them declares a copy of it
+`identical` to the kept constant (`Duplicates.differing`) and one of them declares a copy of it
 (`Duplicates.others`). `names` holds each loaded module's name at its index. -/
 def refersWithin (names : Array Name) (attributed : Name → Option Nat) (dups : Duplicates)
     (allowed : Std.HashSet Name) (used : Name) : Bool :=
@@ -869,8 +871,8 @@ def refersWithin (names : Array Name) (attributed : Name → Option Nat) (dups :
       (dups.others.getD used #[]).any fun idx => names[idx]?.any allowed.contains
 
 /-- Whether every name a constant of the module at index `owner` refers to (`usedNames`) is
-declared in a module of `closure` (`refersWithin`): attributed to one, or with every copy the kept
-constant and a copy in one, as a module whose own copy of an equation lemma is attributed to a
+declared in a module of `closure` (`refersWithin`): attributed to one, or with every copy
+`Identical` to the kept constant and a copy in one, as a module whose own copy of an equation lemma is attributed to a
 module loaded before it, outside its closure, refers to its own copy. `none`, a module the
 environment did not load, is refused. `referencesWithin_iff` states the decision. -/
 def referencesWithin (modules : Array ModuleData) (names : Array Name)
@@ -886,8 +888,8 @@ def referencesWithin (modules : Array ModuleData) (names : Array Name)
       data.constants.all fun info => (usedNames info).all (refersWithin names attributed dups allowed)
 
 /-- A reference to `used` lands in `closure`: the module `used` is attributed to is a module of
-`closure`, or every copy of `used` is the constant `find` keeps (`Uniform`) and a module of
-`closure` declares one. -/
+`closure`, or every copy of `used` is `Identical` to the constant `find` keeps (`Uniform`) and a
+module of `closure` declares one. -/
 def RefersWithin (find : Name → Option ConstantInfo) (modules : Array ModuleData)
     (names : Array Name) (attributed : Name → Option Nat)
     (closure : Array RegulaPolicy.ModuleOrigin) (used : Name) : Prop :=
@@ -957,11 +959,11 @@ theorem referencesWithin_iff {find : Name → Option ConstantInfo}
 
 /-! ### The offer of a replayed module with a shared copy -/
 
-/-- Whether no loaded module declares a copy of `n` that is not the kept constant
+/-- Whether no loaded module declares a copy of `n` that is not `identical` to the kept constant
 (`Duplicates.differing`) and every module that declares `n` is named in `owned`: the module the
 name is attributed to and each of its `others`. A replayed module holding a shared copy of such a
-name is still offered for reuse (`AdmitRequest.pinned`): every copy of the name is then the kept
-constant, held by an owned module that this environment replayed, or reused from an earlier one
+name is still offered for reuse (`AdmitRequest.pinned`): every copy of the name is then
+`Identical` to the kept constant, held by an owned module that this environment replayed, or reused from an earlier one
 that offered it on the same condition. `ownedUniform_iff` states the decision. -/
 def ownedUniform (names : Array Name) (attributed : Name → Option Nat) (dups : Duplicates)
     (owned : Std.HashSet Name) (n : Name) : Bool :=
@@ -969,8 +971,8 @@ def ownedUniform (names : Array Name) (attributed : Name → Option Nat) (dups :
     (attributed n).any (fun idx => names[idx]?.any owned.contains) &&
     (dups.others.getD n #[]).all fun idx => names[idx]?.any owned.contains
 
-/-- Every copy of `n` is the constant `find` keeps (`Uniform`), the module `n` is attributed to is
-named in `owned`, and so is every module that declares `n`. -/
+/-- Every copy of `n` is `Identical` to the constant `find` keeps (`Uniform`), the module `n` is
+attributed to is named in `owned`, and so is every module that declares `n`. -/
 def OwnedUniform (find : Name → Option ConstantInfo) (modules : Array ModuleData)
     (names : Array Name) (attributed : Name → Option Nat) (owned : Std.HashSet Name) (n : Name) :
     Prop :=
@@ -1066,8 +1068,8 @@ theorem closureWithin_iff {owned names : Std.HashSet Name}
 /-- The reuse candidates of `env`: each owned module that an earlier environment of the same
 audit replayed and offers over the import closure the module has here (`offeredClosure`), whose
 declarations refer only to constants of that closure (`referencesWithin`) and whose constants are
-the same whichever copy of their names this environment keeps (`copiesIdentical`), with that
-closure. The pass over every loaded constant that both conditions read (`duplicatesIn`) runs only
+`Identical` to the constants this environment keeps under their names, whichever copies those are
+(`copiesIdentical`), with that closure. The pass over every loaded constant that both conditions read (`duplicatesIn`) runs only
 when some owned module is offered. -/
 def candidates (env : Environment) (origins : Array RegulaPolicy.ModuleOrigin)
     (owned : Array Name) (priors : Array PriorAdmission) :
@@ -1084,8 +1086,9 @@ def candidates (env : Environment) (origins : Array RegulaPolicy.ModuleOrigin)
 
 /-- `m`, with the import closure `closure`, meets every condition of reuse but the last: it is
 owned, it has `closure` here, a prior offers it over `closure`, and, at its index in `env`, every
-name its constants refer to lands in `closure` (`ReferencesWithin`) and its constants are the same
-whichever copy of their names `env` keeps (`CopiesIdentical`). -/
+name its constants refer to lands in `closure` (`ReferencesWithin`) and its constants are
+`Identical` to the constants `env` keeps under their names, whichever copies those are
+(`CopiesIdentical`). -/
 def Candidate (env : Environment) (origins : Array RegulaPolicy.ModuleOrigin) (owned : Array Name)
     (priors : Array PriorAdmission) (m : Name) (closure : Array RegulaPolicy.ModuleOrigin) :
     Prop :=
@@ -1143,8 +1146,8 @@ theorem mem_candidates_iff {env : Environment} {origins : Array RegulaPolicy.Mod
 replaying: an earlier environment of the same audit replayed and offers each one over the
 identical import closure (`offeredClosure`), every declaration of every owned module in that
 closure refers only to constants of its own closure (`referencesWithin`), the constants of every
-such module are the same whichever copy of their names this environment keeps
-(`copiesIdentical`, whose docstring argues why reuse is then the replay this environment would
+such module are `Identical` to the constants this environment keeps under their names, whichever
+copies those are (`copiesIdentical`, whose docstring argues why reuse is then the replay this environment would
 repeat), and every owned module the closure contains is reused too. The last condition removes
 each candidate (`candidates`) whose closure contains an owned module that is not a candidate; the
 closure of every owned module of a kept candidate's closure lies within that closure
@@ -2421,8 +2424,8 @@ structure AdmitRequest where
   /-- The copies of a name that the replay base or another replayed module also declares. -/
   shared : Copy → Bool
   /-- The names a replayed module may hold a shared copy of and still be offered for reuse: every
-  copy of the name is the constant the audited environment keeps and every module declaring it
-  is owned (`ownedUniform`). -/
+  copy of the name is `Identical` to the constant the audited environment keeps and every module
+  declaring it is owned (`ownedUniform`). -/
   offerable : Name → Bool
 
 /-- The replayed modules no later environment may reuse: each holds a shared copy of a name that
@@ -2609,8 +2612,8 @@ statement and value reports read (`replayMap_sound`, `replayMap_complete`), and 
 decides on the replayed kernel and returns the receipt (`admitReplay_eq_ok`). The copies are the
 constants of each replayed module's own data (`ReplayRequest.copies`). The receipt's `shared`
 modules contain a copy of a name that the base or another replayed module also declares, where
-some loaded copy of the name is not the constant `env` keeps or a module outside `ownedModules`
-declares it (`offerable`, `ownedUniform`); their admission depends on which copy this environment
+some loaded copy of the name is not `identical` to the constant `env` keeps or a module outside
+`ownedModules` declares it (`offerable`, `ownedUniform`); their admission depends on which copy this environment
 keeps, so they are not offered for reuse. A
 reused module among `requested` is one whose declarations this environment reports: the receipt
 requires the key of each of its constants that is neither `unsafe` nor `partial`, read from the

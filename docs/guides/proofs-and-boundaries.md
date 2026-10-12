@@ -2716,7 +2716,7 @@ inferred from any pure proof.
   presence and bytes (`Inspection.readings`, `Admission.Unchanged`), and compares again after the
   last inspection (a change is [RG2005], incomplete); (3) each declaration of each owned module of
   the closure refers only to constants of its own closure, where a name counts when all its
-  copies are the kept constant and a module of the closure declares one
+  copies are `Identical` to the kept constant and a module of the closure declares one
   (`Admission.referencesWithin` over `ConstantInfo.getUsedConstantsAsSet`, the dependencies
   `Kernel.Environment.replay` replays first); (4) each loaded copy of each name of the
   module's constants is `Identical` to the constant this environment keeps, and a constant that is

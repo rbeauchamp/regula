@@ -70,8 +70,9 @@ structure AdmissionReceipt where
   first (claimed libraries that import one another). -/
   reused : Array Name
   /-- The replayed modules containing a copy of a name that the replay base or another replayed
-  module also declares, where some loaded copy of the name is not the constant this environment
-  keeps or a module outside the owned ones declares it (`Admission.AdmitRequest.pinned`). Their
+  module also declares, where some loaded copy of the name is not `identical` to the constant this
+  environment keeps or a module outside the owned ones declares it
+  (`Admission.AdmitRequest.pinned`). Their
   admission depends on which copy this environment keeps, so no later environment reuses it. -/
   shared : Array Name
   deriving Repr, DecidableEq, ToJson
