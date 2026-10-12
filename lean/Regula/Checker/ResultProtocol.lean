@@ -21,7 +21,11 @@ open RegulaPolicy.Guards (bind_eq_ok)
 /-- This checker build's producer identity, written into every result envelope. -/
 abbrev producer := Regula.Checker.Producer.identity
 
-/-- Result schema 18 lists a toolchain `partial def` and the `_unsafe_rec` helper Lean compiles it
+/-- Result schema 19 records the native-proof axioms of modules an environment does not inspect:
+each environment report carries `imported`, the records of such axioms that its declarations rest
+on, each with the declaration of that module its name is generated under. Earlier schemas wrote no
+such member.
+Schema 18 lists a toolchain `partial def` and the `_unsafe_rec` helper Lean compiles it
 through as one trusted step: each `scope.toolchainBase` entry carries `implementations`, the
 `partial` implementations its boundary carries that have no entry of their own because every root
 that reaches one holds a boundary that carries it there (`RegulaPolicy.checked_toolchainBase`).
@@ -151,7 +155,7 @@ frozen configuration and dependency text from the snapshot (`snapshotJson`: a cl
 dependency is identified by its pinned revision, a dirty one only by package and `dirty`
 status) and imported-environment module lists (`acceptedJson`,
 `ProducerReport.Environment.resultJson`); schema 1 embedded them. -/
-def schemaVersion : Nat := 18
+def schemaVersion : Nat := 19
 
 /-- Envelope identity of every result file. -/
 def identityFields : List (String × Json) := RegistryCodec.identityFields producer schemaVersion

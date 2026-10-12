@@ -1731,8 +1731,9 @@ collector reads the name, and the decision reads the type. The controls show the
 those controls only.
 
 **Observed.** `checkerSelftest fixtures` does the pass and the decision on the pinned toolchain.
-The twenty-four native controls of `lean/Fixtures/Mutations` each get the reason that `fixtures.json`
-gives. Those fixtures are tests of the boundary to the compiler. They are not tests of the
+The twenty-three native controls of `lean/Fixtures/Mutations` each get the reason that
+`fixtures.json` gives. The helper fixture `ForeignPrivatePrefix`, which
+`ImportedForeignPrivatePrefix` imports, passes under Kernel-only. Those fixtures are tests of the boundary to the compiler. They are not tests of the
 statement shapes, which the theorems decide.
 
 ### The diagnostic and policy codecs: decisions and observing pass
