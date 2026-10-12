@@ -4320,12 +4320,13 @@ The `qualify` campaigns and what they observe:
 
 - `registry`: six malformed invocations invalidate stale output; the validators accept real
   exports and refuse each removed field, the previous schema and a missing page.
-- `native`: 42 compiler controls for identity, multiplicity, severity and warning promotion,
+- `native`: 51 compiler controls for identity, multiplicity, severity and warning promotion,
   ranges, current and imported ownership, private and generated coverage and both documentation
   formats. Each control is its own compiler process with its own source path, run four at a time
   in dependency order: imported-artifact controls after the artifacts they import, restored
   controls after every malformed one.
-- `native-launcher`: 42 paired baseline/cached-environment controls with exact equality.
+- `native-launcher`: one paired baseline/cached-environment observation for each `native` control,
+  with exact equality.
 - `producers`: for the incremental and build-lint entrypoints and each of [RG5001]/[RG5002], one
   workspace runs Fixed, then Violation over that Fixed build (so a stale build must not hide the
   violation), then Fixed again from a cleared build. A standalone executable additionally has
@@ -4619,8 +4620,14 @@ which imports `Regula.Linter.Rules`. Each other module that the adopters import 
 `axiomGate` or `lint` imports, by a reading of import lines.
 
 The structural controls are divided into five shards, `1/5` to `5/5`. The execution controls are
-divided into four, `1/4` to `4/4`, and the lint-driver controls into five. The diagnostics workflow
-runs each shard as a separate job. Every control carries its one shard where the partition lists
+divided into four, `1/4` to `4/4`, and the lint-driver controls into five. The fixtures controls
+are divided into five, the cli and environments controls into six and the build-policy controls
+into three. `SelftestArguments.Partition.shards` gives these numbers. The diagnostics
+workflow runs each structural, execution and lint-driver shard as a separate job. The other
+shards are too long for a job, and the contributor guide names them among the
+[campaigns no workflow runs](contributing.md#campaigns-no-workflow-runs).
+
+Every control carries its one shard where the partition lists
 it, and a shard runs the controls that carry it. The theorem `inShard_cover` proves that the
 selections of the shards together are a rearrangement of the whole list. Thus each control runs in
 exactly one shard.
@@ -4632,8 +4639,16 @@ frozen-artifact, cross-surface decision, library cycle, driver copy, retained bu
 controls. The retained build control is in shard `4/5`, because the baseline of that shard builds
 `docFenceAudit`.
 
-The execution shards divide the correspondence clusters and the compiler-path cases. A shard's PASS
-names the controls or the groups that it ran and is not the partition's.
+The execution shards divide the correspondence clusters and the compiler-path cases.
+
+A fixtures or cli shard checks one fixture in five or in six, by its position in module-name
+order, not the file order of `fixtures.json`. The last shard also runs the other controls of its
+partition. Each environments shard runs controls of its own. The `lakefile.toml` adopter runs in
+one, and the `lakefile.lean` and relative-path adopters in the next. A build-policy shard runs
+one mutation case in three, and the last also runs the disabled-policy control.
+
+A PASS of a shard names its shard and is not the PASS of the partition. In the structural,
+execution and lint-driver partitions, it also names the controls or groups that the shard ran.
 
 Each of the chains `a`, `b`, `c` and `d` ran its mutations one after another in one project. On
 the slower hosted runners, each chain took 122 to 150 s. Each chain is now cut at points where it
@@ -4660,7 +4675,7 @@ controls: an instrumented run took 513 s, in which 21 gate runs each inspected t
 `RegulaPolicy` library (about 475 s of roughly 1,200 s of control work). `diagnostics
 structural` and `diagnostics execution` then each ran under the 420-second deadline, locally
 and as jobs of the diagnostics workflow, where the slowest hosted `structural` run observed
-(2026-10-02) took 413 s; the workflow now runs each partition as several shards, a job each.
+(2026-10-02) took 413 s; the workflow now runs each of the two as several shards, a job each.
 Observed on 2026-10-01 on a 14-core machine that other
 builds kept at a load average of 10 to 13, `structural` passed in 96 s and `execution` in 90 s
 (102 s and 94 s for the whole `verify.sh` invocation). These are observations of two runs, not
@@ -4772,12 +4787,12 @@ execution, and calling a proved oracle does not prove the driver or its IO effec
   runtime behavior, which `checked_documentation` does not cover: it quantifies over arbitrary
   reason strings.
 - `Launcher.admit`: a proof-bearing mapping with nonempty unique names and both required search
-  paths, admitting every valid decoded mapping; `checked_equivalence` requires exactly 42
-  observations and full ordered equality of source, arguments, streams, exit, environment and
-  resolved executable. Lake's environment is cached only within one fixed parent and workspace
-  invocation, separately for the imported-control search-path override; neither observations nor
-  compiled artifacts are reused, environment values are not exported, and durations are
-  observations, not a speed guarantee or compiler-equivalence theorem.
+  paths, admitting every valid decoded mapping; `checked_equivalence` requires one observation for
+  each control the qualification ran and full ordered equality of source, arguments, streams,
+  exit, environment and resolved executable. Lake's environment is cached only within one fixed
+  parent and workspace invocation, separately for the imported-control search-path override;
+  neither observations nor compiled artifacts are reused, environment values are not exported, and
+  durations are observations, not a speed guarantee or compiler-equivalence theorem.
 - `Template.instantiate`: the required `Maps` proof for the recursive JSON transformation (array
   order, object keys and scalar kinds preserved; only entire matching string values change;
   depth exhaustion refuses, and the corpus uses 64 levels). Checker snapshots discover modules

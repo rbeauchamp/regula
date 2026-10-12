@@ -90,7 +90,9 @@ def Input.covers : Input → List String → Bool
 /-- The paths the campaigns depend on, and the only statement of them: the checker, the rules and
 their examples, the adopter fixtures in `examples/lake-lint-toml` and `examples/build-lint`, the
 application and fixture sources the structural and execution controls mutate, Lake configuration
-and manifests, `scripts/verify.sh`, the verification, provisioning programs with their decision contracts, the workflow and the provisioning action.
+and manifests, `scripts/verify.sh` and `scripts/provision.sh` with the files the commands they run
+before a campaign read, the verification, provisioning programs with their decision contracts, the
+workflow and the provisioning action.
 This module is an input,
 below `lean/Regula`. -/
 def inputs : List Input := [
@@ -118,6 +120,19 @@ def inputs : List Input := [
   .file ["lean-toolchain"],
   .file ["foundation_manifest.json"],
   .file ["scripts", "verify.sh"],
+  .file ["scripts", "provision.sh"],
+  -- Read by the commands `verify.sh` runs before a campaign: the configuration of `git diff
+  -- --check` and of `shellcheck`, and the retired compiler setup whose presence
+  -- `RegulaProvision.requireReleasedSetup` refuses (an absent path still counts when a change
+  -- adds it).
+  .file [".gitattributes"],
+  .file [".shellcheckrc"],
+  .file ["scripts", ".shellcheckrc"],
+  .file ["dependency-build-mode"],
+  .file [".github", "compiler-source.json"],
+  .file [".github", "snapshot-preparation.json"],
+  .file [".github", "snapshot-compiler.json"],
+  .file [".github", "compiler-snapshot.json"],
   .file [".github", "workflows", "diagnostics.yml"],
   .tree [".github", "actions", "provision"]]
 
@@ -154,6 +169,21 @@ def campaignApplies : Event → List (List String) → Bool
 def nightlyApplies : Event → Bool
   | .schedule => true
   | _ => false
+
+/-- The invocations of `./scripts/verify.sh` that the `campaign` jobs run, one job for each, in the
+order of the job's matrix: the step `applies` writes them as its output `campaigns`, and the
+matrix reads that output. `Regula.Campaigns.Diagnostics.campaigns_eq` proves them the
+invocations of `Regula.Campaigns.Job.diagnosticsCampaign`, which the inventory of campaigns
+requires to cover every campaign it does not name with a reason. The shards of the fixtures, cli,
+environments and build-policy partitions and the groups `environment-census`, `snapshot-history`
+and `policy-domain` are not among them: each is too long for a job. -/
+def campaigns : List String :=
+  let shards (name : String) (count : Nat) : List String :=
+    (List.range count).map fun index => s!"diagnostics {name} {index + 1}/{count}"
+  ["diagnostics producers", "diagnostics history"] ++ shards "lint-driver" 5 ++
+    shards "structural" 5 ++ shards "execution" 4 ++
+    ["input-inventory", "acceptance-controls", "documentation-controls",
+      "focused-controls"].map ("diagnostics " ++ ·)
 
 /-- Which partition jobs apply to a run of `event` whose changed paths are `changed`, by job id:
 the decision `applies` writes and each partition job's `if:` reads. -/
@@ -384,7 +414,8 @@ private def output (key value : String) : IO Unit := do
   handle.putStrLn s!"{key}={value}"
 
 /-- The `applies` step: decide which partition jobs apply to this run (`decisions`) and write the
-decision as the step output `decisions`, a JSON object from job id to whether it applies. -/
+decision as the step output `decisions`, a JSON object from job id to whether it applies, and the
+`campaigns` the `campaign` jobs run as the step output `campaigns`, a JSON array. -/
 def writeDecisions : IO Unit := do
   let name ← env "GITHUB_EVENT_NAME"
   let some event := Event.parse name | fail s!"the workflow does not run on the event {name}"
@@ -397,6 +428,7 @@ def writeDecisions : IO Unit := do
   for (job, applies) in decided do
     IO.println s!"{job}: {if applies then "applies" else "does not apply"} to this {name} run"
   output "decisions" (Json.mkObj (decided.map fun (job, applies) => (job, toJson applies))).compress
+  output "campaigns" (toJson campaigns).compress
 
 /-- The result `needs.<job>.result` reports, from that job's entry of the `needs` context. -/
 private def resultOf (job : String) (entry : Json) : IO Result := do

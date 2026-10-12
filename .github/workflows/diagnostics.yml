@@ -2,19 +2,22 @@ name: Diagnostics
 
 # Capability-triggered qualification campaigns (standard §7.8): the producer and history
 # campaigns, the `lake lint` dispatch over the maintained adopter fixtures, which crosses
-# Lake, process and filesystem boundaries that the driver's proofs do not cover, in five shards,
-# and the checker self-test's structural and execution partitions, in five and four shards; the
-# controls of a partition's shards together are the partition's. They are diagnostics, not a
-# partition of ordinary acceptance.
+# Lake, process and filesystem boundaries that the driver's proofs do not cover, the structural
+# and execution partitions of the checker self-test, each in shards, and four groups of `qualify`
+# and focused self-test controls; the controls of a partition's shards together are the
+# partition's. The other partitions and groups are too long for a job. The list is
+# Regula.DiagnosticsGate.campaigns, which the inventory of campaigns (Regula.Campaigns) counts. They
+# are diagnostics, not a partition of ordinary acceptance.
 #
 # The workflow runs on every pull request, every push to main, nightly and on dispatch. Its first
 # job, `applies`, provisions the released compiler and decides which partition jobs apply to the run
 # (lean/Regula/DiagnosticsGate.lean): the campaigns on a pull request exactly when it changes one
 # of the paths listed there (`inputs`, the only statement of them: the checker, rules, rule
 # examples, adopter fixtures, the application and fixture sources the structural and execution
-# partitions mutate, Lake configuration and manifests, the compiler and dependency setup), and on
-# every other run; the nightly rule-example shards on the schedule alone. Each partition job runs
-# only when it applies. The last job, `diagnostics`, runs once every other job has finished,
+# partitions mutate, Lake configuration and manifests, the compiler and dependency setup, and
+# the scripts and configuration that verify.sh reads before a campaign), and on every other
+# run; the nightly rule-example shards on the schedule alone. Each partition job runs only when
+# it applies. The last job, `diagnostics`, runs once every other job has finished,
 # whatever their results, and passes exactly when `applies` succeeded and each partition job passed
 # and applies, or was skipped and does not apply (`verdict_iff`); a failed, cancelled or timed-out
 # job fails it. When the campaigns apply, it also refuses unless the self-hosted digests that the
@@ -48,6 +51,7 @@ jobs:
     timeout-minutes: 15
     outputs:
       decisions: ${{ steps.decide.outputs.decisions }}
+      campaigns: ${{ steps.decide.outputs.campaigns }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -71,23 +75,9 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        campaign:
-          - diagnostics producers
-          - diagnostics history
-          - diagnostics lint-driver 1/5
-          - diagnostics lint-driver 2/5
-          - diagnostics lint-driver 3/5
-          - diagnostics lint-driver 4/5
-          - diagnostics lint-driver 5/5
-          - diagnostics structural 1/5
-          - diagnostics structural 2/5
-          - diagnostics structural 3/5
-          - diagnostics structural 4/5
-          - diagnostics structural 5/5
-          - diagnostics execution 1/4
-          - diagnostics execution 2/4
-          - diagnostics execution 3/4
-          - diagnostics execution 4/4
+        # The invocations of `verify.sh` that `applies` writes (Regula.DiagnosticsGate.campaigns),
+        # which the inventory of campaigns counts (Regula.Campaigns.Diagnostics.campaigns_eq).
+        campaign: ${{ fromJSON(needs.applies.outputs.campaigns) }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:

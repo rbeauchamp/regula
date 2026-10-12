@@ -1650,7 +1650,7 @@ private def runGroup (repo scratch : FilePath) (name : String)
 /-- The number of shards of the controls: `checkerSelftest --partition lint-driver --shard i/5`
 runs the controls of the `i`th (`qualify`), and the diagnostics workflow runs each shard as a job
 of its own, under the deadline of its own invocation. -/
-def shards : Nat := 5
+def shards : Nat := SelftestArguments.Partition.lintDriver.shards
 
 /-- The shard numbered `index` from 0, which `--shard` numbers from 1. -/
 private def numbered (index : Nat) (bound : index < shards := by decide) : Fin shards :=

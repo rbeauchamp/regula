@@ -3,6 +3,7 @@ import Regula.Checker.ResultProtocol
 import Regula.Checker.SourceAudit
 import Regula.Website
 import RegulaCore.Guidance
+import Regula.Campaigns.Workflow
 
 /-! # Registry transport qualification
 
@@ -135,6 +136,21 @@ def main : IO Unit := do
     | throw <| IO.userError "registry qualification failed: RG1005 names no generated families"
   require (((← IO.FS.readFile "docs/guides/adoption.md").splitOn s!"\n> {families}\n").length == 2)
     "docs/guides/adoption.md quotes the RG1005 generated-family guidance once, verbatim"
+  -- The contributor guide shows, once and verbatim, the table of the campaigns no workflow job
+  -- runs, with the reason for each, rendered from the inventory whose coverage the kernel checks
+  -- (`Regula.Campaigns.covered_all`).
+  require (((← IO.FS.readFile "docs/guides/contributing.md").splitOn
+      s!"\n{Regula.Campaigns.table}\n").length == 2)
+    "docs/guides/contributing.md shows Regula.Campaigns.table, the campaigns no workflow job runs, \
+      once, verbatim"
+  -- Each workflow job of the inventory runs, as its workflow file reads, exactly the invocations
+  -- the inventory states (`Regula.Campaigns.Job.workflowRefusal`). The diagnostics matrix is the
+  -- list `applies` writes, which `Regula.Campaigns.Diagnostics.campaigns_eq` equates to these.
+  let applies := (Regula.Campaigns.Job.invocations .diagnosticsCampaign).map (" ".intercalate)
+  for job in Regula.Campaigns.Job.all do
+    let text ← IO.FS.readFile job.location.1
+    if let some refusal := job.workflowRefusal (fun _ => text) applies then
+      require false refusal
   require
       (!succeeded (validateRegistry producer (manifest.setObjVal! "sourceRevision" (.str "stale"))))
     "stale revision"

@@ -1,0 +1,221 @@
+/-! # The command line of `qualify`
+
+The closed vocabulary of the selections `lake exe qualify` accepts (`Command`), the argument list
+of each (`Command.arguments`) and the parser the dispatcher runs (`Command.parse`), which accepts
+exactly those lists (`Command.parse_sound`, `Command.parse_arguments`). The inventory of campaigns
+(`Regula.Campaigns`) classifies each form of selection by the workflow job that runs it. This
+module imports nothing, so that inventory and its checks can import it beside the other
+executables' vocabularies. -/
+namespace Regula.Qualification
+
+/-- A group of the dependency-snapshot controls (`qualify acceptance-snapshots GROUP`). -/
+inductive SnapshotGroup where
+  /-- Ignored Git and non-Git dependency input coverage and mutation. -/
+  | dependencies
+  /-- RG3001 fresh, incremental and build-lint history refusal and restoration. -/
+  | history
+  /-- The dirty decision against a literal-pathspec status. -/
+  | gitStatus
+  /-- The three groups under one deadline. -/
+  | all
+  deriving DecidableEq, Repr
+
+/-- The argument that names the group. -/
+def SnapshotGroup.spelling : SnapshotGroup → String
+  | .dependencies => "dependencies"
+  | .history => "history"
+  | .gitStatus => "git-status"
+  | .all => "all"
+
+/-- The group an argument names. -/
+def SnapshotGroup.parse : String → Option SnapshotGroup
+  | "dependencies" => some .dependencies
+  | "history" => some .history
+  | "git-status" => some .gitStatus
+  | "all" => some .all
+  | _ => none
+
+/-- Every group's argument names it. -/
+theorem SnapshotGroup.parse_spelling (group : SnapshotGroup) :
+    parse group.spelling = some group := by
+  cases group <;> rfl
+
+/-- A group of the acceptance fault controls (`qualify acceptance GROUP --evidence PATH`): only
+`fences`, the faults injected into the documentation step's compilation output. -/
+inductive AcceptanceGroup where
+  /-- A missing, a duplicated and a misindexed fence result. -/
+  | fences
+  deriving DecidableEq, Repr
+
+/-- The argument that names the group. -/
+def AcceptanceGroup.spelling : AcceptanceGroup → String
+  | .fences => "fences"
+
+/-- The group an argument names. -/
+def AcceptanceGroup.parse : String → Option AcceptanceGroup
+  | "fences" => some .fences
+  | _ => none
+
+/-- A group the parser accepts is the one its argument spells. -/
+theorem AcceptanceGroup.parse_sound {text : String} {group : AcceptanceGroup}
+    (h : parse text = some group) : text = group.spelling := by
+  unfold parse at h; split at h <;> first | (cases h; rfl) | cases h
+
+/-- A selection of `lake exe qualify`, one constructor for each form of its command line. -/
+inductive Command where
+  /-- `registry`: the registry controls. -/
+  | registry
+  /-- `native`: the native linter controls. -/
+  | native
+  /-- `combined`: `registry`, then `native` beside `unique-constants`. -/
+  | combined
+  /-- `unique-constants`: no constant declared by two modules of a claimed environment. -/
+  | uniqueConstants
+  /-- `native-launcher`: the paired launcher diagnostic. -/
+  | nativeLauncher
+  /-- `rule-examples --evidence PATH`: the whole corpus. -/
+  | ruleExamples (evidence : String)
+  /-- `rule-examples --evidence PATH --rules RULE ...`: the corpus records of those rules. -/
+  | ruleExamplesRules (evidence : String) (rules : List String)
+  /-- `rule-examples --evidence PATH --shard K/N`: one shard of the corpus. -/
+  | ruleExamplesShard (evidence spec : String)
+  /-- `producers`. -/
+  | producers
+  /-- `producers --evidence PATH`: the campaign, and its export. -/
+  | producersExport (evidence : String)
+  /-- `producers-combined`: `producers`, then `history`. -/
+  | producersCombined
+  /-- `history`. -/
+  | history
+  /-- `self-audit`. -/
+  | selfAudit
+  /-- `self-audit --shard K/4`. -/
+  | selfAuditShard (spec : String)
+  /-- `self-audit-module MODULE SOURCE`: the self-audit's worker for one module. -/
+  | selfAuditModule (module source : String)
+  /-- `self-audit-json-module MODULE`: the self-audit's worker for one module's `Json`
+  comparisons. -/
+  | selfAuditJsonModule (module : String)
+  /-- `environments --evidence PATH`. -/
+  | environments (evidence : String)
+  /-- `acceptance GROUP --evidence PATH`. -/
+  | acceptance (group : AcceptanceGroup) (evidence : String)
+  /-- `acceptance-snapshots GROUP`. -/
+  | acceptanceSnapshots (group : SnapshotGroup)
+  /-- `prep-measure`. -/
+  | prepMeasure
+  /-- `documentation-dependencies`. -/
+  | documentationDependencies
+  /-- `input-inventory`. -/
+  | inputInventory
+  /-- `receipt-boundaries`. -/
+  | receiptBoundaries
+  /-- `closure-evidence`. -/
+  | closureEvidence
+  /-- `configuration-capture`. -/
+  | configurationCapture
+  /-- `fence-evidence`. -/
+  | fenceEvidence
+  /-- `frozen-exits`. -/
+  | frozenExits
+  /-- `documentation-source`. -/
+  | documentationSource
+  /-- `documentation-source --source-read-only`. -/
+  | documentationSourceReadOnly
+  deriving DecidableEq, Repr
+
+/-- The argument list of each selection. -/
+def Command.arguments : Command → List String
+  | .registry => ["registry"]
+  | .native => ["native"]
+  | .combined => ["combined"]
+  | .uniqueConstants => ["unique-constants"]
+  | .nativeLauncher => ["native-launcher"]
+  | .ruleExamples evidence => ["rule-examples", "--evidence", evidence]
+  | .ruleExamplesRules evidence rules =>
+      "rule-examples" :: "--evidence" :: evidence :: "--rules" :: rules
+  | .ruleExamplesShard evidence spec => ["rule-examples", "--evidence", evidence, "--shard", spec]
+  | .producers => ["producers"]
+  | .producersExport evidence => ["producers", "--evidence", evidence]
+  | .producersCombined => ["producers-combined"]
+  | .history => ["history"]
+  | .selfAudit => ["self-audit"]
+  | .selfAuditShard spec => ["self-audit", "--shard", spec]
+  | .selfAuditModule module source => ["self-audit-module", module, source]
+  | .selfAuditJsonModule module => ["self-audit-json-module", module]
+  | .environments evidence => ["environments", "--evidence", evidence]
+  | .acceptance group evidence => ["acceptance", group.spelling, "--evidence", evidence]
+  | .acceptanceSnapshots group => ["acceptance-snapshots", group.spelling]
+  | .prepMeasure => ["prep-measure"]
+  | .documentationDependencies => ["documentation-dependencies"]
+  | .inputInventory => ["input-inventory"]
+  | .receiptBoundaries => ["receipt-boundaries"]
+  | .closureEvidence => ["closure-evidence"]
+  | .configurationCapture => ["configuration-capture"]
+  | .fenceEvidence => ["fence-evidence"]
+  | .frozenExits => ["frozen-exits"]
+  | .documentationSource => ["documentation-source"]
+  | .documentationSourceReadOnly => ["documentation-source", "--source-read-only"]
+
+/-- The selection an argument list names, the only parser of the dispatcher: unknown or extra
+arguments select nothing. -/
+def Command.parse : List String → Option Command
+  | ["registry"] => some .registry
+  | ["native"] => some .native
+  | ["combined"] => some .combined
+  | ["unique-constants"] => some .uniqueConstants
+  | ["native-launcher"] => some .nativeLauncher
+  | ["rule-examples", "--evidence", evidence] => some (.ruleExamples evidence)
+  | "rule-examples" :: "--evidence" :: evidence :: "--rules" :: rules =>
+      some (.ruleExamplesRules evidence rules)
+  | ["rule-examples", "--evidence", evidence, "--shard", spec] =>
+      some (.ruleExamplesShard evidence spec)
+  | ["producers"] => some .producers
+  | ["producers", "--evidence", evidence] => some (.producersExport evidence)
+  | ["producers-combined"] => some .producersCombined
+  | ["history"] => some .history
+  | ["self-audit"] => some .selfAudit
+  | ["self-audit", "--shard", spec] => some (.selfAuditShard spec)
+  | ["self-audit-module", module, source] => some (.selfAuditModule module source)
+  | ["self-audit-json-module", module] => some (.selfAuditJsonModule module)
+  | ["environments", "--evidence", evidence] => some (.environments evidence)
+  | ["acceptance", group, "--evidence", evidence] =>
+      (AcceptanceGroup.parse group).map (.acceptance · evidence)
+  | ["acceptance-snapshots", group] => (SnapshotGroup.parse group).map .acceptanceSnapshots
+  | ["prep-measure"] => some .prepMeasure
+  | ["documentation-dependencies"] => some .documentationDependencies
+  | ["input-inventory"] => some .inputInventory
+  | ["receipt-boundaries"] => some .receiptBoundaries
+  | ["closure-evidence"] => some .closureEvidence
+  | ["configuration-capture"] => some .configurationCapture
+  | ["fence-evidence"] => some .fenceEvidence
+  | ["frozen-exits"] => some .frozenExits
+  | ["documentation-source"] => some .documentationSource
+  | ["documentation-source", "--source-read-only"] => some .documentationSourceReadOnly
+  | _ => none
+
+/-- Every selection's argument list is accepted, as that selection. -/
+theorem Command.parse_arguments (command : Command) : parse command.arguments = some command := by
+  cases command with
+  | acceptance group => cases group; rfl
+  | acceptanceSnapshots group => cases group <;> rfl
+  | _ => rfl
+
+/-- A group the parser accepts is the one its argument spells. -/
+theorem SnapshotGroup.parse_sound {text : String} {group : SnapshotGroup}
+    (h : parse text = some group) : text = group.spelling := by
+  unfold parse at h; split at h <;> first | (cases h; rfl) | cases h
+
+/-- The parser accepts an argument list only as the list of the selection it returns, so the
+dispatcher accepts nothing beyond `Command`'s forms. -/
+theorem Command.parse_sound {args : List String} {command : Command}
+    (h : parse args = some command) : args = command.arguments := by
+  unfold parse at h
+  split at h <;> try (cases h; rfl)
+  · obtain ⟨group, hg, rfl⟩ := Option.map_eq_some_iff.mp h
+    simp [arguments, AcceptanceGroup.parse_sound hg]
+  · obtain ⟨group, hg, rfl⟩ := Option.map_eq_some_iff.mp h
+    simp [arguments, SnapshotGroup.parse_sound hg]
+  · cases h
+
+end Regula.Qualification
