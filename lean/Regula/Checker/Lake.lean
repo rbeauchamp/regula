@@ -38,6 +38,12 @@ def SurfaceInventory.moduleSources (inventory : SurfaceInventory) : Array (Name 
     (source.«module», source.source)) ++
     inventory.executables.map (fun executable => (executable.root, executable.source))
 
+/-- The search path Lake gives a compilation in the workspace (`lake env`, with an inherited
+`LEAN_PATH` removed): the workspace's `leanPath`, which `SurfaceInventory.leanPath` holds after
+`leanLibDir`. -/
+def SurfaceInventory.compileLeanPath (inventory : SurfaceInventory) : System.SearchPath :=
+  (inventory.leanPath.extract 1 inventory.leanPath.size).toList
+
 /-- What the audit owns beyond the requested modules: the compiled-module output directories of
 the owned packages (the root package's, then each owned dependency's), the root package and the
 owned dependencies with the modules each provides by its own module resolution
@@ -1249,14 +1255,13 @@ records the weak arguments of the root package's libraries, so a fixture project
 `lakefile.lean` ends with this text records them in each module's trace as Regula's own build does,
 and an unmarked audit can establish a module it replays from that build. -/
 def weakArgsDeclarations (shipped : String) : Option String :=
-  match shipped.splitOn weakArgsDeclarationsMarker with
-  | [_, rest] =>
+  match shipped.splitOn weakArgsDeclarationsMarker, shipped.splitOn weakArgsDeclarationsEnd with
+  | [_, rest], [_, _] =>
     match rest.splitOn weakArgsDeclarationsEnd with
     | [declarations, _] =>
       some (weakArgsDeclarationsMarker ++ declarations ++ weakArgsDeclarationsEnd ++ "\n")
     | _ => none
-  | _ => none
-
+  | _, _ => none
 
 /-- Whether the kernel admits `value`, of type `type`, as equal to `weakArgsRecordJson` by
 `Eq.refl`: it adds `value` to `env` as a definition, then that theorem, and discards the result. A
@@ -1585,14 +1590,16 @@ structure CheckedBuild where
   module's own library among its inputs (`traceRecords_ownRecord_iff`), when no dependency
   declares a library or module facet other than Regula's (`onlyRegulaFacets`); none otherwise. -/
   recorded : Array Name := #[]
-  /-- The RG2003 failures of the claimed modules that Regula's elaboration observer recorded, or
-  that it was not loaded for (`Observer.elaborationFailures`), as lines of the build's report;
-  every build decides it. -/
-  observer : Array String := #[]
-  /-- The record that the observer wrote into the `.olean` of each claimed module, read after the
-  build (`Observer.readRecord`), for the decisions that read it beside RG2003, such as RG2006's
-  of the options the source set. -/
-  records : Array (Name × Option RegulaObserver.Record) := #[]
+  /-- The decision on the record that Regula's elaboration observer wrote into the `.olean` of each
+  claimed module (`Observer.decideRecord`), made after the build: its RG2003 failures, which every
+  build reports (`CheckedBuild.observer`), and the options its source set, which RG2006 decides
+  under the target's options. -/
+  verdicts : Array (Name × Observer.Verdict) := #[]
+
+/-- The RG2003 failures of the claimed modules of `build` (`Observer.Verdict.hidden`), as lines of
+the build's report; every build decides them. -/
+def CheckedBuild.observer (build : CheckedBuild) : Array String :=
+  build.verdicts.foldl (· ++ ·.2.hidden) #[]
 
 /-- Each entry of a job of `build` that is not optional which Lake can have made from compiler
 output that is not a Lean message (`unparsedOutput`), such as a warning whose line other output
@@ -1648,7 +1655,7 @@ time. Every build loads Regula's elaboration observer into the elaboration of ea
 package, from the running Regula (`Observer.observerPlugin`), through a `presetup` facet installed
 over the one the workspace configures (`Observer.observerPresetup`). Every build then reads, for
 each claimed module, whether its completed `presetup` loaded that plugin and the record the plugin
-wrote into its `.olean`, and decides RG2003 on them (`CheckedBuild.observer`). -/
+wrote into its `.olean`, and decides on them (`Observer.decideRecord`). -/
 def Build.runObserved (build : Build) (repo : FilePath) (targets : Array Target)
     (elaborated : Option Elaborated := none) : IO CheckedBuild := do
   let buffer ← IO.mkRef ({} : IO.FS.Stream.Buffer)
@@ -1660,8 +1667,7 @@ def Build.runObserved (build : Build) (repo : FilePath) (targets : Array Target)
   let claimed ← IO.mkRef (#[] : Array Name)
   let earlier ← IO.mkRef (#[] : Array Name)
   let recorded ← IO.mkRef (#[] : Array Name)
-  let observer ← IO.mkRef (#[] : Array String)
-  let records ← IO.mkRef (#[] : Array (Name × Option RegulaObserver.Record))
+  let verdicts ← IO.mkRef (#[] : Array (Name × Observer.Verdict))
   let store ← IO.mkRef (none : Option _root_.Lake.BuildStore)
   let exitCode ← try
       Workspace.withRootWorkspace repo (scrubSearchPath := true) fun loaded => do
@@ -1723,11 +1729,11 @@ def Build.runObserved (build : Build) (repo : FilePath) (targets : Array Target)
           let plugins := built.bind fun built =>
             Observer.presetupPlugins? built mod.pkg.keyName mod.name
           let loaded ← Observer.pluginLoaded pluginFile plugins
-          let record ← match ← (Observer.readRecord mod.oleanFile).toBaseIO with
-            | .ok record => pure record
-            | .error _ => pure none
-          records.modify (·.push (mod.name, record))
-          observer.modify (· ++ Observer.elaborationFailures mod.name.toString loaded record)
+          -- Lake compiles each module with `LEAN_PATH` set to the workspace's library directories
+          -- (`Lake/Build/Module.lean` lines 988 and 989, `Lake/Build/Actions.lean` line 63).
+          let verdict ← Observer.decideRecord mod.name.toString loaded mod.oleanFile
+            (Observer.resolveOLean ws.leanPath)
+          verdicts.modify (·.push (mod.name, verdict))
         let jobs ← jobLogs.get
         if let some elaborated := elaborated then
           elaborated.modify (· ++ (modules.map (·.name)).filter (elaboratedIn jobs))
@@ -1744,10 +1750,8 @@ def Build.runObserved (build : Build) (repo : FilePath) (targets : Array Target)
     let claimed ← claimed.get
     let earlier ← earlier.get
     let recorded ← recorded.get
-    let observer ← observer.get
-    let records ← records.get
-    return {
-      process, failLv := build.failLv, jobs, marked, claimed, earlier, recorded, observer, records }
+    let verdicts ← verdicts.get
+    return { process, failLv := build.failLv, jobs, marked, claimed, earlier, recorded, verdicts }
   let some stdout := String.fromUTF8? (← buffer.get).data
     | observed { exitCode := 1, stdout := "", stderr := "error: build output is not UTF-8" }
   observed { exitCode, stdout, stderr := "" }
@@ -1869,7 +1873,7 @@ def buildDocumentation (repo : FilePath) (targets : Array SurfaceTarget) (mode :
     IO (Option (Array String)) := do
   let build ← Build.runObserved { buildTargets with failLv := .warning } repo
     (targets.map .surface)
-  return checkedFailure { build with observer := #[] } mode
+  return checkedFailure { build with verdicts := #[] } mode
 
 /-- Compatibility diagnostic projection. Acceptance callers retain the process observation. -/
 def buildChecked (repo : FilePath) (targets : Array SurfaceTarget)

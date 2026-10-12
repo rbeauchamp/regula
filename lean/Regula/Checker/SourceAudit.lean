@@ -170,18 +170,15 @@ def Compilation.observation (compilation : Compilation) : RegulaPolicy.BuildObse
   ⟨compilation.process.exitCode.toNat, compilation.diagnostics.warnings,
     compilation.diagnostics.errors⟩
 
-/-- The RG2003 failures that the record of Regula's elaboration observer in the compilation's
-`.olean` shows (`Observer.elaborationFailures`). `compileIn` loads the observer into every
-compilation it runs with `lean`, so Lean loaded it; a compilation without an `.olean`, or whose
-`.olean` holds no complete record, fails as one without a record. Each line names the compiled
-source as `subject`, since the module name is the compilation's own. -/
-def Compilation.observerFailures (compilation : Compilation) (subject : String) :
-    IO (Array String) := do
-  let record ← if ← compilation.oleanPath.pathExists then
-      Observer.readRecord compilation.oleanPath
-    else pure none
-  return Observer.elaborationFailures subject true record
-
+/-- The decision on the record of Regula's elaboration observer in the compilation's `.olean`
+(`Observer.decideRecord`), with `searchPath` the search path the compilation ran with.
+`compileIn` loads the observer into every compilation it runs with `lean`, so Lean loaded it; a
+compilation without an `.olean`, or whose `.olean` holds no complete record, is decided as one
+without a record. The decision names the compiled source as `subject`, since the module name is
+the compilation's own. -/
+def Compilation.observe (compilation : Compilation) (subject : String) (searchPath : System.SearchPath) :
+    IO Observer.Verdict :=
+  Observer.decideRecord subject true compilation.oleanPath (Observer.resolveOLean searchPath)
 
 /-- A compiled source together with the typed environment report and frontend transcripts
 read from it. -/
@@ -357,7 +354,7 @@ private def compileIn (repo scratch : FilePath) (spec : SourceSpec)
     -- prints an information message without position or severity, so its text can read as a
     -- warning.
     -- Regula's elaboration observer is loaded into the compilation, as into a claimed build, so
-    -- the `.olean` holds its record (`Compilation.observerFailures`).
+    -- the `.olean` holds its record (`Compilation.observe`).
     let (observer, _) ← Observer.observerFile
     let args := warningArgs ++ #["--json", s!"--plugin={observer}", "-R", scratch.toString,
       "-o", oleanPath.toString, "-i", ileanPath.toString, sourcePath.toString]

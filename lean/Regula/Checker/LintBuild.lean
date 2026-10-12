@@ -147,14 +147,15 @@ structure PackageShape where
 
 /-- A package of the plain shape: it has Lake's default value in each field outside
 `packageFields`, each of its targets is of the plain shape, its configuration file declares no
-facet (`leanConfigReading` removes Regula's own `extraDep` facet first, when it admits it by
-identity), each declaration of its compiled configuration file is a `configuration` or a `typeFact`,
-and each extension with entries of that file is one of `configExtensions`. The file imports only
-modules of Lean and Lake (`toolchainRoots`), its syntax has no `attribute` command and no local or
-scoped attribute, and its `inline` entries are exactly those of Lake's commands. In a workspace of
-such packages, a build of `lean_lib` and `lean_exe` targets runs no custom build step other than
-that facet, which runs Lake's own and adds a trace input: it compiles modules and reads and hashes
-input files. -/
+facet (`leanConfigReading` sets aside Regula's own `extraDep` and `presetup` facets first, when it
+admits the file by identity, and with them the `needs` entry `isObserverNeed`), each declaration
+of its compiled configuration file is a `configuration` or a `typeFact`, and each extension with
+entries of that file is one of `configExtensions`. The file imports only modules of Lean and Lake
+(`toolchainRoots`), its syntax has no `attribute` command and no local or scoped attribute, and
+its `inline` entries are exactly those of Lake's commands. In a workspace of such packages, a
+build of `lean_lib` and `lean_exe` targets runs no custom build step other than those facets,
+which run Lake's own, add a trace input and add the observer's library to the plugins: it
+compiles modules and reads and hashes input files. -/
 def PackageShape.Plain (shape : PackageShape) : Prop :=
   (∀ field ∈ shape.unknown, field ∈ packageFields) ∧ (∀ target ∈ shape.targets, target.Plain) ∧
     shape.facets = some 0 ∧ (∀ declaration ∈ shape.declarations, declaration.2 ≠ .other) ∧
@@ -407,6 +408,16 @@ def declarationKind (kind : Name) : TargetKind :=
   else if kind == _root_.Lake.InputFile.configKind then .inputFile
   else if kind == _root_.Lake.InputDir.configKind then .inputDir
   else .other
+
+/-- Whether the `needs` entry `key` is that of the `Regula` library of Regula's `lakefile.lean`,
+`@/RegulaObserver:shared` (`Lake/DSL/Key.lean` lines 54 to 70): the shared library of its
+`RegulaObserver` library, which `compileIn` loads as a plugin into a standalone compilation. The
+`presetup` facet that the same file declares builds that library for each module it observes,
+and the plain shape admits that facet by identity (`regulaFacetAdmitted`), so in that file the
+entry builds nothing that facet does not. -/
+def isObserverNeed : _root_.Lake.PartialBuildKey → Bool
+  | .facet (.packageTarget owner `RegulaObserver) `shared => owner.isAnonymous
+  | _ => false
 
 /-- The kind of the target that the `needs` entry `key` of a library or an executable of
 `package` names: a target of `package` written `@/NAME` or `@PACKAGE/NAME`, with no facet. Every
@@ -697,6 +708,8 @@ def attributeCommands (env : Environment) (path : FilePath) : IO Nat := do
 structure ConfigReading where
   /-- The number of facets that the file declares; `none` when an import declares a target. -/
   facets : Option Nat
+  /-- Whether the file is exactly Regula's own `lakefile.lean` (`regulaFacetAdmitted`). -/
+  regula : Bool := false
   /-- Whether its targets have Lake's default function fields (`defaultFunctionFields`). -/
   functions : Bool
   /-- The `ConfigDeclaration` of each declaration of the file, by name. -/
@@ -731,6 +744,7 @@ holds the encoder's documentation comment. Every other facet, declaration and ex
 as before. -/
 def ConfigReading.withoutRegulaFacet (reading : ConfigReading) : ConfigReading :=
   { reading with
+    regula := true
     facets := reading.facets.map (· - 2)
     declarations := reading.declarations.filter fun (name, _) =>
       name != regulaFacetName && name != lakefileEncoderName && !observerFacetName.isPrefixOf name
@@ -786,14 +800,17 @@ def leanConfigReading (ws : _root_.Lake.Workspace) (package : _root_.Lake.Packag
 `functions` is the reading of its compiled configuration (`leanConfigReading`). For a
 `lakefile.toml` (`toml`), Lake's TOML loader never sets `nativeFacets`, and it gives an `input_dir`
 Lake's `Pattern.star`, which is named `star`, only for an omitted filter or `"*"`; it gives every
-other filter `Pattern.ofDescr`, which has no name. -/
+other filter `Pattern.ofDescr`, which has no name. With `regula`, the file is exactly Regula's own
+(`ConfigReading.regula`), and the `needs` entry `isObserverNeed` of its libraries is set aside, as
+its facets are. -/
 def targetShape (package : _root_.Lake.Package)
-    (declaration : _root_.Lake.PConfigDecl package.keyName) (toml functions : Bool) :
+    (declaration : _root_.Lake.PConfigDecl package.keyName) (toml functions regula : Bool) :
     TargetShape :=
   let kind := declarationKind declaration.kind
   let nativeFacets := toml || functions
   if let some config := declaration.config? _root_.Lake.LeanLib.configKind then
-    { name := declaration.name, kind, needs := config.needs.map (needKind package)
+    let needs := if regula then config.needs.filter (!isObserverNeed ·) else config.needs
+    { name := declaration.name, kind, needs := needs.map (needKind package)
       unknown := unknownFields (_root_.Lake.ConfigFields.fields
         (σ := _root_.Lake.LeanLibConfig declaration.name)) (libraryChecks config nativeFacets) }
   else if let some config := declaration.config? _root_.Lake.LeanExe.configKind then
@@ -826,7 +843,8 @@ def packageShape (ws : _root_.Lake.Workspace) (package : _root_.Lake.Package) :
     unknown := unknownFields (_root_.Lake.ConfigFields.fields
       (σ := _root_.Lake.PackageConfig package.keyName package.origName))
       (packageChecks package.config)
-    targets := package.targetDecls.map (targetShape package · toml reading.functions)
+    targets := package.targetDecls.map fun declaration =>
+      targetShape package declaration toml reading.functions reading.regula
     facets := reading.facets, declarations := reading.declarations
     extensions := reading.extensions, imports := reading.imports, attributes := reading.attributes
     strayInlines := reading.strayInlines }
@@ -915,10 +933,10 @@ identity, those of the running Regula's own `lakefile.lean` (`regulaFacetAdmitte
 `extraDep` facet runs Lake's own, which builds each library's `extraDepTargets` and `needs`, and
 adds a trace input that records a library's weak arguments; it compiles no module and sets no
 option. The `presetup` facet runs Lake's own and adds Regula's elaboration observer to the plugins
-of the root package's modules: it builds that observer's library, which imports only Lean, and the
-observer records, emits no message, and does not read the marker. So the build compiles only modules that the root package
-owns, whose imports the decision read (or modules of other packages, which the root package's
-options do not reach), and Regula's only reader of the marker is loaded in none of them. That no
+of the modules of the root package and of Regula: it builds that observer's library, which
+imports only Lean, and the observer records, emits no message, and does not read the marker. So
+the build compiles only modules that the root package owns, whose imports the decision read (or
+modules of other packages, which the root package's options do not reach), and Regula's only reader of the marker is loaded in none of them. That no
 project module reads the marker itself is assumed. Without the marker the ordinary build output
 is reused as it is, and each claimed module whose messages the build replays from before the run
 under weak arguments that its trace does not record is reported unestablished

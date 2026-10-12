@@ -104,7 +104,7 @@ establish it, since an adopter or a dependency can supply a module named `Init.â
 `Lean.â€¦`. The receipt (`RegulaPolicy.ToolchainOrigin`) holds when the `.olean` file the module was
 loaded from is the module's `.olean` in the toolchain's library directory. The execution walk
 (this module) and the RG2006 decision over the options a macro wrote in a claimed module's
-source (`Regula.Checker.Observer.settings`) take toolchain ownership from this receipt alone.
+source (`Regula.Checker.Observer.decideRecord`) take toolchain ownership from this receipt alone.
 
 The filesystem's resolution of the two paths (`IO.FS.realPath`) is a trusted observation. -/
 

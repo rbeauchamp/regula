@@ -739,8 +739,9 @@ the docstring does not expect fails the build with an error (`Lean/Elab/GuardMsg
 disable before a section of two definitions is a violation, as is the option that a macro of the
 adopter's own module `Lean.Adopter` writes, which only the toolchain's authenticated `.olean`
 would license. The `grind` tactic's `set_option` at an accepted value is accepted, as is the
-restored module. The file audit's compilation (`axiomGate --file`) fails a `#guard_msgs` that
-drops a warning with the same `FAIL[elaboration-hidden]`. -/
+restored module. The file audit (`axiomGate --file`) decides its compilation's record with the same
+function (`Observer.decideRecord`): a `#guard_msgs` that drops a warning fails with the same
+`FAIL[elaboration-hidden]`, and `set_option linter.unusedVariables false` is an RG2006 violation. -/
 private def observerEscapes (repo adopter : FilePath) : IO (Array String) := do
   BuildLintQualification.setup repo adopter
   let originals ← leanOriginals adopter
@@ -838,6 +839,16 @@ private def observerEscapes (repo adopter : FilePath) : IO (Array String) := do
       contains := #["FAIL[elaboration-hidden]", "the compilation of", "(RG2003)",
         s!"Standalone.lean:1:0: {guardMsgs}"],
       excludes := #[s!"file audit: {acceptanceLabel}", "the claimed build"] }
+    (← fileAudit adopter "Standalone.lean"))
+  -- The same decision reads the options the file's source set (RG2006), as for a claimed module.
+  IO.FS.writeFile standalone "set_option linter.unusedVariables false\n\n/-- A control. -/\n\
+    def unusedArgument (x : Nat) : Nat := 0\n"
+  failures := failures ++ (← assess {
+      label := "observer/file-source-option", exitCode := 1,
+      contains := #["RG2006", "community-configuration: the source sets options that RG2006 does \
+          not accept: ", "Standalone.lean:1:11: set_option linter.unusedVariables false",
+        "file audit: FAIL"],
+      excludes := #[s!"file audit: {acceptanceLabel}", "FAIL[elaboration-hidden]"] }
     (← fileAudit adopter "Standalone.lean"))
   Regula.Filesystem.removePath .file standalone
   restore adopter originals

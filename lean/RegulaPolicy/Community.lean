@@ -1494,8 +1494,10 @@ pinned toolchain wrote, such as `smartUnfolding` in `rfl'`, is that macro's impl
 passes, when the operational adapter authenticated the macro's module as the toolchain's own
 artifact (`toolchain`); a module's name gives no such receipt. The source sets no `debug.` or
 `trace.` option, since the accepted set lists none. An option that elaborator code changes without
-`set_option` is not recorded; of Lean's builtin commands only `unlock_limits` does, and RG2006
-accepts what it sets (`unlockLimits_accepted`). -/
+`set_option` is not recorded: of Lean's builtin commands only `unlock_limits` also assigns the
+options of the enclosing scope, and RG2006 accepts what it sets (`unlockLimits_accepted`); a
+temporary change through `withScope`, as in a deriving handler or a `local notation`, is
+elaborator code. -/
 
 
 /-- How a claimed module's source set an option (`RegulaObserver.Form`). -/
@@ -1685,8 +1687,9 @@ theorem sourceFailures_eq_nil_iff (o : BuildOptions) (mathlib : Bool)
   simp [sourceFailures, List.filter_eq_nil_iff, sourceAccepted_iff]
 
 /-- One option a module's source set that RG2006 does not accept, as the report names it: where
-it is, the option, its value, and the macro's module when a macro wrote it. -/
-def SourceSetting.text (module : Name) (s : SourceSetting) : String :=
+it is, in `module` (a module's name, or the file a standalone compilation compiled), the option,
+its value, and the macro's module when a macro wrote it. -/
+def SourceSetting.text (module : String) (s : SourceSetting) : String :=
   let value := match s.value with
     | some v => s!" {v.text}"
     | none => " (a value that is not a literal)"
@@ -1696,7 +1699,7 @@ def SourceSetting.text (module : Name) (s : SourceSetting) : String :=
   s!"{module}:{s.location.1}:{s.location.2}: set_option {s.name}{value}{origin}"
 
 /-- The detail of the RG2006 finding for the source options `failures` of `module`. -/
-def sourceDetail (module : Name) (failures : List SourceSetting) : String :=
+def sourceDetail (module : String) (failures : List SourceSetting) : String :=
   "community-configuration: the source sets options that RG2006 does not accept: " ++
     "; ".intercalate (failures.map (SourceSetting.text module))
 

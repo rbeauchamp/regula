@@ -126,7 +126,10 @@ lean_lib «Regula» where
   -- Lean-only checker implementation. Operational checker modules are
   -- separately qualified; they are not part of the conforming proof surface.
   globs := #[.submodules `Regula]
-  needs := #[`@/compilerObservationSource]
+  -- The observer's shared library, which `axiomGate --file` loads as a plugin into its standalone
+  -- compilation: the `presetup` facet below also builds it, but only when that facet is the one
+  -- Lake runs, and a dependency's `presetup` facet can replace it.
+  needs := #[`@/compilerObservationSource, `@/RegulaObserver:shared]
 
 lean_exe «axiomGate» where
   root := `Regula.Checker.AxiomGateMain

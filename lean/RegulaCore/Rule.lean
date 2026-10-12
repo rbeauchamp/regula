@@ -875,7 +875,7 @@ def descriptor : (id : RuleId) → RuleDescriptor id
       category := .configuration
       normativeClauses := [.elaborationEnvironment, .communityConventions, .linterDiscipline]
       applicability := "community-configuration"
-      evidenceModes := [.incrementalProject, .freshProject]
+      evidenceModes := [.incrementalProject, .freshProject, .freshFile]
       requirement := "Targets' `leanOptions`: auto-implicits off, `linter.missingDocs` on, with \
         Mathlib its standard set, header linter off or licensed; other options, in `-D` \
         or source too, only in RG2006's accepted set."
