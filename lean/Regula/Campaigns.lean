@@ -222,6 +222,17 @@ def runsOf : List String → List Campaign
   | ["diagnostics", name, spec] => partitionShardOf name spec
   | _ => []
 
+/-- The first environments shard. Its one control, the public fence corpus, is too long for a job,
+so no job runs it (`reason`). -/
+def publicCorpusShard : SelftestCampaign := .partitionShard .environments ⟨0, by decide⟩
+
+/-- The `verify.sh` invocation of `publicCorpusShard`. -/
+def publicCorpusInvocation : List String := ["diagnostics", "environments", "1/6"]
+
+/-- The shards of `partition` that a job runs: all but `publicCorpusShard`. -/
+def jobShardsOf (partition : Partition) : List SelftestCampaign :=
+  (shardsOf partition).erase publicCorpusShard
+
 /-- A job of a workflow that runs `verify.sh`. -/
 inductive Job where
   /-- CI's `verify`: both acceptance steps, on every pull request and push to `main`. -/
@@ -263,7 +274,8 @@ def Job.invocations : Job → List (List String)
       shardInvocations "execution" Partition.execution.shards ++
       shardInvocations "fixtures" Partition.fixtures.shards ++
       shardInvocations "cli" Partition.cli.shards ++
-      shardInvocations "environments" Partition.environments.shards ++
+      (shardInvocations "environments" Partition.environments.shards).erase
+        publicCorpusInvocation ++
       shardInvocations "build-policy" Partition.buildPolicy.shards ++
       groups.map (["diagnostics", ·])
   | .dogfoodSelf => ["diagnostics", "self-lint"] :: shardInvocations "self-audit" 4
@@ -300,9 +312,10 @@ def Reason.text : Reason → String
   | .worker campaign => s!"An internal entry point that `{campaign.spelling}` starts."
   | .notRun why => why
 
-/-- The `verify.sh` invocations of the shards of `partition`. -/
+/-- The `verify.sh` invocations of the shards of `partition` that a job runs: all but
+`publicCorpusInvocation`. -/
 private def partitionShardInvocations (partition : Partition) : List Campaign :=
-  (shardInvocations partition.label partition.shards).map .verify
+  ((shardInvocations partition.label partition.shards).erase publicCorpusInvocation).map .verify
 
 /-- Where the structural shards stand in for the comparison of the self-hosted fresh inputs,
 which an unsharded structural run alone makes (`Regula.Checker.CheckerSelftest.runStructural`):
@@ -319,6 +332,10 @@ private def shardsText (partition : Partition) : String :=
       for the comparison of the self-hosted fresh inputs. Shards 1/{partition.shards} and \
       {partition.shards}/{partition.shards} write the digests of those inputs, and the \
       `diagnostics` gate compares them."
+  else if partition == .environments then
+    s!"Its shards 2/{partition.shards} to {partition.shards}/{partition.shards} run. Together \
+      they run each of its controls one time, but for the public fence corpus of shard \
+      1/{partition.shards}."
   else s!"Its {partition.shards} shards run. Together they run each of its controls one time."
 
 /-- The reason of an unsharded partition whose shards run. -/
@@ -338,13 +355,15 @@ def reason : Campaign → Option Reason
       which this repository does not make."
   | .verify ["diagnostics"] => some <| .together
       (Partition.all.flatMap partitionShardInvocations)
-      s!"The shards of all partitions run. {selfHostedDigests}"
+      s!"The shards of all partitions run but the first environments shard, the public \
+        fence corpus. {selfHostedDigests}"
   | .verify ["diagnostics", "rule-examples"] => some <| .together
       ((shardInvocations "rule-examples" 3).map .verify)
       "Its 3 shards run. Together they run the records of each rule one time."
   | .verify ["diagnostics", "self-audit"] => some <| .together
       ((shardInvocations "self-audit" 4).map .verify)
       "Its 4 shards run. Together they audit each module one time."
+  | .verify ["diagnostics", "environments", "1/6"] => some (overBudget 324)
   | .verify ["diagnostics", name] => (Partition.parse name).map shardsRun
   | .qualify .registry => some <| .within (.qualify .combined) "`combined` runs `registry` first."
   | .qualify .native => some <| .within (.qualify .combined) "`combined` runs `native` second."
@@ -374,14 +393,15 @@ def reason : Campaign → Option Reason
   | .qualify .documentationSource => some (overBudget 182)
   | .qualify .documentationSourceReadOnly => some (overBudget 202)
   | .selftest (.focused .forcedCollector) => some (overBudget 336)
+  | .selftest (.partitionShard .environments ⟨0, _⟩) => some (overBudget 324)
   | .selftest (.focused .policyTransport) => some <| .within (.selftest (.focused .policyDomain))
       "the policy-domain control runs the transport controls first."
   | .selftest (.focused .fences) => some <| .together
       [.selftest (.partitionShard .fixtures ⟨4, by decide⟩),
-        .selftest (.partitionShard .environments ⟨0, by decide⟩),
         .selftest (.focused .combinedSnapshot)]
-      "The last fixtures shard runs the in-process fence corpus. The first environments shard runs \
-        the public fence corpus. The focused controls include the combined snapshot."
+      "The last fixtures shard runs the in-process fence corpus. The focused controls include the \
+        combined snapshot. The public fence corpus is the first environments shard, which is too \
+        long for a job."
   | .selftest (.focused .buildLint) => some <| .together (shardsOf .buildPolicy |>.map .selftest)
       "The build-policy shards run its controls."
   | .selftest (.focused .compilerPaths) => some <| .together (shardsOf .execution |>.map .selftest)
@@ -396,9 +416,10 @@ def reason : Campaign → Option Reason
       ([Partition.structural, .execution].flatMap shardsOf |>.map .selftest)
       s!"The shards of the structural and execution partitions run. {selfHostedDigests}"
   | .selftest .buildBound => some <| .together
-      (Partition.all.flatMap shardsOf |>.map .selftest)
-      s!"The shards of all partitions run. {selfHostedDigests}"
-  | .selftest (.partition partition) => some <| .together (shardsOf partition |>.map .selftest)
+      (Partition.all.flatMap jobShardsOf |>.map .selftest)
+      s!"The shards of all partitions run but the first environments shard, the public fence \
+        corpus. {selfHostedDigests}"
+  | .selftest (.partition partition) => some <| .together (jobShardsOf partition |>.map .selftest)
       (shardsText partition)
   | _ => none
 
