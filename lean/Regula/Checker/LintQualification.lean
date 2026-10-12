@@ -889,13 +889,13 @@ build and removal, `axiomGate --incremental` and the `policy` target replay the 
 them not established in both cases, since a dependency declares a library facet other than
 Regula's (`Lake.onlyRegulaFacets`), and `lake lint` keeps the marker, since a package declares a
 facet, and reports the warning. A dependency that declares a library facet of another name leaves
-Regula's facet in effect, and the two unmarked modes still report a replayed module not
-established. Decision probes of the plain shape: Regula's own facet is admitted (the lint mode's
-marker-free runs), while a root package named `regula` that declares the same facet in another
-`lakefile.lean`, or a facet of that name with another body, keeps the marker. A workspace
-that requires Regula as `checker` and an unrelated package as `regula` records weak arguments for
-its root library and none for the unrelated package's: Regula's facet decides by Lake's identity of
-its own package, not by name. -/
+Regula's facet in effect, so Widget's trace holds its own record, and the two unmarked modes still
+report a replayed module not established. Decision probes of the plain shape: Regula's own
+facet is admitted (the lint mode's marker-free runs), while a root package named `regula` that
+declares the same facet in another `lakefile.lean`, or a facet of that name with another body,
+keeps the marker. A workspace that requires Regula as `checker` and an unrelated package as
+`regula` records weak arguments for its root library and none for the unrelated package's:
+Regula's facet decides by Lake's identity of its own package, not by name. -/
 private def weakArgsReuse (probes : Std.Mutex Unit) (repo adopter : FilePath) :
     IO (Array String) := do
   BuildLintQualification.setup repo adopter
@@ -993,19 +993,24 @@ private def weakArgsReuse (probes : Std.Mutex Unit) (repo adopter : FilePath) :
             contains := #["not established: Widget"], excludes := #[warning] }
       failures := failures ++ (← assess expectation (← run))
   -- A dependency that declares a library facet of another name leaves Regula's `extraDep` facet in
-  -- effect, so each trace holds its own library's record. The unmarked builds still count no
-  -- record (`Lake.onlyRegulaFacets`): the first run elaborates Widget again, since its source
-  -- changed, and the second replays it and reports it not established.
+  -- effect, so Widget's trace holds its own library's record. The unmarked builds still count no
+  -- record (`Lake.onlyRegulaFacets`): after a first run, which elaborates the changed module and
+  -- may replay the others, a second run replays Widget and reports it not established.
   IO.FS.writeFile (override / "lakefile.lean")
     (overrideLakefile "library_facet other : Unit := pure Job.nil\n")
+  let record := "[\\\"weakLeanArgs\\\",[\\\"build_lint_adopter\\\"],[\\\"Widget\\\"],[]]"
+  let widgetTrace := adopter / ".lake" / "build" / "lib" / "lean" / "Widget.trace"
   for (mode, run, text, incomplete) in modes do
     if mode == "lint" then continue
     IO.FS.writeFile additional (original ++ s!"\n-- declared {mode}\n")
     IO.FS.writeFile lakefile (withOverride text)
-    let rebuilt : Expectation :=
-      { label := s!"weak-args/{mode}-declared-rebuilt", exitCode := 0
-        excludes := #["not established"] }
-    failures := failures ++ (← assess rebuilt (← run))
+    let _ ← run
+    let trace ← match ← (IO.FS.readFile widgetTrace).toBaseIO with
+      | .ok text => pure text
+      | .error _ => pure ""
+    unless trace.contains record do
+      failures := failures.push s!"lake-lint/weak-args/{mode}-declared: Widget's trace has no \
+        record of its own library:\n{trace}"
     let unestablished : Expectation :=
       { label := s!"weak-args/{mode}-declared-unestablished", exitCode := incomplete
         contains := #["not established: Widget"] }
