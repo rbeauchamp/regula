@@ -683,8 +683,9 @@ private def renderFileAudit (observed : RegulaPolicy.Compiler.LegacyCompilerTrus
     (fixture : FixtureSpec) (_moduleName : String)
     (declarations : Array Regula.Report.Declaration)
     (roots : Array Regula.Report.ExecutionRoot)
-    (transcripts : Array Frontend.Transcript) : String × Bool := Id.run do
-  let .ok scope := Policy.admitScope observed declarations transcripts
+    (transcripts : Array Frontend.Transcript) (imported : Array Regula.Report.Declaration) :
+    String × Bool := Id.run do
+  let .ok scope := Policy.admitScope observed declarations transcripts imported
     | return ("invalid policy observation inventory", false)
   let execution := match fixture.execution with
     | some mode => (ExecutionClaim.parse? mode).getD .report
@@ -735,16 +736,18 @@ private unsafe def fixtureVerdicts (repo scratch : FilePath) (jobs : Nat)
       results := results.set! index
         (assessFixtureOutput fixture .rejected compilation.process.output)
     else
-      let (moduleData, _) ← Lean.readModuleData compilation.oleanPath
+      -- Every part of a `module` file, so the census holds its private constants, such as the
+      -- private axiom of a public native proof (`readModuleCensus`).
+      let (moduleData, constants) ← readModuleCensus compilation.oleanPath
       pending := pending.push {
         index, fixture, compilation
-        constantNames := moduleData.constNames.map (·.toString)
+        constantNames := constants.map (·.name.toString)
         importNames := moduleData.imports.map (·.module)
         -- Same transcript predicate as the post-load check, applied to the
         -- raw module constant records with the probe's own kind mapping, so
         -- only fixtures that can need a transcript pay for one. A divergence
         -- (post-load need with no worker transcript) fails closed below.
-        wantsTranscript := moduleData.constants.any fun info =>
+        wantsTranscript := constants.any fun info =>
           Policy.declarationNeedsTranscript (Regula.Probe.kindOf info) info.name
       }
   -- Group by exact constant-name disjointness (the `Documentation.auditTasks`
@@ -808,7 +811,8 @@ private unsafe def fixtureVerdicts (repo scratch : FilePath) (jobs : Nat)
   -- Complete all transcript workers before starting isolated report workers.
   let transcripts ← IO.ofExcept (← IO.wait transcriptTask)
   let mut inspected : Array (CompiledFixture × Array Regula.Report.Declaration ×
-      Array Regula.Report.ExecutionRoot × RegulaPolicy.Compiler.LegacyCompilerTrust) := #[]
+      Array Regula.Report.ExecutionRoot × RegulaPolicy.Compiler.LegacyCompilerTrust ×
+      Array Regula.Report.Declaration) := #[]
   Lean.searchPathRef.set scopedPath
   try
     for (_, items) in groups do
@@ -836,7 +840,8 @@ private unsafe def fixtureVerdicts (repo scratch : FilePath) (jobs : Nat)
             let declarations := report.declarations.filter (·.«module» == moduleName.toName)
               |>.qsort fun left right => Name.quickLt left.name right.name
             let roots := report.execution.filter (·.«module» == moduleName.toName)
-            inspected := inspected.push (item, declarations, roots, report.compilerCapability)
+            inspected := inspected.push
+              (item, declarations, roots, report.compilerCapability, report.imported)
       catch error =>
         -- An inspection that throws has no report: the gate reports it as incomplete.
         for item in items do
@@ -844,13 +849,13 @@ private unsafe def fixtureVerdicts (repo scratch : FilePath) (jobs : Nat)
             (assessFixtureOutput item.fixture .incomplete error.toString)
     pure ()
   finally Lean.searchPathRef.set oldSearchPath
-  for (item, declarations, roots, observed) in inspected do
+  for (item, declarations, roots, observed, imported) in inspected do
     let moduleName := item.compilation.spec.«module»
     if Policy.needsFrontendTranscript declarations then
       match transcripts.find? (·.1 == moduleName) with
       | some (_, some transcript) =>
         let (output, succeeded) := renderFileAudit observed item.fixture moduleName
-          declarations roots #[transcript]
+          declarations roots #[transcript] imported
         results := results.set! item.index
           (assessFixtureOutput item.fixture (if succeeded then .accepted else .rejected) output)
       | _ =>
@@ -862,7 +867,7 @@ private unsafe def fixtureVerdicts (repo scratch : FilePath) (jobs : Nat)
               s!"transcript need pre-filter diverged for {moduleName}"))
     else
       let (output, succeeded) := renderFileAudit observed item.fixture moduleName
-        declarations roots #[]
+        declarations roots #[] imported
       results := results.set! item.index
         (assessFixtureOutput item.fixture (if succeeded then .accepted else .rejected) output)
   return results

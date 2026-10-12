@@ -500,7 +500,8 @@ exact-field JSON codec. -/
 abbrev Environment := RegulaPolicy.Environment
 deriving instance ToJson for RegulaPolicy.Environment
 instance : FromJson RegulaPolicy.Environment := ⟨fun j => do
-  exactFields j ["toolchain", "compilerCapability", "modules", "moduleOrigins", "declarations", "execution"]
+  exactFields j ["toolchain", "compilerCapability", "modules", "moduleOrigins", "declarations",
+    "execution", "imported"]
   let compilerCapability ← j.getObjValAs? _ "compilerCapability"
   let _ ← Compiler.admitCapability compilerCapability
   return {
@@ -510,6 +511,7 @@ instance : FromJson RegulaPolicy.Environment := ⟨fun j => do
     moduleOrigins := ← j.getObjValAs? _ "moduleOrigins"
     declarations := ← j.getObjValAs? _ "declarations"
     execution := ← j.getObjValAs? _ "execution"
+    imported := ← j.getObjValAs? _ "imported"
   }⟩
 
 /-- Declaration/root keys are frozen before their observations; history requests are registered

@@ -162,6 +162,7 @@ private def freezeEnvironment (claim : Claim) (request : EnvironmentRequest)
     | throw <| IO.userError "missing completed documentation observation"
   let scope ← IO.ofExcept <|
     Policy.admitScope report.compilerCapability report.declarations inspected.transcripts
+      report.imported
   -- Equal to `admitExecution report.execution` (`Admitted.admitExecution_eq`).
   let execution := inspected.admitted.execution
   let origins := report.moduleOrigins

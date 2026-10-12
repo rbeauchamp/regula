@@ -56,11 +56,11 @@ def editorRequest (value : String) : Option InspectionRequest :=
 theorem editorRequest_contract : EditorRequestContract editorRequest :=
   checked_editorRequest.evidence
 
-/-- Missing replay-stage role evidence (a fresh transcript for a native-proof axiom, or a recursion
-regeneration) cannot turn a possible generated-role exception into either authorization or a
-definitive role-related violation. Other failures retain the pure policy's precedence. It takes
-the inspected part of the record (`Declaration.Inspected`), so it reads no project-written field.
--/
+/-- Missing replay-stage role evidence (for a native-proof axiom, a native replay and, for an owned
+one, a fresh transcript; for a recursion helper, a regeneration) cannot turn a possible
+generated-role exception into either authorization or a definitive role-related violation. Other
+failures retain the pure policy's precedence. It takes the inspected part of the record
+(`Declaration.Inspected`), so it reads no project-written field. -/
 def needsRoleEvidence (d : Declaration.Inspected) : DeclarationFailure → Bool
   | .projectAxiom => (nativeParent? d.name).isSome
   | .unknownAxiom => d.axioms.any fun name => (nativeParent? name).isSome

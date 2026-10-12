@@ -508,6 +508,74 @@
   "expect": "fail",
   "reason": "project-axiom"
  },
+ "Fixtures.Mutations.ImportedNativeProof": {
+  "expect": "fail",
+  "reason": "compiler-trusting"
+ },
+ "Fixtures.Mutations.ImportedDecideNativeProof": {
+  "expect": "fail",
+  "reason": "compiler-trusting"
+ },
+ "Fixtures.Mutations.ImportedBvDecideProof": {
+  "expect": "fail",
+  "reason": "compiler-trusting"
+ },
+ "Fixtures.Mutations.ImportedNativeSemanticForge": {
+  "expect": "fail",
+  "reason": "compiler-trusting"
+ },
+ "Fixtures.Mutations.ImportedNativeNameSpoof": {
+  "expect": "fail",
+  "reason": "unknown-axiom"
+ },
+ "Fixtures.Mutations.NativeFalseAxiom": {
+  "expect": "fail",
+  "reason": "project-axiom"
+ },
+ "Fixtures.Mutations.ImportedNativeFalseReplay": {
+  "expect": "fail",
+  "reason": "unknown-axiom"
+ },
+ "Fixtures.Mutations.NativeForeignParent": {
+  "expect": "fail",
+  "reason": "project-axiom"
+ },
+ "Fixtures.Mutations.ImportedNativeForeignParent": {
+  "expect": "fail",
+  "reason": "unknown-axiom"
+ },
+ "Fixtures.Mutations.NativeNestedPrefix": {
+  "expect": "fail",
+  "reason": "project-axiom"
+ },
+ "Fixtures.Mutations.ImportedNativeNestedPrefix": {
+  "expect": "fail",
+  "reason": "compiler-trusting"
+ },
+ "Fixtures.Mutations.ModuleNativeProof": {
+  "expect": "fail",
+  "reason": "compiler-trusting"
+ },
+ "Fixtures.Mutations.ImportedModuleNativeProof": {
+  "expect": "fail",
+  "reason": "compiler-trusting"
+ },
+ "Fixtures.Mutations.ForeignPrivatePrefix": {
+  "expect": "pass",
+  "claim": "kernel-only"
+ },
+ "Fixtures.Mutations.ImportedForeignPrivatePrefix": {
+  "expect": "fail",
+  "reason": "compiler-trusting"
+ },
+ "Fixtures.Mutations.IROnlyNativeParent": {
+  "expect": "fail",
+  "reason": "project-axiom"
+ },
+ "Fixtures.Mutations.ImportedIROnlyNativeParent": {
+  "expect": "fail",
+  "reason": "unknown-axiom"
+ },
  "Fixtures.Mutations.TrustCompiler": {
   "expect": "fail",
   "reason": { "present": "compiler-trusting", "absent": "project-axiom" }
