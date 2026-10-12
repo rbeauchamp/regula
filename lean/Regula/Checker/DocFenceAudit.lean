@@ -201,11 +201,11 @@ private def claimedClosure (copy : FilePath) (inventory : Lake.SurfaceInventory)
 
 /-- Run one documentation fence audit and return its exit code. In an isolated copy of the
 project, which holds no build output before any placement, it builds the claimed surfaces; with
-`--verso` it then builds the Verso library there, whose workspace every fence then elaborates in; it compiles every Lean
-fence below the documentation root and, with `--verso`, every `lean` block of the library, then renders the
-library and checks its anchors, checklist rows and rule-ID links. With `--acceptance-link`, it
-first requires the inputs to equal the accepted ones (`AcceptanceLink.require`), so a missing link,
-or one that is not accepted, refuses at once, before any build. It then places the first acceptance
+`--verso` it then builds the Verso library there, whose workspace every fence then elaborates in;
+it compiles every Lean fence below the documentation root and, with `--verso`, every `lean` block
+of the library, then renders the library and checks its anchors, checklist rows and rule-ID links.
+With `--acceptance-link`, it first requires the inputs to equal the accepted ones
+(`AcceptanceLink.require`), so a missing link, or one that is not accepted, refuses at once, before any build. It then places the first acceptance
 step's build output of the modules its claimed build compiles (`claimedClosure`) in the copy before
 its build when `BuildReuse.reuse` accepts the link's record of it. Each compiled artifact of the
 root package that the fences read was compiled from files equal to those of this copy: by that
