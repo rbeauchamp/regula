@@ -72,9 +72,50 @@ def sourceSnapshots (sources : Array ProducerReport.SourceBinding)
     else files := files.push source
   return files
 
-/-- Observed process completion is not a theorem of external process semantics. -/
-def buildObservation (process : ProcessResult) : BuildObservation :=
-  ⟨process.exitCode.toNat, warningLines process.output, errorLines process.output⟩
+/-- The observation of a warning-checked Lake build: a build that ran with Lake's failure level at
+`warning` and exited 0 with no entry from compiler output that is not a Lean message logged no
+warning or error, since Lake failed it otherwise (`Lake.buildCheckedObservation`), so it has none.
+Any other build keeps its exit code, the warning and error lines of its output, which are read only
+to report it, and those entries as errors, names each claimed module whose log a build without
+Regula's audit-build marker reused from before the audit under weak arguments that its trace does
+not record (`Lake.CheckedBuild.reused`), whose result it does not establish, and is an error when
+it ran at another failure level, since its warnings did not fail it. That Lake fails such a build
+is read from Lake's source, not proved. -/
+def buildObservation (build : Lake.CheckedBuild) : BuildObservation :=
+  if build.failLv = .warning ∧ build.process.exitCode = 0 ∧ build.unparsed = #[] ∧
+      build.reused = #[] then ⟨0, #[], #[]⟩
+  else ⟨build.process.exitCode.toNat, warningLines build.process.output,
+    errorLines build.process.output ++ build.unparsed ++
+      build.reused.map (s!"RG2003 not established for reused module {·}") ++
+      (if build.failLv = .warning then #[] else
+        #["the build did not run with Lake's failure level at warning, so its warnings were not \
+          checked"])⟩
+
+/-- A Lake build's observation is accepted exactly when the build ran with Lake's failure level at
+`warning`, exited 0, no job that Lake's build monitor judged and that is not optional logged an
+entry Lake can have made from compiler output that is not a Lean message, whatever its output says,
+and it reused no claimed module's log without a record of its weak arguments
+(`Lake.mem_reusedModules_iff` states which modules `build.reused` holds). That
+`build.jobs` holds the logs of exactly the jobs Lake's monitor judged is `Lake.observedFetch`'s
+construction. -/
+theorem buildObservation_ok_iff (build : Lake.CheckedBuild) :
+    BuildOK (buildObservation build) ↔
+      build.failLv = .warning ∧ build.process.exitCode = 0 ∧ (∀ job ∈ build.jobs,
+        job.optional = false → ∀ entry ∈ job.entries,
+          Workspace.unparsedCompilerOutput entry = false) ∧ build.reused = #[] := by
+  rw [← Lake.unparsedOutput_eq_empty_iff, ← Lake.CheckedBuild.unparsed]
+  unfold buildObservation BuildOK
+  split
+  · simp_all
+  · rename_i h
+    refine ⟨fun ⟨exit, _, errors⟩ => absurd ?_ h, fun ok => absurd ok h⟩
+    obtain ⟨front, level⟩ := Array.append_eq_empty_iff.mp errors
+    obtain ⟨front, reused⟩ := Array.append_eq_empty_iff.mp front
+    refine ⟨?_, UInt32.toNat_inj.mp (by simpa using exit), (Array.append_eq_empty_iff.mp front).2,
+      by simpa using reused⟩
+    by_cases other : build.failLv = .warning
+    · exact other
+    · simp [other] at level
 
 private def moduleKey (snapshot : AdmittedSnapshot) (name : Name) : Except String ModuleKey := do
   return ⟨snapshot, ← admitIdentity name⟩

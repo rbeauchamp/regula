@@ -26,13 +26,14 @@ inductive Completion where
   | unsupported
   deriving Repr, DecidableEq
 
-/-- The observed result of the Lake build of the claimed surface. -/
+/-- The observed result of the build of the claimed surface: a Lake build, or for a single file its
+compilation. -/
 structure BuildObservation where
   /-- The build process's exit code. -/
   exitCode : Nat
-  /-- The warning lines of the build output. -/
+  /-- The warnings the build reported. -/
   warnings : Array String
-  /-- The error lines of the build output. -/
+  /-- The errors the build reported. -/
   errors : Array String
   deriving Repr, DecidableEq
 
@@ -123,8 +124,10 @@ structure ExampleObservation.ToolchainObserved where
   units : Array ExampleUnit
   /-- The source file's text read back after compilation. -/
   after : String
-  /-- The warning lines of the compiler output. -/
+  /-- The warning messages the compiler reported. -/
   warnings : Array String
+  /-- The error messages the compiler reported, and its output that is not a Lean message. -/
+  errors : Array String
   /-- The `(module, name)` of every declaration of the inspected group; empty for a compiler
   rejection. -/
   declarationCensus : Array (Name × Name)
@@ -312,7 +315,7 @@ def ExampleExpectationOK (c : Claim) (fences : Array FenceKey) (f : FenceKey)
   match f.expectation, o.outcome with
   | .positive, .elaborated i required admitted failures =>
       let roles := authorize i
-      i.counted = #[] ∧ o.warnings = #[] ∧
+      i.counted = #[] ∧ o.warnings = #[] ∧ o.errors = #[] ∧
       o.declarationCensus = i.declarations.map (fun d => (d.module, d.name)) ∧
       ExampleSourceOK fences f o i ∧ ExampleAdmissionOK i required admitted failures ∧
       ∀ d ∈ i.declarations, d.module = o.unitName → DeclarationOK d
@@ -325,7 +328,7 @@ def ExampleExpectationOK (c : Claim) (fences : Array FenceKey) (f : FenceKey)
       ∀ pair ∈ expected.zip actual, DiagnosticMatches c pair.1 pair.2
   | .trustedTeaching, .elaborated i required admitted failures =>
       let roles := authorize i
-      i.counted = #[] ∧ o.warnings = #[] ∧
+      i.counted = #[] ∧ o.warnings = #[] ∧ o.errors = #[] ∧
       o.declarationCensus = i.declarations.map (fun d => (d.module, d.name)) ∧
       ExampleSourceOK fences f o i ∧ ExampleAdmissionOK i required admitted failures ∧
       (∀ d ∈ i.declarations, d.module = o.unitName →

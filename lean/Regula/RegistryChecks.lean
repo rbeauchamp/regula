@@ -1,9 +1,11 @@
 import Regula.DiagnosticCodec
 import Regula.Checker.ResultProtocol
 import Regula.Checker.SourceAudit
+import Regula.Checker.Workspace
 import Regula.Website
 import RegulaCore.Guidance
 import Regula.Campaigns.Workflow
+import Regula.Checker.Lake
 
 /-! # Registry transport qualification
 
@@ -80,6 +82,30 @@ run_cmd do
     unless axioms.all RegulaPolicy.standardLogicalAxiom do
       throwError "registry theorem {name} exceeds Standard-Logical: {axioms}"
 
+/-- The check that the encoder of Regula's own `lakefile.lean` is `weakArgsRecordJson`
+(`Lake.lakefileEncoderAgrees`), which acceptance runs with this file's `main` from the root of the
+checkout, never a library build. Lake keeps the compiled configuration of a workspace's root at
+`.lake/config/0/` of the workspace (`Lake/Load/Config.lean`, lines 83-84, and
+`Lake/Load/Workspace.lean`, line 34), and `lake env` loads it before it runs this file. The kernel
+must admit that copy as equal to `weakArgsRecordJson` and refuse it with one literal changed. -/
+private def lakefileEncoderCheck : IO Unit := do
+  let root ← IO.currentDir
+  unless ← (root / "lakefile.lean").pathExists do
+    throw <| IO.userError s!"registry: {root} has no lakefile.lean"
+  let (config, _) ← readModuleData (root / ".lake" / "config" / "0" / "lakefile.olean")
+  let env ← importModules #[{ module := `Regula.Checker.Lake }] {}
+  if let .error reason := Regula.Checker.Lake.lakefileEncoderAgrees env config then
+    throw <| IO.userError s!"registry: {reason}"
+  let some (.defnInfo encoder) :=
+      config.constants.find? (·.name == Regula.Checker.Lake.lakefileEncoderName)
+    | throw <| IO.userError "registry: Regula's lakefile has no encoder"
+  let changed := encoder.value.replace fun
+    | .lit (.strVal "weakLeanArgs") => some (.lit (.strVal "weakLeanArgz"))
+    | _ => none
+  unless changed != encoder.value &&
+      !Regula.Checker.Lake.agreesWithRecordJson env encoder.type changed do
+    throw <| IO.userError "registry: the kernel admits an encoder that writes another word"
+
 private def require (ok : Bool) (claim : String) : IO Unit :=
   unless ok do throw <| IO.userError s!"registry qualification failed: {claim}"
 
@@ -88,10 +114,12 @@ private def succeeded {ε : Type u} {α : Type v} : Except ε α → Bool
 
 /-- The registry transport qualification that acceptance runs with `lean --run`: it checks
 every rule's descriptor codec, the embedded example pairs against their corpus files, the
-committed agent skill, and fixed accept and refuse controls for registry, page, source,
-result, diagnostic and example admission, throwing on the first failed check and printing
-`PASS` otherwise. These controls are observations, not proofs of the laws. -/
+committed agent skill, the encoder of Regula's `lakefile.lean` (`lakefileEncoderCheck`), and
+fixed accept and refuse controls for registry, page, source, result, diagnostic and example
+admission, throwing on the first failed check and printing `PASS` otherwise. These controls are
+observations, not proofs of the laws. -/
 def main : IO Unit := do
+  lakefileEncoderCheck
   let producer := Regula.Checker.ResultProtocol.producer
   let manifest := registryJson producer
   -- Where no classification line is printed (the editor, the self-audit and a documentation
@@ -430,18 +458,60 @@ def main : IO Unit := do
   require (native.pos.line == 1 && native.pos.column == 1 &&
     native.endPos == some ⟨1, 2⟩) "native codepoint coordinates"
   require ((← native.data.toString) == d.text) "native/text agreement"
-  let compilation : Regula.Checker.SourceAudit.Compilation := {
-    spec := { «module» := "Control", source := "" }
-    sourcePath := "/control.lean", oleanPath := "/control.olean", ileanPath := "/control.ilean"
-    process := { exitCode := 1, stdout := "/control.lean:1:0: error: intended", stderr := "" } }
+  -- A compilation of `/control.lean` whose compiler printed `messages` with `lean --json`, or
+  -- `other` output, and exited with `exitCode`.
+  let compiled (exitCode : UInt32) (messages : List Lean.SerialMessage) (other : String := "")
+      (rejectWarnings := true) : Regula.Checker.SourceAudit.Compilation :=
+    let stdout := String.join (messages.map fun message => (toJson message).compress ++ "\n")
+    let (process, diagnostics) := Regula.Checker.SourceAudit.readCompilerOutput "/control.lean"
+      { exitCode, stdout := stdout ++ other, stderr := "" }
+    { spec := { «module» := "Control", source := "", rejectWarnings }
+      sourcePath := "/control.lean", oleanPath := "/control.olean", ileanPath := "/control.ilean"
+      process, diagnostics }
+  let message (severity : Lean.MessageSeverity) (data : String) : Lean.SerialMessage :=
+    { fileName := "/control.lean", pos := ⟨1, 0⟩, severity, data, kind := .anonymous }
+  let compilation := compiled 1 [message .error "intended"]
   require (Regula.Checker.SourceAudit.sourceDiagnosticFailure compilation)
       "completed source diagnostic"
+  require (compilation.process.stdout == "/control.lean:1:0: error: intended\n")
+      "a message is printed as without --json"
   require (!Regula.Checker.SourceAudit.sourceDiagnosticFailure
     { compilation with process := { compilation.process with exitCode := 137 } })
         "termination is incomplete"
   require (!Regula.Checker.SourceAudit.sourceDiagnosticFailure
-    { compilation with process := { compilation.process with stdout := "compiler crashed" } })
-        "crash is incomplete"
+    (compiled 1 [] (other := "compiler crashed"))) "crash is incomplete"
+  -- Lean prints an information message as its bare text, so one that reads as a warning line is
+  -- a warning line of the printed output, yet the compiler reported no warning.
+  let forged := compiled 0 [message .information "/control.lean:1:0: warning: forged"]
+  require (!(Regula.Checker.warningLines forged.process.output).isEmpty)
+      "an information message can print as a warning line"
+  require (Regula.Checker.SourceAudit.compilationPassed forged &&
+      decide (RegulaPolicy.BuildOK forged.observation)) "an information message is no warning"
+  let warned := compiled 0 [message .warning "unused variable"]
+  require (!Regula.Checker.SourceAudit.compilationPassed warned &&
+      !decide (RegulaPolicy.BuildOK warned.observation) &&
+      Regula.Checker.SourceAudit.sourceDiagnosticFailure warned) "a warning message is a warning"
+  require (Regula.Checker.SourceAudit.compilationPassed
+    (compiled 0 [message .warning "unused variable"] (rejectWarnings := false)))
+      "warnings pass a compilation that does not reject them"
+  let unexpected := compiled 0 [] (other := "unexpected output")
+  require (!decide (RegulaPolicy.BuildOK unexpected.observation) &&
+      !Regula.Checker.SourceAudit.compilationPassed unexpected)
+        "output that is not a Lean message is an error"
+  -- Lake's entry for a Lean message, even an information message whose text starts as Lake's
+  -- entry for other output does, is not one; Lake's entry for other standard output is, and its
+  -- entry for standard error or for output it logs only verbosely is not. A file name with a line
+  -- break, which `lineBreakSourcePaths` refuses, makes a message's entry look like other output.
+  let lakeEntry (fileName data : String) : Lake.LogEntry := .ofSerialMessage
+    { fileName, pos := ⟨1, 0⟩, severity := .information, data, kind := .anonymous }
+  let selects := Regula.Checker.Workspace.unparsedCompilerOutput
+  require (!selects (lakeEntry "Widget.lean" "stdout:\nforged") &&
+      !selects (lakeEntry "stdout" "\nforged") &&
+      selects { level := .info, message := "stdout:\nx{\"severity\":\"warning\"}" } &&
+      !selects { level := .info, message := "stderr:\nx{\"severity\":\"warning\"}" } &&
+      !selects { level := .trace, message := "stdout:\nx" } &&
+      selects (lakeEntry "stdout:\n" "forged"))
+      "Lake's entries from compiler output that is not a Lean message"
   require (succeeded (Website.validateExample (.policyRejection .projectAxiom "project-axiom")
     (.checked #[⟨.projectAxiom, d⟩] false))) "policy rejection after elaboration"
   require

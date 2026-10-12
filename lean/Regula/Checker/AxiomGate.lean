@@ -587,6 +587,8 @@ private unsafe def auditSurfaceAt (repo manifestPath : FilePath)
     (documents : Array RegulaPolicy.SourceSnapshot := #[])
     (observeProject : ProjectEvidence → IO Unit := fun _ => pure ())
     (documentationPending : Bool := false) (buildLint : Bool := false) : IO UInt32 := do
+  -- The modules that this audit's own builds elaborate, created here so no other audit reads them.
+  let elaborated : Lake.Elaborated ← IO.mkRef #[]
   let configuration ← SourceBinding.configuration repo manifestPath
   withSourceEvidence #[] configuration reportRoot.toString
       origin.mode composed resultOut do
@@ -623,7 +625,7 @@ private unsafe def auditSurfaceAt (repo manifestPath : FilePath)
       let buildPlan := Lake.claimedBuildPlan manifest inventory
       let (initialBuild, buildResult) ← timedPhase "claimed-source build" <|
           Lake.buildCheckedObservation repo buildPlan.initialTargets
-              origin.label (← claimedBuild.get)
+              origin.label (← claimedBuild.get) elaborated
       SourceBinding.unchanged allBindings
       SourceBinding.configurationUnchanged configuration
       if let some lines := buildResult then
@@ -788,7 +790,7 @@ private unsafe def auditSurfaceAt (repo manifestPath : FilePath)
         | some targets => do
             let build ← claimedBuild.get
             timedPhase "deferred claimed-source build" (Lake.buildCheckedObservation repo targets
-              origin.label build)
+              origin.label build elaborated)
       SourceBinding.unchanged allBindings
       SourceBinding.configurationUnchanged configuration
       if let some lines := buildResult then
@@ -1517,7 +1519,7 @@ private unsafe def auditFile (repo path : FilePath) (claim : Option Profile)
                     let frozen ← Acceptance.freeze request #[#[moduleName.toName]] #[] #[] bindings
                       inventory.leanLibDir #[inspection] (some binding)
                     let accepted ← Acceptance.finish frozen
-                      (Acceptance.buildObservation compilation.process)
+                      compilation.observation
                     pure
                         (some
                             (⟨request, accepted⟩ :

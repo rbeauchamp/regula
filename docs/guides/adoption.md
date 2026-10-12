@@ -320,8 +320,14 @@ REGULA_ORDINARY_LAKEFILES=1 lake lint      # you assert your lakefiles are ordin
 
 With `REGULA_ORDINARY_LAKEFILES=1` you, as the owner of the workspace, assert that its lakefiles
 are ordinary configuration. The driver then omits its audit-build marker for a workspace of the
-plain shape, and it reuses your ordinary build output. The plain shape is a conservative guard
-under your assertion. It is not a guarantee against a lakefile that someone wrote to defeat it.
+plain shape, and it reuses your ordinary build output. Regula's `lakefile.lean` records your
+libraries' `weakLeanArgs` in each module's build trace, so that reuse can settle [RG2003]
+([limits](#limits)). The plain shape is a conservative guard under your assertion. It is not a
+guarantee against a lakefile that someone wrote to defeat it.
+
+The plain shape admits one facet declaration by identity. It is the `extraDep` facet of Regula's
+own `lakefile.lean`, in a package with the same `lakefile.lean` text as the running Regula.
+That facet only runs Lake's own `extraDep` facet and adds the record.
 Without the assertion the driver always builds with the marker ([details](proofs-and-boundaries.md#the-acceptance-boundary)).
 
 Give the assertion in the environment of `lake lint`, which no lakefile sets. The driver refuses
@@ -936,6 +942,25 @@ audit refuses a `decides` entry that names its own surface or no claimed surface
   fixed resource limits, add your own check of these options.
 - [RG2006] reads an option by its name alone. It rejects a `weak.` entry for an option that no
   module declares, although Lean ignores that entry. Delete such an entry.
+- Regula's `lakefile.lean` declares a facet in place of Lake's `extraDep` facet. For the
+  libraries of your root package and of Regula, it runs Lake's own facet and records their
+  `weakLeanArgs` in each module's build trace. Lake's own trace omits these arguments. With the
+  record, a build reruns a module after you change them. Thus a build without the audit-build
+  marker can settle [RG2003] from replayed messages. The first build after you upgrade to this
+  Regula rebuilds the modules of your root package and of Regula one time.
+- If your root package declares an `extraDep` facet, Regula's facet replaces it. Move that work
+  to `extraDepTargets` or `needs`, which Lake's own facet runs.
+- A dependency that Lake resolves after Regula can declare an `extraDep` facet that replaces
+  Regula's. Lake resolves the `require` lines of a package from the last to the first, and then
+  the dependencies of those packages. So a build without the marker counts no record when a
+  dependency other than Regula declares a library facet. It reports a claimed module as not
+  established when it replays that module's messages from before the run.
+- The result is then incomplete. `lake exe axiomGate --incremental` then exits 3, and the
+  `lake build` of the build-lint `policy` target exits 1. `lake lint` keeps the marker for such a
+  workspace.
+- The incremental gate trusts the build traces that Lake recorded in the checkout, and the record
+  is part of them. A facet that forged the record when Lake built a module is outside that
+  evidence. A `--fresh` audit rests on no recorded trace.
 - The only supported editor is VS Code with the Lean 4 extension, and there is no latency claim.
 - Regula has run on small adopters only, including a Mathlib-importing library accepted
   incrementally and fresh; there is no Mathlib-scale adopter claim. These are bounded

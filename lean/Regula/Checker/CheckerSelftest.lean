@@ -319,7 +319,8 @@ fixture module and every root-package module they import, directly or not. The p
 the repository's name, source directory and Lean options, and each target the roots, globs,
 source directory and Lean options of its own configuration, as Lake reports them, so a kept
 library owns in the project exactly its modules whose sources are present, and a target a
-control adds inherits the package's options as it would in the repository. The project
+control adds inherits the package's options as it would in the repository. The project also
+declares the repository's weak-arguments `extraDep` facet, verbatim. The project
 requires no package, and the checker probe's own imports outside it resolve to the running
 checker's library, so no gate in it builds or inspects a library the application does not
 import. -/
@@ -410,6 +411,12 @@ private def structuralProject (manifest : Manifest) (ws : _root_.Lake.Workspace)
       s!"  root := `{executable.root.name}\n" ++
       s!"  supportInterpreter := {executable.supportInterpreter}\n" ++
       s!"  leanOptions := {renderOptions executable.config.leanOptions}\n"
+  -- The repository's `extraDep` facet, which records the `weakLeanArgs` of the root package in
+  -- each module's trace, so an incremental gate decides a module it replays (RG2003) as it does
+  -- in the repository, and the module artifacts seeded from the repository's build match.
+  let some facet := Lake.weakArgsDeclarations (← IO.FS.readFile pkg.configFile)
+    | throw <| IO.userError s!"self-test: {pkg.configFile} has no weak-arguments facet"
+  lakefile := lakefile ++ facet
   return {
     lakefile, sources
     libraries := libraries.map (spelling ·.name)
@@ -1089,8 +1096,13 @@ private def fenceCorpusCases (certificate grindCertificate : FilePath) : Array (
   ("positive", "```lean\ntheorem nested_ok : 1 = 1 := rfl\n```\n", "positive.md:1 PASS"),
   ("raw-import", "```lean\ntheorem missing_import : Glossary.Time = Glossary.Time := rfl\n```\n",
       "did not elaborate verbatim"),
+  -- The unused-variables linter runs after the `in` scope, under the compile's
+  -- `warningAsError`, so its warning is an error.
   ("warning", "```lean\nset_option warningAsError false in\ndef hidden_warning (unused : Nat) : \
-    Nat := 1\n```\n", "emitted warning"),
+    Nat := 1\n```\n", "error: Variable name `unused` is not explicitly referenced"),
+  -- Lean prints an information message as its bare text; this one reads as a warning line.
+  ("information", "```lean\n#print \"information.md:1:0: warning: an information message\"\n\
+    theorem information_ok : 1 = 1 := rfl\n```\n", "information.md:1 PASS"),
   ("hole", "```lean\ntheorem docs_hole : False := by sorry\n```\n", "hole.md:1 FAIL"),
   ("project-axiom", "```lean\naxiom docs_axiom : False\n```\n", "project-axiom"),
   ("valid-negative", "<!-- lean-fail: Type mismatch -->\n```lean\ndef n : Nat := \"x\"\n```\n",
@@ -1208,7 +1220,7 @@ private def fenceCorpusCases (certificate grindCertificate : FilePath) : Array (
       "<!-- lean-trusted-compiler -->\n```lean\ntheorem plain : 1 = 1 := rfl\n```\n",
           "trusted marker found no compiler-trusting declaration"),
   -- The pinned renderer prints a named diagnostic as `warning(name):`
-  -- (`Lean.mkErrorStringWithPos`); the audit must reject that form too.
+  -- (`Lean.mkErrorStringWithPos`); its severity is still `warning`, which the audit rejects.
   ("named-warning", "```lean\nimport Lean\nopen Lean\nset_option warningAsError false in\nrun_cmd \
     Lean.logNamedWarningAt (← getRef) `lean.selftestNamedWarning m!\"named\"\n```\n",
         "emitted warning")
@@ -3551,7 +3563,10 @@ copy is that step and the documentation step on each run. Before the gate runs, 
 the audit must build fresh in its own copy for a link with no `build` field, for one artifact of
 the build altered, for one file of the project outside `.lake` altered and for the file named `-`
 altered, which `shasum` would read as standard input, and must place the recorded build output when
-every digest matches. Each of those cases must pass the audit. The project has a second library
+every digest matches. Each of those cases must pass the audit. The project declares the
+weak-arguments facet of Regula's shipped `lakefile.lean`, as the repository does, so the recorded
+build's traces record each module's weak arguments and the audit establishes the modules it replays
+from that build. The project has a second library
 that the claimed build does not compile but the recorded build holds, as the first step's
 diagnostic targets are, and a documentation example that must fail because its module has no
 compiled file: the audit stages only the modules of its claimed build. -/
@@ -3561,11 +3576,16 @@ private def retainedBuildControl (repo : FilePath) : IO (Array String) :=
   IO.FS.createDirAll (project / "Solo")
   IO.FS.createDirAll (project / "docs")
   IO.FS.writeFile (project / "lean-toolchain") (← IO.FS.readFile (repo / "lean-toolchain"))
-  IO.FS.writeFile (project / "lakefile.toml") <|
-    "name = \"retained_build_control\"\n[leanOptions]\nautoImplicit = false\n" ++
-      "relaxedAutoImplicit = false\nlinter.missingDocs = true\n" ++
-      "[[lean_lib]]\nname = \"Solo\"\nglobs = [\"Solo.+\"]\n" ++
-      "[[lean_lib]]\nname = \"Extra\"\nglobs = [\"Extra.+\"]\n"
+  -- The weak-arguments facet of Regula's shipped `lakefile.lean`, so the ordinary build records
+  -- each module's weak arguments in its trace, as the first acceptance step's build does.
+  let some facet := Lake.weakArgsDeclarations (← IO.FS.readFile (repo / "lakefile.lean"))
+    | return #["retained-build/setup: Regula's lakefile has no weak-arguments facet"]
+  IO.FS.writeFile (project / "lakefile.lean") <|
+    "import Lake\nopen Lake DSL\n\npackage retained_build_control where\n" ++
+      "  leanOptions := #[⟨`autoImplicit, false⟩, ⟨`relaxedAutoImplicit, false⟩,\n" ++
+      "    ⟨`linter.missingDocs, true⟩]\n\n" ++
+      "lean_lib Solo where\n  globs := #[.submodules `Solo]\n\n" ++
+      "lean_lib Extra where\n  globs := #[.submodules `Extra]\n" ++ facet
   IO.FS.writeFile (Manifest.defaultPath project) <|
     "{\"schema-version\":2,\"surfaces\":[{\"library\":\"Solo\",\"executables\":[]," ++
       "\"claim\":\"standard-logical\",\"execution\":\"report\"," ++
