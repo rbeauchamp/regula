@@ -90,7 +90,8 @@ inductive BoundaryKind where
   /-- An `@[extern]` constant of a toolchain module (`Init`, `Std`, `Lean` or `Lake`) whose origin
   was admitted, implemented by the toolchain's own native code. -/
   | «nativeRuntime»
-  /-- Any other `@[extern]` constant, implemented outside Lean. -/
+  /-- Any other `@[extern]` constant: a trusted extern boundary outside the authenticated toolchain
+  base, with no claim about the language or origin of the code bound to its symbol. -/
   | «external»
   /-- An `unsafe` constant. -/
   | «unsafeComputation»

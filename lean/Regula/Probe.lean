@@ -627,10 +627,10 @@ definition of the targets (`NodeRecord.successors`). The record reads source val
 compiler IR, all supported equality candidates, and observed implementation choices. Compiler
 metadata supplements source dependencies; neither alone retains all earlier replacements after
 inlining. Equality candidates are not a claim that the compiler selected them. Extern reference
-bodies remain boundary leaves. Every `extern` is a trusted boundary with no execution edge; one of a
-project or dependency names the declarations whose `@[export]` name is its C symbol
-(`exportersOf`), with no claim that they run. A constant with an initializer is an initialized
-value.
+bodies remain boundary leaves. Every `extern` is a trusted boundary. One of a project or
+dependency names the declarations whose `@[export]` name is its C symbol (`exportersOf`), with no
+claim that they run; that match adds no edge, and the extern's simplification candidates stay
+edges, as for any constant. A constant with an initializer is an initialized value.
 
 An opaque constant gets a helper edge to the constant `Lean.Compiler.mkUnsafeRecName` names for it
 when the environment has that constant and it is `partial`. The edge is how the policy pairs a
@@ -747,9 +747,10 @@ private def observeNode (env : Environment) (ownedModules : List Name)
     record := { record with boundaries := record.boundaries.push boundary }
   match lowering (Lean.isExtern env name) (Lean.getInitFnNameFor? env name) with
   | .extern =>
-    -- Every `extern` is a trusted boundary with no execution edge. An `extern` outside the
-    -- toolchain names the declarations whose `@[export]` name is its C symbol, read from the
-    -- attribute names alone: which body runs under the symbol is not decided.
+    -- Every `extern` is a trusted boundary. An `extern` outside the toolchain names the
+    -- declarations whose `@[export]` name is its C symbol, read from the attribute names alone:
+    -- which body runs under the symbol is not decided, and the match adds no edge. The
+    -- simplification candidates above stay edges.
     let exporters := match toolchain, Lean.getExternNameFor env `c name with
       | none, some symbol => (symbol, exportersOf (exportEntries env) symbol)
       | _, _ => ("", [])

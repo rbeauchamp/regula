@@ -224,7 +224,7 @@ These mechanisms affect different Lean claims and MUST NOT be conflated:
 *
   * `@[extern]` / FFI
   * compiled execution calls external or runtime code whose behavior is not established by the Lean declaration alone
-  * permitted only as a reported execution boundary: an extern of an origin-checked toolchain module (`Init`, `Std`, `Lean` or `Lake`, such as `Nat`/`Float32` arithmetic) is trusted native-runtime substrate; any other extern is trusted external code, whose report also names the declarations whose `@[export]` name is its C symbol, read from the attribute names alone, without deciding which body runs; no extern boundary is ever checked correspondence
+  * permitted only as a reported execution boundary: an extern of an origin-checked toolchain module (`Init`, `Std`, `Lean` or `Lake`, such as `Nat`/`Float32` arithmetic) is trusted native-runtime substrate; any other extern is a trusted `external` boundary, whose report also names the declarations whose `@[export]` name is its C symbol, read from the attribute names alone, without deciding which body runs; no extern boundary is ever checked correspondence
 *
   * `#eval` or native execution output
   * an observation from evaluation, not a proof term

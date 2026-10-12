@@ -1,8 +1,8 @@
 /-
 Positive control of item 5 of issue #285 (https://github.com/rbeauchamp/regula/issues/285): an
-`@[extern]` declaration whose C symbol is the `@[export]` name of a Lean declaration. Like every
-`extern`, the reference is a trusted `external` boundary with no execution edge, and its report
-names the declaration that also exports the symbol. The names are read from the attributes alone:
+`@[extern]` declaration whose C symbol is the `@[export]` name of a Lean declaration. The reference
+is a trusted `external` boundary, its report names the declaration that also exports the symbol,
+and that match adds no execution edge. The names are read from the attributes alone:
 the report does not claim which body runs under the symbol
 (`Fixtures.Mutations.ExternExportSignatureMismatch` shows a pair whose calling conventions differ).
 Before this change, the report did not name the exporting declaration.
