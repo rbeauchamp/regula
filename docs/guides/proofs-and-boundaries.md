@@ -4623,7 +4623,9 @@ The structural controls are divided into five shards, `1/5` to `5/5`. The execut
 divided into four, `1/4` to `4/4`, and the lint-driver controls into five. The fixtures controls
 are divided into five, the cli and environments controls into six and the build-policy controls
 into three. `SelftestArguments.Partition.shards` gives these numbers. The diagnostics
-workflow runs each shard as a separate job.
+workflow runs each structural, execution and lint-driver shard as a separate job. The other
+shards are too long for a job, and the contributor guide names them among the
+[campaigns no workflow runs](contributing.md#campaigns-no-workflow-runs).
 
 Every control carries its one shard where the partition lists
 it, and a shard runs the controls that carry it. The theorem `inShard_cover` proves that the
