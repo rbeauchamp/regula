@@ -634,7 +634,10 @@ the file the walk found, and the facts of `Regula.Setup.Observation.globCase`: t
 `lean_lib` when it has one root, Lake reports its globs as that root alone and `soleDeclared`
 holds, each module Lake's glob of the root's submodules finds in its source directory with its
 `Module.leanFile`, and the file the import closure of the claimed modules, the claimed roots
-included, read under each of those names, every file by its canonical path. -/
+included, read under each of those names, every file by its canonical path.
+
+Assumes: Lake v4.34.1 selects the language from `relConfigFile`, not the resolved `configFile`
+(`Lake/Load/Package.lean:100`), under `LakeConfig.language`'s assumptions. -/
 def observe (root : FilePath) : IO Project := do
   -- Without a manifest every root target is claimed, as in the starter `init` writes; a target the
   -- manifest that loads excludes is not. A manifest that does not load or classify every root
@@ -733,7 +736,9 @@ def observe (root : FilePath) : IO Project := do
             (Lake.libraryOptions lib)) ++
           exes.map (fun exe => target true exe.name exe.config.leanOptions
             (Lake.executableOptions exe))).toList
-      let kind := if pkg.configFile.extension == some "toml" then Lakefile.toml else .lean
+      let kind := match ← IO.ofExcept (LakeConfig.language pkg.relConfigFile) with
+        | .toml => Lakefile.toml
+        | .lean => Lakefile.lean
       let addedNames := added.foldl (fun s (m, _) => s.insert m) ({} : NameSet)
       return (kind, pkg.configFile, pkg.lintDriver,
         (Lake.buildOptions pkg.leanOptions #[] #[]).options, targets,
