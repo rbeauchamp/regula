@@ -6,7 +6,7 @@ drops the erased type parameter from a call of the `extern` but keeps it as a pa
 exported function, so a compiled call passes one argument fewer than the exported code reads. The
 pair is a trusted `exported-implementation` boundary, which fails a checked execution claim with
 RG3002 (https://rbeauchamp.github.io/regula/dev/rules/RG3002/), though the two bodies are
-definitionally equal.
+definitionally equal. Such a difference is why Regula checks no extern/export pair.
 -/
 
 /-- The successor, compiled under the C symbol `fixtures_mismatch_symbol` with its type

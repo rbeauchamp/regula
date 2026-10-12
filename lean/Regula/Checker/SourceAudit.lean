@@ -104,22 +104,17 @@ structure GroupRequest where
   /-- Report each loaded module's `.olean` origin and imports; they are also reported whenever
   `includeExecution` is set. -/
   includeModuleOrigins : Bool := true
-  /-- The memory cap of the report's correspondence checks (`Probe.correspondenceMemoryCap`); a
-  check that reaches it ends the report. -/
-  memoryCap : Nat := Regula.Probe.correspondenceMemoryBytes
   deriving ToJson
 
 instance : FromJson GroupRequest := ⟨fun j => do
   Regula.Checker.PolicyCodec.exactFields j
-      ["modules", "sourceBindings", "ownership", "includeExecution", "includeModuleOrigins",
-        "memoryCap"]
+      ["modules", "sourceBindings", "ownership", "includeExecution", "includeModuleOrigins"]
   return {
     modules := ← j.getObjValAs? _ "modules"
     sourceBindings := ← j.getObjValAs? _ "sourceBindings"
     ownership := ← j.getObjValAs? _ "ownership"
     includeExecution := ← j.getObjValAs? _ "includeExecution"
     includeModuleOrigins := ← j.getObjValAs? _ "includeModuleOrigins"
-    memoryCap := ← j.getObjValAs? _ "memoryCap"
   }⟩
 
 /-- The result of one grouped inspection: the worker's report and the coordinator's transcripts. -/
@@ -140,7 +135,6 @@ unsafe def inspectGroupWorker (request : GroupRequest) : IO ProducerReport.Outco
       (source.moduleName, FilePath.mk source.path)
     let outcome ← Environment.loadReportCurrentSearchPathOutcome request.modules moduleSources
       request.ownership request.includeExecution request.includeModuleOrigins
-      request.memoryCap
     if let .ok report := outcome then
       if let .error failure := SourceBinding.validateAgainst request.sourceBindings report then
         return .error (.admission failure)
@@ -156,8 +150,7 @@ def inspectGroupCurrentSearchPath (modules : Array Name)
     (transcriptSources : Array (Name × FilePath) := #[])
     (moduleSources : Array (Name × FilePath) := #[]) (ownership : Ownership := {})
     (includeExecution : Bool := true) (includeModuleOrigins : Bool := true)
-    (compiledSources : Array ProducerReport.SourceBinding := #[])
-    (memoryCap : Nat := Regula.Probe.correspondenceMemoryBytes) :
+    (compiledSources : Array ProducerReport.SourceBinding := #[]) :
     IO (Except ProducerReport.Refusal GroupReport) := do
   return (← SourceBinding.withUnchanged (α := Except ProducerReport.Refusal GroupReport)
       compiledSources #[] do
@@ -181,7 +174,6 @@ def inspectGroupCurrentSearchPath (modules : Array Name)
           ownership
           includeExecution
           includeModuleOrigins
-          memoryCap
         }
         writeJson input (toJson request)
         let result ← runProcess (← IO.currentDir) binary.toString

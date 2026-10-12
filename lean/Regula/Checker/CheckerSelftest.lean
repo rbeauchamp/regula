@@ -3068,45 +3068,6 @@ private unsafe def adopterQualification (repo scratch : FilePath) : IO (Array St
           s!"adopter/toml/fresh-plan: exact adopter coverage plan failed:\n{fresh.output}")
   failures.get
 
-/-- External-boundary control of the memory cap of the correspondence checks (standard §7.6):
-`Fixtures/Positive/HeartbeatCorrespondence.lean`, compiled in `scratch`, is inspected through the
-checker's own grouped inspection under a 1 GiB cap (`Probe.correspondenceMemoryCap`), below the
-resident memory of the inspecting process. Its one check, of about 900 MiB, reaches the cap, so
-the inspection ends with the error that names the check (`Probe.settleCorrespondence`) and with no
-report, so no boundary verdict; `axiomGate --file` records such an error as an incomplete audit.
-Under the default cap the fixture's entry in `Fixtures/fixtures.json` is checked. That the runtime
-raises the exhaustion is the external mechanism under test; `Probe.settleCorrespondence_ok_iff`
-states that a check that reached the cap gives no verdict. -/
-private unsafe def memoryCapControl (repo scratch : FilePath)
-    (leanPath : Array FilePath) : IO (Array String) := do
-  let source ←
-    IO.FS.readFile (repo / "lean" / "Fixtures" / "Positive" / "HeartbeatCorrespondence.lean")
-  let compilation ← IO.ofExcept <| (← SourceAudit.compile repo scratch {
-    «module» := "SelftestHeartbeatCorrespondence", source }).mapError (·.detail)
-  unless SourceAudit.compilationPassed compilation do
-    return #[s!"memory-cap: the fixture did not compile:\n{compilation.process.output}"]
-  let moduleName := `SelftestHeartbeatCorrespondence
-  let selfLib ← checkerPackageLibDir
-  let oldSearchPath ← Lean.searchPathRef.get
-  Lean.searchPathRef.set (scratch :: leanPath.toList ++ selfLib.toList ++ oldSearchPath)
-  let outcome ← try
-      let inspected ← SourceAudit.inspectGroupCurrentSearchPath #[moduleName]
-        (compiledSources :=
-          #[{ moduleName, path := compilation.sourcePath.toString, content := source }])
-        (memoryCap := 1024 * 1024 * 1024)
-      pure (Except.ok inspected)
-    catch error => pure (.error error.toString)
-    finally Lean.searchPathRef.set oldSearchPath
-  let expected := "the memory cap was reached during the correspondence check of \
-    fixtures_heartbeat_tree and fixtures_heartbeat_tree_impl"
-  match outcome with
-  | .ok (.ok _) => return #[s!"memory-cap: the inspection gave a report"]
-  | .ok (.error refusal) =>
-    return #[s!"memory-cap: the inspection refused for another reason: {refusal.detail}"]
-  | .error error =>
-    if (error.splitOn expected).length > 1 then return #[]
-    return #[s!"memory-cap: the inspection failed for another reason: {error}"]
-
 /-- In-process fixture, scanner, and fence-corpus controls. Imports
 remain serialized, and transcript workers finish before parent imports.
 
@@ -3126,10 +3087,6 @@ private unsafe def runFixtures (repo : FilePath) (jobs : Nat)
     IO.println (s!"self-test fixtures: " ++
       (if fixtureResults.all (·.isNone) then "PASS" else "FAIL") ++
       s!" ({fixtures.size} in one process, one environment load per import closure)")
-    let capped ← loggedPhase "memory cap" <| memoryCapControl repo scratch inventory.leanPath
-    for failure in capped do failures.modify (·.push failure)
-    IO.println <| "self-test memory cap: " ++ (if capped.isEmpty then "PASS" else "FAIL") ++
-      " (a correspondence check that reaches the memory cap ends the inspection with no report)"
   for failure in scannerQualification do failures.modify (·.push failure)
   withScratch repo "checker-fence-corpus" fun scratch => do
     let corpus ← loggedPhase "in-process fence corpus" <|

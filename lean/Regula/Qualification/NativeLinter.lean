@@ -54,9 +54,8 @@ def decode (value : Json) : Except String RegulaQualification.Native.Message := 
         (← value.getObjValAs? String "fileName") }
 
 /-- Compile `control` and require the diagnostics it expects. With `first`, `lean` runs with `first`
-ahead of the whole search path that `lake env` gives, in the environment and with the executable
-the launcher captured: `lake env` puts the workspace's own entries before an inherited `LEAN_PATH`,
-so an override through it cannot put a directory first. -/
+ahead of the whole search path that `lake env` gives, through the launcher's recording launch
+(`Launcher.runLean`). -/
 private def check (root scratch : FilePath) (launcher : Launcher.State) (control : Control)
     (env : Array (String × Option String) := #[]) (first : Option FilePath := none) :
     IO (List Json) := do
@@ -65,14 +64,7 @@ private def check (root scratch : FilePath) (launcher : Launcher.State) (control
   let args := #["--json", "--root", scratch.toString] ++ control.options ++
     (if control.output then #["-o", (path.withExtension "olean").toString] else #[]) ++
         #[path.toString]
-  let result ← match first with
-    | none => Launcher.runLean root launcher args env
-    | some first => do
-      let captured ← Launcher.environment root launcher #[]
-      let search := SearchPath.parse (← Launcher.leanPath root launcher)
-      let variables := captured.environment.val.map fun (key, value) =>
-        (key, some (if key == "LEAN_PATH" then SearchPath.toString (first :: search) else value))
-      run root captured.executable args variables
+  let result ← Launcher.runLean root launcher args env first
   let messages ← (result.stdout.splitOn "\n").filterMapM fun line => do
     if line.trimAscii.isEmpty then return none
     return some (← IO.ofExcept (Json.parse line))

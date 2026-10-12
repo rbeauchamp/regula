@@ -1017,9 +1017,8 @@
  "Fixtures.Positive.ExternExportPair": {
   "expect": "pass",
   "claim": "standard-logical",
-  "execution": "checked",
   "output": [
-   "fixtures_pair_reference [exported-implementation] correspondence=checked"
+   "fixtures_pair_reference [exported-implementation] correspondence=trusted replacement=fixtures_pair_implementation"
   ]
  },
  "Fixtures.Positive.CycleAxiomTable": {

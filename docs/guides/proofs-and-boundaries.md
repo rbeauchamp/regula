@@ -1003,34 +1003,34 @@ which stops the warning that a power was not evaluated, because Lean then evalua
 
 **Correspondence resource bound.** `kernelAnswer` gives the kernel the default heartbeats of
 `Core.getMaxHeartbeats`, which Lean gives each declaration. Thus a checker-added obligation costs
-no more than one that the adopter could write. The kernel counts heartbeats in a counter of its
-thread, and `addDeclCore` sets the budget but not the count. So `kernelAnswer` runs each check on a
-new thread, with `Task.Priority.dedicated`, and the count of that thread starts at zero.
+no more than one that the adopter could write. Each check builds its proof and admits it on a task
+of its own, with `Task.Priority.dedicated`, as `Probe.runCheck` does. The kernel counts heartbeats
+in a counter of its thread, and `addDeclCore` sets the budget but not the count. A new thread
+starts that count at zero, and the elaborator counts its own heartbeats from the start of the check.
 
 The sources are `check_heartbeat` in `src/runtime/interrupt.cpp`, `lean_add_decl` in
-`src/kernel/environment.cpp` and `run_task` in `src/runtime/object.cpp` of Lean `v4.34.1`. This
-is read from the runtime source and is not a theorem. The elaborator part of a check builds the
-proof in its own `liftTermElabM`. So it also counts its heartbeats from the start of the check.
-Thus each verdict of a check, checked, refused or unresolved, is a function of the environment,
-the check and the heartbeat budget. No measurement of the process enters it.
+`src/kernel/environment.cpp`, `run_task` in `src/runtime/object.cpp` and `CoreM.toIO` in
+`src/Lean/CoreM.lean` of Lean `v4.34.1`. This is read from the source and is not a theorem. The
+check starts its own elaborator state on the environment, with fixed options. Thus its verdict,
+checked, refused or unresolved, is a function of the environment, the check and the heartbeat
+budgets. The walk builds its index of theorems before the first check, so no check pays for it.
 
-The checks share a lazy index of theorems, and the first check that reads it builds it. That check
-pays for the index from its elaborator budget. A check that reaches that budget ends the report
-with no verdict, so the index changes only the completion of a run.
+Regula sets no memory limit. Lean stops a kernel admission for memory only under a runtime limit,
+which the `lean` executable sets from `-M`, and a report runs in Regula's own executables. When
+such a limit ends an admission anyway, the walk publishes no verdict for the check. The report then
+ends with an error, which an audit records as incomplete. A process that runs out of memory ends,
+and the deadline of the run ends a check that runs too long. Thus the memory of a process decides
+only the completion of a run, as a deadline does, and not a verdict.
 
-Memory is one cap for the whole process and not an allowance of each check. While a check runs,
-Lean's runtime memory limit is `Probe.correspondenceMemoryBytes`, 8 GiB, or a lower `max_memory`
-that the shell set, as `correspondenceMemoryCap` states. The kernel stops a check only when the
-peak and the current resident size of the process each reach the limit. The source is
-`check_memory` in `src/runtime/memory.cpp`. A check that reaches the cap ends the report with an
-error that names the check. By `settleCorrespondence_ok_iff`, no verdict comes from that check, and
-an audit records that error as incomplete.
+`Probe.publishCheck_ok_iff` states that the walk publishes a verdict exactly when the check ran on
+a thread of its own and no memory limit ended an admission. The verdict is then `checkVerdict` of
+the result of the check. A process without a task manager runs a task on the thread of its caller,
+and `requireDedicatedThreads` then ends the report with an error before its first check. In a run
+with `LEAN_NUM_THREADS=0`, a process of the audit stopped earlier still, with a panic about the
+missing task manager.
 
-Thus the earlier work of a process can change only the completion of a run, as a deadline does,
-and not a verdict. The fixture `Fixtures.Positive.HeartbeatCorrespondence` adds about 900 MiB in
-one check, and it is checked under the default cap. The control `memoryCapControl` of the self-test
-inspects it under a 1 GiB cap, below the resident memory of the process. That inspection ends with
-the error of the cap and with no report.
+The fixture `Fixtures.Positive.HeartbeatCorrespondence` adds about 900 MiB in one check, and it is
+checked.
 
 Supplied and then discovered theorem candidates are tried before the kernel-defeq check, so a
 replacement with both reports `proved:` evidence; kernel resource exhaustion is never

@@ -108,7 +108,8 @@ inductive BoundaryKind where
   value, and its compiled body is a stub that is never run. -/
   | «initializedValue»
   /-- An `@[extern]` constant outside the toolchain whose C symbol is the `@[export]` name of one
-  Lean declaration: its compiled calls run that declaration's compiled code. -/
+  Lean declaration: its compiled calls run that declaration's compiled code. The boundary is
+  trusted, never checked: no checked evidence of this kind exists (`CheckedEvidence`). -/
   | «exportedImplementation»
   deriving Repr, DecidableEq, Hashable, Inhabited
 
@@ -1941,10 +1942,6 @@ inductive CheckedEvidence : BoundaryKind → Type where
       CheckedEvidence .compilerSimplification
   /-- An opaque constant executed through its kernel-checked body. -/
   | opaqueBody : CheckedEvidence .opaqueComputation
-  /-- An `extern` whose exporting declaration runs with checked correspondence, described by
-  `detail`; `terms` hold the proof the kernel admitted and the proposition it checked it against. -/
-  | exported (detail : String) (terms : CorrespondenceTerms) :
-      CheckedEvidence .exportedImplementation
   deriving Repr, DecidableEq
 
 /-- Trusted evidence by kind. A native-runtime `extern` always carries the admitted origin of
@@ -1993,15 +1990,15 @@ def BoundaryEvidence.correspondence {k : BoundaryKind} : BoundaryEvidence k → 
 /-- The evidence's detail text; `kernel-checked-body` for a checked opaque body. -/
 def BoundaryEvidence.detail {k : BoundaryKind} : BoundaryEvidence k → Option String
   | .checked evidence => match evidence with
-    | .replacement s _ | .simplification s _ | .exported s _ => some s
+    | .replacement s _ | .simplification s _ => some s
     | .opaqueBody => some "kernel-checked-body"
   | .trusted s _ | .unresolved s => s
 
-/-- The proof and the required proposition of checked replacement, simplification or exported-
-implementation evidence; `none` for any other evidence. -/
+/-- The proof and the required proposition of checked replacement or simplification evidence;
+`none` for any other evidence. -/
 def BoundaryEvidence.terms? {k : BoundaryKind} : BoundaryEvidence k → Option CorrespondenceTerms
   | .checked evidence => match evidence with
-    | .replacement _ terms | .simplification _ terms | .exported _ terms => some terms
+    | .replacement _ terms | .simplification _ terms => some terms
     | .opaqueBody => none
   | .trusted .. | .unresolved _ => none
 
@@ -2064,7 +2061,6 @@ def boundaryEvidenceCandidate (kind : BoundaryKind) (state : Correspondence)
   | .checked => match kind, detail, terms with
     | .runtimeReplacement, some s, some t => .ok (.checked (.replacement s t))
     | .compilerSimplification, some s, some t => .ok (.checked (.simplification s t))
-    | .exportedImplementation, some s, some t => .ok (.checked (.exported s t))
     | .opaqueComputation, some "kernel-checked-body", _ => .ok (.checked .opaqueBody)
     | _, _, _ => .error "invalid checked boundary evidence"
 

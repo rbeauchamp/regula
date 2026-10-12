@@ -743,8 +743,7 @@ private unsafe def loadReportCoreAtSearchPath (modules : Array Name)
     (includeExecution : Bool := true) (includeModuleOrigins : Bool := true)
     (validateReport : Bool := true) (historyMemo : Option (FilePath × String) := none)
     (priors : Array Admission.PriorAdmission := #[])
-    (publish : Option FilePath := none) (inspectDependencies : Bool := false)
-    (memoryCap : Nat := Regula.Probe.correspondenceMemoryBytes) :
+    (publish : Option FilePath := none) (inspectDependencies : Bool := false) :
     IO (Except ProducerReport.Refusal ProducerReport.Environment) := do
   if modules.isEmpty || modules.toList.eraseDups.length != modules.size then
     throw <| IO.userError "environment report requires unique nonempty modules"
@@ -849,8 +848,7 @@ private unsafe def loadReportCoreAtSearchPath (modules : Array Name)
     let replayedModules := NameSet.ofArray (admission.modules ++ admission.reused)
     match ← timedPhase "declaration report" <| EIO.toIO' <|
         (Regula.Probe.environmentReport requested.toList loadHistory includeExecution
-            includeModuleOrigins (some admitted.replayed) replayedModules dependencies.toList
-            memoryCap).run
+            includeModuleOrigins (some admitted.replayed) replayedModules dependencies.toList).run
             ctx |>.run state with
     | .error ex => throw <| IO.userError (← ex.toMessageData.toString)
     | .ok (report, _) =>
@@ -958,13 +956,12 @@ private unsafe def loadReportCore (modules : Array Name) (sourceRoots : Array Fi
     (includeExecution : Bool := true) (includeModuleOrigins : Bool := true)
     (validateReport : Bool := true) (historyMemo : Option FilePath := none)
     (priors : Array Admission.PriorAdmission := #[]) (publish : Option FilePath := none)
-    (inspectDependencies : Bool := false)
-    (memoryCap : Nat := Regula.Probe.correspondenceMemoryBytes) :
+    (inspectDependencies : Bool := false) :
     IO (Except ProducerReport.Refusal ProducerReport.Environment) :=
   withProbeSearch fun searchIdentity =>
     loadReportCoreAtSearchPath modules sourceRoots moduleSources ownership includeExecution
       includeModuleOrigins validateReport (historyMemo.map (·, searchIdentity)) priors publish
-      inspectDependencies memoryCap
+      inspectDependencies
 
 private def withReportSearchRoots {α : Type} (extraSearchRoots : Array FilePath)
     (action : IO α) : IO α := do
@@ -987,11 +984,9 @@ supports bounded parallel, read-only imports while a caller owns the global
 search-path scope. -/
 unsafe def loadReportCurrentSearchPathOutcome (modules : Array Name)
     (moduleSources : Array (Name × FilePath) := #[]) (ownership : Ownership := {})
-    (includeExecution : Bool := true) (includeModuleOrigins : Bool := true)
-    (memoryCap : Nat := Regula.Probe.correspondenceMemoryBytes) :
+    (includeExecution : Bool := true) (includeModuleOrigins : Bool := true) :
     IO (Except ProducerReport.Refusal ProducerReport.Environment) :=
   loadReportCore modules #[] moduleSources ownership includeExecution includeModuleOrigins
-    (memoryCap := memoryCap)
 
 /-- Load exact modules through Lean's import semantics and return their typed
 declaration report. Extra search roots are temporary and restored afterward. Kernel admission

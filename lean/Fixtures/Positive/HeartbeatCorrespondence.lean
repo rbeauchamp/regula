@@ -1,10 +1,8 @@
 /-!
 A runtime replacement whose definitional correspondence the kernel decides by computing the size
 of a binary tree of depth 16 with distinct leaves. The check adds about 900 MiB to the process's
-resident memory and stays within its heartbeat budget, which alone bounds it, so a report decides
-it as checked under the default memory cap (`Regula.Probe.correspondenceMemoryBytes`). The
-checker's self-test inspects this module again under a 1 GiB cap, below the resident memory of
-the inspecting process: the check reaches the cap, and the report ends with no verdict.
+resident memory and stays within its heartbeat budgets, which alone bound it
+(`Regula.Probe.runCheck`), so a report decides it as checked.
 -/
 
 /-- A binary tree whose leaves carry labels, so that no two subtrees are equal. -/
