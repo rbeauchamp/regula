@@ -16,7 +16,9 @@ only imported modules outside the replayed inventory. Unsafe and partial entries
 remain subject to generated-role policy; they cannot supply logical evidence.
 An owned module that an earlier environment of the same audit admitted over the
 identical, frozen import closure is reused instead of replayed again (`reusedModules`,
-`offers`, `reuseJustified_frozen`); every other owned module is replayed (`mem_replaySet`). A
+`offers`, `reuseJustified_frozen`), also when another loaded module declares a copy of one of its
+names, provided every copy is the kept constant (`copiesIdentical`); every other owned module is
+replayed (`mem_replaySet`). A
 member's import closure lies within the closure (`importClosure_trans`), so one pass decides
 which candidates have every owned module of their closure reused too.
 Replay reads each replayed module's own constants (`Copy`), so a name that several
@@ -463,30 +465,493 @@ theorem identical_iff (a b : ConstantInfo) : identical a b = true ↔ Identical 
       theoremVal_beq_iff, opaqueVal_beq_iff, quotVal_beq_iff, inductiveVal_beq_iff,
       constructorVal_beq_iff, recursorVal_beq_iff]
 
-/-- Whether every constant of module `m` is attributed to `m` in `env` and is the constant `env`
-keeps under its name (`identical`). Lean's import attributes a name to the first module declaring
-it and keeps the last copy that replaces the others (read from `Lean.finalizeImport`), so this
-fails when another module of `env` declares a copy of one of `m`'s names that is not identical. -/
-def uniquelyKept (env : Environment) (m : Name) : Bool := Id.run do
-  let some owner := env.getModuleIdx? m | return false
-  for info in env.header.moduleData[(owner : Nat)]!.constants do
-    unless env.getModuleIdxFor? info.name == some owner do return false
-    let some keptInfo := env.find? info.name | return false
-    unless identical keptInfo info do return false
-  return true
+/-! ## Copies of one name in the loaded modules
 
-/-- Whether every constant a declaration of `m` refers to (`ConstantInfo.getUsedConstantsAsSet`,
-the dependencies `Kernel.Environment.replay` replays first) is declared in a module of
-`closure`. -/
-def referencesWithin (env : Environment) (m : Name)
-    (closure : Array RegulaPolicy.ModuleOrigin) : Bool := Id.run do
-  let some owner := env.getModuleIdx? m | return false
-  let allowed := closure.foldl (fun names origin => names.insert origin.name) ({} : NameSet)
-  for info in env.header.moduleData[(owner : Nat)]!.constants do
-    for used in info.getUsedConstantsAsSet do
-      let some idx := env.getModuleIdxFor? used | return false
-      unless allowed.contains env.header.modules[(idx : Nat)]!.module do return false
-  return true
+Lean realizes some constants in the module that first needs them (equation, unfolding and
+match-equation lemmas among them, see "Several copies of one name" below), so two loaded modules
+can each declare the same name. Lean's import keeps one constant under the name and attributes the
+name to the first module that lists it. One pass over the constants of every loaded module
+(`duplicatesOf`) records each name some module declares with a constant that is not `identical`
+to the kept one (`Duplicates.differing`) and, for each name, the modules that declare it other
+than the module it is attributed to (`Duplicates.others`). For a name outside `differing`, every
+copy is the kept constant (`Uniform`, `not_mem_differing_iff`), so which copy Lean keeps, or which
+module it attributes the name to, changes no constant the kernel reads. Reuse rests on such names
+(`copiesIdentical`, `referencesWithin`), and so does the offer of a replayed module that holds a
+copy of one (`ownedUniform`). What these rest on about Lean is listed under `Assumes:` in the
+docstrings of `duplicatesIn` and `copiesIdentical`. -/
+
+/-- What `duplicatesOf` finds in the constants of the loaded modules. -/
+structure Duplicates where
+  /-- Each name that a loaded module declares with a constant not `identical` to the constant the
+  environment keeps under it, or under which the environment keeps none. -/
+  differing : Std.HashSet Name
+  /-- For each name, the index of each loaded module that declares it, other than the module the
+  name is attributed to. -/
+  others : Std.HashMap Name (Array Nat)
+
+/-- No name differs, and no name has a module beside the one it is attributed to. -/
+def Duplicates.empty : Duplicates := { differing := {}, others := {} }
+
+/-- Record the constant `info` of the module at index `idx`: its name is `differing` unless `find`
+keeps a constant `identical` to it, and `idx` joins the name's `others` unless the name is
+attributed to `idx`. -/
+def Duplicates.record (find : Name → Option ConstantInfo) (attributed : Name → Option Nat)
+    (idx : Nat) (dups : Duplicates) (info : ConstantInfo) : Duplicates :=
+  { differing :=
+      if (find info.name).any (identical · info) then dups.differing
+      else dups.differing.insert info.name
+    others :=
+      if attributed info.name == some idx then dups.others
+      else dups.others.insert info.name ((dups.others.getD info.name #[]).push idx) }
+
+/-- One pass over the constants of every module of `modules`, the loaded modules' data at their
+indices (`Duplicates.record`). `find` gives the constant the environment keeps under a name and
+`attributed` the index of the module it attributes the name to. -/
+def duplicatesOf (find : Name → Option ConstantInfo) (attributed : Name → Option Nat)
+    (modules : Array ModuleData) : Duplicates :=
+  modules.zipIdx.foldl (init := Duplicates.empty) fun dups entry =>
+    entry.1.constants.foldl (Duplicates.record find attributed entry.2) dups
+
+/-- The module at index `idx` of `modules` declares a constant named `n`. -/
+def Declares (modules : Array ModuleData) (idx : Nat) (n : Name) : Prop :=
+  ∃ data, modules[idx]? = some data ∧ ∃ info ∈ data.constants, info.name = n
+
+/-- Every copy of `n` that a module of `modules` declares is `Identical` to the constant `find`
+keeps under `n`. -/
+def Uniform (find : Name → Option ConstantInfo) (modules : Array ModuleData) (n : Name) : Prop :=
+  ∀ data ∈ modules, ∀ info ∈ data.constants, info.name = n →
+    ∃ kept, find n = some kept ∧ Identical kept info
+
+/-- What `duplicatesOf` maintains over the copies `seen` so far, each with its module's index. -/
+private structure DuplicatesInv (find : Name → Option ConstantInfo)
+    (attributed : Name → Option Nat) (seen : List (ConstantInfo × Nat)) (dups : Duplicates) :
+    Prop where
+  /-- A name differs exactly when a copy seen is not `identical` to the kept constant. -/
+  differing : ∀ n, n ∈ dups.differing ↔
+    ∃ copy ∈ seen, copy.1.name = n ∧ (find n).any (identical · copy.1) = false
+  /-- A module is among a name's `others` exactly when it holds a copy seen and is not the module
+  the name is attributed to. -/
+  others : ∀ n idx, idx ∈ dups.others.getD n #[] ↔
+    ∃ copy ∈ seen, copy.2 = idx ∧ copy.1.name = n ∧ attributed n ≠ some idx
+
+/-- `Duplicates.record` keeps `DuplicatesInv`. -/
+private theorem DuplicatesInv.record {find : Name → Option ConstantInfo}
+    {attributed : Name → Option Nat} {seen : List (ConstantInfo × Nat)} {dups : Duplicates}
+    (h : DuplicatesInv find attributed seen dups) (idx : Nat) (info : ConstantInfo) :
+    DuplicatesInv find attributed (seen ++ [(info, idx)])
+      (Duplicates.record find attributed idx dups info) := by
+  refine ⟨fun n => ?_, fun n other => ?_⟩
+  · simp only [Duplicates.record, List.mem_append, List.mem_singleton]
+    by_cases hkept : (find info.name).any (identical · info) = true
+    · simp only [hkept, ↓reduceIte, h.differing n]
+      constructor
+      · rintro ⟨copy, hcopy, hname, hany⟩
+        exact ⟨copy, .inl hcopy, hname, hany⟩
+      · rintro ⟨copy, hcopy | rfl, hname, hany⟩
+        · exact ⟨copy, hcopy, hname, hany⟩
+        · subst hname
+          rw [hkept] at hany
+          cases hany
+    · simp only [hkept, Bool.false_eq_true, ↓reduceIte, Std.HashSet.mem_insert, beq_iff_eq,
+        h.differing n]
+      constructor
+      · rintro (rfl | ⟨copy, hcopy, hname, hany⟩)
+        · exact ⟨(info, idx), .inr rfl, rfl, by simpa using hkept⟩
+        · exact ⟨copy, .inl hcopy, hname, hany⟩
+      · rintro ⟨copy, hcopy | rfl, hname, hany⟩
+        · exact .inr ⟨copy, hcopy, hname, hany⟩
+        · exact .inl hname
+  · simp only [Duplicates.record, List.mem_append, List.mem_singleton]
+    by_cases hattr : (attributed info.name == some idx) = true
+    · have hidx : attributed info.name = some idx := beq_iff_eq.mp hattr
+      simp only [hattr, ↓reduceIte, h.others n other]
+      constructor
+      · rintro ⟨copy, hcopy, hidx', hname, hne⟩
+        exact ⟨copy, .inl hcopy, hidx', hname, hne⟩
+      · rintro ⟨copy, hcopy | rfl, hidx', hname, hne⟩
+        · exact ⟨copy, hcopy, hidx', hname, hne⟩
+        · simp only at hidx' hname
+          subst hidx' hname
+          exact absurd hidx hne
+    · have hne : attributed info.name ≠ some idx := fun heq => hattr (beq_iff_eq.mpr heq)
+      simp only [hattr, Bool.false_eq_true, ↓reduceIte, Std.HashMap.getD_insert, beq_iff_eq]
+      by_cases hname : info.name = n
+      · subst hname
+        simp only [↓reduceIte, Array.mem_push, h.others info.name other]
+        constructor
+        · rintro (⟨copy, hcopy, hidx', hname', hne'⟩ | heq)
+          · exact ⟨copy, .inl hcopy, hidx', hname', hne'⟩
+          · exact ⟨(info, idx), .inr rfl, heq.symm, rfl, by rw [heq]; exact hne⟩
+        · rintro ⟨copy, hcopy | rfl, hidx', hname', hne'⟩
+          · exact .inl ⟨copy, hcopy, hidx', hname', hne'⟩
+          · exact .inr hidx'.symm
+      · simp only [hname, ↓reduceIte, h.others n other]
+        constructor
+        · rintro ⟨copy, hcopy, hidx', hname', hne'⟩
+          exact ⟨copy, .inl hcopy, hidx', hname', hne'⟩
+        · rintro ⟨copy, hcopy | rfl, hidx', hname', hne'⟩
+          · exact ⟨copy, hcopy, hidx', hname', hne'⟩
+          · exact absurd hname' hname
+
+/-- The pass over all modules keeps `DuplicatesInv` over every copy, each with its module's
+index. -/
+private theorem duplicatesOf_inv (find : Name → Option ConstantInfo)
+    (attributed : Name → Option Nat) (modules : Array ModuleData) :
+    DuplicatesInv find attributed
+      (modules.zipIdx.toList.flatMap fun entry => entry.1.constants.toList.map (·, entry.2))
+      (duplicatesOf find attributed modules) := by
+  have inner : ∀ (idx : Nat) (infos : List ConstantInfo) (seen : List (ConstantInfo × Nat))
+      (dups : Duplicates), DuplicatesInv find attributed seen dups →
+      DuplicatesInv find attributed (seen ++ infos.map (·, idx))
+        (infos.foldl (Duplicates.record find attributed idx) dups) := by
+    intro idx infos
+    induction infos with
+    | nil => intro seen dups h; simpa using h
+    | cons info rest ih =>
+      intro seen dups h
+      simpa using ih _ _ (h.record idx info)
+  have outer : ∀ (entries : List (ModuleData × Nat)) (seen : List (ConstantInfo × Nat))
+      (dups : Duplicates), DuplicatesInv find attributed seen dups →
+      DuplicatesInv find attributed
+        (seen ++ entries.flatMap fun entry => entry.1.constants.toList.map (·, entry.2))
+        (entries.foldl (fun dups entry =>
+          entry.1.constants.foldl (Duplicates.record find attributed entry.2) dups) dups) := by
+    intro entries
+    induction entries with
+    | nil => intro seen dups h; simpa using h
+    | cons entry rest ih =>
+      intro seen dups h
+      have step := inner entry.2 entry.1.constants.toList seen dups h
+      rw [Array.foldl_toList] at step
+      simpa using ih _ _ step
+  have start : DuplicatesInv find attributed [] Duplicates.empty :=
+    ⟨fun n => by simp [Duplicates.empty], fun n idx => by simp [Duplicates.empty]⟩
+  unfold duplicatesOf
+  rw [← Array.foldl_toList]
+  simpa using outer modules.zipIdx.toList [] _ start
+
+/-- The copies the pass sees are exactly the constants of the modules, each with its module's
+index. -/
+private theorem mem_copies {modules : Array ModuleData} {info : ConstantInfo} {idx : Nat} :
+    (info, idx) ∈ (modules.zipIdx.toList.flatMap fun entry =>
+        entry.1.constants.toList.map (·, entry.2)) ↔
+      ∃ data, modules[idx]? = some data ∧ info ∈ data.constants := by
+  simp only [List.mem_flatMap, List.mem_map, Array.mem_toList_iff, Prod.mk.injEq]
+  constructor
+  · rintro ⟨entry, hentry, found, hfound, rfl, rfl⟩
+    exact ⟨entry.1, Array.mem_zipIdx_iff_getElem?.mp hentry, hfound⟩
+  · rintro ⟨data, hdata, hinfo⟩
+    exact ⟨(data, idx), Array.mem_zipIdx_iff_getElem?.mpr hdata, info, hinfo, rfl, rfl⟩
+
+/-- **A name is outside `differing` exactly when every copy of it is the kept constant.** -/
+theorem not_mem_differing_iff {find : Name → Option ConstantInfo}
+    {attributed : Name → Option Nat} {modules : Array ModuleData} {n : Name} :
+    n ∉ (duplicatesOf find attributed modules).differing ↔ Uniform find modules n := by
+  rw [(duplicatesOf_inv find attributed modules).differing n]
+  constructor
+  · intro hnone data hdata info hinfo hname
+    obtain ⟨idx, hidx⟩ := Array.mem_iff_getElem?.mp hdata
+    cases hkept : (find n).any (identical · info)
+    · exact absurd ⟨(info, idx), mem_copies.mpr ⟨data, hidx, hinfo⟩, hname, hkept⟩ hnone
+    · obtain ⟨kept, hfind, hsame⟩ := (Option.any_eq_true _ _).mp hkept
+      exact ⟨kept, hfind, (identical_iff _ _).mp hsame⟩
+  · rintro huniform ⟨⟨info, idx⟩, hcopy, hname, hkept⟩
+    obtain ⟨data, hidx, hinfo⟩ := mem_copies.mp hcopy
+    obtain ⟨kept, hfind, hsame⟩ :=
+      huniform data (Array.mem_of_getElem? hidx) info hinfo hname
+    simp only at hname hkept
+    subst hname
+    rw [hfind] at hkept
+    simp [(identical_iff _ _).mpr hsame] at hkept
+
+/-- **A module is among a name's `others` exactly when it declares the name and is not the module
+the name is attributed to.** -/
+theorem mem_others_iff {find : Name → Option ConstantInfo} {attributed : Name → Option Nat}
+    {modules : Array ModuleData} {n : Name} {idx : Nat} :
+    idx ∈ (duplicatesOf find attributed modules).others.getD n #[] ↔
+      Declares modules idx n ∧ attributed n ≠ some idx := by
+  rw [(duplicatesOf_inv find attributed modules).others n idx]
+  constructor
+  · rintro ⟨⟨info, idx'⟩, hcopy, hidx, hname, hne⟩
+    simp only at hidx hname
+    subst hidx
+    obtain ⟨data, hdata, hinfo⟩ := mem_copies.mp hcopy
+    exact ⟨⟨data, hdata, info, hinfo, hname⟩, hne⟩
+  · rintro ⟨⟨data, hdata, info, hinfo, hname⟩, hne⟩
+    exact ⟨(info, idx), mem_copies.mpr ⟨data, hdata, hinfo⟩, rfl, hname, hne⟩
+
+/-- The index of the module `env` attributes each name to (`Environment.getModuleIdxFor?`). -/
+def attributedIn (env : Environment) (n : Name) : Option Nat :=
+  (env.getModuleIdxFor? n).map ModuleIdx.toNat
+
+/-- The index of the module `m` in `env` (`Environment.getModuleIdx?`). -/
+def ownerIn (env : Environment) (m : Name) : Option Nat :=
+  (env.getModuleIdx? m).map ModuleIdx.toNat
+
+/-- The copies of each name in the modules `env` loaded (`duplicatesOf`), read from the module
+data of its header, its constant under each name and its attribution of each name.
+
+Assumes:
+- Lean v4.34.1, `src/lean/Lean/Environment.lean:155-160` and `179-183`: the index of a module in
+  `EnvironmentHeader.modules`, and so in `moduleNames`, is its `ModuleIdx`; `finalizeImport`
+  builds `moduleData` from the same array of modules (`2312-2316`) and records both in the header
+  (`2368-2370`), so `env.header.moduleData` holds at each index the data of the module
+  `getModuleIdx?` gives that index.
+- Lean v4.34.1, `src/lean/Lean/Environment.lean:2332-2347` (`finalizeImport`): for each constant
+  of each loaded module, in the order of the module indices, the import keeps under its name one
+  of the copies it read (the first, replaced by a later one that `subsumesInfo` accepts over it),
+  which `Environment.find?` returns, and attributes the name to the first module whose constants
+  or `extraConstNames` list it (`const2ModIdx.insertIfNew`), which `getModuleIdxFor?` returns. -/
+def duplicatesIn (env : Environment) : Duplicates :=
+  duplicatesOf env.find? (attributedIn env) env.header.moduleData
+
+/-! ### The constants of a reused module -/
+
+/-- Whether the module at index `owner` keeps its constants whichever copy of each of its names
+Lean's import keeps: no loaded module declares a copy of a name of one of its constants that is
+not the kept constant (`Duplicates.differing`), and a constant that is not a theorem has no copy in
+another module (its name is attributed to `owner` and has no `others`). `none`, a module the
+environment did not load, is refused. `copiesIdentical_iff` states the decision.
+
+This is the condition on a module's own constants under which an environment reuses an earlier
+environment's replay of it (`candidates`), and why that is the replay this environment would
+repeat. An environment that reuses the module imports it into the replay base and checks none of
+its constants. Every other constant it holds under one of the module's names is `Identical` to
+the module's own copy: the replay base's (one of the loaded copies, `finalizeImport`), the
+replayed kernel's (the kept constant, `replayMap_sound`) and the audited environment's (the kept
+constant), so `replayMap`, `checkShared`, `checkOwn` and `checkKept` meet, under that name, the
+constant they would meet if the module were replayed. A copy in a replayed module passes
+`checkShared` against it (two `Identical` theorems are a `SameTheorem`) and `checkOwn` and
+`checkKept` without a proof check, as it would in a replay of both. A fresh replay would admit the
+module's constants too: a shared copy of a theorem is `SameTheorem` with the held constant, and a
+constant that is not a theorem has a single copy, so it is never shared; this is why the
+condition requires a theorem where another module declares the name (two `Identical` axioms,
+which Lean's import accepts, `checkShared` refuses). The receipt requires the key `(module, name)`
+of each such constant from the module's own data whichever module the name is attributed to
+(`mem_required`), and `reuseJustified` accepts it only when the environment that replayed the
+module admitted that key. That environment offered the module only when each of its copies was
+admitted there with every copy of a shared name `Identical` to the kept one and every module
+declaring that name owned (`ownedUniform`), so each constant of a reused module is `Identical` to
+one that the kernel of an environment of the audit accepted (by induction on the order in which
+the environments start, with the transitivity of `Identical`).
+
+Assumes:
+- Lean v4.34.1, `src/lean/Lean/Environment.lean:2332-2347` (`finalizeImport`): the import, of the
+  audited environment and of the replay base alike, keeps under each name one of the copies it
+  read, so a constant held under a name is one of the loaded copies.
+- Lean v4.34.1, `src/lean/Lean/Expr.lean:804-809`: `Expr.eqv`, the comparison `Identical` makes
+  of an expression field, is alpha-equivalence with binder annotations ignored, an equivalence
+  relation, so `Identical` is symmetric and transitive. Trusted: the C++ `lean_expr_eqv` is not
+  modeled.
+- Trusted, the boundary `checkOwn` already rests on: the kernel's check of a declaration, and of
+  every declaration that consults it, is the same for two `Identical` constants, since it reads
+  neither binder names nor binder annotations.
+- Trusted, as for every replay: `Kernel.Environment.replay` checks each constant it adds
+  (`src/lean/Lean/Replay.lean:176`). -/
+def copiesIdentical (modules : Array ModuleData) (attributed : Name → Option Nat)
+    (dups : Duplicates) (owner? : Option Nat) : Bool :=
+  match owner? with
+  | none => false
+  | some owner =>
+    match modules[owner]? with
+    | none => false
+    | some data => data.constants.all fun info =>
+        !dups.differing.contains info.name &&
+          (info.isTheorem || attributed info.name == some owner &&
+            (dups.others.getD info.name #[]).isEmpty)
+
+/-- The module at index `owner` has data, and for each of its constants every copy of the name is
+the constant `find` keeps (`Uniform`), and the constant is a theorem or the only copy of its name,
+in the module the name is attributed to. -/
+def CopiesIdentical (find : Name → Option ConstantInfo) (attributed : Name → Option Nat)
+    (modules : Array ModuleData) (owner : Nat) : Prop :=
+  ∃ data, modules[owner]? = some data ∧ ∀ info ∈ data.constants,
+    Uniform find modules info.name ∧
+      (info.isTheorem = true ∨ attributed info.name = some owner ∧
+        ∀ idx, Declares modules idx info.name → idx = owner)
+
+/-- **`copiesIdentical` over the pass of `duplicatesOf` accepts exactly a loaded module that
+`CopiesIdentical` admits.** -/
+theorem copiesIdentical_iff {find : Name → Option ConstantInfo} {attributed : Name → Option Nat}
+    {modules : Array ModuleData} {owner? : Option Nat} :
+    copiesIdentical modules attributed (duplicatesOf find attributed modules) owner? = true ↔
+      ∃ owner, owner? = some owner ∧ CopiesIdentical find attributed modules owner := by
+  -- The name of a constant that is not a theorem has no `others` and is attributed to `owner`
+  -- exactly when `owner` is its only declaring module.
+  have single : ∀ (owner : Nat) (n : Name),
+      (attributed n = some owner ∧
+        (duplicatesOf find attributed modules).others.getD n #[] = #[]) ↔
+      (attributed n = some owner ∧ ∀ idx, Declares modules idx n → idx = owner) := by
+    intro owner n
+    constructor
+    · rintro ⟨hattr, hnone⟩
+      refine ⟨hattr, fun idx hdecl => Classical.byContradiction fun hne => ?_⟩
+      have hmem : idx ∈ (duplicatesOf find attributed modules).others.getD n #[] :=
+        mem_others_iff.mpr ⟨hdecl, fun h => hne (Option.some.inj (hattr.symm.trans h)).symm⟩
+      rw [hnone] at hmem
+      simp at hmem
+    · rintro ⟨hattr, honly⟩
+      refine ⟨hattr, Array.eq_empty_iff_forall_not_mem.mpr fun idx hmem => ?_⟩
+      obtain ⟨hdecl, hne⟩ := mem_others_iff.mp hmem
+      exact hne (by rw [honly idx hdecl]; exact hattr)
+  unfold copiesIdentical CopiesIdentical
+  cases owner? with
+  | none => simp
+  | some owner =>
+    cases hdata : modules[owner]? with
+    | none => simp [hdata]
+    | some data =>
+      simp only [hdata, Array.all_eq_true', Bool.and_eq_true, Bool.not_eq_eq_eq_not, Bool.not_true,
+        Bool.or_eq_true, beq_iff_eq, Array.isEmpty_iff, Option.some.injEq, exists_eq_left',
+        Std.HashSet.contains_eq_false_iff_not_mem, not_mem_differing_iff, single]
+
+/-! ### The references of a reused module -/
+
+/-- The names a constant refers to: those `Kernel.Environment.replay` replays before it
+(`ConstantInfo.getUsedConstantsAsSet`), listed. -/
+def usedNames (info : ConstantInfo) : List Name :=
+  Std.TreeSet.toList info.getUsedConstantsAsSet
+
+/-- Whether a reference to `used` stays within the modules named in `allowed`: the module the
+name is attributed to is one of them, or no loaded module declares a copy of the name that is not
+the kept constant (`Duplicates.differing`) and one of them declares a copy of it
+(`Duplicates.others`). `names` holds each loaded module's name at its index. -/
+def refersWithin (names : Array Name) (attributed : Name → Option Nat) (dups : Duplicates)
+    (allowed : Std.HashSet Name) (used : Name) : Bool :=
+  (attributed used).any (fun idx => names[idx]?.any allowed.contains) ||
+    !dups.differing.contains used &&
+      (dups.others.getD used #[]).any fun idx => names[idx]?.any allowed.contains
+
+/-- Whether every name a constant of the module at index `owner` refers to (`usedNames`) is
+declared in a module of `closure` (`refersWithin`): attributed to one, or with every copy the kept
+constant and a copy in one, as a module whose own copy of an equation lemma is attributed to a
+module loaded before it, outside its closure, refers to its own copy. `none`, a module the
+environment did not load, is refused. `referencesWithin_iff` states the decision. -/
+def referencesWithin (modules : Array ModuleData) (names : Array Name)
+    (attributed : Name → Option Nat) (dups : Duplicates) (owner? : Option Nat)
+    (closure : Array RegulaPolicy.ModuleOrigin) : Bool :=
+  match owner? with
+  | none => false
+  | some owner =>
+    match modules[owner]? with
+    | none => false
+    | some data =>
+      let allowed := Std.HashSet.ofList (closure.toList.map (·.name))
+      data.constants.all fun info => (usedNames info).all (refersWithin names attributed dups allowed)
+
+/-- A reference to `used` lands in `closure`: the module `used` is attributed to is a module of
+`closure`, or every copy of `used` is the constant `find` keeps (`Uniform`) and a module of
+`closure` declares one. -/
+def RefersWithin (find : Name → Option ConstantInfo) (modules : Array ModuleData)
+    (names : Array Name) (attributed : Name → Option Nat)
+    (closure : Array RegulaPolicy.ModuleOrigin) (used : Name) : Prop :=
+  (∃ idx, attributed used = some idx ∧ ∃ origin ∈ closure, names[idx]? = some origin.name) ∨
+    Uniform find modules used ∧
+      ∃ idx, Declares modules idx used ∧ ∃ origin ∈ closure, names[idx]? = some origin.name
+
+/-- The module at index `owner` has data, and every name each of its constants refers to lands in
+`closure` (`RefersWithin`). -/
+def ReferencesWithin (find : Name → Option ConstantInfo) (modules : Array ModuleData)
+    (names : Array Name) (attributed : Name → Option Nat) (owner : Nat)
+    (closure : Array RegulaPolicy.ModuleOrigin) : Prop :=
+  ∃ data, modules[owner]? = some data ∧ ∀ info ∈ data.constants, ∀ used ∈ usedNames info,
+    RefersWithin find modules names attributed closure used
+
+/-- `refersWithin` over the pass of `duplicatesOf` accepts exactly a reference that
+`RefersWithin` admits. -/
+theorem refersWithin_iff {find : Name → Option ConstantInfo} {attributed : Name → Option Nat}
+    {modules : Array ModuleData} {names : Array Name} {closure : Array RegulaPolicy.ModuleOrigin}
+    {used : Name} :
+    refersWithin names attributed (duplicatesOf find attributed modules)
+        (Std.HashSet.ofList (closure.toList.map (·.name))) used = true ↔
+      RefersWithin find modules names attributed closure used := by
+  have inClosure : ∀ idx : Nat, (names[idx]?.any
+      (Std.HashSet.ofList (closure.toList.map (·.name))).contains = true) ↔
+      ∃ origin ∈ closure, names[idx]? = some origin.name := by
+    intro idx
+    simp only [Option.any_eq_true, Std.HashSet.contains_ofList, List.contains_iff_mem,
+      List.mem_map, Array.mem_toList_iff]
+    constructor
+    · rintro ⟨name, hname, origin, horigin, rfl⟩
+      exact ⟨origin, horigin, hname⟩
+    · rintro ⟨origin, horigin, hname⟩
+      exact ⟨origin.name, hname, origin, horigin, rfl⟩
+  unfold refersWithin RefersWithin
+  simp only [Bool.or_eq_true, Bool.and_eq_true, Bool.not_eq_eq_eq_not, Bool.not_true,
+    Std.HashSet.contains_eq_false_iff_not_mem, not_mem_differing_iff, Array.any_eq_true',
+    Option.any_eq_true, inClosure, mem_others_iff]
+  constructor
+  · rintro (⟨idx, hattr, hin⟩ | ⟨huniform, idx, ⟨hdecl, -⟩, hin⟩)
+    · exact .inl ⟨idx, hattr, hin⟩
+    · exact .inr ⟨huniform, idx, hdecl, hin⟩
+  · rintro (⟨idx, hattr, hin⟩ | ⟨huniform, idx, hdecl, hin⟩)
+    · exact .inl ⟨idx, hattr, hin⟩
+    · by_cases hattr : attributed used = some idx
+      · exact .inl ⟨idx, hattr, hin⟩
+      · exact .inr ⟨huniform, idx, ⟨hdecl, hattr⟩, hin⟩
+
+/-- **`referencesWithin` over the pass of `duplicatesOf` accepts exactly a loaded module that
+`ReferencesWithin` admits.** -/
+theorem referencesWithin_iff {find : Name → Option ConstantInfo}
+    {attributed : Name → Option Nat} {modules : Array ModuleData} {names : Array Name}
+    {owner? : Option Nat} {closure : Array RegulaPolicy.ModuleOrigin} :
+    referencesWithin modules names attributed (duplicatesOf find attributed modules) owner?
+        closure = true ↔
+      ∃ owner, owner? = some owner ∧
+        ReferencesWithin find modules names attributed owner closure := by
+  unfold referencesWithin ReferencesWithin
+  cases owner? with
+  | none => simp
+  | some owner =>
+    cases hdata : modules[owner]? with
+    | none => simp [hdata]
+    | some data =>
+      simp only [hdata, Array.all_eq_true', List.all_eq_true, refersWithin_iff, Option.some.injEq,
+        exists_eq_left']
+
+/-! ### The offer of a replayed module with a shared copy -/
+
+/-- Whether no loaded module declares a copy of `n` that is not the kept constant
+(`Duplicates.differing`) and every module that declares `n` is named in `owned`: the module the
+name is attributed to and each of its `others`. A replayed module holding a shared copy of such a
+name is still offered for reuse (`AdmitRequest.pinned`): every copy of the name is then the kept
+constant, held by an owned module that this environment replayed, or reused from an earlier one
+that offered it on the same condition. `ownedUniform_iff` states the decision. -/
+def ownedUniform (names : Array Name) (attributed : Name → Option Nat) (dups : Duplicates)
+    (owned : Std.HashSet Name) (n : Name) : Bool :=
+  !dups.differing.contains n &&
+    (attributed n).any (fun idx => names[idx]?.any owned.contains) &&
+    (dups.others.getD n #[]).all fun idx => names[idx]?.any owned.contains
+
+/-- Every copy of `n` is the constant `find` keeps (`Uniform`), the module `n` is attributed to is
+named in `owned`, and so is every module that declares `n`. -/
+def OwnedUniform (find : Name → Option ConstantInfo) (modules : Array ModuleData)
+    (names : Array Name) (attributed : Name → Option Nat) (owned : Std.HashSet Name) (n : Name) :
+    Prop :=
+  Uniform find modules n ∧
+    (∃ idx name, attributed n = some idx ∧ names[idx]? = some name ∧ name ∈ owned) ∧
+    ∀ idx, Declares modules idx n → ∃ name, names[idx]? = some name ∧ name ∈ owned
+
+/-- **`ownedUniform` over the pass of `duplicatesOf` accepts exactly a name that `OwnedUniform`
+admits.** -/
+theorem ownedUniform_iff {find : Name → Option ConstantInfo} {attributed : Name → Option Nat}
+    {modules : Array ModuleData} {names : Array Name} {owned : Std.HashSet Name} {n : Name} :
+    ownedUniform names attributed (duplicatesOf find attributed modules) owned n = true ↔
+      OwnedUniform find modules names attributed owned n := by
+  unfold ownedUniform OwnedUniform
+  simp only [Bool.and_eq_true, Bool.not_eq_eq_eq_not, Bool.not_true,
+    Std.HashSet.contains_eq_false_iff_not_mem, not_mem_differing_iff, Array.all_eq_true',
+    Option.any_eq_true, Std.HashSet.contains_iff_mem, mem_others_iff]
+  constructor
+  · rintro ⟨⟨huniform, idx, hattr, name, hname, howned⟩, hothers⟩
+    refine ⟨huniform, ⟨idx, name, hattr, hname, howned⟩, fun other hdecl => ?_⟩
+    by_cases hsame : attributed n = some other
+    · rw [hattr] at hsame
+      obtain rfl := Option.some.inj hsame
+      exact ⟨name, hname, howned⟩
+    · exact hothers other ⟨hdecl, hsame⟩
+  · rintro ⟨huniform, ⟨idx, name, hattr, hname, howned⟩, hall⟩
+    exact ⟨⟨huniform, idx, hattr, name, hname, howned⟩, fun other ⟨hdecl, _⟩ => hall other hdecl⟩
 
 
 /-- Each prior with its admission's origins indexed by module name. -/
@@ -554,57 +1019,93 @@ theorem closureWithin_iff {owned names : Std.HashSet Name}
 
 /-- The reuse candidates of `env`: each owned module that an earlier environment of the same
 audit replayed and offers over the import closure the module has here (`offeredClosure`), whose
-declarations refer only to constants of that closure (`referencesWithin`) and whose constants
-are attributed to it and are the copies this environment keeps (`uniquelyKept`), with that
-closure. -/
+declarations refer only to constants of that closure (`referencesWithin`) and whose constants are
+the same whichever copy of their names this environment keeps (`copiesIdentical`), with that
+closure. The pass over every loaded constant that both conditions read (`duplicatesIn`) runs only
+when some owned module is offered. -/
 def candidates (env : Environment) (origins : Array RegulaPolicy.ModuleOrigin)
     (owned : Array Name) (priors : Array PriorAdmission) :
     Array (Name × Array RegulaPolicy.ModuleOrigin) :=
   let here := originIndex origins
   let earlier := indexPriors priors
-  owned.filterMap fun m =>
-    (offeredClosure earlier here m).bind fun closure =>
-      if referencesWithin env m closure && uniquelyKept env m then some (m, closure) else none
+  let offered := owned.filterMap fun m => (offeredClosure earlier here m).map (m, ·)
+  if offered.isEmpty then #[] else
+    let dups := duplicatesIn env
+    offered.filter fun entry =>
+      referencesWithin env.header.moduleData env.header.moduleNames (attributedIn env) dups
+          (ownerIn env entry.1) entry.2 &&
+        copiesIdentical env.header.moduleData (attributedIn env) dups (ownerIn env entry.1)
 
-/-- Every candidate is an owned module with the import closure it has here, which some prior
-offers it over, whose declarations refer only to that closure and whose constants are uniquely
-kept here. -/
-theorem mem_candidates {env : Environment} {origins : Array RegulaPolicy.ModuleOrigin}
+/-- `m`, with the import closure `closure`, meets every condition of reuse but the last: it is
+owned, it has `closure` here, a prior offers it over `closure`, and, at its index in `env`, every
+name its constants refer to lands in `closure` (`ReferencesWithin`) and its constants are the same
+whichever copy of their names `env` keeps (`CopiesIdentical`). -/
+def Candidate (env : Environment) (origins : Array RegulaPolicy.ModuleOrigin) (owned : Array Name)
+    (priors : Array PriorAdmission) (m : Name) (closure : Array RegulaPolicy.ModuleOrigin) :
+    Prop :=
+  m ∈ owned ∧ importClosure (originIndex origins) m = some closure ∧
+    (∃ prior ∈ priors, m ∈ prior.modules ∧
+      importClosure (originIndex prior.origins) m = some closure) ∧
+    ∃ owner, ownerIn env m = some owner ∧
+      ReferencesWithin env.find? env.header.moduleData env.header.moduleNames (attributedIn env)
+        owner closure ∧
+      CopiesIdentical env.find? (attributedIn env) env.header.moduleData owner
+
+/-- **The candidates are exactly the modules, with their closures, that `Candidate` admits.** -/
+theorem mem_candidates_iff {env : Environment} {origins : Array RegulaPolicy.ModuleOrigin}
     {owned : Array Name} {priors : Array PriorAdmission}
-    {entry : Name × Array RegulaPolicy.ModuleOrigin}
-    (h : entry ∈ candidates env origins owned priors) :
-    entry.1 ∈ owned ∧ importClosure (originIndex origins) entry.1 = some entry.2 ∧
-      referencesWithin env entry.1 entry.2 = true ∧ uniquelyKept env entry.1 = true ∧
-      ∃ prior ∈ priors, entry.1 ∈ prior.modules ∧
-        importClosure (originIndex prior.origins) entry.1 = some entry.2 := by
-  unfold candidates at h
-  simp only at h
-  obtain ⟨a, ha, hf⟩ := Array.mem_filterMap.mp h
-  cases ho : offeredClosure (indexPriors priors) (originIndex origins) a with
-  | none => simp [ho] at hf
-  | some found =>
-    simp only [ho, Option.bind_some] at hf
-    split at hf
-    · rename_i hrefs
-      obtain ⟨hrefs, hunique⟩ := Bool.and_eq_true_iff.mp hrefs
-      obtain rfl := Option.some.inj hf
-      obtain ⟨hclosure, offering, hoffering, hm, hc⟩ := offeredClosure_eq_some.mp ho
+    {entry : Name × Array RegulaPolicy.ModuleOrigin} :
+    entry ∈ candidates env origins owned priors ↔
+      Candidate env origins owned priors entry.1 entry.2 := by
+  have offered : ∀ (m : Name) (closure : Array RegulaPolicy.ModuleOrigin),
+      (m, closure) ∈ owned.filterMap (fun m =>
+          (offeredClosure (indexPriors priors) (originIndex origins) m).map (m, ·)) ↔
+        m ∈ owned ∧ importClosure (originIndex origins) m = some closure ∧
+          ∃ prior ∈ priors, m ∈ prior.modules ∧
+            importClosure (originIndex prior.origins) m = some closure := by
+    intro m closure
+    simp only [Array.mem_filterMap, Option.map_eq_some_iff, Prod.mk.injEq]
+    constructor
+    · rintro ⟨a, ha, found, hfound, rfl, rfl⟩
+      obtain ⟨hclosure, offering, hoffering, hm, hc⟩ := offeredClosure_eq_some.mp hfound
       obtain ⟨prior, hprior, rfl⟩ := Array.mem_map.mp hoffering
-      exact ⟨ha, hclosure, hrefs, hunique, prior, hprior, hm, hc⟩
-    · simp at hf
+      exact ⟨ha, hclosure, prior, hprior, hm, hc⟩
+    · rintro ⟨hm, hclosure, prior, hprior, hmod, hc⟩
+      refine ⟨m, hm, closure, offeredClosure_eq_some.mpr ⟨hclosure, (prior, _),
+        Array.mem_map.mpr ⟨prior, hprior, rfl⟩, hmod, hc⟩, rfl, rfl⟩
+  obtain ⟨m, closure⟩ := entry
+  unfold candidates Candidate
+  simp only
+  split
+  · rename_i hempty
+    simp only [Array.not_mem_empty, false_iff]
+    rintro ⟨hm, hclosure, hprior, -⟩
+    have hmem := (offered m closure).mpr ⟨hm, hclosure, hprior⟩
+    rw [Array.isEmpty_iff.mp hempty] at hmem
+    simp at hmem
+  · simp only [Array.mem_filter, offered, Bool.and_eq_true, duplicatesIn, referencesWithin_iff,
+      copiesIdentical_iff]
+    constructor
+    · rintro ⟨⟨hm, hclosure, hprior⟩, ⟨owner, howner, hrefs⟩, ⟨owner', howner', hcopies⟩⟩
+      rw [howner] at howner'
+      obtain rfl := Option.some.inj howner'
+      exact ⟨hm, hclosure, hprior, owner, howner, hrefs, hcopies⟩
+    · rintro ⟨hm, hclosure, hprior, owner, howner, hrefs, hcopies⟩
+      exact ⟨⟨hm, hclosure, hprior⟩, ⟨owner, howner, hrefs⟩, ⟨owner, howner, hcopies⟩⟩
 
 /-- The owned modules of `env` whose kernel admission this environment reuses instead of
 replaying: an earlier environment of the same audit replayed and offers each one over the
 identical import closure (`offeredClosure`), every declaration of every owned module in that
-closure refers only to constants of its own closure (`referencesWithin`), every constant of the
-module is attributed to it and is the copy this environment keeps (`uniquelyKept`), and every
-owned module the closure contains is reused too. The last condition removes each candidate
-(`candidates`) whose closure contains an owned module that is not a candidate; the closure of
-every owned module of a kept candidate's closure lies within that closure
+closure refers only to constants of its own closure (`referencesWithin`), the constants of every
+such module are the same whichever copy of their names this environment keeps
+(`copiesIdentical`, whose docstring argues why reuse is then the replay this environment would
+repeat), and every owned module the closure contains is reused too. The last condition removes
+each candidate (`candidates`) whose closure contains an owned module that is not a candidate; the
+closure of every owned module of a kept candidate's closure lies within that closure
 (`importClosure_trans`), so that module is kept as well and one pass settles the set. Every other
 owned module is replayed. A module of this environment's own request is reused under the same
 conditions, which happens only when an earlier environment loaded it before its own did (claimed
-libraries that import one another). `mem_reusedModules` states this contract. -/
+libraries that import one another). `mem_reusedModules_iff` states this decision both ways. -/
 def reusedModules (env : Environment) (origins : Array RegulaPolicy.ModuleOrigin)
     (owned : Array Name) (priors : Array PriorAdmission) : Array Name :=
   let settled := candidates env origins owned priors
@@ -612,37 +1113,53 @@ def reusedModules (env : Environment) (origins : Array RegulaPolicy.ModuleOrigin
   (settled.filter
     (closureWithin ownedSet (Std.HashSet.ofList (settled.map (·.1)).toList))).map (·.1)
 
-/-- Every reused module is an owned module that some prior offers over the import closure it has
-here, whose declarations refer only to that closure, whose constants are uniquely kept here, and
-whose closure's owned modules are all reused too, so reuse never leaves an owned import to
-replay. -/
+/-- **A module is reused exactly when it is a candidate with some closure and every owned module
+of that closure is a candidate too.** -/
+theorem mem_reusedModules_iff {env : Environment} {origins : Array RegulaPolicy.ModuleOrigin}
+    {owned : Array Name} {priors : Array PriorAdmission} {m : Name} :
+    m ∈ reusedModules env origins owned priors ↔
+      ∃ closure, Candidate env origins owned priors m closure ∧
+        ∀ origin ∈ closure, origin.name ∈ owned →
+          ∃ inner, Candidate env origins owned priors origin.name inner := by
+  have named : ∀ n, n ∈ Std.HashSet.ofList
+      ((candidates env origins owned priors).map (·.1)).toList ↔
+      ∃ inner, Candidate env origins owned priors n inner := by
+    intro n
+    rw [Std.HashSet.mem_ofList, List.contains_iff_mem, Array.mem_toList_iff]
+    constructor
+    · intro hn
+      obtain ⟨entry, hentry, rfl⟩ := Array.mem_map.mp hn
+      exact ⟨entry.2, mem_candidates_iff.mp hentry⟩
+    · rintro ⟨inner, hinner⟩
+      exact Array.mem_map.mpr ⟨(n, inner), mem_candidates_iff.mpr hinner, rfl⟩
+  have ownedIff : ∀ n, n ∈ Std.HashSet.ofList owned.toList ↔ n ∈ owned := by
+    intro n
+    rw [Std.HashSet.mem_ofList, List.contains_iff_mem, Array.mem_toList_iff]
+  unfold reusedModules
+  simp only [Array.mem_map, Array.mem_filter, closureWithin_iff, named, ownedIff]
+  constructor
+  · rintro ⟨entry, ⟨hentry, hwithin⟩, rfl⟩
+    exact ⟨entry.2, mem_candidates_iff.mp hentry, hwithin⟩
+  · rintro ⟨closure, hcandidate, hwithin⟩
+    exact ⟨(m, closure), ⟨mem_candidates_iff.mpr hcandidate, hwithin⟩, rfl⟩
+
+/-- Every reused module is a candidate with a closure whose owned modules are all reused too, so
+reuse never leaves an owned import to replay. -/
 theorem mem_reusedModules {env : Environment} {origins : Array RegulaPolicy.ModuleOrigin}
     {owned : Array Name} {priors : Array PriorAdmission} {m : Name}
     (h : m ∈ reusedModules env origins owned priors) :
-    m ∈ owned ∧ ∃ closure,
-      importClosure (originIndex origins) m = some closure ∧
-      referencesWithin env m closure = true ∧ uniquelyKept env m = true ∧
-      (∃ prior ∈ priors, m ∈ prior.modules ∧
-        importClosure (originIndex prior.origins) m = some closure) ∧
+    ∃ closure, Candidate env origins owned priors m closure ∧
       ∀ origin ∈ closure, origin.name ∈ owned →
         origin.name ∈ reusedModules env origins owned priors := by
-  unfold reusedModules at h ⊢
-  simp only at h ⊢
-  obtain ⟨entry, hkept, rfl⟩ := Array.mem_map.mp h
-  obtain ⟨hsettled, hwithin⟩ := Array.mem_filter.mp hkept
-  obtain ⟨ha, hclosure, hrefs, hunique, hprior⟩ := mem_candidates hsettled
-  refine ⟨ha, entry.2, hclosure, hrefs, hunique, hprior, fun origin horigin howned => ?_⟩
-  have hname := closureWithin_iff.mp hwithin origin horigin
-    (Std.HashSet.mem_ofList.mpr (by simpa using howned))
-  rw [Std.HashSet.mem_ofList, List.contains_iff_mem, Array.mem_toList_iff] at hname
-  obtain ⟨other, hother, hotherName⟩ := Array.mem_map.mp hname
-  refine Array.mem_map.mpr ⟨other, Array.mem_filter.mpr ⟨hother, ?_⟩, hotherName⟩
-  obtain ⟨-, hotherClosure, -⟩ := mem_candidates hother
-  simp only [hotherName] at hotherClosure
-  exact closureWithin_iff.mpr fun inner hinner hinnerOwned =>
-    closureWithin_iff.mp hwithin inner
-      (importClosure_trans (originIndex_keyed origins) hclosure horigin hotherClosure inner
-        hinner) hinnerOwned
+  obtain ⟨closure, hcandidate, hwithin⟩ := mem_reusedModules_iff.mp h
+  refine ⟨closure, hcandidate, fun origin horigin howned => ?_⟩
+  obtain ⟨inner, hinner⟩ := hwithin origin horigin howned
+  refine mem_reusedModules_iff.mpr ⟨inner, hinner, fun other hother hotherOwned => ?_⟩
+  obtain ⟨-, hclosure, -⟩ := hcandidate
+  obtain ⟨-, hinnerClosure, -⟩ := hinner
+  exact hwithin other
+    (importClosure_trans (originIndex_keyed origins) hclosure horigin hinnerClosure other hother)
+    hotherOwned
 
 /-- Whether a report's admission reused only what `priors` offered: each reused module is one a
 prior offers over the import closure the report's own module origins give it, and each key the
@@ -887,10 +1404,11 @@ theorem frozenClosure_sound {owned : NameSet} {frozen : Std.HashMap Name String}
       exact (hclosure origin horigin).resolve_left (by simp [howned])
 
 /-- What a completed admission offers the environments after it: the modules it replayed (its
-receipt's `modules` outside `reused`), other than its `shared` ones (a copy of a name another
-module also declares, whose admission depends on which copy an environment keeps), that it
-loaded with their import closure from the frozen paths (`frozenClosure`), with the keys it
-admitted in them. An admission that offers nothing is not handed on. -/
+receipt's `modules` outside `reused`), other than its `shared` ones (those holding a shared copy
+of a name that is not `offerable`, `AdmitRequest.pinned`, whose admission depends on which copy an
+environment keeps), that it loaded with their import closure from the frozen paths
+(`frozenClosure`), with the keys it admitted in them. An admission that offers nothing is not
+handed on. -/
 def offer (owned : NameSet) (frozen : Std.HashMap Name String) (completed : Completed) :
     Option PriorAdmission :=
   let index := originIndex completed.origins
@@ -1543,7 +2061,7 @@ theorem replayed_unless_offered {env : Environment} {origins : Array RegulaPolic
         importClosure (originIndex prior.origins) m ≠ some closure) :
     m ∈ replaySet loaded owned (reusedModules env origins owned priors) checker :=
   mem_replaySet ho fun hr => by
-    obtain ⟨_, closure, hc, _, _, ⟨prior, hp, hm, hpc⟩, _⟩ := mem_reusedModules hr
+    obtain ⟨closure, ⟨_, hc, ⟨prior, hp, hm, hpc⟩, _⟩, _⟩ := mem_reusedModules hr
     exact h closure hc prior hp hm hpc
 
 /-- A changed `.olean`, `.olean.server` or `.olean.private` forces a replay: an owned module is
@@ -1558,7 +2076,7 @@ theorem replayed_of_changed {env : Environment} {origins : Array RegulaPolicy.Mo
     m ∈ replaySet loaded owned (reusedModules env origins owned
       (currentOffers ownedSet readings completed)) checker :=
   mem_replaySet ho fun hr => by
-    obtain ⟨_, _, _, _, _, ⟨prior, hp, hm, _⟩, _⟩ := mem_reusedModules hr
+    obtain ⟨_, ⟨_, _, ⟨prior, hp, hm, _⟩, _⟩, _⟩ := mem_reusedModules hr
     obtain ⟨_, _, _, _, hmodules⟩ := mem_offers hp
     obtain ⟨⟨_, _, hself⟩, _⟩ := frozenClosure_sound (hmodules m hm).2.2.2
     obtain ⟨artifact, hartifact, hname, _⟩ := frozenIndex_unchanged hself
@@ -1579,7 +2097,7 @@ theorem replayed_of_changed_import {env : Environment}
     m ∈ replaySet loaded owned (reusedModules env origins owned
       (currentOffers ownedSet readings completed)) checker :=
   mem_replaySet ho fun hr => by
-    obtain ⟨_, _, _, _, _, ⟨prior, hp, hm, _⟩, _⟩ := mem_reusedModules hr
+    obtain ⟨_, ⟨_, _, ⟨prior, hp, hm, _⟩, _⟩, _⟩ := mem_reusedModules hr
     obtain ⟨source, hsource, _, _, hmodules⟩ := mem_offers hp
     obtain ⟨_, closure, hclosure, hall⟩ := frozenClosure_sound (hmodules m hm).2.2.2
     obtain ⟨origin, horigin, howned, hchanged⟩ := h source hsource closure hclosure
@@ -1854,15 +2372,38 @@ structure AdmitRequest where
   fuel : Nat
   /-- The copies of a name that the replay base or another replayed module also declares. -/
   shared : Copy → Bool
+  /-- The names a replayed module may hold a shared copy of and still be offered for reuse: every
+  copy of the name is the constant the audited environment keeps and every module declaring it
+  is owned (`ownedUniform`). -/
+  offerable : Name → Bool
+
+/-- The replayed modules no later environment may reuse: each holds a shared copy of a name that
+is not `offerable`. -/
+def AdmitRequest.pinned (admit : AdmitRequest) : Array Name :=
+  RegulaPolicy.canonicalNames ((admit.request.copies.filter fun copy =>
+    admit.shared copy && !admit.offerable copy.name).map (·.module))
 
 /-- The receipt of an admission: the replayed modules, the required keys, admitted in the same
-order, the reused modules and the replayed modules that contain a shared copy. -/
+order, the reused modules and, as `shared`, the replayed modules no later environment may reuse
+(`AdmitRequest.pinned`). -/
 def AdmitRequest.receipt (admit : AdmitRequest) : ProducerReport.AdmissionReceipt :=
   { modules := RegulaPolicy.canonicalNames admit.request.replay
     required := admit.request.required
     admitted := admit.request.required
     reused := RegulaPolicy.canonicalNames admit.reused
-    shared := RegulaPolicy.canonicalNames ((admit.request.copies.filter admit.shared).map (·.module)) }
+    shared := admit.pinned }
+
+/-- A replayed module the receipt does not list as `shared` holds a shared copy only of an
+`offerable` name. -/
+theorem offerable_of_unpinned {admit : AdmitRequest} {copy : Copy}
+    (hc : copy ∈ admit.request.copies) (hm : copy.module ∉ admit.receipt.shared)
+    (hs : admit.shared copy = true) : admit.offerable copy.name = true := by
+  cases ho : admit.offerable copy.name
+  · refine absurd ?_ hm
+    simp only [AdmitRequest.receipt, AdmitRequest.pinned, RegulaPolicy.mem_canonicalNames,
+      Array.mem_map, Array.mem_filter]
+    exact ⟨copy, ⟨hc, by simp [hs, ho]⟩, rfl⟩
+  · rfl
 
 /-- The decision of admission: every copy is checked (`checkCopies`), then the replayed kernel must
 hold a constant under the name of each required key, without regard to the module of the key, and
@@ -1913,7 +2454,8 @@ theorem checked_admitReplay : Regula.ExecutableContract admitReplay
        | ok receipt => exact (admitReplay_eq_ok h).1
      accepted := (inferInstance : Nonempty Kernel.Environment).elim fun checked =>
        ⟨{ request := { modules := #[], replay := #[], reported := #[] }, read := rfl, reused := #[]
-          checked, kept := fun _ => none, fuel := 0, shared := fun _ => false }, rfl⟩ }⟩
+          checked, kept := fun _ => none, fuel := 0, shared := fun _ => false,
+          offerable := fun _ => false }, rfl⟩ }⟩
 
 /-! ## The axioms of each owned declaration
 
@@ -2018,8 +2560,10 @@ base lacks with the constant the audited environment `env` holds under it, the c
 statement and value reports read (`replayMap_sound`, `replayMap_complete`), and `admitReplay`
 decides on the replayed kernel and returns the receipt (`admitReplay_eq_ok`). The copies are the
 constants of each replayed module's own data (`ReplayRequest.copies`). The receipt's `shared`
-modules contain a copy of a name that the base or another replayed module also declares; their
-admission depends on which copy this environment keeps, so they are not offered for reuse. A
+modules contain a copy of a name that the base or another replayed module also declares, where
+some loaded copy of the name is not the constant `env` keeps or a module outside `ownedModules`
+declares it (`offerable`, `ownedUniform`); their admission depends on which copy this environment
+keeps, so they are not offered for reuse. A
 reused module among `requested` is one whose declarations this environment reports: the receipt
 requires the key of each of its constants that is neither `unsafe` nor `partial`, read from the
 module's own data as for a replayed module (`mem_required`), and the coordinator accepts those
@@ -2060,10 +2604,16 @@ unsafe def validate (env : Environment) (ownedModules : Array Name) (reused : Ar
     try
       let find := base.toKernelEnv.find?
       let shared (copy : Copy) : Bool := (find copy.name).isSome || 2 ≤ counts.getD copy.name 0
+      -- The pass over every loaded constant (`duplicatesIn`) runs only when a copy is shared.
+      let offerable : Name → Bool :=
+        if request.copies.any shared then
+          ownedUniform env.header.moduleNames (attributedIn env) (duplicatesIn env)
+            (Std.HashSet.ofList ownedModules.toList)
+        else fun _ => true
       let replayed := replayMap find env.find? request.copies
       let checked ← Lean.Kernel.Environment.replay replayed base.toKernelEnv
       match checked_admitReplay.run
-          { request, read, reused, checked, kept := env.find?, fuel, shared } with
+          { request, read, reused, checked, kept := env.find?, fuel, shared, offerable } with
       | .ok receipt =>
         let roots := (Regula.Probe.ownedConstants env ownedModules.toList).map (·.1)
         let walk := walkFind checked replayed

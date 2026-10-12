@@ -2598,9 +2598,12 @@ inferred from any pure proof.
   constant, that kept copy must also pass `checkProof`, its reach computed in the audited
   environment. A copy the audited environment discards is checked in the replayed kernel, where
   the names its proof uses denote the replayed kernel's constants (the base's, where the base
-  declares them). Modules containing any copy of such a shared name are listed in the receipt's
-  `shared` and never offered for reuse, since their admission depends on which copy an environment
-  keeps. **Proved** about the executed definitions: `Admission.sameTheorem_iff_subsumesInfo`
+  declares them). A module containing a copy of such a shared name is listed in the receipt's
+  `shared` and never offered for reuse, since its admission depends on which copy an environment
+  keeps, unless each loaded copy of the name is `Identical` to the kept constant and only owned
+  modules declare it (`Admission.ownedUniform` and `Admission.AdmitRequest.pinned`, in **Reuse
+  with identical copies** below). **Proved** about the executed definitions:
+  `Admission.sameTheorem_iff_subsumesInfo`
   (private in the `module` file `Regula.Checker.SharedName`, whose `import all Lean.Environment`
   reaches Lean's private `subsumesInfo`: on two theorems the condition equals `subsumesInfo` in
   either direction, which the pinned `Lean.finalizeImport` requires of a second constant of one
@@ -2705,18 +2708,20 @@ inferred from any pure proof.
   in the replay base instead of replaying it (`Admission.reusedModules`; the receipt's `reused`)
   only when (1) an offered admission replayed it over the identical import closure
   (`Admission.importClosure`: the same modules, canonical `.olean` paths and import edges) and
-  did not list it as `shared` (a module containing a copy of a name another module of that
-  environment declares); (2) the module and every owned module of that closure is a claimed
+  did not list it as `shared` (a module with a shared copy of a name that has a different copy there or
+  that an unowned module declares); (2) the module and every owned module of that closure is a claimed
   library module all of whose `.olean` parts (the `.olean` and, for a module-system file, the
   `.olean.server` and the `.olean.private` Lean takes its kernel constants from) the coordinator
   read before the first inspection, read again as this environment started with the frozen
   presence and bytes (`Inspection.readings`, `Admission.Unchanged`), and compares again after the
   last inspection (a change is [RG2005], incomplete); (3) each declaration of each owned module of
-  the closure refers only to constants of its own closure (`Admission.referencesWithin` over
-  `ConstantInfo.getUsedConstantsAsSet`, the dependencies `Kernel.Environment.replay` replays
-  first); (4) every constant of the module is attributed to it in this environment and is the
-  copy this environment keeps (`Admission.uniquelyKept`), so no module here declares a different
-  copy of its names; and (5) every owned module of the closure is reused too: a candidate
+  the closure refers only to constants of its own closure, where a name counts when all its
+  copies are the kept constant and a module of the closure declares one
+  (`Admission.referencesWithin` over `ConstantInfo.getUsedConstantsAsSet`, the dependencies
+  `Kernel.Environment.replay` replays first); (4) each loaded copy of each name of the
+  module's constants is `Identical` to the constant this environment keeps, and a constant that is
+  not a theorem is the only copy of its name, attributed to the module
+  (`Admission.copiesIdentical`), so no module here declares a different copy of its names; and (5) every owned module of the closure is reused too: a candidate
   (`Admission.candidates`, a module meeting (1) to (4)) whose closure contains an owned module
   that is not a candidate is removed, so a module that cannot be reused takes the modules above
   it out with it. One pass settles this: a member's closure lies within the closure
@@ -2732,8 +2737,8 @@ inferred from any pure proof.
   (`Admission.accountsFor`), no module as both (`ProducerReport.Environment.receiptOK`), and the
   admission its worker published is the one the report records (`Completed.ofReport`, compared by
   decidable equality); otherwise the environment is [RG2005], incomplete. **Proved** about the
-  executed definitions: `Admission.mem_reusedModules` (a reused module is owned and satisfies the
-  offer of (1), (3), (4) and (5)); `Admission.importClosure_some` and
+  executed definitions: `Admission.mem_reusedModules_iff` and `Admission.mem_candidates_iff` (a
+  module is reused exactly when it is owned and satisfies the offer of (1), (3), (4) and (5)); `Admission.importClosure_some` and
   `Admission.importClosure_trans` (over an index that holds every origin under its own name, as
   `Admission.originIndex_keyed` proves of the executed index: each origin of a closure is the one
   the index holds under its name, its name has every property of the module's name that passes
@@ -2794,8 +2799,9 @@ inferred from any pure proof.
   declares a different copy of their names, and another copy here of a base module's name is
   checked by this environment when a replayed module holds it (`Admission.checkCopies`) and
   trusted when another unreplayed module does; by (1) and (2) that closure is the same bytes in
-  both environments, and by (1) none of its names had a second copy in the earlier environment,
-  so the earlier environment's successful replay is the one this environment would repeat. This
+  both environments, and by (1) each of its names with a second copy in the earlier environment
+  had only `Identical` copies there, all in owned modules (**Reuse with identical copies**
+  below), so the earlier environment's successful replay is the one this environment would repeat. This
   rests on the stated trusted boundary: authentic imported artifacts unchanged during the audit
   (as the history memo already assumes), filesystem reads, and no change restored between two
   byte observations. No theorem models the kernel. Where the conditions fail, a module is
@@ -2806,6 +2812,82 @@ inferred from any pure proof.
   probe loads, such as `Regula.StructuralName` in this repository), whose `.olean` is not frozen,
   with the reporter modules that import it; and a claimed library that an environment reaches
   only through a module without a bound source, which the import headers do not show.
+- **Reuse with identical copies.** Lean realizes an equation lemma in the first module that uses
+  it. Thus two modules that do not import each other can each declare the same lemma, for example
+  `RegulaPolicy.Named.eq_1` in `RegulaPolicy.Decision` and in `RegulaPolicy.Execution`. An
+  environment that loads the two modules keeps one constant under the name, and it attributes the
+  name to the module that it loaded first. Reuse accepts such a module when all the copies of its
+  names are identical. A module with a different copy of one of its names is replayed, as before.
+
+  Two copies of `Lean.Json.getObjVal?.eq_2` are an example of different copies. Each proof uses a
+  private match-equation lemma of its own module.
+
+  One pass, `Admission.duplicatesOf`, reads the constants of all the modules that the environment
+  loaded. A name is uniform if each loaded copy of the name is `Identical` to the constant that the
+  environment keeps. The theorem `Admission.not_mem_differing_iff` states this for the names that
+  the pass records. Three decisions use the pass:
+
+  - `Admission.copiesIdentical` is the fourth condition of reuse. For each constant of the module,
+    the name must be uniform. A constant that is not a theorem must also be the only copy of its
+    name, attributed to the module.
+  - `Admission.referencesWithin` is the third condition. Each name that a constant uses must have
+    its attribution to a module of the closure. Or the name must be uniform, and a module of the
+    closure must declare a copy.
+  - `Admission.ownedUniform` decides the offer of a replayed module that holds a shared copy. The
+    environment offers the module only if the name is uniform and only owned modules declare it.
+    Otherwise the receipt lists the module as `shared`, through `Admission.AdmitRequest.pinned`.
+
+  The argument below uses three facts about Lean v4.34.1. The docstrings of
+  `Admission.duplicatesIn` and `Admission.copiesIdentical` give their source lines under
+  `Assumes:`. First, Lean's import keeps one of the copies that it read under each name, and
+  attributes the name to the first module that lists it. Second, `Identical` compares expressions
+  with `Expr.eqv`, which is alpha-equivalence with binder annotations ignored. Thus `Identical` is
+  symmetric and transitive. Third, the kernel gives the same result for two `Identical` constants,
+  as `Admission.checkOwn` already trusts.
+
+  **The offer:** each constant of an offered module is `Identical` to a constant that the kernel of
+  an environment of the audit accepted. An environment offers only a module that it replayed and
+  admitted, and `Admission.checkCopies_sound` gives each copy the conditions `CopyAdmitted`. Thus
+  each copy is `Identical` to the held constant, or the kernel accepted it under a fresh name. If
+  the base does not declare the name, the held constant is a replayed constant. If the base
+  declares the name, only owned modules declare it, thus a reused module supplies the held
+  constant. An earlier environment offered that module, and induction on the start order gives
+  the result.
+
+  **The reuse:** let an environment reuse a module. The replay base then holds the module, and
+  admission does not check its constants. By the fourth condition, the base, the replayed kernel
+  and the audited environment hold a constant `Identical` to the module's copy under each name.
+  Thus `replayMap`, `checkShared`, `checkOwn` and `checkKept` read the same constant there as in a
+  replay of the module. A copy in a replayed module passes `checkShared`, because two `Identical`
+  theorems are a `SameTheorem`. It passes the two other checks with no proof check.
+
+  **A fresh replay:** a replay of the module in this environment would also admit its constants.
+  A shared copy of a theorem is a `SameTheorem` with the held constant. A constant that is not a
+  theorem has one copy by the fourth condition, thus it is not shared. Lean's import accepts two
+  `Identical` axioms of one name, but `checkShared` refuses them. This is why the fourth condition
+  requires a theorem where a different module declares the name.
+
+  **The references and the keys:** the kernel's check of a declaration also reads the constants
+  that the declaration uses. The third condition accepts a used name with its attribution outside
+  the closure only if the name is uniform and the closure declares a copy. Then each constant that
+  the environment holds under that name is `Identical` to the copy of the closure. The receipt
+  requires the key of each safe, total constant of a reused module of the request. Admission reads
+  the key from the data of the module, not from the attribution of the name.
+  `Admission.reuseJustified` accepts the key only if the replaying environment admitted it.
+
+  **Proved** about the executed definitions: `Admission.not_mem_differing_iff` and
+  `Admission.mem_others_iff` give what the pass records. `Admission.copiesIdentical_iff`,
+  `Admission.referencesWithin_iff` and `Admission.ownedUniform_iff` show that each decision accepts
+  exactly the inputs that its proposition admits. `Admission.mem_reusedModules_iff` shows that a
+  module is reused exactly when it is a candidate and each owned module of its closure is a
+  candidate. `Admission.offerable_of_unpinned` shows that an offered module holds a shared copy
+  only of an `offerable` name. **Argued, not machine-checked:** the arguments above, and that
+  `Admission.validate` gives `ownedUniform` to admission as `offerable`.
+
+  **Observed, an external boundary:** the `identical-copies` control of the structural partition
+  of `checkerSelftest` audits a project with `Identical` copies and with different copies. The
+  census still gives a shared name to the module that Lean's import attributes it to, through
+  `Probe.ownedConstants`.
 - **Documentation.** `Environment.loadReportCoreAtSearchPath` freezes the `@[regula_material]`
   selector from the completed owned environment and reads module docs (Markdown and Verso) and
   docstrings with `Lean.findDocString?`, the same lookup as native feedback, so the project gate's
@@ -4436,6 +4518,7 @@ not yet proved, and are labelled so at their definition; they are not correctnes
 | project audit | changed import, changed `.olean` part | an owned module is replayed unless an offer covers it over its closure here and over artifacts read again with their frozen parts | Proved | `Admission.replayed_unless_offered`, `Admission.replayed_of_changed`, `Admission.replayed_of_changed_import`; an artifact not read again with its frozen parts cannot support an offer (`Admission.Unchanged`) |
 | checkerSelftest structural | a changed, removed and added `.olean`, `.olean.server` and `.olean.private`, each restored, for a module with three parts and with one, through `Inspection.readings` and `Admission.currentOffers` | reading the frozen parts: each change withdraws the offer and `Inspection.changedArtifact?` reports it | External | observed |
 | checkerSelftest structural | a fresh audit of two claimed libraries that import one another | the report workers, Lean's import and the kernel reuse a requested module: accepted, each module replayed in one environment, the reused module's key required | External | observed; the decision is `Admission.reuseJustified_admitted` and `Admission.replayed_of_loaded` |
+| checkerSelftest structural | a fresh audit of a library with identical copies of one lemma and different copies of one theorem, and of a library that imports it | Lean's realization and import of the copies, the report workers and the kernel: the identical copies are reused, the different copies are replayed again | External | observed. The decisions are `Admission.copiesIdentical_iff`, `Admission.referencesWithin_iff` and `Admission.ownedUniform_iff` |
 | project audit | none | a frozen `.olean` part that changes during the audit is [RG2005] | External | open: MUT-02 not yet evidenced through the gate; reading the parts is observed directly (two rows above), and no intended-reason control rewrites a part between the freeze and the final comparison |
 
 The `qualify` campaigns and what they observe:
