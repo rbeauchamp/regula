@@ -47,6 +47,7 @@ unsafe def inspectNegative (repo path output : FilePath) : IO UInt32 := do
             Name.quickLt a.name b.name
         let scope ← IO.ofExcept <|
           Policy.admitScope inspected.report.compilerCapability declarations inspected.transcripts
+            inspected.report.imported
         let mut findings := #[]
         let index := Regula.Findings.declarationIndex declarations
         let helpers := scope.helpers

@@ -361,6 +361,11 @@ structure Inventory where
   surfaces' environments (`EnvironmentCensusOK`). No other field reads them, and they enter only
   the implementations the inventory counts as decided (`Roles.decided`). -/
   counted : Array CountedContract := #[]
+  /-- The records of the imported native-proof axioms that the declarations rest on, each with the
+  record of the declaration its generated prefix names, as the probe found them. Admission gives
+  none (`admitInventory`); the scope adds them (`Inventory.withImported`). No other field reads
+  them, and they enter only the native roles (`ImportedNativeOK`, `Roles.native`). -/
+  imported : Array Declaration := #[]
   deriving DecidableEq
 
 /-- `i` with `counted` as the contracts counted from other surfaces, and every other field
@@ -368,21 +373,26 @@ unchanged. -/
 def Inventory.withCounted (i : Inventory) (counted : Array CountedContract) : Inventory :=
   { i with counted }
 
+/-- `i` with `imported` as the records of the imported declarations it may rest on, and every
+other field unchanged. -/
+def Inventory.withImported (i : Inventory) (imported : Array Declaration) : Inventory :=
+  { i with imported }
+
 /-- Validate without dropping, substituting, or deduplicating result observations. The inventory
-counts no contract of another surface. -/
+counts no contract of another surface and has no imported record. -/
 @[regula_decision]
 def admitInventory (compiler : Compiler.Capability) (decls : Array Declaration)
     (transcripts : Array Frontend.Transcript) :
     Except String Inventory :=
-  if h : InventoryValid decls transcripts then .ok ⟨compiler, decls, transcripts, h, #[]⟩
+  if h : InventoryValid decls transcripts then .ok ⟨compiler, decls, transcripts, h, #[], #[]⟩
   else .error "invalid policy inventory: anonymous, duplicate, or malformed identity"
 
 /-- Every valid inventory is admitted with exactly its input fields, counting no contract of
-another surface. -/
+another surface and with no imported record. -/
 theorem admitInventory_exact (compiler : Compiler.Capability)
     (ds : Array Declaration) (ts : Array Frontend.Transcript)
     (h : InventoryValid ds ts) :
-    admitInventory compiler ds ts = .ok ⟨compiler, ds, ts, h, #[]⟩ := by
+    admitInventory compiler ds ts = .ok ⟨compiler, ds, ts, h, #[], #[]⟩ := by
   simp [admitInventory, h]
 /-- Boundary toolchain-origin receipts must refer to this observation's module. -/
 def ExecutionBoundary.Valid (b : ExecutionBoundary) : Prop :=

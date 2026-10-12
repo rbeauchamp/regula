@@ -33,12 +33,14 @@ abbrev ExecutionClaim.toString (x : ExecutionClaim) : String :=
 /-- Admit the scope through `checked_scope` with the frontend's coordinate check, itself
 `checked_coordinates.run`. `ScopeContract`, instantiated at `Frontend.validateCoordinates`,
 is its exact relation, and `CoordinateContract` that check's. Transcript bytes are not
-authenticated. -/
+authenticated. The admitted scope rests on `imported`, the records of the imported native-proof
+axioms the declarations reach (`PolicyScope.importing`), which admit no declaration and decide
+only which imported names are native roles. -/
 def admitScope (observed : RegulaPolicy.Compiler.LegacyCompilerTrust)
-    (ds : Array Declaration) (ts : Array Frontend.Transcript := #[]) :
-    Except String PolicyScope := do
+    (ds : Array Declaration) (ts : Array Frontend.Transcript := #[])
+    (imported : Array Declaration := #[]) : Except String PolicyScope := do
   let compiler ← RegulaPolicy.Compiler.admitCapability observed
-  checked_scope.run compiler Frontend.validateCoordinates ds ts
+  return (← checked_scope.run compiler Frontend.validateCoordinates ds ts).importing imported
 
 /-- Whether a declaration with these fields could receive a generated-role exception and so
 needs a fresh frontend transcript (`RegulaPolicy.declarationNeedsTranscript`). -/

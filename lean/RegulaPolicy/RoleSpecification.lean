@@ -4,8 +4,9 @@ public import RegulaPolicy.NativeAxiom
 
 /-! # Generated-role relations
 
-Generated-role relations over the complete observation inventory. A native-proof axiom needs
-exact metadata, replay and command provenance; a recursion helper needs exact metadata and the
+Generated-role relations over the complete observation inventory. An owned native-proof axiom needs
+exact metadata, replay and command provenance, and one of an imported module exact metadata and
+replay; a recursion helper needs exact metadata and the
 observation that Lean's own recursion compiler regenerates its base from it and that Lean's kernel
 checks the base's recursion equation for it. No unsafe constructor-index wrapper is a role: the
 pinned compiler generates none, and the exception for one was removed until a port to a compiler
@@ -75,7 +76,8 @@ def NativeAxiomShape (a : Declaration.Role) : Prop :=
 instance (a : Declaration.Role) : Decidable (NativeAxiomShape a) := by
     unfold NativeAxiomShape; infer_instance
 
-/-- A native-proof axiom `a` is authenticated exactly when three observations hold.
+/-- A native-proof axiom `a` of an audited module is authenticated exactly when three observations
+hold.
 
 1. Name: `a`'s name is one the pinned `nativeEqTrue` scheme generates for a native tactic
    (`nativeAxiomOrigin?`, characterized by `nativeAxiomOrigin?_isSome_iff`), under a prefix that
@@ -113,6 +115,30 @@ def NativeTeachingOK (ds : Array Declaration.Role) (ts : Array Transcript.Toolch
 instance (ds : Array Declaration.Role) (ts : Array Transcript.ToolchainObserved)
     (a : Declaration.Role) : Decidable (NativeTeachingOK ds ts a) := by
   unfold NativeTeachingOK; infer_instance
+
+/-- A native-proof axiom `a` of an imported module is authenticated exactly when the first two
+observations of `NativeTeachingOK` hold, read from `ps`, the records of the imported native-proof
+axioms that the owned declarations `ds` reach and of the declarations their names name, and no
+owned record is of `a`'s module or has its name.
+
+1. Name: `a`'s name is one the pinned `nativeEqTrue` scheme generates for a native tactic, under a
+   prefix that is the name of a declaration `p` of `a`'s module or its module-private form
+   (`GeneratedPrefix`).
+2. Statement and replay: `NativeAxiomShape`, with the replay run on the imported constant.
+
+The third observation of an owned axiom, a fresh transcript of its introducing command, is not
+required. It keeps an authored owned `axiom` a project axiom, and a declaration of a module the
+project does not own is no project axiom. By (2), whatever code added `a`, it asserts only a closed
+Boolean fact that compiled evaluation confirms, so relying on it is exactly relying on the
+compiler. It does not establish which code added `a`: a dependency's authored `axiom` of a native
+name and shape whose statement replays true is authenticated too. -/
+def ImportedNativeOK (ds ps : Array Declaration.Role) (a : Declaration.Role) : Prop :=
+  NativeAxiomShape a ∧ a ∈ ps ∧ (∀ d ∈ ds, d.module ≠ a.module ∧ d.name ≠ a.name) ∧
+    ∃ p ∈ ps, ∃ o ∈ nativeAxiomOrigin? a.name,
+      p.module = a.module ∧ GeneratedPrefix p.module p.name o.1
+instance (ds ps : Array Declaration.Role) (a : Declaration.Role) :
+    Decidable (ImportedNativeOK ds ps a) := by
+  unfold ImportedNativeOK; infer_instance
 
 /-- Range-less generated partial helper whose group Lean's own recursion compiler regenerates into
 the observed base and its auxiliary definitions, and for which Lean's kernel checks the recursion
@@ -165,6 +191,20 @@ theorem NativeTeachingOK.neutral {ds : Array Declaration.Role}
     hone⟩ := ok
   exact ⟨⟨s1, s2, s3, s4, s5, rfl, rfl, s8, s9, s10, s11⟩, Array.mem_map_of_mem ha, p.neutral,
     Array.mem_map_of_mem hp, o, ho, hmodule, hprefix, hone⟩
+
+/-- The marks of an imported native-proof axiom can refuse its role but never grant it, as for an
+owned one (`NativeTeachingOK.neutral`). -/
+theorem ImportedNativeOK.neutral {ds ps : Array Declaration.Role} {a : Declaration.Role}
+    (ok : ImportedNativeOK ds ps a) :
+    ImportedNativeOK (ds.map Declaration.Role.neutral) (ps.map Declaration.Role.neutral)
+      a.neutral := by
+  obtain ⟨⟨s1, s2, s3, s4, s5, -, -, s8, s9, s10, s11⟩, ha, foreign, p, hp, o, ho, hmodule,
+    hprefix⟩ := ok
+  refine ⟨⟨s1, s2, s3, s4, s5, rfl, rfl, s8, s9, s10, s11⟩, Array.mem_map_of_mem ha, ?_, p.neutral,
+    Array.mem_map_of_mem hp, o, ho, hmodule, hprefix⟩
+  intro d hd
+  obtain ⟨d', hd', rfl⟩ := Array.mem_map.mp hd
+  exact foreign d' hd'
 
 /-- The marks of a recursion helper and of its base can refuse the helper's role but never grant
 it: a role that holds in an inventory holds for the helper's neutral form in the inventory of

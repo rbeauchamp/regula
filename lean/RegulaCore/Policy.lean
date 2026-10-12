@@ -93,6 +93,13 @@ def PolicyScope.counting (s : PolicyScope) (counted : Array RegulaPolicy.Counted
     PolicyScope :=
   ⟨s.inventory.withCounted counted, s.roles.withCounted counted⟩
 
+/-- `s` with its inventory resting on `imported`, the records of imported declarations
+(`RegulaPolicy.Inventory.withImported`), and the roles recomputed for that inventory. Only the
+native roles can change, and only by names of imported records
+(`RegulaPolicy.Roles.native_owned`). -/
+def PolicyScope.importing (s : PolicyScope) (imported : Array Declaration) : PolicyScope :=
+  ⟨s.inventory.withImported imported, RegulaPolicy.authorize _⟩
+
 /-- A transcript-coordinate check over the declaration inventory. The operational
 adapter supplies `Frontend.validateCoordinates`, which runs `checked_coordinates`. -/
 abbrev CoordinateCheck :=
@@ -373,9 +380,8 @@ theorem partialParent_rule (decl : Declaration) (claim : Option Profile) (scope 
   rintro ⟨_, ok, _⟩
   have notHelper := scope.roles.partialParent_not_safetyHelper member hp parent
   rcases ok with ⟨_, native, _⟩ | ⟨_, _, _, safety, _⟩
-  · rw [scope.roles.native_exact] at native
-    obtain ⟨a, ha, hname, shape, _⟩ :=
-      (RegulaPolicy.authorizedNativeAxioms_iff _ _ _).mp native
+  · obtain ⟨a, ha, hname, shape, _⟩ := (RegulaPolicy.authorizedNativeAxioms_iff _ _ _).mp
+      ((scope.roles.native_owned member).mp native)
     obtain ⟨da, hda, rfl⟩ := RegulaPolicy.mem_roleRecords.mp ha
     have hname : da.name = decl.name := hname
     have notPartial : da.isPartial = false := shape.2.2.2.2.1

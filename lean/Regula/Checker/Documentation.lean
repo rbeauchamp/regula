@@ -164,8 +164,9 @@ private def compilationFailure (compilation : SourceAudit.Compilation)
 private def assessPositive (observed : RegulaPolicy.Compiler.LegacyCompilerTrust)
     (task : Task) (unitName : Name)
     (declarations : Array Regula.Report.Declaration)
-    (transcripts : Array Frontend.Transcript) : Result := Id.run do
-  let .ok scope := Policy.admitScope observed declarations transcripts
+    (transcripts : Array Frontend.Transcript) (imported : Array Regula.Report.Declaration) :
+    Result := Id.run do
+  let .ok scope := Policy.admitScope observed declarations transcripts imported
     | return { task, status := .fail, detail := "invalid policy observation inventory",
                  incomplete := true }
   let claim := if task.kind == .trusted then Profile.compilerTrusting
@@ -338,7 +339,7 @@ unsafe def auditTasks (repo scratch : FilePath) (jobs : Nat)
             return group.items.map fun item =>
               let assessed := assessPositive inspected.report.compilerCapability
                 item.task item.compilation.spec.module.toName
-                inspected.report.declarations inspected.transcripts
+                inspected.report.declarations inspected.transcripts inspected.report.imported
               (item.index, { assessed with raw := some ⟨item.compilation, some inspected, units⟩ })
           catch error =>
             return group.items.map fun item =>
@@ -432,6 +433,7 @@ def exampleObservation (result : Result) : IO RegulaPolicy.ExampleObservation :=
       IO.ofExcept <| group.report.validateSourceEvidence.mapError (·.detail)
       let scope ← IO.ofExcept <|
         Policy.admitScope group.report.compilerCapability group.report.declarations group.transcripts
+          group.report.imported
       let some replay := group.report.admission
         | throw <| IO.userError "missing example logical admission"
       pure (group.report.census.declarations,

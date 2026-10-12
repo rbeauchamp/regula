@@ -841,6 +841,39 @@ private def executableRoots (env : Environment) (modules : List Name)
       roots := roots.push action
   return roots
 
+/-- The records of the imported native-proof axioms that `entries` rest on. They are the axioms an
+entry lists whose name the `nativeEqTrue` scheme generates (`RegulaPolicy.nativeAxiomOrigin?`) and
+whose module `inspected` does not contain, each once, in the order first listed. Each is followed
+by the record of the constant its generated prefix names, if there is one: the prefix itself or,
+for a module-private prefix, the public name it hides. The axiom's record is a replay candidate,
+so its statement is replayed (`Collect.declaration`); the prefix's record is a snapshot, which has
+no replay and so is never a native role. The axioms of both are those Lean's `collectAxioms`
+reports, since no kernel of this audit replayed an imported module. -/
+private def importedNativeRecords (env : Environment) (inspected : List Name)
+    (entries : Array Regula.Report.Declaration) (scope : Regula.Collect.ContractScope) :
+    CommandElabM (Array Regula.Report.Declaration) := do
+  let mut seen : NameSet := {}
+  let mut records := #[]
+  for entry in entries do
+    for name in entry.axioms do
+      if seen.contains name then continue
+      seen := seen.insert name
+      let some (pfx, _) := RegulaPolicy.nativeAxiomOrigin? name | continue
+      let some idx := env.getModuleIdxFor? name | continue
+      if inspected.contains env.header.modules[(idx : Nat)]!.module then continue
+      records := records.push (← observing env name "imported native axiom record"
+        (Regula.Collect.declaration name .replayCandidate scope))
+      let hidden := Lean.privateToUserName pfx
+      let parent := if env.contains pfx then some pfx
+        else if Lean.isPrivateName pfx && env.contains hidden then some hidden
+        else none
+      if let some parent := parent then
+        unless seen.contains parent do
+          seen := seen.insert parent
+          records := records.push (← observing env parent "imported native prefix record"
+            (Regula.Collect.declaration parent .snapshot scope))
+  return records
+
 /-- Build the complete report for exact requested module names. The trusted
 runner calls this function directly, without parsing a command in the audited
 module's frontend extension environment. Each declaration record has the axioms `replayed` holds
@@ -852,10 +885,12 @@ kernel checked in this audit, those the environment's admission replayed or reus
 account accepts a correspondence theorem only from one of them or from an origin-checked toolchain
 module (`replacementCorrespondence`). `dependencies` names the modules of owned dependencies that
 `modules` import: the report records their declarations and executable roots too, and its census
-lists them apart (`Census.dependencyModules`). One report keeps the first answer that
-`loadReplacementHistory` returns for each module and gives it to every later history request of
-the report, from any root, so a node record kept for a later root is the record its pass would
-make again. A loader that throws returns no answer, and no record is kept from that request. -/
+lists them apart (`Census.dependencyModules`). The report also records the imported native-proof
+axioms its declarations rest on, outside those modules (`importedNativeRecords`). One report keeps
+the first answer that `loadReplacementHistory` returns for each module and gives it to every later
+history request of the report, from any root, so a node record kept for a later root is the record
+its pass would make again. A loader that throws returns no answer, and no record is kept from that
+request. -/
 def environmentReport (modules : List Name)
     (loadReplacementHistory : Name → IO (Except String (Array (Name × Name))) :=
       fun _ => pure (.error "trusted source-history loader was not supplied"))
@@ -890,6 +925,8 @@ def environmentReport (modules : List Name)
   let entries ← reportPhase timing s!"declaration records [{label}]" <| own.mapM fun (name, _) =>
     observing env name "declaration record"
       (Regula.Collect.declaration name .replayCandidate scope replayed)
+  let imported ← reportPhase timing s!"imported native axiom records [{label}]" <|
+    importedNativeRecords env inspected entries scope
   let roots ← reportPhase timing s!"execution root census [{label}]" <| if includeExecution then do
     let mut roots ← executableRoots env inspected own
     for entry in entries do
@@ -968,6 +1005,7 @@ def environmentReport (modules : List Name)
     moduleOrigins
     declarations := entries
     execution
+    imported
     census := { modules := modules.toArray, dependencyModules := dependencies.toArray
                 declarations := declarationKeys
                 executionRoots := if includeExecution then some roots else none
