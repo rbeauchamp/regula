@@ -155,6 +155,7 @@ Lake's module trace omits these arguments. Regula's `lakefile.lean` declares an 
 that adds this record for the libraries of the root package and of the package that declares the
 facet. Lake identifies each package itself (`Package.isRoot`, `__name__`), not by the name a
 `require` gives it.
+The [facet report](#replaced-root-library-facets) names a root library facet that Regula replaces.
 `Lake.ClaimedBuildPlan.completionTargets_exact` binds the deferred build to the original
 target array; `build_completed_iff` records the build stage before preflight exactly when no
 target build remains. A library-only claim keeps one original build
@@ -353,6 +354,39 @@ The facet runs Lake's own `extraDep` facet, which builds the `extraDepTargets` a
 library. It also adds a trace input that records the identity and the `weakLeanArgs` of each
 library of the root package or of Regula. It compiles no module and sets no option. A package
 named `regula` with different text keeps the marker.
+
+### Replaced root library facets
+
+Lake inserts the root package's facets before those of its dependencies.
+Thus Regula's `weakLeanArgsTrace` replaces a root library facet with the same `extraDep` key.
+The root facet's build step then does not run.
+Move that work to `extraDepTargets` or `needs`, which Lake's own facet runs.
+
+`lake lint`, its `--explain-config` path and the project audit print the `regula facet report`.
+It names each replaced root declaration and its package, with that consequence and remedy.
+It also gives the count of loaded library facet declarations and replaced root declarations.
+The report is advisory and changes no audit exit class.
+It does not restore the build step.
+
+`FacetReport.observe` reads each package's compiled configuration through Lake's own importer, attribute inventory and evaluator.
+It reads no lakefile text.
+Each record keeps the package that contributes the declaration, its constant name and its evaluated facet key.
+The running checker's real package directory identifies Regula, even when the workspace gives that dependency a different name.
+
+`FacetReport.replacementDecision` decides `Replaced` on these records.
+`mem_replaced_iff` proves that the report's selection contains exactly the records for which this proposition holds.
+The proposition requires the last root `extraDep` record and Regula's declaration of that key from a dependency.
+The theorem is about supplied records.
+It trusts Lake's insertion order, compiled configuration and runtime evaluation, plus stable files and the checker's package location.
+A later dependency can replace Regula's facet also, so the report does not identify the final facet.
+
+The `facet-report` controls run in `diagnostics lint-driver 1/5`, through `lake lint -- --explain-config`.
+They report a named root facet and leave a text-only decoy and a different facet key unreported.
+They also check Regula's own root configuration.
+The negative controls require the completed census line, so absence of a report alone cannot pass them.
+These controls observe Lake and process output, not a universal property of the loader.
+
+### The facet's record encoder
 
 The facet writes the record with `weakLeanArgsRecord`, a copy of `weakArgsRecordJson` in the
 file. The file cannot import the modules of Regula, since Lake loads the configuration of a fresh
