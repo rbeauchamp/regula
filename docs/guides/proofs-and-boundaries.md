@@ -480,10 +480,12 @@ Thus it can then remove the entries of a different directory. The checker remove
 scratch directories with the same function.
 
 Each program of the package removes or moves an entry only through the filesystem observer,
-`Regula.Filesystem`. The observer removes an entry only by the decision `Regula.Removal.removal`
-of `RegulaCore.Removal`. That decision uses the same read and the same comparison as the decision
-of the driver. It also gets the kind of entry that the caller removes: a directory, a file or a
-symbolic link.
+`Regula.Filesystem`. The exceptions are the library calls that `Regula.Removal.libraryRemovals`
+gives, and the removals and moves of the two drivers that `Regula.ProgramCheck.Verification` and
+`Regula.ProgramCheck.Provision` give. The observer removes an entry only by the decision
+`Regula.Removal.removal` of `RegulaCore.Removal`. That decision uses the same read and the same
+comparison as the decision of the driver. It also gets the kind of entry that the caller removes:
+a directory, a file or a symbolic link.
 
 A directory or a file is at its own place if its real path is the place. The real path of a
 symbolic link is its target. Thus a link is at its own place if it is a name in a directory at its
@@ -509,9 +511,19 @@ component that the path gives. It drops the leading `.` components. Before it re
 refuses each other `.` or `..` component. Before it makes anything, it refuses a link among the
 present components (`Regula.Filesystem.ownPath`).
 
+A program resolves some directories to their real path one time (`Regula.Filesystem.ownRoot`).
+These are the scratch directory under `.lake`, the build directory of the project and the directory
+of a file that `regula init` wrote. The adopter can make such a directory or one of its parents a
+symbolic link. The program decides each removal below the directory at the real path. Thus a link
+at `.lake` does not stop the removal, but a link below the directory does.
+
 On Windows, the observer reads no entry and removes nothing, and the site executable refuses each
 `--out`. There the runtime reads a link's target when asked to read the link itself, so no read
-that follows no link is available.
+that follows no link is available. Thus on Windows each command that removes an entry through the
+observer stops with an error. `lake lint` is such a command, because it removes its scratch
+directories through the observer. `regula doctor` and `regula init` give the toolchain of the
+project as not resolved, because the compiler probe removes its temporary directory. If
+`regula init` fails, it cannot remove the new files that it wrote, and it gives their names.
 
 The driver cannot import `RegulaCore.Removal`, because `scripts/verify.sh` operates the driver
 before the build. A program of the package cannot import the driver, because each of the two
@@ -583,8 +595,8 @@ The criterion of the check is honest code, as `SECURITY.md` defines it. Honest c
 program reaches a removal outside the observer only by a call that the list or a driver's module
 gives. Deliberate circumvention by the authors of Regula is outside the
 check ([issue 286](https://github.com/rbeauchamp/regula/issues/286)). An example is an `extern`
-binding to a different C function that removes. A different example is an observation that the
-tactic `constructor` makes with the private constructor.
+binding to a different C function that removes. A different example is a use of the private
+declarations of `Regula.Filesystem`, with `open private` or a name written by hand.
 
 The build also fails if such a declaration has no compiled code that the check can read. A
 removal by a different program, for example `rm`, is not a call that this check finds.
@@ -1311,8 +1323,8 @@ Two-way decisions (`Regula.Decides`), each with an accepted and a refused input:
 | `RegulaVerification.passed` | Each command of a step ended with exit status 0 (`passed_iff`). | The driver of `scripts/verify.sh` uses it before it operates one more command, before its success line and before it moves the acceptance record. |
 | `RegulaVerification.walked` | The path does not start with `tmp`, and no component of it is `.git`, `.lake`, `.cache` or `.regula-scratch` (`walked_iff`). | The files that the driver copies for the first acceptance step. No theorem relates it to the rule of the isolated copy of the checker. |
 | `RegulaVerification.removal` (accepts on `.remove`) | A directory is at the place by a read that follows no link, and its real path is the place (`removal_remove_iff`). | The driver removes its copy and the `_site` directory only by this decision. The two reads of the file system are trusted. |
-| `Regula.Removal.removal` (accepts on `.remove`) | A read that follows no link finds an entry of the given kind at the place. Its real path is the place, or a symbolic link is a name in a directory at its own place (`removal_remove_iff`). | Each program of the package removes a directory, a file or a symbolic link only by this decision, through `Regula.Filesystem`. The reads of the file system are trusted. |
-| `Regula.Removal.replacement` (accepts on `true`) | A read that follows no link finds a file at the source, at its own place. Nothing is at the destination, or a file is there at its own place. The destination is a name in a directory at its own place (`replacement_iff`). | Each program of the package moves a file only by this decision, through `Regula.Filesystem`. The reads of the file system are trusted. |
+| `Regula.Removal.removal` (accepts on `.remove`) | A read that follows no link finds an entry of the given kind at the place. Its real path is the place, or a symbolic link is a name in a directory at its own place (`removal_remove_iff`). | Each program of the package removes a directory, a file or a symbolic link only by this decision, through `Regula.Filesystem`. The exceptions are the library calls that `Regula.Removal.libraryRemovals` gives, and the removals of the two drivers that `Regula.ProgramCheck.Verification` and `Regula.ProgramCheck.Provision` give. The reads of the file system are trusted. |
+| `Regula.Removal.replacement` (accepts on `true`) | A read that follows no link finds a file at the source, at its own place. Nothing is at the destination, or a file is there at its own place. The destination is a name in a directory at its own place (`replacement_iff`). | Each program of the package moves a file only by this decision, through `Regula.Filesystem`. The exceptions are the library calls that `Regula.Removal.libraryRemovals` gives, and the moves of the two drivers that `Regula.ProgramCheck.Verification` and `Regula.ProgramCheck.Provision` give. The reads of the file system are trusted. |
 | `RegulaVerification.prebuildCovers` | The surface manifest has the shape that `claimedTargets` reads, and each target it claims is in `gateTargets` (`prebuildCovers_iff`). | The driver runs the first acceptance step only on such a manifest. Thus the gate does not build a claimed target beside the step's build. No theorem relates `claimedTargets` to the manifest reader of the checker. |
 | `ScratchCopy.name?` (accepts on `some`) | The path is the scratch area, then one name, then `project` (`name?_eq_some_iff`). | The gate admits a copy of the driver only at such a path. The components come from real paths, which the file system gives. |
 | `ScratchCopy.inside` | The path is the directory with one or more components after it (`inside_iff`). | The gate requires its own executable in the build directory of a copy of the driver. |

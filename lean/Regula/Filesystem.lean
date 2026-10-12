@@ -14,12 +14,15 @@ each of which observes the place and acts only on what the decisions of `RegulaC
 decide: `removeOwn`, `removeFound`, `replace` and `withOwnTempDir`. The theorems at the end state,
 under the assumptions they name, what each does. The reach check `Regula.Removal.rawRemovals`
 refuses each call of a removal primitive outside a declaration with the observer's role, so no
-code of Regula calls one other than through this module. A deliberate use of the private
-declarations, with `open private` or a hand-written name, is outside that criterion, as for the
-private observation of issue 261.
+code of Regula calls one other than through this module, except the calls of Lean's library that
+`Regula.Removal.libraryRemovals` lists and the removals and moves of the two drivers that
+`Regula.ProgramCheck.Verification` and `Regula.ProgramCheck.Provision` name. A deliberate use of
+the private declarations, with `open private` or a hand-written name, is outside that criterion,
+as for the private observation of issue 261.
 
-The observer's reads are public: `ownPath`, `requireOwnDirectory` and `requireNoLinkedEntries`
-check a place before a program makes or loads something there.
+The observer's reads are public: `ownPath` and `ownRoot` give the path at which a removal is
+decided, and `requireOwnDirectory` and `requireNoLinkedEntries` check a place before a program
+makes or loads something there.
 
 Each operation is `@[noinline]`, so its call of the library's operation stays in its own compiled
 code and is not copied into a caller's. On Windows, Lean 4.34.1's
@@ -153,13 +156,19 @@ def ownPath (path : FilePath) : IO FilePath := do
     | _ => if ← atOwnPlace observer current then return path else refuse current
   return path
 
+/-- The real path of the directory `root`, which a program of Regula owns, after it makes the
+directory and its absent ancestors (`IO.FS.createDirAll`): `observeRealPath` resolves it once.
+The root and its ancestors may be symbolic links that the adopter placed, such as a `.lake` that is
+a link to a different disk. Each removal below the root is decided at its real path, so
+`removeOwn` there refuses a symbolic link below the root, not one at the root or above it. It stops
+on Windows, where the observer reads no real path. -/
+def ownRoot (root : FilePath) : IO FilePath := do
+  IO.FS.createDirAll root
+  observeRealPath root
+
 /-- `removeOwn` at `ownPath path`, so a relative path is read below the real working directory. -/
 def removePath (kind : Kind) (path : FilePath) : IO Unit := do
   removeOwn kind (← ownPath path)
-
-/-- `removeFound` at `ownPath path`. -/
-def removeFoundPath (path : FilePath) : IO Unit := do
-  removeFound (← ownPath path)
 
 /-- `replace` at `ownPath source` and `ownPath destination`. -/
 def replacePath (source destination : FilePath) : IO Unit := do

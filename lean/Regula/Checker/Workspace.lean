@@ -245,15 +245,26 @@ a module, so a build that needs it elaborates it again and records its log. A li
 modules Lake cannot list, such as one whose glob names a directory that does not exist yet,
 contributes none, as it does to a `lake build` of other targets; an audit lists every module of
 each claimed library through Lake (`Lake.surfaceInventory`) before it builds, and fails if it
-cannot. -/
+cannot.
+
+When it finds such a trace, it resolves the root package's build directory once
+(`Regula.Filesystem.ownRoot`), and removes each such trace at the path that Lake gives
+(`Lake.Module.traceFile`) with that real path in place of the build directory. So a `.lake` that
+the adopter made a symbolic link does not make the removal refuse. -/
 def dropRestoredTraces (ws : _root_.Lake.Workspace) : IO Unit := do
-  let drop (mod : _root_.Lake.Module) : IO Unit := do
-    if let .ok text ← (IO.FS.readFile mod.traceFile).toBaseIO then
-      if restoredTrace text then Regula.Filesystem.removePath .file mod.traceFile
+  let mut modules : Array _root_.Lake.Module := #[]
   for lib in ws.root.leanLibs do
-    if let .ok modules ← lib.getModuleArray.toBaseIO then
-      for mod in modules do drop mod
-  for exe in ws.root.leanExes do drop exe.root
+    if let .ok found ← lib.getModuleArray.toBaseIO then modules := modules ++ found
+  modules := modules ++ ws.root.leanExes.map (·.root)
+  let restored ← modules.filterM fun mod => do
+    match ← (IO.FS.readFile mod.traceFile).toBaseIO with
+    | .ok text => pure (restoredTrace text)
+    | .error _ => pure false
+  if restored.isEmpty then return
+  let build ← Regula.Filesystem.ownRoot ws.root.buildDir
+  for mod in restored do
+    Regula.Filesystem.removeOwn .file
+      (mod.filePath (build / ws.root.config.leanLibDir.normalize) "trace")
 
 /-- Whether `text`, the content of a module's Lake trace file, records an elaboration: Lake can
 read it as a trace, and it does not record a restore from the artifact cache. Lake v4.34.1 writes

@@ -903,11 +903,23 @@ private def write (written : IO.Ref (Array Written)) (path : FilePath) (text : S
   if let some parent := path.parent then IO.FS.createDirAll parent
   IO.FS.writeFile path text
 
-private def restore (written : Array Written) : IO Unit := do
+/-- Restore each file of `written`, the last written first: write its previous content back, or
+remove it when it did not exist, below the real path of its directory
+(`Regula.Filesystem.ownRoot`). A file that cannot be restored does not stop the others; the result
+names each such file with its error. -/
+private def restore (written : Array Written) : IO (Array String) := do
+  let mut failures := #[]
   for w in written.reverse do
-    match w.previous with
-    | some text => IO.FS.writeFile w.path text
-    | none => if ← w.path.pathExists then Regula.Filesystem.removePath .file w.path
+    try
+      match w.previous with
+      | some text => IO.FS.writeFile w.path text
+      | none =>
+        if ← w.path.pathExists then
+          let (some directory, some name) := (w.path.parent, w.path.fileName)
+            | throw <| IO.userError "it has no directory and name"
+          Regula.Filesystem.removeOwn .file ((← Regula.Filesystem.ownRoot directory) / name)
+    catch error => failures := failures.push s!"{w.path} ({error})"
+  return failures
 
 /-- Write the plan's edits into the project's files. -/
 private def realize (written : IO.Ref (Array Written)) (project : Project) (edits : List Edit) :
@@ -940,8 +952,8 @@ private def realize (written : IO.Ref (Array Written)) (project : Project) (edit
 
 /-- Write the missing setup of the project at `root` with guidance preference `g`, confirm that
 the plan of the project as written is empty and that no library the plan gave a glob leaves out a
-module, and run `doctor`. Any failure restores the files
-written. -/
+module, and run `doctor`. Any failure restores the files written (`restore`), and its error names
+each file that could not be restored. -/
 def init (g : Guidance) (root : FilePath) : IO UInt32 := do
   let project ← observe root
   let edits := plan g project.observation
@@ -970,8 +982,11 @@ def init (g : Guidance) (root : FilePath) : IO UInt32 := do
           throw <| IO.userError s!"the files as written change which required options claimed \
             {if t.exe then "lean_exe" else "lean_lib"} `{t.name}` sets only with a `-D`"
     catch error =>
-      restore (← written.get)
-      throw <| IO.userError s!"{error}; every file init wrote is restored"
+      let failures ← restore (← written.get)
+      if failures.isEmpty then
+        throw <| IO.userError s!"{error}; every file init wrote is restored"
+      throw <| IO.userError s!"{error}; init could not restore \
+        {", ".intercalate failures.toList}; every other file init wrote is restored"
     for edit in edits do
       match edit with
       | .skill p =>

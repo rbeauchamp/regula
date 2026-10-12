@@ -27,7 +27,7 @@ planted initializer never runs. The planted removals below are the calls of a re
 - A declaration of another name bound to a C function of the runtime that removes: a call of it is
   a raw removal (`removalSymbols`).
 - A rename and the writing of a module, which replace an entry: each call is a raw removal
-  (`primitives`). A write of a file is counted, not refused (`writePrimitives`).
+  (`primitives`). A write of a file is not a removal, and the check does not refuse it.
 - An absent output below a linked ancestor, and an output with a `.` or `..` component after the
   first: `ownPath` refuses each before anything is made. It drops the leading `.` of a relative
   path.
@@ -176,7 +176,7 @@ def callsReplacements (env : Environment) (source target : FilePath) : IO Unit :
   Lean.writeModule env target
   IO.FS.writeFile target ""
 
--- A rename and the writing of a module are removals that the check finds; the write is counted.
+-- A rename and the writing of a module are removals that the check finds; the write is not.
 run_cmd do
   let env ← getEnv
   let reach := Regula.Removal.rawRemovalsFrom env (Regula.Removal.filesystemObservers env)
@@ -186,8 +186,6 @@ run_cmd do
       (``callsReplacements, replacement)) && reach.unknown.isEmpty do
     throwError "the planted replacements are not raw removals: {reach.raw}, unknown \
       {reach.unknown}"
-  unless reach.writes.contains (``callsReplacements, ``IO.FS.writeFile) do
-    throwError "the planted write is not counted: {reach.writes}"
 
 -- The planted initializer is found, and no other initializer of this module's imports removes.
 run_cmd do

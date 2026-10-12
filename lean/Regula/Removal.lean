@@ -23,10 +23,6 @@ and that cannot import this module. `lake exe qualify observers` refuses a progr
 that no module records, and checks itself the one root that no library module can import,
 `auditApp`'s `Main` (`Regula.Qualification.Observers`).
 
-The check also counts the calls of an operation that writes a file or makes an entry
-(`writePrimitives`) that the program's own declarations make outside the observer: the writes are
-not yet routed through the observer, and each count is recorded and reported, not refused.
-
 ## What the check guarantees
 
 The criterion is honest code, as `SECURITY.md` and `CONTEXT.md` define it: code that does not
@@ -77,14 +73,6 @@ module. A declaration of any name that is bound to one of them is a removal prim
 that writes to a file or makes an entry, without removing or replacing one, is not on this list. -/
 def removalSymbols : List String :=
   ["lean_io_remove_file", "lean_io_remove_dir", "lean_io_rename", "lean_compacted_region_save"]
-
-/-- The operations of Lean's library that write a file or make an entry, without removing or
-replacing one: a call of one of them is counted, not refused. `IO.FS.Handle.mk` and
-`IO.FS.withFile` open a file in a mode that the compiled code passes as a value, so each call of
-them is counted, also one that only reads. -/
-def writePrimitives : List Name :=
-  [``IO.FS.writeFile, ``IO.FS.writeBinFile, ``IO.FS.Handle.mk, ``IO.FS.withFile,
-    ``IO.FS.createDir, ``IO.FS.createDirAll, ``IO.FS.createTempFile, ``IO.FS.createTempDir]
 
 /-- Whether the entry of an `extern` attribute calls the C function `symbol`: by its name, or in
 the C text of an inline entry. -/
@@ -264,20 +252,17 @@ structure Reach where
   raw : Array (Name × Name)
   /-- Each reached declaration whose compiled code the environment does not hold. -/
   unknown : Array Name
-  /-- Each call of a primitive of `writePrimitives`, with its caller. -/
-  writes : Array (Name × Name)
   /-- Each declaration of another module than `observerModule` with the filesystem observer's role
   (`foreignObservers`). -/
   foreign : Array Name := #[]
 
 /-- Each call of a removal primitive that the compiled code of `roots` reaches and that `admitted`
-does not admit, with the declaration that makes it; each reached declaration whose compiled body
-`env` does not hold, so that what it calls is unknown; and each call of a primitive of
-`writePrimitives`. An `extern` declaration bound to a C function of `removalSymbols`
-(`boundRemoval`) is a removal primitive, whatever its name: a call of it is admitted or raw as a
-call of `primitives` is, and as a root it is raw. Every compiled declaration is followed, of this
-package, of Lean's library and of each other package, the callees of a write primitive among them;
-a C function of the runtime is not. -/
+does not admit, with the declaration that makes it; and each reached declaration whose compiled
+body `env` does not hold, so that what it calls is unknown. An `extern` declaration bound to a C
+function of `removalSymbols` (`boundRemoval`) is a removal primitive, whatever its name: a call of
+it is admitted or raw as a call of `primitives` is, and as a root it is raw. Every compiled
+declaration is followed, of this package, of Lean's library and of each other package; a C
+function of the runtime is not. -/
 def rawRemovalsFrom (env : Environment) (observers : Array Name) (roots : Array Name)
     (named : List (Name × Name) := []) : Reach :=
   Id.run do
@@ -286,7 +271,6 @@ def rawRemovalsFrom (env : Environment) (observers : Array Name) (roots : Array 
   let mut work := roots
   let mut raw := #[]
   let mut unknown := #[]
-  let mut writes := #[]
   -- Each declaration is added to `work` at most once. The bound is far above the number of
   -- compiled declarations that a program of this toolchain reaches (about 200,000); a declaration
   -- left in `work` at the bound is unknown, so the check fails closed.
@@ -299,16 +283,14 @@ def rawRemovalsFrom (env : Environment) (observers : Array Name) (roots : Array 
         if used == name then continue
         if primitives.contains used || (boundRemoval env used).isSome then
           unless admitted env observers named name used do raw := raw.push (name, used)
-        else
-          if writePrimitives.contains used then writes := writes.push (name, used)
-          if !seen.contains used then
-            seen := seen.insert used
-            work := work.push used
+        else if !seen.contains used then
+          seen := seen.insert used
+          work := work.push used
     | some (.extern _ _ _ data) =>
       if data.entries.any (· matches .opaque) then unknown := unknown.push name
       if let some symbol := boundRemoval env name then raw := raw.push (name, Name.mkSimple symbol)
     | none => unknown := unknown.push name
-  return { raw, unknown := unknown ++ work, writes }
+  return { raw, unknown := unknown ++ work }
 
 /-- `rawRemovalsFrom` for a program whose `main` is `main` in the module `root`: from `main` and
 from each initializer of the modules that it links (`linked`, `initializersOf`), with the
@@ -320,16 +302,9 @@ def rawRemovals (env : Environment) (root : Name) (named : List (Name × Name) :
     foreign := foreignObservers env }
 
 /-- The prefix of the marker that `checkProgram` adds for each program that it checked: the
-definition `reached ++ root`, where `root` is the program's root module, is the number of calls of
-a write primitive outside the observer that the program's own declarations make. `lake exe qualify
-observers` reads the markers from the module data of the package's modules. -/
+definition `reached ++ root` of type `Unit`, where `root` is the program's root module. `lake exe
+qualify observers` reads the markers from the module data of the package's modules. -/
 def reached : Name := `Regula.Removal.reached
-
-/-- Whether `module` is a module of the toolchain: its object file is below `lib/lean` of the
-toolchain's root (`Lean.findSysroot`). -/
-def toolchainModule (sysroot : System.FilePath) (module : Name) : IO Bool := do
-  let olean ← findOLean module
-  return (sysroot / "lib" / "lean").components.isPrefixOf olean.components
 
 /-- Why the check refuses the program whose root module is `root`, by what its compiled code
 reaches (`rawRemovals`): each call of a removal primitive that the check does not admit, and each
@@ -347,40 +322,18 @@ def programRefusal (root : Name) (reach : Reach) : Option String :=
       whose declarations remove: {reach.foreign.toList}"
   else none
 
-/-- The distinct calls of a write primitive in `reach` that declarations outside the toolchain
-make (`toolchainModule`): the writes of the program that are not yet routed through the
-observer. -/
-def pendingWrites (env : Environment) (reach : Reach) : IO (Std.HashSet (Name × Name)) := do
-  let sysroot ← Lean.findSysroot
-  let mut toolchain : Std.HashMap Name Bool := {}
-  let mut pending : Std.HashSet (Name × Name) := {}
-  for (caller, primitive) in reach.writes do
-    let module := moduleOf env caller
-    let inToolchain ← match toolchain[module]? with
-      | some known => pure known
-      | none => do
-        let known ← if module == env.mainModule then pure false
-          else toolchainModule sysroot module
-        toolchain := toolchain.insert module known
-        pure known
-    unless inToolchain do pending := pending.insert (caller, primitive)
-  return pending
-
 /-- Check the program whose `main` the environment declares: fail with the refusal of the
-program (`programRefusal`) when there is one. Then record the program with the number of its
-writes that are not routed through the observer (`pendingWrites`, `reached`). `named` admits the
-removals that a program which cannot import `Regula.Filesystem` names, each as the pair of its
-caller and the primitive that it calls (`admitted`). -/
+program (`programRefusal`) when there is one, and otherwise record the program (`reached`).
+`named` admits the removals that a program which cannot import `Regula.Filesystem` names, each as
+the pair of its caller and the primitive that it calls (`admitted`). -/
 def checkProgram (named : List (Name × Name) := []) : Elab.Command.CommandElabM Unit := do
   let env ← getEnv
   unless env.contains `main do
     throwError "no `main` is declared here, so there is no program to check"
   let root := moduleOf env `main
-  let reach := rawRemovals env root named
-  if let some refused := programRefusal root reach then throwError refused
-  let pending ← pendingWrites env reach
+  if let some refused := programRefusal root (rawRemovals env root named) then throwError refused
   Elab.Command.liftCoreM <| addDecl (.defnDecl {
-    name := reached ++ root, levelParams := [], type := mkConst ``Nat,
-    value := mkNatLit pending.size, hints := .abbrev, safety := .safe })
+    name := reached ++ root, levelParams := [], type := mkConst ``Unit,
+    value := mkConst ``Unit.unit, hints := .abbrev, safety := .safe })
 
 end Regula.Removal

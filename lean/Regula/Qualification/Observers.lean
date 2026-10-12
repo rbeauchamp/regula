@@ -14,10 +14,7 @@ controls, which no script runs and the acceptance build does not build.
 
 A root module outside every library, which no library module can import (`auditApp`'s `Main`), is
 checked here: its environment is imported and checked as `checkProgram` checks it
-(`Regula.Removal.rawRemovals`, `Regula.Removal.programRefusal`).
-
-It prints, for each program, the number of its writes that are not yet routed through the
-observer (`Regula.Removal.pendingWrites`). -/
+(`Regula.Removal.rawRemovals`, `Regula.Removal.programRefusal`). -/
 
 namespace Regula.Qualification.Observers
 
@@ -37,23 +34,16 @@ theorem mem_unrecorded_iff (programs : Array Name) (recorded : Name → Bool) (p
 /-- The library whose modules are not programs of the package. -/
 def fixtures : String := "Fixtures"
 
-/-- The number that the record `info` holds, when it is a definition whose value is a numeral,
-`OfNat.ofNat` of a natural number literal, as `checkProgram` adds it (`mkNatLit`). -/
-def recordValue : ConstantInfo → Option Nat
-  | .defnInfo { value, .. } => value.nat?
-  | _ => none
-
-/-- Import the environment of the root module `root`, check it as `checkProgram` checks a program
-(`Regula.Removal.rawRemovals`), and give the number of its writes outside the observer. -/
-def checkOutside (root : Name) : IO Nat := do
+/-- Import the environment of the root module `root`, and check it as `checkProgram` checks a
+program (`Regula.Removal.rawRemovals`). -/
+def checkOutside (root : Name) : IO Unit := do
   let env ← importModules #[{ module := root }] {} 0
   let reach := Regula.Removal.rawRemovals env root
   if let some refused := Regula.Removal.programRefusal root reach then
     throw <| IO.userError s!"observers: {refused}"
-  return (← Regula.Removal.pendingWrites env reach).size
 
 /-- Refuse unless every program of the root package is recorded as checked, and check each root
-module outside every library; print the writes outside the observer of each program. -/
+module outside every library. -/
 def check : IO Unit := do
   let repo ← Regula.Checker.repoRoot
   let inventory ← Regula.Checker.Lake.rootSurfaceInventory repo
@@ -61,28 +51,24 @@ def check : IO Unit := do
   let inLibraries := (inventory.libraries.filter (·.library != fixtures)).flatMap (·.modules)
   let outside := (inventory.executables.map (·.root)).filter (!inLibraries.contains ·)
   let mut programs := inventory.executables.map (·.root)
-  let mut records : Std.HashMap Name Nat := {}
+  let mut records : Std.HashSet Name := {}
   for module in inLibraries do
     let (data, _) ← readModuleData (← findOLean module)
     if data.constNames.contains `main && !programs.contains module then
       programs := programs.push module
-    for info in data.constants do
-      if Regula.Removal.reached.isPrefixOf info.name && info.name != Regula.Removal.reached then
-        let some count := recordValue info
-          | throw <| IO.userError s!"observers: the record {info.name} in {module} is not a \
-              count"
-        records := records.insert (info.name.replacePrefix Regula.Removal.reached .anonymous)
-          count
+    for name in data.constNames do
+      if Regula.Removal.reached.isPrefixOf name && name != Regula.Removal.reached then
+        records := records.insert (name.replacePrefix Regula.Removal.reached .anonymous)
   for root in outside do
-    records := records.insert root (← checkOutside root)
+    checkOutside root
+    records := records.insert root
   let missing := unrecorded programs records.contains
   unless missing.isEmpty do
     throw <| IO.userError s!"observers: no module records the removal check of the programs \
       {missing.toList}: each runs `Regula.Removal.checkProgram` in its root module or in a \
       module that imports it"
   for program in programs do
-    IO.println s!"observers: {program}: removal check recorded; \
-      {records.getD program 0} writes outside the observer"
+    IO.println s!"observers: {program}: removal check recorded"
   IO.println s!"observers: PASS ({programs.size} programs)"
 
 end Regula.Qualification.Observers
