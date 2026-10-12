@@ -474,7 +474,7 @@ structure Copied where
 `scratch`, which holds no build output (`copyProject`). -/
 private def isolatedCopy (repo scratch : FilePath) : IO Copied := do
   let copy ← timedPhase "isolated source copy" <| Lake.copyProject repo (scratch / "project")
-    scratch
+    scratch (facets := .replaced)
   return ⟨copy.project, copy.root, some copy.selection⟩
 
 /-- The copy of the project at `repo` that the verification driver made at `path`
@@ -594,11 +594,15 @@ private unsafe def auditSurfaceAt (repo manifestPath : FilePath)
       origin.mode composed resultOut do
     -- A copy loads each dependency from where the original's Lake load requires, and each owned
     -- module that an environment loads must come from the copy's own build
-    -- (`Environment.ModuleGraph.outsideCopy`).
+    -- (`Environment.ModuleGraph.outsideCopy`). The audit's one facet report comes from this
+    -- inventory, or for a copy that `isolatedCopy` made, from its inventory of the original.
     let inventory ← match origin with
-      | .copied copy | .driverCopy copy =>
+      | .copied copy =>
           Lake.checkCopiedWorkspace copy.root copy.selection (← Lake.surfaceInventory repo)
-      | .incremental => Lake.surfaceInventory repo
+      | .driverCopy copy =>
+          Lake.checkCopiedWorkspace copy.root copy.selection
+            (← Lake.surfaceInventory repo (facets := .replaced))
+      | .incremental => Lake.surfaceInventory repo (facets := .replaced)
     let sourceBindings ← SourceBinding.capture inventory.moduleSources observeSources
     -- Each owned dependency's sources are captured with its package, since two packages can give
     -- one module name different sources; each environment binds those it loads
