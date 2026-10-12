@@ -42,13 +42,22 @@ skipped, as the jobs that had not started are when a run is cancelled. A job the
 that every partition job of the workflow is in the gate's `needs` is the workflow's wiring, which
 no step here observes.
 
+The gate also compares the two self-hosted digests. The structural shard `1/5` writes the
+SHA-256 digest of the fresh input the self-hosted positive's fresh gate accepted, and the shard
+`5/5` that of its restored self-hosted copy; the workflow carries both to the gate as artifacts
+(`digestPath`). When the campaigns were decided to apply, `digestRefusals` refuses unless both
+are present, well-formed and equal, and names each problem (`digestRefusals_eq_nil_iff`); when
+they were not, no digest is required.
+
 ## Boundaries
 
-`verdict`, `admits` and `decisions` are the decisions the steps execute; their theorems are checked
-by the kernel each time `lean --run` elaborates this file. GitHub (the event, the merge commit it
-creates for a pull request, the `needs` context, a job's `if:` that reads the decision, the
-job results, timeouts, cancellation, and the ruleset that requires the check) and `git` (the
-commits it fetched and the paths `diff-tree` lists) are trusted and observed, not proved.
+`verdict`, `admits`, `decisions` and `digestRefusals` are the decisions the steps execute; their
+theorems are checked by the kernel each time `lean --run` elaborates this file. GitHub (the event,
+the merge commit it creates for a pull request, the `needs` context, a job's `if:` that reads the
+decision, the job results, timeouts, cancellation, the artifacts it carries, and the ruleset that
+requires the check) and `git` (the commits it fetched and the paths `diff-tree` lists) are trusted
+and observed, not proved. Equal SHA-256 digests are read as equal inputs, an assumption of
+collision resistance, not a theorem.
 -/
 
 namespace Regula.DiagnosticsGate
@@ -290,6 +299,58 @@ theorem verdict_iff (decided : Result) (decisions : List (String × Bool))
     | none => simp
     | some applies => cases applies <;> simp [admits_iff]
 
+/-! ## The self-hosted digests -/
+
+/-- Whether `text` is a SHA-256 digest as `shasum -a 256` prints it: 64 lowercase hexadecimal
+digits. -/
+def isDigest (text : String) : Bool :=
+  text.length == 64 && text.all fun c => c.isDigit || ('a' ≤ c && c ≤ 'f')
+
+/-- Where the gate job finds the digest of the self-hosted fresh input `name` (`positive` or
+`restored`), below the checkout: where the workflow downloads the artifacts that the `campaign`
+jobs of `structural 1/5` and `structural 5/5` upload from the same place, and where the self-test
+writes them (`Regula.Checker.CheckerSelftest.selfHostedDigestPath`). -/
+def digestPath (name : String) : System.FilePath :=
+  "tmp" / "self-hosted-digest" / s!"{name}.sha256"
+
+/-- Why the digest `name`, as read, is not well-formed: missing, or not a digest. -/
+def digestProblem (name : String) : Option String → Option String
+  | none => some s!"the {name} self-hosted digest is missing"
+  | some d => if isDigest d then none else some s!"the {name} self-hosted digest is malformed: {d}"
+
+/-- What the gate refuses about the self-hosted digests: when the structural shards were decided
+to run (`required`), the digest of the input the positive's fresh gate accepted (`positive`) and
+that of the restored copy's input (`restored`) must each be present and well-formed, and equal.
+Each problem is named. When they were not decided to run, no digest is required. -/
+def digestRefusals (required : Bool) (positive restored : Option String) : List String :=
+  if required then
+    match digestProblem "positive" positive, digestProblem "restored" restored with
+    | none, none =>
+      if positive == restored then []
+      else [s!"the self-hosted digests differ: positive {positive.getD ""}, restored \
+        {restored.getD ""}"]
+    | p, r => p.toList ++ r.toList
+  else []
+
+/-- The gate refuses nothing about the digests exactly when they are not required, or both are
+the same well-formed digest. -/
+theorem digestRefusals_eq_nil_iff (required : Bool) (positive restored : Option String) :
+    digestRefusals required positive restored = [] ↔
+      required = false ∨ ∃ d, isDigest d = true ∧ positive = some d ∧ restored = some d := by
+  cases required with
+  | false => simp [digestRefusals]
+  | true =>
+    cases positive with
+    | none => cases restored <;> simp [digestRefusals, digestProblem]
+    | some p =>
+      cases restored with
+      | none => cases hp : isDigest p <;> simp [digestRefusals, digestProblem, hp]
+      | some r =>
+        cases hp : isDigest p <;> cases hr : isDigest r <;>
+          simp [digestRefusals, digestProblem, hp, hr]
+        rintro rfl
+        exact Bool.false_ne_true (hp.symm.trans hr)
+
 /-! ## Steps -/
 
 private def env (name : String) : IO String := do
@@ -351,7 +412,15 @@ private def decisionsOf (entry : Json) : IO (List (String × Bool)) := do
   let decided ← IO.ofExcept ((← IO.ofExcept (Json.parse text)).getObj?)
   decided.toList.mapM fun (job, applies) => return (job, ← IO.ofExcept applies.getBool?)
 
-/-- The `gate` step: read the `needs` context from `NEEDS` and refuse unless `verdict` passes. -/
+/-- The self-hosted digest `name` as its file at `digestPath` holds it, without surrounding
+whitespace, or nothing when there is no such file. -/
+private def readDigest (name : String) : IO (Option String) := do
+  let path := digestPath name
+  if ← path.pathExists then return some (← IO.FS.readFile path).trimAscii.toString
+  return none
+
+/-- The `gate` step: read the `needs` context from `NEEDS` and refuse unless `verdict` passes and,
+when the campaigns were decided to apply, the self-hosted digests are equal (`digestRefusals`). -/
 def checkGate : IO Unit := do
   let needs ← IO.ofExcept ((← IO.ofExcept (Json.parse (← env "NEEDS"))).getObj?)
   let entries := needs.toList
@@ -370,9 +439,15 @@ def checkGate : IO Unit := do
   for (job, _) in decisions do
     unless jobs.any (·.1 == job) do
       IO.println s!"{job}: decided, but the gate does not need it"
+  let refusals := digestRefusals (decisions.lookup "campaign" == some true)
+    (← readDigest "positive") (← readDigest "restored")
+  for refusal in refusals do IO.println refusal
   unless verdict decided decisions jobs do
     fail "a diagnostics job that applies did not pass, or the decision of which apply did not \
       succeed or does not match the jobs the gate needs"
+  unless refusals.isEmpty do
+    fail "the restored self-hosted copy's fresh input is not shown to be the one the positive's \
+      fresh gate accepted"
   IO.println "every diagnostics job that applies passed, and every other one was skipped"
 
 end Regula.DiagnosticsGate

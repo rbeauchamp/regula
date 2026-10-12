@@ -179,12 +179,12 @@ semantic conformance.
 Checker changes receive focused qualification for affected capabilities and invocation
 paths under standard §7.8. Long mutation, external-adopter, build-integration,
 and optional serialized-graph campaigns are diagnostics, not automatic merge gates, except
-the required CI checks (`diagnostics rule-examples 1/2`, `2/2`, `site`, `mathlib integration`)
+the required CI checks (`diagnostics rule-examples 1/3`, `2/3`, `3/3`, `site`, `mathlib integration`)
 and those the diagnostics workflow runs: its required `diagnostics` check refuses a merge unless
 each of them that applies passed.
 Retain their controls and applicable evidence; never relabel an unrun campaign PASS.
 `./scripts/verify.sh diagnostics [partition]` runs a selected existing campaign under
-the same 420-second deadline; `rule-examples 1/2` and `2/2` run the corpus in two shards.
+the same 420-second deadline; `rule-examples 1/3`, `2/3` and `3/3` run the corpus in three shards.
 The full corpus is 51 productions (48 phases plus 3 refusal controls), 3 individual
 control admissions and one corpus admission of every record; each production runs in its
 own fresh workspace, so no restored rerun repeats it.
@@ -192,7 +192,7 @@ Use `./scripts/verify.sh serialized-graph` for an explicit separate graph-checki
 Do not partition either acceptance step further to evade its limit. A requested broader
 claim still needs its actual evidence.
 
-On every PR and `main`, CI runs both acceptance steps in one job, the two rule-example
+On every PR and `main`, CI runs both acceptance steps in one job, the three rule-example
 shards, and then `./scripts/verify.sh site`, which builds and checks the rule-reference site (its own
 420-second limit; never part of acceptance). A separate job runs `./scripts/verify.sh mathlib`,
 the Mathlib integration check, the only one that needs Mathlib (never part of acceptance). The

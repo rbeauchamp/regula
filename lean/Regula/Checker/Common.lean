@@ -68,6 +68,16 @@ def runProcess (repo : FilePath) (cmd : String) (args : Array String)
   let result ← IO.Process.output { cmd, args, cwd := some repo, env }
   return { exitCode := result.exitCode, stdout := result.stdout, stderr := result.stderr }
 
+/-- The SHA-256 digest of the file at `path`, as 64 lowercase hexadecimal digits, computed in `cwd`
+by the trusted external `shasum -a 256`; any other output fails. -/
+def sha256File (cwd path : FilePath) : IO String := do
+  let result ← runProcess cwd "shasum" #["-a", "256", path.toString]
+  let digest := (result.stdout.splitOn " ").head!
+  unless result.succeeded && digest.length == 64 &&
+      digest.toList.all (fun c => c.isDigit || ('a' ≤ c && c ≤ 'f')) do
+    throw <| IO.userError s!"SHA-256 digest of {path} unavailable: {result.output}"
+  return digest
+
 /-- The environment variable that turns timing output on in a checker process: `1` on, otherwise
 off. A coordinator passes it to the workers whose output it shows (`runTypedWorker`). -/
 def timingVariable : String := "REGULA_TIMING"

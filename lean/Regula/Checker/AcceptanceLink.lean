@@ -61,13 +61,7 @@ def identity (scratch projectRoot docsRoot : FilePath)
   let path := scratch / "acceptance-link-identity.json"
   IO.FS.writeFile path
     (identityJson projectRoot docsRoot sources configuration dependencies documents).compress
-  let result ← runProcess scratch "shasum" #["-a", "256", path.toString]
-  IO.FS.removeFile path
-  let digest := (result.stdout.splitOn " ").head!
-  unless result.succeeded && digest.length == 64 &&
-      digest.toList.all (fun c => c.isDigit || ('a' ≤ c && c ≤ 'f')) do
-    throw <| IO.userError s!"acceptance link digest unavailable: {result.output}"
-  return digest
+  try sha256File scratch path finally IO.FS.removeFile path
 
 /-- Replace any earlier record before the ordinary audit starts. -/
 def invalidate (path : FilePath) : IO Unit :=
