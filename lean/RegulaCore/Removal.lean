@@ -231,6 +231,48 @@ theorem checked_linksPlaced : Regula.ExecutableContract linksPlaced (fun decide 
     ⟨⟨["/w/.lake/packages"], ["/w/.lake/packages"]⟩, by decide⟩
     ⟨⟨["/w/src/link"], ["/w/.lake/packages"]⟩, by decide⟩⟩
 
+/-! ## A symbolic link that a program placed
+
+A program that places a symbolic link in such a directory, as a copy of a project places the link
+to the packages directory of the original, admits it only when a symbolic link is there and it
+resolves to the target that the program meant (`requireLinkWith`). -/
+
+/-- What reads find at the path of a symbolic link that a program placed, and at the target that it
+meant: what is at the path by a read that follows no link there (`Place.ofType`), and the real paths
+of the path, which follows the link, and of the target. A real path is `none` when `realpath(3)`
+fails. -/
+structure PlacedLink where
+  /-- What is at the path of the link. -/
+  place : Place
+  /-- The real path of the path of the link. -/
+  real : Option FilePath
+  /-- The real path of the target that the program meant. -/
+  target : Option FilePath
+  deriving DecidableEq, Repr
+
+/-- Whether a symbolic link is at the path and resolves to the real path of the target. -/
+@[regula_decision]
+def linkPlaced (link : PlacedLink) : Bool :=
+  link.place == .present .link && link.real.isSome && link.real == link.target
+
+/-- The decision admits exactly a symbolic link whose real path is the target's. -/
+theorem linkPlaced_iff (link : PlacedLink) :
+    linkPlaced link = true ↔
+      link.place = .present .link ∧ ∃ real, link.real = some real ∧ link.target = some real := by
+  rcases link with ⟨place, _ | real, target⟩
+  · simp [linkPlaced]
+  · simp only [linkPlaced, Bool.and_eq_true, beq_iff_eq, Option.isSome_some, and_true,
+      Option.some.injEq, exists_eq_left']
+    exact ⟨fun ⟨h, e⟩ => ⟨h, e.symm⟩, fun ⟨h, e⟩ => ⟨h, e.symm⟩⟩
+
+/-- The decision contract of `linkPlaced`. -/
+theorem checked_linkPlaced : Regula.ExecutableContract linkPlaced (fun decide =>
+    Regula.Decides (· = true) (fun link : PlacedLink => link.place = .present .link ∧
+      ∃ real, link.real = some real ∧ link.target = some real) decide) :=
+  ⟨.of_iff linkPlaced_iff
+    ⟨⟨.present .link, some "/o/.lake/packages", some "/o/.lake/packages"⟩, by decide⟩
+    ⟨⟨.present .link, some "/outside", some "/o/.lake/packages"⟩, by decide⟩⟩
+
 /-! ## Observation -/
 
 /-- The name of the kind in a message. -/
@@ -352,6 +394,15 @@ def requirePlacedWith (ops : Ops m) (limit : Nat) (root : FilePath) (placed : Li
     let stray := (found.find? fun path => !placed.contains path).getD root
     throw (IO.userError s!"{stray} is a symbolic link or another kind of entry than a directory \
       and a file below {root}, and not one of the links placed there: {placed}")
+
+/-- Stop unless a symbolic link is at `link`, by a read that follows no link there, and its real
+path is the real path of `target`, as `linkPlaced` decides (`requireLinkWith_run`). -/
+def requireLinkWith (ops : Ops m) (link target : FilePath) : m Unit := do
+  let found ← entryType ops link
+  let real ← realOf ops link
+  let targetReal ← realOf ops target
+  unless linkPlaced { place := Place.ofType found, real, target := targetReal } do
+    throw (IO.userError s!"{link} is not a symbolic link to {target}")
 
 /-! ## Contracts in a model -/
 
@@ -669,6 +720,31 @@ theorem requirePlacedWith_run (M : Model) (reads : ReadsEntry M) (lists : ListsE
   · simp only [Bool.not_eq_true] at admitted
     simp only [admitted, Bool.false_eq_true, ↓reduceIte, run_throw, Satisfies]
 
+/-- A run of `requireLinkWith` changes nothing. When it succeeds, a symbolic link is at the link's
+path, and its real path is the real path of the target. -/
+theorem requireLinkWith_run (M : Model) (readsEntry : ReadsEntry M) (readsReal : ReadsReal M)
+    (link target : FilePath) (before : M.World) :
+    Satisfies ((requireLinkWith M.ops link target).run before)
+      (fun _ w => w = before ∧ M.entry before link = some .symlink ∧
+        ∃ real, M.real before link = some real ∧ M.real before target = some real)
+      (fun _ w => w = before) := by
+  simp only [requireLinkWith]
+  refine Satisfies.bind (entryType_run M readsEntry link before) ?_
+  rintro found w ⟨rfl, rfl⟩
+  refine Satisfies.bind ((realOf_run M readsReal link w).mono (fun _ _ h => h) nofun) ?_
+  rintro real w' ⟨rfl, rfl⟩
+  refine Satisfies.bind ((realOf_run M readsReal target w').mono (fun _ _ h => h) nofun) ?_
+  rintro targetReal w'' ⟨rfl, rfl⟩
+  by_cases admitted : linkPlaced
+      { place := Place.ofType (M.entry w'' link), real := M.real w'' link,
+        target := M.real w'' target } = true
+  · simp only [admitted, ↓reduceIte]
+    simp only [EStateM.run_pure, Satisfies]
+    obtain ⟨place, real, linked, targeted⟩ := (linkPlaced_iff _).mp admitted
+    exact ⟨trivial, (Place.ofType_present _ .link).mp place, real, linked, targeted⟩
+  · simp only [Bool.not_eq_true] at admitted
+    simp only [admitted, Bool.false_eq_true, ↓reduceIte, run_throw, Satisfies]
+
 /-! ## The operations in `IO` -/
 
 section IO
@@ -835,6 +911,33 @@ theorem requirePlacedWith_io (corresponds : Corresponds ops M view) (reads : Rea
       (fun _ s => s = view w) :=
   (requirePlacedWith_agrees corresponds limit root placed).transfer w
     (requirePlacedWith_run M reads lists limit root placed (view w))
+
+/-- `requireLinkWith` at operations that correspond to a model runs as `requireLinkWith` in the
+model. -/
+theorem requireLinkWith_agrees (corresponds : Corresponds ops M view) (link target : FilePath) :
+    Agrees view (requireLinkWith ops link target) (requireLinkWith M.ops link target) := by
+  refine Agrees.bind (entryType_agrees corresponds link) fun found => ?_
+  refine Agrees.bind (realOf_agrees corresponds link) fun real => ?_
+  refine Agrees.bind (realOf_agrees corresponds target) fun targetReal => ?_
+  by_cases admitted :
+      linkPlaced { place := Place.ofType found, real, target := targetReal } = true
+  · simp only [admitted, ↓reduceIte]
+    exact Agrees.pure view _
+  · simp only [Bool.not_eq_true] at admitted
+    simp only [admitted, Bool.false_eq_true, ↓reduceIte]
+    exact Agrees.throw view _
+
+/-- `requireLinkWith` in `IO`, at operations that correspond to a model, ends in a world read as
+the same state, and when it succeeds, a symbolic link is at the link's path, and its real path is
+the real path of the target (`requireLinkWith_run`). -/
+theorem requireLinkWith_io (corresponds : Corresponds ops M view) (readsEntry : ReadsEntry M)
+    (readsReal : ReadsReal M) (link target : FilePath) (w : Void IO.RealWorld) :
+    RunsTo view (requireLinkWith ops link target w)
+      (fun _ s => s = view w ∧ M.entry (view w) link = some .symlink ∧
+        ∃ real, M.real (view w) link = some real ∧ M.real (view w) target = some real)
+      (fun _ s => s = view w) :=
+  (requireLinkWith_agrees corresponds link target).transfer w
+    (requireLinkWith_run M readsEntry readsReal link target (view w))
 
 end IO
 

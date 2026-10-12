@@ -499,6 +499,11 @@ def atOwnPlace {m : Type → Type} [Monad m] [MonadExceptOf IO.Error m] (ops : O
     (path : FilePath) : m Bool :=
   tryCatchThe IO.Error (do return (← ops.realPath path) == path) fun _ => pure false
 
+/-- The real path of `path`, or `none` when `realpath(3)` fails. -/
+def realOf {m : Type → Type} [Monad m] [MonadExceptOf IO.Error m] (ops : Ops m)
+    (path : FilePath) : m (Option FilePath) :=
+  tryCatchThe IO.Error (do return some (← ops.realPath path)) fun _ => pure none
+
 /-- A run of `entryType` gives the model's entry at the path and changes nothing. When it fails,
 nothing changed. -/
 theorem entryType_run (M : Model) (reads : ReadsEntry M) (path : FilePath) (before : M.World) :
@@ -523,6 +528,18 @@ theorem atOwnPlace_run (M : Model) (reads : ReadsReal M) (path : FilePath) (befo
   revert h
   cases (M.ops.realPath path).run before with
   | ok real w => intro h; refine ⟨h.1, ?_⟩; rw [h.2]; simp [beq_iff_eq]
+  | error e w => intro h; simp_all [Satisfies]
+
+/-- A run of `realOf` never fails, changes nothing, and gives the model's real path of the path. -/
+theorem realOf_run (M : Model) (reads : ReadsReal M) (path : FilePath) (before : M.World) :
+    Satisfies ((realOf M.ops path).run before)
+      (fun found w => w = before ∧ found = M.real before path)
+      (fun _ _ => False) := by
+  have h := (triple_iff _ _ _ _).mp (reads path before) before rfl
+  simp only [realOf, run_tryCatch, EStateM.run_bind, EStateM.run_pure]
+  revert h
+  cases (M.ops.realPath path).run before with
+  | ok real w => intro h; exact ⟨h.1, h.2.symm⟩
   | error e w => intro h; simp_all [Satisfies]
 
 /-- `entryType` gives the model's entry at the path and changes nothing. When it fails, nothing
@@ -891,6 +908,12 @@ theorem atOwnPlace_agrees (corresponds : Corresponds ops M view) (path : FilePat
     Agrees view (atOwnPlace ops path) (atOwnPlace M.ops path) :=
   Agrees.tryCatch (Agrees.bind (corresponds.2.1 path) fun _ => Agrees.pure view _)
     fun _ => Agrees.pure view false
+
+/-- `realOf` at operations that correspond to a model runs as `realOf` in the model. -/
+theorem realOf_agrees (corresponds : Corresponds ops M view) (path : FilePath) :
+    Agrees view (realOf ops path) (realOf M.ops path) :=
+  Agrees.tryCatch (Agrees.bind (corresponds.2.1 path) fun _ => Agrees.pure view _)
+    fun _ => Agrees.pure view none
 
 /-- `sortEntries` at operations that correspond to a model runs as `sortEntries` in the model. -/
 theorem sortEntries_agrees (corresponds : Corresponds ops M view) :

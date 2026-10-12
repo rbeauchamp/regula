@@ -112,6 +112,101 @@ theorem checked_prebuildCovers : Regula.ExecutableContract prebuildCovers
     ⟨Lean.Json.mkObj [("surfaces", Lean.Json.arr #[])], by decide +kernel⟩
     ⟨Lean.Json.null, by decide +kernel⟩⟩
 
+
+/-! ## The walk of the copy -/
+
+section Walk
+
+variable {m : Type → Type} [Monad m] [MonadExceptOf IO.Error m]
+
+/-- The driver's read of an entry, at the read of operations, is `Regula.Filesystem.entryType`. -/
+theorem entryTypeWith_eq (ops : Regula.Filesystem.Ops m) :
+    entryTypeWith ops.symlinkMetadata = Regula.Filesystem.entryType ops := rfl
+
+/-- The driver's sort, at the read of operations, is `Regula.Filesystem.sortEntries`. -/
+theorem sortEntriesWith_eq (ops : Regula.Filesystem.Ops m) :
+    ∀ (entries : List IO.FS.DirEntry) (directories others : List System.FilePath),
+      sortEntriesWith ops.symlinkMetadata entries directories others =
+        Regula.Filesystem.sortEntries ops entries directories others
+  | [], _, _ => by simp only [sortEntriesWith, Regula.Filesystem.sortEntries]
+  | entry :: rest, directories, others => by
+    simp only [sortEntriesWith, Regula.Filesystem.sortEntries, entryTypeWith_eq,
+      sortEntriesWith_eq ops rest]
+    congr 1
+
+/-- The driver's listing, at the reads of operations, is `Regula.Filesystem.otherEntriesIn`. -/
+theorem otherEntriesInWith_eq (ops : Regula.Filesystem.Ops m) (root : System.FilePath) :
+    ∀ (limit : Nat) (directories others : List System.FilePath),
+      otherEntriesInWith ops.symlinkMetadata ops.readDir root limit directories others =
+        Regula.Filesystem.otherEntriesIn ops root limit directories others
+  | _, [], _ => by simp only [otherEntriesInWith, Regula.Filesystem.otherEntriesIn]
+  | 0, _ :: _, _ => by simp only [otherEntriesInWith, Regula.Filesystem.otherEntriesIn]
+  | limit + 1, directory :: rest, others => by
+    simp only [otherEntriesInWith, Regula.Filesystem.otherEntriesIn, sortEntriesWith_eq,
+      otherEntriesInWith_eq ops root limit]
+
+/-- The driver's walk, at the reads of operations, is `Regula.Filesystem.otherEntries`. -/
+theorem otherEntriesWith_eq (ops : Regula.Filesystem.Ops m) (limit : Nat)
+    (root : System.FilePath) :
+    otherEntriesWith ops.symlinkMetadata ops.readDir limit root =
+      Regula.Filesystem.otherEntries ops limit root := by
+  simp only [otherEntriesWith, Regula.Filesystem.otherEntries, entryTypeWith_eq,
+    otherEntriesInWith_eq]
+  congr 1
+
+/-- The driver's check, at the reads of operations, is `Regula.Removal.requirePlacedWith`. -/
+theorem requireLinksPlacedWith_eq (ops : Regula.Filesystem.Ops m) (limit : Nat)
+    (root : System.FilePath) (placed : List System.FilePath) :
+    requireLinksPlacedWith ops.symlinkMetadata ops.readDir limit root placed =
+      Regula.Removal.requirePlacedWith ops limit root placed := by
+  simp only [requireLinksPlacedWith, Regula.Removal.requirePlacedWith, otherEntriesWith_eq,
+    Regula.Removal.linksPlaced]
+  rfl
+
+end Walk
+
+/-- Operations whose two reads are the driver's: `System.FilePath.symlinkMetadata` and
+`System.FilePath.readDir`, and `IO.FS.realPath`. The driver's walk uses no other, so the other
+operations only fail. -/
+def readsOnly : Regula.Filesystem.Ops IO where
+  symlinkMetadata := System.FilePath.symlinkMetadata
+  realPath := IO.FS.realPath
+  removeDirAll := fun path => throw (IO.userError s!"{path}: the driver's walk removes nothing")
+  removeFile := fun path => throw (IO.userError s!"{path}: the driver's walk removes nothing")
+  rename := fun source _ => throw (IO.userError s!"{source}: the driver's walk moves nothing")
+  readDir := System.FilePath.readDir
+
+/-- `requireNoLinks` changes nothing, and when it succeeds from a world, no path of the listed tree
+of the root at that world (`Regula.Filesystem.Model.Listed`) is a symbolic link or another kind of
+entry than a directory and a file (`Regula.Filesystem.Model.NotPlain`), when the driver's reads
+satisfy `ReadsEntry` and `ListsEntries` at the model of their runs: it is
+`Regula.Removal.requirePlacedWith` at those reads (`requireLinksPlacedWith_eq`), and its contract
+in `IO` (`Regula.Removal.requirePlacedWith_io`) gives the rest. -/
+theorem requireNoLinks_io
+    (entry : Void IO.RealWorld → System.FilePath → Option IO.FS.FileType)
+    (real : Void IO.RealWorld → System.FilePath → Option System.FilePath)
+    (ident : Void IO.RealWorld → System.FilePath → Option Regula.Filesystem.FileId)
+    (names : Void IO.RealWorld → System.FilePath → List String)
+    (reads : Regula.Filesystem.ReadsEntry (.ofIO readsOnly entry real ident names))
+    (lists : Regula.Filesystem.ListsEntries (.ofIO readsOnly entry real ident names))
+    (root : System.FilePath) (w : Void IO.RealWorld) :
+    Regula.StateTriple.RunsTo id (requireNoLinks root w)
+      (fun _ s => s = w ∧ ∀ path, (Regula.Filesystem.Model.ofIO readsOnly entry real ident
+          names).Listed w root path →
+        ¬ (Regula.Filesystem.Model.ofIO readsOnly entry real ident names).NotPlain w path)
+      (fun _ s => s = w) := by
+  have holds := Regula.Removal.requirePlacedWith_io
+    (Regula.Filesystem.corresponds_ofIO readsOnly entry real ident names) reads lists
+    maxDirectories root [] w
+  rw [requireNoLinks, show requireLinksPlacedWith System.FilePath.symlinkMetadata
+      System.FilePath.readDir maxDirectories root [] =
+      requireLinksPlacedWith readsOnly.symlinkMetadata readsOnly.readDir maxDirectories root []
+      from rfl, requireLinksPlacedWith_eq]
+  revert holds
+  cases Regula.Removal.requirePlacedWith readsOnly maxDirectories root [] w with
+  | ok _ s => exact fun ⟨same, placed⟩ => ⟨same, fun path listed other =>
+      nomatch placed path listed other⟩
+  | error _ s => exact id
 attribute [regula_decision] parseMode dependencyFree select passed walked removal prebuildCovers
 
 end RegulaVerification

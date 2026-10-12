@@ -165,14 +165,13 @@ private def setup (repo adopter : FilePath) : IO Unit := do
     ("inherited", .bool false), ("type", .str "path"), ("dir", .str repo.toString)]
   writeJson (adopter / "lake-manifest.json") <| base.setObjVal! "packages" <|
     toJson (#[dependency] ++ packages.map (·.setObjVal! "inherited" (.bool true)))
-  IO.FS.createDirAll (adopter / ".lake")
-  let linked ← runProcess adopter "ln" #["-s", (repo / ".lake" / "packages").toString,
-    (adopter / ".lake" / "packages").toString]
-  unless linked.succeeded do throw <| IO.userError linked.output
+  let links ← Regula.Filesystem.placeDirectoryLink (repo / ".lake" / "packages")
+    (adopter / ".lake" / "packages")
   -- An adopter is a repository of its own, so `regula`, which it requires from this checkout, is
   -- a dependency in a different Git work tree, which the audit trusts, as an adopter's is.
   let initialized ← runProcess adopter "git" #["init", "-q"]
   unless initialized.succeeded do throw <| IO.userError initialized.output
+  Regula.Filesystem.requireLinksPlaced adopter links
 
 /-- Actual external adopter, single-fault mutations, and fresh source restoration.
 No mutation executes the fabricated extern body. -/

@@ -211,6 +211,7 @@ def check (group : String) : IO Unit := do
         false\nlinter.missingDocs = true\n[[require]]\nname = \"dep\"\npath = \
         \"../dependency\"\n[[lean_lib]]\nname = \"Example\"\n"
     IO.FS.writeFile (project / "Example.lean") "import Dep\n/-! Snapshot control. -/\n"
+    Regula.Filesystem.requireLinksPlaced scratch []
     success (← run project "lake" #["update"] cleanEnv)
     if group != "history" then
       manifest project "standard-logical"

@@ -558,22 +558,51 @@ command after it builds each library, and so does `diagnostics self-audit`. The 
 step does not operate it, because the acceptance of the claimed libraries does not rest on it.
 
 A program can make a copy of a project and operate Lake in it, as `Regula.Checker.Lake.copyProject`
-does. The copy writes the bytes of each file and follows each link of the project. Its only link is
-at the packages directory, to the directory of the original. Before the copy returns,
-`Regula.Filesystem.requireLinksPlaced` lists each directory below it. The check stops if it finds a
-link or an entry other than a directory or a file, except that link. Thus the removals of Lake in
-the copy reach nothing that the same command in the original could not reach.
+does. The copy writes the bytes of each file and follows each link of the project. It leaves out
+the packages directory that the manifest records, when that directory is in the project. The only
+link of the copy is at that directory, to the directory of the original.
 
-The gate `axiomGate` does the same check on the copy of the verification driver, before it loads
-that copy. The walk of the check reads no link and goes into no link. After a check that succeeds,
-each such entry in the listed tree is a placed link (`Regula.Removal.requirePlacedWith_run`). The
-theorem rests on `ReadsEntry` and on `ListsEntries`, the assumption that `readDir` lists each name
-in a directory. The decision `Regula.Removal.linksPlaced` compares the paths that the walk finds
-with the placed paths.
+The function `Regula.Filesystem.placeLink` makes that link, and it stops if something is at the
+place already. Thus a link that the project holds there cannot move the new link into its target.
+After `ln -s`, a read of the place that follows no link must find a symbolic link. The real path of
+the link must be the real path of the target (`Regula.Removal.linkPlaced`). The theorem
+`requireLinkWith_run` gives these facts under `ReadsEntry` and `ReadsReal`.
 
-The qualification programs also write workspaces of their own and operate Lake in them. Most link
-`.lake/packages` to the packages directory of the repository, and some link a program or a file of
-the toolchain. No check reads these workspaces at run time.
+Then `Regula.Filesystem.requireLinksPlaced` lists each directory below the copy. The check stops if
+it finds a link or an entry other than a directory or a file, except that link. Thus the removals
+of Lake in the copy reach nothing that the same command in the original could not reach. The walk
+of the check reads no link and goes into no link. After a check that succeeds, each such entry in
+the listed tree is a placed link (`Regula.Removal.requirePlacedWith_run`).
+
+The theorem rests on `ReadsEntry` and on `ListsEntries`, the assumption that `readDir` lists each
+name in a directory. The decision `Regula.Removal.linksPlaced` compares the paths that the walk
+finds with the placed paths.
+
+Each program that copies a tree or writes a workspace, and then operates Lake or an audit in it,
+makes the same check. It checks when the tree is complete, before the first Lake command in it. A
+named pipe there can block a read of Lake, and a link can move a removal of Lake out of the tree.
+The places are these:
+
+- `copyProject`, for each of its callers. The gate `axiomGate` checks its copy again after it adds
+  the Markdown of `--with-docs`.
+- The verification driver, after it copies the checkout and before its prebuild
+  (`RegulaVerification.requireNoLinks`). The gate checks that copy again before it loads it.
+- The qualification slot (`Regula.Qualification.Slot`), after `cp -R` copies the repository and
+  its build tree. That copy keeps each link and each named pipe.
+- The provisioning driver, after it copies a dependency into the store and before it builds Mathlib
+  in its staging directory. The copy may hold a link only where its source holds one.
+- Each workspace of the qualification programs and of the checker self-test. Each link there, to
+  `.lake/packages`, to a program or to the toolchain, is read back after `ln -s` makes it
+  (`placeLink`, `requireLinkTo`). Only those links pass.
+
+The two drivers cannot import the library, so each has its own copy of the walk and the check.
+The modules `RegulaVerification.Decisions` and `RegulaProvision.Decisions` prove that each copy is
+`Regula.Filesystem.otherEntries` and `Regula.Removal.requirePlacedWith` at any reads
+(`requireLinksPlacedWith_eq`).
+
+No check finds a program that copies a tree and leaves out the check. A check of the starts of
+`cp` and other processes belongs with the process observer of
+[issue 388](https://github.com/rbeauchamp/regula/issues/388).
 
 The loader `Regula.Checker.Workspace.withRootPackage` keeps its check of `.lake/config/0`
 (`Regula.Filesystem.requireNoLinkedEntries`). Lake and Lean open their files there for writing by
@@ -599,6 +628,11 @@ The module `Regula.RemovalControls` has controls of the check. It also walks tre
 named pipe and more directories than the bound, and the walk stops at each. It copies a project
 with a link, and the copy holds a directory there. A copy into a directory with a different link
 stops, and the target of the link is unchanged.
+
+The same module copies a project that holds a link at `.lake/packages`, and the copy stops before
+it makes its own link. It copies a project with a manifest that names `vendor` as its packages
+directory, and the copy has one link there, to the original. The function `placeLink` stops at a
+place that holds an entry and for a target that is absent.
 
 The module `Regula.ProgramCheck.Controls` adds a `main` that removes a file with the removal
 function of the library, and the check refuses it. It also adds a `main` that removes the file
@@ -1322,7 +1356,8 @@ Two-way decisions (`Regula.Decides`), each with an accepted and a refused input:
 | `RegulaVerification.removal` (accepts on `.remove`) | A directory is at the place by a read that follows no link, and its real path is the place (`removal_remove_iff`). | The driver removes its copy and the `_site` directory only by this decision. The two reads of the file system are trusted. |
 | `Regula.Removal.removal` (accepts on `.remove`) | A read that follows no link finds an entry of the given kind at the place. Its real path is the place, or a symbolic link is a name in a directory at its own place (`removal_remove_iff`). | Each program of the package removes a directory, a file or a symbolic link only by this decision, through `Regula.Filesystem`. The reads of the file system are trusted. |
 | `Regula.Removal.replacement` (accepts on `true`) | A read that follows no link finds a file at the source, at its own place. Nothing is at the destination, or a file is there at its own place. The destination is a name in a directory at its own place (`replacement_iff`). | Each program of the package moves a file only by this decision, through `Regula.Filesystem`. The reads of the file system are trusted. |
-| `Regula.Removal.linksPlaced` (accepts on `true`) | Each path that the walk found is one of the placed links (`linksPlaced_iff`). | `Regula.Removal.requirePlacedWith` uses it, through `Regula.Filesystem.requireLinksPlaced`, after `copyProject` makes a copy and before `axiomGate` loads the copy of the driver. The walk lists each link and each entry other than a directory or a file below the copy, under `ReadsEntry` and `ListsEntries` (`requirePlacedWith_run`). |
+| `Regula.Removal.linksPlaced` (accepts on `true`) | Each path that the walk found is one of the placed links (`linksPlaced_iff`). | `Regula.Removal.requirePlacedWith` uses it, through `Regula.Filesystem.requireLinksPlaced`, after a program copies a tree or writes a workspace and before Lake runs in it. The two drivers use their own copies of it, which `requireLinksPlacedWith_eq` relates to it. The walk lists each link and each entry other than a directory or a file below the tree, under `ReadsEntry` and `ListsEntries` (`requirePlacedWith_run`). |
+| `Regula.Removal.linkPlaced` (accepts on `true`) | A read that follows no link finds a symbolic link at the place, and the place and the target have the same real path (`linkPlaced_iff`). | `Regula.Removal.requireLinkWith` uses it, through `Regula.Filesystem.placeLink`, after `ln -s` makes a link in a copy or a workspace. The reads are trusted (`ReadsEntry`, `ReadsReal`, `requireLinkWith_run`). |
 | `RegulaVerification.prebuildCovers` | The surface manifest has the shape that `claimedTargets` reads, and each target it claims is in `gateTargets` (`prebuildCovers_iff`). | The driver runs the first acceptance step only on such a manifest. Thus the gate does not build a claimed target beside the step's build. No theorem relates `claimedTargets` to the manifest reader of the checker. |
 | `ScratchCopy.name?` (accepts on `some`) | The path is the scratch area, then one name, then `project` (`name?_eq_some_iff`). | The gate admits a copy of the driver only at such a path. The components come from real paths, which the file system gives. |
 | `ScratchCopy.inside` | The path is the directory with one or more components after it (`inside_iff`). | The gate requires its own executable in the build directory of a copy of the driver. |

@@ -1626,12 +1626,14 @@ private def compilerGuard (repo project : FilePath) : IO (Array String) := do
     | throw <| IO.userError "lake-lint: the compiler-guard control found no `true` on PATH"
   let load (env : Array (String × Option String)) : IO ProcessResult :=
     runProcess project "lake" #["check-lint"] (scrubbedLeanPathEnv ++ env)
+  -- The links that the control places: each stand-in `lean`, which it checks after placing it.
+  let leans := ["failing-child", "unidentified-child"].map fun (label : String) =>
+    project / label / "bin" / "lean"
   let refused (label : String) (program : FilePath) (branch : String) : IO (Array String) := do
     let sysroot := project / label
     let lean := sysroot / "bin" / "lean"
-    IO.FS.createDirAll (sysroot / "bin")
-    let linked ← runProcess project "ln" #["-s", program.toString, lean.toString]
-    if !linked.succeeded then throw <| IO.userError linked.output
+    Regula.Filesystem.placeLink program lean
+    Regula.Filesystem.requireLinksPlaced project leans
     assess { label := s!"guard/{label}", exitCode := 1, contains := #[lean.toString, branch] }
       (← load #[("LEAN_SYSROOT", some sysroot.toString)])
   let failing ← refused "failing-child" ((← Lean.findSysroot) / "bin" / "lake")

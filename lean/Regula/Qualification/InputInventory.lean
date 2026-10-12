@@ -83,6 +83,7 @@ def check : IO Unit := do
     IO.FS.writeFile (project / "Example.lean") "/-! Empty declared surface. -/\n"
     IO.FS.writeFile (project / "lakefile.lean") lakefile
     manifest project "kernel-only"
+    Regula.Filesystem.requireLinksPlaced scratch []
     success (← run project "lake" #["update"] cleanEnv)
     let record := scratch / "build.json"
     let addedSource := scratch / "New.lean"

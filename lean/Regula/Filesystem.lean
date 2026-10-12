@@ -20,8 +20,8 @@ private observation of issue 261.
 
 The observer's reads are public: `ownPath` checks a place before a program makes something there,
 `requireOwnDirectory` and `requireNoLinkedEntries` check a place before a program loads something
-there, and `requireLinksPlaced` checks that a directory that a program made holds no symbolic link
-but those it placed.
+there, `requireLinksPlaced` checks that a directory that a program made holds no symbolic link but
+those it placed, and `requireLinkTo` checks a link that it placed (`placeLink`).
 
 Each operation is `@[noinline]`, so its call of the library's operation stays in its own compiled
 code and is not copied into a caller's. On Windows, Lean 4.34.1's
@@ -188,6 +188,35 @@ def requireLinksPlaced (root : FilePath) (placed : List FilePath)
     (limit : Nat := maxDirectories) : IO Unit :=
   requirePlacedWith observer limit root placed
 
+/-- Stop unless a symbolic link is at `link`, by a read that follows no link there, and its real
+path is the real path of `target`: `Regula.Removal.requireLinkWith` at the observer
+(`observer_requireLinkTo`). -/
+def requireLinkTo (link target : FilePath) : IO Unit :=
+  requireLinkWith observer link target
+
+/-- Place a symbolic link at `link` to `target` in a directory that the program made: stop when
+anything is at `link` by a read that follows no link there, make the parent directories, run
+`ln -s`, and stop unless a symbolic link is then at `link` whose real path is the real path of
+`target` (`requireLinkTo`). So a link that was at `link` before, and a link that `ln` made inside a
+directory at `link`, are refused. `ln` is trusted to make one link and change nothing else. A
+caller passes each link that this placed to `requireLinksPlaced` once its directory is complete. -/
+def placeLink (target link : FilePath) : IO Unit := do
+  if let some _ ← entryType observer link then
+    throw <| IO.userError s!"could not place a symbolic link at {link}: something is there"
+  if let some parent := link.parent then IO.FS.createDirAll parent
+  let made ← IO.Process.output { cmd := "ln", args := #["-s", target.toString, link.toString] }
+  unless made.exitCode == 0 do
+    throw <| IO.userError s!"could not place a symbolic link at {link}: {made.stderr}"
+  requireLinkTo link target
+
+/-- `placeLink` when a directory is at `target`, giving the link it placed, or nothing, giving no
+link, when none is there: a workspace links the packages directory of another only when it has
+one. -/
+def placeDirectoryLink (target link : FilePath) : IO (List FilePath) := do
+  unless ← target.isDir do return []
+  placeLink target link
+  return [link]
+
 /-- Stop unless nothing is at `path` or a directory is there at its own place, by the observation
 that `removeOwn` makes. These are the places on which `removal .directory` does not refuse
 (`removal_remove_iff`, `removal_nothing_iff`), so a symbolic link, a file and a path through a
@@ -313,6 +342,20 @@ theorem observer_requireLinksPlaced (readsEntry : ReadsEntry (observed entry rea
       (fun _ s => s = w) :=
   requirePlacedWith_io (corresponds_ofIO observer entry real ident names) readsEntry lists limit
     root placed w
+
+/-- `requireLinkTo` changes nothing, and when it succeeds from a world, a symbolic link is at the
+link's path at that world, and its real path is the real path of the target, when the observer
+satisfies `ReadsEntry` and `ReadsReal` (`Regula.Removal.requireLinkWith_run`). -/
+theorem observer_requireLinkTo (readsEntry : ReadsEntry (observed entry real ident names))
+    (readsReal : ReadsReal (observed entry real ident names)) (link target : FilePath)
+    (w : Void IO.RealWorld) :
+    RunsTo id (requireLinkTo link target w)
+      (fun _ s => s = w ∧ (observed entry real ident names).entry w link = some .symlink ∧
+        ∃ resolved, (observed entry real ident names).real w link = some resolved ∧
+          (observed entry real ident names).real w target = some resolved)
+      (fun _ s => s = w) :=
+  requireLinkWith_io (corresponds_ofIO observer entry real ident names) readsEntry readsReal link
+    target w
 
 end Observer
 

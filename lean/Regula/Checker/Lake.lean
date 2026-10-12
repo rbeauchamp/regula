@@ -439,6 +439,17 @@ structure ProjectCopy where
   /-- What the copy's Lake load must select: the original's selection, with an owned package's
   directory relocated into the copy. -/
   selection : CopySelection
+  /-- The directory that the copy was made in, which `copyProject` walks (its `exclude`). -/
+  walked : FilePath
+  /-- The links that the copy placed below `walked`: the link at its packages directory, if any. -/
+  links : List FilePath
+
+/-- Stop unless the directory that the copy was made in holds no symbolic link or other kind of
+entry than a directory and a file but the links that the copy placed
+(`Regula.Filesystem.requireLinksPlaced`): `copyProject`'s own last check, again, for a caller
+that adds files to the copy before Lake runs there. -/
+def ProjectCopy.requireLinksPlaced (copy : ProjectCopy) : IO Unit :=
+  Regula.Filesystem.requireLinksPlaced copy.walked copy.links
 
 /-- The real directory that Lake's load of the copy at `project` gives the manifest entry `entry`
 when no override replaces it, as `Lake.PackageEntry.materialize` computes it (Lake
@@ -503,10 +514,12 @@ copy's manifest would not load as the original's load does is given an override
 `../.lake/packages`, is linked at the same relative place from the copied project, which must lie
 inside `exclude`.
 
-The copy writes each file's bytes and follows each symbolic link of the project, so the only link
-it makes is the one at the packages directory, to the original's. Before it returns, it stops
-unless `exclude`, at any depth, holds no symbolic link or other kind of entry than a directory and
-a file except that link (`Regula.Filesystem.requireLinksPlaced`, `observer_requireLinksPlaced`).
+The copy writes each file's bytes and follows each symbolic link of the project, and it leaves out
+the packages directory that the manifest records, so the only link it makes is the one that it
+places there, to the original's (`Regula.Filesystem.placeLink`: nothing may be there before, and
+a symbolic link to the original's must be there after). Before it returns, it stops unless
+`exclude`, at any depth, holds no symbolic link or other kind of entry than a directory and a file
+except that link (`Regula.Filesystem.requireLinksPlaced`, `observer_requireLinksPlaced`).
 So Lake's removals in the copy reach nothing that the same command in the original could not
 (`Regula.Removal.libraryRemovals`). -/
 def copyProject (repo target exclude : FilePath) : IO ProjectCopy := do
@@ -523,6 +536,16 @@ def copyProject (repo target exclude : FilePath) : IO ProjectCopy := do
     (dir.normalize.components.drop base.length).foldl (· / FilePath.mk ·) target
   let excludeComponents := exclude.normalize.components
   let excludeReal := (← IO.FS.realPath exclude).normalize.components
+  -- The packages directory that the manifest records, read through Lake's own field, is pruned
+  -- from the copy, so its link is placed where nothing is (`placeLink`). A relative one is
+  -- resolved lexically from the project; one that holds the project is not pruned.
+  let packagesDir := ((← _root_.Lake.Manifest.load? (repo / "lake-manifest.json")).bind
+    (·.packagesDir?)).getD _root_.Lake.defaultPackagesDir
+  let rootComponents := root.normalize.components
+  let packagesSource := (if packagesDir.isAbsolute then some packagesDir.normalize.components else
+      joinWithin (rootComponents.take 1)
+        (rootComponents.drop 1 ++ packagesDir.normalize.components)).filter
+    fun resolved => !resolved.isPrefixOf rootComponents
   -- Exclusion is closed under descendants. Prune before traversal: filtering
   -- afterwards still visits dependency checkouts and every prior scratch copy.
   -- VCS data, Lake build state, artifact caches and the checker's scratch
@@ -546,6 +569,7 @@ def copyProject (repo target exclude : FilePath) : IO ProjectCopy := do
       let components := path.normalize.components
       !excludeComponents.isPrefixOf components && !excludeReal.isPrefixOf components &&
         !tmpDirectory.isPrefixOf components &&
+        !packagesSource.any (·.isPrefixOf components) &&
         !others.any (fun other => other.length > sourceComponents.length &&
           other.isPrefixOf components) &&
         !(components.drop sourceComponents.length).any prunedAnywhere
@@ -562,8 +586,6 @@ def copyProject (repo target exclude : FilePath) : IO ProjectCopy := do
         IO.FS.writeBinFile destination (← IO.FS.readBinFile path)
   let project := place root
   IO.FS.createDirAll project
-  let packagesDir := ((← _root_.Lake.Manifest.load? (repo / "lake-manifest.json")).bind
-    (·.packagesDir?)).getD _root_.Lake.defaultPackagesDir
   let packages := repo / packagesDir
   let placed ← if !(← packages.isDir) then pure [] else do
     let projectComponents := project.normalize.components
@@ -577,11 +599,7 @@ def copyProject (repo target exclude : FilePath) : IO ProjectCopy := do
       | throw <| IO.userError s!"could not link pinned Lake packages: the packages directory \
           {packagesDir} is not a relative path that stays inside {exclude} from the copy"
     let link : FilePath := System.mkFilePath linkComponents
-    if let some parent := link.parent then IO.FS.createDirAll parent
-    let linked ← runProcess project "ln" #["-s", (← IO.FS.realPath packages).toString,
-      link.toString]
-    if !linked.succeeded then
-      throw <| IO.userError s!"could not link pinned Lake packages: {linked.output}"
+    Regula.Filesystem.placeLink (← IO.FS.realPath packages) link
     -- The link spelled as the walk below spells it, from `exclude`.
     pure [(linkComponents.drop excludeComponents.length).foldl (· / FilePath.mk ·) exclude]
   let placeOf (dir : FilePath) : IO FilePath := do
@@ -591,7 +609,7 @@ def copyProject (repo target exclude : FilePath) : IO ProjectCopy := do
     return (dependency, ← if dependency.owned then placeOf dependency.root else pure dependency.root)
   relocateDependencies project dependencies
   Regula.Filesystem.requireLinksPlaced exclude placed
-  return { project, root := ← IO.FS.realPath target
+  return { project, root := ← IO.FS.realPath target, walked := exclude, links := placed
            selection := {
              root := original.targets
              dependencies := dependencies.map fun (dependency, dir) =>

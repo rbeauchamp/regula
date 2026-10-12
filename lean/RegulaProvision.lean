@@ -410,8 +410,102 @@ private def installLink (path : FilePath) (target : String) : IO Unit := do
     if (← kind? staged) matches some _ then IO.FS.removeFile staged
     throw error
 
+
+/-! ## The entries of a staged directory other than directories and files
+
+The walk of `Regula.Filesystem.otherEntries` and the check of `Regula.Removal.requirePlacedWith`,
+written over the two reads they use, since this module cannot import them.
+`RegulaProvision.Decisions` proves that at operations with these reads they are those
+definitions (`requireLinksPlacedWith_eq`), so the contract of `requirePlacedWith` in `IO` holds of
+`requireLinksPlaced` under `ReadsEntry` and `ListsEntries` (`requireLinksPlaced_io`). -/
+
+/-- The type of the entry at `path`, by a read that follows no link at `path` itself, or `none` when
+nothing is there. Any other failure of the read is thrown. -/
+def entryTypeWith {m : Type → Type} [Monad m] [MonadExceptOf IO.Error m]
+    (symlinkMetadata : System.FilePath → m IO.FS.Metadata) (path : System.FilePath) :
+    m (Option IO.FS.FileType) :=
+  tryCatchThe IO.Error (do return some (← symlinkMetadata path).type) fun
+    | .noFileOrDirectory .. => pure none
+    | error => throw error
+
+/-- Sort `entries` by what a read that follows no link finds at the path of each: a directory is
+added to `directories`, a symbolic link or another kind of entry than a directory and a file to
+`others`, and a file or nothing is left out. -/
+def sortEntriesWith {m : Type → Type} [Monad m] [MonadExceptOf IO.Error m]
+    (symlinkMetadata : System.FilePath → m IO.FS.Metadata) :
+    List IO.FS.DirEntry → List System.FilePath → List System.FilePath →
+      m (List System.FilePath × List System.FilePath)
+  | [], directories, others => pure (directories, others)
+  | entry :: rest, directories, others => do
+    match ← entryTypeWith symlinkMetadata entry.path with
+    | some .dir => sortEntriesWith symlinkMetadata rest (entry.path :: directories) others
+    | some .symlink | some .other =>
+      sortEntriesWith symlinkMetadata rest directories (entry.path :: others)
+    | some .file | none => sortEntriesWith symlinkMetadata rest directories others
+
+/-- List each directory of `directories`, and each directory that a listing finds below them at any
+depth, and add to `others` each path that a listing finds that is a symbolic link or another kind
+of entry than a directory and a file. It lists at most `limit` directories, and fails, naming
+`root`, when one more is left to list. -/
+def otherEntriesInWith {m : Type → Type} [Monad m] [MonadExceptOf IO.Error m]
+    (symlinkMetadata : System.FilePath → m IO.FS.Metadata)
+    (readDir : System.FilePath → m (Array IO.FS.DirEntry)) (root : System.FilePath) :
+    Nat → List System.FilePath → List System.FilePath → m (List System.FilePath)
+  | _, [], others => pure others
+  | 0, _ :: _, _ =>
+    throw (IO.userError s!"{root} has more directories below it than the walk lists")
+  | limit + 1, directory :: rest, others => do
+    let (directories, others) ←
+      sortEntriesWith symlinkMetadata (← readDir directory).toList rest others
+    otherEntriesInWith symlinkMetadata readDir root limit directories others
+
+/-- Each path below `root`, and `root` itself, that is a symbolic link or another kind of entry
+than a directory and a file, by reads that follow no link, listing at most `limit` directories. -/
+def otherEntriesWith {m : Type → Type} [Monad m] [MonadExceptOf IO.Error m]
+    (symlinkMetadata : System.FilePath → m IO.FS.Metadata)
+    (readDir : System.FilePath → m (Array IO.FS.DirEntry)) (limit : Nat)
+    (root : System.FilePath) : m (List System.FilePath) := do
+  match ← entryTypeWith symlinkMetadata root with
+  | some .dir => otherEntriesInWith symlinkMetadata readDir root limit [root] []
+  | some .symlink | some .other => pure [root]
+  | some .file | none => pure []
+
+/-- Stop unless each path that `otherEntriesWith` finds below `root` is one of `placed`. -/
+def requireLinksPlacedWith {m : Type → Type} [Monad m] [MonadExceptOf IO.Error m]
+    (symlinkMetadata : System.FilePath → m IO.FS.Metadata)
+    (readDir : System.FilePath → m (Array IO.FS.DirEntry)) (limit : Nat)
+    (root : System.FilePath) (placed : List System.FilePath) : m Unit := do
+  let found ← otherEntriesWith symlinkMetadata readDir limit root
+  unless found.all (· ∈ placed) do
+    let stray := (found.find? fun path => !placed.contains path).getD root
+    throw (IO.userError s!"{stray} is a symbolic link or another kind of entry than a directory \
+      and a file below {root}, and not one of the links placed there: {placed}")
+
+/-- The bound on the number of directories that the walk of a staged directory lists. -/
+def maxDirectories : Nat := 10_000_000
+
+/-- Stop unless each path below `root`, and `root` itself, that is a symbolic link or another kind
+of entry than a directory and a file is one of `placed`, by Lean's reads, which follow no link
+(`requireLinksPlaced_io`). -/
+def requireLinksPlaced (root : FilePath) (placed : List FilePath) : IO Unit :=
+  requireLinksPlacedWith System.FilePath.symlinkMetadata System.FilePath.readDir maxDirectories
+    root placed
+
+/-- The paths below `copy` at which `source` has a symbolic link, by Lean's reads, which follow no
+link: each such path of `source` at the same place below `copy`. A named pipe or another kind of
+entry than a directory, a file and a link is admitted at no place. -/
+def linksAt (source copy : FilePath) : IO (List FilePath) := do
+  let found ← otherEntriesWith System.FilePath.symlinkMetadata System.FilePath.readDir
+    maxDirectories source
+  let links ← found.filterM fun path =>
+    return (← entryTypeWith System.FilePath.symlinkMetadata path) == some .symlink
+  return links.map fun path =>
+    (path.components.drop source.components.length).foldl (· / FilePath.mk ·) copy
+
 /-- Install a writable copy-on-write clone of `source` at the absent `path`. `cp -c` asks for
-APFS clones; elsewhere the plain recursive copy is the fallback. -/
+APFS clones; elsewhere the plain recursive copy is the fallback. It stops, with the clone
+removed, if the clone holds a symbolic link where `source` holds none, or another kind of entry
+than a directory, a file and a link (`requireLinksPlaced`, `linksAt`). -/
 private def installClone (path source : FilePath) : IO Unit := do
   let some parent := path.parent | throw <| IO.userError s!"provisioning: {path} has no parent"
   let staged := parent / s!".{path.fileName.getD "clone"}.{← nonce}"
@@ -420,6 +514,11 @@ private def installClone (path source : FilePath) : IO Unit := do
     if (← kind? staged) matches some .dir then IO.FS.removeDirAll staged
     let _ ← require parent "cp" #["-R", "-p", source.toString, staged.toString]
   let _ ← require parent "chmod" #["-R", "u+w", staged.toString]
+  -- The clone holds a symbolic link only where `source` has one, and no other kind of entry.
+  try requireLinksPlaced staged (← linksAt source staged)
+  catch error =>
+    IO.FS.removeDirAll staged
+    throw error
   -- The clone's files are new inodes; refresh the index so Lake's `git diff` stays cheap.
   let _ ← run staged "git" #["update-index", "-q", "--refresh"]
   try IO.FS.rename staged path
@@ -554,6 +653,8 @@ private def create (repo parent final : FilePath) (key : String) (manifest : Jso
     |>.setObjVal! "packages" (.arr (pins.git.map (·.1)))).pretty ++ "\n")
   IO.FS.writeFile (staging / "lean-toolchain") (← IO.FS.readFile (repo / "lean-toolchain"))
   try
+    -- The staging directory holds only the files written here before Lake runs in it.
+    requireLinksPlaced staging []
     let githash := (← require staging "lean" #["--githash"]).trimAscii.toString
     unless githash == Lean.githash do
       throw <|

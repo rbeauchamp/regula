@@ -1009,6 +1009,86 @@ def copyTree (root target : System.FilePath) : IO (List String) := do
       written := written.push ("/".intercalate relative)
   return written.toList
 
+/-! ## The entries of the copy other than directories and files
+
+The walk of `Regula.Filesystem.otherEntries` and the check of `Regula.Removal.requirePlacedWith`,
+written over the two reads they use, since this module cannot import them.
+`RegulaVerification.Decisions` proves that at operations with these reads they are those
+definitions (`requireLinksPlacedWith_eq`), so the contract of `requirePlacedWith` in `IO` holds of
+`requireNoLinks` under `ReadsEntry` and `ListsEntries` (`requireNoLinks_io`). -/
+
+/-- The type of the entry at `path`, by a read that follows no link at `path` itself, or `none` when
+nothing is there. Any other failure of the read is thrown. -/
+def entryTypeWith {m : Type → Type} [Monad m] [MonadExceptOf IO.Error m]
+    (symlinkMetadata : System.FilePath → m IO.FS.Metadata) (path : System.FilePath) :
+    m (Option IO.FS.FileType) :=
+  tryCatchThe IO.Error (do return some (← symlinkMetadata path).type) fun
+    | .noFileOrDirectory .. => pure none
+    | error => throw error
+
+/-- Sort `entries` by what a read that follows no link finds at the path of each: a directory is
+added to `directories`, a symbolic link or another kind of entry than a directory and a file to
+`others`, and a file or nothing is left out. -/
+def sortEntriesWith {m : Type → Type} [Monad m] [MonadExceptOf IO.Error m]
+    (symlinkMetadata : System.FilePath → m IO.FS.Metadata) :
+    List IO.FS.DirEntry → List System.FilePath → List System.FilePath →
+      m (List System.FilePath × List System.FilePath)
+  | [], directories, others => pure (directories, others)
+  | entry :: rest, directories, others => do
+    match ← entryTypeWith symlinkMetadata entry.path with
+    | some .dir => sortEntriesWith symlinkMetadata rest (entry.path :: directories) others
+    | some .symlink | some .other =>
+      sortEntriesWith symlinkMetadata rest directories (entry.path :: others)
+    | some .file | none => sortEntriesWith symlinkMetadata rest directories others
+
+/-- List each directory of `directories`, and each directory that a listing finds below them at any
+depth, and add to `others` each path that a listing finds that is a symbolic link or another kind
+of entry than a directory and a file. It lists at most `limit` directories, and fails, naming
+`root`, when one more is left to list. -/
+def otherEntriesInWith {m : Type → Type} [Monad m] [MonadExceptOf IO.Error m]
+    (symlinkMetadata : System.FilePath → m IO.FS.Metadata)
+    (readDir : System.FilePath → m (Array IO.FS.DirEntry)) (root : System.FilePath) :
+    Nat → List System.FilePath → List System.FilePath → m (List System.FilePath)
+  | _, [], others => pure others
+  | 0, _ :: _, _ =>
+    throw (IO.userError s!"{root} has more directories below it than the walk lists")
+  | limit + 1, directory :: rest, others => do
+    let (directories, others) ←
+      sortEntriesWith symlinkMetadata (← readDir directory).toList rest others
+    otherEntriesInWith symlinkMetadata readDir root limit directories others
+
+/-- Each path below `root`, and `root` itself, that is a symbolic link or another kind of entry
+than a directory and a file, by reads that follow no link, listing at most `limit` directories. -/
+def otherEntriesWith {m : Type → Type} [Monad m] [MonadExceptOf IO.Error m]
+    (symlinkMetadata : System.FilePath → m IO.FS.Metadata)
+    (readDir : System.FilePath → m (Array IO.FS.DirEntry)) (limit : Nat)
+    (root : System.FilePath) : m (List System.FilePath) := do
+  match ← entryTypeWith symlinkMetadata root with
+  | some .dir => otherEntriesInWith symlinkMetadata readDir root limit [root] []
+  | some .symlink | some .other => pure [root]
+  | some .file | none => pure []
+
+/-- Stop unless each path that `otherEntriesWith` finds below `root` is one of `placed`. -/
+def requireLinksPlacedWith {m : Type → Type} [Monad m] [MonadExceptOf IO.Error m]
+    (symlinkMetadata : System.FilePath → m IO.FS.Metadata)
+    (readDir : System.FilePath → m (Array IO.FS.DirEntry)) (limit : Nat)
+    (root : System.FilePath) (placed : List System.FilePath) : m Unit := do
+  let found ← otherEntriesWith symlinkMetadata readDir limit root
+  unless found.all (· ∈ placed) do
+    let stray := (found.find? fun path => !placed.contains path).getD root
+    throw (IO.userError s!"{stray} is a symbolic link or another kind of entry than a directory \
+      and a file below {root}, and not one of the links placed there: {placed}")
+
+/-- The bound on the number of directories that the walk of the copy lists. -/
+def maxDirectories : Nat := 10_000_000
+
+/-- Stop unless `root` holds, at any depth, only directories and files, by reads that follow no
+link (`requireNoLinks_io`). The driver's copy follows each link of the project and places none
+(`copyTree`), so this checks that nothing else made one there before Lake runs in it. -/
+def requireNoLinks (root : System.FilePath) : IO Unit :=
+  requireLinksPlacedWith System.FilePath.symlinkMetadata System.FilePath.readDir maxDirectories
+    root []
+
 /-- The copy of the project that the first acceptance step builds and audits. -/
 structure Copy where
   /-- The scratch directory that holds the copy, by its real path. -/
@@ -1062,9 +1142,11 @@ def reclaim (area : System.FilePath) : BaseIO Unit := do
 `Regula.Scratch.withScratch` in its order. When the lock of the checker's scratch area can be
 taken exclusively, no scratch owner lives, and the marked directories are removed first
 (`reclaim`). Then: take the shared lock of the area, create the ownership marker of a new name
-exclusively, create the directory of that name, which must not exist, and copy the project into
-its directory `project` (`copyTree`). So the checker's reclamation and that of a later driver
-remove the directory of a driver that died, and remove none while this driver holds the lock.
+exclusively, create the directory of that name, which must not exist, copy the project into its
+directory `project` (`copyTree`), and stop unless the copy holds only directories and files
+(`requireNoLinks`), before the prebuild runs Lake in it. So the checker's reclamation and that of
+a later driver remove the directory of a driver that died, and remove none while this driver
+holds the lock.
 The copy has no `.lake`, so it has no build output.
 
 After a reclamation the exclusive lock is converted to the shared one without an `unlock`
@@ -1094,6 +1176,7 @@ def makeCopy (root : System.FilePath) : IO Copy := do
   IO.FS.createDir scratch
   let project := scratch / "project"
   let files ← copyTree root project
+  requireNoLinks project
   let pending := scratch / "acceptance-link.pending.json"
   let record ← IO.FS.Handle.mk pending .writeNew
   record.putStr incompleteLink
