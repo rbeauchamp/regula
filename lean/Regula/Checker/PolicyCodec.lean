@@ -304,7 +304,10 @@ decreasing_by all_goals omega
 end
 
 /-- Parse `text` as exactly one JSON value surrounded only by whitespace, rejecting an object
-with a repeated key; an error names what failed to parse. -/
+with a repeated key; an error names what failed to parse. Its stack depth grows with the nesting
+of the text, not with the length of an array, an object or a string: `skipWs`, `strCore`,
+`natCore`, `natCoreNumDigits`, `chars`, `array` and `object` call themselves last, which the
+pinned compiler emits as a jump. -/
 def parse (text : String) : Except String Json :=
   Parser.run (do ws; let j ← value; eof; return j) text
 
@@ -375,8 +378,11 @@ end
 
 /-- The compact JSON text of `j`: no whitespace, object members in the order of their tree. It
 replaces Lean's `Json.compress`, which is `partial` (`Lean/Data/Json/Printer.lean:167`,
-v4.34.1), so that `JsonRoundTrip` can state what `parse` returns for the text; the text is the
-same except a number with a positive exponent (`numberText`). -/
+v4.34.1), so that `JsonRoundTrip` can state what `parse` returns for the text. It follows
+`Json.compress` except for a number with a positive exponent (`numberText`); that the texts are
+otherwise equal is not proved. Its stack depth grows with the nesting of `j` and the height of its
+object trees, not with the length of an array or a string: `elemsTo`, the string fold and the right
+subtree of `fieldsTo` are calls the pinned compiler emits as jumps. -/
 def compress (j : Json) : String := printTo "" j
 
 /-! ### Exact fields -/

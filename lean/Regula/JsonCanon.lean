@@ -146,6 +146,41 @@ def insertMember (member : String × Json) : List (String × Json) → List (Str
     | .eq => member :: rest
     | .gt => next :: insertMember member rest
 
+/-- `insertMember` with the members before the place kept in reverse order in `before`. It calls
+itself last, so its stack depth does not grow with the number of members. -/
+def insertMemberTR (member : String × Json) (before : List (String × Json)) :
+    List (String × Json) → List (String × Json)
+  | [] => before.reverseAux [member]
+  | next :: rest =>
+    match compare member.1 next.1 with
+    | .lt => before.reverseAux (member :: next :: rest)
+    | .eq => before.reverseAux (member :: rest)
+    | .gt => insertMemberTR member (next :: before) rest
+
+theorem insertMemberTR_eq (member : String × Json) (before sorted : List (String × Json)) :
+    insertMemberTR member before sorted = before.reverseAux (insertMember member sorted) := by
+  induction sorted generalizing before with
+  | nil => rfl
+  | cons next rest step =>
+    simp only [insertMemberTR, insertMember]
+    split
+    · rfl
+    · rfl
+    · rw [step]
+      rfl
+
+/-- `insertMember` as the compiled code runs it (`insertMember_eq_insertMemberImpl`). -/
+def insertMemberImpl (member : String × Json) (sorted : List (String × Json)) :
+    List (String × Json) :=
+  insertMemberTR member [] sorted
+
+/-- The compiled code runs `insertMemberImpl` for `insertMember`, whose stack depth does not grow
+with the number of members. -/
+@[csimp] theorem insertMember_eq_insertMemberImpl : @insertMember = @insertMemberImpl := by
+  funext member sorted
+  rw [insertMemberImpl, insertMemberTR_eq]
+  rfl
+
 /-- The members with their names going up: the list itself when its names already go up, and
 otherwise each member put in place in turn, the last member of each name kept. -/
 def sortMembers (written : List (String × Json)) : List (String × Json) :=
@@ -245,21 +280,25 @@ theorem sortMembers_of_increasing {written : List (String × Json)}
 
 mutual
 /-- The value `j` with each object tree rebuilt as the strict parser builds it: its members in the
-order of their names (`sortMembers`), inserted in turn (`Json.mkObj`). -/
+order of their names (`sortMembers`), inserted in turn (`Json.mkObj`). Its stack depth grows with
+the nesting of `j` and the height of its object trees, not with the length of an array or the size
+of an object: `canonAll` and `insertMemberTR` (which runs for `insertMember`) call themselves last,
+which the pinned compiler emits as a jump. -/
 def canon (j : Json) : Json :=
   match j with
-  | .arr ⟨elems⟩ => .arr ⟨canonAll elems⟩
+  | .arr ⟨elems⟩ => .arr ⟨canonAll elems []⟩
   | .obj ⟨⟨fields⟩⟩ => Json.mkObj (sortMembers (canonFields fields))
   | .null => .null
   | .bool b => .bool b
   | .num n => .num n
   | .str s => .str s
 termination_by structural j
-/-- `canon` of each element. -/
-def canonAll (elems : List Json) : List Json :=
+/-- `canon` of each element of `elems`, after the values `done` holds in reverse order. It calls
+itself last, so its stack depth does not grow with the length of an array. -/
+def canonAll (elems : List Json) (done : List Json) : List Json :=
   match elems with
-  | [] => []
-  | j :: rest => canon j :: canonAll rest
+  | [] => done.reverse
+  | j :: rest => canonAll rest (canon j :: done)
 termination_by structural elems
 /-- The members of a tree in its order, each value `canon` of the member's. -/
 def canonFields (fields : Fields) : List (String × Json) :=
@@ -269,8 +308,9 @@ def canonFields (fields : Fields) : List (String × Json) :=
 termination_by structural fields
 end
 
-theorem canonAll_eq (elems : List Json) : canonAll elems = elems.map canon := by
-  induction elems with
+theorem canonAll_eq (elems done : List Json) :
+    canonAll elems done = done.reverse ++ elems.map canon := by
+  induction elems generalizing done with
   | nil => simp [canonAll]
   | cons j rest step => simp [canonAll, step]
 
@@ -389,8 +429,8 @@ theorem Regular.canon_agree {j : Json} (regular : Regular j) : Agree (canon j) j
   | str value => exact .str value
   | @arr elements _ step =>
     obtain ⟨elements⟩ := elements
-    show Agree (.arr ⟨canonAll elements⟩) (.arr ⟨elements⟩)
-    rw [canonAll_eq]
+    show Agree (.arr ⟨canonAll elements []⟩) (.arr ⟨elements⟩)
+    rw [canonAll_eq, List.reverse_nil, List.nil_append]
     exact .arr (agreeAll_map fun value inside => step value (Array.mem_def.mpr inside))
   | @obj fields ordered _ step =>
     rw [canon_obj_of_ordered ordered]
