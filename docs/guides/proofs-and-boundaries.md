@@ -1031,8 +1031,8 @@ of each check above its starting peak and not the total of the process. Each che
 peak of the process by at most 1 GiB.
 
 The fresh worker runs only for a check that exhausted its limit, and it runs inside the deadline of
-its caller. In the acceptance runs of this change, no check of the surfaces of this repository
-exhausted its limit, so the two `verify.sh` steps started no fresh worker in their 420 seconds. The control `freshCorrespondenceControl` of the self-test starts one
+its caller. A run in which all checks complete in process starts no fresh worker and costs no
+more time than before. The control `freshCorrespondenceControl` of the self-test starts one
 worker. The whole control, with the compilation of its fixture and the report, took 7.7 seconds.
 
 Supplied and then discovered theorem candidates are tried before the kernel-defeq check, to keep a
