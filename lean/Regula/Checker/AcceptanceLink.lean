@@ -147,15 +147,19 @@ def digests (dir : FilePath) (paths : List String) : IO (List BuildReuse.Digest)
       result := result.push (path, digest)
   return result.toList
 
-/-- Every regular file below `root`, outside every directory named `.lake`, by its path relative
-to `root` written with `/`. -/
+/-- Every regular file below `root`, outside every directory named `.lake` below `root`, by its
+path relative to `root` written with `/`. Only the relative path is tested for `.lake`: `root`
+itself lies below a `.lake` when it is a copy in a scratch directory. -/
 def treeFiles (root : FilePath) : IO (List String) := do
   let prefixLength := root.normalize.components.length
   let enter (path : FilePath) : IO Bool := pure (path.fileName != some ".lake")
-  let files ← (← root.walkDir enter).filterM fun path => do
-    if path.normalize.components.contains ".lake" then return false
-    return (← path.symlinkMetadata).type == .file
-  return files.toList.map fun path => "/".intercalate (path.normalize.components.drop prefixLength)
+  let mut files := #[]
+  for path in ← root.walkDir enter do
+    let relative := path.normalize.components.drop prefixLength
+    if relative.contains ".lake" then continue
+    if (← path.symlinkMetadata).type == .file then
+      files := files.push ("/".intercalate relative)
+  return files.toList
 
 /-- The parts of an acceptance link that `BuildReuse.reuse` reads. A `build` field that does not
 have the shape the driver writes reads as no build. -/
