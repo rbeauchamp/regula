@@ -8,6 +8,7 @@ import Regula.Checker.LintQualification
 import Regula.Checker.Inspection
 import RegulaCore.ScratchCopy
 import Regula.ToolchainProgram
+import Regula.Checker.AcceptanceLink
 
 /-!
 # Checker qualification suite
@@ -160,7 +161,8 @@ projects of their own (the structural project, a copy of the repository, a scrat
 where the gate builds and inspects that project's targets itself; the manifest controls run
 `axiomGate` on the repository with a manifest it refuses before any build. So from the
 repository's build they read only the executables they run: `axiomGate` in both partitions, and
-in the structural clusters `docFenceAudit` and `freshChecker`. The lint-driver controls run
+in the structural clusters `docFenceAudit` and `freshChecker`, and in the retained build control
+`docFenceAudit`. The lint-driver controls run
 adopters of their own, which import `Regula.Contract` or `Regula.Linter`, and a fresh audit
 builds in a copy of its own. From the repository's build they read `lint`, the driver that Lake
 runs for `lake lint`, `axiomGate`, which that driver and some controls run, `ruleExamples`, whose
@@ -3512,6 +3514,92 @@ private def driverCopyControl (repo : FilePath) : IO (Array String) :=
     (removed.succeeded && !(← site.pathExists))
   return failures
 
+/-- External-boundary controls of the documentation step's reuse of the first acceptance step's
+build output (`AcceptanceLink.placeRetained`): the filesystem, `shasum` and Lake between the record
+and the fence audit's copy. `BuildReuse.reuse_iff` proves the decision; no control here stands in
+for that theorem. In a project with one library, the gate writes an accepted acceptance link, and
+the project is then built. The control writes the `build` field the driver writes
+(`RegulaVerification.Copy.recordBuild`) from that build and the project's files, with the origin of
+a driver copy, which only the first acceptance step gives; the positive case with a real driver
+copy is that step and the documentation step on each run. Then `docFenceAudit --acceptance-link`
+must build fresh in its own copy for a link with no `build` field, for one artifact of the build
+altered and for one file of the project outside `.lake` altered, and must place the recorded build
+output when every digest matches. Each case must pass the audit. -/
+private def retainedBuildControl (repo : FilePath) : IO (Array String) :=
+  withScratch repo "retained-build-control" fun scratch => do
+  let project := scratch / "project"
+  IO.FS.createDirAll (project / "Solo")
+  IO.FS.createDirAll (project / "docs")
+  IO.FS.writeFile (project / "lean-toolchain") (← IO.FS.readFile (repo / "lean-toolchain"))
+  IO.FS.writeFile (project / "lakefile.toml") <|
+    "name = \"retained_build_control\"\n[leanOptions]\nautoImplicit = false\n" ++
+      "relaxedAutoImplicit = false\nlinter.missingDocs = true\n" ++
+      "[[lean_lib]]\nname = \"Solo\"\nglobs = [\"Solo.+\"]\n"
+  IO.FS.writeFile (Manifest.defaultPath project) <|
+    "{\"schema-version\":2,\"surfaces\":[{\"library\":\"Solo\",\"executables\":[]," ++
+      "\"claim\":\"standard-logical\",\"execution\":\"report\"," ++
+      "\"rationale\":\"Retained build control\"}]," ++
+      "\"excluded-libraries\":[],\"excluded-executables\":[]}"
+  IO.FS.writeFile (project / "Solo" / "Base.lean")
+    "/-! The base module of the control. -/\n\n/-- The base value. -/\ndef soloBase : Nat := 7\n"
+  IO.FS.writeFile (project / "docs" / "control.md")
+    "```lean\nimport Solo.Base\nexample : soloBase = 7 := rfl\n```\n"
+  -- A file that no module reads and the link's identity does not capture.
+  IO.FS.writeFile (project / "notes.txt") "a file of the project tree\n"
+  let env := scrubbedLeanPathEnv.push ("LAKE_ARTIFACT_CACHE", some "false")
+  let step (label : String) (cmd : String) (args : Array String) : IO (Option String) := do
+    let result ← runProcess project cmd args env
+    return if result.succeeded then none else some s!"retained-build/{label}:\n{result.output}"
+  if let some failure ← step "setup" "lake" #["update"] then return #[failure]
+  let link := scratch / "acceptance-link.json"
+  if let some failure ← step "gate" (← toolPath repo "axiomGate").toString
+      #["--acceptance-link", link.toString] then return #[failure]
+  if let some failure ← step "build" "lake" #["build", "Solo"] then return #[failure]
+  let gateRecord ← readJson link
+  let build := project / ".lake" / "build"
+  let mut artifacts := #[]
+  for part in ["lib", "ir"] do
+    unless ← (build / part).isDir do continue
+    for path in ← (build / part).walkDir do
+      if (← path.symlinkMetadata).type == .file then
+        artifacts := artifacts.push ("/".intercalate
+          (path.normalize.components.drop build.normalize.components.length))
+  let artifactDigests ← AcceptanceLink.digests build artifacts.toList
+  let tree ← AcceptanceLink.digests project (← AcceptanceLink.treeFiles project)
+  let recorded := (gateRecord.setObjVal! "origin" (.str "driverCopy")).setObjVal! "build"
+    (Json.mkObj [("targets", toJson ["Solo"]), ("tree", toJson tree),
+      ("artifacts", toJson artifactDigests)])
+  let audit (label : String) (record : Json) (expected : String) : IO (Array String) := do
+    writeJson link record
+    let result ← runProcess project (← toolPath repo "docFenceAudit").toString
+      #["--project", project.toString, "--acceptance-link", link.toString, "--jobs", "1"] env
+    if !result.succeeded then
+      return #[s!"retained-build/{label}: the audit failed:\n{result.output}"]
+    else if !result.output.contains expected then
+      return #[s!"retained-build/{label}: missing {repr expected}:\n{result.output}"]
+    else return #[]
+  let fresh (reason : String) :=
+    s!"claimed surface built fresh in this run, in a copy with no earlier build output ({reason})"
+  let mut failures := #[]
+  failures := failures ++ (← audit "no-build-field" gateRecord
+    (fresh "the acceptance link records no build of the first acceptance step"))
+  failures := failures ++
+    (← audit "matching" recorded "claimed surface built from the first acceptance step's")
+  -- One altered artifact, then one altered file of the project, each restored afterwards.
+  let some (artifact, _) := artifactDigests.head?
+    | return failures.push "retained-build/setup: the build left no artifact"
+  let altered := build / artifact
+  let original ← IO.FS.readBinFile altered
+  IO.FS.writeBinFile altered (original.push 0)
+  failures := failures ++ (← audit "altered-artifact" recorded (fresh
+    "the checkout's .lake/build does not hold the recorded files with their recorded digests"))
+  IO.FS.writeBinFile altered original
+  IO.FS.writeFile (project / "notes.txt") "an altered file of the project tree\n"
+  failures := failures ++ (← audit "altered-tree-file" recorded
+    (fresh "a file of this copy differs from the first acceptance step's copy"))
+  IO.FS.writeFile (project / "notes.txt") "a file of the project tree\n"
+  return failures
+
 /-- The groups of controls the structural partition reports separately. -/
 private inductive StructuralGroup where
   | frozen
@@ -3519,6 +3607,7 @@ private inductive StructuralGroup where
   | cycle
   | crossSurface
   | driverCopy
+  | retainedBuild
   | manifest
   deriving BEq
 
@@ -3530,8 +3619,8 @@ private def shardDescription (label : String) (others : Nat) (names : Array Stri
 
 /-- Structural mutations and manifest controls retain their isolated projects, worker joins,
 and complete failure accumulation. The frozen-artifact controls, the mutation clusters, the
-cross-surface decision control, the library cycle control, the driver copy control and the
-manifest controls share one queue of
+cross-surface decision control, the library cycle control, the driver copy control, the retained
+build control and the manifest controls share one queue of
 `jobs` workers, so no more than `jobs` of them run at once. The short controls wait behind the
 clusters and take the
 workers the first clusters free, instead of competing with the first clusters for the
@@ -3554,6 +3643,8 @@ private unsafe def runStructural (layout : SourceLayout) (repo : FilePath) (jobs
               crossSurfaceDecisionControl true repo),
             (structuralShard 1, StructuralGroup.driverCopy, "driver copy control",
               driverCopyControl repo),
+            (structuralShard 1, StructuralGroup.retainedBuild, "retained build control",
+              retainedBuildControl repo),
             (structuralShard 1, StructuralGroup.crossSurface, "cross-surface decision control",
               crossSurfaceDecisionControl false repo),
             (structuralShard 4, StructuralGroup.cycle, "library cycle control",
@@ -3626,6 +3717,11 @@ private unsafe def runStructural (layout : SourceLayout) (repo : FilePath) (jobs
         --incremental; a project keeps its build output or a link at its place, and one with \
         none gets the copy's; the next driver removes the copy of a killed one; a link at _site \
         is not followed)"
+  if ran .retainedBuild then
+    IO.println <| "self-test retained build: " ++ verdict .retainedBuild ++
+      " (docFenceAudit builds fresh in its own copy for a link with no build record, for an \
+        altered artifact and for an altered file of the project, and places the recorded build \
+        output when every digest matches; each audit passes)"
 
 /-- Execution-evidence controls: the correspondence controls and every compiler-path case,
 each with its positive, mutation and fresh restoration in an isolated project. With `shard`,

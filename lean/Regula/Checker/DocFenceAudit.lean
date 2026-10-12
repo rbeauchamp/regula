@@ -32,11 +32,14 @@ structure Options where
   configuration and a `lean-toolchain`, instead of the current one. -/
   project : Option FilePath := none
   /-- `--acceptance-link PATH`: the acceptance link that ordinary acceptance recorded; the
-  audit refuses unless its own inputs have the identity recorded there. -/
+  audit refuses unless its own inputs have the identity recorded there. When the link also records
+  the build that step left in this project's `.lake/build`, the audit places that build output in
+  its copy before its own build, only as `BuildReuse.reuse` decides (`AcceptanceLink.placeRetained`).
+  -/
   acceptanceLink : Option FilePath := none
   /-- `--verso DIR:LIBRARY:RENDER`: the Verso library whose `lean` blocks are also audited,
-  and which is then built fresh, rendered and checked for the anchors and rows it must define and
-  for a rule ID in its prose that is not a link to its rule page. -/
+  and which is then built in its copy in this run, rendered and checked for the anchors and rows
+  it must define and for a rule ID in its prose that is not a link to its rule page. -/
   verso : Option VersoPackage := none
   /-- `--verbose`: print the full detail of each failed fence instead of its first part. -/
   verbose : Bool := false
@@ -175,11 +178,15 @@ private def renderVerso (repo copy scratch : FilePath) (verso : VersoPackage)
   return none
 
 /-- Run one documentation fence audit and return its exit code. In an isolated copy of the
-project it builds the claimed surfaces fresh; with `--verso` it then builds the Verso library
-fresh, whose workspace every fence then elaborates in; it compiles every Lean fence below the
-documentation root and, with `--verso`, every `lean` block of the library, then renders the
+project, which holds no build output, it builds the claimed surfaces; with `--verso` it then builds
+the Verso library there, whose workspace every fence then elaborates in; it compiles every Lean
+fence below the documentation root and, with `--verso`, every `lean` block of the library, then renders the
 library and checks its anchors, checklist rows and rule-ID links. With `--acceptance-link`, it first
-requires the inputs to equal the accepted ones. -/
+requires the inputs to equal the accepted ones, and it places the first acceptance step's build
+output in the copy before its build when `BuildReuse.reuse` accepts the link's record of it. Each
+compiled artifact of the root package that the fences read was then compiled, in a copy that held no
+earlier build output, from files equal to those of this copy: in this run, or by that step
+(`BuildReuse.reuse_iff`). Its output says which. -/
 unsafe def run (args : List String) : IO UInt32 := do
   let options ← parseArgs args {}
   if options.help then IO.println usage; return 0
@@ -204,13 +211,22 @@ unsafe def run (args : List String) : IO UInt32 := do
       let manifest ← Manifest.loadFor manifestPath inventory
       let sources ← SourceBinding.capture inventory.moduleSources
       let dependencies ← Snapshot.dependencies inventory
-      -- A linked run audits only the inputs ordinary acceptance already accepted.
-      if let some link := options.acceptanceLink.map (resolve repo) then
-        let digest ← AcceptanceLink.identity scratch copy docsRoot sources configuration
-            dependencies linked
-        AcceptanceLink.require link digest
-        IO.println
-            s!"acceptance link: documentation inputs equal the accepted ordinary inputs ({digest})"
+      -- A linked run audits only the inputs ordinary acceptance already accepted. It places that
+      -- step's build output in its copy only when `BuildReuse.reuse` accepts the link's record of
+      -- it; otherwise the copy keeps no build output (`AcceptanceLink.placeRetained`).
+      let placed ← match options.acceptanceLink.map (resolve repo) with
+        | none => pure (.error "no acceptance link was given")
+        | some link => do
+          let digest ← AcceptanceLink.identity scratch copy docsRoot sources configuration
+              dependencies linked
+          AcceptanceLink.require link digest
+          IO.println
+              s!"acceptance link: documentation inputs equal the accepted ordinary inputs ({digest})"
+          let targets := (Lake.claimedTargets manifest).toList.map fun
+            | .library spelling | .executable spelling => spelling
+            | .moduleArtifacts name => s!"+{name}"
+          timedPhase "retained build placement" <|
+            AcceptanceLink.placeRetained repo copy scratch link digest targets
       SourceBinding.withUnchanged sources configuration do
         SourceBinding.configurationUnchanged configuration
         let (buildProcess, buildResult) ← Lake.buildCheckedObservation copy
@@ -220,7 +236,13 @@ unsafe def run (args : List String) : IO UInt32 := do
         if let some lines := buildResult then
           for line in lines do IO.println s!"    {line}"
           return 1
-        IO.println "claimed surface built fresh"
+        IO.println <| match placed with
+          | .ok count => s!"claimed surface built from the first acceptance step's fresh build: \
+              {count} files of it placed in this copy, each with the SHA-256 the acceptance link \
+              records, every file of this copy outside .lake equal to that step's copy; Lake \
+              compiled here what its traces required, warning-free"
+          | .error reason => s!"claimed surface built fresh in this run, in a copy with no \
+              earlier build output ({reason})"
         -- With a Verso package, every example elaborates in its workspace, which requires the
         -- project and resolves every module the documentation imports; it is built fresh first.
         let environment ← match options.verso with
@@ -244,8 +266,8 @@ unsafe def run (args : List String) : IO UInt32 := do
           return 1
         Documentation.Sources.checkLinked ⟨docsRoot, verso⟩ repo linked
         SourceBinding.unchanged sources
-        IO.println s!"Verso documentation {requested.library}: built fresh (every `lean` block \
-          elaborated where it is written), rendered, defines every anchor the rule registry and \
+        IO.println s!"Verso documentation {requested.library}: built in this copy in this run \
+          (every `lean` block elaborated where it is written), rendered, defines every anchor the rule registry and \
           the documentation link, its checklist rows are exactly Regula.checklistRows, and every \
           rule ID in the rendered prose `Regula.Prose` reads links to its rule page"
         return 0
