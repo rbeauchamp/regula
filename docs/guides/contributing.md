@@ -305,7 +305,7 @@ every push to `main`, nightly and on dispatch. Its first job, `applies`
 decides which jobs apply. It runs the
 invocations that `Regula.DiagnosticsGate.campaigns` lists, and `applies` writes them for the matrix
 of the `campaign` job. These are `producers`, `history`, the shards of the structural, execution and
-lint-driver partitions of the self-test, and five groups of qualification controls. The other
+lint-driver partitions of the self-test, and four groups of qualification controls. The other
 partitions and groups are too long for a job, and the table of
 [campaigns no workflow runs](#campaigns-no-workflow-runs) names them. They run as parallel jobs, each with its own hard 420-second limit, on a pull
 request exactly when it changes one of the paths `Regula.DiagnosticsGate.inputs` lists (the checker, rules, rule examples, the
@@ -391,6 +391,7 @@ campaign that does not run. For a reason that names part of them, its text names
 | `./scripts/verify.sh diagnostics build-policy 2/3` | The shards of the `build-policy` partition are too long for a job. Its slowest shard's check took 137 s in CI. A check of more than 85 s does not leave a quarter of the 420-second deadline. [Issue 391](https://github.com/rbeauchamp/regula/issues/391) is the work to divide them into shards that fit. |
 | `./scripts/verify.sh diagnostics build-policy 3/3` | The shards of the `build-policy` partition are too long for a job. Its slowest shard's check took 137 s in CI. A check of more than 85 s does not leave a quarter of the 420-second deadline. [Issue 391](https://github.com/rbeauchamp/regula/issues/391) is the work to divide them into shards that fit. |
 | `./scripts/verify.sh diagnostics environment-census` | Too long for a job. Its check took 172 s, and a check of more than 85 s does not leave a quarter of the 420-second deadline. [Issue 391](https://github.com/rbeauchamp/regula/issues/391) is the work to divide it into shards. |
+| `./scripts/verify.sh diagnostics snapshot-history` | Too long for a job. Its check took 104 s, and a check of more than 85 s does not leave a quarter of the 420-second deadline. [Issue 391](https://github.com/rbeauchamp/regula/issues/391) is the work to divide it into shards. |
 | `./scripts/verify.sh diagnostics policy-domain` | Too long for a job. Its check took 158 s, and a check of more than 85 s does not leave a quarter of the 420-second deadline. [Issue 391](https://github.com/rbeauchamp/regula/issues/391) is the work to divide it into shards. |
 | `lake exe qualify registry` | Its controls run in `lake exe qualify combined`: `combined` runs `registry` first. |
 | `lake exe qualify native` | Its controls run in `lake exe qualify combined`: `combined` runs `native` second. |
@@ -404,7 +405,8 @@ campaign that does not run. For a reason that names part of them, its text names
 | `lake exe qualify self-audit-module MODULE SOURCE` | An internal entry point that `lake exe qualify self-audit --shard K/4` starts. |
 | `lake exe qualify self-audit-json-module MODULE` | An internal entry point that `lake exe qualify self-audit --shard K/4` starts. |
 | `lake exe qualify environments --evidence PATH` | Too long for a job. Its check took 172 s, and a check of more than 85 s does not leave a quarter of the 420-second deadline. [Issue 391](https://github.com/rbeauchamp/regula/issues/391) is the work to divide it into shards. |
-| `lake exe qualify acceptance-snapshots all` | Its three groups run: `dependencies`, `history` and `git-status`. |
+| `lake exe qualify acceptance-snapshots history` | Too long for a job. Its check took 104 s, and a check of more than 85 s does not leave a quarter of the 420-second deadline. [Issue 391](https://github.com/rbeauchamp/regula/issues/391) is the work to divide it into shards. |
+| `lake exe qualify acceptance-snapshots all` | Its groups `dependencies` and `git-status` run. Its group `history` is too long for a job. |
 | `lake exe qualify closure-evidence` | Too long for a job. Its check took 105 s, and a check of more than 85 s does not leave a quarter of the 420-second deadline. [Issue 391](https://github.com/rbeauchamp/regula/issues/391) is the work to divide it into shards. |
 | `lake exe qualify fence-evidence` | Too long for a job. Its check took 140 s, and a check of more than 85 s does not leave a quarter of the 420-second deadline. [Issue 391](https://github.com/rbeauchamp/regula/issues/391) is the work to divide it into shards. |
 | `lake exe qualify frozen-exits` | Too long for a job. Its check took 240 s, and a check of more than 85 s does not leave a quarter of the 420-second deadline. [Issue 391](https://github.com/rbeauchamp/regula/issues/391) is the work to divide it into shards. |

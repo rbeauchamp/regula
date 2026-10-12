@@ -233,11 +233,10 @@ def overBudgetShard : Partition → Option String
   | .buildPolicy => some "Its slowest shard's check took 137 s in CI."
   | .structural | .execution | .lintDriver => none
 
-/-- The groups of `groups` a job runs. `environment-census` and `policy-domain` are too long for a
-job (`reason`). -/
+/-- The groups of `groups` a job runs. `environment-census`, `snapshot-history` and `policy-domain`
+are too long for a job (`reason`). -/
 def jobGroups : List String :=
-  ["input-inventory", "snapshot-history", "acceptance-controls", "documentation-controls",
-    "focused-controls"]
+  ["input-inventory", "acceptance-controls", "documentation-controls", "focused-controls"]
 
 /-- The partitions whose shards a job runs. -/
 def jobPartitions : List Partition := [.lintDriver, .structural, .execution]
@@ -383,6 +382,7 @@ def reason : Campaign → Option Reason
       ((shardInvocations "self-audit" 4).map .verify)
       "Its 4 shards run. Together they audit each module one time."
   | .verify ["diagnostics", "environment-census"] => some (overBudget 172)
+  | .verify ["diagnostics", "snapshot-history"] => some (overBudget 104)
   | .verify ["diagnostics", "policy-domain"] => some (overBudget 158)
   | .verify ["diagnostics", name] => (Partition.parse name).map partitionReason
   | .verify ["diagnostics", name, _] => (Partition.parse name).bind fun partition =>
@@ -405,10 +405,10 @@ def reason : Campaign → Option Reason
       "the four shards together audit all modules."
   | .qualify (.selfAuditModule "MODULE" "SOURCE") | .qualify (.selfAuditJsonModule "MODULE") =>
       some (.worker (.qualify (form (.selfAuditShard ""))))
-  | .qualify (.acceptanceSnapshots .all) => some <| .together
-      [.qualify (.acceptanceSnapshots .dependencies), .qualify (.acceptanceSnapshots .history),
-        .qualify (.acceptanceSnapshots .gitStatus)]
-      "Its three groups run: `dependencies`, `history` and `git-status`."
+  | .qualify (.acceptanceSnapshots .all) => some <| .partly
+      [.qualify (.acceptanceSnapshots .dependencies), .qualify (.acceptanceSnapshots .gitStatus)]
+      "Its groups `dependencies` and `git-status` run. Its group `history` is too long for a job."
+  | .qualify (.acceptanceSnapshots .history) => some (overBudget 104)
   | .qualify (.environments "PATH") => some (overBudget 172)
   | .qualify .closureEvidence => some (overBudget 105)
   | .qualify .fenceEvidence => some (overBudget 140)
