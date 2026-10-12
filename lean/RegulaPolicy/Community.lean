@@ -94,7 +94,8 @@ accepts and silences no other warning; each `linter.` and `warn.` option registe
 `acceptedRelease` (`leanWarningSettings`) or by Mathlib `acceptedMathlib` and its pinned Batteries
 (`mathlibWarningSettings`), at the one value that silences nothing its registered default reports;
 `warningAsError` and `debugAssertions` at `true` (`checkSwitches`), which add checks; the resource
-limits `maxHeartbeats`, `synthInstance.maxHeartbeats`, `maxRecDepth`, `maxSynthPendingDepth` and
+limits `maxHeartbeats`, `synthInstance.maxHeartbeats`, `maxRecDepth`, `maxSynthPendingDepth`,
+`synthInstance.maxSize` and
 `exponentiation.threshold` at any natural number (`resourceLimits`); and each `pp.` option
 registered by Lean, Mathlib or Qq at its registered default (`printSettings`). Raising a positive
 resource limit lets Lean do work it would otherwise stop, and lowering one only stops that work
@@ -121,10 +122,11 @@ command-line parser of the Lean executable is assumed, read from Lean's `Lean.Sh
 its getopt handling; it is neither proved nor observed. That reading only rejects: a `-D` never
 configures the license line, which only `leanOptions` does. That Mathlib's header linter at the
 pinned release compares the second header line with `linter.style.header.license` is likewise read
-from its source (`Mathlib/Tactic/Linter/Header.lean`) and assumed. The decision does not read
-`set_option` commands in source, which review checks (`DECL-01`), nor options given to `lake` on
-its command line. A project that wants a resource limit fixed checks it itself. Which targets are
-claimed and whether a target imports Mathlib are supplied by the operational adapter. That
+from its source (`Mathlib/Tactic/Linter/Header.lean`) and assumed. The options a claimed
+module's source sets are decided by `sourceFailures`, from the record of Regula's elaboration
+observer; the decision does not read options given to `lake` on its command line. A
+project that wants a resource limit fixed checks it itself. Which targets are claimed and
+whether a target imports Mathlib are supplied by the operational adapter. That
 `linter.missingDocs` is on establishes only that Lean runs the linter; its reports are build
 warnings, which RG2003 rejects. -/
 
@@ -858,15 +860,17 @@ message at `true`. -/
 def checkSwitches : List Name := [`warningAsError, `debugAssertions]
 
 /-- Resource limits: raising one lets Lean do work that it would otherwise stop with an error
-(`maxHeartbeats`, `synthInstance.maxHeartbeats`, `maxRecDepth`, `maxSynthPendingDepth`) or skip
-with a warning (`exponentiation.threshold`, whose warning reports a power it did not evaluate, so
-raising it stops that warning while Lean evaluates the power). Lowering a positive limit only stops
-that work sooner; `0` means no limit for `maxHeartbeats` and `synthInstance.maxHeartbeats`
+(`maxHeartbeats`, `synthInstance.maxHeartbeats`, `maxRecDepth`, `maxSynthPendingDepth`), keep a
+type-class answer that it would otherwise discard and fail without (`synthInstance.maxSize`,
+`Lean/Meta/SynthInstance.lean` lines 25 and 467), or skip with a warning
+(`exponentiation.threshold`, whose warning reports a power it did not evaluate, so raising it
+stops that warning while Lean evaluates the power). Lowering a positive limit only stops that work
+sooner; `0` means no limit for `maxHeartbeats` and `synthInstance.maxHeartbeats`
 (`Lean/CoreM.lean:487`) and for `maxRecDepth` (`Lean/Exception.lean:248`), so Lean does all the
 work and hides no warning. -/
 def resourceLimits : List Name :=
   [`maxHeartbeats, `synthInstance.maxHeartbeats, `maxRecDepth, `maxSynthPendingDepth,
-    `exponentiation.threshold]
+    `synthInstance.maxSize, `exponentiation.threshold]
 
 /-- The Lean release whose source the arguments for the accepted options were read from. -/
 def acceptedRelease : String := "4.34.1"
@@ -1474,5 +1478,229 @@ theorem unlicensed_header_fails :
       (`linter.hashCommand, .bool false), (`linter.style.longFile, .nat 0)], []⟩ true =
       [.option `linter.style.header (.bool false) [.bool true]] := by
   decide
+
+/-! ## Options set in a claimed module's source
+
+Regula's elaboration observer records each option a claimed module's source sets, with the value
+and form of its `set_option` syntax (`RegulaObserver.Setting`). The same accepted set decides
+them as decides a target's options, with one permission that standard §6.2 gives: a community
+linter turned off for the one command after `set_option linter.NAME false in`. Lean's default
+warnings, the `linter.` and `warn.` options Lean registers (`leanWarningSettings`) whose registered
+default is not `false`, are never community linters, and neither are `linter.all` and
+`linter.mathlibStandardSet`, which switch many linters at once. An option that a macro of the
+Lean toolchain wrote, such as `smartUnfolding` in `rfl'`, is that macro's implementation and
+passes. The source sets no `debug.` or `trace.` option, since the accepted set lists none. -/
+
+/-- How a claimed module's source set an option (`RegulaObserver.Form`). -/
+inductive SourceForm where
+  /-- `set_option name value` as a command. -/
+  | command
+  /-- `set_option name value in` before one command. -/
+  | commandIn
+  /-- `set_option name value in` inside a term. -/
+  | term
+  /-- `set_option name value in` inside a tactic block. -/
+  | tactic
+  /-- An option set without `set_option` syntax that the observer found. -/
+  | elaborated
+  deriving DecidableEq, Repr
+
+/-- One option that a claimed module's source set, as Regula's elaboration observer recorded it. -/
+structure SourceSetting where
+  /-- The option. -/
+  name : Name
+  /-- The literal value its `set_option` syntax gives, or none when the observer read none. -/
+  value : Option OptionValue
+  /-- The option's registered default, or none when it is unknown or not a string, Boolean or
+  natural number. -/
+  registeredDefault : Option OptionValue
+  /-- How the source set it. -/
+  form : SourceForm
+  /-- The module that declares the macro whose expansion wrote the option's name, or none when the
+  name is in the module's source text. -/
+  origin : Option Name
+  /-- Where the option's name is in the module, line and column, as Lean reports them; only the
+  report reads it. -/
+  location : Nat × Nat := (0, 0)
+  deriving DecidableEq, Repr
+
+/-- The roots of the Lean toolchain's modules. -/
+def toolchainRoots : List Name := [`Init, `Std, `Lean, `Lake]
+
+/-- The linter options that switch many linters at once: `linter.all` sets the default of every
+linter Lean reads through `Lean.Linter.getLinterValue` (`Lean/Linter/Init.lean:130`), Lean's
+default warnings among them, and `linter.mathlibStandardSet` turns Mathlib's standard set on. -/
+def linterSwitches : List Name := [`linter.all, `linter.mathlibStandardSet]
+
+/-- A default warning of Lean: a `linter.` or `warn.` option that Lean registers
+(`leanWarningSettings`), unless its registered default is known to be `false`. -/
+def defaultWarning (name : Name) (registeredDefault : Option OptionValue) : Bool :=
+  leanWarningSettings.any (·.1 == name) &&
+    !registeredDefault.any (·.readsAs (.bool false))
+
+/-- A community linter turned off for one command: `set_option linter.NAME false in`, where
+`linter.NAME` is not a default warning of Lean and switches no set of linters. -/
+def communityDisable (s : SourceSetting) : Bool :=
+  s.form == .commandIn && s.name.getRoot == `linter && !linterSwitches.contains s.name &&
+    s.value.any (·.readsAs (.bool false)) && !defaultWarning s.name s.registeredDefault
+
+/-- A macro of the Lean toolchain wrote the option's name. -/
+def toolchainWritten (s : SourceSetting) : Bool :=
+  s.origin.any (toolchainRoots.contains ·.getRoot)
+
+/-- RG2006 accepts the option a claimed module's source set, for a target with options `o` that
+imports Mathlib when `mathlib`: a toolchain macro wrote it, it turns a community linter off for
+one command, or its value is one the requirement admits for a required option and otherwise one
+`Accepted` admits. -/
+def sourceAccepted (o : BuildOptions) (mathlib : Bool) (s : SourceSetting) : Bool :=
+  toolchainWritten s || communityDisable s ||
+    match s.value with
+    | none => false
+    | some v =>
+      match (required mathlib).find? (·.1 == s.name) with
+      | some r => admits o r v
+      | none => accepts s.name v
+
+/-- The relation `sourceAccepted` decides, stated without the executed decisions on the value. -/
+def SourceAccepted (o : BuildOptions) (mathlib : Bool) (s : SourceSetting) : Prop :=
+  toolchainWritten s = true ∨ communityDisable s = true ∨
+    ∃ v, s.value = some v ∧
+      ((∃ r ∈ required mathlib, r.1 = s.name ∧
+          (∀ r' ∈ required mathlib, r'.1 = s.name → r' = r) ∧
+          (v.ReadsAs r.2 ∨ (r.1 = headerLinter ∧ v.ReadsAs (.bool true) ∧ Licensed o))) ∨
+        ((∀ r ∈ required mathlib, r.1 ≠ s.name) ∧ Accepted s.name v))
+
+/-- Each option is required at most once. -/
+theorem required_unique (mathlib : Bool) :
+    ∀ r ∈ required mathlib, ∀ r' ∈ required mathlib, r.1 = r'.1 → r = r' := by
+  cases mathlib <;> decide
+
+/-- `sourceAccepted` decides exactly `SourceAccepted`. -/
+theorem sourceAccepted_iff (o : BuildOptions) (mathlib : Bool) (s : SourceSetting) :
+    sourceAccepted o mathlib s = true ↔ SourceAccepted o mathlib s := by
+  unfold sourceAccepted SourceAccepted
+  simp only [Bool.or_eq_true, or_assoc]
+  refine or_congr Iff.rfl (or_congr Iff.rfl ?_)
+  cases hv : s.value with
+  | none => simp
+  | some v =>
+    simp only [Option.some.injEq, exists_eq_left']
+    cases hf : (required mathlib).find? (·.1 == s.name) with
+    | some r =>
+      have hr := List.mem_of_find?_eq_some hf
+      have hn : r.1 = s.name := by simpa using List.find?_some hf
+      have huniq : ∀ r' ∈ required mathlib, r'.1 = s.name → r' = r := fun r' hr' hn' =>
+        required_unique mathlib r' hr' r hr (hn'.trans hn.symm)
+      rw [admits_iff]
+      constructor
+      · intro h; exact .inl ⟨r, hr, hn, huniq, h⟩
+      · rintro (⟨r', hr', hn', -, h⟩ | ⟨hnone, -⟩)
+        · rwa [huniq r' hr' hn'] at h
+        · exact absurd hn (hnone r hr)
+    | none =>
+      have hnone : ∀ r ∈ required mathlib, r.1 ≠ s.name := fun r hr hn => by
+        simpa [hn] using List.find?_eq_none.mp hf r hr
+      rw [accepts_iff]
+      constructor
+      · intro h; exact .inr ⟨hnone, h⟩
+      · rintro (⟨r, hr, hn, -⟩ | ⟨-, h⟩)
+        · exact absurd hn (hnone r hr)
+        · exact h
+
+/-- The options that a claimed module's source set and RG2006 does not accept, in source
+order. -/
+@[regula_decision]
+def sourceFailures (o : BuildOptions) (mathlib : Bool) (settings : List SourceSetting) :
+    List SourceSetting :=
+  settings.filter (!sourceAccepted o mathlib ·)
+
+/-- The decision reports no source option exactly when RG2006 accepts each. -/
+theorem sourceFailures_eq_nil_iff (o : BuildOptions) (mathlib : Bool)
+    (settings : List SourceSetting) :
+    sourceFailures o mathlib settings = [] ↔ ∀ s ∈ settings, SourceAccepted o mathlib s := by
+  simp [sourceFailures, List.filter_eq_nil_iff, sourceAccepted_iff]
+
+/-- One option a module's source set that RG2006 does not accept, as the report names it: where
+it is, the option, its value, and the macro's module when a macro wrote it. -/
+def SourceSetting.text (module : Name) (s : SourceSetting) : String :=
+  let value := match s.value with
+    | some v => s!" {v.text}"
+    | none => " (a value that is not a literal)"
+  let origin := match s.origin with
+    | some m => s!", written by a macro of {m}"
+    | none => ""
+  s!"{module}:{s.location.1}:{s.location.2}: set_option {s.name}{value}{origin}"
+
+/-- The detail of the RG2006 finding for the source options `failures` of `module`. -/
+def sourceDetail (module : Name) (failures : List SourceSetting) : String :=
+  "community-configuration: the source sets options that RG2006 does not accept: " ++
+    "; ".intercalate (failures.map (SourceSetting.text module))
+
+/-- A setting the source wrote, with value `v`, by command form `form`. -/
+def written (name : Name) (v : OptionValue) (form : SourceForm) : SourceSetting :=
+  { name, value := some v, registeredDefault := none, form, origin := none }
+
+/-- `set_option autoImplicit true` in a claimed module fails, whatever the target sets. -/
+theorem autoImplicit_source_fails (o : BuildOptions) (mathlib : Bool) :
+    sourceAccepted o mathlib (written `autoImplicit (.bool true) .command) = false := by
+  cases mathlib <;> rfl
+
+/-- `set_option linter.missingDocs false` as a command fails: only the form before one command
+turns a community linter off. -/
+theorem missingDocs_command_fails (o : BuildOptions) (mathlib : Bool) :
+    sourceAccepted o mathlib (written `linter.missingDocs (.bool false) .command) = false := by
+  cases mathlib <;> rfl
+
+/-- `set_option linter.missingDocs false in` before one command passes: `linter.missingDocs` is a
+community linter (standard §6.2), Lean's default for it being `false`. -/
+theorem missingDocs_in_passes (o : BuildOptions) (mathlib : Bool) :
+    sourceAccepted o mathlib { written `linter.missingDocs (.bool false) .commandIn with
+      registeredDefault := some (.bool false) } = true := by
+  cases mathlib <;> rfl
+
+/-- `set_option linter.unusedVariables false in` fails: it turns one of Lean's default warnings
+off. -/
+theorem unusedVariables_in_fails (o : BuildOptions) (mathlib : Bool) :
+    sourceAccepted o mathlib { written `linter.unusedVariables (.bool false) .commandIn with
+      registeredDefault := some (.bool true) } = false := by
+  cases mathlib <;> rfl
+
+/-- `set_option linter.all false in` fails: it switches Lean's default warnings off. -/
+theorem linterAll_in_fails (o : BuildOptions) (mathlib : Bool) :
+    sourceAccepted o mathlib { written `linter.all (.bool false) .commandIn with
+      registeredDefault := some (.bool false) } = false := by
+  cases mathlib <;> rfl
+
+/-- `set_option warn.sorry false in` fails: a `warn.` option is never a community linter. -/
+theorem warnSorry_in_fails (o : BuildOptions) (mathlib : Bool) :
+    sourceAccepted o mathlib { written `warn.sorry (.bool false) .commandIn with
+      registeredDefault := some (.bool true) } = false := by
+  cases mathlib <;> rfl
+
+/-- `set_option maxHeartbeats 400000 in` passes, as a target option does. -/
+theorem maxHeartbeats_in_passes (o : BuildOptions) (mathlib : Bool) :
+    sourceAccepted o mathlib (written `maxHeartbeats (.nat 400000) .commandIn) = true := by
+  cases mathlib <;> rfl
+
+/-- `set_option debug.skipKernelTC true` and `set_option trace.Meta.synthInstance true in` fail. -/
+theorem debug_trace_source_fail (o : BuildOptions) (mathlib : Bool) :
+    sourceAccepted o mathlib (written `debug.skipKernelTC (.bool true) .command) = false ∧
+      sourceAccepted o mathlib (written `trace.Meta.synthInstance (.bool true) .commandIn) =
+        false := by
+  cases mathlib <;> exact ⟨rfl, rfl⟩
+
+/-- An option whose value the observer did not read fails, unless a toolchain macro wrote it. -/
+theorem unread_source_fails (o : BuildOptions) (mathlib : Bool) (name : Name)
+    (form : SourceForm) :
+    sourceAccepted o mathlib
+      { name, value := none, registeredDefault := none, form, origin := none } = false := by
+  simp [sourceAccepted, toolchainWritten, communityDisable]
+
+/-- `smartUnfolding` set to `false` by a macro that `Init.Tactics` declares, as `rfl'` does,
+passes. -/
+theorem toolchain_macro_passes (o : BuildOptions) (mathlib : Bool) :
+    sourceAccepted o mathlib { written `smartUnfolding (.bool false) .tactic with
+      origin := some `Init.Tactics } = true := by
+  rfl
 
 end RegulaPolicy.Community

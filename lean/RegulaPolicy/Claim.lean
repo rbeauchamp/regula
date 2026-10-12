@@ -696,6 +696,19 @@ theorem checked_failures : Regula.ExecutableContract failures (fun run =>
   ⟨.of_iff (fun input => failures_eq_nil_iff input.1 input.2)
     ⟨(⟨required false, []⟩, false), by decide⟩ ⟨(⟨[], []⟩, false), by decide⟩⟩
 
+/-- `sourceFailures` reports nothing exactly for options of a claimed module's source that RG2006
+accepts (`sourceFailures_eq_nil_iff`): nothing for a module whose source sets no option, and a
+failure for `set_option autoImplicit true`. The decision is over the settings the observer
+recorded; reading them from the module's `.olean` is the adapter's. -/
+theorem checked_sourceFailures : Regula.ExecutableContract sourceFailures (fun run =>
+    Regula.Decides (· = [])
+      (fun input : BuildOptions × Bool × List SourceSetting =>
+        ∀ s ∈ input.2.2, SourceAccepted input.1 input.2.1 s)
+      (fun input => run input.1 input.2.1 input.2.2)) :=
+  ⟨.of_iff (fun input => sourceFailures_eq_nil_iff input.1 input.2.1 input.2.2)
+    ⟨(⟨[], []⟩, false, []), rfl⟩
+    ⟨(⟨[], []⟩, false, [written `autoImplicit (.bool true) .command]), by decide⟩⟩
+
 end Community
 
 end RegulaPolicy
