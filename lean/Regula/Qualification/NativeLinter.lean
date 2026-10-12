@@ -53,14 +53,26 @@ def decode (value : Json) : Except String RegulaQualification.Native.Message := 
     data := (← value.getObjValAs? String "data"), fileName :=
         (← value.getObjValAs? String "fileName") }
 
+/-- Compile `control` and require the diagnostics it expects. With `first`, `lean` runs with `first`
+ahead of the whole search path that `lake env` gives, in the environment and with the executable
+the launcher captured: `lake env` puts the workspace's own entries before an inherited `LEAN_PATH`,
+so an override through it cannot put a directory first. -/
 private def check (root scratch : FilePath) (launcher : Launcher.State) (control : Control)
-    (env : Array (String × Option String) := #[]) : IO (List Json) := do
+    (env : Array (String × Option String) := #[]) (first : Option FilePath := none) :
+    IO (List Json) := do
   let path := scratch / s!"{control.label}.lean"
   IO.FS.writeFile path control.source
   let args := #["--json", "--root", scratch.toString] ++ control.options ++
     (if control.output then #["-o", (path.withExtension "olean").toString] else #[]) ++
         #[path.toString]
-  let result ← Launcher.runLean root launcher args env
+  let result ← match first with
+    | none => Launcher.runLean root launcher args env
+    | some first => do
+      let captured ← Launcher.environment root launcher #[]
+      let search := SearchPath.parse (← Launcher.leanPath root launcher)
+      let variables := captured.environment.val.map fun (key, value) =>
+        (key, some (if key == "LEAN_PATH" then SearchPath.toString (first :: search) else value))
+      run root captured.executable args variables
   let messages ← (result.stdout.splitOn "\n").filterMapM fun line => do
     if line.trimAscii.isEmpty then return none
     return some (← IO.ofExcept (Json.parse line))
@@ -412,8 +424,7 @@ def checkAt (root scratch : FilePath) (launcher : Launcher.State) (jobs : Nat :=
     -- first on the search path, the editor refuses the environment (`authenticateFoundation`)
     -- instead of deciding `False` by that prelude's `Classical.choice` as Standard-Logical; both
     -- of its linters report the refusal.
-    let forged := #[("LEAN_PATH",
-      some (SearchPath.toString ((← forgedPrelude root scratch launcher) :: search)))]
+    let forged ← forgedPrelude root scratch launcher
     let _ ← NativeLinter.check root scratch launcher
       { label := "ForgedFoundation"
         source := "import Regula.Linter\n" ++
@@ -421,7 +432,7 @@ def checkAt (root scratch : FilePath) (launcher : Launcher.State) (jobs : Nat :=
           "/-- `False`, by that prelude's `Classical.choice`. -/\n" ++
           "theorem forgedChoice : False := Classical.choice\n"
         ids := ["RG2005", "RG2005"]
-        detail := some "is not the toolchain's foundation axiom" } forged
+        detail := some "is not the toolchain's foundation axiom" } (first := some forged)
     IO.println s!"native bridge qualification: PASS \
       ({2 + retired.size + independent.size + dependent.size} actual Lean source controls)"
 
