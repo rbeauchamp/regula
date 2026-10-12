@@ -38,11 +38,15 @@ like a trusted plugin.
 
 Each `set_option` form records the option's name in the info tree (`Lean/Elab/SetOption.lean` line
 65), and the record holds the options set through `Lean.Elab.elabSetOption` (`setOptionKinds`).
-An option that elaborator code changes directly, such as `autoImplicit`, which the `ToExpr`
-deriving handler sets for its own command (`Lean/Elab/Deriving/ToExpr.lean` line 228), is outside
-the record. Of Lean's builtin commands, only `set_option` and `unlock_limits` change the scope's
-options (`Lean/Elab/BuiltinCommand.lean` lines 520 and 527). `unlock_limits` sets
-`maxHeartbeats`, `maxRecDepth` and `synthInstance.maxHeartbeats` to `0`, which RG2006 accepts
+An option that elaborator code changes directly is outside the record: a temporary change for
+the code's own commands through `withScope`, such as `autoImplicit` in the `ToExpr` deriving
+handler (`Lean/Elab/Deriving/ToExpr.lean` line 228), `warn.exposeOnPrivate` in every deriving
+handler (`Lean/Elab/Deriving/Basic.lean` lines 294 to 297) and
+`quotPrecheck.allowSectionVars` in a `local notation` (`Lean/Elab/Notation.lean` lines 154 to
+157). Of Lean's builtin commands, only `set_option` and `unlock_limits` assign the options of the
+enclosing scope for the commands after them (`modifyScope`, `Lean/Elab/BuiltinCommand.lean` lines
+520 and 527). `unlock_limits` sets `maxHeartbeats`, `maxRecDepth` and
+`synthInstance.maxHeartbeats` to `0`, which RG2006 accepts
 (`RegulaPolicy.Community.unlockLimits_accepted`), so the observer does not record it. -/
 
 namespace RegulaObserver

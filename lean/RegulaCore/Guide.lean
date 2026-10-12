@@ -1737,11 +1737,12 @@ def guide : RuleId → Guide
           rejected although Lean ignores it; delete it. A string value \
           counts as Lean parses it for the option: `\"false\"` is `false` and `\"0\"` is `0`. \
           One finding per target lists every failure.",
-        "In each module of a claimed surface, the rule also reads the options the module's \
-          source set, as Regula's elaboration observer recorded them while Lean elaborated it \
-          (RG2003): `set_option` as a command, before one command (`… in`), in a term, in a \
-          tactic block or in a `grind` block, including one that a macro wrote. The proved \
-          decision `RegulaPolicy.Community.sourceFailures` rejects each that the target itself \
+        "In each module of a claimed surface, and in the file that `axiomGate --file F --claim P` \
+          audits, the rule also reads the options the source set, as Regula's elaboration \
+          observer recorded them while Lean elaborated it (RG2003): `set_option` as a command, \
+          before one command (`… in`), in a term, in a tactic block or in a `grind` block, \
+          including one that a macro wrote. The proved decision \
+          `RegulaPolicy.Community.sourceFailures` rejects each that the target itself \
           could not set at that value, with two exceptions. The first is \
           `set_option linter.NAME false in` before one declaration, which turns a community \
           linter off for it (standard §6.2); before any other command, such as a `section` of \
@@ -1753,12 +1754,12 @@ def guide : RuleId → Guide
           whose value is not a literal is rejected. The finding names each option with its \
           module, line and column.",
         "The rule reads the options that Lean's `set_option` elaborator \
-          (`Lean.Elab.elabSetOption`) set. Of Lean v4.34.1's builtin commands, one other changes \
-          options: `unlock_limits` sets `maxHeartbeats`, `maxRecDepth` and \
-          `synthInstance.maxHeartbeats` to `0`, which the rule accepts \
+          (`Lean.Elab.elabSetOption`) set. Of Lean v4.34.1's builtin commands, one other assigns \
+          the options of the enclosing scope: `unlock_limits` sets `maxHeartbeats`, \
+          `maxRecDepth` and `synthInstance.maxHeartbeats` to `0`, which the rule accepts \
           (`RegulaPolicy.Community.unlockLimits_accepted`). An option that elaborator code \
-          changes directly is not read, such as `autoImplicit`, which the `ToExpr` deriving \
-          handler sets for its own command.",
+          changes for its own commands is not read, such as `autoImplicit` in the `ToExpr` \
+          deriving handler or `quotPrecheck.allowSectionVars` in a `local notation`.",
         "Every `-D` that `lean` reads starts at the first `D` of an argument that begins with a \
           single `-` (`-D`, or after flags as in `-qD`), with its value after the `D` or in the \
           next argument; the rule reads every such candidate, so it can also reject one that \

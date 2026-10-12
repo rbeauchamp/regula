@@ -1493,9 +1493,11 @@ does. Thus a project's own module named `Lean.Adopter` is not one, as `nameOnly_
 states.
 
 The observer records the options that Lean's `set_option` elaborator set. Of the builtin commands
-of Lean v4.34.1, only `unlock_limits` also changes options. It sets three resource limits to `0`,
-which [RG2006] accepts, as `unlockLimits_accepted` states. An option that elaborator code changes
-directly, such as `autoImplicit` in the `ToExpr` deriving handler, is outside the record.
+of Lean v4.34.1, only `unlock_limits` also assigns the options of the enclosing scope. It sets three
+resource limits to `0`, which [RG2006] accepts, as `unlockLimits_accepted` states. Elaborator code
+can change an option for its own commands, through `withScope`. Examples are `autoImplicit` in the
+`ToExpr` deriving handler and `quotPrecheck.allowSectionVars` in a `local notation`. Such a change
+is outside the record.
 
 [RG2003] decides each claimed module's record with `RegulaPolicy.Elaboration.failures`
 (`failures_eq_nil_iff`, `checked_failures`). The two theorems are about the decisions over the
