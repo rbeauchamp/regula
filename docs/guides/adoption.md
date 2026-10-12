@@ -949,6 +949,7 @@ audit refuses a `decides` entry that names its own surface or no claimed surface
   marker can settle [RG2003] from replayed messages. The first build after you upgrade to this
   Regula rebuilds the modules of your root package and of Regula one time.
 - If your root package declares an `extraDep` library facet, Regula's facet replaces it.
+  Work unique to the overridden configuration may be lost.
   The [facet report](proofs-and-boundaries.md#replaced-root-library-facets) in `lake lint` and the audit names that declaration.
   Move that work to `extraDepTargets` or `needs`, which Lake's own facet runs.
 - A dependency that Lake resolves after Regula can declare an `extraDep` facet that replaces

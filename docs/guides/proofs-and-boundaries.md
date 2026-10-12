@@ -358,39 +358,45 @@ named `regula` with different text keeps the marker.
 ### Replaced root library facets
 
 Lake inserts the root package's facets before those of its dependencies.
-Thus Regula's `weakLeanArgsTrace` replaces a root library facet with the same `extraDep` key.
-The root facet's build step then does not run.
+Thus Regula's `weakLeanArgsTrace` overrides the configuration of a root library facet with the same `extraDep` key.
+Work unique to that configuration may be lost.
+Regula's facet also runs Lake's own facet, and a later dependency can restore the root facet.
 Move that work to `extraDepTargets` or `needs`, which Lake's own facet runs.
 
 `lake lint`, its `--explain-config` path and the project audit print the `regula facet report`.
 It names each replaced root declaration and its package, with that consequence and remedy.
 It also gives the count of loaded library facet declarations and replaced root declarations.
 The report is advisory and changes no audit exit class.
-It does not restore the build step.
+It does not restore the overridden configuration.
 
 `FacetReport.observe` reads each package's compiled configuration through Lake's own importer, attribute inventory and evaluator.
 It reads no lakefile text.
 Each record keeps the package that contributes the declaration, its constant name and its evaluated facet key.
-Lake's module lookup supplies the package key of the provider of `Regula.Checker.Lake`.
-This identifies Regula in the loaded workspace, including a dependency at a different directory or with a different assigned name.
-The audit's module-provider and reserved-source guards check that provider.
-The facet observer alone does not authenticate its source.
+The audit's source guard returns the keys of packages that provide `Regula.Checker.Lake` with the running checker's source text.
+The report receives those keys after the existing provider guard passes.
+This includes a dependency at a different directory or with a different assigned name.
+A glob over an empty directory supplies no authenticated source and no key.
+The report uses all authenticated keys, since the provider guard permits duplicate providers among trusted packages.
+The facet observer itself does not authenticate source or establish the behavior of a facet's job.
 
 The shared reader `LakeConfig.language` uses the selected `relConfigFile`, as Lake does, rather than the resolved symlink target.
 The facet report, plain-shape guard, library-facet count and setup observer use this reader.
-`language_ok_iff` proves its exact correspondence to the supported extensions of the supplied relative path.
+It calls Lake's `ConfigLang.ofString?` decoder.
+`language_ok_iff` proves its exact correspondence to Lake's `ConfigLang.fileExtension` for the supplied relative path.
 
 `FacetReport.replacementDecision` decides `Replaced` on these records.
 `mem_replaced_iff` proves that the report's selection contains exactly the records for which this proposition holds.
 The proposition requires the last root `extraDep` record and Regula's declaration of that key from a dependency.
 The theorem is about supplied records.
-The observation trusts Lake's insertion order, compiled configuration, runtime evaluation and module lookup, plus stable files during the read.
+The observation trusts Lake's insertion order, compiled configuration and runtime evaluation, plus the audit's source authentication and stable files during the read.
 A later dependency can replace Regula's facet also, so the report does not identify the final facet.
 
 The `facet-report` controls run in `diagnostics lint-driver 1/5`, through `lake lint -- --explain-config` and `axiomGate --incremental --project`.
 They report a named root facet and leave a text-only decoy and a different facet key unreported.
 They also check symlinked configuration files, a Regula dependency at a different directory, a renamed facet declaration and Regula's own root configuration.
-The two audit controls stop after discovery on an incomplete fixture manifest, before any target build.
+Another control reports the root facet when a root glob covers Regula submodules over an empty directory.
+The audit controls stop after discovery on an incomplete fixture manifest, before any target build.
+The empty-glob control uses the auditor because the same glob prevents Lake from building its lint driver.
 The negative controls require the completed census line, so absence of a report alone cannot pass them.
 These controls observe Lake and process output, not a universal property of the loader.
 

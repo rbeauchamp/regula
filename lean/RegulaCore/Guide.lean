@@ -1284,9 +1284,10 @@ def guide : RuleId → Guide
           facet with one that records each root and Regula library's identity and \
           `weakLeanArgs` in its modules' traces. The project audit and `lake lint` print a \
           facet report naming a root `extraDep` library facet that Regula replaces, with the \
-          consequence (its build step does not run) and remedy (move that work to \
+          consequence (work unique to its overridden configuration may be lost) and remedy \
+          (move that work to \
           `extraDepTargets` or `needs`). The report uses Lake's loaded declarations, changes no \
-          audit exit class and does not restore the step. Without the marker, a claimed module replayed \
+          audit exit class and does not restore the configuration. Without the marker, a claimed module replayed \
           from before the run whose trace lacks its own library's current record is not \
           established (INCOMPLETE), as when another dependency declares a library facet."]
       residuals := [.qualify]
