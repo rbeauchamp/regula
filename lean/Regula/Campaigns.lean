@@ -24,8 +24,11 @@ the campaign list of the diagnostics workflow (`Regula.DiagnosticsGate.campaigns
 `Job.diagnosticsCampaign`. The `#guard` below evaluates, when this module builds, that the
 self-test reads each campaign's command line as that campaign.
 
-Trusted, not proved: that the jobs of `ci.yml` and `dogfood.yml` run the invocations
-`Job.invocations` states, and the readings behind `Reason.within`, `Reason.together` and
+Checked when acceptance runs: `Regula.RegistryChecks` reads each job's `verify.sh` steps from its
+workflow file and requires them to be `Job.invocations` (`Job.workflowRefusal`).
+
+Trusted, not proved: that GitHub runs those steps when their triggers and `if:` say, and the
+readings behind `Reason.within`, `Reason.together` and
 `Reason.worker`: that the controls of the campaign not run are among those of the campaigns
 named. -/
 namespace Regula.Campaigns
@@ -301,10 +304,26 @@ def Reason.text : Reason → String
 private def partitionShardInvocations (partition : Partition) : List Campaign :=
   (shardInvocations partition.label partition.shards).map .verify
 
+/-- Where the structural shards stand in for the comparison of the self-hosted fresh inputs,
+which an unsharded structural run alone makes (`Regula.Checker.CheckerSelftest.runStructural`):
+two shards write the digests of the two inputs, and the `diagnostics` gate compares them. -/
+private def selfHostedDigests : String :=
+  let shards := Partition.structural.shards
+  s!"The structural shards do not compare the self-hosted fresh inputs. Shards 1/{shards} and \
+    {shards}/{shards} write their digests, and the `diagnostics` gate compares them."
+
 /-- The text of an unsharded partition whose shards run. -/
+private def shardsText (partition : Partition) : String :=
+  if partition == .structural then
+    s!"Its {partition.shards} shards run. Together they run each of its controls one time, but \
+      for the comparison of the self-hosted fresh inputs. Shards 1/{partition.shards} and \
+      {partition.shards}/{partition.shards} write the digests of those inputs, and the \
+      `diagnostics` gate compares them."
+  else s!"Its {partition.shards} shards run. Together they run each of its controls one time."
+
+/-- The reason of an unsharded partition whose shards run. -/
 private def shardsRun (partition : Partition) : Reason :=
-  .together (partitionShardInvocations partition)
-    s!"Its {partition.shards} shards run. Together they run each of its controls one time."
+  .together (partitionShardInvocations partition) (shardsText partition)
 
 /-- The issue that tracks the sharding of the campaigns too long for a job. -/
 private def overBudget (seconds : Nat) : Reason :=
@@ -319,7 +338,7 @@ def reason : Campaign → Option Reason
       which this repository does not make."
   | .verify ["diagnostics"] => some <| .together
       (Partition.all.flatMap partitionShardInvocations)
-      "The shards of all partitions run. Together they run each control of each partition one time."
+      s!"The shards of all partitions run. {selfHostedDigests}"
   | .verify ["diagnostics", "rule-examples"] => some <| .together
       ((shardInvocations "rule-examples" 3).map .verify)
       "Its 3 shards run. Together they run the records of each rule one time."
@@ -371,16 +390,16 @@ def reason : Campaign → Option Reason
       some (.worker (.selftest (.partitionShard .fixtures ⟨0, by decide⟩)))
   | .selftest .defaultTier => some <| .together
       ([Partition.fixtures, .structural, .execution, .cli].flatMap shardsOf |>.map .selftest)
-      "The shards of the fixtures, structural, execution and cli partitions run. The real-CLI smoke \
-        controls of the default tier are controls of the cli partition."
+      s!"The shards of the fixtures, structural, execution and cli partitions run. The real-CLI \
+        smoke controls of the default tier are controls of the cli partition. {selfHostedDigests}"
   | .selftest .structuralOnly => some <| .together
       ([Partition.structural, .execution].flatMap shardsOf |>.map .selftest)
-      "The shards of the structural and execution partitions run."
+      s!"The shards of the structural and execution partitions run. {selfHostedDigests}"
   | .selftest .buildBound => some <| .together
       (Partition.all.flatMap shardsOf |>.map .selftest)
-      "The shards of all partitions run."
+      s!"The shards of all partitions run. {selfHostedDigests}"
   | .selftest (.partition partition) => some <| .together (shardsOf partition |>.map .selftest)
-      s!"Its {partition.shards} shards run. Together they run each of its controls one time."
+      (shardsText partition)
   | _ => none
 
 /-- Every campaign: each `verify.sh` invocation, each form of `qualify` selection and each

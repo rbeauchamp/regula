@@ -3,7 +3,7 @@ import Regula.Checker.ResultProtocol
 import Regula.Checker.SourceAudit
 import Regula.Website
 import RegulaCore.Guidance
-import Regula.Campaigns
+import Regula.Campaigns.Workflow
 
 /-! # Registry transport qualification
 
@@ -143,6 +143,14 @@ def main : IO Unit := do
       s!"\n{Regula.Campaigns.table}\n").length == 2)
     "docs/guides/contributing.md shows Regula.Campaigns.table, the campaigns no workflow job runs, \
       once, verbatim"
+  -- Each workflow job of the inventory runs, as its workflow file reads, exactly the invocations
+  -- the inventory states (`Regula.Campaigns.Job.workflowRefusal`). The diagnostics matrix is the
+  -- list `applies` writes, which `Regula.Campaigns.Diagnostics.campaigns_eq` equates to these.
+  let applies := (Regula.Campaigns.Job.invocations .diagnosticsCampaign).map (" ".intercalate)
+  for job in Regula.Campaigns.Job.all do
+    let text ← IO.FS.readFile job.location.1
+    if let some refusal := job.workflowRefusal (fun _ => text) applies then
+      require false refusal
   require
       (!succeeded (validateRegistry producer (manifest.setObjVal! "sourceRevision" (.str "stale"))))
     "stale revision"

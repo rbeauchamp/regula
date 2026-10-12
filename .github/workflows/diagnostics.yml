@@ -13,9 +13,10 @@ name: Diagnostics
 # (lean/Regula/DiagnosticsGate.lean): the campaigns on a pull request exactly when it changes one
 # of the paths listed there (`inputs`, the only statement of them: the checker, rules, rule
 # examples, adopter fixtures, the application and fixture sources the structural and execution
-# partitions mutate, Lake configuration and manifests, the compiler and dependency setup), and on
-# every other run; the nightly rule-example shards on the schedule alone. Each partition job runs
-# only when it applies. The last job, `diagnostics`, runs once every other job has finished,
+# partitions mutate, Lake configuration and manifests, the compiler and dependency setup, and
+# the scripts and configuration that verify.sh reads before a campaign), and on every other
+# run; the nightly rule-example shards on the schedule alone. Each partition job runs only when
+# it applies. The last job, `diagnostics`, runs once every other job has finished,
 # whatever their results, and passes exactly when `applies` succeeded and each partition job passed
 # and applies, or was skipped and does not apply (`verdict_iff`); a failed, cancelled or timed-out
 # job fails it. When the campaigns apply, it also refuses unless the self-hosted digests that the

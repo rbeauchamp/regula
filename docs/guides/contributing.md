@@ -345,18 +345,22 @@ names run.
 Two modules tie the inventory to the programs with theorems. `Regula.Campaigns.Verification`
 relates it to the modes and commands of the verification driver. `Regula.Campaigns.Diagnostics`
 relates it to the matrix of the diagnostics workflow. The first acceptance step builds the two
-modules, and `Regula.RegistryChecks` requires this table without a change.
+modules.
 
-Two statements are readings, not theorems. The first is that `ci.yml` and `dogfood.yml` run the
-invocations that the inventory gives. The second is that the campaigns a reason names have the
-controls of the campaign that does not run.
+`Regula.RegistryChecks` requires this table without a change. It also reads the `verify.sh` steps
+of each job from its workflow file, with each matrix value in place. It requires them to be the
+invocations that the inventory gives.
+
+Two statements are readings, not theorems. The first is that GitHub runs a job's steps when its
+triggers and `if:` say. The second is that the campaigns a reason names have the controls of the
+campaign that does not run.
 
 | Campaign | Why no workflow job runs it |
 | --- | --- |
 | `./scripts/verify.sh serialized-graph` | The optional serialized-graph claim (§7.9), which this repository does not make. |
-| `./scripts/verify.sh diagnostics` | The shards of all partitions run. Together they run each control of each partition one time. |
+| `./scripts/verify.sh diagnostics` | The shards of all partitions run. The structural shards do not compare the self-hosted fresh inputs. Shards 1/5 and 5/5 write their digests, and the `diagnostics` gate compares them. |
 | `./scripts/verify.sh diagnostics fixtures` | Its 5 shards run. Together they run each of its controls one time. |
-| `./scripts/verify.sh diagnostics structural` | Its 5 shards run. Together they run each of its controls one time. |
+| `./scripts/verify.sh diagnostics structural` | Its 5 shards run. Together they run each of its controls one time, but for the comparison of the self-hosted fresh inputs. Shards 1/5 and 5/5 write the digests of those inputs, and the `diagnostics` gate compares them. |
 | `./scripts/verify.sh diagnostics execution` | Its 4 shards run. Together they run each of its controls one time. |
 | `./scripts/verify.sh diagnostics cli` | Its 6 shards run. Together they run each of its controls one time. |
 | `./scripts/verify.sh diagnostics environments` | Its 6 shards run. Together they run each of its controls one time. |
@@ -387,11 +391,11 @@ controls of the campaign that does not run.
 | `lake exe checkerSelftest --build-lint-only` | The build-policy shards run its controls. |
 | `lake exe checkerSelftest --compiler-paths-only` | The execution shards run its compiler-path mutations. |
 | `lake exe checkerSelftest --transcript-worker MODULE SOURCE REJECT OUT` | An internal entry point that `lake exe checkerSelftest --build-bound --partition fixtures --shard 1/5 --jobs 4` starts. |
-| `lake exe checkerSelftest --jobs 4` | The shards of the fixtures, structural, execution and cli partitions run. The real-CLI smoke controls of the default tier are controls of the cli partition. |
-| `lake exe checkerSelftest --structural-only --jobs 4` | The shards of the structural and execution partitions run. |
-| `lake exe checkerSelftest --build-bound --jobs 4` | The shards of all partitions run. |
+| `lake exe checkerSelftest --jobs 4` | The shards of the fixtures, structural, execution and cli partitions run. The real-CLI smoke controls of the default tier are controls of the cli partition. The structural shards do not compare the self-hosted fresh inputs. Shards 1/5 and 5/5 write their digests, and the `diagnostics` gate compares them. |
+| `lake exe checkerSelftest --structural-only --jobs 4` | The shards of the structural and execution partitions run. The structural shards do not compare the self-hosted fresh inputs. Shards 1/5 and 5/5 write their digests, and the `diagnostics` gate compares them. |
+| `lake exe checkerSelftest --build-bound --jobs 4` | The shards of all partitions run. The structural shards do not compare the self-hosted fresh inputs. Shards 1/5 and 5/5 write their digests, and the `diagnostics` gate compares them. |
 | `lake exe checkerSelftest --build-bound --partition fixtures --jobs 4` | Its 5 shards run. Together they run each of its controls one time. |
-| `lake exe checkerSelftest --build-bound --partition structural --jobs 4` | Its 5 shards run. Together they run each of its controls one time. |
+| `lake exe checkerSelftest --build-bound --partition structural --jobs 4` | Its 5 shards run. Together they run each of its controls one time, but for the comparison of the self-hosted fresh inputs. Shards 1/5 and 5/5 write the digests of those inputs, and the `diagnostics` gate compares them. |
 | `lake exe checkerSelftest --build-bound --partition execution --jobs 4` | Its 4 shards run. Together they run each of its controls one time. |
 | `lake exe checkerSelftest --build-bound --partition cli --jobs 4` | Its 6 shards run. Together they run each of its controls one time. |
 | `lake exe checkerSelftest --build-bound --partition environments --jobs 4` | Its 6 shards run. Together they run each of its controls one time. |

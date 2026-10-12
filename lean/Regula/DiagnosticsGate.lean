@@ -90,7 +90,9 @@ def Input.covers : Input → List String → Bool
 /-- The paths the campaigns depend on, and the only statement of them: the checker, the rules and
 their examples, the adopter fixtures in `examples/lake-lint-toml` and `examples/build-lint`, the
 application and fixture sources the structural and execution controls mutate, Lake configuration
-and manifests, `scripts/verify.sh`, the verification, provisioning programs with their decision contracts, the workflow and the provisioning action.
+and manifests, `scripts/verify.sh` and `scripts/provision.sh` with the files the commands they run
+before a campaign read, the verification, provisioning programs with their decision contracts, the
+workflow and the provisioning action.
 This module is an input,
 below `lean/Regula`. -/
 def inputs : List Input := [
@@ -118,6 +120,19 @@ def inputs : List Input := [
   .file ["lean-toolchain"],
   .file ["foundation_manifest.json"],
   .file ["scripts", "verify.sh"],
+  .file ["scripts", "provision.sh"],
+  -- Read by the commands `verify.sh` runs before a campaign: the configuration of `git diff
+  -- --check` and of `shellcheck`, and the retired compiler setup whose presence
+  -- `RegulaProvision.requireReleasedSetup` refuses (an absent path still counts when a change
+  -- adds it).
+  .file [".gitattributes"],
+  .file [".shellcheckrc"],
+  .file ["scripts", ".shellcheckrc"],
+  .file ["dependency-build-mode"],
+  .file [".github", "compiler-source.json"],
+  .file [".github", "snapshot-preparation.json"],
+  .file [".github", "snapshot-compiler.json"],
+  .file [".github", "compiler-snapshot.json"],
   .file [".github", "workflows", "diagnostics.yml"],
   .tree [".github", "actions", "provision"]]
 

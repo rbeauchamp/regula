@@ -2,12 +2,12 @@
 
 The closed vocabulary of the selections `lake exe checkerSelftest` accepts (`Selection`) and the
 parser the executable runs (`Selection.parse`): one of the focused `--…-only` controls, the
-internal transcript worker, or the suite with its options. Each selection belongs to one campaign
-(`Selection.campaign`), the unit that the inventory of campaigns (`Regula.Campaigns`) classifies
-by the workflow job that runs it. The suite's options are checked against one another, and a
-shard against its partition, by the self-test itself (`Regula.Checker.CheckerSelftest`), which
-knows the shards. This module imports nothing, so that inventory can import it beside the other
-executables' vocabularies. -/
+internal transcript worker, or the suite with its options. The inventory of campaigns
+(`Regula.Campaigns`) classifies each selection but a request for help, which runs no control, as
+one campaign (`Regula.Campaigns.SelftestCampaign.ofSelection`), the unit it classifies by the
+workflow job that runs it. The parser checks the suite's options against one another, and a shard
+against the shards of its partition (`Partition.shards`), with `Options.validate`. This module
+imports nothing, so that inventory can import it beside the other executables' vocabularies. -/
 namespace Regula.Checker.SelftestArguments
 
 /-- Disjoint groups whose union is the complete build-bound qualification. -/
