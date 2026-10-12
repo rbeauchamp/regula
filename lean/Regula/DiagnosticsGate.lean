@@ -182,7 +182,8 @@ def campaigns : List String :=
     (List.range count).map fun index => s!"diagnostics {name} {index + 1}/{count}"
   ["diagnostics producers", "diagnostics history"] ++ shards "lint-driver" 5 ++
     shards "structural" 5 ++ shards "execution" 4 ++
-    ["input-inventory", "acceptance-controls", "documentation-controls", "focused-controls"].map ("diagnostics " ++ ·)
+    ["input-inventory", "acceptance-controls", "documentation-controls",
+      "focused-controls"].map ("diagnostics " ++ ·)
 
 /-- Which partition jobs apply to a run of `event` whose changed paths are `changed`, by job id:
 the decision `applies` writes and each partition job's `if:` reads. -/
