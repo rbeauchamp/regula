@@ -469,17 +469,13 @@ structure Copied where
   targets and where each dependency package is loaded from, or `none` for a copy the verification
   driver made, which must own no dependency. -/
   selection : Option Lake.CopySelection
-  /-- The directory that the copy was made in, which the check of its links walks. -/
-  walked : FilePath
-  /-- The links that the copy placed below `walked`. -/
-  links : List FilePath
 
 /-- Copy the project at `repo`, with each path dependency it owns, into the new scratch directory
 `scratch`, which holds no build output (`copyProject`). -/
 private def isolatedCopy (repo scratch : FilePath) : IO Copied := do
   let copy ← timedPhase "isolated source copy" <| Lake.copyProject repo (scratch / "project")
     scratch
-  return ⟨copy.project, copy.root, some copy.selection, copy.walked, copy.links⟩
+  return ⟨copy.project, copy.root, some copy.selection⟩
 
 /-- The copy of the project at `repo` that the verification driver made at `path`
 (`RegulaVerification.makeCopy`), admitted by what this process can observe of it:
@@ -489,11 +485,6 @@ private def isolatedCopy (repo scratch : FilePath) : IO Copied := do
   scratch protocol (`Regula.Scratch`);
 * this process's own executable is below the build directory that Lake gives for the copy
   (`ScratchCopy.inside`), so the build output it audits is the one that made this gate.
-* before Lake loads it here, it holds no symbolic link or other kind of entry than a directory
-  and a file (`Regula.Filesystem.requireLinksPlaced` with no placed link): the driver copies each
-  file's bytes and follows each link (`RegulaVerification.copyTree`), so Lake's removals in it
-  reach nothing that the same command in the original could not. The driver made the same check
-  before its prebuild (`RegulaVerification.requireNoLinks`), which this gate cannot observe.
 
 **Not observed, and trusted:** that the driver made the copy new in this run, so that its build
 output held nothing before the driver's build. No file of the directory shows that. A caller that
@@ -516,9 +507,6 @@ private def driverCopy (repo path : FilePath) : IO Copied := do
     | .ok metadata => pure (metadata.type == .file)
     | .error _ => pure false
   unless marked do refuse s!"has no ownership marker {marker}"
-  match ← (Regula.Filesystem.requireLinksPlaced copy []).toBaseIO with
-  | .ok () => pure ()
-  | .error error => refuse s!"holds what the driver's copy does not make: {error}"
   let build ← match ← (Workspace.withRootWorkspace copy fun workspace =>
       IO.FS.realPath workspace.root.buildDir).toBaseIO with
     | .ok build => pure build
@@ -526,7 +514,7 @@ private def driverCopy (repo path : FilePath) : IO Copied := do
   let own ← IO.FS.realPath (← IO.appPath)
   unless ScratchCopy.inside build.normalize.components own.normalize.components do
     refuse s!"did not build this gate: {own} is not below {build}"
-  return ⟨copy, copy, none, copy, []⟩
+  return ⟨copy, copy, none⟩
 
 /-- Where the root-package build output that a project audit inspects comes from. A project audit
 reports the fresh mode only for the first two (`Origin.mode_fresh_iff`), and each of those two
@@ -1259,13 +1247,7 @@ private unsafe def auditSurface (repo : FilePath) (manifest : Option FilePath)
       | .incremental => repo
     let manifestPath := manifest.getD (Manifest.defaultPath copy)
     observeConfiguration copy (← SourceBinding.configuration copy manifestPath)
-    if withDocs then
-      Documentation.snapshotMarkdown (repo / "docs") (copy / "docs")
-      -- The snapshot adds files to the copy; it still holds only the links that it placed.
-      match origin with
-      | .copied copied | .driverCopy copied =>
-        Regula.Filesystem.requireLinksPlaced copied.walked copied.links
-      | .incremental => pure ()
+    if withDocs then Documentation.snapshotMarkdown (repo / "docs") (copy / "docs")
     let documents ← if withDocs then Documentation.captureMarkdown (copy / "docs") else pure #[]
     -- The link covers the Markdown and Verso sources the separate documentation step audits.
     let linkedSources : Documentation.Sources := ⟨repo / "docs", verso⟩

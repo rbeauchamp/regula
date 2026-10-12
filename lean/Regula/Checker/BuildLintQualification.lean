@@ -207,9 +207,7 @@ private def cases : Array Case := #[
 /-- The adopter's manifest entry for `regula` at this checkout, with the checkout's own
 dependencies inherited as Lake resolves them and their already-built checkouts shared, and the
 adopter a Git repository of its own, as an adopter is, so the audit trusts `regula` instead of
-owning it. The adopter's lakefile requires `regula` from this checkout's path. The adopter then
-holds no symbolic link but that of its packages directory
-(`Regula.Filesystem.requireLinksPlaced`). -/
+owning it. The adopter's lakefile requires `regula` from this checkout's path. -/
 def requireCheckout (repo adopter : FilePath) : IO Unit := do
   let base ← readJson (repo / "lake-manifest.json")
   let packages : Array Json ← IO.ofExcept <| base.getObjValAs? (Array Json) "packages"
@@ -219,13 +217,14 @@ def requireCheckout (repo adopter : FilePath) : IO Unit := do
     ("inherited", toJson false), ("type", toJson "path"), ("dir", toJson repo.toString)]
   writeJson (adopter / "lake-manifest.json") <| base.setObjVal! "packages" <|
     toJson (#[dependency] ++ packages.map (·.setObjVal! "inherited" (toJson true)))
-  let links ← Regula.Filesystem.placeDirectoryLink (repo / ".lake" / "packages")
-    (adopter / ".lake" / "packages")
+  IO.FS.createDirAll (adopter / ".lake")
+  let linked ← runProcess adopter "ln" #["-s", (repo / ".lake" / "packages").toString,
+    (adopter / ".lake" / "packages").toString]
+  if !linked.succeeded then throw <| IO.userError linked.output
   -- An adopter is a repository of its own, so `regula`, which it requires from this checkout, is
   -- a dependency in a different Git work tree, which the audit trusts, as an adopter's is.
   let initialized ← runProcess adopter "git" #["init", "-q"]
   if !initialized.succeeded then throw <| IO.userError initialized.output
-  Regula.Filesystem.requireLinksPlaced adopter links
 
 /-- Use the checked-in public recipe verbatim apart from the local dependency
 path, which requires this checkout (`requireCheckout`). -/

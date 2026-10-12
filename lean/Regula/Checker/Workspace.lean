@@ -80,11 +80,10 @@ Its prerequisite: before the loader runs, it refuses when `.lake` or `.lake/conf
 checkout is there and is not a directory at its own place
 (`Regula.Filesystem.requireOwnDirectory`). It also refuses when the directory of the root
 package's compiled configuration (`Lake.LoadConfig.configDir`, `.lake/config/0`) is not such a
-directory, or has an entry below it that is a symbolic link or another kind of entry than a
-directory and a file (`Regula.Filesystem.requireNoLinkedEntries`). That directory is the one where
-the loader removes and writes files, the configuration lock among them
-(`Lake/Load/Lean/Elab.lean:185-187`). It removes the stale `lakefile.olean` and the trace (`:244`,
-`:262`), and opens the lock and the trace for writing (`:207`, `:223`, `:294`).
+directory, or has an entry that is a symbolic link (`Regula.Filesystem.requireNoLinkedEntries`).
+That directory is the one where the loader removes and writes files, the configuration lock among
+them (`Lake/Load/Lean/Elab.lean:185-187`). It removes the stale `lakefile.olean` and the trace
+(`:244`, `:262`), and opens the lock and the trace for writing (`:207`, `:223`, `:294`).
 `Lean.writeModule` writes the new `lakefile.olean` and its siblings (`:256`) through
 `<file>.tmp.<pid>`, opened with `std::ofstream` (`src/library/module.cpp:311-314`). An open of an
 existing file for writing follows a final link, so with this check each file that the loader

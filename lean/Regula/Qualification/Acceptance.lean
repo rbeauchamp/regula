@@ -86,7 +86,9 @@ private def qualify (group : String) (evidence : FilePath) (receipt : IO.Ref Jso
     let bin := scratch / "tool/bin"
     IO.FS.createDirAll bin
     IO.FS.createDirAll (scratch / "tool/lib")
-    Regula.Filesystem.placeLink (root / ".lake/build/lib/lean") (scratch / "tool/lib/lean")
+    success
+        (← run root "ln"
+            #["-s", (root / ".lake/build/lib/lean").toString, (scratch / "tool/lib/lean").toString])
     copyExecutable executable (bin / "axiomGate-real")
     copyExecutable (← IO.appPath) (bin / "axiomGate")
     let mut sources : List (String × Json) := []
@@ -206,7 +208,6 @@ def documentationDependencies : IO Unit := do
     IO.FS.writeFile (project / "Example.lean") source
     IO.FS.writeFile
         (project / "docs/control.md") "```lean\nimport Dep\nexample : Dep.n = 1 := rfl\n```\n"
-    Regula.Filesystem.requireLinksPlaced scratch []
     success (← run project "lake" #["update"] cleanEnv)
     for route in #["docFenceAudit", "ruleExamples"] do
       for phase in #["positive", "changed-during-build", "restored"] do

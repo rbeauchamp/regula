@@ -1242,7 +1242,6 @@ private unsafe def diagnosticSetupQualification (repo scratch : FilePath) : IO (
   let artifact := output / "SetupSentinel.olean"
   IO.FS.writeFile source "def setupValue : Nat := 0\n"
   let build := runProcess project "lake" #["env", "lean", "-o", artifact.toString, source.toString]
-  Regula.Filesystem.requireLinksPlaced project []
   let first ← build
   if !first.succeeded then return #[s!"diagnostic setup baseline failed: {first.output}"]
   let check (body pattern : String) := do
@@ -1469,10 +1468,9 @@ private def appendFailure (failures : IO.Ref (Array String)) (value : Option Str
   if let some failure := value then failures.modify (·.push failure) else pure ()
 
 /-- Preserve project-relative source and asset locations using the same fresh
-copy operation as the public gate, rather than a second fixed source list. It gives the links
-that the copy placed (`Lake.ProjectCopy.links`). -/
-private def prepareScratchRepo (repo scratch : FilePath) : IO (List FilePath) :=
-  return (← Lake.copyProject repo scratch scratch).links
+copy operation as the public gate, rather than a second fixed source list. -/
+private def prepareScratchRepo (repo scratch : FilePath) : IO Unit :=
+  discard <| Lake.copyProject repo scratch scratch
 
 private def withNewFile {α : Type} (path : FilePath) (text : String) (action : IO α) : IO α := do
   if ← path.pathExists then
@@ -1565,9 +1563,9 @@ private def auditAppVariant (layout : SourceLayout) (repo : FilePath)
 
 /-- The structural project in `copy` (`StructuralProject`): its sources at their places in the
 repository, its Lake configuration, the repository's toolchain pin and lock manifest, and the
-manifest of `structuralBase`. It places no link. -/
+manifest of `structuralBase`. -/
 private def prepareStructuralProject (layout : SourceLayout) (repo copy : FilePath) :
-    IO (List FilePath) := do
+    IO Unit := do
   for relative in layout.project.sources do
     let destination := copy / relative
     if let some parent := destination.parent then IO.FS.createDirAll parent
@@ -1577,7 +1575,6 @@ private def prepareStructuralProject (layout : SourceLayout) (repo copy : FilePa
   IO.FS.writeFile (copy / "lakefile.lean") layout.project.lakefile
   IO.FS.writeFile (copy / "foundation_manifest.json")
     ((← structuralManifestText layout repo) ++ "\n")
-  return []
 
 /-- The restored control that ends a structural cluster: once each of its mutations is restored,
 the fresh gate (empty-output elaboration of a copy of the cluster's project) accepts it. A
@@ -1672,11 +1669,10 @@ private unsafe def structuralPartA (layout : SourceLayout) (contamination : Bool
 
 /-- The self-hosted copy in `copy`: a copy of the repository, by the fresh gate's own copy
 operation, that claims `selfHostedManifestText`. Its content is a function of the repository's
-files and manifest alone. It gives the links that the copy placed. -/
-private def prepareSelfHosted (repo copy : FilePath) : IO (List FilePath) := do
-  let links ← prepareScratchRepo repo copy
+files and manifest alone. -/
+private def prepareSelfHosted (repo copy : FilePath) : IO Unit := do
+  prepareScratchRepo repo copy
   IO.FS.writeFile (copy / "foundation_manifest.json") ((← selfHostedManifestText repo) ++ "\n")
-  return links
 
 /-- Copy the module artifacts of the repository's build, the directories Lake gives its root
 package for `.olean` and `.ilean` files (`leanLibDir`) and for compiler output (`irDir`) with
@@ -1705,7 +1701,7 @@ order. The copy operation's own `.lake` there (the link to the shared packages, 
 overrides) is not an entry: it copies nothing from the project's `.lake`. -/
 private def freshInput (project snapshot : FilePath) :
     IO (Array (String × Option ByteArray)) := do
-  discard <| prepareScratchRepo project snapshot
+  prepareScratchRepo project snapshot
   let base := snapshot.normalize.components
   let own (path : FilePath) : List String := path.normalize.components.drop base.length
   let lake := _root_.Lake.defaultLakeDir.toString
@@ -1872,7 +1868,7 @@ gate. Nothing writes outside the copy's `.lake` between that reading and the gat
 operation; that is a reading of this code and of the gate, not a theorem. -/
 private unsafe def structuralSelfHostedPositive (repo copy : FilePath)
     (inputs : SelfHostedInputs) : IO (Array String) := do
-  Regula.Filesystem.requireLinksPlaced copy (← prepareSelfHosted repo copy)
+  prepareSelfHosted repo copy
   let some parent := copy.parent
     | throw <| IO.userError s!"self-test: the self-hosted copy {copy} has no parent directory"
   let input ← freshInput copy (parent / "self-hosted-input-positive")
@@ -2602,18 +2598,16 @@ private unsafe def structuralCorrespondence (layout : SourceLayout) (mutation : 
                 (·.push s!"correspondence/restored: fresh control failed:\n{restored.output}")
   failures.get
 
-/-- One cluster of controls: its own isolated project below `scratch`, prepared by `prepare`, which
-gives the links it placed, and built once it holds no other link
-(`Regula.Filesystem.requireLinksPlaced`), then the controls of `part` in it. A baseline that does
-not build is the cluster's failure. -/
-private def cluster (repo scratch : FilePath) (name : String)
-    (prepare : FilePath → IO (List FilePath)) (targets : Array String)
-    (part : FilePath → FilePath → IO (Array String)) :
+/-- One cluster of controls: its own isolated project below `scratch`, prepared by `prepare`
+and built, then the controls of `part` in it. A baseline that does not build is the cluster's
+failure. -/
+private def cluster (repo scratch : FilePath) (name : String) (prepare : FilePath → IO Unit)
+    (targets : Array String) (part : FilePath → FilePath → IO (Array String)) :
     String × IO (Array String) :=
   (name, do
     let copy := scratch / s!"copy-{name}"
     let setup ← loggedPhase s!"cluster {name} setup" do
-      Regula.Filesystem.requireLinksPlaced copy (← prepare copy)
+      prepare copy
       runProcess copy "lake" (#["build"] ++ targets)
     if !setup.succeeded then
       return #[s!"structural/setup: copy-{name} baseline did not build:\n{setup.output}"]
@@ -2658,10 +2652,7 @@ private unsafe def structuralClusters (layout : SourceLayout) (repo scratch : Fi
     (structuralShard 2, part "c-contract" (structuralPartC layout 2)),
     (structuralShard 3, part "d-realized" (structuralPartD layout 0)),
     (selfHostedRestoredShard, cluster repo scratch "self-hosted"
-      (fun copy => do
-        let links ← prepareSelfHosted repo copy
-        seedModuleArtifacts layout repo copy
-        return links)
+      (fun copy => do prepareSelfHosted repo copy; seedModuleArtifacts layout repo copy)
       (applicationTargets layout) (structuralSelfHosted layout · · inputs)),
     (structuralShard 4, part "b-executables" (structuralPartB layout true)),
     (structuralShard 1, part "d-modules" (structuralPartD layout 4)),
@@ -2897,7 +2888,7 @@ private unsafe def fenceEnvironmentQualification (layout : SourceLayout) (repo s
     loggedPhase s!"clean-checkout/{name}" do
       let dir := scratch / name
       IO.FS.createDirAll dir
-      discard <| prepareScratchRepo repo dir
+      prepareScratchRepo repo dir
       if ← (dir / ".lake" / "build").pathExists then
         failures.modify (·.push s!"fence-env/{name}: setup unexpectedly has a build directory")
       fenceEnvironmentControl layout repo failures part dir
@@ -3026,14 +3017,16 @@ private unsafe def adopterQualification (repo scratch : FilePath) (parts : List 
       nothing. -/\ndef main : IO Unit := pure ()\n"
     IO.FS.writeFile (adopter / "foundation_manifest.json") (adopterManifestText ++ "\n")
     writeJson (adopter / "lake-manifest.json") lakeManifest
-    let links ← Regula.Filesystem.placeDirectoryLink (repo / ".lake" / "packages")
-      (adopter / ".lake" / "packages")
+    IO.FS.createDirAll (adopter / ".lake")
+    let link ← runProcess adopter "ln" #["-s", (repo / ".lake" / "packages").toString,
+      (adopter / ".lake" / "packages").toString]
+    if !link.succeeded then
+      throw <| IO.userError s!"could not link pinned Lake packages: {link.output}"
     -- An adopter is a repository of its own, so `regula`, which it requires from this checkout, is
     -- a dependency in a different Git work tree, which the audit trusts, as an adopter's is.
     let initialized ← runProcess adopter "git" #["init", "-q"]
     if !initialized.succeeded then
       throw <| IO.userError s!"adopter/{label}/setup: git init failed: {initialized.output}"
-    Regula.Filesystem.requireLinksPlaced adopter links
     let gate (args : Array String := #[]) :=
       runBinaryFrom repo adopter "axiomGate" args
     let positive ← gate #["--verbose"]
@@ -3223,7 +3216,6 @@ private def libraryCycleControl (repo : FilePath) : IO (Array String) :=
         s!"theorem {fact}Top : True := {otherFact}Base\n"
   -- Lake writes the lock manifest of this package without dependencies; without one the fresh
   -- copy's build would create it, a configuration change during the audit.
-  Regula.Filesystem.requireLinksPlaced project []
   let locked ← runProcess project "lake" #["update"] scrubbedLeanPathEnv
   unless locked.succeeded do return #[s!"library-cycle/setup: lake update failed:\n{locked.output}"]
   let result := output / "result.json"
@@ -3300,7 +3292,6 @@ private def writeCrossSurfaceProject (repo project : FilePath) (relation decided
     "{\"schema-version\":2,\"surfaces\":[" ++ surface "Exec" "" ++ "," ++
       surface "Proofs" (if relation then "\"decides\":[\"Exec\"]," else "") ++
       "],\"excluded-libraries\":[],\"excluded-executables\":[]}"
-  Regula.Filesystem.requireLinksPlaced project []
 
 /-- External-boundary control for a decision registration that one claimed surface counts toward
 a registered function of another (standard §7.11). The manifest field, the freeze of the counted
@@ -3390,7 +3381,6 @@ private def driverCopyControl (repo : FilePath) : IO (Array String) :=
       "\"excluded-libraries\":[],\"excluded-executables\":[]}"
   IO.FS.writeFile (project / "Solo" / "Base.lean")
     "/-! The base module of the control. -/\n\ntheorem soloBase : True := True.intro\n"
-  Regula.Filesystem.requireLinksPlaced project []
   let locked ← runProcess project "lake" #["update"] scrubbedLeanPathEnv
   unless locked.succeeded do
     return #[s!"driver-copy/setup: lake update failed:\n{locked.output}"]
@@ -3998,7 +3988,6 @@ private def combinedSnapshotQualification (repo : FilePath) : IO (Array String) 
       let body := if phase == "invalid" then "def docWitness : Nat := \"bad\""
         else "theorem docWitness : True := True.intro"
       IO.FS.writeFile (docs / "sentinel.md") s!"```lean\n{body}\n```\n"
-      Regula.Filesystem.requireLinksPlaced project []
       let result ← runProcess project (← toolPath repo "axiomGate").toString
         #["--project", project.toString, "--with-docs", "--verbose"] scrubbedLeanPathEnv
       let accepted := if phase == "invalid" then
@@ -4015,7 +4004,7 @@ private def combinedSnapshotQualification (repo : FilePath) : IO (Array String) 
 excluded root-library module, through the public fresh project entry point. -/
 private def forcedCollectorQualification (repo scratch : FilePath) : IO (Array String) := do
   let layout ← loadSourceLayout repo
-  discard <| prepareScratchRepo repo scratch
+  prepareScratchRepo repo scratch
   -- Retain the complete original manifest, including pure-policy dependencies.
   -- Excluding them would reject the positive for an unrelated import reason.
   let root := scratch / layout.relativeDir / "AuditApp.lean"

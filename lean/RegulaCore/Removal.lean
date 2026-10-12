@@ -28,10 +28,7 @@ checked removal of `Regula.Filesystem` when an entry of the kind is there at its
 refuses otherwise. `removeFoundWith` removes a directory or a file, whichever is there.
 `replaceWith` moves a file at its own place to a destination where nothing is, or a file is at its
 own place, in a directory at its own place (`replacement_iff`), and reads both paths again after
-the move. `requirePlacedWith` lists the tree below a directory (`Regula.Filesystem.otherEntries`)
-and stops unless each symbolic link or other kind of entry than a directory and a file that it
-finds is one that the program placed there (`linksPlaced_iff`, `requirePlacedWith_run`), under
-`ReadsEntry` and `ListsEntries`.
+the move.
 
 Their contracts are of two strengths. What a successful run leaves at the path rests only on
 `ReadsEntry`, since each operation reads the path again before it succeeds (`removeOwnWith_gone`,
@@ -198,81 +195,6 @@ theorem checked_replacement : Regula.ExecutableContract replacement (fun decide 
     ⟨⟨⟨.present .file, true, true⟩, ⟨.absent, false, true⟩⟩, by decide⟩
     ⟨⟨⟨.present .directory, true, true⟩, ⟨.absent, false, true⟩⟩, by decide⟩⟩
 
-/-! ## The links below a directory that a program made
-
-A program that makes a directory and runs Lake there, such as a copy of a project, may hold no
-symbolic link or other entry than a directory and a file below it except those it placed itself
-(`requirePlacedWith`): Lake follows such an entry when it removes below the directory. -/
-
-/-- The paths below a directory that are symbolic links or other entries than directories and
-files (`Regula.Filesystem.otherEntries`), and the paths of the links that the program placed
-there. -/
-structure TreeLinks where
-  /-- The paths that a walk found. -/
-  found : List FilePath
-  /-- The paths of the links that the program placed. -/
-  placed : List FilePath
-  deriving DecidableEq, Repr
-
-/-- Whether each path that the walk found is a link that the program placed. -/
-@[regula_decision]
-def linksPlaced (links : TreeLinks) : Bool :=
-  links.found.all (· ∈ links.placed)
-
-/-- The decision admits exactly the walks whose paths are among the placed ones. -/
-theorem linksPlaced_iff (links : TreeLinks) :
-    linksPlaced links = true ↔ links.found ⊆ links.placed := by
-  simp [linksPlaced, List.subset_def]
-
-/-- The decision contract of `linksPlaced`. -/
-theorem checked_linksPlaced : Regula.ExecutableContract linksPlaced (fun decide =>
-    Regula.Decides (· = true) (fun links : TreeLinks => links.found ⊆ links.placed) decide) :=
-  ⟨.of_iff linksPlaced_iff
-    ⟨⟨["/w/.lake/packages"], ["/w/.lake/packages"]⟩, by decide⟩
-    ⟨⟨["/w/src/link"], ["/w/.lake/packages"]⟩, by decide⟩⟩
-
-/-! ## A symbolic link that a program placed
-
-A program that places a symbolic link in such a directory, as a copy of a project places the link
-to the packages directory of the original, admits it only when a symbolic link is there and it
-resolves to the target that the program meant (`requireLinkWith`). -/
-
-/-- What reads find at the path of a symbolic link that a program placed, and at the target that it
-meant: what is at the path by a read that follows no link there (`Place.ofType`), and the real paths
-of the path, which follows the link, and of the target. A real path is `none` when `realpath(3)`
-fails. -/
-structure PlacedLink where
-  /-- What is at the path of the link. -/
-  place : Place
-  /-- The real path of the path of the link. -/
-  real : Option FilePath
-  /-- The real path of the target that the program meant. -/
-  target : Option FilePath
-  deriving DecidableEq, Repr
-
-/-- Whether a symbolic link is at the path and resolves to the real path of the target. -/
-@[regula_decision]
-def linkPlaced (link : PlacedLink) : Bool :=
-  link.place == .present .link && link.real.isSome && link.real == link.target
-
-/-- The decision admits exactly a symbolic link whose real path is the target's. -/
-theorem linkPlaced_iff (link : PlacedLink) :
-    linkPlaced link = true ↔
-      link.place = .present .link ∧ ∃ real, link.real = some real ∧ link.target = some real := by
-  rcases link with ⟨place, _ | real, target⟩
-  · simp [linkPlaced]
-  · simp only [linkPlaced, Bool.and_eq_true, beq_iff_eq, Option.isSome_some, and_true,
-      Option.some.injEq, exists_eq_left']
-    exact ⟨fun ⟨h, e⟩ => ⟨h, e.symm⟩, fun ⟨h, e⟩ => ⟨h, e.symm⟩⟩
-
-/-- The decision contract of `linkPlaced`. -/
-theorem checked_linkPlaced : Regula.ExecutableContract linkPlaced (fun decide =>
-    Regula.Decides (· = true) (fun link : PlacedLink => link.place = .present .link ∧
-      ∃ real, link.real = some real ∧ link.target = some real) decide) :=
-  ⟨.of_iff linkPlaced_iff
-    ⟨⟨.present .link, some "/o/.lake/packages", some "/o/.lake/packages"⟩, by decide⟩
-    ⟨⟨.present .link, some "/outside", some "/o/.lake/packages"⟩, by decide⟩⟩
-
 /-! ## Observation -/
 
 /-- The name of the kind in a message. -/
@@ -383,26 +305,6 @@ def replaceWith (ops : Ops m) (source destination : FilePath) : m Unit := do
     ops.rename source destination
     confirmMoved ops source destination
   else throw (moveRefusal source destination)
-
-/-- Stop unless each path of the listed tree of `root` that is a symbolic link or another kind of
-entry than a directory and a file (`otherEntries`), listing at most `limit` directories, is one of
-`placed`, as `linksPlaced` decides (`requirePlacedWith_run`). -/
-def requirePlacedWith (ops : Ops m) (limit : Nat) (root : FilePath) (placed : List FilePath) :
-    m Unit := do
-  let found ← otherEntries ops limit root
-  unless linksPlaced { found, placed } do
-    let stray := (found.find? fun path => !placed.contains path).getD root
-    throw (IO.userError s!"{stray} is a symbolic link or another kind of entry than a directory \
-      and a file below {root}, and not one of the links placed there: {placed}")
-
-/-- Stop unless a symbolic link is at `link`, by a read that follows no link there, and its real
-path is the real path of `target`, as `linkPlaced` decides (`requireLinkWith_run`). -/
-def requireLinkWith (ops : Ops m) (link target : FilePath) : m Unit := do
-  let found ← entryType ops link
-  let real ← realOf ops link
-  let targetReal ← realOf ops target
-  unless linkPlaced { place := Place.ofType found, real, target := targetReal } do
-    throw (IO.userError s!"{link} is not a symbolic link to {target}")
 
 /-! ## Contracts in a model -/
 
@@ -700,51 +602,6 @@ attribute [regula_checked filesystem removeFoundWith_gone
 attribute [regula_checked filesystem replaceWith_moved
   (lean "v4.34.1" "Init/System/IO.lean#L903-L909")] replaceWith
 
-/-- A run of `requirePlacedWith` changes nothing. When it succeeds, each path of the listed tree of
-the root (`Model.Listed`) that is a symbolic link or another kind of entry than a directory and a
-file (`Model.NotPlain`) is one of the placed paths. -/
-theorem requirePlacedWith_run (M : Model) (reads : ReadsEntry M) (lists : ListsEntries M)
-    (limit : Nat) (root : FilePath) (placed : List FilePath) (before : M.World) :
-    Satisfies ((requirePlacedWith M.ops limit root placed).run before)
-      (fun _ w => w = before ∧
-        ∀ path, M.Listed before root path → M.NotPlain before path → path ∈ placed)
-      (fun _ w => w = before) := by
-  simp only [requirePlacedWith]
-  refine Satisfies.bind (otherEntries_run M reads lists limit root before) ?_
-  rintro found w ⟨rfl, below⟩
-  by_cases admitted : linksPlaced { found, placed } = true
-  · simp only [admitted, ↓reduceIte]
-    simp only [EStateM.run_pure, Satisfies]
-    exact ⟨trivial, fun path listed notPlain =>
-      (linksPlaced_iff _).mp admitted (below path listed notPlain)⟩
-  · simp only [Bool.not_eq_true] at admitted
-    simp only [admitted, Bool.false_eq_true, ↓reduceIte, run_throw, Satisfies]
-
-/-- A run of `requireLinkWith` changes nothing. When it succeeds, a symbolic link is at the link's
-path, and its real path is the real path of the target. -/
-theorem requireLinkWith_run (M : Model) (readsEntry : ReadsEntry M) (readsReal : ReadsReal M)
-    (link target : FilePath) (before : M.World) :
-    Satisfies ((requireLinkWith M.ops link target).run before)
-      (fun _ w => w = before ∧ M.entry before link = some .symlink ∧
-        ∃ real, M.real before link = some real ∧ M.real before target = some real)
-      (fun _ w => w = before) := by
-  simp only [requireLinkWith]
-  refine Satisfies.bind (entryType_run M readsEntry link before) ?_
-  rintro found w ⟨rfl, rfl⟩
-  refine Satisfies.bind ((realOf_run M readsReal link w).mono (fun _ _ h => h) nofun) ?_
-  rintro real w' ⟨rfl, rfl⟩
-  refine Satisfies.bind ((realOf_run M readsReal target w').mono (fun _ _ h => h) nofun) ?_
-  rintro targetReal w'' ⟨rfl, rfl⟩
-  by_cases admitted : linkPlaced
-      { place := Place.ofType (M.entry w'' link), real := M.real w'' link,
-        target := M.real w'' target } = true
-  · simp only [admitted, ↓reduceIte]
-    simp only [EStateM.run_pure, Satisfies]
-    obtain ⟨place, real, linked, targeted⟩ := (linkPlaced_iff _).mp admitted
-    exact ⟨trivial, (Place.ofType_present _ .link).mp place, real, linked, targeted⟩
-  · simp only [Bool.not_eq_true] at admitted
-    simp only [admitted, Bool.false_eq_true, ↓reduceIte, run_throw, Satisfies]
-
 /-! ## The operations in `IO` -/
 
 section IO
@@ -809,7 +666,7 @@ theorem replaceWith_agrees (corresponds : Corresponds ops M view)
   refine Agrees.bind (observe_agrees corresponds destination) fun observedDestination => ?_
   cases replacement { source := observedSource, destination := observedDestination } with
   | true =>
-    exact Agrees.bind (corresponds.2.2.2.2.1 source destination) fun _ =>
+    exact Agrees.bind (corresponds.2.2.2.2 source destination) fun _ =>
       confirmMoved_agrees corresponds source destination
   | false => exact Agrees.throw view _
 
@@ -883,61 +740,6 @@ theorem replaceWith_io (corresponds : Corresponds ops M view) (readsEntry : Read
         (s = view w ∨ Movable M source destination (view w))) :=
   (replaceWith_agrees corresponds source destination).transfer w
     (replaceWith_run M readsEntry readsReal renames source destination (view w))
-
-/-- `requirePlacedWith` at operations that correspond to a model runs as `requirePlacedWith` in
-the model. -/
-theorem requirePlacedWith_agrees (corresponds : Corresponds ops M view) (limit : Nat)
-    (root : FilePath) (placed : List FilePath) :
-    Agrees view (requirePlacedWith ops limit root placed)
-      (requirePlacedWith M.ops limit root placed) := by
-  refine Agrees.bind (otherEntries_agrees corresponds limit root) fun found => ?_
-  by_cases admitted : linksPlaced { found, placed } = true
-  · simp only [admitted, ↓reduceIte]
-    exact Agrees.pure view _
-  · simp only [Bool.not_eq_true] at admitted
-    simp only [admitted, Bool.false_eq_true, ↓reduceIte]
-    exact Agrees.throw view _
-
-/-- `requirePlacedWith` in `IO`, at operations that correspond to a model, ends in a world read as
-the same state, and when it succeeds, each path of the listed tree of the root (`Model.Listed`)
-that is a symbolic link or another kind of entry than a directory and a file (`Model.NotPlain`) is
-one of the placed paths (`requirePlacedWith_run`). -/
-theorem requirePlacedWith_io (corresponds : Corresponds ops M view) (reads : ReadsEntry M)
-    (lists : ListsEntries M) (limit : Nat) (root : FilePath) (placed : List FilePath)
-    (w : Void IO.RealWorld) :
-    RunsTo view (requirePlacedWith ops limit root placed w)
-      (fun _ s => s = view w ∧ ∀ path, M.Listed (view w) root path →
-        M.NotPlain (view w) path → path ∈ placed)
-      (fun _ s => s = view w) :=
-  (requirePlacedWith_agrees corresponds limit root placed).transfer w
-    (requirePlacedWith_run M reads lists limit root placed (view w))
-
-/-- `requireLinkWith` at operations that correspond to a model runs as `requireLinkWith` in the
-model. -/
-theorem requireLinkWith_agrees (corresponds : Corresponds ops M view) (link target : FilePath) :
-    Agrees view (requireLinkWith ops link target) (requireLinkWith M.ops link target) := by
-  refine Agrees.bind (entryType_agrees corresponds link) fun found => ?_
-  refine Agrees.bind (realOf_agrees corresponds link) fun real => ?_
-  refine Agrees.bind (realOf_agrees corresponds target) fun targetReal => ?_
-  by_cases admitted :
-      linkPlaced { place := Place.ofType found, real, target := targetReal } = true
-  · simp only [admitted, ↓reduceIte]
-    exact Agrees.pure view _
-  · simp only [Bool.not_eq_true] at admitted
-    simp only [admitted, Bool.false_eq_true, ↓reduceIte]
-    exact Agrees.throw view _
-
-/-- `requireLinkWith` in `IO`, at operations that correspond to a model, ends in a world read as
-the same state, and when it succeeds, a symbolic link is at the link's path, and its real path is
-the real path of the target (`requireLinkWith_run`). -/
-theorem requireLinkWith_io (corresponds : Corresponds ops M view) (readsEntry : ReadsEntry M)
-    (readsReal : ReadsReal M) (link target : FilePath) (w : Void IO.RealWorld) :
-    RunsTo view (requireLinkWith ops link target w)
-      (fun _ s => s = view w ∧ M.entry (view w) link = some .symlink ∧
-        ∃ real, M.real (view w) link = some real ∧ M.real (view w) target = some real)
-      (fun _ s => s = view w) :=
-  (requireLinkWith_agrees corresponds link target).transfer w
-    (requireLinkWith_run M readsEntry readsReal link target (view w))
 
 end IO
 

@@ -269,7 +269,6 @@ private def phase (repo scratch : FilePath) (test : Case) (negative : Bool) : IO
   -- Resolve configuration before the checker captures its immutable source
   -- binding. A later first Lake invocation would otherwise create the manifest
   -- inside the checked interval, correctly invalidating that binding.
-  Regula.Filesystem.requireLinksPlaced scratch []
   let configured ← runProcess scratch "lake" #["update"]
   if !configured.succeeded then
     return #[s!"{test.name}: configuration setup failed:\n{configured.output}"]
@@ -279,30 +278,21 @@ private def phase (repo scratch : FilePath) (test : Case) (negative : Bool) : IO
   -- new scratch tree, including the restored control.
   let lookalikeRoot := supportName.getRoot
   let lookalike := decide (RegulaPolicy.ToolchainRoot lookalikeRoot)
-  let placed ← if !lookalike then pure [] else do
+  if lookalike then
     let toolchainLib ← Lean.getLibDir (← Lean.findSysroot)
     let output := scratch / ".lake" / "build" / "lib" / "lean"
     let prefixDirectory := lookalikeRoot.toString
     IO.FS.createDirAll (output / prefixDirectory)
-    -- One `ln` per directory links every source under its own file name, which `ln` refuses
-    -- when something is there; each link must then resolve to its source
-    -- (`Regula.Filesystem.requireLinkTo`).
-    let link (sources : Array FilePath) (directory : FilePath) : IO (List FilePath) := do
-      if sources.isEmpty then return []
-      let result ← runProcess scratch "ln"
-        (#["-s"] ++ sources.map (·.toString) ++ #[directory.toString])
-      if !result.succeeded then
-        throw <| IO.userError s!"could not expose toolchain control: {result.output}"
-      sources.toList.mapM fun source => do
-        let placed := directory / (source.fileName.getD "")
-        Regula.Filesystem.requireLinkTo placed source
-        return placed
-    let top ← link (((← toolchainLib.readDir).filter
+    -- One `ln` per directory links every source under its own file name.
+    let link (sources : Array FilePath) (directory : FilePath) := do
+      unless sources.isEmpty do
+        let result ← runProcess scratch "ln"
+          (#["-s"] ++ sources.map (·.toString) ++ #[directory.toString])
+        if !result.succeeded then
+          throw <| IO.userError s!"could not expose toolchain control: {result.output}"
+    link (((← toolchainLib.readDir).filter
       (·.fileName.startsWith s!"{prefixDirectory}.")).map (·.path)) output
-    let inner ← link ((← (toolchainLib / prefixDirectory).readDir).map (·.path))
-      (output / prefixDirectory)
-    pure (top ++ inner)
-  Regula.Filesystem.requireLinksPlaced scratch placed
+    link ((← (toolchainLib / prefixDirectory).readDir).map (·.path)) (output / prefixDirectory)
   IO.FS.writeFile (scratch / "foundation_manifest.json")
     ("{\"schema-version\":2,\"surfaces\":[{\"library\":\"Wrapper\",\"claim\":\"standard-logical\","
         ++

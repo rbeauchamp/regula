@@ -14,7 +14,7 @@ rests on. The operations that decide before they remove or move are in `RegulaCo
 
 ## The model
 
-A model has a type of states, four reads that give the vocabulary of the assumptions, and the
+A model has a type of states, three reads that give the vocabulary of the assumptions, and the
 operations as actions on the state:
 
 * `Model.entry`: the type of the entry that a path names, as `lstat(2)` reports it, which does
@@ -25,13 +25,10 @@ operations as actions on the state:
   as `lstat(2)` reports them. Lean 4.34.1's `IO.FS.Metadata` has neither
   (`Init/System/IO.lean#L1115-L1129`), so no operation reads it and no decision depends on it: it
   names the files that the frame of a removal speaks about (`Model.Unchanged`).
-* `Model.names`: the names that a directory holds, as `readdir(3)` reports them, without `.` and
-  `..`. They give the tree of a directory as a walk that lists each directory reads it
-  (`Model.Listed`).
 
 ## The assumptions
 
-Each assumption is a predicate with the sources that state it (`Regula.Assumption`). The six are
+Each assumption is a predicate with the sources that state it (`Regula.Assumption`). The five are
 the contracts of the operations, each a `Std.Do` triple whose postcondition is the property:
 
 * `ReadsEntry`: `symlinkMetadata` reports the entry, changes nothing, and fails with
@@ -47,7 +44,6 @@ the contracts of the operations, each a `Std.Do` triple whose postcondition is t
   removed path, below a parent at its own real path, whose file before is not the removed one.
 * `Renames`: `rename` of a source at its own place to a destination whose parent is at its own
   place keeps the entry at each path of the frame of both (`Model.Kept`).
-* `ListsEntries`: `readDir` of a directory lists each name that it holds and changes nothing.
 
 Each is a statement about every run from every state, so together they describe runs in which no
 other process changes the filesystem, which none states alone. In `IO`, the world that one
@@ -73,7 +69,7 @@ function in `IO` (`removeDirectory_io`, `removeDirectory_gone_io`, `removeEntry_
 read as a model state. That is agreement of runs, not an assumption about the filesystem:
 `corresponds_ofIO` proves it for every set of operations at the model whose states are the worlds
 (`Model.ofIO`). `Regula.Filesystem` states the theorems for the observer at that model, where they
-rest on the six assumptions alone.
+rest on the five assumptions alone.
 
 ## Boundaries
 
@@ -119,8 +115,6 @@ structure Ops (m : Type → Type) where
   removeFile : FilePath → m Unit
   /-- Move the entry at the first path to the second, replacing what is there: `IO.FS.rename`. -/
   rename : FilePath → FilePath → m Unit
-  /-- The entries of a directory: `System.FilePath.readDir`. -/
-  readDir : FilePath → m (Array IO.FS.DirEntry)
 
 /-- The identity of a file: the device that holds it and its number on that device, the fields
 `st_dev` and `st_ino` that `lstat(2)` reports. POSIX.1-2024 `<sys/stat.h>` states that the two
@@ -131,7 +125,7 @@ structure FileId where
   /-- The number of the file on its device: `st_ino`. -/
   inode : Nat
 
-/-- A model of the filesystem: its states, what the four reads report in each state, and the
+/-- A model of the filesystem: its states, what the three reads report in each state, and the
 operations as actions on the state that can fail with an `IO.Error`. -/
 structure Model where
   /-- The states of the filesystem. -/
@@ -149,9 +143,6 @@ structure Model where
   (`Init/System/IO.lean#L1115-L1129`), so no operation reads it and no decision depends on it: it
   names the files that the frame of a removal speaks about (`Model.Unchanged`). -/
   ident : World → FilePath → Option FileId
-  /-- The names of the entries that a directory holds in a state, as `readdir(3)` reports them,
-  without `.` and `..`. It is read only for a path whose entry is a directory (`ListsEntries`). -/
-  names : World → FilePath → List String
   /-- The operations, as actions on the state. -/
   ops : Ops (EStateM IO.Error World)
 
@@ -183,39 +174,6 @@ inductive Model.Below (M : Model) (w : M.World) (directory : FilePath) : FilePat
   | child {path parent : FilePath} : Model.Below M w directory parent →
       M.entry w parent = some .dir → path.parent = some parent → path.fileName.isSome = true →
       Model.Below M w directory path
-
-/-- The listed tree of `root` in the state `w`: `root` itself, and the path of each name that a
-directory of the tree holds (`Model.names`), joined to it as `System.FilePath.readDir` joins it
-(`IO.FS.DirEntry.path`). A directory of the tree is one whose entry `lstat(2)` reports as a
-directory, so the tree goes into no symbolic link. It is the tree that a walk which lists each
-directory that it reads finds (`otherEntries`). Unlike `Model.Below`, it holds each entry by the
-one name that its directory holds, not by another spelling of it. -/
-inductive Model.Listed (M : Model) (w : M.World) (root : FilePath) : FilePath → Prop where
-  /-- A path is in its own listed tree. -/
-  | self : Model.Listed M w root root
-  /-- The path of a name that a directory of the tree holds is in the tree. -/
-  | child {directory : FilePath} {name : String} : Model.Listed M w root directory →
-      M.entry w directory = some .dir → name ∈ M.names w directory →
-      Model.Listed M w root (directory / name)
-
-/-- In the state `w`, the entry at `path` is a symbolic link or another kind of entry than a
-directory and a regular file, such as a socket or a device, as `lstat(2)` reports it. -/
-def Model.NotPlain (M : Model) (w : M.World) (path : FilePath) : Prop :=
-  M.entry w path = some .symlink ∨ M.entry w path = some .other
-
-/-- A path of the listed tree of `directory` is `directory`, or it is in the listed tree of the
-path of a name that `directory` holds, when `directory` is a directory. -/
-theorem Model.Listed.first {M : Model} {w : M.World} {directory path : FilePath}
-    (listed : M.Listed w directory path) : path = directory ∨
-      M.entry w directory = some .dir ∧
-        ∃ name ∈ M.names w directory, M.Listed w (directory / name) path := by
-  induction listed with
-  | self => exact .inl rfl
-  | @child parent name _ isDir held ih =>
-    rcases ih with same | ⟨top, first, firstHeld, below⟩
-    · subst same
-      exact .inr ⟨isDir, name, held, .self⟩
-    · exact .inr ⟨top, first, firstHeld, .child below isDir held⟩
 
 /-- From the state `before` to the state `after`, the entry at each path of the frame of the paths
 `changed` kept its type. The frame is each path that is not spelled within any of them (`Within`),
@@ -393,29 +351,6 @@ def Renames (M : Model) : Prop :=
       ⦃post⟨fun _ w => ⌜M.Kept [source, destination] before w⌝,
         fun _ w => ⌜M.Kept [source, destination] before w⌝⟩⦄
 
-/-- `readDir` of a directory, as `lstat(2)` reports the entry at the path, lists each name that the
-directory holds (`Model.names`), with the path as its directory, and changes nothing. When it
-fails, it changed nothing. It may list more: a name that it lists and the directory does not hold
-is read like any other.
-
-Lean 4.34.1's `readDir` calls `opendir(3)` and then `readdir(3)` until it gives no entry, leaving
-out `.` and `..` (`runtime/io.cpp#L1076-L1098`). It does not tell the end of the directory from an
-error of `readdir(3)`, which also gives no entry, so a read that fails part way gives the names
-read so far, and the assumption is false for it. POSIX leaves unspecified whether `readdir(3)`
-gives a name added or removed after `opendir(3)`, so the assumption is false too when another
-process changes the directory while it is read. -/
-@[regula_assumption filesystem
-  (lean "v4.34.1" "Init/System/IO.lean#L1068-L1079")
-  (lean "v4.34.1" "Init/System/IO.lean#L1137-L1142")
-  (lean "v4.34.1" "runtime/io.cpp#L1076-L1098")
-  (document filesystem "POSIX.1-2024, opendir() and readdir()")]
-def ListsEntries (M : Model) : Prop :=
-  ∀ path before, M.entry before path = some .dir →
-    ⦃fun w => ⌜w = before⌝⦄ M.ops.readDir path
-      ⦃post⟨fun entries w => ⌜w = before ∧ ∀ name ∈ M.names before path,
-          ∃ entry ∈ entries, entry.root = path ∧ entry.fileName = name⌝,
-        fun _ w => ⌜w = before⌝⟩⦄
-
 /-! ## Operations in `IO` that correspond to a model -/
 
 /-- The operations `ops` in `IO` run as the operations of the model `M`, when `view` reads each
@@ -425,7 +360,7 @@ world it ends in is the state the model's operation ends in.
 
 This is agreement of runs, not a property of the filesystem, so it has no role: `corresponds_ofIO`
 proves it for every set of operations at the model whose states are the worlds. It does not say
-that no other process changes the filesystem. At that model, the six assumptions describe runs in
+that no other process changes the filesystem. At that model, the five assumptions describe runs in
 which no other process changes it (see the module's documentation). -/
 def Corresponds (ops : Ops IO) (M : Model) (view : Void IO.RealWorld → M.World) : Prop :=
   (∀ path, Agrees view (ops.symlinkMetadata path) (M.ops.symlinkMetadata path)) ∧
@@ -433,8 +368,7 @@ def Corresponds (ops : Ops IO) (M : Model) (view : Void IO.RealWorld → M.World
     (∀ path, Agrees view (ops.removeDirAll path) (M.ops.removeDirAll path)) ∧
     (∀ path, Agrees view (ops.removeFile path) (M.ops.removeFile path)) ∧
     (∀ source destination,
-      Agrees view (ops.rename source destination) (M.ops.rename source destination)) ∧
-    (∀ path, Agrees view (ops.readDir path) (M.ops.readDir path))
+      Agrees view (ops.rename source destination) (M.ops.rename source destination))
 
 /-- The model action over the worlds of `IO` that runs the `EIO` action `x`. -/
 def ofEIO {ε α : Type} (x : EIO ε α) : EStateM ε (Void IO.RealWorld) α := fun w =>
@@ -443,23 +377,20 @@ def ofEIO {ε α : Type} (x : EIO ε α) : EStateM ε (Void IO.RealWorld) α := 
   | .error e w' => .error e w'
 
 /-- The model whose states are the worlds of `IO`, whose operations are those of `ops` run over
-them, and whose reads are `entry`, `real`, `ident` and `names`. -/
+them, and whose reads are `entry`, `real` and `ident`. -/
 def Model.ofIO (ops : Ops IO) (entry : Void IO.RealWorld → FilePath → Option IO.FS.FileType)
     (real : Void IO.RealWorld → FilePath → Option FilePath)
-    (ident : Void IO.RealWorld → FilePath → Option FileId)
-    (names : Void IO.RealWorld → FilePath → List String) : Model where
+    (ident : Void IO.RealWorld → FilePath → Option FileId) : Model where
   World := Void IO.RealWorld
   entry := entry
   real := real
   ident := ident
-  names := names
   ops := {
     symlinkMetadata := fun path => ofEIO (ops.symlinkMetadata path)
     realPath := fun path => ofEIO (ops.realPath path)
     removeDirAll := fun path => ofEIO (ops.removeDirAll path)
     removeFile := fun path => ofEIO (ops.removeFile path)
-    rename := fun source destination => ofEIO (ops.rename source destination)
-    readDir := fun path => ofEIO (ops.readDir path) }
+    rename := fun source destination => ofEIO (ops.rename source destination) }
 
 /-- An `EIO` action runs as itself over the worlds of `IO`, each world read as itself. -/
 theorem ofEIO_agrees {ε α : Type} (x : EIO ε α) : Agrees id x (ofEIO x) := by
@@ -475,11 +406,10 @@ trusted. -/
 theorem corresponds_ofIO (ops : Ops IO)
     (entry : Void IO.RealWorld → FilePath → Option IO.FS.FileType)
     (real : Void IO.RealWorld → FilePath → Option FilePath)
-    (ident : Void IO.RealWorld → FilePath → Option FileId)
-    (names : Void IO.RealWorld → FilePath → List String) :
-    Corresponds ops (Model.ofIO ops entry real ident names) id :=
+    (ident : Void IO.RealWorld → FilePath → Option FileId) :
+    Corresponds ops (Model.ofIO ops entry real ident) id :=
   ⟨fun _ => ofEIO_agrees _, fun _ => ofEIO_agrees _, fun _ => ofEIO_agrees _,
-    fun _ => ofEIO_agrees _, fun _ _ => ofEIO_agrees _, fun _ => ofEIO_agrees _⟩
+    fun _ => ofEIO_agrees _, fun _ _ => ofEIO_agrees _⟩
 
 /-! ## Reads -/
 
@@ -498,11 +428,6 @@ where `realpath(3)` keeps the name as written (`ReadsReal`). -/
 def atOwnPlace {m : Type → Type} [Monad m] [MonadExceptOf IO.Error m] (ops : Ops m)
     (path : FilePath) : m Bool :=
   tryCatchThe IO.Error (do return (← ops.realPath path) == path) fun _ => pure false
-
-/-- The real path of `path`, or `none` when `realpath(3)` fails. -/
-def realOf {m : Type → Type} [Monad m] [MonadExceptOf IO.Error m] (ops : Ops m)
-    (path : FilePath) : m (Option FilePath) :=
-  tryCatchThe IO.Error (do return some (← ops.realPath path)) fun _ => pure none
 
 /-- A run of `entryType` gives the model's entry at the path and changes nothing. When it fails,
 nothing changed. -/
@@ -530,18 +455,6 @@ theorem atOwnPlace_run (M : Model) (reads : ReadsReal M) (path : FilePath) (befo
   | ok real w => intro h; refine ⟨h.1, ?_⟩; rw [h.2]; simp [beq_iff_eq]
   | error e w => intro h; simp_all [Satisfies]
 
-/-- A run of `realOf` never fails, changes nothing, and gives the model's real path of the path. -/
-theorem realOf_run (M : Model) (reads : ReadsReal M) (path : FilePath) (before : M.World) :
-    Satisfies ((realOf M.ops path).run before)
-      (fun found w => w = before ∧ found = M.real before path)
-      (fun _ _ => False) := by
-  have h := (triple_iff _ _ _ _).mp (reads path before) before rfl
-  simp only [realOf, run_tryCatch, EStateM.run_bind, EStateM.run_pure]
-  revert h
-  cases (M.ops.realPath path).run before with
-  | ok real w => intro h; exact ⟨h.1, h.2.symm⟩
-  | error e w => intro h; simp_all [Satisfies]
-
 /-- `entryType` gives the model's entry at the path and changes nothing. When it fails, nothing
 changed. -/
 theorem entryType_spec (M : Model) (reads : ReadsEntry M) (path : FilePath) (before : M.World) :
@@ -557,195 +470,6 @@ theorem atOwnPlace_spec (M : Model) (reads : ReadsReal M) (path : FilePath) (bef
       ⦃post⟨fun same w => ⌜w = before ∧ (same = true ↔ M.real before path = some path)⌝,
         fun _ _ => ⌜False⌝⟩⦄ :=
   (triple_iff _ _ _ _).mpr fun _ same => same ▸ atOwnPlace_run M reads path before
-
-/-! ## The entries of a tree other than directories and files -/
-
-/-- Sort `entries` by what a read that follows no link finds at the path of each (`entryType`): a
-directory is added to `directories`, a symbolic link or another kind of entry than a directory and
-a file to `others`, and a file or nothing is left out. -/
-def sortEntries {m : Type → Type} [Monad m] [MonadExceptOf IO.Error m] (ops : Ops m) :
-    List IO.FS.DirEntry → List FilePath → List FilePath → m (List FilePath × List FilePath)
-  | [], directories, others => pure (directories, others)
-  | entry :: rest, directories, others => do
-    match ← entryType ops entry.path with
-    | some .dir => sortEntries ops rest (entry.path :: directories) others
-    | some .symlink | some .other => sortEntries ops rest directories (entry.path :: others)
-    | some .file | none => sortEntries ops rest directories others
-
-/-- List each directory of `directories`, and each directory that a listing finds below them at any
-depth, and add to `others` each path that a listing finds that is a symbolic link or another kind
-of entry than a directory and a file (`sortEntries`). It lists at most `limit` directories, and
-fails, naming `root`, when one more is left to list. -/
-def otherEntriesIn {m : Type → Type} [Monad m] [MonadExceptOf IO.Error m] (ops : Ops m)
-    (root : FilePath) : Nat → List FilePath → List FilePath → m (List FilePath)
-  | _, [], others => pure others
-  | 0, _ :: _, _ =>
-    throw (IO.userError s!"{root} has more directories below it than the walk lists")
-  | limit + 1, directory :: rest, others => do
-    let (directories, others) ← sortEntries ops (← ops.readDir directory).toList rest others
-    otherEntriesIn ops root limit directories others
-
-/-- Each path of the listed tree of `root` (`Model.Listed`) that is a symbolic link or another kind
-of entry than a directory and a file, by reads that follow no link: `root` itself when it is one,
-and when it is a directory, each such path below it (`otherEntriesIn`), listing at most `limit`
-directories. A walk that lists exactly `limit` directories gives its paths. -/
-def otherEntries {m : Type → Type} [Monad m] [MonadExceptOf IO.Error m] (ops : Ops m)
-    (limit : Nat) (root : FilePath) : m (List FilePath) := do
-  match ← entryType ops root with
-  | some .dir => otherEntriesIn ops root limit [root] []
-  | some .symlink | some .other => pure [root]
-  | some .file | none => pure []
-
-/-- A run of `sortEntries` changes nothing. When it succeeds, it keeps `directories` and `others`,
-adds the path of each entry that is a directory to the directories and of each that is a symbolic
-link or another kind of entry (`Model.NotPlain`) to the others, and adds nothing else to the
-directories. -/
-theorem sortEntries_run (M : Model) (reads : ReadsEntry M) :
-    ∀ (entries : List IO.FS.DirEntry) (before : M.World) (directories others : List FilePath),
-      (∀ directory ∈ directories, M.entry before directory = some .dir) →
-      Satisfies ((sortEntries M.ops entries directories others).run before)
-        (fun sorted w => w = before ∧
-          (∀ directory ∈ sorted.1, M.entry before directory = some .dir) ∧
-          directories ⊆ sorted.1 ∧ others ⊆ sorted.2 ∧
-          ∀ entry ∈ entries,
-            (M.entry before entry.path = some .dir → entry.path ∈ sorted.1) ∧
-            (M.NotPlain before entry.path → entry.path ∈ sorted.2))
-        (fun _ w => w = before)
-  | [], before, directories, others, kept => by
-    simp only [sortEntries, EStateM.run_pure, Satisfies]
-    exact ⟨trivial, kept, List.Subset.refl _, List.Subset.refl _, by simp⟩
-  | entry :: rest, before, directories, others, kept => by
-    simp only [sortEntries]
-    refine Satisfies.bind (entryType_run M reads entry.path before) ?_
-    rintro found w ⟨rfl, rfl⟩
-    have step := fun directories' others' kept' =>
-      sortEntries_run M reads rest w directories' others' kept'
-    cases found_eq : M.entry w entry.path with
-    | none =>
-      refine (step directories others kept).mono ?_ (fun _ _ h => h)
-      rintro sorted w' ⟨same, dirs, subDirs, subOthers, sortedRest⟩
-      refine ⟨same, dirs, subDirs, subOthers, ?_⟩
-      intro e inE
-      rcases List.mem_cons.mp inE with rfl | inRest
-      · simp [Model.NotPlain, found_eq]
-      · exact sortedRest e inRest
-    | some kind =>
-      cases kind with
-      | dir =>
-        refine (step (entry.path :: directories) others ?_).mono ?_ (fun _ _ h => h)
-        · intro directory inD
-          rcases List.mem_cons.mp inD with rfl | inRest
-          · exact found_eq
-          · exact kept directory inRest
-        · rintro sorted w' ⟨same, dirs, subDirs, subOthers, sortedRest⟩
-          refine ⟨same, dirs, fun d inD => subDirs (List.mem_cons_of_mem _ inD), subOthers, ?_⟩
-          intro e inE
-          rcases List.mem_cons.mp inE with rfl | inRest
-          · exact ⟨fun _ => subDirs (List.mem_cons_self ..),
-              fun notPlain => by rcases notPlain with h | h <;> simp [found_eq] at h⟩
-          · exact sortedRest e inRest
-      | file =>
-        refine (step directories others kept).mono ?_ (fun _ _ h => h)
-        rintro sorted w' ⟨same, dirs, subDirs, subOthers, sortedRest⟩
-        refine ⟨same, dirs, subDirs, subOthers, ?_⟩
-        intro e inE
-        rcases List.mem_cons.mp inE with rfl | inRest
-        · simp [Model.NotPlain, found_eq]
-        · exact sortedRest e inRest
-      | symlink | other =>
-        refine (step directories (entry.path :: others) kept).mono ?_ (fun _ _ h => h)
-        rintro sorted w' ⟨same, dirs, subDirs, subOthers, sortedRest⟩
-        refine ⟨same, dirs, subDirs, fun o inO => subOthers (List.mem_cons_of_mem _ inO), ?_⟩
-        intro e inE
-        rcases List.mem_cons.mp inE with rfl | inRest
-        · exact ⟨fun isDir => by simp [found_eq] at isDir,
-            fun _ => subOthers (List.mem_cons_self ..)⟩
-        · exact sortedRest e inRest
-
-/-- A run of `otherEntriesIn` changes nothing. When it succeeds, it keeps `others`, and it holds
-each path of the listed tree of each of `directories` (`Model.Listed`) that is a symbolic link or
-another kind of entry than a directory and a file (`Model.NotPlain`). -/
-theorem otherEntriesIn_run (M : Model) (reads : ReadsEntry M) (lists : ListsEntries M)
-    (root : FilePath) :
-    ∀ (limit : Nat) (before : M.World) (directories others : List FilePath),
-      (∀ directory ∈ directories, M.entry before directory = some .dir) →
-      Satisfies ((otherEntriesIn M.ops root limit directories others).run before)
-        (fun found w => w = before ∧ others ⊆ found ∧
-          ∀ directory ∈ directories, ∀ path, M.Listed before directory path →
-            M.NotPlain before path → path ∈ found)
-        (fun _ w => w = before)
-  | _, before, [], others, _ => by
-    simp only [otherEntriesIn, EStateM.run_pure, Satisfies]
-    exact ⟨trivial, List.Subset.refl _, by simp⟩
-  | 0, before, _ :: _, _, _ => by
-    simp only [otherEntriesIn, run_throw, Satisfies]
-  | limit + 1, before, directory :: rest, others, kept => by
-    simp only [otherEntriesIn]
-    have isDir := kept directory (List.mem_cons_self ..)
-    refine Satisfies.bind ((triple_iff _ _ _ _).mp (lists directory before isDir) before rfl) ?_
-    rintro entries w ⟨rfl, complete⟩
-    refine Satisfies.bind (sortEntries_run M reads entries.toList w rest others
-      fun d inD => kept d (List.mem_cons_of_mem _ inD)) ?_
-    rintro ⟨directories, others'⟩ w' ⟨rfl, dirs, subRest, subOthers, sorted⟩
-    refine (otherEntriesIn_run M reads lists root limit w' directories others' dirs).mono ?_
-      (fun _ _ h => h)
-    rintro found w'' ⟨same, othersFound, below⟩
-    refine ⟨same, fun o inO => othersFound (subOthers inO), ?_⟩
-    intro d inD path listed notPlain
-    rcases List.mem_cons.mp inD with rfl | inRest
-    · rcases listed.first with rfl | ⟨_, name, held, belowChild⟩
-      · rcases notPlain with h | h <;> simp [isDir] at h
-      · obtain ⟨entry, inEntries, rootEq, nameEq⟩ := complete name held
-        have pathEq : entry.path = d / name := by
-          simp only [IO.FS.DirEntry.path, rootEq, nameEq]
-        have sortedEntry := sorted entry (Array.mem_toList_iff.mpr inEntries)
-        rw [pathEq] at sortedEntry
-        by_cases childDir : M.entry w' (d / name) = some .dir
-        · exact below _ (sortedEntry.1 childDir) path belowChild notPlain
-        · rcases belowChild.first with rfl | ⟨isChildDir, _⟩
-          · exact othersFound (sortedEntry.2 notPlain)
-          · exact absurd isChildDir childDir
-    · exact below d (subRest inRest) path listed notPlain
-
-/-- A run of `otherEntries` changes nothing. When it succeeds, it gives each path of the listed tree
-of the root (`Model.Listed`) that is a symbolic link or another kind of entry than a directory and
-a file (`Model.NotPlain`). -/
-theorem otherEntries_run (M : Model) (reads : ReadsEntry M) (lists : ListsEntries M) (limit : Nat)
-    (root : FilePath) (before : M.World) :
-    Satisfies ((otherEntries M.ops limit root).run before)
-      (fun found w => w = before ∧
-        ∀ path, M.Listed before root path → M.NotPlain before path → path ∈ found)
-      (fun _ w => w = before) := by
-  simp only [otherEntries]
-  refine Satisfies.bind (entryType_run M reads root before) ?_
-  rintro found w ⟨rfl, rfl⟩
-  have alone : ∀ path, M.Listed w root path → M.entry w root ≠ some .dir → path = root :=
-    fun path listed notDir => by
-      rcases listed.first with same | ⟨isDir, _⟩
-      · exact same
-      · exact absurd isDir notDir
-  cases found_eq : M.entry w root with
-  | none =>
-    simp only [EStateM.run_pure, Satisfies]
-    refine ⟨trivial, fun path listed notPlain => ?_⟩
-    rw [alone path listed (by simp [found_eq])] at notPlain
-    rcases notPlain with h | h <;> simp [found_eq] at h
-  | some kind =>
-    cases kind with
-    | dir =>
-      exact (otherEntriesIn_run M reads lists root limit w [root] [] (by simp [found_eq])).mono
-        (fun _ _ ⟨same, _, below⟩ => ⟨same, fun path listed notPlain =>
-          below root (List.mem_singleton_self _) path listed notPlain⟩) (fun _ _ h => h)
-    | file =>
-      simp only [EStateM.run_pure, Satisfies]
-      refine ⟨trivial, fun path listed notPlain => ?_⟩
-      rw [alone path listed (by simp [found_eq])] at notPlain
-      rcases notPlain with h | h <;> simp [found_eq] at h
-    | symlink | other =>
-      simp only [EStateM.run_pure, Satisfies]
-      exact ⟨trivial, fun path listed _ => by
-        rw [alone path listed (by simp [found_eq])]
-        exact List.mem_singleton_self _⟩
 
 /-! ## Checked removals -/
 
@@ -908,59 +632,6 @@ theorem atOwnPlace_agrees (corresponds : Corresponds ops M view) (path : FilePat
     Agrees view (atOwnPlace ops path) (atOwnPlace M.ops path) :=
   Agrees.tryCatch (Agrees.bind (corresponds.2.1 path) fun _ => Agrees.pure view _)
     fun _ => Agrees.pure view false
-
-/-- `realOf` at operations that correspond to a model runs as `realOf` in the model. -/
-theorem realOf_agrees (corresponds : Corresponds ops M view) (path : FilePath) :
-    Agrees view (realOf ops path) (realOf M.ops path) :=
-  Agrees.tryCatch (Agrees.bind (corresponds.2.1 path) fun _ => Agrees.pure view _)
-    fun _ => Agrees.pure view none
-
-/-- `sortEntries` at operations that correspond to a model runs as `sortEntries` in the model. -/
-theorem sortEntries_agrees (corresponds : Corresponds ops M view) :
-    ∀ (entries : List IO.FS.DirEntry) (directories others : List FilePath),
-      Agrees view (sortEntries ops entries directories others)
-        (sortEntries M.ops entries directories others)
-  | [], _, _ => Agrees.pure view _
-  | entry :: rest, directories, others => by
-    simp only [sortEntries]
-    refine Agrees.bind (entryType_agrees corresponds entry.path) fun found => ?_
-    rcases found with _ | (_ | _ | _ | _) <;> exact sortEntries_agrees corresponds rest _ _
-
-/-- `otherEntriesIn` at operations that correspond to a model runs as `otherEntriesIn` in the
-model. -/
-theorem otherEntriesIn_agrees (corresponds : Corresponds ops M view) (root : FilePath) :
-    ∀ (limit : Nat) (directories others : List FilePath),
-      Agrees view (otherEntriesIn ops root limit directories others)
-        (otherEntriesIn M.ops root limit directories others)
-  | _, [], _ => by simp only [otherEntriesIn]; exact Agrees.pure view _
-  | 0, _ :: _, _ => by simp only [otherEntriesIn]; exact Agrees.throw view _
-  | limit + 1, directory :: rest, others => by
-    simp only [otherEntriesIn]
-    refine Agrees.bind (corresponds.2.2.2.2.2 directory) fun entries => ?_
-    refine Agrees.bind (sortEntries_agrees corresponds _ _ _) fun sorted => ?_
-    obtain ⟨directories, others'⟩ := sorted
-    exact otherEntriesIn_agrees corresponds root limit directories others'
-
-/-- `otherEntries` at operations that correspond to a model runs as `otherEntries` in the model. -/
-theorem otherEntries_agrees (corresponds : Corresponds ops M view) (limit : Nat)
-    (root : FilePath) :
-    Agrees view (otherEntries ops limit root) (otherEntries M.ops limit root) := by
-  refine Agrees.bind (entryType_agrees corresponds root) fun found => ?_
-  rcases found with _ | (_ | _ | _ | _) <;>
-    first | exact otherEntriesIn_agrees corresponds root limit _ _ | exact Agrees.pure view _
-
-/-- `otherEntries` in `IO`, at operations that correspond to a model, ends in a world read as the
-same state, and when it succeeds, it gives each path of the listed tree of the root
-(`Model.Listed`) that is a symbolic link or another kind of entry than a directory and a file
-(`Model.NotPlain`) (`otherEntries_run`). -/
-theorem otherEntries_io (corresponds : Corresponds ops M view) (reads : ReadsEntry M)
-    (lists : ListsEntries M) (limit : Nat) (root : FilePath) (w : Void IO.RealWorld) :
-    RunsTo view (otherEntries ops limit root w)
-      (fun found s => s = view w ∧ ∀ path, M.Listed (view w) root path →
-        M.NotPlain (view w) path → path ∈ found)
-      (fun _ s => s = view w) :=
-  (otherEntries_agrees corresponds limit root).transfer w
-    (otherEntries_run M reads lists limit root (view w))
 
 /-- `confirmGone` at operations that correspond to a model runs as `confirmGone` in the model. -/
 theorem confirmGone_agrees (corresponds : Corresponds ops M view) (path : FilePath) :

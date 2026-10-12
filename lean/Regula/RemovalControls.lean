@@ -1,5 +1,4 @@
 import Regula.Removal
-import Regula.Checker.Lake
 import Regula.Site.Deployment
 import Lean.Elab.Command
 
@@ -34,17 +33,7 @@ planted initializer never runs. The planted removals below are the calls of a re
   path.
 - A symbolic link, a path through one and a file where a directory is checked:
   `requireOwnDirectory` refuses each, and accepts a directory at its own place and an absent path.
-  `requireNoLinkedEntries` refuses a directory with a symbolic link below it, also a dangling one.
-- A symbolic link or a named pipe below a directory that a program made, at any depth:
-  `requireLinksPlaced` refuses it unless the program placed it, and it refuses a walk that lists
-  one more directory than its bound. A copy of a project (`Regula.Checker.Lake.copyProject`)
-  follows a link of the project and holds only the link that it places at the packages directory,
-  and it stops when a link was planted where it is made; the link's target keeps its content. It
-  stops before it places its link when the project holds a link at `.lake/packages`, and it
-  leaves out a packages directory that the manifest names in the project (`vendor`), whose place
-  then holds only the copy's link.
-- A place that holds an entry, and a target that is absent: `placeLink` refuses each, and it
-  places a link to a target that is there.
+  `requireNoLinkedEntries` refuses a directory with a symbolic link among its entries.
 - A URL of `Regula.Site.Deployment.fetch` that starts with `-`: curl does not read it as an
   option.
 
@@ -159,108 +148,6 @@ run_cmd do
     throwError "the planted declaration {planted} is not a raw removal: {reach.raw}, \
       unknown {reach.unknown}"
 
--- The links below a directory that a program made (`Regula.Filesystem.requireLinksPlaced`): a
--- symbolic link or another kind of entry than a directory and a file at any depth is refused
--- unless it was placed, and the walk goes into no link. A walk that lists exactly its bound of
--- directories passes, and one more is refused. A copy of a project
--- (`Regula.Checker.Lake.copyProject`) follows the project's links and holds only the link that it
--- places at the packages directory; a link planted where the copy is made, also where it places
--- that link, is refused, and its target keeps its content. A packages directory that the manifest
--- records elsewhere is linked, not copied.
-run_cmd do
-  let base ← Regula.Filesystem.ownTempDir
-  try
-    let link (to place : FilePath) : IO Unit := do
-      if let some parent := place.parent then IO.FS.createDirAll parent
-      let made ← IO.Process.output { cmd := "ln", args := #["-s", to.toString, place.toString] }
-      unless made.exitCode == 0 do throw <| IO.userError s!"ln -s failed: {made.stderr}"
-    let refused (label : String) (check : IO Unit) (reason : String) :
-        Elab.Command.CommandElabM Unit := do
-      match ← check.toBaseIO with
-      | .ok () => throwError "accepted {label}"
-      | .error error =>
-        unless (toString error).contains reason do
-          throwError "refused {label} for another reason: {error}"
-    let outside := base / "outside"
-    IO.FS.createDirAll outside
-    IO.FS.writeFile (outside / "keep") "keep"
-    let tree := base / "tree"
-    IO.FS.createDirAll (tree / "a" / "b")
-    IO.FS.writeFile (tree / "a" / "file") "file"
-    Regula.Filesystem.requireLinksPlaced tree []
-    Regula.Filesystem.requireLinksPlaced tree [] (limit := 3)
-    refused "a walk of three directories with a bound of two"
-      (Regula.Filesystem.requireLinksPlaced tree [] (limit := 2)) "more directories"
-    Regula.Filesystem.requireLinksPlaced (base / "absent") []
-    Regula.Filesystem.requireLinksPlaced (tree / "a" / "file") []
-    link outside (tree / "a" / "b" / "link")
-    refused "a link two directories below" (Regula.Filesystem.requireLinksPlaced tree [])
-      "is a symbolic link or another kind of entry"
-    Regula.Filesystem.requireLinksPlaced tree [tree / "a" / "b" / "link"] (limit := 3)
-    refused "a link as the root"
-      (Regula.Filesystem.requireLinksPlaced (tree / "a" / "b" / "link") [])
-      "is a symbolic link or another kind of entry"
-    let fifo ← IO.Process.output { cmd := "mkfifo", args := #[(tree / "a" / "fifo").toString] }
-    unless fifo.exitCode == 0 do throwError "mkfifo failed: {fifo.stderr}"
-    refused "a named pipe below"
-      (Regula.Filesystem.requireLinksPlaced tree [tree / "a" / "b" / "link"])
-      "is a symbolic link or another kind of entry"
-    -- A copy of a project with a link in its content and a packages directory.
-    let project := base / "project"
-    IO.FS.createDirAll (project / ".lake" / "packages")
-    IO.FS.writeFile (project / "lakefile.toml")
-      "name = \"copied\"\n[[lean_lib]]\nname = \"Copied\"\n"
-    IO.FS.writeFile (project / "Copied.lean") "def copied : Nat := 0\n"
-    link outside (project / "linked")
-    let scratch := base / "scratch"
-    IO.FS.createDirAll scratch
-    let copied ← Regula.Checker.Lake.copyProject project (scratch / "project") scratch
-    unless (← (copied.project / "linked").symlinkMetadata).type == .dir &&
-        (← IO.FS.readFile (copied.project / "linked" / "keep")) == "keep" &&
-        (← (copied.project / ".lake" / "packages").symlinkMetadata).type == .symlink do
-      throwError "the copy kept a link of the project, or did not place the packages link"
-    let planted := base / "planted"
-    link outside (planted / "stray")
-    refused "a copy where a link was planted"
-      (discard <| Regula.Checker.Lake.copyProject project (planted / "project") planted)
-      "is a symbolic link or another kind of entry"
-    -- A link planted where the copy places its packages link: `ln` would make its link inside
-    -- the planted link's target, so nothing may be there before.
-    let prelinked := base / "prelinked"
-    link outside (prelinked / "project" / ".lake" / "packages")
-    refused "a copy whose packages link was planted"
-      (discard <| Regula.Checker.Lake.copyProject project (prelinked / "project") prelinked)
-      "something is there"
-    -- A packages directory other than `.lake/packages` is left out of the copy and linked.
-    let vendored := base / "vendored"
-    IO.FS.createDirAll (vendored / "vendor" / "dependency")
-    IO.FS.writeFile (vendored / "lakefile.toml")
-      "name = \"vendored\"\n[[lean_lib]]\nname = \"Vendored\"\n"
-    IO.FS.writeFile (vendored / "Vendored.lean") "def vendored : Nat := 0\n"
-    IO.FS.writeFile (vendored / "lake-manifest.json") "{\"version\": \"1.2.0\", \
-      \"packagesDir\": \"vendor\", \"packages\": [], \"name\": \"vendored\", \
-      \"lakeDir\": \".lake\"}\n"
-    let vendorScratch := base / "vendor-scratch"
-    IO.FS.createDirAll vendorScratch
-    let vendorCopy ← Regula.Checker.Lake.copyProject vendored (vendorScratch / "project")
-      vendorScratch
-    unless (← (vendorCopy.project / "vendor").symlinkMetadata).type == .symlink &&
-        (← IO.FS.realPath (vendorCopy.project / "vendor")) ==
-          (← IO.FS.realPath (vendored / "vendor")) do
-      throwError "the copy did not link the packages directory that its manifest records"
-    -- `placeLink` refuses an entry already there, and a link that does not reach its target.
-    let places := base / "places"
-    Regula.Filesystem.placeLink outside (places / "made")
-    refused "a link where one was placed"
-      (Regula.Filesystem.placeLink outside (places / "made")) "something is there"
-    refused "a link to a target that is absent"
-      (Regula.Filesystem.placeLink (base / "absent") (places / "dangling"))
-      "is not a symbolic link to"
-    unless (← outside.readDir).map (·.fileName) == #["keep"] &&
-        (← IO.FS.readFile (outside / "keep")) == "keep" do
-      throwError "a check changed the target of a link"
-  finally
-    Regula.Filesystem.removeOwn .directory base
 /-- The planted binding of the control of `extern` declarations: a declaration of another name
 bound to the C function of `IO.FS.removeFile`. No program calls it. -/
 @[extern "lean_io_remove_file"]

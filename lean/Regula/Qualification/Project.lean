@@ -19,11 +19,9 @@ def cleanEnv : Array (String × Option String) := #[("LEAN_PATH", none), ("LEAN_
 /-- A dotted Lean name as result documents write it (`RegistryCodec.printedNameJson`). -/
 def nameJson (name : String) : Json := Regula.RegistryCodec.printedNameJson name.toName
 
-/-- Fresh source-bound adopter sharing only pinned dependency artifacts. It links the packages
-directory of `root` when there is one (`Regula.Filesystem.placeDirectoryLink`) and holds no other
-symbolic link (`Regula.Filesystem.requireLinksPlaced`) before a caller runs Lake in it. It is a
-Git repository of its own, so `regula`, which it requires from `root`, is a trusted dependency in
-a different Git work tree, as an adopter's is. -/
+/-- Fresh source-bound adopter sharing only pinned dependency artifacts. It is a Git repository
+of its own, so `regula`, which it requires from `root`, is a trusted dependency in a different Git
+work tree, as an adopter's is. -/
 def prepareProject (root project : FilePath) (packageName claim rationale : String) : IO Unit := do
   IO.FS.writeBinFile (project / "lean-toolchain") (← IO.FS.readBinFile (root / "lean-toolchain"))
   IO.FS.writeFile (project / "lakefile.lean")
@@ -43,15 +41,15 @@ def prepareProject (root project : FilePath) (packageName claim rationale : Stri
     ("dir", .str root.toString), ("configFile", .str "lakefile.lean"),
     ("manifestFile", .str "lake-manifest.json"), ("inherited", .bool false)])
   writeJson (project / "lake-manifest.json") (manifest.setObjVal! "packages" (toJson packages))
-  let links ← Regula.Filesystem.placeDirectoryLink (root / ".lake/packages")
-    (project / ".lake/packages")
+  IO.FS.createDirAll (project / ".lake")
+  let result ← run root "ln"
+      #["-s", (root / ".lake/packages").toString, (project / ".lake/packages").toString]
   let initialized ← run project "git" #["init", "-q"]
-  requireChecks [⟨"adopter repository", initialized.exitCode == 0⟩]
-  Regula.Filesystem.requireLinksPlaced project links
+  requireChecks [⟨"pinned dependency link", result.exitCode == 0⟩,
+    ⟨"adopter repository", initialized.exitCode == 0⟩]
 
 /-- Core-only adopter for source/evidence controls. No checker dependency is imported
-into the observed surface, matching the original standalone qualification path. It holds no
-symbolic link (`Regula.Filesystem.requireLinksPlaced`) before a caller runs Lake in it. -/
+into the observed surface, matching the original standalone qualification path. -/
 def prepareCoreProject (root project : FilePath) (packageName claim : String) : IO Unit := do
   IO.FS.writeBinFile (project / "lean-toolchain") (← IO.FS.readBinFile (root / "lean-toolchain"))
   IO.FS.writeFile (project / "lakefile.toml") s!"name = \
@@ -68,7 +66,6 @@ def prepareCoreProject (root project : FilePath) (packageName claim : String) : 
     ("excluded-libraries", toJson (#[] : Array Json)),
     ("excluded-executables", toJson (#[] : Array Json))])
   IO.FS.createDirAll (project / "docs")
-  Regula.Filesystem.requireLinksPlaced project []
 
 /-- Delete only this owned scratch project's build output before a restored control. -/
 def clearBuild (project : FilePath) : IO Unit := do
@@ -111,7 +108,7 @@ naming it, once the source of the first root module they import (`rootImports`) 
 its build. -/
 def rootImportsGuardControl (root scratch : FilePath) (sources : Array String) : IO Unit := do
   let copy := scratch / "root-imports-guard"
-  let copied ← Regula.Checker.Lake.copyProject root copy copy
+  discard <| Regula.Checker.Lake.copyProject root copy copy
   Regula.Checker.Workspace.withRootWorkspace root (scrubSearchPath := true) fun ws => do
     let base := ws.root.dir.normalize.components
     for place in #[ws.root.leanLibDir, ws.root.irDir] do
@@ -125,7 +122,6 @@ def rootImportsGuardControl (root scratch : FilePath) (sources : Array String) :
           (path.normalize.components.drop base.length).foldl (· / FilePath.mk ·) copy
         if let some parent := destination.parent then IO.FS.createDirAll parent
         IO.FS.writeBinFile destination (← IO.FS.readBinFile path)
-  copied.requireLinksPlaced
   requireRootImportsBuilt copy sources
   let some (name, file) := (← rootImports copy sources)[0]?
     | throw <| IO.userError "the guard control's sources import no module of the root package"

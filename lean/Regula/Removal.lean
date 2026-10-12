@@ -152,12 +152,14 @@ loads a workspace or builds in its own process (`Regula.Checker.Workspace`). Eac
 workspace that the program asked Lake to load or build, as `lake build` or `lake update` would
 there. Its safety rests on that workspace's own contents: its configuration and targets, the clones
 of its dependencies and the release archives that it fetches, which its adopter trusts as Lake
-does. Where a program runs Lake in a copy of a project that it made, what Regula adds is checked
-before Lake runs there: the copy holds no symbolic link or other kind of entry than a directory and
-a file except the link to the original's packages directory that the copy placed
-(`Regula.Checker.Lake.copyProject`, and `Regula.Checker.AxiomGate` for the verification driver's
-copy, through `Regula.Filesystem.requireLinksPlaced`). So Lake's removals in the copy reach nothing
-that the same command in the original could not.
+does. The same reason holds where a program runs Lake in a copy of a project that it made, such as
+`Regula.Checker.Lake.copyProject`'s or the verification driver's: Lake acts on the copy as it would
+on the workspace it was given. The limit of this exemption: a copy that `cp -R` makes, as
+`Regula.Qualification.Slot` and the provisioning driver make theirs, holds the symbolic links that
+the original holds, and a relative one resolves against the copy's location, not the original's. A
+copy that `copyProject` makes holds the link that Regula places to the original's packages
+directory. Lake's removals in a copy can act through either. Issue 399 tracks making each copy by
+construction, so that it holds only directories, files and that one link.
 
 - `Lake.importConfigFile`, with `IO.FS.removeFile` and with `Lean.writeModule`. Trusted exemption,
   for the reason above: it removes the stale compiled configuration of a package and its trace in
@@ -365,10 +367,10 @@ def pendingWrites (env : Environment) (reach : Reach) : IO (Std.HashSet (Name ×
   return pending
 
 /-- Check the program whose `main` the environment declares: fail with the refusal of the
-program (`programRefusal`) when there is one. Then record the program with the number of its writes that
-are not routed through the observer (`pendingWrites`, `reached`). `named` admits the removals that
-a program which cannot import `Regula.Filesystem` names, each as the pair of its caller and the
-primitive that it calls (`admitted`). -/
+program (`programRefusal`) when there is one. Then record the program with the number of its
+writes that are not routed through the observer (`pendingWrites`, `reached`). `named` admits the
+removals that a program which cannot import `Regula.Filesystem` names, each as the pair of its
+caller and the primitive that it calls (`admitted`). -/
 def checkProgram (named : List (Name × Name) := []) : Elab.Command.CommandElabM Unit := do
   let env ← getEnv
   unless env.contains `main do

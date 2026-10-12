@@ -18,10 +18,8 @@ code of Regula calls one other than through this module. A deliberate use of the
 declarations, with `open private` or a hand-written name, is outside that criterion, as for the
 private observation of issue 261.
 
-The observer's reads are public: `ownPath` checks a place before a program makes something there,
-`requireOwnDirectory` and `requireNoLinkedEntries` check a place before a program loads something
-there, `requireLinksPlaced` checks that a directory that a program made holds no symbolic link but
-those it placed, and `requireLinkTo` checks a link that it placed (`placeLink`).
+The observer's reads are public: `ownPath`, `requireOwnDirectory` and `requireNoLinkedEntries`
+check a place before a program makes or loads something there.
 
 Each operation is `@[noinline]`, so its call of the library's operation stays in its own compiled
 code and is not copied into a caller's. On Windows, Lean 4.34.1's
@@ -72,11 +70,6 @@ private def observeRemoveFile (path : FilePath) : IO Unit :=
 private def observeRename (source destination : FilePath) : IO Unit :=
   IO.FS.rename source destination
 
-/-- `System.FilePath.readDir`. -/
-@[noinline, regula_observer filesystem]
-def observeReadDir (path : FilePath) : IO (Array IO.FS.DirEntry) :=
-  path.readDir
-
 /-- The filesystem's operations in `IO`, which Regula's code runs. -/
 @[regula_observer filesystem]
 private def observer : Ops IO where
@@ -85,7 +78,6 @@ private def observer : Ops IO where
   removeDirAll := observeRemoveDirAll
   removeFile := observeRemoveFile
   rename := observeRename
-  readDir := observeReadDir
 
 /-! ## Removal and move -/
 
@@ -173,50 +165,6 @@ def removeFoundPath (path : FilePath) : IO Unit := do
 def replacePath (source destination : FilePath) : IO Unit := do
   replace (← ownPath source) (← ownPath destination)
 
-/-! ## Symbolic links below a directory -/
-
-/-- The bound on the number of directories that a walk below a directory lists
-(`Regula.Filesystem.otherEntries`). -/
-def maxDirectories : Nat := 10_000_000
-
-/-- Stop unless each path below `root`, at any depth and `root` itself, that is a symbolic link or
-another kind of entry than a directory and a file is one of `placed`:
-`Regula.Removal.requirePlacedWith` at the observer, listing at most `limit` directories
-(`observer_requireLinksPlaced`). The walk lists each directory that a read following no link finds
-below `root`, and goes into no symbolic link. When nothing is at `root`, or a file, it passes. -/
-def requireLinksPlaced (root : FilePath) (placed : List FilePath)
-    (limit : Nat := maxDirectories) : IO Unit :=
-  requirePlacedWith observer limit root placed
-
-/-- Stop unless a symbolic link is at `link`, by a read that follows no link there, and its real
-path is the real path of `target`: `Regula.Removal.requireLinkWith` at the observer
-(`observer_requireLinkTo`). -/
-def requireLinkTo (link target : FilePath) : IO Unit :=
-  requireLinkWith observer link target
-
-/-- Place a symbolic link at `link` to `target` in a directory that the program made: stop when
-anything is at `link` by a read that follows no link there, make the parent directories, run
-`ln -s`, and stop unless a symbolic link is then at `link` whose real path is the real path of
-`target` (`requireLinkTo`). So a link that was at `link` before, and a link that `ln` made inside a
-directory at `link`, are refused. `ln` is trusted to make one link and change nothing else. A
-caller passes each link that this placed to `requireLinksPlaced` once its directory is complete. -/
-def placeLink (target link : FilePath) : IO Unit := do
-  if let some _ ← entryType observer link then
-    throw <| IO.userError s!"could not place a symbolic link at {link}: something is there"
-  if let some parent := link.parent then IO.FS.createDirAll parent
-  let made ← IO.Process.output { cmd := "ln", args := #["-s", target.toString, link.toString] }
-  unless made.exitCode == 0 do
-    throw <| IO.userError s!"could not place a symbolic link at {link}: {made.stderr}"
-  requireLinkTo link target
-
-/-- `placeLink` when a directory is at `target`, giving the link it placed, or nothing, giving no
-link, when none is there: a workspace links the packages directory of another only when it has
-one. -/
-def placeDirectoryLink (target link : FilePath) : IO (List FilePath) := do
-  unless ← target.isDir do return []
-  placeLink target link
-  return [link]
-
 /-- Stop unless nothing is at `path` or a directory is there at its own place, by the observation
 that `removeOwn` makes. These are the places on which `removal .directory` does not refuse
 (`removal_remove_iff`, `removal_nothing_iff`), so a symbolic link, a file and a path through a
@@ -227,135 +175,109 @@ def requireOwnDirectory (path : FilePath) : IO Unit := do
       or a path through a symbolic link is there)"
 
 /-- Stop unless nothing is at `path`, or a directory is there at its own place
-(`requireOwnDirectory`) and each entry below it, at any depth, is a directory or a file
-(`requireLinksPlaced` with no placed link). A symbolic link below it, also one whose target is
-absent, makes it stop, so a file that a later operation opens by its name in this directory is not
-reached through a link, when no process makes one after this check, which is trusted. -/
+(`requireOwnDirectory`) and each of its entries is a directory or a file, by a read that follows no
+link at the entry. A symbolic link among the entries, also one whose target is absent, makes it
+stop, so a file that a later operation opens by its name in this directory is not reached through
+a link, when no process makes one after this check, which is trusted. -/
 def requireNoLinkedEntries (path : FilePath) : IO Unit := do
   requireOwnDirectory path
-  requireLinksPlaced path []
+  unless (← place path) matches .present .directory do return
+  for entry in ← path.readDir do
+    unless (← place entry.path) matches .present .directory | .present .file do
+      throw <| IO.userError s!"{entry.path} is not a directory or a file (a symbolic link or \
+        another kind of entry is there)"
 
 /-! ## The operations at the observer -/
 
 /-- The model of the filesystem that the observer's runs are: its states are the worlds of `IO`,
-its operations are the observer's, and `entry`, `real`, `ident` and `names` give what `lstat(2)`,
-`realpath(3)` and `readdir(3)` report at each world. No operation reads `ident` (`Model.ident`):
-the theorems below hold for every `ident`. The observer corresponds to the model
-(`corresponds_ofIO`), so the theorems below rest only on the assumptions they name at it. -/
+its operations are the observer's, and `entry`, `real` and `ident` give what `lstat(2)` and
+`realpath(3)` report at each world. No operation reads `ident` (`Model.ident`): the theorems below
+hold for every `ident`. The observer corresponds to the model (`corresponds_ofIO`), so the theorems
+below rest only on the assumptions they name at it. -/
 abbrev observed (entry : Void IO.RealWorld → FilePath → Option IO.FS.FileType)
     (real : Void IO.RealWorld → FilePath → Option FilePath)
-    (ident : Void IO.RealWorld → FilePath → Option FileId)
-    (names : Void IO.RealWorld → FilePath → List String) : Model :=
-  Model.ofIO observer entry real ident names
+    (ident : Void IO.RealWorld → FilePath → Option FileId) : Model :=
+  Model.ofIO observer entry real ident
 
 section Observer
 
 variable {entry : Void IO.RealWorld → FilePath → Option IO.FS.FileType}
   {real : Void IO.RealWorld → FilePath → Option FilePath}
   {ident : Void IO.RealWorld → FilePath → Option FileId}
-  {names : Void IO.RealWorld → FilePath → List String}
 
 /-- **Checked, at the observer:** when `removeOwn` succeeds from a world, nothing is at the path at
 the world it ends in, when the observer satisfies `ReadsEntry`. -/
-theorem observer_removeOwn_gone (reads : ReadsEntry (observed entry real ident names)) (kind : Kind)
+theorem observer_removeOwn_gone (reads : ReadsEntry (observed entry real ident)) (kind : Kind)
     (path : FilePath) (w : Void IO.RealWorld) :
     RunsTo id (removeOwn kind path w) (fun _ s => entry s path = none) (fun _ _ => True) :=
-  removeOwnWith_gone_io (corresponds_ofIO observer entry real ident names) reads kind path w
+  removeOwnWith_gone_io (corresponds_ofIO observer entry real ident) reads kind path w
 
 /-- `removeOwn` removes only an entry of `kind` at its own place, when the observer satisfies
 `ReadsEntry`, `ReadsReal`, `RemovesTree` and `RemovesEntry`: when it succeeds, nothing is at the
 path; whether it succeeds or fails, it keeps the entry at each path of the frame of the path
 (`Model.Unchanged`) and changes the world only when an entry of `kind` was at the path at its own
 place (`Regula.Removal.OnlyOwn`). -/
-theorem observer_removeOwn (readsEntry : ReadsEntry (observed entry real ident names))
-    (readsReal : ReadsReal (observed entry real ident names))
-    (removesTree : RemovesTree (observed entry real ident names))
-    (removesEntry : RemovesEntry (observed entry real ident names)) (kind : Kind) (path : FilePath)
+theorem observer_removeOwn (readsEntry : ReadsEntry (observed entry real ident))
+    (readsReal : ReadsReal (observed entry real ident))
+    (removesTree : RemovesTree (observed entry real ident))
+    (removesEntry : RemovesEntry (observed entry real ident)) (kind : Kind) (path : FilePath)
     (w : Void IO.RealWorld) :
     RunsTo id (removeOwn kind path w)
-      (fun _ s => entry s path = none ∧ (observed entry real ident names).Unchanged path w s ∧
-        OnlyOwn (observed entry real ident names) kind path w s)
-      (fun _ s => (observed entry real ident names).Unchanged path w s ∧
-        OnlyOwn (observed entry real ident names) kind path w s) :=
-  removeOwnWith_io (corresponds_ofIO observer entry real ident names) readsEntry readsReal
-    removesTree removesEntry kind path w
+      (fun _ s => entry s path = none ∧ (observed entry real ident).Unchanged path w s ∧
+        OnlyOwn (observed entry real ident) kind path w s)
+      (fun _ s => (observed entry real ident).Unchanged path w s ∧
+        OnlyOwn (observed entry real ident) kind path w s) :=
+  removeOwnWith_io (corresponds_ofIO observer entry real ident) readsEntry readsReal removesTree
+    removesEntry kind path w
 
 /-- **Checked, at the observer:** when `removeFound` succeeds from a world, nothing is at the path
 at the world it ends in, when the observer satisfies `ReadsEntry`. -/
-theorem observer_removeFound_gone (reads : ReadsEntry (observed entry real ident names))
+theorem observer_removeFound_gone (reads : ReadsEntry (observed entry real ident))
     (path : FilePath) (w : Void IO.RealWorld) :
     RunsTo id (removeFound path w) (fun _ s => entry s path = none) (fun _ _ => True) :=
-  removeFoundWith_gone_io (corresponds_ofIO observer entry real ident names) reads path w
+  removeFoundWith_gone_io (corresponds_ofIO observer entry real ident) reads path w
 
 /-- `removeFound` removes only a directory or a file at its own place, when the observer satisfies
 `ReadsEntry`, `ReadsReal`, `RemovesTree` and `RemovesEntry` (`observer_removeOwn`). -/
-theorem observer_removeFound (readsEntry : ReadsEntry (observed entry real ident names))
-    (readsReal : ReadsReal (observed entry real ident names))
-    (removesTree : RemovesTree (observed entry real ident names))
-    (removesEntry : RemovesEntry (observed entry real ident names)) (path : FilePath)
+theorem observer_removeFound (readsEntry : ReadsEntry (observed entry real ident))
+    (readsReal : ReadsReal (observed entry real ident))
+    (removesTree : RemovesTree (observed entry real ident))
+    (removesEntry : RemovesEntry (observed entry real ident)) (path : FilePath)
     (w : Void IO.RealWorld) :
     RunsTo id (removeFound path w)
-      (fun _ s => entry s path = none ∧ (observed entry real ident names).Unchanged path w s ∧
-        ∃ kind, OnlyOwn (observed entry real ident names) kind path w s)
-      (fun _ s => (observed entry real ident names).Unchanged path w s ∧
-        ∃ kind, OnlyOwn (observed entry real ident names) kind path w s) :=
-  removeFoundWith_io (corresponds_ofIO observer entry real ident names) readsEntry readsReal
-    removesTree removesEntry path w
+      (fun _ s => entry s path = none ∧ (observed entry real ident).Unchanged path w s ∧
+        ∃ kind, OnlyOwn (observed entry real ident) kind path w s)
+      (fun _ s => (observed entry real ident).Unchanged path w s ∧
+        ∃ kind, OnlyOwn (observed entry real ident) kind path w s) :=
+  removeFoundWith_io (corresponds_ofIO observer entry real ident) readsEntry readsReal removesTree
+    removesEntry path w
 
 /-- **Checked, at the observer:** when `replace` succeeds from a world, nothing is at the source
 and a regular file is at the destination at the world it ends in, when the observer satisfies
 `ReadsEntry`. -/
-theorem observer_replace_moved (reads : ReadsEntry (observed entry real ident names))
+theorem observer_replace_moved (reads : ReadsEntry (observed entry real ident))
     (source destination : FilePath) (w : Void IO.RealWorld) :
     RunsTo id (replace source destination w)
       (fun _ s => entry s source = none ∧ entry s destination = some .file) (fun _ _ => True) :=
-  replaceWith_moved_io (corresponds_ofIO observer entry real ident names) reads source destination w
+  replaceWith_moved_io (corresponds_ofIO observer entry real ident) reads source destination w
 
 /-- `replace` moves only a file at its own place to an absent path or a file at its own place, in
 a directory at its own place, when the observer satisfies `ReadsEntry`, `ReadsReal` and `Renames`:
 when it succeeds, nothing is at the source and a regular file is at the destination; whether it
 succeeds or fails, it keeps the entry at each path of the frame of both paths (`Model.Kept`) and
 changes the world only when the decision held (`Regula.Removal.Movable`). -/
-theorem observer_replace (readsEntry : ReadsEntry (observed entry real ident names))
-    (readsReal : ReadsReal (observed entry real ident names))
-    (renames : Renames (observed entry real ident names)) (source destination : FilePath)
+theorem observer_replace (readsEntry : ReadsEntry (observed entry real ident))
+    (readsReal : ReadsReal (observed entry real ident))
+    (renames : Renames (observed entry real ident)) (source destination : FilePath)
     (w : Void IO.RealWorld) :
     RunsTo id (replace source destination w)
       (fun _ s => entry s source = none ∧ entry s destination = some .file ∧
-        (observed entry real ident names).Kept [source, destination] w s ∧
-        Movable (observed entry real ident names) source destination w)
-      (fun _ s => (observed entry real ident names).Kept [source, destination] w s ∧
-        (s = w ∨ Movable (observed entry real ident names) source destination w)) :=
-  replaceWith_io (corresponds_ofIO observer entry real ident names) readsEntry readsReal renames
-    source destination w
-
-/-- `requireLinksPlaced` changes nothing, and when it succeeds from a world, each path of the listed
-tree of the root at that world (`Model.Listed`) that is a symbolic link or another kind of entry
-than a directory and a file (`Model.NotPlain`) is one of the placed paths, when the observer
-satisfies `ReadsEntry` and `ListsEntries` (`Regula.Removal.requirePlacedWith_run`). -/
-theorem observer_requireLinksPlaced (readsEntry : ReadsEntry (observed entry real ident names))
-    (lists : ListsEntries (observed entry real ident names)) (root : FilePath)
-    (placed : List FilePath) (limit : Nat) (w : Void IO.RealWorld) :
-    RunsTo id (requireLinksPlaced root placed limit w)
-      (fun _ s => s = w ∧ ∀ path, (observed entry real ident names).Listed w root path →
-        (observed entry real ident names).NotPlain w path → path ∈ placed)
-      (fun _ s => s = w) :=
-  requirePlacedWith_io (corresponds_ofIO observer entry real ident names) readsEntry lists limit
-    root placed w
-
-/-- `requireLinkTo` changes nothing, and when it succeeds from a world, a symbolic link is at the
-link's path at that world, and its real path is the real path of the target, when the observer
-satisfies `ReadsEntry` and `ReadsReal` (`Regula.Removal.requireLinkWith_run`). -/
-theorem observer_requireLinkTo (readsEntry : ReadsEntry (observed entry real ident names))
-    (readsReal : ReadsReal (observed entry real ident names)) (link target : FilePath)
-    (w : Void IO.RealWorld) :
-    RunsTo id (requireLinkTo link target w)
-      (fun _ s => s = w ∧ (observed entry real ident names).entry w link = some .symlink ∧
-        ∃ resolved, (observed entry real ident names).real w link = some resolved ∧
-          (observed entry real ident names).real w target = some resolved)
-      (fun _ s => s = w) :=
-  requireLinkWith_io (corresponds_ofIO observer entry real ident names) readsEntry readsReal link
-    target w
+        (observed entry real ident).Kept [source, destination] w s ∧
+        Movable (observed entry real ident) source destination w)
+      (fun _ s => (observed entry real ident).Kept [source, destination] w s ∧
+        (s = w ∨ Movable (observed entry real ident) source destination w)) :=
+  replaceWith_io (corresponds_ofIO observer entry real ident) readsEntry readsReal renames source
+    destination w
 
 end Observer
 

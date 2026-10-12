@@ -440,9 +440,6 @@ def prepareSlot (originalRoot : FilePath) (slot : ProducerSlot)
   -- Root containment runs last: Git resolution stays inside the slot and every
   -- relocated manifest dir resolves exactly to a captured shared root.
   checkContainment slot copy (deps.map (·.root))
-  -- The complete copy holds only directories and files before a producer loads it through Lake:
-  -- `cp -R` keeps a symbolic link or a named pipe of the original build tree.
-  Regula.Filesystem.requireLinksPlaced copy []
   let record : SlotProvenance := {
     originalRoot := (← IO.FS.realPath originalRoot).toString,
     slotRoot := (← IO.FS.realPath slot.root).toString,
@@ -458,8 +455,7 @@ def prepareSlot (originalRoot : FilePath) (slot : ProducerSlot)
 `regula` resolves to the slot-private ROOT copy (shared by every producer,
 which must not write it; checked by `sharedIdentity`, not enforced), every other
 manifest `dir` is a captured shared dependency root, and no `.lake/packages` symlink is
-created: it holds no symbolic link (`Regula.Filesystem.requireLinksPlaced`) before Lake runs in
-it. -/
+created. -/
 def prepareSlotProject (slot : ProducerSlot) (project : FilePath)
     (packageName claim rationale : String) : IO Unit := do
   IO.FS.writeBinFile (project / "lean-toolchain")
@@ -489,6 +485,5 @@ def prepareSlotProject (slot : ProducerSlot) (project : FilePath)
     ("manifestFile", .str "lake-manifest.json"), ("inherited", .bool false)])
   writeJson (project / "lake-manifest.json") (manifest.setObjVal! "packages" (toJson packages))
   IO.FS.createDirAll (project / ".lake")
-  Regula.Filesystem.requireLinksPlaced project []
 
 end Regula.Qualification.Slot
