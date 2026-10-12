@@ -1940,19 +1940,13 @@ def walkFind (checked : Kernel.Environment) (replayed : Std.HashMap Name Constan
   | some info => some info
   | none => replayed[n]?.filter fun info => info.isUnsafe || info.isPartial
 
-/-- The axioms that Lean's `collectAxioms` reports for `name` in `env`: for a name that an
-imported module exported, those the module recorded when it was compiled. -/
-def leanAxioms (env : Environment) (name : Name) : Array Name :=
-  letI : MonadEnv (StateM Environment) := ⟨get, modify⟩
-  (collectAxioms name : StateM Environment (Array Name)).run' env
-
 /-- A declaration for which Lean's `collectAxioms` reports an axiom that its replayed development
 does not reach: the declaration, the axioms `collectAxioms` reports and those it reaches in the
 replayed kernel. -/
 structure TableExcess where
   /-- The declaration. -/
   name : Name
-  /-- The axioms Lean's `collectAxioms` reports for it (`leanAxioms`). -/
+  /-- The axioms Lean's `collectAxioms` reports for it (`KernelAxioms.recordedAxioms`). -/
   lean : Array Name
   /-- The axioms it reaches in the replayed kernel (`KernelAxioms.ReachesAxiom`). -/
   replayed : Array Name
@@ -2089,7 +2083,7 @@ unsafe def validate (env : Environment) (ownedModules : Array Name) (reused : Ar
         for root in roots do
           let some reached := axioms[root]?
             | throw <| IO.userError s!"no axioms were searched for {root} in the replayed kernel"
-          let lean := leanAxioms env root
+          let lean := recordedAxioms env root
           entries := entries.push (root, lean, reached)
           let omitted := reached.filter fun a => !lean.contains a
           unless omitted.isEmpty do

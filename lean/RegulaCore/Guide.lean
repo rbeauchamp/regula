@@ -1649,16 +1649,16 @@ def guide : RuleId → Guide
         "Each reached boundary gets a kind and a correspondence state. Under checked execution, a \
           boundary that is `trusted` rather than `checked` is rejected with applicability \
           `execution-trusted-boundary` in every root that reaches it, unless the boundary itself \
-          carries an admitted toolchain origin. Only a replacement, `extern`, or unsafe or partial \
-          computation can: a `csimp` simplification or a compiler-trusting proof axiom never \
-          does, even on a constant declared in `Init`.",
-        "The toolchain owns a replacement, `extern`, or unsafe or partial computation declared in \
-          one of its own `Init`, `Std`, `Lean` or `Lake` modules, decided by where Lean loaded \
-          that module from (the pinned toolchain's library, an observation of the probe), not by \
-          its name. Such a boundary is the toolchain's trusted base: it passes and is reported \
-          for the whole audit in the audit's toolchain trusted base, as one entry with every \
-          environment and root that reaches it or as a `partial` implementation that such an \
-          entry names.",
+          carries an admitted toolchain origin. Only a replacement, `extern`, unsafe or partial \
+          computation, or initialized value can: a `csimp` simplification or a compiler-trusting \
+          proof axiom never does, even on a constant declared in `Init`.",
+        "The toolchain owns a replacement, `extern`, unsafe or partial computation, or initialized \
+          value declared in one of its own `Init`, `Std`, `Lean` or `Lake` modules, decided by \
+          where Lean loaded that module from (the pinned toolchain's library, an observation of \
+          the probe), not by its name. Such a boundary is the toolchain's trusted base: it passes \
+          and is reported for the whole audit in the audit's toolchain trusted base, as one entry \
+          with every environment and root that reaches it or as a `partial` implementation that \
+          such an entry names.",
         "A `partial` implementation that a trusted boundary names as the code run in its place \
           is reported with that boundary where both are trusted and have the same owner (both \
           the toolchain's, or neither): the coverage counts take the two as one boundary, and \

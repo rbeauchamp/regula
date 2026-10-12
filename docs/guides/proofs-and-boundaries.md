@@ -753,10 +753,10 @@ to source bytes, compiler identity and valid coordinates (an inventory is still 
 census); `admitExecution` requires unique roots and boundary occurrences with valid toolchain-origin
 bindings; `BoundaryEvidence kind` keeps replacement equality, simplification equality and
 opaque-body admission distinct, a trusted native-runtime observation carries matching origin
-data, and only a trusted replacement or unsafe or partial computation can also carry one
-(`TrustedEvidence`, `correspondence_of_toolchainOrigin`). Checked replacement and simplification
-evidence holds the proof the kernel admitted and its required proposition as exact terms
-(`CorrespondenceTerms`). `admitBoundaryEvidence` preserves
+data, and only a trusted replacement, unsafe or partial computation, or initialized value can
+also carry one (`TrustedEvidence`, `correspondence_of_toolchainOrigin`). Checked replacement and
+simplification evidence holds the proof the kernel admitted and its required proposition as exact
+terms (`CorrespondenceTerms`). `admitBoundaryEvidence` preserves
 correspondence, detail, toolchain origin and the exact correspondence terms, refuses
 incompatible extra evidence, and every representable value round-trips. Accepted canonical
 external spellings re-encode identically. The pure codec proves
@@ -2522,9 +2522,12 @@ inferred from any pure proof.
   safe declaration reads only the replayed kernel. **Trusted:** the kernel and `replay` as above,
   and the constants of the imported, unowned dependencies, which replay does not check. The editor
   has no replayed kernel, thus `KernelAxioms.reachedAxiomTable` searches the constants of its own
-  environment, exact by `KernelAxioms.axiomTableThrough_some`, and for a theorem or an unexposed
+  environment, exact by `KernelAxioms.tableThrough_some`, and for a theorem or an unexposed
   definition that a `module` dependency exports without its body it reads the axioms that the
-  dependency's table records, a trusted input.
+  dependency's table records, a trusted input. A later search of the editor stops at the imported
+  constants that an earlier one searched under the same imports. It finds the same axioms
+  (`KernelAxioms.tableThrough_agree`) when equal module data give the same imported constants,
+  which is trusted.
 
   The profiles permit `propext`, `Quot.sound` and `Classical.choice` by name, so the report and the
   editor first refuse an environment whose constant of one of those names is not the toolchain's

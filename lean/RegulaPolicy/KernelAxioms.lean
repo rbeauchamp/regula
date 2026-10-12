@@ -19,10 +19,12 @@ A search of a graph of names (`search`) underlies both computations here: `axiom
 search from each axiom that a forward search from every requested name (`searchEdges`) found, for
 all the names of their closure in one environment, and `axiomsWith`, a search from one name that
 stops at the names of such a table. `axiomTable_some` and `axiomsWith_some` state that each returns
-exactly the axioms `ReachesAxiom` relates to a name. `reachedAxioms` reads the axioms of a name in
-an environment with no replayed kernel, such as the editor's, by the same search
-(`axiomsThrough_some`), taking Lean's table only for a name whose body the module system hid. Each
-search is bounded by its fuel: a search that runs out returns `none`, and the caller refuses.
+exactly the axioms `ReachesAxiom` relates to a name. `reachedAxioms` and `reachedAxiomTable` read
+the axioms of names in an environment with no replayed kernel, such as the editor's, by the same
+searches (`axiomsThrough_some`, `tableThrough_some`), taking Lean's table only for a name whose body
+the module system hid; a table search can stop at the imported names whose axioms an earlier one
+computed (`MemoInv`, `tableThrough_agree`). Each search is bounded by its fuel: a search that runs
+out returns `none`, and the caller refuses.
 
 A step follows `ConstantInfo.getUsedConstantsAsSet`: the constants of the type and the value,
 the constructors of an inductive type, the inductive types of a recursor. Each step that Lean's
@@ -597,15 +599,21 @@ def CacheCorrect (find : Name → Option ConstantInfo) (cached : Std.HashMap Nam
     Prop :=
   ∀ n axioms, cached[n]? = some axioms → ∀ a, a ∈ axioms ↔ ReachesAxiom find n a
 
+/-- The axioms that the names `names` give through the table `cached`: the entry of each name
+`cached` holds, and each other name that `find` holds as an axiom. -/
+def expand (find : Name → Option ConstantInfo) (cached : Std.HashMap Name (Array Name))
+    (names : List Name) : Array Name :=
+  (names.flatMap fun m => match cached[m]? with
+    | some axioms => axioms.toList
+    | none => if isAxiomIn find m then [m] else []).toArray
+
 /-- The axioms `n` reaches in `find`, read through the table `cached`: the search from `n` stops
 at each name `cached` holds and takes that name's entry, and takes each other name it reaches
 that `find` holds as an axiom. `none` when the search runs out of `fuel`. -/
 def axiomsWith (find : Name → Option ConstantInfo) (cached : Std.HashMap Name (Array Name))
     (fuel : Nat) (n : Name) : Option (Array Name) :=
   (search (stopAt cached (successors find)) fuel [n]).map fun seen =>
-    (seen.toList.flatMap fun m => match cached[m]? with
-      | some axioms => axioms.toList
-      | none => if isAxiomIn find m then [m] else []).toArray
+    expand find cached seen.toList
 
 /-- Reachability along a relation is reachability along any relation that has its steps. -/
 theorem Reach.mono {next next' : Name → Array Name} (sub : ∀ x m, m ∈ next x → m ∈ next' x)
@@ -613,6 +621,14 @@ theorem Reach.mono {next next' : Name → Array Name} (sub : ∀ x m, m ∈ next
   induction h with
   | refl => exact .refl _
   | step hm _ ih => exact .step (sub _ _ hm) ih
+
+/-- Each name after `x` along `stopAt cached next` is after it along `next`. -/
+theorem stopAt_sub {cached : Std.HashMap Name (Array Name)} {next : Name → Array Name}
+    (x m : Name) (hm : m ∈ stopAt cached next x) : m ∈ next x := by
+  unfold stopAt at hm
+  split at hm
+  · simp at hm
+  · exact hm
 
 /-- A path either reaches a name `cached` holds while it stops at none, and goes on from there,
 or it reaches its end, a name `cached` does not hold, while it stops at none. -/
@@ -633,6 +649,47 @@ private theorem reach_stop {cached : Std.HashMap Name (Array Name)} {next : Name
       · exact .inr ⟨.step hstep hra, hna⟩
     · exact .inl ⟨n, hc, .refl n, .step hm rest⟩
 
+/-- **With a correct table, `expand` of names that `n` reaches, among them each name the search
+from `n` that stops at the names of the table reaches and that the table holds or `find` holds as
+an axiom, is exactly the axioms `n` reaches** (`ReachesAxiom`). -/
+theorem mem_expand {find : Name → Option ConstantInfo} {cached : Std.HashMap Name (Array Name)}
+    {n : Name} {names : List Name} (correct : CacheCorrect find cached)
+    (sound : ∀ m ∈ names, Reach (successors find) n m)
+    (complete : ∀ m, Reach (stopAt cached (successors find)) n m →
+      cached.contains m = true ∨ isAxiomIn find m = true → m ∈ names) (a : Name) :
+    a ∈ expand find cached names ↔ ReachesAxiom find n a := by
+  unfold expand
+  simp only [List.mem_toArray, List.mem_flatMap]
+  constructor
+  · rintro ⟨m, hm, ha⟩
+    cases hc : cached[m]? with
+    | some entry =>
+      rw [hc] at ha
+      obtain ⟨hr, hax⟩ := (correct m entry hc a).mp (Array.mem_toList_iff.mp ha)
+      exact ⟨(sound m hm).trans hr, hax⟩
+    | none =>
+      rw [hc] at ha
+      by_cases hax : isAxiomIn find m = true
+      · simp only [hax, ↓reduceIte, List.mem_singleton] at ha
+        subst ha
+        exact ⟨sound a hm, (isAxiomIn_iff find a).mp hax⟩
+      · simp [hax] at ha
+  · rintro ⟨hr, hax⟩
+    rcases reach_stop (cached := cached) hr with ⟨c, hcc, hrc, hca⟩ | ⟨hra, hna⟩
+    · have hsome : (cached[c]?).isSome = true := by
+        rw [← Std.HashMap.contains_eq_isSome_getElem?]
+        exact hcc
+      obtain ⟨entry, hentry⟩ := Option.isSome_iff_exists.mp hsome
+      refine ⟨c, complete c hrc (.inl hcc), ?_⟩
+      rw [hentry]
+      exact Array.mem_toList_iff.mpr ((correct c entry hentry a).mpr ⟨hca, hax⟩)
+    · refine ⟨a, complete a hra (.inr ((isAxiomIn_iff find a).mpr hax)), ?_⟩
+      have hnone : cached[a]? = none := by
+        rw [Std.HashMap.contains_eq_isSome_getElem?] at hna
+        simpa using hna
+      rw [hnone]
+      simp [(isAxiomIn_iff find a).mpr hax]
+
 /-- **With a correct table, `axiomsWith` returns exactly the axioms `n` reaches**
 (`ReachesAxiom`). -/
 theorem axiomsWith_some {find : Name → Option ConstantInfo}
@@ -646,48 +703,54 @@ theorem axiomsWith_some {find : Name → Option ConstantInfo}
     simp only [hs, Option.map_some, Option.some.injEq] at h
     subst h
     obtain ⟨complete, sound⟩ := search_some hs
-    have stopSub : ∀ x m, m ∈ stopAt cached (successors find) x → m ∈ successors find x := by
-      intro x m hm
-      unfold stopAt at hm
-      split at hm
-      · simp at hm
-      · exact hm
-    have reachOf : ∀ m ∈ seen, Reach (successors find) n m := by
-      intro m hm
-      obtain ⟨s, hs, hr⟩ := sound m hm
-      rw [List.mem_singleton.mp hs] at hr
-      exact hr.mono stopSub
-    intro a
-    simp only [List.mem_toArray, List.mem_flatMap, Std.HashSet.mem_toList]
-    constructor
-    · rintro ⟨m, hm, ha⟩
-      cases hc : cached[m]? with
-      | some entry =>
-        rw [hc] at ha
-        obtain ⟨hr, hax⟩ := (correct m entry hc a).mp (Array.mem_toList_iff.mp ha)
-        exact ⟨(reachOf m hm).trans hr, hax⟩
-      | none =>
-        rw [hc] at ha
-        by_cases hax : isAxiomIn find m = true
-        · simp only [hax, ↓reduceIte, List.mem_singleton] at ha
-          subst ha
-          exact ⟨reachOf a hm, (isAxiomIn_iff find a).mp hax⟩
-        · simp [hax] at ha
-    · rintro ⟨hr, hax⟩
-      rcases reach_stop (cached := cached) hr with ⟨c, hcc, hrc, hca⟩ | ⟨hra, hna⟩
-      · have hsome : (cached[c]?).isSome = true := by
-          rw [← Std.HashMap.contains_eq_isSome_getElem?]
-          exact hcc
-        obtain ⟨entry, hentry⟩ := Option.isSome_iff_exists.mp hsome
-        refine ⟨c, complete n List.mem_cons_self c hrc, ?_⟩
-        rw [hentry]
-        exact Array.mem_toList_iff.mpr ((correct c entry hentry a).mpr ⟨hca, hax⟩)
-      · refine ⟨a, complete n List.mem_cons_self a hra, ?_⟩
-        have hnone : cached[a]? = none := by
-          rw [Std.HashMap.contains_eq_isSome_getElem?] at hna
-          simpa using hna
-        rw [hnone]
-        simp [(isAxiomIn_iff find a).mpr hax]
+    refine mem_expand correct (fun m hm => ?_)
+      (fun m hr _ => Std.HashSet.mem_toList.mpr (complete n List.mem_cons_self m hr))
+    obtain ⟨s, hs, hr⟩ := sound m (Std.HashSet.mem_toList.mp hm)
+    rw [List.mem_singleton.mp hs] at hr
+    exact hr.mono stopAt_sub
+
+/-- The axioms that each name of the forward search `forward` reaches in `find`, under that name,
+read through the table `cached`: the `leafTable` of the search with the names that `cached` or
+`find` holds as an axiom as the leaves, each entry's leaves expanded through `cached` (`expand`).
+When `forward` is the search from the roots that stops at the names of `cached`, a name of
+`cached` is not searched past. `none` when a search back runs out of `fuel`. -/
+def stoppedTable (find : Name → Option ConstantInfo) (cached : Std.HashMap Name (Array Name))
+    (fuel : Nat) (forward : Std.HashSet Name × List (Name × Array Name)) :
+    Option (Std.HashMap Name (Array Name)) :=
+  (leafTable (fun m => cached.contains m || isAxiomIn find m) fuel forward).map fun leaves =>
+    leaves.map fun _ found => expand find cached found.toList
+
+/-- **With a correct table, `stoppedTable` of the search from `roots` that stops at the names of
+the table holds each name of `roots`, and gives each name it holds exactly the axioms that name
+reaches** (`ReachesAxiom`). -/
+theorem stoppedTable_some {find : Name → Option ConstantInfo}
+    {cached : Std.HashMap Name (Array Name)} {fuel : Nat} {roots : Array Name}
+    {forward : Std.HashSet Name × List (Name × Array Name)}
+    {table : Std.HashMap Name (Array Name)} (correct : CacheCorrect find cached)
+    (hs : searchEdges (stopAt cached (successors find)) fuel roots.toList = some forward)
+    (h : stoppedTable find cached fuel forward = some table) :
+    (∀ n ∈ roots, ∃ axioms, table[n]? = some axioms) ∧
+      ∀ n axioms, table[n]? = some axioms → ∀ a, a ∈ axioms ↔ ReachesAxiom find n a := by
+  unfold stoppedTable at h
+  cases hl : leafTable (fun m => cached.contains m || isAxiomIn find m) fuel forward with
+  | none => simp [hl] at h
+  | some leaves =>
+    simp only [hl, Option.map_some, Option.some.injEq] at h
+    subst h
+    obtain ⟨holds, exact⟩ := leafTable_some hs hl
+    refine ⟨fun n hn => ?_, fun n axioms hn => ?_⟩
+    · obtain ⟨found, hf⟩ := holds n hn
+      exact ⟨expand find cached found.toList, by simp [hf]⟩
+    · simp only [Std.HashMap.getElem?_map'] at hn
+      cases hr : leaves[n]? with
+      | none => simp [hr] at hn
+      | some found =>
+        simp only [hr, Option.pmap_some, Option.some.injEq] at hn
+        subst hn
+        exact mem_expand correct
+          (fun m hm => ((exact n found hr m).mp (Array.mem_toList_iff.mp hm)).1.mono stopAt_sub)
+          (fun m hr' hleaf => Array.mem_toList_iff.mpr
+            ((exact n found hr m).mpr ⟨hr', (Bool.or_eq_true _ _).mpr hleaf⟩))
 
 /-! ## Axioms with hidden bodies
 
@@ -748,40 +811,227 @@ theorem axiomsThrough_some {find : Name → Option ConstantInfo}
     subst h
     exact mem_throughHidden (axiomsWith_some (fun _ _ hc => by simp at hc) hs)
 
-/-- The table of `axiomTable` for the names `roots`, each entry's names that `hidden` records
-replaced by their records: one search for all of `roots` instead of one for each. `none` when a
-search runs out of `fuel`. -/
-def axiomTableThrough (find : Name → Option ConstantInfo) (hidden : Name → Option (Array Name))
-    (fuel : Nat) (roots : Array Name) : Option (Std.HashMap Name (Array Name)) :=
-  (axiomTable find fuel roots).map fun table => table.map fun _ => throughHidden hidden
+/-! ## A table of the axioms of imported names
 
-/-- **`axiomTableThrough` holds each name of `roots`, and gives each name it holds exactly the
-axioms that name reaches and `hidden` does not record, with the records of those it does.** -/
-theorem axiomTableThrough_some {find : Name → Option ConstantInfo}
-    {hidden : Name → Option (Array Name)} {fuel : Nat} {roots : Array Name}
-    {table : Std.HashMap Name (Array Name)}
-    (h : axiomTableThrough find hidden fuel roots = some table) :
+The editor checks each command of a file in an environment that extends the same imports, so the
+axioms an imported name reaches are the same in each. `remember` keeps the entries that a table
+search computed for imported names that reach only imported names, so that each later search stops
+there. `MemoInv` states what such a table satisfies, `remember_inv` that `remember` keeps it,
+`MemoInv.transfer` that it carries over to an environment that holds the same imported constants,
+and `tableThrough_agree` that a search that stops at its names computes what the search with no
+table computes. -/
+
+/-- `cached` is a correct table for `find`, and each name it holds reaches only names that
+`imported` accepts. -/
+def MemoInv (find : Name → Option ConstantInfo) (imported : Name → Bool)
+    (cached : Std.HashMap Name (Array Name)) : Prop :=
+  CacheCorrect find cached ∧
+    ∀ n, cached.contains n = true → ∀ x, Reach (successors find) n x → imported x = true
+
+/-- The empty table satisfies `MemoInv`. -/
+theorem memoInv_empty (find : Name → Option ConstantInfo) (imported : Name → Bool) :
+    MemoInv find imported {} :=
+  ⟨fun _ _ hc => by simp at hc, fun _ hc => by simp at hc⟩
+
+/-- **`MemoInv` carries over to `find₂` and `imported₂` when each name `imported₁` accepts is
+accepted by `imported₂`, and has in `find₂` the successors and the axiom kind it has in
+`find₁`.** -/
+theorem MemoInv.transfer {find₁ find₂ : Name → Option ConstantInfo}
+    {imported₁ imported₂ : Name → Bool} {cached : Std.HashMap Name (Array Name)}
+    (inv : MemoInv find₁ imported₁ cached)
+    (agree : ∀ x, imported₁ x = true → imported₂ x = true ∧
+      successors find₂ x = successors find₁ x ∧ isAxiomIn find₂ x = isAxiomIn find₁ x) :
+    MemoInv find₂ imported₂ cached := by
+  obtain ⟨correct, region⟩ := inv
+  have forth : ∀ y x, Reach (successors find₁) y x →
+      (∀ z, Reach (successors find₁) y z → imported₁ z = true) → Reach (successors find₂) y x := by
+    intro y x h
+    induction h with
+    | refl => exact fun _ => .refl _
+    | @step y m x hm _ ih =>
+      intro hreg
+      have hm₂ : m ∈ successors find₂ y := by
+        rw [(agree y (hreg y (.refl y))).2.1]
+        exact hm
+      exact .step hm₂ (ih fun z hz => hreg z (.step hm hz))
+  have back : ∀ y x, Reach (successors find₂) y x →
+      (∀ z, Reach (successors find₁) y z → imported₁ z = true) → Reach (successors find₁) y x := by
+    intro y x h
+    induction h with
+    | refl => exact fun _ => .refl _
+    | @step y m x hm _ ih =>
+      intro hreg
+      have hm₁ : m ∈ successors find₁ y := by
+        rw [← (agree y (hreg y (.refl y))).2.1]
+        exact hm
+      exact .step hm₁ (ih fun z hz => hreg z (.step hm₁ hz))
+  have reach : ∀ n, cached.contains n = true → ∀ x,
+      Reach (successors find₂) n x ↔ Reach (successors find₁) n x := fun n hn x =>
+    ⟨fun h => back n x h (region n hn), fun h => forth n x h (region n hn)⟩
+  refine ⟨fun n axioms hn a => ?_, fun n hn x hr =>
+    (agree x (region n hn x ((reach n hn x).mp hr))).1⟩
+  have hc : cached.contains n = true := by
+    rw [Std.HashMap.contains_eq_isSome_getElem?, hn]
+    rfl
+  rw [correct n axioms hn a]
+  unfold ReachesAxiom
+  constructor
+  · rintro ⟨hr, hax⟩
+    refine ⟨(reach n hc a).mpr hr, (isAxiomIn_iff find₂ a).mp ?_⟩
+    rw [(agree a (region n hc a hr)).2.2]
+    exact (isAxiomIn_iff find₁ a).mpr hax
+  · rintro ⟨hr, hax⟩
+    have hr₁ := (reach n hc a).mp hr
+    refine ⟨hr₁, (isAxiomIn_iff find₁ a).mp ?_⟩
+    rw [← (agree a (region n hc a hr₁)).2.2]
+    exact (isAxiomIn_iff find₂ a).mpr hax
+
+/-- `cached` with the entry of `table` for each name of the forward search `forward` that
+`imported` accepts and that reaches, along the search, only names `imported` accepts: those of an
+empty entry of the `leafTable` whose leaves are the names `imported` refuses. `cached` itself
+when that table runs out of `fuel`. -/
+def remember (imported : Name → Bool) (fuel : Nat)
+    (forward : Std.HashSet Name × List (Name × Array Name))
+    (table cached : Std.HashMap Name (Array Name)) : Std.HashMap Name (Array Name) :=
+  match leafTable (fun m => !imported m) fuel forward with
+  | some outside =>
+    (forward.1.toList.filterMap fun n =>
+      if imported n && outside[n]?.any (·.isEmpty) then table[n]?.map (n, ·) else none).foldl
+        (init := cached) fun kept entry => kept.insert entry.1 entry.2
+  | none => cached
+
+/-- Each entry of a fold of `insert` over `entries` is one of `entries` or of `init`. -/
+private theorem foldl_insert_some :
+    ∀ (entries : List (Name × Array Name)) (init : Std.HashMap Name (Array Name)) (n : Name)
+      (axioms : Array Name),
+      (entries.foldl (init := init) fun kept entry => kept.insert entry.1 entry.2)[n]? =
+        some axioms → (n, axioms) ∈ entries ∨ init[n]? = some axioms := by
+  intro entries
+  induction entries with
+  | nil => exact fun _ _ _ h => .inr h
+  | cons entry rest ih =>
+    intro init n axioms h
+    simp only [List.foldl_cons] at h
+    rcases ih _ n axioms h with hr | hi
+    · exact .inl (List.mem_cons_of_mem _ hr)
+    · rw [Std.HashMap.getElem?_insert] at hi
+      split at hi
+      · rename_i heq
+        simp only [Option.some.injEq] at hi
+        subst hi
+        rw [← beq_iff_eq.mp heq]
+        exact .inl List.mem_cons_self
+      · exact .inr hi
+
+/-- **`remember` keeps `MemoInv`:** after the search from `roots` that stops at the names of
+`cached`, and its `stoppedTable`, each entry it adds is correct and reaches only accepted
+names. -/
+theorem remember_inv {find : Name → Option ConstantInfo} {imported : Name → Bool}
+    {cached : Std.HashMap Name (Array Name)} {fuel : Nat} {roots : Array Name}
+    {forward : Std.HashSet Name × List (Name × Array Name)}
+    {table : Std.HashMap Name (Array Name)} (inv : MemoInv find imported cached)
+    (hs : searchEdges (stopAt cached (successors find)) fuel roots.toList = some forward)
+    (h : stoppedTable find cached fuel forward = some table) :
+    MemoInv find imported (remember imported fuel forward table cached) := by
+  obtain ⟨correct, region⟩ := inv
+  obtain ⟨-, exact⟩ := stoppedTable_some correct hs h
+  unfold remember
+  split
+  · rename_i outside ho
+    obtain ⟨-, leaves⟩ := leafTable_some hs ho
+    have added : ∀ n axioms, (n, axioms) ∈ (forward.1.toList.filterMap fun n =>
+        if imported n && outside[n]?.any (·.isEmpty) then table[n]?.map (n, ·) else none) →
+        table[n]? = some axioms ∧ ∀ x, Reach (successors find) n x → imported x = true := by
+      intro n axioms hm
+      obtain ⟨m, -, he⟩ := List.mem_filterMap.mp hm
+      split at he
+      · rename_i hcond
+        simp only [Bool.and_eq_true, Option.any_eq_true] at hcond
+        obtain ⟨-, found, hfound, hempty⟩ := hcond
+        simp only [Option.map_eq_some_iff, Prod.mk.injEq] at he
+        obtain ⟨entry, hentry, rfl, rfl⟩ := he
+        refine ⟨hentry, fun x hr => ?_⟩
+        rcases reach_stop (cached := cached) hr with ⟨c, hcc, -, hcx⟩ | ⟨hrx, -⟩
+        · exact region c hcc x hcx
+        · cases hx : imported x
+          · have hin := (leaves _ found hfound x).mpr ⟨hrx, by simp [hx]⟩
+            rw [Array.isEmpty_iff.mp hempty] at hin
+            simp at hin
+          · rfl
+      · simp at he
+    refine ⟨fun n axioms hn a => ?_, fun n hn x hr => ?_⟩
+    · rcases foldl_insert_some _ _ n axioms hn with hm | hc
+      · exact exact n axioms (added n axioms hm).1 a
+      · exact correct n axioms hc a
+    · rw [Std.HashMap.contains_eq_isSome_getElem?] at hn
+      obtain ⟨axioms, hn⟩ := Option.isSome_iff_exists.mp hn
+      rcases foldl_insert_some _ _ n axioms hn with hm | hc
+      · exact (added n axioms hm).2 x hr
+      · have hcc : cached.contains n = true := by
+          rw [Std.HashMap.contains_eq_isSome_getElem?, hc]
+          rfl
+        exact region n hcc x hr
+  · exact ⟨correct, region⟩
+
+/-- The table of `stoppedTable` for the search from the names `roots` that stops at the names of
+`cached`, each entry's names that `hidden` records replaced by their records, with `cached` and
+the entries this search computed for names that `imported` accepts and that reach only such names
+(`remember`). `none` when a search runs out of `fuel`. -/
+def tableThrough (find : Name → Option ConstantInfo) (hidden : Name → Option (Array Name))
+    (imported : Name → Bool) (cached : Std.HashMap Name (Array Name)) (fuel : Nat)
+    (roots : Array Name) :
+    Option (Std.HashMap Name (Array Name) × Std.HashMap Name (Array Name)) := do
+  let forward ← searchEdges (stopAt cached (successors find)) fuel roots.toList
+  let table ← stoppedTable find cached fuel forward
+  return (table.map fun _ => throughHidden hidden, remember imported fuel forward table cached)
+
+/-- **With a table that `MemoInv` admits, `tableThrough` holds each name of `roots`, gives each
+name it holds exactly the axioms that name reaches and `hidden` does not record, with the records
+of those it does, and keeps `MemoInv` in the table it returns.** -/
+theorem tableThrough_some {find : Name → Option ConstantInfo}
+    {hidden : Name → Option (Array Name)} {imported : Name → Bool}
+    {cached : Std.HashMap Name (Array Name)} {fuel : Nat} {roots : Array Name}
+    {table kept : Std.HashMap Name (Array Name)} (inv : MemoInv find imported cached)
+    (h : tableThrough find hidden imported cached fuel roots = some (table, kept)) :
     (∀ n ∈ roots, ∃ axioms, table[n]? = some axioms) ∧
-      ∀ n axioms, table[n]? = some axioms → ∀ a, a ∈ axioms ↔
+      (∀ n axioms, table[n]? = some axioms → ∀ a, a ∈ axioms ↔
         (ReachesAxiom find n a ∧ hidden a = none) ∨
-          ∃ h recorded, ReachesAxiom find n h ∧ hidden h = some recorded ∧ a ∈ recorded := by
-  unfold axiomTableThrough at h
-  cases hs : axiomTable find fuel roots with
+          ∃ h recorded, ReachesAxiom find n h ∧ hidden h = some recorded ∧ a ∈ recorded) ∧
+      MemoInv find imported kept := by
+  unfold tableThrough at h
+  cases hs : searchEdges (stopAt cached (successors find)) fuel roots.toList with
   | none => simp [hs] at h
-  | some reached =>
-    simp only [hs, Option.map_some, Option.some.injEq] at h
-    subst h
-    obtain ⟨holds, exact⟩ := axiomTable_some hs
-    refine ⟨fun n hn => ?_, fun n axioms hn => ?_⟩
-    · obtain ⟨axioms, ha⟩ := holds n hn
-      exact ⟨throughHidden hidden axioms, by simp [ha]⟩
-    · simp only [Std.HashMap.getElem?_map'] at hn
-      cases hr : reached[n]? with
-      | none => simp [hr] at hn
-      | some entry =>
-        simp only [hr, Option.pmap_some, Option.some.injEq] at hn
-        subst hn
-        exact mem_throughHidden (exact n entry hr)
+  | some forward =>
+    cases ht : stoppedTable find cached fuel forward with
+    | none => simp [hs, ht] at h
+    | some reached =>
+      simp only [hs, ht, Option.bind_eq_bind, Option.bind_some, Option.pure_def,
+        Option.some.injEq, Prod.mk.injEq] at h
+      obtain ⟨rfl, rfl⟩ := h
+      obtain ⟨holds, exact⟩ := stoppedTable_some inv.1 hs ht
+      refine ⟨fun n hn => ?_, fun n axioms hn => ?_, remember_inv inv hs ht⟩
+      · obtain ⟨axioms, ha⟩ := holds n hn
+        exact ⟨throughHidden hidden axioms, by simp [ha]⟩
+      · simp only [Std.HashMap.getElem?_map'] at hn
+        cases hr : reached[n]? with
+        | none => simp [hr] at hn
+        | some entry =>
+          simp only [hr, Option.pmap_some, Option.some.injEq] at hn
+          subst hn
+          exact mem_throughHidden (exact n entry hr)
+
+/-- **With a table that `MemoInv` admits, `tableThrough` gives each name the axioms that it gives
+with no table.** -/
+theorem tableThrough_agree {find : Name → Option ConstantInfo}
+    {hidden : Name → Option (Array Name)} {imported : Name → Bool}
+    {cached : Std.HashMap Name (Array Name)} {fuel fuel' : Nat} {roots : Array Name}
+    {table kept table' kept' : Std.HashMap Name (Array Name)} (inv : MemoInv find imported cached)
+    (h : tableThrough find hidden imported cached fuel roots = some (table, kept))
+    (h' : tableThrough find hidden imported {} fuel' roots = some (table', kept'))
+    {n : Name} {axioms axioms' : Array Name} (hn : table[n]? = some axioms)
+    (hn' : table'[n]? = some axioms') (a : Name) : a ∈ axioms ↔ a ∈ axioms' :=
+  ((tableThrough_some inv h).2.1 n axioms hn a).trans
+    ((tableThrough_some (memoInv_empty find imported) h').2.1 n axioms' hn' a).symm
 
 /-! ## The axioms a name reaches in an environment -/
 
@@ -826,12 +1076,25 @@ cycle, and the table a module writes shares that cache across its declarations
 def reachedAxioms (env : Environment) (name : Name) : Option (Array Name) :=
   axiomsThrough env.toKernelEnv.find? (hiddenAxioms env) (fuelFor env 1) name
 
+/-- Whether `n` is a constant of the kernel environment of `env` that an imported module holds. -/
+def importedIn (env : Environment) (n : Name) : Bool :=
+  (env.getModuleIdxFor? n).isSome && (env.toKernelEnv.find? n).isSome
+
 /-- The axioms that each name reachable from `names` reaches in the kernel environment of `env`,
-under that name, read as `reachedAxioms` reads them for one name (`axiomTableThrough`, exact by
-`axiomTableThrough_some`), with one search for all of `names`. `none` when a search runs out of
-fuel. -/
+under that name, read as `reachedAxioms` reads them for one name, with one search for all of
+`names` that stops at the names of `cached` (`tableThrough`, exact by `tableThrough_some` when
+`MemoInv` admits `cached`), and `cached` with the entries this search computed for the imported
+constants (`importedIn`). `none` when a search runs out of fuel. -/
+def rememberedAxiomTable (env : Environment) (cached : Std.HashMap Name (Array Name))
+    (names : Array Name) :
+    Option (Std.HashMap Name (Array Name) × Std.HashMap Name (Array Name)) :=
+  tableThrough env.toKernelEnv.find? (hiddenAxioms env) (importedIn env) cached (fuelFor env 1)
+    names
+
+/-- The table of `rememberedAxiomTable` for `names` with no table to stop at. `none` when a search
+runs out of fuel. -/
 def reachedAxiomTable (env : Environment) (names : Array Name) :
     Option (Std.HashMap Name (Array Name)) :=
-  axiomTableThrough env.toKernelEnv.find? (hiddenAxioms env) (fuelFor env 1) names
+  (rememberedAxiomTable env {} names).map (·.1)
 
 end RegulaPolicy.KernelAxioms

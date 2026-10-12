@@ -60,12 +60,12 @@ their Lean bodies. The report distinguishes possible replacements from actual
 retained compiler edges and records every boundary in this closure:
 compiler simplifications, `@[implemented_by]` replacements, `@[extern]` declarations split into
 toolchain native-runtime primitives and other external code, unsafe/partial/opaque
-computation, and compiler-trusting proof axioms. A replacement, `extern`, or unsafe or partial
-computation declared in an origin-checked `Init`, `Std`, `Lean` or `Lake` module carries that
-module's toolchain origin: it is the toolchain's trusted base, and a toolchain replacement is
-followed through its current target without source history or correspondence. An unsafe
-constant whose type Lean's `Meta.isProp` finds to be a proposition, such as `lcProof`, is a
-proof the compiler erases and is no boundary. Each
+computation, compiler-trusting proof axioms, and initialized values. A replacement, `extern`,
+unsafe or partial computation, or initialized value declared in an origin-checked `Init`, `Std`,
+`Lean` or `Lake` module carries that module's toolchain origin: it is the toolchain's trusted
+base, and a toolchain replacement is followed through its current target without source history or
+correspondence. An unsafe constant whose type Lean's `Meta.isProp` finds to be a proposition, such
+as `lcProof`, is a proof the compiler erases and is no boundary. Each
 boundary is marked `checked` (kernel-definitional equality, a standard-logical
 correspondence theorem of a module that the audit replays or of the toolchain, or a
 kernel-checked opaque body), `trusted`, or

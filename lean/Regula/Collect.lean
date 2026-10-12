@@ -3662,6 +3662,73 @@ structure Replayed where
   rests on none. -/
   checkedOperations : Std.HashMap Name (Array Name) := {}
 
+/-- The axioms that the editor's searches in this process computed for imported constants
+(`KernelAxioms.rememberedAxiomTable`), with the imports and module data of the environment they
+were computed in. -/
+private structure ImportedAxioms where
+  /-- The direct imports of that environment. -/
+  imports : Array Import
+  /-- Its imported modules, in order. -/
+  modules : Array Name
+  /-- The data of those modules. -/
+  data : Array ModuleData
+  /-- The axioms each imported constant reaches, by its name. -/
+  table : Std.HashMap Name (Array Name)
+
+private initialize importedAxioms : IO.Ref (Option ImportedAxioms) ← IO.mkRef none
+
+/-- Whether two constants are the same kind with equal fields (`==`), or, for an inductive type or
+a quotient, whose values have no `==`, with equal names, universe parameters and type, and for an
+inductive type equal constructors and members: the fields a search reads
+(`KernelAxioms.successorsOf`, `KernelAxioms.isAxiomIn`). -/
+private def sameConstant : ConstantInfo → ConstantInfo → Bool
+  | .axiomInfo a, .axiomInfo b => a == b
+  | .defnInfo a, .defnInfo b => a == b
+  | .thmInfo a, .thmInfo b => a == b
+  | .opaqueInfo a, .opaqueInfo b => a == b
+  | .quotInfo a, .quotInfo b => a.toConstantVal == b.toConstantVal
+  | .inductInfo a, .inductInfo b =>
+    a.toConstantVal == b.toConstantVal && a.ctors == b.ctors && a.all == b.all
+  | .ctorInfo a, .ctorInfo b => a == b
+  | .recInfo a, .recInfo b => a == b
+  | _, _ => false
+
+/-- Whether `env` has the imports that `memo` was computed under: the same direct imports and
+modules, and module data with the same constant names and the same constants (`sameConstant`). -/
+private def sameImports (env : Environment) (memo : ImportedAxioms) : Bool :=
+  memo.imports == env.header.imports && memo.modules == env.header.moduleNames &&
+    memo.data.isEqv env.header.moduleData fun recorded loaded =>
+      recorded.constNames == loaded.constNames &&
+        recorded.constants.isEqv loaded.constants sameConstant
+
+/-- The table of `KernelAxioms.reachedAxiomTable` for `names` in `env`, read by one search that
+stops at the imported constants whose axioms an earlier search of this process computed under the
+same imports (`sameImports`), and that keeps those it computes for the next search. Under other
+imports, the search stops at none. `none` when the search runs out of fuel.
+
+Each kept entry is one a search computed (`KernelAxioms.remember_inv`), so in the environment it
+was computed in, the table satisfies `KernelAxioms.MemoInv`, and a search that stops at its names
+computes what the search with no table computes (`KernelAxioms.tableThrough_agree`).
+
+Assumes: under the same imports, the table satisfies `MemoInv` in `env` too
+(`KernelAxioms.MemoInv.transfer`): each imported constant of the environment it was computed in is
+an imported constant of `env` with the same successors and kind. Lean 4.34.1 builds the kernel's
+imported constants, and the module of each, from the header's module data alone
+(`Lean/Environment.lean:2329-2346`), and refuses a later declaration of a name it holds
+(`Lean/AddDecl.lean:134-136`). The same constants (`sameConstant`) have the same kind and equal
+fields that a search reads, and equal expressions are alpha-equivalent up to binder annotations
+(`Expr.eqv`, `Lean/Expr.lean:805-809`), so they use the same constants. -/
+private def editorAxioms (env : Environment) (names : Array Name) :
+    IO (Option (Std.HashMap Name (Array Name))) := do
+  let cached := match ← importedAxioms.get with
+    | some memo => if sameImports env memo then memo.table else {}
+    | none => {}
+  let some (table, kept) := RegulaPolicy.KernelAxioms.rememberedAxiomTable env cached names
+    | return none
+  importedAxioms.set (some ⟨env.header.imports, env.header.moduleNames, env.header.moduleData,
+    kept⟩)
+  return some table
+
 /-- The record of `declaration`, with what a snapshot did not read of the declaration's decision
 registration, when there is such a part (`Unread`): its kind (`executableContract?`), or the
 functions that its two sides share (`sharedReading`). The record of a decision registration that
@@ -3669,7 +3736,7 @@ was read and not refused holds the names of the functions that its two sides sha
 those `replayed` holds for the declaration, the axioms it reaches in the kernel that replayed it
 (`Admission.validate`), with the axioms `collectAxioms` omits of them, or, with no `replayed`,
 those it reaches in the environment: its entry of `editor`, a table of
-`KernelAxioms.reachedAxiomTable`, or else `KernelAxioms.reachedAxioms`. -/
+`KernelAxioms.reachedAxiomTable` (`editorAxioms`), or else `KernelAxioms.reachedAxioms`. -/
 private def declarationReading (name : Name) (stage : Stage) (scope? : Option ContractScope)
     (replayed : Option Replayed) (editor : Std.HashMap Name (Array Name) := {}) :
     CommandElabM (RegulaPolicy.Declaration × Option Unread) := withoutSmartUnfolding do
@@ -3792,7 +3859,7 @@ def currentModule (stage : Stage := .snapshot) : CommandElabM (Array RegulaPolic
   liftIO <| authenticateFoundation env
   let scope ← ContractScope.new env
   let names ← liftCoreM Lean.Linter.EnvLinter.getDeclsInCurrModule
-  let editor := (RegulaPolicy.KernelAxioms.reachedAxiomTable env names).getD {}
+  let editor := (← liftIO <| editorAxioms env names).getD {}
   names.mapM fun name => (·.1) <$> declarationReading name stage scope none editor
 
 /-- Declaration binders recorded in this command's information trees. This is a
@@ -3815,7 +3882,7 @@ def commandDeclarations :
   if names.isEmpty then return (#[], #[])
   liftIO <| authenticateFoundation env
   let scope ← ContractScope.new env
-  let editor := (RegulaPolicy.KernelAxioms.reachedAxiomTable env names).getD {}
+  let editor := (← liftIO <| editorAxioms env names).getD {}
   let readings ← names.mapM (declarationReading · .snapshot scope none editor)
   return (readings.map (·.1), readings.filterMap fun (record, unread) =>
     unread.map (record.name, ·))
