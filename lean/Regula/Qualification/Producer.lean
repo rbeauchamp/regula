@@ -66,8 +66,11 @@ private def chain (root : FilePath) (fresh : String → IO FilePath)
     let bytes ← Regula.Filesystem.readBytes (root / relative)
     let some source := String.fromUTF8? bytes | throw <|
                                                  IO.userError "fixture must be valid UTF-8"
-    -- Each later phase deliberately mutates the file of the constructed private workspace.
-    IO.FS.writeBinFile (project / "Example.lean") bytes
+    if observations.isEmpty then
+      Regula.Filesystem.copyFile (root / relative) (project / "Example.lean")
+    else
+      -- Later phases deliberately mutate the file of the constructed private workspace.
+      IO.FS.writeBinFile (project / "Example.lean") bytes
     -- Fixed runs from a cleared build; Violation keeps the prior Fixed build.
     if kind == "Fixed" then clearBuild project
     let output := project / s!"result-{first + observations.size}.json"

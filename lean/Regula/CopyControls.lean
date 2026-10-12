@@ -1,4 +1,5 @@
 import Regula.Checker.Lake
+import Regula.Qualification.Slot
 import Lean.Elab.Command
 
 /-! # Construction boundary controls
@@ -40,12 +41,27 @@ run_cmd do
       unless positive.length == 2 &&
           (← IO.FS.readFile (base / "positive/plain")) == "source bytes" do
         throw <| IO.userError "plain copy lost its source receipt or bytes"
+      let slot := base / "conflicting-slot"
+      construct slot []
+      refused "conflicting source occurrences" "conflicting captured bytes" <|
+        discard <| Regula.Qualification.Slot.prepareSlot source ⟨slot⟩
+          #[(source / "plain", "source bytes".toUTF8), (source / "plain", "different".toUTF8)] #[] #[]
+      let alias := base / "source-alias"
+      fixture "ln" #["-s", source.toString, alias.toString]
+      refused "slot linked source" "not a directory or" <|
+        discard <| Regula.Qualification.Slot.copyTree alias (base / "slot-link-output")
+      let gitAlias := base / "git-alias"
+      fixture "ln" #["-s", (source / "plain").toString, gitAlias.toString]
+      refused "slot linked Git pointer" "not a directory or" <|
+        Regula.Qualification.Slot.materializeGit (base / "git-output") gitAlias
       fixture "ln" #["-s", "plain", (source / "link").toString]
       refused "source link" "not a directory or" (discard <| copy source (base / "link-output"))
       removeOwn .link (source / "link")
       IO.eprintln "construction controls: FIFO"
       fixture "mkfifo" #[(source / "pipe").toString]
       refused "source FIFO" "not a directory or" (discard <| copy source (base / "pipe-output"))
+      refused "slot Git FIFO" "not a directory or" <|
+        Regula.Qualification.Slot.materializeGit (base / "fifo-git-output") (source / "pipe")
       -- The observer intentionally has no removal kind for a FIFO. It stays in this fixture's
       -- private root, which withOwnTempDir removes as a whole after the control.
       let occupied := base / "occupied"
@@ -107,9 +123,14 @@ def checkWorkspace : IO Unit := do
       if ← (source / "VENDOR").isDir then
         -- A deliberate configuration mutation exercises Lake's stored-spelling boundary.
         IO.FS.writeFile (source / "lakefile.lean") (lakefile.replace "vendor" "VENDOR")
+        -- Two admitted moves change the stored spelling without treating the case alias as
+        -- an independently occupied destination of the observer's replacement operation.
+        replacePath (source / "lake-manifest.json") (source / "manifest-renaming")
+        replacePath (source / "manifest-renaming") (source / "LAKE-MANIFEST.JSON")
         let folded ← Regula.Checker.Lake.copyProject source (base / "folded") (base / "folded")
-        unless !(← (folded.project / "vendor/stale").pathExists) do
-          throw <| IO.userError "case-folded packages directory was copied as project source"
+        unless !(← (folded.project / "vendor/stale").pathExists) &&
+            (← Regula.Filesystem.readFile (folded.project / "lake-manifest.json")) == manifest do
+          throw <| IO.userError "case-folded packages or manifest location was not retained correctly"
       IO.println "construction workspace: configured packagesDir and captured manifest PASS"
 
 end Regula.CopyControls

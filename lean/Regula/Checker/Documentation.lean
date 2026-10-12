@@ -246,12 +246,17 @@ while the
 large shared dependency environment is loaded only once per collision group.
 Each group runs in a child process so extension-held imports are released on exit.
 `extraSearchRoots` carries the freshly built claimed-surface libraries of the
-checked project, ahead of any inherited search path. -/
+checked project, ahead of any inherited search path. Each invocation constructs a fresh child
+compilation directory below `scratch`, retained until the caller reclaims that parent. -/
 unsafe def auditTasks (repo scratch : FilePath) (jobs : Nat)
     (tasks : Array Task) (sourceBindings : Array ProducerReport.SourceBinding)
     (configuration : Array (FilePath × Option String))
     (extraSearchRoots : Array FilePath := #[]) (ownership : Ownership := {}) : IO
     (Array Result) := do
+  Regula.Filesystem.Construction.ensureDirectory 4096 scratch
+  let suffix ← IO.getRandomBytes 12
+  let scratch := scratch / ("fence-compilation-" ++ suffix.foldl (fun s b => s ++ s!"{b.toNat}-") "")
+  Regula.Filesystem.construct scratch []
   withSourceEvidence tasks sourceBindings configuration do
     SourceBinding.unchanged sourceBindings
     SourceBinding.configurationUnchanged configuration

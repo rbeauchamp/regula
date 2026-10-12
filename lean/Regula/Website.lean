@@ -3,6 +3,7 @@ import RegulaPolicy.Observation
 import Regula.Contract
 import Regula.Decision
 import RegulaPolicy.Guards
+import RegulaCore.CopyConfiguration
 
 /-! # Website metadata and example interfaces
 
@@ -79,6 +80,8 @@ structure ExampleRequest where
   execution : Option String
   /-- Each configuration file path of the project with its text, `none` when it is absent. -/
   configuration : Array (String × Option String)
+  /-- Captured loaded selections for a constructed project copy; absent for other routes. -/
+  copyConfiguration : Option Regula.CopyConfiguration.Inputs := none
   deriving DecidableEq, ToJson, FromJson
 
 /-- Admit `observed` only when it equals the frozen `expected` request; the admitted value
@@ -117,7 +120,7 @@ theorem checked_admitExampleRequest :
       Regula.Decides (· = true) (fun input => input.2 = input.1)
         (Regula.Dependent.isOk fun input : ExampleRequest × ExampleRequest =>
           admit input.1 input.2)) :=
-  let request (kind : String) : ExampleRequest := ⟨kind, "", "", none, none, #[]⟩
+  let request (kind : String) : ExampleRequest := ⟨kind, "", "", none, none, #[], none⟩
   ⟨.of_iff (fun input => admitExampleRequest_isOk_iff input.1 input.2)
     ⟨⟨request "file", request "file"⟩,
       (admitExampleRequest_isOk_iff (request "file") (request "file")).mpr rfl⟩
@@ -335,7 +338,7 @@ theorem checked_admitDemonstration :
           admit input.1 input.2)) :=
   let binding : ExampleBinding :=
     ⟨⟨⟨#[], ⟨"lakefile", ""⟩, ⟨"lean", "commit", "revision"⟩, #[]⟩, by decide⟩, .freshFile,
-      ⟨"file", "", "", none, none, #[]⟩⟩
+      ⟨"file", "", "", none, none, #[], none⟩⟩
   let finding : Finding :=
     ⟨.environment, { arguments := ⟨"project", "analysis unavailable"⟩, location := .module `Module
                      mode := .freshFile, claim := none, impact := .incomplete

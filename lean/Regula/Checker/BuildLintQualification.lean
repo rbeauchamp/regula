@@ -222,7 +222,7 @@ def setup (repo adopter : FilePath) (exampleDir : String := "build-lint")
     (sources : Array String := #["Widget.lean", "Widget/Additional.lean"])
     (lakefileName : String := "lakefile.lean") : IO Unit := do
   let template := repo / "examples" / exampleDir
-  for name in sources ++ #["lean-toolchain", "foundation_manifest.json"] do
+  for name in (sources ++ #["lean-toolchain", "foundation_manifest.json"]).toList.eraseDups do
     Regula.Filesystem.copyFile (template / name) (adopter / name)
   let lakefile ← Regula.Filesystem.readFile (template / lakefileName)
   Regula.Filesystem.writeFile (adopter / lakefileName)

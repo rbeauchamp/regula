@@ -37,8 +37,9 @@ structure ProducerSlot where
   root : FilePath
   deriving Inhabited
 
-/-- One prepared-file provenance record. `identity` is `"byte-identical"` when
-the prepared bytes were compared equal to the captured input bytes, and
+/-- One prepared-file provenance record. `identity` is `"captured-source-equal"` when
+the source bytes read before construction equal the frozen input bytes; destination byte
+writing remains trusted and is not compared by this record. The label is
 `"relocated"` when preparation truthfully rewrote path-bearing configuration. -/
 structure FileProvenance where
   /-- The prepared path relative to the slot (`root/...`), or a shared dependency's package
@@ -46,7 +47,7 @@ structure FileProvenance where
   relativePath : String
   /-- What was prepared: `source`, `config`, `build`, `git` or `dependency`. -/
   kind : String
-  /-- How the prepared entry relates to its input: `byte-identical`, `relocated`, `copy` (the
+  /-- Source comparison or preparation: `captured-source-equal`, `relocated`, `copy` (the
   build directory or Git metadata) or `shared` (a dependency used in place). -/
   identity : String
 
@@ -96,7 +97,8 @@ is followed or retained, including Git metadata and build-state subtrees. The sl
 destination have no concurrent writer. Copied executable programs are granted 0755 only at the
 places that execute them; all other regular files use 0644. -/
 def copyTree (source target : FilePath) : IO (Array String) := do
-  let root ← IO.FS.realPath source
+  -- Keep the supplied spelling: canonicalizing first would hide a final source link.
+  let root := source.normalize
   let base := root.components.length
   let selected := fun (path : FilePath) =>
     !excluded ("/".intercalate (path.components.drop base))
@@ -117,9 +119,9 @@ contained locations. Any indirection that cannot be materialized inside the
 slot is refused. -/
 def materializeGit (slotGit : FilePath) (sourceGit : FilePath) : IO Unit := do
   let mut directory := sourceGit
-  if !(← sourceGit.isDir) then
+  if (← Regula.Filesystem.observeMetadata sourceGit).type != .dir then
     -- Worktree pointer file: `gitdir: <path>`.
-    let text ← IO.FS.readFile sourceGit
+    let text ← Regula.Filesystem.readFile sourceGit
     let target := FilePath.mk ((text.replace "gitdir:" "").trimAscii.toString)
     unless (← target.pathExists) do
       throw <| IO.userError s!"slot git pointer target missing: {target}"
@@ -129,7 +131,7 @@ def materializeGit (slotGit : FilePath) (sourceGit : FilePath) : IO Unit := do
   -- may point outside the source tree (that is their normal shape); they must
   -- resolve to existing metadata, which is then materialized inside the slot.
   if (← (slotGit / "commondir").pathExists) then
-    let raw := ((← IO.FS.readFile (slotGit / "commondir")).trimAscii.toString)
+    let raw := ((← Regula.Filesystem.readFile (slotGit / "commondir")).trimAscii.toString)
     let candidate := FilePath.mk raw
     let resolved ←
       if (← (directory / raw).pathExists) then pure (directory / raw)
@@ -142,7 +144,7 @@ def materializeGit (slotGit : FilePath) (sourceGit : FilePath) : IO Unit := do
   if (← alternates.pathExists) then
     let mut rewritten : Array String := #[]
     let mut index := 0
-    for line in (← IO.FS.readFile alternates).splitOn "\n" do
+    for line in (← Regula.Filesystem.readFile alternates).splitOn "\n" do
       let entry := line.replace "\r" ""
       if entry.isEmpty then continue
       let source ←
@@ -161,7 +163,7 @@ def materializeGit (slotGit : FilePath) (sourceGit : FilePath) : IO Unit := do
   for config in #[slotGit / "config", slotGit / "config.worktree",
       slotGit / "common" / "config", slotGit / "common" / "config.worktree"] do
     if (← config.pathExists) then
-      if (← IO.FS.readFile config).contains "worktree =" then
+      if (← Regula.Filesystem.readFile config).contains "worktree =" then
         throw <| IO.userError s!"slot git config carries core.worktree: {config}"
 
 /-- Executed containment checks over the prepared ROOT copy: Git identity
@@ -297,8 +299,8 @@ def SharedIdentity.difference (before after : SharedIdentity) : String := Id.run
 /-- Prepare one complete slot: the writable ROOT package copy. The ROOT copy's
 `lake-manifest.json` is truthfully relocated so that every package entry names
 its captured shared dependency root (a manifest package without a captured
-dependency refuses), recorded as `relocated`; captured inputs are compared
-byte-exactly; Git identity is preserved through self-contained materialization
+dependency refuses), recorded as `relocated`; source captures are compared
+byte-exactly with frozen inputs, without comparing destination bytes; Git identity is preserved through self-contained materialization
 while top-level path equivalence with the original ROOT is explicitly not
 claimed. Dependencies are recorded as `shared`; their no-writer requirement is
 decided by the caller's `sharedIdentity` equality around the producer window. -/
@@ -309,7 +311,13 @@ def prepareSlot (originalRoot : FilePath) (slot : ProducerSlot)
   let copy := slot.root / "root"
   let mut provenance : Array FileProvenance := #[]
   let mut instructions := []
+  let mut inputs : Array (FilePath × ByteArray) := #[]
   for (path, bytes) in rootSources ++ rootConfigs do
+    if let some (_, previous) := inputs.find? (fun input => input.1.normalize == path.normalize) then
+      unless previous == bytes do
+        throw <| IO.userError s!"slot duplicate input has conflicting captured bytes: {path}"
+      continue
+    inputs := inputs.push (path, bytes)
     let relative := (relativeOf originalRoot path).components
     let captured ← Regula.Filesystem.Construction.capture path relative
     let [⟨_, .file actual _⟩] := captured
@@ -317,7 +325,7 @@ def prepareSlot (originalRoot : FilePath) (slot : ProducerSlot)
     unless actual == bytes do throw <| IO.userError s!"slot input changed before construction: {path}"
     instructions := instructions ++ captured
     let relative := "/".intercalate relative
-    provenance := provenance.push ⟨s!"root/{relative}", "source", "byte-identical"⟩
+    provenance := provenance.push ⟨s!"root/{relative}", "source", "captured-source-equal"⟩
   Regula.Filesystem.construct copy (Regula.Filesystem.Construction.layout instructions)
   -- Relocate every captured dependency as a typed path entry, so ordinary loads of the slot
   -- never materialize a Git clone at a packages directory inside the slot.

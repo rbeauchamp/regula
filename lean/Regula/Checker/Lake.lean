@@ -4,6 +4,7 @@ import Regula.Checker.Workspace
 import Regula.Checker.FacetReport
 import RegulaCore.EditorPolicy
 import Lake.CLI.Build
+import RegulaCore.CopyConfiguration
 
 /-! # Lake-semantic discovery
 
@@ -473,6 +474,35 @@ structure ProjectCopy where
   /-- What the copy's Lake load must select: the original's selection, with an owned package's
   directory relocated into the copy. -/
   selection : CopySelection
+  /-- The loaded original selections used to derive generated configuration. -/
+  configurationInputs : Regula.CopyConfiguration.Inputs
+
+/-- Capture precisely the loaded values that both construction and its request account use.
+The root and dependency directories have already been resolved by the workspace inventory. -/
+def configurationInputs (root : FilePath) (ws : _root_.Lake.Workspace)
+    (dependencies : Array DependencyInventory) : Regula.CopyConfiguration.Inputs :=
+  { project := root.toString, manifestFile := ws.root.relManifestFile.toString
+    packagesDir := ws.relPkgsDir.toString
+    overridesFile := "/".intercalate
+      (ws.packageOverridesFile.normalize.components.drop root.normalize.components.length)
+    dependencies := dependencies.map fun dependency =>
+      { package := dependency.package, scope := dependency.scope, root := dependency.root.toString
+        owned := dependency.owned, configFile := dependency.configFile.toString
+        manifestFile := dependency.manifestFile.toString } }
+
+/-- The common source ancestor whose relative package layout is retained in a copy. -/
+def configurationBase (inputs : Regula.CopyConfiguration.Inputs) : List String :=
+  (inputs.dependencies.filter (·.owned)).foldl
+    (fun base dependency => commonPrefix base (FilePath.mk dependency.root).normalize.components)
+    (FilePath.mk inputs.project).normalize.components
+
+/-- Capture loaded relocation inputs before a producer starts. Loading and inventory observation
+use Lake itself, exactly as `copyProject`; these are trusted IO observations, not JSON inference. -/
+def captureConfigurationInputs (repo : FilePath) : IO Regula.CopyConfiguration.Inputs :=
+  Workspace.withRootWorkspace repo fun ws => do
+    let root ← IO.FS.realPath repo
+    let inventory ← surfaceInventoryOf repo ws
+    return configurationInputs root ws inventory.dependencies
 
 /-- A path override for every resolved dependency, including inherited and transitive ones.
 The manifest and packages fallback are precisely the loaded workspace's values. Overrides retain
@@ -483,16 +513,70 @@ of an ordinary load; `Load/Resolve.lean:201-235` visits dependencies transitivel
 (`Load/Materialize.lean:239-277`) neither clone nor remove packages. Full updates and loads without
 a manifest bypass overrides (`Load/Workspace.lean:64-69`, `Load/Resolve.lean:269-333`); copies
 retain the captured manifest and are used only for ordinary loads. -/
-def relocateDependencies (ws : _root_.Lake.Workspace) (manifest : _root_.Lake.Manifest)
-    (dependencies : Array (DependencyInventory × FilePath)) :
-    FilePath × Array _root_.Lake.PackageEntry :=
+def relocateDependencies (inputs : Regula.CopyConfiguration.Inputs) (manifest : _root_.Lake.Manifest)
+    (project : FilePath) : Except String (FilePath × Array _root_.Lake.PackageEntry) := do
   -- Return the same fallback Lake uses together with the overrides; copyProject uses this
   -- value for source exclusion. No packages link is placed at this directory.
-  (manifest.packagesDir?.getD ws.relPkgsDir, dependencies.map fun (dependency, dir) =>
+  let base := configurationBase inputs
+  let relative := (FilePath.mk inputs.project).normalize.components.drop base.length
+  unless relative.isSuffixOf project.normalize.components do
+    throw "copied project does not retain its source package layout"
+  let target := System.mkFilePath (project.normalize.components.take
+    (project.normalize.components.length - relative.length))
+  return (manifest.packagesDir?.getD (FilePath.mk inputs.packagesDir), inputs.dependencies.map fun dependency =>
     let entry := manifest.packages.find? (·.name.toString == dependency.package)
+    let dir := if dependency.owned then Regula.Filesystem.Construction.location target
+      ((FilePath.mk dependency.root).normalize.components.drop base.length)
+      else FilePath.mk dependency.root
     { name := (entry.map (·.name)).getD dependency.package.toName, scope := dependency.scope
-      inherited := false, configFile := dependency.configFile
-      manifestFile? := some dependency.manifestFile, src := .path dir })
+      inherited := false, configFile := FilePath.mk dependency.configFile
+      manifestFile? := some (FilePath.mk dependency.manifestFile), src := .path dir })
+
+/-- The sole serialization of generated overrides, shared by construction and expected accounts.
+An empty dependency graph generates absence; an existing source override is recorded separately. -/
+def generatedConfiguration (inputs : Regula.CopyConfiguration.Inputs) (manifest : _root_.Lake.Manifest)
+    (project : FilePath) : Except String (String × Option String) := do
+  let (_, overrides) ← relocateDependencies inputs manifest project
+  return (inputs.overridesFile, if overrides.isEmpty then none else some
+    ((Json.mkObj [("schemaVersion", toJson _root_.Lake.Manifest.version),
+      ("packages", toJson overrides)]).pretty ++ "\n"))
+
+/-- Derive the complete effective configuration from captured request bytes and loaded selections.
+Every captured field stays byte-exact except the overrides field, whose presence and bytes are
+the output of `generatedConfiguration`, the same definition construction writes. -/
+def expectedConfiguration (inputs : Regula.CopyConfiguration.Inputs) (project : FilePath)
+    (captured : Array (String × Option String)) : Except String (Array (String × Option String)) := do
+  let some (_, some text) := captured.find? (·.1 == inputs.manifestFile)
+    | throw "request did not capture the loaded Lake manifest"
+  let manifest ← _root_.Lake.Manifest.parse text
+  let generated ← generatedConfiguration inputs manifest project
+  unless (captured.filter (·.1 == generated.1)).size == 1 do
+    throw "request did not capture exactly one overrides field"
+  return captured.map fun field => if field.1 == generated.1 then generated else field
+
+/-- Put captured configuration paths into their package-relative account, refusing any outside
+path. This is used for both the original request and the actual copy's complete observation. -/
+def configurationAccount (root : String) (configuration : Regula.CopyConfiguration.Files) :
+    Except String Regula.CopyConfiguration.Files := do
+  unless !root.isEmpty do throw "missing configuration root"
+  configuration.mapM fun (path, source) => do
+    unless path.startsWith (root ++ "/") do throw "configuration outside captured project"
+    return ((path.drop (root.length + 1)).toString, source)
+
+/-- Record source bytes separately from Regula's generated overrides. The generated record is
+derived from the captured manifest by the exact function that construction uses. -/
+def configurationOrigins (root : String) (configuration : Regula.CopyConfiguration.Files)
+    (inputs : Option Regula.CopyConfiguration.Inputs) (project : FilePath) : Except String Json := do
+  let captured ← configurationAccount root configuration
+  let generated ← match inputs with
+    | none => pure #[]
+    | some inputs => do
+      unless inputs.project == root do throw "relocation inputs belong to another request"
+      let some (_, some text) := captured.find? (·.1 == inputs.manifestFile)
+        | throw "request did not capture the loaded Lake manifest"
+      let manifest ← _root_.Lake.Manifest.parse text
+      pure #[← generatedConfiguration inputs manifest project]
+  return Json.mkObj [("captured", toJson captured), ("generated", toJson generated)]
 
 /-- Capture the source file Lake loaded as this workspace's manifest, before any copy is written.
 Links and special files are refused through the shared observer. The same bytes are placed at
@@ -523,8 +607,12 @@ def copyProject (repo target exclude : FilePath)
   Workspace.withRootWorkspace repo fun ws => do
     let root ← IO.FS.realPath repo
     let original ← surfaceInventoryOf repo ws facets
+    let inputs := configurationInputs root ws original.dependencies
     let (manifest, rootManifest) ← captureManifest ws
-    let (packagesDir, _) := relocateDependencies ws manifest #[]
+    -- The manifest may have a different stored case spelling on a folding filesystem.
+    -- Capture above refuses links; canonical observation identifies that same regular file.
+    let manifestReal ← Regula.Filesystem.observeRealPath ws.manifestFile
+    let (packagesDir, _) ← IO.ofExcept <| relocateDependencies inputs manifest root
     let packages := (root / packagesDir).normalize.components
     -- Resolve a present packages directory through the observer, so a configured VENDOR
     -- also excludes the stored vendor spelling on a case-folding filesystem.
@@ -537,8 +625,7 @@ def copyProject (repo target exclude : FilePath)
       if dependency.root == root || dirs.contains dependency.root then dirs
       else dirs.push dependency.root) #[]
     let directories := #[root] ++ owned
-    let base := directories.foldl (fun acc dir => commonPrefix acc dir.normalize.components)
-      root.normalize.components
+    let base := configurationBase inputs
     let relative := fun (dir : FilePath) => dir.normalize.components.drop base.length
     let place := fun (dir : FilePath) => Regula.Filesystem.Construction.location target (relative dir)
     let excluded := exclude.normalize.components
@@ -564,7 +651,7 @@ def copyProject (repo target exclude : FilePath)
         !((packages.isPrefixOf components || packagesReal.any (·.isPrefixOf components)) &&
           !directories.any (fun dir => dir.normalize.components == packages ||
             packagesReal == some dir.normalize.components)) &&
-        path.normalize != ws.manifestFile.normalize &&
+        path.normalize != ws.manifestFile.normalize && path.normalize != manifestReal.normalize &&
         !isModulePart (path.fileName.getD "")
       instructions := instructions ++
         (← Regula.Filesystem.Construction.capture top (relative top) selected)
@@ -576,22 +663,21 @@ def copyProject (repo target exclude : FilePath)
       (dependency, if dependency.owned then place dependency.root else dependency.root)
     instructions := instructions ++ rootManifest.map fun item =>
       { item with relative := relative root ++ item.relative }
-    let (_, overrides) := relocateDependencies ws manifest dependencies
+    let generated ← IO.ofExcept <| generatedConfiguration inputs manifest project
     -- Empty dependency graphs need no override file. Its absent/present distinction is part
     -- of SourceBinding.configuration and must agree with the dependency-free driver copy.
-    unless overrides.isEmpty do
-      let entries := Json.mkObj [("schemaVersion", toJson _root_.Lake.Manifest.version),
-        ("packages", toJson overrides)]
+    if let some text := generated.2 then
       let overrideRelative := ws.packageOverridesFile.normalize.components.drop root.components.length
       unless root.components.isPrefixOf ws.packageOverridesFile.normalize.components do
         throw <| IO.userError "Lake package overrides file is outside its project"
       instructions := instructions ++ [⟨relative root ++ overrideRelative,
-        .file ((entries.pretty ++ "\n").toUTF8)⟩]
+        .file text.toUTF8⟩]
     Regula.Filesystem.construct target (Regula.Filesystem.Construction.layout instructions)
     let copiedRoot ← IO.FS.realPath target
     return {
       project
       root := copiedRoot
+      configurationInputs := inputs
       selection := {
         root := original.targets
         dependencies := dependencies.map fun (dependency, dir) =>

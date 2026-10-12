@@ -332,6 +332,9 @@ private def produce (ctx : Context) (slot : Slot.ProducerSlot) (rule phase : Str
       #["foundation_manifest.json", "lakefile.lean", "lakefile.toml", "lean-toolchain",
           "lake-manifest.json", ".lake/package-overrides.json"].map
               (fun (name : String) => project / name)
+  let copyInputs ← if mode == "project" || mode == "documentation" then
+      try pure (some (← Regula.Checker.Lake.captureConfigurationInputs project)) catch _ => pure none
+    else pure none
   let configurationBefore ← configuration configPaths
   let frozen := Json.mkObj
       [("uri", .str project.toString), ("source", .str configurationBefore.compress)]
@@ -347,7 +350,7 @@ private def produce (ctx : Context) (slot : Slot.ProducerSlot) (rule phase : Str
                                                    project.toString)),
     ("claim", if requestKind == "file" then .str requestedClaim else .null),
     ("execution", if requestKind == "file" then .str "checked" else .null),
-    ("configuration", configurationBefore)]
+    ("configuration", configurationBefore), ("copyConfiguration", toJson copyInputs)]
   let registration := Json.mkObj [
     ("attempt", .str ctx.attempt), ("rule", .str rule), ("phase", .str phase),
     ("resultPath", .str output.toString), ("stdoutPath", .str (raw / "stdout").toString),
@@ -608,9 +611,9 @@ def check (evidence : FilePath) (selection : Option (Array String))
       "foundation_manifest.json"] : Array String).filterM
         (fun (name : String) => (root / name).pathExists)
     let rootConfigs ← configNames.mapM (fun (name : String) => do
-      pure (root / name, ← IO.FS.readBinFile (root / name)))
+      pure (root / name, ← Regula.Filesystem.readBytes (root / name)))
     let rootSources ← modulePaths.mapM fun path => do
-      pure (path, ← IO.FS.readBinFile path)
+      pure (path, ← Regula.Filesystem.readBytes path)
     let depObservations ← Regula.Checker.Snapshot.dependencies inventory
     let _ ← Slot.prepareSlot root slot rootSources rootConfigs depObservations
     let dependencyRoots := depObservations.map (·.root)

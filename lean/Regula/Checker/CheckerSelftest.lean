@@ -395,7 +395,7 @@ private def structuralProject (manifest : Manifest) (ws : _root_.Lake.Workspace)
     pending := rest
     if modules.any (·.name == next.name) then continue
     modules := modules.push next
-    let header ← Lean.parseImports' (← IO.FS.readFile next.leanFile) next.leanFile.toString
+    let header ← Lean.parseImports' (← Regula.Filesystem.readFile next.leanFile) next.leanFile.toString
     for imported in header.imports do
       if let some found := ws.findModule? imported.module then
         if found.pkg.keyName == pkg.keyName then pending := found :: pending
@@ -1597,7 +1597,7 @@ manifest of `structuralBase`. -/
 private def prepareStructuralProject (layout : SourceLayout) (repo copy : FilePath) :
     IO Unit := do
   let mut items := []
-  for relative in layout.project.sources do
+  for relative in layout.project.sources.toList.eraseDups do
     items := items ++ (← Regula.Filesystem.Construction.capture (repo / relative) relative.components)
   for file in #["lean-toolchain", "lake-manifest.json"] do
     items := items ++ (← Regula.Filesystem.Construction.capture (repo / file) [file])

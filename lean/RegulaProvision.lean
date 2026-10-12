@@ -10,7 +10,7 @@ The root package, the example library and the website require no Mathlib.
 Local Mathlib provisioning reuses one read-only store per pinned Mathlib revision and exact
 compiler commit. It fetches upstream artifacts and builds missing modules and exported native
 objects before sealing the store. The integration package links its Mathlib checkout there;
-its other dependencies are writable copy-on-write clones. CI instead fetches the published
+its other dependencies are writable independent copies. CI instead fetches the published
 artifacts into its own writable integration workspace.
 
 Creation and publication use a staging directory, an exclusive store lock and one rename.
@@ -438,18 +438,20 @@ private def runConstruction (parent : FilePath) (domain source : String) (target
 
 /-- Install an independently writable directory/file copy through the shared constructor.
 Links and special source entries fail before a clone can be installed. Modes are fixed at 0644
-for files and 0755 for directories; callers run Lake's newly built programs. This does not place
+for files, except Git-index mode 100755 files use 0755; directories use 0755. Index modes come
+from Git's own ls-files protocol in the shared cold adapter. This does not place
 a packages link. `installLink` is the separate shared-cache registration mechanism, outside this
 copy operation; its temporary-link creation race is tracked separately. -/
 private def installClone (path source : FilePath) : IO Unit := do
   let some parent := path.parent | throw <| IO.userError s!"provisioning: {path} has no parent"
   let staged := parent / s!".{path.fileName.getD "clone"}.{← nonce}"
-  runConstruction parent "all" source.toString staged
-  -- New inodes require index refresh; Git metadata itself was constructed as ordinary files.
-  let _ ← run staged "git" #["update-index", "-q", "--refresh"]
-  try IO.FS.rename staged path
+  try
+    runConstruction parent "git" source.toString staged
+    -- New inodes require index refresh; executable rights already agree with the index.
+    let _ ← require staged "git" #["update-index", "-q", "--refresh"]
+    IO.FS.rename staged path
   catch error =>
-    IO.FS.removeDirAll staged
+    if (← kind? staged) == some .dir then IO.FS.removeDirAll staged
     throw error
 
 /-! ## The shared directory -/
@@ -796,7 +798,7 @@ private def provisionPackages (packages shared : FilePath) (receipt : Receipt) (
     | .leave reason => say s!"left {path} as it is: {reason}"
     | .refuse reason => throw <| IO.userError s!"provisioning: refusing to replace {path}: {reason}"
   unless cloned.isEmpty do
-    say s!"cloned {", ".intercalate cloned.toList} (writable copy-on-write clones)"
+    say s!"cloned {", ".intercalate cloned.toList} (writable independent copies)"
 
 /-- Refuse a process using a different compiler from this program. -/
 def requireCompiler (repo : FilePath) : IO Unit := do

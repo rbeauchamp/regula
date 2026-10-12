@@ -1042,7 +1042,7 @@ taken exclusively, no scratch owner lives, and the marked directories are remove
 exclusively, create the directory of that name, which must not exist, and copy the project into
 its directory `project` (`copyTree`). So the checker's reclamation and that of a later driver
 remove the directory of a driver that died, and remove none while this driver holds the lock.
-The copy has no `.lake`, so it has no build output.
+The copy reserves an empty root `.lake`, excluding the original root's default build state.
 
 After a reclamation the exclusive lock is converted to the shared one without an `unlock`
 between them, as in `Regula.Scratch`. Safety does not depend on the conversion: `flock(2)` does

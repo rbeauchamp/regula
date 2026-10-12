@@ -47,7 +47,7 @@ def prepareCoreProject (root project : FilePath) (packageName claim : String) : 
   Regula.Filesystem.writeFile (project / "lakefile.toml") s!"name = \
     \"{packageName}\"\n[leanOptions]\nautoImplicit = false\nrelaxedAutoImplicit = \
     false\nlinter.missingDocs = true\n[[lean_lib]]\nname = \"Example\"\n"
-  let manifest ← readJson (root / "lake-manifest.json")
+  let manifest ← IO.ofExcept <| Json.parse (← Regula.Filesystem.readFile (root / "lake-manifest.json"))
   Regula.Filesystem.writeJson (project / "lake-manifest.json")
     ((manifest.setObjVal! "packages" (toJson (#[] : Array Json))).setObjVal! "name"
         (.str packageName))

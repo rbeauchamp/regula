@@ -172,7 +172,7 @@ archive cache (`~/.cache/mathlib`) once into
 `$XDG_CACHE_HOME` instead of `~/.cache` when that is set), compiles every
 module's native object there (executables that import Mathlib link them), makes it
 read-only, and links the copy's `integration/mathlib/.lake/packages/mathlib` to it. The rest of Mathlib's closure
-(Batteries, Aesop, ...) becomes writable copy-on-write clones, since executables compile
+(Batteries, Aesop, ...) becomes writable independent copies, since executables compile
 native objects into them. The integration package keeps its own packages directory, so its pins
 are independent of the website's; the example adopters under `examples/` require only `regula` and
 need no packages directory. Run `lean --run lean/RegulaProvision.lean mathlib` in a copy before the first Lake command in

@@ -407,7 +407,7 @@ that copy. The driver of that command, `lean/RegulaVerification.lean`, makes the
 starts a Lake command. The function `RegulaVerification.makeCopy` makes it. The copy is a new
 directory in `.lake/regula-scratch/` of the checkout.
 
-The copy selects source files through `Construction.projectRelative` (`checked_projectRelative`). It excludes root `tmp` and, outside `docs`, VCS, build, cache and scratch directories. Documentation includes cache-named subdirectories. An empty `.lake` is constructed at its exact spelling, so no earlier build output enters. The builds compile each module.
+The copy selects source files through `Construction.projectRelative` (`checked_projectRelative`). It excludes root `tmp` and, outside `docs`, VCS, build, cache and scratch directories. Documentation includes cache-named subdirectories. An empty root `.lake` excludes the original root's default build state. Other selected files, including artifacts under `docs`, can enter. The builds compile each module.
 
 The step has four commands, which the function `RegulaVerification.commands` gives. The build,
 the registry checks and the qualification controls operate in the copy. The last command is the
@@ -610,13 +610,19 @@ Assumes: Exclusive mkdir creates one empty directory (`runtime/io.cpp:1181-1195`
 
 Assumes: Exclusive creation fails for any occupied final destination and follows no final link. Source and destination have no concurrent writer. Lean exposes no `O_NOFOLLOW` file-open mode, so byte reads trust that source entries stay fixed after metadata reads.
 
-Modes are not preserved. Copied files receive 0644 and directories receive 0755. Sites that execute a copied program explicitly request 0755, with the reason where they copy it. Lake sets modes on the programs it builds. No permission-reading program participates in construction.
+Filesystem modes are not preserved. Copied files receive 0644 and directories receive 0755. Provisioning's Git adapter gives indexed executable files 0755. Other sites that execute a copied program explicitly request 0755, with the reason where they copy it. Lake sets modes on the programs it builds. No filesystem-permission-reading program participates in construction.
+
+Assumes: Trusted Git reports the source index's modes and paths with `ls-files --format/-z`. The adapter accepts stage-zero regular files and gives mode `100755` executable rights. Git is not pinned; installed Git `2.54.0` documents these fields and unquoted NUL-separated paths in `git-ls-files(1)`, under `--format`, `-z` and `FIELD NAMES`. The source index has no writer.
 
 `copyProject` captures the manifest at Lake's loaded `ws.manifestFile`. Its packages fallback is `ws.relPkgsDir`. Each resolved dependency receives a typed path override, including inherited and transitive dependencies. Owned dependencies point into the copy, and trusted dependencies point to their original roots. The copy always retains the captured manifest and runs ordinary loads.
 
 Assumes: Lake `v4.34.1`, `Load/Resolve.lean:590-627`, applies overrides during ordinary materialization. `Load/Resolve.lean:201-235` traverses dependencies transitively. Path entries do not clone packages (`Load/Materialize.lean:239-277`).
 
 Assumes: A full update or a missing manifest bypasses overrides (`Load/Workspace.lean:64-69`, `Load/Resolve.lean:269-333`). Existing-project copies do neither. Generated update fixtures state their closed input domain where they create it.
+
+The request freezes loaded relocation selections before a producer starts. The copier and `effectiveAccount` use the same `relocateDependencies` and `generatedConfiguration` definitions. The latter also derives the expected overrides from the request's captured manifest and the copied project root. `CopyConfiguration.check_iff` proves that the executed comparison accepts exactly complete configuration equality.
+
+Result schema 19 records captured source fields and generated overrides separately in `effective.configurationOrigins`. Every other configuration value remains the exact captured text. Missing, extra or changed override entries refuse; qualification skips no overrides field. Loading the frozen selections through Lake remains a trusted observation.
 
 The cold drivers embed the shared constructor's source with Lean's `include_str` and interpret that source before package artifacts exist. Assumes: Lean `v4.34.1`, `Lean/Elab/BuiltinTerm.lean:437-445`, `elabIncludeStr`, reads those bytes during elaboration. The compiler and interpreter remain trusted. The constructor has one source implementation, with checked correspondence to its filesystem model.
 
@@ -626,7 +632,7 @@ The interpreter refuses an uninitialized declaration with `Unreachable` (`src/li
 
 The provisioning registration link in the original integration workspace is separate from constructing a copy. Its creation race remains [issue 407](https://github.com/rbeauchamp/regula/issues/407). Lake-generated entries, original trusted dependencies and deliberately planted diagnostic aliases remain outside the plain-copy guarantee.
 
-The reporter's read-only import overlay is an import view. It retains artifact links because byte copies change the real origin that ownership attribution checks. The compiler-path controls likewise plant toolchain aliases deliberately. These import views are outside the directory/file workspace constructor. Regula runs no Lake command in them.
+The reporter's read-only import overlay is an import view. It retains artifact links because byte copies change the real origin that ownership attribution checks. Regula runs no Lake command in that overlay. Compiler-path workspaces deliberately plant toolchain aliases and run Lake to qualify origin classification. Those workspaces are diagnostic exceptions to the directory/file constructor.
 
 A program that a script operates with `lean --run` cannot import the check. Thus the modules
 `Regula.ProgramCheck` do the same check for each such program. The two drivers remove entries with

@@ -867,9 +867,10 @@ theorem admitGuidance_completed_diagnostics {j : Json} (h : admitGuidance j = .o
 /-- The JSON record of the request a result answers: its kind, project, subject, optional
 claim and execution mode, and each configuration file path with its text, if read. -/
 def requestJson (kind project subject : String) (claim execution : Option String)
-    (configuration : Array (System.FilePath × Option String)) : Json :=
+    (configuration : Array (System.FilePath × Option String))
+    (copyConfiguration : Option Regula.CopyConfiguration.Inputs := none) : Json :=
   toJson (⟨kind, project, subject, claim, execution,
-    configuration.map fun (path, source) => (path.toString, source)⟩ : Website.ExampleRequest)
+    configuration.map (fun (path, source) => (path.toString, source)), copyConfiguration⟩ : Website.ExampleRequest)
 
 /-- The text of a result file for `document`: the `SharedExecution.write` of `document` in the
 form the JSON parser builds (`JsonCanon.canon`; its `SharedExecution.intern` with the proposals of

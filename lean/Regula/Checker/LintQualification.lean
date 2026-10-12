@@ -1787,10 +1787,10 @@ private def pathReserved (repo adopter : FilePath) : IO (Array String) := do
         contains := #["Regula.Contract", "reserved to the checker", "not the text"] }
       (← runProcess adopter (repo / ".lake" / "build" / "bin" / "axiomGate").toString
         #["--incremental", "--project", adopter.toString] scrubbedLeanPathEnv)
-  let contract := (← IO.FS.readFile (repo / "lean" / "Regula" / "Contract.lean")) ++
+  let contract := (← Regula.Filesystem.readFile (repo / "lean" / "Regula" / "Contract.lean")) ++
     "\n/-- An axiom that nothing uses. -/\naxiom Regula.Contract.unused : False\n"
   IO.FS.createDirAll (support / "Regula")
-  IO.FS.writeFile (support / "Regula" / "Contract.lean") contract
+  Regula.Filesystem.writeFile (support / "Regula" / "Contract.lean") contract
   IO.FS.writeFile supportLakefile <| supportConfiguration ++
     "[[lean_lib]]\nname = \"SupportContract\"\nroots = [\"Regula.Contract\"]\n"
   failures := failures ++ (← gate "path/owned-reserved-name")
@@ -1811,7 +1811,7 @@ private def pathReserved (repo adopter : FilePath) : IO (Array String) := do
   -- `regula`, with the same modified `Regula.Contract`: the name grants nothing.
   let vendor := adopter / "vendor"
   IO.FS.createDirAll (vendor / "lean" / "Regula")
-  IO.FS.writeFile (vendor / "lean" / "Regula" / "Contract.lean") contract
+  Regula.Filesystem.writeFile (vendor / "lean" / "Regula" / "Contract.lean") contract
   Regula.Filesystem.copyFile (adopter / "lean-toolchain") (vendor / "lean-toolchain")
   IO.FS.writeFile (vendor / "lakefile.toml")
     "name = \"regula\"\n[[lean_lib]]\nname = \"Regula\"\nsrcDir = \"lean\"\nroots = [\"Regula.Contract\"]\n"
@@ -1978,9 +1978,7 @@ private def pathEscapes (repo adopter : FilePath) : IO (Array String) := do
   -- library's own, `Init` included, so its build of the claimed library fails, and `lake lint`
   -- cannot build its driver; the checker built in this repository shows the admission alone.
   let supportFile := support / "Support.lean"
-  let supportText ← IO.FS.readFile supportFile
-  IO.FS.createDirAll (support / "src")
-  IO.FS.writeFile (support / "src" / "Support.lean") supportText
+  Regula.Filesystem.copyFile supportFile (support / "src" / "Support.lean")
   Regula.Filesystem.removePath .file supportFile
   asLean "import Lake\nopen Lake DSL\n\npackage build_lint_support\n\nlean_lib Support where\n  \
     srcDir := \"src\"\n  roots := #[]\n  globs := #[.submodules .anonymous]\n"

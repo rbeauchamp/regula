@@ -74,21 +74,30 @@ private def qualify (group : String) (evidence : FilePath) (receipt : IO.Ref Jso
     ("binarySha256", toJson (digest.stdout.splitOn " ").head!)])
   withScratch root "acceptance-controls" fun scratch => do
     let project := scratch / "project"
-    IO.FS.createDirAll (project / "docs")
     prepareProject root project "acceptance_control" "standard-logical"
         "Exact accepted-result transport controls."
     manifest project "standard-logical"
-    IO.FS.writeFile (project / "Example.lean") "import Regula.Contract\n/-! Public acceptance \
+    Regula.Filesystem.writeFile (project / "Example.lean") "import Regula.Contract\n/-! Public acceptance \
       transport control. -/\n/-- The accepted value. -/\ndef value : Nat := 7\n"
-    IO.FS.writeFile (project / "docs/control.md")
+    Regula.Filesystem.writeFile (project / "docs/control.md")
       "```lean\ntheorem documented : True := True.intro\n```\n\n<!-- lean-fail: Type mismatch \
         -->\n```lean\nexample : False := True.intro\n```\n"
-    let bin := scratch / "tool/bin"
-    IO.FS.createDirAll bin
-    IO.FS.createDirAll (scratch / "tool/lib")
-    discard <| Regula.Filesystem.copy (root / ".lake/build/lib/lean") (scratch / "tool/lib/lean")
-    copyExecutable executable (bin / "axiomGate-real")
-    copyExecutable (← IO.appPath) (bin / "axiomGate")
+    let tool := scratch / "tool"
+    let bin := tool / ".lake/build/bin"
+    -- checkerPackageDir requires the real .lake/build/lib/lean suffix (Checker/Lake.lean),
+    -- and checkerSource/checkReservedModules read matching sources below package/lean.
+    -- Neither requires loading this proxy package's Lake configuration.
+    let library ← Regula.Filesystem.Construction.capture (root / ".lake/build/lib/lean")
+      [".lake", "build", "lib", "lean"]
+    let sources ← Regula.Filesystem.Construction.capture (root / "lean") ["lean"]
+    let programs ← #[(executable, "axiomGate-real"), (← IO.appPath, "axiomGate")].toList.flatMapM
+      fun (source, name) => do
+        let items ← Regula.Filesystem.Construction.capture source [".lake", "build", "bin", name]
+        pure (items.map fun item => match item.payload with
+          | .file bytes _ => {item with payload := .file bytes 493}
+          | .directory => item)
+    Regula.Filesystem.construct tool
+      (Regula.Filesystem.Construction.layout (library ++ sources ++ programs))
     let mut sources : List (String × Json) := []
     for name in
         #["lean-toolchain", "lakefile.lean", "lake-manifest.json", "foundation_manifest.json",

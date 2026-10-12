@@ -290,8 +290,14 @@ instance (relative : List String) : Decidable (ProjectRelative relative) :=
 def projectRelative (relative : List String) : Bool := decide (ProjectRelative relative)
 
 /-- The cold drivers' source entrypoint. `project` prunes VCS/build/scratch directories; `all`
-copies every entry. It prints the regular-file receipt as a JSON array. Lean interprets this
-same source before package artifacts exist; it does not use another copy implementation. -/
+copies every entry. `git` additionally chooses executable rights from the source Git index.
+It prints the regular-file receipt as a JSON array. Lean interprets this
+same source before package artifacts exist; it does not use another copy implementation.
+
+Assumes: trusted Git's ls-files --format and -z reports complete index modes and unquoted paths.
+Git is not pinned; the installed Git 2.54.0 git-ls-files(1) documents --format and -z, and
+FIELD NAMES objectmode, stage and path. Git parses the index; the adapter admits only stage-zero
+regular files and selects their explicit construction rights. The source index has no writer. -/
 def sourceMain (args : List String) : IO UInt32 := do
   let [domain, source, target] := args
     | throw <| IO.userError "construction requires DOMAIN SOURCE TARGET"
@@ -314,13 +320,38 @@ def sourceMain (args : List String) : IO UInt32 := do
     construct target (layout items)
     IO.println "[]"
     return 0
-  unless domain == "all" || domain == "project" do
+  unless domain == "all" || domain == "project" || domain == "git" do
     throw <| IO.userError s!"unknown construction domain: {domain}"
   let source := FilePath.mk source
   let base := source.components.length
-  let selected := fun (path : FilePath) => domain == "all" ||
+  let selected := fun (path : FilePath) => domain != "project" ||
     projectRelative (path.components.drop base)
-  let items ← capture source [] selected
+  let mut items ← capture source [] selected
+  if domain == "git" then
+    -- Observe the index only after no-follow capture has admitted the complete source tree.
+    let index ← IO.Process.output {
+      cmd := "git", cwd := some source
+      args := #["ls-files", "-z", "--format=%(objectmode)%x09%(stage)%x09%(path)"]}
+    unless index.exitCode == 0 do throw <| IO.userError s!"copy Git index failed: {index.stderr}"
+    unless index.stdout.isEmpty || index.stdout.endsWith "\x00" do
+      throw <| IO.userError "copy Git index output is not NUL-terminated"
+    for record in index.stdout.splitOn "\x00" do
+      if record.isEmpty then continue
+      let mode :: stage :: pathParts := record.splitOn "\t"
+        | throw <| IO.userError "copy Git index record is malformed"
+      unless stage == "0" && (mode == "100644" || mode == "100755") do
+        throw <| IO.userError s!"copy Git index entry is not a resolved regular file: {record}"
+      let relative := ("\t".intercalate pathParts).splitOn "/"
+      unless Relative relative do throw <| IO.userError "copy Git index path is not relative"
+      if mode == "100755" then
+        unless items.any (fun item => item.relative == relative && match item.payload with
+            | .file .. => true | .directory => false) do
+          throw <| IO.userError s!"copy Git executable was not captured: {relative}"
+        items := items.map fun item =>
+          if item.relative == relative then match item.payload with
+            | .file bytes _ => {item with payload := .file bytes 493}
+            | .directory => item
+          else item
   -- Reserve the exact Lake state spelling by exclusive creation. A case-folded source spelling
   -- cannot silently carry old state into an ordinary load: its creation collides and fails.
   let generated := if domain == "project" then [⟨[".lake"], .directory⟩] else []

@@ -78,8 +78,11 @@ unsafe def inspectNegative (repo path output : FilePath) : IO UInt32 := do
   let value ← ResultProtocol.readDocument output
   let request := ResultProtocol.requestJson "policyNegative" repo.toString path.toString none none
       configuration
+  let origins ← IO.ofExcept <| Lake.configurationOrigins repo.toString
+    (configuration.map fun (path, source) => (path.toString, source)) none repo
   ResultProtocol.writeDocument output ((value.setObjVal! "request" request).setObjVal! "effective"
-    (Json.mkObj [("root", toJson repo.toString), ("configuration", toJson configuration)]))
+    (Json.mkObj [("root", toJson repo.toString), ("configuration", toJson configuration),
+      ("configurationOrigins", origins)]))
   return if findings.isEmpty then 0 else 1
 
 /-- Capture emitted findings from the actual documentation driver in the same canonical
@@ -119,10 +122,10 @@ unsafe def documentation (repo docsRoot output : FilePath) : IO UInt32 := do
         unless (code == 0) == actual.isEmpty do
           throw <| IO.userError "documentation completion/findings mismatch"
         return (code, actual, ← classifications.get, copy.toString, configuration,
-            ← certificate.get)).toBaseIO
+            ← certificate.get, copied.configurationInputs)).toBaseIO
   -- Markdown is not a Lean module map. Preserve its own exact snapshots even on errors.
   Documentation.checkMarkdown docsRoot documents
-  let (code, actual, classifications, configurationRoot, configuration, certificate) ← IO.ofExcept
+  let (code, actual, classifications, configurationRoot, configuration, certificate, inputs) ← IO.ofExcept
       <| outcome.mapError (fun error => toString error)
   let completion ← if code == 0 then do
       let some ⟨_, accepted⟩ := certificate
@@ -150,9 +153,13 @@ unsafe def documentation (repo docsRoot output : FilePath) : IO UInt32 := do
     | some ⟨_, accepted⟩ => value.setObjVal! "acceptance" (ResultProtocol.acceptedJson accepted)
     | none => value
   let request := ResultProtocol.requestJson "documentation" repo.toString docsRoot.toString none
-      none requestedConfiguration
+      none requestedConfiguration (some inputs)
+  let origins ← IO.ofExcept <| Lake.configurationOrigins repo.toString
+    (requestedConfiguration.map fun (path, source) => (path.toString, source)) (some inputs)
+    (FilePath.mk configurationRoot)
   ResultProtocol.writeDocument output ((value.setObjVal! "request" request).setObjVal! "effective"
-    (Json.mkObj [("root", toJson configurationRoot), ("configuration", toJson configuration)]))
+    (Json.mkObj [("root", toJson configurationRoot), ("configuration", toJson configuration),
+      ("configurationOrigins", origins)]))
   return code
 
 /-- One rule-example production, as `Production.parse?` reads its arguments. -/
