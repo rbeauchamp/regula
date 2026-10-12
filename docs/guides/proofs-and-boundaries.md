@@ -354,10 +354,12 @@ library of the root package or of Regula. It compiles no module and sets no opti
 named `regula` with different text keeps the marker.
 
 The facet writes the record with `weakLeanArgsRecord`, a copy of `weakArgsRecordJson` in the
-file, because a configuration file cannot import the modules of Regula. Acceptance has the kernel
-admit the compiled copy as equal to `weakArgsRecordJson` (`lakefileEncoderAgrees`, run by
-`Regula.RegistryChecks`). So the injectivity of the record, which is proved for
-`weakArgsRecordJson`, holds for the copy that Lake runs. Lean's compiler is trusted to run it.
+file. The file cannot import the modules of Regula, since Lake loads the configuration of a fresh
+dependency before it builds any of its modules. Acceptance has the kernel admit the compiled copy
+of the shipped file as equal to `weakArgsRecordJson` (`lakefileEncoderAgrees`, run by
+`Regula.RegistryChecks`). This catches a drift between that file and the proved encoder. It
+establishes nothing about a configuration that an adopter or a dependency changes, which is a
+forged facet outside the evidence of the incremental gate.
 
 A file `lakefile.lean` must also declare only what the commands of Lake generate. These are the
 definitions of the package, its targets and their configurations, `require` and the name of the

@@ -1003,12 +1003,13 @@ is a different record (`weakArgsRecordJson_injective`), whatever the names. That
 `weakArgsExtraDep` writes, rendered as text, reads back as itself is Lean's JSON rendering, not
 proved here; the build-policy controls observe it.
 
-Assumes: Regula's facet (`weakArgsExtraDep`, or the `extraDep` facet of Regula's `lakefile.lean`,
-whose encoder acceptance checks equal to `weakArgsRecordJson` by `lakefileEncoderAgrees`) wrote
-the record when Lake built the module. This is the trust in the build traces that Lake
-recorded in the checkout, which standard §7.11 states for the incremental gate. A facet that wrote a
-forged record when the module was built is outside this evidence; `--fresh` rests on no recorded
-trace. -/
+Assumes: Regula's facet (`weakArgsExtraDep`, or the `extraDep` facet of Regula's `lakefile.lean`)
+wrote the record when Lake built the module. This is the trust in the build traces that Lake
+recorded in the checkout, which standard §7.11 states for the incremental gate. A facet that wrote
+a forged record when the module was built is outside this evidence; `--fresh` rests on no recorded
+trace. For Regula's shipped `lakefile.lean`, acceptance checks only that its encoder's elaborated
+value is equal to `weakArgsRecordJson` (`lakefileEncoderAgrees`), nothing about a configuration
+that an adopter or a dependency changes. -/
 theorem traceRecords_ownRecord_iff (library : _root_.Lake.LeanLib) (text : String) :
     Workspace.traceRecords (ownRecord library) text = true ↔
       ∃ data, _root_.Lake.BuildMetadata.parse text = .ok data ∧
@@ -1020,9 +1021,9 @@ mixes each root library's `weakArgsCaption` into its job's trace. -/
 def regulaFacetName : Name := `weakLeanArgsTrace
 
 /-- The name of the encoder that the facet of Regula's `lakefile.lean` runs to write its record: a
-copy of `weakArgsRecordJson`, since Lake elaborates a configuration file with only Lake's and
-Lean's library directories on its search path (`Lake/Config/Env.lean`, lines 343-344), so the file
-cannot import Regula's modules. `lakefileEncoderAgrees` checks the copy. -/
+copy of `weakArgsRecordJson`. The file cannot import Regula's modules, since Lake loads the
+configuration of a fresh dependency before it builds any of that dependency's modules.
+`lakefileEncoderAgrees` checks the copy. -/
 def lakefileEncoderName : Name := `weakLeanArgsRecord
 
 /-- Whether the kernel admits `value`, of type `type`, as equal to `weakArgsRecordJson` by
@@ -1043,13 +1044,21 @@ def agreesWithRecordJson (env : Environment) (type value : Expr) : Bool :=
     env.addDeclCore 0 defaultMaxRecDepth.toUSize (.thmDecl equality) none
   checked matches .ok _
 
-/-- Whether the compiled configuration `config` of Regula's `lakefile.lean` writes its record with
+/-- Whether the compiled configuration `config` of Regula's `lakefile.lean` has an encoder equal to
 `weakArgsRecordJson`: its declaration `lakefileEncoderName` has no universe parameters and is
 equal to `weakArgsRecordJson` by `Eq.refl` in `env` (`agreesWithRecordJson`), and the value of
-its facet declaration (`regulaFacetName`) uses that declaration. This checks the elaborated
-declarations that Lake compiles and runs, not their source text. It does not check how the facet
-forms the record's arguments or the caption, which the build-lint qualification exercises, and
-Lean's compiler is trusted to run the checked value. -/
+its facet declaration (`regulaFacetName`) mentions that declaration. This checks the elaborated
+declarations that Lake compiles, not their source text.
+
+Acceptance runs it on the configuration of Regula's own checkout (`Regula.RegistryChecks`), to
+catch a drift between the encoder of Regula's shipped `lakefile.lean` and `weakArgsRecordJson`.
+It establishes that this encoder's elaborated value is equal to `weakArgsRecordJson` by
+`Eq.refl`, and that the facet's value mentions it. It establishes nothing about a configuration
+that an adopter or a dependency changes, which is the case of a forged facet outside the
+incremental gate's evidence (`traceRecords_ownRecord_iff`). Nor does it show that the facet
+runs the encoder, how the facet forms the record's arguments or the caption (the build-lint
+qualification exercises these), or that no runtime replacement such as `implemented_by` changes
+the code Lean's compiler emits for it. -/
 def lakefileEncoderAgrees (env : Environment) (config : ModuleData) : Except String Unit := do
   let find (name : Name) : Except String (Expr × Expr) :=
     match config.constants.find? (·.name == name) with

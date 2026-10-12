@@ -184,10 +184,10 @@ lean_exe «auditApp» where
 
 /-- The record of the weak arguments `args` of the library `libraryName` of the package
 `packageName`, each name written by its components, so that distinct names give distinct records.
-This file cannot import Regula's modules, so this is a copy of
-`Regula.Checker.Lake.weakArgsRecordJson`, whose records are proved injective, and must equal it:
-`Regula.RegistryChecks` has the kernel admit this compiled declaration as equal to it
-(`Regula.Checker.Lake.lakefileEncoderAgrees`). -/
+This file cannot import Regula's modules, since Lake loads the configuration of a fresh dependency
+before it builds any of its modules, so this is a copy of `Regula.Checker.Lake.weakArgsRecordJson`,
+whose records are proved injective, and must equal it. Acceptance has the kernel admit this
+compiled declaration as equal to it (`Regula.Checker.Lake.lakefileEncoderAgrees`). -/
 def weakLeanArgsRecord (packageName libraryName : Lean.Name) (args : Array String) : Lean.Json :=
   let component := fun (component : Lean.Name) =>
     if component.isNum then Lean.Json.arr #[.str (component.toString (escape := false))]

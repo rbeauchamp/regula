@@ -82,26 +82,29 @@ run_cmd do
     unless axioms.all RegulaPolicy.standardLogicalAxiom do
       throwError "registry theorem {name} exceeds Standard-Logical: {axioms}"
 
--- The facet of Regula's `lakefile.lean` writes its record with a copy of `weakArgsRecordJson`,
--- since a configuration file cannot import Regula's modules. The kernel must admit the copy that
--- Lake compiled for this checkout as equal to it, and refuse it with one literal changed.
-run_cmd do
-  let file ← IO.FS.realPath (← getFileName)
-  let some root := file.parent.bind (·.parent) |>.bind (·.parent)
-    | throwError "registry: this file has no repository root"
+/-- The check that the encoder of Regula's own `lakefile.lean` is `weakArgsRecordJson`
+(`Lake.lakefileEncoderAgrees`), which acceptance runs with this file's `main` from the root of the
+checkout, never a library build. Lake keeps the compiled configuration of a workspace's root at
+`.lake/config/0/` of the workspace (`Lake/Load/Config.lean`, lines 83-84, and
+`Lake/Load/Workspace.lean`, line 34), and `lake env` loads it before it runs this file. The kernel
+must admit that copy as equal to `weakArgsRecordJson` and refuse it with one literal changed. -/
+private def lakefileEncoderCheck : IO Unit := do
+  let root ← IO.currentDir
+  unless ← (root / "lakefile.lean").pathExists do
+    throw <| IO.userError s!"registry: {root} has no lakefile.lean"
   let (config, _) ← readModuleData (root / ".lake" / "config" / "0" / "lakefile.olean")
-  let env ← getEnv
+  let env ← importModules #[{ module := `Regula.Checker.Lake }] {}
   if let .error reason := Regula.Checker.Lake.lakefileEncoderAgrees env config then
-    throwError "registry: {reason}"
+    throw <| IO.userError s!"registry: {reason}"
   let some (.defnInfo encoder) :=
       config.constants.find? (·.name == Regula.Checker.Lake.lakefileEncoderName)
-    | throwError "registry: Regula's lakefile has no encoder"
+    | throw <| IO.userError "registry: Regula's lakefile has no encoder"
   let changed := encoder.value.replace fun
     | .lit (.strVal "weakLeanArgs") => some (.lit (.strVal "weakLeanArgz"))
     | _ => none
   unless changed != encoder.value &&
       !Regula.Checker.Lake.agreesWithRecordJson env encoder.type changed do
-    throwError "registry: the kernel admits an encoder that writes another word"
+    throw <| IO.userError "registry: the kernel admits an encoder that writes another word"
 
 private def require (ok : Bool) (claim : String) : IO Unit :=
   unless ok do throw <| IO.userError s!"registry qualification failed: {claim}"
@@ -111,10 +114,12 @@ private def succeeded {ε : Type u} {α : Type v} : Except ε α → Bool
 
 /-- The registry transport qualification that acceptance runs with `lean --run`: it checks
 every rule's descriptor codec, the embedded example pairs against their corpus files, the
-committed agent skill, and fixed accept and refuse controls for registry, page, source,
-result, diagnostic and example admission, throwing on the first failed check and printing
-`PASS` otherwise. These controls are observations, not proofs of the laws. -/
+committed agent skill, the encoder of Regula's `lakefile.lean` (`lakefileEncoderCheck`), and
+fixed accept and refuse controls for registry, page, source, result, diagnostic and example
+admission, throwing on the first failed check and printing `PASS` otherwise. These controls are
+observations, not proofs of the laws. -/
 def main : IO Unit := do
+  lakefileEncoderCheck
   let producer := Regula.Checker.ResultProtocol.producer
   let manifest := registryJson producer
   -- Where no classification line is printed (the editor, the self-audit and a documentation
