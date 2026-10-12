@@ -310,7 +310,7 @@ request exactly when it changes one of the paths `Regula.DiagnosticsGate.inputs`
 adopter fixtures in `examples/lake-lint-toml` and `examples/build-lint`, the application and
 fixture sources the structural and execution controls mutate, Lake configuration, manifests, or
 the compiler and dependency setup: the provisioning program and its decision contracts, the
-provisioning action and the verification scripts),
+provisioning action, the verification scripts and the configuration they read before a campaign),
 and on every other run; it also runs the three `rule-examples` shards nightly. Its last job,
 `diagnostics`, is a required check of the ruleset of `main`. It reports on every pull request and
 passes exactly when `applies` succeeded and each partition job passed and applies, or was
