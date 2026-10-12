@@ -338,9 +338,12 @@ metadata, not authenticated binary identity.
   (`ExecutionShare.canonical_write`), so the reader gets the written value and admission returns
   the writer's document (`ResultProtocol.admitDocument_parse_encodeDocument`), which has the
   members of the given document when its object trees are search trees. That a file read returns
-  the text the write wrote is trusted. That the proposal is kept, and so that the file is small, is not a theorem:
-  it holds when the collector's accounts have the form the reader derives, which
-  `Probe.executionWalk` is written to produce (the names that it queues after a record,
+  the text the write wrote is trusted. The compiled code that replaces core functions the writer
+  and the readers call is trusted too, since the theorems are about the logical definitions
+  (for example, `Nat.repr` runs `Nat.reprFast`, and `String.push`, `String.append`,
+  `String.Pos.get` and `String.Pos.next` have runtime code). That the proposal is kept, and so
+  that the file is small, is not a theorem: it holds when the collector's accounts have the form
+  the reader derives, which `Probe.executionWalk` is written to produce (the names that it queues after a record,
   `ExecutionWalk.NodeRecord.successors`, are the channels of the reader in its order, each in the
   order of `canonicalNames`), and when a rebuilt account is the same tree as the logical one, for
   which the account codecs and the reader list each object's members in key order, the form

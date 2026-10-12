@@ -1039,7 +1039,12 @@ text (`PolicyCodec.parse`) is that value itself (`JsonRoundTrip.parse_compress_c
 `document` are search trees (`JsonCanon.Regular.canon_agree`), and is `document` itself where it
 is already in the parser's form (`JsonCanon.Canonical.canon_eq`). No hypothesis about Lean's JSON
 printer or parser is involved: `PolicyCodec.compress` and `PolicyCodec.parse` are definitions
-here, and they are the functions `writeDocument` and `readDocument` run. -/
+here, and they are the functions `writeDocument` and `readDocument` run. The theorem is about
+the logical definitions. Trusted beside the file read (`writeDocument`) is the compiled code of
+the core functions that `writeDocument` and `readDocument` call that has `implemented_by`,
+`extern` or a runtime override, which no kernel proof evaluates. Among them, `Nat.repr` runs
+`Nat.reprFast`, `String.push`, `String.append` and `String.Pos.next` are `extern`, and
+`String.Pos.get` is overridden in the runtime. -/
 theorem admitDocument_parse_encodeDocument {document : Json} {text : String}
     (encoded : encodeDocument document = .ok text) :
     ∃ written,

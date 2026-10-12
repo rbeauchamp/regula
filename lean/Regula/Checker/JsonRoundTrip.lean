@@ -8,7 +8,12 @@ import Regula.JsonCanon
 it, with a final newline, is the value with each object tree as the parser builds it
 (`JsonCanon.canon`), which agrees with it (`JsonCanon.Regular.canon_agree`). For a value whose
 object trees are already the parser's (`JsonCanon.Canonical`) the parse is the value itself
-(`parse_compress_canonical`). Both are about the parser and the printer that callers run.
+(`parse_compress_canonical`). Both are about the logical definitions of the parser and the
+printer that callers run. The compiled code of the core functions they call that has
+`implemented_by`, `extern` or a runtime override is trusted, since no kernel proof evaluates it.
+Among them, `Nat.repr` runs `Nat.reprFast`, `String.push`, `String.append` and
+`String.Pos.next` are `extern`, and `String.Pos.get` is overridden in the runtime
+(`Init/Data/Repr.lean` and `Init/Data/String/`, v4.34.1).
 
 The proof walks the text a character at a time. `At it cs` says that the parser's position `it`
 is before exactly the characters `cs`; each lemma below advances it over the text one printed
@@ -898,7 +903,7 @@ theorem object_text {ms : List (String × Json)} (each : ∀ m ∈ ms, ValueText
           ((compress m.2).toList ++ ((sepText false ms).toList ++ '}' :: rest))) := by
         simpa using h
       exact remaining_lt h' h5 (by simp)
-    have prefix_ : ∀ (k : Result PolicyCodec.Fields),
+    have prefix_ : ∀ (k : Result JsonAgreement.Fields),
         object (treeOf acc) it = k ↔
           (any >>= fun c =>
             if (c == '}') = true then

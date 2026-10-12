@@ -33,12 +33,13 @@ The Apache 2.0 license text is `LICENSES/Apache-2.0.txt` in this repository.
 
 `compress` follows `Json.compress`, except for a number with a positive exponent: it writes the
 mantissa, then `e-` and the exponent, so that the parse is the same mantissa and exponent. That
-the two texts are otherwise equal is not proved, since `Json.compress` is `partial`; no theorem
-depends on it. `Json.compress` writes a number with a positive exponent as a decimal fraction
-without trailing zeros, which reads back as a different `JsonNumber` when the mantissa ends in
-zero. `JsonRoundTrip` proves that `parse` of the text `compress` writes for a value whose object
-trees are search trees is the value with each object tree as the parser builds it
-(`JsonCanon.canon`).
+the two texts are byte-identical for the other values, and that the result writers' documents
+hold no number with a positive exponent, are observations from reading the sources, not theorems:
+`Json.compress` is `partial`, and no theorem depends on either. `Json.compress` writes a number
+with a positive exponent as a decimal fraction without trailing zeros, which reads back as a
+different `JsonNumber` when the mantissa ends in zero. `JsonRoundTrip` proves that `parse` of the
+text `compress` writes for a value whose object trees are search trees is the value with each
+object tree as the parser builds it (`JsonCanon.canon`).
 
 The reading of a document has two parts. `parse` turns a text into a `Json` value. `exactFields`
 is a pure decision about the `Json` value that a caller gives: whether it is an object with
@@ -46,11 +47,9 @@ exactly the expected members. `checked_exactFields` registers its kind, sound an
 `ExactFields`. The pure laws do not prove external producer authenticity. -/
 namespace Regula.Checker.PolicyCodec
 open Lean Std.Internal.Parsec Std.Internal.Parsec.String
+open Std.DTreeMap.Internal (Impl)
 
 /-! ### Parsing -/
-
-/-- The fields of a JSON object, as `Json.obj` stores them. -/
-abbrev Fields := Std.DTreeMap.Internal.Impl String (fun _ => Json)
 
 /-- Parser input: the text and the current position in it. -/
 abbrev Input := Sigma String.Pos
@@ -291,7 +290,8 @@ decreasing_by all_goals omega
 already in `fields` is refused. Each name is looked up in the tree and inserted into it, as
 `objectCore` does, instead of being compared with every member already read and appended to a
 list. -/
-def object (fields : Fields) (start : Input) : Result Fields := (show Parser Fields from do
+def object (fields : Impl String (fun _ => Json)) (start : Input) :
+    Result (Impl String (fun _ => Json)) := (show Parser (Impl String (fun _ => Json)) from do
   Json.Parser.lookahead (· == '"') "object key"
   skip
   let key ← str
@@ -369,7 +369,8 @@ termination_by structural elems
 /-- Append the texts of the members of `fields` in the order of the tree, each a name, a colon
 and a value, to `acc`, with a comma before each unless `first` and none came before; also whether
 none has come. -/
-def fieldsTo (acc : String) (first : Bool) (fields : Fields) : String × Bool :=
+def fieldsTo (acc : String) (first : Bool) (fields : Impl String (fun _ => Json)) :
+    String × Bool :=
   match fields with
   | .leaf => (acc, first)
   | .inner _ k v l r =>
@@ -381,10 +382,12 @@ end
 /-- The compact JSON text of `j`: no whitespace, object members in the order of their tree. It
 replaces Lean's `Json.compress`, which is `partial` (`Lean/Data/Json/Printer.lean:167`,
 v4.34.1), so that `JsonRoundTrip` can state what `parse` returns for the text. It follows
-`Json.compress` except for a number with a positive exponent (`numberText`); that the texts are
-otherwise equal is not proved. Its stack depth grows with the nesting of `j` and the height of its
-object trees, not with the length of an array or a string: `elemsTo`, the string fold and the right
-subtree of `fieldsTo` are calls the pinned compiler emits as jumps. -/
+`Json.compress` except for a number with a positive exponent (`numberText`). That the texts are
+byte-identical for the other values, and that the result writers' documents hold no number with a
+positive exponent, are observations from reading the sources, not theorems. Its stack depth grows
+with the nesting of `j` and the height of its object trees, not with the length of an array or a
+string: `elemsTo`, the string fold and the right subtree of `fieldsTo` are calls the pinned
+compiler emits as jumps. -/
 def compress (j : Json) : String := printTo "" j
 
 /-! ### Exact fields -/

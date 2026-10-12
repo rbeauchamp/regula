@@ -3949,7 +3949,10 @@ that form); `PolicyCodec.compress` and `PolicyCodec.parse` are total definitions
 and the readers run, so no hypothesis about Lean's `partial` printer or parser is involved. The
 writer's document has the members of the document given when the latter's object trees are search
 trees (`JsonCanon.Regular.canon_agree`). That a file read returns the text the write wrote is
-trusted. So the `history` oracle's theorems (`History.validate_importedRootExecuted`,
+trusted. The compiled code that replaces core functions the writer and the readers call is trusted
+too, since the theorems are about the logical definitions (for example, `Nat.repr` runs
+`Nat.reprFast`, and `String.push`, `String.append`, `String.Pos.get` and `String.Pos.next` have
+runtime code). So the `history` oracle's theorems (`History.validate_importedRootExecuted`,
 `validate_unsupported_unresolved`) are about the writer's document, and that it holds the account
 the collector produced is the collector's correspondence, not a law of the transport. The laws do
 not prove either that the written form is smaller than the logical one. That holds when the writer's
