@@ -1,4 +1,5 @@
 import Regula.Checker.Common
+import Regula.Checker.SelftestArguments
 
 /-!
 # Build-policy path qualification
@@ -335,13 +336,29 @@ private def disabledControl (repo adopter : FilePath) : IO (Array String) := do
   failures := failures ++ positive "reenabled/fresh-restored" (← build adopter)
   return failures
 
-/-- Independently mutated standalone adopters, each using only `lake build`.
-The existing compiler-path suite separately qualifies the shared policy's
+/-- The number of shards of the controls: `checkerSelftest --partition build-policy --shard i/3`
+runs the controls of the `i`th (`qualify`). -/
+def shards : Nat := SelftestArguments.Partition.buildPolicy.shards
+
+/-- Each case with its shard: the cases are divided among the shards in turn, in their order. -/
+private def shardedCases : List (Fin shards × Case) :=
+  cases.toList.mapIdx fun position test => (⟨position % shards, Nat.mod_lt _ (by decide)⟩, test)
+
+/-- The shard of the disabled-policy control: the last. -/
+private def disabledShard : Fin shards := ⟨shards - 1, by decide⟩
+
+/-- Independently mutated standalone adopters, each using only `lake build`, then the
+disabled-policy control. With `shard`, only that shard's cases run, and the disabled-policy control
+only in its shard (`disabledShard`); each case and the control run in exactly one shard
+(`inShard_cover`). The existing compiler-path suite separately qualifies the shared policy's
 unchanged replacement-history and correspondence machinery. -/
-def qualify (repo scratch : FilePath) (jobs : Nat) : IO (Array String) := do
-  let results ← mapConcurrent jobs cases fun test => do
+def qualify (repo scratch : FilePath) (jobs : Nat) (shard : Option (Fin shards) := none) :
+    IO (Array String) := do
+  let selected := (inShard shard shardedCases).map (·.2)
+  let results ← mapConcurrent jobs selected.toArray fun test => do
     withScratch scratch test.name fun adopter => runCase repo adopter test
-  let disabled ← withScratch scratch "disabled" fun adopter => disabledControl repo adopter
+  let disabled ← if (inShard shard [(disabledShard, ())]).isEmpty then pure #[]
+    else withScratch scratch "disabled" fun adopter => disabledControl repo adopter
   return results.foldl (· ++ ·) disabled
 
 end Regula.Checker.BuildLintQualification

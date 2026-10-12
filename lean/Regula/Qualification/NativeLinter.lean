@@ -127,8 +127,9 @@ controls. Search-path augmentation is child-local rather than a global mutation.
 control is its own compiler process with its own source path, so controls run `jobs` at a
 time in three waves that keep each order the checks depend on: `Control` first; then every
 control that reads no other control's output; then the controls that import wave-one
-artifacts and the `Restored` controls, which follow every malformed control. -/
-def checkAt (root scratch : FilePath) (launcher : Launcher.State) (jobs : Nat := 4) : IO Unit := do
+artifacts and the `Restored` controls, which follow every malformed control. Returns the number of
+compiler launches it made: one for each control, and one that compiles the forged prelude. -/
+def checkAt (root scratch : FilePath) (launcher : Launcher.State) (jobs : Nat := 4) : IO Nat := do
     let check := check root scratch launcher
     let _ ← check { label := "Control", source := base, output := true }
     let retired : Array (String × String) := match RegulaPolicy.Compiler.legacyCompilerTrust with
@@ -425,13 +426,16 @@ def checkAt (root scratch : FilePath) (launcher : Launcher.State) (jobs : Nat :=
           "theorem forgedChoice : False := Classical.choice\n"
         ids := ["RG2005", "RG2005"]
         detail := some "is not the toolchain's foundation axiom" } (first := some forged)
-    IO.println s!"native bridge qualification: PASS \
-      ({2 + retired.size + independent.size + dependent.size} actual Lean source controls)"
+    let controls := 2 + retired.size + independent.size + dependent.size
+    IO.println s!"native bridge qualification: PASS ({controls} actual Lean source controls)"
+    -- One compiler launch for each control, and one that compiled the forged prelude.
+    return controls + 1
 
 /-- Normal acceptance uses the cached actual Lake environment, never a cached verdict. -/
 def checkAll : IO Unit := do
   let root ← rootDirectory
-  withScratch root "native-controls" fun scratch => do checkAt root scratch (← Launcher.create)
+  withScratch root "native-controls" fun scratch => do
+    discard <| checkAt root scratch (← Launcher.create)
 
 /-- Paired baseline-first diagnostic with the same scratch path, source, argv, observed
 outputs, environment and executable. Measurements describe only these actual runs. -/
@@ -446,13 +450,16 @@ def paired : IO Unit := do
     withScratch root "launcher-pair" fun scratch => do
       let controls := scratch / "controls"
       let mut observations := #[]
+      let mut counts := #[]
       let mut runs := #[]
       for legacy in #[true, false] do
         IO.FS.createDir controls
         let launcher ← Launcher.create legacy
         let start ← IO.monoMsNow
         -- One control at a time keeps both runs' record order identical for the comparison.
-        try checkAt root controls launcher (jobs := 1) finally IO.FS.removeDirAll controls
+        let count ←
+          try checkAt root controls launcher (jobs := 1) finally IO.FS.removeDirAll controls
+        counts := counts.push count
         let elapsed := (← IO.monoMsNow) - start
         let records ← launcher.records.get
         observations := observations.push records
@@ -468,12 +475,13 @@ def paired : IO Unit := do
         report.modify (·.setObjVal! "runs" (toJson runs))
       let some before := observations[0]? | throw <| IO.userError "missing baseline"
       let some after := observations[1]? | throw <| IO.userError "missing candidate"
+      let some launchCount := counts[0]? | throw <| IO.userError "missing baseline count"
       requireChecks
-          [⟨s!"{before.size} exact paired controls",
-            RegulaQualification.Launcher.checked_equivalence.run before after⟩]
+          [⟨s!"{launchCount} exact paired launches",
+            RegulaQualification.Launcher.checked_equivalence.run launchCount before after⟩]
       report.modify fun value => (value.setObjVal! "equivalent" (.bool true)).setObjVal! "outcome"
                                   (.str "PASS")
-      IO.println s!"launcher diagnostic: PASS ({before.size} exact paired controls; timing is an \
+      IO.println s!"launcher diagnostic: PASS ({before.size} exact paired launches; timing is an \
         observation only)"
   catch e =>
     report.modify (·.setObjVal! "outcome" (.str "FAIL"))

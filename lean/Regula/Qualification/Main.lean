@@ -12,6 +12,7 @@ import Regula.Qualification.ReceiptBoundary
 import Regula.Qualification.Preparation
 import Regula.Qualification.SelfAudit
 import Regula.Qualification.UniqueConstants
+import Regula.Qualification.Command
 
 /-! # Qualification executable dispatcher
 
@@ -19,66 +20,69 @@ One Lake executable for operational qualification, with independently selectable
 campaigns. Each oracle is proved on the positive `RegulaQualification` surface;
 this process dispatcher and its IO adapters remain operational tooling. -/
 
-/-- Explicit commands; unknown or extra arguments refuse instead of silently skipping
-work. The acceptance shell owns the overall deadline, not this dispatcher. -/
-private unsafe def dispatch (args : List String) (attempt : Option String := none) : IO Unit := do
-  match args with
-  | ["registry"] => Regula.Qualification.RegistryCli.check
-  | ["native"] => Regula.Qualification.NativeLinter.checkAll
-  | ["combined"] => do
+open Regula.Qualification
+
+/-- Run one selection. The acceptance shell owns the overall deadline, not this dispatcher. -/
+private unsafe def runCommand (attempt : Option String) : Command → IO Unit
+  | .registry => Regula.Qualification.RegistryCli.check
+  | .native => Regula.Qualification.NativeLinter.checkAll
+  | .combined => do
       Regula.Qualification.RegistryCli.check
       -- Beside the native controls; both must pass.
       let unique ← IO.asTask Regula.Qualification.UniqueConstants.check
       Regula.Qualification.NativeLinter.checkAll
       IO.ofExcept (← IO.wait unique)
-  | ["unique-constants"] => Regula.Qualification.UniqueConstants.check
-  | ["native-launcher"] => Regula.Qualification.NativeLinter.paired
-  | ["rule-examples", "--evidence", path] => Regula.Qualification.RuleExamples.check
-                                              ⟨path⟩ none attempt
-  | "rule-examples" :: "--evidence" :: path :: "--rules" :: rules =>
+  | .uniqueConstants => Regula.Qualification.UniqueConstants.check
+  | .nativeLauncher => Regula.Qualification.NativeLinter.paired
+  | .ruleExamples path => Regula.Qualification.RuleExamples.check ⟨path⟩ none attempt
+  | .ruleExamplesRules path rules =>
       Regula.Qualification.RuleExamples.check ⟨path⟩ (some rules.toArray) attempt
-  | ["rule-examples", "--evidence", path, "--shard", spec] => do
+  | .ruleExamplesShard path spec => do
       let shard ← match (spec.splitOn "/").map String.toNat? with
         | [some index, some count] =>
           if 1 ≤ index && index ≤ count then pure (index, count)
           else throw <| IO.userError s!"invalid rule-example shard: {spec}"
         | _ => throw <| IO.userError s!"invalid rule-example shard: {spec}"
       Regula.Qualification.RuleExamples.check ⟨path⟩ none attempt (some shard)
-  | ["producers"] => Regula.Qualification.Producer.check none
-  | ["producers", "--evidence", path] => Regula.Qualification.Producer.check (some ⟨path⟩)
-  | ["producers-combined"] => do
+  | .producers => Regula.Qualification.Producer.check none
+  | .producersExport path => Regula.Qualification.Producer.check (some ⟨path⟩)
+  | .producersCombined => do
       Regula.Qualification.Producer.check none
       Regula.Qualification.History.check
-  | ["history"] => Regula.Qualification.History.check
-  | ["self-audit"] => Regula.Qualification.SelfAudit.check
-  | ["self-audit", "--shard", spec] => do
+  | .history => Regula.Qualification.History.check
+  | .selfAudit => Regula.Qualification.SelfAudit.check
+  | .selfAuditShard spec => do
       let some shard := Regula.Qualification.SelfAudit.shardOf? spec
         | throw <| IO.userError s!"invalid self-audit shard: {spec}"
       Regula.Qualification.SelfAudit.check (some shard)
-  | ["self-audit-module", m, source] => Regula.Qualification.SelfAudit.worker m source
-  | ["self-audit-json-module", m] => Regula.Qualification.SelfAudit.jsonWorker m
-  | ["environments", "--evidence", path] => Regula.Qualification.EnvironmentCensus.check
-                                             ⟨path⟩ attempt
-  | ["acceptance", group, "--evidence", path] => Regula.Qualification.Acceptance.check group
-                                                  ⟨path⟩ attempt
-  | ["acceptance-snapshots", group] => Regula.Qualification.DependencySnapshot.check group
-  | ["prep-measure"] => Regula.Qualification.Preparation.check
-  | ["documentation-dependencies"] => Regula.Qualification.Acceptance.documentationDependencies
-  | ["input-inventory"] => Regula.Qualification.InputInventory.check
-  | ["receipt-boundaries"] => Regula.Qualification.ReceiptBoundary.check
-  | ["closure-evidence"] => Regula.Qualification.SourceEvidence.closure
-  | ["configuration-capture"] => Regula.Qualification.SourceEvidence.configuration
-  | ["fence-evidence"] => Regula.Qualification.SourceEvidence.fences
-  | ["frozen-exits"] => Regula.Qualification.FrozenExit.check
-  | ["documentation-source"] => Regula.Qualification.DocumentationSource.check false
-  | ["documentation-source", "--source-read-only"] =>
-      Regula.Qualification.DocumentationSource.check true
-  | _ => throw <| IO.userError "usage: lake exe qualify \
+  | .selfAuditModule m source => Regula.Qualification.SelfAudit.worker m source
+  | .selfAuditJsonModule m => Regula.Qualification.SelfAudit.jsonWorker m
+  | .environments path => Regula.Qualification.EnvironmentCensus.check ⟨path⟩ attempt
+  | .acceptance group path => Regula.Qualification.Acceptance.check group.spelling ⟨path⟩ attempt
+  | .acceptanceSnapshots group => Regula.Qualification.DependencySnapshot.check group.spelling
+  | .prepMeasure => Regula.Qualification.Preparation.check
+  | .documentationDependencies => Regula.Qualification.Acceptance.documentationDependencies
+  | .inputInventory => Regula.Qualification.InputInventory.check
+  | .receiptBoundaries => Regula.Qualification.ReceiptBoundary.check
+  | .closureEvidence => Regula.Qualification.SourceEvidence.closure
+  | .configurationCapture => Regula.Qualification.SourceEvidence.configuration
+  | .fenceEvidence => Regula.Qualification.SourceEvidence.fences
+  | .frozenExits => Regula.Qualification.FrozenExit.check
+  | .documentationSource => Regula.Qualification.DocumentationSource.check false
+  | .documentationSourceReadOnly => Regula.Qualification.DocumentationSource.check true
+
+/-- Explicit commands, parsed by `Command.parse`; unknown or extra arguments refuse instead of
+silently skipping work. -/
+private unsafe def dispatch (args : List String) (attempt : Option String := none) : IO Unit := do
+  match Command.parse args with
+  | some command => runCommand attempt command
+  | none => throw <| IO.userError "usage: lake exe qualify \
     registry|native|combined|unique-constants|native-launcher|producers [--evidence PATH]|\
-    environments --evidence PATH|acceptance GROUP --evidence PATH|acceptance-snapshots \
-    dependencies|history|self-audit [--shard K/4]|git-status|all|documentation-dependencies|\
-    input-inventory|history|closure-evidence|configuration-capture|fence-evidence|frozen-exits|\
-    documentation-source [--source-read-only]|\
+    producers-combined|\
+    environments --evidence PATH|acceptance fences --evidence PATH|acceptance-snapshots \
+    dependencies|history|git-status|all|history|self-audit [--shard K/4]|\
+    documentation-dependencies|input-inventory|receipt-boundaries|prep-measure|closure-evidence|\
+    configuration-capture|fence-evidence|frozen-exits|documentation-source [--source-read-only]|\
     rule-examples --evidence PATH [--rules RULE ... | --shard K/N]"
 
 /-- Standalone commands get one group-wide 420-second bound. The private protocol flag

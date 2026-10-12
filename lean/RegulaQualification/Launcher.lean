@@ -65,22 +65,33 @@ structure Observation where
   executable : String
   deriving BEq, DecidableEq
 
-/-- Exact full-sequence comparison also preserves order, multiplicity and all 42
-controls. Equality includes the environment and resolved compiler path. -/
+/-- Exact full-sequence comparison of two runs of `launches` compiler launches: the baseline holds
+one observation for each launch, and the two runs agree in order, multiplicity and every field,
+including the environment and the resolved compiler path. -/
 @[regula_decision]
-def equivalent (before after : Array Observation) : Bool :=
-  decide (before.size = 42 ∧ before = after)
+def equivalent (launches : Nat) (before after : Array Observation) : Bool :=
+  decide (before.size = launches ∧ before = after)
 
-/-- The paired diagnostic consumes this proof-linked predicate; timing is separate. It is a
-two-way decision that refuses two empty sequences; the accepted witness is forty-two copies of
-one observation, compared with themselves. -/
+/-- The arguments of `equivalent`, in its order: the number of compiler launches the
+qualification made (`Regula.Qualification.NativeLinter.checkAt`) and the observations of its two
+runs. -/
+structure Runs where
+  /-- The number of compiler launches the qualification made. -/
+  launches : Nat
+  /-- The observations of the baseline run. -/
+  before : Array Observation
+  /-- The observations of the candidate run. -/
+  after : Array Observation
+
+/-- The paired diagnostic consumes this proof-linked predicate, with the number of compiler launches
+the qualification made; timing is separate. It is a two-way decision: it refuses two empty runs of
+one launch, and the accepted witness is one observation, compared with itself, for one launch. -/
 theorem checked_equivalence : Regula.ExecutableContract equivalent (fun run =>
     Regula.Decides (· = true)
-      (fun input : Array Observation × Array Observation =>
-        input.1.size = 42 ∧ input.1 = input.2)
-      (Function.uncurry run)) :=
-  let observations : Array Observation := Array.replicate 42 ⟨"", #[], "", 0, "", "", #[], ""⟩
-  ⟨.of_iff (fun input => by simp [Function.uncurry, equivalent])
-    ⟨(observations, observations), by simp [Function.uncurry, equivalent, observations]⟩
-    ⟨(#[], #[]), by simp [Function.uncurry, equivalent]⟩⟩
+      (fun input : Runs => input.before.size = input.launches ∧ input.before = input.after)
+      (fun input => run input.launches input.before input.after)) :=
+  let observations : Array Observation := #[⟨"", #[], "", 0, "", "", #[], ""⟩]
+  ⟨.of_iff (fun input => by simp [equivalent])
+    ⟨⟨1, observations, observations⟩, by simp [equivalent, observations]⟩
+    ⟨⟨1, #[], #[]⟩, by simp [equivalent]⟩⟩
 end RegulaQualification.Launcher
