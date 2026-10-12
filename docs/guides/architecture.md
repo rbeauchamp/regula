@@ -14,7 +14,7 @@ imports no Mathlib. Its libraries (`lakefile.lean`, `foundation_manifest.json`):
 | Library | Role | Claim |
 | --- | --- | --- |
 | `RegulaPolicy` | Pure policy: domain types, the one supported compiler identity (`Compiler`), admission, declaration/execution decisions, the acceptance plan and its theorems. Imports only Init, Std, `Lean.PrivateName` (for generated native-axiom names), `Lean.Expr` (the terms the recursion-helper comparison `Erasure.reproduces` and the native-axiom statement decision `NativeStatement.recognize?` decide over; its closure holds no `Lean.Environment`), `Lean.Util.FoldConsts` (for the kernel axiom search `KernelAxioms`, with no `Lean.Environment` in its closure either), the import-free `Regula.Contract` and, to register its decisions, `Regula.Decision` ([below](#the-decision-registration-import)). | Claimed, Standard-Logical |
-| `RegulaCore` | The rule registry (`RuleId`, `Rule`, `Guide`), the pure projections the checker executes (`Policy`, `Coordinates`, `Source`, `Assembly`, `EditorPolicy`, `Lint`, `Account`), the comparison of a `Json` value with an encoding (`JsonAgreement`), agent guidance (`Feedback`, `Guidance`), project setup (`Setup`), the installed-compiler identity and selector decisions (`Toolchain`) and the site's pure decisions (`Edition`, `Site*`). Imports the policy library, never the reverse, Lean's `Lean.Data.Position` but not `Lean.Data.Lsp.Utf16`, whose closure contains `Lean.Environment`, and, to register its decisions, `Regula.Decision`, whose closure contains it too ([below](#the-decision-registration-import)). | Claimed |
+| `RegulaCore` | The rule registry (`RuleId`, `Rule`, `Guide`), the pure projections the checker executes (`Policy`, `Coordinates`, `Source`, `Assembly`, `EditorPolicy`, `Lint`, `Account`), the comparison of a `Json` value with an encoding (`JsonAgreement`), agent guidance (`Feedback`, `Guidance`), project setup (`Setup`), the installed-compiler identity and selector decisions (`Toolchain`) and the site's pure decisions (`Edition`, `Site*`). Imports the policy library, never the reverse, Lean's `Lean.Data.Position` but not `Lean.Data.Lsp.Utf16`, whose closure contains `Lean.Environment`, and, to register its decisions and the roles of its assumptions, `Regula.Decision` and `Regula.Assumption`, whose closures contain it too ([below](#the-decision-registration-import)). | Claimed |
 | `RegulaQualification` | Pure observation requirements and checked contracts for qualification campaigns, not process launchers; testing requirements are not production policy, so they belong neither in `RegulaPolicy` nor in the mathematical `Audit` examples. | Claimed |
 | `RegulaVerification`, `RegulaProvision` | Toolchain-only acceptance runner and dependency provisioning for the pinned release. Pure decision contracts surround trusted build, process and filesystem effects. Each library's `Decisions` module, which no program imports, registers those decisions' kinds with the checker's two interfaces. | Claimed |
 | `AuditApp` (with standalone root `Main`) | A complete application whose admission, update and composition contracts are proved about the definitions its executable runs. | Claimed |
@@ -134,6 +134,8 @@ it with a plain `import`,
 which brings those declarations into scope; that none of their definitions uses them is by
 inspection, as it already was for `AuditApp.Limiter` and `Regula.MaterialClaim`. The extension is
 an ordinary definition, not a `meta` one, so the collector reads the registrations through it.
+`Regula.Assumption` is a published interface too, and keeps the roles of external systems in the
+same way. `RegulaCore.Filesystem` imports it with a plain `import`.
 `RegulaPolicy.Compiler` imports only `Init`, because the compiler guard elaborates it alone before
 the package is built, so its decisions are registered from `RegulaPolicy.Claim`, a module of
 the same library that imports it (`attribute [regula_decision]`). The two standalone programs
@@ -252,7 +254,7 @@ lake exe axiomGate --with-docs --json-out tmp/result.json
 ```
 
 Each export is versioned on its own: the surface manifest is schema 2, the registry schema 4, the
-result schema 16, the worker packet schema 1, the rule-example corpus export schema 1, the
+result schema 17, the worker packet schema 1, the rule-example corpus export schema 1, the
 acceptance link schema 1 and the site's `build.json` schema 2. Registry and result envelopes carry
 `schemaVersion`, `producerVersion`, `toolchain` and `sourceRevision` from
 `Regula.Checker.Producer.identity`: `producerVersion` is the installed release's spelling
@@ -268,7 +270,7 @@ metadata, not authenticated binary identity.
   stale lifecycle data and an object tree that is not a search tree.
   Registry admission rejects duplicate external IDs, missing clauses, pages or examples, unknown
   JSON fields or versions, and invalid lifecycle references.
-- **Result, schema 16:** `scope`, `mode`, `status`, `stages` (the stages
+- **Result, schema 17:** `scope`, `mode`, `status`, `stages` (the stages
   `RegulaPolicy.requiredStages` requires for the mode, plus the documentation stages of a
   `--with-docs` run), `stagesCompleted`, `complete`, `stagesNotRun`, `diagnostics` (each with its
   `remedy`, in run order), `rules` (the guidance of every rule that fired, once each, in registry
@@ -381,6 +383,11 @@ metadata, not authenticated binary identity.
   entry is an axiom that the declaration reaches in the replayed kernel and that Lean's
   `collectAxioms` does not report. The rules decide on `axioms`, and the omissions are reported,
   not failed ([RG2005]).
+- **Assumptions:** since schema 17 a declaration record carries `assumptions` and
+  `checkedOperations`. Each entry is a declaration with the role `assumption` or `checked` of
+  `Regula.Assumption`. The walk of the constants that the declaration uses, its proof included,
+  reaches it from the declaration in the replayed kernel (`RegulaPolicy.Assumptions.table_some`).
+  No rule decides on them: they are reported.
 - **Names:** since schema 6 every Lean name of a result, in `diagnostics`, `scope` and
   `acceptance` alike, and of the producer report it renders, is written one way
   (`RegistryCodec.printedNameJson`): the text Lean prints for it, or, only where Lean's parser does

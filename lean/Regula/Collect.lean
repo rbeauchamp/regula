@@ -3617,13 +3617,20 @@ private def sharedReading (env : Environment) (scope : ContractScope) (stage : S
     return (names, if tested then some constant else none)
 
 /-- What admission computed in the kernel that replayed the owned modules (`Admission.validate`): the
-axioms that each name of the owned declarations' closure reaches there, and for each owned
-declaration for which Lean's `collectAxioms` omits some of them, those omissions. -/
+axioms that each name of the owned declarations' closure reaches there, for each owned
+declaration for which Lean's `collectAxioms` omits some of them, those omissions, and for each
+owned declaration that rests on an assumption or a checked operation, those it rests on. -/
 structure Replayed where
   /-- The axioms each name of the closure reaches in the replayed kernel, by name. -/
   axioms : Std.HashMap Name (Array Name)
   /-- The axioms that `collectAxioms` omits for an owned declaration, by its name. -/
   omissions : Std.HashMap Name (Array Name)
+  /-- The assumptions that an owned declaration rests on, by its name; absent when it rests on
+  none. -/
+  assumptions : Std.HashMap Name (Array Name) := {}
+  /-- The checked operations that an owned declaration rests on, by its name; absent when it
+  rests on none. -/
+  checkedOperations : Std.HashMap Name (Array Name) := {}
 
 /-- The record of `declaration`, with what a snapshot did not read of the declaration's decision
 registration, when there is such a part (`Unread`): its kind (`executableContract?`), or the
@@ -3647,6 +3654,8 @@ private def declarationReading (name : Name) (stage : Stage) (scope? : Option Co
       | none => throwError "declaration {name} has no axioms from the replayed kernel"
     | none => collectAxioms name
   let tableOmissions := (replayed.bind (·.omissions[name]?)).getD #[]
+  let assumptions := (replayed.bind (·.assumptions[name]?)).getD #[]
+  let checkedOperations := (replayed.bind (·.checkedOperations[name]?)).getD #[]
   let isProp ← liftTermElabM <| Meta.isProp info.type
   let prettyType ← liftTermElabM do
     return toString (← Meta.ppExpr info.type)
@@ -3717,6 +3726,8 @@ private def declarationReading (name : Name) (stage : Stage) (scope? : Option Co
     decisionResult := ← liftTermElabM (decisionResult? scope.decisions info)
     tableOmissions
     contractEvidence := observed.bind (·.2.2.2)
+    assumptions := RegulaPolicy.canonicalNames assumptions
+    checkedOperations := RegulaPolicy.canonicalNames checkedOperations
   }, contract?.bind (·.2))
 
 /-- Construct the canonical record from this command's actual environment.
@@ -3729,9 +3740,9 @@ decision registration has no failure of its kind when that environment cannot re
 it names no shared function below a constant that the environment has no value of;
 `commandDeclarations` returns those registrations. The record's axioms are those `replayed`
 holds for the declaration, the axioms it reaches in the kernel that replayed it
-(`Admission.validate`), and its `tableOmissions` are those `replayed` holds for it; a caller with
-no replayed kernel, such as the editor, passes none, and the record has the axioms Lean's
-`collectAxioms` reports. -/
+(`Admission.validate`), and its `tableOmissions`, `assumptions` and `checkedOperations` are those
+`replayed` holds for it; a caller with no replayed kernel, such as the editor, passes none, and the
+record has the axioms Lean's `collectAxioms` reports and no assumption or checked operation. -/
 def declaration (name : Name) (stage : Stage) (scope? : Option ContractScope := none)
     (replayed : Option Replayed := none) :
     CommandElabM RegulaPolicy.Declaration :=
