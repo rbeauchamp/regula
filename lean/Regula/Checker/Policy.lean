@@ -78,9 +78,12 @@ def describeBoundaryAs (label : String) (boundary : Regula.Report.ExecutionBound
 def describeBoundary (boundary : Regula.Report.ExecutionBoundary) : String :=
   describeBoundaryAs "boundary" boundary
 
-/-- The toolchain trusted base of an audit's labeled execution accounts: each toolchain-owned
-boundary once, with every environment and root that reaches it, through
-`RegulaPolicy.checked_toolchainBase`. -/
+/-- The toolchain trusted base of an audit's labeled execution accounts, through
+`RegulaPolicy.checked_toolchainBase`: each toolchain-owned boundary is either the boundary of
+exactly one entry, which lists every environment and root that reaches it, or, when every root
+that reaches it holds a boundary that carries it, a `partial` implementation that the entry of
+one such boundary of the same root names in `implementations` and which lists that environment
+and root. -/
 def toolchainBase (environments : Array (String × ExecutionInventory)) :
     Array RegulaPolicy.ToolchainBoundary :=
   RegulaPolicy.checked_toolchainBase.run environments

@@ -240,9 +240,12 @@ The account keeps every record, and the decision's records (`executionFailureRec
 for each. The findings (`executionFindings`) and the coverage counts (`executionSummary`) report a
 restated boundary with the first record of it and a `partial` implementation with the boundary
 that runs it, where both are trusted and have the same owner (both the toolchain's, with one
-admitted origin, or neither): one finding, which names the implementation, and one counted
-boundary. A toolchain-owned pair has no finding, and the toolchain trusted base lists it as one
-entry that names the implementation (`toolchainBase`). Both relations are read
+admitted origin, or neither): one counted boundary, and, where neither is the toolchain's, one
+finding, which names the implementation. A toolchain-owned pair has no finding
+(`boundaryFailures`). The toolchain trusted base lists it as one entry that names the
+implementation when every root that reaches the implementation holds a boundary that carries it,
+and otherwise gives the implementation an entry of its own (`toolchainBase`,
+`ToolchainBaseContract`). Both relations are read
 from the account's own members and edges, which the collector takes from the declared equalities,
 the `implemented_by` attribute and the compiler's helper lookup; no name is parsed. Only trusted
 records are folded, and a folded record fails and passes with the record it is reported with

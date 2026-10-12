@@ -1658,8 +1658,9 @@ def guide : RuleId → Guide
           trusted base.",
         "A `partial` implementation that a trusted boundary names as the code run in its place \
           is reported with that boundary where both are trusted and have the same owner (both \
-          the toolchain's, or neither), as one finding that names both and one counted \
-          boundary; a toolchain-owned pair has no finding, and the toolchain trusted base lists \
+          the toolchain's, or neither): the coverage counts take the two as one boundary, and \
+          where neither is the toolchain's, they are one finding that names both. A \
+          toolchain-owned pair has no finding, and the toolchain trusted base lists \
           it as one entry that names the implementation, unless a root reaches the \
           implementation without the boundary that carries it. A `partial` implementation is \
           a constant of `partial` definition safety: the implementation a metaprogram such as \
