@@ -465,14 +465,68 @@ theorem identical_iff (a b : ConstantInfo) : identical a b = true ↔ Identical 
       theoremVal_beq_iff, opaqueVal_beq_iff, quotVal_beq_iff, inductiveVal_beq_iff,
       constructorVal_beq_iff, recursorVal_beq_iff]
 
+/-- Whether Lean's structural comparison of expressions (`Expr.equal`, which, unlike `Expr.eqv`,
+also compares binder names and binder annotations) equates every expression field of two
+constants other than the type: the values of two definitions, two theorems or two opaque
+constants, and the right-hand sides of the rules of two recursors, rule by rule. -/
+def valuesEqual : ConstantInfo → ConstantInfo → Bool
+  | .defnInfo a, .defnInfo b => a.value.equal b.value
+  | .thmInfo a, .thmInfo b => a.value.equal b.value
+  | .opaqueInfo a, .opaqueInfo b => a.value.equal b.value
+  | .recInfo a, .recInfo b => (a.rules.zip b.rules).all fun rules => rules.1.rhs.equal rules.2.rhs
+  | _, _ => true
+
+/-- Whether two constants are the same copy: `identical`, and `Expr.equal` equates their types and
+every other expression field (`valuesEqual`). Reuse compares copies with this comparison, so a copy
+that differs from another only in a binder name or a binder annotation is a different copy.
+`sameCopy_iff` states it. -/
+def sameCopy (a b : ConstantInfo) : Bool :=
+  identical a b && a.type.equal b.type && valuesEqual a b
+
+/-- The value, or each right-hand side of a recursor rule, of `a` and of `b` that sit in the same
+place are equal by Lean's structural comparison of expressions (`Expr.equal`); constants of other
+kinds, or of two different kinds, have no such pair. -/
+def ValuesEqual : ConstantInfo → ConstantInfo → Prop
+  | .defnInfo a, .defnInfo b => a.value.equal b.value = true
+  | .thmInfo a, .thmInfo b => a.value.equal b.value = true
+  | .opaqueInfo a, .opaqueInfo b => a.value.equal b.value = true
+  | .recInfo a, .recInfo b =>
+      ∀ (i : Nat) x y, a.rules[i]? = some x → b.rules[i]? = some y → x.rhs.equal y.rhs = true
+  | _, _ => True
+
+/-- `a` and `b` are the same copy of a constant: they are `Identical`, and Lean's structural
+comparison of expressions equates their types and their other expression fields (`ValuesEqual`).
+Lean has no lawful equality of expressions, so `Expr.equal` stays the test of one expression. -/
+def SameCopy (a b : ConstantInfo) : Prop :=
+  Identical a b ∧ a.type.equal b.type = true ∧ ValuesEqual a b
+
+/-- `all` over the pairs of two lists holds exactly when it holds of the elements at each index
+that both lists have. -/
+private theorem all_zip_iff {α β : Type} {xs : List α} {ys : List β} {p : α → β → Bool} :
+    ((xs.zip ys).all fun pair => p pair.1 pair.2) = true ↔
+      ∀ (i : Nat) x y, xs[i]? = some x → ys[i]? = some y → p x y = true := by
+  simp only [List.all_eq_true, List.mem_iff_getElem?, List.getElem?_zip_eq_some]
+  constructor
+  · intro h i x y hx hy
+    exact h (x, y) ⟨i, hx, hy⟩
+  · rintro h ⟨x, y⟩ ⟨i, hx, hy⟩
+    exact h i x y hx hy
+
+/-- **The executed comparison of copies accepts exactly the pairs that `SameCopy` relates.** -/
+theorem sameCopy_iff (a b : ConstantInfo) : sameCopy a b = true ↔ SameCopy a b := by
+  have values : valuesEqual a b = true ↔ ValuesEqual a b := by
+    cases a <;> cases b <;> simp only [valuesEqual, ValuesEqual] <;>
+      exact all_zip_iff (p := fun (x y : RecursorRule) => x.rhs.equal y.rhs)
+  simp only [sameCopy, SameCopy, Bool.and_eq_true, identical_iff, values, and_assoc]
+
 /-! ## Copies of one name in the loaded modules
 
 Lean realizes some constants in the module that first needs them (equation, unfolding and
 match-equation lemmas among them, see "Several copies of one name" below), so two loaded modules
 can each declare the same name. Lean's import keeps one constant under the name and attributes the
 name to the first module that lists it. One pass over the constants of every loaded module
-(`duplicatesOf`) records each name some module declares with a constant that is not `identical`
-to the kept one (`Duplicates.differing`) and, for each name, the modules that declare it other
+(`duplicatesOf`) records each name some module declares with a constant that is not the same
+copy (`sameCopy`) as the kept one (`Duplicates.differing`) and, for each name, the modules that declare it other
 than the module it is attributed to (`Duplicates.others`). For a name outside `differing`, every
 copy is the kept constant (`Uniform`, `not_mem_differing_iff`), so which copy Lean keeps, or which
 module it attributes the name to, changes no constant the kernel reads. Reuse rests on such names
@@ -482,8 +536,9 @@ docstrings of `duplicatesIn` and `copiesIdentical`. -/
 
 /-- What `duplicatesOf` finds in the constants of the loaded modules. -/
 structure Duplicates where
-  /-- Each name that a loaded module declares with a constant not `identical` to the constant the
-  environment keeps under it, or under which the environment keeps none. -/
+  /-- Each name that a loaded module declares with a constant that is not the same copy
+  (`sameCopy`) as the constant the environment keeps under it, or under which the environment
+  keeps none. -/
   differing : Std.HashSet Name
   /-- For each name, the index of each loaded module that declares it, other than the module the
   name is attributed to. -/
@@ -493,12 +548,12 @@ structure Duplicates where
 def Duplicates.empty : Duplicates := { differing := {}, others := {} }
 
 /-- Record the constant `info` of the module at index `idx`: its name is `differing` unless `find`
-keeps a constant `identical` to it, and `idx` joins the name's `others` unless the name is
+keeps the same copy (`sameCopy`), and `idx` joins the name's `others` unless the name is
 attributed to `idx`. -/
 def Duplicates.record (find : Name → Option ConstantInfo) (attributed : Name → Option Nat)
     (idx : Nat) (dups : Duplicates) (info : ConstantInfo) : Duplicates :=
   { differing :=
-      if (find info.name).any (identical · info) then dups.differing
+      if (find info.name).any (sameCopy · info) then dups.differing
       else dups.differing.insert info.name
     others :=
       if attributed info.name == some idx then dups.others
@@ -516,19 +571,19 @@ def duplicatesOf (find : Name → Option ConstantInfo) (attributed : Name → Op
 def Declares (modules : Array ModuleData) (idx : Nat) (n : Name) : Prop :=
   ∃ data, modules[idx]? = some data ∧ ∃ info ∈ data.constants, info.name = n
 
-/-- Every copy of `n` that a module of `modules` declares is `Identical` to the constant `find`
-keeps under `n`. -/
+/-- Every copy of `n` that a module of `modules` declares is the same copy (`SameCopy`) as the
+constant `find` keeps under `n`. -/
 def Uniform (find : Name → Option ConstantInfo) (modules : Array ModuleData) (n : Name) : Prop :=
   ∀ data ∈ modules, ∀ info ∈ data.constants, info.name = n →
-    ∃ kept, find n = some kept ∧ Identical kept info
+    ∃ kept, find n = some kept ∧ SameCopy kept info
 
 /-- What `duplicatesOf` maintains over the copies `seen` so far, each with its module's index. -/
 private structure DuplicatesInv (find : Name → Option ConstantInfo)
     (attributed : Name → Option Nat) (seen : List (ConstantInfo × Nat)) (dups : Duplicates) :
     Prop where
-  /-- A name differs exactly when a copy seen is not `identical` to the kept constant. -/
+  /-- A name differs exactly when a copy seen is not the same copy as the kept constant. -/
   differing : ∀ n, n ∈ dups.differing ↔
-    ∃ copy ∈ seen, copy.1.name = n ∧ (find n).any (identical · copy.1) = false
+    ∃ copy ∈ seen, copy.1.name = n ∧ (find n).any (sameCopy · copy.1) = false
   /-- A module is among a name's `others` exactly when it holds a copy seen and is not the module
   the name is attributed to. -/
   others : ∀ n idx, idx ∈ dups.others.getD n #[] ↔
@@ -542,7 +597,7 @@ private theorem DuplicatesInv.record {find : Name → Option ConstantInfo}
       (Duplicates.record find attributed idx dups info) := by
   refine ⟨fun n => ?_, fun n other => ?_⟩
   · simp only [Duplicates.record, List.mem_append, List.mem_singleton]
-    by_cases hkept : (find info.name).any (identical · info) = true
+    by_cases hkept : (find info.name).any (sameCopy · info) = true
     · simp only [hkept, ↓reduceIte, h.differing n]
       constructor
       · rintro ⟨copy, hcopy, hname, hany⟩
@@ -651,10 +706,10 @@ theorem not_mem_differing_iff {find : Name → Option ConstantInfo}
   constructor
   · intro hnone data hdata info hinfo hname
     obtain ⟨idx, hidx⟩ := Array.mem_iff_getElem?.mp hdata
-    cases hkept : (find n).any (identical · info)
+    cases hkept : (find n).any (sameCopy · info)
     · exact absurd ⟨(info, idx), mem_copies.mpr ⟨data, hidx, hinfo⟩, hname, hkept⟩ hnone
     · obtain ⟨kept, hfind, hsame⟩ := (Option.any_eq_true _ _).mp hkept
-      exact ⟨kept, hfind, (identical_iff _ _).mp hsame⟩
+      exact ⟨kept, hfind, (sameCopy_iff _ _).mp hsame⟩
   · rintro huniform ⟨⟨info, idx⟩, hcopy, hname, hkept⟩
     obtain ⟨data, hidx, hinfo⟩ := mem_copies.mp hcopy
     obtain ⟨kept, hfind, hsame⟩ :=
@@ -662,7 +717,7 @@ theorem not_mem_differing_iff {find : Name → Option ConstantInfo}
     simp only at hname hkept
     subst hname
     rw [hfind] at hkept
-    simp [(identical_iff _ _).mpr hsame] at hkept
+    simp [(sameCopy_iff _ _).mpr hsame] at hkept
 
 /-- **A module is among a name's `others` exactly when it declares the name and is not the module
 the name is attributed to.** -/
@@ -709,45 +764,55 @@ def duplicatesIn (env : Environment) : Duplicates :=
 
 /-- Whether the module at index `owner` keeps its constants whichever copy of each of its names
 Lean's import keeps: no loaded module declares a copy of a name of one of its constants that is
-not the kept constant (`Duplicates.differing`), and a constant that is not a theorem has no copy in
-another module (its name is attributed to `owner` and has no `others`). `none`, a module the
-environment did not load, is refused. `copiesIdentical_iff` states the decision.
+not the same copy as the kept constant (`Duplicates.differing`, `sameCopy`), and a constant that is
+not a theorem has no copy in another module (its name is attributed to `owner` and has no
+`others`). `none`, a module the environment did not load, is refused. `copiesIdentical_iff`
+states the decision.
 
 This is the condition on a module's own constants under which an environment reuses an earlier
 environment's replay of it (`candidates`), and why that is the replay this environment would
 repeat. An environment that reuses the module imports it into the replay base and checks none of
-its constants. Every other constant it holds under one of the module's names is `Identical` to
-the module's own copy: the replay base's (one of the loaded copies, `finalizeImport`), the
-replayed kernel's (the kept constant, `replayMap_sound`) and the audited environment's (the kept
-constant), so `replayMap`, `checkShared`, `checkOwn` and `checkKept` meet, under that name, the
-constant they would meet if the module were replayed. A copy in a replayed module passes
-`checkShared` against it (two `Identical` theorems are a `SameTheorem`) and `checkOwn` and
-`checkKept` without a proof check, as it would in a replay of both. A fresh replay would admit the
-module's constants too: a shared copy of a theorem is `SameTheorem` with the held constant, and a
-constant that is not a theorem has a single copy, so it is never shared; this is why the
-condition requires a theorem where another module declares the name (two `Identical` axioms,
-which Lean's import accepts, `checkShared` refuses). The receipt requires the key `(module, name)`
-of each such constant from the module's own data whichever module the name is attributed to
-(`mem_required`), and `reuseJustified` accepts it only when the environment that replayed the
-module admitted that key. That environment offered the module only when each of its copies was
-admitted there with every copy of a shared name `Identical` to the kept one and every module
-declaring that name owned (`ownedUniform`), so each constant of a reused module is `Identical` to
-one that the kernel of an environment of the audit accepted (by induction on the order in which
-the environments start, with the transitivity of `Identical`).
+its constants. Every other constant it holds under one of the module's names is the same copy
+(`SameCopy`) as the module's own: the replay base's (one of the loaded copies, `finalizeImport`),
+the replayed kernel's (the kept constant, `replayMap_sound`) and the audited environment's (the
+kept constant), so `replayMap`, `checkShared`, `checkOwn` and `checkKept` meet, under that name,
+the constant they would meet if the module were replayed. A copy in a replayed module passes
+`checkShared` against it (the same copies are `Identical`, and two `Identical` theorems are a
+`SameTheorem`) and `checkOwn` and `checkKept` without a proof check, as it would in a replay of
+both. A fresh replay would admit the module's constants too: a shared copy of a theorem is
+`SameTheorem` with the held constant, and a constant that is not a theorem has a single copy, so
+it is never shared; this is why the condition requires a theorem where another module declares
+the name (two `Identical` axioms, which Lean's import accepts, `checkShared` refuses). The receipt
+requires the key `(module, name)` of each safe, total constant from the module's own data
+whichever module the name is attributed to (`mem_required`), and `reuseJustified` accepts it only
+when the environment that replayed the module admitted that key. That environment offered the
+module only when each of its copies was admitted there with every copy of a shared name the same
+copy as the kept one and every module declaring that name owned (`ownedUniform`). So each safe,
+total constant of a reused module is the same copy as one that the kernel of an environment of the
+audit accepted (by induction on the order in which the environments start, with the symmetry and
+transitivity of `SameCopy`).
+
+An `unsafe` or `partial` constant of the module, such as the `_unsafe_rec` helper Lean adds for a
+recursive definition, is outside that statement: no replay checks it, since
+`Kernel.Environment.replay` skips it, and admission accepts it under `CopyAdmitted` with no
+constant of the kernel to match. A fresh replay of the module would not check it either, so reuse
+changes nothing for it, and it keeps the boundary admission states for such helpers.
 
 Assumes:
 - Lean v4.34.1, `src/lean/Lean/Environment.lean:2332-2347` (`finalizeImport`): the import, of the
   audited environment and of the replay base alike, keeps under each name one of the copies it
   read, so a constant held under a name is one of the loaded copies.
-- Lean v4.34.1, `src/lean/Lean/Expr.lean:804-809`: `Expr.eqv`, the comparison `Identical` makes
-  of an expression field, is alpha-equivalence with binder annotations ignored, an equivalence
-  relation, so `Identical` is symmetric and transitive. Trusted: the C++ `lean_expr_eqv` is not
-  modeled.
+- Lean v4.34.1, `src/lean/Lean/Expr.lean:804-819`: `Expr.eqv` is alpha-equivalence with binder
+  annotations ignored and `Expr.equal` is equality with binder names and annotations taken into
+  account, both equivalence relations, so `Identical` and `SameCopy` are symmetric and transitive.
+  Trusted: the C++ `lean_expr_eqv` and `lean_expr_equal` are not modeled.
 - Trusted, the boundary `checkOwn` already rests on: the kernel's check of a declaration, and of
-  every declaration that consults it, is the same for two `Identical` constants, since it reads
-  neither binder names nor binder annotations.
-- Trusted, as for every replay: `Kernel.Environment.replay` checks each constant it adds
-  (`src/lean/Lean/Replay.lean:176`). -/
+  every declaration that consults it, is the same for two `Identical` constants, and so for two
+  that are the same copy, since it reads neither binder names nor binder annotations.
+- Lean v4.34.1, `src/lean/Lean/Replay.lean:176-187` (trusted, as for every replay):
+  `Kernel.Environment.replay` checks each constant it adds, and it adds only the constants that
+  are neither `unsafe` nor `partial` (`180-183`), replaying a dependency only when it is one of
+  them (`replayConstant`, `74-77`). -/
 def copiesIdentical (modules : Array ModuleData) (attributed : Name → Option Nat)
     (dups : Duplicates) (owner? : Option Nat) : Bool :=
   match owner? with
