@@ -808,10 +808,13 @@ def targetShape (package : _root_.Lake.Package)
 
 /-- What the plain shape reads of `package`: Lake's configuration of the package and of each
 target, and for `lakefile.lean` its compiled configuration (`leanConfigReading`). A `lakefile.toml`
-declares no facet and has no compiled configuration file: Lake's TOML loader gives it no facet. -/
+declares no facet and has no compiled configuration file: Lake's TOML loader gives it no facet.
+
+Assumes: Lake v4.34.1 selects the language from `relConfigFile`, not the resolved `configFile`
+(`Lake/Load/Package.lean:100`), under `LakeConfig.language`'s assumptions. -/
 def packageShape (ws : _root_.Lake.Workspace) (package : _root_.Lake.Package) :
     IO PackageShape := do
-  let toml := package.configFile.extension == some "toml"
+  let toml := (← IO.ofExcept (LakeConfig.language package.relConfigFile)) == .toml
   let reading ← if toml then pure tomlReading else leanConfigReading ws package
   return {
     name := package.baseName

@@ -75,13 +75,14 @@ private def facetReport (repo adopter : FilePath) : IO (Array String) := do
   let checked := "regula facet report: checked "
   let empty := "0 root extraDep declarations replaced by Regula"
   let displaced := "root package 'build_lint_adopter' library facet 'adopterPrerequisite'"
-  IO.FS.writeFile lakefile (original ++ "\n\
+  let collisionLakefile := original ++ "\n\
     /-- A facet replaced by a later root declaration, before dependencies load. -/\n\
     @[«library_facet»] def earlierPrerequisite : LibraryFacetDecl :=\n\
       .mk LeanLib.extraDepFacet LeanLib.extraDepFacetConfig\n\
     /-- A prerequisite represented by the root's library facet. -/\n\
     @[«library_facet»] def adopterPrerequisite : LibraryFacetDecl :=\n\
-      .mk LeanLib.extraDepFacet LeanLib.extraDepFacetConfig\n")
+      .mk LeanLib.extraDepFacet LeanLib.extraDepFacetConfig\n"
+  IO.FS.writeFile lakefile collisionLakefile
   let positive : Expectation := {
     label := "facet-report/replaced", exitCode := 2,
     contains := #[checked, "1 root extraDep declarations replaced by Regula", displaced,
@@ -96,6 +97,69 @@ private def facetReport (repo adopter : FilePath) : IO (Array String) := do
     label := "facet-report/not-replaced", exitCode := 2,
     contains := #[checked, empty], excludes := #[displaced, "Its build step does not run"] }
   failures := failures ++ (← expect adopter negative args)
+  -- Lake chooses Lean from the relative lakefile.lean, even when the resolved target ends in
+  -- .toml. A positive report proves that the root facet was read rather than silently skipped.
+  IO.FS.writeFile lakefile collisionLakefile
+  Regula.Filesystem.replace lakefile (adopter / "configuration.toml")
+  let linkedLean ← runProcess adopter "ln" #["-s", "configuration.toml", "lakefile.lean"]
+  unless linkedLean.succeeded do throw <| IO.userError linkedLean.output
+  failures := failures ++ (← expect adopter { positive with label := "facet-report/lean-symlink" }
+    args)
+  -- Conversely, TOML selected by its relative name has no .olean even when its target is
+  -- extensionless. The completed census is required, so an importer failure cannot pass.
+  let toml := adopter / "toml"
+  BuildLintQualification.setup repo toml "lake-lint-toml" #["Gadget.lean", "Gadget/Double.lean"]
+    "lakefile.toml"
+  Regula.Filesystem.replace (toml / "lakefile.toml") (toml / "configuration")
+  let linkedToml ← runProcess toml "ln" #["-s", "configuration", "lakefile.toml"]
+  unless linkedToml.succeeded do throw <| IO.userError linkedToml.output
+  failures := failures ++ (← expect toml { negative with label := "facet-report/toml-symlink" }
+    args)
+  -- A small configuration fixture supplies Regula's actual shipped facet from a different
+  -- directory under the assigned name checker. Its only module is a copy of the running
+  -- checker's source, so the audit's reserved-source guard can admit it. No second checkout or
+  -- compiler tree is copied, and no package target is built in this control.
+  let elsewhere := adopter / "elsewhere"
+  let otherRegula := adopter / "other-regula"
+  BuildLintQualification.setup repo elsewhere
+  IO.FS.createDirAll (otherRegula / "lean" / "Regula" / "Checker")
+  IO.FS.writeFile (otherRegula / "lean" / "Regula" / "Checker" / "Lake.lean")
+    (← IO.FS.readFile (repo / "lean" / "Regula" / "Checker" / "Lake.lean"))
+  let some shipped := Lake.weakArgsDeclarations (← IO.FS.readFile (repo / "lakefile.lean"))
+    | throw <| IO.userError "facet-report: the shipped facet is unavailable"
+  let otherConfig := "import Lake\nopen Lake DSL\npackage regula\nlean_lib Regula where\n  \
+    srcDir := \"lean\"\n  roots := #[`Regula.Checker.Lake]\n  \
+    globs := #[.one `Regula.Checker.Lake]\n" ++ shipped
+  IO.FS.writeFile (otherRegula / "lakefile.lean") otherConfig
+  let initialized ← runProcess otherRegula "git" #["init", "-q"]
+  unless initialized.succeeded do throw <| IO.userError initialized.output
+  IO.FS.writeFile (elsewhere / "lakefile.lean")
+    (collisionLakefile.replace (toJson repo.toString).compress (toJson otherRegula.toString).compress
+      |>.replace "require regula from" "require checker from")
+  let manifest ← readJson (elsewhere / "lake-manifest.json")
+  writeJson (elsewhere / "lake-manifest.json") <| manifest.setObjVal! "packages" <| toJson #[
+    Json.mkObj [("name", toJson "checker"), ("scope", toJson ""),
+      ("configFile", toJson "lakefile.lean"), ("manifestFile", toJson "lake-manifest.json"),
+      ("inherited", toJson false), ("type", toJson "path"), ("dir", toJson otherRegula.toString)]]
+  -- An intentionally unclassified root library stops after discovery, before any target build.
+  -- This qualifies the supported --project report, not a completed audit of the fixture package.
+  writeJson (elsewhere / "foundation_manifest.json") <| Json.mkObj [
+    ("schema-version", toJson (2 : Nat)), ("surfaces", toJson (#[] : Array Json)),
+    ("excluded-libraries", toJson (#[] : Array Json)),
+    ("excluded-executables", toJson (#[] : Array Json))]
+  let runElsewhere := runProcess repo (repo / ".lake" / "build" / "bin" / "axiomGate").toString
+    #["--incremental", "--project", elsewhere.toString] scrubbedLeanPathEnv
+  let cross := { positive with
+    label := "facet-report/elsewhere", exitCode := Lint.Outcome.configuration.exitCode
+    contains := positive.contains.push "manifest-incomplete" }
+  failures := failures ++ (← assess cross (← runElsewhere))
+  IO.FS.writeFile (otherRegula / "lakefile.lean")
+    (otherConfig.replace "@[«library_facet»] def weakLeanArgsTrace"
+      "@[«library_facet»] def Trace.alternateTrace")
+  let renamed := { cross with
+    label := "facet-report/renamed", contains :=
+      cross.contains.map (·.replace "Regula's 'weakLeanArgsTrace'" "Regula's 'Trace.alternateTrace'") }
+  failures := failures ++ (← assess renamed (← runElsewhere))
   failures := failures ++ (← expect repo { negative with label := "facet-report/dogfood" } args)
   return failures
 

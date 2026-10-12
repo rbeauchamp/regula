@@ -371,18 +371,26 @@ It does not restore the build step.
 `FacetReport.observe` reads each package's compiled configuration through Lake's own importer, attribute inventory and evaluator.
 It reads no lakefile text.
 Each record keeps the package that contributes the declaration, its constant name and its evaluated facet key.
-The running checker's real package directory identifies Regula, even when the workspace gives that dependency a different name.
+Lake's module lookup supplies the package key of the provider of `Regula.Checker.Lake`.
+This identifies Regula in the loaded workspace, including a dependency at a different directory or with a different assigned name.
+The audit's module-provider and reserved-source guards check that provider.
+The facet observer alone does not authenticate its source.
+
+The shared reader `LakeConfig.language` uses the selected `relConfigFile`, as Lake does, rather than the resolved symlink target.
+The facet report, plain-shape guard, library-facet count and setup observer use this reader.
+`language_ok_iff` proves its exact correspondence to the supported extensions of the supplied relative path.
 
 `FacetReport.replacementDecision` decides `Replaced` on these records.
 `mem_replaced_iff` proves that the report's selection contains exactly the records for which this proposition holds.
 The proposition requires the last root `extraDep` record and Regula's declaration of that key from a dependency.
 The theorem is about supplied records.
-It trusts Lake's insertion order, compiled configuration and runtime evaluation, plus stable files and the checker's package location.
+The observation trusts Lake's insertion order, compiled configuration, runtime evaluation and module lookup, plus stable files during the read.
 A later dependency can replace Regula's facet also, so the report does not identify the final facet.
 
-The `facet-report` controls run in `diagnostics lint-driver 1/5`, through `lake lint -- --explain-config`.
+The `facet-report` controls run in `diagnostics lint-driver 1/5`, through `lake lint -- --explain-config` and `axiomGate --incremental --project`.
 They report a named root facet and leave a text-only decoy and a different facet key unreported.
-They also check Regula's own root configuration.
+They also check symlinked configuration files, a Regula dependency at a different directory, a renamed facet declaration and Regula's own root configuration.
+The two audit controls stop after discovery on an incomplete fixture manifest, before any target build.
 The negative controls require the completed census line, so absence of a report alone cannot pass them.
 These controls observe Lake and process output, not a universal property of the loader.
 

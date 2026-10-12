@@ -376,9 +376,7 @@ def surfaceInventoryOf (repo : FilePath) (ws : _root_.Lake.Workspace) : IO Surfa
 the project at `repo`. -/
 def surfaceInventory (repo : FilePath) : IO SurfaceInventory :=
   Workspace.withRootWorkspace repo fun ws => do
-    let some checker ← checkerPackageDir
-      | throw <| IO.userError "facet-report: cannot locate the running checker's package"
-    FacetReport.report ws checker
+    FacetReport.report ws
     surfaceInventoryOf repo ws
 
 /-- The inventory (`surfaceInventoryOf`) of the root package of the project at `repo`, which must
@@ -1139,10 +1137,13 @@ through its imports, other than Regula's own `extraDep` facet when the file is t
 `lakefile.lean` (`regulaFacetAdmitted`, with `running` its text). Lake inserts each into the
 workspace's facets in turn (`Workspace.addFacetDecls`), so one named `extraDep` replaces the facet
 that Regula's `lakefile.lean` declares when its package is resolved later. A `lakefile.toml`
-declares none. A configuration file that cannot be read fails. -/
+declares none. A configuration file that cannot be read fails.
+
+Assumes: Lake v4.34.1 selects the language from `relConfigFile`, not the resolved `configFile`
+(`Lake/Load/Package.lean:100`), under `LakeConfig.language`'s assumptions. -/
 def otherLibraryFacets (ws : _root_.Lake.Workspace) (running : Option String)
     (package : _root_.Lake.Package) : IO Nat := do
-  if package.configFile.extension == some "toml" then return 0
+  if (← IO.ofExcept (LakeConfig.language package.relConfigFile)) == .toml then return 0
   let some file := package.configFile.fileName
     | throw <| IO.userError s!"the configuration {package.configFile} names no file"
   let compiled := ws.root.dir / _root_.Lake.defaultLakeDir / "config" / toString package.wsIdx /

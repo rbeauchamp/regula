@@ -1,5 +1,6 @@
 module
 public import Lake.Config.Workspace
+public import Regula.Checker.LakeConfig
 import all Lake.Load.Lean.Elab
 import all Lake.Load.Lean.Eval
 
@@ -31,11 +32,20 @@ structure Declaration where
   facet : Name
   /-- Whether Lake identifies this package as the root. -/
   root : Bool
-  /-- Whether this package's real directory holds the running checker. -/
+  /-- Whether this package has the key of Regula's provider in the loaded workspace. -/
   regula : Bool
   deriving DecidableEq
 
-/-- `candidate` is the last root `extraDep` declaration, and the supplied records include the shipped
+/-- A non-root Regula declaration with the evaluated `extraDep` key, regardless of its constant
+name. Declaration names are report text, not facet insertion keys. -/
+@[expose] def RegulaExtraDep (entry : Declaration) : Prop :=
+  entry.root = false ∧ entry.regula = true ∧ entry.facet = _root_.Lake.LeanLib.extraDepFacet
+
+instance (entry : Declaration) : Decidable (RegulaExtraDep entry) := by
+  unfold RegulaExtraDep
+  infer_instance
+
+/-- `candidate` is the last root `extraDep` declaration, and the supplied records include a
 declaration of that facet from a non-root Regula package. Under Lake's root-before-dependencies
 insertion order, Regula replaces the root facet, even if a later dependency replaces Regula's.
 This proposition says nothing about the final facet or the behavior of the displaced job. -/
@@ -44,8 +54,7 @@ def Replaced (declarations : Array Declaration) (candidate : Declaration) : Prop
     candidate.facet = _root_.Lake.LeanLib.extraDepFacet ∧
     (∀ other ∈ declarations, other.root = true → other.facet = candidate.facet →
       other.ordinal ≤ candidate.ordinal) ∧
-    ∃ replacing ∈ declarations, replacing.root = false ∧ replacing.regula = true ∧
-      replacing.declaration = regulaFacetName ∧ replacing.facet = candidate.facet
+    ∃ replacing ∈ declarations, RegulaExtraDep replacing
 
 /-- The one decision of `Replaced`, computed from the finite supplied records. -/
 def replacementDecision (declarations : Array Declaration) (candidate : Declaration) :
@@ -78,20 +87,21 @@ Assumes:
   `LibraryFacetDecl` (`Lake/Load/Lean/Eval.lean:181-192`).
 - Lake v4.34.1 loads no facet declaration from TOML (`Lake/Load/Toml.lean:483-502` and
   `Lake/Config/LakefileConfig.lean:28`).
+- Lake v4.34.1 selects the language from `relConfigFile`, not the resolved `configFile`
+  (`Lake/Load/Package.lean:100`), under `LakeConfig.language`'s assumptions.
 - The loaded files and package directories stay unchanged during this read: trusted filesystem
   and process boundary; this observer does not lock out other processes.
-- The running checker's real package directory identifies Regula: trusted executable-location
-  boundary (`Regula.Checker.Lake.checkerPackageDir`). -/
-def packageDeclarations (ws : _root_.Lake.Workspace) (checker : FilePath)
+- `regulaPackage` identifies Regula's provider in this workspace, under `observe`'s assumptions. -/
+def packageDeclarations (ws : _root_.Lake.Workspace) (regulaPackage : Option Name)
     (package : _root_.Lake.Package) : IO (Array Declaration) := do
-  if package.configFile.extension == some "toml" then return #[]
+  if (← IO.ofExcept (LakeConfig.language package.relConfigFile)) == .toml then return #[]
   let some file := package.configFile.fileName
     | throw <| IO.userError s!"facet-report: configuration {package.configFile} names no file"
   let config : _root_.Lake.LoadConfig :=
     { lakeEnv := ws.lakeEnv, wsDir := ws.dir, pkgIdx := package.wsIdx }
   let compiled := config.configDir / (FilePath.mk file).withExtension "olean"
   let env ← _root_.Lake.importConfigFileCore compiled {}
-  let regula := (← IO.FS.realPath package.dir) == checker
+  let regula := regulaPackage == some package.keyName
   _root_.Lake.libraryFacetAttr.getAllEntries env |>.mapIdxM fun ordinal name => do
     let facet ← IO.ofExcept <| _root_.Lake.evalConstCheck env {} _root_.Lake.LibraryFacetDecl name
     return {
@@ -106,21 +116,30 @@ Assumes:
   dependency's (`Lake/Load/Resolve.lean:69-74`); insertion overwrites the same facet key
   (`Lake/Config/FacetConfig.lean:43-45`).
 - Each package's compiled configuration has the entries read by `packageDeclarations`, under
-  that observer's assumptions. -/
-def observe (ws : _root_.Lake.Workspace) (checker : FilePath) : IO (Array Declaration) := do
-  return (← ws.packages.mapM (packageDeclarations ws (← IO.FS.realPath checker))).flatten
+  that observer's assumptions.
+- Lake v4.34.1's `Workspace.findModule?` gives the package key of the provider of
+  `Regula.Checker.Lake` (`Lake/Config/Workspace.lean:279-280`, `Lake/Config/Module.lean:41-59`).
+  This module identifies Regula under the audit's module-provider and reserved-source guards.
+  The configuration query alone does not authenticate that provider's source. -/
+def observe (ws : _root_.Lake.Workspace) : IO (Array Declaration) := do
+  let regulaPackage := (ws.findModule? `Regula.Checker.Lake).map (·.pkg.keyName)
+  return (← ws.packages.mapM (packageDeclarations ws regulaPackage)).flatten
 
 /-- Print the decision's completed census and each replaced declaration, its consequence and
 remedy. This is an advisory about the build configuration; it changes no audit exit class and
 does not restore a displaced build step. Lake loading must have completed first. -/
-def report (ws : _root_.Lake.Workspace) (checker : FilePath) : IO Unit := do
-  let declarations ← observe ws checker
+def report (ws : _root_.Lake.Workspace) : IO Unit := do
+  let declarations ← observe ws
   let collisions := replaced declarations
+  let replacing := declarations.toList.reverse.find? fun entry => decide (RegulaExtraDep entry)
   IO.eprintln s!"regula facet report: checked {declarations.size} loaded library facet \
     declarations; {collisions.size} root extraDep declarations replaced by Regula"
   for entry in collisions do
+    let some replacing := replacing
+      | throw <| IO.userError "facet-report: replacement selection has no supplying declaration"
     IO.eprintln s!"regula facet report: root package '{entry.package}' library facet \
-      '{entry.declaration}' (extraDep) is replaced by Regula's '{regulaFacetName}'. \
+      '{entry.declaration}' (extraDep) is replaced by Regula's '{replacing.declaration}' \
+      from package '{replacing.package}'. \
       Its build step does not run. Move that work to extraDepTargets or needs, \
       which Lake's own extraDep facet runs."
 
