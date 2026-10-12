@@ -2129,8 +2129,9 @@ of `docs/` and on the Verso sources of the standard. It compiles each fence that
   that is not in the second. `checked_checkTable` registers the kind `Regula.Decides` against
   `Admission.TableWithin`.
 - **The observing pass** is the rest of `validate`. It computes the replay set (`replaySet`) and
-  the reported modules, imports the replay base and replays the copies (`replayMap`). It computes
-  the axioms of the owned declarations, gives a failure of a decision its text and catches the
+  the reported modules, imports the replay base and replays the copies (`replayMap`). When a copy
+  is shared, it computes `offerable` with `ownedUniform` over `duplicatesIn` of the audited
+  environment. It computes the axioms of the owned declarations, gives a failure of a decision its text and catches the
   exceptions of the replay.
 
 The import of the replay base runs before the handler of `validate`, as before this split. Thus an
@@ -2175,6 +2176,9 @@ items:
 - That `shared` names the copies of a name that the base or a different replayed module also
   declares. The pass computes it from the base and from `nameCounts`, and that step is read from
   the code.
+- That `offerable` is the decision of the pass. When a copy is shared, the pass computes it with
+  `ownedUniform` over `duplicatesIn` of the audited environment and `ownedModules`. Otherwise it
+  accepts each name. These steps are read from the code.
 - The text of a failure.
 
 **The verdicts are the same.** No theorem compares the producer before this split with the
@@ -2871,10 +2875,10 @@ inferred from any pure proof.
     stricter key can only miss more often.
 
   Thus no decision of the kernel uses a part that `Expr.eqv` ignores. Reuse changes no input of the
-  other checks of Regula, because these checks read the audited environment. The audited
-  environment is the same if a module is replayed or reused. The reuse set goes only to
-  `Admission.validate`, from the `Admission.reusedModules` call in `Regula.Checker.Environment`.
-  The declaration report gets
+  other checks of Regula, because these checks read the audited environment and the axiom and
+  assumption tables of `validate`. As the text below shows, these inputs are the same if a module
+  is replayed or reused. The reuse set goes only to `Admission.validate`, from the
+  `Admission.reusedModules` call in `Regula.Checker.Environment`. The declaration report gets
   `admission.modules ++ admission.reused`, which is the same set if a module is replayed or reused.
   In `validate`, reuse changes only the copies that `replayMap` gives to the kernel and the copies
   that the replay base holds.
