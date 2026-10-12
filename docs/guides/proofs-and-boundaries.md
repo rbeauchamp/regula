@@ -4627,7 +4627,7 @@ The shards of a partition list the same controls because they run the same sourc
 theorem states. The first structural shard holds `self-hosted-positive` alone. The other four hold
 the chain `self-hosted` and the clusters cut from `a`, `b`, `c` and `d`. They also hold the
 frozen-artifact, cross-surface decision, library cycle, driver copy, retained build and manifest
-controls. The retained build control is in shard `2/5`, because the baseline of that shard builds
+controls. The retained build control is in shard `4/5`, because the baseline of that shard builds
 `docFenceAudit`.
 
 The execution shards divide the correspondence clusters and the compiler-path cases. A shard's PASS

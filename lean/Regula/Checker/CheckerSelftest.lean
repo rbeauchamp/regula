@@ -3672,7 +3672,7 @@ private unsafe def runStructural (layout : SourceLayout) (repo : FilePath) (jobs
               crossSurfaceDecisionControl true repo),
             (structuralShard 1, StructuralGroup.driverCopy, "driver copy control",
               driverCopyControl repo),
-            (structuralShard 1, StructuralGroup.retainedBuild, "retained build control",
+            (structuralShard 3, StructuralGroup.retainedBuild, "retained build control",
               retainedBuildControl repo),
             (structuralShard 1, StructuralGroup.crossSurface, "cross-surface decision control",
               crossSurfaceDecisionControl false repo),
