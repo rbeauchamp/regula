@@ -27,7 +27,8 @@ def Satisfied (checks : List Check) : Prop :=
   ∀ check ∈ checks, check.holds = true
 
 -- Realized here, once, for every module that unfolds `Satisfied`: two modules that each realized
--- it would each hold a copy, and the audit reuses a module only when its constants are its own.
+-- it would each hold a copy, which `qualify unique-constants` refuses where one environment loads
+-- both.
 section
 attribute [local simp] Satisfied.eq_1
 end

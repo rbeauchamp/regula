@@ -46,7 +46,8 @@ def Named (n : Lean.Name) : Prop := n ≠ .anonymous
 instance (n : Lean.Name) : Decidable (Named n) := inferInstanceAs (Decidable (n ≠ .anonymous))
 
 -- Realized here, once, for every module that unfolds `Named`: two modules that each realized it
--- would each hold a copy, and the audit reuses a module only when its constants are its own.
+-- would each hold a copy, which `qualify unique-constants` refuses where one environment loads
+-- both.
 section
 attribute [local simp] Named.eq_1
 end
