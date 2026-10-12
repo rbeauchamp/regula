@@ -889,11 +889,13 @@ theorem MemoInv.transfer {find₁ find₂ : Name → Option ConstantInfo}
 /-- `cached` with the entry of `table` for each name of the forward search `forward` that
 `imported` accepts and that reaches, along the search, only names `imported` accepts: those that
 the one search back along the recorded edges from all the names `imported` refuses does not reach.
-`cached` itself when that search runs out of `fuel`. -/
+`cached` itself when that search runs out of `fuel`. The names before each name are computed once,
+not once for each name the search back expands. -/
 def remember (imported : Name → Bool) (fuel : Nat)
     (forward : Std.HashSet Name × List (Name × Array Name))
     (table cached : Std.HashMap Name (Array Name)) : Std.HashMap Name (Array Name) :=
-  match search (fun y => ((predecessors forward.2).getD y []).toArray) fuel
+  let preds := predecessors forward.2
+  match search (fun y => (preds.getD y []).toArray) fuel
       (forward.1.toList.filter fun m => !imported m) with
   | some outside =>
     (forward.1.toList.filterMap fun n =>
@@ -949,6 +951,7 @@ theorem remember_inv {find : Name → Option ConstantInfo} {imported : Name → 
     simp only [back, List.mem_toArray, mem_predecessors]
     exact ⟨e, he, rfl, (edgeOK e he) ▸ hy⟩
   unfold remember
+  dsimp only
   split
   · rename_i outside ho
     obtain ⟨found, -⟩ := search_some ho
