@@ -1002,25 +1002,41 @@ writes a record of a different library, `Helper`, in every trace stands for anot
 writes records. After the same ordinary build and removal, `axiomGate --incremental` and the
 `policy` target replay the modules and report them not established in both cases, since a
 dependency declares a library facet other than Regula's (`Lake.onlyRegulaFacets`), and `lake lint`
-keeps the marker, since a package declares a facet, and reports the warning. -/
+keeps the marker, since a package declares a facet, and reports the warning. For the libraries of
+Regula's package, each facet writes exactly the record Regula's own facet writes, with the encoder
+taken from Regula's shipped `lakefile.lean`, so Regula's modules keep their traces and no build of
+the group rebuilds them in the repository's build directory, which other groups read as it runs. -/
 private def weakArgsOverrides (repo adopter : FilePath) : IO (Array String) := do
   let w ← weakArgsSetup repo adopter
+  let shipped ← IO.FS.readFile (repo / "lakefile.lean")
+  let recordMarker := "/-- The record of the weak arguments "
+  let missing := #["lake-lint/weak-args: Regula's lakefile has no weak-arguments record"]
+  let [_, rest] := shipped.splitOn s!"\n{recordMarker}" | return missing
+  let body :: _ :: _ := rest.splitOn "\n@[«library_facet»]" | return missing
+  let encoder := recordMarker ++ body ++ "\n"
   -- A dependency resolved after Regula declares an `extraDep` facet in place of Regula's: Lake's
   -- own (`override`), and one that also writes a record of a library `Helper` of the adopter in
   -- the trace of each library (`forged`). A package that declares a library facet other than
-  -- Regula's leaves every replayed module not established, whatever the traces record.
-  let variants : Array (String × String) := #[
-    ("override", "@[«library_facet»] def lakeExtraDep : LibraryFacetDecl :=\n  \
-      .mk LeanLib.extraDepFacet LeanLib.extraDepFacetConfig\n"),
-    ("forged", "@[«library_facet»] def forgedExtraDep : LibraryFacetDecl :=\n  \
+  -- Regula's leaves every replayed module not established, whatever the traces record. Each writes
+  -- Regula's own record for Regula's libraries, so the shared build of Regula stays up to date.
+  let facet (name other : String) : String :=
+    encoder ++ "\n@[«library_facet»] def " ++ name ++ " : LibraryFacetDecl :=\n  \
       .mk LeanLib.extraDepFacet <| mkFacetJobConfig fun library => do\n    \
       let job ← LeanLib.extraDepFacetConfig.run library\n    \
-      let name := fun (name : Lean.Name) => Lean.Json.arr \
-        (name.components.map (Lean.Json.str ·.getString!)).toArray\n    \
-      let record := (Lean.Json.arr #[.str \"weakLeanArgs\", name library.pkg.baseName,\n      \
-      name `Helper, .arr #[]]).compress\n    \
+      let record? : Option String := if library.pkg.baseName == `regula then\n        \
+        some (weakLeanArgsRecord library.pkg.baseName library.name\n          \
+        library.weakLeanArgs).compress\n      \
+      else " ++ other ++ "\n    \
+      let some record := record? | return job\n    \
       return job.mix <| Job.ofTask <| .pure <| .ok () {\n      \
-      trace := BuildTrace.ofHash (pureHash record) record }\n")]
+      trace := BuildTrace.ofHash (pureHash record) record }\n"
+  let variants : Array (String × String) := #[
+    ("override", facet "lakeExtraDep" "none"),
+    ("forged", facet "forgedExtraDep" "\n        \
+      let name := fun (name : Lean.Name) => Lean.Json.arr \
+        (name.components.map (Lean.Json.str ·.getString!)).toArray\n        \
+      some (Lean.Json.arr #[.str \"weakLeanArgs\", name library.pkg.baseName,\n          \
+      name `Helper, .arr #[]]).compress")]
   let mut failures ← w.requireOverride variants[0]!.2
   for (variant, facet) in variants do
     IO.FS.writeFile (adopter / "override" / "lakefile.lean") (overrideLakefile facet)

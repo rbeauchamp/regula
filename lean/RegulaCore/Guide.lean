@@ -1288,7 +1288,8 @@ def guide : RuleId → Guide
       residuals := [.qualify]
       checklist := ["DECL-01", "BUILD-01", "DOC-01"]
       linkage := "Acceptance side only: an accepted run satisfies `RegulaPolicy.BuildOK`. A \
-        warning-checked Lake build's observation satisfies it exactly when the build exited 0, \
+        Lake build's observation satisfies it exactly when it ran at failure level `warning`, \
+        exited 0, \
         no required job (`Lake.observedFetch`) logged an entry that \
         `Workspace.unparsedCompilerOutput` selects, and, without the audit-build marker, each \
         claimed module replayed from before the run has its own current record \
@@ -1306,7 +1307,7 @@ def guide : RuleId → Guide
         package of the build's workspace (`Workspace.uncachedWorkspace_unreadable`, \
         `uncachedWorkspace_unwritable`); that Lake consults them before each cache access is \
         read from Lake's source. That each \
-        claimed module's trace records an elaboration is checked of the trace file after the \
+        claimed module's trace records an elaboration is checked after the \
         build (`Workspace.elaborationTrace`); that Lake replays the messages such a trace holds \
         is read from Lake's source."
       sources :=

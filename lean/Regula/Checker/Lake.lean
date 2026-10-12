@@ -1319,6 +1319,8 @@ structure CheckedBuild where
   `Build.runObserved` exited 1, when a required job logged an entry at the build's failure level
   or above. -/
   process : ProcessResult
+  /-- The failure level the build ran at (`Build.failLv`). -/
+  failLv : _root_.Lake.LogLevel
   /-- The log of each job that Lake's build monitor judged (`observedFetch`). -/
   jobs : Array JobLog
   /-- Whether the build set Lean options on the root package (`Build.rootOptions`), the audit
@@ -1457,7 +1459,7 @@ def Build.runObserved (build : Build) (repo : FilePath) (targets : Array Target)
     let claimed ← claimed.get
     let earlier ← earlier.get
     let recorded ← recorded.get
-    return { process, jobs, marked, claimed, earlier, recorded }
+    return { process, failLv := build.failLv, jobs, marked, claimed, earlier, recorded }
   let some stdout := String.fromUTF8? (← buffer.get).data
     | observed { exitCode := 1, stdout := "", stderr := "error: build output is not UTF-8" }
   observed { exitCode, stdout, stderr := "" }
