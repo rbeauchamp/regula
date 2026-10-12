@@ -7,6 +7,7 @@ import Regula.Checker.BuildLintQualification
 import Regula.Checker.LintQualification
 import Regula.Checker.Inspection
 import RegulaCore.ScratchCopy
+import Regula.ToolchainProgram
 
 /-!
 # Checker qualification suite
@@ -2808,7 +2809,9 @@ private def freshControlManifest (manifest : Manifest) : Json :=
 /-- Clean-checkout environment controls: each public checker that builds
 project-owned modules must itself build the claimed libraries when the main
 build directory is empty, instead of relying on a prior `lake build`. Each
-control starts from a copied repository with no `.lake/build` at all. -/
+control starts from a copied repository with no `.lake/build` at all. The
+freshChecker control then gives its workspace a `leanchecker` that fails, which an accepted run
+never ran. -/
 private unsafe def fenceEnvironmentQualification (layout : SourceLayout) (repo scratch : FilePath) :
     IO (Array String) := do
   let failures ← IO.mkRef (#[] : Array String)
@@ -2862,6 +2865,25 @@ private unsafe def fenceEnvironmentQualification (layout : SourceLayout) (repo s
       "\nlean_lib FreshControl where\n  globs := #[.submodules `FreshControl]\n")
     let manifest := dir / "foundation_manifest.json"
     writeJson manifest (freshControlManifest (← parsedManifest manifest))
+    -- A counterexample aid at the process boundary: the workspace provides a `leanchecker` in the
+    -- root package's binary directory, which `lake env` puts first on `PATH`. It is a link to the
+    -- toolchain's own `lean` (`Regula.Toolchain.program`), which refuses the `--fresh` option, and
+    -- the control first runs it with the arguments a `leanchecker` gets for each root below and
+    -- requires each run to fail, so an accepted run below did not run it.
+    let failing ← Regula.Toolchain.program "lean"
+    let workspaceBin := dir / ".lake" / "build" / "bin"
+    IO.FS.createDirAll workspaceBin
+    let plantedPath := workspaceBin / "leanchecker"
+    let planted ← runProcess dir "ln" #["-s", failing.toString, plantedPath.toString]
+    if !planted.succeeded then throw <| IO.userError planted.output
+    unless (← IO.FS.realPath plantedPath) == (← IO.FS.realPath failing) do
+      throw <| IO.userError "fence-env/fresh-checker: the planted leanchecker does not resolve \
+        to the toolchain's lean"
+    for root in expected do
+      let refused ← runProcess dir plantedPath.toString #["--fresh", root]
+      if refused.succeeded then
+        throw <| IO.userError s!"fence-env/fresh-checker: the planted leanchecker accepted \
+          --fresh {root}, so it cannot show that freshChecker did not run it"
     let reportPath := dir / "fresh-report.json"
     let result ← runScrubbed dir "freshChecker" #["--json-out", reportPath.toString]
     if !result.succeeded then
@@ -3678,7 +3700,7 @@ private unsafe def runEnvironments (layout : SourceLayout) (repo : FilePath)
   IO.println <| "self-test fence environment: " ++
     (if fenceEnv.isEmpty then "PASS" else "FAIL") ++
     " (clean-checkout doc fences, --file, freshChecker with no prior build on a two-root control \
-      surface)"
+      surface whose workspace provides a failing leanchecker)"
   let surface ← loggedPhase "public surface" <| runBinary repo "axiomGate" #["--incremental"]
   if !surface.succeeded then
     failures.modify (·.push s!"surface/baseline: public incremental gate failed:\n{surface.output}")

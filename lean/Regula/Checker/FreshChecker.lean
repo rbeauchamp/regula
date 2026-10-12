@@ -1,6 +1,7 @@
 import Regula.Checker.Acceptance
 import Regula.Checker.ResultProtocol
 import RegulaCore.Lint
+import Regula.ToolchainProgram
 
 /-!
 # Serialized-environment qualification
@@ -25,7 +26,7 @@ structure ModuleSet where
 
 /-- The claimed modules one fresh `leanchecker` root covers. -/
 structure Coverage where
-  /-- The root module passed to `lake env leanchecker --fresh`. -/
+  /-- The root module passed to the toolchain's `leanchecker --fresh`. -/
   root : String
   /-- The root and its transitive imports that are claimed modules, sorted and without
   duplicates. -/
@@ -310,9 +311,13 @@ private def finishGraph (frozen : FrozenGraph) (build : ProcessResult) (checks :
 /-- Runs the serialized-graph qualification: reads its arguments once, marks every `--json-out`
 destination of that reading incomplete, each on its own, and then refuses arguments that do not
 parse; otherwise it builds the plan, and unless `--plan-only` builds the positive targets, runs
-`lake env leanchecker --fresh` on each root, rechecks the captured inputs and admits the result
-through `RegulaPolicy.finalize`, then writes the JSON result when requested. Returns `1` when the
-build or a check fails and `0` otherwise. -/
+`leanchecker --fresh` on each root, rechecks the captured inputs and admits the result through
+`RegulaPolicy.finalize`, then writes the JSON result when requested. `lake` and `leanchecker` are
+the toolchain's own, run by their paths in its identity-checked installation
+(`Regula.Toolchain.program`), so a program that the workspace's packages put on the `PATH` of
+`lake env` under either name is never run; that `lake` gets the installation as `LEAN_SYSROOT`,
+without `LAKE_OVERRIDE_LEAN`. Returns `1` when the build or a check fails and `0`
+otherwise. -/
 unsafe def run (args : List String) : IO UInt32 := do
   let read := arguments args
   let parsed := parseArgs read {}
@@ -355,11 +360,15 @@ unsafe def run (args : List String) : IO UInt32 := do
       for line in lines do IO.println s!"    {line}"
       return 1
     let frozen ← freezeGraph plan snapshot manifest inventory sources
+    let lake := (← Regula.Toolchain.program "lake").toString
+    let leanchecker := (← Regula.Toolchain.program "leanchecker").toString
+    let env := #[("LEAN_SYSROOT", some (← Regula.Toolchain.sysroot).toString),
+      ("LAKE_OVERRIDE_LEAN", none)]
     for root in plan.roots do
       let covered := (plan.coverage.find? (·.root == root)).map (·.modules) |>.getD #[]
       if options.verbose then
         IO.println s!"fresh root {root}: covers {", ".intercalate covered.toList}"
-      let result ← runProcess repo "lake" #["env", "leanchecker", "--fresh", root]
+      let result ← runProcess repo lake #["env", leanchecker, "--fresh", root] env
       checks := checks.push { root, coveredModules := covered, exitCode := result.exitCode }
       if !result.succeeded then
         let tail := "\n".intercalate (takeLast 20 (outputLines result.output)).toList

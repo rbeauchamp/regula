@@ -9,7 +9,9 @@ This operational collector imports only the selected compiler's Core into a sepa
 environment with extension loading disabled. It never inspects the audited environment
 or changes the global search path. Every resolved Core dependency must come from the
 compiler's own library directory. The preparation driver executes this same source
-with the selected compiler; no compiled Regula dependency is required. -/
+with the selected compiler; no compiled Regula dependency is required. It also names the
+toolchain's installation directory (`toolchainRoot`), accepted only once its `lean` reports a
+given version and commit (`identifiedRoot`). -/
 
 public section
 
@@ -54,5 +56,31 @@ def legacyPresent (library : System.FilePath) : IO Bool := do
   if present == 0 then return false
   if present == expected.size then return true
   throw <| IO.userError "compiler capability: incomplete legacy axiom family"
+
+/-- The installation directory of the Lean toolchain, by its canonical path: `Lean.findSysroot`,
+the value of `LEAN_SYSROOT` when it is set, else the prefix that the `lean` which `PATH` resolves
+prints. A process that Lake starts (`lake exe`, `lake env`, `lake lint`) has `LEAN_SYSROOT` set, so
+for it no program that `PATH` resolves takes part.
+Assumes: Lake sets `LEAN_SYSROOT` for each program it starts to the absolute installation directory
+it detected (`Lake.Env.baseVars`, `Lake/Config/Env.lean:302` of Lean v4.34.1). `identifiedRoot`
+refuses an installation whose `lean` is another compiler. The filesystem's resolution of the path
+is trusted. -/
+def toolchainRoot : IO System.FilePath := do
+  IO.FS.realPath (← Lean.findSysroot)
+
+/-- `toolchainRoot`, accepted only once its `bin/lean`, run by that path without the inherited
+`LEAN_PATH`, `LEAN_SRC_PATH` and `LEAN_SYSROOT`, prints exactly `version` and `commit` on their
+own lines. A program that prints them is taken to be that compiler; process execution and the
+installation's contents are trusted. -/
+def identifiedRoot (version commit : String) : IO System.FilePath := do
+  let root ← toolchainRoot
+  let output ← IO.Process.output {
+    cmd := (root / "bin" / "lean").toString, args := #["--stdin"]
+    env := #[("LEAN_PATH", none), ("LEAN_SRC_PATH", none), ("LEAN_SYSROOT", none)] }
+    (some "#eval IO.println Lean.versionString\n#eval IO.println Lean.githash\n")
+  unless output.exitCode == 0 && output.stdout == s!"{version}\n{commit}\n" do
+    throw <| IO.userError
+      "compiler capability: resolved compiler identity differs from this Regula build"
+  return root
 
 end Regula.CompilerObservation

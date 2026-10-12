@@ -253,6 +253,16 @@ It is the optional serialized-graph claim (§7.9), which ordinary acceptance doe
 and this repository does not make. `./scripts/verify.sh serialized-graph` remains its
 command. Ordinary acceptance's isolated clean build still covers the real claimed surface.
 
+The copy of that control also has a `leanchecker` program in the binary directory of its root
+package. This program is a link to the toolchain's `lean`, and `lake env` puts that directory first
+on `PATH`. The control first runs it as a `leanchecker` of each root and requires each run to fail.
+It accepts a run only if the check of each root passed, thus an accepted run did not start that
+program.
+
+`freshChecker` starts `lake` and `leanchecker` by their paths in the installation directory of the
+toolchain (`Regula.Toolchain.program`). The `lean` of that directory must give the version and the
+commit of the supported compiler.
+
 Omitting `PARTITION` requests the `checkerSelftest` campaign; the `producers`, `history` and
 `rule-examples` campaigns remain separate explicit selections. Each invocation uses the
 same deadline; choose affected checks rather than treating every campaign as a routine
