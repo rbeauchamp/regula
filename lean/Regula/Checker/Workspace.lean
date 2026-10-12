@@ -509,26 +509,30 @@ def messageFileName (pkg : _root_.Lake.Package) (srcFile : System.FilePath) : St
 /-- The source file of the completed `presetup` job of module `module` of package `package` in the
 build `store`, the file that Lake's `leanArts` facet compiles the module from
 (`Module.recBuildLean`, `Lake/Build/Module.lean` lines 1006 to 1009), or none when the store holds
-no such job or the job failed. -/
+no such job or the job failed. The store's job has that facet's data type by unfolding
+`BuildData`, and Lake's `ofFamily` casts it to the presetup result through Lake's facet axiom, so
+no proof of this module rests on that axiom. -/
 def presetupSource? (store : _root_.Lake.BuildStore) (package module : Name) :
     Option System.FilePath :=
-  let key := _root_.Lake.BuildKey.packageModuleFacet package module
-    _root_.Lake.Module.presetupFacet
-  have data : _root_.Lake.BuildData key = _root_.Lake.ModulePreSetup := by
-    unfold _root_.Lake.BuildData; simp [key]
-  (store.get? key).bind fun job => (cast data <$> job.task.get.result?).map (·.srcFile)
+  let job? : Option (_root_.Lake.Job (_root_.Lake.FacetOut _root_.Lake.Module.presetupFacet)) :=
+    store.get? (_root_.Lake.BuildKey.packageModuleFacet package module
+      _root_.Lake.Module.presetupFacet)
+  job?.bind fun job => job.task.get.result?.map fun data =>
+    (_root_.Lake.ofFamily data : _root_.Lake.ModulePreSetup).srcFile
 
 /-- Why the messages of the module that the build key `key` compiles, if any, are not covered by
-`unparsedCompilerOutput_ofSerialMessage`, or none when they are or `key` compiles nothing. A key
-compiles a module when it is the module's `leanArts` job. Its messages are covered when a package of
-`ws` has the key's package name and the file name Lake gives them (`messageFileName`, from the
-module's completed `presetup` result, `presetupSource?`) has no line break. -/
-def sourcePathFailure? (ws : _root_.Lake.Workspace) (store : _root_.Lake.BuildStore)
+`unparsedCompilerOutput_ofSerialMessage`, or none when they are or `key` compiles nothing, with
+`source?` giving the source file of each module's completed `presetup` result (`presetupSource?`
+of the build's store). A key compiles a module when it is the module's `leanArts` job. Its
+messages are covered when a package of `ws` has the key's package name and the file name Lake gives
+them (`messageFileName`, from that source file) has no line break. -/
+def sourcePathFailure? (ws : _root_.Lake.Workspace)
+    (source? : Name → Name → Option System.FilePath)
     (key : _root_.Lake.BuildKey) : Option String :=
   match key with
   | .facet (.packageModule package module) facet =>
     if facet != _root_.Lake.Module.leanArtsFacet then none else
-    match ws.packages.find? (·.keyName == package), presetupSource? store package module with
+    match ws.packages.find? (·.keyName == package), source? package module with
     | none, _ => some s!"no package of the workspace is {package}, which has module {module}, so \
         the file name Lake gives its messages is unknown"
     | _, none => some s!"the build holds no completed presetup of module {module}, so the file \
@@ -540,15 +544,15 @@ def sourcePathFailure? (ws : _root_.Lake.Workspace) (store : _root_.Lake.BuildSt
       else none
   | _ => none
 
-/-- A key of `store` that compiles a module and has no `sourcePathFailure?` names a package of
-`ws` and a completed `presetup` source file from which Lake names the module's messages with no
-line break, the hypothesis of `unparsedCompilerOutput_ofSerialMessage`. -/
-theorem sourcePathFailure?_eq_none {ws : _root_.Lake.Workspace} {store : _root_.Lake.BuildStore}
-    {package module : Name}
-    (h : sourcePathFailure? ws store
+/-- A key that compiles a module and has no `sourcePathFailure?` names a package of `ws` and a
+source file, given by `source?`, from which Lake names the module's messages with no line break,
+the hypothesis of `unparsedCompilerOutput_ofSerialMessage`. -/
+theorem sourcePathFailure?_eq_none {ws : _root_.Lake.Workspace}
+    {source? : Name → Name → Option System.FilePath} {package module : Name}
+    (h : sourcePathFailure? ws source?
       (.facet (.packageModule package module) _root_.Lake.Module.leanArtsFacet) = none) :
     ∃ pkg srcFile, ws.packages.find? (·.keyName == package) = some pkg ∧
-      presetupSource? store package module = some srcFile ∧
+      source? package module = some srcFile ∧
       '\n' ∉ (messageFileName pkg srcFile).toList := by
   simp only [sourcePathFailure?, bne_self_eq_false, Bool.false_eq_true, ite_false] at h
   split at h
@@ -558,16 +562,17 @@ theorem sourcePathFailure?_eq_none {ws : _root_.Lake.Workspace} {store : _root_.
     refine ⟨pkg, srcFile, hPkg, hSrc, fun hBreak => ?_⟩
     simp [hBreak] at h
 
-/-- Each `sourcePathFailure?` of the keys of the build `store` of `ws`. -/
-def lineBreakSourcePaths (ws : _root_.Lake.Workspace) (store : _root_.Lake.BuildStore) :
-    Array String :=
-  store.keys.toArray.filterMap (sourcePathFailure? ws store)
+/-- Each `sourcePathFailure?` of the keys of the build `store` of `ws`, with `source?` the
+`presetupSource?` of `store`. -/
+def lineBreakSourcePaths (ws : _root_.Lake.Workspace) (store : _root_.Lake.BuildStore)
+    (source? : Name → Name → Option System.FilePath) : Array String :=
+  store.keys.toArray.filterMap (sourcePathFailure? ws source?)
 
 /-- `lineBreakSourcePaths` is empty exactly when no key of the store has a `sourcePathFailure?`. -/
 theorem lineBreakSourcePaths_eq_empty_iff (ws : _root_.Lake.Workspace)
-    (store : _root_.Lake.BuildStore) :
-    lineBreakSourcePaths ws store = #[] ↔
-      ∀ key ∈ store.keys, sourcePathFailure? ws store key = none := by
+    (store : _root_.Lake.BuildStore) (source? : Name → Name → Option System.FilePath) :
+    lineBreakSourcePaths ws store source? = #[] ↔
+      ∀ key ∈ store.keys, sourcePathFailure? ws source? key = none := by
   simp [lineBreakSourcePaths]
 
 /-- A trace that records an elaboration is not one that `dropRestoredTraces` removes. -/

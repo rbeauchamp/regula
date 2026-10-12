@@ -1296,7 +1296,8 @@ def observedFetch (ws : _root_.Lake.Workspace) (record : IO.Ref (Array JobLog))
     if let .ok job _ := result then
       discard <| IO.wait job.task
       jobs ← forwardJobs own context.registeredJobs jobs
-    let lineBreaks := Workspace.lineBreakSourcePaths ws (← store.get)
+    let built ← store.get
+    let lineBreaks := Workspace.lineBreakSourcePaths ws built (Workspace.presetupSource? built)
     let addErrors (log : _root_.Lake.Log) := lineBreaks.foldl (init := log) fun log reason =>
       log.push (.error s!"{reason}, so its log cannot tell those messages from other output of \
         the compiler")

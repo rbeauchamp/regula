@@ -3564,7 +3564,10 @@ copy is that step and the documentation step on each run. Before the gate runs, 
 the audit must build fresh in its own copy for a link with no `build` field, for one artifact of
 the build altered, for one file of the project outside `.lake` altered and for the file named `-`
 altered, which `shasum` would read as standard input, and must place the recorded build output when
-every digest matches. Each of those cases must pass the audit. The project has a second library
+every digest matches. Each of those cases must pass the audit. The project declares the
+weak-arguments facet of Regula's shipped `lakefile.lean`, as the repository does, so the recorded
+build's traces record each module's weak arguments and the audit establishes the modules it replays
+from that build. The project has a second library
 that the claimed build does not compile but the recorded build holds, as the first step's
 diagnostic targets are, and a documentation example that must fail because its module has no
 compiled file: the audit stages only the modules of its claimed build. -/
@@ -3574,11 +3577,17 @@ private def retainedBuildControl (repo : FilePath) : IO (Array String) :=
   IO.FS.createDirAll (project / "Solo")
   IO.FS.createDirAll (project / "docs")
   IO.FS.writeFile (project / "lean-toolchain") (← IO.FS.readFile (repo / "lean-toolchain"))
-  IO.FS.writeFile (project / "lakefile.toml") <|
-    "name = \"retained_build_control\"\n[leanOptions]\nautoImplicit = false\n" ++
-      "relaxedAutoImplicit = false\nlinter.missingDocs = true\n" ++
-      "[[lean_lib]]\nname = \"Solo\"\nglobs = [\"Solo.+\"]\n" ++
-      "[[lean_lib]]\nname = \"Extra\"\nglobs = [\"Extra.+\"]\n"
+  -- The weak-arguments facet of Regula's shipped `lakefile.lean`, so the ordinary build records
+  -- each module's weak arguments in its trace, as the first acceptance step's build does.
+  let marker := "\n-- Regula's weak-arguments record."
+  let [_, facet] := (← IO.FS.readFile (repo / "lakefile.lean")).splitOn marker
+    | return #["retained-build/setup: Regula's lakefile has no weak-arguments facet"]
+  IO.FS.writeFile (project / "lakefile.lean") <|
+    "import Lake\nopen Lake DSL\n\npackage retained_build_control where\n" ++
+      "  leanOptions := #[⟨`autoImplicit, false⟩, ⟨`relaxedAutoImplicit, false⟩,\n" ++
+      "    ⟨`linter.missingDocs, true⟩]\n\n" ++
+      "lean_lib Solo where\n  globs := #[.submodules `Solo]\n\n" ++
+      "lean_lib Extra where\n  globs := #[.submodules `Extra]\n" ++ marker ++ facet
   IO.FS.writeFile (Manifest.defaultPath project) <|
     "{\"schema-version\":2,\"surfaces\":[{\"library\":\"Solo\",\"executables\":[]," ++
       "\"claim\":\"standard-logical\",\"execution\":\"report\"," ++

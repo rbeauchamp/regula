@@ -95,7 +95,9 @@ def check : IO Unit := do
       for phase in #["positive", "root-add", "restored"] do
         let fault := phase == "root-add"
         removeFile added
-        if !fault then clearBuild project
+        -- Every phase builds from no output: the project declares no weak-arguments record, so a
+        -- module replayed from the previous phase's build is not established (RG2003).
+        clearBuild project
         requireChecks [⟨"added module starts absent",
           !(← (project / ".lake/build/lib/lean/Example/New.olean").pathExists)⟩]
         removeFile record
