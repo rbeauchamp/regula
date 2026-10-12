@@ -604,7 +604,8 @@ Thus each artifact of the root package that the fences read was compiled from fi
 those of the copy of the fence audit. The first step compiled it in a copy with no
 earlier build output, or this run compiled it against artifacts of those two kinds. After a
 placement, this run compiles in a copy that already holds the placed files. The output of the fence
-audit tells which build placed or compiled them.
+audit tells if it placed the files of the first step. It does not tell which build compiled each
+artifact.
 
 The fence audit checks the link first, before it builds. So if the link is not there or is not
 accepted, the fence audit refuses immediately and builds nothing.

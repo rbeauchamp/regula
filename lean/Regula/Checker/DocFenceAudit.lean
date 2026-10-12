@@ -200,8 +200,8 @@ private def claimedClosure (copy : FilePath) (inventory : Lake.SurfaceInventory)
   return some (closure.map AcceptanceLink.modulePath).eraseDups
 
 /-- Run one documentation fence audit and return its exit code. In an isolated copy of the
-project, which holds no build output, it builds the claimed surfaces; with `--verso` it then builds
-the Verso library there, whose workspace every fence then elaborates in; it compiles every Lean
+project, which holds no build output before any placement, it builds the claimed surfaces; with
+`--verso` it then builds the Verso library there, whose workspace every fence then elaborates in; it compiles every Lean
 fence below the documentation root and, with `--verso`, every `lean` block of the library, then renders the
 library and checks its anchors, checklist rows and rule-ID links. With `--acceptance-link`, it
 first requires the inputs to equal the accepted ones (`AcceptanceLink.require`), so a missing link,
@@ -210,7 +210,8 @@ step's build output of the modules its claimed build compiles (`claimedClosure`)
 its build when `BuildReuse.reuse` accepts the link's record of it. Each compiled artifact of the
 root package that the fences read was compiled from files equal to those of this copy: by that
 step, in a copy that held no earlier build output (`BuildReuse.reuse_iff`), or in this run, against
-artifacts of these two kinds. Its output says which. -/
+artifacts of these two kinds. Its output tells whether that step's build was placed, not which build
+compiled each artifact. -/
 unsafe def run (args : List String) : IO UInt32 := do
   let options ← parseArgs args {}
   if options.help then IO.println usage; return 0
