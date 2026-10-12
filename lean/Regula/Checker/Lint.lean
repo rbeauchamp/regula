@@ -80,7 +80,7 @@ private def explain (repo : FilePath) (options : Options) : IO Outcome := do
   IO.println
       s!"manifest: {manifestPath} \
         ({if options.manifest.isSome then "--manifest" else "project-root default"})"
-  let inventory ← Lake.surfaceInventory repo
+  let inventory ← Lake.surfaceInventory repo (facets := .census)
   let manifest ← Manifest.loadFor manifestPath inventory
   discard <| IO.ofExcept <| Acceptance.surfaceAssignments manifest inventory
   AxiomGate.checkClassification manifest inventory

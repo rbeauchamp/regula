@@ -286,11 +286,14 @@ private structure ProviderInventory where
 exact source from Lake's own elaborated package model. This loads the checked
 project's workspace in-process, so `lakefile.lean` and `lakefile.toml`
 projects share one discovery path and need no custom Lake facets. This is the inventory of the
-loaded workspace `ws` of the project at `repo`. With `reportFacets`, pass the checker-provider
-keys from the source and provider guards to the facet report after those guards pass, before
-validating unrelated source existence. An overridden facet may have generated such a source. -/
+loaded workspace `ws` of the project at `repo`. It prints the facet report that `facets` requests
+(`FacetReport.report`), with the checker-provider keys of the package inventories that completed
+the source guard, when the provider guard passes over those inventories. The report precedes the
+error of the first failed package inventory, which is raised before the provider guard's refusal,
+and the validation of other source existence. An overridden facet may have generated a missing
+source or glob directory. -/
 def surfaceInventoryOf (repo : FilePath) (ws : _root_.Lake.Workspace)
-    (reportFacets : Bool := false) : IO SurfaceInventory := do
+    (facets : FacetReport.Output := .silent) : IO SurfaceInventory := do
     let pkg := ws.root
     -- No path is built from a module name before each name that a package's configuration gives is
     -- a safe module name (`checkModuleNames`); a resolved module is placed by `modulePath?`.
@@ -299,20 +302,23 @@ def surfaceInventoryOf (repo : FilePath) (ws : _root_.Lake.Workspace)
     -- text, whatever package provides them (`checkReservedModules`).
     let checker ← checkerPackageDir
     let rootTree ← gitWorkTree repo
-    let providers ← ws.packages.mapM fun package => do
+    let observed ← ws.packages.mapM fun package => EIO.toIO' (ε := IO.Error) do
       let (targets, own) ← packageModules package
       let providesChecker ← checkReservedModules checker package.baseName.toString own
       let root ← IO.FS.realPath package.dir
       let owned ← if package.isRoot then pure true else ownedDirectory rootTree root
       return ({ package, root, owned, targets, providesChecker } : ProviderInventory)
     -- These are the same actual provider/source observations used for authentication; an empty
-    -- configured glob contributes no checker source. Missing ordinary sources are validated
-    -- below, so they cannot suppress the explanation of an overridden source-generating facet.
-    checkOneProvider (providers.map fun provider =>
-      (provider.package.baseName.toString, provider.owned, provider.targets))
-    if reportFacets then
-      FacetReport.report ws (providers.filterMap fun provider =>
-        if provider.providesChecker then some provider.package.keyName else none)
+    -- configured glob contributes no checker source. A failed package inventory, such as a glob
+    -- over an absent directory, supplies no key; it is raised after the report.
+    let completed := observed.filterMap (·.toOption)
+    let guarded ← (checkOneProvider (completed.map fun provider =>
+      (provider.package.baseName.toString, provider.owned, provider.targets))).toBaseIO
+    if guarded.isOk then
+      FacetReport.report ws (completed.filterMap fun provider =>
+        if provider.providesChecker then some provider.package.keyName else none) facets
+    let providers ← observed.mapM MonadExcept.ofExcept
+    MonadExcept.ofExcept guarded
     let some rootProvider := providers[0]?
       | throw <| IO.userError "lake-query-malformed: workspace has no root provider inventory"
     let leanLibDir := pkg.leanLibDir
@@ -399,10 +405,10 @@ def surfaceInventoryOf (repo : FilePath) (ws : _root_.Lake.Workspace)
     return inventory
 
 /-- The inventory (`surfaceInventoryOf`) of the workspace that Lake loads, with its dependencies, for
-the project at `repo`. -/
-def surfaceInventory (repo : FilePath) : IO SurfaceInventory :=
-  Workspace.withRootWorkspace repo fun ws => do
-    surfaceInventoryOf repo ws (reportFacets := true)
+the project at `repo`, with the facet report that `facets` requests. -/
+def surfaceInventory (repo : FilePath) (facets : FacetReport.Output := .silent) :
+    IO SurfaceInventory :=
+  Workspace.withRootWorkspace repo fun ws => surfaceInventoryOf repo ws facets
 
 /-- The inventory (`surfaceInventoryOf`) of the root package of the project at `repo`, which must
 declare no dependency (`Workspace.withRootPackage`). It is the inventory that `surfaceInventory`
@@ -529,11 +535,12 @@ copy's manifest would not load as the original's load does is given an override
 (`relocateDependencies`). The packages directory is the one the project's manifest records,
 `.lake/packages` by default; a relative one outside the project, such as a nested package's
 `../.lake/packages`, is linked at the same relative place from the copied project, which must lie
-inside `exclude`. -/
-def copyProject (repo target exclude : FilePath) : IO ProjectCopy := do
+inside `exclude`. That load of the project prints the facet report that `facets` requests. -/
+def copyProject (repo target exclude : FilePath)
+    (facets : FacetReport.Output := .silent) : IO ProjectCopy := do
   IO.FS.createDirAll target
   let root ← IO.FS.realPath repo
-  let original ← surfaceInventory repo
+  let original ← surfaceInventory repo facets
   let owned := (original.dependencies.filter (·.owned)).foldl (fun dirs dependency =>
     if dependency.root == root || dirs.contains dependency.root then dirs
     else dirs.push dependency.root) #[]
@@ -1046,7 +1053,7 @@ theorem traceRecords_ownRecord_iff (library : _root_.Lake.LeanLib) (text : Strin
 
 /-- The name of the `extraDep` facet declaration that Regula's own `lakefile.lean` ships, which
 mixes each root library's `weakArgsCaption` into its job's trace. -/
-def regulaFacetName : Name := FacetReport.regulaFacetName
+def regulaFacetName : Name := `weakLeanArgsTrace
 
 /-- The name of the encoder that the facet of Regula's `lakefile.lean` runs to write its record: a
 copy of `weakArgsRecordJson`. The file cannot import Regula's modules, since Lake loads the

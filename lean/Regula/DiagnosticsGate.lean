@@ -89,10 +89,11 @@ def Input.covers : Input → List String → Bool
 
 /-- The paths the campaigns depend on, and the only statement of them: the checker, the rules and
 their examples, the adopter fixtures in `examples/lake-lint-toml` and `examples/build-lint`, the
-application and fixture sources the structural and execution controls mutate, Lake configuration
-and manifests, `scripts/verify.sh` and `scripts/provision.sh` with the files the commands they run
-before a campaign read, the verification, provisioning programs with their decision contracts, the
-workflow and the provisioning action.
+Lake configuration fixtures in `examples/fixtures`, the application and fixture sources the
+structural and execution controls mutate, Lake configuration and manifests, `scripts/verify.sh`
+and `scripts/provision.sh` with the files the commands they run before a campaign read, the
+verification, provisioning programs with their decision contracts, the workflow and the
+provisioning action.
 This module is an input,
 below `lean/Regula`. -/
 def inputs : List Input := [
@@ -115,6 +116,7 @@ def inputs : List Input := [
   .tree ["examples", "rules"],
   .tree ["examples", "lake-lint-toml"],
   .tree ["examples", "build-lint"],
+  .tree ["examples", "fixtures"],
   .file ["lakefile.lean"],
   .file ["lake-manifest.json"],
   .file ["lean-toolchain"],

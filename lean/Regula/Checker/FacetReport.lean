@@ -17,9 +17,6 @@ namespace Regula.Checker.FacetReport
 
 open Lean System
 
-/-- The declaration of the `extraDep` library facet shipped in Regula's configuration. -/
-def regulaFacetName : Name := `weakLeanArgsTrace
-
 /-- One library facet evaluated from a package's loaded configuration. -/
 structure Declaration where
   /-- Lake's assigned package name. -/
@@ -118,23 +115,39 @@ Assumes:
 - Each package's compiled configuration has the entries read by `packageDeclarations`, under
   that observer's assumptions.
 - `regulaPackages` come from `Lake.checkReservedModules` over the actual source inventory of
-  `Lake.packageModules`, after `Lake.checkOneProvider` passes. Each provides
-  `Regula.Checker.Lake` with the running checker's source text. This is the audit's existing
+  `Lake.packageModules`, after `Lake.checkOneProvider` passes over every package inventory that
+  completed. Each provides `Regula.Checker.Lake` with the running checker's source text. A
+  package whose inventory failed supplies no key. This is the audit's existing
   trusted source-authentication boundary, not an independent glob lookup or an assertion about
   the configured facet's job. All authenticated providers are retained; the existing provider
   guard permits duplicate providers among trusted packages. -/
 def observe (ws : _root_.Lake.Workspace) (regulaPackages : Array Name) : IO (Array Declaration) := do
   return (← ws.packages.mapM (packageDeclarations ws regulaPackages)).flatten
 
-/-- Print the decision's completed census and each replaced declaration, its consequence and
-remedy. This is an advisory about the build configuration; it changes no audit exit class and
-does not restore an overridden configuration. Lake loading must have completed first. -/
-def report (ws : _root_.Lake.Workspace) (regulaPackages : Array Name) : IO Unit := do
+/-- What an inventory of the workspace prints of the facet report. Only the documented entry
+points request a report, each from one inventory, so a process prints it once. -/
+inductive Output where
+  /-- Nothing: every internal consumer of an inventory. -/
+  | silent
+  /-- Each replaced declaration: the project audit, which `lake lint` also runs. -/
+  | replaced
+  /-- The completed census too: the `--explain-config` path. -/
+  | census
+  deriving DecidableEq
+
+/-- Print each replaced declaration, its consequence and remedy, as `output` requests, and with
+`census` first the decision's completed census. This is an advisory about the build
+configuration; it changes no audit exit class and does not restore an overridden configuration.
+Lake loading must have completed first. -/
+def report (ws : _root_.Lake.Workspace) (regulaPackages : Array Name) (output : Output) :
+    IO Unit := do
+  if output = .silent then return
   let declarations ← observe ws regulaPackages
   let collisions := replaced declarations
   let replacing := declarations.toList.reverse.find? fun entry => decide (RegulaExtraDep entry)
-  IO.eprintln s!"regula facet report: checked {declarations.size} loaded library facet \
-    declarations; {collisions.size} root extraDep declarations replaced by Regula"
+  if output = .census then
+    IO.eprintln s!"regula facet report: checked {declarations.size} loaded library facet \
+      declarations; {collisions.size} root extraDep declarations replaced by Regula"
   for entry in collisions do
     let some replacing := replacing
       | throw <| IO.userError "facet-report: replacement selection has no supplying declaration"
