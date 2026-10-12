@@ -124,8 +124,8 @@ private def prepareVerso (repo copy : FilePath) (verso : VersoPackage)
   unless copied.map (relative package) == original.map (relative versoDir) &&
       original.all linked.contains do
     return some "the isolated copy's Verso sources and package inputs are not the audited ones"
-  let (_, failure) ← timedPhase "Verso documentation build" <|
-    Lake.buildCheckedObservation package
+  let failure ← timedPhase "Verso documentation build" <|
+    Lake.buildDocumentation package
       #[.library (Manifest.targetSpelling verso.library), .executable verso.render] "fresh"
   if let some lines := failure then return some ("\n".intercalate lines.toList)
   return none

@@ -722,27 +722,31 @@ of its own in its encoder (`lakefileEncoderName`), which Lean's compiler special
 def specializationCache : String :=
   "_private.Lean.Compiler.LCNF.Specialize.0.Lean.Compiler.LCNF.Specialize.specCacheExt"
 
-/-- The reading of a configuration with Regula's own facet declaration and its encoder set aside:
-one facet fewer, no `regulaFacetName` or `lakefileEncoderName` declaration, and no entries of
-`Lake.libraryFacetAttr`, of the specialization cache (`specializationCache`) that the encoder's
-compilation fills, or of `Lean.docStringExt`, which holds the encoder's documentation comment.
-Every other facet, declaration and extension is read as before. -/
+/-- The reading of a configuration with Regula's own facet declarations and its encoder set aside:
+two facets fewer, no `regulaFacetName` or `lakefileEncoderName` declaration, no declaration
+whose name `observerFacetName` prefixes (the facet and the proof Lean abstracts from its body),
+and no entries of `Lake.libraryFacetAttr`, `Lake.moduleFacetAttr`, of the specialization cache
+(`specializationCache`) that the encoder's compilation fills, or of `Lean.docStringExt`, which
+holds the encoder's documentation comment. Every other facet, declaration and extension is read
+as before. -/
 def ConfigReading.withoutRegulaFacet (reading : ConfigReading) : ConfigReading :=
   { reading with
-    facets := reading.facets.map (· - 1)
+    facets := reading.facets.map (· - 2)
     declarations := reading.declarations.filter fun (name, _) =>
-      name != regulaFacetName && name != lakefileEncoderName
+      name != regulaFacetName && name != lakefileEncoderName && !observerFacetName.isPrefixOf name
     extensions := reading.extensions.filter fun extension =>
-      extension != "Lake.libraryFacetAttr" && extension != specializationCache &&
-        extension != "Lean.docStringExt" }
+      extension != "Lake.libraryFacetAttr" && extension != "Lake.moduleFacetAttr" &&
+        extension != specializationCache && extension != "Lean.docStringExt" }
 
 /-- What Regula reads of the compiled configuration of a package whose configuration file is
 `lakefile.lean` (`ConfigReading`). Lake keeps the compiled file at `.lake/config/<index>/` of the
 workspace and imports its imports through `importModulesUsingCache`, which this reads again. The
 facets are the entries of Lake's three facet attributes in the file and in its imports, which are
 what Lake loaded. The declarations, the extensions and the `inline` entries are the file's own. When the file is
-exactly Regula's own (`regulaFacetAdmitted`), its facet declaration is set aside
-(`ConfigReading.withoutRegulaFacet`): it runs Lake's own `extraDep` facet and adds a trace input.
+exactly Regula's own (`regulaFacetAdmitted`), its facet declarations are set aside
+(`ConfigReading.withoutRegulaFacet`): one runs Lake's own `extraDep` facet and adds a trace input,
+the other runs Lake's own `presetup` facet and adds Regula's elaboration observer, which emits no
+message, to the plugins and its trace to the module's trace.
 An attribute whose scope ends in the file leaves no entry, so its command is counted in the
 file's syntax. -/
 def leanConfigReading (ws : _root_.Lake.Workspace) (package : _root_.Lake.Package) :
@@ -764,7 +768,8 @@ def leanConfigReading (ws : _root_.Lake.Workspace) (package : _root_.Lake.Packag
     | .ok text => pure (some text)
     | .error _ => pure none
   let admitted := regulaFacetAdmitted text (← runningLakefile)
-    (own _root_.Lake.libraryFacetAttr.ext.name) (config.constants.map (·.name))
+    (own _root_.Lake.libraryFacetAttr.ext.name) (own _root_.Lake.moduleFacetAttr.ext.name)
+    (config.constants.map (·.name))
   let reading : ConfigReading := {
     facets := if (_root_.Lake.targetAttr.getAllEntries imported).isEmpty then some facets else none
     functions := defaultFunctionFields config
@@ -905,11 +910,13 @@ def auditRootOptions (ordinary : Bool) (ws : _root_.Lake.Workspace) :
 package, which the `lake build` command line cannot set. The plain shape is a conservative guard
 under the workspace owner's assertion, not a guarantee against a lakefile written to defeat it.
 For that shape the marked build and the unmarked one give the same verdict: a build of `lean_lib`
-and `lean_exe` targets in it runs no custom build step except the one facet the shape admits by
-identity, the `extraDep` facet of the running Regula's own `lakefile.lean`
-(`regulaFacetAdmitted`). That facet runs Lake's own `extraDep` facet, which builds each library's
-`extraDepTargets` and `needs`, and adds a trace input that records a library's weak arguments; it
-compiles no module and sets no option. So the build compiles only modules that the root package
+and `lean_exe` targets in it runs no custom build step except the two facets the shape admits by
+identity, those of the running Regula's own `lakefile.lean` (`regulaFacetAdmitted`). The
+`extraDep` facet runs Lake's own, which builds each library's `extraDepTargets` and `needs`, and
+adds a trace input that records a library's weak arguments; it compiles no module and sets no
+option. The `presetup` facet runs Lake's own and adds Regula's elaboration observer to the plugins
+of the root package's modules: it builds that observer's library, which imports only Lean, and the
+observer records, emits no message, and does not read the marker. So the build compiles only modules that the root package
 owns, whose imports the decision read (or modules of other packages, which the root package's
 options do not reach), and Regula's only reader of the marker is loaded in none of them. That no
 project module reads the marker itself is assumed. Without the marker the ordinary build output

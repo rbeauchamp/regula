@@ -2,6 +2,7 @@ import Regula.Checker.Common
 import Regula.Checker.Manifest
 import Regula.Checker.Workspace
 import Regula.Checker.FacetReport
+import Regula.Checker.Observer
 import RegulaCore.EditorPolicy
 import Lake.CLI.Build
 import RegulaCore.CopyConfiguration
@@ -1295,24 +1296,32 @@ def lakefileEncoderAgrees (env : Environment) (config : ModuleData) : Except Str
   unless facet.getUsedConstants.contains lakefileEncoderName do
     throw s!"the facet {regulaFacetName} of Regula's lakefile does not use {lakefileEncoderName}"
 
-/-- Whether a package's compiled configuration holds exactly Regula's own `extraDep` facet
-declaration: the text of its configuration file (`text`) is the text of the `lakefile.lean` of the
-Regula that runs this decision (`running`, `runningLakefile`), that file declares exactly one library
-facet itself (`ownLibraryFacets`), and `regulaFacetName` is among its constants. -/
-def regulaFacetAdmitted (text running : Option String) (ownLibraryFacets : Nat)
+/-- The name of the `presetup` module facet declaration that Regula's own `lakefile.lean` ships,
+which loads Regula's elaboration observer into the elaboration of each module of the root package
+(`Observer.observerPresetup` is the audit's own). -/
+def observerFacetName : Name := `elaborationObserver
+
+/-- Whether a package's compiled configuration holds exactly Regula's own facet declarations: the
+text of its configuration file (`text`) is the text of the `lakefile.lean` of the Regula that runs
+this decision (`running`, `runningLakefile`), that file declares exactly one library facet and one
+module facet itself (`ownLibraryFacets`, `ownModuleFacets`), and `regulaFacetName` and
+`observerFacetName` are among its constants. -/
+def regulaFacetAdmitted (text running : Option String) (ownLibraryFacets ownModuleFacets : Nat)
     (constants : Array Name) : Bool :=
   match text, running with
   | some text, some running =>
-    text == running && ownLibraryFacets == 1 && constants.contains regulaFacetName
+    text == running && ownLibraryFacets == 1 && ownModuleFacets == 1 &&
+      constants.contains regulaFacetName && constants.contains observerFacetName
   | _, _ => false
 
-/-- Regula's facet is admitted exactly when both configuration texts are read and equal, the file
-declares one library facet of its own, and it has a constant named `regulaFacetName`. -/
-theorem regulaFacetAdmitted_iff (text running : Option String) (ownLibraryFacets : Nat)
-    (constants : Array Name) :
-    regulaFacetAdmitted text running ownLibraryFacets constants = true ↔
+/-- Regula's facets are admitted exactly when both configuration texts are read and equal, the
+file declares one library facet and one module facet of its own, and it has constants named
+`regulaFacetName` and `observerFacetName`. -/
+theorem regulaFacetAdmitted_iff (text running : Option String)
+    (ownLibraryFacets ownModuleFacets : Nat) (constants : Array Name) :
+    regulaFacetAdmitted text running ownLibraryFacets ownModuleFacets constants = true ↔
       ∃ source, text = some source ∧ running = some source ∧ ownLibraryFacets = 1 ∧
-        regulaFacetName ∈ constants := by
+        ownModuleFacets = 1 ∧ regulaFacetName ∈ constants ∧ observerFacetName ∈ constants := by
   cases text with
   | none => simp [regulaFacetAdmitted]
   | some source =>
@@ -1322,29 +1331,28 @@ theorem regulaFacetAdmitted_iff (text running : Option String) (ownLibraryFacets
       simp only [regulaFacetAdmitted, Bool.and_eq_true, beq_iff_eq, Array.contains_iff_mem,
         Option.some.injEq]
       constructor
-      · rintro ⟨⟨rfl, h1⟩, h2⟩; exact ⟨_, rfl, rfl, h1, h2⟩
-      · rintro ⟨_, rfl, rfl, h1, h2⟩; exact ⟨⟨rfl, h1⟩, h2⟩
+      · rintro ⟨⟨⟨⟨rfl, h1⟩, h2⟩, h3⟩, h4⟩; exact ⟨_, rfl, rfl, h1, h2, h3, h4⟩
+      · rintro ⟨_, rfl, rfl, h1, h2, h3, h4⟩; exact ⟨⟨⟨⟨rfl, h1⟩, h2⟩, h3⟩, h4⟩
 
 /-- The text of the `lakefile.lean` of the package whose build directory holds the running
-executable, `<package>/.lake/build/bin/<executable>`, or none when it cannot be read. -/
+executable (`Observer.runningPackageDir`), or none when it cannot be read. -/
 def runningLakefile : IO (Option String) := do
-  let app ← IO.FS.realPath (← IO.appPath)
-  let some package := (app.parent.bind (·.parent)).bind (·.parent) |>.bind (·.parent)
-    | return none
+  let some package ← Observer.runningPackageDir | return none
   match ← (IO.FS.readFile (package / "lakefile.lean")).toBaseIO with
   | .ok text => return some text
   | .error _ => return none
 
-/-- The number of library facets that the compiled configuration of `package` declares, itself or
-through its imports, other than Regula's own `extraDep` facet when the file is the running Regula's
-`lakefile.lean` (`regulaFacetAdmitted`, with `running` its text). Lake inserts each into the
-workspace's facets in turn (`Workspace.addFacetDecls`), so one named `extraDep` replaces the facet
-that Regula's `lakefile.lean` declares when its package is resolved later. A `lakefile.toml`
-declares none. A configuration file that cannot be read fails.
+/-- The number of library and module facets that the compiled configuration of `package`
+declares, itself or through its imports, other than Regula's own `extraDep` and `presetup` facets
+when the file is the running Regula's `lakefile.lean` (`regulaFacetAdmitted`, with `running` its
+text). Lake inserts each into the workspace's facets in turn (`Workspace.addFacetDecls`), so one
+named `extraDep` or `presetup` replaces the facet that Regula's `lakefile.lean` declares when its
+package is resolved later, and another module facet can replace a step of each module's build. A
+`lakefile.toml` declares none. A configuration file that cannot be read fails.
 
 Assumes: Lake v4.34.1 selects the language from `relConfigFile`, not the resolved `configFile`
 (`Lake/Load/Package.lean:100`), under `LakeConfig.language`'s assumptions. -/
-def otherLibraryFacets (ws : _root_.Lake.Workspace) (running : Option String)
+def otherFacets (ws : _root_.Lake.Workspace) (running : Option String)
     (package : _root_.Lake.Package) : IO Nat := do
   if (← IO.ofExcept (LakeConfig.language package.relConfigFile)) == .toml then return 0
   let some file := package.configFile.fileName
@@ -1355,18 +1363,22 @@ def otherLibraryFacets (ws : _root_.Lake.Workspace) (running : Option String)
   -- An entry of module names: the import lines of a Lean configuration.
   requireSafeModuleNames s!"the configuration {package.configFile}" (config.imports.map (·.module))
   let imported ← _root_.Lake.importModulesUsingCache config.imports {} 1024
-  let own := ((config.entries.find? (·.1 == _root_.Lake.libraryFacetAttr.ext.name)).map
-    (·.2.size)).getD 0
+  let own (extension : Name) : Nat :=
+    ((config.entries.find? (·.1 == extension)).map (·.2.size)).getD 0
+  let ownLibrary := own _root_.Lake.libraryFacetAttr.ext.name
+  let ownModule := own _root_.Lake.moduleFacetAttr.ext.name
   let text ← match ← (IO.FS.readFile package.configFile).toBaseIO with
     | .ok text => pure (some text)
     | .error _ => pure none
-  let admitted := regulaFacetAdmitted text running own (config.constants.map (·.name))
-  return (_root_.Lake.libraryFacetAttr.getAllEntries imported).size + own -
-    if admitted then 1 else 0
+  let admitted :=
+    regulaFacetAdmitted text running ownLibrary ownModule (config.constants.map (·.name))
+  return (_root_.Lake.libraryFacetAttr.getAllEntries imported).size +
+    (_root_.Lake.moduleFacetAttr.getAllEntries imported).size + ownLibrary + ownModule -
+    if admitted then 2 else 0
 
-/-- Whether no dependency can have replaced the `extraDep` facet of Regula's `lakefile.lean`: no
-package other than the root declares a library facet other than Regula's own
-(`otherLibraryFacets`). Lake inserts the root's facets before those of its dependencies
+/-- Whether no dependency can have replaced a facet of Regula's `lakefile.lean` or a step of a
+module's build: no package other than the root declares a library or module facet other than
+Regula's own (`otherFacets`). Lake inserts the root's facets before those of its dependencies
 (`Lake/Load/Workspace.lean`, line 39), so a facet of the root replaces none that a dependency
 declares. It is in effect only where no dependency declares one, and a record that it writes is
 then the root configuration's own, which the incremental gate trusts as it trusts the traces Lake
@@ -1376,7 +1388,7 @@ def onlyRegulaFacets (ws : _root_.Lake.Workspace) : IO Bool := do
   try
     let running ← runningLakefile
     let dependencies := ws.packages.filter (!·.isRoot)
-    return (← dependencies.mapM (otherLibraryFacets ws running)).all (· == 0)
+    return (← dependencies.mapM (otherFacets ws running)).all (· == 0)
   catch _ => return false
 
 /-- The `extraDep` facet of a library that the workspace configures, `existing` (Lake's own,
@@ -1508,9 +1520,11 @@ returns, so this runs `build` under the same capture (`withLoggedIO`, `Lake/Util
 437) and records that job's log afterwards: the rest of this writes nothing to standard output or
 error, so Lake's capture adds no entry. A module of the build whose messages
 `unparsedCompilerOutput_ofSerialMessage` does not cover (`Workspace.lineBreakSourcePaths`) is
-logged as an error of the job that runs the build, which fails it. -/
+logged as an error of the job that runs the build, which fails it. `onStore` gets the build's
+store once every job of it has completed. -/
 def observedFetch (ws : _root_.Lake.Workspace) (record : IO.Ref (Array JobLog))
-    (build : _root_.Lake.FetchM (_root_.Lake.Job Unit)) :
+    (build : _root_.Lake.FetchM (_root_.Lake.Job Unit))
+    (onStore : _root_.Lake.BuildStore → BaseIO Unit := fun _ => pure ()) :
     _root_.Lake.FetchM (_root_.Lake.Job Unit) :=
   _root_.Lake.FetchM.ofFn fun fetch pkg? stack store context log => do
     let own ← IO.mkRef #[]
@@ -1521,6 +1535,7 @@ def observedFetch (ws : _root_.Lake.Workspace) (record : IO.Ref (Array JobLog))
       discard <| IO.wait job.task
       jobs ← forwardJobs own context.registeredJobs jobs
     let built ← store.get
+    onStore built
     let lineBreaks := Workspace.lineBreakSourcePaths ws built (Workspace.presetupSource? built)
     let addErrors (log : _root_.Lake.Log) := lineBreaks.foldl (init := log) fun log reason =>
       log.push (.error s!"{reason}, so its log cannot tell those messages from other output of \
@@ -1558,8 +1573,16 @@ structure CheckedBuild where
   earlier : Array Name
   /-- The claimed modules whose trace file, read after the build, records a current record of the
   module's own library among its inputs (`traceRecords_ownRecord_iff`), when no dependency
-  declares a library facet other than Regula's (`onlyRegulaFacets`); none otherwise. -/
+  declares a library or module facet other than Regula's (`onlyRegulaFacets`); none otherwise. -/
   recorded : Array Name := #[]
+  /-- The RG2003 failures of the claimed modules that Regula's elaboration observer recorded, or
+  that it was not loaded for (`Observer.elaborationFailures`), as lines of the build's report;
+  every build decides it. -/
+  observer : Array String := #[]
+  /-- The record that the observer wrote into the `.olean` of each claimed module, read after the
+  build (`Observer.readRecord`), for the decisions that read it beside RG2003, such as RG2006's
+  of the options the source set. -/
+  records : Array (Name × Option RegulaObserver.Record) := #[]
 
 /-- Each entry of a job of `build` that is not optional which Lake can have made from compiler
 output that is not a Lean message (`unparsedOutput`), such as a warning whose line other output
@@ -1570,9 +1593,9 @@ def CheckedBuild.unparsed (build : CheckedBuild) : Array String :=
 /-- The claimed modules of `build` whose RG2003 result is not established: the build has no
 audit-build marker, and it replayed their clean log from an elaboration before the audit whose
 trace does not record the current weak arguments of the module's own library (`reusedModules`),
-or a dependency declares a library facet other than Regula's (`onlyRegulaFacets`). Every
-checked build decides this, whatever reads its output. A build in a fresh copy elaborates each
-claimed module itself, so it has none. -/
+or a dependency declares a library or module facet other than Regula's (`onlyRegulaFacets`).
+Every checked build decides this, whatever reads its output. A build in a fresh copy elaborates
+each claimed module itself, so it has none. -/
 def CheckedBuild.reused (build : CheckedBuild) : Array Name :=
   reusedModules build.marked build.earlier build.recorded build.jobs build.claimed
 
@@ -1611,7 +1634,11 @@ as the working directory, as a `lake build` run there does. Lake's loader sets t
 path (`Lean.searchPathRef`), which the checker's workers inherit. The run restores both, so like a
 child `lake build` it leaves the checker's own state as it was. Both are process-wide, so no other
 task of the process may build or read them while it runs; the checker runs its builds one at a
-time. -/
+time. Every build loads Regula's elaboration observer into the elaboration of each module of the root
+package, from the running Regula (`Observer.observerPlugin`), through a `presetup` facet installed
+over the one the workspace configures (`Observer.observerPresetup`). Every build then reads, for
+each claimed module, whether its completed `presetup` loaded that plugin and the record the plugin
+wrote into its `.olean`, and decides RG2003 on them (`CheckedBuild.observer`). -/
 def Build.runObserved (build : Build) (repo : FilePath) (targets : Array Target)
     (elaborated : Option Elaborated := none) : IO CheckedBuild := do
   let buffer ← IO.mkRef ({} : IO.FS.Stream.Buffer)
@@ -1623,6 +1650,9 @@ def Build.runObserved (build : Build) (repo : FilePath) (targets : Array Target)
   let claimed ← IO.mkRef (#[] : Array Name)
   let earlier ← IO.mkRef (#[] : Array Name)
   let recorded ← IO.mkRef (#[] : Array Name)
+  let observer ← IO.mkRef (#[] : Array String)
+  let records ← IO.mkRef (#[] : Array (Name × Option RegulaObserver.Record))
+  let store ← IO.mkRef (none : Option _root_.Lake.BuildStore)
   let exitCode ← try
       Workspace.withRootWorkspace repo (scrubSearchPath := true) fun loaded => do
         let ws := Workspace.uncachedWorkspace loaded
@@ -1646,8 +1676,9 @@ def Build.runObserved (build : Build) (repo : FilePath) (targets : Array Target)
         claimed.set (modules.map (·.name))
         if let some elaborated := elaborated then earlier.set (← elaborated.get)
         Workspace.dropRestoredTraces ws
-        -- A record counts only when no dependency declares a library facet that can replace
-        -- Regula's `extraDep` facet; the marked build settles replayed logs without one.
+        -- A record counts only when no dependency declares a library or module facet, which can
+        -- replace Regula's `extraDep` or `presetup` facet; the marked build settles replayed
+        -- logs without one.
         let recordsOwn ← if rootOptions.isSome then pure false else onlyRegulaFacets ws
         let (ws, leanOptOverrides) ← match rootOptions with
           | some options =>
@@ -1656,7 +1687,14 @@ def Build.runObserved (build : Build) (repo : FilePath) (targets : Array Target)
             pure (ws.addLibraryFacetConfig (weakArgsExtraDep existing),
               ({} : NameMap LeanOptions).insert ws.root.baseName options)
           | none => pure (ws, {})
-        ws.runBuild (observedFetch ws jobLogs (_root_.Lake.buildSpecs specs)) {
+        -- Every build loads Regula's elaboration observer into the root package's modules, from
+        -- the running Regula, whatever facet the workspace configures.
+        let (plugin, pluginFile, regula?) ← Observer.observerPlugin ws
+        let own (mod : _root_.Lake.Module) :=
+          regula? == some mod.pkg.keyName && mod.lib.name == Observer.observerLibrary
+        let ws := ws.addModuleFacetConfig (Observer.observerPresetup plugin own)
+        let fetch := observedFetch ws jobLogs (_root_.Lake.buildSpecs specs) (fun built => store.set (some built))
+        ws.runBuild fetch {
           out := .stream out, ansiMode := .noAnsi, showSuccess := true, leanOptOverrides,
           failLv := build.failLv }
         for mod in modules do
@@ -1668,6 +1706,16 @@ def Build.runObserved (build : Build) (repo : FilePath) (targets : Array Target)
               so its messages were not observed"
           if recordsOwn && text.any (Workspace.traceRecords (ownRecord mod.lib)) then
             recorded.modify (·.push mod.name)
+        let built ← store.get
+        for mod in modules do
+          let plugins := built.bind fun built =>
+            Observer.presetupPlugins? built mod.pkg.keyName mod.name
+          let loaded ← Observer.pluginLoaded pluginFile plugins
+          let record ← match ← (Observer.readRecord mod.oleanFile).toBaseIO with
+            | .ok record => pure record
+            | .error _ => pure none
+          records.modify (·.push (mod.name, record))
+          observer.modify (· ++ Observer.elaborationFailures mod.name loaded record)
         let jobs ← jobLogs.get
         if let some elaborated := elaborated then
           elaborated.modify (· ++ (modules.map (·.name)).filter (elaboratedIn jobs))
@@ -1684,7 +1732,10 @@ def Build.runObserved (build : Build) (repo : FilePath) (targets : Array Target)
     let claimed ← claimed.get
     let earlier ← earlier.get
     let recorded ← recorded.get
-    return { process, failLv := build.failLv, jobs, marked, claimed, earlier, recorded }
+    let observer ← observer.get
+    let records ← records.get
+    return {
+      process, failLv := build.failLv, jobs, marked, claimed, earlier, recorded, observer, records }
   let some stdout := String.fromUTF8? (← buffer.get).data
     | observed { exitCode := 1, stdout := "", stderr := "error: build output is not UTF-8" }
   observed { exitCode, stdout, stderr := "" }
@@ -1736,37 +1787,34 @@ package resolves to its one source and none imports the marker's reader
 (`AxiomGate.claimedBuild`). -/
 def auditLeanOptions : LeanOptions := .ofArray #[⟨Regula.Linter.auditBuildOption, .ofBool true⟩]
 
-/-- Build the claimed Lake targets and require success with no warnings: the build runs with
-Lake's failure level at `warning`, so it succeeds only when no required job logged a warning or an
-error. Lake gives each message of a module's elaboration the level of its Lean severity
-(`LogLevel.ofMessageSeverity`), so an information message, whatever its text, never fails the
-build. The build is also refused when a job that Lake's build monitor judged holds an entry Lake
-can have made from compiler output that is not a Lean message (`CheckedBuild.unparsed`), since Lake
-logs it as information whatever it held. When the build has no audit-build marker, a claimed
-module whose log it replayed from an elaboration before the audit, under weak arguments that its
-trace does not record (`CheckedBuild.reused`), has no established result, and each such module is
-reported. `elaborated` holds the modules that earlier builds of the same audit elaborated, and
-the build adds its own. The output is read only to report a failure. Returns the diagnostic lines
-to report on failure. -/
-def buildCheckedObservation (repo : FilePath) (targets : Array SurfaceTarget)
-    (mode : String) (build : Build := buildTargets) (elaborated : Option Elaborated := none) :
-    IO (CheckedBuild × Option (Array String)) := do
-  let build ← Build.runObserved { build with failLv := .warning } repo (targets.map .surface)
-    elaborated
+/-- The decision of `buildCheckedObservation` on a build that `Build.runObserved` ran with Lake's
+failure level at `warning`: none when it succeeded with no unparsed output, no reused module and no
+RG2003 failure of Regula's elaboration observer, or the diagnostic lines to report. -/
+def checkedFailure (build : CheckedBuild) (mode : String) : Option (Array String) := Id.run do
   let process := build.process
-  if process.succeeded && build.unparsed.isEmpty && build.reused.isEmpty then
-    return (build, none)
+  if process.succeeded && build.unparsed.isEmpty && build.reused.isEmpty &&
+      build.observer.isEmpty then
+    return none
   if process.succeeded && build.unparsed.isEmpty then
-    return (build, some (#[s!"FAIL[build-reused]: the claimed build {mode} without Regula's \
+    let reused := if build.reused.isEmpty then #[] else
+      #[s!"FAIL[build-reused]: the claimed build {mode} without Regula's \
         audit-build marker reused the log of an elaboration from before this run for each \
         module below, and its trace does not record the current `weakLeanArgs` of the module's \
         library. Lake's own module trace omits them, and only the `extraDep` facet of Regula's \
         `lakefile.lean` records them, so that log can come from weak arguments since removed, \
         and the module's result is not established. A record counts only when no dependency \
-        declares a library facet other than Regula's, since one can replace Regula's. A build \
-        with the marker (`lake lint` without REGULA_ORDINARY_LAKEFILES=1) or a fresh audit \
-        elaborates it again."] ++
-      build.reused.map (s!"not established: {·}")))
+        declares a library or module facet other than Regula's, since one can replace Regula's. \
+        A build with the marker (`lake lint` without REGULA_ORDINARY_LAKEFILES=1) or a fresh \
+        audit elaborates it again."] ++
+      build.reused.map (s!"not established: {·}")
+    let hidden := if build.observer.isEmpty then #[] else
+      #[s!"FAIL[elaboration-hidden]: the claimed build {mode} is not established warning-free \
+        (RG2003): Regula's elaboration observer recorded, in a claimed module, a command that \
+        drops or replaces the messages of the commands it runs, or a warning or error that Lean \
+        keeps out of the build's output, or it did not observe the module's elaboration. \
+        Remove `#guard_msgs` and `#guard_panic` from the claimed modules, and fix what the \
+        silent message reports."] ++ build.observer
+    return some (reused ++ hidden)
   let diagnostics :=
     if !build.unparsed.isEmpty then
       #["the compiler printed output that is not a Lean message, which Lake logs as \
@@ -1779,9 +1827,42 @@ def buildCheckedObservation (repo : FilePath) (targets : Array SurfaceTarget)
     -- that context so public-gate qualification can identify the obligation.
     else if !(errorLines process.output).isEmpty then outputLines process.output
     else takeLast 20 (outputLines process.output)
-  return (build, some
+  return some
       (#[s!"FAIL[build-failed]: positive surface did not build {mode} and warning-free"]
-    ++ diagnostics))
+    ++ diagnostics)
+
+/-- Build the claimed Lake targets and require success with no warnings: the build runs with
+Lake's failure level at `warning`, so it succeeds only when no required job logged a warning or an
+error. Lake gives each message of a module's elaboration the level of its Lean severity
+(`LogLevel.ofMessageSeverity`), so an information message, whatever its text, never fails the
+build. The build is also refused when a job that Lake's build monitor judged holds an entry Lake
+can have made from compiler output that is not a Lean message (`CheckedBuild.unparsed`), since Lake
+logs it as information whatever it held. When the build has no audit-build marker, a claimed
+module whose log it replayed from an elaboration before the audit, under weak arguments that its
+trace does not record (`CheckedBuild.reused`), has no established result, and each such module is
+reported. `elaborated` holds the modules that earlier builds of the same audit elaborated, and
+the build adds its own. A claimed module whose record from Regula's elaboration
+observer fails RG2003, or that the observer did not observe (`CheckedBuild.observer`), fails it too.
+The output is read only to report a failure. Returns the diagnostic lines
+to report on failure. -/
+def buildCheckedObservation (repo : FilePath) (targets : Array SurfaceTarget)
+    (mode : String) (build : Build := buildTargets) (elaborated : Option Elaborated := none) :
+    IO (CheckedBuild × Option (Array String)) := do
+  let build ← Build.runObserved { build with failLv := .warning } repo (targets.map .surface)
+    elaborated
+  return (build, checkedFailure build mode)
+
+/-- Build the targets of a documentation package that is no claimed surface, such as the Verso
+package of Regula's own standard, whose `lean` blocks show Lean's messages with `#guard_msgs`, and
+return the lines to report on failure: the decision of `buildCheckedObservation`, except that the
+RG2003 failures of Regula's elaboration observer are not counted. It returns no `CheckedBuild`, so
+no acceptance observation (`Acceptance.buildObservation`) and no audit decision reads such a
+build: every build of a claimed surface goes through `buildCheckedObservation`. -/
+def buildDocumentation (repo : FilePath) (targets : Array SurfaceTarget) (mode : String) :
+    IO (Option (Array String)) := do
+  let build ← Build.runObserved { buildTargets with failLv := .warning } repo
+    (targets.map .surface)
+  return checkedFailure { build with observer := #[] } mode
 
 /-- Compatibility diagnostic projection. Acceptance callers retain the process observation. -/
 def buildChecked (repo : FilePath) (targets : Array SurfaceTarget)

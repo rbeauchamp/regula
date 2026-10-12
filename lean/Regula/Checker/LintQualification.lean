@@ -723,6 +723,74 @@ private def leanViolation (repo adopter : FilePath) : IO (Array String) := do
     #["--builtin-lint", "Widget"])
   return failures
 
+/-- `lakefile.lean` adopter: Regula's elaboration observer (RG2003, RG2006), in a claimed module,
+with the claim lowered to `standard-logical` so that the macros the controls declare decide no
+foundation finding. What the build's messages do not show is incomplete with
+`FAIL[elaboration-hidden]` at its place: a `#guard_msgs` command, a macro whose expansion is one
+and the macro's own definition, which contains one, a `#guard_panic`, and a silent warning, which
+`run_cmd` logs, so the module imports `Lean.Elab.Command`. Each source form of `set_option` that
+RG2006 does not accept is a violation that names it at the option's name: a command, a command's
+`in`, a term's, a tactic's, and one that a macro of the module writes. A `#guard_msgs` around a
+command with an unused `have` is no control: Lean 4.34.1 elaborates the guarded command with
+`elabCommandTopLevel` (`Lean/Elab/GuardMsgs.lean` line 200), which lints it, since only a command
+that contains `#guard_msgs` goes unlinted (`Lean/Elab/Command.lean` line 868), and the warning
+the docstring does not expect fails the build with an error (`Lean/Elab/GuardMsgs.lean` line
+248). A one-declaration disable of `linter.missingDocs`, a community linter, is accepted, as is
+the restored module. -/
+private def observerEscapes (repo adopter : FilePath) : IO (Array String) := do
+  BuildLintQualification.setup repo adopter
+  let originals ← leanOriginals adopter
+  let additional := adopter / "Widget" / "Additional.lean"
+  let anchor := "end Widget.Additional"
+  -- Each block replaces the module's last line, line 9, so its first command starts there.
+  let write (block : String) : IO Unit := do
+    restore adopter originals
+    mutate (adopter / "foundation_manifest.json") "\"kernel-only\"" "\"standard-logical\""
+    mutate additional anchor (block ++ "\n\n" ++ anchor)
+  let mut failures : Array String := #[]
+  -- The import moves the block down to line 10.
+  write <| "#guard_msgs in\ntheorem guarded : True :=\n  trivial\n\n#guard_panic in\n\
+    #eval (panic! \"control\" : Nat)\n\nrun_cmd Lean.logAt (← Lean.getRef) \"hidden\" \
+    (severity := .warning) (isSilent := true)\n\n\
+    /-- Runs a command under `#guard_msgs`. -/\nmacro \"quiet \" c:command : command =>\n  \
+    `(command| #guard_msgs in $c)\n\nquiet theorem quieted : True := trivial"
+  mutate additional "/-! A configured module" "import Lean.Elab.Command\n/-! A configured module"
+  let guardMsgs := "the command contains `#guard_msgs`"
+  let ran := "ran here, which drops or replaces the messages"
+  failures := failures ++ (← expect adopter {
+      label := "observer/hidden", exitCode := 3,
+      contains := #["FAIL[elaboration-hidden]", "(RG2003)",
+        s!"Widget.Additional:10:0: {guardMsgs}", s!"Widget.Additional:19:0: {guardMsgs}",
+        s!"Widget.Additional:14:0: `Lean.guardPanicCmd` {ran}",
+        s!"Widget.Additional:23:0: `Lean.guardMsgsCmd` {ran}",
+        "Widget.Additional:17:0: a silent warning is here", "regula lint: INCOMPLETE (exit 3)"],
+      excludes := #[s!"regula lint: {acceptanceLabel}", "unobserved", "not observed"] })
+  write <| "set_option autoImplicit true\n\nset_option pp.all true in\n\
+    /-- A control. -/\ntheorem commandIn : True := trivial\n\n\
+    /-- A control. -/\ndef termSet : Nat := set_option pp.all true in 3\n\n\
+    /-- A control. -/\ntheorem tacticSet : True := by\n  set_option pp.all true in trivial\n\n\
+    /-- Sets `autoImplicit` for a command. -/\nmacro \"loose \" c:command : command =>\n  \
+    `(command| set_option autoImplicit true in $c)\n\n\
+    loose theorem loosened : True := trivial"
+  failures := failures ++ (← expect adopter {
+      label := "observer/source-options", exitCode := 1,
+      contains := #["RG2006",
+        "community-configuration: the source sets options that RG2006 does not accept: ",
+        "Widget.Additional:9:11: set_option autoImplicit true",
+        "Widget.Additional:11:11: set_option pp.all true",
+        "Widget.Additional:16:32: set_option pp.all true",
+        "Widget.Additional:20:13: set_option pp.all true",
+        "Widget.Additional:26:0: set_option autoImplicit true, written by a macro of \
+          Widget.Additional",
+        "regula lint: VIOLATION (exit 1)"],
+      excludes := #["FAIL[elaboration-hidden]"] })
+  write <| "-- The control's reason: a declaration the documentation linter may skip.\n\
+    set_option linter.missingDocs false in\ntheorem undocumented : True := trivial"
+  failures := failures ++ (← expect adopter (accepted "observer/community-disable"))
+  restore adopter originals
+  failures := failures ++ (← expect adopter (accepted "observer/restored"))
+  return failures
+
 /-- `lakefile.lean` adopter, the fifth part: the configuration and invocation exit classes, an
 incomplete build, a claimed import outside every library (RG2004) in the driver and the file
 audit, a failed audit worker reported with its own error, and the restored positive. -/
@@ -1145,7 +1213,7 @@ Lake's own `extraDep` facet replaces Regula's, so the trace records no weak argu
 writes a record of a different library, `Helper`, in every trace stands for another facet that
 writes records. After the same ordinary build and removal, `axiomGate --incremental` and the
 `policy` target replay the modules and report them not established in both cases, since a
-dependency declares a library facet other than Regula's (`Lake.onlyRegulaFacets`), and `lake lint`
+dependency declares a facet other than Regula's (`Lake.onlyRegulaFacets`), and `lake lint`
 keeps the marker, since a package declares a facet, and reports the warning. For the libraries of
 Regula's package, each facet writes exactly the record Regula's own facet writes, with the encoder
 taken from Regula's shipped `lakefile.lean`, so Regula's modules keep their traces and no build of
@@ -1160,7 +1228,7 @@ private def weakArgsOverrides (repo adopter : FilePath) : IO (Array String) := d
   let encoder := recordMarker ++ body ++ "\n"
   -- A dependency resolved after Regula declares an `extraDep` facet in place of Regula's: Lake's
   -- own (`override`), and one that also writes a record of a library `Helper` of the adopter in
-  -- the trace of each library (`forged`). A package that declares a library facet other than
+  -- the trace of each library (`forged`). A package that declares a facet other than
   -- Regula's leaves every replayed module not established, whatever the traces record. Each writes
   -- Regula's own record for Regula's libraries, so the shared build of Regula stays up to date.
   let facet (name other : String) : String :=
@@ -1239,7 +1307,7 @@ package as `regula` records weak arguments for its root library and none for the
 package's: Regula's facet decides by Lake's identity of its own package, not by name. When the
 unrelated package's `lakefile.lean` links to a Lean configuration under a name that ends in
 `.toml`, its library facet keeps the marker as a root and counts toward
-`Lake.otherLibraryFacets` as a dependency. -/
+`Lake.otherFacets` as a dependency. -/
 private def weakArgsProbes (probes : Std.Mutex Unit) (repo adopter : FilePath) :
     IO (Array String) := do
   BuildLintQualification.setup repo adopter
@@ -1300,7 +1368,7 @@ private def weakArgsProbes (probes : Std.Mutex Unit) (repo adopter : FilePath) :
   -- External Lake boundary: a `lakefile.lean` that links to a Lean configuration whose name ends
   -- in `.toml`. Lake reads Lean from the relative name (`LakeConfig.language`), so the plain
   -- shape of the root counts its facet, and as a dependency of `renamed` the facet counts toward
-  -- `Lake.otherLibraryFacets`. Read by the target's extension, each would see no facet.
+  -- `Lake.otherFacets`. Read by the target's extension, each would see no facet.
   let otherFacet := "library_facet other : Unit := pure Job.nil\n"
   Regula.Filesystem.replace (fake / "lakefile.lean") (fake / "configuration.toml")
   IO.FS.writeFile (fake / "configuration.toml") (fakeLakefile otherFacet)
@@ -1313,7 +1381,7 @@ private def weakArgsProbes (probes : Std.Mutex Unit) (repo adopter : FilePath) :
         Workspace.withRootWorkspace renamed (scrubSearchPath := true) fun ws => do
           let some package := ws.packages.find? (·.baseName == `regula)
             | return .error "the dependency regula is not loaded"
-          return .ok (← Lake.otherLibraryFacets ws (← Lake.runningLakefile) package)
+          return .ok (← Lake.otherFacets ws (← Lake.runningLakefile) package)
     catch error => pure (.error (toString error))
   match counted with
   | .ok 0 => failures := failures.push "lake-lint/weak-args/lean-symlink-facets: the linked Lean \
@@ -2286,6 +2354,7 @@ private def queuedGroups (probes : Std.Mutex Unit) : List Group :=
     (numbered 4, "toml-live", tomlLive),
     (numbered 2, "lean-refusals", leanRefusals),
     (numbered 0, "lean-violation", leanViolation),
+    (numbered 4, "observer", observerEscapes),
     (numbered 4, "toml-targets", tomlTargets),
     (numbered 2, "cache", cachedWarning),
     (numbered 3, "toml-plain", tomlPlain probes),

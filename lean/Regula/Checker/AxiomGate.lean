@@ -897,6 +897,7 @@ private unsafe def auditSurfaceAt (repo manifestPath : FilePath)
       let mut findings : Array Regula.Finding := #[]
       let mut totalDeclarations := 0
       let mut reportedImports : Std.HashSet (String × String) := {}
+      let mut sourceReported : Std.HashSet Name := {}
       -- Each surface's library entry, with the entries of its executables' environments.
       let mut resultSurfaces : Array (Json × Array Json) := #[]
       -- Every environment's execution account, labeled, for the audit's toolchain trusted base.
@@ -1003,6 +1004,28 @@ private unsafe def auditSurfaceAt (repo manifestPath : FilePath)
             (some surface.claim.toString) .violation
           findings := findings.push ⟨.communityConfiguration, finding⟩
           failures := failures.push s!"community-configuration: {target}"
+        -- RG2006: the options that the source of each module of this environment set, as Regula's
+        -- elaboration observer recorded them in the claimed build, decided by the proved
+        -- `RegulaPolicy.Community.sourceFailures` (`sourceFailures_eq_nil_iff`) under the
+        -- target's options. A module that several environments inspect is decided once, under
+        -- the first. A module without a record fails, since what its source set is unknown.
+        for moduleName in info.modules do
+          if sourceReported.contains moduleName then continue
+          sourceReported := sourceReported.insert moduleName
+          let detail := match buildProcess.records.find? (·.1 == moduleName) with
+            | some (_, some record) =>
+              let failed := RegulaPolicy.Community.sourceFailures options mathlib
+                (Observer.settings record)
+              if failed.isEmpty then none
+              else some (RegulaPolicy.Community.sourceDetail moduleName failed)
+            | _ => some s!"community-configuration: {moduleName} has no record of Regula's \
+                elaboration observer, so the options its source set are unknown"
+          if let some detail := detail then
+            let finding ← IO.ofExcept <| Regula.makeDiagnostic .communityConfiguration
+              ⟨target, detail⟩ (.project reportRoot.toString) mode (some surface.claim.toString)
+              .violation
+            findings := findings.push ⟨.communityConfiguration, finding⟩
+            failures := failures.push s!"community-configuration: {moduleName}"
         for (key, docstring) in documentation.declarations do
           -- The proved classification (`materialDocumentationFailure_eq_none_iff`) of the
           -- recorded docstring decides RG5002 (none attached) or RG5003 (no Intent section).

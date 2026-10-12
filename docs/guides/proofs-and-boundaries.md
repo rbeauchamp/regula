@@ -1138,7 +1138,7 @@ The empty-glob control uses the auditor because the same glob prevents Lake from
 
 The `weak-args-probes` group, also in `diagnostics lint-driver 1/5`, links a `lakefile.lean` to a Lean configuration named `configuration.toml`.
 Its decision probe of the plain shape keeps the marker for the facet of that configuration.
-As a dependency, the same configuration adds its facet to the count of `Lake.otherLibraryFacets`.
+As a dependency, the same configuration adds its facet to the count of `Lake.otherFacets`.
 The `lake-new` group, in `diagnostics lint-driver 4/5`, links the `lakefile.lean` of its Lean project in the same way.
 Then `regula doctor` names `lakefile.lean` and reports the setup complete.
 A decision that used the extension of the resolved target would read TOML in these three controls.
