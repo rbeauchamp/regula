@@ -374,6 +374,8 @@ It reads no lakefile text.
 Each record keeps the package that contributes the declaration, its constant name and its evaluated facet key.
 The audit's source guard returns the keys of packages that provide `Regula.Checker.Lake` with the running checker's source text.
 The report receives those keys after the existing provider guard passes.
+It prints before validation of the other source files.
+Thus a missing source that the overridden facet generated does not suppress the report.
 This includes a dependency at a different directory or with a different assigned name.
 A glob over an empty directory supplies no authenticated source and no key.
 The report uses all authenticated keys, since the provider guard permits duplicate providers among trusted packages.
@@ -395,7 +397,8 @@ The `facet-report` controls run in `diagnostics lint-driver 1/5`, through `lake 
 They report a named root facet and leave a text-only decoy and a different facet key unreported.
 They also check symlinked configuration files, a Regula dependency at a different directory, a renamed facet declaration and Regula's own root configuration.
 Another control reports the root facet when a root glob covers Regula submodules over an empty directory.
-The audit controls stop after discovery on an incomplete fixture manifest, before any target build.
+Three audit controls stop after discovery on an incomplete fixture manifest, before any target build.
+Another audit control names a facet that generates a configured source, then refuses because that source is absent.
 The empty-glob control uses the auditor because the same glob prevents Lake from building its lint driver.
 The negative controls require the completed census line, so absence of a report alone cannot pass them.
 These controls observe Lake and process output, not a universal property of the loader.
