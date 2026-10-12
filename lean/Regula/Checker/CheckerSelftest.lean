@@ -56,7 +56,8 @@ Every partition's controls are divided into its `Partition.shards` shards: those
 partition each carry one of `structuralShards`, those of the execution partition one of
 `executionShards`, the lint-driver control groups one of `LintQualification.shards` and the
 build-policy controls one of `BuildLintQualification.shards`. A fixture of the fixtures and cli
-partitions is in the shard its position in the fixture manifest gives (`fixtureShard`), and each
+partitions is in the shard its position in module-name order gives (`fixtureShard`), the order of
+the sorted manifest `loadFixtureManifest` reads, not the file order of `fixtures.json`, and each
 other control of those two and of the environments partition has a shard of its own choosing.
 `--shard` runs the controls of one, and the shards of a partition together run every control once
 (`shards_cover`, `inShard_cover`).
@@ -203,7 +204,7 @@ private def executionShard (index : Nat) (bound : index < executionShards := by 
     Fin executionShards :=
   ⟨index, bound⟩
 
-/-- The shard of the fixture at `position` in the fixture manifest, of a partition of `shards`
+/-- The shard of the fixture at `position` in module-name order, of a partition of `shards`
 shards that divides the fixtures among them in turn. -/
 private def fixtureShard {shards : Nat} (position : Nat) (positive : 0 < shards := by decide) :
     Fin shards :=
@@ -2736,41 +2737,54 @@ private def freshControlManifest (manifest : Manifest) : Json :=
     ("excluded-executables", excluded "executable" <|
       manifest.surfaces.flatMap (·.executables) ++ manifest.excludedExecutables.map (·.executable))]
 
-/-- Clean-checkout environment controls: each public checker that builds
-project-owned modules must itself build the claimed libraries when the main
-build directory is empty, instead of relying on a prior `lake build`. Each
-control starts from a copied repository with no `.lake/build` at all. The
-freshChecker control then gives its workspace a `leanchecker` that fails, which an accepted run
-never ran. Only the controls `parts` names run: `doc-fences`, `file-mode` and `fresh-checker`
-(`fenceEnvironmentParts`). -/
-private unsafe def fenceEnvironmentQualification (layout : SourceLayout) (repo scratch : FilePath)
-    (parts : List String) : IO (Array String) := do
-  let failures ← IO.mkRef (#[] : Array String)
-  let runScrubbed (dir : FilePath) (name : String) (args : Array String) : IO ProcessResult := do
-    runProcess dir (← toolPath repo name).toString args
-      scrubbedLeanPathEnv
-  let unbuilt (name : String) (action : FilePath → IO Unit) : IO Unit := do
-    unless parts.contains name do return
-    loggedPhase s!"clean-checkout/{name}" do
-      let dir := scratch / name
-      IO.FS.createDirAll dir
-      prepareScratchRepo repo dir
-      if ← (dir / ".lake" / "build").pathExists then
-        failures.modify (·.push s!"fence-env/{name}: setup unexpectedly has a build directory")
-      action dir
-  unbuilt "doc-fences" fun dir => do
+/-- A part of the clean-checkout environment controls (`fenceEnvironmentQualification`). -/
+private inductive FenceEnvironmentPart where
+  /-- A documentation fence that imports an owned module, audited by `docFenceAudit`. -/
+  | docFences
+  /-- `axiomGate --file` on a file that imports the owned library. -/
+  | fileMode
+  /-- `freshChecker` on a two-root control surface whose workspace provides a failing
+  `leanchecker`. -/
+  | freshChecker
+  deriving DecidableEq
+
+/-- Every part of the clean-checkout environment controls. -/
+private def FenceEnvironmentPart.all : List FenceEnvironmentPart :=
+  [docFences, fileMode, freshChecker]
+
+/-- `FenceEnvironmentPart.all` lists every part. -/
+private theorem FenceEnvironmentPart.mem_all (part : FenceEnvironmentPart) :
+    part ∈ FenceEnvironmentPart.all := by
+  cases part <;> decide
+
+/-- The name of a part in its phase, scratch directory and failures. -/
+private def FenceEnvironmentPart.label : FenceEnvironmentPart → String
+  | docFences => "doc-fences"
+  | fileMode => "file-mode"
+  | freshChecker => "fresh-checker"
+
+/-- Run the repository's tool `name` in `dir` with `LEAN_PATH` scrubbed. -/
+private def runScrubbed (repo dir : FilePath) (name : String) (args : Array String) :
+    IO ProcessResult := do
+  runProcess dir (← toolPath repo name).toString args scrubbedLeanPathEnv
+
+/-- The control of `part` in the copied repository `dir`, which has no `.lake/build`, adding each
+failure to `failures`. -/
+private unsafe def fenceEnvironmentControl (layout : SourceLayout) (repo : FilePath)
+    (failures : IO.Ref (Array String)) : FenceEnvironmentPart → FilePath → IO Unit
+  | .docFences, dir => do
     let corpus := dir / "fence-corpus"
     IO.FS.createDirAll corpus
     IO.FS.writeFile (corpus / "owned-import.md")
       "```lean\nimport AuditApp.Limiter\n\ntheorem fence_uses_owned : 1 = 1 := rfl\n```\n"
-    let result ← runScrubbed dir "docFenceAudit"
+    let result ← runScrubbed repo dir "docFenceAudit"
       #["--jobs", "4", "--docs-root", corpus.toString]
     if !result.succeeded || !result.output.contains s!"{Documentation.positiveSummary}=1/1" then
       failures.modify (·.push
         s!"fence-env/doc-fences: fence importing an owned module failed from unbuilt \
           state:\n{result.output}")
-  unbuilt "file-mode" fun dir => do
-    let result ← runScrubbed dir "axiomGate"
+  | .fileMode, dir => do
+    let result ← runScrubbed repo dir "axiomGate"
       #["--file",
           ((dir / layout.relativeDir) / "Fixtures" / "Positive" / "ExternalUse.lean").toString,
         "--claim", "standard-logical"]
@@ -2784,7 +2798,7 @@ private unsafe def fenceEnvironmentQualification (layout : SourceLayout) (repo s
   -- `leanchecker --fresh` on the real claimed graph replays Init and Lean
   -- once per root, which is the separate optional serialized-graph
   -- claim (`scripts/verify.sh serialized-graph`), not a clean-checkout property.
-  unbuilt "fresh-checker" fun dir => do
+  | .freshChecker, dir => do
     let sources := dir / layout.relativeDir
     let expected := freshControlStems.map (s!"FreshControl.{·}")
     IO.FS.createDirAll (sources / "FreshControl")
@@ -2818,7 +2832,7 @@ private unsafe def fenceEnvironmentQualification (layout : SourceLayout) (repo s
         throw <| IO.userError s!"fence-env/fresh-checker: the planted leanchecker accepted \
           --fresh {root}, so it cannot show that freshChecker did not run it"
     let reportPath := dir / "fresh-report.json"
-    let result ← runScrubbed dir "freshChecker" #["--json-out", reportPath.toString]
+    let result ← runScrubbed repo dir "freshChecker" #["--json-out", reportPath.toString]
     if !result.succeeded then
       failures.modify (·.push
         s!"fence-env/fresh-checker: freshChecker failed from unbuilt state:\n{result.output}")
@@ -2847,6 +2861,25 @@ private unsafe def fenceEnvironmentQualification (layout : SourceLayout) (repo s
         failures.modify (·.push
           s!"fence-env/fresh-checker: accepted root checks did not cover \
             exactly {expected}:\n{result.output}")
+
+/-- Clean-checkout environment controls: each public checker that builds
+project-owned modules must itself build the claimed libraries when the main
+build directory is empty, instead of relying on a prior `lake build`. Each
+control starts from a copied repository with no `.lake/build` at all. The
+freshChecker control then gives its workspace a `leanchecker` that fails, which an accepted run
+never ran. Only the parts in `parts` run (`fenceEnvironmentParts`). -/
+private unsafe def fenceEnvironmentQualification (layout : SourceLayout) (repo scratch : FilePath)
+    (parts : List FenceEnvironmentPart) : IO (Array String) := do
+  let failures ← IO.mkRef (#[] : Array String)
+  for part in parts do
+    let name := part.label
+    loggedPhase s!"clean-checkout/{name}" do
+      let dir := scratch / name
+      IO.FS.createDirAll dir
+      prepareScratchRepo repo dir
+      if ← (dir / ".lake" / "build").pathExists then
+        failures.modify (·.push s!"fence-env/{name}: setup unexpectedly has a build directory")
+      fenceEnvironmentControl layout repo failures part dir
   failures.get
 
 private def adopterManifestText : String :=
@@ -2898,6 +2931,31 @@ private def adopterLakeManifest (repo : FilePath) (checkerDir : String) : IO Jso
   ]
   return base.setObjVal! "packages" (Json.arr (#[pathEntry] ++ inherited))
 
+/-- A variant of the external-adopter controls (`adopterQualification`). -/
+private inductive AdopterVariant where
+  /-- A `lakefile.toml` adopter that requires the checker by absolute path. It also runs the
+  unlisted-module and fresh-plan controls. -/
+  | toml
+  /-- A `lakefile.lean` adopter that requires the checker by absolute path. -/
+  | lean
+  /-- A `lakefile.toml` adopter that requires the checker by relative path. -/
+  | relative
+  deriving DecidableEq
+
+/-- Every variant of the external-adopter controls. -/
+private def AdopterVariant.all : List AdopterVariant := [toml, lean, relative]
+
+/-- `AdopterVariant.all` lists every variant. -/
+private theorem AdopterVariant.mem_all (variant : AdopterVariant) :
+    variant ∈ AdopterVariant.all := by
+  cases variant <;> decide
+
+/-- The name of a variant in its scratch directory and failures. -/
+private def AdopterVariant.label : AdopterVariant → String
+  | toml => "toml"
+  | lean => "lean"
+  | relative => "relative"
+
 /-- External adopter qualification: a scratch project that requires the
 checker package by local path in each lakefile format, with one conforming
 library, a standalone `Main` executable root, and empty exclusion arrays. Each
@@ -2907,20 +2965,20 @@ The scratch projects contain nothing named `Audit` or `Fixtures` and share only
 the pinned dependency checkouts. The `relative` variant requires the checker
 by a relative path (the form a project nested inside another repository
 uses), which the §7.3 isolated copy must re-anchor to the original project;
-its setup verifies that the relative path really names this repository. Only the variants named
-in `parts` run. -/
-private unsafe def adopterQualification (repo scratch : FilePath) (parts : List String) :
+its setup verifies that the relative path really names this repository. Only the variants in
+`parts` run (`adopterParts`). -/
+private unsafe def adopterQualification (repo scratch : FilePath) (parts : List AdopterVariant) :
     IO (Array String) := do
   let failures ← IO.mkRef (#[] : Array String)
   let depth := (← IO.FS.realPath scratch).components.length + 1 -
     (← IO.FS.realPath repo).components.length
-  let variants : Array (String × String × String × (String → String)) := #[
-    ("toml", "toml", repo.toString, adopterTomlLakefile),
-    ("lean", "lean", repo.toString, adopterLeanLakefile),
-    ("relative", "toml", "/".intercalate (List.replicate depth ".."), adopterTomlLakefile)
-  ]
-  for (label, format, checkerDir, lakefileText) in variants do
-    unless parts.contains label do continue
+  for variant in parts do
+    let label := variant.label
+    let (format, checkerDir, lakefileText) : String × String × (String → String) :=
+      match variant with
+      | .toml => ("toml", repo.toString, adopterTomlLakefile)
+      | .lean => ("lean", repo.toString, adopterLeanLakefile)
+      | .relative => ("toml", "/".intercalate (List.replicate depth ".."), adopterTomlLakefile)
     let adopter := scratch / label
     IO.FS.createDirAll (adopter / "Widget")
     if !(FilePath.mk checkerDir).isAbsolute then
@@ -2981,7 +3039,7 @@ private unsafe def adopterQualification (repo scratch : FilePath) (parts : List 
       if let some failure := expectedFailure s!"adopter/{label}/rogue-module" (← gate)
           #["project-axiom", "widget_rogue_axiom"] then
         failures.modify (·.push failure)
-    if label == "toml" then
+    if variant == .toml then
       let originalExtra ← IO.FS.readFile (adopter / "Widget" / "Extra.lean")
       let unlistedSource := adopter / "WidgetRogue.lean"
       IO.FS.writeFile unlistedSource "axiom widget_unlisted_axiom : False\n"
@@ -3005,8 +3063,8 @@ private unsafe def adopterQualification (repo scratch : FilePath) (parts : List 
   failures.get
 
 /-- The fixtures a run of a partition of `shards` shards that divides the fixtures among them in
-turn checks: each fixture of the manifest in the shard of its position (`fixtureShard`), every
-fixture without `shard`. -/
+turn checks: each fixture in the shard of its position in `fixtures`, which `loadFixtureManifest`
+sorts by module name (`fixtureShard`), every fixture without `shard`. -/
 private def fixturesOfShard {shards : Nat} (positive : 0 < shards) (shard : Option (Fin shards))
     (fixtures : Array FixtureSpec) : Array FixtureSpec :=
   ((inShard shard (fixtures.toList.mapIdx fun position fixture =>
@@ -3756,15 +3814,26 @@ private def runCli (repo : FilePath) (jobs : Nat) (fullCli : Bool)
 
 /-- The parts of the clean-checkout environment controls (`fenceEnvironmentQualification`), each
 with its shard. -/
-private def fenceEnvironmentParts : List (Fin environmentsShards × String) :=
-  [(environmentsShard 3, "doc-fences"), (environmentsShard 4, "file-mode"),
-    (environmentsShard 3, "fresh-checker")]
+private def fenceEnvironmentParts : List (Fin environmentsShards × FenceEnvironmentPart) :=
+  [(environmentsShard 3, .docFences), (environmentsShard 4, .fileMode),
+    (environmentsShard 3, .freshChecker)]
+
+/-- `fenceEnvironmentParts` gives every part exactly one shard: its parts are
+`FenceEnvironmentPart.all`, in order. -/
+private theorem fenceEnvironmentParts_parts :
+    fenceEnvironmentParts.map (·.2) = FenceEnvironmentPart.all :=
+  rfl
 
 /-- The variants of the external-adopter controls (`adopterQualification`), each with its shard:
 the `lakefile.toml` adopter, which also runs the unlisted-module and fresh-plan controls, in one,
 and the `lakefile.lean` and relative-path adopters in the next. -/
-private def adopterParts : List (Fin environmentsShards × String) :=
-  [(environmentsShard 1, "toml"), (environmentsShard 2, "lean"), (environmentsShard 2, "relative")]
+private def adopterParts : List (Fin environmentsShards × AdopterVariant) :=
+  [(environmentsShard 1, .toml), (environmentsShard 2, .lean), (environmentsShard 2, .relative)]
+
+/-- `adopterParts` gives every variant exactly one shard: its variants are `AdopterVariant.all`, in
+order. -/
+private theorem adopterParts_variants : adopterParts.map (·.2) = AdopterVariant.all :=
+  rfl
 
 /-- Build-bound packaging and fresh-state controls, each retaining its isolated
 source/build directory and exact failure accumulation. With `shard`, each runs in its shard alone:
@@ -3795,17 +3864,17 @@ private unsafe def runEnvironments (layout : SourceLayout) (repo : FilePath)
       for failure in adopter do failures.modify (·.push failure)
       IO.println <| "self-test external adopters: " ++
         (if adopter.isEmpty then "PASS" else "FAIL") ++
-        s!" ({", ".intercalate adopters} adopters: empty exclusions, fresh positive gate, \
-          --project, omitted exe, rogue module; the toml adopter also unlisted-module \
-          contamination and fresh plan)"
+        s!" ({", ".intercalate (adopters.map (·.label))} adopters: empty exclusions, fresh \
+          positive gate, --project, omitted exe, rogue module; the toml adopter also \
+          unlisted-module contamination and fresh plan)"
   let fenceEnv ← IO.ofExcept (← IO.wait fenceEnvTask)
   for failure in fenceEnv do failures.modify (·.push failure)
   unless fenceParts.isEmpty do
     IO.println <| "self-test fence environment: " ++
       (if fenceEnv.isEmpty then "PASS" else "FAIL") ++
-      s!" ({", ".intercalate fenceParts}: clean-checkout doc fences, --file, freshChecker with no \
-        prior build on a two-root control surface whose workspace provides a failing \
-        leanchecker)"
+      s!" ({", ".intercalate (fenceParts.map (·.label))}: clean-checkout doc fences, --file, \
+        freshChecker with no prior build on a two-root control surface whose workspace provides \
+        a failing leanchecker)"
   if runsIn shard (environmentsShard 5) then
     let surface ← loggedPhase "public surface" <| runBinary repo "axiomGate" #["--incremental"]
     if !surface.succeeded then

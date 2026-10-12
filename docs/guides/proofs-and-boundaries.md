@@ -4639,11 +4639,11 @@ controls. The retained build control is in shard `4/5`, because the baseline of 
 
 The execution shards divide the correspondence clusters and the compiler-path cases.
 
-A fixtures or cli shard checks one fixture in five or in six, by its position in the fixture
-manifest. The last shard also runs the other controls of its partition. Each environments shard
-runs controls of its own. The `lakefile.toml` adopter runs in one, and the `lakefile.lean` and
-relative-path adopters in the next. A build-policy shard runs one mutation case in three, and the
-last also runs the disabled-policy control.
+A fixtures or cli shard checks one fixture in five or in six, by its position in module-name
+order, not the file order of `fixtures.json`. The last shard also runs the other controls of its
+partition. Each environments shard runs controls of its own. The `lakefile.toml` adopter runs in
+one, and the `lakefile.lean` and relative-path adopters in the next. A build-policy shard runs
+one mutation case in three, and the last also runs the disabled-policy control.
 
 A PASS of a shard names its shard and is not the PASS of the partition. In the structural,
 execution and lint-driver partitions, it also names the controls or groups that the shard ran.
