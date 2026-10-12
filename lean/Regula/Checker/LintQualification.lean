@@ -190,15 +190,7 @@ private def facetReport (repo adopter : FilePath) : IO (Array String) := do
   -- (v4.34.1, Lake/Config/Glob.lean:55), so the report must precede its missing-source refusal.
   IO.FS.writeFile (otherRegula / "lakefile.lean") otherConfig
   IO.FS.writeFile elsewhereLakefile
-    ((original.replace (toJson repo.toString).compress (toJson otherRegula.toString).compress
-        |>.replace "require regula from" "require checker from") ++ "\n\
-      /-- Generate the explicit source when this prerequisite facet runs. -/\n\
-      @[«library_facet»] def generateSource : LibraryFacetDecl :=\n\
-        .mk LeanLib.extraDepFacet <| mkFacetJobConfig fun (library : LeanLib) => do\n\
-          IO.FS.writeFile (library.pkg.dir / \"Generated.lean\")\n\
-            \"/-- A generated value. -/\\ndef generated : Nat := 0\\n\"\n\
-          pure (Job.nil \"generate source\")\n")
-  mutate elsewhereLakefile "globs := #[.andSubmodules `Widget]" "globs := #[.one `Generated]"
+    (← IO.FS.readFile (repo / "examples" / "fixtures" / "generated-source" / "lakefile.lean"))
   let generated := { positive with
     label := "facet-report/generated-source", exitCode := Lint.Outcome.incomplete.exitCode
     contains := (positive.contains.map (·.replace "adopterPrerequisite" "generateSource")).push
