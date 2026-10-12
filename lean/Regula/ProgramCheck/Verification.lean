@@ -16,9 +16,11 @@ the pair of the declaration that makes it and the primitive that it calls
 - the removals of the ownership marker of a scratch directory, a regular file by a read that
   follows no link, in the loop of `RegulaVerification.reclaim` and in
   `RegulaVerification.Copy.remove`;
-- the moves of the copy's build output to an absent path in `RegulaVerification.Copy.adopt`, and of
-  the pending acceptance record over the record in `RegulaVerification.run`, which no decision of
-  `RegulaCore.Removal` decides.
+- the moves of the copy's build output to an absent path in `RegulaVerification.Copy.adopt`, of
+  the pending acceptance record with its `build` field over the pending record in
+  `RegulaVerification.Copy.recordBuild`, and of the pending record over the record in the body of
+  the `try` of `RegulaVerification.run`, which the compiler makes the declaration
+  `RegulaVerification.run._lam_0`; no decision of `RegulaCore.Removal` decides them.
 
 Issue 389 asks for a decision of each of these removals that a theorem relates to
 `RegulaCore.Removal`. -/
@@ -40,4 +42,5 @@ run_cmd Regula.Removal.checkProgram (named := [
   (reclaimLoop, ``IO.FS.removeFile),
   (`RegulaVerification.Copy.remove, ``IO.FS.removeFile),
   (`RegulaVerification.Copy.adopt, ``IO.FS.rename),
-  (`RegulaVerification.run, ``IO.FS.rename)])
+  (`RegulaVerification.Copy.recordBuild, ``IO.FS.rename),
+  (`RegulaVerification.run._lam_0, ``IO.FS.rename)])
