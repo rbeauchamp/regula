@@ -505,4 +505,14 @@ theorem isOk_eq_true_iff {α : Sort u} {ε : α → Type v} {payload : α → Ty
 
 end Dependent
 
+/- Lean realizes the equation lemma of a definition in the first module that unfolds it, so two
+modules that do not import each other each hold their own copy, and an audit that loads both
+replays one of them again: it reuses a module's admission only when every constant of the
+module is that module's own. These lemmas are realized here, once, for every importer that unfolds
+one of these definitions. -/
+section
+attribute [local simp] Except.toBool.eq_1 Except.toBool.eq_2 Function.uncurry.eq_1
+  Dependent.isSome.eq_1 ExecutableContract.run.eq_1
+end
+
 end Regula
