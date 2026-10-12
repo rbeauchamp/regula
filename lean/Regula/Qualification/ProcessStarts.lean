@@ -101,8 +101,6 @@ def allowed : List Allowed := [
     "the real `axiomGate` beside this proxy, by its path"⟩,
   ⟨"Regula.Qualification.Acceptance", "Regula.Qualification.Acceptance.qualify",
     "the built `axiomGate`, by its path"⟩,
-  ⟨"Regula.Qualification.InputInventory", "Regula.Qualification.InputInventory.worker",
-    "the path in `INVENTORY_LAKE`, which the campaign sets to the toolchain's `lake`"⟩,
   ⟨"Regula.Qualification.ReceiptBoundary", "Regula.Qualification.ReceiptBoundary.check",
     "`/bin/chmod` and this executable, by their paths"⟩,
   ⟨"Regula.Qualification.RuleExamples", "Regula.Qualification.RuleExamples.observe",
