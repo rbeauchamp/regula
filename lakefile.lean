@@ -126,7 +126,7 @@ lean_lib «Regula» where
   -- Lean-only checker implementation. Operational checker modules are
   -- separately qualified; they are not part of the conforming proof surface.
   globs := #[.submodules `Regula]
-  needs := #[`@/compilerObservationSource]
+  needs := #[`@/compilerObservationSource, `@/RegulaObserver:shared]
 
 lean_exe «axiomGate» where
   root := `Regula.Checker.AxiomGateMain
@@ -211,3 +211,34 @@ def weakLeanArgsRecord (packageName libraryName : Lean.Name) (args : Array Strin
       (weakLeanArgsRecord library.pkg.baseName library.name library.weakLeanArgs).compress
     return job.mix <| Job.ofTask <| .pure <| .ok () {
       trace := BuildTrace.ofHash (pureHash record) record }
+
+-- Regula's elaboration observer: a Lean plugin that records in each module's `.olean` what a
+-- build's messages do not show (the options its source set, `#guard_msgs` and `#guard_panic`,
+-- silent messages), from which the audit decides RG2003 and RG2006. Its one root module and the
+-- default library name make it a plugin that Lean can load (`LeanLib.isPlugin`). It imports only
+-- Lean, so no module of it is elaborated with it.
+lean_lib «RegulaObserver» where
+  globs := #[.andSubmodules `RegulaObserver]
+
+-- The facet below wraps Lake's own `presetup` module facet, which decides the plugins Lean loads
+-- while elaborating a module. For each module of the root package, outside this package's
+-- `RegulaObserver` library, it adds the observer's shared library to the plugins and mixes that
+-- library's trace into the module's trace, so a module replayed under that trace was elaborated
+-- with this observer. The package that declares it is found by the key `__name__` that Lake gives
+-- this file in the workspace, whether Regula is the root or a dependency. It replaces a `presetup`
+-- facet that the root package declares, as Lake inserts the root's facets before those of its
+-- dependencies, and the audit reports that replacement. The audit's own builds install the same
+-- facet themselves (`Regula.Checker.Observer.observerPresetup`), whatever this file declares.
+@[«module_facet»] def elaborationObserver : ModuleFacetDecl :=
+  .mk Module.presetupFacet <| mkFacetJobConfig (buildable := false) fun mod => do
+    let job ← Module.presetupFacetConfig.run mod
+    if !mod.pkg.isRoot || (mod.pkg.keyName == __name__ && mod.lib.name == `RegulaObserver) then
+      return job
+    let observer := (← findPackageByKey? __name__).bind (·.findLeanLib? `RegulaObserver)
+    let shared ← observer.elim
+      (error s!"Regula's elaboration observer: no library RegulaObserver of the package {__name__}")
+      (·.shared.fetch)
+    job.bindM (sync := true) fun setup => shared.mapM (sync := true) fun dynlib =>
+      return { setup with
+        plugins := setup.plugins.push dynlib
+        trace := setup.trace.mix (shared.getTrace.withCaption "Regula's elaboration observer") }
