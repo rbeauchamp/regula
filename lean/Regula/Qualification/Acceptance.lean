@@ -86,9 +86,16 @@ private def qualify (group : String) (evidence : FilePath) (receipt : IO.Ref Jso
     let bin := tool / ".lake/build/bin"
     -- checkerPackageDir requires the real .lake/build/lib/lean suffix (Checker/Lake.lean),
     -- and checkerSource/checkReservedModules read matching sources below package/lean.
-    -- Neither requires loading this proxy package's Lake configuration.
+    -- Neither requires loading this proxy package's Lake configuration. The copied gate also
+    -- finds the elaboration observer's library that its build loads in that layout, beside its
+    -- `bin` (`Regula.Checker.Observer.observerFile`).
     let library ← Regula.Filesystem.Construction.capture (root / ".lake/build/lib/lean")
       [".lake", "build", "lib", "lean"]
+    let (observer, _) ← Regula.Checker.Observer.observerFile
+    let some observerName := observer.fileName
+      | throw <| IO.userError s!"the observer library {observer} has no file name"
+    let observerLibrary ← Regula.Filesystem.Construction.capture observer
+      [".lake", "build", "lib", observerName]
     let sources ← Regula.Filesystem.Construction.capture (root / "lean") ["lean"]
     let programs ← #[(executable, "axiomGate-real"), (← IO.appPath, "axiomGate")].toList.flatMapM
       fun (source, name) => do
@@ -97,7 +104,7 @@ private def qualify (group : String) (evidence : FilePath) (receipt : IO.Ref Jso
           | .file bytes _ => {item with payload := .file bytes 493}
           | .directory => item)
     Regula.Filesystem.construct tool
-      (Regula.Filesystem.Construction.layout (library ++ sources ++ programs))
+      (Regula.Filesystem.Construction.layout (library ++ observerLibrary ++ sources ++ programs))
     let mut sources : List (String × Json) := []
     for name in
         #["lean-toolchain", "lakefile.lean", "lake-manifest.json", "foundation_manifest.json",

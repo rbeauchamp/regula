@@ -45,7 +45,9 @@ private def control (project dependency : FilePath) : IO Unit := do
     ⟨"buildable unimported module", observed.sourcePaths.any (·.1 == `Dep.Unimported)⟩]
   let unchanged := Regula.Checker.Snapshot.inputsUnchanged inventory before
   unchanged
-  let snapshot ← IO.ofExcept <| Regula.Checker.Snapshot.make inventory.root #[] #[] before
+  -- The snapshot of `dep` alone: the captured sources of the `regula` dependency hold this
+  -- module, whose text names the marker.
+  let snapshot ← IO.ofExcept <| Regula.Checker.Snapshot.make inventory.root #[] #[] #[observed]
   let marker := "R4_SYNTHETIC_UNRELATED"
   let encoded := (toJson (marker.toUTF8.toList.map UInt8.toNat)).compress
   requireChecks [⟨"unrelated bytes excluded", !snapshot.val.configuration.source.contains marker &&
