@@ -702,12 +702,12 @@ failure for `set_option autoImplicit true`. The decision is over the settings th
 recorded; reading them from the module's `.olean` is the adapter's. -/
 theorem checked_sourceFailures : Regula.ExecutableContract sourceFailures (fun run =>
     Regula.Decides (· = [])
-      (fun input : BuildOptions × Bool × List SourceSetting =>
-        ∀ s ∈ input.2.2, SourceAccepted input.1 input.2.1 s)
-      (fun input => run input.1 input.2.1 input.2.2)) :=
-  ⟨.of_iff (fun input => sourceFailures_eq_nil_iff input.1 input.2.1 input.2.2)
-    ⟨(⟨[], []⟩, false, []), rfl⟩
-    ⟨(⟨[], []⟩, false, [written `autoImplicit (.bool true) .command]), by decide⟩⟩
+      (fun input : (BuildOptions × Bool) × List SourceSetting =>
+        ∀ s ∈ input.2, SourceAccepted input.1.1 input.1.2 s)
+      (Function.uncurry (Function.uncurry run))) :=
+  ⟨.of_iff (fun input => sourceFailures_eq_nil_iff input.1.1 input.1.2 input.2)
+    ⟨((⟨[], []⟩, false), []), rfl⟩
+    ⟨((⟨[], []⟩, false), [written `autoImplicit (.bool true) .command]), by decide⟩⟩
 
 end Community
 

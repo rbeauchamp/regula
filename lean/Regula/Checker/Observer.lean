@@ -189,6 +189,7 @@ def settings (toolchain : Name → Option RegulaPolicy.ToolchainOrigin)
       wrapped := s.wrapped
       origin := s.origin.map (·.«module»)
       toolchain := s.origin.bind (toolchain ·.«module»)
+      builtin := s.origin.any (·.builtin)
       location := location s.position })
 
 /-- The receipt (`Regula.Probe.toolchainOrigin?`) for each module that declares a macro that wrote

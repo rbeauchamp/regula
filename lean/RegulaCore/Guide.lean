@@ -1749,8 +1749,9 @@ def guide : RuleId → Guide
           linter off for it (standard §6.2); before any other command, such as a `section` of \
           several declarations, it is rejected. The second is an option that a macro of Lean's \
           own libraries wrote, such as `smartUnfolding` in `rfl'`, when the audit finds the \
-          macro's module as an `.olean` of the toolchain's library; a project's own module named \
-          `Lean.…` is not one. So the source cannot turn one of Lean's default warnings off, set \
+          macro's module as an `.olean` of the toolchain's library or the macro among the builtins of \
+          the Lean that elaborated the module, such as `match.ignoreUnusedAlts` in `deriving BEq`; \
+          a project's own module named `Lean.…` is not one. So the source cannot turn one of Lean's default warnings off, set \
           `linter.all` or `autoImplicit`, or set a `debug.` or `trace.` option, and an option \
           whose value is not a literal is rejected. The finding names each option with its \
           module, line and column.",

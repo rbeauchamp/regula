@@ -1499,6 +1499,9 @@ The second admission is an option that a macro of Lean's own libraries wrote. Th
 macro's module as an `.olean` of the toolchain's library with `admitToolchainOrigin`, as the probe
 does. Thus a project's own module named `Lean.Adopter` is not one, as `nameOnly_macro_fails`
 states.
+A builtin of the running Lean, such as the `deriving BEq` handler, writes options in a module that
+does not import its module. The observer then finds the elaborator among the builtins that the
+Lean of the build registered (`Lean.builtinDeclRanges`), and the decision admits that origin too.
 
 The observer records the options that Lean's `set_option` elaborator set. Of the builtin commands
 of Lean v4.34.1, only `unlock_limits` also assigns the options of the enclosing scope. It sets three

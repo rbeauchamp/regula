@@ -47,6 +47,11 @@ structure Origin where
   declaration : Name
   /-- The module that declares it. -/
   «module» : Name
+  /-- Whether the environment does not contain the declaration and the running Lean registered it
+  as one of its builtins (`Lean.builtinDeclRanges`): code compiled into the Lean that elaborated
+  the module, such as `Lean.Elab.Command.elabDeclaration`, which runs Lean's own `deriving`
+  handlers, in a module that does not import it. -/
+  builtin : Bool := false
   deriving Inhabited
 
 /-- One option that the module's source set, as Lean elaborated it. -/

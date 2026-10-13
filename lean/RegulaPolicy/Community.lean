@@ -1492,7 +1492,9 @@ default is not `false`, are never community linters, and neither are `linter.all
 `linter.mathlibStandardSet`, which switch many linters at once. An option that a macro of the
 pinned toolchain wrote, such as `smartUnfolding` in `rfl'`, is that macro's implementation and
 passes, when the operational adapter authenticated the macro's module as the toolchain's own
-artifact (`toolchain`); a module's name gives no such receipt. The source sets no `debug.` or
+artifact (`toolchain`), or when the observer found the macro among the builtins of the Lean that
+elaborated the module (`builtin`), such as `match.ignoreUnusedAlts` in `deriving BEq`; a module's
+name gives no such receipt. The source sets no `debug.` or
 `trace.` option, since the accepted set lists none. An option that elaborator code changes without
 `set_option` is not recorded: of Lean's builtin commands only `unlock_limits` also assigns the
 options of the enclosing scope, and RG2006 accepts what it sets (`unlockLimits_accepted`); a
@@ -1535,6 +1537,9 @@ structure SourceSetting where
   pinned toolchain's library directory (`admitToolchainOrigin`), when it gave one for `origin`;
   the module's name alone gives none. -/
   toolchain : Option ToolchainOrigin := none
+  /-- Whether the observer found the macro's declaration among the builtins of the Lean that
+  elaborated the module, outside the module's environment, so that no module of it names one. -/
+  builtin : Bool := false
   /-- Where the option's name is in the module, line and column, as Lean reports them; only the
   report reads it. -/
   location : Nat × Nat := (0, 0)
@@ -1590,21 +1595,25 @@ theorem communityDisable_iff (s : SourceSetting) :
   cases hv : s.value <;>
     simp [communityDisable, CommunityDisable, hv, ← hd, ← OptionValue.readsAs_iff, and_assoc]
 
-/-- A macro that a module of the pinned toolchain declares wrote the option's name: the adapter
-gave a receipt for the module `origin` names. -/
+/-- A macro of the pinned toolchain wrote the option's name: the adapter gave a receipt for the
+module `origin` names, or the macro is a builtin of the Lean that elaborated the module. -/
 def toolchainWritten (s : SourceSetting) : Bool :=
-  match s.origin, s.toolchain with
-  | some m, some r => r.moduleName == m
-  | _, _ => false
+  (match s.origin, s.toolchain with
+    | some m, some r => r.moduleName == m
+    | _, _ => false) ||
+    (s.origin.isSome && s.builtin)
 
-/-- `toolchainWritten`, stated by its receipt: some toolchain receipt names the macro's module. -/
+/-- `toolchainWritten`, stated by its evidence: some toolchain receipt names the macro's module, or
+a macro wrote the name and the observer found it among the running Lean's builtins. -/
 def ToolchainWritten (s : SourceSetting) : Prop :=
-  ∃ r, s.toolchain = some r ∧ s.origin = some r.moduleName
+  (∃ r, s.toolchain = some r ∧ s.origin = some r.moduleName) ∨ (s.origin ≠ none ∧ s.builtin = true)
 
 /-- `toolchainWritten` decides exactly `ToolchainWritten`. -/
 theorem toolchainWritten_iff (s : SourceSetting) :
     toolchainWritten s = true ↔ ToolchainWritten s := by
   unfold toolchainWritten ToolchainWritten
+  rw [Bool.or_eq_true]
+  refine or_congr ?_ (by cases s.origin <;> simp)
   cases s.origin with
   | none => simp
   | some m =>
@@ -1788,6 +1797,21 @@ toolchain's. -/
 theorem nameOnly_macro_fails (o : BuildOptions) (mathlib : Bool) :
     sourceAccepted o mathlib { written `autoImplicit (.bool true) .commandIn with
       origin := some `Lean.Adopter, wrapped := some declarationKind } = false := by
+  cases mathlib <;> rfl
+
+/-- `set_option match.ignoreUnusedAlts true`, which Lean's builtin `deriving BEq` handler writes
+under the builtin `Lean.Elab.Command.elabDeclaration` (`Lean/Elab/Deriving/BEq.lean` line 205),
+passes in a module that does not import that handler's module, where the observer names no module
+for the macro and finds it among the running Lean's builtins. -/
+theorem builtin_macro_accepted (o : BuildOptions) (mathlib : Bool) :
+    sourceAccepted o mathlib { written `match.ignoreUnusedAlts (.bool true) .command with
+      origin := some .anonymous, builtin := true } = true := by
+  cases mathlib <;> rfl
+
+/-- The same option with no builtin evidence and no receipt fails. -/
+theorem unauthenticated_macro_fails (o : BuildOptions) (mathlib : Bool) :
+    sourceAccepted o mathlib { written `match.ignoreUnusedAlts (.bool true) .command with
+      origin := some .anonymous } = false := by
   cases mathlib <;> rfl
 
 /-- The options that `unlock_limits` sets, each to `0` (`Lean/Elab/BuiltinCommand.lean` lines 522

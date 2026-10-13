@@ -158,16 +158,19 @@ partial def walk (ancestors : List (Name × Syntax)) (acc : Walk) : InfoTree →
 
 /-- The setting that `found` records: its value and form from its `set_option` syntax
 (`setterOf`), and, when its name is not in the module's source text, its origin, the innermost
-node above whose syntax does not contain the name, the macro that wrote it. -/
-def settingOf (env : Environment) (decls : OptionDecls) (fileMap : FileMap) (found : Found) :
-    Setting :=
+node above whose syntax does not contain the name, the macro that wrote it, with `builtins` the
+builtin declarations of the running Lean (`Lean.builtinDeclRanges`). -/
+def settingOf (env : Environment) (decls : OptionDecls) (builtins : NameMap DeclarationRanges)
+    (fileMap : FileMap) (found : Found) : Setting :=
   let id := found.info.stx
   let source := id.getHeadInfo matches .original ..
   let origin := if source then none else
     (found.ancestors.find? fun (_, stx) => !mentions stx id).map fun (declaration, _) =>
-      Origin.mk declaration (((env.getModuleIdxFor? declaration).bind fun idx =>
-          env.header.moduleNames[idx.toNat]?).getD
-        (if env.contains declaration then env.mainModule else .anonymous))
+      { declaration
+        «module» := ((env.getModuleIdxFor? declaration).bind fun idx =>
+            env.header.moduleNames[idx.toNat]?).getD
+          (if env.contains declaration then env.mainModule else .anonymous)
+        builtin := !env.contains declaration && builtins.contains declaration : Origin }
   let syntaxes := found.ancestors.map (·.2)
   let setter := setterOf id syntaxes
   let (form, wrapped) := formOf setter syntaxes
@@ -185,7 +188,8 @@ def observe (stx : Syntax) (fold : Fold) : CommandElabM Fold := do
   let mut acc : Walk := {}
   for tree in (← getInfoTrees) do
     acc := walk [(.anonymous, stx)] acc tree
-  let settings := acc.options.map (settingOf env decls fileMap)
+  let builtins ← builtinDeclRanges.get
+  let settings := acc.options.map (settingOf env decls builtins fileMap)
   let mut fold := { fold with settings := fold.settings ++ settings }
   for guard in acc.guards do
     let observed : Guard := { kind := guard.getKind, position := positionOf fileMap guard }
