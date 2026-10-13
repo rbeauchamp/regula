@@ -274,6 +274,121 @@ theorem search_some {next : Name → Array Name} {fuel : Nat} {start : List Name
     obtain ⟨complete, sound, -, -⟩ := searchEdges_some (result := found.1) (edges := found.2) he
     exact ⟨complete, sound⟩
 
+/-- What a search may still expand: its pending names and the entries of `bound` it has not
+seen. -/
+private def remaining (bound pending : List Name) (seen : Std.HashSet Name) : Nat :=
+  pending.length + bound.countP fun x => !seen.contains x
+
+/-- Pushing a name of `bound` never increases `remaining`: an unseen name adds one pending name
+and removes at least its own entry from the unseen ones. -/
+private theorem remaining_pushNew {bound p : List Name} {s : Std.HashSet Name} {m : Name}
+    (hm : m ∈ bound) :
+    remaining bound (pushNew (p, s) m).1 (pushNew (p, s) m).2 ≤ remaining bound p s := by
+  by_cases hs : s.contains m
+  · rw [pushNew_seen hs]
+    exact Nat.le_refl _
+  · rw [pushNew_unseen hs]
+    have fewer : ∀ l : List Name, m ∈ l →
+        (l.countP fun x => !(s.insert m).contains x) + 1 ≤ l.countP fun x => !s.contains x := by
+      intro l
+      induction l with
+      | nil => simp
+      | cons a l ih =>
+        intro hl
+        simp only [List.countP_cons, Std.HashSet.contains_insert]
+        by_cases ha : a = m
+        · subst ha
+          have le : (l.countP fun x => !(a == x || s.contains x)) ≤
+              l.countP fun x => !s.contains x :=
+            List.countP_mono_left fun x _ h => by simp_all
+          simp only [beq_self_eq_true, Bool.true_or, Bool.not_true, hs, Bool.not_false]
+          simp only [Bool.false_eq_true, ↓reduceIte, Nat.add_zero]
+          exact Nat.succ_le_succ le
+        · have hl' : m ∈ l := (List.mem_cons.mp hl).resolve_left (Ne.symm ha)
+          have hne : (m == a) = false := beq_eq_false_iff_ne.mpr (Ne.symm ha)
+          simp only [hne, Bool.false_or]
+          have := ih hl'
+          simp only [Std.HashSet.contains_insert] at this
+          split <;> omega
+    have := fewer bound hm
+    unfold remaining
+    simp only [List.length_cons]
+    omega
+
+/-- Folding `pushNew` over names of `bound` never increases `remaining`. -/
+private theorem remaining_foldl_pushNew {bound : List Name} :
+    ∀ (names p : List Name) (s : Std.HashSet Name), (∀ m ∈ names, m ∈ bound) →
+      remaining bound (names.foldl pushNew (p, s)).1 (names.foldl pushNew (p, s)).2 ≤
+        remaining bound p s := by
+  intro names
+  induction names with
+  | nil => intro p s _; exact Nat.le_refl _
+  | cons m names ih =>
+    intro p s hnames
+    simp only [List.foldl_cons]
+    have step := remaining_pushNew (p := p) (s := s) (hnames m List.mem_cons_self)
+    have rest := ih (pushNew (p, s) m).1 (pushNew (p, s) m).2
+      (fun x hx => hnames x (List.mem_cons_of_mem _ hx))
+    exact Nat.le_trans rest step
+
+/-- A loop whose seen names lie in `bound`, which `next` keeps within, completes when its fuel
+is at least what it may still expand (`remaining`). -/
+private theorem searchLoop_isSome {next : Name → Array Name} {bound : List Name}
+    (closed : ∀ x ∈ bound, ∀ y ∈ next x, y ∈ bound) :
+    ∀ (fuel : Nat) (pending : List Name) (seen : Std.HashSet Name)
+      (edges : List (Name × Array Name)), (∀ x ∈ pending, x ∈ seen) →
+      (∀ x ∈ seen, x ∈ bound) → remaining bound pending seen ≤ fuel →
+      (searchLoop next fuel pending seen edges).isSome := by
+  intro fuel
+  induction fuel with
+  | zero =>
+    intro pending seen edges _ _ hfuel
+    cases pending with
+    | nil => simp [searchLoop]
+    | cons n rest => simp [remaining] at hfuel
+  | succ fuel ih =>
+    intro pending seen edges hpending hseen hfuel
+    cases pending with
+    | nil => simp [searchLoop]
+    | cons n rest =>
+      simp only [searchLoop]
+      have hn : n ∈ bound := hseen n (hpending n List.mem_cons_self)
+      have hnext : ∀ m ∈ (next n).toList, m ∈ bound :=
+        fun m hm => closed n hn m (Array.mem_toList_iff.mp hm)
+      obtain ⟨f1, f2, -, -⟩ := foldl_pushNew (next n).toList rest seen
+      refine ih _ _ _ (fun x hx => ?_) (fun x hx => ?_) ?_
+      · rcases f2 x hx with hx | hx
+        · exact (f1 x).mpr (.inl (hpending x (List.mem_cons_of_mem _ hx)))
+        · exact (f1 x).mpr (.inr hx)
+      · rcases (f1 x).mp hx with hx | hx
+        · exact hseen x hx
+        · exact hnext x hx
+      · have := remaining_foldl_pushNew (next n).toList rest seen hnext
+        simp only [remaining, List.length_cons] at hfuel this ⊢
+        omega
+
+/-- **A search completes when every name it can meet lies in `bound` and its fuel is at least
+the length of `bound`:** every name of `start` is in `bound`, and `next` keeps within it. So
+`search_some` then describes its result with no condition on the fuel. -/
+theorem search_isSome {next : Name → Array Name} {bound : List Name} {fuel : Nat}
+    {start : List Name} (hstart : ∀ s ∈ start, s ∈ bound)
+    (closed : ∀ x ∈ bound, ∀ y ∈ next x, y ∈ bound) (hfuel : bound.length ≤ fuel) :
+    (search next fuel start).isSome := by
+  unfold search searchEdges
+  obtain ⟨f1, f2, -, -⟩ := foldl_pushNew start [] {}
+  have initial := remaining_foldl_pushNew start [] {} hstart
+  have empty : remaining bound [] {} = bound.length := by
+    simp [remaining]
+  rw [Option.isSome_map]
+  refine searchLoop_isSome closed fuel _ _ [] (fun x hx => ?_) (fun x hx => ?_) ?_
+  · rcases f2 x hx with hx | hx
+    · simp at hx
+    · exact (f1 x).mpr (.inr hx)
+  · rcases (f1 x).mp hx with hx | hx
+    · simp at hx
+    · exact hstart x hx
+  · omega
+
 /-! ## The constants of a kernel environment -/
 
 /-- The constants the type and value of `info` use (`ConstantInfo.getUsedConstantsAsSet`), with

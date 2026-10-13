@@ -3013,24 +3013,46 @@ inferred from any pure proof.
   Let `src` and `dst` be two modules. `Admission.renameName` changes a name private to `src` into
   the same name private to `dst`, and it does not change a different name. The prefix of a name
   private to a module is the name that `Admission.privatePrefix` gives, for example
-  `_private.RegulaCore.JsonAgreement.0`. `Admission.renamedCopy` accepts a copy `c` in `src` as a
-  renamed copy of the copy `r` in `dst` if these conditions are true:
+  `_private.RegulaCore.JsonAgreement.0`.
 
-  1. `c` and `r` are theorems that Lean's import accepts together (`Admission.sameTheorem`).
-  2. `c` refers to no name private to `dst`, and it does not refer to `Lean.reduceBool` or
-     `Lean.reduceNat`.
+  The references of a constant are the names that `KernelAxioms.successorsOf` gives. A constant
+  reaches itself, each name that it refers to and each name that those names reach.
+  `Admission.linksOf` reads the references of all the loaded constants. It does this one time, and
+  only if a differing name has the shape of a renamed copy.
+
+  Let `c` be a copy of the name `n` in `src`. The block of `c` is a set of names private to `src`.
+  It starts with the names private to `src` that `c` refers to. A reference in either direction
+  between a name of the block and a name private to `src` puts that name in the block.
+  `Admission.blockOf` gives the block. The joined names are the names of the block and their
+  renamed names.
+
+  `Admission.renamedCopy` accepts `c` as a renamed copy of the copy `r` in `dst` if these
+  conditions are true:
+
+  1. `c` and `r` are theorems that Lean's import accepts together, as
+     `Admission.sameTheorem` decides.
+  2. `c` refers to no name private to `dst`.
   3. The renaming changes `c` into a theorem that is `Identical` to `r`.
-  4. Each name private to `src` that `c` refers to is the name of a renamed pair.
+  4. Each name of the block is renameable.
+  5. No joined name reaches `n`.
+  6. Only the copies of `n` and the joined names refer to a joined name.
 
-  A renamed pair is a theorem or a safe definition `x` in `src` with a name private to `src`.
-  Condition 2 is true for `x`, and the renaming changes `x` into a constant `Identical` to the
-  constant in `dst` with the renamed name. Each name private to `src` that `x` refers to is also
-  the name of a renamed pair. The name of `x` and the renamed name have no role, and they are
-  uniform. `Admission.renamedPairs` finds the largest set of renamed pairs with `Admission.prune`.
+  A name `x` of the block is renameable if only `src` declares it and it is not private to `dst`.
+  The renaming must change the constant of `x` into a constant `Identical` to the constant of `dst`
+  with the renamed name. The two names must have no role, and they must be uniform.
+  `Admission.renameable` makes this decision.
 
-  The copies of a name agree if the name is uniform. They also agree if each copy is the copy `r`
-  of the module that the name is attributed to, or a renamed copy of `r`. `Admission.agrees` makes
-  this decision. Three decisions of reuse use it:
+  Let `r` be the copy of the module that `n` is attributed to. `Admission.uniformUpToPrivate`
+  accepts `n` if these four conditions are true:
+
+  1. Each copy of `n` is `r` or a renamed copy of `r`.
+  2. No name that `n` reaches refers to `n`. Thus `n` is on no cycle of references.
+  3. No constant that reaches `n` reaches `Lean.reduceBool` or `Lean.reduceNat`.
+  4. No name of `Admission.kernelNames` reaches `n`.
+
+  The copies of a name agree if the name is uniform. They also agree if
+  `Admission.uniformUpToPrivate` accepts the name. `Admission.agrees` makes this decision. Three
+  decisions of reuse use it:
 
   - `Admission.copiesAgree` is the fourth condition of reuse. For each constant of the module, the
     copies of the name must agree. A constant that is not a theorem must also be the only copy of
@@ -3086,16 +3108,20 @@ inferred from any pure proof.
 
   For renamed copies, the argument uses more facts about Lean v4.34.1. The docstring of
   `Admission.renamedCopy` gives their source lines under `Assumes:`. First, `Expr.replace` changes
-  exactly the constants that `Admission.renameExpr` selects. Second, the kernel decides the
-  definitional equality of two proofs from their types. Third, the kernel uses the name of a
-  constant only to find the constant or to compare it with a different name. It also hashes the
-  name for its caches and prints the name in messages.
+  exactly the constants that `Admission.renameExpr` selects. Second, the check of a declaration
+  reads a constant only under a name that the declaration or a constant that the check read refers
+  to. The check can also read a name of `Admission.kernelNames`, or the recursor of an inductive
+  type that it read. Third, the kernel uses the name of a constant only to find the constant or to
+  compare it with a different name.
 
-  The exceptions to the third fact are `reduce_native` and two steps for nested inductive types.
-  `reduce_native` runs the compiled code of a constant that `Lean.reduceBool` or `Lean.reduceNat`
-  gets, and condition 2 of a renamed copy refuses these two names. The two steps make names of
-  auxiliary types from the names of inductive types, and they compare a name with the prefix
-  `_nested`. A renamed pair is not an inductive type, and no private name has that prefix.
+  The kernel also hashes names for its caches, which compare their keys with `Expr.eqv`, and it
+  prints names in messages. These uses do not change a result.
+
+  The third fact has two exceptions. `reduce_native` runs the compiled code of the constant that
+  `Lean.reduceBool` or `Lean.reduceNat` gets. The kernel makes no term with these two names. Two
+  steps for nested inductive types make names of auxiliary types from the names of inductive types.
+  They also compare a name with the prefix `_nested`. No joined name is an inductive type, and no
+  private name has that prefix.
 
   In `validate`, reuse changes only the copies that `replayMap` gives to the kernel and the copies
   that the replay base holds. `Admission.checkShared` compares with `sameTheorem`, and
@@ -3139,33 +3165,39 @@ inferred from any pure proof.
   `Identical` axioms of one name, but `checkShared` refuses them. This is why the fourth condition
   requires a theorem where a different module declares the name.
 
-  **Renamed copies:** reuse and a replay can hold different copies under a name, a renamed copy
-  `c` in `src` or the copy `r` in `dst`. The kernel holds the private constants of each module
-  under their names, and the private names of two modules are different. The names of the renamed
-  pairs of `c` are uniform, thus the kernel holds a constant `Identical` to each pair. Three parts
-  of admission read the constant under the name:
+  **Renamed copies:** reuse and a replay can hold different copies under `n`, a renamed copy `c`
+  in `src` or the copy `r` in `dst`. Take two kernel environments that are different only
+  under `n`. The first holds `r` under `n`, and the second holds `c`. Steps of this type, one name
+  at a time through the attributed copy, join any two sets of held copies. Let `τ` exchange each
+  name of the block of `c` with its renamed name and keep each different name. `τ` is a bijection,
+  because no name of the block is private to `dst`.
 
-  - The check of a declaration that uses the name. `c` and `r` are proofs of one statement, and
-    Lean has definitional proof irrelevance. Thus the kernel decides the definitional equality of
-    `c` and a different proof from their types. The kernel unfolds a proof only when a recursor or
-    a projection reduces it. It unfolds `c` as it unfolds `r`, with the renaming applied. The
-    renaming is injective on the names that `c` and its pairs use, because none of them is private
-    to `dst`.
+  - `τ` changes the first environment into the second, constant by constant, up to `Identical`.
+    Under `n`, it changes `r` into `c`. Under a name of the block, it changes the only copy into
+    the constant of `dst` under the renamed name, and the reverse. Condition 6 of a renamed copy
+    makes sure that each different constant refers to no joined name, thus `τ` keeps it.
+  - If a declaration `d` does not reach `n`, the two environments hold the same constant under
+    each name that its check reads. By condition 4, no name of `Admission.kernelNames` reaches `n`
+    either. Thus the two checks of `d` give the same result.
+  - If `d` reaches `n`, it reaches neither `Lean.reduceBool` nor `Lean.reduceNat`. The terms of its
+    check come from `d` and from the constants that it reaches, thus the check runs no compiled
+    code. By the facts above, the check of `d` in the first environment is then the check of `τ d`
+    in the second, name for name. The two checks give the same result.
+  - A declaration that reaches `n` is not a joined name, by condition 5. If it is not a copy of
+    `n`, it refers to no joined name, thus `τ d` is `d`. If it is the copy under `n`, `τ` changes
+    `r` into `c`.
 
-    Thus a check that uses the private names of only one of the two modules gives the same result
-    with `c` and with `r`. A check that uses the private names of the two modules is not in this
-    argument. Such a check can occur if a declaration of `dst` uses a private name of `dst` while
-    the kernel holds `c`. Proof irrelevance makes each result of such a check sound, but the
-    argument does not show that the two results are equal.
-  - The searches for the axioms and assumptions that each owned declaration reaches, and the
-    searches of `checkProof`. The renaming changes only names private to `src`. Each such name
-    that `c` reaches through its pairs is the name of a pair. A pair and the constant of `dst` with
-    its renamed name are theorems or safe definitions, thus they are not axioms. They have no role.
-    Thus the searches from `c` and from
-    `r` find the same axioms and the same roles.
-  - `checkShared`, `checkOwn` and `checkKept`. A renamed copy is a `SameTheorem` of `r`, thus it
-    passes `checkShared`. If it is not `Identical` to the held constant, `checkProof` checks its
-    proof and compares its axioms through the searches above.
+  Thus the kernel gives each declaration the same result in the two environments. This includes a
+  declaration of `dst` that refers to a name private to `dst` while the kernel holds `c`. If that
+  name is a joined name, condition 6 is false, and reuse does not accept `c`. The searches for the
+  axioms and the roles that each owned declaration reaches, and the searches of `checkProof`,
+  follow the references of the held constants. `τ` changes the names that a search reaches in the
+  first environment into the names that it reaches in the second.
+
+  A name of the block and its renamed name are theorems or safe definitions with no role. Thus the
+  searches from `c` and from `r` find the same axioms and the same roles. A renamed copy is a
+  `SameTheorem` of `r`, thus it passes `checkShared`. If it is not `Identical` to the held
+  constant, `checkProof` checks its proof and compares its axioms through the searches above.
 
   **The references and the keys:** the kernel's check of a declaration also reads the constants
   that the declaration uses. The third condition accepts a used name with its attribution outside
@@ -3177,21 +3209,37 @@ inferred from any pure proof.
 
   **Proved** about the executed definitions: `Admission.identical_iff`,
   `Admission.not_mem_differing_iff` and `Admission.mem_others_iff` give what the pass records.
-  `Admission.renamedTo_iff`, `Admission.renamedCopy_iff`, `Admission.uniformUpToPrivate_iff`,
-  `Admission.agrees_iff`, `Admission.fixedIn_iff` and `Admission.agreesIn_iff` show that each
-  decision of the renaming accepts exactly the inputs that its proposition admits.
+  `Admission.renamedTo_iff`, `Admission.renameable_iff`, `Admission.renamedCopy_iff`,
+  `Admission.uniformUpToPrivate_iff`, `Admission.agrees_iff`, `Admission.fixedIn_iff` and
+  `Admission.agreesIn_iff` show that each decision of the renaming accepts exactly the inputs that
+  its proposition admits. `Admission.mem_blockOf` shows that the search over the references gives
+  exactly the block. `Admission.mem_aboveIn` and `Admission.mem_nativeIn` show the same for the
+  names that reach `n` and the names that reach the two primitives. `Admission.mem_closure` and
+  `KernelAxioms.search_isSome` show that each such search has sufficient fuel.
+
   `Admission.copiesAgree_iff`, `Admission.referencesWithin_iff` and `Admission.ownedAgrees_iff`
   show the same for each decision of reuse. `Admission.mem_reusedModules_iff` shows that a module
   is reused exactly when it is a candidate and each owned module of its closure is a candidate.
-
   `Admission.offerable_of_unpinned` shows that an offered module holds a shared copy only of an
   `offerable` name. **Argued, not machine-checked:** the arguments above, and that
   `Admission.validate` gives `ownedAgrees` with `Admission.agrees` to admission as `offerable`.
 
   **Observed, an external boundary:** the shared copies control of the structural partition of
   `checkerSelftest` audits a project with `Identical` copies, renamed copies and different copies.
-  The census still gives a shared name to the module that Lean's import attributes it to, through
-  `Probe.ownedConstants`.
+  In that project, the proofs of two modules refer to their private match equations, thus their
+  renamed copies do not agree. The census still gives a shared name to the module that Lean's import
+  attributes it to, through `Probe.ownedConstants`.
+
+  A claimed constant that reaches `Lean.reduceBool` or `Lean.reduceNat` also reaches the axiom
+  `Lean.trustCompiler`, which no claim admits. A module that imports `Init` cannot declare a name
+  of `Admission.kernelNames` again. Thus the witnesses of conditions 3 and 4 are `#guard` commands
+  of `Admission` that run `agrees` on module data that the commands write. Each of these cases has
+  a witness without that difference, which `agrees` accepts:
+
+  - A copy that uses an alias of `Lean.reduceBool`.
+  - A name that refers to the copy and to the alias.
+  - A constant `Char.ofNat` that refers to the copy.
+  - A name that refers to a private name of a copy.
 - **Documentation.** `Environment.loadReportCoreAtSearchPath` freezes the `@[regula_material]`
   selector from the completed owned environment and reads module docs (Markdown and Verso) and
   docstrings with `Lean.findDocString?`, the same lookup as native feedback, so the project gate's

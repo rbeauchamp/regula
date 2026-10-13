@@ -477,11 +477,12 @@ to the kept one (`Duplicates.differing`) and, for each name, the modules that de
 than the module it is attributed to (`Duplicates.others`). For a name outside `differing`, every
 copy is `Identical` to the kept constant (`Uniform`, `not_mem_differing_iff`), so which copy Lean
 keeps, or which module it attributes the name to, changes the constant the kernel reads only up to
-`Identical`. A name in `differing` can still have copies that agree up to the names private to the
-modules that declare it (`UniformUpToPrivate`, below). Reuse rests on names whose copies agree in
-one of these two ways (`agrees`, `copiesAgree`, `referencesWithin`), and so does the offer of a
-replayed module that holds a copy of one (`ownedAgrees`). What these rest on about Lean is listed
-under `Assumes:` in the docstrings of `duplicatesIn`, `renamedCopy` and `copiesAgree`. -/
+`Identical`. A name in `differing` can still have copies that agree up to exchanging names private
+to the modules that declare it, in the narrow class that `UniformUpToPrivate` (below) admits. Reuse
+rests on names whose copies agree in one of these two ways (`agrees`, `copiesAgree`,
+`referencesWithin`), and so does the offer of a replayed module that holds a copy of one
+(`ownedAgrees`). What these rest on about Lean is listed under `Assumes:` in the docstrings of
+`duplicatesIn`, `renamedCopy` and `copiesAgree`. -/
 
 /-- What `duplicatesOf` finds in the constants of the loaded modules. -/
 structure Duplicates where
@@ -716,13 +717,20 @@ private to the module that realizes them (`Lean.Meta.Match.getEquationsForImpl`)
 lemma it realizes in that module refers to them. Two modules that each realize `f.eq_2` for one `f`
 therefore hold copies of it whose proofs differ in which module's private match equation they use,
 and the name is `differing`. `renamedCopy` relates such a copy to the copy of the module the name is
-attributed to: renaming each name private to the copy's module to the same name private to the
-other module turns the copy into a constant `Identical` to the other, and each private constant the
-copy reaches this way is itself renamed into the constant the other module holds under the new
-name. The copies of a name agree (`agrees`, `agrees_iff`) when the name is outside `differing`, or
-when every copy is the attributed module's copy or such a renamed copy (`UniformUpToPrivate`); the
-three decisions of reuse read that (`copiesAgree`, `refersWithin`, `ownedAgrees`). The docstring of
-`renamedCopy` argues why reuse gives the same results for renamed copies as for identical ones. -/
+attributed to when renaming the names private to the copy's module to the same names private to
+the other module turns the copy into a constant `Identical` to the other, under the conditions
+that follow. The names private to the copy's module that the copy refers to, with every name
+private to that module linked to them by a reference (`blockOf`), must each be renamed in the same
+way into the other module's constant. Only the copies of the name and these names, with their
+renamed names, may refer to them or to their renamed names, and none of them may reach the name.
+The name itself must lie on no cycle, and no constant that reaches it may reach `Lean.reduceBool`
+or `Lean.reduceNat` or be one of `kernelNames` (`uniformUpToPrivate`). The copies of a name agree
+(`agrees`, `agrees_iff`) when the name is outside `differing`, or when `UniformUpToPrivate` admits
+it; the three decisions of reuse read that (`copiesAgree`, `referencesWithin`, `ownedAgrees`). The
+docstring of `renamedCopy` argues why reuse gives the same results for renamed copies as for
+identical ones. The `#guard` witnesses after `fixedIn_iff` run `agrees` on module data with and
+without each of three exclusions: native reduction, a name of `kernelNames` that reaches the name,
+and a constant outside the copies that refers to a renamed name. -/
 
 /-- The names a constant refers to: those `Kernel.Environment.replay` replays before it
 (`ConstantInfo.getUsedConstantsAsSet`), listed. -/
@@ -762,19 +770,15 @@ def renameConstant (src dst : Name) : ConstantInfo → Option ConstantInfo
     | _ => none
   | _ => none
 
-/-- Whether `x` refers to no name private to `dst` and to neither of the two constants whose
-argument the kernel reduces by running compiled code (`Lean.reduceBool`, `Lean.reduceNat`), and
-`renameConstant` renames `x` into a constant `identical` to `y`. `renamedTo_iff` states the
-decision. -/
+/-- Whether `x` refers to no name private to `dst`, and `renameConstant` renames `x` into a
+constant `identical` to `y`. `renamedTo_iff` states the decision. -/
 def renamedTo (src dst : Name) (x y : ConstantInfo) : Bool :=
-  (usedNames x).all (fun n =>
-      !privateTo dst n && n != ``Lean.reduceBool && n != ``Lean.reduceNat) &&
-    (renameConstant src dst x).any (identical · y)
+  (usedNames x).all (fun n => !privateTo dst n) && (renameConstant src dst x).any (identical · y)
 
-/-- No name `x` refers to is private to `dst`, `Lean.reduceBool` or `Lean.reduceNat`, and
-`renameConstant` renames `x` into a constant `Identical` to `y`. -/
+/-- No name `x` refers to is private to `dst`, and `renameConstant` renames `x` into a constant
+`Identical` to `y`. -/
 def RenamedTo (src dst : Name) (x y : ConstantInfo) : Prop :=
-  (∀ n ∈ usedNames x, privateTo dst n = false ∧ n ≠ ``Lean.reduceBool ∧ n ≠ ``Lean.reduceNat) ∧
+  (∀ n ∈ usedNames x, privateTo dst n = false) ∧
     ∃ renamed, renameConstant src dst x = some renamed ∧ Identical renamed y
 
 /-- `renamedTo` accepts exactly the pairs that `RenamedTo` relates. -/
@@ -782,140 +786,373 @@ theorem renamedTo_iff {src dst : Name} {x y : ConstantInfo} :
     renamedTo src dst x y = true ↔ RenamedTo src dst x y := by
   unfold renamedTo RenamedTo
   simp only [Bool.and_eq_true, List.all_eq_true, Bool.not_eq_eq_eq_not, Bool.not_true,
-    bne_iff_ne, ne_eq, Option.any_eq_true, identical_iff, and_assoc]
+    Option.any_eq_true, identical_iff]
 
-/-- Whether each name private to `src` that `x` refers to is one of `names`. -/
-def privatesIn (src : Name) (names : Std.HashSet Name) (x : ConstantInfo) : Bool :=
-  (usedNames x).all fun n => !privateTo src n || names.contains n
+/-! ### The references between the loaded constants -/
 
-/-- Each name private to `src` that `x` refers to names a constant of `pairs`. -/
-def PrivatesIn (src : Name) (pairs : List ConstantInfo) (x : ConstantInfo) : Prop :=
-  ∀ n ∈ usedNames x, privateTo src n = true → ∃ y ∈ pairs, y.name = n
+/-- A constant named `x` in a module of `modules` refers to `y`: `y` is among the names its type
+and value use (`successorsOf`). -/
+def Refers (modules : Array ModuleData) (x y : Name) : Prop :=
+  ∃ data ∈ modules, ∃ c ∈ data.constants, c.name = x ∧ y ∈ successorsOf c
 
-/-- `privatesIn` over the names of `pairs` decides `PrivatesIn`. -/
-private theorem privatesIn_iff {src : Name} {pairs : List ConstantInfo} {x : ConstantInfo} :
-    privatesIn src (Std.HashSet.ofList (pairs.map (·.name))) x = true ↔
-      PrivatesIn src pairs x := by
-  unfold privatesIn PrivatesIn
-  simp only [List.all_eq_true, Bool.or_eq_true, Bool.not_eq_eq_eq_not, Bool.not_true,
-    Std.HashSet.contains_ofList, List.contains_iff_mem, List.mem_map]
+/-- `y` is reached from `x` along `Refers`, in zero or more steps. -/
+inductive Leads (modules : Array ModuleData) : Name → Name → Prop
+  /-- Every name reaches itself. -/
+  | refl (x : Name) : Leads modules x x
+  /-- A name reaches whatever a name it refers to reaches. -/
+  | step {x m y : Name} : Refers modules x m → Leads modules m y → Leads modules x y
+
+/-- Reaching extends by one more reference. -/
+theorem Leads.tail {modules : Array ModuleData} {x m y : Name} (h : Leads modules x m)
+    (hy : Refers modules m y) : Leads modules x y := by
+  induction h with
+  | refl => exact .step hy (.refl y)
+  | step hm _ ih => exact .step hm (ih hy)
+
+/-- A name reached from `x` is `x`, or a name that a name reached from `x` refers to. -/
+theorem Leads.last {modules : Array ModuleData} {x y : Name} (h : Leads modules x y) :
+    x = y ∨ ∃ m, Leads modules x m ∧ Refers modules m y := by
+  induction h with
+  | refl => exact .inl rfl
+  | @step x m y hm _ ih =>
+    rcases ih with rfl | ⟨m', hm', hr⟩
+    · exact .inr ⟨x, .refl x, hm⟩
+    · exact .inr ⟨m', .step hm hm', hr⟩
+
+/-- Each constant of each module of `modules`, by name, with the names it refers to. -/
+def loadedEdges (modules : Array ModuleData) : List (Name × Array Name) :=
+  modules.toList.flatMap fun data => data.constants.toList.map fun c => (c.name, successorsOf c)
+
+/-- The edges are exactly the constants of the modules, each with the names it refers to. -/
+theorem mem_loadedEdges {modules : Array ModuleData} {e : Name × Array Name} :
+    e ∈ loadedEdges modules ↔
+      ∃ data ∈ modules, ∃ c ∈ data.constants, e = (c.name, successorsOf c) := by
+  simp only [loadedEdges, List.mem_flatMap, List.mem_map, Array.mem_toList_iff]
   constructor
-  · intro h n hn hp
-    rcases h n hn with hf | hm
-    · rw [hp] at hf
-      cases hf
-    · exact hm
-  · intro h n hn
-    cases hp : privateTo src n
+  · rintro ⟨data, hdata, c, hc, rfl⟩
+    exact ⟨data, hdata, c, hc, rfl⟩
+  · rintro ⟨data, hdata, c, hc, rfl⟩
+    exact ⟨data, hdata, c, hc, rfl⟩
+
+/-- The names a search over the references of `modules` can meet: `Lean.reduceBool` and
+`Lean.reduceNat`, and the name of each constant with the names it refers to. -/
+def namesOf (modules : Array ModuleData) : List Name :=
+  ``Lean.reduceBool :: ``Lean.reduceNat :: (loadedEdges modules).flatMap fun e => e.1 :: e.2.toList
+
+/-- The name of a constant of a module of `modules` is one of `namesOf`. -/
+theorem name_mem_namesOf {modules : Array ModuleData} {data : ModuleData} {c : ConstantInfo}
+    (hdata : data ∈ modules) (hc : c ∈ data.constants) : c.name ∈ namesOf modules :=
+  List.mem_cons_of_mem _ <| List.mem_cons_of_mem _ <| List.mem_flatMap.mpr
+    ⟨_, mem_loadedEdges.mpr ⟨data, hdata, c, hc, rfl⟩, List.mem_cons_self⟩
+
+/-- A name a constant of a module of `modules` refers to is one of `namesOf`. -/
+theorem used_mem_namesOf {modules : Array ModuleData} {data : ModuleData} {c : ConstantInfo}
+    {y : Name} (hdata : data ∈ modules) (hc : c ∈ data.constants) (hy : y ∈ successorsOf c) :
+    y ∈ namesOf modules :=
+  List.mem_cons_of_mem _ <| List.mem_cons_of_mem _ <| List.mem_flatMap.mpr
+    ⟨_, mem_loadedEdges.mpr ⟨data, hdata, c, hc, rfl⟩,
+      List.mem_cons_of_mem _ (Array.mem_toList_iff.mpr hy)⟩
+
+/-- The references between the constants of a set of modules, read backward, with the fuel of a
+search over them. -/
+structure Links where
+  /-- Under each name, the names of the constants that refer to it. -/
+  back : Std.HashMap Name (List Name)
+  /-- The fuel of a search: at least the number of names it can meet. -/
+  fuel : Nat
+
+/-- The names of the constants that refer to `y`. -/
+def Links.before (links : Links) (y : Name) : Array Name := (links.back.getD y []).toArray
+
+/-- Every name reached along `next` from a name of `start`, within the fuel of `links`, or none
+when the fuel runs out, which `mem_closure` shows a search over the names of the modules never
+does. -/
+def Links.closure (links : Links) (next : Name → Array Name) (start : List Name) :
+    Std.HashSet Name :=
+  (search next links.fuel start).getD {}
+
+/-- The references between the constants of `modules`: under each name the names of the constants
+that refer to it (`predecessors` of `loadedEdges`), and as fuel the length of `namesOf`. -/
+def linksOf (modules : Array ModuleData) : Links :=
+  let edges := loadedEdges modules
+  { back := predecessors edges, fuel := 2 + (edges.map fun e => e.2.size + 1).sum }
+
+/-- The fuel of `linksOf` is the number of entries of `namesOf`. -/
+theorem fuel_linksOf {modules : Array ModuleData} :
+    (linksOf modules).fuel = (namesOf modules).length := by
+  simp only [linksOf, namesOf, List.length_cons, List.length_flatMap, Array.length_toList]
+  omega
+
+/-- The names before `y` are exactly the names of the constants that refer to `y`. -/
+theorem mem_before {modules : Array ModuleData} {x y : Name} :
+    x ∈ (linksOf modules).before y ↔ Refers modules x y := by
+  simp only [Links.before, linksOf, List.mem_toArray, mem_predecessors, mem_loadedEdges]
+  constructor
+  · rintro ⟨e, ⟨data, hdata, c, hc, rfl⟩, rfl, hy⟩
+    exact ⟨data, hdata, c, hc, rfl, hy⟩
+  · rintro ⟨data, hdata, c, hc, rfl, hy⟩
+    exact ⟨_, ⟨data, hdata, c, hc, rfl⟩, rfl, hy⟩
+
+/-- A name before another is one of `namesOf`. -/
+theorem before_mem_namesOf {modules : Array ModuleData} {x y : Name}
+    (h : x ∈ (linksOf modules).before y) : x ∈ namesOf modules := by
+  obtain ⟨data, hdata, c, hc, rfl, -⟩ := mem_before.mp h
+  exact name_mem_namesOf hdata hc
+
+/-- **A closure over the references of `modules` holds exactly the names reached from `start`**,
+when `start` and every step along `next` stay among `namesOf`: the search completes within the
+fuel (`search_isSome`), and `search_some` describes what it returns. -/
+theorem mem_closure {modules : Array ModuleData} {next : Name → Array Name} {start : List Name}
+    (hstart : ∀ s ∈ start, s ∈ namesOf modules)
+    (hnext : ∀ x, ∀ y ∈ next x, y ∈ namesOf modules) {x : Name} :
+    x ∈ (linksOf modules).closure next start ↔ ∃ s ∈ start, Reach next s x := by
+  obtain ⟨result, hresult⟩ := Option.isSome_iff_exists.mp
+    (search_isSome hstart (fun x _ y hy => hnext x y hy) (Nat.le_of_eq fuel_linksOf.symm))
+  obtain ⟨complete, sound⟩ := search_some hresult
+  simp only [Links.closure, hresult, Option.getD_some]
+  exact ⟨sound x, fun ⟨s, hs, hr⟩ => complete s hs x hr⟩
+
+/-- A path backward from `y` along `before` is a path forward to `y` along `Refers`. -/
+theorem reach_before_iff {modules : Array ModuleData} {y x : Name} :
+    Reach (linksOf modules).before y x ↔ Leads modules x y := by
+  constructor
+  · intro h
+    induction h with
+    | refl => exact .refl _
+    | step hm _ ih => exact ih.tail (mem_before.mp hm)
+  · intro h
+    induction h with
+    | refl => exact .refl _
+    | step hm _ ih => exact ih.tail (mem_before.mpr hm)
+
+/-- The names from which `Lean.reduceBool` or `Lean.reduceNat` is reached: the closure backward
+from the two. -/
+def nativeIn (links : Links) : Std.HashSet Name :=
+  links.closure links.before [``Lean.reduceBool, ``Lean.reduceNat]
+
+/-- `nativeIn` holds exactly the names that reach `Lean.reduceBool` or `Lean.reduceNat`. -/
+theorem mem_nativeIn {modules : Array ModuleData} {x : Name} :
+    x ∈ nativeIn (linksOf modules) ↔
+      Leads modules x ``Lean.reduceBool ∨ Leads modules x ``Lean.reduceNat := by
+  unfold nativeIn
+  rw [mem_closure (fun s hs => ?_) (fun _ _ hy => before_mem_namesOf hy)]
+  · simp [reach_before_iff]
+  · rcases List.mem_cons.mp hs with rfl | hs
+    · exact List.mem_cons_self
+    · rw [List.mem_singleton.mp hs]
+      exact List.mem_cons_of_mem _ List.mem_cons_self
+
+/-- The constants Lean's kernel can read in the check of a declaration although neither the
+declaration nor a constant the check read refers to them: the types and constructors that a
+literal stands for, the results of a reduced `Nat` comparison or native reduction, and the
+constants of the check of the quotient declaration.
+
+Assumes:
+- Lean v4.34.1, `src/kernel/inductive.cpp:1359-1402` (trusted): a `Nat` literal stands for
+  `Nat.zero` or `Nat.succ`, and a `String` literal for `String.ofList` of `List.cons` and
+  `List.nil` at `Char`, with `Char.ofNat`, which `src/kernel/inductive.h:95-97` and
+  `src/kernel/type_checker.cpp:421-422` and `1146-1147` build.
+- Lean v4.34.1, `src/kernel/type_checker.cpp:318-320` with `src/lean/Lean/Expr.lean:621-627`: the
+  type of a literal is `Nat` or `String`.
+- Lean v4.34.1, `src/kernel/type_checker.cpp:624` and `699` with `src/library/util.cpp:708-709` and
+  `src/library/constants.cpp:147-150` (trusted): a reduced `Nat.beq` or `Nat.ble`, or a native
+  reduction of `Lean.reduceBool`, gives `Bool.true` or `Bool.false`.
+- Lean v4.34.1, `src/kernel/quot.cpp:41-113` (trusted): the check of the quotient declaration
+  reads `Eq` and builds `Quot`, `Quot.mk`, `Quot.lift` and `Quot.ind`. -/
+def kernelNames : List Name :=
+  [``Nat, ``Nat.zero, ``Nat.succ, ``String, ``String.ofList, ``Char, ``Char.ofNat, ``List.nil,
+    ``List.cons, ``Bool, ``Bool.true, ``Bool.false, ``Eq, ``Quot, ``Quot.mk, ``Quot.lift,
+    ``Quot.ind]
+
+/-- The names that reach `n` in one or more steps: the closure backward from the names of the
+constants that refer to `n`. -/
+def aboveIn (links : Links) (n : Name) : Std.HashSet Name :=
+  links.closure links.before (links.before n).toList
+
+/-- `aboveIn` holds exactly the names that reach a constant referring to `n`. -/
+theorem mem_aboveIn {modules : Array ModuleData} {n x : Name} :
+    x ∈ aboveIn (linksOf modules) n ↔ ∃ m, Refers modules m n ∧ Leads modules x m := by
+  unfold aboveIn
+  rw [mem_closure (fun _ hs => before_mem_namesOf (Array.mem_toList_iff.mp hs))
+    (fun _ _ hy => before_mem_namesOf hy)]
+  simp only [Array.mem_toList_iff, mem_before, reach_before_iff]
+
+/-- Whether `x` reaches `n`, read from the names `above` that reach it in one or more steps. -/
+def reachesIn (above : Std.HashSet Name) (n x : Name) : Bool :=
+  x == n || above.contains x
+
+/-- With `above` the names that reach `n` in one or more steps, `reachesIn` decides `Leads`. -/
+theorem reachesIn_iff {modules : Array ModuleData} {above : Std.HashSet Name} {n : Name}
+    (habove : ∀ x, x ∈ above ↔ ∃ m, Refers modules m n ∧ Leads modules x m) {x : Name} :
+    reachesIn above n x = true ↔ Leads modules x n := by
+  unfold reachesIn
+  rw [Bool.or_eq_true, beq_iff_eq, Std.HashSet.contains_iff_mem, habove]
+  constructor
+  · rintro (rfl | ⟨m, hm, hx⟩)
+    · exact .refl x
+    · exact hx.tail hm
+  · intro h
+    rcases h.last with rfl | ⟨m, hx, hm⟩
     · exact .inl rfl
-    · exact .inr (h n hn hp)
+    · exact .inr ⟨m, hm, hx⟩
 
-/-- The constants of `pairs` that refer, among the names private to `src`, only to names of
-constants of `pairs` (`privatesIn`). -/
-def pruneStep (src : Name) (pairs : List ConstantInfo) : List ConstantInfo :=
-  pairs.filter (privatesIn src (Std.HashSet.ofList (pairs.map (·.name))))
+/-! ### The block of a renamed copy -/
 
-/-- Repeat `pruneStep` until it removes no constant. What remains is the largest part of `pairs`
-each constant of which refers, among the names private to `src`, only to names of that part
-(`prune_closed`, `prune_largest`). -/
-def prune (src : Name) (pairs : List ConstantInfo) : List ConstantInfo :=
-  if (pruneStep src pairs).length < pairs.length then prune src (pruneStep src pairs)
-  else pairs
-termination_by pairs.length
-decreasing_by assumption
+/-- The names private to `src` one reference away from `x`: those the constant `srcFind` gives
+under `x` refers to, and the names of the constants that refer to `x`. -/
+def linkedIn (links : Links) (src : Name) (srcFind : Name → Option ConstantInfo) (x : Name) :
+    Array Name :=
+  ((match srcFind x with
+    | some c => successorsOf c
+    | none => #[]) ++ links.before x).filter (privateTo src)
 
-/-- `prune` keeps only constants of `pairs`. -/
-private theorem prune_sub {src : Name} {pairs : List ConstantInfo} {x : ConstantInfo}
-    (h : x ∈ prune src pairs) : x ∈ pairs := by
-  induction pairs using prune.induct src with
-  | case1 pairs shorter ih =>
-    rw [prune] at h; simp only [shorter, ↓reduceIte] at h
-    exact (List.mem_filter.mp (ih h)).1
-  | case2 pairs longer =>
-    rw [prune] at h; simp only [longer, ↓reduceIte] at h
-    exact h
+/-- `y` is private to `src` and one reference away from `x`: the constant `srcFind` gives under
+`x` refers to it, or a constant named `y` refers to `x`. -/
+def Linked (modules : Array ModuleData) (src : Name) (srcFind : Name → Option ConstantInfo)
+    (x y : Name) : Prop :=
+  privateTo src y = true ∧ ((∃ c, srcFind x = some c ∧ y ∈ successorsOf c) ∨ Refers modules y x)
 
-/-- Each constant `prune` keeps refers, among the names private to `src`, only to names of the
-constants it keeps. -/
-private theorem prune_closed {src : Name} {pairs : List ConstantInfo} :
-    ∀ x ∈ prune src pairs, PrivatesIn src (prune src pairs) x := by
-  induction pairs using prune.induct src with
-  | case1 pairs shorter ih =>
-    rw [prune]; simp only [shorter, ↓reduceIte]
-    exact ih
-  | case2 pairs longer =>
-    rw [prune]; simp only [longer, ↓reduceIte]
-    have hall := List.length_filter_eq_length_iff.mp
-      (Nat.le_antisymm (List.length_filter_le _ _) (Nat.not_lt.mp longer))
-    exact fun x hx => privatesIn_iff.mp (hall x hx)
+/-- `y` is joined to `x` through names private to `src`, in zero or more `Linked` steps. -/
+inductive Joined (modules : Array ModuleData) (src : Name) (srcFind : Name → Option ConstantInfo) :
+    Name → Name → Prop
+  /-- Every name is joined to itself. -/
+  | refl (x : Name) : Joined modules src srcFind x x
+  /-- A name is joined to whatever a name linked to it is joined to. -/
+  | step {x m y : Name} : Linked modules src srcFind x m → Joined modules src srcFind m y →
+      Joined modules src srcFind x y
 
-/-- A part `S` of `pairs` each constant of which refers, among the names private to `src`, only to
-names of `S` stays in `prune`. -/
-private theorem prune_largest {src : Name} {S : List ConstantInfo}
-    (hclosed : ∀ x ∈ S, PrivatesIn src S x) {pairs : List ConstantInfo}
-    (hsub : ∀ x ∈ S, x ∈ pairs) : ∀ x ∈ S, x ∈ prune src pairs := by
-  induction pairs using prune.induct src with
-  | case1 pairs shorter ih =>
-    rw [prune]; simp only [shorter, ↓reduceIte]
-    refine ih fun x hx => List.mem_filter.mpr ⟨hsub x hx, privatesIn_iff.mpr fun n hn hp => ?_⟩
-    obtain ⟨y, hy, rfl⟩ := hclosed x hx n hn hp
-    exact ⟨y, hsub y hy, rfl⟩
-  | case2 pairs longer =>
-    rw [prune]; simp only [longer, ↓reduceIte]
-    exact hsub
+/-- The names `linkedIn` gives are exactly the `Linked` ones. -/
+theorem mem_linkedIn {modules : Array ModuleData} {src : Name}
+    {srcFind : Name → Option ConstantInfo} {x y : Name} :
+    y ∈ linkedIn (linksOf modules) src srcFind x ↔ Linked modules src srcFind x y := by
+  unfold linkedIn Linked
+  rw [Array.mem_filter, Array.mem_append, mem_before]
+  cases srcFind x with
+  | none =>
+    simp only [Array.not_mem_empty, false_or, reduceCtorEq, false_and, exists_false]
+    exact And.comm
+  | some c => simp only [Option.some.injEq, exists_eq_left']; exact And.comm
 
-/-- The constants `renamedCopy` renames with a copy: the largest set (`prune`) of constants of
-`srcConsts` that are private to `src`, are each `renamedTo` the constant `dstFind` gives under the
-renamed name, have that name and their own `fixed`, and refer, among the names private to `src`,
-only to names of the set. -/
-def renamedPairs (src dst : Name) (fixed : Name → Bool) (srcConsts : List ConstantInfo)
-    (dstFind : Name → Option ConstantInfo) : List ConstantInfo :=
-  prune src (srcConsts.filter fun x =>
-    privateTo src x.name && fixed x.name && fixed (renameName src dst x.name) &&
-      (dstFind (renameName src dst x.name)).any (renamedTo src dst x ·))
+/-- A path along `linkedIn` is a `Joined` chain. -/
+theorem reach_linkedIn_iff {modules : Array ModuleData} {src : Name}
+    {srcFind : Name → Option ConstantInfo} {x y : Name} :
+    Reach (linkedIn (linksOf modules) src srcFind) x y ↔ Joined modules src srcFind x y := by
+  constructor
+  · intro h
+    induction h with
+    | refl => exact .refl _
+    | step hm _ ih => exact .step (mem_linkedIn.mp hm) ih
+  · intro h
+    induction h with
+    | refl => exact .refl _
+    | step hm _ ih => exact .step (mem_linkedIn.mpr hm) ih
 
-/-- Whether `c`, a copy in the module `src` whose constants are `srcConsts`, is `r` renamed: the two
-are theorems Lean's import accepts together (`sameTheorem`), `c` is `renamedTo` `r` from `src` to
-`dst`, and each name private to `src` that `c` refers to names a constant of `renamedPairs`, each
-renamed in the same way into the constant `dstFind` gives under the renamed name. `renamedCopy_iff`
-states the decision.
+/-- The block of the copy `c` in the module `src` whose constants `srcFind` gives by name: the names
+private to `src` joined, through names private to `src`, to one that `c` refers to. -/
+def blockOf (links : Links) (src : Name) (srcFind : Name → Option ConstantInfo)
+    (c : ConstantInfo) : Std.HashSet Name :=
+  links.closure (linkedIn links src srcFind) ((successorsOf c).toList.filter (privateTo src))
+
+/-- `y` is in the block of `c`: it is `Joined` to a name private to `src` that `c` refers to. -/
+def InBlock (modules : Array ModuleData) (src : Name) (srcFind : Name → Option ConstantInfo)
+    (c : ConstantInfo) (y : Name) : Prop :=
+  ∃ s ∈ successorsOf c, privateTo src s = true ∧ Joined modules src srcFind s y
+
+/-- For a constant `c` of a loaded module and constants `srcFind` from loaded modules, `blockOf`
+holds exactly the names `InBlock` admits. -/
+theorem mem_blockOf {modules : Array ModuleData} {src : Name}
+    {srcFind : Name → Option ConstantInfo} {c : ConstantInfo}
+    (hc : ∃ data ∈ modules, c ∈ data.constants)
+    (hfind : ∀ x a, srcFind x = some a → ∃ data ∈ modules, a ∈ data.constants) {y : Name} :
+    y ∈ blockOf (linksOf modules) src srcFind c ↔ InBlock modules src srcFind c y := by
+  obtain ⟨data, hdata, hcd⟩ := hc
+  unfold blockOf InBlock
+  rw [mem_closure (fun s hs => used_mem_namesOf hdata hcd
+      (Array.mem_toList_iff.mp (List.mem_filter.mp hs).1)) (fun x z hz => ?_)]
+  · simp only [List.mem_filter, Array.mem_toList_iff, reach_linkedIn_iff, and_assoc]
+  · obtain ⟨-, hz⟩ := mem_linkedIn.mp hz
+    rcases hz with ⟨a, ha, hza⟩ | ⟨adata, hadata, a, ha, rfl, -⟩
+    · obtain ⟨adata, hadata, hacd⟩ := hfind x a ha
+      exact used_mem_namesOf hadata hacd hza
+    · exact name_mem_namesOf hadata ha
+
+/-- Whether `x`, a name of a block, is renamed with the copy: it is not private to `dst`, `alone`
+(declared by `src` alone) and `fixed` accept it, `fixed` accepts its renamed name, and its constant
+in `src` is `renamedTo` the constant `dstFind` gives under the renamed name. -/
+def renameable (src dst : Name) (fixed alone : Name → Bool)
+    (srcFind dstFind : Name → Option ConstantInfo) (x : Name) : Bool :=
+  !privateTo dst x && alone x && fixed x && fixed (renameName src dst x) &&
+    match srcFind x, dstFind (renameName src dst x) with
+    | some a, some b => renamedTo src dst a b
+    | _, _ => false
+
+/-- `x` is not private to `dst`, `alone` and `fixed` hold of it, `fixed` holds of its renamed
+name, and its constant in `src` is `RenamedTo` the constant of `dst` under the renamed name. -/
+def Renameable (src dst : Name) (fixed alone : Name → Prop)
+    (srcFind dstFind : Name → Option ConstantInfo) (x : Name) : Prop :=
+  privateTo dst x = false ∧ alone x ∧ fixed x ∧ fixed (renameName src dst x) ∧
+    ∃ a b, srcFind x = some a ∧ dstFind (renameName src dst x) = some b ∧ RenamedTo src dst a b
+
+/-- `renameable` decides `Renameable` for tests that decide `fixed` and `alone`. -/
+theorem renameable_iff {src dst : Name} {fixedB aloneB : Name → Bool} {fixed alone : Name → Prop}
+    (hfixed : ∀ n, fixedB n = true ↔ fixed n) (halone : ∀ n, aloneB n = true ↔ alone n)
+    {srcFind dstFind : Name → Option ConstantInfo} {x : Name} :
+    renameable src dst fixedB aloneB srcFind dstFind x = true ↔
+      Renameable src dst fixed alone srcFind dstFind x := by
+  unfold renameable Renameable
+  simp only [Bool.and_eq_true, Bool.not_eq_eq_eq_not, Bool.not_true, hfixed, halone, and_assoc]
+  cases srcFind x <;> cases dstFind (renameName src dst x) <;> simp [renamedTo_iff]
+
+/-- `z` is in the block of `c` or is the renamed name of a name there. -/
+def InJoined (modules : Array ModuleData) (src dst : Name) (srcFind : Name → Option ConstantInfo)
+    (c : ConstantInfo) (z : Name) : Prop :=
+  InBlock modules src srcFind c z ∨ ∃ y, InBlock modules src srcFind c y ∧ renameName src dst y = z
+
+/-- Whether `c`, the copy of `n` in the module `src`, is the copy `r` of `dst` renamed, so that
+reuse may hold either: the two are theorems Lean's import accepts together (`sameTheorem`), `c` is
+`renamedTo` `r`, every name of the block of `c` (`blockOf`) is `renameable`, and each name of the
+block or renamed from it (the joined names) reaches no `n` (`reachesIn` over `above`, the names
+that reach `n` in one or more steps) and is referred to only by constants named `n` or by joined
+names (`Links.before`). `renamedCopy_iff` states the decision.
 
 Why reuse gives the same results with renamed copies as with identical ones. Let `σ` be
-`renameName src dst` and `P` the constants of `renamedPairs`. Whether a module is reused or
-replayed changes only which loaded copy of a name the replayed kernel holds (`copiesAgree`), so it
-can hold `c` under the name where a replay would hold `r`, or the reverse. Each module's private
-constants stay under their own names, and these never coincide: each begins with its own module's
-`privatePrefix`. Three things read the constant held under the name.
+`renameName src dst` and `B` the block of `c`. Whether a module is reused or replayed changes only
+which loaded copy of a name the replayed kernel holds (`copiesAgree`), so it can hold `c` under `n`
+where a replay would hold `r`, or the reverse. Take two kernel environments that hold loaded
+copies and differ only under `n`, the one holding `r` and the other `c`; any two environments
+holding loaded copies are joined by such steps, one name at a time, through the attributed copy.
+Let `τ` exchange each name of `B` with its name under `σ` and fix every other name: a bijection,
+since `σ` replaces one prefix by another and no name of `B` is private to `dst`.
 
-* The kernel's check of a declaration that refers to the name. `c` and `r` are proofs of one
-  proposition (`sameTheorem`). Lean's type theory has definitional proof irrelevance, so an
-  environment that holds either under the name derives the same judgments, and a declaration
-  well typed beside one is well typed beside the other. The kernel decides the definitional
-  equality of two proofs from their types, before it unfolds either. It looks inside a proof only
-  when it reduces one that a recursor or a projection consumes, and it reduces `c` as it reduces
-  `r`, up to `σ`. It reads a constant's name only to look the constant up, to compare it with
-  another constant's name or with a fixed name of Lean's core (none of them private), to hash it
-  for caches keyed by equality, and to label diagnostics. `σ` is injective on the names `c` and
-  `P` refer to, since none of them is private to `dst`. So, as long as a run reads names private
-  to only one of the two modules, the kernel's run on the one copy is its run on the other with
-  `σ` applied, and it reaches the same verdict. `renamedTo` refuses a constant that names
-  `Lean.reduceBool` or `Lean.reduceNat`, whose argument the kernel reduces by running compiled
-  code it finds by name, which the renaming does not relate. A run that reads the private names
-  of both modules, such as the check of a declaration of `dst` that names its own private match
-  equation directly while the name holds `c`, is outside that argument. There, both verdicts are
-  sound by proof irrelevance, but the argument does not show that they are equal.
-* The searches of the axioms and assumptions each owned declaration reaches (`validate`), and the
-  circularity and axiom tests of `checkProof`. Renaming changes only the names private to `src`,
-  so `c` and `r` refer to the same other names, and so does each constant of `P` and the constant
-  it is renamed into. Every name private to `src` that `c` reaches through `P` names a constant of
-  `P` (`prune`). The constants of `P` are theorems and safe definitions, so none is an axiom, and
-  `fixed` gives them no role and keeps their names outside `differing`, so the kernel holds under
-  each name the module's own constant up to `Identical`. So the searches from `c` and from `r`
-  reach the same names outside the two modules' private names, and among them the same axioms and
-  roles.
-* `checkShared`, `checkOwn` and `checkKept`, which compare with `sameTheorem` and `identical`. A
-  copy that is not `identical` to the held constant has its proof checked by `checkProof`, which
-  then reaches the held constant's axioms by the previous point.
+* `τ` carries the first environment onto the second, constant by constant up to `Identical`.
+  Under `n`, `r` renamed back is `c`. Under a name of `B`, its only copy (`alone`) is renamed into
+  the constant of `dst` under the new name, which renames back into it, and both refer, among the
+  names private to their modules, only to joined names. Every other constant refers to no joined
+  name (the test on `Links.before`), so `τ` fixes it.
+* The kernel reads a constant's name only to look the constant up, to compare it with another
+  constant's name or a fixed name of Lean's core (none of them private), to hash it for caches
+  keyed by equality, and to label diagnostics. It runs compiled code only to evaluate the constant
+  that `Lean.reduceBool` or `Lean.reduceNat` is applied to. Without that evaluation its check of a
+  declaration `d` in the first environment is, name for name under `τ`, its check of `τ d` in the
+  second, with the same verdict.
+* A declaration that is not joined and is not a copy of `n` refers to no joined name, so `τ d` is
+  `d`. If it reaches `n`, it reaches neither primitive (`uniformUpToPrivate`), and no term of its
+  check contains one: the terms come from `d` and the constants it reaches, and the kernel builds
+  none with a primitive. If it does not reach `n`, both environments hold the same constant under
+  every name its check reads: those it reaches and those that `kernelNames` reach, none of which
+  reaches `n`.
+* A joined declaration reaches no `n`, and neither does a copy of `n`, since `n` lies on no cycle
+  (`uniformUpToPrivate`). Both environments hold the same constant under every name its check
+  reads.
+
+So every declaration receives the same verdict in both environments. The searches of the axioms and
+assumptions each owned declaration reaches (`validate`), and the circularity and axiom tests of
+`checkProof`, follow references through the held constants, and `τ` maps the names reached in the
+one environment onto those reached in the other. A name of `B` and its name under `σ` are theorems
+or safe definitions with no role (`fixed`), so the two reach the same axioms and roles.
+`checkShared`, `checkOwn` and `checkKept` compare with `sameTheorem` and `identical`: a copy that is
+not `identical` to the held constant has its proof checked by `checkProof`, which then reaches the
+held constant's axioms by the previous sentence.
 
 Assumes:
 - Lean v4.34.1, `src/lean/Lean/Meta/Match/MatchEqs.lean:143-155`: the splitter and the match
@@ -930,78 +1167,82 @@ Assumes:
   otherwise rebuilds the node from its children, keeping the structure name and index of a
   projection. So `renameExpr` renames exactly the constants private to `src`, and the names a
   renamed constant refers to are those of the original with `σ` applied.
-- Lean v4.34.1, `src/kernel/environment.cpp:201-202` (trusted): the type of a theorem is a
-  proposition. `src/kernel/type_checker.cpp:932-939` with `1194-1203`: after reducing both sides
-  without unfolding a definition, the kernel decides the definitional equality of two terms whose
-  type is a proposition from their types alone (`is_def_eq_proof_irrel`).
-- Lean v4.34.1, `src/kernel/type_checker.cpp:555-563` with `src/kernel/declaration.h:466-468`
-  (trusted): `is_delta` unfolds a theorem as it unfolds a definition. `src/kernel/inductive.h:77-121`
-  reduces the major premise of a recursor (`93`, after `to_cnstr_when_K` at `31-50` tries to build
-  a constructor from the major premise's type alone), and `type_checker.cpp:420-453` reduces the
-  structure of a projection. These are the places where a proof the kernel holds is unfolded.
+- Lean v4.34.1, `src/lean/Lean/Util/FoldConsts.lean:67-74` and `src/kernel` (trusted): the kernel's
+  check of a declaration reads a constant only under a name that occurs in the declaration or in
+  a constant it read (the names `ConstantInfo.getUsedConstantsAsSet` gives, `successorsOf`), under
+  a name of `kernelNames`, or as the recursor of an inductive type it read, whose rules refer only
+  to recursors of that type's block and to the constants of its constructors' types. No name of
+  `kernelNames`, and no recursor, is a theorem, a name private to a module, or `Lean.reduceBool`
+  or `Lean.reduceNat`.
+- Lean v4.34.1, `src/kernel/type_checker.cpp:604-605` and `1343-1344` (trusted):
+  `Lean.reduceBool` and `Lean.reduceNat` are the only constants whose argument the kernel reduces
+  by running compiled code, `reduce_native` at `614-633`, which `whnf` calls at `759-769` after
+  unfolding nothing more than `whnf_core` does, and `is_def_eq_core` at `1101-1103`. It acts only on
+  an application of one of the two to a constant, and the kernel otherwise uses the two names only
+  in these comparisons, so it builds no term containing them.
 - Lean v4.34.1, `src/kernel` (trusted): `const_name` and `is_constant` with a name, the kernel's
   access to the name of a constant, appear in `declaration.cpp:153`, `177-178` and `196-197`,
   `expr.cpp:351`, `expr.h:249-251` and `366-371`, `expr_eq_fn.cpp:83`, `inductive.cpp:55-57`,
-  `91-118`, `147-157`, `315-317`, `414-416`, `922-966`, `1026-1072` and `1227`, `inductive.h:36`, `68`, `81-82` and `126-127`, `instantiate.cpp:238`,
-  `quot.h:41-83` and `type_checker.cpp:102-116`, `254-256`, `425-427`, `529-530`, `557-566`,
-  `617-627`, `716`, `891-892`, `1162-1164`, `1181-1182` and `1209`. Each looks the constant up,
-  compares its name with another constant's name or a fixed name of Lean's core, rebuilds the
-  constant with other universe levels, or prints the name, with two exceptions. `reduce_native`
-  at `614-633` runs the compiled code of the constant that `Lean.reduceBool` or `Lean.reduceNat`
-  is applied to. `inductive.cpp:924` and `966` derive the names of the auxiliary types of a nested
-  inductive declaration from names of inductive types, which are neither theorems nor definitions,
-  and `1227` tests a name against the reserved prefix `_nested`, which no private name has. -/
-def renamedCopy (src dst : Name) (fixed : Name → Bool) (srcConsts : List ConstantInfo)
-    (dstFind : Name → Option ConstantInfo) (c r : ConstantInfo) : Bool :=
+  `91-118`, `147-157`, `315-317`, `414-416`, `922-966`, `1026-1072` and `1227`, `inductive.h:36`,
+  `68`, `81-82` and `126-127`, `instantiate.cpp:238`, `quot.h:41-83` and
+  `type_checker.cpp:102-116`, `254-256`, `425-427`, `529-530`, `557-566`, `617-627`, `716`,
+  `891-892`, `1162-1164`, `1181-1182` and `1209`. Each looks the constant up, compares its name with
+  another constant's name or a fixed name of Lean's core, rebuilds the constant with other
+  universe levels, or prints the name, with two exceptions. `reduce_native` at `614-633` runs the
+  compiled code of the constant that `Lean.reduceBool` or `Lean.reduceNat` is applied to.
+  `inductive.cpp:924` and `966` derive the names of the auxiliary types of a nested inductive
+  declaration from names of inductive types, which are neither theorems nor definitions, and
+  `1227` tests a name against the reserved prefix `_nested`, which no private name has. -/
+def renamedCopy (links : Links) (src dst n : Name) (fixed alone : Name → Bool)
+    (srcFind dstFind : Name → Option ConstantInfo) (above : Std.HashSet Name)
+    (c r : ConstantInfo) : Bool :=
   sameTheorem r c && renamedTo src dst c r &&
-    privatesIn src
-      (Std.HashSet.ofList ((renamedPairs src dst fixed srcConsts dstFind).map (·.name))) c
+    let block := blockOf links src srcFind c
+    let joined := Std.HashSet.ofList (block.toList ++ block.toList.map (renameName src dst))
+    block.toList.all (renameable src dst fixed alone srcFind dstFind) &&
+      joined.toList.all fun z => !reachesIn above n z &&
+        (links.before z).all fun x => x == n || joined.contains x
 
-/-- A constant of `srcConsts` that a renamed copy may rename: it is private to `src`, its name and
-its renamed name are `fixed`, and `dstFind` gives a constant under the renamed name that it is
-`RenamedTo`. -/
-def Renameable (src dst : Name) (fixed : Name → Prop) (srcConsts : List ConstantInfo)
-    (dstFind : Name → Option ConstantInfo) (x : ConstantInfo) : Prop :=
-  x ∈ srcConsts ∧ privateTo src x.name = true ∧ fixed x.name ∧ fixed (renameName src dst x.name) ∧
-    ∃ y, dstFind (renameName src dst x.name) = some y ∧ RenamedTo src dst x y
-
-/-- `r` and `c` are theorems Lean's import accepts together (`SameTheorem`), `c` is `RenamedTo` `r`,
-and some list of `Renameable` constants holds a constant under each name private to `src` that `c`
-or a constant of the list refers to. -/
-def RenamedCopy (src dst : Name) (fixed : Name → Prop) (srcConsts : List ConstantInfo)
-    (dstFind : Name → Option ConstantInfo) (c r : ConstantInfo) : Prop :=
+/-- `r` and `c` are theorems Lean's import accepts together (`SameTheorem`), `c` is `RenamedTo`
+`r`, every name of the block of `c` is `Renameable`, and every joined name reaches no `n` and is
+referred to only by constants named `n` or by joined names. -/
+def RenamedCopy (modules : Array ModuleData) (src dst n : Name) (fixed alone : Name → Prop)
+    (srcFind dstFind : Name → Option ConstantInfo) (c r : ConstantInfo) : Prop :=
   SameTheorem r c ∧ RenamedTo src dst c r ∧
-    ∃ pairs : List ConstantInfo, (∀ x ∈ pairs, Renameable src dst fixed srcConsts dstFind x) ∧
-      ∀ x ∈ c :: pairs, PrivatesIn src pairs x
+    (∀ y, InBlock modules src srcFind c y → Renameable src dst fixed alone srcFind dstFind y) ∧
+    ∀ z, InJoined modules src dst srcFind c z →
+      ¬ Leads modules z n ∧ ∀ x, Refers modules x z → x = n ∨ InJoined modules src dst srcFind c x
 
-/-- **`renamedCopy` accepts exactly the copies that `RenamedCopy` relates**, for a `fixed` test
-that decides the `fixed` property. -/
-theorem renamedCopy_iff {src dst : Name} {fixedB : Name → Bool} {fixed : Name → Prop}
-    (hfixed : ∀ n, fixedB n = true ↔ fixed n) {srcConsts : List ConstantInfo}
-    {dstFind : Name → Option ConstantInfo} {c r : ConstantInfo} :
-    renamedCopy src dst fixedB srcConsts dstFind c r = true ↔
-      RenamedCopy src dst fixed srcConsts dstFind c r := by
-  have candidate : ∀ x, x ∈ srcConsts.filter (fun x =>
-      privateTo src x.name && fixedB x.name && fixedB (renameName src dst x.name) &&
-        (dstFind (renameName src dst x.name)).any (renamedTo src dst x ·)) ↔
-      Renameable src dst fixed srcConsts dstFind x := by
-    intro x
-    simp only [List.mem_filter, Bool.and_eq_true, hfixed, Option.any_eq_true, renamedTo_iff,
-      Renameable, and_assoc]
-  unfold renamedCopy RenamedCopy renamedPairs
-  simp only [Bool.and_eq_true, sameTheorem_iff, renamedTo_iff]
-  constructor
-  · rintro ⟨⟨hsame, hrenamed⟩, hcovered⟩
-    refine ⟨hsame, hrenamed, prune src _, fun x hx => (candidate x).mp (prune_sub hx),
-      fun x hx => ?_⟩
-    rcases List.mem_cons.mp hx with rfl | hx
-    · exact privatesIn_iff.mp hcovered
-    · exact prune_closed x hx
-  · rintro ⟨hsame, hrenamed, pairs, hpairs, hclosed⟩
-    refine ⟨⟨hsame, hrenamed⟩, privatesIn_iff.mpr fun n hn hp => ?_⟩
-    obtain ⟨y, hy, rfl⟩ := hclosed c List.mem_cons_self n hn hp
-    exact ⟨y, prune_largest (fun x hx => hclosed x (List.mem_cons_of_mem _ hx))
-      (fun x hx => (candidate x).mpr (hpairs x hx)) y hy, rfl⟩
+/-- **`renamedCopy` over the references of `modules` accepts exactly the copies that `RenamedCopy`
+relates**, for a copy `c` of a loaded module, constants `srcFind` from loaded modules, `above` the
+names that reach `n` in one or more steps, and tests that decide `fixed` and `alone`. -/
+theorem renamedCopy_iff {modules : Array ModuleData} {src dst n : Name}
+    {fixedB aloneB : Name → Bool} {fixed alone : Name → Prop}
+    (hfixed : ∀ n, fixedB n = true ↔ fixed n) (halone : ∀ n, aloneB n = true ↔ alone n)
+    {srcFind dstFind : Name → Option ConstantInfo} {above : Std.HashSet Name} {c r : ConstantInfo}
+    (hc : ∃ data ∈ modules, c ∈ data.constants)
+    (hfind : ∀ x a, srcFind x = some a → ∃ data ∈ modules, a ∈ data.constants)
+    (habove : ∀ x, x ∈ above ↔ ∃ m, Refers modules m n ∧ Leads modules x m) :
+    renamedCopy (linksOf modules) src dst n fixedB aloneB srcFind dstFind above c r = true ↔
+      RenamedCopy modules src dst n fixed alone srcFind dstFind c r := by
+  have block : ∀ y, y ∈ blockOf (linksOf modules) src srcFind c ↔
+      InBlock modules src srcFind c y := fun _ => mem_blockOf hc hfind
+  have joined : ∀ z, z ∈ Std.HashSet.ofList
+      ((blockOf (linksOf modules) src srcFind c).toList ++
+        (blockOf (linksOf modules) src srcFind c).toList.map (renameName src dst)) ↔
+      InJoined modules src dst srcFind c z := by
+    intro z
+    simp only [Std.HashSet.mem_ofList, List.contains_iff_mem, List.mem_append,
+      Std.HashSet.mem_toList, List.mem_map, block, InJoined]
+  unfold renamedCopy RenamedCopy
+  simp only [Bool.and_eq_true, sameTheorem_iff, renamedTo_iff, List.all_eq_true,
+    Std.HashSet.mem_toList, block, renameable_iff hfixed halone, Bool.not_eq_eq_eq_not,
+    Bool.not_true, Array.all_eq_true', Bool.or_eq_true, beq_iff_eq, Std.HashSet.contains_iff_mem,
+    joined, mem_before]
+  have reach : ∀ z, reachesIn above n z = false ↔ ¬ Leads modules z n := fun z => by
+    rw [← reachesIn_iff habove]
+    cases reachesIn above n z <;> simp
+  simp only [reach, and_assoc]
 
 /-- The constants of a module's data by name. -/
 def constantsByName (data : ModuleData) : Std.HashMap Name ConstantInfo :=
@@ -1032,62 +1273,15 @@ theorem constantsByName_sound {data : ModuleData} {n : Name} {y : ConstantInfo}
       exact ⟨hrest _ List.mem_cons_self, beq_iff_eq.mp heq⟩
     · exact hindex n y hn
 
-/-- Whether every copy of `n` in the module at index `j` is `identical` to `r` or a `renamedCopy`
-of it, where `dst` names the module of `r` and `index` holds that module's constants by name. -/
-def copiesRenamed (modules : Array ModuleData) (names : Array Name) (fixed : Name → Bool)
-    (dst : Name) (index : Std.HashMap Name ConstantInfo) (n : Name) (r : ConstantInfo) (j : Nat) :
-    Bool :=
-  match modules[j]?, names[j]? with
-  | some data, some src =>
-    data.constants.all fun c =>
-      c.name != n || identical r c ||
-        renamedCopy src dst fixed data.constants.toList (index[·]?) c r
-  | _, _ => false
-
-/-- The module at index `j` has data and a name, and every copy of `n` it declares is `Identical`
-to `r` or a `RenamedCopy` of it. -/
-def CopiesRenamed (modules : Array ModuleData) (names : Array Name) (fixed : Name → Prop)
-    (dst : Name) (index : Std.HashMap Name ConstantInfo) (n : Name) (r : ConstantInfo) (j : Nat) :
-    Prop :=
-  ∃ data src, modules[j]? = some data ∧ names[j]? = some src ∧
-    ∀ c ∈ data.constants, c.name = n →
-      Identical r c ∨ RenamedCopy src dst fixed data.constants.toList (index[·]?) c r
-
-/-- `copiesRenamed` decides `CopiesRenamed`. -/
-private theorem copiesRenamed_iff {modules : Array ModuleData} {names : Array Name}
-    {fixedB : Name → Bool} {fixed : Name → Prop} (hfixed : ∀ n, fixedB n = true ↔ fixed n)
-    {dst : Name} {index : Std.HashMap Name ConstantInfo} {n : Name} {r : ConstantInfo} {j : Nat} :
-    copiesRenamed modules names fixedB dst index n r j = true ↔
-      CopiesRenamed modules names fixed dst index n r j := by
-  unfold copiesRenamed CopiesRenamed
-  cases modules[j]? with
-  | none => simp
-  | some data =>
-    cases names[j]? with
-    | none => simp
-    | some src =>
-      simp only [Array.all_eq_true', Bool.or_eq_true, bne_iff_ne, ne_eq, identical_iff,
-        renamedCopy_iff hfixed]
-      constructor
-      · intro h
-        refine ⟨data, src, rfl, rfl, fun c hc hn => ?_⟩
-        rcases h c hc with (h | h) | h
-        · exact absurd hn h
-        · exact .inl h
-        · exact .inr h
-      · rintro ⟨data', src', hd, hs, h⟩ c hc
-        obtain rfl := Option.some.inj hd
-        obtain rfl := Option.some.inj hs
-        by_cases hn : c.name = n
-        · exact (h c hc hn).elim (fun h => .inl (.inr h)) .inr
-        · exact .inl (.inl hn)
-
-/-- Whether every copy of `n` is the copy `r` of the module `n` is attributed to, or a copy renamed
-into `r` (`copiesRenamed`), in that module and in each of the name's `others`: `n` is uniform up to
-the names private to the modules that declare it. The constants that the renamed copies rename must
-pass `fixed`. `uniformUpToPrivate_iff` states the decision. -/
-def uniformUpToPrivate (modules : Array ModuleData) (names : Array Name)
-    (attributed : Name → Option Nat) (dups : Duplicates) (fixed : Name → Bool) (n : Name) : Bool :=
+/-- Whether every copy of `n` is the copy `r` of the module `n` is attributed to or a copy that
+`related` relates to it, in that module and in each of the name's `others`. `related` receives the
+index, the data and the name of the copy's module, the name of `r`'s module and its constants by
+name, the copy and `r`. `uniformBy_iff` states the decision. -/
+def uniformBy (modules : Array ModuleData) (names : Array Name) (attributed : Name → Option Nat)
+    (dups : Duplicates)
+    (related : Nat → ModuleData → Name → Name → Std.HashMap Name ConstantInfo → ConstantInfo →
+      ConstantInfo → Bool)
+    (n : Name) : Bool :=
   match attributed n with
   | none => false
   | some i =>
@@ -1096,30 +1290,72 @@ def uniformUpToPrivate (modules : Array ModuleData) (names : Array Name)
       match reference.constants.find? (·.name == n) with
       | none => false
       | some r =>
-        (i :: (dups.others.getD n #[]).toList).all
-          (copiesRenamed modules names fixed dst (constantsByName reference) n r)
+        let index := constantsByName reference
+        (i :: (dups.others.getD n #[]).toList).all fun j =>
+          match modules[j]?, names[j]? with
+          | some data, some src =>
+            data.constants.all fun c =>
+              c.name != n || identical r c || related j data src dst index c r
+          | _, _ => false
     | _, _ => false
 
-/-- The module `n` is attributed to has data and a name and declares `n`, its first copy `r` of `n`
-(`Array.find?`), and every module that declares `n` has every copy of `n` `Identical` to `r` or a
-`RenamedCopy` of it from that module to the module of `r` (`CopiesRenamed`). -/
-def UniformUpToPrivate (modules : Array ModuleData) (names : Array Name)
-    (attributed : Name → Option Nat) (fixed : Name → Prop) (n : Name) : Prop :=
+/-- The module `n` is attributed to has data and a name and declares `n`, with first copy `r`
+(`Array.find?`), and every module that declares `n` has data and a name and every copy of `n` it
+holds is `Identical` to `r` or `Related` to it. -/
+def UniformBy (modules : Array ModuleData) (names : Array Name) (attributed : Name → Option Nat)
+    (Related : Nat → ModuleData → Name → Name → Std.HashMap Name ConstantInfo → ConstantInfo →
+      ConstantInfo → Prop)
+    (n : Name) : Prop :=
   ∃ i reference dst r, attributed n = some i ∧ modules[i]? = some reference ∧
     names[i]? = some dst ∧ reference.constants.find? (·.name == n) = some r ∧
-    ∀ j, Declares modules j n →
-      CopiesRenamed modules names fixed dst (constantsByName reference) n r j
+    ∀ j, Declares modules j n → ∃ data src, modules[j]? = some data ∧ names[j]? = some src ∧
+      ∀ c ∈ data.constants, c.name = n →
+        Identical r c ∨ Related j data src dst (constantsByName reference) c r
 
-/-- **`uniformUpToPrivate` over the pass of `duplicatesOf` accepts exactly a name that
-`UniformUpToPrivate` admits.** -/
-theorem uniformUpToPrivate_iff {find : Name → Option ConstantInfo}
-    {attributed : Name → Option Nat} {modules : Array ModuleData} {names : Array Name}
-    {fixedB : Name → Bool} {fixed : Name → Prop} (hfixed : ∀ n, fixedB n = true ↔ fixed n)
+/-- **`uniformBy` over the pass of `duplicatesOf` accepts exactly a name that `UniformBy` admits**,
+for a `related` test that decides `Related` on each copy of a loaded module. -/
+theorem uniformBy_iff {find : Name → Option ConstantInfo} {attributed : Name → Option Nat}
+    {modules : Array ModuleData} {names : Array Name}
+    {related : Nat → ModuleData → Name → Name → Std.HashMap Name ConstantInfo → ConstantInfo →
+      ConstantInfo → Bool}
+    {Related : Nat → ModuleData → Name → Name → Std.HashMap Name ConstantInfo → ConstantInfo →
+      ConstantInfo → Prop}
+    (hrelated : ∀ j data src dst index c r, modules[j]? = some data → c ∈ data.constants →
+      (related j data src dst index c r = true ↔ Related j data src dst index c r))
     {n : Name} :
-    uniformUpToPrivate modules names attributed (duplicatesOf find attributed modules) fixedB n =
-        true ↔
-      UniformUpToPrivate modules names attributed fixed n := by
-  unfold uniformUpToPrivate UniformUpToPrivate
+    uniformBy modules names attributed (duplicatesOf find attributed modules) related n = true ↔
+      UniformBy modules names attributed Related n := by
+  have copies : ∀ (j : Nat) (dst : Name) (index : Std.HashMap Name ConstantInfo)
+      (r : ConstantInfo),
+      (match modules[j]?, names[j]? with
+        | some data, some src =>
+          data.constants.all fun c =>
+            c.name != n || identical r c || related j data src dst index c r
+        | _, _ => false) = true ↔
+      ∃ data src, modules[j]? = some data ∧ names[j]? = some src ∧
+        ∀ c ∈ data.constants, c.name = n → Identical r c ∨ Related j data src dst index c r := by
+    intro j dst index r
+    cases hdata : modules[j]? with
+    | none => simp
+    | some data =>
+      cases names[j]? with
+      | none => simp
+      | some src =>
+        simp only [Array.all_eq_true', Bool.or_eq_true, bne_iff_ne, ne_eq, identical_iff,
+          Option.some.injEq, exists_and_left, exists_eq_left']
+        constructor
+        · intro h c hc hn
+          rcases h c hc with (h | h) | h
+          · exact absurd hn h
+          · exact .inl h
+          · exact .inr ((hrelated j data src dst index c r hdata hc).mp h)
+        · intro h c hc
+          by_cases hn : c.name = n
+          · rcases h c hc hn with h | h
+            · exact .inl (.inr h)
+            · exact .inr ((hrelated j data src dst index c r hdata hc).mpr h)
+          · exact .inl (.inl hn)
+  unfold uniformBy UniformBy
   cases hattr : attributed n with
   | none => simp
   | some i =>
@@ -1136,7 +1372,7 @@ theorem uniformUpToPrivate_iff {find : Name → Option ConstantInfo}
             ⟨reference, hmod, r, Array.mem_of_find?_eq_some hr,
               beq_iff_eq.mp (Array.find?_some (p := fun (x : ConstantInfo) => x.name == n) hr)⟩
           simp only [hmod, hname, hr, List.all_eq_true, List.mem_cons, Array.mem_toList_iff,
-            copiesRenamed_iff hfixed]
+            copies]
           constructor
           · intro h
             refine ⟨i, reference, dst, r, rfl, hmod, hname, hr, fun j hj => ?_⟩
@@ -1157,11 +1393,129 @@ theorem uniformUpToPrivate_iff {find : Name → Option ConstantInfo}
             · exact h _ hdecl
             · exact h j (mem_others_iff.mp hj).1
 
-/-- The `differing` names of `dups` that `uniformUpToPrivate` accepts. -/
+/-- `UniformBy` holds of any weaker relation. -/
+theorem UniformBy.mono {modules : Array ModuleData} {names : Array Name}
+    {attributed : Name → Option Nat}
+    {R₁ R₂ : Nat → ModuleData → Name → Name → Std.HashMap Name ConstantInfo → ConstantInfo →
+      ConstantInfo → Prop}
+    (weaker : ∀ j data src dst index c r, R₁ j data src dst index c r → R₂ j data src dst index c r)
+    {n : Name} (h : UniformBy modules names attributed R₁ n) :
+    UniformBy modules names attributed R₂ n := by
+  obtain ⟨i, reference, dst, r, hi, hm, hn, hr, hall⟩ := h
+  refine ⟨i, reference, dst, r, hi, hm, hn, hr, fun j hj => ?_⟩
+  obtain ⟨data, src, hd, hs, hcopies⟩ := hall j hj
+  exact ⟨data, src, hd, hs, fun c hc hcn =>
+    (hcopies c hc hcn).imp id (weaker _ _ _ _ _ _ _)⟩
+
+/-- Whether the name `x` is attributed to the module at index `j` and declared by no other. -/
+def aloneIn (attributed : Name → Option Nat) (dups : Duplicates) (j : Nat) (x : Name) : Bool :=
+  attributed x == some j && (dups.others.getD x #[]).isEmpty
+
+/-- The name `x` is attributed to the module at index `j`, and every module that declares it is
+that module. -/
+def Alone (modules : Array ModuleData) (attributed : Name → Option Nat) (j : Nat) (x : Name) :
+    Prop :=
+  attributed x = some j ∧ ∀ k, Declares modules k x → k = j
+
+/-- `aloneIn` over the pass of `duplicatesOf` decides `Alone`. -/
+theorem aloneIn_iff {find : Name → Option ConstantInfo} {attributed : Name → Option Nat}
+    {modules : Array ModuleData} {j : Nat} {x : Name} :
+    aloneIn attributed (duplicatesOf find attributed modules) j x = true ↔
+      Alone modules attributed j x := by
+  unfold aloneIn Alone
+  simp only [Bool.and_eq_true, beq_iff_eq, Array.isEmpty_iff]
+  constructor
+  · rintro ⟨hattr, hnone⟩
+    refine ⟨hattr, fun k hdecl => Classical.byContradiction fun hne => ?_⟩
+    have hmem : k ∈ (duplicatesOf find attributed modules).others.getD x #[] :=
+      mem_others_iff.mpr ⟨hdecl, fun h => hne (Option.some.inj (hattr.symm.trans h)).symm⟩
+    rw [hnone] at hmem
+    simp at hmem
+  · rintro ⟨hattr, honly⟩
+    refine ⟨hattr, Array.eq_empty_iff_forall_not_mem.mpr fun k hmem => ?_⟩
+    obtain ⟨hdecl, hne⟩ := mem_others_iff.mp hmem
+    exact hne (by rw [honly k hdecl]; exact hattr)
+
+/-- Whether every copy of `n` is the attributed module's copy or a theorem with the same
+statement whose renaming into it `renamedTo` accepts, the shape `renamedCopy` starts from. Only a
+`differing` name of this shape needs the references of the loaded constants (`agreeing`). -/
+def renamedShape (modules : Array ModuleData) (names : Array Name)
+    (attributed : Name → Option Nat) (dups : Duplicates) (n : Name) : Bool :=
+  uniformBy modules names attributed dups
+    (fun _ _ src dst _ c r => sameTheorem r c && renamedTo src dst c r) n
+
+/-- Whether the copies of `n` agree up to the names private to the modules that declare them:
+`n` lies on no cycle (it is not among the names `aboveIn` gives as reaching it in one or more
+steps), no name of `native` and none of `kernelNames` reaches it, and every copy is the attributed
+module's copy or a `renamedCopy` of it, with the constants of each name of a block declared by
+that copy's module alone (`aloneIn`) and `fixed`. `links` gives the references of the loaded
+constants and `native` the names that reach `Lean.reduceBool` or `Lean.reduceNat`.
+`uniformUpToPrivate_iff` states the decision. -/
+def uniformUpToPrivate (modules : Array ModuleData) (names : Array Name)
+    (attributed : Name → Option Nat) (dups : Duplicates) (fixed : Name → Bool) (links : Links)
+    (native : Std.HashSet Name) (n : Name) : Bool :=
+  let above := aboveIn links n
+  !above.contains n && (native.toList ++ kernelNames).all (fun x => !reachesIn above n x) &&
+    uniformBy modules names attributed dups (fun j data src dst index c r =>
+      renamedCopy links src dst n fixed (aloneIn attributed dups j) ((constantsByName data)[·]?)
+        (index[·]?) above c r) n
+
+/-- `n` reaches no constant that refers to it, no name that reaches `n` reaches `Lean.reduceBool`
+or `Lean.reduceNat` or is one of `kernelNames`, and every copy of `n` is the attributed module's
+copy or a `RenamedCopy` of it from the copy's module, whose names of a block are `Alone` in that
+module and `fixed`. -/
+def UniformUpToPrivate (modules : Array ModuleData) (names : Array Name)
+    (attributed : Name → Option Nat) (fixed : Name → Prop) (n : Name) : Prop :=
+  ¬ (∃ m, Refers modules m n ∧ Leads modules n m) ∧
+    (∀ d, Leads modules d n →
+      ¬ ((Leads modules d ``Lean.reduceBool ∨ Leads modules d ``Lean.reduceNat) ∨
+        d ∈ kernelNames)) ∧
+    UniformBy modules names attributed (fun j data src dst index c r =>
+      RenamedCopy modules src dst n fixed (Alone modules attributed j) ((constantsByName data)[·]?)
+        (index[·]?) c r) n
+
+/-- **`uniformUpToPrivate` over the pass of `duplicatesOf` and the references of `modules`
+accepts exactly a name that `UniformUpToPrivate` admits.** -/
+theorem uniformUpToPrivate_iff {find : Name → Option ConstantInfo}
+    {attributed : Name → Option Nat} {modules : Array ModuleData} {names : Array Name}
+    {fixedB : Name → Bool} {fixed : Name → Prop} (hfixed : ∀ n, fixedB n = true ↔ fixed n)
+    {n : Name} :
+    uniformUpToPrivate modules names attributed (duplicatesOf find attributed modules) fixedB
+        (linksOf modules) (nativeIn (linksOf modules)) n = true ↔
+      UniformUpToPrivate modules names attributed fixed n := by
+  have reach : ∀ x, reachesIn (aboveIn (linksOf modules) n) n x = true ↔ Leads modules x n :=
+    fun _ => reachesIn_iff fun _ => mem_aboveIn
+  unfold uniformUpToPrivate UniformUpToPrivate
+  simp only [Bool.and_eq_true, Bool.not_eq_eq_eq_not, Bool.not_true,
+    Std.HashSet.contains_eq_false_iff_not_mem, mem_aboveIn, List.all_eq_true,
+    Std.HashSet.mem_toList, mem_nativeIn, List.mem_append, and_assoc]
+  refine and_congr Iff.rfl
+    (and_congr ?_ (uniformBy_iff fun j data src dst index c r hdata hc => ?_))
+  · constructor
+    · intro h d hd hnative
+      have := h d hnative
+      rw [← Bool.not_eq_true, reach] at this
+      exact this hd
+    · intro h x hx
+      cases hr : reachesIn (aboveIn (linksOf modules) n) n x
+      · rfl
+      · exact absurd hx (h x ((reach x).mp hr))
+  · exact renamedCopy_iff hfixed (fun _ => aloneIn_iff)
+      ⟨data, Array.mem_of_getElem? hdata, hc⟩
+      (fun _ _ ha => ⟨data, Array.mem_of_getElem? hdata, (constantsByName_sound ha).1⟩)
+      (fun _ => mem_aboveIn)
+
+/-- The `differing` names of `dups` whose copies agree up to the names private to the modules
+that declare them (`uniformUpToPrivate`). The references of the loaded constants are read only
+when some `differing` name has the shape of a renamed copy (`renamedShape`). -/
 def agreeing (modules : Array ModuleData) (names : Array Name) (attributed : Name → Option Nat)
     (dups : Duplicates) (fixed : Name → Bool) : Std.HashSet Name :=
-  Std.HashSet.ofList
-    (dups.differing.toList.filter (uniformUpToPrivate modules names attributed dups fixed))
+  let shaped := dups.differing.toList.filter (renamedShape modules names attributed dups)
+  if shaped.isEmpty then {} else
+    let links := linksOf modules
+    Std.HashSet.ofList
+      (shaped.filter
+        (uniformUpToPrivate modules names attributed dups fixed links (nativeIn links)))
 
 /-- Whether the copies of `n` agree: `n` is outside `differing`, or in `agreeing`. -/
 def agrees (dups : Duplicates) (agreeing : Std.HashSet Name) (n : Name) : Bool :=
@@ -1181,12 +1535,32 @@ theorem agrees_iff {find : Name → Option ConstantInfo} {attributed : Name → 
         (agreeing modules names attributed (duplicatesOf find attributed modules) fixedB) n =
         true ↔
       Agrees find modules names attributed fixed n := by
+  -- A name that is uniform up to private names has the shape of a renamed copy.
+  have shaped : UniformUpToPrivate modules names attributed fixed n →
+      renamedShape modules names attributed (duplicatesOf find attributed modules) n = true := by
+    intro h
+    unfold renamedShape
+    rw [uniformBy_iff (Related := fun _ _ src dst _ c r =>
+      sameTheorem r c = true ∧ renamedTo src dst c r = true)
+      (fun _ _ _ _ _ _ _ _ _ => Iff.of_eq (Bool.and_eq_true _ _))]
+    refine h.2.2.mono fun _ _ _ _ _ c r hrel => ?_
+    exact ⟨(sameTheorem_iff _ _).mpr hrel.1, renamedTo_iff.mpr hrel.2.1⟩
   unfold agrees agreeing Agrees
   by_cases hd : n ∈ (duplicatesOf find attributed modules).differing
   · have hnot : ¬ Uniform find modules n := fun hu => not_mem_differing_iff.mpr hu hd
-    simp only [Std.HashSet.contains_iff_mem.mpr hd, Bool.not_true, Bool.false_or,
-      Std.HashSet.contains_ofList, List.contains_iff_mem, List.mem_filter, Std.HashSet.mem_toList,
-      hd, true_and, uniformUpToPrivate_iff hfixed, hnot, false_or]
+    simp only [Std.HashSet.contains_iff_mem.mpr hd, Bool.not_true, Bool.false_or, hnot, false_or]
+    split
+    · rename_i hempty
+      simp only [Std.HashSet.contains_empty, Bool.false_eq_true, false_iff]
+      intro h
+      have hmem : n ∈ (duplicatesOf find attributed modules).differing.toList.filter
+          (renamedShape modules names attributed (duplicatesOf find attributed modules)) :=
+        List.mem_filter.mpr ⟨Std.HashSet.mem_toList.mpr hd, shaped h⟩
+      rw [List.isEmpty_iff.mp hempty] at hmem
+      simp at hmem
+    · simp only [Std.HashSet.contains_ofList, List.contains_iff_mem, List.mem_filter,
+        Std.HashSet.mem_toList, hd, true_and, uniformUpToPrivate_iff hfixed]
+      exact ⟨fun h => h.2, fun h => ⟨shaped h, h⟩⟩
   · simp only [Std.HashSet.contains_eq_false_iff_not_mem.mpr hd, Bool.not_false, Bool.true_or,
       true_iff]
     exact .inl (not_mem_differing_iff.mp hd)
@@ -1211,14 +1585,92 @@ theorem fixedIn_iff {roles : Std.HashSet Name} {find : Name → Option ConstantI
   simp only [Bool.and_eq_true, Bool.not_eq_eq_eq_not, Bool.not_true,
     Std.HashSet.contains_eq_false_iff_not_mem, not_mem_differing_iff]
 
+/-! ### Witnesses of the exclusions
+
+A claimed constant that reaches `Lean.reduceBool` also reaches the axiom `Lean.trustCompiler`,
+which no claim admits, and Lean refuses a second declaration of a name of `kernelNames` in a
+module that imports `Init`, so these witnesses run `agrees` on module data written here, not on
+modules Lean built. `W.Dst` and `W.Src` each declare a private `flag` and a copy of `W.lemma` whose
+proof applies a function of `W.Base` to that `flag`, so the two copies differ only in the private
+name. -/
+
+/-- The theorem `n` of `True` with the proof `value`. -/
+private def witnessTheorem (n : Name) (value : Expr) : ConstantInfo :=
+  .thmInfo { name := n, levelParams := [], type := .const ``True [], value, all := [n] }
+
+/-- The definition `n` of `Bool → Bool`, or of `Bool` with `flag`, with the value `value`. -/
+private def witnessDefinition (n : Name) (flag : Bool) (value : Expr) : ConstantInfo :=
+  let bool : Expr := .const ``Bool []
+  let type := if flag then bool else .forallE `b bool bool .default
+  .defnInfo
+    { name := n, levelParams := [], type, value, hints := .abbrev, safety := .safe, all := [n] }
+
+/-- The data of a module that declares `constants`. -/
+private def witnessModule (constants : Array ConstantInfo) : ModuleData :=
+  { isModule := false, imports := #[], constNames := constants.map (·.name), constants,
+    extraConstNames := #[], entries := #[] }
+
+/-- Whether `agrees` accepts `W.lemma` when each copy applies `apply` to its module's `flag` and
+`W.Src` also declares `extra`. `W.Base` declares `W.rb`, which applies `Lean.reduceBool`, and
+`W.keep`, which does not. Each name is attributed to the first module that declares it, and the
+environment keeps the last copy. -/
+private def witnessAgrees (apply : Name) (extra : Array ConstantInfo) : Bool :=
+  let flag (m : Name) := mkPrivateNameCore m `flag
+  let proof (m : Name) : Expr :=
+    .app (.const `W.prove []) (.app (.const apply []) (.const (flag m) []))
+  let copy (m : Name) := #[witnessDefinition (flag m) true (.const ``Bool.true []),
+    witnessTheorem `W.lemma (proof m)]
+  let base := #[
+    witnessDefinition `W.rb false
+      (.lam `b (.const ``Bool []) (.app (.const ``Lean.reduceBool []) (.bvar 0)) .default),
+    witnessDefinition `W.keep false (.lam `b (.const ``Bool []) (.bvar 0) .default)]
+  let modules := #[witnessModule base, witnessModule (copy `W.Dst),
+    witnessModule (copy `W.Src ++ extra)]
+  let attributed (x : Name) := modules.findIdx? (·.constNames.contains x)
+  let find (x : Name) := modules.reverse.findSome? (·.constants.find? (·.name == x))
+  let dups := duplicatesOf find attributed modules
+  agrees dups (agreeing modules #[`W.Base, `W.Dst, `W.Src] attributed dups (fixedIn {} dups))
+    `W.lemma
+
+-- The copies agree when no name that reaches `W.lemma` reaches `Lean.reduceBool` and only the
+-- copies refer to each `flag`.
+-- Compiled-evaluation observation at build time, not a kernel-checked proof.
+#guard witnessAgrees `W.keep #[]
+-- Native reduction through an alias in the copies: each copy reaches `Lean.reduceBool` through
+-- `W.rb`.
+-- Compiled-evaluation observation at build time, not a kernel-checked proof.
+#guard !witnessAgrees `W.rb #[]
+-- Native reduction through a name that refers to `W.lemma`: `W.use` refers to it and to `W.rb`.
+-- With `W.keep` in its place, the copies agree.
+-- Compiled-evaluation observation at build time, not a kernel-checked proof.
+#guard !witnessAgrees `W.keep
+  #[witnessTheorem `W.use (mkApp2 (.const `W.prove []) (.const `W.lemma []) (.const `W.rb []))]
+-- Compiled-evaluation observation at build time, not a kernel-checked proof.
+#guard witnessAgrees `W.keep
+  #[witnessTheorem `W.use (mkApp2 (.const `W.prove []) (.const `W.lemma []) (.const `W.keep []))]
+-- A name the kernel reads unasked: a constant under the name `Char.ofNat` refers to `W.lemma`.
+-- Under a name outside `kernelNames`, the copies agree.
+-- Compiled-evaluation observation at build time, not a kernel-checked proof.
+#guard !witnessAgrees `W.keep
+  #[witnessTheorem ``Char.ofNat (.app (.const `W.prove []) (.const `W.lemma []))]
+-- Compiled-evaluation observation at build time, not a kernel-checked proof.
+#guard witnessAgrees `W.keep
+  #[witnessTheorem `W.ofNat (.app (.const `W.prove []) (.const `W.lemma []))]
+-- A mixed context: `W.mixed` of `W.Src` refers to the `flag` of `W.Src` itself, so a check of it
+-- would read the private names of both modules once `W.lemma` resolves to the copy of `W.Dst`.
+-- Compiled-evaluation observation at build time, not a kernel-checked proof.
+#guard !witnessAgrees `W.keep
+  #[witnessTheorem `W.mixed
+    (.app (.const `W.prove []) (.const (mkPrivateNameCore `W.Src `flag) []))]
+
 /-! ### The constants of a reused module -/
 
 /-- Whether the copies of the name of each constant of the module at index `owner` agree
 (`agree`, which `candidates` gives as `agrees`: every copy is `Identical` to the constant Lean's
-import keeps under the name, or every copy is the attributed module's copy or a theorem renamed into
-it, `renamedCopy`), and a constant that is not a theorem has no copy in another module (its name is
-attributed to `owner` and has no `others`). `none`, a module the environment did not load, is
-refused. `copiesAgree_iff` states the decision.
+import keeps under the name, or `uniformUpToPrivate` accepts the name, so every copy is the
+attributed module's copy or a `renamedCopy` of it), and a constant that is not a theorem has no
+copy in another module (its name is attributed to `owner` and has no `others`). `none`, a module
+the environment did not load, is refused. `copiesAgree_iff` states the decision.
 
 This is the condition on a module's own constants under which an environment reuses an earlier
 environment's replay of it (`candidates`), and why that is the replay this environment would
@@ -1230,25 +1682,25 @@ constructor or recursor record the kernel regenerated and replay accepted as `Id
 stored one). Where the copies of a name are `Uniform`, that constant is `Identical` to the module's
 own, so `replayMap`, `checkShared`, `checkOwn` and `checkKept` meet, under that name, a constant
 `Identical` to the one they would meet if the module were replayed, and the kernel gives both the
-same verdict. Where they are `UniformUpToPrivate`, each copy is a theorem with the same statement
-as the module's own, which proof irrelevance makes interchangeable for the kernel, and every check
-of Regula reaches the same names from either copy outside the private names it renames; the
-docstring of `renamedCopy` gives that argument. A copy in a replayed module passes `checkShared`
-against the held constant (two `Identical` theorems are a `SameTheorem`, and so are two that
-`renamedCopy` relates), and `checkOwn` and `checkKept` either without a proof check or with
-`checkProof`, as it would in a replay of both. A fresh replay would admit the module's constants
-too: a shared copy of a theorem is `SameTheorem` with the held constant, and a constant that is
-not a theorem has a single copy, so it is never shared; this is why the condition requires a
-theorem where another module declares the name (two `Identical` axioms, which Lean's import
-accepts, `checkShared` refuses). The receipt requires the key `(module, name)` of each safe, total
-constant from the module's own data whichever module the name is attributed to (`mem_required`),
-and `reuseJustified` accepts it only when the environment that replayed the module admitted that
-key. That environment offered the module only when each of its copies was admitted there with
-the copies of each shared name in agreement and every module declaring that name owned
-(`ownedAgrees`). So each safe, total constant of a reused module was admitted there
-(`CopyAdmitted`): its proof was checked by that environment's kernel, or it is `Identical` to a
-constant that the kernel of an environment of the audit accepted (by induction on the order in
-which the environments start, with the symmetry and transitivity of `Identical`).
+same verdict. Where they are `UniformUpToPrivate`, each copy is the attributed module's copy or one
+that exchanging the names of its block with their renamed names turns into that copy, while every
+other loaded constant stays fixed; the docstring of `renamedCopy` argues that the kernel and every
+check of Regula then give the same results whichever of the copies is held. A copy in a replayed
+module passes `checkShared` against the held constant (two `Identical` theorems are a
+`SameTheorem`, and so are two that `renamedCopy` relates), and `checkOwn` and `checkKept` either
+without a proof check or with `checkProof`, as it would in a replay of both. A fresh replay would
+admit the module's constants too: a shared copy of a theorem is `SameTheorem` with the held
+constant, and a constant that is not a theorem has a single copy, so it is never shared; this is
+why the condition requires a theorem where another module declares the name (two `Identical`
+axioms, which Lean's import accepts, `checkShared` refuses). The receipt requires the key
+`(module, name)` of each safe, total constant from the module's own data whichever module the name
+is attributed to (`mem_required`), and `reuseJustified` accepts it only when the environment that
+replayed the module admitted that key. That environment offered the module only when each of its
+copies was admitted there with the copies of each shared name in agreement and every module
+declaring that name owned (`ownedAgrees`). So each safe, total constant of a reused module was
+admitted there (`CopyAdmitted`): its proof was checked by that environment's kernel, or it is
+`Identical` to a constant that the kernel of an environment of the audit accepted (by induction on
+the order in which the environments start, with the symmetry and transitivity of `Identical`).
 
 Reuse changes no input of any other check of Regula: those checks read the audited environment and
 the axiom and assumption tables that `validate` returns, which, as the following sentences show,
@@ -1261,8 +1713,7 @@ with `Expr.eqv`. A receipt key is a module and a name read from the module's own
 (`requiredKey?`, `mem_required`), and the axiom and assumption searches read only the constant
 names `KernelAxioms.successorsOf` gives (`ConstantInfo.getUsedConstantsAsSet`), which `Expr.eqv`
 compares. From a renamed copy and the copy it is renamed into, those searches reach the same names
-except the private names the renaming relates, none of which is an axiom or has a role
-(`renamedCopy`).
+except the names the renaming exchanges, none of which is an axiom or has a role (`renamedCopy`).
 
 An `unsafe` or `partial` constant of the module, such as the `_unsafe_rec` helper Lean adds for a
 recursive definition, is outside that statement: no replay checks it, since
