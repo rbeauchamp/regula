@@ -3049,8 +3049,8 @@ inferred from any pure proof.
 
   The fact is trusted for the modules outside the owned modules. These modules can contain
   unchecked declarations, as all trusted code can. The fact is not assumed for an owned module,
-  because `linksOf` reads each owned module completely. If a module outside the owned modules does
-  not obey the fact, a backward search can miss a constant that refers to a name that the region
+  because `linksOf` reads each owned module completely. A module outside the owned modules can fail
+  to obey the fact. Then a backward search can miss a constant that refers to a name that the region
   declares. The theorems that take the fact as a hypothesis then do not apply.
 
   Let `c` be a copy of the name `n` in `src`. The block of `c` is a set of names private to `src`.
