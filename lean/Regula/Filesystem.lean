@@ -690,7 +690,11 @@ theorem Construction.isDirectory_eq :
 /-- The kind of the entry at `path` itself, by the observer's read, which follows no symbolic link
 at `path` (`observeMetadata`), or `none` when Lean reports that nothing is there; every other
 failure of the read is thrown (`RegulaCore.Filesystem.entryType`). It fails on Windows, where the
-observer reads no entry. -/
+observer reads no entry.
+
+Assumes: Lean v4.34.1 `symlinkMetadata` (`Init/System/IO.lean:1155-1156`) is
+`lean_io_symlink_metadata` (`runtime/io.cpp:1160-1179`), which calls `lstat(2)` through libuv and
+gives `noFileOrDirectory` for `ENOENT` and for no other error (`runtime/io.cpp:201`, `:276-279`). -/
 def entryIfPresent (path : FilePath) : IO (Option IO.FS.FileType) :=
   entryType observer path
 

@@ -432,7 +432,11 @@ def isPresent (path : System.FilePath) : IO Bool := do
 
 /-- Kind of the path itself, without following a final symbolic link: `none` when reading it fails
 with `noFileOrDirectory`, and the read's error for every other error, so that a path that cannot be
-read is not taken for an absent one. -/
+read is not taken for an absent one.
+
+Assumes: Lean v4.34.1 `symlinkMetadata` (`Init/System/IO.lean:1155-1156`) is
+`lean_io_symlink_metadata` (`runtime/io.cpp:1160-1179`), which calls `lstat(2)` through libuv and
+gives `noFileOrDirectory` for `ENOENT` and for no other error (`runtime/io.cpp:201`, `:276-279`). -/
 private def kind? (path : FilePath) : IO (Option IO.FS.FileType) := do
   match ← path.symlinkMetadata.toBaseIO with
   | .ok metadata => return some metadata.type
