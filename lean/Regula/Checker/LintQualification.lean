@@ -72,8 +72,9 @@ private def mutate (path : FilePath) (before after : String) : IO Unit := do
 /-- Controls of Lake's compiled-configuration and process-output boundary. The public
 `--explain-config` path runs the same facet report as an audit without running its proof stages,
 and only it prints the census line, which proves that the negative control ran the decision. A
-named root facet is reported; a different facet and a text-only decoy are not. Regula's own root facet is not
-reported as replaced by its own declaration. The empty-Regula-glob case uses the already-built
+named root `extraDep` library facet and a root `presetup` module facet are reported; a different
+facet and a text-only decoy are not. Regula's own root facets are not reported as replaced by its
+own declarations. The empty-Regula-glob case uses the already-built
 auditor's `--project` path: through Lake's lint driver, that glob already stops the run earlier
 by shadowing the driver's Regula imports. Lake v4.34.1 builds that executable before running it
 (`Lake/CLI/Actions.lean:89-99`), resolves imports through workspace lookup
@@ -86,23 +87,31 @@ private def facetReport (repo adopter : FilePath) : IO (Array String) := do
   let original ← IO.FS.readFile lakefile
   let args := #["--", "--explain-config"]
   let checked := "regula facet report: checked "
-  let empty := "0 root extraDep declarations replaced by Regula"
+  let empty := "0 root extraDep or presetup declarations replaced by Regula"
   let displaced := "root package 'build_lint_adopter' library facet 'adopterPrerequisite'"
   let replacement := #[displaced,
     "has its configuration overridden by Regula's 'weakLeanArgsTrace'",
     "Work unique to the overridden facet may be lost",
     "Move that work to extraDepTargets or needs"]
+  let displacedSetup := "root package 'build_lint_adopter' module facet 'adopterSetup'"
+  let setupReplacement := #[displacedSetup,
+    "(presetup) has its configuration overridden by Regula's 'elaborationObserver'",
+    "Move that work to the library's plugins or dynlibs"]
   let collisionLakefile := original ++ "\n\
     /-- A facet replaced by a later root declaration, before dependencies load. -/\n\
     @[«library_facet»] def earlierPrerequisite : LibraryFacetDecl :=\n\
       .mk LeanLib.extraDepFacet LeanLib.extraDepFacetConfig\n\
     /-- A prerequisite represented by the root's library facet. -/\n\
     @[«library_facet»] def adopterPrerequisite : LibraryFacetDecl :=\n\
-      .mk LeanLib.extraDepFacet LeanLib.extraDepFacetConfig\n"
+      .mk LeanLib.extraDepFacet LeanLib.extraDepFacetConfig\n\
+    /-- A module setup step represented by the root's module facet. -/\n\
+    @[«module_facet»] def adopterSetup : ModuleFacetDecl :=\n\
+      .mk Module.presetupFacet Module.presetupFacetConfig\n"
   IO.FS.writeFile lakefile collisionLakefile
   let positive : Expectation := {
     label := "facet-report/replaced", exitCode := 2,
-    contains := #[checked, "1 root extraDep declarations replaced by Regula"] ++ replacement,
+    contains := #[checked, "2 root extraDep or presetup declarations replaced by Regula"] ++
+      replacement ++ setupReplacement,
     excludes := #["library facet 'earlierPrerequisite'", "Its build step does not run"] }
   let mut failures ← expect adopter positive args
   IO.FS.writeFile lakefile (original ++ "\n\
@@ -110,7 +119,7 @@ private def facetReport (repo adopter : FilePath) : IO (Array String) := do
     library_facet other : Unit := pure Job.nil\n")
   let negative : Expectation := {
     label := "facet-report/not-replaced", exitCode := 2,
-    contains := #[checked, empty], excludes := #[displaced,
+    contains := #[checked, empty], excludes := #[displaced, displacedSetup,
       "Work unique to the overridden facet may be lost", "Its build step does not run"] }
   failures := failures ++ (← expect adopter negative args)
   -- Lake chooses Lean from the relative lakefile.lean, even when the resolved target ends in

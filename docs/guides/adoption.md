@@ -960,7 +960,7 @@ audit refuses a `decides` entry that names its own surface or no claimed surface
   Regula rebuilds the modules of your root package and of Regula one time.
 - If your root package declares an `extraDep` library facet, Regula's facet replaces it.
   Work unique to the overridden configuration may be lost.
-  The [facet report](proofs-and-boundaries.md#replaced-root-library-facets) in `lake lint` and the audit names that declaration.
+  The [facet report](proofs-and-boundaries.md#replaced-root-facets) in `lake lint` and the audit names that declaration.
   Move that work to `extraDepTargets` or `needs`, which Lake's own facet runs.
 - A dependency that Lake resolves after Regula can declare an `extraDep` facet that replaces
   Regula's. Lake resolves the `require` lines of a package from the last to the first, and then
@@ -985,7 +985,10 @@ audit refuses a `decides` entry that names its own surface or no claimed surface
   fails a claimed module with a warning or error that Lean keeps out of the output, or that the
   observer did not observe. A file audit with a claim (`axiomGate --file`) loads the observer into
   its compilation and fails the file in the same way.
-- If your root package declares a `presetup` facet, Regula's facet replaces it.
+- If your root package declares a `presetup` module facet, Regula's facet replaces it.
+  Work unique to the overridden configuration may be lost.
+  The [facet report](proofs-and-boundaries.md#replaced-root-facets) in `lake lint` and the audit names that declaration.
+  Move that work to the library's `plugins` or `dynlibs`, which Lake's own facet reads.
 - Code that runs while Lean elaborates a module can write or remove the observer's record. An
   example is an `initialize` declaration or an elaborator of an imported module. The audit trusts
   that no such code forges the record. A stateful linter of an imported module runs after the

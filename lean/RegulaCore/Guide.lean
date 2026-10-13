@@ -1438,16 +1438,17 @@ def guide : RuleId → Guide
           INCOMPLETE under this rule. Regula's `lakefile.lean` replaces Lake's `extraDep` \
           facet with one that records each root and Regula library's identity and \
           `weakLeanArgs` in its modules' traces. The project audit and `lake lint` print a \
-          facet report naming a root `extraDep` library facet that Regula replaces, with the \
-          consequence (work unique to its overridden configuration may be lost) and remedy \
-          (move that work to \
-          `extraDepTargets` or `needs`). The report uses Lake's loaded declarations, changes no \
-          audit exit class and does not restore the configuration. Without the marker, a claimed module replayed \
+          facet report naming a root `extraDep` library facet or `presetup` module facet \
+          that Regula replaces, with the consequence (work unique to its overridden \
+          configuration may be lost) and remedy (move that work to `extraDepTargets` or \
+          `needs`, or to the library's `plugins` or `dynlibs`). The report uses Lake's loaded \
+          declarations, changes no audit exit class and does not restore the configuration. Without the marker, a claimed module replayed \
           from before the run whose trace lacks its own library's current record is not \
           established (INCOMPLETE), as when another dependency declares a library or module facet.",
         "Regula's `lakefile.lean` and the audit's build replace Lake's `presetup` facet with one \
           that adds the elaboration observer to the plugins of each module of the root package, \
-          so a `presetup` facet that the root package declares does not run.",
+          so a `presetup` facet that the root package declares does not run; the facet report \
+          names it.",
         "That the observer's record holds what Lean elaborated is read from Lean's source at \
           the pinned release, not proved.",
         "That each claimed module's trace records an elaboration is checked after the build \
