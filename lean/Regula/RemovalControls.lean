@@ -34,6 +34,8 @@ planted initializer never runs. The planted removals below are the calls of a re
 - A symbolic link, a path through one and a file where a directory is checked:
   `requireOwnDirectory` refuses each, and accepts a directory at its own place and an absent path.
   `requireNoLinkedEntries` refuses a directory with a symbolic link among its entries.
+- A symbolic link, also one whose target is absent, a path through one and a directory where a file
+  is checked: `requireOwnFile` refuses each, and accepts a file at its own place and an absent path.
 - A URL of `Regula.Site.Deployment.fetch` that starts with `-`: curl does not read it as an
   option.
 
@@ -93,6 +95,12 @@ run_cmd do
         matches .error _ do
       throwError "requireNoLinkedEntries accepted a directory with a dangling linked entry"
     Regula.Filesystem.requireOwnDirectory (base / "absent")
+    for refused in [base / "linked", base / "linked" / "out" / "keep", base / "target" / "out",
+        base / "target" / "out" / "dangling"] do
+      unless (← (Regula.Filesystem.requireOwnFile refused).toBaseIO) matches .error _ do
+        throwError "requireOwnFile accepted {refused}"
+    Regula.Filesystem.requireOwnFile (base / "target" / "out" / "keep")
+    Regula.Filesystem.requireOwnFile (base / "absent")
     unless ← (base / "target" / "out" / "keep").pathExists do
       throwError "removeOwn removed an entry below a linked component"
     -- Moves: a file over a file and to an absent path; none through the link, of a directory, or

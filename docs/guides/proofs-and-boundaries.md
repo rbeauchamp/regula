@@ -801,11 +801,20 @@ the word count and the three directories of pages below the output directory. It
 directory of pages also when the options do not select its mode. The refusal of each program
 operates `RegulaRender.begin` in place of the run, thus a refused run and a run leave the same state.
 
-A resumed render reads the table of cross-references in its directory of pages, thus
-`RegulaRender.begin` keeps that one file there. It refuses a saved state or a word count in the
-output directory, before it removes anything. Each removal goes through the observer of the file
-system. The command `lake exe site renderer-refusal` examines the two programs after the site
-build of `./scripts/verify.sh site`.
+A resumed render reads its saved state and the table of cross-references in its directory of
+pages, and `RegulaRender.begin` keeps that table. Before any removal, `RegulaRender.resolvePlan`
+resolves each path of the options into a plan of absolute paths, through the observer of the file
+system. It refuses an empty output directory, a symbolic link at a path of the plan, and an entry of
+the wrong kind there. The function `RegulaRender.refusal` then admits the plan, and the theorem
+`RegulaRender.removals_admitted` states what an admitted plan removes. Each removal is in a
+directory of pages below the output directory, or is a file that the render writes. No removal is
+or contains a file that the render reads.
+
+The removals and the configuration of the render come from the plan alone. The theorem is about
+the paths of the plan, not about the file system. That these paths name the files that Verso reads
+rests on the checks of the observer, if no other process changes the files after the checks. Each
+removal goes through the observer. The command `lake exe site renderer-refusal` examines the two
+programs after the site build of `./scripts/verify.sh site`.
 
 The check `Regula.TaskManagerCheck.checkProgram` operates at the end of the root module of each
 executable. It examines `main` if the compiled code of `main` calls a function of the runtime that

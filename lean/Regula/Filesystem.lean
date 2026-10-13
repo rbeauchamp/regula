@@ -22,8 +22,8 @@ the private declarations, with `open private` or a hand-written name, is outside
 as for the private observation of issue 261.
 
 The observer's reads are public: `ownPath` and `ownRoot` give the path at which a removal is
-decided, and `requireOwnDirectory` and `requireNoLinkedEntries` check a place before a program
-makes or loads something there.
+decided, and `requireOwnDirectory`, `requireOwnFile` and `requireNoLinkedEntries` check a place
+before a program makes, writes or loads something there.
 
 Each operation is `@[noinline]`, so its call of the library's operation stays in its own compiled
 code and is not copied into a caller's. On Windows, Lean 4.34.1's
@@ -313,6 +313,15 @@ def requireOwnDirectory (path : FilePath) : IO Unit := do
   if removal .directory (← observe observer path) == .refuse then
     throw <| IO.userError s!"{path} is not a directory at its own place (a symbolic link, a file, \
       or a path through a symbolic link is there)"
+
+/-- Stop unless nothing is at `path` or a file is there at its own place, by the observation that
+`removeOwn` makes. These are the places on which `removal .file` does not refuse
+(`removal_remove_iff`, `removal_nothing_iff`), so a symbolic link, also one whose target is absent,
+a directory, an entry of another kind and a path through a symbolic link at `path` make it stop. -/
+def requireOwnFile (path : FilePath) : IO Unit := do
+  if removal .file (← observe observer path) == .refuse then
+    throw <| IO.userError s!"{path} is not a file at its own place (a symbolic link, a directory, \
+      an entry of another kind, or a path through a symbolic link is there)"
 
 /-- Stop unless nothing is at `path`, or a directory is there at its own place
 (`requireOwnDirectory`) and each of its entries is a directory or a file, by a read that follows no

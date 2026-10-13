@@ -9,7 +9,9 @@ saved state of `--delay-html-multi FILE` and the word count of `--with-word-coun
 program invalidates these places before it renders, and its refusal in a process without Lean's
 task manager invalidates them in a run's place (`RegulaRender.begin` and `RegulaRender.refuse` in
 the website package). Without that, a refused run left an earlier run's saved state in place, and
-`--resume-html-multi FILE` rendered from it (issue 424).
+`--resume-html-multi FILE` rendered from it (issue 424). Each program first resolves these places
+into a plan and admits it, so it stops before it removes anything when the plan could remove or
+write through a file that the render reads (`RegulaRender.resolvePlan`, `RegulaRender.refusal`).
 
 `control` builds the two programs in the website package and runs them. The processes, Verso and
 the filesystem are its subject, an external boundary: it observes this build's programs and proves
@@ -119,11 +121,70 @@ private def refusals (website program scratch : FilePath) (name : String)
     confined.exitCode != 0 && (confined.stderr.splitOn "is in the output directory").length > 1 &&
       (← present (pages / "index.html")) && !(← present inside)⟩]
 
+/-- Whether the run `output` stopped with a nonzero exit code and `reason` on standard error. -/
+private def stoppedWith (output : IO.Process.Output) (reason : String) : Bool :=
+  output.exitCode != 0 && (output.stderr.splitOn reason).length > 1
+
+/-- The runs of the program `name` at `program`, in the directory `scratch`, that stop with the
+reason before they remove or render anything, one for each case that the resolved plan of a render
+refuses (`RegulaRender.resolvePlan`, `RegulaRender.refusal`): a kept cross-reference table that is
+a symbolic link, through which Verso would write a file outside the output directory; an empty
+output directory; an output directory with a trailing separator and a saved state in it; a saved
+state that is a symbolic link to a file in the output directory; and a word count at the saved state
+that a resumed render reads. -/
+private def stops (website program scratch : FilePath) (name : String)
+    (env : Array (String × Option String)) : IO Unit := do
+  let base := scratch / s!"{name}-stops"
+  let target := base / "target.txt"
+  seed target "target"
+  let link (destination place : FilePath) : IO Unit := do
+    let made ← run base "ln" #["-s", destination.toString, place.toString]
+    requireChecks [⟨s!"ln -s {destination} {place} {shown made}", made.exitCode == 0⟩]
+  let out := base / "linked-table"
+  let state := base / "table-state.json"
+  seed (out / "html-multi" / "index.html")
+  seed state
+  link target (out / "html-multi" / "xref.json")
+  let linked ← run website program.toString #["--output", out.toString, "--resume-html-multi",
+    state.toString] env
+  requireChecks [⟨s!"a resumed render of {name} whose cross-reference table is a symbolic link did \
+    not stop before it removed anything, or changed the link's target {shown linked}",
+    stoppedWith linked "is not a file at its own place" &&
+      (← IO.FS.readFile target) == "target" && (← present (out / "html-multi" / "index.html"))⟩]
+  let empty ← run website program.toString #["--output", "", "--without-html-multi"] env
+  requireChecks [⟨s!"a run of {name} with an empty output directory did not stop {shown empty}",
+    stoppedWith empty "is an empty path"⟩]
+  let fresh := base / "fresh"
+  let trailing ← run website program.toString #["--output", fresh.toString ++ "/",
+    "--delay-html-multi", (fresh / "state.json").toString] env
+  requireChecks [⟨s!"a run of {name} with a trailing separator in its output directory and its \
+    saved state there did not stop before it made anything {shown trailing}",
+    stoppedWith trailing "is in the output directory" && !(← present fresh)⟩]
+  let out := base / "linked-state"
+  let saved := out / "html-multi" / "saved" / "state.json"
+  let linkedState := base / "linked-state.json"
+  seed saved
+  link saved linkedState
+  let through ← run website program.toString #["--output", out.toString, "--resume-html-multi",
+    linkedState.toString] env
+  requireChecks [⟨s!"a resumed render of {name} whose saved state is a symbolic link to a file in \
+    its output directory did not stop before it removed the file {shown through}",
+    stoppedWith through "is not a file at its own place" && (← present saved)⟩]
+  let state := base / "single-state.json"
+  seed state
+  let same ← run website program.toString #["--output", (base / "same").toString,
+    "--resume-html-single", state.toString, "--without-html-multi", "--with-word-count",
+    state.toString] env
+  requireChecks [⟨s!"a resumed render of {name} whose word count is its saved state did not stop \
+    before it removed the saved state {shown same}",
+    stoppedWith same "which the render writes, is or contains a file that it reads" &&
+      (← present state)⟩]
+
 /-- Build `regula-site` and `regula-standard` in the website package of the repository at
-`root`, then run the issue's reproduction with `regula-standard` (`reproduction`) and the refusals
-of both programs (`refusals`) in a fresh scratch directory. The first failure stops it. It runs
-after `lake exe site build`, which builds the website package and generates the sources of
-`regula-site`. -/
+`root`, then run the issue's reproduction with `regula-standard` (`reproduction`), and the refusals
+(`refusals`) and the stopped runs (`stops`) of both programs, in a fresh scratch directory. The
+first failure stops it. It runs after `lake exe site build`, which builds the website package and
+generates the sources of `regula-site`. -/
 def control (root : FilePath) : IO Unit := do
   let website := root / "website"
   let built ← run website "lake" #["build", "regula-site", "regula-standard"] cleanEnv
@@ -135,5 +196,6 @@ def control (root : FilePath) : IO Unit := do
     reproduction website (program "regula-standard") scratch cleanEnv refusing
     for name in ["regula-standard", "regula-site"] do
       refusals website (program name) scratch name cleanEnv refusing
+      stops website (program name) scratch name cleanEnv
 
 end Regula.Site.RendererRefusal
