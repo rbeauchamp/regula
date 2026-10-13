@@ -65,7 +65,7 @@ inductive Group where
   /-- `qualify acceptance-snapshots history`: history refusal and restoration. -/
   | snapshotHistory
   /-- `qualify acceptance fences`, the `dependencies` and `git-status` snapshot groups,
-  `receipt-boundaries` and `prep-measure`. -/
+  `receipt-boundaries`, `prep-measure` and `enumeration`. -/
   | acceptanceControls
   /-- `qualify documentation-dependencies` and `configuration-capture`. -/
   | documentationControls
@@ -73,6 +73,9 @@ inductive Group where
   | focusedControls
   /-- The self-test's focused policy-domain controls: the policy transport and the public paths. -/
   | policyDomain
+  /-- `qualify enumeration-failure`: a failed read of a directory, injected through device-mapper on
+  a GitHub-hosted Linux runner; anywhere else it refuses as unsupported. -/
+  | enumerationFailure
   deriving DecidableEq
 
 /-- The name of the group after `diagnostics`. -/
@@ -84,11 +87,12 @@ def Group.label : Group → String
   | .documentationControls => "documentation-controls"
   | .focusedControls => "focused-controls"
   | .policyDomain => "policy-domain"
+  | .enumerationFailure => "enumeration-failure"
 
 /-- Every group once. -/
 def Group.all : List Group :=
   [.inputInventory, .environmentCensus, .snapshotHistory, .acceptanceControls,
-    .documentationControls, .focusedControls, .policyDomain]
+    .documentationControls, .focusedControls, .policyDomain, .enumerationFailure]
 
 /-- Closed vocabulary of supported verification invocations. -/
 inductive Mode where
@@ -387,7 +391,8 @@ def Group.commands : Group → List Command
       qualify #["acceptance-snapshots", "dependencies"],
       qualify #["acceptance-snapshots", "git-status"],
       qualify #["receipt-boundaries"],
-      qualify #["prep-measure"]]
+      qualify #["prep-measure"],
+      qualify #["enumeration"]]
   | .documentationControls => [
       lake #["build", "axiomGate", "docFenceAudit", "ruleExamples", "qualify"],
       qualify #["documentation-dependencies"],
@@ -398,6 +403,7 @@ def Group.commands : Group → List Command
       lake #["exe", "checkerSelftest", "--policy-transport-only"]]
   | .policyDomain => [lake #["build", "checkerSelftest", "axiomGate", "Regula.Linter"],
       lake #["exe", "checkerSelftest", "--policy-domain-only"]]
+  | .enumerationFailure => [lake #["build", "qualify"], qualify #["enumeration-failure"]]
 
 /-- The targets whose modules `qualify observers` reads: each library of the package except
 `Fixtures`, and `auditApp`, whose root `Main` is in no library. -/
@@ -751,25 +757,45 @@ Assumes: Lean v4.34.1 `Lean/Elab/BuiltinTerm.lean:437-445` elabIncludeStr reads 
 the pinned Lean interpreter executes it. There is no second tree-walk implementation. -/
 def constructionSource : String := include_str "RegulaCore/CopyProgram.lean"
 
-/-- Obtain the same Git environment policy as construction before cold artifacts exist.
-The preliminary Git commands use this observer; Lake's own Git children remain outside it.
+/-- Run the shared construction source's entrypoint (`Construction.sourceMain`) with `args` before
+cold artifacts exist, and decode the JSON it prints; `what` names the observation in an error.
 
 Assumes: Lean v4.34.1 `IO.Process.output` supplies stdin and waits for the child
 (`Init/System/IO.lean:1544-1557`);
 `Lean/Util/Path.lean:85-86` identifies the interpreter. `--stdin --run`
 (`Lean/Shell.lean:497-518,552-560`) executes the embedded source without a temporary file or
-removal; interpreter execution is trusted.
-Construction.gitEnvironment names its pinned Git and OS assumptions. -/
-private def gitEnvironment : IO (Array (String × Option String)) := do
+removal; interpreter execution is trusted. -/
+private def construction {α : Type} [Lean.FromJson α] (what : String) (args : Array String) :
+    IO α := do
   let out ← IO.Process.output {
     cmd := ((← Lean.getBuildDir) / "bin/lean").toString
-    args := #["--stdin", "--run", "GitEnvironment.lean", "git-environment", "", ""]
+    args := #["--stdin", "--run", "Construction.lean"] ++ args
     env := #[("LEAN_PATH", none), ("LEAN_SRC_PATH", none)] }
-    (constructionSource ++ "\n/-- Cold environment entrypoint. -/\n" ++
+    (constructionSource ++ "\n/-- Cold construction entrypoint. -/\n" ++
       "def main := Regula.Filesystem.Construction.sourceMain\n")
   unless out.exitCode == 0 do
-    throw <| IO.userError s!"verification Git environment unavailable: {out.stderr}"
+    throw <| IO.userError s!"verification {what} unavailable: {out.stderr}"
   IO.ofExcept (Lean.fromJson? (← IO.ofExcept (Lean.Json.parse out.stdout)))
+
+/-- Obtain the same Git environment policy as construction before cold artifacts exist.
+The preliminary Git commands use this observer; Lake's own Git children remain outside it.
+Construction.gitEnvironment names its pinned Git and OS assumptions. -/
+private def gitEnvironment : IO (Array (String × Option String)) :=
+  construction "Git environment" #["git-environment", "", ""]
+
+/-- The entries of the directory `path`, listed by the shared construction source
+(`Construction.listNames`), so a failed read of the directory stops instead of returning fewer
+entries. `Construction.ReadsNames` names the listing programs it admits and their sources. -/
+def listDirectory (path : System.FilePath) : IO (Array IO.FS.DirEntry) := do
+  let names : Array String ← construction s!"listing of {path}" #["list", path.toString, ""]
+  return names.map fun name => { root := path, fileName := name }
+
+/-- Each path below `root`, walked by the shared construction source (`Construction.walkDirectory`,
+`walkDir`'s order and link behaviour), so a failed read of a directory stops the walk instead of
+omitting its entries. -/
+def walkDirectory (root : System.FilePath) : IO (Array System.FilePath) := do
+  let paths : Array String ← construction s!"walk of {root}" #["walk", root.toString, ""]
+  return paths.map System.FilePath.mk
 
 /-- Start `command` at `priority` without waiting for it; `none`, with a report, when it could not
 be started. It cannot raise. The child stays in the driver's process group, so the outer
@@ -1042,7 +1068,7 @@ scratch area that cannot be read, is reported with its path and is no error of t
 that directory then stays. -/
 def reclaim (area : System.FilePath) : BaseIO Unit := do
   let all : IO Unit := do
-    for entry in ← area.readDir do
+    for entry in ← listDirectory area do
       unless entry.path.extension == some "owner" do continue
       let some name := entry.path.fileStem | continue
       let path := area / name
@@ -1175,7 +1201,7 @@ def buildFiles (build : System.FilePath) : IO (List String) := do
   let mut files := #[]
   for part in ["lib", "ir"] do
     unless (← place (build / part)) == .directory do continue
-    for path in ← (build / part).walkDir do
+    for path in ← walkDirectory (build / part) do
       if (← path.symlinkMetadata).type == .file then
         files := files.push ("/".intercalate (path.normalize.components.drop prefixLength))
   return files.toList
@@ -1224,7 +1250,7 @@ private def usage : String :=
     environments [1/6..6/6]|build-policy [1/3..3/3]|lint-driver [1/5..5/5]|producers|history|\
     self-lint|self-lint-default|self-audit [1/4..4/4]|rule-examples [1/3..3/3]|input-inventory|\
     environment-census|snapshot-history|acceptance-controls|documentation-controls|\
-    focused-controls|policy-domain]]"
+    focused-controls|policy-domain|enumeration-failure]]"
 
 /-- The earlier verdicts an attempt of `mode` invalidates, each with the constant text recording
 it as incomplete. Ordinary acceptance invalidates the accepted link, so it is not accepted from

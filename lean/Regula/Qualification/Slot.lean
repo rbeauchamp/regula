@@ -219,7 +219,7 @@ private def sharedWalk (root dir : FilePath) (acc : Array SharedEntry) :
   | 0 => throw <| IO.userError s!"shared-root walk exceeds {maxWalkDepth} directory levels: {dir}"
   | depth + 1 => do
     let mut acc := acc
-    for d in (← dir.readDir) do
+    for d in (← Regula.Filesystem.Construction.listDirectory dir) do
       let relative := (relativeOf root d.path).toString
       match (← d.path.symlinkMetadata).type with
       | .dir =>

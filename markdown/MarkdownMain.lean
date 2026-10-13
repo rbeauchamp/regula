@@ -1262,7 +1262,7 @@ revision gives what `repositoryControls` expects, when each control of an entry 
 document gives what `entryControls` expects, and when the control of `--write-baseline` gives
 the baseline that it expects. Exit code 1 otherwise. -/
 def runControls (directory : System.FilePath) : IO UInt32 := do
-  let names := (← directory.readDir).toList.map (·.fileName)
+  let names := (← Regula.Filesystem.Construction.listDirectory directory).toList.map (·.fileName)
   let text (name : String) : IO String := IO.FS.readFile (directory / name)
   let source (name : String) : IO Source := return ⟨name, ← text name, names⟩
   let some vocabulary := parse (← text "C9.accept.text")

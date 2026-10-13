@@ -142,17 +142,337 @@ structure CopyModel where
   /-- The construction program uses the filesystem model's real-path operation. -/
   realPath : ops.realPath = filesystem.ops.realPath
 
+/-! ## The listings that directory enumeration decodes
+
+Models of what each admitted listing program writes, from its cited source, and the proofs that
+`decodeListing` reads each back exactly. The models are not executed; that an admitted program
+writes its model is the cited fact that `ReadsNames` names. -/
+
+/-- A backslash and the three octal digits of `byte`. -/
+def octalEscape (byte : UInt8) : List UInt8 :=
+  [backslash, UInt8.ofNat (48 + byte.toNat / 64), UInt8.ofNat (48 + byte.toNat / 8 % 8),
+    UInt8.ofNat (48 + byte.toNat % 8)]
+
+/-- The digit that `octalEscape` writes for an octal value is read back as that value. -/
+theorem octalDigit_ofNat (k : Nat) (h : k ≤ 7) : octalDigit (UInt8.ofNat (48 + k)) = some k := by
+  simp [octalDigit]
+  omega
+
+/-- A byte written as a backslash and three octal digits is read back, and so is what follows. -/
+theorem unescape_octalEscape (byte : UInt8) (rest : List UInt8) :
+    unescape (octalEscape byte ++ rest) = (unescape rest).map (byte :: ·) := by
+  have lt := byte.toNat_lt
+  have value : UInt8.ofNat (64 * (byte.toNat / 64) + 8 * (byte.toNat / 8 % 8) + byte.toNat % 8)
+      = byte := by
+    apply UInt8.toNat_inj.mp
+    simp [UInt8.toNat_ofNat]; omega
+  simp only [octalEscape, List.cons_append, List.nil_append]
+  rw [unescape]
+  simp only [backslash, ne_eq, not_true_eq_false, ite_false]
+  rw [octalDigit_ofNat _ (by omega)]
+  simp only
+  have high : byte.toNat / 64 ≤ 3 := by omega
+  rw [octalDigit_ofNat _ (by omega), octalDigit_ofNat _ (by omega)]
+  simp [high, value]
+
+/-- A literal byte is read back as itself, and so is what follows it. -/
+theorem unescape_literal (byte : UInt8) (rest : List UInt8) (h : literalByte byte = true) :
+    unescape (byte :: rest) = (unescape rest).map (byte :: ·) := by
+  have other : byte ≠ backslash := by
+    simp only [literalByte, decide_eq_true_eq] at h; exact h.2.2
+  rw [unescape.eq_def]
+  simp [other, h]
+
+/-- A backslash and a byte that is not an octal digit are read back as what the byte stands for. -/
+theorem unescape_escape (letter meaning : UInt8) (rest : List UInt8)
+    (digit : octalDigit letter = none) (means : escapeMeaning letter = some meaning) :
+    unescape (backslash :: letter :: rest) = (unescape rest).map (meaning :: ·) := by
+  rw [unescape.eq_def]
+  simp [backslash, digit, means]
+
+/-- The names that Apple's `ls -1 -B` writes in the C locale (`prn_octal`, `print.c` and `util.c`
+of `file_cmds-479`): a printable ASCII byte other than the backslash and the double quote for
+itself, and every other byte as a backslash and its three octal digits. -/
+def appleName (name : List UInt8) : List UInt8 :=
+  name.flatMap fun byte => if literalByte byte && byte != 34 then [byte] else octalEscape byte
+
+/-- Every name that Apple's `ls -B` writes is read back exactly. -/
+theorem unescape_appleName (name : List UInt8) : unescape (appleName name) = some name := by
+  induction name with
+  | nil => simp [appleName, unescape]
+  | cons byte rest ih =>
+    have step : appleName (byte :: rest) =
+        (if literalByte byte && byte != 34 then [byte] else octalEscape byte) ++ appleName rest := by
+      simp [appleName]
+    rw [step]
+    split
+    · next h =>
+      simp only [Bool.and_eq_true] at h
+      rw [List.singleton_append, unescape_literal _ _ h.1, ih]
+      rfl
+    · rw [unescape_octalEscape, ih]
+      rfl
+
+/-- The letter of GNU's escape quoting style for each of the seven C control characters. -/
+def controlLetter (byte : UInt8) : Option UInt8 :=
+  if byte = 7 then some 97 else if byte = 8 then some 98 else if byte = 12 then some 102
+  else if byte = 10 then some 110 else if byte = 13 then some 114 else if byte = 9 then some 116
+  else if byte = 11 then some 118 else none
+
+/-- Each control letter is read back as its control character. -/
+theorem controlLetter_meaning {byte letter : UInt8} (h : controlLetter byte = some letter) :
+    octalDigit letter = none ∧ escapeMeaning letter = some byte := by
+  unfold controlLetter at h
+  repeat' split at h
+  all_goals first
+    | (simp only [Option.some.injEq] at h; subst h; subst_vars; decide)
+    | simp at h
+
+/-- The names that GNU's `ls --quoting-style=escape` writes in the C locale (gnulib `quotearg.c`
+`quotearg_buffer_restyled`, with the space that `ls` quotes for this style): the backslash and the
+space after a backslash, a control character as a backslash and its C letter, another printable
+ASCII byte as itself, and every other byte as a backslash and its three octal digits. -/
+def gnuName (name : List UInt8) : List UInt8 :=
+  name.flatMap fun byte =>
+    if byte = backslash ∨ byte = 32 then [backslash, byte]
+    else match controlLetter byte with
+      | some letter => [backslash, letter]
+      | none => if literalByte byte then [byte] else octalEscape byte
+
+/-- Every name that GNU's `ls --quoting-style=escape` writes is read back exactly. -/
+theorem unescape_gnuName (name : List UInt8) : unescape (gnuName name) = some name := by
+  induction name with
+  | nil => simp [gnuName, unescape]
+  | cons byte rest ih =>
+    have step : gnuName (byte :: rest) =
+        (if byte = backslash ∨ byte = 32 then [backslash, byte]
+          else match controlLetter byte with
+            | some letter => [backslash, letter]
+            | none => if literalByte byte then [byte] else octalEscape byte) ++ gnuName rest := by
+      simp [gnuName]
+    rw [step]
+    split
+    · next h =>
+      have meaning : octalDigit byte = none ∧ escapeMeaning byte = some byte := by
+        rcases h with h | h <;> (subst h; decide)
+      rw [List.cons_append, List.singleton_append, unescape_escape _ _ _ meaning.1 meaning.2, ih]
+      rfl
+    · split
+      · next letter control =>
+        have meaning := controlLetter_meaning control
+        rw [List.cons_append, List.singleton_append, unescape_escape _ _ _ meaning.1 meaning.2, ih]
+        rfl
+      · split
+        · next h =>
+          rw [List.singleton_append, unescape_literal _ _ h, ih]
+          rfl
+        · rw [unescape_octalEscape, ih]
+          rfl
+
+/-- No escaped name holds a newline, so a newline ends each name of an escaped listing. -/
+theorem newline_not_mem_octalEscape (byte : UInt8) : newline ∉ octalEscape byte := by
+  have lt := byte.toNat_lt
+  simp only [octalEscape, newline, backslash, List.mem_cons, List.not_mem_nil, or_false]
+  intro h
+  rcases h with h | h | h | h
+  · exact absurd h (by decide)
+  all_goals
+    have := congrArg UInt8.toNat h
+    simp [UInt8.toNat_ofNat] at this
+    omega
+
+/-- A literal byte is not a newline. -/
+theorem newline_not_literal (byte : UInt8) (h : literalByte byte = true) : byte ≠ newline := by
+  intro equal
+  subst equal
+  simp [literalByte, newline] at h
+
+/-- No name that Apple's `ls -B` writes holds a newline. -/
+theorem newline_not_mem_appleName (name : List UInt8) : newline ∉ appleName name := by
+  simp only [appleName, List.mem_flatMap, not_exists, not_and]
+  intro byte _
+  split
+  · next h =>
+    simp only [Bool.and_eq_true] at h
+    simpa using (newline_not_literal byte h.1).symm
+  · exact newline_not_mem_octalEscape byte
+
+/-- No name that GNU's escape quoting style writes holds a newline. -/
+theorem newline_not_mem_gnuName (name : List UInt8) : newline ∉ gnuName name := by
+  simp only [gnuName, List.mem_flatMap, not_exists, not_and]
+  intro byte _
+  split
+  · next h =>
+    simp only [List.mem_cons, List.not_mem_nil, or_false, not_or]
+    refine ⟨by decide, ?_⟩
+    rcases h with h | h <;> (subst h; decide)
+  · split
+    · next letter control =>
+      simp only [List.mem_cons, List.not_mem_nil, or_false, not_or]
+      refine ⟨by decide, ?_⟩
+      intro equal
+      subst equal
+      unfold controlLetter at control
+      repeat' split at control
+      all_goals (revert control; decide)
+    · split
+      · next h => simpa using (newline_not_literal byte h).symm
+      · exact newline_not_mem_octalEscape byte
+
+/-- A nonempty name is written as a nonempty line. -/
+theorem appleName_ne_nil {name : List UInt8} (h : name ≠ []) : appleName name ≠ [] := by
+  cases name with
+  | nil => exact absurd rfl h
+  | cons byte rest =>
+    simp only [appleName, List.flatMap_cons]
+    split <;> simp [octalEscape]
+
+/-- A nonempty name is written as a nonempty line. -/
+theorem gnuName_ne_nil {name : List UInt8} (h : name ≠ []) : gnuName name ≠ [] := by
+  cases name with
+  | nil => exact absurd rfl h
+  | cons byte rest =>
+    simp only [gnuName, List.flatMap_cons]
+    split
+    · simp
+    · split
+      · simp
+      · split <;> simp [octalEscape]
+
+/-- One record ended by `separator` is read, and so is what follows it. -/
+theorem splitRecords_record (separator : UInt8) (record rest acc : List UInt8)
+    (absent : separator ∉ record) (nonempty : acc ≠ [] ∨ record ≠ []) :
+    splitRecords separator (record ++ separator :: rest) acc =
+      (splitRecords separator rest []).map ((acc.reverse ++ record) :: ·) := by
+  induction record generalizing acc with
+  | nil =>
+    have : acc ≠ [] := by simpa using nonempty
+    simp [splitRecords, List.isEmpty_iff, this]
+  | cons byte record ih =>
+    have other : byte ≠ separator := fun equal => absent (equal ▸ List.mem_cons_self)
+    have rest_absent : separator ∉ record := fun mem => absent (List.mem_cons_of_mem _ mem)
+    simp only [List.cons_append, splitRecords, other, ite_false]
+    rw [ih (byte :: acc) rest_absent (Or.inl (by simp))]
+    simp
+
+/-- A listing of nonempty records, each ended by `separator` and none holding it, is read back
+as its records. -/
+theorem splitRecords_join (separator : UInt8) (records : List (List UInt8))
+    (valid : ∀ record ∈ records, record ≠ [] ∧ separator ∉ record) :
+    splitRecords separator (records.flatMap (· ++ [separator])) [] = some records := by
+  induction records with
+  | nil => simp [splitRecords]
+  | cons record records ih =>
+    have first := valid record List.mem_cons_self
+    have later : ∀ r ∈ records, r ≠ [] ∧ separator ∉ r :=
+      fun r mem => valid r (List.mem_cons_of_mem _ mem)
+    simp only [List.flatMap_cons, List.append_assoc, List.singleton_append]
+    rw [splitRecords_record _ _ _ _ first.2 (Or.inr first.1), ih later]
+    simp
+
+/-- Lines that each read back as their name read back as the list of names. -/
+theorem mapM_unescape {encode : List UInt8 → List UInt8}
+    (roundTrip : ∀ name, unescape (encode name) = some name) (names : List (List UInt8)) :
+    (names.map encode).mapM unescape = some names := by
+  induction names with
+  | nil => rfl
+  | cons name names ih => simp [List.mapM_cons, roundTrip, ih]
+
+/-- What GNU `ls --zero` writes for nonempty names without NUL is read back exactly. -/
+theorem decodeListing_zero (names : List (List UInt8))
+    (valid : ∀ name ∈ names, name ≠ [] ∧ nul ∉ name) :
+    decodeListing .zero (names.flatMap (· ++ [nul])) = some names :=
+  splitRecords_join nul names valid
+
+/-- What Apple's `ls -1 -B` writes for nonempty names is read back exactly. -/
+theorem decodeListing_apple (names : List (List UInt8)) (valid : ∀ name ∈ names, name ≠ []) :
+    decodeListing .escaped (names.flatMap (appleName · ++ [newline])) = some names := by
+  have lines : names.flatMap (appleName · ++ [newline]) =
+      (names.map appleName).flatMap (· ++ [newline]) := by simp [List.flatMap_map]
+  simp only [decodeListing, lines]
+  rw [splitRecords_join]
+  · simpa using mapM_unescape unescape_appleName names
+  · intro line mem
+    simp only [List.mem_map] at mem
+    obtain ⟨name, mem, rfl⟩ := mem
+    exact ⟨appleName_ne_nil (valid name mem), newline_not_mem_appleName name⟩
+
+/-- What GNU `ls -1 --quoting-style=escape` writes for nonempty names is read back exactly. -/
+theorem decodeListing_gnu (names : List (List UInt8)) (valid : ∀ name ∈ names, name ≠ []) :
+    decodeListing .escaped (names.flatMap (gnuName · ++ [newline])) = some names := by
+  have lines : names.flatMap (gnuName · ++ [newline]) =
+      (names.map gnuName).flatMap (· ++ [newline]) := by simp [List.flatMap_map]
+  simp only [decodeListing, lines]
+  rw [splitRecords_join]
+  · simpa using mapM_unescape unescape_gnuName names
+  · intro line mem
+    simp only [List.mem_map] at mem
+    obtain ⟨name, mem, rfl⟩ := mem
+    exact ⟨gnuName_ne_nil (valid name mem), newline_not_mem_gnuName name⟩
+
+/-- The GNU `ls` releases that `gnuEnumerator` admits are 9.0 to 9.12 and 8.32, and no other: the
+releases whose source `ReadsNames` cites. -/
+theorem gnuEnumerator_isSome_iff (program : String) (major minor : Nat) :
+    (gnuEnumerator program (major, minor)).isSome ↔
+      (major = 9 ∧ minor ≤ 12) ∨ (major = 8 ∧ minor = 32) := by
+  unfold gnuEnumerator lastGnuRelease
+  by_cases h₁ : major = 9 <;> by_cases h₂ : minor ≤ 12 <;> by_cases h₃ : major = 8 <;>
+    by_cases h₄ : minor = 32 <;> simp [h₁, h₂, h₃, h₄] <;> omega
+
+/-- An admitted release 9 lists with `--zero`, whose listing `decodeListing_zero` reads, and 8.32
+escapes its names, whose listing `decodeListing_gnu` reads. -/
+theorem gnuEnumerator_form (program : String) (major minor : Nat) (enumerator : Enumerator)
+    (h : gnuEnumerator program (major, minor) = some enumerator) :
+    enumerator.form = if major = 9 then .zero else .escaped := by
+  unfold gnuEnumerator lastGnuRelease at h
+  by_cases h₁ : major = 9 <;> by_cases h₂ : minor ≤ 12 <;> by_cases h₃ : major = 8 <;>
+    by_cases h₄ : minor = 32 <;> simp [h₁, h₂, h₃, h₄] at h <;>
+    first | omega | (subst h; simp [h₁])
+
 /-- Directory enumeration changes no state and returns every stored name. An empty listing of a
 directory contains no entry below it. Completeness, including aliases, is an external filesystem
 fact, not inferred from a spelling comparison.
 
-Assumes: Lean v4.34.1 `Init/System/IO.lean:1141-1142`, `runtime/io.cpp:1076-1098`
-enumerates with readdir and omits dot and dot-dot. Trusted: readdir reaches EOF without error;
-the core wrapper does not distinguish EOF from an enumeration error. No concurrent writer changes
-the source or destination during an observation. -/
-@[regula_assumption filesystem (lean "v4.34.1" "Init/System/IO.lean#L1135-L1142")
-  (lean "v4.34.1" "runtime/io.cpp#L1076-L1098")
-  (trusted "readdir reaches EOF without error; the core wrapper does not distinguish them")]
+The construction observer lists a directory through the program that `locate` admits
+(`Enumerator.names`), which refuses unless the program exits 0 with no error text and its listing
+decodes. The listing an admitted program writes for the names it read decodes to exactly those
+names (`decodeListing_zero`, `decodeListing_gnu`, `decodeListing_apple`), and each admitted program
+exits nonzero after a failed read, so a failed read is refused, never returned as fewer names.
+
+Assumes: the program that `locate` admits is the release it identifies as. In each GNU coreutils
+release from 9.0 to 9.12, read at its tag (v9.0 `src/ls.c:3008-3068`, v9.12 `src/ls.c:3024-3077`),
+and in 8.32 (`src/ls.c:2966-3036`), `print_dir` sets errno to 0 before each readdir and reports a
+nonzero errno through `file_failure` (v9.0 `:2888-2906`, v9.12 `:2901-2919`, v8.32 `:2847-2867`),
+which makes the exit status nonzero. Releases 9.6 to 9.11 end the listing at ENOENT on a C library
+other than glibc 2.3 or later, and 9.12 on every C library: ENOENT is a removed directory.
+`--zero` (v9.0 `:2225-2232`, v9.12 `:2234-2241`) writes each name as stored and ends it with NUL.
+8.32's escape style (`src/ls.c:2318-2319`, gnulib `lib/quotearg.c` at d279bc6d) writes `gnuName`.
+Apple file_cmds-479 `ls/ls.c:736-853` exits 1 when `fts_children` records an errno on the
+directory, and `-B` writes `appleName` (`ls/print.c:160-163`, `ls/util.c:170-219`).
+Libc-1752.120.2 `gen/fts.c:607-675` records the errno that `fts_build` (`:1131-1270`) leaves after
+its directory reads (`:751-835`), and `:437-451` returns the skipped directory in post-order with
+it. POSIX.1-2024 readdir sets errno on an error and leaves it unchanged at the end of a directory.
+glibc 2.39 `sysdeps/unix/sysv/linux/readdir.c:39-48` ends a removed directory, which has no
+entries, without an error. Trusted: the kernel and the filesystem report each failed read of a
+directory to readdir, with an error other than ENOENT. Linux v6.8 ext4 returns a failed block read
+(`fs/ext4/dir.c:199-204`) but skips a block that fails its checksum or holds a malformed entry with
+only a kernel log message (`:216-224`, `:258-266`). No concurrent writer changes the source or
+destination during an observation. -/
+@[regula_assumption filesystem (lean "v4.34.1" "Init/System/IO.lean#L1544-L1557")
+  (document filesystem "GNU coreutils v9.0 to v9.12 src/ls.c print_dir (v9.0 lines 3008-3068, \
+    v9.12 lines 3024-3077), file_failure and the ZERO_OPTION case: ls --zero, and a readdir \
+    error other than ENOENT gives a nonzero exit status")
+  (document filesystem "GNU coreutils v8.32 src/ls.c:2318-2319,2847-2867,2966-3036 and gnulib \
+    lib/quotearg.c at d279bc6d: escape quoting, and a readdir error gives a nonzero exit status")
+  (document filesystem "Apple file_cmds-479 ls/ls.c:736-853, ls/print.c:160-163, \
+    ls/util.c:170-219 and Libc-1752.120.2 gen/fts.c:437-451,607-675,751-835,1131-1270: ls -B \
+    escapes, and exits 1 after a failed directory read")
+  (document filesystem "POSIX.1-2024, readdir(): errno is set on an error and unchanged at the \
+    end of the directory")
+  (document filesystem "glibc 2.39 sysdeps/unix/sysv/linux/readdir.c:39-48: a removed directory \
+    ends without an error")
+  (trusted "the kernel and the filesystem report each failed read of a directory to readdir, \
+    with an error other than ENOENT")]
 def ReadsNames (C : CopyModel) : Prop :=
   (∀ path before, Satisfies ((C.ops.names path).run before)
     (fun names after => after = before ∧ names = C.names before path) (fun _ after => after = before)) ∧

@@ -127,6 +127,12 @@ inductive Command where
   | documentationSource
   /-- `documentation-source --source-read-only`. -/
   | documentationSourceReadOnly
+  /-- `enumeration`: the constructor refuses each failed listing of a stand-in program. -/
+  | enumeration
+  /-- `enumeration-copy SOURCE TARGET`: the worker of `enumeration`, one copy. -/
+  | enumerationCopy (source target : String)
+  /-- `enumeration-failure`: a failed read of a directory, injected through device-mapper. -/
+  | enumerationFailure
   deriving DecidableEq, Repr
 
 /-- The argument list of each selection. -/
@@ -162,6 +168,9 @@ def Command.arguments : Command → List String
   | .frozenExits => ["frozen-exits"]
   | .documentationSource => ["documentation-source"]
   | .documentationSourceReadOnly => ["documentation-source", "--source-read-only"]
+  | .enumeration => ["enumeration"]
+  | .enumerationCopy source target => ["enumeration-copy", source, target]
+  | .enumerationFailure => ["enumeration-failure"]
 
 /-- The selection an argument list names, the only parser of the dispatcher: unknown or extra
 arguments select nothing. -/
@@ -199,6 +208,9 @@ def Command.parse : List String → Option Command
   | ["frozen-exits"] => some .frozenExits
   | ["documentation-source"] => some .documentationSource
   | ["documentation-source", "--source-read-only"] => some .documentationSourceReadOnly
+  | ["enumeration"] => some .enumeration
+  | ["enumeration-copy", source, target] => some (.enumerationCopy source target)
+  | ["enumeration-failure"] => some .enumerationFailure
   | _ => none
 
 /-- Every selection's argument list is accepted, as that selection. -/
@@ -256,7 +268,8 @@ def Command.evidence : Command → Option Evidence
   | .producersCombined | .history | .selfAudit | .selfAuditShard _ | .selfAuditModule _ _
   | .selfAuditJsonModule _ | .acceptanceSnapshots _ | .prepMeasure | .documentationDependencies
   | .inputInventory | .receiptBoundaries | .observers | .closureEvidence | .configurationCapture
-  | .fenceEvidence | .frozenExits | .documentationSource | .documentationSourceReadOnly => none
+  | .fenceEvidence | .frozenExits | .documentationSource | .documentationSourceReadOnly
+  | .enumeration | .enumerationCopy _ _ | .enumerationFailure => none
 
 /-- The evidence document that an argument list names from its leading arguments, so that one the
 parser refuses for a later argument still has its document recognized: a selection's name, then

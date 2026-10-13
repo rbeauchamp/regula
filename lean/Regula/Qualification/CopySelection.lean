@@ -89,7 +89,8 @@ def checkAt (root base : FilePath) : IO Unit := do
       let target := base / (label ++ "-selected-manifest")
       let copied ← Regula.Checker.Lake.copyProject project target target
         (selectedFiles := [project / "LAKE-MANIFEST.JSON"])
-      unless (← copied.project.readDir).any (·.fileName == "LAKE-MANIFEST.JSON") &&
+      unless (← Regula.Filesystem.Construction.listDirectory copied.project).any
+          (·.fileName == "LAKE-MANIFEST.JSON") &&
           (← readFile (copied.project / "lake-manifest.json")) == manifest do
         throw <| IO.userError "selected loaded manifest lost its stored source spelling or bytes"
       discard <| observe root project "manifest-alias" "axiomGate" #["--with-docs"] {

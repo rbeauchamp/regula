@@ -338,25 +338,37 @@ Assumes: Lean v4.34.1 `Lean/Elab/BuiltinTerm.lean:437-445` elabIncludeStr reads 
 and the pinned Lean interpreter executes it before project artifacts exist. -/
 def constructionSource : String := include_str "RegulaCore/CopyProgram.lean"
 
-/-- Obtain the shared Git environment observation before cold artifacts exist. This runs the
-same gitEnvironment definition as the copy adapter, without a second Git policy or launcher.
+/-- Run the shared construction source's entrypoint (`Construction.sourceMain`) with `args` before
+cold artifacts exist, and decode the JSON it prints; `what` names the observation in an error.
 The interpreter reads its source from stdin, without a temporary file or removal.
 
 Assumes: Lean v4.34.1 `IO.Process.output` supplies stdin and waits for the child
 (`Init/System/IO.lean:1544-1557`);
 `Lean/Util/Path.lean:85-86` identifies the running toolchain. `--stdin --run`
-(`Lean/Shell.lean:497-518,552-560`) faithfully executes constructionSource.
-Construction.gitEnvironment documents the Git and OS assumptions. -/
-private def gitEnvironment : IO (Array (String × Option String)) := do
+(`Lean/Shell.lean:497-518,552-560`) faithfully executes constructionSource. -/
+private def construction {α : Type} [FromJson α] (what : String) (args : Array String) : IO α := do
   let out ← IO.Process.output {
     cmd := ((← Lean.getBuildDir) / "bin/lean").toString
-    args := #["--stdin", "--run", "GitEnvironment.lean", "git-environment", "", ""]
+    args := #["--stdin", "--run", "Construction.lean"] ++ args
     env := #[("LEAN_PATH", none), ("LEAN_SRC_PATH", none)] }
-    (constructionSource ++ "\n/-- Cold environment entrypoint. -/\n" ++
+    (constructionSource ++ "\n/-- Cold construction entrypoint. -/\n" ++
       "def main := Regula.Filesystem.Construction.sourceMain\n")
   unless out.exitCode == 0 do
-    throw <| IO.userError s!"provisioning Git environment unavailable: {out.stderr}"
+    throw <| IO.userError s!"provisioning {what} unavailable: {out.stderr}"
   IO.ofExcept (fromJson? (← IO.ofExcept (Json.parse out.stdout)))
+
+/-- Obtain the shared Git environment observation before cold artifacts exist. This runs the
+same gitEnvironment definition as the copy adapter, without a second Git policy or launcher.
+Construction.gitEnvironment documents the Git and OS assumptions. -/
+private def gitEnvironment : IO (Array (String × Option String)) :=
+  construction "Git environment" #["git-environment", "", ""]
+
+/-- The entries of the directory `path`, listed by the shared construction source
+(`Construction.listNames`), so a failed read of the directory stops instead of returning fewer
+entries. `Construction.ReadsNames` names the listing programs it admits and their sources. -/
+private def listDirectory (path : FilePath) : IO (Array IO.FS.DirEntry) := do
+  let names : Array String ← construction s!"listing of {path}" #["list", path.toString, ""]
+  return names.map fun name => { root := path, fileName := name }
 
 private def run (cwd : FilePath) (cmd : String) (args : Array String) : IO Ran := do
   let (args, env) ← if cmd == "git" then
@@ -580,7 +592,7 @@ private def removeReadOnly (path : FilePath) : IO Unit := do
 leaves it still identified and the next run finishes the removal. -/
 private def removeShared (path : FilePath) : IO Unit := do
   let _ ← require (path.parent.getD ".") "chmod" #["-R", "u+w", path.toString]
-  for entry in ← path.readDir do
+  for entry in ← listDirectory path do
     unless entry.fileName == receiptName do
       if (← kind? entry.path) == some .dir then IO.FS.removeDirAll entry.path
       else IO.FS.removeFile entry.path
@@ -635,7 +647,7 @@ private def create (repo parent final : FilePath) (key : String) (manifest : Jso
     let packagesRoot := sharedPackages staging
     let mut held := #[]
     let mut dirs := #[]
-    for entry in ← packagesRoot.readDir do
+    for entry in ← listDirectory packagesRoot do
       let head := (← require entry.path "git" #["rev-parse", "HEAD"]).trimAscii.toString
       if let some (_, pin) := pins.git.find? (·.2.name == entry.fileName) then
         unless pin.rev == head do
@@ -669,7 +681,7 @@ private def ensureShared (repo parent : FilePath) (key : Component) (manifest : 
       Mathlib {pins.mathlibRev} for Lean {Lean.githash}; move it aside and \
       provision again"
   -- Under the lock, only abandoned stable stages have this exact stable-key prefix.
-  for entry in ← parent.readDir do
+  for entry in ← listDirectory parent do
     if entry.fileName.startsWith s!"{key.val}.staging-" then
       if (← kind? entry.path) matches some .dir then removeReadOnly entry.path
   say s!"creating the shared Mathlib {pins.mathlibRev} for Lean {Lean.versionString} \
@@ -725,7 +737,7 @@ keeps no directory; `link` is the link this run provisions. Only a symbolic link
 a copy, never a directory. Only directories that their receipt identifies are touched, and a
 failure is reported, not fatal. The caller holds the lock. -/
 private def prune (parent : FilePath) (current link retired : String) : IO Unit := do
-  for entry in ← parent.readDir do
+  for entry in ← listDirectory parent do
     try
       if (← kind? entry.path) == some .dir then
         match found entry.fileName (← readReceipt entry.path) with

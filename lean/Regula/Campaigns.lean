@@ -47,6 +47,7 @@ def form : Command → Command
   | .selfAuditJsonModule _ => .selfAuditJsonModule "MODULE"
   | .environments _ => .environments "PATH"
   | .acceptance group _ => .acceptance group "PATH"
+  | .enumerationCopy _ _ => .enumerationCopy "SOURCE" "TARGET"
   | command => command
 
 /-- Every form of `qualify` selection once. -/
@@ -59,7 +60,7 @@ def qualifyForms : List Command :=
     .acceptanceSnapshots .history, .acceptanceSnapshots .gitStatus, .acceptanceSnapshots .all,
     .prepMeasure, .documentationDependencies, .inputInventory, .receiptBoundaries, .observers,
     .closureEvidence, .configurationCapture, .fenceEvidence, .frozenExits, .documentationSource,
-    .documentationSourceReadOnly]
+    .documentationSourceReadOnly, .enumeration, form (.enumerationCopy "" ""), .enumerationFailure]
 
 /-- Every selection's form is listed. -/
 theorem form_mem (command : Command) : form command ∈ qualifyForms := by
@@ -161,7 +162,7 @@ def shardInvocations (name : String) (count : Nat) : List (List String) :=
 /-- The groups of qualification controls that `./scripts/verify.sh diagnostics GROUP` runs. -/
 def groups : List String :=
   ["input-inventory", "environment-census", "snapshot-history", "acceptance-controls",
-    "documentation-controls", "focused-controls", "policy-domain"]
+    "documentation-controls", "focused-controls", "policy-domain", "enumeration-failure"]
 
 /-- Every invocation of `./scripts/verify.sh`, in the order of the driver's modes
 (`Regula.Campaigns.Verification.verifyInvocations_eq`). -/
@@ -212,13 +213,14 @@ def runsOf : List String → List Campaign
   | ["diagnostics", "acceptance-controls"] =>
       [.qualify (form (.acceptance .fences "")), .qualify (.acceptanceSnapshots .dependencies),
         .qualify (.acceptanceSnapshots .gitStatus), .qualify .receiptBoundaries,
-        .qualify .prepMeasure]
+        .qualify .prepMeasure, .qualify .enumeration]
   | ["diagnostics", "documentation-controls"] =>
       [.qualify .documentationDependencies, .qualify .configurationCapture]
   | ["diagnostics", "focused-controls"] =>
       [.selftest (.focused .nativeAdopter), .selftest (.focused .combinedSnapshot),
         .selftest (.focused .policyTransport)]
   | ["diagnostics", "policy-domain"] => [.selftest (.focused .policyDomain)]
+  | ["diagnostics", "enumeration-failure"] => [.qualify .enumerationFailure]
   | ["diagnostics", name] =>
       match Partition.parse name with
       | some partition => [.selftest (.partition partition)]
@@ -239,7 +241,8 @@ def overBudgetShard : Partition → Option String
 /-- The groups of `groups` a job runs. `environment-census`, `snapshot-history` and `policy-domain`
 are too long for a job (`reason`). -/
 def jobGroups : List String :=
-  ["input-inventory", "acceptance-controls", "documentation-controls", "focused-controls"]
+  ["input-inventory", "acceptance-controls", "documentation-controls", "focused-controls",
+    "enumeration-failure"]
 
 /-- The partitions whose shards a job runs. -/
 def jobPartitions : List Partition := [.lintDriver, .structural, .execution]
@@ -408,6 +411,7 @@ def reason : Campaign → Option Reason
       "the four shards together audit all modules."
   | .qualify (.selfAuditModule "MODULE" "SOURCE") | .qualify (.selfAuditJsonModule "MODULE") =>
       some (.worker (.qualify (form (.selfAuditShard ""))))
+  | .qualify (.enumerationCopy "SOURCE" "TARGET") => some (.worker (.qualify .enumeration))
   | .qualify (.acceptanceSnapshots .all) => some <| .partly
       [.qualify (.acceptanceSnapshots .dependencies), .qualify (.acceptanceSnapshots .gitStatus)]
       "Its groups `dependencies` and `git-status` run. Its group `history` is too long for a job."

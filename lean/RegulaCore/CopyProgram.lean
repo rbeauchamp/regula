@@ -178,6 +178,288 @@ def copyWith {m : Type → Type} [Monad m] [MonadExceptOf IO.Error m] (ops : Ops
   constructWith ops target items
   return items
 
+/-! ## Directory enumeration
+
+Lean v4.34.1's `System.FilePath.readDir` cannot tell the end of a directory from a failed read: its
+native loop (`runtime/io.cpp:1076-1098`) stops at the first null `readdir` result and returns the
+names it has read. Regula lists a directory through an admitted `ls` instead. Each admitted `ls`
+checks `errno` after every `readdir` and exits nonzero after a failed read, and its listing decodes
+exactly (`decodeListing_zero`, `decodeListing_gnu` and `decodeListing_apple` in
+`RegulaCore.CopyConstruction`). -/
+
+/-- The byte that ends each name that `ls --zero` writes. -/
+def nul : UInt8 := 0
+
+/-- The byte that ends each name of an escaped listing. -/
+def newline : UInt8 := 10
+
+/-- The byte that starts an escape of an escaped listing. -/
+def backslash : UInt8 := 92
+
+/-- The records of a listing whose records each end with `separator`, the current record held
+reversed in `acc`: `none` unless the listing ends with `separator` and no record is empty. -/
+def splitRecords (separator : UInt8) : List UInt8 → List UInt8 → Option (List (List UInt8))
+  | [], [] => some []
+  | [], _ :: _ => none
+  | byte :: rest, acc =>
+    if byte = separator then
+      if acc.isEmpty then none else (splitRecords separator rest []).map (acc.reverse :: ·)
+    else splitRecords separator rest (byte :: acc)
+
+/-- A printable ASCII byte other than the backslash, which an escaped listing writes as itself. -/
+def literalByte (byte : UInt8) : Bool :=
+  decide (32 ≤ byte.toNat ∧ byte.toNat ≤ 126 ∧ byte ≠ backslash)
+
+/-- The value of an octal digit. -/
+def octalDigit (byte : UInt8) : Option Nat :=
+  if 48 ≤ byte.toNat ∧ byte.toNat ≤ 55 then some (byte.toNat - 48) else none
+
+/-- The byte that a backslash and `letter` stand for, when `letter` is not an octal digit: one of
+the seven control characters for its C letter, a printable ASCII byte other than a letter or a
+digit for itself, and nothing for any other byte. -/
+def escapeMeaning (letter : UInt8) : Option UInt8 :=
+  match letter.toNat with
+  | 97 => some 7
+  | 98 => some 8
+  | 102 => some 12
+  | 110 => some 10
+  | 114 => some 13
+  | 116 => some 9
+  | 118 => some 11
+  | n => if (32 ≤ n ∧ n ≤ 47) ∨ (58 ≤ n ∧ n ≤ 64) ∨ (91 ≤ n ∧ n ≤ 96) ∨ (123 ≤ n ∧ n ≤ 126)
+      then some letter else none
+
+/-- The bytes of a name that an escaped listing writes as `line`: a literal byte for itself, a
+backslash and three octal digits, the first at most 3, for the byte they give, and a backslash and
+another byte for what `escapeMeaning` gives. `none` for every other line. -/
+def unescape : List UInt8 → Option (List UInt8)
+  | [] => some []
+  | byte :: rest =>
+    if byte ≠ backslash then
+      if literalByte byte then (unescape rest).map (byte :: ·) else none
+    else match rest with
+      | [] => none
+      | letter :: rest =>
+        match octalDigit letter with
+        | some high =>
+          if high ≤ 3 then
+            match rest with
+            | middle :: low :: rest =>
+              match octalDigit middle, octalDigit low with
+              | some middle, some low =>
+                (unescape rest).map (UInt8.ofNat (64 * high + 8 * middle + low) :: ·)
+              | _, _ => none
+            | _ => none
+          else none
+        | none => (escapeMeaning letter).bind fun meaning => (unescape rest).map (meaning :: ·)
+
+/-- How an admitted listing program writes the names of a directory. -/
+inductive ListingForm where
+  /-- Each name as it is stored, ended by a NUL byte: GNU `ls --zero`. -/
+  | zero
+  /-- Each name escaped as `unescape` reads it, ended by a newline: GNU `ls
+  --quoting-style=escape` and Apple's `ls -B`. -/
+  | escaped
+  deriving DecidableEq, Repr
+
+/-- The names of a listing written in `form`: `none` unless every record decodes. -/
+def decodeListing : ListingForm → List UInt8 → Option (List (List UInt8))
+  | .zero, bytes => splitRecords nul bytes []
+  | .escaped, bytes => (splitRecords newline bytes []).bind fun lines => lines.mapM unescape
+
+/-- An admitted directory-listing program. -/
+structure Enumerator where
+  /-- The program, a name looked up on `PATH` or an absolute path. -/
+  program : String
+  /-- The options written before `--` and the directory. -/
+  options : Array String
+  /-- How the program writes names. -/
+  form : ListingForm
+  /-- What the program identified itself as, for messages. -/
+  identity : String
+
+/-- The environment changes of each run of a listing program: the C locale, so every byte outside
+printable ASCII is escaped, and none of the variables that change what `ls` writes or how it reads
+its options. -/
+def listingEnvironment : Array (String × Option String) :=
+  #[("LC_ALL", some "C"), ("POSIXLY_CORRECT", none), ("QUOTING_STYLE", none), ("LS_COLORS", none),
+    ("CLICOLOR", none), ("CLICOLOR_FORCE", none), ("LSCOLORS", none), ("COLUMNS", none)]
+
+/-- Run a listing program with `args`; its exit code, its complete output as bytes and its error
+text.
+
+Assumes: Lean v4.34.1 `Init/System/IO.lean:1002-1003,1544-1557` reads binary stdout, drains stderr
+and waits for the process, and `Init/System/IO.lean:1441-1448` applies the environment changes in
+order. Process execution is trusted. -/
+def listingOutput (program : String) (args : Array String) : IO (UInt32 × ByteArray × String) := do
+  let child ← IO.Process.spawn
+    { cmd := program, args := args, env := listingEnvironment, stdin := .null, stdout := .piped,
+      stderr := .piped }
+  let stdout ← IO.asTask child.stdout.readBinToEnd Task.Priority.dedicated
+  let stderr ← child.stderr.readToEnd
+  let exitCode ← child.wait
+  let bytes ← IO.ofExcept stdout.get
+  return (exitCode, bytes, stderr)
+
+/-- The decimal number of a nonempty run of digits. -/
+def decimal (digits : List Char) : Nat :=
+  digits.foldl (fun value digit => 10 * value + (digit.toNat - 48)) 0
+
+/-- The major and minor version on the first line that GNU `ls --version` writes,
+`ls (GNU coreutils) X.Y`. -/
+def gnuVersion? (text : String) : Option (Nat × Nat) :=
+  let header := "ls (GNU coreutils) ".toList
+  let line := text.toList.takeWhile (· != '\n')
+  if header.isPrefixOf line then
+    let version := line.drop header.length
+    let major := version.takeWhile Char.isDigit
+    match version.drop major.length with
+    | '.' :: rest =>
+      let minor := rest.takeWhile Char.isDigit
+      if major.isEmpty || minor.isEmpty then none else some (decimal major, decimal minor)
+    | _ => none
+  else none
+
+/-- The marker of the `what` string of Apple's `ls`, which names its file_cmds release. -/
+def appleMarker : List UInt8 := "@(#)PROGRAM:ls  PROJECT:file_cmds-".toUTF8.toList
+
+/-- The file_cmds release that the `what` string in a program's bytes names: the digits and dots
+after the first `appleMarker`. -/
+def appleRelease? (bytes : ByteArray) : Option String := Id.run do
+  let marker := appleMarker.toArray
+  for start in [0:bytes.size] do
+    if bytes.get! start != marker[0]! then continue
+    if start + marker.size ≥ bytes.size then return none
+    unless (List.range marker.size).all fun index => bytes.get! (start + index) == marker[index]! do
+      continue
+    let mut release := []
+    let mut index := start + marker.size
+    while index < bytes.size &&
+        ((48 ≤ bytes.get! index && bytes.get! index ≤ 57) || bytes.get! index == 46) do
+      release := Char.ofNat (bytes.get! index).toNat :: release
+      index := index + 1
+    return if release.isEmpty then none else some (String.ofList release.reverse)
+  return none
+
+/-- The last GNU coreutils release whose `ls` source Regula has read. -/
+def lastGnuRelease : Nat × Nat := (9, 12)
+
+/-- The Apple file_cmds release whose `ls` source Regula has read. -/
+def appleRelease : String := "479"
+
+/-- The admitted GNU `ls` releases: 9.0 to `lastGnuRelease`, whose `--zero` writes each name as it
+is stored, and 8.32, whose escape quoting style decodes exactly. Regula has read the source of each
+of them; it refuses a later release until it reads that release too. -/
+def gnuEnumerator (program : String) : Nat × Nat → Option Enumerator
+  | (major, minor) =>
+    let identity := s!"{program} (GNU coreutils {major}.{minor})"
+    if major == 9 && minor ≤ lastGnuRelease.2 then
+      some ⟨program, #["-A", "-U", "--zero"], .zero, identity⟩
+    else if major == 8 && minor == 32 then
+      some ⟨program, #["-1", "-A", "-U", "--quoting-style=escape", "--show-control-chars",
+        "--color=never", "--indicator-style=none"], .escaped, identity⟩
+    else none
+
+/-- The first admitted listing program: GNU `ls` 9.0 to `lastGnuRelease` as `gls` or `ls` on `PATH`,
+then GNU `ls` 8.32 there, then, on macOS, `/bin/ls` of file_cmds `appleRelease`. Otherwise it
+refuses with the reason for each program it tried.
+
+Assumes: the program found is the release it identifies as. -/
+def locate : IO Enumerator := do
+  let mut reasons : Array String := #[]
+  let mut escaped : Option Enumerator := none
+  let programs := if System.Platform.isOSX then ["gls", "ls"] else ["ls", "gls"]
+  for program in programs do
+    let identified ← (listingOutput program #["--version"]).toBaseIO
+    match identified with
+    | .error error => reasons := reasons.push s!"{program}: {error}"
+    | .ok (exitCode, bytes, _) =>
+      let version := if exitCode == 0 then (String.fromUTF8? bytes).bind gnuVersion? else none
+      match version with
+      | none => reasons := reasons.push s!"{program}: not GNU coreutils ls"
+      | some version =>
+        match gnuEnumerator program version with
+        | some enumerator =>
+          if enumerator.form == .zero then return enumerator
+          if escaped.isNone then escaped := some enumerator
+        | none =>
+          reasons := reasons.push
+            s!"{program}: GNU coreutils {version.1}.{version.2} is not an admitted release"
+  if let some enumerator := escaped then return enumerator
+  if System.Platform.isOSX then
+    match (← (IO.FS.readBinFile "/bin/ls").toBaseIO) with
+    | .error error => reasons := reasons.push s!"/bin/ls: {error}"
+    | .ok bytes =>
+      match appleRelease? bytes with
+      | some release =>
+        if release == appleRelease then
+          return ⟨"/bin/ls", #["-1", "-A", "-B", "--color=never"], .escaped,
+            s!"/bin/ls (file_cmds-{release})"⟩
+        reasons := reasons.push s!"/bin/ls: file_cmds-{release} is not an admitted release"
+      | none => reasons := reasons.push "/bin/ls: no file_cmds release is named in it"
+  throw <| IO.userError s!"no admitted directory-listing program: Regula lists directories through \
+    GNU coreutils ls 9.0 to {lastGnuRelease.1}.{lastGnuRelease.2} or 8.32, or macOS's /bin/ls of \
+    file_cmds-{appleRelease} ({"; ".intercalate reasons.toList})"
+
+/-- A stored name that names one entry of its directory: not `.` or `..`, and holding neither `/`
+nor NUL. -/
+def entryName (name : String) : Bool :=
+  name != "." && name != ".." && name.toList.all fun c => c != '/' && c != '\x00'
+
+/-- The stored names of the directory `path`, read through `enumerator`. It refuses unless the
+program exits 0 with no error text and its listing decodes to UTF-8 names that each name one entry,
+so a failed read of the directory refuses instead of truncating the names. The trailing `/` makes
+`ls` list a link's target directory, as `readDir` does, and refuse anything but a directory. -/
+def Enumerator.names (enumerator : Enumerator) (path : FilePath) : IO (List String) := do
+  let (exitCode, bytes, stderr) ← listingOutput enumerator.program
+    (enumerator.options ++ #["--", path.toString ++ "/"])
+  unless exitCode == 0 && stderr.isEmpty do
+    throw <| IO.userError s!"listing {path} through {enumerator.identity} failed with exit code \
+      {exitCode}: {stderr}"
+  let some names := decodeListing enumerator.form bytes.toList
+    | throw <| IO.userError s!"the listing of {path} by {enumerator.identity} does not decode"
+  names.mapM fun name => do
+    let some text := String.fromUTF8? (ByteArray.mk name.toArray)
+      | throw <| IO.userError s!"a name in {path} is not UTF-8"
+    unless entryName text do throw <| IO.userError s!"{path} lists an invalid name: {text}"
+    return text
+
+/-- The stored names of the directory `path`, through the program that `locate` admits. -/
+def listNames (path : FilePath) : IO (List String) := do
+  (← locate).names path
+
+/-- The entries of the directory `path`, in the shape that `System.FilePath.readDir` returns, read
+through the program that `locate` admits. -/
+def listDirectory (path : FilePath) : IO (Array IO.FS.DirEntry) := do
+  return ((← listNames path).map fun name => { root := path, fileName := name }).toArray
+
+/-- Each path below `root`, parents before their children, descending into each directory that
+`enter` admits. It is `System.FilePath.walkDir` of Lean v4.34.1 (`Init/System/IO.lean:1174-1200`),
+written again here so that each directory is listed through `enumerator`. Like `walkDir`, it
+follows links to directories and ignores an entry that vanishes during the walk. Unlike it, `depth`
+bounds the nesting and its exhaustion refuses, so a cycle of links fails instead of running
+forever. -/
+def walkWith (enumerator : Enumerator) (enter : FilePath → IO Bool) :
+    Nat → FilePath → Array FilePath → IO (Array FilePath)
+  | 0, path, _ => throw <| IO.userError s!"walk depth exhausted at {path}"
+  | depth + 1, path, found => do
+    unless (← enter path) do return found
+    let mut found := found
+    for name in ← enumerator.names path do
+      let child := path / name
+      found := found.push child
+      match ← child.metadata.toBaseIO with
+      | .ok { type := .dir, .. } => found ← walkWith enumerator enter depth child found
+      | .ok _ => pure ()
+      | .error (.noFileOrDirectory ..) => pure ()
+      | .error error => throw error
+    return found
+
+/-- `walkWith` from `root`, through the program that `locate` admits. -/
+def walkDirectory (root : FilePath) (enter : FilePath → IO Bool := fun _ => pure true)
+    (depth : Nat := 4096) : IO (Array FilePath) := do
+  walkWith (← locate) enter depth root #[]
+
 /-- The no-follow observer. Lean 4.34.1 follows links on Windows, so it refuses there.
 
 Assumes: Lean v4.34.1 `Init/System/IO.lean:1151-1156` and `runtime/io.cpp:1160-1179`
@@ -219,7 +501,7 @@ def createDirectory (target : FilePath) : IO Unit := do
 /-- The real operations. The modeled code and bootstrap source both use this value. -/
 def observer : Ops IO where
   metadata := observeMetadata
-  names := fun path => return (← path.readDir).toList.map (·.fileName)
+  names := listNames
   realPath := observeRealPath
   bytes := fun path => return (← IO.FS.readBinFile path, 420)
   directory := createDirectory
@@ -366,15 +648,15 @@ def requiredFiles (source : FilePath) (required : List (List String)) : IO (List
 
 /-- The documentation consumer's original `.md` discovery domain, in path order. The same
 discovery supplies the audit census and cold-copy requirements. It must precede construction.
-The existing walker admits each directory through no-follow metadata before descent, so a
-directory link cannot redirect or cycle discovery. `requiredFiles` admits the selected leaves. -/
+The walk admits each directory through no-follow metadata before descent, so a directory link
+cannot redirect or cycle discovery. `requiredFiles` admits the selected leaves. -/
 def markdownPaths (root : FilePath) : IO (Array FilePath) := do
   unless ← root.isDir do throw <| IO.userError s!"documentation root is not a directory: {root}"
   let enter (path : FilePath) : IO Bool := do
     unless (← observeMetadata path).type == .dir do
       throw <| IO.userError s!"copy refused {path}: selected ancestor is not a directory"
     return true
-  return ((← root.walkDir enter).filter (·.extension == some "md")).qsort
+  return ((← walkDirectory root enter).filter (·.extension == some "md")).qsort
     (fun left right => left.toString < right.toString)
 
 /-- A package-store entry is source when the current capture root is itself in that store. -/
@@ -679,8 +961,10 @@ def copyGit (source target : FilePath) : IO (List Item) := do
 explicit relative file selections after TARGET, the original Markdown discovery domain, and
 the ancestors needed to capture them. The instruction guard refuses any missing selected file.
 `git` uses `copyGit`'s regular-file representation, build outputs and metadata.
-It prints the regular-file receipt as a JSON array. Lean interprets this
-same source before package artifacts exist; it does not use another copy implementation.
+It prints the regular-file receipt as a JSON array. `list` prints the names of the directory SOURCE
+(`listNames`) and `walk` the paths below it (`walkDirectory`), each as a JSON array; TARGET is
+unused there. Lean interprets this same source before package artifacts exist; it does not use
+another copy implementation.
 
 Assumes: `copyGit` names the installed Git 2.54.0 index/blob/config facts, its source stability
 and the pinned Lake cleanliness observation. Git parsing and object fidelity remain trusted. -/
@@ -691,6 +975,12 @@ def sourceMain (args : List String) : IO UInt32 := do
     throw <| IO.userError "explicit file selections require the project domain"
   if domain == "git-environment" then
     IO.println (Lean.toJson (← gitEnvironment)).compress
+    return 0
+  if domain == "list" then
+    IO.println (Lean.toJson (← listNames (FilePath.mk source))).compress
+    return 0
+  if domain == "walk" then
+    IO.println (Lean.toJson ((← walkDirectory (FilePath.mk source)).map (·.toString))).compress
     return 0
   if domain == "generated" then
     let captured ← capture source ["instructions"]

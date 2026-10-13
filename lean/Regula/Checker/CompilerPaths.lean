@@ -292,9 +292,10 @@ private def phase (repo scratch : FilePath) (test : Case) (negative : Bool) : IO
           (#["-s"] ++ sources.map (·.toString) ++ #[directory.toString])
         if !result.succeeded then
           throw <| IO.userError s!"could not expose toolchain control: {result.output}"
-    link (((← toolchainLib.readDir).filter
+    link (((← Regula.Filesystem.Construction.listDirectory toolchainLib).filter
       (·.fileName.startsWith s!"{prefixDirectory}.")).map (·.path)) output
-    link ((← (toolchainLib / prefixDirectory).readDir).map (·.path)) (output / prefixDirectory)
+    link ((← Regula.Filesystem.Construction.listDirectory (toolchainLib / prefixDirectory)).map
+      (·.path)) (output / prefixDirectory)
   let binary := (repo / ".lake" / "build" / "bin" / "axiomGate").toString
   let check (result : ProcessResult) : Array String := Id.run do
     if negative then

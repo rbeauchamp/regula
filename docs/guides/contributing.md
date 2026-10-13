@@ -33,9 +33,10 @@ do not establish audit ownership.
 
 Provision [elan](https://github.com/leanprover/elan), the pinned toolchain
 and the website package's pinned Verso
-(`lean --run lean/RegulaProvision.lean verso`). Every copy also needs GNU coreutils timeout and ShellCheck
-before verification. On macOS, `brew install coreutils shellcheck` supplies the
-last two tools. Verification runs offline against those pinned dependencies. None of the
+(`lean --run lean/RegulaProvision.lean verso`). Before verification, each copy also requires GNU
+coreutils timeout, ShellCheck and an admitted `ls` program, which the
+[adoption guide](adoption.md#a-program-that-lists-directories) lists. On macOS,
+`brew install coreutils shellcheck` supplies these tools. Verification runs offline against those pinned dependencies. None of the
 commands below downloads, caches, imports or builds Mathlib; the
 [Mathlib integration check](#mathlib-integration-check) is a separate command with its own setup.
 
@@ -260,10 +261,11 @@ checker behavior:
 | `input-inventory` | Root additions and Markdown edits or removals during the prerequisite build of the checker, an actual new-module build and restored fresh controls (`qualify input-inventory`). |
 | `environment-census` | This repository's claimed environments and their mutations (`qualify environments`). |
 | `snapshot-history` | Fresh, incremental and build-lint history refusal and restoration over the dependency snapshot (`qualify acceptance-snapshots history`). |
-| `acceptance-controls` | Fence-compilation packet mutations with positive restoration, and the `dependencies` and `git-status` snapshot groups. Also timeout-selection and spawn failures, and the preparation of a shared producer slot. The commands are `qualify acceptance fences`, `acceptance-snapshots dependencies` and `git-status`, `receipt-boundaries` and `prep-measure`. |
+| `acceptance-controls` | Fence-compilation packet mutations with positive restoration, and the `dependencies` and `git-status` snapshot groups. Also timeout-selection and spawn failures, and the preparation of a shared producer slot. A stand-in listing program fails a listing, and the copy routine refuses before any receipt or write. The commands are `qualify acceptance fences`, `acceptance-snapshots dependencies` and `git-status`, `receipt-boundaries`, `prep-measure` and `enumeration`. |
 | `documentation-controls` | The two documentation commands keep their pre-build dependency observations. An initial configuration IO failure goes through the project and file result protocols. The commands are `qualify documentation-dependencies` and `configuration-capture`. |
 | `focused-controls` | The self-test's focused native-adopter, combined-snapshot and policy-transport controls (`checkerSelftest --native-adopter-only`, `--combined-snapshot-only`, `--policy-transport-only`). |
 | `policy-domain` | The self-test's focused policy-domain controls, the policy transport and the public paths (`checkerSelftest --policy-domain-only`). |
+| `enumeration-failure` | A failed read of a directory on a real ext4 file system, through a device-mapper error target (`qualify enumeration-failure`). `ls` reports it, Lean's `readDir` returns fewer entries, and the copy routine refuses. It runs only on a GitHub-hosted Linux runner, and elsewhere it reports that it is not supported. |
 
 The `environments` clean-checkout `freshChecker` control claims two import-free modules
 written into a copy with no build directory. It establishes that `freshChecker` builds its
@@ -413,6 +415,7 @@ campaign that does not run. For a reason that names part of them, its text names
 | `lake exe qualify frozen-exits` | Too long for a job. Its check took 240 s, and a check of more than 85 s does not leave a quarter of the 420-second deadline. [Issue 391](https://github.com/rbeauchamp/regula/issues/391) is the work to divide it into shards. |
 | `lake exe qualify documentation-source` | Too long for a job. Its check took 182 s, and a check of more than 85 s does not leave a quarter of the 420-second deadline. [Issue 391](https://github.com/rbeauchamp/regula/issues/391) is the work to divide it into shards. |
 | `lake exe qualify documentation-source --source-read-only` | Too long for a job. Its check took 202 s, and a check of more than 85 s does not leave a quarter of the 420-second deadline. [Issue 391](https://github.com/rbeauchamp/regula/issues/391) is the work to divide it into shards. |
+| `lake exe qualify enumeration-copy SOURCE TARGET` | An internal entry point that `lake exe qualify enumeration` starts. |
 | `lake exe checkerSelftest --forced-collector-only` | Too long for a job. Its check took 336 s, and a check of more than 85 s does not leave a quarter of the 420-second deadline. [Issue 391](https://github.com/rbeauchamp/regula/issues/391) is the work to divide it into shards. |
 | `lake exe checkerSelftest --policy-domain-only` | Too long for a job. Its check took 158 s, and a check of more than 85 s does not leave a quarter of the 420-second deadline. [Issue 391](https://github.com/rbeauchamp/regula/issues/391) is the work to divide it into shards. |
 | `lake exe checkerSelftest --fences-only` | The focused controls include the combined snapshot. The in-process and public fence corpora are controls of the fixtures and environments partitions. The shards of those partitions are too long for a job. |

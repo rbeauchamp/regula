@@ -86,13 +86,14 @@ private def observer : Ops IO where
 construct them exclusively. Links and special entries are refused before they can be opened.
 `observer_copy` describes the exact resulting tree, under native primitive hypotheses.
 
-Assumes: Lean v4.34.1 lstat (`Init/System/IO.lean:1151-1156`, `runtime/io.cpp:1160-1179`),
-readDir (`Init/System/IO.lean:1141-1142`, `runtime/io.cpp:1076-1098`) reaches EOF without a readdir
-error (trusted: the core wrapper does not distinguish them), exclusive mkdir (`runtime/io.cpp:1181-1195`),
-and exclusive file creation (`Init/System/IO.lean:651-660`, `runtime/io.cpp:409`). The source
-and private destination have no concurrent writer. Windows is refused. Modes are not preserved:
-copied regular files receive 0644; callers explicitly set 0755 for a copied executable they run.
-Lake creates and sets modes on programs it builds. -/
+Assumes: Lean v4.34.1 lstat (`Init/System/IO.lean:1151-1156`, `runtime/io.cpp:1160-1179`), an
+admitted listing program that exits nonzero after a failed read of a directory
+(`Construction.ReadsNames` names each program `Construction.locate` admits, with its source),
+exclusive mkdir (`runtime/io.cpp:1181-1195`), and exclusive file creation
+(`Init/System/IO.lean:651-660`, `runtime/io.cpp:409`). The source and private destination have no
+concurrent writer. Windows is refused. Modes are not preserved: copied regular files receive 0644;
+callers explicitly set 0755 for a copied executable they run. Lake creates and sets modes on
+programs it builds. -/
 def copy (source target : FilePath) (selected : FilePath → Bool := fun _ => true) :
     IO (List Construction.Item) := Construction.copy source target selected
 
@@ -322,7 +323,7 @@ a link, when no process makes one after this check, which is trusted. -/
 def requireNoLinkedEntries (path : FilePath) : IO Unit := do
   requireOwnDirectory path
   unless (← place path) matches .present .directory do return
-  for entry in ← path.readDir do
+  for entry in ← Regula.Filesystem.Construction.listDirectory path do
     unless (← place entry.path) matches .present .directory | .present .file do
       throw <| IO.userError s!"{entry.path} is not a directory or a file (a symbolic link or \
         another kind of entry is there)"
