@@ -380,7 +380,8 @@ module from there. The build store of Lake does not keep the job of a facet with
 `memoize := false`, so the audit does not read them from that store.
 
 A claimed module counts as observed only when its completed `presetup` loaded the observer of the
-running Regula (`Observer.pluginLoaded`). That is the same file, or a file with the same bytes.
+running Regula, as `Observer.pluginLoaded` decides. That is the same file, a file with the same
+bytes, or a build of the same source text in the workspace, which `Lake.rebuiltObservers` finds.
 The audit reads the record of the module only then. So a dependency's facet that drops the plugin
 leaves the module refused under [RG2003]. [RG2006] requires the plugin in the configuration of each
 claimed target.

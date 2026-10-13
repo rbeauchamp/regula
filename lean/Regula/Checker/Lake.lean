@@ -1616,6 +1616,30 @@ audit creates it at its entry and passes it to each of its builds, so a later bu
 audit that replays their logs rests on that elaboration. No other audit reads it. -/
 abbrev Elaborated := IO.Ref (Array Name)
 
+/-- The observers that the workspace `ws` builds from the running Regula's own source text: for
+each library named `RegulaObserver` (`Observer.observerLibrary`) of a package of `ws` with at least
+one module, each of whose modules has exactly the bytes of the running Regula's own source of that
+name (`checkerSource` of `checkerPackageDir`), the file that Lake's `shared` facet of the library
+writes (`LeanLib.sharedLibFile`). Lake builds that file from those sources with the same compiler,
+so it holds the running Regula's observer compiled again, such as in a copy of an owned `regula`
+or of Regula's own checkout. Empty when the running Regula's package cannot be located. That Lake
+rebuilds the file when its sources change is trusted, as for every build output. -/
+def rebuiltObservers (ws : _root_.Lake.Workspace) : IO (Array FilePath) := do
+  let some checker ← checkerPackageDir | return #[]
+  let mut found := #[]
+  for pkg in ws.packages do
+    for lib in pkg.leanLibs do
+      unless lib.name == Observer.observerLibrary do continue
+      let modules ← lib.getModuleArray
+      if modules.isEmpty then continue
+      let same ← modules.allM fun mod => do
+        let some own := checkerSource checker mod.name | return false
+        match ← (IO.FS.readBinFile mod.leanFile).toBaseIO, ← (IO.FS.readBinFile own).toBaseIO with
+        | .ok source, .ok expected => return source.data == expected.data
+        | _, _ => return false
+      if same then found := found.push lib.sharedLibFile
+  return found
+
 /-- Build `targets` of the workspace at `repo` as `build` describes, in this process through
 Lake's build API, as `lake build` does: its build monitor's text is the output, and a failed build
 exits 1. The inherited `LEAN_PATH` and `LEAN_SRC_PATH` are ignored, so the build resolves modules
@@ -1722,9 +1746,10 @@ def Build.runObserved (build : Build) (repo : FilePath) (targets : Array Target)
         let completed ← presetups.completed.get
         let observer : FilePath ←
           if modules.isEmpty then pure "" else (·.1) <$> Observer.observerFile
+        let rebuilt ← if modules.isEmpty then pure #[] else rebuiltObservers ws
         for mod in modules do
           let plugins := Observer.presetupPlugins? completed mod.pkg.keyName mod.name
-          let loaded ← Observer.pluginLoaded observer plugins
+          let loaded ← Observer.pluginLoaded observer rebuilt plugins
           let verdict ← Observer.decideRecord mod.name.toString loaded mod.oleanFile
           verdicts.modify (·.push (mod.name, verdict))
         let jobs ← jobLogs.get

@@ -1936,8 +1936,9 @@ private unsafe def structuralSelfHostedPositive (repo copy : FilePath)
     return #[]
   return #[s!"structural/self-hosted/positive: fresh gate failed:\n{accepted.output}"]
 
-/-- Structural mutation cluster: an unlisted root-owned module and an unclassified Lake library
-(`executables` false), or an unclassified Lake executable, a claimed standalone executable root
+/-- Structural mutation cluster: an unlisted root-owned module, an unclassified Lake library and an
+elaboration observer rebuilt from a source other than the running Regula's (`executables` false),
+or an unclassified Lake executable, a claimed standalone executable root
 and executable contamination (`executables` true), then the restored control. -/
 private unsafe def structuralPartB (layout : SourceLayout) (executables : Bool)
     (repo copy : FilePath) : IO (Array String) := do
@@ -1979,6 +1980,15 @@ private unsafe def structuralPartB (layout : SourceLayout) (executables : Bool)
         if let some failure := expectedFailure "unclassified-library" (← gate)
             #["manifest-incomplete", "ExtraSurface"] then
           failures.modify (·.push failure)
+    -- The copy's observer source is no longer the running Regula's text: the workspace rebuilds
+    -- the plugin from it, `Lake.rebuiltObservers` does not admit that build, and the audit reports
+    -- the claimed modules as not observed (RG2003). The restored control below admits the build
+    -- of the unchanged text again.
+    let observerSource := sources / "RegulaObserver.lean"
+    withReplacedFile observerSource ((← IO.FS.readFile observerSource) ++ "\n-- changed\n") do
+      if let some failure := expectedFailure "observer-source-changed" (← gate)
+          #["RG2003", "not observed: Regula's elaboration observer was not among the plugins"] then
+        failures.modify (·.push failure)
   else
     let exeDecl :=
       "\nlean_exe «selftestTool» where\n  root := `SelftestMain\n" ++ observerPluginOwn

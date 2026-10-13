@@ -20,7 +20,8 @@ module's trace, which Lake compares to decide whether to replay the module, and 
 replayed under that trace was elaborated with them. Regula declares no `presetup` facet. The
 audit's builds run the facet that the workspace configures unchanged and keep each completed
 result (`recordingPresetup`), from which the audit reads whether a claimed module's elaboration
-loaded the running Regula's observer (`pluginLoaded`). A claimed module whose completed `presetup`
+loaded the running Regula's observer, or a build of it from the same source text
+(`pluginLoaded`, `Lake.rebuiltObservers`). A claimed module whose completed `presetup`
 lacks it, such as under a dependency's facet that drops plugins, has no record the audit reads,
 and RG2003 refuses it (`decideRecord`). -/
 
@@ -130,10 +131,13 @@ private def readRecord (olean : FilePath) : IO (Option RegulaObserver.Record) :=
     | _ => none
 
 /-- Whether the plugins of a module's completed `presetup` (`presetupPlugins?`) include the running
-Regula's observer `expected` (`observerFile`): a plugin with the same real path, or with the same
-bytes, such as the same build of it in a copy of Regula's checkout. False when there is no completed
-`presetup`. -/
-def pluginLoaded (expected : FilePath) (plugins : Option (Array FilePath)) : IO Bool := do
+Regula's observer `expected` (`observerFile`): a plugin with the same real path as `expected` or as
+one of `rebuilt`, or with the same bytes as `expected`. `rebuilt` holds the observers that the
+audited workspace builds from the running Regula's own source text (`Lake.rebuiltObservers`), such
+as the build of a copy of an owned `regula`, whose bytes differ, since the linker writes paths into
+the file. False when there is no completed `presetup`. -/
+def pluginLoaded (expected : FilePath) (rebuilt : Array FilePath)
+    (plugins : Option (Array FilePath)) : IO Bool := do
   let some plugins := plugins | return false
   let real (path : FilePath) : IO FilePath := do
     match ← (IO.FS.realPath path).toBaseIO with
@@ -143,10 +147,10 @@ def pluginLoaded (expected : FilePath) (plugins : Option (Array FilePath)) : IO 
     match ← (IO.FS.readBinFile path).toBaseIO with
     | .ok data => return some data
     | .error _ => return none
-  let expectedPath ← real expected
+  let accepted ← (#[expected] ++ rebuilt).mapM real
   let some expectedBytes ← bytes expected | return false
   plugins.anyM fun plugin => do
-    if (← real plugin) == expectedPath then return true
+    if accepted.contains (← real plugin) then return true
     return (← bytes plugin).any (·.data == expectedBytes.data)
 
 /-- A position as the RG2003 decision reads it. -/
