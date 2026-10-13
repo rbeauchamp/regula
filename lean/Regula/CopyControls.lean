@@ -21,7 +21,7 @@ open Regula.Filesystem
 negative input, never the implementation of an accepted copy. Git fixture writers disable
 automatic maintenance so no detached writer can race the subsequent source capture. -/
 private def fixture (command : Regula.Process.Program) (args : Array String) : IO Unit := do
-  let cmd ← Regula.Process.resolve command
+  let cmd := command.statedCommand.getD ""
   let args := if cmd == "git" then #["-c", "maintenance.auto=false"] ++ args else args
   let out ← Regula.Process.output command (← Construction.gitProcessArgs {cmd, args})
   unless out.exitCode == 0 do throw <| IO.userError s!"fixture failed: {out.stderr}"

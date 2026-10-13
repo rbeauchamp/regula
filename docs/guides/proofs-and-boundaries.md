@@ -5834,7 +5834,7 @@ Stated selections keep their reason at each call site. They are external selecti
 | `gtimeout`, `timeout`, `/usr/bin/nice` | The external deadline and scheduling utilities receive the prepared child's path and environment. |
 | `/usr/bin/env` | The existing deployment launcher clears unlisted variables. Its environment record remains separate work. |
 | `/bin/bash`, `/bin/chmod` | The controls execute exact approved wrapper copies and set owned fixture modes. |
-| `cp`, `ln` | Existing copy and link sites remain stated selections until [issue 399](https://github.com/rbeauchamp/regula/issues/399) replaces copies by construction. |
+| `ln`, `mkfifo` | Diagnostic controls plant symbolic-link, toolchain-alias and FIFO inputs. The reporter's read-only import overlay links artifacts to keep their real origin. Mathlib provisioning registers the read-only shared cache by a link. |
 | A resolved package or worker executable | Lake resolves the requested package executable, or the checker selects its own native worker. |
 
 ### The compiled observer boundary

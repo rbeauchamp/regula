@@ -289,7 +289,7 @@ private def phase (repo scratch : FilePath) (test : Case) (negative : Bool) : IO
     -- to the compiler-path classifier, not a project copy accepted for a Lake build.
     let link (sources : Array FilePath) (directory : FilePath) := do
       unless sources.isEmpty do
-        let result ← runProcess scratch (.stated "ln" "until #399 replaces this copy with the construction in Regula.Filesystem")
+        let result ← runProcess scratch (.stated "ln" "The compiler-path control deliberately aliases toolchain artifacts")
           (#["-s"] ++ sources.map (·.toString) ++ #[directory.toString])
         if !result.succeeded then
           throw <| IO.userError s!"could not expose toolchain control: {result.output}"

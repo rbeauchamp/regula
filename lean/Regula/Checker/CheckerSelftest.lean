@@ -2875,7 +2875,7 @@ private unsafe def fenceEnvironmentControl (layout : SourceLayout) (repo : FileP
     let workspaceBin := dir / ".lake" / "build" / "bin"
     IO.FS.createDirAll workspaceBin
     let plantedPath := workspaceBin / "leanchecker"
-    let planted ← runProcess dir (.stated "ln" "until #399 replaces this copy with the construction in Regula.Filesystem") #["-s", failing.toString, plantedPath.toString]
+    let planted ← runProcess dir (.stated "ln" "The control plants a workspace leanchecker that links the toolchain's lean") #["-s", failing.toString, plantedPath.toString]
     if !planted.succeeded then throw <| IO.userError planted.output
     unless (← IO.FS.realPath plantedPath) == (← IO.FS.realPath failing) do
       throw <| IO.userError "fence-env/fresh-checker: the planted leanchecker does not resolve \
@@ -3548,7 +3548,7 @@ private def driverCopyControl (repo : FilePath) : IO (Array String) :=
   IO.FS.createDirAll marked
   IO.FS.writeFile (marked / "kept.txt") "kept"
   let link (target place : FilePath) : IO Unit := do
-    let made ← runProcess scratch (.stated "ln" "until #399 replaces this copy with the construction in Regula.Filesystem") #["-s", target.toString, place.toString]
+    let made ← runProcess scratch (.stated "ln" "The driver-copy control plants symbolic-link inputs") #["-s", target.toString, place.toString]
     unless made.succeeded do throw <| IO.userError s!"could not make a link: {made.output}"
   let gate ← toolPath repo "axiomGate"
   let refused (label needle : String) (args : Array String) : IO (Array String) := do

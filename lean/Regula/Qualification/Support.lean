@@ -40,7 +40,7 @@ process group: the enclosing deadline must kill descendants holding output pipes
 def run (root : FilePath) (command : Regula.Process.Program) (args : Array String)
     (env : Array (String × Option String) := #[]) : IO IO.Process.Output := do
   let options ← Regula.Filesystem.Construction.gitProcessArgs
-    { cmd := ← Regula.Process.resolve command, args, cwd := some root, env }
+    { cmd := command.statedCommand.getD "", args, cwd := some root, env }
   let result ← Regula.Process.output command options
   if #[124, 125, 126, 127, 137].contains result.exitCode then
     throw <|
@@ -55,7 +55,7 @@ def runBounded (root : FilePath) (seconds : Nat) (command : Regula.Process.Progr
     IO UInt32 := do
   let timer ← timeoutCommand
   let options ← Regula.Filesystem.Construction.gitProcessArgs
-    {cmd := ← Regula.Process.resolve command, args}
+    {cmd := command.statedCommand.getD "", args}
   let selected ← Regula.Process.prepare command
     {options with cwd := some root, stdin := .null, stdout := .inherit, stderr := .inherit}
   let child ← Regula.Process.spawn (.stated timer "The authenticated GNU timeout owns this diagnostic\'s deadline") {

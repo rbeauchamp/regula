@@ -932,7 +932,7 @@ private def linkProbeOverlay (overlay selfLib : FilePath) (searchPath : List Fil
           ((byDirectory.getD parent #[]).push file.toString)
   for (directory, files) in byDirectory.toArray do
     IO.FS.createDirAll directory
-    let linked ← runProcess overlay (.stated "ln" "until #399 replaces this copy with the construction in Regula.Filesystem") (#["-s"] ++ files ++ #[directory.toString])
+    let linked ← runProcess overlay (.stated "ln" "The read-only import overlay links artifacts to preserve their real origin") (#["-s"] ++ files ++ #[directory.toString])
     if !linked.succeeded then
       throw <| IO.userError s!"could not expose trusted probe modules: {linked.output}"
   let canonical := (order.map fun module =>

@@ -56,6 +56,13 @@ instance : ToString Program where
     | .toolchain tool => tool.basename
     | .stated path _ => path.toString
 
+/-- The command a stated program names, decided by its constructor alone. A toolchain tool names
+none: only the identity-checked installation supplies its absolute path. A policy keyed on a
+stated command, such as Git's, therefore needs no toolchain resolution. -/
+def Program.statedCommand : Program → Option String
+  | .toolchain _ => none
+  | .stated path _ => some path.toString
+
 /-- Read the named variable from this process's environment.
 Assumes: Lean v4.34.1 `Init/System/IO.lean:951-955` returns the environment's current value;
 the runtime's environment read and concurrent environment stability are trusted. -/

@@ -68,7 +68,7 @@ to finish and return its exit code and captured output. -/
 def runProcess (repo : FilePath) (cmd : Regula.Process.Program) (args : Array String)
     (env : Array (String × Option String) := #[]) : IO ProcessResult := do
   let options ← Regula.Filesystem.Construction.gitProcessArgs
-    { cmd := ← Regula.Process.resolve cmd, args, cwd := some repo, env }
+    { cmd := cmd.statedCommand.getD "", args, cwd := some repo, env }
   let result ← Regula.Process.output cmd options
   return { exitCode := result.exitCode, stdout := result.stdout, stderr := result.stderr }
 
@@ -124,7 +124,7 @@ child's complete output. -/
 def runProcessShowing (repo : FilePath) (cmd : Regula.Process.Program) (args : Array String)
     (env : Array (String × Option String)) (display : String → Bool) : IO ProcessResult := do
   let options ← Regula.Filesystem.Construction.gitProcessArgs
-    { cmd := ← Regula.Process.resolve cmd, args, cwd := some repo, env }
+    { cmd := cmd.statedCommand.getD "", args, cwd := some repo, env }
   let child ← Regula.Process.spawn cmd
     {options with stdin := .null, stdout := .piped, stderr := .piped}
   -- Drain standard error while standard output is read, so neither pipe can block the child.

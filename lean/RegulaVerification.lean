@@ -817,7 +817,7 @@ def start (priority : Priority) (command : Command) :
     let args ← match command.child with
       | none => pure command.args
       | some child => pure (#["env", (← Process.resolve child)] ++ command.args)
-    let (args, gitEnv) ← if (← Process.resolve command.program) == "git" then
+    let (args, gitEnv) ← if command.program.statedCommand == some "git" then
         pure (#["-c", "core.symlinks=false"] ++ args, ← gitEnvironment)
       else pure (args, #[])
     let prepared ← Process.prepare command.program {

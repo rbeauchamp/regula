@@ -376,7 +376,7 @@ private def gitEnvironment : IO (Array (String × Option String)) := do
   IO.ofExcept (fromJson? (← IO.ofExcept (Json.parse out.stdout)))
 
 private def run (cwd : FilePath) (cmd : Process.Program) (args : Array String) : IO Ran := do
-  let (args, env) ← if (← Process.resolve cmd) == "git" then
+  let (args, env) ← if cmd.statedCommand == some "git" then
       pure (#["-c", "core.symlinks=false"] ++ args, ← gitEnvironment)
     else pure (args, #[])
   let out ← Process.output cmd {
@@ -393,7 +393,7 @@ private def require (cwd : FilePath) (cmd : Process.Program) (args : Array Strin
 /-- Run with inherited output, for long steps whose progress the user should see. -/
 private def stream (cwd : FilePath) (cmd : Process.Program) (args : Array String)
     (env : Array (String × Option String) := #[]) : IO Unit := do
-  let (args, env) ← if (← Process.resolve cmd) == "git" then
+  let (args, env) ← if cmd.statedCommand == some "git" then
       pure (#["-c", "core.symlinks=false"] ++ args, env ++ (← gitEnvironment))
     else pure (args, env)
   let child ← Process.spawn cmd {
