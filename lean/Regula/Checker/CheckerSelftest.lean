@@ -3390,9 +3390,9 @@ private def libraryCycleControl (repo : FilePath) : IO (Array String) :=
 A tool package below the scratch directory holds a copy of the running Regula's `axiomGate` (a
 hard link, so the gate's real path, and with it the place it reads its observer from,
 `Observer.runningPackageDir`, is the tool's), the running observer library placed in its build
-directory (`Observer.placeRunning`), and a copy of the observer's sources. Each other source and
-compiled module of the repository is a symbolic link to the repository's: no module that the
-audit builds reaches them, since the project's module imports nothing and the observer's modules
+directory (`Observer.placeRunning`), and a copy of the repository's sources. Each compiled module
+of the repository other than the observer's is a symbolic link to the repository's: no module that
+the audit builds reaches them, since the project's module imports nothing and the observer's modules
 import only Lean. A project that requires `regula` from the tool loads the tool's library as a
 plugin.
 
@@ -3418,18 +3418,15 @@ private def observerIdentityControl (repo : FilePath) : IO (Array String) :=
   IO.FS.createDirAll (tool / "lean")
   for file in #["lakefile.lean", "lean-toolchain", "lake-manifest.json"] do
     IO.FS.writeBinFile (tool / file) (← IO.FS.readBinFile (repo / file))
+  -- The sources are copies: the audit admits a dependency's source only at a real path inside the
+  -- package (`checkSource`).
   let sources := (repo / "lean").normalize.components.length
-  for entry in ← (repo / "lean").readDir do
-    if observerEntry entry.fileName then
-      -- `RegulaObserver.lean` is a file and `RegulaObserver` a directory, which `walkDir` reads.
-      let files ← if ← entry.path.isDir then entry.path.walkDir else pure #[entry.path]
-      for path in files do
-        if ← path.isDir then continue
-        let destination :=
-          (path.normalize.components.drop sources).foldl (· / FilePath.mk ·) (tool / "lean")
-        if let some parent := destination.parent then IO.FS.createDirAll parent
-        IO.FS.writeBinFile destination (← IO.FS.readBinFile path)
-    else link entry.path (tool / "lean" / entry.fileName)
+  for path in ← (repo / "lean").walkDir do
+    if ← path.isDir then continue
+    let destination :=
+      (path.normalize.components.drop sources).foldl (· / FilePath.mk ·) (tool / "lean")
+    if let some parent := destination.parent then IO.FS.createDirAll parent
+    IO.FS.writeBinFile destination (← IO.FS.readBinFile path)
   let compiled := tool / ".lake" / "build" / "lib" / "lean"
   IO.FS.createDirAll compiled
   for entry in ← (repo / ".lake" / "build" / "lib" / "lean").readDir do
