@@ -160,11 +160,13 @@ def requireOverrides (changes : Array (String × Option String) := #[]) : IO Uni
   requireChanges changes
   requireAbsoluteOverrides (nativeOverrides.map fun (_, first, _) => first) changes
 
-/-- The Elan installation at the absolute ELAN_HOME, or HOME/.elan, with the `elan` of its
-binary directory, read without PATH.
+/-- Select the installation without starting a PATH-resolved Lean. A Lake environment supplies
+an absolute LEAN_SYSROOT. Otherwise Lake's own Elan toolchain-directory construction resolves
+ELAN_TOOLCHAIN under ELAN_HOME (or HOME/.elan), defaulting to the release that built this program.
 Assumes: Lean v4.34.1 `Lake/Config/InstallPath.lean:32-58` describes the Elan installation layout;
-the Elan installation and its contents are trusted. -/
-def elanInstall : IO _root_.Lake.ElanInstall := do
+the named installed toolchain and its contents are trusted. No PATH fallback or installation runs. -/
+private def candidateRoot : IO AbsolutePath := do
+  if let some root ← readEnv "LEAN_SYSROOT" then return ← IO.ofExcept (absolute root)
   let home ← match ← readEnv "ELAN_HOME" with
     | some home => pure (FilePath.mk home)
     | none =>
@@ -172,17 +174,10 @@ def elanInstall : IO _root_.Lake.ElanInstall := do
         | throw <| IO.userError "process selection needs LEAN_SYSROOT or an absolute Elan home"
       pure (FilePath.mk home / ".elan")
   let home ← IO.ofExcept (absolute home)
-  return { home := home.val, elan := (home.val / "bin" / "elan").addExtension FilePath.exeExtension }
-
-/-- Select the installation without starting a PATH-resolved Lean. A Lake environment supplies
-an absolute LEAN_SYSROOT. Otherwise Lake's own Elan toolchain-directory construction resolves
-ELAN_TOOLCHAIN under the Elan home (`elanInstall`), defaulting to the release that built this
-program. The named installed toolchain and its contents are trusted. No PATH fallback or
-installation runs. -/
-private def candidateRoot : IO AbsolutePath := do
-  if let some root ← readEnv "LEAN_SYSROOT" then return ← IO.ofExcept (absolute root)
   let selector := (← readEnv "ELAN_TOOLCHAIN").getD s!"leanprover/lean4:v{Lean.versionString}"
-  IO.ofExcept (absolute ((← elanInstall).toolchainDir selector))
+  let elan : _root_.Lake.ElanInstall := { home := home.val, elan := home.val / "bin" / "elan" }
+  let root := elan.toolchainDir selector
+  IO.ofExcept (absolute root)
 
 /-- An absolute installation whose Lean reported this program's compiler identity.
 Only the identity observer constructs it. File contents and the compiler's self-report remain trusted. -/

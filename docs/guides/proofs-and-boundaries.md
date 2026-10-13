@@ -5539,7 +5539,7 @@ Stated selections keep their reason at each call site. They are external selecti
 | --- | --- |
 | `git`, `gh` | Repository and forge operations use the operator's configured utilities. |
 | `shasum`, `curl`, `tar`, `chmod`, `shellcheck` | Digests, acquisition, extraction, fixture modes and shell diagnostics use stated external utilities. |
-| `elan` | The doctor starts the `elan` of the Elan home, not one that PATH selects. It lists and resolves an explicitly requested installed compiler, and its reported compiler path must be absolute. |
+| `elan` | The doctor starts the first `elan` on PATH after the selected toolchain's binary directory, which Lake puts after each workspace package's binary directory. It lists and resolves an explicitly requested installed compiler, and its reported compiler path must be absolute. |
 | `gtimeout`, `timeout`, `/usr/bin/nice` | The external deadline and scheduling utilities receive the prepared child's path and environment. |
 | `/usr/bin/env` | The existing deployment launcher clears unlisted variables. Its environment record remains separate work. |
 | `/bin/bash`, `/bin/chmod` | The controls execute exact approved wrapper copies and set owned fixture modes. |

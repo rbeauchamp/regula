@@ -21,14 +21,40 @@ def compilerEnv : Array (String × Option String) :=
     "LAKE", "LAKE_HOME", "LAKE_OVERRIDE_LEAN", "DYLD_LIBRARY_PATH", "LD_LIBRARY_PATH"].map
       (fun name => (name, none))
 
+/-- The `elan` the doctor runs and the search path its commands receive. The path is the
+inherited `PATH` after its last entry that is the selected toolchain's binary directory
+(`Regula.Process.sysroot`), compared by real path, or the whole `PATH` when no entry is. `elan` is
+the first file of that name in an absolute entry of it. Lake puts each workspace package's binary
+directory before that entry, so no workspace `elan` is selected or found by a command elan starts.
+Assumes: Lake v4.34.1 composes the `PATH` of `lake exe` and `lake env` as the workspace packages'
+binary directories, then Lake's and Lean's, then the inherited path
+(`Lake/Config/Workspace.lean:352-353`, `Lake/Config/Workspace.lean:381-385`,
+`Lake/Config/Env.lean:237-241`). Elan v4.1.2 `src/elan/toolchain.rs` (`create_command`, `set_env`,
+`set_path`) runs an absolute command as given, sets `ELAN_HOME` and `ELAN_TOOLCHAIN`, and prepends
+`ELAN_HOME/bin` to `PATH`, and on Windows also the toolchain's binary directory. Execute permission
+is not observed: an earlier `elan` without it is selected and fails to start. -/
+def elanSelection : IO (FilePath × String) := do
+  let entries := SearchPath.parse ((← Regula.Process.readEnv "PATH").getD "")
+  let bin ← IO.FS.realPath ((← Regula.Process.sysroot) / "bin")
+  let mut rest := entries
+  for (entry, index) in entries.zipIdx do
+    if let .ok real ← (IO.FS.realPath entry).toBaseIO then
+      if real == bin then rest := entries.drop (index + 1)
+  for entry in rest do
+    let elan := (entry / "elan").addExtension FilePath.exeExtension
+    if entry.isAbsolute && (← elan.pathExists) && !(← elan.isDir) then
+      return (elan, SearchPath.toString rest)
+  throw <| IO.userError "cannot find elan on PATH after the selected toolchain's binary directory"
+
 /-- The `lean` executable of the installed toolchain `selector` names (`installedName?` over
-`elan toolchain list`), from directory `root`. Elan starts by its path in the Elan home
-(`Regula.Process.elanInstall`), not by a name that `PATH` resolves. Only that listed name is given
-to `elan run`, without `--install`. -/
+`elan toolchain list`), from directory `root`. Each Elan command runs the `elan` of `elanSelection`
+by its path, with that search path. Only that listed name is given to `elan run`, without
+`--install`. -/
 def selectedLean (root : FilePath) (selector : String) : IO FilePath := do
-  let elan := (← Regula.Process.elanInstall).elan
+  let (elan, path) ← elanSelection
+  let env := compilerEnv.push ("PATH", some path)
   let listed ← Regula.Process.output (.stated elan "Elan lists the explicitly selected installed compilers") {
-    cmd := elan.toString, args := #["toolchain", "list"], cwd := some root, env := compilerEnv }
+    cmd := elan.toString, args := #["toolchain", "list"], cwd := some root, env }
   unless listed.exitCode == 0 do
     throw <| IO.userError s!"cannot list installed toolchains with {elan}: {listed.stderr.trimAscii}"
   let some name := installedName? (listedToolchains listed.stdout) selector
@@ -37,7 +63,7 @@ def selectedLean (root : FilePath) (selector : String) : IO FilePath := do
           '{selector}'"
   let out ← Regula.Process.output (.stated elan "Elan resolves a listed installed compiler without installing") {
     cmd := elan.toString, args := #["run", name, elan.toString, "which", "lean"]
-    cwd := some root, env := compilerEnv }
+    cwd := some root, env }
   unless out.exitCode == 0 do
     throw <| IO.userError s!"cannot resolve selected compiler: {out.stderr.trimAscii}"
   let selected ← IO.ofExcept (Regula.Process.absolute out.stdout.trimAscii.toString)

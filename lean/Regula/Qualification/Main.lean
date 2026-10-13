@@ -121,6 +121,9 @@ private inductive Invocation where
   /-- `--process-native-fallback MODE DIRECTORY`: the native fallback control's worker
   (`Regula.Qualification.Process.nativeFallbackWorker`). -/
   | processNativeFallback (mode directory : String)
+  /-- `--process-doctor DIRECTORY`: the doctor control's worker
+  (`Regula.Qualification.Process.doctorWorker`). -/
+  | processDoctor (directory : String)
   /-- `REGULA_RECEIPT_TIMER=1` with `--version`: the receipt boundary's worker. -/
   | receiptTimer
   /-- `REGULA_QUALIFICATION_WRAPPER=acceptance`: the test-only proxy of `axiomGate`, with the
@@ -146,6 +149,7 @@ private def Invocation.of (args : List String) : BaseIO Invocation := do
   | ["--process-cadical-reader", route] => return .processCadical true (some route)
   | ["--process-native-fallback", mode, directory] =>
     return .processNativeFallback mode directory
+  | ["--process-doctor", directory] => return .processDoctor directory
   | _ => pure ()
   if (← Regula.Process.readEnv "REGULA_RECEIPT_TIMER") == some "1" && args == ["--version"] then
     return .receiptTimer
@@ -169,6 +173,7 @@ unsafe def qualifyMain (args : List String) : IO UInt32 := do
     Regula.Qualification.Process.cadicalWorker checked route
   | .processNativeFallback mode directory =>
     Regula.Qualification.Process.nativeFallbackWorker mode directory
+  | .processDoctor directory => Regula.Qualification.Process.doctorWorker directory
   | .receiptTimer => Regula.Qualification.ReceiptBoundary.worker args
   | .acceptanceProxy => Regula.Qualification.Acceptance.worker args
   | .processShadow => Regula.Qualification.Process.worker args
@@ -199,7 +204,7 @@ private def refuseQualification (reason : String) (args : List String) : IO UInt
   match ← Invocation.of args with
   | .acceptanceProxy =>
     return ← Regula.Checker.AxiomGate.refuseWithoutTaskManager reason args
-  | .processCadical _ _ | .processNativeFallback _ _ | .receiptTimer
+  | .processCadical _ _ | .processNativeFallback _ _ | .processDoctor _ | .receiptTimer
     | .processShadow | .unknownWrapper => pure ()
   | .underDeadline attempt rest => mark rest attempt
   | .bounded rest => mark rest none
