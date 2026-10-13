@@ -199,17 +199,16 @@ def auditedScope (result : Json) : Except String Unit := do
     throw "completed result without an audited scope"
 
 open RegulaPolicy.Guards in
-/-- `auditedScope` admits a completed result only when its `scope` is an object and its
-`effective` account is not `null`. -/
-theorem auditedScope_completed {result scope : Json} (h : auditedScope result = .ok ())
-    (hstatus : string result "status" = .ok "completed")
-    (hscope : field result "scope" = .ok scope) :
-    scope.getObj?.isOk = true ∧
+/-- `auditedScope` admits a completed result only when it has a `scope`, that scope is an object
+and its `effective` account is not `null`. -/
+theorem auditedScope_completed {result : Json} (h : auditedScope result = .ok ())
+    (hstatus : string result "status" = .ok "completed") :
+    ∃ scope, field result "scope" = .ok scope ∧ scope.getObj?.isOk = true ∧
       ∃ effective, field result "effective" = .ok effective ∧ effective ≠ .null := by
-  have okBind : ∀ {α β : Type} (a : α) (f : α → Except String β), (Except.ok a >>= f) = f a :=
-    fun _ _ => rfl
   unfold auditedScope at h
-  rw [hscope, okBind] at h
+  simp only [bind_eq_ok] at h
+  obtain ⟨scope, hscope, h⟩ := h
+  refine ⟨scope, hscope, ?_⟩
   split at h
   next hobject =>
     simp only [bind_eq_ok] at h
@@ -324,23 +323,23 @@ def effectiveAccount (result : Json) (admitted : ExampleRequest) : Except String
   if let .ok _ := scope.getObj? then scopeAccount scope effectiveAccount expected admitted
 
 open RegulaPolicy.Guards in
-/-- `effectiveAccount` admits a completed result only when its `scope` is an object and its
-`effective` account is not `null` (`auditedScope_completed`), so the comparisons of the scope with
-the request ran. A result that is not completed can record the project root as its scope. -/
-theorem effectiveAccount_completed {result scope : Json} {admitted : ExampleRequest}
+/-- `effectiveAccount` admits a completed result only when it has a `scope`, that scope is an
+object and its `effective` account is not `null` (`auditedScope_completed`), so the comparisons of
+the scope with the request ran. A result that is not completed can record the project root as its
+scope. -/
+theorem effectiveAccount_completed {result : Json} {admitted : ExampleRequest}
     (h : effectiveAccount result admitted = .ok ())
-    (hstatus : string result "status" = .ok "completed")
-    (hscope : field result "scope" = .ok scope) :
-    scope.getObj?.isOk = true ∧
+    (hstatus : string result "status" = .ok "completed") :
+    ∃ scope, field result "scope" = .ok scope ∧ scope.getObj?.isOk = true ∧
       ∃ effective, field result "effective" = .ok effective ∧ effective ≠ .null := by
   unfold effectiveAccount at h
   by_cases hk : admitted.kind = "project"
   · simp only [hk, beq_self_eq_true, ite_true, bind_eq_ok] at h
     obtain ⟨_, -, ⟨⟩, haudited, -⟩ := h
-    exact auditedScope_completed haudited hstatus hscope
+    exact auditedScope_completed haudited hstatus
   · simp only [beq_iff_eq, hk, ↓reduceIte, bind_eq_ok] at h
     obtain ⟨⟨⟩, haudited, -⟩ := h
-    exact auditedScope_completed haudited hstatus hscope
+    exact auditedScope_completed haudited hstatus
 
 open RegulaPolicy.Guards in
 /-- For a project request, `effectiveAccount` admits a result whose `scope` is an object only
@@ -690,7 +689,7 @@ def RecordAdmissible (record : Json) : Prop :=
       (field record "rule" >>= RegistryCodec.parseRule) = .ok rule ∧
       DemonstrationOK ⟨bound, rule, actual⟩ ⟨bound, .completed, .checked actual false⟩) ∧
     (kind = "positive" → string result "status" = .ok "completed") ∧
-    (string result "status" = .ok "completed" → ∀ scope, field result "scope" = .ok scope →
+    (string result "status" = .ok "completed" → ∃ scope, field result "scope" = .ok scope ∧
       scope.getObj?.isOk = true ∧
         ∃ effective, field result "effective" = .ok effective ∧ effective ≠ .null) ∧
     (bound.request.kind = "project" → ∀ scope, field result "scope" = .ok scope →
@@ -712,7 +711,7 @@ theorem qualify_sound (record : Json) (h : qualify record = .ok ()) : RecordAdmi
     ⟨oj, hoj, horeq⟩,
     hcode, hle, hsrc, hsources, hpresent, checkFindings_sound hfind, hk, hkind, by simpa using hdemo,
     fun hpos => by rw [hstatus, hpositive hpos],
-    fun hcompleted _ hscope => effectiveAccount_completed heffective hcompleted hscope,
+    fun hcompleted => effectiveAccount_completed heffective hcompleted,
     fun hproject scope hscope hobject =>
       ((projectAccount_eq_ok_iff scope _).mp
         (effectiveAccount_project heffective hproject hscope hobject)).2⟩
