@@ -185,8 +185,12 @@ links are preserved and refused; their disposition remains manual.
 
 Provisioning makes the link `mathlib` in a new directory `.mathlib.<nonce>` beside the place of
 the link. Then it moves the link to its place. If an entry is at the place of that directory, the
-run stops and changes nothing. A run that stops before it removes that directory can leave it.
-Remove such a directory by hand.
+link installation stops and changes nothing. A run that stops before it removes that directory can
+leave it. Remove such a directory by hand.
+
+The steps of a run before the link installation are not undone when it stops. Thus the packages
+directory, the shared directory and the registration of the copy can remain. On a replacement, the
+old `mathlib` entry is already removed.
 
 Each shared directory's registry `<dir>.copies.json` beside it records the copies provisioned
 to link it; a copy is registered before it links. Every provisioning run removes the shared

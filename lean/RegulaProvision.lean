@@ -530,7 +530,9 @@ replaces it in between. -/
   IO.FS.createDir stage
   IO.Prim.setAccessRights stage 448
 
-/-- `ln -s -- TARGET STAGED`: a symbolic link with the text `target` at `staged`.
+/-- `ln -s -- TARGET NAME`, run in the directory of `staged`, where `NAME` is the last component of
+`staged`: a symbolic link with the text `target` at `staged`. The operand is that name alone, so a
+relative `staged` is not resolved twice, once for the working directory and once for the operand.
 
 Assumes: with two operands, the last of which names nothing, `ln -s` makes the link at exactly
 that path with `symlink(2)`, which fails when an entry is there (POSIX.1-2024 `symlink()`). Apple
@@ -539,10 +541,14 @@ when that operand names a directory or ends in `/` or `/.`. GNU coreutils 9.4
 `src/ln.c:160-164,604-633` calls `symlinkat` at the operand first, and makes the link inside it
 only when that fails and a directory is there. Trusted: the installed macOS `/bin/ln` reports
 file_cmds-487.0.1, whose source is not published, and keeps this behaviour; `ln` is found on
-`PATH` (issue 388). `installLinkWith` gives `staged` a name in a directory that this run made, so
-it names nothing when no other process writes there. -/
+`PATH` (issue 388); `ln` starts in the directory of `staged`, which a relative path names from
+this process's working directory, as for `IO.FS.createDir`.
+`installLinkWith` gives `staged` a name in a directory that this run made, so it names nothing
+when no other process writes there. -/
 @[noinline] private def makeLink (target : String) (staged : FilePath) : IO Unit := do
-  let _ ← require (staged.parent.getD ".") "ln" #["-s", "--", target, staged.toString]
+  let some name := staged.fileName
+    | throw <| IO.userError s!"provisioning: {staged} has no name"
+  let _ ← require (staged.parent.getD ".") "ln" #["-s", "--", target, name]
 
 /-- `IO.FS.rename`: the move of the link that `installLinkWith` made over its place.
 
