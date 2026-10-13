@@ -68,7 +68,8 @@ fails and removes `_site/`:
   page has every required section and only sections of the fixed order, the checked example
   first; the proof-shape and configuration sections appear when the rule has them.
   `guide_wellFormed` (kernel-checked over all rules) proves every required field is a nonempty
-  string or list. Whether the content is adequate is review. The check also finds every
+  text or list, and the length of a text cannot stop the proof. Whether the content is adequate
+  is review. The check also finds every
   required heading in the rendered page.
 - **Exact examples.** Displayed example text is the recorded bytes, escaped by `escape`
   (`escape_safe`: no markup character or backtick survives) and inserted only through

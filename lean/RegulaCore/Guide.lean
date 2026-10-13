@@ -13,10 +13,11 @@ diagnostic and the `regula` command also print. This module holds only the longe
 
 ## Main declarations
 
+- `NonemptyText`, `text!`: text that has no empty value, written as a string literal.
 - `Guide`: the required sections of a rule explanation.
 - `guide`: the explanation of each registered rule.
 - `Guide.WellFormed`, `guide_wellFormed`: every required field of every rule is a nonempty
-  string or list, and each rule names at least one residual obligation, one source and its
+  text or list, and each rule names at least one residual obligation, one source and its
   proved linkage. The proof shape and configuration may be empty, and the page then omits them.
   Content adequacy is review.
 
@@ -25,7 +26,9 @@ diagnostic and the `regula` command also print. This module holds only the longe
 The prose is original Lean-specific explanation written against the standard
 (`website/RegulaStandard`) and the
 checker sources it names. Its fidelity to the standard and to the detectors is semantic
-review (R-DOC, R-INTENT); nonemptiness is the only mechanical property checked here. Text
+review (R-DOC, R-INTENT); nonemptiness is the only mechanical property checked here. The problem
+and the linkage are nonempty by their type, and the kernel decides only whether each list section
+is empty, so no proof here reduces a string and no section has a length limit. Text
 uses Verso inline markup. A link target `@repo/PATH` denotes `PATH` in this repository at the
 revision the site is built from; the generator requires each such file to exist.
 Presentation structure follows Microsoft's CA1416 page as one illustrative reference
@@ -36,6 +39,92 @@ namespace Regula.Site
 
 open Regula.Checker.Account (Residual)
 
+/-- Text with at least one character, held as its first character and the rest. The type has no
+empty value, so a section of this type is nonempty however long it is
+(`NonemptyText.toString_ne_empty`), and no proof of that reads the text. A proof that decides
+whether a string literal is empty reduces the literal in the kernel, at a cost that grows with its
+length: on Lean v4.34.1 the kernel turns a literal into `String.ofList` of its characters
+(`string_lit_to_constructor`, `src/kernel/inductive.cpp`), and its bytes are
+`List.toByteArray`, whose loop pushes every byte before it returns any
+(`Init/Prelude.lean`). Write one with `text! "…"`. -/
+structure NonemptyText where
+  /-- The first character. -/
+  head : Char
+  /-- The characters after the first. -/
+  tail : String
+
+namespace NonemptyText
+
+/-- The text as a string: its first character followed by the rest. -/
+def toString (t : NonemptyText) : String := String.singleton t.head ++ t.tail
+
+/-- Every text has at least one byte: its first character's UTF-8 encoding is never empty. -/
+theorem utf8ByteSize_pos (t : NonemptyText) : 0 < t.toString.utf8ByteSize := by
+  rw [toString, String.utf8ByteSize_append, ← String.size_toByteArray, String.singleton,
+    String.toByteArray_push, ByteArray.size_append, List.utf8Encode_singleton,
+    List.size_toByteArray]
+  exact Nat.lt_of_lt_of_le (List.length_pos_iff.mpr String.utf8EncodeChar_ne_nil)
+    (Nat.le_trans (Nat.le_add_left _ _) (Nat.le_add_right _ _))
+
+/-- No text is empty. The proof goes through the size (`utf8ByteSize_pos`), which needs only
+`propext` and `Quot.sound`; core's `String.singleton_ne_empty` also needs `Classical.choice`. -/
+theorem toString_ne_empty (t : NonemptyText) : t.toString ≠ "" := fun empty => by
+  have pos := t.utf8ByteSize_pos
+  rw [empty, String.utf8ByteSize_empty] at pos
+  exact Nat.lt_irrefl 0 pos
+
+/-- The text followed by a string, whose rendering `toString_append` gives. -/
+instance : HAppend NonemptyText String NonemptyText := ⟨fun t s => ⟨t.head, t.tail ++ s⟩⟩
+
+/-- Appending a string to a text appends it to the text's rendering. -/
+theorem toString_append (t : NonemptyText) (s : String) : (t ++ s).toString = t.toString ++ s :=
+  String.append_assoc.symm
+
+/-- The text of a nonempty string, split into its first character and the rest; `none` for the
+empty string (`ofString?_eq_none_iff`). The split renders as the string it came from
+(`toString_ofString?`). -/
+def ofString? (s : String) : Option NonemptyText :=
+  match s.toList with
+  | [] => none
+  | c :: cs => some ⟨c, String.ofList cs⟩
+
+/-- A text `ofString?` gives renders as the string it was given. -/
+theorem toString_ofString? {s : String} {t : NonemptyText} (split : ofString? s = some t) :
+    t.toString = s := by
+  unfold ofString? at split
+  split at split
+  · cases split
+  · next c cs chars =>
+    cases split
+    apply String.toList_inj.mp
+    rw [toString, String.toList_append, String.toList_singleton, String.toList_ofList, chars]
+    rfl
+
+/-- `ofString?` refuses exactly the empty string. -/
+theorem ofString?_eq_none_iff {s : String} : ofString? s = none ↔ s = "" := by
+  rw [← String.toList_eq_nil_iff]
+  unfold ofString?
+  split <;> simp_all
+
+end NonemptyText
+
+/-- `text! "…"` is the `NonemptyText` of a nonempty string literal: its first character and the
+rest, split by `NonemptyText.ofString?` when the literal is elaborated, so the text renders as the
+literal (`toString_ofString?`). An empty literal is an elaboration error.
+
+Assumes:
+- Lean v4.34.1 `Init/Meta/Defs.lean` (`TSyntax.getString`, line 1357): the literal's value is
+  `isStrLit?`, the decoding that `elabStrLit` (`Lean/Elab/BuiltinTerm.lean`, line 198) gives an
+  ordinary string literal.
+- Lean v4.34.1 `Init/Meta/Defs.lean` (`Syntax.mkCharLit` and `Syntax.mkStrLit`, lines 870 and
+  878): the literals they write with `Char.quote` and `String.quote` (`Init/Data/Repr.lean`, lines
+  383 and 400) elaborate back to the character and string given (`elabCharLit` and `elabStrLit`,
+  `Lean/Elab/BuiltinTerm.lean`, lines 248 and 198, through `decodeCharLit` and `decodeStrLit`). -/
+local macro "text! " literal:str : term =>
+  match NonemptyText.ofString? literal.getString with
+  | some t => `(NonemptyText.mk $(Lean.Syntax.mkCharLit t.head) $(Lean.Syntax.mkStrLit t.tail))
+  | none => Lean.Macro.throwErrorAt literal "`text!` needs a nonempty string literal"
+
 /-- The explanation sections of one rule page, in page order. `residuals` are the review
 obligations a result of this rule never discharges; `checklist` names the module 8 checklist rows
 the rule contributes to; `sources` are repository paths of its detector, policy and proof
@@ -43,7 +132,7 @@ modules. -/
 structure Guide where
   /-- What goes wrong in a violating project: the page's lead paragraph and the *Problem*
   section of `regula explain`. -/
-  problem : String
+  problem : NonemptyText
   /-- How the detector decides the rule, one paragraph each (*What triggers it*). -/
   trigger : List String
   /-- Rationale beyond the registry's short `rationale` (`descriptor id`); may be empty. -/
@@ -68,20 +157,33 @@ structure Guide where
   sources : List String
   /-- Which steps of the rule's decision are kernel-checked theorems about the executed code and
   which stay operational (*Proved linkage*). -/
-  linkage : String
+  linkage : NonemptyText
+
+/-- The list sections every page fills: what triggers the rule, what a pass establishes and does
+not establish, the limitations, the open obligations, the checklist rows and the sources. Deciding
+it reads only whether each list is empty, never a string in one. -/
+def Guide.ListsNonempty (g : Guide) : Prop :=
+  g.trigger ≠ [] ∧ g.established ≠ [] ∧ g.notEstablished ≠ [] ∧ g.limitations ≠ [] ∧
+  g.residuals ≠ [] ∧ g.checklist ≠ [] ∧ g.sources ≠ []
+
+instance (g : Guide) : Decidable g.ListsNonempty := by
+  unfold Guide.ListsNonempty; infer_instance
 
 /-- Every required section has content and the page names its open obligations, sources and
-proved linkage. -/
+proved linkage: the problem and the linkage render as nonempty strings, and every required list
+section is nonempty. -/
 def Guide.WellFormed (g : Guide) : Prop :=
-  g.problem ≠ "" ∧ g.trigger ≠ [] ∧ g.established ≠ [] ∧ g.notEstablished ≠ [] ∧
-  g.limitations ≠ [] ∧ g.residuals ≠ [] ∧ g.checklist ≠ [] ∧ g.sources ≠ [] ∧ g.linkage ≠ ""
+  g.problem.toString ≠ "" ∧ g.ListsNonempty ∧ g.linkage.toString ≠ ""
 
-instance (g : Guide) : Decidable g.WellFormed := by
-  unfold Guide.WellFormed; infer_instance
+/-- A guide is well formed exactly when its required list sections are nonempty: its problem and
+linkage are nonempty by their type (`NonemptyText.toString_ne_empty`). -/
+theorem Guide.wellFormed_iff_listsNonempty (g : Guide) : g.WellFormed ↔ g.ListsNonempty :=
+  ⟨fun wellFormed => wellFormed.2.1,
+    fun lists => ⟨g.problem.toString_ne_empty, lists, g.linkage.toString_ne_empty⟩⟩
 
 /-- Shared statement: the proved linkage of the rules that the declaration decision decides. -/
-private def declarationLinkage : String :=
-  "The shared declaration decision `RegulaPolicy.declarationFailure` (its first failed \
+private def declarationLinkage : NonemptyText :=
+  text! "The shared declaration decision `RegulaPolicy.declarationFailure` (its first failed \
     requirement, `declarationFailure_ordered`) is mapped to a rule by the injective \
     `Regula.ruleForFailure`. Project, file and documentation audits run it through \
     `Regula.Checker.Policy.checked_memberRule` (`ruleForMember_eq`); the editor runs \
@@ -104,9 +206,9 @@ private def foundationTable : String :=
 /-- The explanation of each rule. -/
 def guide : RuleId → Guide
   | .projectAxiom => {
-      problem := "A declaration owned by a claimed module is a logical `axiom`. Lean accepts an \
-        axiom without evidence, so every theorem that uses it is only conditional on an assumption \
-        that no proof discharges."
+      problem := text! "A declaration owned by a claimed module is a logical `axiom`. Lean accepts \
+        an axiom without evidence, so every theorem that uses it is only conditional on an \
+        assumption that no proof discharges."
       trigger := [
         "The checker inspects every constant attributed to an owned module in the completed Lean \
           environment. A `ConstantInfo.axiomInfo` there is rejected with applicability \
@@ -147,7 +249,7 @@ def guide : RuleId → Guide
           ["lean/RegulaCore/Policy.lean", "lean/RegulaPolicy/Decision.lean",
               "lean/Regula/Findings.lean", "website/RegulaStandard/LogicProofPatterns.lean"] }
   | .proofHole => {
-      problem := "The declaration depends on `sorryAx`: a `sorry`, an `admit`, an unfinished \
+      problem := text! "The declaration depends on `sorryAx`: a `sorry`, an `admit`, an unfinished \
         tactic proof, or an imported declaration with such a hole occurs in its transitive axiom \
         set. The proposition is not proved."
       trigger := [
@@ -203,11 +305,12 @@ def guide : RuleId → Guide
           ["lean/RegulaCore/Policy.lean", "lean/RegulaPolicy/Decision.lean",
               "lean/Regula/Findings.lean", "lean/RegulaPolicy/KernelAxioms.lean"] }
   | .unknownAxiom => {
-      problem := "A declaration's exact transitive axiom set contains an axiom outside Lean's \
-        standard logical foundation (`propext`, `Quot.sound`, `Classical.choice`) that is neither \
-        `sorryAx` nor a compiler-trusting axiom (the `Lean.trustCompiler`, `Lean.ofReduceBool` \
-        and `Lean.ofReduceNat` family when the selected compiler declares it, or an authenticated native-proof axiom of \
-        `native_decide`, `decide +native`, `bv_decide`, `bv_decide?` or `bv_check`)."
+      problem := text! "A declaration's exact transitive axiom set contains an axiom outside \
+        Lean's standard logical foundation (`propext`, `Quot.sound`, `Classical.choice`) that is \
+        neither `sorryAx` nor a compiler-trusting axiom (the `Lean.trustCompiler`, \
+        `Lean.ofReduceBool` and `Lean.ofReduceNat` family when the selected compiler declares it, \
+        or an authenticated native-proof axiom of `native_decide`, `decide +native`, `bv_decide`, \
+        `bv_decide?` or `bv_check`)."
       trigger := [
         "Each axiom in the transitive set is classified. One that is not a standard logical axiom, \
           `sorryAx` (RG1002) or a compiler-trusting axiom (RG1004) is unknown, and the declaration \
@@ -238,8 +341,8 @@ def guide : RuleId → Guide
               "lean/RegulaPolicy/Foundation.lean",
               "lean/RegulaPolicy/Decision.lean"] }
   | .compilerTrusting => {
-      problem := "A declaration on a positive surface depends on a compiler-trusting axiom: a \
-        native-proof axiom generated by `native_decide`, `decide +native`, `bv_decide`, \
+      problem := text! "A declaration on a positive surface depends on a compiler-trusting axiom: \
+        a native-proof axiom generated by `native_decide`, `decide +native`, `bv_decide`, \
         `bv_decide?` or `bv_check`, or a member of the `Lean.trustCompiler`, `Lean.ofReduceBool` \
         and `Lean.ofReduceNat` family declared by the selected compiler. Its proof trusts compiled code and the Lean compiler, not the \
         kernel."
@@ -345,7 +448,7 @@ def guide : RuleId → Guide
               "lean/RegulaPolicy/NativeStatement.lean", "lean/Regula/Collect.lean",
               "lean/Regula/Checker/Frontend.lean", "lean/RegulaCore/Policy.lean"] }
   | .profileExceeded => {
-      problem := "A declaration's exact transitive axiom set is admissible, but its least \
+      problem := text! "A declaration's exact transitive axiom set is admissible, but its least \
         foundation label is stronger than the claim of the surface it belongs to."
       trigger := [
         "Each declaration receives the least label containing its exact axiom set. If that label \
@@ -390,7 +493,7 @@ def guide : RuleId → Guide
               "lean/RegulaPolicy/KernelAxioms.lean",
               "website/RegulaStandard/MathematicalFoundations.lean"] }
   | .escapeHatch => {
-      problem := "An owned declaration is marked `unsafe` or `partial` and does not satisfy \
+      problem := text! "An owned declaration is marked `unsafe` or `partial` and does not satisfy \
         the recursion-helper relation (regeneration of its base together with the base's \
         kernel-checked recursion equation)."
       trigger := [
@@ -590,7 +693,7 @@ def guide : RuleId → Guide
           ["lean/RegulaPolicy/Decision.lean", "lean/RegulaPolicy/Erasure.lean",
               "lean/Regula/Collect.lean", "lean/RegulaCore/Policy.lean"] }
   | .executableContract => {
-      problem := "A closed `ExecutableContract f R` registration does not have the supported \
+      problem := text! "A closed `ExecutableContract f R` registration does not have the supported \
         shape: it is not closed, it names no complete implementation constant, the \
         implementation is not an eligible executable definition, or it states a decision kind \
         that is not about the implementation on every argument or whose specification mentions \
@@ -859,9 +962,9 @@ def guide : RuleId → Guide
               "lean/RegulaPolicy/Domain.lean", "lean/RegulaPolicy/Evidence.lean",
               "lean/RegulaPolicy/MentionSearch.lean", "lean/RegulaCore/Policy.lean"] }
   | .decisionContract => {
-      problem := "A function registered as a decision with `@[regula_decision]` has no decision \
-        contract in its inventory or in a surface whose `decides` names its library, and its \
-        result type is not `Decidable _`. Nothing then states \
+      problem := text! "A function registered as a decision with `@[regula_decision]` has no \
+        decision contract in its inventory or in a surface whose `decides` names its library, and \
+        its result type is not `Decidable _`. Nothing then states \
         whether the function accepts only what its specification allows, everything its \
         specification allows, or both."
       trigger := [
@@ -954,7 +1057,7 @@ def guide : RuleId → Guide
         "The editor never reports this rule; `lake lint` or a file audit does."]
       residuals := [.intent, .invariant, .qualify]
       checklist := ["THEOREM-07", "BUILD-03"]
-      linkage := "`RegulaPolicy.policyFor` decides the rule after the declaration's own \
+      linkage := text! "`RegulaPolicy.policyFor` decides the rule after the declaration's own \
         requirements. `policyFor_decisionContract_iff` proves it reports the decision failure \
         exactly for an inventory member that meets those requirements, is registered with a \
         result type other than `Decidable _`, and is the implementation of no accepted decision \
@@ -976,7 +1079,7 @@ def guide : RuleId → Guide
               "lean/RegulaPolicy/Specification.lean", "lean/RegulaPolicy/Plan.lean",
               "lean/Regula/Collect.lean", "lean/RegulaCore/Policy.lean"] }
   | .sharedTest => {
-      problem := "The specification of a decision contract and its implementation, or its \
+      problem := text! "The specification of a decision contract and its implementation, or its \
         acceptance predicate, both reach one function with a result of `Bool` or `BEq`. The \
         specification then states the condition with the test that the function runs. The kind \
         is a theorem that compares the test with itself at that point, so it does not state \
@@ -1130,7 +1233,7 @@ def guide : RuleId → Guide
               "lean/RegulaPolicy/Domain.lean", "lean/RegulaPolicy/StatementReading.lean",
               "lean/Regula/Collect.lean", "lean/Regula/Contract.lean"] }
   | .environment => {
-      problem := "The declared Lean environment could not be loaded or identified, so the \
+      problem := text! "The declared Lean environment could not be loaded or identified, so the \
         requested audit could not run. The result is INCOMPLETE, not a violation of the source."
       trigger := [
         "Setup checks load the Lake workspace, resolve dependencies to exact source states, and \
@@ -1162,14 +1265,14 @@ def guide : RuleId → Guide
           completed positive check."]
       residuals := [.qualify]
       checklist := ["DECL-01", "DECL-04"]
-      linkage := "None. Setup failures and escaped audit errors reach this rule by their error \
-        message prefix, failing closed to INCOMPLETE; that classification is not proved."
+      linkage := text! "None. Setup failures and escaped audit errors reach this rule by their \
+        error message prefix, failing closed to INCOMPLETE; that classification is not proved."
       sources :=
           ["lean/Regula/Checker/Workspace.lean", "lean/Regula/Checker/Lake.lean",
               "lean/Regula/Checker/ResultProtocol.lean"] }
   | .configuration => {
-      problem := "The surface manifest (`foundation_manifest.json`, schema 2) is invalid or does \
-        not classify every root-package library and executable exactly once."
+      problem := text! "The surface manifest (`foundation_manifest.json`, schema 2) is invalid or \
+        does not classify every root-package library and executable exactly once."
       trigger := [
         "The checker parses the manifest and reconciles it with Lake's elaborated root package. \
           Unknown keys, duplicates, a wrong schema version, an unknown `execution` value, an empty \
@@ -1204,7 +1307,7 @@ def guide : RuleId → Guide
         "The editor never guesses an omitted project scope."]
       residuals := [.qualify, .intent, .invariant]
       checklist := ["DECL-04", "SCOPE-05", "BUILD-04", "DECL-01", "BUILD-01"]
-      linkage := "`Regula.Checker.Manifest.parse_sound` and `parseValue_complete` for the \
+      linkage := text! "`Regula.Checker.Manifest.parse_sound` and `parseValue_complete` for the \
         manifest (kernel-checked in the excluded `Regula` library) and \
         `Regula.Linter.checked_editorRequest` for the editor's request. An executable root's \
         classification is `RegulaPolicy.RootsClassifiedAlike`: `AxiomGate.checkClassification` \
@@ -1218,8 +1321,8 @@ def guide : RuleId → Guide
               "lean/Regula/Checker/AxiomGate.lean", "lean/RegulaPolicy/Plan.lean",
               "lean/Regula/Findings.lean"] }
   | .sourceBuild => {
-      problem := "The claimed source did not elaborate warning-free under the audit's build: the \
-        build failed or emitted a warning."
+      problem := text! "The claimed source did not elaborate warning-free under the audit's build: \
+        the build failed or emitted a warning."
       trigger := [
         "The audit builds the claimed targets itself with Lake's failure level at `warning`, as \
           `lake build --wfail` does, so the build fails when a job it requires logs a warning or \
@@ -1309,37 +1412,69 @@ def guide : RuleId → Guide
           established (INCOMPLETE), as when another dependency declares a library facet."]
       residuals := [.qualify]
       checklist := ["DECL-01", "BUILD-01", "DOC-01"]
-      linkage := "Acceptance side only: an accepted run satisfies `RegulaPolicy.BuildOK`. A \
+      linkage := text! "Acceptance side only: an accepted run satisfies `RegulaPolicy.BuildOK`. A \
         Lake build's observation satisfies it exactly when it ran at failure level `warning`, \
-        exited 0, \
-        no required job (`Lake.observedFetch`) logged an entry that \
+        exited 0, no required job (`Lake.observedFetch`) logged an entry that \
         `Workspace.unparsedCompilerOutput` selects, and, without the audit-build marker, each \
         claimed module replayed from before the run has its own current record \
         (`Acceptance.buildObservation_ok_iff`, `Lake.mem_reusedModules_iff`, \
-        `Lake.traceRecords_ownRecord_iff`). \
+        `Lake.traceRecords_ownRecord_iff`). The output a finding reports is empty exactly when \
+        no job that is not optional logged such an entry (`Lake.unparsedOutput_eq_empty_iff`). \
         Lake's entry for a Lean message whose file name has no line break is never selected \
-        (`unparsedCompilerOutput_ofSerialMessage`); `lineBreakSourcePaths` fails the others. \
-        That Lake fails a build whose required job logs an entry at its failure level, and \
-        the forms of its entries, are read from Lake's source. A single-file compilation adds no \
-        diagnostic for an information message, a warning for a warning message and an error for \
-        output that is not a message (`SourceAudit.diagnose_information`, \
-        `diagnose_warning`, `diagnose_other`), and it passes exactly when the compiler exited 0 \
-        with no error and, where warnings are refused, no warning \
-        (`SourceAudit.compilationPassed_iff`). Lake's own cache predicates refuse the cache for every \
-        package of the build's workspace (`Workspace.uncachedWorkspace_unreadable`, \
-        `uncachedWorkspace_unwritable`); that Lake consults them before each cache access is \
-        read from Lake's source. That each \
-        claimed module's trace records an elaboration is checked after the \
-        build (`Workspace.elaborationTrace`); that Lake replays the messages such a trace holds \
-        is read from Lake's source."
+        (`unparsedCompilerOutput_ofSerialMessage`); `lineBreakSourcePaths` fails the others. A \
+        build key that compiles a module and passes that check names a package of the \
+        workspace and a source file from which Lake names the module's messages with no line \
+        break, the hypothesis of that theorem (`Workspace.sourcePathFailure?_eq_none`), and the \
+        check passes exactly when no key of the build's store fails it \
+        (`lineBreakSourcePaths_eq_empty_iff`). That Lake fails a build whose required job logs \
+        an entry at its failure level, and the forms of its entries, are read from Lake's \
+        source. A single-file compilation adds no diagnostic for an information message, a \
+        warning for a warning message and an error for output that is not a message \
+        (`SourceAudit.diagnose_information`, `diagnose_warning`, `diagnose_other`), and it \
+        passes exactly when the compiler exited 0 with no error and, where warnings are \
+        refused, no warning (`SourceAudit.compilationPassed_iff`). Where the build of a claim \
+        is split so that the scope check runs between its two parts, the second part requests \
+        exactly the claimed targets, never a smaller set \
+        (`Lake.ClaimedBuildPlan.completionTargets_exact`), the build stage counts as complete \
+        before the scope check exactly when no second part remains (`build_completed_iff`), \
+        and a claim without executables is built in one part \
+        (`Lake.claimedBuildPlan_without_executables`). That those targets make Lake elaborate \
+        or replay each claimed module is read from Lake's source. A module's trace holds its own \
+        library's record exactly when Lake reads it as a trace with an input, at some depth, \
+        whose caption Lean's JSON parser reads as that record (`Lake.ownRecord_iff`): the \
+        reader inverts the record (`Lake.weakArgsRecordOf?_eq_some_iff`), and the records of \
+        two libraries that differ in package or name differ \
+        (`Lake.weakArgsRecordJson_injective`), so a record that a trace holds for another \
+        library is never taken for the module's own. That Regula's facet wrote the record when \
+        Lake built the module is the trust in recorded traces that standard §7.11 states for \
+        the incremental gate. Regula's own `extraDep` facet is recognized by identity: \
+        `Lake.regulaFacetAdmitted_iff` accepts a package's configuration exactly when its text \
+        and that of the running Regula's `lakefile.lean` are both read and equal, the file \
+        declares one library facet of its own, and it has the facet's constant. With \
+        `REGULA_ORDINARY_LAKEFILES=1`, `lake lint` omits the marker only where the registered \
+        decision `Lake.auditMarkerNeeded` admits the workspace: it asks for the marker exactly \
+        when a package is not of the plain shape, or a module of the root package does not \
+        resolve to its one source or imports the linter's module \
+        (`Lake.auditMarkerNeeded_iff`, `Lake.PackageShape.plain_iff`, \
+        `Lake.checked_auditMarkerNeeded`), and the printed reason is present exactly when it \
+        asks (`Lake.markerReason_isSome`). That the shapes it reads describe the workspace rests \
+        on Lake's configuration, its compiled configuration files and its `transImports` facet. \
+        Lake's own cache predicates refuse the cache for every package that a package of the \
+        build's workspace reaches \
+        (`Workspace.uncachedWorkspace_unreadable`, `uncachedWorkspace_unwritable`); that Lake \
+        consults them before each cache access is read from Lake's source. That each claimed \
+        module's trace records an elaboration is checked after the build \
+        (`Workspace.elaborationTrace`), and such a trace is never one removed as a restore from \
+        the cache (`Workspace.restoredTrace_eq_false_of_elaborationTrace`); that Lake replays \
+        the messages such a trace holds is read from Lake's source."
       sources :=
           ["lean/Regula/Checker/Lake.lean", "lean/Regula/Checker/LintBuild.lean",
               "lean/Regula/Checker/Workspace.lean",
               "lean/Regula/Checker/Diagnostics.lean", "lean/Regula/Checker/ResultProtocol.lean",
               "lean/Regula/Checker/Acceptance.lean", "lean/Regula/Checker/SourceAudit.lean"] }
   | .coverage => {
-      problem := "The exact module and declaration inventory from Lake does not match the owned \
-        coverage: a claimed library imports an excluded or checker-probe module, a module is \
+      problem := text! "The exact module and declaration inventory from Lake does not match the \
+        owned coverage: a claimed library imports an excluded or checker-probe module, a module is \
         outside every manifested library, or ownership cannot be determined."
       trigger := [
         "Module inventory comes from Lake's elaborated configuration and Lean's recorded module \
@@ -1379,16 +1514,16 @@ def guide : RuleId → Guide
       checklist :=
           ["DECL-02", "DECL-03", "SCOPE-05", "DECL-01", "DECL-04", "BUILD-01",
               "BUILD-03", "BUILD-04"]
-      linkage := "Acceptance side only: an accepted run satisfies `RegulaPolicy.ScopeOK`, over \
-        the surface assignments of `Regula.Checker.Acceptance.checked_surfaceAssignments`, and \
-        `RegulaPolicy.census_covers_claimed_targets` shows that every module of a claimed Lake \
+      linkage := text! "Acceptance side only: an accepted run satisfies `RegulaPolicy.ScopeOK`, \
+        over the surface assignments of `Regula.Checker.Acceptance.checked_surfaceAssignments`, \
+        and `RegulaPolicy.census_covers_claimed_targets` shows that every module of a claimed Lake \
         target is a positive module of the accepted census. The inventory checks are \
         operational."
       sources :=
           ["lean/Regula/Checker/Lake.lean", "lean/Regula/Probe.lean",
               "lean/Regula/Checker/AxiomGate.lean", "lean/RegulaPolicy/Plan.lean"] }
   | .admission => {
-      problem := "Required evidence is missing, incomplete, unsupported or invalid: owned \
+      problem := text! "Required evidence is missing, incomplete, unsupported or invalid: owned \
         declarations did not pass kernel admission, a frozen source or `.olean` file changed \
         during the audit, or authentication the result needs could not complete. The result is \
         INCOMPLETE."
@@ -1482,11 +1617,11 @@ def guide : RuleId → Guide
       checklist :=
           ["DECL-01", "DECL-02", "FOUND-05", "SCOPE-02", "TYPE-01", "THEOREM-01", "THEOREM-03",
               "THEOREM-07", "DECL-03", "DECL-04", "COMP-02", "COMP-04", "BUILD-01", "BUILD-04"]
-      linkage := "Acceptance side only: an accepted run satisfies `RegulaPolicy.AdmissionOK`. \
-        Admission runs three registered decisions: `Admission.checkHeader` \
-        (`checked_checkHeader`, two-way), `Admission.admitReplay` (`admitReplay_eq_ok`, \
-        `checked_admitReplay`, one-way) and `Admission.checkTable` (`checked_checkTable`, \
-        two-way), and `mem_required` states the required keys. These \
+      linkage := text! "Acceptance side only: an accepted run satisfies \
+        `RegulaPolicy.AdmissionOK`. Admission runs three registered decisions: \
+        `Admission.checkHeader` (`checked_checkHeader`, two-way), `Admission.admitReplay` \
+        (`admitReplay_eq_ok`, `checked_admitReplay`, one-way) and `Admission.checkTable` \
+        (`checked_checkTable`, two-way), and `mem_required` states the required keys. These \
         theorems are about the request that the decisions take. The module data, the replay \
         set, the reported and reused modules, the lookup `kept`, the import of the replay base, \
         `shared`, `offerable` (`ownedUniform` over `duplicatesIn` of the audited environment and \
@@ -1506,7 +1641,7 @@ def guide : RuleId → Guide
           ["lean/Regula/Checker/Admission.lean", "lean/RegulaPolicy/KernelAxioms.lean",
               "lean/Regula/Checker/SourceAudit.lean", "lean/Regula/Checker/SourceBinding.lean"] }
   | .communityConfiguration => {
-      problem := "A claimed library or executable is built with automatic implicits on or \
+      problem := text! "A claimed library or executable is built with automatic implicits on or \
         without Lean's `linter.missingDocs`, sets for all its modules an option outside RG2006's \
         accepted set, such as a linter or one of Lean's own `warn.*` warnings turned off beyond \
         the three Mathlib-repository linters that standard §6.7 excludes, overrides these options \
@@ -1622,7 +1757,7 @@ def guide : RuleId → Guide
         "The rule runs in project audits only; editor feedback does not read Lake configuration."]
       residuals := [.qualify, .intent]
       checklist := ["DECL-01", "DOC-01"]
-      linkage := "`RegulaPolicy.Community.failures_eq_nil_iff`, `accepts_iff`, \
+      linkage := text! "`RegulaPolicy.Community.failures_eq_nil_iff`, `accepts_iff`, \
         `conforming_of_mathlib`, `conforming_missingDocs`, `conforming_header`, \
         `header_on_unlicensed_fails`, `licensed_iff`, `licensed_header_passes`, \
         `unlicensed_header_fails`, `leanArgument_mem_failures_iff`, \
@@ -1635,8 +1770,8 @@ def guide : RuleId → Guide
       sources := ["lean/RegulaPolicy/Community.lean", "lean/Regula/Checker/Lake.lean",
         "lean/Regula/Checker/AxiomGate.lean", "website/RegulaStandard/CodeOrganization.lean"] }
   | .executionUnresolved => {
-      problem := "The conservative execution closure of an executable root has a path the checker \
-        could not resolve: a missing compiled body, unavailable replacement history, an \
+      problem := text! "The conservative execution closure of an executable root has a path the \
+        checker could not resolve: a missing compiled body, unavailable replacement history, an \
         unsupported evaluator, or a cycle of replacement edges. The execution claim is INCOMPLETE."
       trigger := [
         "For every owned executable root the checker follows retained compiler edges, logical \
@@ -1678,7 +1813,7 @@ def guide : RuleId → Guide
           target do."]
       residuals := [.qualify, .invariant, .intent]
       checklist := ["COMP-03", "SCOPE-05", "SCOPE-03", "THEOREM-05", "BUILD-01", "BUILD-03"]
-      linkage := "`RegulaPolicy.executionFailureRecords_empty_iff`, \
+      linkage := text! "`RegulaPolicy.executionFailureRecords_empty_iff`, \
         `RegulaPolicy.executionFindings_empty_iff`, `RegulaPolicy.unresolved_reported`, \
         `Regula.Checker.Policy.checked_executionFailures` and `executionRule_injective`. \
         `RegulaPolicy.ExecutionWalk.checked_walk` decides the walk over the records of the probe: \
@@ -1696,8 +1831,8 @@ def guide : RuleId → Guide
               "lean/RegulaPolicy/StackWalk.lean", "lean/RegulaCore/Policy.lean",
               "lean/Regula/Checker/RuleDiagnostics.lean"] }
   | .executionBoundary => {
-      problem := "On a surface claiming `\"execution\": \"checked\"`, a reachable boundary the \
-        project or a dependency owns lacks kernel-checked correspondence: for example an \
+      problem := text! "On a surface claiming `\"execution\": \"checked\"`, a reachable boundary \
+        the project or a dependency owns lacks kernel-checked correspondence: for example an \
         `implemented_by` replacement without an admitted equality proof, an external `extern`, or \
         unsafe or partial computation."
       trigger := [
@@ -1784,7 +1919,7 @@ def guide : RuleId → Guide
       residuals := [.intent, .invariant, .qualify]
       checklist :=
           ["COMP-03", "COMP-04", "SCOPE-03", "SCOPE-05", "THEOREM-05", "BUILD-01", "BUILD-03"]
-      linkage := "`RegulaPolicy.executionFailureRecords_empty_iff`, \
+      linkage := text! "`RegulaPolicy.executionFailureRecords_empty_iff`, \
         `RegulaPolicy.executionFindings_empty_iff`, \
         `Regula.Checker.Policy.checked_executionFailures`, `executionRule_injective`, \
         `RegulaPolicy.boundaryFailures_toolchain`, `RegulaPolicy.project_boundary_reported`, \
@@ -1808,8 +1943,8 @@ def guide : RuleId → Guide
               "lean/RegulaPolicy/StackWalk.lean", "lean/RegulaCore/Policy.lean",
               "website/RegulaStandard/ToolingAndMachineAudit.lean"] }
   | .fenceStructure => {
-      problem := "A Markdown file in the checked documentation tree has a malformed Lean fence \
-        classification: an orphan, misplaced, duplicated or misspelled marker, an invalid \
+      problem := text! "A Markdown file in the checked documentation tree has a malformed Lean \
+        fence classification: an orphan, misplaced, duplicated or misspelled marker, an invalid \
         expected-error pattern, or an unclosed fence. Or it has a line that can show Lean code \
         at a place that the audit does not check: a Lean fence in a quotation or a list item, \
         after indentation, inside another fence or with a different spelling of the language, \
@@ -1879,8 +2014,8 @@ def guide : RuleId → Guide
           in prose, also inside a fence."]
       residuals := [.qualify, .doc]
       checklist := ["DOC-03"]
-      linkage := "An accepted run satisfies `RegulaPolicy.DocumentOK`. The scanners report no \
-        violation exactly for a document with lines that are permitted transitions of the fence \
+      linkage := text! "An accepted run satisfies `RegulaPolicy.DocumentOK`. The scanners report \
+        no violation exactly for a document with lines that are permitted transitions of the fence \
         protocol and keep the shape rule \
         (`Regula.Checker.Documentation.checked_scanLines`, `checked_scanVersoLines`), and the \
         lines are those of the text of the document (`toList_linesOf`). A clean document has a \
@@ -1895,7 +2030,7 @@ def guide : RuleId → Guide
       sources := ["lean/Regula/Checker/FenceScan.lean", "lean/Regula/Checker/Documentation.lean",
           "lean/Regula/Checker/Diagnostics.lean", "lean/RegulaPolicy/Pattern.lean"] }
   | .positiveExample => {
-      problem := "A positive Lean fence in the documentation did not elaborate verbatim and \
+      problem := text! "A positive Lean fence in the documentation did not elaborate verbatim and \
         warning-free, or it did and then failed admission or the declaration and axiom rules."
       trigger := [
         "Each positive fence is elaborated exactly as printed, with no inserted imports or \
@@ -1930,7 +2065,7 @@ def guide : RuleId → Guide
       sources := ["lean/Regula/Checker/Documentation.lean", "lean/Regula/Checker/SourceAudit.lean",
           "lean/Regula/Checker/Admission.lean"] }
   | .negativeExample => {
-      problem := "A fence marked `lean-fail` did not fail as specified: it elaborated \
+      problem := text! "A fence marked `lean-fail` did not fail as specified: it elaborated \
         successfully, failed for a different reason, or the worker crashed or timed out."
       trigger := [
         "A negative fence must complete with a source rejection, and one effective error message \
@@ -1955,13 +2090,13 @@ def guide : RuleId → Guide
           this rule concerns compiler rejection patterns of `lean-fail` fences."]
       residuals := [.qualify, .doc]
       checklist := ["DOC-05"]
-      linkage := "`RegulaPolicy.matchesPattern_iff` characterizes the executed matcher."
+      linkage := text! "`RegulaPolicy.matchesPattern_iff` characterizes the executed matcher."
       sources :=
           ["lean/Regula/Checker/Diagnostics.lean", "lean/RegulaPolicy/Pattern.lean",
               "lean/Regula/Website.lean"] }
   | .trustedExample => {
-      problem := "A fence marked `lean-trusted-compiler` did not elaborate warning-free with an \
-        authenticated compiler-trusting declaration: it contains no native proof, or \
+      problem := text! "A fence marked `lean-trusted-compiler` did not elaborate warning-free with \
+        an authenticated compiler-trusting declaration: it contains no native proof, or \
         authentication failed."
       trigger := [
         "A teaching fence must elaborate warning-free and the checker must authenticate at least \
@@ -1987,13 +2122,13 @@ def guide : RuleId → Guide
           keep them small."]
       residuals := [.qualify]
       checklist := ["DOC-05"]
-      linkage := "`RegulaPolicy.checked_memberFoundation` and \
+      linkage := text! "`RegulaPolicy.checked_memberFoundation` and \
         `Regula.Checker.Policy.labelOf_member`."
       sources := ["lean/Regula/Checker/Documentation.lean", "lean/Regula/Checker/Frontend.lean",
           "lean/RegulaPolicy/Decision.lean"] }
   | .moduleDocumentation => {
-      problem := "A module in a claimed surface has no module docstring (`/-! … -/` or Verso \
-        module documentation), has one that is not the first command after its imports, or \
+      problem := text! "A module in a claimed surface has no module docstring (`/-! … -/` or \
+        Verso module documentation), has one that is not the first command after its imports, or \
         repeats an import with the same modifiers."
       trigger := [
         "When a claimed module finishes elaborating, the checker asks Lean for its module \
@@ -2022,15 +2157,15 @@ def guide : RuleId → Guide
           errors; a module with elaboration errors gets RG2005 (incomplete) instead."]
       residuals := [.doc]
       checklist := ["DOC-01", "DECL-01"]
-      linkage := "`RegulaPolicy.ModuleHeader.failures_eq_nil_iff` and `mem_repeated_iff`, and \
-        `Regula.Checker.Acceptance.modulePresence_iff` and `documentationPresence_modes`. \
+      linkage := text! "`RegulaPolicy.ModuleHeader.failures_eq_nil_iff` and `mem_repeated_iff`, \
+        and `Regula.Checker.Acceptance.modulePresence_iff` and `documentationPresence_modes`. \
         Parsing the module header is operational."
       sources := ["lean/RegulaPolicy/ModuleHeader.lean", "lean/Regula/Linter/Documentation.lean",
         "lean/Regula/Checker/AxiomGate.lean",
             "website/RegulaStandard/DocumentationStandards.lean"] }
   | .materialDocumentation => {
-      problem := "A public declaration registered with `@[regula_material]` as evidence for a \
-        material normative claim has no docstring."
+      problem := text! "A public declaration registered with `@[regula_material]` as evidence for \
+        a material normative claim has no docstring."
       trigger := [
         "The checker selects public declarations carrying the persistent `@[regula_material]` \
           registration and asks Lean for their docstrings (`findDocString?`, which includes \
@@ -2058,15 +2193,15 @@ def guide : RuleId → Guide
           errors; a module with elaboration errors gets RG2005 (incomplete) instead."]
       residuals := [.doc]
       checklist := ["DOC-01"]
-      linkage := "`RegulaPolicy.materialDocumentationFailure_eq_none_iff`, \
+      linkage := text! "`RegulaPolicy.materialDocumentationFailure_eq_none_iff`, \
         `materialDocumentationFailure_eq_missingDocstring_iff` and \
         `Regula.ruleForMaterialDocumentation_injective`."
       sources :=
           ["lean/Regula/MaterialClaim.lean", "lean/RegulaPolicy/Intent.lean",
               "lean/Regula/Linter/Documentation.lean"] }
   | .materialIntent => {
-      problem := "A registered public material declaration has a docstring without a nonempty \
-        labelled Intent section."
+      problem := text! "A registered public material declaration has a docstring without a \
+        nonempty labelled Intent section."
       trigger := [
         "An Intent section is an ATX heading line whose text is exactly `Intent` (one to six `#`, \
           no closing sequence), followed before the next heading of equal or higher level by at \
@@ -2098,15 +2233,18 @@ def guide : RuleId → Guide
           errors; a module with elaboration errors gets RG2005 (incomplete) instead."]
       residuals := [.intent, .doc]
       checklist := ["DOC-02"]
-      linkage := "`RegulaPolicy.materialDocumentationFailure_eq_missingIntent_iff` and \
+      linkage := text! "`RegulaPolicy.materialDocumentationFailure_eq_missingIntent_iff` and \
         `RegulaPolicy.Intent.hasIntentSection_iff`."
       sources :=
           ["lean/RegulaPolicy/Intent.lean", "lean/Regula/MaterialClaim.lean",
               "lean/Regula/Linter/Documentation.lean"] }
 
-/-- Every rule's explanation has all required sections, checked exhaustively over the closed
-registry by kernel evaluation. -/
-theorem guide_wellFormed : ∀ id, (guide id).WellFormed := by
-  intro id; cases id <;> decide +kernel
+/-- Every rule's explanation has all required sections. The problem and the linkage are nonempty
+by their type, however long they are (`Guide.wellFormed_iff_listsNonempty`); that every required
+list section is nonempty is checked exhaustively over the closed registry by kernel evaluation of
+the lists' shape alone, which reduces no string, so the proof's cost does not depend on the length
+of any text. -/
+theorem guide_wellFormed : ∀ id, (guide id).WellFormed := fun id =>
+  (Guide.wellFormed_iff_listsNonempty _).mpr (by cases id <;> decide)
 
 end Regula.Site
