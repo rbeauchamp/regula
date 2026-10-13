@@ -673,23 +673,58 @@ def captureManifest (ws : _root_.Lake.Workspace) :
   let manifest ← IO.ofExcept (_root_.Lake.Manifest.parse text)
   return (manifest, items)
 
+/-- The entries of the packages directory, spelled `packages`, that a copy of the project prunes:
+each stored name in `listing` whose observed real path is one of `recorded`, the observed real
+paths of the recorded dependency directories. An entry with no observed real path is kept. -/
+def prunedEntries (packages : List String) (listing : List (String × Option (List String)))
+    (recorded : List (List String)) : List (List String) :=
+  listing.filterMap fun (name, real) =>
+    if real.any recorded.contains then some (packages ++ [name]) else none
+
+/-- A copy prunes `path` exactly when it is the packages directory's spelling of a listed name whose
+observed real path is the observed real path of a recorded dependency directory. -/
+theorem mem_prunedEntries (packages : List String) (listing : List (String × Option (List String)))
+    (recorded : List (List String)) (path : List String) :
+    path ∈ prunedEntries packages listing recorded ↔
+      ∃ name real, (name, some real) ∈ listing ∧ real ∈ recorded ∧ path = packages ++ [name] := by
+  simp only [prunedEntries, List.mem_filterMap, Prod.exists]
+  constructor
+  · rintro ⟨name, real, listed, selected⟩
+    cases real with
+    | none => simp at selected
+    | some real =>
+      by_cases recordedReal : real ∈ recorded
+      · simp [recordedReal] at selected
+        exact ⟨name, real, listed, recordedReal, selected.symm⟩
+      · simp [recordedReal] at selected
+  · rintro ⟨name, real, listed, recordedReal, rfl⟩
+    exact ⟨name, some real, listed, by simp [recordedReal]⟩
+
+/-- `mem_prunedEntries` is not vacuous: an entry whose observed real path is a recorded dependency
+directory elsewhere, as a link's is, is pruned, and an entry whose observed real path is its own or
+none is kept. -/
+theorem prunedEntries_witness :
+    prunedEntries ["", "p", "vendor"]
+      [("dep", some ["", "shared", "dep"]), ("src", some ["", "p", "vendor", "src"]), ("gone", none)]
+      [["", "shared", "dep"]] = [["", "p", "vendor", "dep"]] := by
+  decide
+
 /-- Copy a checked project and its owned path dependencies through the shared no-follow
 directory/file constructor. Every selected source entry must be plain. Root tmp trees are excluded
 before descent. VCS and build/cache/scratch trees are excluded outside each capture root's docs tree.
 Consumer-selected files, an explicitly selected project-contained policy, and their ancestors
 survive these exclusions. Compiled-module exclusions apply only to
 captured regular files. The final instructions must contain every selected file before construction.
-Package pruning leaves out exactly the checkout of each Git dependency and the directory of each
-path dependency that lie directly in the packages directory, by the entry that Lake's load
-materialized each from (`LakeSelection.effectiveEntry`, `LakeSelection.checkoutDir`), and keeps
-every other entry there (`Construction.CopyFilter.omission_pruned`,
-`Construction.CopyFilter.omission_other`). Each pruned entry is spelled as the observed real path
-of the packages directory and the entry's own name, without following a link at the entry, so a
-linked checkout is pruned as a cloned one is. That name is the last component of the recorded
-directory once empty and `.` components are dropped. A recorded directory that then ends in `..`
-or in no component, and that lies directly in the packages directory, is refused by name, since it
-has no name to prune it by. A packages directory that is itself a link is
-refused when the capture walks it, as each link that the capture walks is. An owned package there
+Package pruning leaves out exactly each entry of the packages directory, by the stored name that
+the capture walks, whose observed real path is the observed real path of a recorded dependency
+directory: the checkout of a Git dependency or the directory of a path dependency, by the entry
+that Lake's load materialized it from (`LakeSelection.effectiveEntry`,
+`LakeSelection.checkoutDir`). It keeps every other entry there, one whose real path cannot be
+observed included (`mem_prunedEntries`, `Construction.CopyFilter.omission_pruned`,
+`Construction.CopyFilter.omission_other`). So a linked checkout is pruned as a cloned one is, and
+so is a directory that its recorded path names in another case or Unicode form that the
+filesystem folds. A packages directory that is itself a link is not listed, and is refused when the
+capture walks it, as each link that the capture walks is. An owned package there
 keeps its own capture pass (`Construction.packageSource_owned`). The copy's domain is
 each file that Lake's load reads for the root package or an owned dependency: the source of each
 module that Lake can build (`packageModules`), the loaded configuration file and an owned
@@ -726,10 +761,13 @@ the package's joined with the library's (`Lake/Config/LeanLib.lean:34-35`,
 (`Lake/Config/LeanExe.lean:45-51`). Lean v4.34.1 `FilePath.join` gives an absolute right operand
 as it stands (`Init/System/FilePath.lean:126-130`).
 
-Assumes: Lake v4.34.1 records a path requirement's directory as its text is written, joined to the
-requiring package's directory (`Lake/Load/Materialize.lean:180-182`), so it can end in a separator,
-`.` or `..`. Lean v4.34.1 `FilePath.fileName` gives no name for such a last part
-(`Init/System/FilePath.lean:176-180`), which is why the copy drops empty and `.` components first.
+Assumes: `IO.FS.realPath` is POSIX realpath(3) (`Init/System/IO.lean:873-879`,
+`runtime/io.cpp:1054-1066`), which resolves each link and each `.`, `..` and empty component. On
+Darwin it gives each component at the name the volume stores for it (Apple Libc-1752.120.2
+`stdlib/FreeBSD/realpath.c:216-243`, `:348-358`), so each spelling of one entry that a folding
+volume admits observes one real path, and that of the packages directory is the spelling the
+capture walks. A realpath(3) that keeps the spelling it is given, as on a folding volume
+elsewhere, leaves an entry that another spelling names unpruned.
 
 Assumes: POSIX path resolution, under which a `.` component names the directory before it. The copy
 holds no link, since the constructor creates none, so a read below a package's directory in the copy
@@ -746,41 +784,33 @@ def copyProject (repo target exclude : FilePath)
     -- Capture above refuses links; canonical observation identifies that same regular file.
     let manifestReal ← Regula.Filesystem.observeRealPath ws.manifestFile
     let (packagesDir, _) ← IO.ofExcept <| relocateDependencies inputs manifest root
-    -- Resolve a present packages directory through the observer, so a configured VENDOR
-    -- also finds the stored vendor spelling on a case-folding filesystem.
-    let packagesReal ← try
-        pure (some (← Regula.Filesystem.observeRealPath (root / packagesDir)).normalize.components)
-      catch
-        | .noFileOrDirectory .. => pure none
-        | error => throw error
-    -- The checkout of each Git dependency and the directory of each path dependency that lie
-    -- directly in the packages directory: the only entries that pruning leaves out
-    -- (`Construction.CopyFilter.omission_pruned`). Each is spelled as the observed real path of
-    -- the packages directory and the entry's own name, without following a link at the entry,
-    -- so a linked checkout is pruned as a cloned one is. The name is the last component of the
-    -- recorded directory once empty and `.` components are dropped. A recorded directory that
-    -- then ends in `..` or in no component, and that lies directly in the packages directory, is
-    -- refused by name. A Git dependency's package lies at its checkout, or below it at the
-    -- subdirectory its entry names. Each has its path override.
-    let dependencyDirectories ← match packagesReal with
-      | none => pure []
-      | some packages => ws.packages.toList.filterMapM fun package => do
+    -- The entries of the packages directory that pruning leaves out (`mem_prunedEntries`,
+    -- `Construction.CopyFilter.omission_pruned`): each stored name that the capture walks whose
+    -- observed real path is that of a recorded dependency directory, the checkout of a Git
+    -- dependency or the directory of a path dependency. A Git dependency's package lies at its
+    -- checkout, or below it at the subdirectory its entry names. An entry whose real path cannot
+    -- be observed is kept, and the capture walks it. A packages directory that is a link is not
+    -- listed, and the capture refuses it. Each dependency has its path override.
+    let packagesPath := root / packagesDir
+    let packagesKind ← try pure (some (← Regula.Filesystem.observeMetadata packagesPath).type) catch
+      | .noFileOrDirectory .. => pure none
+      | error => throw error
+    let dependencyDirectories ← if packagesKind != some .dir then pure [] else do
+      let recorded ← ws.packages.toList.filterMapM fun package => do
         if package.isRoot then return none
         let some entry := LakeSelection.effectiveEntry selection.entries package.baseName
           | return none
-        let recorded := LakeSelection.checkoutDir selection.packagesDir entry
-        let dir := _root_.Lake.joinRelative ws.dir recorded
-        let named := System.mkFilePath <| match dir.components with
-          | "" :: rest => "" :: rest.filter (fun part => part != "" && part != ".")
-          | parts => parts.filter (fun part => part != "" && part != ".")
-        if let (some parent, some name) := (named.parent, named.fileName) then
-          let parent := (← Regula.Filesystem.observeRealPath parent).normalize.components
-          return if parent == packages then some (packages ++ [name]) else none
-        unless (← Regula.Filesystem.observeRealPath dir).normalize.components.dropLast == packages do
-          return none
-        throw <| IO.userError s!"copy refused: package '{package.baseName}' has the recorded \
-          directory {recorded}, which lies directly in the packages directory but does not end in \
-          a name of its own, the name by which the copy prunes it"
+        let dir := _root_.Lake.joinRelative ws.dir
+          (LakeSelection.checkoutDir selection.packagesDir entry)
+        return some (← Regula.Filesystem.observeRealPath dir).normalize.components
+      let names ← Regula.Filesystem.Construction.observer.names packagesPath
+      let listing ← names.mapM fun (name : String) => do
+        let real ← try
+            pure (some (← Regula.Filesystem.observeRealPath (packagesPath / name)).normalize.components)
+          catch _ => pure none
+        return (name, real)
+      let packages := (← Regula.Filesystem.observeRealPath packagesPath).normalize.components
+      pure (prunedEntries packages listing recorded)
     let owned := (original.dependencies.filter (·.owned)).foldl (fun dirs dependency =>
       if dependency.root == root || dirs.contains dependency.root then dirs
       else dirs.push dependency.root) #[]

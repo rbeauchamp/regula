@@ -660,7 +660,9 @@ Assumes: Lake `v4.34.1` tests cleanliness with `git diff --exit-code HEAD` (`Uti
 
 `copyProject` captures the manifest at Lake's loaded `ws.manifestFile`. Its packages fallback is `ws.relPkgsDir`. Each resolved dependency receives a typed path override, including inherited and transitive dependencies. Owned dependencies point into the copy, and trusted dependencies point to their original roots. The copy always retains the captured manifest and runs ordinary loads.
 
-Package-directory pruning leaves out exactly the checkout of each Git dependency and the directory of each path dependency in the packages directory. It spells each as the observed real path of the packages directory and the entry's own name, without following a link there. The name is the last component of the recorded directory after the copy drops its empty and `.` components. The copy refuses by name a directory in the packages directory that then ends in `..` or in no component. `Construction.CopyFilter.omission_pruned` proves that a capture pass prunes no other entry, and `Construction.CopyFilter.omission_other` that the same exclusions decide each other entry there. `Construction.packageSource_owned` proves that a capture root, such as an owned package's in that directory, survives its own pass.
+Package-directory pruning leaves out exactly the entries of the packages directory that are recorded dependency directories. An entry is one when its observed real path is the observed real path of a Git dependency's checkout or a path dependency's directory. The copy lists the entries by the stored names that its capture walks. Thus a linked checkout is pruned as a cloned one is. So is a directory that its recorded path names in a case or Unicode form that the volume folds. The copy keeps an entry when it cannot observe the entry's real path, and the capture walks that entry.
+
+`Lake.mem_prunedEntries` proves this selection, and `Lake.prunedEntries_witness` shows that it prunes an entry with a real path outside the packages directory. `Construction.CopyFilter.omission_pruned` proves that a capture pass prunes no other entry, and `Construction.CopyFilter.omission_other` that the same exclusions decide each other entry there. `Construction.packageSource_owned` proves that a capture root, such as an owned package's in that directory, survives its own pass.
 
 The copy keeps the exclusions of names such as `.lake` and `.cache`, and checks one domain against the files it writes instead. That domain is each file that Lake's load reads for the root package and each owned dependency. These files are the source of each module that Lake can build, the loaded configuration file and an owned dependency's recorded manifest when present. Lake's load of the copy reads each at the path it joins to the package's directory, such as the recorded `relConfigFile`. Before it writes anything, the copy refuses the first such path that none of the files it would write has, with exactly that spelling. It names the file and what left it out, such as an excluded directory or a compiled-module file name.
 
@@ -669,6 +671,8 @@ The copy keeps the exclusions of names such as `.lake` and `.cache`, and checks 
 Assumes: Lake `v4.34.1`, `Load/Resolve.lean:590-627`, applies overrides during ordinary materialization. `Load/Resolve.lean:201-235` traverses dependencies transitively. Path entries do not clone packages (`Load/Materialize.lean:239-277`).
 
 Assumes: Lake `v4.34.1` materializes a Git entry at its directory name in the packages directory (`Load/Materialize.lean:246`). It puts the package below that checkout at the subdirectory that the entry names (`Load/Materialize.lean:264`). It loads a package's configuration file and the manifest that its entry records at their recorded paths, joined to the package's directory (`Load/Package.lean:96-117`, `Load/Materialize.lean:272-277`).
+
+Assumes: `IO.FS.realPath` is POSIX `realpath(3)`, which resolves each link and each `.`, `..` and empty component. On Darwin it gives each component at the name that the volume keeps (`ReadsReal`). So each spelling of one entry that a folding volume admits has one real path. A `realpath(3)` that keeps the spelling it gets, as on a folding volume elsewhere, leaves an entry that a different spelling names unpruned.
 
 Assumes: POSIX path resolution, under which a `.` component names the directory before it. The copy holds no link, since the constructor creates none.
 
@@ -5125,6 +5129,10 @@ The `qualify` campaigns and what they observe:
   - A fresh copy of the Git project links its `vendor/gdep` to the first copy's checkout, outside its
     own `vendor`. The copy prunes the link without a refusal, and Lake's load of the copy loads the
     package through its override.
+  - A fresh copy of the Git project stores `vendor/pdep` as `vendor/PDEP`. The control observes if
+    `vendor/pdep` names that directory, as it does on a volume that folds case. Then the copy
+    prunes `vendor/PDEP` by its observed real path. Otherwise Lake's load of the project refuses
+    the package, since it finds no directory at `vendor/pdep/`.
   - A copy of a project with a library that has its source directory below `.lake` refuses before
     it writes anything. The refusal names the module and the `.lake` directory. A copy of a project
     with an owned dependency that has its configuration below `.cache` refuses that file by name.

@@ -17,7 +17,7 @@ the copy reads it. The control copies `examples/fixtures/copy-relocation`, with 
   which Lake clones without a network, and which holds a file outside that subdirectory. Two of the
   project's libraries have owned sources in `vendor` (`ownedSources`). It requires `pdep` by the
   path `vendor/pdep/`, with a final separator (`pathDependency`). A fresh copy of it links its
-  `vendor/gdep` to the first copy's checkout.
+  `vendor/gdep` to the first copy's checkout, and another stores `vendor/pdep` as `vendor/PDEP`.
 - `lake-source` has a library whose source directory `.lake/packages/src` lies in Lake's default
   packages directory, where the control places its module from `placed`.
 - `cache-config` requires the package `cdep` by path, in its own directory. The manifest entry for
@@ -200,6 +200,10 @@ SCRATCH`, in the scratch directory `scratch` that holds the control's copy of th
 - In a fresh copy of `git-project`, whose `vendor/gdep` is a link to that checkout, outside its own
   `vendor`, Lake's load of the project loads `gdep` through the link. The copy prunes the link
   without a refusal, and Lake's load of the copy loads `gdep` through its override (`checkAnswer`).
+- In a fresh copy of `git-project` whose `vendor/pdep` is stored as `vendor/PDEP`, the control
+  observes whether `vendor/pdep` names it. When it does, the volume folds case, and the copy prunes
+  `vendor/PDEP` by its observed real path and passes `checkAnswer`. When it does not, Lake's load
+  of the project refuses `pdep`, whose package directory it does not find.
 - Without a manifest, in a copy of `git-project` and with `LAKE_PKG_URL_MAP` mapping `gdep` to the
   local repository, Lake's load resolves the requirement anew. It records the remote URL of the
   requirement's URL for `gdep` and writes the local repository into its entry, and the inventory
@@ -223,6 +227,23 @@ def gitSteps (scratch : String) : IO Unit := do
     #["-s", (← IO.FS.realPath (gitProject / "vendor" / "gdep")).toString, "gdep"])
   loadInWorker root scratch linked (scratch / "copies-linked") #[]
   IO.println "copy relocation linked checkout: PASS"
+  let folded := scratch / "case-folded"
+  discard <| Regula.Filesystem.copy (fixture / "git-project") folded
+    (· != fixture / "git-project" / "vendor" / "pdep")
+  Regula.Filesystem.Construction.copyFile (fixture / "git-project" / "vendor" / "pdep" / "lakefile.toml")
+    (folded / "vendor" / "PDEP" / "lakefile.toml")
+  writeManifest folded repository rev
+  if ← (folded / "vendor" / "pdep" / "lakefile.toml").pathExists then
+    loadInWorker root scratch folded (scratch / "copies-folded") #[]
+    IO.println "copy relocation path dependency stored in another case: PASS"
+  else
+    let result ← run root (← IO.appPath).toString #["--under-deadline", "copy-relocation-load",
+      folded.toString, (scratch / "copies-folded").toString] (← workerEnvironment scratch #[])
+    let output := result.stdout ++ result.stderr
+    requireChecks [⟨s!"Lake's load refuses pdep, whose directory {pathDependency} is stored as \
+        vendor/PDEP: {output}",
+      result.exitCode != 0 && output.contains "pdep: package directory not found"⟩]
+    IO.println "copy relocation path dependency stored in another case refused: PASS"
   let unlocked := scratch / "url-map"
   copyFixture (fixture / "git-project") unlocked
   let map := (Json.mkObj [("gdep", toJson repository)]).compress
