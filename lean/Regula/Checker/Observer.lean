@@ -146,17 +146,28 @@ def running : IO Snapshot :=
   | .ok snapshot => pure snapshot
   | .error reason => throw <| IO.userError reason
 
-/-- Write the snapshot's library and its trace and hash files into the directory `dir` under the
-library's file name, and return the library's path. -/
+/-- The files that `Snapshot.write` writes into the directory `dir`, each with its bytes: the
+library under its file name, then its trace and hash files that exist, under that name with their
+suffix. -/
+def Snapshot.entries (snapshot : Snapshot) (dir : FilePath) : Array (FilePath × ByteArray) :=
+  (#[("", snapshot.library)] ++ snapshot.companions).map fun (suffix, bytes) =>
+    (dir / (snapshot.fileName ++ suffix), bytes)
+
+/-- Write the snapshot's library and its trace and hash files into the directory `dir`
+(`Snapshot.entries`), and return the library's path. -/
 def Snapshot.write (snapshot : Snapshot) (dir : FilePath) : IO FilePath := do
   IO.FS.createDirAll dir
-  for (suffix, bytes) in #[("", snapshot.library)] ++ snapshot.companions do
-    let destination := dir / (snapshot.fileName ++ suffix)
+  for (destination, bytes) in snapshot.entries dir do
     IO.FS.writeBinFile destination bytes
     IO.setAccessRights destination {
       user := { read := true, write := true, execution := true }
       group := { read := true, execution := true }, other := { read := true, execution := true } }
   return dir / snapshot.fileName
+
+/-- The directory in which `placeRunning` places the observer library in `package`: Lake's default
+`sharedLibDir`, where the library's `shared` facet writes it. -/
+def placementDir (package : FilePath) : FilePath :=
+  package / ".lake" / "build" / "lib"
 
 /-- Place the running Regula's observer library (`running`), with the trace and hash files that
 Lake wrote beside it, in the build directory of `package`, a copy of a package `regula` that
@@ -176,7 +187,14 @@ the output path into it, and its bytes differ, so it is not admitted. Admission 
 alone, whatever Lake decides; that Lake reuses the placed file is trusted for availability only. -/
 def placeRunning (package : FilePath) : IO Unit := do
   let .ok snapshot := runningSnapshot | return
-  discard <| snapshot.write (package / ".lake" / "build" / "lib")
+  discard <| snapshot.write (placementDir package)
+
+/-- The exact paths that `placeRunning` writes in `package`, none when the process could not read
+the library at its start. -/
+def placedPaths (package : FilePath) : Array FilePath :=
+  match runningSnapshot with
+  | .ok snapshot => (snapshot.entries (placementDir package)).map (·.1)
+  | .error _ => #[]
 
 /-- The plugins of the completed `presetup` of `module` of `package` in `completed`
 (`Presetups.completed`), or none when no such job completed. -/

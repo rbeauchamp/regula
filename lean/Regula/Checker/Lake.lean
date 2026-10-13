@@ -497,6 +497,10 @@ such as the documentation step's `AcceptanceLink.placeRetained`, places these af
 def ProjectCopy.placeObservers (copy : ProjectCopy) : IO Unit :=
   copy.observers.forM Observer.placeRunning
 
+/-- The exact paths that `placeObservers` writes in the copy (`Observer.placedPaths`). -/
+def ProjectCopy.placedPaths (copy : ProjectCopy) : Array FilePath :=
+  copy.observers.flatMap Observer.placedPaths
+
 /-- Capture precisely the loaded values that both construction and its request account use.
 The root and dependency directories have already been resolved by the workspace inventory. -/
 def configurationInputs (root : FilePath) (ws : _root_.Lake.Workspace)

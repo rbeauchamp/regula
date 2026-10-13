@@ -1526,9 +1526,13 @@ private def appendFailure (failures : IO.Ref (Array String)) (value : Option Str
   if let some failure := value then failures.modify (·.push failure) else pure ()
 
 /-- Preserve project-relative source and asset locations using the same fresh
-copy operation as the public gate, rather than a second fixed source list. -/
-private def prepareScratchRepo (repo scratch : FilePath) : IO Unit := do
-  (← Lake.copyProject repo scratch scratch).placeObservers
+copy operation as the public gate, rather than a second fixed source list. The running Regula's
+observer library is placed in each copied package `regula` (`Lake.ProjectCopy.placeObservers`);
+the result is the exact paths written there (`Lake.ProjectCopy.placedPaths`). -/
+private def prepareScratchRepo (repo scratch : FilePath) : IO (Array FilePath) := do
+  let copy ← Lake.copyProject repo scratch scratch
+  copy.placeObservers
+  return copy.placedPaths
 
 private def withNewFile {α : Type} (path : FilePath) (text : String) (action : IO α) : IO α := do
   if ← path.pathExists then
@@ -1731,7 +1735,7 @@ private unsafe def structuralPartA (layout : SourceLayout) (contamination : Bool
 operation, that claims `selfHostedManifestText`. Its content is a function of the repository's
 files and manifest alone. -/
 private def prepareSelfHosted (repo copy : FilePath) : IO Unit := do
-  prepareScratchRepo repo copy
+  discard <| prepareScratchRepo repo copy
   IO.FS.writeFile (copy / "foundation_manifest.json") ((← selfHostedManifestText repo) ++ "\n")
 
 /-- Copy the module artifacts of the repository's build, the directories Lake gives its root
@@ -1758,7 +1762,7 @@ order. The copy operation's own `.lake` there (the typed path overrides) is not 
 copies nothing from the project's `.lake`. -/
 private def freshInput (project snapshot : FilePath) :
     IO (Array (String × Option ByteArray)) := do
-  prepareScratchRepo project snapshot
+  discard <| prepareScratchRepo project snapshot
   let base := snapshot.normalize.components
   let own (path : FilePath) : List String := path.normalize.components.drop base.length
   let lake := _root_.Lake.defaultLakeDir.toString
@@ -3014,8 +3018,10 @@ private unsafe def fenceEnvironmentControl (layout : SourceLayout) (repo : FileP
 /-- Clean-checkout environment controls: each public checker that builds
 project-owned modules must itself build the claimed libraries when the main
 build directory is empty, instead of relying on a prior `lake build`. Each
-control starts from a copied repository whose `.lake/build` holds only the running Regula's
-observer library that `prepareScratchRepo` places (`Observer.placeRunning`): no module output. The
+control starts from a copied repository whose `.lake/build` holds exactly the files that
+`prepareScratchRepo` reports it placed, the running Regula's observer library with its trace and
+hash: no module output. `--file` and `freshChecker` build the copy's claimed libraries in place, and
+their audit admits only a plugin with that library's bytes (`Observer.pluginLoaded`). The
 freshChecker control then gives its workspace a `leanchecker` that fails, which an accepted run
 never ran. Only the parts in `parts` run (`fenceEnvironmentParts`). -/
 private unsafe def fenceEnvironmentQualification (layout : SourceLayout) (repo scratch : FilePath)
@@ -3026,14 +3032,12 @@ private unsafe def fenceEnvironmentQualification (layout : SourceLayout) (repo s
     loggedPhase s!"clean-checkout/{name}" do
       let dir := scratch / name
       IO.FS.createDirAll dir
-      prepareScratchRepo repo dir
+      let placed ← prepareScratchRepo repo dir
       let build := dir / ".lake" / "build"
-      let placed := (← Observer.running).fileName
-      let allowed := #["", ".trace", ".hash"].map fun suffix => build / "lib" / (placed ++ suffix)
       let outputs ← if ← build.pathExists then build.walkDir else pure #[]
       let mut unexpected := #[]
       for path in outputs do
-        unless (← path.isDir) || allowed.contains path do unexpected := unexpected.push path
+        unless (← path.isDir) || placed.contains path do unexpected := unexpected.push path
       unless unexpected.isEmpty do
         failures.modify (·.push s!"fence-env/{name}: setup unexpectedly has build output \
           other than the placed observer library: {unexpected}")
@@ -4653,7 +4657,7 @@ private def combinedSnapshotQualification (repo : FilePath) : IO (Array String) 
 excluded root-library module, through the public fresh project entry point. -/
 private def forcedCollectorQualification (repo scratch : FilePath) : IO (Array String) := do
   let layout ← loadSourceLayout repo
-  prepareScratchRepo repo scratch
+  discard <| prepareScratchRepo repo scratch
   -- Retain the complete original manifest, including pure-policy dependencies.
   -- Excluding them would reject the positive for an unrelated import reason.
   let root := scratch / layout.relativeDir / "AuditApp.lean"
