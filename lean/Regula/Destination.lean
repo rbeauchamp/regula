@@ -18,9 +18,9 @@ from losing a file that is not Regula's, whatever files the run reads:
 - A program refuses an invocation two of whose destinations may be one entry (`sameEntry`), after
   it marks them.
 
-The second rule decides by the members that every producer of a kind writes, not by their values,
-so a document of an earlier version of Regula stays replaceable. It replaces an empty file: it holds
-no bytes to lose, and a destination that `mktemp` made is such a file. -/
+The second rule decides by the members that every producer of a kind writes, not by the values of
+an identity, so a document of an earlier version of Regula stays replaceable. It replaces an empty
+file: it holds no bytes to lose, and a destination that `mktemp` made is such a file. -/
 
 namespace Regula.Destination
 
@@ -95,7 +95,8 @@ def earlierResult : String :=
     \"sourceRevision\":\"0000000\",\"status\":\"completed\"}\n"
 
 /-- Whether `value` is a document of the kind, or its mark, by the members that every writer of
-the kind writes, whatever their values. -/
+the kind writes, whatever the values of an identity: only a serialized-graph result's `mode` and a
+prose baseline mark's `status` are read for a constant value. -/
 def Kind.identifies : Kind → Json → Bool
   | .result, value | .registry, value => identified value
   | .acceptanceLink, value => has value "schemaVersion" && has value "status"

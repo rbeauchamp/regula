@@ -501,7 +501,7 @@ current sources (`Site.Build.currentSources`). -/
 def sourcePaths (root : FilePath) (modulePaths : Array FilePath) : IO (Array FilePath) := do
   let corpusPaths ← (← Regula.Filesystem.Construction.walkDirectory (root / "examples/rules")).filterM
     fun path => return !(← path.isDir)
-  let configPaths ← (rootConfigNames.map (root / ·)).filterM (·.pathExists)
+  let configPaths ← (rootConfigNames.map fun (name : String) => root / name).filterM (·.pathExists)
   return (modulePaths ++ configPaths ++ corpusPaths).toList.eraseDups.toArray
 
 /-- The rule whose corpus position decides `key`'s shard: the first rule of
@@ -614,7 +614,7 @@ def check (evidence : FilePath) (selection : Option (Array String))
     -- the end equals the content before any producer started.
     let slot : Slot.ProducerSlot := ⟨scratch / "slot"⟩
     IO.FS.createDirAll slot.root
-    let configNames ← rootConfigNames.filterM fun name => (root / name).pathExists
+    let configNames ← rootConfigNames.filterM fun (name : String) => (root / name).pathExists
     let rootConfigs ← configNames.mapM (fun (name : String) => do
       pure (root / name, ← Regula.Filesystem.readBytes (root / name)))
     let rootSources ← modulePaths.mapM fun path => do

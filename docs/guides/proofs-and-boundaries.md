@@ -906,8 +906,9 @@ Second, a write stops with nothing written if the destination holds a file that 
 replace. The run may replace an empty regular file or a JSON document of the kind that it writes
 there. An empty file holds no bytes to lose, so a destination that `mktemp` made stays usable. The
 function `Regula.Destination.Kind.identifies` decides a kind by the members of a document, not by
-their values. Thus a document of an earlier version of Regula stays replaceable. A symbolic link, a
-directory, a source file, a configuration file and a Markdown document keep their bytes.
+the values of its identity. Thus a document of an earlier version of Regula stays replaceable. A
+symbolic link, a directory, a source file, a configuration file and a Markdown document keep their
+bytes.
 
 Third, a program refuses an invocation if two of its destinations may name one entry. The check
 compares the real path of the nearest present directory above each destination and the names below

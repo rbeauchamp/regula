@@ -4613,15 +4613,15 @@ private def earlyStopControl (repo : FilePath) : IO (Option String) :=
     -- GNU coreutils `env` as the one `timeout` of the whole `PATH`: the bounded start selects it,
     -- since its `--version` names GNU coreutils (`Regula.Qualification.timeoutCommand`), and it
     -- ends with status 125 at the option `--signal=KILL` before it runs the command.
-    let mut gnuEnv : Option FilePath := none
+    let mut found : Option FilePath := none
     for name in ["genv", "env"] do
       for directory in ((← IO.getEnv "PATH").getD "").splitOn ":" do
         let candidate := FilePath.mk directory / name
-        if gnuEnv.isNone && !directory.isEmpty && (← candidate.pathExists) then
+        if found.isNone && !directory.isEmpty && (← candidate.pathExists) then
           if let .ok version ← (runProcess scratch candidate.toString #["--version"]).toBaseIO then
             if version.exitCode == 0 && version.stdout.contains "GNU coreutils" then
-              gnuEnv := some candidate
-    let some gnuEnv := gnuEnv
+              found := some candidate
+    let some gnuEnv := found
       | return some "early stop: no GNU coreutils env (genv or env) on PATH, which installs GNU \
           coreutils timeout beside it, to stand in for the timeout of a bounded start"
     let standIn := scratch / "stand-in"
@@ -4708,9 +4708,10 @@ private def earlyStopControl (repo : FilePath) : IO (Option String) :=
     IO.FS.createDirAll (wrapper / "scripts")
     IO.FS.createDirAll (wrapper / "lean")
     IO.FS.createDirAll (wrapper / "tmp")
-    let files := [["scripts", "verify.sh"], ["lean", "RegulaVerification.lean"], ["lean-toolchain"]]
+    let files : List FilePath :=
+      ["scripts" / "verify.sh", "lean" / "RegulaVerification.lean", "lean-toolchain"]
     for file in files do
-      IO.FS.writeFile (file.foldl (· / ·) wrapper) (← IO.FS.readFile (file.foldl (· / ·) repo))
+      IO.FS.writeFile (wrapper / file) (← IO.FS.readFile (repo / file))
     let manifestPath := (repo / "foundation_manifest.json").toString
     let captured ←
       Regula.Qualification.RuleExamples.capture (← Regula.Site.Build.sourcePathsAt repo)
@@ -4744,9 +4745,11 @@ private def earlyStopControl (repo : FilePath) : IO (Option String) :=
     -- its refusal's code and the reason, and each file must keep its bytes, or stay absent.
     let request := scratch / "alias-request.json"
     let publish := scratch / "alias-publish.json"
-    IO.FS.writeFile request (toJson ({ modules := #[], searchRoots := #[], sourceRoots := #[],
-      sourceBindings := #[], ownership := {}, historyMemo := (scratch / "history").toString,
-      priors := #[], publish := publish.toString } : Inspection.ReportWorkerRequest)).compress
+    let requested : Inspection.ReportWorkerRequest := {
+      modules := #[], searchRoots := #[], sourceRoots := #[], sourceBindings := #[],
+      ownership := {}, historyMemo := (scratch / "history").toString, priors := #[],
+      publish := publish.toString }
+    IO.FS.writeFile request (toJson requested).compress
     let facts := scratch / "alias-facts.json"
     IO.FS.writeFile facts "[]\n"
     let source := scratch / "AliasSource.lean"

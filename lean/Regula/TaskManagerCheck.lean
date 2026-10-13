@@ -12,11 +12,11 @@ have the closed form of the guard (`closedForm`): `Regula.TaskManager.guard` app
 literal, the program's refusal and the program itself, each of the two a constant. Lean evaluates
 the arguments of an application before the call, and none of these three runs code of the program
 when it is evaluated. The refusal, which the guard runs before each run and, in a process without a
-task manager, in the run's place, must reach none of those functions. The program then refuses to start without a task manager, with its
-exit code of a run that established no result and its result destinations marked incomplete,
-instead of running its tasks on one thread, ending with a panic or reading no task manager. A
-program whose compiled code reaches none of those functions passes without the guard, as
-`auditApp` does.
+task manager, in the run's place, must reach none of those functions. The program then
+refuses to start without a task manager, with its exit code of a run that established no result
+and its result destinations marked incomplete, instead of running its tasks on one thread, ending
+with a panic or reading no task manager. A program whose compiled code reaches none of those
+functions passes without the guard, as `auditApp` does.
 
 Each compiled program of the package runs this check at the end of its root module, which fails to
 build when the check refuses, and the module records the program (`checked`). `lake exe qualify
