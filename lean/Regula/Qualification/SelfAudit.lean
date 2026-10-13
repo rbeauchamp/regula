@@ -151,8 +151,31 @@ def jsonComparisonAllowlist : Array (Name × Name × String) := #[
     "the registry self-check executable: each operand is a value it builds with the encoders, \
       Json.mkObj or Json.setObjVal!, or that its own decoders read back from such a value")]
 
-/-- The module exempt from the check: the comparisons themselves. -/
-def jsonAgreementModule : Name := `RegulaCore.JsonAgreement
+/-- The entries of `jsonComparisonAllowlist` whose module is not one of `inspected`, the modules
+the campaign inspects (`mem_uninspectedEntries`). `jsonFindings` reads an entry only for its own
+module, so the finding of an entry whose declaration compares no `Json` values never reaches such
+an entry; this finds it instead. -/
+def uninspectedEntries (inspected : Array Name) : Array (Name × Name) :=
+  (jsonComparisonAllowlist.filter fun (m, _, _) => !inspected.contains m).map
+    fun (m, n, _) => (m, n)
+
+/-- An entry is found exactly when the allowlist has it, with some reason, and its module is not
+inspected. -/
+theorem mem_uninspectedEntries {inspected : Array Name} {m n : Name} :
+    (m, n) ∈ uninspectedEntries inspected ↔
+      (∃ reason, (m, n, reason) ∈ jsonComparisonAllowlist) ∧ m ∉ inspected := by
+  simp only [uninspectedEntries, Array.mem_map, Array.mem_filter, Bool.not_eq_eq_eq_not,
+    Bool.not_true, Bool.eq_false_iff, ne_eq, Array.contains_iff_mem, Prod.exists, Prod.mk.injEq]
+  constructor
+  · rintro ⟨m', n', reason, ⟨present, absent⟩, rfl, rfl⟩
+    exact ⟨⟨reason, present⟩, absent⟩
+  · rintro ⟨⟨reason, present⟩, absent⟩
+    exact ⟨m, n, reason, ⟨present, absent⟩, rfl, rfl⟩
+
+/-- The finding text for an entry of `jsonComparisonAllowlist` whose module is not inspected. -/
+def uninspectedEntryText (entry : Name × Name) : String :=
+  s!"json-comparison: {entry.2} ({entry.1}) is in jsonComparisonAllowlist but the campaign \
+    inspects no module {entry.1}; remove the entry"
 
 /-- The answers `rendersIn` and `comparesJsonIn` have given, by question, term and the part of the
 binder context that the term can read. Lean shares subterms, so a term without this table is a tree
@@ -218,21 +241,20 @@ def comparesJson (e : Expr) : Bool :=
     (e.find? (·.isConstOf ``Lean.Json.compress)).isSome && (comparesJsonIn [] e).run' {}
 
 /-- The declarations of `owned`, of the module `moduleName`, whose type or value compares `Json`
-values (`comparesJson`), outside the module `jsonAgreementModule` and `jsonComparisonAllowlist`.
--/
+values (`comparesJson`), outside `jsonComparisonAllowlist`. -/
 def jsonComparisons (moduleName : Name) (owned : Array (Name × ConstantInfo)) : Array Name :=
   owned.filterMap fun (name, info) =>
     let user := privateToUserName name
     let allowed := jsonComparisonAllowlist.any fun (m, n, _) => m == moduleName && n == user
-    if moduleName == jsonAgreementModule || allowed then
+    if allowed then
       none
     else if comparesJson info.type || (info.value? (allowOpaque := true)).any comparesJson then
       some name
     else none
 
-/-- Controls of the check, each with whether it gave the intended answer: a declaration named
-under `Regula.JsonAgreement` outside `jsonAgreementModule` is found; texts of `compress` compared
-through two `let` bindings are found; a `compress` that no comparison reads is not. -/
+/-- Controls of the check, each with whether it gave the intended answer: a declaration that the
+allowlist names for `Regula.RegistryChecks` alone is found in another module; texts of `compress`
+compared through two `let` bindings are found; a `compress` that no comparison reads is not. -/
 def jsonControls : List (String × Bool) :=
   let compress (j : Expr) : Expr := mkApp (mkConst ``Lean.Json.compress) j
   let beq (a b : Expr) : Expr :=
@@ -240,7 +262,7 @@ def jsonControls : List (String × Bool) :=
       (mkConst ``String.decEq)
     mkApp4 (mkConst ``BEq.beq [Level.zero]) (mkConst ``String) stringBEq a b
   let null := mkConst ``Lean.Json.null
-  let named := `Regula.JsonAgreement.control
+  let named := `main
   let declaration : ConstantInfo := .defnInfo {
     name := named, levelParams := [], type := mkConst ``Bool
     value :=
@@ -248,7 +270,7 @@ def jsonControls : List (String × Bool) :=
     hints := .opaque, safety := .safe, all := [named] }
   let bound := Expr.letE `x (mkConst ``String) (compress null)
     (.letE `y (mkConst ``String) (compress null) (beq (.bvar 1) (.bvar 0)) false) false
-  [("a Regula.JsonAgreement name outside RegulaCore.JsonAgreement is found",
+  [("main, allowlisted in Regula.RegistryChecks, is found in another module",
       jsonComparisons `Regula.Qualification.SelfAudit #[(named, declaration)] == #[named]),
     ("compress texts compared through let bindings are found", comparesJson bound),
     ("a compress text that no comparison reads is not found", !comparesJson (compress null))]
@@ -449,8 +471,9 @@ unsafe def jsonWorker (moduleName : String) : IO Unit := do
 
 /-- Run the campaign, or the part of it that `shard` selects (`selected`, `selected_cover`): one
 fresh worker process per Lake-discovered module of the library that the shard selects, and one per
-selected module of the other libraries and executable roots. Any violation or incomplete module
-refuses after the full report. -/
+selected module of the other libraries and executable roots. Each shard also reports each entry of
+`jsonComparisonAllowlist` whose module no shard inspects (`uninspectedEntries`). Any violation or
+incomplete module refuses after the full report. -/
 def check (shard : Option (Fin shards) := none) (jobs : Nat := 4) : IO Unit := do
   let repo ← Checker.repoRoot
   let inventory ← Checker.Lake.surfaceInventory repo
@@ -486,6 +509,9 @@ def check (shard : Option (Fin shards) := none) (jobs : Nat := 4) : IO Unit := d
   let inLibrary (m : Name) : Bool := inventory.libraries.any (·.modules.contains m)
   let roots := (inventory.executables.map (·.root)).filter (!inLibrary ·)
   let guarded := selected shard (byName (others.flatMap (·.modules) ++ roots))
+  -- An entry of a module that no shard inspects, found from the whole inventory in each shard.
+  let uninspected := (uninspectedEntries (info.modules ++ others.flatMap (·.modules) ++ roots)).map
+    uninspectedEntryText
   unless guarded.isEmpty do
     let build ← Checker.loggedPhase s!"self-audit build of the guarded modules{scope}" <|
       Checker.runProcess repo "lake" (#["build"] ++ guarded.toArray.map (s!"+{·}"))
@@ -511,7 +537,8 @@ def check (shard : Option (Fin shards) := none) (jobs : Nat := 4) : IO Unit := d
     (results.foldl (fun acc r => (field r).foldl
       (fun acc n => if acc.contains n then acc else acc.push n) acc) #[]).qsort (· < ·)
   let violations := results.flatMap (·.violations) ++
-    (jsonOutcomes.filterMap fun | .ok found => some found | .error _ => none).flatMap id
+    (jsonOutcomes.filterMap fun | .ok found => some found | .error _ => none).flatMap id ++
+    uninspected
   for line in violations do IO.println line
   for line in incomplete do IO.println s!"INCOMPLETE {line}"
   let declarations := results.foldl (· + ·.declarations) 0
