@@ -16,7 +16,12 @@ the program starts: it prints one reason line and runs the program's own refusal
 result destination that the arguments name incomplete, with the reason, and returns the program's
 exit code of a run that established no result. Each compiled program of the package whose code
 reaches a function of the runtime that needs the task manager starts through `guard`, and its
-refusal needs no task manager (`Regula.TaskManagerCheck.checkProgram`). -/
+refusal needs no task manager (`Regula.TaskManagerCheck.checkProgram`).
+
+A run that has a task manager can stop early too, before it writes or marks a destination. So
+`guard` runs the refusal before every run as well, with the reason that the run has not completed
+(`startedReason`): no code of the program runs before each destination is marked, and an earlier
+completed result never remains where a run that stopped early names one (issue 423). -/
 
 namespace Regula.TaskManager
 
@@ -24,12 +29,21 @@ namespace Regula.TaskManager
 def refusalLine (program reason : String) : String :=
   s!"{program}: INCOMPLETE: {reason}; no run started, so there is no result"
 
+/-- The reason that each result destination of a run records from the start of the run until the
+run writes it: `guard` marks each destination with it before the run starts. -/
+def startedReason : String := "the run has not completed"
+
 /-- The program `program` on the arguments `args`, refused before it starts when this process has
 no task manager (`Regula.Probe.taskManagerMissing`): `guard` then prints the reason on one line
 to standard error (`refusalLine`) and returns what `refuse` returns on the reason and `args`.
 `refuse` is the program's refusal: it marks each result destination of `args` incomplete, with the
 reason, and returns the program's exit code of a run that established no result. Otherwise `guard`
-returns what `run` returns on `args`.
+runs `refuse` on `startedReason` and `args`, and discards the exit code that it returns, so each
+result destination of `args` is marked incomplete before any code of the program runs. Then it
+returns what `run` returns on `args`. A run that stops before it writes a destination, whatever
+stops it, thus leaves that destination marked incomplete, and a refusal, an early stop and a
+completed run take each destination from one reading, the refusal's, and mark it through one
+writer.
 
 `Regula.TaskManagerCheck.checkProgram` requires a compiled program that needs the task manager to
 define `main` as `guard` applied to a string literal and two constants, and its refusal to need no
@@ -51,6 +65,7 @@ def guard (program : String) (refuse : String → List String → IO UInt32)
     IO.eprintln (refusalLine program reason)
     refuse reason args
   else
+    discard <| refuse startedReason args
     run args
 
 end Regula.TaskManager

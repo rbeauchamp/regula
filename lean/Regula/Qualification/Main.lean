@@ -57,7 +57,7 @@ private unsafe def runCommand (attempt : Option String) : Command → IO Unit
         | _ => throw <| IO.userError s!"invalid rule-example shard: {spec}"
       Regula.Qualification.RuleExamples.check ⟨path⟩ none attempt (some shard)
   | .producers => Regula.Qualification.Producer.check none
-  | .producersExport path => Regula.Qualification.Producer.check (some ⟨path⟩)
+  | .producersExport path => Regula.Qualification.Producer.check (some ⟨path⟩) attempt
   | .producersCombined => do
       Regula.Qualification.Producer.check none
       Regula.Qualification.History.check

@@ -875,6 +875,20 @@ directory and the asset of a release, as the build does first.
 The refusal then gives the exit code of an incomplete run. For `axiomGate` and `lint`, that
 code is 3. A program that writes no result file marks no file.
 
+A run with a task manager can also stop early. An example is a run that cannot find `lean` to
+initialize the search path of Lean. Thus the guard also operates the refusal before each run, with
+the reason that `Regula.TaskManager.startedReason` gives. It discards the exit code of the
+refusal, and then it operates the program. Thus each destination is marked incomplete before code
+of the program operates. If the run then stops before it writes a destination, the reader of the
+destination refuses the marked document.
+
+The run of a program also marks its destinations when it starts, with the same writer. The guard
+marks them earlier, before the first step of the program that can fail
+([issue 423](https://github.com/rbeauchamp/regula/issues/423)). Thus a refusal, an early stop and a
+completed run read each destination with one parser and mark it with one writer. A production of
+`ruleExamples` that fails then marks its result again, with the text of the error. The export of
+`qualify producers --evidence` gets the text of the error in the same way.
+
 These refusals cover the destinations of the inventory of issue 393. The baseline that
 `regula-markdown --write-baseline` writes is not in it, and a refusal of that program leaves the
 baseline in place ([issue 436](https://github.com/rbeauchamp/regula/issues/436)). A library can also
@@ -958,6 +972,13 @@ Before each run, each destination holds a completed document of its format, and 
 accepts it. After the run, each destination must be marked incomplete, with the
 reason, or removed for a digest or the site artifact. Its reader must then refuse it as a
 completed document.
+
+The last cli shard also operates the control of an early stop. It operates `ruleExamples`,
+`axiomGate`, `freshChecker`, `qualify`, `site` and the self-test with a task manager. An injected
+failure stops each run early. Examples are a `PATH` without `lean`, a facts file that does not
+exist and `site build` without its evidence. Each destination must then be marked incomplete, with
+the reason, or removed for the site artifact. For a production of `ruleExamples` and the export of
+`qualify producers`, the reason is the text of the error.
 
 The driver moves the pending record to `tmp/acceptance-link.json` only if
 `RegulaVerification.passed` accepts the exit status of each command. The driver does that move

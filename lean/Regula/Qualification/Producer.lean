@@ -134,7 +134,7 @@ failure, and the error it reports is the first failing worker's. A worker that f
 further item, so once `jobs` items have failed, the items still queued do not run. The
 documented-source observations are then validated in the order of one workspace after another,
 each against the theorem type of the first, as when the workspaces ran in turn. -/
-def check (evidence : Option FilePath) (jobs : Nat := 4) : IO Unit := do
+private def checkControls (evidence : Option FilePath) (jobs : Nat) : IO Unit := do
   let root ← rootDirectory
   let sources := (← (examples.push standaloneExample).mapM fun (relative : String) =>
     Regula.Filesystem.readFile (root / relative)).push
@@ -181,5 +181,20 @@ def check (evidence : Option FilePath) (jobs : Nat := 4) : IO Unit := do
     if let some parent := path.parent then IO.FS.createDirAll parent
     writeJson path (Json.mkObj [("schemaVersion", toJson (1 : Nat)), ("examples", toJson records)])
   IO.println "producer qualification: PASS (scoped operational evidence)"
+
+/-- Run all source-bound producer controls (`checkControls`), on `jobs` workers. With `evidence`,
+the export there is first marked incomplete for the attempt `attempt`, or a fresh one
+(`beginAttempt`), as the other campaigns begin theirs; a run that fails marks it again with the
+error's text and then fails with that error. So no earlier completed export remains after a run
+that does not complete. -/
+def check (evidence : Option FilePath) (attempt : Option String := none) (jobs : Nat := 4) :
+    IO Unit := do
+  let some path := evidence | checkControls none jobs
+  let attempt ← attempt.getDM freshAttempt
+  beginAttempt path attempt
+  try checkControls (some path) jobs
+  catch error =>
+    discard <| (beginAttempt path attempt (some error.toString)).toBaseIO
+    throw error
 
 end Regula.Qualification.Producer

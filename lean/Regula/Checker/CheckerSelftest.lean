@@ -239,20 +239,21 @@ with the positive's through their digests (`selfHostedDigest`, `SelfHosted.shard
 private def selfHostedRestoredShard : Fin structuralShards := SelfHosted.restored.shard
 
 /-- The shard of the source-attribution controls of the complete CLI sweep: the last. It also runs
-the control of a process without Lean's task manager (`taskManagerControl`). -/
+the control of a process without Lean's task manager (`taskManagerControl`) and the control of a
+run that stops early (`earlyStopControl`). -/
 private def cliAttributionShard : Fin cliShards := ⟨cliShards - 1, by decide⟩
 
 /-- The baseline of a run of `partition`, of one of its shards when `shard` selects one. The
 shard of the self-hosted positive (`selfHostedShard`) runs `axiomGate` alone; a run of the cli
 partition that runs its last shard (`cliAttributionShard`), sharded or not, also runs `qualify` and
-`site`, in the control of a process without Lean's task manager; every other shard keeps the
-partition's baseline. -/
+`site`, in the control of a process without Lean's task manager and in the control of a run that
+stops early, and `ruleExamples` in the latter; every other shard keeps the partition's baseline. -/
 private def baselineOf (partition : Partition) (shard : Option (Nat × Nat)) : Baseline :=
   if partition = .structural ∧ (shard.bind (shardOf? structuralShards)) = some selfHostedShard
   then ⟨["axiomGate"], false, []⟩
   else if partition = .cli ∧
       (shard.isNone ∨ shard.bind (shardOf? cliShards) = some cliAttributionShard) then
-    ⟨checkerTools ++ ["qualify", "site"], true, []⟩
+    ⟨checkerTools ++ ["qualify", "site", "ruleExamples"], true, []⟩
   else partitionBaseline partition
 
 /-- Every run's baseline build names `axiomGate` (`partitionBaseline_axiomGate`), a shard's
@@ -4236,9 +4237,9 @@ private def packetAdmitted (request : Json) (path : FilePath) : IO Bool := do
 private def exportCompleted (path : FilePath) : IO Bool := do
   return (← parsedAt path).any fun value => (value.getObjVal? "examples").isOk
 
-/-- A destination of a refused run in the task-manager control (`taskManagerControl`): the
-completed document of its own format that it starts with, and whether that format's reader admits
-a document as completed. -/
+/-- A destination of a run in the task-manager control (`taskManagerControl`) or in the control of
+an early stop (`earlyStopControl`): the completed document of its own format that it starts with,
+and whether that format's reader admits a document as completed. -/
 private structure Seeded where
   /-- The destination. -/
   path : FilePath
@@ -4246,9 +4247,10 @@ private structure Seeded where
   seed : IO Unit
   /-- Whether the reader of the format admits the document there as a completed one. -/
   completed : IO Bool
-  /-- Whether the destination holds what the refusal must leave there: a document marked
-  incomplete with the reason (`markedWith`), or nothing for a digest. -/
-  marked : IO Bool
+  /-- Whether the destination holds what the run must leave there, given the run's standard
+  error: a document marked incomplete with the reason (`markedWith`, `markedWithError`), or nothing
+  for a digest or a site artifact. -/
+  marked : String → IO Bool
 
 /-- A completed admission of no module, the seed of a published admission in the task-manager
 control (`taskManagerControl`). -/
@@ -4265,6 +4267,20 @@ private def markedWith (path : FilePath) (member reason : String)
     | "unresolved" => (marked.getObjValAs? (Array String) member).toOption == some #[reason]
     | _ => (marked.getObjValAs? String member).toOption == some reason
   return stated && (marked.getObjValAs? String status.1).toOption == some status.2
+
+/-- Whether the document at `path` holds `incomplete` in `status`, and in `member` one reason that
+is not the guard's (`Regula.TaskManager.startedReason`) and that the standard error `stderr` holds
+right after `lead`: the text of the error that the run printed. `member` is `unresolved`, a list,
+or `reason`, a string. -/
+private def markedWithError (path : FilePath) (member lead stderr : String) : IO Bool := do
+  let some marked ← parsedAt path | return false
+  let stated : Option String := match member with
+    | "unresolved" => (marked.getObjValAs? (Array String) member).toOption.bind fun reasons =>
+      if reasons.size == 1 then reasons[0]? else none
+    | _ => (marked.getObjValAs? String member).toOption
+  return (marked.getObjValAs? String "status").toOption == some "incomplete" &&
+    stated.any fun reason => !reason.isEmpty && reason != Regula.TaskManager.startedReason &&
+      stderr.contains (lead ++ reason)
 
 /-- The control of a process without Lean's task manager (issue 393), one refused run for each
 shape of program. Each of the actual `axiomGate`, `lint`, `docFenceAudit`, `qualify`, `site` and
@@ -4305,22 +4321,23 @@ private def taskManagerControl (repo : FilePath) : IO (Option String) :=
     let result (name : String) : Seeded :=
       { path := scratch / name, seed := copyDocument completed (scratch / name),
         completed := completedResult (scratch / name),
-        marked := markedWith (scratch / name) "unresolved" reason }
+        marked := fun _ => markedWith (scratch / name) "unresolved" reason }
     let digest := String.ofList (List.replicate 64 'a')
     let link : Seeded :=
-      { path := scratch / "link.json", marked := markedWith (scratch / "link.json") "reason" reason,
+      { path := scratch / "link.json",
+        marked := fun _ => markedWith (scratch / "link.json") "reason" reason,
         seed := writeJson (scratch / "link.json") (Json.mkObj [("schemaVersion", toJson (1 : Nat)),
           ("status", .str "accepted"), ("identity", .str digest),
           ("acceptedJobs", toJson (#[] : Array Json)), ("origin", .str "isolatedCopy")]),
         completed := linkAccepted (scratch / "link.json") digest }
     let request := Json.mkObj [("control", .str "task manager")]
     let packet (name : String) : Seeded :=
-      { path := scratch / name, marked := markedWith (scratch / name) "reason" reason,
+      { path := scratch / name, marked := fun _ => markedWith (scratch / name) "reason" reason,
         seed := writeJson (scratch / name) (workerPacket request (.str "seed")),
         completed := packetAdmitted request (scratch / name) }
     let evidence : Seeded :=
       { path := scratch / "producers.json",
-        marked := markedWith (scratch / "producers.json") "reason" reason,
+        marked := fun _ => markedWith (scratch / "producers.json") "reason" reason,
         seed := writeJson (scratch / "producers.json") (Json.mkObj
           [("schemaVersion", toJson (1 : Nat)), ("examples", toJson (#[] : Array Json))]),
         completed := exportCompleted (scratch / "producers.json") }
@@ -4332,7 +4349,8 @@ private def taskManagerControl (repo : FilePath) : IO (Option String) :=
     let project ← IO.FS.realPath project
     let report := project / "tmp" / "native-launcher-diagnostic.json"
     let launcher : Seeded :=
-      { path := report, marked := markedWith report "reason" reason ("outcome", "INCOMPLETE"),
+      { path := report,
+        marked := fun _ => markedWith report "reason" reason ("outcome", "INCOMPLETE"),
         seed := do
           IO.FS.createDirAll (project / "tmp")
           writeJson report (Json.mkObj [("outcome", .str "PASS"), ("equivalent", .bool true)]),
@@ -4340,7 +4358,7 @@ private def taskManagerControl (repo : FilePath) : IO (Option String) :=
           (value.getObjValAs? String "outcome").toOption == some "PASS" }
     let positive := selfHostedDigestPath project .positive
     let selfHosted : Seeded :=
-      { path := positive, marked := return !(← positive.pathExists),
+      { path := positive, marked := fun _ => do return !(← positive.pathExists),
         seed := do
           if let some parent := positive.parent then IO.FS.createDirAll parent
           IO.FS.writeFile positive (digest ++ "\n"),
@@ -4352,7 +4370,7 @@ private def taskManagerControl (repo : FilePath) : IO (Option String) :=
     -- admission; the coordinator reads it as an `Admission.Completed` (`publishedAdmission`).
     let publish := scratch / "publish.json"
     let admission : Seeded :=
-      { path := publish, marked := markedWith publish "reason" reason,
+      { path := publish, marked := fun _ => markedWith publish "reason" reason,
         seed := writeJson publish (toJson emptyAdmission),
         completed := do
           unless ← publish.pathExists do return false
@@ -4368,7 +4386,7 @@ private def taskManagerControl (repo : FilePath) : IO (Option String) :=
     -- that is publishable (`Regula.Site.Deployment.gate`).
     let site := scratch / "site"
     let artifact : Seeded :=
-      { path := site, marked := return !(← site.pathExists),
+      { path := site, marked := fun _ => do return !(← site.pathExists),
         seed := do
           IO.FS.createDirAll site
           writeJson (site / "build.json") (Json.mkObj [("dirty", .bool false),
@@ -4433,13 +4451,169 @@ private def taskManagerControl (repo : FilePath) : IO (Option String) :=
           exit {code}, the line {repr line} and no standard output (exit {result.exitCode}):\n\
           {result.output}"
       for destination in destinations do
-        unless (← destination.marked) && !(← destination.completed) do
+        unless (← destination.marked result.stderr) && !(← destination.completed) do
           let held ← if ← destination.path.isDir then pure "a directory"
             else if ← destination.path.pathExists then IO.FS.readFile destination.path
             else pure "nothing"
           return some s!"task manager: {program} {args} with LEAN_NUM_THREADS=0 left \
             {destination.path} without the incomplete mark and the reason, or admitted as \
             completed; it holds {held}"
+    return none
+
+/-- The control of a run that stops early in a process with Lean's task manager (issue 423): one
+run of an actual program of this build for each early stop, with the failure injected from
+outside. The injections are `lean` absent from `PATH` and no `LEAN_SYSROOT`, so the first step of
+the program, the initialization of Lean's search path (`initializeLeanSearchPath`), fails before
+the program's own marks, for `ruleExamples --policy-negative` and `--documentation`, `axiomGate
+--json-out`, `freshChecker --json-out` and the self-test's `--transcript-worker`; a facts file that
+does not exist, for both forms of `ruleExamples --injected-git-facts`; a planted project root
+without the documented examples that `qualify --under-deadline producers --evidence` reads first;
+an invalid shard of `qualify --under-deadline rule-examples --evidence`; the proxy of `axiomGate`
+that `qualify` runs under `REGULA_QUALIFICATION_WRAPPER=acceptance` with no gate beside it to
+start; and `site build --out` without its evidence, which the parser refuses. Each destination
+that the run names starts with a completed document of its own format, which the format's reader
+admits as completed, as in the task-manager control (`taskManagerControl`), and for
+`freshChecker` and `qualify rule-examples` a document with the status `completed` and the outcome
+`COMPLETED`. The run must stop with the exit code of its early stop, and each destination must then
+hold a document marked incomplete with the reason, or be removed for the site artifact, so that
+the reader no longer admits it as completed. For a production of `ruleExamples` and the export of
+`qualify producers`, the reason is the error's text that the run printed (`markedWithError`). For
+the other runs, it is the reason with which the guard marks each destination before any code of
+the program runs (`Regula.TaskManager.guard`, `Regula.TaskManager.startedReason`). The processes
+and Lean's runtime are its subject, an external boundary: it observes this build's programs and
+proves nothing.
+
+Assumes: Lean 4.34.1's `Lean.findSysroot` returns `LEAN_SYSROOT` when it is set, and otherwise runs
+`lean --print-prefix` and fails when that run fails (`src/lean/Lean/Util/Path.lean:180-187`).
+Trusted: the runtime finds a command given by a bare name, such as `lean`, only in the
+directories of `PATH`; its process code is not among the toolchain's sources. -/
+private def earlyStopControl (repo : FilePath) : IO (Option String) :=
+  withScratch repo "checker-early-stop" fun scratch => do
+    let started := Regula.TaskManager.startedReason
+    let gate := (← toolPath repo "axiomGate").toString
+    let qualify := (← toolPath repo "qualify").toString
+    let ruleExamples := (← toolPath repo "ruleExamples").toString
+    -- A completed result of the gate's own run, the seed of each result destination.
+    let completed := scratch / "completed.json"
+    let fixture := repo / "lean" / "Fixtures" / "Positive" / "KernelOnly.lean"
+    let seeded ← runProcess repo gate #["--file", fixture.toString, "--claim", "kernel-only",
+      "--json-out", completed.toString] (env := #[("REGULA_TIMING", none)])
+    unless seeded.exitCode == 0 && (← completedResult completed) do
+      return some s!"early stop: the gate's run on {fixture} did not record a completed result \
+        (exit {seeded.exitCode}):\n{seeded.output}"
+    -- A result destination: marked with the error's text that follows `lead` on standard error,
+    -- or with the guard's reason when there is no `lead`.
+    let result (name : String) (lead : Option String) : Seeded :=
+      { path := scratch / name, seed := copyDocument completed (scratch / name),
+        completed := completedResult (scratch / name),
+        marked := fun stderr => match lead with
+          | some lead => markedWithError (scratch / name) "unresolved" lead stderr
+          | none => markedWith (scratch / name) "unresolved" started }
+    let request := Json.mkObj [("control", .str "early stop")]
+    let packet : Seeded :=
+      { path := scratch / "transcript.json",
+        marked := fun _ => markedWith (scratch / "transcript.json") "reason" started,
+        seed := writeJson (scratch / "transcript.json") (workerPacket request (.str "seed")),
+        completed := packetAdmitted request (scratch / "transcript.json") }
+    let graph : Seeded :=
+      { path := scratch / "graph.json",
+        marked := fun _ => markedWith (scratch / "graph.json") "unresolved" started,
+        seed := writeJson (scratch / "graph.json")
+          (Json.mkObj [("mode", .str "serializedGraph"), ("status", .str "completed")]),
+        completed := do return (← parsedAt (scratch / "graph.json")).any fun value =>
+          (value.getObjValAs? String "status").toOption == some "completed" }
+    let producerExport : Seeded :=
+      { path := scratch / "producers.json",
+        marked := markedWithError (scratch / "producers.json") "reason" "",
+        seed := writeJson (scratch / "producers.json") (Json.mkObj
+          [("schemaVersion", toJson (1 : Nat)), ("examples", toJson (#[] : Array Json))]),
+        completed := exportCompleted (scratch / "producers.json") }
+    let corpus : Seeded :=
+      { path := scratch / "rule-examples.json",
+        marked := fun _ =>
+          markedWith (scratch / "rule-examples.json") "reason" started ("outcome", "INCOMPLETE"),
+        seed := writeJson (scratch / "rule-examples.json")
+          (Json.mkObj [("outcome", .str "COMPLETED")]),
+        completed := do return (← parsedAt (scratch / "rule-examples.json")).any fun value =>
+          (value.getObjValAs? String "outcome").toOption == some "COMPLETED" }
+    let site := scratch / "site"
+    let artifact : Seeded :=
+      { path := site, marked := fun _ => do return !(← site.pathExists),
+        seed := do
+          IO.FS.createDirAll site
+          writeJson (site / "build.json") (Json.mkObj [("dirty", .bool false),
+            ("revision", .str (String.ofList (List.replicate 64 'a'))),
+            ("publishable", .bool true)]),
+        completed := do
+          let some build ← parsedAt (site / "build.json") | return false
+          return (build.getObjValAs? Bool "dirty").toOption == some false &&
+            (build.getObjValAs? Bool "publishable").toOption == some true }
+    -- A planted project root, without the documented examples that the producer campaign reads.
+    let project := scratch / "project"
+    IO.FS.createDirAll project
+    IO.FS.writeFile (project / "lakefile.lean") ""
+    IO.FS.writeFile (project / "lean-toolchain") (← IO.FS.readFile (repo / "lean-toolchain"))
+    let project ← IO.FS.realPath project
+    -- An empty directory as the whole `PATH`, so no `lean` is found, and no `LEAN_SYSROOT`.
+    let noLean := scratch / "no-lean"
+    IO.FS.createDirAll noLean
+    let plain : Array (String × Option String) := #[("REGULA_TIMING", none),
+      ("REGULA_QUALIFICATION_WRAPPER", none), ("REGULA_RECEIPT_TIMER", none)]
+    let withoutLean := plain ++ #[("PATH", some noLean.toString), ("LEAN_SYSROOT", none)]
+    let missing := (scratch / "missing-facts.json").toString
+    let fileArgs (out : FilePath) : Array String :=
+      #["--file", fixture.toString, "--claim", "kernel-only", "--json-out", out.toString]
+    let production := "rule example production incomplete: "
+    -- Each run: its label, its path, working directory, arguments and environment, the exit code
+    -- of its early stop (`none`: any but 0) and each destination it names.
+    let runs : List (String × String × FilePath × Array String ×
+        Array (String × Option String) × Option UInt32 × List Seeded) := [
+      ("ruleExamples", ruleExamples, repo, #["--policy-negative", repo.toString,
+        fixture.toString, (scratch / "policy.json").toString], withoutLean, some 4,
+        [result "policy.json" (some production)]),
+      ("ruleExamples", ruleExamples, repo, #["--documentation", repo.toString,
+        (repo / "docs").toString, (scratch / "documentation.json").toString], withoutLean, some 4,
+        [result "documentation.json" (some production)]),
+      ("ruleExamples", ruleExamples, repo, #["--injected-git-facts", missing, "--policy-negative",
+        repo.toString, fixture.toString, (scratch / "facts.json").toString], plain, some 4,
+        [result "facts.json" (some production)]),
+      ("ruleExamples", ruleExamples, repo, #["--injected-git-facts", missing, "axiomGate"] ++
+        fileArgs (scratch / "facts-gate.json"), plain, some 4,
+        [result "facts-gate.json" (some production)]),
+      ("axiomGate", gate, repo, fileArgs (scratch / "gate.json"), withoutLean,
+        some Lint.Outcome.incomplete.exitCode, [result "gate.json" none]),
+      ("freshChecker", (← toolPath repo "freshChecker").toString, repo,
+        #["--json-out", graph.path.toString], withoutLean, some 1, [graph]),
+      ("checkerSelftest", (← IO.appPath).toString, repo, #["--transcript-worker", "\"Planted\"",
+        fixture.toString, "true", packet.path.toString], withoutLean, some 1, [packet]),
+      ("qualify", qualify, project,
+        #["--under-deadline", "producers", "--evidence", producerExport.path.toString], plain,
+        some 1, [producerExport]),
+      ("qualify", qualify, repo, #["--under-deadline", "rule-examples", "--evidence",
+        corpus.path.toString, "--shard", "planted"], plain, some 1, [corpus]),
+      ("qualify", qualify, repo, fileArgs (scratch / "proxy.json"),
+        #[("REGULA_TIMING", none), ("REGULA_QUALIFICATION_WRAPPER", some "acceptance"),
+          ("REGULA_RECEIPT_TIMER", none)], none, [result "proxy.json" none]),
+      ("site", (← toolPath repo "site").toString, repo, #["build", "--out", site.toString], plain,
+        some 2, [artifact])]
+    for (program, path, cwd, args, env, code, destinations) in runs do
+      for destination in destinations do
+        destination.seed
+        unless ← destination.completed do
+          return some s!"early stop: the seed of {destination.path} is not a completed document \
+            of its format"
+      let result ← runProcess cwd path args (env := env)
+      if result.exitCode == 0 || code.any (· != result.exitCode) then
+        return some s!"early stop: {program} {args} did not stop early with exit \
+          {(code.map toString).getD "other than 0"} (exit {result.exitCode}):\n{result.output}"
+      for destination in destinations do
+        unless (← destination.marked result.stderr) && !(← destination.completed) do
+          let held ← if ← destination.path.isDir then pure "a directory"
+            else if ← destination.path.pathExists then IO.FS.readFile destination.path
+            else pure "nothing"
+          return some s!"early stop: {program} {args} left {destination.path} without the \
+            incomplete mark and the reason, or admitted as completed; it holds {held}\n\
+            {result.output}"
     return none
 
 /-- Public CLI fixtures: the complete sweep for qualification, or the unchanged smoke subset for
@@ -4472,6 +4646,14 @@ private def runCli (repo : FilePath) (jobs : Nat) (fullCli : Bool)
         that held a completed document of its format, ends marked incomplete with the reason, \
         including the proxy of axiomGate and the workers, and a self-hosted digest and a site \
         artifact end removed)"
+    let stopped ← loggedPhase "early stop" (earlyStopControl repo)
+    appendFailure failures stopped
+    IO.println <| "self-test early stop: " ++ (if stopped.isNone then "PASS" else "FAIL") ++
+      " (ruleExamples, axiomGate, freshChecker, qualify, site and the self-test, each stopped \
+        early with Lean's task manager by an injected failure, end with the exit code of their \
+        early stop; each destination they name that held a completed document of its format ends \
+        marked incomplete with the reason, the error's text for a production of ruleExamples and \
+        the export of qualify producers, and a site artifact ends removed)"
   if fullCli && runsIn shard cliAttributionShard then
     let attribution ← loggedPhase "source attribution" <|
       withScratch repo "checker-source-attribution" fun scratch =>
