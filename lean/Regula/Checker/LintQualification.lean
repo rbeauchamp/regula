@@ -2469,7 +2469,7 @@ private def lakeNew (repo scratch : FilePath) : IO (Array String) := do
   failures := failures ++ (← expect demo (accepted "new/demo/documented"))
   let legacyFailures ← setUp "legacy" ".lean" "lakefile.lean"
     s!"\nrequire regula from {path}\n" "globs := #[.andSubmodules `Legacy]"
-    "lean_lib «Legacy» where\n  globs := #[.andSubmodules `Legacy]"
+    "\n  globs := #[.andSubmodules `Legacy]"
   if !legacyFailures.isEmpty then return failures ++ legacyFailures
   -- External Lake boundary: a `lakefile.lean` that links to a Lean configuration whose name ends
   -- in `.toml`. Setup reads Lean from the relative name (`LakeConfig.language`), as Lake does, so
