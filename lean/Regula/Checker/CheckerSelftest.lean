@@ -379,15 +379,14 @@ private def renderPlugins (target : String) (keys : Array _root_.Lake.PartialBui
     throw <| IO.userError s!"self-test: {target} loads a plugin other than Regula's observer"
   return s!"  plugins := #[`@/{Observer.observerLibrary}:shared]\n"
 
-/-- Render a target's `needs` for the structural project. The repository's targets list only
-Regula's elaboration observer there, beside its `plugins` entry (`Lake.isObserverNeed`), so that
-Lake builds it once; any other entry is refused. -/
-private def renderNeeds (target : String) (keys : Array _root_.Lake.PartialBuildKey) :
-    IO String := do
-  if keys.isEmpty then return ""
-  unless keys.all (Observer.observerKey (Name.mkSimple Observer.regulaPackage)) do
-    throw <| IO.userError s!"self-test: {target} needs a target other than Regula's observer"
-  return s!"  needs := #[`@/{Observer.observerLibrary}:shared]\n"
+/-- Render the observer's entry of a target's `needs` for the structural project, which each
+target that loads the observer lists beside its `plugins` entry (`Lake.isObserverNeed`), so that
+Lake builds it once. The project renders no other `needs` entry, such as the input file of the
+library `Regula`: it holds only the modules that its targets build. -/
+private def renderNeeds (keys : Array _root_.Lake.PartialBuildKey) : String :=
+  if keys.any (Observer.observerKey (Name.mkSimple Observer.regulaPackage)) then
+    s!"  needs := #[`@/{Observer.observerLibrary}:shared]\n"
+  else ""
 
 /-- Derive the structural project from the repository's loaded workspace and parsed manifest.
 It holds the claimed application, the fixture, their root-package imports and the elaboration
@@ -444,7 +443,7 @@ private def structuralProject (manifest : Manifest) (ws : _root_.Lake.Workspace)
       s!"  globs := #[{", ".intercalate (library.config.globs.toList.map renderGlob)}]\n" ++
       s!"  leanOptions := {renderOptions library.config.leanOptions}\n" ++
       (← renderPlugins (spelling library.name) (library.config.plugins.map (·.key))) ++
-      (← renderNeeds (spelling library.name) library.config.needs)
+      renderNeeds library.config.needs
   for executable in executables do
     refuseArguments (spelling executable.name) (Lake.executableOptions executable)
     lakefile := lakefile ++ s!"\nlean_exe «{executable.name}» where\n" ++
@@ -452,7 +451,7 @@ private def structuralProject (manifest : Manifest) (ws : _root_.Lake.Workspace)
       s!"  supportInterpreter := {executable.supportInterpreter}\n" ++
       s!"  leanOptions := {renderOptions executable.config.leanOptions}\n" ++
       (← renderPlugins (spelling executable.name) (executable.config.plugins.map (·.key))) ++
-      (← renderNeeds (spelling executable.name) executable.config.needs)
+      renderNeeds executable.config.needs
   -- The repository's `extraDep` facet, which records the `weakLeanArgs` of the root package in
   -- each module's trace, so an incremental gate decides a module it replays (RG2003) as it does
   -- in the repository, and the module artifacts seeded from the repository's build match.
