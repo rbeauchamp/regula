@@ -843,7 +843,6 @@ cause the refusal of a missing section, the command must use a standard that doe
 cited section. Thus the command does not examine that refusal, but that refusal calls the same
 function `RegulaRender.refuse`.
 
-
 The check `Regula.TaskManagerCheck.checkProgram` operates at the end of the root module of each
 executable. It examines `main` if the compiled code of `main` calls a function of the runtime that
 uses the task manager. Then `main` must be the guard applied to a string, the refusal and the
