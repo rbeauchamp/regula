@@ -731,11 +731,15 @@ them may reach the name. The name itself must lie on no cycle, and no constant t
 reach `Lean.reduceBool` or `Lean.reduceNat` or be one of `kernelNames` (`uniformUpToPrivate`).
 The copies of a name agree (`agrees`, `agrees_iff`) when the name is outside `differing`, or when
 `UniformUpToPrivate` admits it and only owned modules declare it (`DeclaredOwned`); the three
-decisions of reuse read that (`copiesAgree`, `referencesWithin`, `ownedAgrees`). The docstring of
-`renamedCopy` argues why reuse gives the same results for renamed copies as for identical ones.
-The `#guard` witnesses after `fixedIn_iff` run `agrees` on module data with and without each of four
-exclusions: native reduction, a name of `kernelNames` that reaches the name, a constant outside the
-copies that refers to a renamed name, and a declaring module that is not owned. -/
+decisions of reuse read that (`copiesAgree`, `referencesWithin`, `ownedAgrees`). `agrees` reads
+the references backward only from the constants of the region of the owned modules (`regionOf`,
+`linksOf`) and forward from the name and the names that reach it (`nativeFree`), and `agrees_iff`
+holds when the modules outside the owned ones meet `ImportScoped`. The docstring of `renamedCopy`
+argues why reuse gives the same results for renamed copies as for identical ones. The `#guard`
+witnesses after `fixedIn_iff` run `agrees` on module data with and without each of four
+exclusions: native reduction, also through a module that is not owned and imports an owned one, a
+name of `kernelNames` that reaches the name, a constant outside the copies that refers to a name
+of a copy's block, and a declaring module that is not owned. -/
 
 /-- The names a constant refers to: those `Kernel.Environment.replay` replays before it
 (`ConstantInfo.getUsedConstantsAsSet`), listed. -/
@@ -824,47 +828,442 @@ theorem Leads.last {modules : Array ModuleData} {x y : Name} (h : Leads modules 
     · exact .inr ⟨x, .refl x, hm⟩
     · exact .inr ⟨m', .step hm hm', hr⟩
 
-/-- Each constant of each module of `modules`, by name, with the names it refers to. -/
-def loadedEdges (modules : Array ModuleData) : List (Name × Array Name) :=
-  modules.toList.flatMap fun data => data.constants.toList.map fun c => (c.name, successorsOf c)
+/-! ### The region of the owned modules
 
-/-- The edges are exactly the constants of the modules, each with the names it refers to. -/
-theorem mem_loadedEdges {modules : Array ModuleData} {e : Name × Array Name} :
-    e ∈ loadedEdges modules ↔
-      ∃ data ∈ modules, ∃ c ∈ data.constants, e = (c.name, successorsOf c) := by
-  simp only [loadedEdges, List.mem_flatMap, List.mem_map, Array.mem_toList_iff]
+The references a renamed copy is checked against are read from the constants of one set of
+modules only: the region of the owned modules (`InRegion`, which `regionOf` computes), the least
+set that holds each owned module, each module that imports a module of the set and each module
+that shares a name with a module of the set. When the modules outside the owned ones meet
+`ImportScoped`, every constant that refers to a name a module of the region declares lies in the
+region (`covers_regionOf`), so a search backward from such a name over the region's references
+meets every constant that refers to it (`mem_before`). -/
+
+/-- The module at index `j` imports the module whose name `names` gives at index `k`
+(`ModuleData.imports`). -/
+def Imports (modules : Array ModuleData) (names : Array Name) (j k : Nat) : Prop :=
+  ∃ data, modules[j]? = some data ∧ ∃ imp ∈ data.imports, names[k]? = some imp.module
+
+/-- The module at index `k` is in the import closure of the module at index `j`: it is `j`, or it
+is in the import closure of a module that `j` imports. -/
+inductive Imported (modules : Array ModuleData) (names : Array Name) : Nat → Nat → Prop
+  /-- Every module is in its own import closure. -/
+  | refl (j : Nat) : Imported modules names j j
+  /-- The import closure of a module holds the import closure of each module it imports. -/
+  | step {j k l : Nat} : Imports modules names j k → Imported modules names k l →
+      Imported modules names j l
+
+/-- Every constant of each module outside `owned` (a module whose name `names` does not give in
+`owned`) refers only to names that a module of its import closure declares, the module itself
+included.
+
+Lean's import and kernel give this fact for a module whose declarations the kernel checked. It is
+trusted of the modules outside `owned`, the trusted base, which may contain unchecked
+declarations, as any trusted code may. It is not assumed of an owned module: `linksOf` reads the
+references of every owned module in full, and `agrees_iff` takes this fact as a hypothesis.
+
+Assumes:
+- Lean v4.34.1, `src/lean/Lean/Environment.lean:2438-2449` (`importModules`) with `2177-2225`
+  (`importModulesCore.go`): the environment a module is elaborated in loads each module of its
+  import closure, following the `imports` of each loaded module's data, and `finalizeImport` at
+  `2307-2362` holds exactly the constants of those modules' data (`2332-2343`).
+- Lean v4.34.1, `src/kernel/type_checker.cpp:101-102` (`infer_constant`) with
+  `src/kernel/environment.cpp:78-83` (`get`), trusted: the kernel's check of a declaration looks
+  up each constant its type and value use and refuses one the environment does not hold
+  (`unknown_constant_exception`). The constructors of an inductive type, a constructor's own name
+  and the inductive types of a recursor, which `successorsOf` adds for a constant with no value
+  (`src/lean/Lean/Util/FoldConsts.lean:67-74`), are declared with it, in its module. -/
+def ImportScoped (modules : Array ModuleData) (names : Array Name) (owned : Std.HashSet Name) :
+    Prop :=
+  ∀ j data, modules[j]? = some data → (∀ name, names[j]? = some name → name ∉ owned) →
+    ∀ c ∈ data.constants, ∀ y ∈ successorsOf c,
+      ∃ k, Imported modules names j k ∧ Declares modules k y
+
+/-- The module at index `j` is the module the name `x` is attributed to or one of its `others`. -/
+def Shares (attributed : Name → Option Nat) (dups : Duplicates) (x : Name) (j : Nat) : Prop :=
+  attributed x = some j ∨ j ∈ dups.others.getD x #[]
+
+/-- The region of `owned`: the least set of indices of `modules` that holds each module named in
+`owned`, each module that imports a module of the set, and each module that `Shares` a name with a
+module of the set. -/
+inductive InRegion (modules : Array ModuleData) (names : Array Name)
+    (attributed : Name → Option Nat) (dups : Duplicates) (owned : Std.HashSet Name) : Nat → Prop
+  /-- A module named in `owned` is in the region. -/
+  | owned {j : Nat} {data : ModuleData} {name : Name} : modules[j]? = some data →
+      names[j]? = some name → name ∈ owned → InRegion modules names attributed dups owned j
+  /-- A module that imports a module of the region is in it. -/
+  | imports {j k : Nat} : InRegion modules names attributed dups owned k →
+      Imports modules names j k → InRegion modules names attributed dups owned j
+  /-- A module that shares a name with a module of the region is in it. -/
+  | shares {j k : Nat} {x : Name} {data : ModuleData} :
+      InRegion modules names attributed dups owned k → Shares attributed dups x k →
+      Shares attributed dups x j → modules[j]? = some data →
+      InRegion modules names attributed dups owned j
+
+/-- An index with an entry is below the size. -/
+private theorem lt_size_of_getElem? {modules : Array ModuleData} {j : Nat} {data : ModuleData}
+    (h : modules[j]? = some data) : j < modules.size := by
+  obtain ⟨hlt, -⟩ := Array.getElem?_eq_some_iff.mp h
+  exact hlt
+
+/-- A module of the region is a module of `modules`. -/
+theorem InRegion.lt_size {modules : Array ModuleData} {names : Array Name}
+    {attributed : Name → Option Nat} {dups : Duplicates} {owned : Std.HashSet Name} {j : Nat}
+    (h : InRegion modules names attributed dups owned j) : j < modules.size := by
+  cases h with
+  | owned hdata _ _ => exact lt_size_of_getElem? hdata
+  | imports _ himp =>
+    obtain ⟨_, hdata, -⟩ := himp
+    exact lt_size_of_getElem? hdata
+  | shares _ _ _ hdata => exact lt_size_of_getElem? hdata
+
+/-- The name that stands for the module at index `j` in the search for the region. -/
+def moduleNode (j : Nat) : Name := .num .anonymous j
+
+theorem moduleNode_inj {j k : Nat} (h : moduleNode j = moduleNode k) : j = k :=
+  (Name.num.inj h).2
+
+/-- The indices below `size` of the modules that share `x`: the module it is attributed to and
+its `others`. -/
+def sharers (size : Nat) (attributed : Name → Option Nat) (dups : Duplicates) (x : Name) :
+    List Nat :=
+  ((attributed x).toList ++ (dups.others.getD x #[]).toList).filter (· < size)
+
+theorem mem_sharers {size : Nat} {attributed : Name → Option Nat} {dups : Duplicates} {x : Name}
+    {j : Nat} : j ∈ sharers size attributed dups x ↔ Shares attributed dups x j ∧ j < size := by
+  simp only [sharers, Shares, List.mem_filter, List.mem_append, Option.mem_toList,
+    Array.mem_toList_iff, decide_eq_true_eq]
+
+/-- Under the name of each module, the nodes of the modules that import it. -/
+def importersOf (modules : Array ModuleData) : Std.HashMap Name (List Name) :=
+  predecessors (modules.zipIdx.toList.map fun e => (moduleNode e.2, e.1.imports.map (·.module)))
+
+theorem mem_importersOf {modules : Array ModuleData} {m y : Name} :
+    y ∈ (importersOf modules).getD m [] ↔
+      ∃ j data, modules[j]? = some data ∧ y = moduleNode j ∧
+        ∃ imp ∈ data.imports, imp.module = m := by
+  unfold importersOf
+  rw [mem_predecessors]
   constructor
-  · rintro ⟨data, hdata, c, hc, rfl⟩
-    exact ⟨data, hdata, c, hc, rfl⟩
-  · rintro ⟨data, hdata, c, hc, rfl⟩
-    exact ⟨data, hdata, c, hc, rfl⟩
+  · rintro ⟨e, he, rfl, hm⟩
+    obtain ⟨⟨data, j⟩, hentry, rfl⟩ := List.mem_map.mp he
+    obtain ⟨imp, himp, rfl⟩ := Array.mem_map.mp hm
+    exact ⟨j, data, Array.mem_zipIdx_iff_getElem?.mp (Array.mem_toList_iff.mp hentry), rfl, imp,
+      himp, rfl⟩
+  · rintro ⟨j, data, hdata, rfl, imp, himp, rfl⟩
+    exact ⟨_, List.mem_map.mpr ⟨(data, j),
+      Array.mem_toList_iff.mpr (Array.mem_zipIdx_iff_getElem?.mpr hdata), rfl⟩, rfl,
+      Array.mem_map.mpr ⟨imp, himp, rfl⟩⟩
 
-/-- The names a search over the references of `modules` can meet: `Lean.reduceBool` and
-`Lean.reduceNat`, and the name of each constant with the names it refers to. -/
-def namesOf (modules : Array ModuleData) : List Name :=
-  ``Lean.reduceBool :: ``Lean.reduceNat :: (loadedEdges modules).flatMap fun e => e.1 :: e.2.toList
+/-- Under the node of each module, the names with `others` that it shares. -/
+def sharedOf (size : Nat) (attributed : Name → Option Nat) (dups : Duplicates) :
+    Std.HashMap Name (List Name) :=
+  predecessors (dups.others.toList.map fun e =>
+    (e.1, ((sharers size attributed dups e.1).map moduleNode).toArray))
 
-/-- The name of a constant of a module of `modules` is one of `namesOf`. -/
-theorem name_mem_namesOf {modules : Array ModuleData} {data : ModuleData} {c : ConstantInfo}
-    (hdata : data ∈ modules) (hc : c ∈ data.constants) : c.name ∈ namesOf modules :=
-  List.mem_cons_of_mem _ <| List.mem_cons_of_mem _ <| List.mem_flatMap.mpr
-    ⟨_, mem_loadedEdges.mpr ⟨data, hdata, c, hc, rfl⟩, List.mem_cons_self⟩
+theorem mem_sharedOf {size : Nat} {attributed : Name → Option Nat} {dups : Duplicates} {k : Nat}
+    {x : Name} :
+    x ∈ (sharedOf size attributed dups).getD (moduleNode k) [] ↔
+      (∃ v, dups.others[x]? = some v) ∧ k ∈ sharers size attributed dups x := by
+  unfold sharedOf
+  rw [mem_predecessors]
+  constructor
+  · rintro ⟨e, he, rfl, hk⟩
+    obtain ⟨⟨x', v⟩, hentry, rfl⟩ := List.mem_map.mp he
+    obtain ⟨k', hk', hnode⟩ := List.mem_map.mp (List.mem_toArray.mp hk)
+    refine ⟨⟨v, Std.HashMap.mem_toList_iff_getElem?_eq_some.mp hentry⟩, ?_⟩
+    rw [← moduleNode_inj hnode]
+    exact hk'
+  · rintro ⟨⟨v, hv⟩, hk⟩
+    exact ⟨_, List.mem_map.mpr ⟨(x, v), Std.HashMap.mem_toList_iff_getElem?_eq_some.mpr hv, rfl⟩,
+      rfl, List.mem_toArray.mpr (List.mem_map.mpr ⟨k, hk, rfl⟩)⟩
 
-/-- A name a constant of a module of `modules` refers to is one of `namesOf`. -/
-theorem used_mem_namesOf {modules : Array ModuleData} {data : ModuleData} {c : ConstantInfo}
-    {y : Name} (hdata : data ∈ modules) (hc : c ∈ data.constants) (hy : y ∈ successorsOf c) :
-    y ∈ namesOf modules :=
-  List.mem_cons_of_mem _ <| List.mem_cons_of_mem _ <| List.mem_flatMap.mpr
-    ⟨_, mem_loadedEdges.mpr ⟨data, hdata, c, hc, rfl⟩,
-      List.mem_cons_of_mem _ (Array.mem_toList_iff.mpr hy)⟩
+/-- One step of the search for the region, from the node of the module at index `k`: to the node
+of each module that imports it (`importers`, under its name) and of each module that shares with
+it a name that has `others` (`shared`, under its node). Any other name has no step. -/
+def regionNext (size : Nat) (names : Array Name) (attributed : Name → Option Nat)
+    (dups : Duplicates) (importers shared : Std.HashMap Name (List Name)) : Name → Array Name
+  | .num .anonymous k =>
+    ((match names[k]? with
+      | some m => importers.getD m []
+      | none => []) ++
+      (shared.getD (moduleNode k) []).flatMap fun x =>
+        (sharers size attributed dups x).map moduleNode).toArray
+  | _ => #[]
+
+/-- The steps from the node of the module at index `k`: to a module that imports it, and to a
+module that shares with it a name that has `others`. -/
+theorem mem_regionNext {modules : Array ModuleData} {names : Array Name}
+    {attributed : Name → Option Nat} {dups : Duplicates} {k : Nat} {y : Name} :
+    y ∈ regionNext modules.size names attributed dups (importersOf modules)
+        (sharedOf modules.size attributed dups) (moduleNode k) ↔
+      (∃ j data, modules[j]? = some data ∧ y = moduleNode j ∧ ∃ imp ∈ data.imports,
+        names[k]? = some imp.module) ∨
+      ∃ x j, (∃ v, dups.others[x]? = some v) ∧ k ∈ sharers modules.size attributed dups x ∧
+        j ∈ sharers modules.size attributed dups x ∧ y = moduleNode j := by
+  show y ∈ ((match names[k]? with
+      | some m => (importersOf modules).getD m []
+      | none => []) ++
+      ((sharedOf modules.size attributed dups).getD (moduleNode k) []).flatMap fun x =>
+        (sharers modules.size attributed dups x).map moduleNode).toArray ↔ _
+  rw [List.mem_toArray, List.mem_append]
+  refine or_congr ?_ ?_
+  · cases hk : names[k]? with
+    | none => simp
+    | some m =>
+      simp only [mem_importersOf, Option.some.injEq]
+      constructor
+      · rintro ⟨j, data, hdata, rfl, imp, himp, rfl⟩
+        exact ⟨j, data, hdata, rfl, imp, himp, rfl⟩
+      · rintro ⟨j, data, hdata, rfl, imp, himp, rfl⟩
+        exact ⟨j, data, hdata, rfl, imp, himp, rfl⟩
+  · simp only [List.mem_flatMap, List.mem_map, mem_sharedOf]
+    constructor
+    · rintro ⟨x, ⟨hkey, hk⟩, j, hj, rfl⟩
+      exact ⟨x, j, hkey, hk, hj, rfl⟩
+    · rintro ⟨x, j, hkey, hk, hj, rfl⟩
+      exact ⟨x, ⟨hkey, hk⟩, j, hj, rfl⟩
+
+/-- The nodes of the modules of the region of `owned` (`InRegion`): a search from the modules
+named in `owned` along `regionNext`, with as fuel the number of modules. It reads the imports of
+each module and the `others` of `dups`, and no constant. -/
+def regionOf (modules : Array ModuleData) (names : Array Name) (attributed : Name → Option Nat)
+    (dups : Duplicates) (owned : Std.HashSet Name) : Std.HashSet Name :=
+  let start := ((List.range modules.size).filter fun j => names[j]?.any owned.contains).map
+    moduleNode
+  (search (regionNext modules.size names attributed dups (importersOf modules)
+    (sharedOf modules.size attributed dups)) modules.size start).getD {}
+
+/-- Two modules that share a name and are not the same module share a name that has `others`. -/
+private theorem shares_key {attributed : Name → Option Nat} {dups : Duplicates} {x : Name}
+    {j k : Nat} (hk : Shares attributed dups x k) (hj : Shares attributed dups x j)
+    (hne : j ≠ k) : ∃ v, dups.others[x]? = some v := by
+  have key : ∀ i, i ∈ dups.others.getD x #[] → ∃ v, dups.others[x]? = some v := by
+    intro i hi
+    rw [Std.HashMap.getD_eq_getD_getElem?] at hi
+    cases hv : dups.others[x]? with
+    | none => rw [hv] at hi; simp at hi
+    | some v => exact ⟨v, rfl⟩
+  rcases hk with hk | hk
+  · rcases hj with hj | hj
+    · exact absurd (Option.some.inj (hj.symm.trans hk)) hne
+    · exact key j hj
+  · exact key k hk
+
+/-- **`regionOf` holds exactly the nodes of the modules of the region of `owned`**: the search
+completes within its fuel, since each step leads to the node of a module (`search_isSome`). -/
+theorem mem_regionOf {modules : Array ModuleData} {names : Array Name}
+    {attributed : Name → Option Nat} {dups : Duplicates} {owned : Std.HashSet Name} {j : Nat} :
+    moduleNode j ∈ regionOf modules names attributed dups owned ↔
+      InRegion modules names attributed dups owned j := by
+  have bound : ∀ x ∈ (List.range modules.size).map moduleNode,
+      ∀ y ∈ regionNext modules.size names attributed dups (importersOf modules)
+        (sharedOf modules.size attributed dups) x,
+      y ∈ (List.range modules.size).map moduleNode := by
+    intro x hx y hy
+    obtain ⟨k, -, rfl⟩ := List.mem_map.mp hx
+    rcases mem_regionNext.mp hy with ⟨i, data, hdata, rfl, -⟩ | ⟨_, i, -, -, hi, rfl⟩
+    · exact List.mem_map.mpr ⟨i, List.mem_range.mpr (lt_size_of_getElem? hdata), rfl⟩
+    · exact List.mem_map.mpr ⟨i, List.mem_range.mpr (mem_sharers.mp hi).2, rfl⟩
+  have hstart : ∀ s ∈ ((List.range modules.size).filter fun j => names[j]?.any owned.contains).map
+      moduleNode, s ∈ (List.range modules.size).map moduleNode := by
+    intro s hs
+    obtain ⟨i, hi, rfl⟩ := List.mem_map.mp hs
+    exact List.mem_map.mpr ⟨i, (List.mem_filter.mp hi).1, rfl⟩
+  obtain ⟨result, hresult⟩ := Option.isSome_iff_exists.mp
+    (search_isSome (fuel := modules.size) hstart bound (by simp))
+  obtain ⟨complete, sound⟩ := search_some hresult
+  have eq : regionOf modules names attributed dups owned = result := by
+    simp only [regionOf, hresult, Option.getD_some]
+  rw [eq]
+  constructor
+  · intro h
+    obtain ⟨s, hs, hr⟩ := sound _ h
+    obtain ⟨i, hi, rfl⟩ := List.mem_map.mp hs
+    obtain ⟨hi, howned⟩ := List.mem_filter.mp hi
+    obtain ⟨name, hname, hcontains⟩ := (Option.any_eq_true _ _).mp howned
+    have hregion : InRegion modules names attributed dups owned i :=
+      .owned (Array.getElem?_eq_getElem (List.mem_range.mp hi)) hname
+        (Std.HashSet.contains_iff_mem.mp hcontains)
+    -- Each step from the node of a module of the region leads to the node of one.
+    suffices step : ∀ a b, Reach (regionNext modules.size names attributed dups
+          (importersOf modules) (sharedOf modules.size attributed dups)) a b →
+        ∀ i, a = moduleNode i → InRegion modules names attributed dups owned i →
+        ∃ l, b = moduleNode l ∧ InRegion modules names attributed dups owned l by
+      obtain ⟨l, hl, hregion⟩ := step _ _ hr i rfl hregion
+      rw [moduleNode_inj hl]
+      exact hregion
+    intro a b hab
+    induction hab with
+    | refl => exact fun i hi hregion => ⟨i, hi, hregion⟩
+    | step hm _ ih =>
+      intro i hi hregion
+      subst hi
+      rcases mem_regionNext.mp hm with ⟨l, data, hdata, rfl, imp, himp, hname⟩ |
+          ⟨x, l, -, hi, hl, rfl⟩
+      · exact ih l rfl (.imports hregion ⟨data, hdata, imp, himp, hname⟩)
+      · obtain ⟨hl, hlt⟩ := mem_sharers.mp hl
+        exact ih l rfl (.shares hregion (mem_sharers.mp hi).1 hl
+          (Array.getElem?_eq_getElem hlt))
+  · intro h
+    suffices reach : ∃ s ∈ ((List.range modules.size).filter
+          fun j => names[j]?.any owned.contains).map moduleNode,
+        Reach (regionNext modules.size names attributed dups (importersOf modules)
+          (sharedOf modules.size attributed dups)) s (moduleNode j) by
+      obtain ⟨s, hs, hr⟩ := reach
+      exact complete s hs _ hr
+    induction h with
+    | @owned i data name hdata hname howned =>
+      refine ⟨moduleNode i, List.mem_map.mpr ⟨i, List.mem_filter.mpr
+        ⟨List.mem_range.mpr (lt_size_of_getElem? hdata), ?_⟩, rfl⟩, .refl _⟩
+      simpa [hname] using Std.HashSet.contains_iff_mem.mpr howned
+    | @imports i k _ himp ih =>
+      obtain ⟨s, hs, hr⟩ := ih
+      obtain ⟨data, hdata, imp, himp, hname⟩ := himp
+      exact ⟨s, hs, hr.tail (mem_regionNext.mpr (.inl ⟨i, data, hdata, rfl, imp, himp, hname⟩))⟩
+    | @shares i k x data hk hsk hsi hdata ih =>
+      obtain ⟨s, hs, hr⟩ := ih
+      by_cases hik : i = k
+      · subst hik
+        exact ⟨s, hs, hr⟩
+      · exact ⟨s, hs, hr.tail (mem_regionNext.mpr (.inr ⟨x, i, shares_key hsk hsi hik,
+          mem_sharers.mpr ⟨hsk, hk.lt_size⟩, mem_sharers.mpr ⟨hsi, lt_size_of_getElem? hdata⟩,
+          rfl⟩))⟩
+
+/-- Whether the module at index `j` is in `region`, a set of nodes such as `regionOf` gives. -/
+def regionHas (region : Std.HashSet Name) (j : Nat) : Bool := region.contains (moduleNode j)
+
+theorem regionHas_iff {modules : Array ModuleData} {names : Array Name}
+    {attributed : Name → Option Nat} {dups : Duplicates} {owned : Std.HashSet Name} {j : Nat} :
+    regionHas (regionOf modules names attributed dups owned) j = true ↔
+      InRegion modules names attributed dups owned j := by
+  rw [regionHas, Std.HashSet.contains_iff_mem, mem_regionOf]
+
+/-- Every module that declares `y` is one that `inside` accepts. -/
+def DeclaredIn (modules : Array ModuleData) (inside : Nat → Bool) (y : Name) : Prop :=
+  ∀ k, Declares modules k y → inside k = true
+
+/-- What the references of the modules that `inside` accepts give: a constant that refers to a
+name `DeclaredIn` them is in one of them, each module that declares a name one of them declares is
+accepted too, and a constant of a module that is not accepted refers only to declared names. -/
+structure Covers (modules : Array ModuleData) (inside : Nat → Bool) : Prop where
+  /-- A constant that refers to a name `DeclaredIn` the accepted modules is in one of them. -/
+  refers : ∀ j data, modules[j]? = some data → ∀ c ∈ data.constants, ∀ y ∈ successorsOf c,
+    DeclaredIn modules inside y → inside j = true
+  /-- Each module that declares a name an accepted module declares is accepted. -/
+  shares : ∀ k j y, inside k = true → Declares modules k y → Declares modules j y →
+    inside j = true
+  /-- A constant of a module that is not accepted refers only to names some module declares. -/
+  declared : ∀ j data, modules[j]? = some data → inside j = false → ∀ c ∈ data.constants,
+    ∀ y ∈ successorsOf c, ∃ k, Declares modules k y
+
+/-- **Under `ImportScoped`, the region of `owned` covers the references to its names**: a
+constant that refers to a name `DeclaredIn` the region is in a module of the region, which is
+owned or imports one, through its import closure. -/
+theorem covers_regionOf {find : Name → Option ConstantInfo} {attributed : Name → Option Nat}
+    {modules : Array ModuleData} {names : Array Name} {owned : Std.HashSet Name}
+    (hscoped : ImportScoped modules names owned) :
+    Covers modules
+      (regionHas (regionOf modules names attributed (duplicatesOf find attributed modules) owned)) := by
+  have outside : ∀ j data, modules[j]? = some data →
+      ¬ InRegion modules names attributed (duplicatesOf find attributed modules) owned j →
+      ∀ name, names[j]? = some name → name ∉ owned :=
+    fun _ _ hdata hout _ hname howned => hout (.owned hdata hname howned)
+  have closure : ∀ j k, Imported modules names j k →
+      InRegion modules names attributed (duplicatesOf find attributed modules) owned k →
+      InRegion modules names attributed (duplicatesOf find attributed modules) owned j := by
+    intro j k h
+    induction h with
+    | refl => exact id
+    | step himp _ ih => exact fun hk => .imports (ih hk) himp
+  have shares : ∀ x j, Declares modules j x →
+      Shares attributed (duplicatesOf find attributed modules) x j := by
+    intro x j hdecl
+    by_cases hattr : attributed x = some j
+    · exact .inl hattr
+    · exact .inr (mem_others_iff.mpr ⟨hdecl, hattr⟩)
+  refine ⟨fun j data hdata c hc y hy hall => ?_, fun k j y hk hdk hdj => ?_,
+    fun j data hdata hout c hc y hy => ?_⟩
+  · rw [regionHas_iff]
+    exact Classical.byContradiction fun hout => by
+      obtain ⟨k, himp, hdecl⟩ := hscoped j data hdata (outside j data hdata hout) c hc y hy
+      exact hout (closure j k himp (regionHas_iff.mp (hall k hdecl)))
+  · rw [regionHas_iff] at hk ⊢
+    have hdj' := hdj
+    obtain ⟨data, hdata, -⟩ := hdj'
+    exact .shares hk (shares y k hdk) (shares y j hdj) hdata
+  · have hnot : ¬ InRegion modules names attributed (duplicatesOf find attributed modules) owned j :=
+      fun h => by rw [← regionHas_iff, hout] at h; exact Bool.false_ne_true h
+    obtain ⟨k, -, hdecl⟩ := hscoped j data hdata (outside j data hdata hnot) c hc y hy
+    exact ⟨k, hdecl⟩
+
+/-! ### The references of the region -/
+
+/-- Each constant of each module that `inside` accepts, by name, with the names it refers to. -/
+def regionEdges (modules : Array ModuleData) (inside : Nat → Bool) : List (Name × Array Name) :=
+  (modules.zipIdx.toList.filter (inside ·.2)).flatMap fun e =>
+    e.1.constants.toList.map fun c => (c.name, successorsOf c)
+
+/-- The edges are exactly the constants of the accepted modules, each with the names it refers
+to. -/
+theorem mem_regionEdges {modules : Array ModuleData} {inside : Nat → Bool}
+    {e : Name × Array Name} :
+    e ∈ regionEdges modules inside ↔
+      ∃ j data, modules[j]? = some data ∧ inside j = true ∧
+        ∃ c ∈ data.constants, e = (c.name, successorsOf c) := by
+  unfold regionEdges
+  rw [List.mem_flatMap]
+  constructor
+  · rintro ⟨⟨data, j⟩, hentry, he⟩
+    obtain ⟨hentry, hin⟩ := List.mem_filter.mp hentry
+    obtain ⟨c, hc, rfl⟩ := List.mem_map.mp he
+    exact ⟨j, data, Array.mem_zipIdx_iff_getElem?.mp (Array.mem_toList_iff.mp hentry), hin, c,
+      Array.mem_toList_iff.mp hc, rfl⟩
+  · rintro ⟨j, data, hdata, hin, c, hc, rfl⟩
+    exact ⟨(data, j), List.mem_filter.mpr
+      ⟨Array.mem_toList_iff.mpr (Array.mem_zipIdx_iff_getElem?.mpr hdata), hin⟩,
+      List.mem_map.mpr ⟨c, Array.mem_toList_iff.mpr hc, rfl⟩⟩
+
+/-- The names a search over the references of the modules that `inside` accepts can meet: the name
+of each of their constants with the names it refers to. -/
+def namesIn (modules : Array ModuleData) (inside : Nat → Bool) : List Name :=
+  (regionEdges modules inside).flatMap fun e => e.1 :: e.2.toList
+
+/-- The name of a constant of an accepted module is one of `namesIn`. -/
+theorem name_mem_namesIn {modules : Array ModuleData} {inside : Nat → Bool} {j : Nat}
+    {data : ModuleData} {c : ConstantInfo} (hdata : modules[j]? = some data)
+    (hin : inside j = true) (hc : c ∈ data.constants) : c.name ∈ namesIn modules inside :=
+  List.mem_flatMap.mpr
+    ⟨_, mem_regionEdges.mpr ⟨j, data, hdata, hin, c, hc, rfl⟩, List.mem_cons_self⟩
+
+/-- A name a constant of an accepted module refers to is one of `namesIn`. -/
+theorem used_mem_namesIn {modules : Array ModuleData} {inside : Nat → Bool} {j : Nat}
+    {data : ModuleData} {c : ConstantInfo} {y : Name} (hdata : modules[j]? = some data)
+    (hin : inside j = true) (hc : c ∈ data.constants) (hy : y ∈ successorsOf c) :
+    y ∈ namesIn modules inside :=
+  List.mem_flatMap.mpr ⟨_, mem_regionEdges.mpr ⟨j, data, hdata, hin, c, hc, rfl⟩,
+    List.mem_cons_of_mem _ (Array.mem_toList_iff.mpr hy)⟩
+
+/-- The names of the constants of every module of `modules`. -/
+def declaredNames (modules : Array ModuleData) : List Name :=
+  modules.toList.flatMap fun data => data.constants.toList.map (·.name)
+
+/-- A name some module declares is one of `declaredNames`. -/
+theorem mem_declaredNames {modules : Array ModuleData} {k : Nat} {y : Name}
+    (h : Declares modules k y) : y ∈ declaredNames modules := by
+  obtain ⟨data, hdata, c, hc, rfl⟩ := h
+  exact List.mem_flatMap.mpr ⟨data, Array.mem_toList_iff.mpr (Array.mem_of_getElem? hdata),
+    List.mem_map.mpr ⟨c, Array.mem_toList_iff.mpr hc, rfl⟩⟩
 
 /-- The references between the constants of a set of modules, read backward, with the fuel of a
 search over them. -/
 structure Links where
   /-- Under each name, the names of the constants that refer to it. -/
   back : Std.HashMap Name (List Name)
-  /-- The fuel of a search: at least the number of names it can meet. -/
+  /-- The fuel of a search over them: at least the number of names it can meet. -/
   fuel : Nat
+  /-- The number of constants of all the loaded modules, which bounds the names outside the set a
+  search forward meets (`nativeFree`). -/
+  declared : Nat
 
 /-- The names of the constants that refer to `y`. -/
 def Links.before (links : Links) (y : Name) : Array Name := (links.back.getD y []).toArray
@@ -876,76 +1275,118 @@ def Links.closure (links : Links) (next : Name → Array Name) (start : List Nam
     Std.HashSet Name :=
   (search next links.fuel start).getD {}
 
-/-- The references between the constants of `modules`: under each name the names of the constants
-that refer to it (`predecessors` of `loadedEdges`), and as fuel the length of `namesOf`. -/
-def linksOf (modules : Array ModuleData) : Links :=
-  let edges := loadedEdges modules
-  { back := predecessors edges, fuel := 2 + (edges.map fun e => e.2.size + 1).sum }
+/-- The references between the constants of the modules of `modules` that `inside` accepts: under
+each name the names of their constants that refer to it (`predecessors` of `regionEdges`), as fuel
+the length of `namesIn`, and the number of constants of all the modules. `agreeing` gives as
+`inside` the region of the owned modules (`regionOf`), and reads the references of no other
+constant this way. -/
+def linksOf (modules : Array ModuleData) (inside : Nat → Bool) : Links :=
+  let edges := regionEdges modules inside
+  { back := predecessors edges, fuel := (edges.map fun e => e.2.size + 1).sum
+    declared := (modules.toList.map fun data => data.constants.size).sum }
 
-/-- The fuel of `linksOf` is the number of entries of `namesOf`. -/
-theorem fuel_linksOf {modules : Array ModuleData} :
-    (linksOf modules).fuel = (namesOf modules).length := by
-  simp only [linksOf, namesOf, List.length_cons, List.length_flatMap, Array.length_toList]
-  omega
+/-- The fuel of `linksOf` is the number of entries of `namesIn`, and its count of constants the
+number of entries of `declaredNames`. -/
+theorem fuel_linksOf {modules : Array ModuleData} {inside : Nat → Bool} :
+    (linksOf modules inside).fuel = (namesIn modules inside).length ∧
+      (linksOf modules inside).declared = (declaredNames modules).length := by
+  constructor <;>
+    simp [linksOf, namesIn, declaredNames, List.length_flatMap]
 
-/-- The names before `y` are exactly the names of the constants that refer to `y`. -/
-theorem mem_before {modules : Array ModuleData} {x y : Name} :
-    x ∈ (linksOf modules).before y ↔ Refers modules x y := by
-  simp only [Links.before, linksOf, List.mem_toArray, mem_predecessors, mem_loadedEdges]
+/-- The names before `y` are exactly the names of the constants of accepted modules that refer to
+`y`. -/
+theorem mem_before_iff {modules : Array ModuleData} {inside : Nat → Bool} {x y : Name} :
+    x ∈ (linksOf modules inside).before y ↔
+      ∃ j data, modules[j]? = some data ∧ inside j = true ∧
+        ∃ c ∈ data.constants, c.name = x ∧ y ∈ successorsOf c := by
+  simp only [Links.before, linksOf, List.mem_toArray, mem_predecessors, mem_regionEdges]
   constructor
-  · rintro ⟨e, ⟨data, hdata, c, hc, rfl⟩, rfl, hy⟩
-    exact ⟨data, hdata, c, hc, rfl, hy⟩
-  · rintro ⟨data, hdata, c, hc, rfl, hy⟩
-    exact ⟨_, ⟨data, hdata, c, hc, rfl⟩, rfl, hy⟩
+  · rintro ⟨e, ⟨j, data, hdata, hin, c, hc, rfl⟩, rfl, hy⟩
+    exact ⟨j, data, hdata, hin, c, hc, rfl, hy⟩
+  · rintro ⟨j, data, hdata, hin, c, hc, rfl, hy⟩
+    exact ⟨_, ⟨j, data, hdata, hin, c, hc, rfl⟩, rfl, hy⟩
 
-/-- A name before another is one of `namesOf`. -/
-theorem before_mem_namesOf {modules : Array ModuleData} {x y : Name}
-    (h : x ∈ (linksOf modules).before y) : x ∈ namesOf modules := by
-  obtain ⟨data, hdata, c, hc, rfl, -⟩ := mem_before.mp h
-  exact name_mem_namesOf hdata hc
+/-- A name before `y` refers to `y`. -/
+theorem refers_of_before {modules : Array ModuleData} {inside : Nat → Bool} {x y : Name}
+    (h : x ∈ (linksOf modules inside).before y) : Refers modules x y := by
+  obtain ⟨_, data, hdata, -, c, hc, hx, hy⟩ := mem_before_iff.mp h
+  exact ⟨data, Array.mem_of_getElem? hdata, c, hc, hx, hy⟩
 
-/-- **A closure over the references of `modules` holds exactly the names reached from `start`**,
-when `start` and every step along `next` stay among `namesOf`: the search completes within the
-fuel (`search_isSome`), and `search_some` describes what it returns. -/
-theorem mem_closure {modules : Array ModuleData} {next : Name → Array Name} {start : List Name}
-    (hstart : ∀ s ∈ start, s ∈ namesOf modules)
-    (hnext : ∀ x, ∀ y ∈ next x, y ∈ namesOf modules) {x : Name} :
-    x ∈ (linksOf modules).closure next start ↔ ∃ s ∈ start, Reach next s x := by
+/-- A name before another is `DeclaredIn` the accepted modules. -/
+theorem declaredIn_of_before {modules : Array ModuleData} {inside : Nat → Bool}
+    (hcovers : Covers modules inside) {x y : Name} (h : x ∈ (linksOf modules inside).before y) :
+    DeclaredIn modules inside x := by
+  obtain ⟨j, data, hdata, hin, c, hc, rfl, -⟩ := mem_before_iff.mp h
+  exact fun k hk => hcovers.shares j k c.name hin ⟨data, hdata, c, hc, rfl⟩ hk
+
+/-- A name before another is one of `namesIn`. -/
+theorem before_mem_namesIn {modules : Array ModuleData} {inside : Nat → Bool} {x y : Name}
+    (h : x ∈ (linksOf modules inside).before y) : x ∈ namesIn modules inside := by
+  obtain ⟨j, data, hdata, hin, c, hc, rfl, -⟩ := mem_before_iff.mp h
+  exact name_mem_namesIn hdata hin hc
+
+/-- **The names before a name `DeclaredIn` the accepted modules are exactly the names of the
+constants that refer to it**, when the accepted modules `Covers` the references. -/
+theorem mem_before {modules : Array ModuleData} {inside : Nat → Bool}
+    (hcovers : Covers modules inside) {x y : Name} (hy : DeclaredIn modules inside y) :
+    x ∈ (linksOf modules inside).before y ↔ Refers modules x y := by
+  refine ⟨refers_of_before, fun ⟨data, hdata, c, hc, hx, hyc⟩ => ?_⟩
+  obtain ⟨j, hj⟩ := Array.mem_iff_getElem?.mp hdata
+  exact mem_before_iff.mpr ⟨j, data, hj, hcovers.refers j data hj c hc y hyc hy, c, hc, hx, hyc⟩
+
+/-- Every name in a closure is reached from `start`. -/
+theorem closure_sound {links : Links} {next : Name → Array Name} {start : List Name} {x : Name}
+    (h : x ∈ links.closure next start) : ∃ s ∈ start, Reach next s x := by
+  unfold Links.closure at h
+  cases hs : search next links.fuel start with
+  | none => simp [hs] at h
+  | some result =>
+    rw [hs, Option.getD_some] at h
+    exact (search_some hs).2 x h
+
+/-- **A closure over the references of the accepted modules holds exactly the names reached from
+`start`**, when `start` and every step along `next` stay among `namesIn`: the search completes
+within the fuel (`search_isSome`), and `search_some` describes what it returns. -/
+theorem mem_closure {modules : Array ModuleData} {inside : Nat → Bool}
+    {next : Name → Array Name} {start : List Name}
+    (hstart : ∀ s ∈ start, s ∈ namesIn modules inside)
+    (hnext : ∀ x, ∀ y ∈ next x, y ∈ namesIn modules inside) {x : Name} :
+    x ∈ (linksOf modules inside).closure next start ↔ ∃ s ∈ start, Reach next s x := by
   obtain ⟨result, hresult⟩ := Option.isSome_iff_exists.mp
-    (search_isSome hstart (fun x _ y hy => hnext x y hy) (Nat.le_of_eq fuel_linksOf.symm))
+    (search_isSome hstart (fun x _ y hy => hnext x y hy) (Nat.le_of_eq fuel_linksOf.1.symm))
   obtain ⟨complete, sound⟩ := search_some hresult
   simp only [Links.closure, hresult, Option.getD_some]
   exact ⟨sound x, fun ⟨s, hs, hr⟩ => complete s hs x hr⟩
 
-/-- A path backward from `y` along `before` is a path forward to `y` along `Refers`. -/
-theorem reach_before_iff {modules : Array ModuleData} {y x : Name} :
-    Reach (linksOf modules).before y x ↔ Leads modules x y := by
+/-- A name reached backward from a name `DeclaredIn` the accepted modules is `DeclaredIn` them. -/
+theorem declaredIn_of_reach {modules : Array ModuleData} {inside : Nat → Bool}
+    (hcovers : Covers modules inside) {y x : Name} (hy : DeclaredIn modules inside y)
+    (h : Reach (linksOf modules inside).before y x) : DeclaredIn modules inside x := by
+  revert hy
+  induction h with
+  | refl => exact id
+  | step hm _ ih => exact fun _ => ih (declaredIn_of_before hcovers hm)
+
+/-- A path backward from a name `DeclaredIn` the accepted modules along `before` is a path forward
+to it along `Refers`. -/
+theorem reach_before_iff {modules : Array ModuleData} {inside : Nat → Bool}
+    (hcovers : Covers modules inside) {y x : Name} (hy : DeclaredIn modules inside y) :
+    Reach (linksOf modules inside).before y x ↔ Leads modules x y := by
   constructor
   · intro h
+    clear hy
     induction h with
     | refl => exact .refl _
-    | step hm _ ih => exact ih.tail (mem_before.mp hm)
+    | step hm _ ih => exact ih.tail (refers_of_before hm)
   · intro h
+    revert hy
     induction h with
-    | refl => exact .refl _
-    | step hm _ ih => exact ih.tail (mem_before.mpr hm)
-
-/-- The names from which `Lean.reduceBool` or `Lean.reduceNat` is reached: the closure backward
-from the two. -/
-def nativeIn (links : Links) : Std.HashSet Name :=
-  links.closure links.before [``Lean.reduceBool, ``Lean.reduceNat]
-
-/-- `nativeIn` holds exactly the names that reach `Lean.reduceBool` or `Lean.reduceNat`. -/
-theorem mem_nativeIn {modules : Array ModuleData} {x : Name} :
-    x ∈ nativeIn (linksOf modules) ↔
-      Leads modules x ``Lean.reduceBool ∨ Leads modules x ``Lean.reduceNat := by
-  unfold nativeIn
-  rw [mem_closure (fun s hs => ?_) (fun _ _ hy => before_mem_namesOf hy)]
-  · simp [reach_before_iff]
-  · rcases List.mem_cons.mp hs with rfl | hs
-    · exact List.mem_cons_self
-    · rw [List.mem_singleton.mp hs]
-      exact List.mem_cons_of_mem _ List.mem_cons_self
+    | refl => exact fun _ => .refl _
+    | step hm _ ih =>
+      intro hy
+      have hreach := ih hy
+      exact hreach.tail
+        ((mem_before hcovers (declaredIn_of_reach hcovers hy hreach)).mpr hm)
 
 /-- The constants Lean's kernel can read in the check of a declaration although neither the
 declaration nor a constant the check read refers to them: the types and constructors that a
@@ -974,13 +1415,23 @@ constants that refer to `n`. -/
 def aboveIn (links : Links) (n : Name) : Std.HashSet Name :=
   links.closure links.before (links.before n).toList
 
-/-- `aboveIn` holds exactly the names that reach a constant referring to `n`. -/
-theorem mem_aboveIn {modules : Array ModuleData} {n x : Name} :
-    x ∈ aboveIn (linksOf modules) n ↔ ∃ m, Refers modules m n ∧ Leads modules x m := by
+/-- **`aboveIn` holds exactly the names that reach a constant referring to `n`**, for `n`
+`DeclaredIn` modules that `Covers` the references. -/
+theorem mem_aboveIn {modules : Array ModuleData} {inside : Nat → Bool}
+    (hcovers : Covers modules inside) {n x : Name} (hn : DeclaredIn modules inside n) :
+    x ∈ aboveIn (linksOf modules inside) n ↔ ∃ m, Refers modules m n ∧ Leads modules x m := by
   unfold aboveIn
-  rw [mem_closure (fun _ hs => before_mem_namesOf (Array.mem_toList_iff.mp hs))
-    (fun _ _ hy => before_mem_namesOf hy)]
-  simp only [Array.mem_toList_iff, mem_before, reach_before_iff]
+  rw [mem_closure (fun _ hs => before_mem_namesIn (Array.mem_toList_iff.mp hs))
+    (fun _ _ hy => before_mem_namesIn hy)]
+  constructor
+  · rintro ⟨s, hs, hr⟩
+    have hs' := Array.mem_toList_iff.mp hs
+    exact ⟨s, refers_of_before hs',
+      (reach_before_iff hcovers (declaredIn_of_before hcovers hs')).mp hr⟩
+  · rintro ⟨m, hm, hx⟩
+    have hm' := (mem_before hcovers hn).mpr hm
+    exact ⟨m, Array.mem_toList_iff.mpr hm',
+      (reach_before_iff hcovers (declaredIn_of_before hcovers hm')).mpr hx⟩
 
 /-- Whether `x` reaches `n`, read from the names `above` that reach it in one or more steps. -/
 def reachesIn (above : Std.HashSet Name) (n x : Name) : Bool :=
@@ -1000,6 +1451,119 @@ theorem reachesIn_iff {modules : Array ModuleData} {above : Std.HashSet Name} {n
     rcases h.last with rfl | ⟨m, hx, hm⟩
     · exact .inl rfl
     · exact .inr ⟨m, hm, hx⟩
+
+/-- The names the copies of `x` refer to: the copies that the module `x` is attributed to and each
+of its `others` declare. A name that no module declares has none. -/
+def copiesNext (modules : Array ModuleData) (attributed : Name → Option Nat) (dups : Duplicates)
+    (x : Name) : Array Name :=
+  (((attributed x).toList ++ (dups.others.getD x #[]).toList).flatMap fun j =>
+    match modules[j]? with
+    | some data => ((data.constants.filter (·.name == x)).flatMap successorsOf).toList
+    | none => []).toArray
+
+/-- The names after `x` are exactly the names a copy of `x` refers to. -/
+theorem mem_copiesNext {find : Name → Option ConstantInfo} {attributed : Name → Option Nat}
+    {modules : Array ModuleData} {x y : Name} :
+    y ∈ copiesNext modules attributed (duplicatesOf find attributed modules) x ↔
+      Refers modules x y := by
+  unfold copiesNext Refers
+  rw [List.mem_toArray, List.mem_flatMap]
+  constructor
+  · rintro ⟨j, -, hy⟩
+    revert hy
+    cases hdata : modules[j]? with
+    | none => intro hy; simp at hy
+    | some data =>
+      intro hy
+      obtain ⟨c, hc, hyc⟩ := Array.mem_flatMap.mp (Array.mem_toList_iff.mp hy)
+      obtain ⟨hc, hcx⟩ := Array.mem_filter.mp hc
+      exact ⟨data, Array.mem_of_getElem? hdata, c, hc, beq_iff_eq.mp hcx, hyc⟩
+  · rintro ⟨data, hdata, c, hc, hcx, hyc⟩
+    obtain ⟨j, hj⟩ := Array.mem_iff_getElem?.mp hdata
+    refine ⟨j, ?_, ?_⟩
+    · rw [List.mem_append, Option.mem_toList, Array.mem_toList_iff]
+      by_cases hattr : attributed x = some j
+      · exact .inl hattr
+      · exact .inr (mem_others_iff.mpr ⟨⟨data, hj, c, hc, hcx⟩, hattr⟩)
+    · rw [hj]
+      exact Array.mem_toList_iff.mpr (Array.mem_flatMap.mpr
+        ⟨c, Array.mem_filter.mpr ⟨hc, beq_iff_eq.mpr hcx⟩, hyc⟩)
+
+/-- A path along `copiesNext` is a path along `Refers`. -/
+theorem reach_copiesNext_iff {find : Name → Option ConstantInfo} {attributed : Name → Option Nat}
+    {modules : Array ModuleData} {x y : Name} :
+    Reach (copiesNext modules attributed (duplicatesOf find attributed modules)) x y ↔
+      Leads modules x y := by
+  constructor
+  · intro h
+    induction h with
+    | refl => exact .refl _
+    | step hm _ ih => exact .step (mem_copiesNext.mp hm) ih
+  · intro h
+    induction h with
+    | refl => exact .refl _
+    | step hm _ ih => exact .step (mem_copiesNext.mpr hm) ih
+
+/-- Whether no name that reaches `n` reaches `Lean.reduceBool` or `Lean.reduceNat`: a search
+forward along `copiesNext` from `n` and the names `above` that reach it in one or more steps meets
+neither, within `fuel`. The search meets a name that no module declares and follows no reference
+from it. When the fuel runs out, the name is refused. -/
+def nativeFree (modules : Array ModuleData) (attributed : Name → Option Nat) (dups : Duplicates)
+    (fuel : Nat) (above : Std.HashSet Name) (n : Name) : Bool :=
+  match search (copiesNext modules attributed dups) fuel (n :: above.toList) with
+  | some reached => !reached.contains ``Lean.reduceBool && !reached.contains ``Lean.reduceNat
+  | none => false
+
+/-- **`nativeFree` decides that no name reaching `n` reaches `Lean.reduceBool` or
+`Lean.reduceNat`**, for `above` the names that reach `n` in one or more steps, accepted modules
+that `Covers` the references, and a fuel of at least the names the search can meet: `n`, the names
+of `above`, `declaredNames` and `namesIn`. -/
+theorem nativeFree_iff {find : Name → Option ConstantInfo} {attributed : Name → Option Nat}
+    {modules : Array ModuleData} {inside : Nat → Bool} (hcovers : Covers modules inside)
+    {above : Std.HashSet Name} {n : Name}
+    (habove : ∀ x, x ∈ above ↔ ∃ m, Refers modules m n ∧ Leads modules x m) {fuel : Nat}
+    (hfuel : 1 + above.size + (declaredNames modules).length + (namesIn modules inside).length ≤
+      fuel) :
+    nativeFree modules attributed (duplicatesOf find attributed modules) fuel above n = true ↔
+      ∀ d, Leads modules d n →
+        ¬ (Leads modules d ``Lean.reduceBool ∨ Leads modules d ``Lean.reduceNat) := by
+  have start : ∀ s, s ∈ n :: above.toList ↔ Leads modules s n := fun s => by
+    rw [← reachesIn_iff habove]
+    simp only [reachesIn, List.mem_cons, Std.HashSet.mem_toList, Bool.or_eq_true, beq_iff_eq,
+      Std.HashSet.contains_iff_mem]
+  have closed : ∀ x ∈ n :: above.toList ++ declaredNames modules ++ namesIn modules inside,
+      ∀ y ∈ copiesNext modules attributed (duplicatesOf find attributed modules) x,
+      y ∈ n :: above.toList ++ declaredNames modules ++ namesIn modules inside := by
+    intro x _ y hy
+    obtain ⟨data, hdata, c, hc, -, hyc⟩ := mem_copiesNext.mp hy
+    obtain ⟨j, hj⟩ := Array.mem_iff_getElem?.mp hdata
+    cases hin : inside j with
+    | true => exact List.mem_append_right _ (used_mem_namesIn hj hin hc hyc)
+    | false =>
+      obtain ⟨k, hk⟩ := hcovers.declared j data hj hin c hc y hyc
+      exact List.mem_append_left _ (List.mem_append_right _ (mem_declaredNames hk))
+  obtain ⟨reached, hreached⟩ := Option.isSome_iff_exists.mp
+    (search_isSome (fuel := fuel)
+      (fun s hs => List.mem_append_left _ (List.mem_append_left _ hs)) closed
+      (by simp only [List.length_append, List.length_cons, Std.HashSet.length_toList]; omega))
+  obtain ⟨complete, sound⟩ := search_some hreached
+  have mem : ∀ z, z ∈ reached ↔ ∃ d, Leads modules d n ∧ Leads modules d z := fun z => by
+    constructor
+    · intro hz
+      obtain ⟨s, hs, hr⟩ := sound z hz
+      exact ⟨s, (start s).mp hs, reach_copiesNext_iff.mp hr⟩
+    · rintro ⟨d, hd, hz⟩
+      exact complete d ((start d).mpr hd) z (reach_copiesNext_iff.mpr hz)
+  unfold nativeFree
+  rw [hreached]
+  simp only [Bool.and_eq_true, Bool.not_eq_eq_eq_not, Bool.not_true,
+    Std.HashSet.contains_eq_false_iff_not_mem, mem]
+  constructor
+  · rintro ⟨hb, hn⟩ d hd (hr | hr)
+    · exact hb ⟨d, hd, hr⟩
+    · exact hn ⟨d, hd, hr⟩
+  · intro h
+    exact ⟨fun ⟨d, hd, hr⟩ => h d hd (.inl hr), fun ⟨d, hd, hr⟩ => h d hd (.inr hr)⟩
 
 /-! ### The block of a renamed copy -/
 
@@ -1026,31 +1590,89 @@ inductive Joined (modules : Array ModuleData) (src : Name) (srcFind : Name → O
   | step {x m y : Name} : Linked modules src srcFind x m → Joined modules src srcFind m y →
       Joined modules src srcFind x y
 
-/-- The names `linkedIn` gives are exactly the `Linked` ones. -/
-theorem mem_linkedIn {modules : Array ModuleData} {src : Name}
-    {srcFind : Name → Option ConstantInfo} {x y : Name} :
-    y ∈ linkedIn (linksOf modules) src srcFind x ↔ Linked modules src srcFind x y := by
+/-- A name `linkedIn` gives is `Linked`. -/
+theorem linkedIn_sound {modules : Array ModuleData} {inside : Nat → Bool} {src : Name}
+    {srcFind : Name → Option ConstantInfo} {x y : Name}
+    (h : y ∈ linkedIn (linksOf modules inside) src srcFind x) :
+    Linked modules src srcFind x y := by
+  unfold linkedIn at h
+  unfold Linked
+  rw [Array.mem_filter, Array.mem_append] at h
+  obtain ⟨h, hp⟩ := h
+  refine ⟨hp, ?_⟩
+  revert h
+  cases srcFind x with
+  | none =>
+    intro h
+    rcases h with h | h
+    · simp at h
+    · exact .inr (refers_of_before h)
+  | some a =>
+    intro h
+    rcases h with h | h
+    · exact .inl ⟨a, rfl, h⟩
+    · exact .inr (refers_of_before h)
+
+/-- **The names `linkedIn` gives from a name `DeclaredIn` the accepted modules are exactly the
+`Linked` ones**, when the accepted modules `Covers` the references. -/
+theorem mem_linkedIn {modules : Array ModuleData} {inside : Nat → Bool}
+    (hcovers : Covers modules inside) {src : Name} {srcFind : Name → Option ConstantInfo}
+    {x y : Name} (hx : DeclaredIn modules inside x) :
+    y ∈ linkedIn (linksOf modules inside) src srcFind x ↔ Linked modules src srcFind x y := by
   unfold linkedIn Linked
-  rw [Array.mem_filter, Array.mem_append, mem_before]
+  rw [Array.mem_filter, Array.mem_append, mem_before hcovers hx]
   cases srcFind x with
   | none =>
     simp only [Array.not_mem_empty, false_or, reduceCtorEq, false_and, exists_false]
     exact And.comm
   | some c => simp only [Option.some.injEq, exists_eq_left']; exact And.comm
 
-/-- A path along `linkedIn` is a `Joined` chain. -/
-theorem reach_linkedIn_iff {modules : Array ModuleData} {src : Name}
-    {srcFind : Name → Option ConstantInfo} {x y : Name} :
-    Reach (linkedIn (linksOf modules) src srcFind) x y ↔ Joined modules src srcFind x y := by
+/-- A name `linkedIn` gives is one of `namesIn`, for constants `srcFind` from accepted modules. -/
+theorem linkedIn_mem_namesIn {modules : Array ModuleData} {inside : Nat → Bool} {src : Name}
+    {srcFind : Name → Option ConstantInfo}
+    (hfind : ∀ x a, srcFind x = some a →
+      ∃ j data, modules[j]? = some data ∧ inside j = true ∧ a ∈ data.constants)
+    {x y : Name} (h : y ∈ linkedIn (linksOf modules inside) src srcFind x) :
+    y ∈ namesIn modules inside := by
+  unfold linkedIn at h
+  rw [Array.mem_filter, Array.mem_append] at h
+  obtain ⟨h, -⟩ := h
+  revert h
+  cases ha : srcFind x with
+  | none =>
+    intro h
+    rcases h with h | h
+    · simp at h
+    · exact before_mem_namesIn h
+  | some a =>
+    intro h
+    rcases h with h | h
+    · obtain ⟨j, data, hdata, hin, hamem⟩ := hfind x a ha
+      exact used_mem_namesIn hdata hin hamem h
+    · exact before_mem_namesIn h
+
+/-- A path along `linkedIn` through names `DeclaredIn` the accepted modules is a `Joined` chain:
+`hinside` holds of each name the path from `x` can reach. -/
+theorem reach_linkedIn_iff {modules : Array ModuleData} {inside : Nat → Bool}
+    (hcovers : Covers modules inside) {src : Name} {srcFind : Name → Option ConstantInfo}
+    {x y : Name}
+    (hinside : ∀ z, Reach (linkedIn (linksOf modules inside) src srcFind) x z →
+      DeclaredIn modules inside z) :
+    Reach (linkedIn (linksOf modules inside) src srcFind) x y ↔ Joined modules src srcFind x y := by
   constructor
   · intro h
+    clear hinside
     induction h with
     | refl => exact .refl _
-    | step hm _ ih => exact .step (mem_linkedIn.mp hm) ih
+    | step hm _ ih => exact .step (linkedIn_sound hm) ih
   · intro h
+    revert hinside
     induction h with
-    | refl => exact .refl _
-    | step hm _ ih => exact .step (mem_linkedIn.mpr hm) ih
+    | refl => exact fun _ => .refl _
+    | step hm _ ih =>
+      intro hinside
+      have hm' := (mem_linkedIn hcovers (hinside _ (.refl _))).mpr hm
+      exact .step hm' (ih fun z hz => hinside z (.step hm' hz))
 
 /-- The block of the copy `c` in the module `src` whose constants `srcFind` gives by name: the names
 private to `src` joined, through names private to `src`, to one that `c` refers to. -/
@@ -1063,23 +1685,49 @@ def InBlock (modules : Array ModuleData) (src : Name) (srcFind : Name → Option
     (c : ConstantInfo) (y : Name) : Prop :=
   ∃ s ∈ successorsOf c, privateTo src s = true ∧ Joined modules src srcFind s y
 
-/-- For a constant `c` of a loaded module and constants `srcFind` from loaded modules, `blockOf`
-holds exactly the names `InBlock` admits. -/
-theorem mem_blockOf {modules : Array ModuleData} {src : Name}
-    {srcFind : Name → Option ConstantInfo} {c : ConstantInfo}
-    (hc : ∃ data ∈ modules, c ∈ data.constants)
-    (hfind : ∀ x a, srcFind x = some a → ∃ data ∈ modules, a ∈ data.constants) {y : Name} :
-    y ∈ blockOf (linksOf modules) src srcFind c ↔ InBlock modules src srcFind c y := by
-  obtain ⟨data, hdata, hcd⟩ := hc
-  unfold blockOf InBlock
-  rw [mem_closure (fun s hs => used_mem_namesOf hdata hcd
-      (Array.mem_toList_iff.mp (List.mem_filter.mp hs).1)) (fun x z hz => ?_)]
-  · simp only [List.mem_filter, Array.mem_toList_iff, reach_linkedIn_iff, and_assoc]
-  · obtain ⟨-, hz⟩ := mem_linkedIn.mp hz
-    rcases hz with ⟨a, ha, hza⟩ | ⟨adata, hadata, a, ha, rfl, -⟩
-    · obtain ⟨adata, hadata, hacd⟩ := hfind x a ha
-      exact used_mem_namesOf hadata hacd hza
-    · exact name_mem_namesOf hadata ha
+/-- Every name of `blockOf` is in the block (`InBlock`). -/
+theorem blockOf_sound {modules : Array ModuleData} {inside : Nat → Bool} {src : Name}
+    {srcFind : Name → Option ConstantInfo} {c : ConstantInfo} {y : Name}
+    (h : y ∈ blockOf (linksOf modules inside) src srcFind c) : InBlock modules src srcFind c y := by
+  obtain ⟨s, hs, hr⟩ := closure_sound h
+  obtain ⟨hs', hp⟩ := List.mem_filter.mp hs
+  refine ⟨s, Array.mem_toList_iff.mp hs', hp, ?_⟩
+  clear h hs hs' hp
+  induction hr with
+  | refl => exact .refl _
+  | step hm _ ih => exact .step (linkedIn_sound hm) ih
+
+/-- **For a constant `c` of an accepted module and constants `srcFind` from accepted modules,
+`blockOf` holds exactly the names `InBlock` admits**, when each name it holds is `DeclaredIn` the
+accepted modules and they `Covers` the references. -/
+theorem mem_blockOf {modules : Array ModuleData} {inside : Nat → Bool}
+    (hcovers : Covers modules inside) {src : Name} {srcFind : Name → Option ConstantInfo}
+    {c : ConstantInfo}
+    (hc : ∃ j data, modules[j]? = some data ∧ inside j = true ∧ c ∈ data.constants)
+    (hfind : ∀ x a, srcFind x = some a →
+      ∃ j data, modules[j]? = some data ∧ inside j = true ∧ a ∈ data.constants)
+    (hinside : ∀ z, z ∈ blockOf (linksOf modules inside) src srcFind c →
+      DeclaredIn modules inside z) {y : Name} :
+    y ∈ blockOf (linksOf modules inside) src srcFind c ↔ InBlock modules src srcFind c y := by
+  obtain ⟨j, data, hdata, hin, hcd⟩ := hc
+  have closure : ∀ z, z ∈ blockOf (linksOf modules inside) src srcFind c ↔
+      ∃ s ∈ (successorsOf c).toList.filter (privateTo src),
+        Reach (linkedIn (linksOf modules inside) src srcFind) s z := fun z =>
+    mem_closure (fun _ hs => used_mem_namesIn hdata hin hcd
+        (Array.mem_toList_iff.mp (List.mem_filter.mp hs).1))
+      (fun _ _ hz => linkedIn_mem_namesIn hfind hz)
+  rw [closure y]
+  unfold InBlock
+  constructor
+  · rintro ⟨s, hs, hr⟩
+    obtain ⟨hs', hp⟩ := List.mem_filter.mp hs
+    exact ⟨s, Array.mem_toList_iff.mp hs', hp, (reach_linkedIn_iff hcovers
+      (fun z hz => hinside z ((closure z).mpr ⟨s, hs, hz⟩))).mp hr⟩
+  · rintro ⟨s, hs, hp, hj⟩
+    have hs' : s ∈ (successorsOf c).toList.filter (privateTo src) :=
+      List.mem_filter.mpr ⟨Array.mem_toList_iff.mpr hs, hp⟩
+    exact ⟨s, hs', (reach_linkedIn_iff hcovers
+      (fun z hz => hinside z ((closure z).mpr ⟨s, hs', hz⟩))).mpr hj⟩
 
 /-- Whether `x`, a name of a block, is renamed with the copy: it is not private to `dst`, `alone`
 (declared by `src` alone) and `fixed` accept it, `fixed` accepts its renamed name, and its constant
@@ -1134,7 +1782,9 @@ since `σ` replaces one prefix by another and no name of `B` is private to `dst`
   safety of a definition. Under `n`, `r` renamed back is `c`. Under a name of `B`, its only copy
   (`alone`) is renamed into the constant of `dst` under the new name, which renames back into it,
   and both refer, among the names private to their modules, only to joined names. Every other
-  constant refers to no joined name (the test on `Links.before`), so `τ` fixes it. The field `all`
+  constant refers to no joined name (the test on `Links.before`, which meets every constant that
+  refers to a joined name when the modules outside the owned ones meet `ImportScoped`,
+  `mem_before`), so `τ` fixes it. The field `all`
   of a theorem or definition, its mutual block, can differ, since `renameConstant` renames each
   name private to `src` there and `τ` only the names of `B`; the kernel does not read it, and the
   searches below read only types and values (`successorsOf`).
@@ -1230,36 +1880,83 @@ def RenamedCopy (modules : Array ModuleData) (src dst n : Name) (fixed alone : N
     ∀ z, InJoined modules src dst srcFind c z →
       ¬ Leads modules z n ∧ ∀ x, Refers modules x z → x = n ∨ InJoined modules src dst srcFind c x
 
-/-- **`renamedCopy` over the references of `modules` accepts exactly the copies that `RenamedCopy`
-relates**, for a copy `c` of a loaded module, constants `srcFind` from loaded modules, `above` the
-names that reach `n` in one or more steps, and tests that decide `fixed` and `alone`. -/
+/-- **`renamedCopy` over the references of the accepted modules accepts exactly the copies that
+`RenamedCopy` relates**, when the accepted modules `Covers` the references, for a copy `c` of an
+accepted module, constants `srcFind` from accepted modules, `dstFind` and `alone` that give only
+names `DeclaredIn` them, `above` the names that reach `n` in one or more steps, and tests that
+decide `fixed` and `alone`. Each name of a block that `renamedCopy` accepts is `alone`, so the
+search over the references meets every constant that refers to a joined name. -/
 theorem renamedCopy_iff {modules : Array ModuleData} {src dst n : Name}
     {fixedB aloneB : Name → Bool} {fixed alone : Name → Prop}
     (hfixed : ∀ n, fixedB n = true ↔ fixed n) (halone : ∀ n, aloneB n = true ↔ alone n)
+    {inside : Nat → Bool} (hcovers : Covers modules inside)
     {srcFind dstFind : Name → Option ConstantInfo} {above : Std.HashSet Name} {c r : ConstantInfo}
-    (hc : ∃ data ∈ modules, c ∈ data.constants)
-    (hfind : ∀ x a, srcFind x = some a → ∃ data ∈ modules, a ∈ data.constants)
+    (hc : ∃ j data, modules[j]? = some data ∧ inside j = true ∧ c ∈ data.constants)
+    (hfind : ∀ x a, srcFind x = some a →
+      ∃ j data, modules[j]? = some data ∧ inside j = true ∧ a ∈ data.constants)
+    (hdst : ∀ x b, dstFind x = some b → DeclaredIn modules inside x)
+    (hlone : ∀ x, alone x → DeclaredIn modules inside x)
     (habove : ∀ x, x ∈ above ↔ ∃ m, Refers modules m n ∧ Leads modules x m) :
-    renamedCopy (linksOf modules) src dst n fixedB aloneB srcFind dstFind above c r = true ↔
+    renamedCopy (linksOf modules inside) src dst n fixedB aloneB srcFind dstFind above c r = true ↔
       RenamedCopy modules src dst n fixed alone srcFind dstFind c r := by
-  have block : ∀ y, y ∈ blockOf (linksOf modules) src srcFind c ↔
-      InBlock modules src srcFind c y := fun _ => mem_blockOf hc hfind
-  have joined : ∀ z, z ∈ Std.HashSet.ofList
-      ((blockOf (linksOf modules) src srcFind c).toList ++
-        (blockOf (linksOf modules) src srcFind c).toList.map (renameName src dst)) ↔
-      InJoined modules src dst srcFind c z := by
+  -- Once every name of the block is renameable, `blockOf` gives the block and every joined name
+  -- is `DeclaredIn` the accepted modules.
+  have settle : (∀ y, InBlock modules src srcFind c y →
+      Renameable src dst fixed alone srcFind dstFind y) →
+      ∀ y, y ∈ blockOf (linksOf modules inside) src srcFind c ↔ InBlock modules src srcFind c y :=
+    fun hren _ => mem_blockOf hcovers hc hfind (fun z hz => hlone z (hren z (blockOf_sound hz)).2.1)
+  have declared : (∀ y, InBlock modules src srcFind c y →
+      Renameable src dst fixed alone srcFind dstFind y) →
+      ∀ z, InJoined modules src dst srcFind c z → DeclaredIn modules inside z := by
+    rintro hren z (hz | ⟨y, hy, rfl⟩)
+    · exact hlone z (hren z hz).2.1
+    · obtain ⟨-, -, -, -, -, b, -, hb, -⟩ := hren y hy
+      exact hdst _ b hb
+  have mem_joined : ∀ z, z ∈ Std.HashSet.ofList
+      ((blockOf (linksOf modules inside) src srcFind c).toList ++
+        (blockOf (linksOf modules inside) src srcFind c).toList.map (renameName src dst)) ↔
+      z ∈ blockOf (linksOf modules inside) src srcFind c ∨
+        ∃ y, y ∈ blockOf (linksOf modules inside) src srcFind c ∧ renameName src dst y = z := by
     intro z
     simp only [Std.HashSet.mem_ofList, List.contains_iff_mem, List.mem_append,
-      Std.HashSet.mem_toList, List.mem_map, block, InJoined]
-  unfold renamedCopy RenamedCopy
-  simp only [Bool.and_eq_true, sameTheorem_iff, renamedTo_iff, List.all_eq_true,
-    Std.HashSet.mem_toList, block, renameable_iff hfixed halone, Bool.not_eq_eq_eq_not,
-    Bool.not_true, Array.all_eq_true', Bool.or_eq_true, beq_iff_eq, Std.HashSet.contains_iff_mem,
-    joined, mem_before]
+      Std.HashSet.mem_toList, List.mem_map]
+  have joined : (∀ y, y ∈ blockOf (linksOf modules inside) src srcFind c ↔
+      InBlock modules src srcFind c y) →
+      ∀ z, (z ∈ blockOf (linksOf modules inside) src srcFind c ∨
+        ∃ y, y ∈ blockOf (linksOf modules inside) src srcFind c ∧ renameName src dst y = z) ↔
+      InJoined modules src dst srcFind c z := fun hblock z => by
+    unfold InJoined
+    simp only [hblock]
   have reach : ∀ z, reachesIn above n z = false ↔ ¬ Leads modules z n := fun z => by
     rw [← reachesIn_iff habove]
     cases reachesIn above n z <;> simp
-  simp only [reach, and_assoc]
+  unfold renamedCopy RenamedCopy
+  simp only [Bool.and_eq_true, sameTheorem_iff, renamedTo_iff, List.all_eq_true,
+    Std.HashSet.mem_toList, renameable_iff hfixed halone, Bool.not_eq_eq_eq_not,
+    Bool.not_true, Array.all_eq_true', Bool.or_eq_true, beq_iff_eq, Std.HashSet.contains_iff_mem,
+    mem_joined, reach]
+  constructor
+  · rintro ⟨⟨hsame, hto⟩, hren, hjoin⟩
+    have hblock : ∀ y, y ∈ blockOf (linksOf modules inside) src srcFind c ↔
+        InBlock modules src srcFind c y :=
+      fun _ => mem_blockOf hcovers hc hfind (fun z hz => hlone z (hren z hz).2.1)
+    have hren' : ∀ y, InBlock modules src srcFind c y →
+        Renameable src dst fixed alone srcFind dstFind y := fun y hy => hren y ((hblock y).mpr hy)
+    refine ⟨hsame, hto, hren', fun z hz => ?_⟩
+    obtain ⟨hnot, hrefs⟩ := hjoin z ((joined (settle hren') z).mpr hz)
+    refine ⟨hnot, fun x hx => ?_⟩
+    rcases hrefs x ((mem_before hcovers (declared hren' z hz)).mpr hx) with rfl | hx'
+    · exact .inl rfl
+    · exact .inr ((joined (settle hren') x).mp hx')
+  · rintro ⟨hsame, hto, hren, hjoin⟩
+    have hblock := settle hren
+    refine ⟨⟨hsame, hto⟩, fun y hy => hren y ((hblock y).mp hy), fun z hz => ?_⟩
+    have hz' := (joined hblock z).mp hz
+    obtain ⟨hnot, hrefs⟩ := hjoin z hz'
+    refine ⟨hnot, fun x hx => ?_⟩
+    rcases hrefs x ((mem_before hcovers (declared hren z hz')).mp hx) with rfl | hx'
+    · exact .inl rfl
+    · exact .inr ((joined hblock x).mpr hx')
 
 /-- The constants of a module's data by name. -/
 def constantsByName (data : ModuleData) : Std.HashMap Name ConstantInfo :=
@@ -1330,48 +2027,22 @@ def UniformBy (modules : Array ModuleData) (names : Array Name) (attributed : Na
         Identical r c ∨ Related j data src dst (constantsByName reference) c r
 
 /-- **`uniformBy` over the pass of `duplicatesOf` accepts exactly a name that `UniformBy` admits**,
-for a `related` test that decides `Related` on each copy of a loaded module. -/
+for a `related` test that decides `Related` on each copy of `n` in a loaded module, against the
+copy `r` of the module `n` is attributed to, with that module's constants by name. -/
 theorem uniformBy_iff {find : Name → Option ConstantInfo} {attributed : Name → Option Nat}
     {modules : Array ModuleData} {names : Array Name}
     {related : Nat → ModuleData → Name → Name → Std.HashMap Name ConstantInfo → ConstantInfo →
       ConstantInfo → Bool}
     {Related : Nat → ModuleData → Name → Name → Std.HashMap Name ConstantInfo → ConstantInfo →
       ConstantInfo → Prop}
-    (hrelated : ∀ j data src dst index c r, modules[j]? = some data → c ∈ data.constants →
-      (related j data src dst index c r = true ↔ Related j data src dst index c r))
-    {n : Name} :
+    {n : Name}
+    (hrelated : ∀ i reference j data src dst c r, attributed n = some i →
+      modules[i]? = some reference → r ∈ reference.constants → r.name = n →
+      modules[j]? = some data → c ∈ data.constants → c.name = n →
+      (related j data src dst (constantsByName reference) c r = true ↔
+        Related j data src dst (constantsByName reference) c r)) :
     uniformBy modules names attributed (duplicatesOf find attributed modules) related n = true ↔
       UniformBy modules names attributed Related n := by
-  have copies : ∀ (j : Nat) (dst : Name) (index : Std.HashMap Name ConstantInfo)
-      (r : ConstantInfo),
-      (match modules[j]?, names[j]? with
-        | some data, some src =>
-          data.constants.all fun c =>
-            c.name != n || identical r c || related j data src dst index c r
-        | _, _ => false) = true ↔
-      ∃ data src, modules[j]? = some data ∧ names[j]? = some src ∧
-        ∀ c ∈ data.constants, c.name = n → Identical r c ∨ Related j data src dst index c r := by
-    intro j dst index r
-    cases hdata : modules[j]? with
-    | none => simp
-    | some data =>
-      cases names[j]? with
-      | none => simp
-      | some src =>
-        simp only [Array.all_eq_true', Bool.or_eq_true, bne_iff_ne, ne_eq, identical_iff,
-          Option.some.injEq, exists_and_left, exists_eq_left']
-        constructor
-        · intro h c hc hn
-          rcases h c hc with (h | h) | h
-          · exact absurd hn h
-          · exact .inl h
-          · exact .inr ((hrelated j data src dst index c r hdata hc).mp h)
-        · intro h c hc
-          by_cases hn : c.name = n
-          · rcases h c hc hn with h | h
-            · exact .inl (.inr h)
-            · exact .inr ((hrelated j data src dst index c r hdata hc).mpr h)
-          · exact .inl (.inl hn)
   unfold uniformBy UniformBy
   cases hattr : attributed n with
   | none => simp
@@ -1385,9 +2056,43 @@ theorem uniformBy_iff {find : Name → Option ConstantInfo} {attributed : Name �
         cases hr : reference.constants.find? (·.name == n) with
         | none => simp [hmod, hname, hr]
         | some r =>
-          have hdecl : Declares modules i n :=
-            ⟨reference, hmod, r, Array.mem_of_find?_eq_some hr,
-              beq_iff_eq.mp (Array.find?_some (p := fun (x : ConstantInfo) => x.name == n) hr)⟩
+          have hrmem : r ∈ reference.constants := Array.mem_of_find?_eq_some hr
+          have hrname : r.name = n :=
+            beq_iff_eq.mp (Array.find?_some (p := fun (x : ConstantInfo) => x.name == n) hr)
+          have hdecl : Declares modules i n := ⟨reference, hmod, r, hrmem, hrname⟩
+          have copies : ∀ (j : Nat),
+              (match modules[j]?, names[j]? with
+                | some data, some src =>
+                  data.constants.all fun c =>
+                    c.name != n || identical r c ||
+                      related j data src dst (constantsByName reference) c r
+                | _, _ => false) = true ↔
+              ∃ data src, modules[j]? = some data ∧ names[j]? = some src ∧
+                ∀ c ∈ data.constants, c.name = n →
+                  Identical r c ∨ Related j data src dst (constantsByName reference) c r := by
+            intro j
+            cases hdata : modules[j]? with
+            | none => simp
+            | some data =>
+              cases names[j]? with
+              | none => simp
+              | some src =>
+                have hrel := fun c hc hcn =>
+                  hrelated i reference j data src dst c r hattr hmod hrmem hrname hdata hc hcn
+                simp only [Array.all_eq_true', Bool.or_eq_true, bne_iff_ne, ne_eq, identical_iff,
+                  Option.some.injEq, exists_and_left, exists_eq_left']
+                constructor
+                · intro h c hc hn
+                  rcases h c hc with (h | h) | h
+                  · exact absurd hn h
+                  · exact .inl h
+                  · exact .inr ((hrel c hc hn).mp h)
+                · intro h c hc
+                  by_cases hn : c.name = n
+                  · rcases h c hc hn with h | h
+                    · exact .inl (.inr h)
+                    · exact .inr ((hrel c hc hn).mpr h)
+                  · exact .inl (.inl hn)
           simp only [hmod, hname, hr, List.all_eq_true, List.mem_cons, Array.mem_toList_iff,
             copies]
           constructor
@@ -1455,7 +2160,8 @@ theorem aloneIn_iff {find : Name → Option ConstantInfo} {attributed : Name →
 
 /-- Whether every copy of `n` is the attributed module's copy or a theorem with the same
 statement whose renaming into it `renamedTo` accepts, the shape `renamedCopy` starts from. Only a
-`differing` name of this shape needs the references of the loaded constants (`agreeing`). -/
+`differing` name of this shape starts the computation of the region of the owned modules and the
+reading of its references (`agreeing`). -/
 def renamedShape (modules : Array ModuleData) (names : Array Name)
     (attributed : Name → Option Nat) (dups : Duplicates) (n : Name) : Bool :=
   uniformBy modules names attributed dups
@@ -1463,16 +2169,19 @@ def renamedShape (modules : Array ModuleData) (names : Array Name)
 
 /-- Whether the copies of `n` agree up to the names private to the modules that declare them:
 `n` lies on no cycle (it is not among the names `aboveIn` gives as reaching it in one or more
-steps), no name of `native` and none of `kernelNames` reaches it, and every copy is the attributed
-module's copy or a `renamedCopy` of it, with the constants of each name of a block declared by
-that copy's module alone (`aloneIn`) and `fixed`. `links` gives the references of the loaded
-constants and `native` the names that reach `Lean.reduceBool` or `Lean.reduceNat`.
-`uniformUpToPrivate_iff` states the decision. -/
+steps), no name that reaches it reaches `Lean.reduceBool` or `Lean.reduceNat` (`nativeFree`, a
+search forward from `n` and those names), none of `kernelNames` reaches it, and every copy is the
+attributed module's copy or a `renamedCopy` of it, with the constants of each name of a block
+declared by that copy's module alone (`aloneIn`) and `fixed`. `links` gives the references of the
+constants of the region of the owned modules (`linksOf`). `uniformUpToPrivate_iff` states the
+decision. -/
 def uniformUpToPrivate (modules : Array ModuleData) (names : Array Name)
     (attributed : Name → Option Nat) (dups : Duplicates) (fixed : Name → Bool) (links : Links)
-    (native : Std.HashSet Name) (n : Name) : Bool :=
+    (n : Name) : Bool :=
   let above := aboveIn links n
-  !above.contains n && (native.toList ++ kernelNames).all (fun x => !reachesIn above n x) &&
+  !above.contains n &&
+    nativeFree modules attributed dups (links.fuel + links.declared + 1 + above.size) above n &&
+    kernelNames.all (fun x => !reachesIn above n x) &&
     uniformBy modules names attributed dups (fun j data src dst index c r =>
       renamedCopy links src dst n fixed (aloneIn attributed dups j) ((constantsByName data)[·]?)
         (index[·]?) above c r) n
@@ -1491,36 +2200,62 @@ def UniformUpToPrivate (modules : Array ModuleData) (names : Array Name)
       RenamedCopy modules src dst n fixed (Alone modules attributed j) ((constantsByName data)[·]?)
         (index[·]?) c r) n
 
-/-- **`uniformUpToPrivate` over the pass of `duplicatesOf` and the references of `modules`
-accepts exactly a name that `UniformUpToPrivate` admits.** -/
+/-- **`uniformUpToPrivate` over the pass of `duplicatesOf` and the references of the accepted
+modules accepts exactly a name that `UniformUpToPrivate` admits**, when the accepted modules
+`Covers` the references and every module that declares `n` is accepted (`DeclaredIn`). -/
 theorem uniformUpToPrivate_iff {find : Name → Option ConstantInfo}
     {attributed : Name → Option Nat} {modules : Array ModuleData} {names : Array Name}
     {fixedB : Name → Bool} {fixed : Name → Prop} (hfixed : ∀ n, fixedB n = true ↔ fixed n)
-    {n : Name} :
+    {inside : Nat → Bool} (hcovers : Covers modules inside) {n : Name}
+    (hn : DeclaredIn modules inside n) :
     uniformUpToPrivate modules names attributed (duplicatesOf find attributed modules) fixedB
-        (linksOf modules) (nativeIn (linksOf modules)) n = true ↔
+        (linksOf modules inside) n = true ↔
       UniformUpToPrivate modules names attributed fixed n := by
-  have reach : ∀ x, reachesIn (aboveIn (linksOf modules) n) n x = true ↔ Leads modules x n :=
-    fun _ => reachesIn_iff fun _ => mem_aboveIn
-  unfold uniformUpToPrivate UniformUpToPrivate
-  simp only [Bool.and_eq_true, Bool.not_eq_eq_eq_not, Bool.not_true,
-    Std.HashSet.contains_eq_false_iff_not_mem, mem_aboveIn, List.all_eq_true,
-    Std.HashSet.mem_toList, mem_nativeIn, List.mem_append, and_assoc]
-  refine and_congr Iff.rfl
-    (and_congr ?_ (uniformBy_iff fun j data src dst index c r hdata hc => ?_))
-  · constructor
-    · intro h d hd hnative
-      have := h d hnative
+  have habove : ∀ x, x ∈ aboveIn (linksOf modules inside) n ↔
+      ∃ m, Refers modules m n ∧ Leads modules x m := fun _ => mem_aboveIn hcovers hn
+  have reach : ∀ x, reachesIn (aboveIn (linksOf modules inside) n) n x = true ↔
+      Leads modules x n := fun _ => reachesIn_iff habove
+  have native := nativeFree_iff (find := find) (attributed := attributed) hcovers habove
+    (fuel := (linksOf modules inside).fuel + (linksOf modules inside).declared + 1 +
+      (aboveIn (linksOf modules inside) n).size)
+    (by rw [fuel_linksOf.1, fuel_linksOf.2]; omega)
+  have kernel : (∀ x ∈ kernelNames, reachesIn (aboveIn (linksOf modules inside) n) n x = false) ↔
+      ∀ d, Leads modules d n → d ∉ kernelNames := by
+    constructor
+    · intro h d hd hk
+      have := h d hk
       rw [← Bool.not_eq_true, reach] at this
       exact this hd
     · intro h x hx
-      cases hr : reachesIn (aboveIn (linksOf modules) n) n x
+      cases hr : reachesIn (aboveIn (linksOf modules inside) n) n x
       · rfl
       · exact absurd hx (h x ((reach x).mp hr))
-  · exact renamedCopy_iff hfixed (fun _ => aloneIn_iff)
-      ⟨data, Array.mem_of_getElem? hdata, hc⟩
-      (fun _ _ ha => ⟨data, Array.mem_of_getElem? hdata, (constantsByName_sound ha).1⟩)
-      (fun _ => mem_aboveIn)
+  have uniform := uniformBy_iff (find := find) (attributed := attributed) (names := names) (n := n)
+    (related := fun j data src dst index c r =>
+      renamedCopy (linksOf modules inside) src dst n fixedB
+        (aloneIn attributed (duplicatesOf find attributed modules) j) ((constantsByName data)[·]?)
+        (index[·]?) (aboveIn (linksOf modules inside) n) c r)
+    (Related := fun j data src dst index c r =>
+      RenamedCopy modules src dst n fixed (Alone modules attributed j) ((constantsByName data)[·]?)
+        (index[·]?) c r)
+    fun i reference j data src dst c r hi hm hrm hrn hdata hc hcn =>
+      have hj : inside j = true := hn j ⟨data, hdata, c, hc, hcn⟩
+      renamedCopy_iff hfixed (fun _ => aloneIn_iff) hcovers ⟨j, data, hdata, hj, hc⟩
+        (fun _ _ ha => ⟨j, data, hdata, hj, (constantsByName_sound ha).1⟩)
+        (fun x b hb k hk => hcovers.shares i k x (hn i ⟨reference, hm, r, hrm, hrn⟩)
+          ⟨reference, hm, b, (constantsByName_sound hb).1, (constantsByName_sound hb).2⟩ hk)
+        (fun x ⟨_, honly⟩ k hk => by rw [honly k hk]; exact hj)
+        habove
+  unfold uniformUpToPrivate UniformUpToPrivate
+  simp only [Bool.and_eq_true, Bool.not_eq_eq_eq_not, Bool.not_true,
+    Std.HashSet.contains_eq_false_iff_not_mem, habove, List.all_eq_true]
+  rw [native, kernel, uniform]
+  constructor
+  · rintro ⟨⟨⟨hcycle, hnative⟩, hkernel⟩, huniform⟩
+    exact ⟨hcycle, fun d hd h => h.elim (hnative d hd) (hkernel d hd), huniform⟩
+  · rintro ⟨hcycle, h, huniform⟩
+    exact ⟨⟨⟨hcycle, fun d hd hx => h d hd (.inl hx)⟩, fun d hd hk => h d hd (.inr hk)⟩,
+      huniform⟩
 
 /-- Whether the module `n` is attributed to and each of its `others`, the other modules that
 declare `n`, are named in `owned`. `declaredOwned_iff` states the decision. -/
@@ -1557,9 +2292,16 @@ theorem declaredOwned_iff {find : Name → Option ConstantInfo} {attributed : Na
 
 /-- The `differing` names of `dups` whose copies agree up to the names private to the modules
 that declare them (`uniformUpToPrivate`), among the names that only modules named in `owned`
-declare (`declaredOwned`). The references of the loaded constants (`linksOf`) are read only when
-some such name has the shape of a renamed copy (`renamedShape`). So a name that a module outside
-`owned` declares, such as a name that only toolchain modules declare, never starts that pass.
+declare (`declaredOwned`). The region of `owned` (`regionOf`) and the references of its constants
+(`linksOf`) are computed only when some such name has the shape of a renamed copy
+(`renamedShape`), and then at most one time in each call. The region is the least set of modules
+that holds the owned modules, each module that imports one of the set and each module that shares
+a name with one of the set (`InRegion`), and `linksOf` reads the references of no constant outside
+it. `nativeFree` follows references forward from the name
+and the names that reach it, through any loaded module. So a name that a module outside `owned`
+declares, such as a name that only toolchain modules declare, never starts these searches.
+`agrees_iff` takes `ImportScoped` as a hypothesis: then the region covers every constant that
+refers to a name the searches read backward (`covers_regionOf`).
 
 Why the restriction to `owned` costs no reuse that Regula had before it read renamed copies: then
 no `differing` name agreed. Agreement up to renaming serves only the reuse of an owned module,
@@ -1574,10 +2316,8 @@ def agreeing (modules : Array ModuleData) (names : Array Name) (attributed : Nam
   let shaped := dups.differing.toList.filter fun n =>
     declaredOwned names attributed dups owned n && renamedShape modules names attributed dups n
   if shaped.isEmpty then {} else
-    let links := linksOf modules
-    Std.HashSet.ofList
-      (shaped.filter
-        (uniformUpToPrivate modules names attributed dups fixed links (nativeIn links)))
+    let links := linksOf modules (regionHas (regionOf modules names attributed dups owned))
+    Std.HashSet.ofList (shaped.filter (uniformUpToPrivate modules names attributed dups fixed links))
 
 /-- Whether the copies of `n` agree: `n` is outside `differing`, or in `agreeing`. -/
 def agrees (dups : Duplicates) (agreeing : Std.HashSet Name) (n : Name) : Bool :=
@@ -1594,11 +2334,12 @@ def Agrees (find : Name → Option ConstantInfo) (modules : Array ModuleData) (n
   Uniform find modules n ∨
     UniformUpToPrivate modules names attributed fixed n ∧ DeclaredOwned modules names owned n
 
-/-- **`agrees` over the pass of `duplicatesOf` accepts exactly a name that `Agrees` admits.** -/
+/-- **`agrees` over the pass of `duplicatesOf` accepts exactly a name that `Agrees` admits**, when
+the modules outside `owned` meet `ImportScoped`. -/
 theorem agrees_iff {find : Name → Option ConstantInfo} {attributed : Name → Option Nat}
     {modules : Array ModuleData} {names : Array Name} {owned : Std.HashSet Name}
     {fixedB : Name → Bool} {fixed : Name → Prop} (hfixed : ∀ n, fixedB n = true ↔ fixed n)
-    {n : Name} :
+    (hscoped : ImportScoped modules names owned) {n : Name} :
     agrees (duplicatesOf find attributed modules)
         (agreeing modules names attributed (duplicatesOf find attributed modules) owned fixedB) n =
         true ↔
@@ -1619,9 +2360,17 @@ theorem agrees_iff {find : Name → Option ConstantInfo} {attributed : Name → 
     unfold renamedShape
     rw [uniformBy_iff (Related := fun _ _ src dst _ c r =>
       sameTheorem r c = true ∧ renamedTo src dst c r = true)
-      (fun _ _ _ _ _ _ _ _ _ => Iff.of_eq (Bool.and_eq_true _ _))]
+      (fun _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ => Iff.of_eq (Bool.and_eq_true _ _))]
     refine h.2.2.mono fun _ _ _ _ _ c r hrel => ?_
     exact ⟨(sameTheorem_iff _ _).mpr hrel.1, renamedTo_iff.mpr hrel.2.1⟩
+  -- Every module that declares a name only owned modules declare is in the region.
+  have inside : DeclaredOwned modules names owned n →
+      DeclaredIn modules (regionHas (regionOf modules names attributed
+        (duplicatesOf find attributed modules) owned)) n := fun hdecl k hk => by
+    obtain ⟨name, hname, howned⟩ := hdecl k hk
+    obtain ⟨data, hdata, -⟩ := hk
+    exact regionHas_iff.mpr (.owned hdata hname howned)
+  have hcovers := covers_regionOf (find := find) (attributed := attributed) hscoped
   unfold agrees agreeing Agrees
   by_cases hd : n ∈ (duplicatesOf find attributed modules).differing
   · have hnot : ¬ Uniform find modules n := fun hu => not_mem_differing_iff.mpr hu hd
@@ -1637,13 +2386,13 @@ theorem agrees_iff {find : Name → Option ConstantInfo} {attributed : Name → 
       rw [List.isEmpty_iff.mp hempty] at hmem
       simp at hmem
     · simp only [Std.HashSet.contains_ofList, List.contains_iff_mem, List.mem_filter,
-        Std.HashSet.mem_toList, hd, true_and, uniformUpToPrivate_iff hfixed]
+        Std.HashSet.mem_toList, hd, true_and]
       constructor
       · rintro ⟨hs, h⟩
         rw [Bool.and_eq_true, declaredOwned_iff] at hs
-        exact ⟨h, hs.1.2⟩
+        exact ⟨(uniformUpToPrivate_iff hfixed hcovers (inside hs.1.2)).mp h, hs.1.2⟩
       · rintro ⟨h, hdecl⟩
-        exact ⟨shaped h hdecl, h⟩
+        exact ⟨shaped h hdecl, (uniformUpToPrivate_iff hfixed hcovers (inside hdecl)).mpr h⟩
   · simp only [Std.HashSet.contains_eq_false_iff_not_mem.mpr hd, Bool.not_false, Bool.true_or,
       true_iff]
     exact .inl (not_mem_differing_iff.mp hd)
@@ -1673,9 +2422,15 @@ theorem fixedIn_iff {roles : Std.HashSet Name} {find : Name → Option ConstantI
 A claimed constant that reaches `Lean.reduceBool` also reaches the axiom `Lean.trustCompiler`,
 which no claim admits, and Lean refuses a second declaration of a name of `kernelNames` in a
 module that imports `Init`, so these witnesses run `agrees` on module data written here, not on
-modules Lean built. `W.Dst` and `W.Src` each declare a private `flag` and a copy of `W.lemma` whose
-proof applies a function of `W.Base` to that `flag`, so the two copies differ only in the private
-name. The last witnesses run `agrees` with and without `W.Src` among the owned modules. -/
+modules Lean built. `W.Dst` and `W.Src` import `W.Base`, and each declares a private `flag` and a
+copy of `W.lemma` whose proof applies a function of `W.Base` to that `flag`, so the two copies
+differ only in the private name. `W.Use` imports `W.Src` and is not owned, so it is in the region
+of the owned modules (`regionOf`), and `W.Base` is not. No witness module declares
+`Lean.reduceBool`, `Bool` or `W.prove`: the forward search of `nativeFree` meets such a name, which
+is how it meets `Lean.reduceBool`, and follows no reference from it, since it has no copy. These
+module data do not meet `ImportScoped`, since `W.Base` refers to `Bool`, so the `#guard` commands
+observe `agrees` as it runs, not an instance of `agrees_iff`. The last witnesses run `agrees` with
+and without `W.Src` among the owned modules. -/
 
 /-- The theorem `n` of `True` with the proof `value`. -/
 private def witnessTheorem (n : Name) (value : Expr) : ConstantInfo :=
@@ -1688,17 +2443,18 @@ private def witnessDefinition (n : Name) (flag : Bool) (value : Expr) : Constant
   .defnInfo
     { name := n, levelParams := [], type, value, hints := .abbrev, safety := .safe, all := [n] }
 
-/-- The data of a module that declares `constants`. -/
-private def witnessModule (constants : Array ConstantInfo) : ModuleData :=
-  { isModule := false, imports := #[], constNames := constants.map (·.name), constants,
-    extraConstNames := #[], entries := #[] }
+/-- The data of a module that imports the modules `imports` and declares `constants`. -/
+private def witnessModule (imports : Array Name) (constants : Array ConstantInfo) : ModuleData :=
+  { isModule := false, imports := imports.map fun m => { module := m },
+    constNames := constants.map (·.name), constants, extraConstNames := #[], entries := #[] }
 
 /-- Whether `agrees` accepts `W.lemma` when each copy applies `apply` to its module's `flag`,
-`W.Src` also declares `extra`, and the modules named in `owned` are owned. `W.Base` declares
-`W.rb`, which applies `Lean.reduceBool`, and `W.keep`, which does not. Each name is attributed to
-the first module that declares it, and the environment keeps the last copy. -/
+`W.Src` also declares `extra`, `W.Use` declares `importer`, and the modules named in `owned` are
+owned. `W.Base` declares `W.rb`, which applies `Lean.reduceBool`, and `W.keep`, which does not.
+Each name is attributed to the first module that declares it, and the environment keeps the last
+copy. -/
 private def witnessAgrees (apply : Name) (extra : Array ConstantInfo)
-    (owned : Array Name := #[`W.Dst, `W.Src]) : Bool :=
+    (owned : Array Name := #[`W.Dst, `W.Src]) (importer : Array ConstantInfo := #[]) : Bool :=
   let flag (m : Name) := mkPrivateNameCore m `flag
   let proof (m : Name) : Expr :=
     .app (.const `W.prove []) (.app (.const apply []) (.const (flag m) []))
@@ -1708,12 +2464,12 @@ private def witnessAgrees (apply : Name) (extra : Array ConstantInfo)
     witnessDefinition `W.rb false
       (.lam `b (.const ``Bool []) (.app (.const ``Lean.reduceBool []) (.bvar 0)) .default),
     witnessDefinition `W.keep false (.lam `b (.const ``Bool []) (.bvar 0) .default)]
-  let modules := #[witnessModule base, witnessModule (copy `W.Dst),
-    witnessModule (copy `W.Src ++ extra)]
+  let modules := #[witnessModule #[] base, witnessModule #[`W.Base] (copy `W.Dst),
+    witnessModule #[`W.Base] (copy `W.Src ++ extra), witnessModule #[`W.Src] importer]
   let attributed (x : Name) := modules.findIdx? (·.constNames.contains x)
   let find (x : Name) := modules.reverse.findSome? (·.constants.find? (·.name == x))
   let dups := duplicatesOf find attributed modules
-  agrees dups (agreeing modules #[`W.Base, `W.Dst, `W.Src] attributed dups
+  agrees dups (agreeing modules #[`W.Base, `W.Dst, `W.Src, `W.Use] attributed dups
     (Std.HashSet.ofList owned.toList) (fixedIn {} dups)) `W.lemma
 
 -- The copies agree when no name that reaches `W.lemma` reaches `Lean.reduceBool` and only the
@@ -1721,7 +2477,7 @@ private def witnessAgrees (apply : Name) (extra : Array ConstantInfo)
 -- Compiled-evaluation observation at build time, not a kernel-checked proof.
 #guard witnessAgrees `W.keep #[]
 -- Native reduction through an alias in the copies: each copy reaches `Lean.reduceBool` through
--- `W.rb`.
+-- `W.rb`, a constant outside the copies that `W.Base`, outside the region, declares.
 -- Compiled-evaluation observation at build time, not a kernel-checked proof.
 #guard !witnessAgrees `W.rb #[]
 -- Native reduction through a name that refers to `W.lemma`: `W.use` refers to it and to `W.rb`.
@@ -1732,6 +2488,14 @@ private def witnessAgrees (apply : Name) (extra : Array ConstantInfo)
 -- Compiled-evaluation observation at build time, not a kernel-checked proof.
 #guard witnessAgrees `W.keep
   #[witnessTheorem `W.use (mkApp2 (.const `W.prove []) (.const `W.lemma []) (.const `W.keep []))]
+-- The same through a module that is not owned: `W.use` of `W.Use`, which imports `W.Src`, refers
+-- to `W.lemma` and to `W.rb`. With `W.keep` in its place, the copies agree.
+-- Compiled-evaluation observation at build time, not a kernel-checked proof.
+#guard !witnessAgrees `W.keep #[] (importer :=
+  #[witnessTheorem `W.use (mkApp2 (.const `W.prove []) (.const `W.lemma []) (.const `W.rb []))])
+-- Compiled-evaluation observation at build time, not a kernel-checked proof.
+#guard witnessAgrees `W.keep #[] (importer :=
+  #[witnessTheorem `W.use (mkApp2 (.const `W.prove []) (.const `W.lemma []) (.const `W.keep []))])
 -- A name the kernel reads unasked: a constant under the name `Char.ofNat` refers to `W.lemma`.
 -- Under a name outside `kernelNames`, the copies agree.
 -- Compiled-evaluation observation at build time, not a kernel-checked proof.
@@ -2060,11 +2824,12 @@ def AgreesIn (env : Environment) (owned : Std.HashSet Name) (n : Name) : Prop :=
     (Fixed (rolesIn env) env.find? env.header.moduleData) n
 
 /-- **`agrees` over the pass `duplicatesIn` of `env` accepts exactly a name that `AgreesIn`
-admits.** -/
-theorem agreesIn_iff {env : Environment} {owned : Std.HashSet Name} (n : Name) :
+admits**, when the loaded modules outside `owned` meet `ImportScoped`. -/
+theorem agreesIn_iff {env : Environment} {owned : Std.HashSet Name}
+    (hscoped : ImportScoped env.header.moduleData env.header.moduleNames owned) (n : Name) :
     agrees (duplicatesIn env) (agreeingIn env (duplicatesIn env) owned) n = true ↔
       AgreesIn env owned n :=
-  agrees_iff (fixedIn_iff (roles := rolesIn env))
+  agrees_iff (fixedIn_iff (roles := rolesIn env)) hscoped
 
 /-- Each prior with its admission's origins indexed by module name. -/
 def indexPriors (priors : Array PriorAdmission) :
@@ -2166,28 +2931,49 @@ def Candidate (env : Environment) (origins : Array RegulaPolicy.ModuleOrigin) (o
       CopiesAgree (AgreesIn env (Std.HashSet.ofList owned.toList)) (attributedIn env)
         env.header.moduleData owner
 
-/-- **The candidates are exactly the modules, with their closures, that `Candidate` admits.** -/
+/-- The owned modules an earlier environment offers, each with its closure here, are exactly the
+owned modules with a closure here that a prior offers over the same closure. -/
+private theorem mem_offered {origins : Array RegulaPolicy.ModuleOrigin} {owned : Array Name}
+    {priors : Array PriorAdmission} {m : Name} {closure : Array RegulaPolicy.ModuleOrigin} :
+    (m, closure) ∈ owned.filterMap (fun m =>
+        (offeredClosure (indexPriors priors) (originIndex origins) m).map (m, ·)) ↔
+      m ∈ owned ∧ importClosure (originIndex origins) m = some closure ∧
+        ∃ prior ∈ priors, m ∈ prior.modules ∧
+          importClosure (originIndex prior.origins) m = some closure := by
+  simp only [Array.mem_filterMap, Option.map_eq_some_iff, Prod.mk.injEq]
+  constructor
+  · rintro ⟨a, ha, found, hfound, rfl, rfl⟩
+    obtain ⟨hclosure, offering, hoffering, hm, hc⟩ := offeredClosure_eq_some.mp hfound
+    obtain ⟨prior, hprior, rfl⟩ := Array.mem_map.mp hoffering
+    exact ⟨ha, hclosure, prior, hprior, hm, hc⟩
+  · rintro ⟨hm, hclosure, prior, hprior, hmod, hc⟩
+    refine ⟨m, hm, closure, offeredClosure_eq_some.mpr ⟨hclosure, (prior, _),
+      Array.mem_map.mpr ⟨prior, hprior, rfl⟩, hmod, hc⟩, rfl, rfl⟩
+
+/-- A candidate is an owned module with a closure here that a prior offers over the same
+closure, whatever the copies of its names. -/
+theorem offered_of_mem_candidates {env : Environment} {origins : Array RegulaPolicy.ModuleOrigin}
+    {owned : Array Name} {priors : Array PriorAdmission} {m : Name}
+    {closure : Array RegulaPolicy.ModuleOrigin}
+    (h : (m, closure) ∈ candidates env origins owned priors) :
+    m ∈ owned ∧ importClosure (originIndex origins) m = some closure ∧
+      ∃ prior ∈ priors, m ∈ prior.modules ∧
+        importClosure (originIndex prior.origins) m = some closure := by
+  unfold candidates at h
+  simp only at h
+  split at h
+  · simp at h
+  · exact mem_offered.mp (Array.mem_filter.mp h).1
+
+/-- **The candidates are exactly the modules, with their closures, that `Candidate` admits**,
+when the loaded modules outside `owned` meet `ImportScoped`. -/
 theorem mem_candidates_iff {env : Environment} {origins : Array RegulaPolicy.ModuleOrigin}
     {owned : Array Name} {priors : Array PriorAdmission}
+    (hscoped : ImportScoped env.header.moduleData env.header.moduleNames
+      (Std.HashSet.ofList owned.toList))
     {entry : Name × Array RegulaPolicy.ModuleOrigin} :
     entry ∈ candidates env origins owned priors ↔
       Candidate env origins owned priors entry.1 entry.2 := by
-  have offered : ∀ (m : Name) (closure : Array RegulaPolicy.ModuleOrigin),
-      (m, closure) ∈ owned.filterMap (fun m =>
-          (offeredClosure (indexPriors priors) (originIndex origins) m).map (m, ·)) ↔
-        m ∈ owned ∧ importClosure (originIndex origins) m = some closure ∧
-          ∃ prior ∈ priors, m ∈ prior.modules ∧
-            importClosure (originIndex prior.origins) m = some closure := by
-    intro m closure
-    simp only [Array.mem_filterMap, Option.map_eq_some_iff, Prod.mk.injEq]
-    constructor
-    · rintro ⟨a, ha, found, hfound, rfl, rfl⟩
-      obtain ⟨hclosure, offering, hoffering, hm, hc⟩ := offeredClosure_eq_some.mp hfound
-      obtain ⟨prior, hprior, rfl⟩ := Array.mem_map.mp hoffering
-      exact ⟨ha, hclosure, prior, hprior, hm, hc⟩
-    · rintro ⟨hm, hclosure, prior, hprior, hmod, hc⟩
-      refine ⟨m, hm, closure, offeredClosure_eq_some.mpr ⟨hclosure, (prior, _),
-        Array.mem_map.mpr ⟨prior, hprior, rfl⟩, hmod, hc⟩, rfl, rfl⟩
   obtain ⟨m, closure⟩ := entry
   unfold candidates Candidate
   simp only
@@ -2195,7 +2981,7 @@ theorem mem_candidates_iff {env : Environment} {origins : Array RegulaPolicy.Mod
   · rename_i hempty
     simp only [Array.not_mem_empty, false_iff]
     rintro ⟨hm, hclosure, hprior, -⟩
-    have hmem := (offered m closure).mpr ⟨hm, hclosure, hprior⟩
+    have hmem := mem_offered.mpr ⟨hm, hclosure, hprior⟩
     rw [Array.isEmpty_iff.mp hempty] at hmem
     simp at hmem
   · have hagree : ∀ n, agrees (duplicatesOf env.find? (attributedIn env) env.header.moduleData)
@@ -2204,8 +2990,8 @@ theorem mem_candidates_iff {env : Environment} {origins : Array RegulaPolicy.Mod
           (Std.HashSet.ofList owned.toList)
           (fixedIn (rolesIn env) (duplicatesOf env.find? (attributedIn env) env.header.moduleData)))
         n = true ↔ AgreesIn env (Std.HashSet.ofList owned.toList) n :=
-      fun _ => agrees_iff (fixedIn_iff (roles := rolesIn env))
-    simp only [Array.mem_filter, offered, Bool.and_eq_true, duplicatesIn, agreeingIn,
+      fun _ => agrees_iff (fixedIn_iff (roles := rolesIn env)) hscoped
+    simp only [Array.mem_filter, mem_offered, Bool.and_eq_true, duplicatesIn, agreeingIn,
       referencesWithin_iff hagree, copiesAgree_iff hagree]
     constructor
     · rintro ⟨⟨hm, hclosure, hprior⟩, ⟨owner, howner, hrefs⟩, ⟨owner', howner', hcopies⟩⟩
@@ -2235,9 +3021,12 @@ def reusedModules (env : Environment) (origins : Array RegulaPolicy.ModuleOrigin
     (closureWithin ownedSet (Std.HashSet.ofList (settled.map (·.1)).toList))).map (·.1)
 
 /-- **A module is reused exactly when it is a candidate with some closure and every owned module
-of that closure is a candidate too.** -/
+of that closure is a candidate too**, when the loaded modules outside `owned` meet
+`ImportScoped`. -/
 theorem mem_reusedModules_iff {env : Environment} {origins : Array RegulaPolicy.ModuleOrigin}
-    {owned : Array Name} {priors : Array PriorAdmission} {m : Name} :
+    {owned : Array Name} {priors : Array PriorAdmission} {m : Name}
+    (hscoped : ImportScoped env.header.moduleData env.header.moduleNames
+      (Std.HashSet.ofList owned.toList)) :
     m ∈ reusedModules env origins owned priors ↔
       ∃ closure, Candidate env origins owned priors m closure ∧
         ∀ origin ∈ closure, origin.name ∈ owned →
@@ -2250,9 +3039,9 @@ theorem mem_reusedModules_iff {env : Environment} {origins : Array RegulaPolicy.
     constructor
     · intro hn
       obtain ⟨entry, hentry, rfl⟩ := Array.mem_map.mp hn
-      exact ⟨entry.2, mem_candidates_iff.mp hentry⟩
+      exact ⟨entry.2, (mem_candidates_iff hscoped).mp hentry⟩
     · rintro ⟨inner, hinner⟩
-      exact Array.mem_map.mpr ⟨(n, inner), mem_candidates_iff.mpr hinner, rfl⟩
+      exact Array.mem_map.mpr ⟨(n, inner), (mem_candidates_iff hscoped).mpr hinner, rfl⟩
   have ownedIff : ∀ n, n ∈ Std.HashSet.ofList owned.toList ↔ n ∈ owned := by
     intro n
     rw [Std.HashSet.mem_ofList, List.contains_iff_mem, Array.mem_toList_iff]
@@ -2260,27 +3049,42 @@ theorem mem_reusedModules_iff {env : Environment} {origins : Array RegulaPolicy.
   simp only [Array.mem_map, Array.mem_filter, closureWithin_iff, named, ownedIff]
   constructor
   · rintro ⟨entry, ⟨hentry, hwithin⟩, rfl⟩
-    exact ⟨entry.2, mem_candidates_iff.mp hentry, hwithin⟩
+    exact ⟨entry.2, (mem_candidates_iff hscoped).mp hentry, hwithin⟩
   · rintro ⟨closure, hcandidate, hwithin⟩
-    exact ⟨(m, closure), ⟨mem_candidates_iff.mpr hcandidate, hwithin⟩, rfl⟩
+    exact ⟨(m, closure), ⟨(mem_candidates_iff hscoped).mpr hcandidate, hwithin⟩, rfl⟩
 
 /-- Every reused module is a candidate with a closure whose owned modules are all reused too, so
-reuse never leaves an owned import to replay. -/
+reuse never leaves an owned import to replay, when the loaded modules outside `owned` meet
+`ImportScoped`. -/
 theorem mem_reusedModules {env : Environment} {origins : Array RegulaPolicy.ModuleOrigin}
     {owned : Array Name} {priors : Array PriorAdmission} {m : Name}
+    (hscoped : ImportScoped env.header.moduleData env.header.moduleNames
+      (Std.HashSet.ofList owned.toList))
     (h : m ∈ reusedModules env origins owned priors) :
     ∃ closure, Candidate env origins owned priors m closure ∧
       ∀ origin ∈ closure, origin.name ∈ owned →
         origin.name ∈ reusedModules env origins owned priors := by
-  obtain ⟨closure, hcandidate, hwithin⟩ := mem_reusedModules_iff.mp h
+  obtain ⟨closure, hcandidate, hwithin⟩ := (mem_reusedModules_iff hscoped).mp h
   refine ⟨closure, hcandidate, fun origin horigin howned => ?_⟩
   obtain ⟨inner, hinner⟩ := hwithin origin horigin howned
-  refine mem_reusedModules_iff.mpr ⟨inner, hinner, fun other hother hotherOwned => ?_⟩
+  refine (mem_reusedModules_iff hscoped).mpr ⟨inner, hinner, fun other hother hotherOwned => ?_⟩
   obtain ⟨-, hclosure, -⟩ := hcandidate
   obtain ⟨-, hinnerClosure, -⟩ := hinner
   exact hwithin other
     (importClosure_trans (originIndex_keyed origins) hclosure horigin hinnerClosure other hother)
     hotherOwned
+
+/-- Every reused module is an owned module with a closure here that a prior offers over the same
+closure, whatever the copies of its names. -/
+theorem offered_of_mem_reusedModules {env : Environment}
+    {origins : Array RegulaPolicy.ModuleOrigin} {owned : Array Name}
+    {priors : Array PriorAdmission} {m : Name} (h : m ∈ reusedModules env origins owned priors) :
+    ∃ closure, m ∈ owned ∧ importClosure (originIndex origins) m = some closure ∧
+      ∃ prior ∈ priors, m ∈ prior.modules ∧
+        importClosure (originIndex prior.origins) m = some closure := by
+  simp only [reusedModules] at h
+  obtain ⟨⟨m', closure⟩, hentry, rfl⟩ := Array.mem_map.mp h
+  exact ⟨closure, offered_of_mem_candidates (Array.mem_filter.mp hentry).1⟩
 
 /-- Whether a report's admission reused only what `priors` offered: each reused module is one a
 prior offers over the import closure the report's own module origins give it, and each key the
@@ -3184,7 +3988,7 @@ theorem replayed_unless_offered {env : Environment} {origins : Array RegulaPolic
         importClosure (originIndex prior.origins) m ≠ some closure) :
     m ∈ replaySet loaded owned (reusedModules env origins owned priors) checker :=
   mem_replaySet ho fun hr => by
-    obtain ⟨closure, ⟨_, hc, ⟨prior, hp, hm, hpc⟩, _⟩, _⟩ := mem_reusedModules hr
+    obtain ⟨closure, _, hc, prior, hp, hm, hpc⟩ := offered_of_mem_reusedModules hr
     exact h closure hc prior hp hm hpc
 
 /-- A changed `.olean`, `.olean.server` or `.olean.private` forces a replay: an owned module is
@@ -3199,7 +4003,7 @@ theorem replayed_of_changed {env : Environment} {origins : Array RegulaPolicy.Mo
     m ∈ replaySet loaded owned (reusedModules env origins owned
       (currentOffers ownedSet readings completed)) checker :=
   mem_replaySet ho fun hr => by
-    obtain ⟨_, ⟨_, _, ⟨prior, hp, hm, _⟩, _⟩, _⟩ := mem_reusedModules hr
+    obtain ⟨_, _, _, prior, hp, hm, _⟩ := offered_of_mem_reusedModules hr
     obtain ⟨_, _, _, _, hmodules⟩ := mem_offers hp
     obtain ⟨⟨_, _, hself⟩, _⟩ := frozenClosure_sound (hmodules m hm).2.2.2
     obtain ⟨artifact, hartifact, hname, _⟩ := frozenIndex_unchanged hself
@@ -3220,7 +4024,7 @@ theorem replayed_of_changed_import {env : Environment}
     m ∈ replaySet loaded owned (reusedModules env origins owned
       (currentOffers ownedSet readings completed)) checker :=
   mem_replaySet ho fun hr => by
-    obtain ⟨_, ⟨_, _, ⟨prior, hp, hm, _⟩, _⟩, _⟩ := mem_reusedModules hr
+    obtain ⟨_, _, _, prior, hp, hm, _⟩ := offered_of_mem_reusedModules hr
     obtain ⟨source, hsource, _, _, hmodules⟩ := mem_offers hp
     obtain ⟨_, closure, hclosure, hall⟩ := frozenClosure_sound (hmodules m hm).2.2.2
     obtain ⟨origin, horigin, howned, hchanged⟩ := h source hsource closure hclosure

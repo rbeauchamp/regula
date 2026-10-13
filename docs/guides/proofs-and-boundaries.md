@@ -3018,12 +3018,36 @@ inferred from any pure proof.
   `_private.RegulaCore.JsonAgreement.0`.
 
   The references of a constant are the names that `KernelAxioms.successorsOf` gives. A constant
-  reaches itself, each name that it refers to and each name that those names reach.
-  `Admission.linksOf` reads the references of all the loaded constants. It runs a maximum of one
-  time in each call of `Admission.agreeing`. `Admission.candidates` and `Admission.validate` each
-  call `agreeing` through `Admission.agreeingIn`, thus `linksOf` runs a maximum of two times in each
-  environment. It runs only if a differing name that only owned modules declare has the shape of a
-  renamed copy.
+  reaches itself, each name that it refers to and each name that those names reach. The region of
+  the owned modules is the smallest set of modules with three properties. It contains each owned
+  module and each module that imports a module of the set. It also contains each module that shares
+  a name with a module of the set, as `Admission.Shares` states. `Admission.regionOf` computes the
+  region from the imports of the modules and from `Admission.duplicatesOf`, and it reads no
+  constant.
+
+  `Admission.linksOf` reads the references of the constants of the region only. Each search
+  backward from a name reads these references, for example the search for the names that reach
+  `n`. `Admission.nativeFree` searches forward from `n` and from the names that reach `n`, through
+  the copies of each name in all the loaded modules. The searches run only for a differing name
+  that only owned modules declare and that has the shape of a renamed copy. `Admission.regionOf`
+  and `linksOf` run only if such a name exists, and a maximum of one time in each call of
+  `Admission.agreeing`. `Admission.candidates` and `Admission.validate` each call `agreeing` through
+  `Admission.agreeingIn`, thus `regionOf` and `linksOf` run a maximum of two times in each
+  environment.
+
+  `Admission.ImportScoped` states a fact about the modules outside the owned modules. Each constant
+  of such a module refers only to names that its module or a module of its import closure
+  declares. If this fact is true, the backward searches meet each constant that refers to a name
+  that a module of the region declares. `Admission.covers_regionOf` and `Admission.mem_before`
+  prove this. The kernel gives the fact for a module that it checked, because it refuses a
+  declaration that uses a constant its environment does not hold. The docstring of `ImportScoped`
+  gives the source lines of Lean v4.34.1.
+
+  The fact is trusted for the modules outside the owned modules. These modules can contain
+  unchecked declarations, as all trusted code can. The fact is not assumed for an owned module,
+  because `linksOf` reads each owned module completely. If a module outside the owned modules does
+  not obey the fact, a backward search can miss a constant that refers to a name that the region
+  declares. The theorems that take the fact as a hypothesis then do not apply.
 
   Let `c` be a copy of the name `n` in `src`. The block of `c` is a set of names private to `src`.
   It starts with the names private to `src` that `c` refers to. A reference in either direction
@@ -3080,8 +3104,8 @@ inferred from any pure proof.
   copy of a name that a module outside the owned modules declares. Thus, in an environment that
   loads such a module, the name gives no reuse through that offer.
 
-  A name that a module outside the owned modules declares does not start `Admission.linksOf`. A
-  name that only toolchain modules declare is such a name. In an environment that loads the module
+  A name that a module outside the owned modules declares does not start `Admission.regionOf` or
+  the searches. A name that only toolchain modules declare is such a name. In an environment that loads the module
   outside the owned modules, an owned module that holds a renamed copy of the name is replayed. This
   is also true if an environment that did not load that module offered the owned module.
 
@@ -3241,17 +3265,22 @@ inferred from any pure proof.
   `Admission.renamedTo_iff`, `Admission.renameable_iff`, `Admission.renamedCopy_iff`,
   `Admission.uniformUpToPrivate_iff`, `Admission.declaredOwned_iff`, `Admission.agrees_iff`,
   `Admission.fixedIn_iff` and `Admission.agreesIn_iff` show that each decision of the renaming
-  accepts exactly the inputs that its proposition admits. `Admission.mem_blockOf` shows that the
-  search over the references gives exactly the block. `Admission.mem_aboveIn` and
-  `Admission.mem_nativeIn` show the same for the names that reach `n` and the names that reach the
-  two primitives. `Admission.mem_closure` and `KernelAxioms.search_isSome` show that each such
-  search has sufficient fuel.
+  accepts exactly the inputs that its proposition admits. `Admission.mem_regionOf` and
+  `Admission.mem_blockOf` show that `Admission.regionOf` gives exactly the region and the search
+  over the references gives exactly the block. `Admission.mem_aboveIn` shows the same for the names
+  that reach `n`. `Admission.nativeFree_iff` shows that `Admission.nativeFree` accepts exactly when
+  no name that reaches `n` reaches the two primitives. `Admission.mem_closure`,
+  `Admission.nativeFree_iff` and `KernelAxioms.search_isSome` show that each such search has
+  sufficient fuel.
 
   `Admission.copiesAgree_iff`, `Admission.referencesWithin_iff` and `Admission.ownedAgrees_iff`
   show the same for each decision of reuse. `Admission.mem_reusedModules_iff` shows that a module
   is reused exactly when it is a candidate and each owned module of its closure is a candidate.
   `Admission.offerable_of_unpinned` shows that an offered module holds a shared copy only of an
-  `offerable` name. **Argued, not machine-checked:** the arguments above, and that
+  `offerable` name. `Admission.covers_regionOf` derives the hypothesis `Admission.Covers` of the
+  search theorems from `Admission.ImportScoped`, and `Admission.agrees_iff` and the theorems that
+  use it take `ImportScoped` as a hypothesis. No theorem proves that hypothesis, because it is the
+  trusted fact above. **Argued, not machine-checked:** the arguments above, and that
   `Admission.validate` gives `ownedAgrees` with `Admission.agrees` to admission as `offerable`.
 
   **Observed, an external boundary:** the shared copies control of the structural partition of
@@ -3264,11 +3293,15 @@ inferred from any pure proof.
   `Lean.trustCompiler`, which no claim admits. A module that imports `Init` cannot declare a name
   of `Admission.kernelNames` again. Thus the witnesses of conditions 3 and 4 are `#guard` commands
   of `Admission` that run `agrees` on module data that the commands write. The same commands also
-  run `agrees` with a module that is not owned. Each of these cases has a witness without that
-  difference, which `agrees` accepts:
+  run `agrees` with a module that is not owned. These module data do not obey
+  `Admission.ImportScoped`, thus the commands observe `agrees` and are not instances of
+  `Admission.agrees_iff`. Each of these cases has a witness without that difference, which `agrees`
+  accepts:
 
   - A copy that uses an alias of `Lean.reduceBool`.
   - A name that refers to the copy and to the alias.
+  - A name that refers to the copy and to the alias, in a module outside the owned modules that
+    imports an owned module.
   - A constant `Char.ofNat` that refers to the copy.
   - A name that refers to a private name of a copy.
   - A copy that a module outside the owned modules declares.
