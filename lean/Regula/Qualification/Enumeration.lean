@@ -201,7 +201,7 @@ def withMapping {α : Type} (root : FilePath) (name table : String) (mount : Fil
       "ro,nodev,nosuid,noexec,errors=continue", s!"/dev/mapper/{name}", mount.toString]
     try action
     finally discard <| privileged root #["umount", mount.toString]
-  finally discard <| privileged root #["dmsetup", "remove", name]
+  finally discard <| privileged root #["dmsetup", "remove", "--retry", name]
 
 /-- The number of entries that Lean v4.34.1's `System.FilePath.readDir` returns for `path`, read
 in a separate `lean` process from source text, so that no declaration of Regula refers to it. -/
@@ -223,6 +223,10 @@ def failure : IO Unit := do
     for index in [0:entries] do
       IO.FS.writeFile (tree / "dir" / entryFile index) ""
     let image := scratch / "image.ext4"
+    -- The image file exists at its full size before mkfs.ext4 formats it.
+    let mebibyte := ByteArray.mk (Array.replicate (1024 * 1024) 0)
+    IO.FS.withFile image .writeNew fun handle => do
+      for _ in [0:sectors / 2048] do handle.write mebibyte
     discard <| required root "mkfs.ext4" #["-q", "-F", "-b", "1024", "-O",
       "^dir_index,^has_journal", "-d", tree.toString, image.toString, s!"{sectors / 2}k"]
     let mapped ← required root "debugfs" #["-R", s!"bmap /dir {failedBlock}", image.toString]
