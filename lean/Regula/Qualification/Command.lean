@@ -119,6 +119,13 @@ inductive Command where
   | closureEvidence
   /-- `configuration-capture`. -/
   | configurationCapture
+  /-- `verso-recorded-paths`. -/
+  | versoRecordedPaths
+  /-- `copy-relocation`. -/
+  | copyRelocation
+  /-- `copy-relocation-load PROJECT COPIES`: the `copy-relocation` control's worker for the loads
+  of one project and of its copy. -/
+  | copyRelocationLoad (project copies : String)
   /-- `fence-evidence`. -/
   | fenceEvidence
   /-- `frozen-exits`. -/
@@ -158,6 +165,9 @@ def Command.arguments : Command → List String
   | .observers => ["observers"]
   | .closureEvidence => ["closure-evidence"]
   | .configurationCapture => ["configuration-capture"]
+  | .versoRecordedPaths => ["verso-recorded-paths"]
+  | .copyRelocation => ["copy-relocation"]
+  | .copyRelocationLoad project copies => ["copy-relocation-load", project, copies]
   | .fenceEvidence => ["fence-evidence"]
   | .frozenExits => ["frozen-exits"]
   | .documentationSource => ["documentation-source"]
@@ -195,6 +205,9 @@ def Command.parse : List String → Option Command
   | ["observers"] => some .observers
   | ["closure-evidence"] => some .closureEvidence
   | ["configuration-capture"] => some .configurationCapture
+  | ["verso-recorded-paths"] => some .versoRecordedPaths
+  | ["copy-relocation"] => some .copyRelocation
+  | ["copy-relocation-load", project, copies] => some (.copyRelocationLoad project copies)
   | ["fence-evidence"] => some .fenceEvidence
   | ["frozen-exits"] => some .frozenExits
   | ["documentation-source"] => some .documentationSource
@@ -256,7 +269,9 @@ def Command.evidence : Command → Option Evidence
   | .producersCombined | .history | .selfAudit | .selfAuditShard _ | .selfAuditModule _ _
   | .selfAuditJsonModule _ | .acceptanceSnapshots _ | .prepMeasure | .documentationDependencies
   | .inputInventory | .receiptBoundaries | .observers | .closureEvidence | .configurationCapture
-  | .fenceEvidence | .frozenExits | .documentationSource | .documentationSourceReadOnly => none
+  | .versoRecordedPaths | .copyRelocation | .copyRelocationLoad _ _ | .fenceEvidence | .frozenExits
+  | .documentationSource
+  | .documentationSourceReadOnly => none
 
 /-- The evidence document that an argument list names from its leading arguments, so that one the
 parser refuses for a later argument still has its document recognized: a selection's name, then

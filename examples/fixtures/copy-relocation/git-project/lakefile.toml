@@ -1,0 +1,14 @@
+# The Git project of the `qualify copy-relocation` control. It keeps its dependencies' checkouts in
+# `vendor` and requires the package `gdep` by Git, at a URL that the control never fetches. The
+# control makes a Git repository of `../gdep`, and Lake clones it from there: through the URL of a
+# manifest entry that records no packages directory, or through `LAKE_PKG_URL_MAP` when the project
+# has no manifest.
+name = "git_project"
+packagesDir = "vendor"
+
+[[require]]
+name = "gdep"
+git = "https://example.invalid/gdep.git"
+
+[[lean_lib]]
+name = "GitProject"

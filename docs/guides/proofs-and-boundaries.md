@@ -1351,6 +1351,7 @@ other rules still check it.
 | `executionFindings`, `executionFailures`, `executionSummary`, `toolchainBase` | `checked_executionFailures` (line `k` renders finding `k`, none added or dropped, so the lines are empty iff `ExecutionOK`), `executionRule_injective`, `checked_summary` (the boundary counts range over the boundaries reported on their own: a later record of one trusted boundary of a root, and a `partial` implementation reported with the boundary that runs it, are counted with that boundary, not again), `checked_toolchainBase` | Root collection, retained compiler edges, correspondence admission, source history, module origins and the text and JSON rendering of the toolchain trusted base. The records of the execution walk are observed. `ExecutionWalk.assemble_account` states the account that `assemble` builds from them, the unresolved paths included. |
 | `Probe.replacementCorrespondence` | `DefeqComparison.classify` of `DefeqComparison.ofAttempt` (an attempt that the kernel did not decide, or that raised an error, is unresolved and not trusted) | The kernel decision itself, the record of its answer (`Probe.kernelAnswer`), the capture of an error (`Probe.comparison`) and the incomplete theorem-candidate search. Lean's Core-based monads rethrow a runtime resource exception or an interruption. Such an exception records no comparison and stops the report. |
 | `Checker/Common.admitIndexedWorkerResults`, `mapWorkQueue`, `Documentation.auditTasks` | `checked_indexedResults` over `ResultState.collect` | Child completion, strict packet decoding, task scheduling and exact request and source binding. |
+| `Documentation.sharedPinMismatch`, `Documentation.captureVersoPackage`, `Lake.surfaceInventoryOf`, `Lake.copyProject`, `Lake.relocateDependencies` | `LakeSelection.agrees_fields` (an agreeing package has the entry's directory, manifest and, unless Lake's load wrote the entry, remote URL, and a configuration among its candidates), `LakeSelection.lastEntry_eq_some` and `LakeSelection.effectiveEntry_eq_some` (Lake's entry for a name is the last one), `LakeSelection.pinMismatch_eq_none` (no mismatch exactly when the two workspaces pin alike each package that the two pin by Git), `LakeSelection.ownRootFiles_lake` (the files read are those of the workspace a package roots), `LakeSelection.rootConfigFile_lake` (the Verso package's configuration name is the one that Lake's load gives it), `LakeSelection.lakeInputs_cover` (the capture binds the configuration files that decide the loaded one, the recorded manifest and the files that the pin check reads) | Lake's load of the workspace, Lake's manifest reader and the files read. The Lake facts that the `Assumes:` entries cite, and the copies of Lake's rules in `LakeSelection` that they name. That no process writes the manifest or the overrides file during one check is trusted. |
 | `Checker/FenceScan.scanLines`, `scanVersoLines`, `matchesPattern` | `checked_scanLines`, `checked_scanVersoLines` (no violation exactly for a clean document), `fence_of_leanShaped`, `example_of_leanShaped` (a returned fence for each line of Lean shape), `scanLines_fence`, `scanVersoLines_fence`, `Scanned.bytes` (where each returned fence lies, and the bytes of its ranges), `toList_linesOf` (the lines of a text), `scanLines_marker` (a Lean fence after a marker line carries that marker, in a clean document), `matchesPattern` | Pattern diagnostic text and effective-error extraction. |
 | `AxiomGate.auditSurfaceAt`, `FreshChecker`, the file gate | `checked_surfaceAssignments` (with `surfaceAssignments_covers`), `checked_conformingProfile`, `checked_histories`, `checked_environmentJob`, `checked_environmentEvidence` (claimed `RegulaCore.Assembly`) | Manifest parsing, Lake loading and producer history; the contracts concern the decoded records. |
 | `Checker/Acceptance.finish`, `Documentation.finishDocuments`, `FreshChecker.finishGraph` | `finalize`, `finalize_iff`, `accepted_report_identity`, `accepted_covers_slot` | The independently supplied census and the truth of the observations; each finalizer supplies all derived jobs and returns `AcceptedRun`. |
@@ -5080,6 +5081,28 @@ The `qualify` campaigns and what they observe:
   protocols. It also gives the result of a fresh audit with the policy manifest `policy.json` to
   the project-surface comparison. That comparison refuses the result with a missing selection,
   an absent selected file or an ambiguous selection.
+- `verso-recorded-paths`: a Verso package requires a package by path. Its manifest entry for that
+  package records a configuration file and a manifest under names that are not Lake's defaults.
+  - The shared-pin check compares the pins of the two packages' own manifests and overrides
+    files, the last entry for a name deciding. A required package without its own manifest reads
+    no overrides file. The check ignores the recorded manifest and a path entry that Lake does not
+    load. It follows a Git entry that an overrides file replaces by a path.
+  - The capture binds the recorded configuration and manifest, the overrides files and the
+    accepted project's Lake inputs. It binds no `lakefile.toml` or `package.lean` that Lake does
+    not load. For a configuration name without an extension, it binds the two candidate files.
+  - The two checks refuse a Verso package without a manifest, before Lake's load writes one. A
+    selection that names a configuration Lake did not load is refused.
+- `copy-relocation`: the copy of a project (`Lake.copyProject`).
+  - A project's manifest has two entries for one path dependency, and its overrides file selects
+    the configuration of the first. The copy's override for the dependency names that
+    configuration. Lake's load of the copy then selects what its load of the project selects.
+    Without the overrides file, the copy's override names the configuration of the last entry.
+  - A project keeps its checkouts in `vendor` and requires a package by Git, which the control
+    commits to a local repository. With a manifest that records no packages directory, Lake loads
+    the package from `vendor`. The copy leaves out that checkout and names it in an override.
+    Without a manifest, Lake's load through `LAKE_PKG_URL_MAP` writes the local repository into
+    the entry, and the inventory accepts it. A worker process loads these, and Git searches for no
+    repository above the control's scratch directory.
 - `documentation-source`: both public documentation paths with changed and missing
   dependency/configuration inputs and fresh restored positives. Its `--source-read-only`
   selection adds original-file and declaration-build read failures, initial setup classification

@@ -77,26 +77,6 @@ private def parseArgs : List String → Options → IO Options
 private def resolve (repo path : FilePath) : FilePath :=
   if path.isAbsolute then path else repo / path.toString
 
-/-- The first package that the Verso package at `package` and a package it requires by local path
-both pin by Git at different revisions or sources, with that package's recorded directory. Where
-the two share one packages directory, such a pin would make one build check out another revision
-of a shared dependency. Each manifest is read by Lake's own reader (`Lake.Manifest.loadEntries`),
-so an entry that Lake refuses, such as a Git entry without `url` or `rev`, is refused here too. -/
-private def sharedPinMismatch (package : FilePath) : IO (Option String) := do
-  let entries (dir : FilePath) := _root_.Lake.Manifest.loadEntries (dir / "lake-manifest.json")
-  let pins (dir : FilePath) : IO (Array (Name × String × String)) := do
-    return (← entries dir).filterMap fun entry => match entry.src with
-      | .git url rev _ _ => some (entry.name, url, rev)
-      | .path _ => none
-  let versoPins ← pins package
-  for entry in ← entries package do
-    let .path dir := entry.src | continue
-    let requiredPins ← pins (package / dir)
-    for (name, url, rev) in versoPins do
-      if let some (_, url', rev') := requiredPins.find? (·.1 == name) then
-        unless url == url' && rev == rev' do return some s!"{name} (against {dir})"
-  return none
-
 /-- The rendered HTML files below `root`, each by its path below it with its text. -/
 private def renderedHtml (root : FilePath) : IO (List (String × String)) := do
   let components := root.normalize.components
@@ -108,7 +88,8 @@ private def renderedHtml (root : FilePath) : IO (List (String × String)) := do
 /-- Build the Verso library in the isolated copy, where every `lean` block is elaborated where it
 is written by the library's own code block. The copy's library sources and Verso package inputs
 must be exactly the audited and linked ones (`linked`), and the Verso package must pin every Git
-dependency it shares with a package it requires by path at the same revision. -/
+dependency it shares with a package it requires by path at the same revision
+(`Documentation.sharedPinMismatch`). -/
 private def prepareVerso (repo copy : FilePath) (verso : VersoPackage)
     (linked : Array RegulaPolicy.SourceSnapshot) : IO (Option String) := do
   let package := copy / verso.dir.toString

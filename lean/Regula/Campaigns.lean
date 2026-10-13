@@ -45,6 +45,7 @@ def form : Command → Command
   | .selfAuditShard _ => .selfAuditShard "K/4"
   | .selfAuditModule _ _ => .selfAuditModule "MODULE" "SOURCE"
   | .selfAuditJsonModule _ => .selfAuditJsonModule "MODULE"
+  | .copyRelocationLoad _ _ => .copyRelocationLoad "PROJECT" "COPIES"
   | .environments _ => .environments "PATH"
   | .acceptance group _ => .acceptance group "PATH"
   | command => command
@@ -58,7 +59,8 @@ def qualifyForms : List Command :=
     form (.acceptance .fences ""), .acceptanceSnapshots .dependencies,
     .acceptanceSnapshots .history, .acceptanceSnapshots .gitStatus, .acceptanceSnapshots .all,
     .prepMeasure, .documentationDependencies, .inputInventory, .receiptBoundaries, .observers,
-    .closureEvidence, .configurationCapture, .fenceEvidence, .frozenExits, .documentationSource,
+    .closureEvidence, .configurationCapture, .versoRecordedPaths, .copyRelocation,
+    form (.copyRelocationLoad "" ""), .fenceEvidence, .frozenExits, .documentationSource,
     .documentationSourceReadOnly]
 
 /-- Every selection's form is listed. -/
@@ -214,7 +216,8 @@ def runsOf : List String → List Campaign
         .qualify (.acceptanceSnapshots .gitStatus), .qualify .receiptBoundaries,
         .qualify .prepMeasure]
   | ["diagnostics", "documentation-controls"] =>
-      [.qualify .documentationDependencies, .qualify .configurationCapture]
+      [.qualify .documentationDependencies, .qualify .configurationCapture,
+        .qualify .versoRecordedPaths, .qualify .copyRelocation]
   | ["diagnostics", "focused-controls"] =>
       [.selftest (.focused .nativeAdopter), .selftest (.focused .combinedSnapshot),
         .selftest (.focused .policyTransport)]
@@ -408,6 +411,8 @@ def reason : Campaign → Option Reason
       "the four shards together audit all modules."
   | .qualify (.selfAuditModule "MODULE" "SOURCE") | .qualify (.selfAuditJsonModule "MODULE") =>
       some (.worker (.qualify (form (.selfAuditShard ""))))
+  | .qualify (.copyRelocationLoad "PROJECT" "COPIES") =>
+      some (.worker (.qualify .copyRelocation))
   | .qualify (.acceptanceSnapshots .all) => some <| .partly
       [.qualify (.acceptanceSnapshots .dependencies), .qualify (.acceptanceSnapshots .gitStatus)]
       "Its groups `dependencies` and `git-status` run. Its group `history` is too long for a job."

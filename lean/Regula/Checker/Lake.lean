@@ -1,6 +1,7 @@
 import Regula.Checker.Common
 import Regula.Checker.Manifest
 import Regula.Checker.Workspace
+import Regula.Checker.LakeSelection
 import Regula.Checker.FacetReport
 import RegulaCore.EditorPolicy
 import Lake.CLI.Build
@@ -292,9 +293,12 @@ loaded workspace `ws` of the project at `repo`. It prints the facet report that 
 the source guard, when the provider guard passes over those inventories. The report precedes the
 error of the first failed package inventory, which is raised before the provider guard's refusal,
 and the validation of other source existence. An overridden facet may have generated a missing
-source or glob directory. -/
+source or glob directory. The selection `selection` gives the entries that Lake materialized the
+workspace's dependencies from and its packages directory (`LakeSelection.withRootSelection`): each
+dependency's entry decides the configuration files and the manifest that its inventory binds. -/
 def surfaceInventoryOf (repo : FilePath) (ws : _root_.Lake.Workspace)
-    (facets : FacetReport.Output := .silent) : IO SurfaceInventory := do
+    (selection : LakeSelection.RootSelection) (facets : FacetReport.Output := .silent) :
+    IO SurfaceInventory := do
     let pkg := ws.root
     -- No path is built from a module name before each name that a package's configuration gives is
     -- a safe module name (`checkModuleNames`); a resolved module is placed by `modulePath?`.
@@ -384,9 +388,13 @@ def surfaceInventoryOf (repo : FilePath) (ws : _root_.Lake.Workspace)
           exe.root.name.toString exe.root.leanFile.toString
         sources := sources.push { «module» := exe.root.name, source }
       let root := provider.root
-      let configurationPaths := #[package.configFile, package.manifestFile,
-        package.dir / "lean-toolchain", package.dir / "lakefile.lean",
-            package.dir / "lakefile.toml"]
+      -- The configuration files whose presence decides the one Lake loads, and the manifest that
+      -- Lake reads, as the entry that Lake materialized the package from names them.
+      let some entry := LakeSelection.effectiveEntry selection.entries package.baseName
+        | throw <| IO.userError s!"lake-query-malformed: {package.baseName} has no manifest entry"
+      let configurationPaths := (#[package.configFile] ++
+          ((LakeSelection.configCandidates entry.configFile ++ entry.manifestFile?.toList).map
+            (package.dir / ·)).toArray ++ #[package.dir / _root_.Lake.toolchainFileName])
         |>.toList.eraseDups.toArray
       let owned := provider.owned
       if owned && package.leanLibDir.toString.isEmpty then
@@ -409,13 +417,15 @@ def surfaceInventoryOf (repo : FilePath) (ws : _root_.Lake.Workspace)
 the project at `repo`, with the facet report that `facets` requests. -/
 def surfaceInventory (repo : FilePath) (facets : FacetReport.Output := .silent) :
     IO SurfaceInventory :=
-  Workspace.withRootWorkspace repo fun ws => surfaceInventoryOf repo ws facets
+  LakeSelection.withRootSelection repo fun ws selection =>
+    surfaceInventoryOf repo ws selection facets
 
 /-- The inventory (`surfaceInventoryOf`) of the root package of the project at `repo`, which must
 declare no dependency (`Workspace.withRootPackage`). It is the inventory that `surfaceInventory`
 gives for such a project, and no loader that removes a directory is in its compiled code. -/
 def rootSurfaceInventory (repo : FilePath) : IO SurfaceInventory :=
-  Workspace.withRootPackage repo (surfaceInventoryOf repo)
+  Workspace.withRootPackage repo fun ws =>
+    surfaceInventoryOf repo ws { entries := #[], packagesDir := ws.relPkgsDir }
 
 /-- What Lake's load of a workspace selects for one dependency package: its name, directory and
 ownership, the configuration and manifest files it reads, the text of that configuration, the
@@ -499,9 +509,9 @@ def configurationBase (inputs : Regula.CopyConfiguration.Inputs) : List String :
 /-- Capture loaded relocation inputs before a producer starts. Loading and inventory observation
 use Lake itself, exactly as `copyProject`; these are trusted IO observations, not JSON inference. -/
 def captureConfigurationInputs (repo : FilePath) : IO Regula.CopyConfiguration.Inputs :=
-  Workspace.withRootWorkspace repo fun ws => do
+  LakeSelection.withRootSelection repo fun ws selection => do
     let root ← IO.FS.realPath repo
-    let inventory ← surfaceInventoryOf repo ws
+    let inventory ← surfaceInventoryOf repo ws selection
     return configurationInputs root ws inventory.dependencies
 
 /-- A path override for every resolved dependency, including inherited and transitive ones.
@@ -523,7 +533,8 @@ def relocateDependencies (inputs : Regula.CopyConfiguration.Inputs) (manifest : 
     throw "copied project does not retain its source package layout"
   let target := System.mkFilePath (project.normalize.components.take
     (project.normalize.components.length - relative.length))
-  return (manifest.packagesDir?.getD (FilePath.mk inputs.packagesDir), inputs.dependencies.map fun dependency =>
+  return (LakeSelection.packagesDir manifest.packagesDir? (FilePath.mk inputs.packagesDir),
+    inputs.dependencies.map fun dependency =>
     let entry := manifest.packages.find? (·.name.toString == dependency.package)
     let dir := if dependency.owned then Regula.Filesystem.Construction.location target
       ((FilePath.mk dependency.root).normalize.components.drop base.length)
@@ -681,9 +692,9 @@ destination writer. Lake's loaded workspace and manifest stay fixed while captur
 def copyProject (repo target exclude : FilePath)
     (facets : FacetReport.Output := .silent) (policy : Option FilePath := none)
     (selectedFiles : List FilePath := []) : IO ProjectCopy :=
-  Workspace.withRootWorkspace repo fun ws => do
+  LakeSelection.withRootSelection repo fun ws selection => do
     let root ← IO.FS.realPath repo
-    let original ← surfaceInventoryOf repo ws facets
+    let original ← surfaceInventoryOf repo ws selection facets
     let inputs := configurationInputs root ws original.dependencies
     let (manifest, rootManifest) ← captureManifest ws
     -- The manifest may have a different stored case spelling on a folding filesystem.
