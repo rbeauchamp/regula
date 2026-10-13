@@ -4,7 +4,6 @@ import Regula.Checker.PolicyCodec
 import RegulaCore.JsonAgreement
 import RegulaCore.CopyProgram
 import Regula.Scratch
-import Regula.ReaderCheck
 import RegulaPolicy.ResultState
 import RegulaPolicy.Guards
 import Lean
@@ -739,5 +738,31 @@ def runTypedWorker {α β : Type} [ToJson α] [FromJson β]
     let json ← IO.ofExcept <| Regula.Checker.PolicyCodec.parse (← IO.FS.readFile output)
     let payload ← IO.ofExcept <| readWorkerPacket (toJson request) json
     IO.ofExcept (fromJson? payload)
+
+/-- The facts of a compiled module that its census reads: its exported part, whose header gives
+its imports and `isModule`, and its constants in every part `importModules` reads at its default
+`OLeanLevel.private`, each name once in the form of the last part that has it. A file without a
+`module` header is one part. A `module` file's exported part holds only its exported constants,
+some of its theorems weakened to axioms, so its server and private parts are read too.
+
+Assumes:
+- Lean v4.34.1 writes a `module` file as an exported, a server and a private part, and any other
+  file as one part (`writeModule`, `src/lean/Lean/Environment.lean:1901-1909`), named by
+  `OLeanLevel.adjustFileName` (`:1820-1823`). The parts must be read together
+  (`readModuleDataParts`, `:1765-1790`), and the private part holds every constant of the module
+  (`mkModuleData`, `:1868-1872`), a theorem among them as a theorem (`:2249-2251`). -/
+def readModuleCensus (olean : FilePath) : IO (ModuleData × Array ConstantInfo) := do
+  let (main, _) ← readModuleData olean
+  if !main.isModule then return (main, main.constants)
+  let parts ← readModuleDataParts #[olean, OLeanLevel.server.adjustFileName olean,
+    OLeanLevel.private.adjustFileName olean]
+  let mut seen : NameSet := {}
+  let mut constants := #[]
+  for (data, _) in parts.reverse do
+    for constant in data.constants do
+      unless seen.contains constant.name do
+        seen := seen.insert constant.name
+        constants := constants.push constant
+  return (main, constants)
 
 end Regula.Checker

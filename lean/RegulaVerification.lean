@@ -76,6 +76,10 @@ inductive Group where
   /-- `qualify enumeration-failure`: a failed read of a directory, injected through device-mapper on
   a GitHub-hosted Linux runner; anywhere else it refuses as unsupported. -/
   | enumerationFailure
+  /-- `qualify readers`: no declaration of a module of a package of the repository refers to
+  Lean's directory readers. It builds each package, after its dependencies are provisioned and
+  the website sources are generated. -/
+  | readers
   deriving DecidableEq
 
 /-- The name of the group after `diagnostics`. -/
@@ -88,11 +92,12 @@ def Group.label : Group → String
   | .focusedControls => "focused-controls"
   | .policyDomain => "policy-domain"
   | .enumerationFailure => "enumeration-failure"
+  | .readers => "readers"
 
 /-- Every group once. -/
 def Group.all : List Group :=
   [.inputInventory, .environmentCensus, .snapshotHistory, .acceptanceControls,
-    .documentationControls, .focusedControls, .policyDomain, .enumerationFailure]
+    .documentationControls, .focusedControls, .policyDomain, .enumerationFailure, .readers]
 
 /-- Closed vocabulary of supported verification invocations. -/
 inductive Mode where
@@ -404,6 +409,7 @@ def Group.commands : Group → List Command
   | .policyDomain => [lake #["build", "checkerSelftest", "axiomGate", "Regula.Linter"],
       lake #["exe", "checkerSelftest", "--policy-domain-only"]]
   | .enumerationFailure => [lake #["build", "qualify"], qualify #["enumeration-failure"]]
+  | .readers => [lake #["build", "qualify"], qualify #["readers"]]
 
 /-- The targets whose modules `qualify observers` reads: each library of the package except
 `Fixtures`, and `auditApp`, whose root `Main` is in no library. -/
@@ -1250,7 +1256,7 @@ private def usage : String :=
     environments [1/6..6/6]|build-policy [1/3..3/3]|lint-driver [1/5..5/5]|producers|history|\
     self-lint|self-lint-default|self-audit [1/4..4/4]|rule-examples [1/3..3/3]|input-inventory|\
     environment-census|snapshot-history|acceptance-controls|documentation-controls|\
-    focused-controls|policy-domain|enumeration-failure]]"
+    focused-controls|policy-domain|enumeration-failure|readers]]"
 
 /-- The earlier verdicts an attempt of `mode` invalidates, each with the constant text recording
 it as incomplete. Ordinary acceptance invalidates the accepted link, so it is not accepted from

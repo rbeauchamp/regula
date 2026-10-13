@@ -19,6 +19,7 @@ import Regula.Qualification.UniqueConstants
 import Regula.Qualification.Command
 import Regula.Qualification.Observers
 import Regula.Qualification.Enumeration
+import Regula.Qualification.Readers
 import Regula.Checker.AxiomGate
 
 /-! # Qualification executable dispatcher
@@ -83,6 +84,7 @@ private unsafe def runCommand (attempt : Option String) : Command → IO Unit
   | .enumeration => Regula.Qualification.Enumeration.check
   | .enumerationCopy source target => Regula.Qualification.Enumeration.copyChild source target
   | .enumerationFailure => Regula.Qualification.Enumeration.failure
+  | .readers => Regula.Qualification.Readers.check
 
 /-- Explicit commands, parsed by `Command.parse`; unknown or extra arguments refuse instead of
 silently skipping work. -/
@@ -97,7 +99,7 @@ private unsafe def dispatch (args : List String) (attempt : Option String := non
     documentation-dependencies|input-inventory|receipt-boundaries|observers|prep-measure|\
     closure-evidence|\
     configuration-capture|fence-evidence|frozen-exits|documentation-source [--source-read-only]|\
-    enumeration|enumeration-failure|rule-examples --evidence PATH [--rules RULE ... | --shard K/N]"
+    enumeration|enumeration-failure|readers|rule-examples --evidence PATH [--rules RULE ... | --shard K/N]"
 
 /-- Mark the evidence document that `args` names incomplete for the attempt `attempt`, through the
 writer that its campaign runs before it starts (`beginAttempt`), before anything else of the

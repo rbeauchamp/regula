@@ -133,6 +133,9 @@ inductive Command where
   | enumerationCopy (source target : String)
   /-- `enumeration-failure`: a failed read of a directory, injected through device-mapper. -/
   | enumerationFailure
+  /-- `readers`: no declaration of a module of a package of the repository refers to Lean's
+  directory readers. -/
+  | readers
   deriving DecidableEq, Repr
 
 /-- The argument list of each selection. -/
@@ -171,6 +174,7 @@ def Command.arguments : Command → List String
   | .enumeration => ["enumeration"]
   | .enumerationCopy source target => ["enumeration-copy", source, target]
   | .enumerationFailure => ["enumeration-failure"]
+  | .readers => ["readers"]
 
 /-- The selection an argument list names, the only parser of the dispatcher: unknown or extra
 arguments select nothing. -/
@@ -211,6 +215,7 @@ def Command.parse : List String → Option Command
   | ["enumeration"] => some .enumeration
   | ["enumeration-copy", source, target] => some (.enumerationCopy source target)
   | ["enumeration-failure"] => some .enumerationFailure
+  | ["readers"] => some .readers
   | _ => none
 
 /-- Every selection's argument list is accepted, as that selection. -/
@@ -269,7 +274,7 @@ def Command.evidence : Command → Option Evidence
   | .selfAuditJsonModule _ | .acceptanceSnapshots _ | .prepMeasure | .documentationDependencies
   | .inputInventory | .receiptBoundaries | .observers | .closureEvidence | .configurationCapture
   | .fenceEvidence | .frozenExits | .documentationSource | .documentationSourceReadOnly
-  | .enumeration | .enumerationCopy _ _ | .enumerationFailure => none
+  | .enumeration | .enumerationCopy _ _ | .enumerationFailure | .readers => none
 
 /-- The evidence document that an argument list names from its leading arguments, so that one the
 parser refuses for a later argument still has its document recognized: a selection's name, then

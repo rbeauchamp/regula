@@ -60,7 +60,8 @@ def qualifyForms : List Command :=
     .acceptanceSnapshots .history, .acceptanceSnapshots .gitStatus, .acceptanceSnapshots .all,
     .prepMeasure, .documentationDependencies, .inputInventory, .receiptBoundaries, .observers,
     .closureEvidence, .configurationCapture, .fenceEvidence, .frozenExits, .documentationSource,
-    .documentationSourceReadOnly, .enumeration, form (.enumerationCopy "" ""), .enumerationFailure]
+    .documentationSourceReadOnly, .enumeration, form (.enumerationCopy "" ""), .enumerationFailure,
+    .readers]
 
 /-- Every selection's form is listed. -/
 theorem form_mem (command : Command) : form command ∈ qualifyForms := by
@@ -162,7 +163,8 @@ def shardInvocations (name : String) (count : Nat) : List (List String) :=
 /-- The groups of qualification controls that `./scripts/verify.sh diagnostics GROUP` runs. -/
 def groups : List String :=
   ["input-inventory", "environment-census", "snapshot-history", "acceptance-controls",
-    "documentation-controls", "focused-controls", "policy-domain", "enumeration-failure"]
+    "documentation-controls", "focused-controls", "policy-domain", "enumeration-failure",
+    "readers"]
 
 /-- Every invocation of `./scripts/verify.sh`, in the order of the driver's modes
 (`Regula.Campaigns.Verification.verifyInvocations_eq`). -/
@@ -221,6 +223,7 @@ def runsOf : List String → List Campaign
         .selftest (.focused .policyTransport)]
   | ["diagnostics", "policy-domain"] => [.selftest (.focused .policyDomain)]
   | ["diagnostics", "enumeration-failure"] => [.qualify .enumerationFailure]
+  | ["diagnostics", "readers"] => [.qualify .readers]
   | ["diagnostics", name] =>
       match Partition.parse name with
       | some partition => [.selftest (.partition partition)]
@@ -374,6 +377,12 @@ private def otherPartitions : String :=
   "The shards of the structural, execution and lint-driver partitions run. The shards of the \
     fixtures, cli, environments and build-policy partitions are too long for a job."
 
+/-- Why no job runs the reader check of every package (`qualify readers`): it builds on what no
+job has together. -/
+private def readersNotRun : Reason :=
+  .notRun "No job has the three things that it builds on: the website sources that \
+    `./scripts/verify.sh site` generates, Verso and a provisioned Mathlib."
+
 /-- The reason no job runs a campaign; none for a campaign that some job runs. -/
 def reason : Campaign → Option Reason
   | .verify ["serialized-graph"] => some <| .notRun "The optional serialized-graph claim (§7.9), \
@@ -390,6 +399,7 @@ def reason : Campaign → Option Reason
   | .verify ["diagnostics", "environment-census"] => some (overBudget 172)
   | .verify ["diagnostics", "snapshot-history"] => some (overBudget 104)
   | .verify ["diagnostics", "policy-domain"] => some (overBudget 158)
+  | .verify ["diagnostics", "readers"] => some readersNotRun
   | .verify ["diagnostics", name] => (Partition.parse name).map partitionReason
   | .verify ["diagnostics", name, _] => (Partition.parse name).bind fun partition =>
       (overBudgetShard partition).map (partitionOverBudget partition)
@@ -412,6 +422,7 @@ def reason : Campaign → Option Reason
   | .qualify (.selfAuditModule "MODULE" "SOURCE") | .qualify (.selfAuditJsonModule "MODULE") =>
       some (.worker (.qualify (form (.selfAuditShard ""))))
   | .qualify (.enumerationCopy "SOURCE" "TARGET") => some (.worker (.qualify .enumeration))
+  | .qualify .readers => some readersNotRun
   | .qualify (.acceptanceSnapshots .all) => some <| .partly
       [.qualify (.acceptanceSnapshots .dependencies), .qualify (.acceptanceSnapshots .gitStatus)]
       "Its groups `dependencies` and `git-status` run. Its group `history` is too long for a job."

@@ -266,6 +266,7 @@ checker behavior:
 | `focused-controls` | The self-test's focused native-adopter, combined-snapshot and policy-transport controls (`checkerSelftest --native-adopter-only`, `--combined-snapshot-only`, `--policy-transport-only`). |
 | `policy-domain` | The self-test's focused policy-domain controls, the policy transport and the public paths (`checkerSelftest --policy-domain-only`). |
 | `enumeration-failure` | A failed read of a directory on a real ext4 file system, through a device-mapper error target (`qualify enumeration-failure`). `ls` reports it, Lean's `readDir` returns fewer entries, and the copy routine refuses. It runs only on a GitHub-hosted Linux runner, and elsewhere it reports that it is not supported. |
+| `readers` | Each module of each package of the repository, as Lake selects it, after Lake builds it there: a declaration that refers to `readDir` or `walkDir` is refused (`qualify readers`, [proofs and boundaries](proofs-and-boundaries.md#assumptions-of-directory-enumeration)). Scratch packages control the check first. Run it after `./scripts/verify.sh site`, with Verso and Mathlib provisioned. |
 
 The `environments` clean-checkout `freshChecker` control claims two import-free modules
 written into a copy with no build directory. It establishes that `freshChecker` builds its
@@ -396,6 +397,7 @@ campaign that does not run. For a reason that names part of them, its text names
 | `./scripts/verify.sh diagnostics environment-census` | Too long for a job. Its check took 172 s, and a check of more than 85 s does not leave a quarter of the 420-second deadline. [Issue 391](https://github.com/rbeauchamp/regula/issues/391) is the work to divide it into shards. |
 | `./scripts/verify.sh diagnostics snapshot-history` | Too long for a job. Its check took 104 s, and a check of more than 85 s does not leave a quarter of the 420-second deadline. [Issue 391](https://github.com/rbeauchamp/regula/issues/391) is the work to divide it into shards. |
 | `./scripts/verify.sh diagnostics policy-domain` | Too long for a job. Its check took 158 s, and a check of more than 85 s does not leave a quarter of the 420-second deadline. [Issue 391](https://github.com/rbeauchamp/regula/issues/391) is the work to divide it into shards. |
+| `./scripts/verify.sh diagnostics readers` | No job has the three things that it builds on: the website sources that `./scripts/verify.sh site` generates, Verso and a provisioned Mathlib. |
 | `lake exe qualify registry` | Its controls run in `lake exe qualify combined`: `combined` runs `registry` first. |
 | `lake exe qualify native` | Its controls run in `lake exe qualify combined`: `combined` includes the `native` controls. |
 | `lake exe qualify unique-constants` | Its controls run in `lake exe qualify combined`: `combined` runs `unique-constants` beside `native`. |
@@ -416,6 +418,7 @@ campaign that does not run. For a reason that names part of them, its text names
 | `lake exe qualify documentation-source` | Too long for a job. Its check took 182 s, and a check of more than 85 s does not leave a quarter of the 420-second deadline. [Issue 391](https://github.com/rbeauchamp/regula/issues/391) is the work to divide it into shards. |
 | `lake exe qualify documentation-source --source-read-only` | Too long for a job. Its check took 202 s, and a check of more than 85 s does not leave a quarter of the 420-second deadline. [Issue 391](https://github.com/rbeauchamp/regula/issues/391) is the work to divide it into shards. |
 | `lake exe qualify enumeration-copy SOURCE TARGET` | An internal entry point that `lake exe qualify enumeration` starts. |
+| `lake exe qualify readers` | No job has the three things that it builds on: the website sources that `./scripts/verify.sh site` generates, Verso and a provisioned Mathlib. |
 | `lake exe checkerSelftest --forced-collector-only` | Too long for a job. Its check took 336 s, and a check of more than 85 s does not leave a quarter of the 420-second deadline. [Issue 391](https://github.com/rbeauchamp/regula/issues/391) is the work to divide it into shards. |
 | `lake exe checkerSelftest --policy-domain-only` | Too long for a job. Its check took 158 s, and a check of more than 85 s does not leave a quarter of the 420-second deadline. [Issue 391](https://github.com/rbeauchamp/regula/issues/391) is the work to divide it into shards. |
 | `lake exe checkerSelftest --fences-only` | The focused controls include the combined snapshot. The in-process and public fence corpora are controls of the fixtures and environments partitions. The shards of those partitions are too long for a job. |

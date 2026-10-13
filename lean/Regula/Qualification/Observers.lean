@@ -1,7 +1,6 @@
 import Regula.Checker.Lake
 import Regula.Removal
 import Regula.TaskManagerCheck
-import Regula.ReaderCheck
 
 /-! # The removal check and the task-manager check of every program of the package
 
@@ -22,11 +21,7 @@ checker's controls, which no script runs and the acceptance build does not build
 A root module outside every library, which no library module can import (`auditApp`'s `Main`), is
 checked here: its environment is imported and checked as each `checkProgram` checks it
 (`Regula.Removal.rawRemovals`, `Regula.Removal.programRefusal`,
-`Regula.TaskManagerCheck.refusal`).
-
-The campaign also refuses each declaration of these modules, and of `auditApp`'s `Main`, that
-refers to `System.FilePath.readDir` or `System.FilePath.walkDir`
-(`Regula.ReaderCheck.readerReferences`), which says what that check does not cover. -/
+`Regula.TaskManagerCheck.refusal`). -/
 
 namespace Regula.Qualification.Observers
 
@@ -65,12 +60,8 @@ def checkOutside (root : Name) : IO Unit := do
     throw <| IO.userError s!"observers: {refused}"
 
 /-- Refuse unless every program of the root package is recorded as checked, each compiled one by
-the task-manager check too, and check each root module outside every library. Refuse each
-declaration of these modules that refers to a directory reader, after the reader check's controls
-(`Regula.ReaderCheck.controlFailure`). -/
+the task-manager check too, and check each root module outside every library. -/
 def check : IO Unit := do
-  if let some failure := Regula.ReaderCheck.controlFailure then
-    throw <| IO.userError s!"observers: {failure}"
   let repo ← Regula.Checker.repoRoot
   let inventory ← Regula.Checker.Lake.rootSurfaceInventory repo
   Regula.Checker.initializeLeanSearchPath
@@ -80,23 +71,15 @@ def check : IO Unit := do
   let mut programs := compiled
   let mut records : Std.HashSet Name := {}
   let mut taskRecords : Std.HashSet Name := {}
-  let mut references : Array (Name × List Name) := #[]
-  let mut declarations := 0
   for module in inLibraries do
     -- Every part of a `module` file, whose exported part omits a constant it does not export.
-    let constants := (← Regula.Checker.readModuleCensus (← findOLean module)).2
-    let names := constants.map (·.name)
-    references := references ++ (Regula.ReaderCheck.readerReferences constants.toList).toArray
-    declarations := declarations + constants.size
+    let names := (← Regula.Checker.readModuleCensus (← findOLean module)).2.map (·.name)
     if names.contains `main && !programs.contains module then
       programs := programs.push module
     records := records.insertMany (recordedBy Regula.Removal.reached names)
     taskRecords := taskRecords.insertMany (recordedBy Regula.TaskManagerCheck.checked names)
   for root in outside do
     checkOutside root
-    let constants := (← Regula.Checker.readModuleCensus (← findOLean root)).2
-    references := references ++ (Regula.ReaderCheck.readerReferences constants.toList).toArray
-    declarations := declarations + constants.size
     records := records.insert root
     taskRecords := taskRecords.insert root
   let missing := unrecorded programs records.contains
@@ -109,13 +92,9 @@ def check : IO Unit := do
     throw <| IO.userError s!"observers: no module records the task-manager check of the \
       compiled programs {unguarded.toList}: each runs `Regula.TaskManagerCheck.checkProgram` at \
       the end of its root module"
-  unless references.isEmpty do
-    throw <| IO.userError s!"observers: {Regula.ReaderCheck.refusal references.toList}"
   for program in programs do
     let task := if compiled.contains program then ", task-manager check recorded" else ""
     IO.println s!"observers: {program}: removal check recorded{task}"
-  IO.println s!"observers: no declaration refers to readDir or walkDir ({declarations} \
-    declarations)"
   IO.println s!"observers: PASS ({programs.size} programs, {compiled.size} compiled)"
 
 end Regula.Qualification.Observers
