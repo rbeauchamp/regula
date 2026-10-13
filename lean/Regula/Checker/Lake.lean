@@ -854,9 +854,10 @@ def copyProject (repo target exclude : FilePath)
     let relative := fun (dir : FilePath) => dir.normalize.components.drop base.length
     let place := fun (dir : FilePath) => Regula.Filesystem.Construction.location target (relative dir)
     let excluded := exclude.normalize.components
-    let excludedReal ← try pure (← IO.FS.realPath exclude).normalize.components catch
-      | .noFileOrDirectory .. => pure exclude.normalize.components
-      | error => throw error
+    -- `IO.FS.realPath` reports each failure as `noFileOrDirectory`, so absence is decided by
+    -- `realPathIfPresent`, and an excluded directory that cannot be resolved is a failure.
+    let excludedReal :=
+      ((← Regula.Filesystem.realPathIfPresent exclude).getD exclude).normalize.components
     -- The capture pass rooted at `top`. Documentation discovery consumes cache-named
     -- subdirectories too; the pass captures those directly before constructing the copy rather
     -- than overwriting a finished copy.

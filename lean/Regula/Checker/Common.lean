@@ -289,9 +289,11 @@ def withScratch {α : Type} (repo : FilePath) (stem : String)
 
 /-- The real path of the top level of the Git work tree that holds the directory `dir`, as
 `git rev-parse --show-toplevel` run in `dir` prints it, or `none` when that command fails, for
-example where Git finds no work tree, or when `dir` or the printed path cannot be resolved. Git
-runs without `GIT_DIR` and `GIT_WORK_TREE`, so the work tree is the one Git finds from `dir`
-itself. Git and the filesystem are trusted. -/
+example where Git finds no work tree, or when nothing is at the printed path
+(`Regula.Filesystem.realPathIfPresent`). A failure to resolve a printed path that is there is
+thrown, so a work tree that cannot be read does not count as no work tree, which would leave each
+dependency in it unowned. Git runs without `GIT_DIR` and `GIT_WORK_TREE`, so the work tree is the
+one Git finds from `dir` itself. Git and the filesystem are trusted. -/
 def gitWorkTree (dir : FilePath) : IO (Option FilePath) := do
   let result ← try
       runProcess dir "git" #["rev-parse", "--show-toplevel"]
@@ -299,7 +301,7 @@ def gitWorkTree (dir : FilePath) : IO (Option FilePath) := do
     catch _ => return none
   let top := result.stdout.trimAscii.toString
   if !result.succeeded || top.isEmpty then return none
-  try some <$> IO.FS.realPath (FilePath.mk top) catch _ => return none
+  Regula.Filesystem.realPathIfPresent (FilePath.mk top)
 
 /-- Whether a dependency whose directory is in the Git work tree `dependency` is in the work tree
 `root` of the root package: both are known and they are the same directory. -/

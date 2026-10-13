@@ -13,9 +13,12 @@ file system, a trusted boundary: they observe the reads on the toolchain's file 
 they prove nothing.
 
 - The setup: Lean's `System.FilePath.metadata` of the path fails with `permissionDenied`, not
-  `noFileOrDirectory`, and `pathExists` and `isDir` give `false` for it. So the path is one that the
-  defect takes for an absent one. A run that cannot make such a path, such as one with the
-  permissions of the superuser, fails here rather than passing without observing it.
+  `noFileOrDirectory`. The committed fixture
+  `examples/fixtures/absence-reads/AbsenceReads/Refused.lean`, which `lean --run` runs on the path,
+  prints that `pathExists` and `isDir` give `false` for it. So the path is one that the defect takes
+  for an absent one. The fixture is outside every library of the package, so no module that the
+  self-audit inspects names the two readers. A run that cannot make such a path, such as one with
+  the permissions of the superuser, fails here rather than passing without observing it.
 - The observer: `Regula.Filesystem.isPresent`, `isDirectory`, `metadataIfPresent`,
   `readFileIfPresent` and `entryIfPresent` each fail with the read's `permissionDenied`. The
   theorems of `Regula.Filesystem` (`isPresent_error` and the others) state this for every error
@@ -33,6 +36,11 @@ The permissions of `locked` are given back before the temporary directory is rem
 namespace Regula.AbsenceControls
 
 open Lean System
+
+/-- The source of the committed fixture that runs Lean's two readers on the path that is its one
+argument and prints what they give. -/
+def refusedSource : String :=
+  include_str "../../examples/fixtures/absence-reads/AbsenceReads/Refused.lean"
 
 /-- Whether `result` is the failure of a read that the permissions of a directory denied. -/
 def denied {α : Type} : Except IO.Error α → Bool
@@ -55,8 +63,15 @@ def check : IO Unit :=
       unless denied (← path.metadata.toBaseIO) do
         fail s!"the control could not make an unreadable path: reading {path} did not fail \
           with permissionDenied"
-      if (← path.pathExists) || (← path.isDir) then
-        fail s!"Lean's pathExists or isDir read the unreadable path {path} as present"
+      let source := base / "Refused.lean"
+      IO.FS.writeFile source refusedSource
+      let run ← IO.Process.output {
+        cmd := ((← Lean.getBuildDir) / "bin/lean").toString
+        args := #["--run", source.toString, path.toString]
+        env := #[("LEAN_PATH", none), ("LEAN_SRC_PATH", none)] }
+      unless run.exitCode == 0 && run.stdout == "false false\n" do
+        fail s!"Lean's pathExists and isDir did not both read the unreadable path {path} as \
+          absent: exit {run.exitCode}, {run.stdout}{run.stderr}"
       -- The observer.
       let observed : List (String × Bool) := [
         ("isPresent", denied (← (Regula.Filesystem.isPresent path).toBaseIO)),

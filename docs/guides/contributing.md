@@ -265,7 +265,7 @@ checker behavior:
 | `history` | [Source-bound replacement history qualification](proofs-and-boundaries.md#producers). |
 | `self-lint` | This repository's own `REGULA_ORDINARY_LAKEFILES=1 lake lint` through the `regula/lint` driver, in the root and `audit/` packages ([repository conformance](#repository-conformance)). |
 | `self-lint-default` | The root package's `lake lint` without `REGULA_ORDINARY_LAKEFILES`, so with the audit-build marker that an adopter gets by default ([repository conformance](#repository-conformance)). |
-| `self-audit`, `self-audit 1/4` to `self-audit 4/4` | Operational self-audit of the excluded `Regula` library, and the checks for one-sided `Json` comparisons and for reads that take an unreadable path for an absent one, in each library except `Fixtures` ([repository conformance](#repository-conformance)). A shard audits a quarter of the modules, and the four shards together audit all of them. The shard `self-audit 4/4` and the single run also check that each program of the package runs the removal check (`qualify observers`, [proofs and boundaries](proofs-and-boundaries.md#the-acceptance-boundary)). They also check that each executable runs the task-manager check. |
+| `self-audit`, `self-audit 1/4` to `self-audit 4/4` | Operational self-audit of the excluded `Regula` library, and the check for one-sided `Json` comparisons in each library except `Fixtures` ([repository conformance](#repository-conformance)). The self-audit also refuses, in each library except `Fixtures`, a read that takes an unreadable path for an absent one. A shard audits a quarter of the modules, and the four shards together audit all of them. The shard `self-audit 4/4` and the single run also check that each program of the package runs the removal check (`qualify observers`, [proofs and boundaries](proofs-and-boundaries.md#the-acceptance-boundary)). They also check that each executable runs the task-manager check. |
 | `rule-examples`, `rule-examples 1/3` to `rule-examples 3/3` | [Source-owned corpus and diagnostic demonstrations](architecture.md#rule-examples); a shard runs a third of the rules. |
 | `input-inventory` | Root additions and Markdown edits or removals during the prerequisite build of the checker, an actual new-module build and restored fresh controls (`qualify input-inventory`). |
 | `environment-census` | This repository's claimed environments and their mutations (`qualify environments`). |
@@ -580,9 +580,9 @@ which the allowlist names only in `Regula.RegistryChecks`, is found in a differe
 The self-audit also refuses a read that takes a path it cannot read for an absent one, the defect of
 [#430](https://github.com/rbeauchamp/regula/issues/430). Lean's `System.FilePath.pathExists` and
 `System.FilePath.isDir` return `false` for each error of the read, such as a denied permission. So
-the self-audit refuses a declaration if its type or value names one of them, in the same modules as
-the `Json` check. Regula reads through `Regula.Filesystem.isPresent`, `isDirectory`,
-`metadataIfPresent`, `readFileIfPresent` or `entryIfPresent` instead. Each of them reads absence
+it refuses a declaration if its type or value names one of them, in the modules of the `Json`
+check. Regula reads through `Regula.Filesystem.isPresent`, `isDirectory`, `metadataIfPresent`,
+`readFileIfPresent`, `entryIfPresent` or `realPathIfPresent` instead. Each of them reads absence
 only when nothing is there, and it passes on each other error.
 
 Some code cannot import those functions: a program that `lean --run` runs, the copy program and the
@@ -590,12 +590,16 @@ collector that each audited environment loads. Each defines its own copy, and a 
 copy equal to the shared read. Each entry of `SelfAudit.absenceReadAllowlist` would state why its
 `false` decides nothing, and the list is empty.
 
-The check does not find such a read inside a function of Lean or of a different package, such as
-`Lean.findOLean`, which issue [#441](https://github.com/rbeauchamp/regula/issues/441) tracks. It
-also does not inspect the `markdown` and `website` packages, which issue
-[#442](https://github.com/rbeauchamp/regula/issues/442) tracks. Three fixed controls run. In the
-first acceptance step, `Regula.AbsenceControls` runs the shared reads and four sites that use them
-on a path in a directory without search permission.
+The check does not find such a read in a function of Lean or of a different package, for example
+`Lean.findOLean`. Issue [#441](https://github.com/rbeauchamp/regula/issues/441) tracks those reads,
+and issue [#442](https://github.com/rbeauchamp/regula/issues/442) tracks the `markdown` and
+`website` packages, which the check does not inspect.
+
+The self-audit compiles the two modules in `examples/fixtures/absence-reads` and runs its worker on
+each, as for an audited module. It must refuse a call of `pathExists` and a use of `isDir` without
+an argument in one, and nothing in the other. In the first acceptance step,
+`Regula.AbsenceControls` makes a path in a directory without search permission. It runs, on that
+path, the fixture module that calls Lean's readers, the shared reads and four sites that use them.
 
 `./scripts/verify.sh diagnostics self-audit 1/4` to `4/4` each run one shard of the self-audit.
 The campaign sorts each list of modules that it inspects by name, and it deals the list to the

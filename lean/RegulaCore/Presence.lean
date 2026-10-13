@@ -54,4 +54,17 @@ there or Lean reports that nothing is, and every other failure of the read throw
 def isDirectory (path : FilePath) : IO Bool :=
   return (← metadataIfPresent path).any (·.type == .dir)
 
+/-- The real path of `path`, or `none` when Lean reports that nothing is there (`isPresent`), and
+every other failure thrown (`realPathIfPresent_absent`, `realPathIfPresent_error`,
+`realPathIfPresent_present`). Lean's `IO.FS.realPath` gives `noFileOrDirectory` for every failure
+of `realpath(3)` on POSIX, a denied permission among them, so its error cannot say that nothing is
+there: the read of `metadata` decides that, and a failure of the resolution after it is thrown.
+
+Assumes: Lean v4.34.1 `realPath` (`Init/System/IO.lean:879`) is `lean_io_realpath`
+(`runtime/io.cpp:1014-1067`), whose POSIX branch calls `realpath(3)` and gives
+`noFileOrDirectory` with `ENOENT` for each of its failures (`runtime/io.cpp:86-91`, `:1054-1066`).
+`realpath(3)`, like `stat(2)`, follows each symbolic link. -/
+def realPathIfPresent (path : FilePath) : IO (Option FilePath) := do
+  if ← isPresent path then return some (← IO.FS.realPath path) else return none
+
 end Regula.Filesystem

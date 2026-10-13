@@ -633,6 +633,30 @@ theorem isDirectory_runsTo (path : FilePath) (w : Void IO.RealWorld) :
     · rw [isDirectory_absent read absent]; exact .inr ⟨error, rfl, absent⟩
     · rw [isDirectory_error read absent]; exact ⟨rfl, absent⟩
 
+/-- When Lean reports that nothing is at `path`, `realPathIfPresent` gives `none` and resolves
+nothing. -/
+theorem realPathIfPresent_absent {path : FilePath} {w s : Void IO.RealWorld} {error : IO.Error}
+    (read : path.metadata w = .error error s) (absent : Absent error) :
+    realPathIfPresent path w = .ok none s := by
+  unfold realPathIfPresent
+  rw [eio_bind_ok (isPresent_absent read absent)]
+  exact eio_pure _ _
+
+/-- Any other failure of the read is the failure of `realPathIfPresent`, which resolves nothing. -/
+theorem realPathIfPresent_error {path : FilePath} {w s : Void IO.RealWorld} {error : IO.Error}
+    (read : path.metadata w = .error error s) (other : ¬Absent error) :
+    realPathIfPresent path w = .error error s := by
+  unfold realPathIfPresent
+  rw [eio_bind_error (isPresent_error read other)]
+
+/-- When the read finds an entry, `realPathIfPresent` is the resolution, its failure included. -/
+theorem realPathIfPresent_present {path : FilePath} {w s : Void IO.RealWorld}
+    {metadata : IO.FS.Metadata} (read : path.metadata w = .ok metadata s) :
+    realPathIfPresent path w = (do return some (← IO.FS.realPath path)) s := by
+  unfold realPathIfPresent
+  rw [eio_bind_ok (isPresent_ok read)]
+  rfl
+
 /-- `isPresent` as one match on Lean's read: the form of its copies in the code that cannot import
 it, the programs that run with `lean --run` before the package is built (`RegulaProvision`,
 `Regula.DiagnosticsGate`, `Regula.Release`) and the collector (`Regula.Collect`). A theorem proves

@@ -447,7 +447,9 @@ private def observe (path : FilePath) : IO Observed := do
   match ← kind? path with
   | none => return .absent
   | some .symlink =>
-    try return .link (← IO.FS.realPath path).toString catch _ => return .link ""
+    -- `IO.FS.realPath` reports each failure as `noFileOrDirectory`, so `isPresent`, which
+    -- follows the link, decides that its target is absent; any other failure is thrown.
+    if ← isPresent path then return .link (← IO.FS.realPath path).toString else return .link ""
   | some .dir =>
     -- Without its own `.git`, Git would answer for the enclosing repository instead.
     unless ← isPresent (path / ".git") do return .directory none false
@@ -890,10 +892,13 @@ private def registerCopy (parent : FilePath) (name copy : String) : IO Unit := d
     | throw <| IO.userError s!"provisioning: the registry {path} is unreadable; repair or remove it"
   writeRegistry path (register copy registry)
 
-/-- Whether `copy` is a symbolic link that resolves to `target`. -/
+/-- Whether `copy` is a symbolic link that resolves to `target`: `false` when it is not a link or
+its target is absent (`isPresent`), and a failure to read or resolve it thrown, so that a link
+that cannot be resolved is not taken for one that links nothing. -/
 private def links (copy target : String) : IO Bool := do
   unless (← kind? copy) == some .symlink do return false
-  try return (← IO.FS.realPath copy).toString == target catch _ => return false
+  unless ← isPresent copy do return false
+  return (← IO.FS.realPath copy).toString == target
 
 /-- Remove every shared directory under `parent`, other than `current`, that no registered
 copy still links, and finish every removal an interrupted run began; drop from each kept
@@ -913,9 +918,12 @@ private def prune (parent : FilePath) (current link retired : String) : IO Unit 
           let registry := registryPath parent entry.fileName
           let some copies ← readRegistry registry
             | say s!"left {entry.path} as it is: its registry {registry} is unreadable"
-          let target ← try
-              pure (some (← IO.FS.realPath (sharedPackages entry.path / "mathlib")).toString)
-            catch _ => pure none
+          -- A store whose Mathlib cannot be read or resolved fails here, so it and its registry
+          -- are kept; only an absent one (`isPresent`) is linked by no copy.
+          let mathlib := sharedPackages entry.path / "mathlib"
+          let target ← if ← isPresent mathlib then
+              pure (some (← IO.FS.realPath mathlib).toString)
+            else pure none
           let observed ← copies.mapM fun copy => do
             let linked ← match target with
               | some target => links copy target

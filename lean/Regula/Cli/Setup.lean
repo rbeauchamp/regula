@@ -755,11 +755,12 @@ def observe (root : FilePath) : IO Project := do
       else pure none
     | none => pure none
   -- Each file by its canonical path, `IO.FS.realPath`, so two spellings of one file agree; a file
-  -- it cannot resolve leaves the glob case.
+  -- that is not there leaves the glob case, and one that cannot be resolved is a failure
+  -- (`Regula.Filesystem.realPathIfPresent`).
   let canonical (pairs : List (Name × FilePath)) : IO (Option (List (String × String))) := do
     let mut out := []
     for (m, file) in pairs do
-      let path ← try IO.FS.realPath file catch _ => return none
+      let some path ← Regula.Filesystem.realPathIfPresent file | return none
       out := out ++ [(m.toString, path.toString)]
     return some out
   let (sole, added, read) ← match sole with

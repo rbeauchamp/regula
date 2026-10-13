@@ -70,7 +70,7 @@ run_cmd Regula.Removal.checkProgram (named := [
   (provisioning `create, ``IO.FS.rename),
   (provisioning `writeRegistry, ``IO.FS.rename),
   (specialized `Array.mapMUnsafe.map `prune `spec_0, ``IO.FS.removeFile),
-  (specialized `Array.forIn'Unsafe.loop `prune `spec_2, ``IO.FS.removeFile),
+  (specialized `Array.forIn'Unsafe.loop `prune `spec_2._lam_0, ``IO.FS.removeFile),
   (specialized `Array.forIn'Unsafe.loop `prune `spec_2._lam_0, ``IO.FS.rename)])
 
 /-- The presence read of the driver is the filesystem observer's (`Regula.Filesystem.isPresent`,
