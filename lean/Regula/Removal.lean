@@ -149,7 +149,8 @@ ordinary load uses a retained manifest and typed dependency path overrides. Thus
 no longer needs a limit for links preserved or placed by Regula's copies. Dependency originals,
 Lake-generated entries and deliberately planted diagnostic aliases remain trusted inputs. The
 provisioning registration link in the original integration workspace is separate from constructing
-a copy; its creation race is https://github.com/rbeauchamp/regula/issues/407.
+a copy. `RegulaProvision.installLinkWith` makes it in a directory that `mkdir` creates, which
+refuses an entry already at its place (`RegulaProvision.installLink_refused`).
 
 - `Lake.importConfigFile`, with `IO.FS.removeFile` and with `Lean.writeModule`. Trusted exemption,
   for the reason above: it removes the stale compiled configuration of a package and its trace in

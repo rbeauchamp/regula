@@ -9,15 +9,19 @@ the check itself. This module imports it, and its build fails when the compiled 
 reaches a removal outside the observer, except the driver's own removals that it names, each as
 the pair of the declaration that makes it and the primitive that it calls
 (`Regula.Removal.checkProgram`). Each of them decides by the driver's own reads, which follow no
-link at the path (`RegulaProvision.observe`, `RegulaProvision.kind?`), and no decision of
-`RegulaCore.Removal` decides them:
+link at the path (`RegulaProvision.observe`, `RegulaProvision.kind?`,
+`RegulaProvision.entryKindWith`), and no decision of `RegulaCore.Removal` decides them:
 
 - the removal of a symbolic link or of a directory that `observe` classified, in
   `removeObserved`;
 - the removal of a shared directory, which may be read-only, in `removeReadOnly` and
   `removeShared`, and of the entries of a shared directory in the loop of `removeShared`;
-- the removal of a staged link or clone that an installation did not move, and the moves of the
-  staged link or clone over the path, in `installLink` and `installClone`;
+- the move of the link that `installLinkWith` made over the path, in `moveLink`; the removal of
+  that link when the move failed, in `removeLink`; and the removal of the directory that
+  `installLinkWith` made the link in, which `rmdir(2)` removes only when it is empty, in
+  `removeStage`;
+- the removal of a staged clone that an installation did not move, and the move of the staged
+  clone over the path, in `installClone`;
 - the removal in `runConstruction` of the constructor wrapper this run created exclusively before
   interpreting it, in the destination's privately owned staging parent;
 - the move of a staged shared directory to its place, in `create`, and of a staged registry over
@@ -52,8 +56,9 @@ run_cmd Regula.Removal.checkProgram (named := [
   (provisioning `removeShared, ``IO.FS.removeDir),
   (specialized `Array.forIn'Unsafe.loop `removeShared `spec_0, ``IO.FS.removeFile),
   (specialized `Array.forIn'Unsafe.loop `removeShared `spec_0, ``IO.FS.removeDirAll),
-  (provisioning `installLink, ``IO.FS.rename),
-  (provisioning `installLink, ``IO.FS.removeFile),
+  (provisioning `moveLink, ``IO.FS.rename),
+  (provisioning `removeLink, ``IO.FS.removeFile),
+  (provisioning `removeStage, ``IO.FS.removeDir),
   (provisioning `installClone, ``IO.FS.rename),
   (provisioning `installClone, ``IO.FS.removeDirAll),
   (provisioning `runConstruction, ``IO.FS.removeFile),

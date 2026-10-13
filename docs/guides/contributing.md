@@ -183,6 +183,11 @@ shared store or changing registrations and packages, provisioning requires each 
 link to identify a stable store with an admissible receipt. Source-origin, unknown and dangling
 links are preserved and refused; their disposition remains manual.
 
+Provisioning makes the link `mathlib` in a new directory `.mathlib.<nonce>` beside the place of
+the link. Then it moves the link to its place. If an entry is at the place of that directory, the
+run stops and changes nothing. A run that stops before it removes that directory can leave it.
+Remove such a directory by hand.
+
 Each shared directory's registry `<dir>.copies.json` beside it records the copies provisioned
 to link it; a copy is registered before it links. Every provisioning run removes the shared
 directories of other stable pins and toolchains that no
