@@ -22,7 +22,12 @@ open RegulaPolicy.Guards (bind_eq_ok)
 /-- This checker build's producer identity, written into every result envelope. -/
 abbrev producer := Regula.Checker.Producer.identity
 
-/-- Result schema 20 adds `request.copyConfiguration`, the captured loaded selections used to
+/-- Result schema 21 records the policy manifest the producer selected: the `request` member
+carries `policy`, the path of the `--manifest` argument resolved against the project, or else the
+project's default manifest. It is the path the producer gives its configuration capture
+(`SourceBinding.configuration`), which lists it first. Earlier schemas wrote no such member, and
+the rule-example qualifier found the manifest by its default file name.
+Schema 20 adds `request.copyConfiguration`, the captured loaded selections used to
 relocate a project copy, or `null` for another route, and `effective.configurationOrigins` for a
 non-null effective account, separating captured configuration from generated overrides.
 Schema 19 records the native-proof axioms of modules an environment does not inspect:
@@ -162,7 +167,7 @@ frozen configuration and dependency text from the snapshot (`snapshotJson`: a cl
 dependency is identified by its pinned revision, a dirty one only by package and `dirty`
 status) and imported-environment module lists (`acceptedJson`,
 `ProducerReport.Environment.resultJson`); schema 1 embedded them. -/
-def schemaVersion : Nat := 20
+def schemaVersion : Nat := 21
 
 /-- Envelope identity of every result file. -/
 def identityFields : List (String × Json) := RegistryCodec.identityFields producer schemaVersion
@@ -868,12 +873,14 @@ theorem admitGuidance_completed_diagnostics {j : Json} (h : admitGuidance j = .o
     exact Except.ok.inj lookup
 
 /-- The JSON record of the request a result answers: its kind, project, subject, optional
-claim and execution mode, and each configuration file path with its text, if read. -/
+claim and execution mode, the policy manifest the producer selected (`policy`, the path it gives
+`SourceBinding.configuration`), and each configuration file path with its text, if read. -/
 def requestJson (kind project subject : String) (claim execution : Option String)
-    (configuration : Array (System.FilePath × Option String))
+    (policy : System.FilePath) (configuration : Array (System.FilePath × Option String))
     (copyConfiguration : Option Regula.CopyConfiguration.Inputs := none) : Json :=
-  toJson (⟨kind, project, subject, claim, execution,
-    configuration.map (fun (path, source) => (path.toString, source)), copyConfiguration⟩ : Website.ExampleRequest)
+  toJson (⟨kind, project, subject, claim, execution, policy.toString,
+    configuration.map (fun (path, source) => (path.toString, source)), copyConfiguration⟩ :
+      Website.ExampleRequest)
 
 /-- The text of a result file for `document`: the `SharedExecution.write` of `document` in the
 form the JSON parser builds (`JsonCanon.canon`; its `SharedExecution.intern` with the proposals of

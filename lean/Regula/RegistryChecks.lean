@@ -153,7 +153,8 @@ private def succeeded {ε : Type u} {α : Type v} : Except ε α → Bool
 through the production codecs. These controls do not establish a conforming audit. -/
 def resultSchemaChecks : IO Unit := do
   let request : Website.ExampleRequest :=
-    ⟨"file", "/control", "/control/Example.lean", some "kernel-only", some "report", #[], none⟩
+    ⟨"file", "/control", "/control/Example.lean", some "kernel-only", some "report",
+      "/control/foundation_manifest.json", #[], none⟩
   let snapshot ← IO.ofExcept <| RegulaPolicy.admitSnapshot {
     sources := #[], configuration := ⟨request.project, (toJson request.configuration).compress⟩
     toolchain := {
@@ -193,24 +194,32 @@ def resultSchemaChecks : IO Unit := do
     request.configuration request.copyConfiguration (System.FilePath.mk request.project))
   let current ← decode ((envelope.setObjVal! "request"
     (Checker.ResultProtocol.requestJson request.kind request.project request.subject
-      request.claim request.execution #[])).setObjVal! "effective"
-        (oldEffective.setObjVal! "configurationOrigins" origins))
-  require (current.getObjValD "schemaVersion" == toJson (20 : Nat) &&
+      request.claim request.execution (System.FilePath.mk request.policy) #[])).setObjVal!
+        "effective" (oldEffective.setObjVal! "configurationOrigins" origins))
+  require (current.getObjValD "schemaVersion" == toJson (21 : Nat) &&
       succeeded (Checker.ResultProtocol.admitGuidance current) &&
       succeeded (Checker.RuleExampleQualification.requestAccount current bound))
-    "schema 20 producer and canonical request/configuration readers agree"
-  require (match Checker.RuleExampleQualification.requestAccount
-      (current.setObjVal! "request" oldRequest) bound with
+    "schema 21 producer and canonical request/configuration readers agree"
+  let currentRequest := current.getObjValD "request"
+  let without (name : String) : Json := match currentRequest with
+    | .obj fields => current.setObjVal! "request" (.obj (fields.erase name))
+    | _ => current
+  require (match Checker.RuleExampleQualification.requestAccount (without "copyConfiguration")
+      bound with
     | .error problem => problem == "invalid example request account"
     | .ok _ => false)
-    "schema 20 requires request.copyConfiguration, including when null"
+    "schema 21 requires request.copyConfiguration, including when null"
+  require (match Checker.RuleExampleQualification.requestAccount (without "policy") bound with
+    | .error problem => problem.contains "ExampleRequest.policy"
+    | .ok _ => false)
+    "schema 21 requires request.policy"
   require (match Checker.RuleExampleQualification.requestAccount
       (current.setObjVal! "effective" oldEffective) bound with
     | .error problem => problem == "property not found: configurationOrigins"
     | .ok _ => false)
-    "schema 20 requires effective.configurationOrigins"
+    "schema 21 requires effective.configurationOrigins"
   require (succeeded (Checker.RuleExampleQualification.requestAccount current bound))
-    "restored schema 20 configuration account is admitted"
+    "restored schema 21 configuration account is admitted"
 
 /-- The registry transport qualification that acceptance runs with `lean --run`: it checks
 every rule's descriptor codec, the embedded example pairs against their corpus files, the
@@ -349,7 +358,7 @@ def main : IO Unit := do
   let fileStages := Regula.Checker.ResultProtocol.stagesOf .freshFile
   -- Every writer records the request of a result with a mode.
   let requested (kind : String) (j : Json) : Json := j.setObjVal! "request"
-    (Regula.Checker.ResultProtocol.requestJson kind "control" "control" none none #[])
+    (Regula.Checker.ResultProtocol.requestJson kind "control" "control" none none "control" #[])
   let envelope := requested "file" <| Regula.Checker.ResultProtocol.resultJson (.str "control")
     .freshFile .rejected #[⟨.projectAxiom, d⟩, ⟨.projectAxiom, d⟩] fileStages fileStages #[]
   -- Source texts stored once. `SourceTexts.expand_intern` and `intern_table` prove the laws for
