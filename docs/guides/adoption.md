@@ -1054,8 +1054,8 @@ audit refuses a `decides` entry that names its own surface or no claimed surface
   code changes directly, such as a deriving handler, is outside the record.
 - After `set_option linter.NAME false in`, [RG2006] follows only the macros that expand the command.
   It accepts the setting only if the expansion has exactly one declaration, and apart from it only
-  `namespace` and `end` commands. A `def` with a `requires` or `ensures` contract expands to two
-  declarations, so [RG2006] rejects the setting before it.
+  `namespace`, `end` and Lean's internal `end_local_scope` commands. A `def` with a `requires` or
+  `ensures` contract expands to two declarations, so [RG2006] rejects the setting before it.
   It rejects the setting before a command that an elaborator of its own elaborates, such as
   Mathlib's `irreducible_def` or Batteries' `alias`, also if that command makes one declaration.
 - The only supported editor is VS Code with the Lean 4 extension, and there is no latency claim.
