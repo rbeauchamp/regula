@@ -150,6 +150,23 @@ lean --run lean/RegulaProvision.lean verso          # Verso setup
 ./scripts/verify.sh site                             # build and check _site/
 ```
 
+After the build, `./scripts/verify.sh site` operates `lake exe site renderer-refusal`, the control
+of [issue 424](https://github.com/rbeauchamp/regula/issues/424). This command builds `regula-site`
+and `regula-standard`, and a delayed render of the standard and a resumed render must succeed.
+After a refused run with the same options, a resumed render must stop. The refusals of the two
+programs must move the saved state, the word count and the output directory aside, into new
+directories beside them. A refusal must keep the saved state that a resumed render reads when that
+state is outside the output directory. It must move a symbolic link itself, and report an output
+directory `.` or empty and a destination that it cannot move.
+
+The control examines the refusals that `Regula.TaskManager.guard` gives in a process without the
+task manager of Lean. `regula-standard` also refuses a run when the standard does not contain a
+section that the rules cite. The control does not examine that refusal, but that refusal calls the
+same function `RegulaRender.refuse`.
+
+A refused run leaves its copies beside the destinations, and the renderers do not delete them.
+Delete them by hand when they are not necessary.
+
 The website package requires the root `regula` package and the `audit/` package by relative
 path, because the standard's examples import modules of both. Neither requires Mathlib, and no
 example imports it, so building the standard and the site needs only the pinned Verso. The
