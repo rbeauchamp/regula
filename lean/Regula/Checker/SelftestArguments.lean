@@ -216,6 +216,12 @@ def Selection.parse (args : List String) : Except String Selection :=
         .ok (.transcriptWorker moduleWire source rejectWarnings out)
     | _ => .suite <$> (Options.parse args {} >>= Options.validate)
 
+/-- The file that a selection writes for its caller: the transcript worker's `OUT`; a focused
+control and the suite report on standard output and write none. -/
+def Selection.output : Selection → Option String
+  | .transcriptWorker _ _ _ out => some out
+  | .focused _ | .suite _ => none
+
 /-- A focused control's flag alone selects it. -/
 theorem Selection.parse_focused (focused : Focused) :
     parse [focused.flag] = .ok (.focused focused) := by

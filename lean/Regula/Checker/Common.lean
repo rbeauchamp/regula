@@ -624,6 +624,12 @@ def workerPacket (request payload : Json) : Json := Json.mkObj [
   ("schema", toJson (1 : Nat)), ("producer", workerProducer),
   ("request", request), ("payload", payload)]
 
+/-- Mark the file at `out`, which an internal job of a checker writes, incomplete with `reason`, so
+an earlier completed output there cannot be mistaken for the current attempt's. The record has no
+member `payload`, so the reader of a worker packet refuses it (`readWorkerPacket`). -/
+def invalidateOutput (out : FilePath) (reason : String) : IO Unit :=
+  writeJson out (Json.mkObj [("status", .str "incomplete"), ("reason", .str reason)])
+
 /-- The payload of a worker packet whose schema is 1 and whose producer, toolchain commit and
 request are this checker's and `request`; otherwise an error naming the mismatch. The received
 producer and request must have search trees as their object trees and agree with the expected

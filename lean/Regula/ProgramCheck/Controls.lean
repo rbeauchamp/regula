@@ -17,10 +17,11 @@ and one that calls a declaration of another name bound to a C function that need
 manager. So do a guard with an argument that starts a task before the call, a guard whose program
 is not a constant and a guard whose refusal starts a task. The same task started through the
 closed form of `Regula.TaskManager.guard` passes it, applied to `main`'s argument or not, and so
-does a program that needs no task manager. Each planted declaration is added for its control
-alone and removed after it, so this module declares no `main` and records no program. The
-self-audit builds this module with the whole `Regula` library, and that build fails when a control
-does not give the expected result. -/
+does a program that needs no task manager. A planted initializer that creates a promise fails it,
+whatever form `main` has, and one that creates a reference passes it. Each planted declaration is
+added for its control alone and removed after it, so this module declares no `main` and records no
+program. The self-audit builds this module with the whole `Regula` library, and that build fails
+when a control does not give the expected result. -/
 
 namespace Regula.ProgramCheck.Controls
 
@@ -196,5 +197,30 @@ run_cmd do
   unless bound.any (·.contains "plantedWaitAny), and its `main`") do
     throwError "the task-manager check accepted a program that calls a declaration bound to \
       lean_io_wait_any: {bound}"
+
+-- An initializer that creates a promise fails the task-manager check, whatever form `main` has,
+-- since initializers run before the task manager starts; one that creates a reference passes it.
+run_cmd do
+  let main := mkIdent `_root_.main
+  let program : CommandElabM Unit := do
+    elabCommand (← `(command|
+      def $main (_ : List String) : IO UInt32 := do
+        IO.println "planted"
+        return 0))
+  let promise ← taskRefusal do
+    elabCommand (← `(command|
+      initialize plantedPromise : IO.Promise Nat ← IO.Promise.new))
+    program
+  unless promise.any (·.contains "an initializer of a module that the program of") &&
+      promise.any (·.contains "calls IO.Promise.new), and initializers run before it starts") do
+    throwError "the task-manager check accepted a program whose initializer creates a promise: \
+      {promise}"
+  if let some refused ← taskRefusal do
+      elabCommand (← `(command|
+        initialize plantedReference : IO.Ref Nat ← IO.mkRef 0))
+      program
+    then
+    throwError "the task-manager check refused a program whose initializer creates a reference: \
+      {refused}"
 
 end Regula.ProgramCheck.Controls

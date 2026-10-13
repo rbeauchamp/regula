@@ -677,9 +677,12 @@ manager. The guard then writes one line with the reason to the standard error. T
 the refusal of the program and gives its result. The docstring of `taskManagerMissing` gives the
 lines of the Lean runtime that this observation uses.
 
-The refusal of a program marks each result file that its arguments name as incomplete, with the
-reason. It uses the marks of the program, for example the `--json-out` result and the
-`--acceptance-link` record of `axiomGate`. Thus a result of an earlier run does not stay in place.
+The refusal of a program reads its arguments with the parser of the program. For `axiomGate`, that
+parser also reads the internal worker forms. For `qualify`, it also reads the modes that an
+environment variable selects, such as the proxy of `axiomGate`. The refusal then marks each file of
+that reading incomplete, with the reason. It uses the writer that the program uses when a run stops
+early. Thus a result of an earlier run does not stay in place.
+
 The refusal then gives the exit code of an incomplete run. For `axiomGate` and `lint`, that code is
 3. A program that writes no result file, such as a site renderer, marks no file.
 
@@ -695,16 +698,32 @@ asynchronous input and output (`symbols`, `uvPrefix`). For example, `IO.Process.
 task. The compiled code of `auditApp` calls none of these functions, thus that program has no
 guard.
 
+Initializers operate before the task manager starts, in each run, thus no guard can help them. The
+check also follows the initializers of the modules that a program links
+(`Regula.Removal.initializersOf`). It refuses the program if one of them calls a function of the
+runtime that stops the process without a task manager. Such a function creates a promise or reads
+the task manager directly (`stopSymbols`).
+
+The check follows the code of an initializer up to a function of the Lean toolchain, but not into
+it. Thus it does not see an initializer that calls `IO.CancelToken.new`, which creates a promise.
+Through the toolchain, the initializers of each program reach `IO.Promise.resolve`, from the
+attributes that their modules register. Thus a check through the toolchain would refuse each
+program. In this build, the self-test observes that the initializers of five programs complete
+without a task manager. The docstring of `initializerReach` states this limit as an assumption.
+
 The command `lake exe qualify observers` also refuses an executable of the root package if no
 module records this check. The executables of the packages `website` and `markdown` do the check
 in their root modules, but that command does not read those packages. A program that a script
 operates with `lean --run` does not start through the guard. The `lean` executable starts its task
 manager before it reads the file, and the variable `LEAN_NUM_THREADS` does not change it.
 
-The module `Regula.ProgramCheck.Controls` has controls of the check. The cli partition of the
-self-test operates `axiomGate`, `lint` and `freshChecker` with `LEAN_NUM_THREADS=0`, and each must
-refuse. Before each run, its result files hold a completed result. After the run, each file must
-be marked incomplete, with the reason.
+The module `Regula.ProgramCheck.Controls` has controls of the check, with an initializer that
+creates a promise. The last cli shard of the self-test operates `axiomGate`, `lint`,
+`docFenceAudit`, `qualify` and the self-test with `LEAN_NUM_THREADS=0`. It operates one run for
+each kind of destination: a result, an acceptance link, a worker packet, an evidence file and the
+proxy of `axiomGate`. Before each run, each destination holds a completed document of its format,
+and its reader accepts it. After the run, each destination must be marked incomplete, with the
+reason. Its reader must then refuse it as a completed document.
 
 The driver moves the pending record to `tmp/acceptance-link.json` only if
 `RegulaVerification.passed` accepts the exit status of each command. The driver does that move

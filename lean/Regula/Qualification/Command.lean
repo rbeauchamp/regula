@@ -2,10 +2,12 @@
 
 The closed vocabulary of the selections `lake exe qualify` accepts (`Command`), the argument list
 of each (`Command.arguments`) and the parser the dispatcher runs (`Command.parse`), which accepts
-exactly those lists (`Command.parse_sound`, `Command.parse_arguments`). The inventory of campaigns
-(`Regula.Campaigns`) classifies each form of selection by the workflow job that runs it. This
-module imports nothing, so that inventory and its checks can import it beside the other
-executables' vocabularies. -/
+exactly those lists (`Command.parse_sound`, `Command.parse_arguments`). The evidence document of
+each selection (`Command.evidence`) is the one that the leading arguments of its list name
+(`Evidence.named_of_parse`), the reading that marks it before a run and in a refusal. The
+inventory of campaigns (`Regula.Campaigns`) classifies each form of selection by the workflow job
+that runs it. This module imports nothing, so that inventory and its checks can import it beside
+the other executables' vocabularies. -/
 namespace Regula.Qualification
 
 /-- A group of the dependency-snapshot controls (`qualify acceptance-snapshots GROUP`). -/
@@ -221,5 +223,54 @@ theorem Command.parse_sound {args : List String} {command : Command}
   · obtain ⟨group, hg, rfl⟩ := Option.map_eq_some_iff.mp h
     simp [arguments, SnapshotGroup.parse_sound hg]
   · cases h
+
+
+/-- The evidence document that a selection writes, by its format: the path that `--evidence`
+names, with the group of an acceptance fault campaign as its arguments spell it. -/
+inductive Evidence where
+  /-- The rule-example corpus's evidence. -/
+  | ruleExamples (path : String)
+  /-- The producer campaign's export. -/
+  | producers (path : String)
+  /-- The environment census's evidence. -/
+  | environments (path : String)
+  /-- The evidence of the acceptance fault campaign of `group`. -/
+  | acceptance (group path : String)
+  deriving DecidableEq, Repr
+
+/-- The evidence document that each selection writes, and none for a selection that writes none.
+-/
+def Command.evidence : Command → Option Evidence
+  | .ruleExamples path | .ruleExamplesRules path _ | .ruleExamplesShard path _ =>
+      some (.ruleExamples path)
+  | .producersExport path => some (.producers path)
+  | .environments path => some (.environments path)
+  | .acceptance group path => some (.acceptance group.spelling path)
+  | .registry | .native | .combined | .uniqueConstants | .nativeLauncher | .producers
+  | .producersCombined | .history | .selfAudit | .selfAuditShard _ | .selfAuditModule _ _
+  | .selfAuditJsonModule _ | .acceptanceSnapshots _ | .prepMeasure | .documentationDependencies
+  | .inputInventory | .receiptBoundaries | .observers | .closureEvidence | .configurationCapture
+  | .fenceEvidence | .frozenExits | .documentationSource | .documentationSourceReadOnly => none
+
+/-- The evidence document that an argument list names from its leading arguments, so that one the
+parser refuses for a later argument still has its document recognized: a selection's name, then
+`--evidence` and a path, with the group between them for `acceptance`. -/
+def Evidence.named : List String → Option Evidence
+  | "rule-examples" :: "--evidence" :: path :: _ => some (.ruleExamples path)
+  | "producers" :: "--evidence" :: path :: _ => some (.producers path)
+  | "environments" :: "--evidence" :: path :: _ => some (.environments path)
+  | "acceptance" :: group :: "--evidence" :: path :: _ => some (.acceptance group path)
+  | _ => none
+
+/-- On an argument list that the parser accepts, the evidence named by its leading arguments is
+that of the selection it returns, so the two readings of one command line agree on its document.
+-/
+theorem Evidence.named_of_parse {args : List String} {command : Command}
+    (h : Command.parse args = some command) : named args = command.evidence := by
+  rw [Command.parse_sound h]
+  cases command with
+  | acceptance group => cases group; rfl
+  | acceptanceSnapshots group => cases group <;> rfl
+  | _ => rfl
 
 end Regula.Qualification

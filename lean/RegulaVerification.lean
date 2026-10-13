@@ -528,8 +528,11 @@ def commands (copy pending : String) : Mode → List Command
       selftest #["--partition", "execution", "--shard", s!"{index.val + 1}/{executionShards}"]
   | .fixturesShard index =>
       selftest #["--partition", "fixtures", "--shard", s!"{index.val + 1}/{fixturesShards}"]
+  -- The last cli shard also runs `qualify`, in the control of a process without Lean's task
+  -- manager, so its build names it.
   | .cliShard index =>
       selftest #["--partition", "cli", "--shard", s!"{index.val + 1}/{cliShards}"]
+        (if index.val + 1 == cliShards then #["qualify"] else #[])
   | .environmentsShard index =>
       selftest #["--partition", "environments", "--shard",
         s!"{index.val + 1}/{environmentsShards}"]
