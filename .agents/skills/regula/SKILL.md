@@ -272,7 +272,7 @@ Fix: Fix the manifest: exactly the four top-level keys, one entry per root `lean
 
 ### [RG2006](https://rbeauchamp.github.io/regula/dev/rules/RG2006/) Claimed targets must build with the community configuration
 
-Targets' `leanOptions`: auto-implicits off, `linter.missingDocs` on, with Mathlib its standard set, header linter off or licensed; other options, in `-D` or source too, only in [RG2006](https://rbeauchamp.github.io/regula/dev/rules/RG2006/)'s accepted set.
+Targets' `leanOptions`: auto-implicits off, `linter.missingDocs` on, with Mathlib its standard set, header linter off or licensed; other options, in `-D` or source too, only in the accepted set.
 Fix: Set the target's `leanOptions`: `autoImplicit` and `relaxedAutoImplicit` false, `linter.missingDocs` true and, with Mathlib, the standard set and its §6.7 exclusions; delete other options, `-D` arguments and `set_option`s outside the accepted set, bar one-declaration community linter disables.
 
 ```lean
@@ -282,10 +282,11 @@ open Lake DSL
 package rule_examples where
   leanOptions := #[⟨`linter.missingDocs, true⟩, ⟨`autoImplicit, false⟩,
     ⟨`relaxedAutoImplicit, false⟩]
-  plugins := #[`@regula/RegulaObserver:shared]
 
 @[default_target]
-lean_lib Example
+lean_lib Example where
+  plugins := #[`@regula/RegulaObserver:shared]
+  needs := #[`@regula/RegulaObserver:shared]
 ```
 
 ### [RG2004](https://rbeauchamp.github.io/regula/dev/rules/RG2004/) Owned coverage must match the exact Lake inventory
