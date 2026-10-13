@@ -3284,59 +3284,91 @@ private def libraryCycleControl (repo : FilePath) : IO (Array String) :=
       the key of its reused module Right.Base"
   return failures
 
-/-- External-boundary control for reuse with identical copies, where Lean's realization and import
+/-- External-boundary control for reuse with shared copies, where Lean's realization and import
 of several copies of one name, the report workers and the kernel are the external mechanism
-(`Admission.copiesIdentical_iff`, `Admission.referencesWithin_iff` and `Admission.ownedUniform_iff`
-state the decisions). `Lib.Left` and `Lib.Right` do not import each other, and each realizes its
-own copy of `positive.eq_1` of `Lib.Base` and uses it, so the two copies are identical. `Lib.Odd`
-and `Lib.Even` each declare `sharedFact` with a different proof. `App.Main` imports the four. The
-fresh audit must accept; the `Lib` environment replays its five modules, with both copies of each
-name, and lists only `Lib.Odd` and `Lib.Even` as `shared`; the `App` environment reuses `Lib.Base`,
-`Lib.Left` and `Lib.Right`, though it attributes the copy of `Lib.Right` to `Lib.Left`, and replays
-`Lib.Odd`, `Lib.Even` and `App.Main`, again listing `Lib.Odd` and `Lib.Even` as `shared`. -/
-private def identicalCopiesControl (repo : FilePath) : IO (Array String) :=
-  withScratch repo "identical-copies-control" fun project =>
-    withScratch repo "identical-copies-result" fun output => do
+(`Admission.copiesAgree_iff`, `Admission.referencesWithin_iff` and `Admission.ownedAgrees_iff`
+state the decisions, and `Admission.agreesIn_iff` when copies agree). `Lib.Left` and `Lib.Right`
+do not import each other. Each realizes its own copy of `positive.eq_1` of `Lib.Base`, and the two
+copies are identical. Each also realizes its own copy of `classify.eq_2`, whose proof uses the
+match equation Lean realizes privately in that module, and uses it only by that name. The two
+copies differ only in those private names, and the reuse this control expects requires
+`Admission.agrees` to accept the name, through `Admission.uniformUpToPrivate` and
+`Admission.declaredOwned`. `Lib.Near` and `Lib.Far` each realize a copy of `grade.eq_2` the same
+way, but their own theorems also refer to the private match equation, so a check of one in an
+environment that holds the other module's copy would read the private names of both modules, and
+the copies do not agree. `Lib.Odd` and
+`Lib.Even` each declare `sharedFact` with a different proof. `Lib.Up` and `Lib.Down` each declare
+`helperFact` through a private `helper` with a different proof, so exchanging the names of
+`helper` does not relate its two copies. `App.Main` imports the eight. The fresh audit must
+accept; the `Lib` environment replays its nine modules, with both copies of each name, and lists
+only `Lib.Near`, `Lib.Far`, `Lib.Odd`, `Lib.Even`, `Lib.Up` and `Lib.Down` as `shared`; the `App`
+environment reuses `Lib.Base`, `Lib.Left` and `Lib.Right`, though it attributes the copies of
+`Lib.Right` to `Lib.Left`, and replays the other six and `App.Main`, again listing those six as
+`shared`. Each constant that reaches `Lean.reduceBool` reaches the axiom `Lean.trustCompiler`,
+which no claim admits, so the exclusion of native reduction has its witnesses in `Admission`. -/
+private def sharedCopiesControl (repo : FilePath) : IO (Array String) :=
+  withScratch repo "shared-copies-control" fun project =>
+    withScratch repo "shared-copies-result" fun output => do
   IO.FS.writeFile (project / "lean-toolchain") (← IO.FS.readFile (repo / "lean-toolchain"))
   IO.FS.writeFile (project / "lakefile.toml") <|
-    "name = \"identical_copies_control\"\n[leanOptions]\nautoImplicit = false\n" ++
+    "name = \"shared_copies_control\"\n[leanOptions]\nautoImplicit = false\n" ++
       "relaxedAutoImplicit = false\nlinter.missingDocs = true\n" ++
       "[[lean_lib]]\nname = \"Lib\"\nglobs = [\"Lib.+\"]\n" ++
       "[[lean_lib]]\nname = \"App\"\nglobs = [\"App.+\"]\n"
   let surface (library : String) : String :=
     "{\"library\":\"" ++ library ++ "\",\"executables\":[],\"claim\":\"standard-logical\"," ++
-      "\"execution\":\"report\",\"rationale\":\"Identical copies control\"}"
+      "\"execution\":\"report\",\"rationale\":\"Shared copies control\"}"
   IO.FS.writeFile (Manifest.defaultPath project) <|
     "{\"schema-version\":2,\"surfaces\":[" ++ surface "Lib" ++ "," ++ surface "App" ++
       "],\"excluded-libraries\":[],\"excluded-executables\":[]}"
   IO.FS.createDirAll (project / "Lib")
   IO.FS.createDirAll (project / "App")
   IO.FS.writeFile (project / "Lib" / "Base.lean") <|
-    "/-! The definition whose equation lemma two modules realize. -/\n\n" ++
-      "/-- A positive number. -/\ndef positive (n : Nat) : Prop := 0 < n\n"
+    "/-! The definitions whose equation lemmas several modules realize. -/\n\n" ++
+      "/-- A positive number. -/\ndef positive (n : Nat) : Prop := 0 < n\n\n" ++
+      "/-- One for the option of zero, two otherwise. -/\n" ++
+      "def classify : Option Nat → Nat\n  | some 0 => 1\n  | _ => 2\n\n" ++
+      "/-- Zero for the option of one, three otherwise. -/\n" ++
+      "def grade : Option Nat → Nat\n  | some 1 => 0\n  | _ => 3\n"
   for side in #["left", "right"] do
     IO.FS.writeFile (project / "Lib" / s!"{side.capitalize}.lean") <|
-      s!"import Lib.Base\n\n/-! Realizes its own copy of `positive.eq_1`. -/\n\n" ++
-        s!"theorem {side}Unfold (n : Nat) : positive n = (0 < n) := positive.eq_1 n\n"
+      "import Lib.Base\n\n/-! Realizes its own copies of `positive.eq_1` and of the equation " ++
+        "lemmas of `classify`. -/\n\n" ++
+        s!"theorem {side}Unfold (n : Nat) : positive n = (0 < n) := positive.eq_1 n\n\n" ++
+        s!"theorem {side}Classify (x : Option Nat) (h : x ≠ some 0) : classify x = 2 :=\n" ++
+        "  classify.eq_2 x h\n"
+  for side in #["near", "far"] do
+    IO.FS.writeFile (project / "Lib" / s!"{side.capitalize}.lean") <|
+      "import Lib.Base\n\n/-! Realizes its own copies of the equation lemmas of `grade` and " ++
+        "refers to its own private match equation of `grade`. -/\n\n" ++
+        s!"theorem {side}Grade (x : Option Nat) (h : x ≠ some 1) : grade x = 3 := by\n" ++
+        "  simp only [grade]\n"
   for (parity, proof) in #[("Odd", "True.intro"), ("Even", "trivial")] do
     IO.FS.writeFile (project / "Lib" / s!"{parity}.lean") <|
       s!"/-! Declares `sharedFact` with the proof `{proof}`. -/\n\n" ++
         s!"theorem sharedFact : True := {proof}\n"
+  for (direction, proof) in #[("Up", "True.intro"), ("Down", "trivial")] do
+    IO.FS.writeFile (project / "Lib" / s!"{direction}.lean") <|
+      s!"/-! Declares `helperFact` through a private `helper` with the proof `{proof}`. -/\n\n" ++
+        s!"private theorem helper : True := {proof}\n\ntheorem helperFact : True := helper\n"
   IO.FS.writeFile (project / "App" / "Main.lean") <|
-    "import Lib.Left\nimport Lib.Right\nimport Lib.Odd\nimport Lib.Even\n\n" ++
-      "/-! Loads both copies of `positive.eq_1` and of `sharedFact`. -/\n\n" ++
+    "import Lib.Left\nimport Lib.Right\nimport Lib.Near\nimport Lib.Far\nimport Lib.Odd\n" ++
+      "import Lib.Even\nimport Lib.Up\nimport Lib.Down\n\n" ++
+      "/-! Loads both copies of `positive.eq_1`, `classify.eq_2`, `grade.eq_2`, `sharedFact` " ++
+      "and `helperFact`. -/\n\n" ++
       "theorem appFact : positive 1 = (0 < 1) ∧ True := ⟨rightUnfold 1, sharedFact⟩\n"
   -- Lake writes the lock manifest of this package without dependencies; without one the fresh
   -- copy's build would create it, a configuration change during the audit.
   let locked ← runProcess project "lake" #["update"] scrubbedLeanPathEnv
   unless locked.succeeded do
-    return #[s!"identical-copies/setup: lake update failed:\n{locked.output}"]
+    return #[s!"shared-copies/setup: lake update failed:\n{locked.output}"]
   let result := output / "result.json"
   let gate ← runProcess project (← toolPath repo "axiomGate").toString
     #["--project", project.toString, "--json-out", result.toString] scrubbedLeanPathEnv
   unless gate.succeeded do
-    return #[s!"identical-copies/accepted: expected PASS:\n{gate.output}"]
-  let modules := #["Lib.Base", "Lib.Even", "Lib.Left", "Lib.Odd", "Lib.Right", "App.Main"]
+    return #[s!"shared-copies/accepted: expected PASS:\n{gate.output}"]
+  let modules := #["Lib.Base", "Lib.Down", "Lib.Even", "Lib.Far", "Lib.Left", "Lib.Near", "Lib.Odd",
+    "Lib.Right", "Lib.Up", "App.Main"]
   let json ← requireAuditDocument (← IO.ofExcept (Json.parse (← IO.FS.readFile result)))
   let surfaces ← IO.ofExcept <|
     (json.getObjVal? "scope").bind (·.getObjValAs? (Array Json) "surfaces")
@@ -3353,20 +3385,23 @@ private def identicalCopiesControl (repo : FilePath) : IO (Array String) :=
     found := found.push (library, replayed, modules.filter reused.contains,
       modules.filter shared.contains)
     if library == "Lib" then required := keys
+  let shared := #["Lib.Down", "Lib.Even", "Lib.Far", "Lib.Near", "Lib.Odd", "Lib.Up"]
   let expected : Array (String × Array String × Array String × Array String) := #[
-    ("Lib", #["Lib.Base", "Lib.Even", "Lib.Left", "Lib.Odd", "Lib.Right"], #[],
-      #["Lib.Even", "Lib.Odd"]),
-    ("App", #["Lib.Even", "Lib.Odd", "App.Main"], #["Lib.Base", "Lib.Left", "Lib.Right"],
-      #["Lib.Even", "Lib.Odd"])]
+    ("Lib", #["Lib.Base", "Lib.Down", "Lib.Even", "Lib.Far", "Lib.Left", "Lib.Near", "Lib.Odd",
+        "Lib.Right", "Lib.Up"], #[], shared),
+    ("App", #["Lib.Down", "Lib.Even", "Lib.Far", "Lib.Near", "Lib.Odd", "Lib.Up", "App.Main"],
+      #["Lib.Base", "Lib.Left", "Lib.Right"], shared)]
   let mut failures := #[]
   -- Each copy is a key of the module that declares it, so both copies of each name exist.
   for key in #[("Lib.Left", "positive.eq_1"), ("Lib.Right", "positive.eq_1"),
-      ("Lib.Odd", "sharedFact"), ("Lib.Even", "sharedFact")] do
+      ("Lib.Left", "classify.eq_2"), ("Lib.Right", "classify.eq_2"), ("Lib.Near", "grade.eq_2"),
+      ("Lib.Far", "grade.eq_2"), ("Lib.Odd", "sharedFact"), ("Lib.Even", "sharedFact"),
+      ("Lib.Up", "helperFact"), ("Lib.Down", "helperFact")] do
     unless required.contains key do
-      failures := failures.push s!"identical-copies/copies: the Lib environment does not \
+      failures := failures.push s!"shared-copies/copies: the Lib environment does not \
         require {key}, so the project does not hold the copies this control is about"
   unless found == expected do
-    failures := failures.push s!"identical-copies/reuse: expected {expected}, found {found}"
+    failures := failures.push s!"shared-copies/reuse: expected {expected}, found {found}"
   return failures
 
 /-- Writes the project of `crossSurfaceDecisionControl` into the empty directory `project`. It
@@ -3805,7 +3840,7 @@ private def shardDescription (label : String) (others : Nat) (names : Array Stri
 
 /-- Structural mutations and manifest controls retain their isolated projects, worker joins,
 and complete failure accumulation. The frozen-artifact controls, the mutation clusters, the
-cross-surface decision control, the library cycle control, the identical copies control, the
+cross-surface decision control, the library cycle control, the shared copies control, the
 driver copy control, the retained build control and the manifest controls share one queue of
 `jobs` workers, so no more than `jobs` of them run at once. The short controls wait behind the
 clusters and take the
@@ -3835,8 +3870,8 @@ private unsafe def runStructural (layout : SourceLayout) (repo : FilePath) (jobs
               crossSurfaceDecisionControl false repo),
             (structuralShard 4, StructuralGroup.cycle, "library cycle control",
               libraryCycleControl repo),
-            (structuralShard 1, StructuralGroup.copies, "identical copies control",
-              identicalCopiesControl repo),
+            (structuralShard 1, StructuralGroup.copies, "shared copies control",
+              sharedCopiesControl repo),
             (structuralShard 1, StructuralGroup.manifest, "manifest controls",
               manifestQualification repo manifests),
             (structuralShard 1, StructuralGroup.frozen, "frozen artifact controls",
@@ -3892,9 +3927,11 @@ private unsafe def runStructural (layout : SourceLayout) (repo : FilePath) (jobs
       " (two claimed libraries that import one another: accepted, each module replayed in one \
         environment, a requested module reused with its keys)"
   if ran .copies then
-    IO.println <| "self-test identical copies: " ++ verdict .copies ++
-      " (two modules that realize identical copies of one lemma: reused in a later environment; \
-        two modules with different copies of one theorem: replayed again)"
+    IO.println <| "self-test shared copies: " ++ verdict .copies ++
+      " (two modules that realize copies of two lemmas, identical or equal up to their private \
+        match equations, which only those copies use: reused in a later environment; two \
+        modules whose own theorems use their private match equations, and two pairs of modules \
+        with different copies of one theorem, or of its private helper: replayed again)"
   if ran .crossSurface then
     IO.println <| "self-test cross-surface decisions: " ++ verdict .crossSurface ++
       " (a registered function whose only decision registration is in another claimed library: \
