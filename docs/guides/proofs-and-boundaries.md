@@ -797,7 +797,7 @@ code is 3. A program that writes no result file marks no file.
 
 These refusals cover the destinations of the inventory of issue 393. The baseline that
 `regula-markdown --write-baseline` writes is not in it, and a refusal of that program leaves the
-baseline in place ([issue 423](https://github.com/rbeauchamp/regula/issues/423)). A library can also
+baseline in place ([issue 436](https://github.com/rbeauchamp/regula/issues/436)). A library can also
 write a file. The function `manualMain` of Verso writes the pages, the saved state of a delayed
 render and the word count of `regula-site` and `regula-standard`. Before
 [issue 424](https://github.com/rbeauchamp/regula/issues/424), a refused run left these files in
