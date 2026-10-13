@@ -365,8 +365,8 @@ def otherTargets : List String :=
     "+Regula.RegistryChecks:olean", "+Regula.Linter:olean", "+Regula.Checker.LintMain:olean",
     "+Regula.Checker.RuleExamples:olean", "+Regula.Checker.RuleExampleQualificationMain:olean",
     "+Regula.Cli.Main:olean", "+Regula.Release:olean", "+Regula.DiagnosticsGate:olean",
-    "+Regula.RemovalControls:olean", "+Regula.CopyControls:olean", "+Regula.Campaigns.Verification:olean",
-    "+Regula.Campaigns.Diagnostics:olean"]
+    "+Regula.RemovalControls:olean", "+Regula.CopyControls:olean", "+Regula.ProvisionControls:olean",
+    "+Regula.Campaigns.Verification:olean", "+Regula.Campaigns.Diagnostics:olean"]
 
 /-- A `qualify` selection under the driver's deadline. -/
 private def qualify (selection : Array String) : Command :=

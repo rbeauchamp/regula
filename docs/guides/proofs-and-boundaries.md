@@ -705,7 +705,19 @@ Workspace loading runs only in compiled executables, including its control in `q
 
 The interpreter refuses an uninitialized declaration with `Unreachable` (`src/library/ir_interpreter.cpp:919-928`). A seven-line cache observation aborts interpreted and passes compiled. That observation identifies a backend boundary, not a failure of the filesystem-model hypotheses.
 
-The provisioning registration link in the original integration workspace is separate from constructing a copy. Its creation race remains [issue 407](https://github.com/rbeauchamp/regula/issues/407). Lake-generated entries, original trusted dependencies and deliberately planted diagnostic aliases remain outside the plain-copy guarantee.
+The provisioning registration link in the original integration workspace is separate from constructing a copy. Lake-generated entries, original trusted dependencies and deliberately planted diagnostic aliases remain outside the plain-copy guarantee.
+
+Lean `v4.34.1` has no operation that makes a symbolic link. Thus `RegulaProvision.installLinkWith` makes the registration link with `ln -s` in a new directory beside the place of the link. It then moves the link to its place with one rename, and it removes the directory. The function `mkdir(2)` makes that directory. It fails if an entry of any type is at the place of the directory, and it follows no link there.
+
+No read of that place comes before the creation of the directory. Thus no check can become stale before the creation acts. The operand of `ln` is the only name in the new empty directory.
+
+`RegulaProvision.installLink_refused` states that a run of `installLinkWith` fails and changes nothing if an entry is at the place of that directory. It uses only the assumption `RefusesOccupied` about `mkdir`. `installLink_placed` states that after a run that succeeds, a link is at the path and no entry is at the place of the directory. It uses only `ReadsEntry`, because the run reads the two places after the move. `installLink_refused_io` and `installLink_placed_io` give the same results for the runs in `IO` that agree with a model. `linkOps_refused` and `linkOps_placed` give them for the operations of the driver.
+
+These theorems do not establish the text of the link or the other entries after a run that succeeds. They also do not establish what a failed run leaves after the directory exists. They concern only `installLinkWith`. The registration of the copy and, on a replacement, the removal of the old entry come before it and remain after a refusal. The removal or the replacement of the entry at the path before the installation is [issue 389](https://github.com/rbeauchamp/regula/issues/389).
+
+The module `Regula.ProvisionControls` has controls of the installation on the real file system, and the first acceptance step builds it. They prove nothing.
+
+Assumes: With two operands, `ln -s` makes the link with `symlink(2)` at the last operand if that operand names nothing. Apple `file_cmds-479` shows this in `ln/ln.c:145-146,253-265,307,353`. GNU coreutils `9.4` shows this in `src/ln.c:160-164,604-633`. The installed macOS `ln` is `file_cmds-487.0.1`, and Apple did not publish its source. Provisioning runs `ln` in the new directory, and the last operand is the name of the link alone. No different process writes in the new directory.
 
 The reporter's read-only import overlay is an import view. It retains artifact links because byte copies change the real origin that ownership attribution checks. Regula runs no Lake command in that overlay. Compiler-path workspaces deliberately plant toolchain aliases and run Lake to qualify origin classification. Those workspaces are diagnostic exceptions to the directory/file constructor.
 
