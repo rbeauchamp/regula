@@ -678,7 +678,7 @@ An explicitly selected manifest inside the project relocates into the fresh copy
 
 `Construction.requiredFiles` observes stored spellings after no-follow admission of each requested ancestor and file. Callers select the requested and stored spellings. This preserves case aliases without resolving away a source link. The observation assumes stable source entries and the stated POSIX metadata and realpath behavior.
 
-Original Markdown discovery precedes fresh construction. Its walker admits each directory through no-follow metadata before descent, so a directory link cannot redirect or cycle discovery. Its selected files and ancestors survive package and cache pruning. `Construction.selectFiles_mem` states that artifact filtering removes only regular-file instructions. A directory with an artifact suffix retains its descendants. Regular artifacts outside pruned trees are admitted and read before filtering.
+For a fresh audit with `--with-docs`, original Markdown discovery precedes construction. Its walker admits each directory through no-follow metadata before descent, so a directory link cannot redirect or cycle discovery. Its selected files and ancestors survive package and cache pruning. `Construction.selectFiles_mem` states that artifact filtering removes only regular-file instructions. A directory with an artifact suffix retains its descendants. Regular artifacts outside pruned trees are admitted and read before filtering.
 
 `Construction.constructSelected_io` connects the executed instruction guard and writer to each required destination file. The guard refuses an omitted input before any destination write. Its domain uses stored source spellings observed through `Construction.requiredFiles`. Original discovery, native observations, byte fidelity and source stability remain trusted boundaries.
 
@@ -5072,9 +5072,8 @@ assumption of collision resistance, not a theorem. The comparison takes the plac
 fresh gate on the restored copy.
 
 The comparison does not prove that a fresh gate accepts the restored copy. That result also
-rests on a fact that is not a theorem. A fresh gate reads the audited project only through
-`copyProject` and builds that copy from empty output. `copyProject` does not copy `.lake`, so
-the gate does not read the output of the setup build, of the seed or of the incremental gates.
+rests on a fact that is not a theorem. The [copy contract](#the-acceptance-boundary) excludes these fixtures' original build output.
+Thus the fresh gate does not read the output of the setup build, of the seed or of the incremental gates.
 Without `--with-docs`, as here, the gate reads no other file of the project, and its typed path
 overrides point trusted dependencies to their original roots. The restored fresh gates of the clusters in
 the structural project run the same path on a project with such output in its `.lake`.
@@ -5089,8 +5088,7 @@ copy for the probe modules have no effect on the graph.
 Lake uses a seeded `RegulaPolicy` or `AuditApp` artifact only if its saved trace agrees with the
 hash of the inputs of its module. The bytes of the source are one of these inputs. Thus Lake
 always builds the contaminated root from its contaminated source. This statement is a reading of
-the module build of Lake, not a theorem. The fresh gates do not read the seed, because
-`copyProject` does not copy `.lake`.
+the module build of Lake, not a theorem. The fresh gates exclude the seed through the same copy contract.
 
 A fresh gate on a self-hosted copy builds and inspects `RegulaPolicy` from empty output, and
 the first cluster is a serial chain, which was the first shard's longest item, so each fresh gate
