@@ -1,6 +1,7 @@
 import Regula.Checker.AcceptanceLink
 import Regula.Checker.Inspection
 import Regula.Checker.SourceBinding
+import Regula.Checker.Workspace
 import Regula.Cli.Setup
 import Regula.Qualification.RuleExamples
 import Regula.Qualification.Slot
@@ -38,11 +39,19 @@ file system calls, and they prove nothing.
   (`readFileIfPresent`), `Regula.Filesystem.ownPath` (the entry read of `entryIfPresent`), and
   `Slot.contained` and `Checker.findRepoRoot?` (`realPathIfPresent`). `atOwnPlace` has three
   callers. `Removal.ownParent` gives its result, so it is controlled on `path / "new"`. `ownPath`
-  reads the entry (`entryType`) before it, and `Removal.observe` reads the same entry after it, so
-  a control of either fails at that read whatever `atOwnPlace` does; `observe` binds its result, so
-  its failure propagates there. Each other changed site binds an observer's result in `IO` in the
-  same way, so the error propagates there too, unless a caller catches it; this control does not
-  run them.
+  reads the entry (`entryType`) before it, so its control fails at that read whatever `atOwnPlace`
+  does. `Removal.observe` reads the same entry after it, so on this path its control would fail at
+  that read too; it is controlled apart, at operations whose entry reads succeed (below). The two
+  loaders of `Checker.Workspace` observe the root package's configuration candidates
+  (`requireConfigCandidates`) in `configured`, whose `lakefile.lean` is a link to a file below the
+  path and whose `lakefile.toml` can be read: Lake would pass over the first for the second.
+  Each other changed site binds an observer's result in `IO` in the same way, so the error
+  propagates there too, unless a caller catches it; this control does not run them.
+- `Removal.observe` at operations (`resolving`) whose entry reads each give a directory and whose
+  resolution of the path alone fails (`resolutionFailure`), which no control on the unreadable path
+  can make: it must fail with that same error, not observe a directory at another place. At the same
+  operations with no failure it must observe a directory at its own place in a parent at its own
+  place.
 - `Slot.sharedIdentity` of a directory that holds a symbolic link to the path (`shared`): Lean's
   `IO.FS.realPath` reports every failure as `noFileOrDirectory`, so the walk must fail with that
   error rather than record the link, and once the permissions are given back it records the link
@@ -105,8 +114,42 @@ def callers (base path : FilePath) : List (String × IO Unit) := [
     discard <| Regula.Checker.SourceBinding.configuration path (path / "lake-manifest.json")),
   ("Regula.Filesystem.ownPath", discard <| Regula.Filesystem.ownPath (path / "new")),
   ("Regula.Removal.ownParent", discard <| Regula.Removal.ownParent reads (path / "new")),
+  ("Regula.Checker.Workspace.withRootWorkspace",
+    Regula.Checker.Workspace.withRootWorkspace (base / "configured") fun _ => pure ()),
+  ("Regula.Checker.Workspace.withRootPackage",
+    Regula.Checker.Workspace.withRootPackage (base / "configured") fun _ => pure ()),
   ("Regula.Qualification.Slot.contained", discard <| Regula.Qualification.Slot.contained base path),
   ("Regula.Checker.findRepoRoot?", discard <| Regula.Checker.findRepoRoot? path)]
+
+/-- The failure of the resolution at `resolving`. -/
+def resolutionFailure : IO.Error := .otherError 4242 "the control's resolution failed"
+
+/-- Operations at which the entry read of each path gives a directory, and the resolution of each
+path gives that path, except that the resolution of `path` fails with `failure` when one is given.
+The control removes and moves nothing, so the other operations refuse. -/
+def resolving (path : FilePath) (failure : Option IO.Error) : Regula.Filesystem.Ops IO where
+  symlinkMetadata _ := pure {
+    accessed := ⟨0, 0⟩, modified := ⟨0, 0⟩, byteSize := 0, type := .dir, numLinks := 1 }
+  realPath target := match failure with
+    | some error => if target == path then throw error else pure target
+    | none => pure target
+  removeDirAll target := throw <| IO.userError s!"the control removes nothing: {target}"
+  removeFile target := throw <| IO.userError s!"the control removes nothing: {target}"
+  rename source _ := throw <| IO.userError s!"the control moves nothing: {source}"
+
+/-- `Removal.observe` at `resolving`, on an absolute path with a parent: whether it fails with
+`resolutionFailure` when the resolution of the path alone fails, and observes a directory at its
+own place in a parent at its own place when no resolution fails. -/
+def observeResolution : IO (List (String × Bool)) := do
+  let path : FilePath := "/control/observed"
+  let failing := resolving path (some resolutionFailure)
+  let failed := match ← (Regula.Removal.observe failing path).toBaseIO with
+    | .error (.otherError 4242 details) => details == "the control's resolution failed"
+    | _ => false
+  let observed ← Regula.Removal.observe (resolving path none) path
+  return [("Regula.Removal.observe with a resolution of the path alone that fails", failed),
+    ("Regula.Removal.observe with no failure", observed ==
+      { place := .present .directory, sameLocation := true, parentOwn := true })]
 
 /-- `Slot.sharedIdentity` of `root`, which holds a symbolic link to the path `path`, run while
 `path` cannot be read: whether it failed with the error of the resolution. -/
@@ -190,6 +233,18 @@ def check : IO Unit :=
       { cmd := "ln", args := #["-s", path.toString, (shared / "link").toString] }
     unless linked.exitCode == 0 do
       fail s!"the control could not make the link {shared / "link"}: {linked.stderr}"
+    -- A project whose `lakefile.lean` is a link to a file below the path, beside a
+    -- `lakefile.toml` that can be read.
+    let configured := base / "configured"
+    IO.FS.createDirAll configured
+    IO.FS.writeFile (path / "lakefile.lean") "-- the control's configuration\n"
+    IO.FS.writeFile (configured / "lakefile.toml") "name = \"control\"\n"
+    let configLinked ← IO.Process.output {
+      cmd := "ln"
+      args := #["-s", (path / "lakefile.lean").toString, (configured / "lakefile.lean").toString] }
+    unless configLinked.exitCode == 0 do
+      fail s!"the control could not make the link {configured / "lakefile.lean"}: \
+        {configLinked.stderr}"
     let source := base / "Refused.lean"
     IO.FS.writeFile source refusedSource
     let mut failed : Array String := #[]
@@ -218,6 +273,12 @@ def check : IO Unit :=
     unless ← sharedResolved shared path do
       failed := failed.push "Regula.Qualification.Slot.sharedIdentity did not record the link once \
         its target could be read"
+    unless (← (Regula.Checker.Workspace.requireConfigCandidates configured "lakefile").toBaseIO)
+        matches .ok () do
+      failed := failed.push "Regula.Checker.Workspace.requireConfigCandidates did not accept the \
+        candidates once they could be read"
+    for (name, held) in ← observeResolution do
+      unless held do failed := failed.push s!"{name} did not give the expected result"
     for (name, kept) in ← provisioning base do
       unless kept do
         failed := failed.push s!"{name} did not keep the store and its registry"

@@ -597,11 +597,15 @@ and issue [#442](https://github.com/rbeauchamp/regula/issues/442) tracks the `ma
 
 The self-audit compiles the two modules in `examples/fixtures/absence-reads` and runs its worker on
 each, as for an audited module. It must refuse a call of `pathExists` and a use of `isDir` without
-an argument in one, and nothing in the other. In the first acceptance step,
-`Regula.AbsenceControls` makes a path in a directory without search permission. It runs, on that
-path, the fixture module that calls Lean's readers, the shared reads and a caller of each read. It
-also runs the walk of the shared roots on a symbolic link to that path. It runs the removal of a
-shared store that provisioning cannot read.
+an argument in one, and nothing in the other.
+
+In the first acceptance step, `Regula.AbsenceControls` makes a path in a directory without search
+permission. It runs, on that path, the fixture module that calls Lean's readers, the shared reads
+and a caller of each read. It also runs the walk of the shared roots on a symbolic link to that
+path. It runs the removal of a shared store that provisioning cannot read. It loads a project with
+a `lakefile.lean` that links to that path through each of Regula's two Lake loaders, which must
+refuse it. When a model of the file system fails to resolve one path, the removal's observation of
+that path must fail with that error.
 
 `./scripts/verify.sh diagnostics self-audit 1/4` to `4/4` each run one shard of the self-audit.
 The campaign sorts each list of modules that it inspects by name, and it deals the list to the

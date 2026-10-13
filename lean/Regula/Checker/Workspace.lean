@@ -34,20 +34,43 @@ private def detectEnvironment : IO _root_.Lake.Env := do
   | .ok env => return env
   | .error error => throw <| IO.userError s!"lake-workspace-load-failed: {error}"
 
-/-- The configuration with which the workspace rooted at `repo` is loaded. With
+/-- Refuse unless each file that Lake v4.34.1's loader may take as the configuration of the
+package at `dir`, `relConfigFile` with the extension `lean` and with `toml`, is absent or
+resolves: a failure of either observation other than a missing file is thrown with its error
+(`Regula.Filesystem.realPathIfPresent`). Lake resolves each candidate with `Lake.resolvePath`
+(`Lake/Util/IO.lean:75-89`), which gives no path for every failure of `realPath`, and
+`resolveConfigFile` then takes the next candidate (`Lake/Load/Package.lean:107-119`). So a
+`lakefile.lean` that cannot be resolved, such as a link into a directory without search
+permission, is passed over for a `lakefile.toml` beside it, and Regula accepts Lake's choice only
+when no observation of a candidate failed. Where the configuration is named with its extension,
+Lake reads that file alone and fails when it cannot resolve it; the other candidate is observed too,
+and its failure refuses. -/
+def requireConfigCandidates (dir relConfigFile : FilePath) : IO Unit := do
+  for extension in ["lean", "toml"] do
+    discard <| Regula.Filesystem.realPathIfPresent (dir / relConfigFile.withExtension extension)
+
+/-- The configuration with which the workspace rooted at `repo` is loaded, after the observation
+of the root package's configuration candidates (`requireConfigCandidates`). With
 `scrubSearchPath`, the inherited `LEAN_PATH` and `LEAN_SRC_PATH` are ignored, as for
 `scrubbedLeanPathEnv`. -/
 private def loadConfig (repo : FilePath) (scrubSearchPath : Bool) : IO _root_.Lake.LoadConfig := do
+  let wsDir ← IO.FS.realPath repo
+  requireConfigCandidates wsDir _root_.Lake.defaultConfigFile
   let lakeEnv ← detectEnvironment
   let lakeEnv := if scrubSearchPath then { lakeEnv with initLeanPath := [], initLeanSrcPath := [] }
     else lakeEnv
-  return { lakeEnv, wsDir := ← IO.FS.realPath repo }
+  return { lakeEnv, wsDir }
 
-/-- Pass the workspace that a load gave to `action`, or fail with the messages of its log. -/
+/-- Pass the workspace that a load gave to `action`, after the observation of each package's
+configuration candidates as Lake chose its configuration (`requireConfigCandidates`), or fail with
+the messages of its log. -/
 private def withLoaded {α : Type} (ws? : Option _root_.Lake.Workspace) (log : _root_.Lake.Log)
     (action : _root_.Lake.Workspace → IO α) : IO α :=
   match ws? with
-  | some ws => action ws
+  | some ws => do
+      for package in ws.packages do
+        requireConfigCandidates package.dir package.relConfigFile
+      action ws
   | none =>
       let messages := log.entries.map (·.message)
       throw <| IO.userError <|
