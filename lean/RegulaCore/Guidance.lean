@@ -101,7 +101,7 @@ def explain (id : RuleId) : String :=
     c.label ++ " (`" ++ c.source ++ "`, " ++ c.url ++ ")") ++ "\n" ++
   "- Message form: `" ++ d.messageTemplate ++ "`\n" ++
   "- Rule page: " ++ helpUrl id ++ "\n\n" ++
-  "## Problem\n\n" ++ packageProse g.problem ++ "\n\n" ++
+  "## Problem\n\n" ++ packageProse g.problem.toString ++ "\n\n" ++
   "## Why it matters\n\n" ++ paragraphs (d.rationale :: g.rationaleDetail) ++
   "## How to fix it\n\n" ++ d.remedy ++ "\n\n" ++ "Common compliant rewrites:\n\n" ++
       numbered d.rewrites ++ "\n" ++

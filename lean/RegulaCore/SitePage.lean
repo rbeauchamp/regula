@@ -168,7 +168,7 @@ def proseLinks (text : String) : List String :=
 
 /-- Every repository path a guide links or cites. -/
 def Guide.repositoryPaths (g : Guide) : List String :=
-  g.sources ++ ([g.problem] ++ g.trigger ++ g.rationaleDetail ++
+  g.sources ++ ([g.problem.toString] ++ g.trigger ++ g.rationaleDetail ++
     g.proofShape ++ g.established ++ g.notEstablished ++ g.configuration ++ g.limitations).flatMap
         proseLinks
 
@@ -523,7 +523,7 @@ def rulePage (ident : Identity) (id : RuleId) (clauses : List Clause) (ex : Exam
   let leadFacts ← htmlBlock (leadFactsHtml id)
   let exampleBlock ← htmlBlock (← exampleHtml ident ex)
   let runBlock ← htmlBlock (exampleRunHtml ex)
-  let facts ← htmlBlock (sourceFactsHtml ident clauses g.checklist g.sources g.linkage)
+  let facts ← htmlBlock (sourceFactsHtml ident clauses g.checklist g.sources g.linkage.toString)
   let obligations ← htmlBlock ("<p>It leaves these review obligations open: " ++
       residualLinks g.residuals ++ ".</p>")
   let exampleBody := exampleBlock ++ "\n" ++ resolveProse ident d.examples.caption ++ "\n\n" ++
@@ -534,7 +534,7 @@ def rulePage (ident : Identity) (id : RuleId) (clauses : List Clause) (ex : Exam
     "\" =>\n%%%\ntag := \"" ++ id.spelling ++ "\"\nfile := \"" ++ id.spelling ++
         "\"\nshortTitle := \"" ++ id.spelling ++
     "\"\nnumber := false\n%%%\n\n" ++ notice ++ "\n" ++
-    resolveProse ident g.problem ++ "\n\n**What to do.** " ++
+    resolveProse ident g.problem.toString ++ "\n\n**What to do.** " ++
         resolveProse ident d.remedy ++ "\n\n" ++
     leadFacts ++ "\n" ++
     String.join (sections.map fun (heading, suffix, body) => sectionHead id suffix heading ++ body)
