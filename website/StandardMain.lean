@@ -1,5 +1,6 @@
 import VersoManual
 import RegulaStandard
+import Regula.TaskManagerCheck
 import RegulaCore.Standard
 
 /-! Renders the standard alone. Rendering resolves every cross-reference and checklist-row
@@ -25,10 +26,20 @@ def missingClauses (doc : Part Manual) : List Regula.Clause :=
     chapter.metadata.bind (·.file) == some c.chapter && (parts chapter).any fun cited =>
       cited.metadata.bind (·.tag) == some c.anchor && cited.titleString == c.heading
 
-def main (args : List String) : IO UInt32 := do
+/-- Render the standard alone, after requiring every cited section (`missingClauses`). -/
+def renderStandard (args : List String) : IO UInt32 := do
   let missing := missingClauses (%doc RegulaStandard)
   unless missing.isEmpty do
     IO.eprintln s!"cited sections missing from the standard with their tag, heading and chapter: {missing.map (·.heading)}"
     return 1
   manualMain (%doc RegulaStandard) (options := args) (config := {
     emitTeX := false, emitHtmlSingle := .no, emitHtmlMulti := .immediately, htmlDepth := 1 })
+
+/-- `renderStandard` on the command-line arguments; a process without Lean's task manager is
+refused before rendering starts, with exit code 1 (`Regula.TaskManager.guard`). -/
+def main : List String → IO UInt32 :=
+  Regula.TaskManager.guard "regula-standard" 1 renderStandard
+
+-- A program that needs Lean's task manager starts through its guard (`Regula.TaskManager.guard`):
+-- the build of this module fails otherwise (`Regula.TaskManagerCheck.checkProgram`).
+run_cmd Regula.TaskManagerCheck.checkProgram

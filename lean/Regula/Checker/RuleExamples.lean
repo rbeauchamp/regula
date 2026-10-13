@@ -1,4 +1,5 @@
 import Regula.Removal
+import Regula.TaskManagerCheck
 import Regula.Checker.Documentation
 import Regula.Checker.AxiomGate
 import Regula.Checker.ResultProtocol
@@ -207,7 +208,7 @@ Git facts (`Snapshot.GitFacts`), then runs either the exact `axiomGate` body
 of a capture whose exact request they answer; every source and configuration
 byte is still read fresh, and the result is marked `"gitFacts": "injected"`. An empty table
 answers nothing. The user-facing `axiomGate` never accepts them. -/
-unsafe def main (args : List String) : IO UInt32 := do
+unsafe def ruleExamplesMain (args : List String) : IO UInt32 := do
   match args with
   | "--injected-git-facts" :: facts :: rest =>
     let loaded ← (do
@@ -250,7 +251,17 @@ unsafe def main (args : List String) : IO UInt32 := do
       return code
   | _ => ruleExamplesEntry (Regula.Checker.RuleExamples.Production.parse? args)
 
+/-- The `ruleExamples` executable: `ruleExamplesMain` on the command-line arguments. A process
+without Lean's task manager is refused before any production starts, with the exit code of an
+incomplete production (`Regula.TaskManager.guard`). -/
+unsafe def main : List String → IO UInt32 :=
+  Regula.TaskManager.guard "ruleExamples" productionIncomplete ruleExamplesMain
+
 -- The removals that the compiled code of `main`, and of the initializers of the modules it links,
 -- reaches are the filesystem observer's and those that `Regula.Removal.libraryRemovals` lists: the
 -- build of this module fails otherwise (`Regula.Removal.checkProgram`).
 run_cmd Regula.Removal.checkProgram
+
+-- A program that needs Lean's task manager starts through its guard (`Regula.TaskManager.guard`):
+-- the build of this module fails otherwise (`Regula.TaskManagerCheck.checkProgram`).
+run_cmd Regula.TaskManagerCheck.checkProgram

@@ -1,4 +1,5 @@
 import Regula.Removal
+import Regula.TaskManagerCheck
 import Regula.Checker.PolicyCodec
 import Regula.Checker.Documentation
 import Regula.Checker.Lake
@@ -3916,6 +3917,25 @@ private unsafe def runExecution (layout : SourceLayout) (repo : FilePath) (jobs 
 /-- The shard of the source-attribution controls of the complete CLI sweep: the last. -/
 private def cliAttributionShard : Fin cliShards := ⟨cliShards - 1, by decide⟩
 
+/-- The control of a process without Lean's task manager (issue 393): the actual `axiomGate`, run
+with `LEAN_NUM_THREADS=0` on the fixture of that issue, must refuse before its audit starts
+(`Regula.TaskManager.guard`). Its standard error must hold the guard's reason line, its exit code
+must be the one of an incomplete audit, and it must print nothing to standard output, so no result
+line. The process and Lean's runtime are its subject, an external boundary: it observes that the
+compiled gate starts no task manager under that variable and refuses, and it proves nothing. -/
+private def taskManagerControl (repo : FilePath) : IO (Option String) := do
+  let source := repo / "lean" / "Fixtures" / "Positive" / "HeartbeatCorrespondence.lean"
+  let result ← runProcess repo (← toolPath repo "axiomGate").toString
+    #["--file", source.toString, "--claim", "choice-free", "--execution", "checked"]
+    (env := #[("LEAN_NUM_THREADS", some "0")])
+  let line := Regula.TaskManager.refusalLine "axiomGate" RegulaPolicy.TaskManager.missingReason
+  if result.exitCode != Lint.Outcome.incomplete.exitCode || !result.stdout.isEmpty ||
+      !(result.stderr.splitOn "\n").contains line then
+    return some s!"task manager: axiomGate with LEAN_NUM_THREADS=0 did not refuse with exit \
+      {Lint.Outcome.incomplete.exitCode}, the line {repr line} and no standard output (exit \
+      {result.exitCode}):\n{result.output}"
+  return none
+
 /-- Public CLI fixtures: the complete sweep for qualification, or the unchanged smoke subset for
 the default development tier, then, in the complete sweep, the source-attribution controls. With
 `shard`, the sweep checks that shard's fixtures (`fixturesOfShard`), and the source-attribution
@@ -3935,6 +3955,12 @@ private def runCli (repo : FilePath) (jobs : Nat) (fullCli : Bool)
   IO.println <| s!"self-test {cliLabel}: " ++
     (if cliResults.all (·.isNone) then "PASS" else "FAIL") ++
     s!" ({cliFixtures.size} real axiomGate --file invocations)" ++ shardNote shard
+  if runsIn shard cliAttributionShard then
+    let refused ← loggedPhase "task manager" (taskManagerControl repo)
+    appendFailure failures refused
+    IO.println <| "self-test task manager: " ++ (if refused.isNone then "PASS" else "FAIL") ++
+      " (axiomGate with LEAN_NUM_THREADS=0 refuses before its audit, with exit 3, the guard's \
+        reason line and no result line)"
   if fullCli && runsIn shard cliAttributionShard then
     let attribution ← loggedPhase "source attribution" <|
       withScratch repo "checker-source-attribution" fun scratch =>
@@ -4321,17 +4347,23 @@ end Regula.Checker.CheckerSelftest
 
 /-- The `checkerSelftest` executable: initializes Lean's search path, enables initializer
 execution and runs `Regula.Checker.CheckerSelftest.run`, printing any exception as `FAIL:` and
-returning `1`. -/
-unsafe def main (args : List String) : IO UInt32 := do
-  try
-    Regula.Checker.initializeLeanSearchPath
-    Lean.enableInitializersExecution
-    Regula.Checker.CheckerSelftest.run args
-  catch error =>
-    IO.eprintln s!"FAIL: {error}"
-    return 1
+returning `1`. A process without Lean's task manager is refused before the self-test starts, with
+exit code 1 (`Regula.TaskManager.guard`). -/
+unsafe def main : List String → IO UInt32 :=
+  Regula.TaskManager.guard "checkerSelftest" 1 fun args => do
+    try
+      Regula.Checker.initializeLeanSearchPath
+      Lean.enableInitializersExecution
+      Regula.Checker.CheckerSelftest.run args
+    catch error =>
+      IO.eprintln s!"FAIL: {error}"
+      return 1
 
 -- The removals that the compiled code of `main`, and of the initializers of the modules it links,
 -- reaches are the filesystem observer's and those that `Regula.Removal.libraryRemovals` lists: the
 -- build of this module fails otherwise (`Regula.Removal.checkProgram`).
 run_cmd Regula.Removal.checkProgram
+
+-- A program that needs Lean's task manager starts through its guard (`Regula.TaskManager.guard`):
+-- the build of this module fails otherwise (`Regula.TaskManagerCheck.checkProgram`).
+run_cmd Regula.TaskManagerCheck.checkProgram

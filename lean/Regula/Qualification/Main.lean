@@ -1,4 +1,5 @@
 import Regula.Removal
+import Regula.TaskManagerCheck
 import Regula.Qualification.RegistryCli
 import Regula.Qualification.NativeLinter
 import Regula.Qualification.Producer
@@ -92,7 +93,7 @@ private unsafe def dispatch (args : List String) (attempt : Option String := non
 /-- Standalone commands get one group-wide 420-second bound. The private protocol flag
 is supplied by this wrapper or the already timed acceptance driver, never documented
 as a bounded standalone command. Nested commands do not create escaping groups. -/
-unsafe def main (args : List String) : IO UInt32 := do
+unsafe def qualifyMain (args : List String) : IO UInt32 := do
   if (← IO.getEnv "REGULA_RECEIPT_TIMER") == some "1" && args == ["--version"] then
     return ← Regula.Qualification.ReceiptBoundary.worker args
   match ← IO.getEnv "REGULA_QUALIFICATION_WRAPPER" with
@@ -117,7 +118,17 @@ unsafe def main (args : List String) : IO UInt32 := do
     Regula.Qualification.runBounded (← IO.currentDir) 420 (← IO.appPath).toString
       (#["--under-deadline", "--attempt", attempt] ++ args.toArray)
 
+/-- The `qualify` executable: `qualifyMain` on the command-line arguments. A process without
+Lean's task manager is refused before any command starts, with exit code 1
+(`Regula.TaskManager.guard`). -/
+unsafe def main : List String → IO UInt32 :=
+  Regula.TaskManager.guard "qualify" 1 qualifyMain
+
 -- The removals that the compiled code of `main`, and of the initializers of the modules it links,
 -- reaches are the filesystem observer's and those that `Regula.Removal.libraryRemovals` lists: the
 -- build of this module fails otherwise (`Regula.Removal.checkProgram`).
 run_cmd Regula.Removal.checkProgram
+
+-- A program that needs Lean's task manager starts through its guard (`Regula.TaskManager.guard`):
+-- the build of this module fails otherwise (`Regula.TaskManagerCheck.checkProgram`).
+run_cmd Regula.TaskManagerCheck.checkProgram

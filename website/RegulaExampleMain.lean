@@ -1,4 +1,5 @@
 import SubVerso.Compat
+import Regula.TaskManagerCheck
 import SubVerso.Highlighting
 
 /-! # Example elaboration helper
@@ -71,6 +72,17 @@ unsafe def run (path : System.FilePath) : IO UInt32 := do
     (hls.foldl (· ++ ·) .empty)
   return 0
 
-unsafe def main : List String → IO UInt32
+/-- Elaborate the module in the one file argument (`run`), printing an error and returning 2 when it
+throws; any other arguments print the usage and return 1. -/
+unsafe def exampleMain : List String → IO UInt32
   | [path] => try run path catch e => do IO.eprintln s!"regula-example: {e}"; return 2
   | _ => do IO.eprintln "usage: regula-example FILE"; return 1
+
+/-- `exampleMain` on the command-line arguments; a process without Lean's task manager is refused
+before elaboration starts, with exit code 2 (`Regula.TaskManager.guard`). -/
+unsafe def main : List String → IO UInt32 :=
+  Regula.TaskManager.guard "regula-example" 2 exampleMain
+
+-- A program that needs Lean's task manager starts through its guard (`Regula.TaskManager.guard`):
+-- the build of this module fails otherwise (`Regula.TaskManagerCheck.checkProgram`).
+run_cmd Regula.TaskManagerCheck.checkProgram

@@ -1,4 +1,5 @@
 import RegulaMarkdown
+import Regula.TaskManagerCheck
 import RegulaCore.ProseBaseline
 
 /-! Checks every Markdown document the repository tracks: for a rule ID in prose that is not a
@@ -1340,7 +1341,7 @@ open Regula.Controlled.Run in
 /-- Check the tracked Markdown documents, the vocabulary and the baseline of the repository at
 the directory given as the first argument (see `Regula.Controlled.Run.check`), or do one of the
 other tasks of the usage text. -/
-def main (args : List String) : IO UInt32 := do
+def markdownMain (args : List String) : IO UInt32 := do
   match args with
   | ["--controls", directory] => runControls directory
   | _ =>
@@ -1352,3 +1353,12 @@ def main (args : List String) : IO UInt32 := do
     match options.list with
     | some path => list options path
     | none => if options.write then writeBaseline options else check options
+
+/-- `markdownMain` on the command-line arguments; a process without Lean's task manager is refused
+before any check starts, with exit code 1 (`Regula.TaskManager.guard`). -/
+def main : List String → IO UInt32 :=
+  Regula.TaskManager.guard "regula-markdown" 1 markdownMain
+
+-- A program that needs Lean's task manager starts through its guard (`Regula.TaskManager.guard`):
+-- the build of this module fails otherwise (`Regula.TaskManagerCheck.checkProgram`).
+run_cmd Regula.TaskManagerCheck.checkProgram

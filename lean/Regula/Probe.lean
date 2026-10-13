@@ -1,5 +1,6 @@
 import Std.Data.DHashMap.Lemmas
 import Regula.Collect
+import RegulaPolicy.TaskManager
 import Regula.StructuralName
 import Lean.Elab.Command
 import Lean.Compiler.Old
@@ -434,15 +435,14 @@ def runCheck (env : Environment) (cached : Std.HashMap Name (Array Name))
   IO.ofExcept (← IO.wait task)
 
 /-- Refuse, before any correspondence check, a process in which a task of priority
-`Task.Priority.dedicated` runs on the caller's thread: Lean then has no task manager
-(`lean_task_spawn_core`, `src/runtime/object.cpp:1200-1206` at v4.34.1), and a check's heartbeat
-count would not start at zero (`runCheck`). The report then ends with this error. -/
+`Task.Priority.dedicated` runs on the caller's thread (`RegulaPolicy.TaskManager.missing`): Lean
+then has no task manager, and a check's heartbeat count would not start at zero (`runCheck`). The
+report then ends with this error. A program that starts through `Regula.TaskManager.guard` is
+refused before it reaches a report, so this refusal holds for a report that another program runs. -/
 def requireDedicatedThreads : IO Unit := do
-  let caller ← IO.getTID
-  let thread ← IO.ofExcept (← IO.wait (← IO.asTask (prio := .dedicated) IO.getTID))
-  if thread == caller then
-    throw <| IO.userError "a dedicated task ran on the report's thread: Lean has no task manager, \
-      so no correspondence check can count its heartbeats from zero"
+  if let some reason ← RegulaPolicy.TaskManager.missing then
+    throw <| IO.userError s!"{reason}, so no correspondence check can count its heartbeats from \
+      zero"
 
 /-- The pinned `CSimp.isConstantReplacement?` shape, indexed independently of
 the final scoped attribute state. This conservative candidate set includes

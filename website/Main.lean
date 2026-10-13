@@ -1,5 +1,6 @@
 import VersoManual
 import RegulaSite
+import Regula.TaskManagerCheck
 import RegulaCore.Site
 import Generated
 
@@ -14,15 +15,22 @@ one-line description for link previews. -/
 open Verso.Genre Manual
 open Verso.Output (Html)
 
-def main := manualMain (%doc Generated) (config := {
-  emitTeX := false, emitHtmlSingle := .no, emitHtmlMulti := .immediately, htmlDepth := 2,
-  features := {.search},
-  extraFilesHtml := [("Generated/regula.css", "regula.css")],
-  extraJs := {⟨RegulaSite.themeScript⟩},
-  extraHead := #[
-    Html.tag "meta" #[("name", "color-scheme"), ("content", "light dark")] .empty,
-    Html.tag "meta" #[("name", "description"), ("content", Regula.Site.tagline)] .empty,
-    Html.tag "meta" #[("property", "og:description"), ("content", Regula.Site.tagline)] .empty,
-    Html.tag "link" #[("rel", "stylesheet"), ("href", "regula.css")] .empty],
-  sourceLink := some "https://github.com/rbeauchamp/regula",
-  issueLink := some "https://github.com/rbeauchamp/regula/issues" })
+/-- Renders the site; a process without Lean's task manager is refused before rendering starts,
+with exit code 1 (`Regula.TaskManager.guard`). -/
+def main : List String → IO UInt32 :=
+  Regula.TaskManager.guard "regula-site" 1 <| manualMain (%doc Generated) (config := {
+    emitTeX := false, emitHtmlSingle := .no, emitHtmlMulti := .immediately, htmlDepth := 2,
+    features := {.search},
+    extraFilesHtml := [("Generated/regula.css", "regula.css")],
+    extraJs := {⟨RegulaSite.themeScript⟩},
+    extraHead := #[
+      Html.tag "meta" #[("name", "color-scheme"), ("content", "light dark")] .empty,
+      Html.tag "meta" #[("name", "description"), ("content", Regula.Site.tagline)] .empty,
+      Html.tag "meta" #[("property", "og:description"), ("content", Regula.Site.tagline)] .empty,
+      Html.tag "link" #[("rel", "stylesheet"), ("href", "regula.css")] .empty],
+    sourceLink := some "https://github.com/rbeauchamp/regula",
+    issueLink := some "https://github.com/rbeauchamp/regula/issues" })
+
+-- A program that needs Lean's task manager starts through its guard (`Regula.TaskManager.guard`):
+-- the build of this module fails otherwise (`Regula.TaskManagerCheck.checkProgram`).
+run_cmd Regula.TaskManagerCheck.checkProgram
