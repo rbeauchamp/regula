@@ -102,8 +102,9 @@ package my_project where
 The same field on a `lean_lib` or `lean_exe` adds the plugin to that target only.
 
 Lake builds the plugin with your modules, and it rebuilds a module when the plugin changes. A
-claimed target without the plugin fails [RG2006], and the finding names this line. [RG2003] then
-reports each of its modules as not observed.
+claimed target without the plugin fails [RG2006], and `doctor` names this line in that finding.
+`lake lint` stops first at [RG2003], which reports each module of the target as not observed and
+names the same line.
 
 ### When your Lean release has no Regula release
 

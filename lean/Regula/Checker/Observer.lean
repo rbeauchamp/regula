@@ -205,10 +205,14 @@ def settings (record : RegulaObserver.Record) : List RegulaPolicy.Community.Sour
       location := location s.position })
 
 /-- One RG2003 failure of a module's record, as a line of the build's report that names the module
-`module`: its name, or the file that a standalone compilation compiled. -/
+`module`: its name, or the file that a standalone compilation compiled. The line of an observer
+that Lean did not load names the `plugins` entry that loads it, which RG2006 requires; an audit
+stops at this refusal before its RG2006 stage. -/
 def failureLine (module : String) : RegulaPolicy.Elaboration.Failure → String
   | .unloaded => s!"not observed: Regula's elaboration observer was not among the plugins Lean \
-      loaded to elaborate {module}"
+      loaded to elaborate {module}; its target loads it with \
+      plugins := #[`@regula/RegulaObserver:shared] in lakefile.lean, or \
+      plugins = [\"@regula/RegulaObserver:shared\"] in lakefile.toml (RG2006)"
   | .absent => s!"not observed: {module} has no complete record of Regula's elaboration observer"
   | .guardMsgs (line, column) =>
     s!"{module}:{line}:{column}: the command contains `#guard_msgs`, which drops or checks the \

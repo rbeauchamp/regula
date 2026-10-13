@@ -1713,6 +1713,9 @@ def guide : RuleId → Guide
           `plugins = [\"@regula/RegulaObserver:shared\"]` in `lakefile.toml`; Regula's own \
           `lakefile.lean` writes it `@/RegulaObserver:shared`. The decision rejects a target \
           whose resolved plugins name no such target, and the finding names the line to add. \
+          `doctor` reports that finding; an audit of such a target stops first at RG2003, \
+          whose line for each module that Lean elaborated without the observer names the same \
+          entry. \
           The observer records the options the source sets, which the rule reads below, and the \
           messages that RG2003 decides.",
         "The accepted set holds the required options at the values the rule admits; the §6.7 \

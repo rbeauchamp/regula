@@ -862,19 +862,27 @@ private def observerEscapes (repo adopter : FilePath) : IO (Array String) := do
   failures := failures ++ (← expect adopter (accepted "observer/simp-user-option"))
   restore adopter originals
   failures := failures ++ (← expect adopter (accepted "observer/restored"))
-  -- A claimed library loads the observer only through its own `plugins` (RG2006): without the
-  -- entry, RG2006 names it, and RG2003 refuses each module that Lean elaborated without the
-  -- observer.
+  -- A claimed library loads the observer only through its own `plugins` (RG2006). Without the
+  -- entry, RG2003 refuses each module that Lean elaborated without the observer, and its line
+  -- names the entry; the audit stops there, before its RG2006 stage, and `doctor` reports the
+  -- RG2006 finding of the configuration.
   let lakefile := adopter / "lakefile.lean"
   let lakefileText ← IO.FS.readFile lakefile
   mutate lakefile "  plugins := #[`@regula/RegulaObserver:shared]\n" ""
   failures := failures ++ (← expect adopter {
       label := "observer/no-plugins", exitCode := 3,
-      contains := #["RG2006", "does not load Regula's elaboration observer",
-        "plugins := #[`@regula/RegulaObserver:shared]", "FAIL[elaboration-hidden]",
+      contains := #["FAIL[elaboration-hidden]",
         "not observed: Regula's elaboration observer was not among the plugins Lean loaded to \
-          elaborate Widget", "regula lint: INCOMPLETE (exit 3)"],
+          elaborate Widget; its target loads it with \
+          plugins := #[`@regula/RegulaObserver:shared] in lakefile.lean",
+        "regula lint: INCOMPLETE (exit 3)"],
       excludes := #[s!"regula lint: {acceptanceLabel}"] })
+  failures := failures ++ (← assess {
+      label := "observer/no-plugins-doctor", exitCode := 1,
+      contains := #["RG2006", "does not load Regula's elaboration observer",
+        "plugins := #[`@regula/RegulaObserver:shared]"],
+      excludes := #["regula doctor: the setup is complete"] }
+    (← runProcess adopter "lake" #["exe", "regula", "doctor"] scrubbedLeanPathEnv))
   IO.FS.writeFile lakefile lakefileText
   restore adopter originals
   -- A dependency's `presetup` facet, which replaces Lake's own in the workspace whatever the order
