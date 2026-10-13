@@ -225,6 +225,82 @@ theorem auditedScope_completed {result scope : Json} (h : auditedScope result = 
     obtain ⟨_, ⟨⟩, h⟩ := h
     cases h
 
+/-- The configuration an effective account `effectiveAccount` must record for the admitted request
+whose captured configuration is `requested`: `requested` itself for a `null` account or a route
+with no copy inputs, and otherwise `Lake.expectedConfiguration` of the frozen copy inputs at the
+account's root. -/
+def expectedConfiguration (admitted : ExampleRequest) (effectiveAccount : Json)
+    (requested : Array (String × Option String)) : Except String (Array (String × Option String)) :=
+  if effectiveAccount matches .null then pure requested else do
+    let root ← string effectiveAccount "root"
+    match admitted.copyConfiguration with
+    | none => pure requested
+    | some inputs =>
+      unless inputs.project == admitted.project do throw "relocation inputs belong to another request"
+      Lake.expectedConfiguration inputs (System.FilePath.mk root) requested
+
+/-- A non-null effective account records the `expected` configuration, checked by
+`Regula.CopyConfiguration.check`, and its `configurationOrigins` equal the derivation of
+`Lake.configurationOrigins` from the request. -/
+def effectiveCheck (admitted : ExampleRequest) (effectiveAccount : Json)
+    (expected : Array (String × Option String)) : Except String Unit := do
+  unless effectiveAccount matches .null do
+    let effective ← configurationAccount (← string effectiveAccount "root")
+      (← fromJson? (α := Array (String × Option String)) (← field effectiveAccount "configuration"))
+    Regula.CopyConfiguration.check (expected, effective)
+    let origins ← Lake.configurationOrigins admitted.project admitted.configuration
+      admitted.copyConfiguration (System.FilePath.mk (← string effectiveAccount "root"))
+    unless JsonAgreement.conforms (← field effectiveAccount "configurationOrigins") origins do
+      throw "configuration origin account differs from captured and generated files"
+
+/-- An object scope records the `expected` configuration, byte for byte the same configuration
+and root as the effective account `effectiveAccount`. -/
+def scopeConfiguration (scope effectiveAccount : Json)
+    (expected : Array (String × Option String)) : Except String Unit := do
+  let configuration ← fromJson? (α := Array (String × Option String))
+      (← field scope "configuration")
+  let effective ← configurationAccount (← string scope "configurationRoot") configuration
+  unless effective == expected &&
+      JsonAgreement.conforms (← field scope "configuration")
+        (← field effectiveAccount "configuration") &&
+      JsonAgreement.conforms (← field scope "configurationRoot")
+        (← field effectiveAccount "root") do
+    throw "effective configuration differs from request"
+
+/-- An object scope agrees with the admitted request: its configuration (`scopeConfiguration`),
+and then, by the request's kind, its file claim and execution, its diagnostic-only inspection or
+its surfaces (`projectAccount`). -/
+def scopeAccount (scope effectiveAccount : Json) (expected : Array (String × Option String))
+    (admitted : ExampleRequest) : Except String Unit := do
+  scopeConfiguration scope effectiveAccount expected
+  match admitted.kind with
+  | "file" =>
+      unless JsonAgreement.conforms (← field scope "claim") (toJson admitted.claim) &&
+          JsonAgreement.conforms (← field scope "execution") (toJson admitted.execution) &&
+          (← string scope "file") == admitted.subject do
+        throw "effective file claim or execution differs from request"
+  | "policyNegative" =>
+      unless JsonAgreement.conforms (← field scope "claim")
+            (toJson (some "standard-logical" : Option String)) &&
+          JsonAgreement.conforms (← field scope "execution") .null &&
+          (← string scope "file") == admitted.subject &&
+          JsonAgreement.conforms (← field scope "diagnosticOnly") (toJson true) do
+        throw "wrong diagnostic-only effective request"
+  | "documentation" => pure ()
+  | "project" => projectAccount scope admitted
+  | _ => throw "unknown example request kind"
+
+open RegulaPolicy.Guards in
+/-- For a project request, `scopeAccount` admits a scope only when `projectAccount` does. -/
+theorem scopeAccount_project {scope effectiveAccount : Json}
+    {expected : Array (String × Option String)} {admitted : ExampleRequest}
+    (h : scopeAccount scope effectiveAccount expected admitted = .ok ())
+    (hkind : admitted.kind = "project") : projectAccount scope admitted = .ok () := by
+  unfold scopeAccount at h
+  simp only [bind_eq_ok, hkind] at h
+  obtain ⟨⟨⟩, -, h⟩ := h
+  exact h
+
 /-- The complete observed configuration equals the expectation derived from the admitted
 request's exact captured bytes and frozen loaded selections. Constructed copies use
 `Lake.expectedConfiguration` and the same `relocateDependencies`/`generatedConfiguration` that
@@ -242,48 +318,10 @@ def effectiveAccount (result : Json) (admitted : ExampleRequest) : Except String
   auditedScope result
   let requested ← configurationAccount admitted.project admitted.configuration
   let effectiveAccount ← field result "effective"
-  let expected ← if effectiveAccount matches .null then pure requested else do
-    let root ← string effectiveAccount "root"
-    match admitted.copyConfiguration with
-    | none => pure requested
-    | some inputs =>
-      unless inputs.project == admitted.project do throw "relocation inputs belong to another request"
-      Lake.expectedConfiguration inputs (System.FilePath.mk root) requested
-  unless effectiveAccount matches .null do
-    let effective ← configurationAccount (← string effectiveAccount "root")
-      (← fromJson? (α := Array (String × Option String)) (← field effectiveAccount "configuration"))
-    Regula.CopyConfiguration.check (expected, effective)
-    let origins ← Lake.configurationOrigins admitted.project admitted.configuration
-      admitted.copyConfiguration (System.FilePath.mk (← string effectiveAccount "root"))
-    unless JsonAgreement.conforms (← field effectiveAccount "configurationOrigins") origins do
-      throw "configuration origin account differs from captured and generated files"
+  let expected ← expectedConfiguration admitted effectiveAccount requested
+  effectiveCheck admitted effectiveAccount expected
   let scope ← field result "scope"
-  if let .ok _ := scope.getObj? then
-    let configuration ← fromJson? (α := Array (String × Option String))
-        (← field scope "configuration")
-    let effective ← configurationAccount (← string scope "configurationRoot") configuration
-    unless effective == expected &&
-        JsonAgreement.conforms (← field scope "configuration")
-          (← field effectiveAccount "configuration") &&
-        JsonAgreement.conforms (← field scope "configurationRoot")
-          (← field effectiveAccount "root") do
-      throw "effective configuration differs from request"
-    match admitted.kind with
-    | "file" =>
-        unless JsonAgreement.conforms (← field scope "claim") (toJson admitted.claim) &&
-            JsonAgreement.conforms (← field scope "execution") (toJson admitted.execution) &&
-            (← string scope "file") == admitted.subject do
-          throw "effective file claim or execution differs from request"
-    | "policyNegative" =>
-        unless JsonAgreement.conforms (← field scope "claim")
-              (toJson (some "standard-logical" : Option String)) &&
-            JsonAgreement.conforms (← field scope "execution") .null &&
-            (← string scope "file") == admitted.subject &&
-            JsonAgreement.conforms (← field scope "diagnosticOnly") (toJson true) do
-          throw "wrong diagnostic-only effective request"
-    | "documentation" => pure ()
-    | "project" => projectAccount scope admitted
-    | _ => throw "unknown example request kind"
+  if let .ok _ := scope.getObj? then scopeAccount scope effectiveAccount expected admitted
 
 open RegulaPolicy.Guards in
 /-- `effectiveAccount` admits a completed result only when its `scope` is an object and its
@@ -316,18 +354,12 @@ theorem effectiveAccount_project {result scope : Json} {admitted : ExampleReques
     cases hs : scope.getObj? with
     | ok fields => exact ⟨fields, rfl⟩
     | error _ => simp [hs, Except.isOk, Except.toBool] at hobject
-  have okBind : ∀ {α β : Type} (a : α) (f : α → Except String β), (Except.ok a >>= f) = f a :=
-    fun _ _ => rfl
   unfold effectiveAccount at h
-  simp only [bind_eq_ok, hkind, hscope, okBind, hfields, beq_self_eq_true, ite_true] at h
-  obtain ⟨_, -, _, -, requested, -, account, -, h⟩ := h
-  split at h
-  · simp only [ite_true, bind_eq_ok] at h
-    obtain ⟨_, -, _, -, _, -, _, -, _, -, _, hnull, -⟩ := h
-    cases hnull
-  · simp only [Bool.false_eq_true, ↓reduceIte, bind_eq_ok, throw_bind, ite_throw_eq_ok] at h
-    obtain ⟨_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, hp⟩ := h
-    exact hp
+  simp only [bind_eq_ok, hkind, hscope, beq_self_eq_true, ite_true] at h
+  obtain ⟨_, -, ⟨⟩, -, _, -, _, -, _, -, ⟨⟩, -, _, hsame, h⟩ := h
+  cases hsame
+  simp only [hfields] at h
+  exact scopeAccount_project h hkind
 
 /-- The result's request, admitted as equal to the bound request, with its effective
 configuration and scope checked by `effectiveAccount`. -/
