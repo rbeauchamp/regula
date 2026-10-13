@@ -1754,10 +1754,13 @@ def Build.runObserved (build : Build) (repo : FilePath) (targets : Array Target)
         let completed ← presetups.completed.get
         let observer : Observer.Snapshot ←
           if modules.isEmpty then pure default else Observer.running
-        for mod in modules do
-          let plugins := Observer.presetupPlugins? completed mod.pkg.keyName mod.name
-          let needed := mod.lib.config.needs.any (Observer.observerKey mod.pkg.baseName)
-          let loaded ← if needed then Observer.pluginLoaded observer plugins else pure false
+        let plugins := modules.map fun mod =>
+          if mod.lib.config.needs.any (Observer.observerKey mod.pkg.baseName) then
+            Observer.presetupPlugins? completed mod.pkg.keyName mod.name
+          else none
+        let matching ← Observer.matchingPlugins observer (plugins.flatMap (·.getD #[]))
+        for mod in modules, presetup in plugins do
+          let loaded := Observer.pluginLoaded matching presetup
           let verdict ← Observer.decideRecord mod.name.toString loaded mod.oleanFile
           verdicts.modify (·.push (mod.name, verdict))
         let jobs ← jobLogs.get

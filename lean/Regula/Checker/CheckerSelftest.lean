@@ -2055,7 +2055,7 @@ private unsafe def structuralPartB (layout : SourceLayout) (executables : Bool)
           (IO.FS.writeFile recordSource recordText)
     -- A stale library where Lake reuses it: other bytes under the placed library's name, trace and
     -- hash, so that Lake links nothing. Neither its name nor its path admits it; only the bytes of
-    -- the running observer do (`Observer.pluginLoaded`).
+    -- the running observer do (`Observer.matchingPlugins`).
     observerMutation "observer-library-stale"
       (do IO.FS.writeBinFile library ((← IO.FS.readBinFile library).push 0)) (pure ())
   else
@@ -3021,7 +3021,7 @@ build directory is empty, instead of relying on a prior `lake build`. Each
 control starts from a copied repository whose `.lake/build` holds exactly the files that
 `prepareScratchRepo` reports it placed, the running Regula's observer library with its trace and
 hash: no module output. `--file` and `freshChecker` build the copy's claimed libraries in place, and
-their audit admits only a plugin with that library's bytes (`Observer.pluginLoaded`). The
+their audit admits only a plugin with that library's bytes (`Observer.matchingPlugins`). The
 freshChecker control then gives its workspace a `leanchecker` that fails, which an accepted run
 never ran. Only the parts in `parts` run (`fenceEnvironmentParts`). -/
 private unsafe def fenceEnvironmentQualification (layout : SourceLayout) (repo scratch : FilePath)

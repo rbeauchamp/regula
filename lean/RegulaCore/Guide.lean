@@ -1405,9 +1405,11 @@ def guide : RuleId → Guide
         "That no linter was disabled: a disabled linter emits nothing for this rule to reject. \
           RG2006 rejects a source option that turns off one of Lean's default warnings, and \
           admits only the one-declaration form for a community linter.",
-        "That the record of the elaboration observer is the observer's own: code that runs in \
-          the module's elaboration, such as an initializer or an elaborator of an imported \
-          module, could write or remove it (standard §7).",
+        "That the record of the elaboration observer is the observer's own, and that no message \
+          was removed: code that runs in the module's elaboration, of the project or of an \
+          imported module, such as an initializer, a command or term elaborator or a tactic, \
+          could write or remove the record, or remove a message before the observer reads it \
+          (standard §7).",
         "A message that a stateful linter of an imported module logs after the observer's own \
           linter ran on the command: Lean loads the plugin before the imports' initializers, so \
           such a linter runs later, and Lean gives a plugin no later point to read the messages. \
@@ -1499,11 +1501,11 @@ def guide : RuleId → Guide
         (`Lake.weakArgsRecordJson_injective`), so a record that a trace holds for another \
         library is never taken for the module's own. That Regula's facet wrote the record when \
         Lake built the module is the trust in recorded traces that standard §7.11 states for \
-        the incremental gate. Regula's own `extraDep` and `presetup` facets are recognized by \
-        identity: `Lake.regulaFacetAdmitted_iff` accepts a package's configuration exactly when \
-        its text and that of the running Regula's `lakefile.lean` are both read and equal, the \
-        file declares one library facet and one module facet of its own, and it has both \
-        facets' constants. With \
+        the incremental gate. Regula's own `extraDep` facet is recognized by identity: \
+        `Lake.regulaFacetAdmitted_iff` accepts a package's configuration exactly when its text \
+        and that of the running Regula's `lakefile.lean` are both read and equal, the file \
+        declares one library facet of its own, and it has that facet's constant \
+        (`Lake.regulaFacetName`). With \
         `REGULA_ORDINARY_LAKEFILES=1`, `lake lint` omits the marker only where the registered \
         decision `Lake.auditMarkerNeeded` admits the workspace: it asks for the marker exactly \
         when a package is not of the plain shape, or a module of the root package does not \
@@ -1774,9 +1776,13 @@ def guide : RuleId → Guide
           comment, which sets the option for the rest of the comment. The proved decision \
           `RegulaPolicy.Community.sourceFailures` rejects each that the target itself \
           could not set at that value, with two exceptions. The first is \
-          `set_option linter.NAME false in` before one declaration, which turns a community \
-          linter off for it (standard §6.2); before any other command, such as a `section` of \
-          several declarations, it is rejected. The second is a setting that the pinned Lean's \
+          `set_option linter.NAME false in` before one declaration command, or before a \
+          command that macros expand, one command at each step, to one declaration command, \
+          such as Mathlib's `lemma`, which turns a community linter off for it (standard \
+          §6.2). Before any other command it is rejected: a `section` of several \
+          declarations, a command that a macro expands to several commands, or a command \
+          that an elaborator of its own elaborates, such as Mathlib's `irreducible_def` or \
+          Batteries' `alias`, even where it declares one constant. The second is a setting that the pinned Lean's \
           own generated code writes as `set_option` syntax \
           (`RegulaPolicy.Community.generatedSettings`): `match.ignoreUnusedAlts true` in \
           `deriving BEq` and `deriving Ord`, `smartUnfolding false` in `rfl'`, \

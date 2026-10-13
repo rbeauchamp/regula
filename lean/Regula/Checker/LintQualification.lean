@@ -751,21 +751,23 @@ elaborates the guarded command with `elabCommandTopLevel` (`Lean/Elab/GuardMsgs.
 which lints it, since only a command that contains `#guard_msgs` goes unlinted
 (`Lean/Elab/Command.lean` line 868), and the warning the docstring does not expect fails the build
 with an error (`Lean/Elab/GuardMsgs.lean` line 248). A one-declaration disable of
-`linter.missingDocs`, a community linter, is accepted; the same disable before a section of two
-definitions is a violation. So is `set_option linter.missingDocs false` that the project's code
-elaborates through `run_cmd`, `run_elab`, a `try_suggestion` generator or a simproc. A setting of
-`RegulaPolicy.Community.generatedSettings` that the module writes itself is accepted, as is the
-`grind` tactic's `set_option` at an accepted value. The documentation command `{set_option}` is
-decided like `set_option`, and the documentation role `{option}` and a `simp` user option, which
-set no option of the scope, give no finding. The restored module is accepted. Without the
-library's `plugins` entry for the observer, RG2003 refuses the claimed modules as not observed and
-names the entry, as `doctor`'s RG2006 finding does. Without its `needs` entry, the audit reads no
-record, RG2003 refuses the claimed modules as not observed and names both entries, and `doctor`'s
-RG2006 finding names the `needs` entry, which RG2006 requires. A target with both entries and
-`platformIndependent := true` is accepted by RG2006 and RG2003 on a marked rebuild, since the field
-takes the workspace out of the plain shape; that the `needs` trace then reaches each module's trace
-is read from Lake (`Lake/Build/Module.lean` lines 600 to 603, `Lake/Build/Library.lean` lines 162
-to 169), not exercised here. A dependency's `presetup` facet that Lake does not store
+`linter.missingDocs`, a community linter, is accepted, as is the same disable before a macro that
+expands to one theorem; the same disable before a section of two definitions, or before a macro
+that expands to two theorems, is a violation. So is `set_option linter.missingDocs false` that the
+project's code elaborates through `run_cmd`, `run_elab`, a `try_suggestion` generator or a
+simproc. A setting of `RegulaPolicy.Community.generatedSettings` that the module writes itself is
+accepted, as is the `grind` tactic's `set_option` at an accepted value. The documentation command
+`{set_option}` is decided like `set_option`, and the documentation role `{option}` and a `simp`
+user option, which set no option of the scope, give no finding. The restored module is accepted.
+Without the library's `plugins` entry for the observer, RG2003 refuses the claimed modules as not
+observed and names the entry, as `doctor`'s RG2006 finding does. Without its `needs` entry, the
+audit reads no record, RG2003 refuses the claimed modules as not observed and names both entries,
+and `doctor`'s RG2006 finding names the `needs` entry, which RG2006 requires. A target with both
+entries and `platformIndependent := true` is accepted by RG2006 and RG2003 on a marked rebuild,
+since the field takes the workspace out of the plain shape; that the `needs` trace then reaches
+each module's trace is read from Lake (`Lake/Build/Module.lean` lines 600 to 603,
+`Lake/Build/Library.lean` lines 162 to 169), not exercised here. A dependency's `presetup` facet
+that Lake does not store
 (`memoize := false`) is accepted, required before `regula` and after it, and one that drops the
 plugins is refused under RG2003. The file audit (`axiomGate --file`) decides its compilation's
 record with the same function (`Observer.decideRecord`): a `#guard_msgs` that drops a warning
@@ -828,6 +830,24 @@ private def observerEscapes (repo adopter : FilePath) : IO (Array String) := do
   failures := failures ++ (← expect adopter {
       label := "observer/community-disable-section", exitCode := 1,
       contains := #["RG2006", "Widget.Additional:10:11: set_option linter.missingDocs false",
+        "regula lint: VIOLATION (exit 1)"],
+      excludes := #["FAIL[elaboration-hidden]"] })
+  -- The decision follows the macros that expand the wrapped command, one command at each step: a
+  -- macro that expands to one declaration, as Mathlib's `lemma` does, takes the disable, and one
+  -- that expands to two declarations does not.
+  write <| "/-- Declares one theorem, as Mathlib's `lemma` does. -/\n\
+    macro \"single \" name:ident : command =>\n  `(command| theorem $name : True := trivial)\n\n\
+    -- The control's reason: a declaration the documentation linter may skip.\n\
+    set_option linter.missingDocs false in\nsingle onlyOne"
+  failures := failures ++ (← expect adopter (accepted "observer/community-disable-macro"))
+  write <| "/-- Declares two theorems. -/\n\
+    macro \"pair \" first:ident second:ident : command =>\n  \
+    `(theorem $first : True := trivial\n    theorem $second : True := trivial)\n\n\
+    -- The control's reason: two declarations the documentation linter may skip.\n\
+    set_option linter.missingDocs false in\npair one two"
+  failures := failures ++ (← expect adopter {
+      label := "observer/community-disable-macro-pair", exitCode := 1,
+      contains := #["RG2006", "Widget.Additional:15:11: set_option linter.missingDocs false",
         "regula lint: VIOLATION (exit 1)"],
       excludes := #["FAIL[elaboration-hidden]"] })
   -- RG2006 decides on the setting alone, so code of the project that Lean evaluates while it

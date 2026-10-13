@@ -132,9 +132,9 @@ private def readSnapshot : IO (Except String Snapshot) := do
 /-- The running Regula's observer library (`readSnapshot`), read once when the process starts: a
 module's `initialize` runs before `main`, so before the audit loads a workspace, copies a project or
 runs a build. It is the only source of the observer's identity: the audit admits a loaded plugin
-(`pluginLoaded`), places the observer in its copies (`placeRunning`) and loads it into a standalone
-compilation (`Snapshot.write`) from it alone, never from the file it was read from, which a later
-build can rewrite. -/
+(`matchingPlugins`), places the observer in its copies (`placeRunning`) and loads it into a
+standalone compilation (`Snapshot.write`) from it alone, never from the file it was read from,
+which a later build can rewrite. -/
 initialize runningSnapshot : Except String Snapshot ← readSnapshot
 
 /-- The running Regula's observer library (`runningSnapshot`), or an error when the process could
@@ -180,7 +180,7 @@ and `buildArtifactUnlessUpToDate`, `Lake/Build/Common.lean` lines 1015 to 1029 a
 which an audit's build reaches with Lake's artifact cache off, through `checkHashUpToDate'`, lines
 213 to 222). So a copy
 whose observer source compiles to the running Regula's objects loads this file unchanged, and
-`pluginLoaded` admits it by its bytes. Otherwise Lake links the library again, the linker writes
+`matchingPlugins` admits it by its bytes. Otherwise Lake links the library again, the linker writes
 the output path into it, and its bytes differ, so it is not admitted. Admission rests on the bytes
 alone, whatever Lake decides; that Lake reuses the placed file is trusted for availability only. -/
 def placeRunning (package : FilePath) : IO Unit := do
@@ -231,22 +231,39 @@ private def readRecord (olean : FilePath) : IO (Option RegulaObserver.Record) :=
     | #[record] => some record
     | _ => none
 
-/-- Whether the plugins of a module's completed `presetup` (`presetupPlugins?`) include the running
-Regula's observer `expected` (`running`): a plugin file whose bytes, read now, equal the library's
-bytes that the process read at its start. That is the only criterion. A plugin's path proves
-nothing, since a build can rewrite the file at a path, the running Regula's own included; a file
-with other bytes is refused, whatever its name, path or source. False when there is no completed
-`presetup` or a plugin cannot be read.
+/-- The plugin files among `paths` whose bytes, read now, equal the bytes of the running Regula's
+observer `expected` (`running`) that the process read at its start. Each distinct path is read
+once; a file that cannot be read is not among them. A plugin's path proves nothing, since a build
+can rewrite the file at a path, the running Regula's own included; a file with other bytes is left
+out, whatever its name, path or source.
 
-Assumes: the file that Lean loaded for the module holds, when it is read here, the bytes Lean
+Assumes: the file that Lean loaded for a module holds, when it is read here, the bytes Lean
 loaded. A file changed after Lean loaded it and before this comparison is outside what the
 comparison establishes, since Lake reports a plugin by its path, not by the bytes Lean read. -/
-def pluginLoaded (expected : Snapshot) (plugins : Option (Array FilePath)) : IO Bool := do
-  let some plugins := plugins | return false
-  plugins.anyM fun plugin => do
+def matchingPlugins (expected : Snapshot) (paths : Array FilePath) : IO (Array FilePath) := do
+  let distinct := paths.foldl (fun seen path => if seen.contains path then seen else seen.push path)
+    #[]
+  distinct.filterM fun plugin => do
     match ← (IO.FS.readBinFile plugin).toBaseIO with
-    | .ok bytes => return bytes.data == expected.library.data
+    | .ok bytes => return bytes == expected.library
     | .error _ => return false
+
+/-- Whether the plugins of a module's completed `presetup` (`presetupPlugins?`) include the running
+Regula's observer: one of the files `matching` whose bytes equal the observer's
+(`matchingPlugins`). That is the only criterion. False when there is no completed `presetup`. -/
+def pluginLoaded (matching : Array FilePath) (plugins : Option (Array FilePath)) : Bool :=
+  plugins.any (·.any matching.contains)
+
+/-- `pluginLoaded` holds exactly when the module has a completed `presetup` one of whose plugins
+is among `matching`. -/
+theorem pluginLoaded_iff (matching : Array FilePath) (plugins : Option (Array FilePath)) :
+    pluginLoaded matching plugins = true ↔
+      ∃ loaded, plugins = some loaded ∧ ∃ plugin ∈ loaded, plugin ∈ matching := by
+  cases plugins with
+  | none => simp [pluginLoaded]
+  | some loaded =>
+    simp only [pluginLoaded, Option.any_some, Array.any_eq_true', Array.contains_iff_mem,
+      Option.some.injEq, exists_eq_left']
 
 /-- A position as the RG2003 decision reads it. -/
 def location (position : Position) : RegulaPolicy.Elaboration.Location :=
@@ -296,7 +313,7 @@ def settings (record : RegulaObserver.Record) : List RegulaPolicy.Community.Sour
       value := s.value.bind optionValue
       registeredDefault := s.registeredDefault.bind optionValue
       form := form s.form
-      wrapped := s.wrapped
+      wrapped := s.wrapped.map (·.toList)
       location := location s.position })
 
 /-- One RG2003 failure of a module's record, as a line of the build's report that names the module
@@ -378,7 +395,7 @@ observer's bytes (`pluginLoaded`) and its target lists the observer's key in `ne
 (`observerKey`): the observer library's job trace is then in the module's trace through the
 target's `extraDep` job (`Lake/Build/Library.lean` lines 162 to 169, `Lake/Build/Module.lean`
 lines 600 to 603), so an `.olean` Lake replays was built under the library whose bytes
-`pluginLoaded` matched. A module without `loaded`, a missing file, or one without exactly one
+`matchingPlugins` matched. A module without `loaded`, a missing file, or one without exactly one
 record gives no record. -/
 def decideRecord (subject : String) (loaded : Bool) (olean : FilePath) : IO Verdict := do
   let record ← if loaded && (← olean.pathExists) then

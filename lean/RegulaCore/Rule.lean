@@ -885,10 +885,10 @@ def descriptor : (id : RuleId) → RuleDescriptor id
         turn one off, so the warning-free build (RG2003) never sees it. The rule accepts only \
         options that cannot stop a default warning, besides a raised `exponentiation.threshold`, \
         in `leanOptions` or a `-D` extra `lean` argument."
-      remedy := "Set the target's `leanOptions`: `autoImplicit` and `relaxedAutoImplicit` \
-        false, `linter.missingDocs` true and, with Mathlib, the standard set and its §6.7 \
-        exclusions; delete other options, `-D` arguments and `set_option`s outside the accepted \
-        set, bar one-declaration community linter disables."
+      remedy := "Set `leanOptions`: `autoImplicit` and `relaxedAutoImplicit` false, \
+        `linter.missingDocs` true and, with Mathlib, the standard set and §6.7 exclusions; \
+        delete other options, `-D`s and `set_option`s outside the accepted set, bar a \
+        community linter's `… false in` on a declaration or a macro for one."
       rewrites := [
         "Add ``⟨`autoImplicit, false⟩, ⟨`relaxedAutoImplicit, false⟩, \
           ⟨`linter.missingDocs, true⟩`` to `leanOptions` (the same keys under `[leanOptions]` in \

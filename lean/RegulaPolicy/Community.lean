@@ -1553,7 +1553,8 @@ Regula's elaboration observer records each option that a claimed module's source
 Lean's `set_option` elaborator, with the value and form of its `set_option` syntax
 (`RegulaObserver.Setting`). The same accepted set decides them as decides a target's options, with
 the one permission that standard §6.2 gives: a community linter turned off for one declaration by
-`set_option linter.NAME false in` before a declaration command (`declarationKind`). Lean's default
+`set_option linter.NAME false in` before a declaration command (`declarationKind`), or before a
+command that macros expand, one command at each step, to one. Lean's default
 warnings, the `linter.` and `warn.` options Lean registers (`leanWarningSettings`) whose registered
 default is not `false`, are never community linters, and neither are the options that switch
 many linters at once (`linterSwitches`). The decision reads the setting
@@ -1597,9 +1598,10 @@ structure SourceSetting where
   registeredDefault : Option OptionValue
   /-- How the source set it. -/
   form : SourceForm
-  /-- For the form before one command, the syntax kind of the command that `set_option … in`
-  wraps, through each further `set_option … in`; none otherwise. -/
-  wrapped : Option Name := none
+  /-- For the form before one command, the syntax kinds of the command that `set_option … in`
+  wraps, through each further `set_option … in`, and of each command that a macro expanded it to
+  in turn (`RegulaObserver.Setting.wrapped`); none otherwise. -/
+  wrapped : Option (List Name) := none
   /-- Where the option's name is in the module, line and column, as Lean reports them; only the
   report reads it. -/
   location : Nat × Nat := (0, 0)
@@ -1639,18 +1641,22 @@ theorem defaultWarning_iff (name : Name) (registeredDefault : Option OptionValue
     simp [defaultWarning, DefaultWarning, ← OptionValue.readsAs_iff]
 
 /-- A community linter turned off for one declaration: `set_option linter.NAME false in` before a
-declaration command, where `linter.NAME` is not a default warning of Lean and switches no set of
-linters. -/
+declaration command, or before a command that macros expand, one command at each step, to a
+declaration command (`SourceSetting.wrapped`), where `linter.NAME` is not a default warning of Lean
+and switches no set of linters. A command that an elaborator of its own elaborates, or that a macro
+expands to several commands, is no declaration command. -/
 def communityDisable (s : SourceSetting) : Bool :=
-  s.form == .commandIn && s.wrapped == some declarationKind && s.name.getRoot == `linter &&
+  s.form == .commandIn && s.wrapped.any (·.contains declarationKind) &&
+    s.name.getRoot == `linter &&
     !linterSwitches.contains s.name && s.value.any (·.readsAs (.bool false)) &&
     !defaultWarning s.name s.registeredDefault
 
-/-- `communityDisable`, stated by its parts: the form before one command, which wraps a declaration
-command, an option under `linter`, outside `linterSwitches`, whose value reads as `false`, and not a
-default warning of Lean. -/
+/-- `communityDisable`, stated by its parts: the form before one command, whose chain of macro
+expansions reaches a declaration command, an option under `linter`, outside `linterSwitches`, whose
+value reads as `false`, and not a default warning of Lean. -/
 def CommunityDisable (s : SourceSetting) : Prop :=
-  s.form = .commandIn ∧ s.wrapped = some declarationKind ∧ s.name.getRoot = `linter ∧
+  s.form = .commandIn ∧ (∃ kinds, s.wrapped = some kinds ∧ declarationKind ∈ kinds) ∧
+    s.name.getRoot = `linter ∧
     s.name ∉ linterSwitches ∧ (∃ v, s.value = some v ∧ v.ReadsAs (.bool false)) ∧
     ¬ DefaultWarning s.name s.registeredDefault
 
@@ -1658,8 +1664,8 @@ def CommunityDisable (s : SourceSetting) : Prop :=
 theorem communityDisable_iff (s : SourceSetting) :
     communityDisable s = true ↔ CommunityDisable s := by
   have hd := defaultWarning_iff s.name s.registeredDefault
-  cases hv : s.value <;>
-    simp [communityDisable, CommunityDisable, hv, ← hd, ← OptionValue.readsAs_iff, and_assoc]
+  cases hv : s.value <;> cases hw : s.wrapped <;>
+    simp [communityDisable, CommunityDisable, hv, hw, ← hd, ← OptionValue.readsAs_iff, and_assoc]
 
 /-- The settings that the pinned Lean's own code writes as `set_option` syntax into the code it
 generates, as (option, value) pairs: `match.ignoreUnusedAlts` set to `true` by the `deriving BEq`
@@ -1804,7 +1810,7 @@ theorem missingDocs_command_fails (o : BuildOptions) (mathlib : Bool) :
 a community linter (standard §6.2), Lean's default for it being `false`. -/
 theorem missingDocs_in_passes (o : BuildOptions) (mathlib : Bool) :
     sourceAccepted o mathlib { written `linter.missingDocs (.bool false) .commandIn with
-      registeredDefault := some (.bool false), wrapped := some declarationKind } = true := by
+      registeredDefault := some (.bool false), wrapped := some [declarationKind] } = true := by
   cases mathlib <;> rfl
 
 /-- `set_option linter.missingDocs false in` before a `section` fails: Lean's expansion of
@@ -1813,7 +1819,22 @@ theorem missingDocs_in_passes (o : BuildOptions) (mathlib : Bool) :
 theorem missingDocs_in_section_fails (o : BuildOptions) (mathlib : Bool) :
     sourceAccepted o mathlib { written `linter.missingDocs (.bool false) .commandIn with
       registeredDefault := some (.bool false),
-      wrapped := some `Lean.Parser.Command.section } = false := by
+      wrapped := some [`Lean.Parser.Command.section] } = false := by
+  cases mathlib <;> rfl
+
+/-- `set_option linter.missingDocs false in` before a command that a macro expands to one
+declaration, as Mathlib's `lemma` expands to a `theorem`, passes. -/
+theorem missingDocs_in_macro_passes (o : BuildOptions) (mathlib : Bool) :
+    sourceAccepted o mathlib { written `linter.missingDocs (.bool false) .commandIn with
+      registeredDefault := some (.bool false),
+      wrapped := some [`lemma, declarationKind] } = true := by
+  cases mathlib <;> rfl
+
+/-- `set_option linter.missingDocs false in` before a command that a macro expands to several
+commands, a list of kind `null`, fails. -/
+theorem missingDocs_in_macro_list_fails (o : BuildOptions) (mathlib : Bool) :
+    sourceAccepted o mathlib { written `linter.missingDocs (.bool false) .commandIn with
+      registeredDefault := some (.bool false), wrapped := some [`pair, `null] } = false := by
   cases mathlib <;> rfl
 
 

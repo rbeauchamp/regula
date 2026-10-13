@@ -108,15 +108,30 @@ partial def wrappedCommand (cmd : Syntax) : Syntax :=
     wrappedCommand cmd[2]
   else cmd
 
+/-- The syntax kinds of `cmd` and of each command that a macro expanded it to in turn, where `steps`
+holds each macro expansion that Lean elaborated (`Walk.expansions`) as the syntax before and after
+it, following at most `fuel` expansions. The chain ends at a command that no macro expanded, such
+as one that an elaborator elaborated or the list of commands that a macro expanded one command to,
+whose kind is `null` and which Lean elaborates command by command (`Lean.Elab.Command.elabCommand`,
+`Lean/Elab/Command.lean` lines 698 to 703). -/
+def expansionKinds (steps : Array (Syntax × Syntax)) : Nat → Syntax → Array Name
+  | 0, cmd => #[cmd.getKind]
+  | fuel + 1, cmd =>
+    match steps.find? (sameOccurrence ·.1 cmd) with
+    | some (_, output) => #[cmd.getKind] ++ expansionKinds steps fuel output
+    | none => #[cmd.getKind]
+
 /-- The form of the `set_option` syntax `setter`, with `ancestors` the syntax of the nodes above
-it, and for the command form before one command the syntax kind of the command it wraps
-(`wrappedCommand`). The command form is `commandIn` when an ancestor is `cmd in cmd` whose first
+it, and for the command form before one command the syntax kinds of the command it wraps
+(`wrappedCommand`) and of each command that a macro of `steps` expanded it to in turn
+(`expansionKinds`). The command form is `commandIn` when an ancestor is `cmd in cmd` whose first
 command is `setter`; the `grind` tactic form is a tactic form. -/
-def formOf (setter : Syntax) (ancestors : List Syntax) : Form × Option Name :=
+def formOf (steps : Array (Syntax × Syntax)) (setter : Syntax) (ancestors : List Syntax) :
+    Form × Option (Array Name) :=
   if setter.isOfKind ``Lean.Parser.Command.set_option then
     match ancestors.find? fun a => a.isOfKind ``Lean.Parser.Command.in &&
         sameOccurrence a[0] setter with
-    | some a => (.commandIn, some (wrappedCommand a[2]).getKind)
+    | some a => (.commandIn, some (expansionKinds steps steps.size (wrappedCommand a[2])))
     | none => (.command, none)
   else if setter.isOfKind ``Lean.Parser.Term.set_option then (.term, none)
   else (.tactic, none)
@@ -142,20 +157,33 @@ structure Walk where
   constant, from the term information that the resolution recorded
   (`realizeGlobalConstNoOverloadWithInfo`). -/
   resolved : Array (Syntax × Name) := #[]
+  /-- Each command that an elaborator expanded, with the elaborator and the syntax before and after
+  the expansion: a command node whose child records that expansion of the node's own syntax
+  (`Lean.Elab.MacroExpansionInfo`). `observe` keeps those whose elaborator is a macro. -/
+  expansions : Array (Name × Syntax × Syntax) := #[]
 
 /-- Walk an info tree, with `ancestors` the syntax of each command, tactic and term node above,
 innermost first, and `doc` what `Found.doc` records for a name below. Lean's documentation
 elaborator elaborates each element of a comment under a `Lean.Elab.DocInfo` node and records the
 expander that elaborated it as a `Lean.Elab.DocElabInfo` leaf among that node's children
-(`Lean/Elab/DocString.lean` lines 1487 to 1489, 1549 to 1554, 1572 to 1574 and 1679 to 1684). -/
+(`Lean/Elab/DocString.lean` lines 1487 to 1489, 1549 to 1554, 1572 to 1574 and 1679 to 1684).
+When a macro expands a command, Lean records a command node that names the macro, whose child
+records the expansion of the same syntax (`Lean.Elab.Command.elabCommand`, `Lean/Elab/Command.lean`
+lines 712 to 716, and `withMacroExpansion`, lines 656 to 658). -/
 partial def walk (ancestors : List Syntax) (doc : Option (Option Name)) (acc : Walk) :
     InfoTree → Walk
   | .context _ tree => walk ancestors doc acc tree
   | .hole _ => acc
   | .node info children =>
     let acc := match info with
-      | .ofCommandInfo i => if guardKinds.contains i.stx.getKind then
+      | .ofCommandInfo i =>
+        let acc := if guardKinds.contains i.stx.getKind then
           { acc with guards := acc.guards.push i.stx } else acc
+        children.foldl (init := acc) fun acc child => match child with
+          | .node (.ofMacroExpansionInfo m) _ => if sameOccurrence m.stx i.stx then
+              { acc with expansions := acc.expansions.push (i.elaborator, m.stx, m.output) }
+            else acc
+          | _ => acc
       | .ofOptionInfo i => { acc with options := acc.options.push { info := i, ancestors, doc } }
       | .ofTermInfo i => match doc, i.expr with
         | some _, .const name _ => { acc with resolved := acc.resolved.push (i.stx, name) }
@@ -229,19 +257,20 @@ source. Lean v4.34.1 records an option's name in four places, which
 documentation role `{option}` (`docReference`), which sets none; and a `simp` user option
 (`simpUserOption`), which sets none of the scope. A name under `set_option` syntax has the value
 and form of that syntax (`setterOf`); the documentation command's has its value (`docValue`); any
-other has no value, so RG2006 rejects it. Who wrote the syntax is not recorded: RG2006 decides on
-the setting alone. -/
+other has no value, so RG2006 rejects it. The form before one command reads the macro expansions
+`steps` (`formOf`). Who wrote the syntax is not recorded: RG2006 decides on the setting alone. -/
 def settingOf? (decls : OptionDecls) (fileMap : FileMap) (resolved : Array (Syntax × Name))
-    (found : Found) : Option Setting :=
+    (steps : Array (Syntax × Syntax)) (found : Found) : Option Setting :=
   let id := found.info.stx
-  let setting (value : Option DataValue) (form : Form) (wrapped : Option Name) : Setting :=
+  let setting (value : Option DataValue) (form : Form) (wrapped : Option (Array Name)) :
+      Setting :=
     { name := found.info.optionName
       value, form, wrapped
       registeredDefault := (decls.find? found.info.optionName).map (·.defValue)
       position := positionOf fileMap id }
   match setterOf id found.ancestors, found.doc with
   | some setter, _ =>
-    let (form, wrapped) := formOf setter found.ancestors
+    let (form, wrapped) := formOf steps setter found.ancestors
     some (setting (literal setter[3]) form wrapped)
   | none, some (some expander) =>
     if expander == docReference then none
@@ -252,14 +281,24 @@ def settingOf? (decls : OptionDecls) (fileMap : FileMap) (resolved : Array (Synt
   | none, _ => if simpUserOption found then none else some (setting none .elaborated none)
 
 
-/-- The observations of the command `stx`, appended to `fold`. -/
+/-- The observations of the command `stx`, appended to `fold`. An expansion of `Walk.expansions` is
+a step of the chain that `expansionKinds` follows only when its elaborator is a macro of its
+syntax's kind, as `Lean.Elab.expandMacroImpl?` finds one (`Lean/Elab/Util.lean` lines 157 to 167): a
+macro runs in `MacroM` and returns syntax, so it changes no message and no state of the command. An
+elaborator that records an expansion itself, as `Lean.Elab.Command.adaptExpander` does
+(`Lean/Elab/Command.lean` lines 874 to 876), ends the chain. -/
 def observe (stx : Syntax) (fold : Fold) : CommandElabM Fold := do
   let fileMap ← getFileMap
   let decls ← getOptionDecls
   let mut acc : Walk := {}
   for tree in (← getInfoTrees) do
     acc := walk [stx] none acc tree
-  let settings := acc.options.filterMap (settingOf? decls fileMap acc.resolved)
+  let env ← getEnv
+  let steps := acc.expansions.filterMap fun (elaborator, before, after) =>
+    if (macroAttribute.getEntries env before.getKind).any (·.declName == elaborator) then
+      some (before, after)
+    else none
+  let settings := acc.options.filterMap (settingOf? decls fileMap acc.resolved steps)
   let mut fold := { fold with settings := fold.settings ++ settings }
   for guard in acc.guards do
     let observed : Guard := { kind := guard.getKind, position := positionOf fileMap guard }

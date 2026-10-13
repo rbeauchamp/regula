@@ -394,7 +394,7 @@ running Regula, as `Observer.pluginLoaded` decides, and its target lists the obs
 `needs`. The audit reads the record of the module only then. The record is read with an unchecked
 cast to the running observer's type (`Observer.recordEntries`). With the key in `needs` the
 observer's trace is in the module's trace, so an `.olean` that Lake replays was written under the
-library whose bytes `pluginLoaded` matched. Without it, Lake can replay one that another observer
+library whose bytes `matchingPlugins` matched. Without it, Lake can replay one that another observer
 wrote, so the audit reads no record. A dependency's facet that drops the plugin, or a target
 without the `needs` entry, leaves the module refused under [RG2003]. [RG2006] requires both entries
 in the configuration of each claimed target.
@@ -1531,9 +1531,12 @@ observer recorded them, with `RegulaPolicy.Community.sourceFailures` (`sourceFai
 `checked_sourceFailures`). The same accepted set decides them, with two more admissions.
 
 The first admission is a community linter turned off by `set_option linter.NAME false in` before
-one declaration. The observer records the kind of the command that the form wraps. The decision
-admits only a declaration there, so a `section` of several declarations fails. The theorems
-`communityDisable_iff` and `missingDocs_in_section_fails` state this.
+one declaration. The observer records the kinds of the command that the form wraps and of each
+command that macros expand it to. The decision admits the setting only if one of these kinds is a
+declaration, so a `section` of several declarations fails. A macro that expands to several commands
+also fails, and so does a command with an elaborator of its own. The theorems
+`communityDisable_iff`, `missingDocs_in_section_fails`, `missingDocs_in_macro_passes` and
+`missingDocs_in_macro_list_fails` state this.
 
 The second admission is a closed set of settings, `RegulaPolicy.Community.generatedSettings`. These
 are the settings that the code of the pinned Lean writes as `set_option` syntax into the code it
@@ -1588,8 +1591,8 @@ documentation role `{option}` only refers to an option. A `simp` user option suc
 recorded data. Lean's source at the pinned release shows that the observer records each `set_option`,
 `#guard_msgs` and `#guard_panic` and each silent message that Lean elaborated. It also shows that
 the frontend writes the record after all linters finished, which standard §7.3 states as an
-assumption. Code that runs in the module's own elaboration and forges the record
-is outside that evidence.
+assumption. Code that runs in the module's own elaboration can forge the record or remove a
+message, and that is outside the evidence.
 
 A stateful linter that an imported module registers runs after the observer's linter on each
 command, since Lean loads the plugin first. Lean gives a plugin no later point to read the
@@ -3879,7 +3882,9 @@ directory a configuration gives for build output, and the reporter's overlay can
 coordinator builds each such module in the copy, and the worker refuses one that still resolves
 elsewhere. No build of the copy uses Lake's artifact cache, so Lake does not restore a module into
 the copy without compiling its source. **Trusted:** the filesystem resolves the real paths, and
-only the copy's build writes compiled modules into the copy.
+only the copy's build writes compiled modules into the copy. The one exception is the observer
+shared library with its `.trace` and `.hash` files, which `ProjectCopy.placeObservers` writes before
+the copy's build.
 
 The force-imported reporter loads modules of the prefixes `Regula` and `RegulaPolicy`, and Lean
 resolves a whole prefix at the first search directory that has it. So a copy that builds a part of

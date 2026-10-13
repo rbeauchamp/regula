@@ -802,7 +802,8 @@ core-only code.
   `weakLeanArgs` that overrides these options or sets an option outside that set. In each claimed
   module it also reads the options that the source sets, as Regula's elaboration observer records
   them. There it accepts an option that the target could set. It also accepts
-  `set_option linter.NAME false in` before one declaration, for a community linter. Where the
+  `set_option linter.NAME false in` for a community linter before one declaration command, or
+  before a command that macros expand to one, such as Mathlib's `lemma`. Where the
   community's guidance accepts an exception, disable that linter for the one declaration
   (`set_option linter.style.longLine false in`) with a comment giving the reason. Never disable
   Lean's default warnings, such as `linter.unusedVariables` or `warn.sorry`. [RG2006] rejects that
@@ -1043,12 +1044,17 @@ audit refuses a `decides` entry that names its own surface or no claimed surface
   its compilation and fails the file in the same way.
 - A `presetup` facet that a package declares replaces Lake's own. If it drops the observer from
   the plugins of a claimed module, [RG2003] reports that module as not observed.
-- Code that runs while Lean elaborates a module can write or remove the observer's record. An
-  example is an `initialize` declaration or an elaborator of an imported module. The audit trusts
-  that no such code forges the record. A stateful linter of an imported module runs after the
+- Code that runs while Lean elaborates a module can write or remove the observer's record, and it
+  can remove messages before the observer reads them. Examples are an `initialize` declaration, a
+  command or term elaborator and a tactic, of the project or of an imported module. No observer
+  check can be sound against such code, so the audit trusts that it does not forge the record or
+  remove a message. A stateful linter of an imported module runs after the
   observer, so a silent message that it logs is outside the record.
 - [RG2006] reads the options that Lean's `set_option` elaborator sets. An option that elaborator
   code changes directly, such as a deriving handler, is outside the record.
+- After `set_option linter.NAME false in`, [RG2006] follows only the macros that expand the command.
+  It rejects the setting before a command that an elaborator of its own elaborates, such as
+  Mathlib's `irreducible_def` or Batteries' `alias`, also if that command makes one declaration.
 - The only supported editor is VS Code with the Lean 4 extension, and there is no latency claim.
 - Regula has run on small adopters only, including a Mathlib-importing library accepted
   incrementally and fresh; there is no Mathlib-scale adopter claim. These are bounded
