@@ -3258,13 +3258,15 @@ inferred from any pure proof.
   A claimed constant that reaches `Lean.reduceBool` or `Lean.reduceNat` also reaches the axiom
   `Lean.trustCompiler`, which no claim admits. A module that imports `Init` cannot declare a name
   of `Admission.kernelNames` again. Thus the witnesses of conditions 3 and 4 are `#guard` commands
-  of `Admission` that run `agrees` on module data that the commands write. Each of these cases has
-  a witness without that difference, which `agrees` accepts:
+  of `Admission` that run `agrees` on module data that the commands write. The same commands also
+  run `agrees` with a module that is not owned. Each of these cases has a witness without that
+  difference, which `agrees` accepts:
 
   - A copy that uses an alias of `Lean.reduceBool`.
   - A name that refers to the copy and to the alias.
   - A constant `Char.ofNat` that refers to the copy.
   - A name that refers to a private name of a copy.
+  - A copy that a module outside the owned modules declares.
 - **Documentation.** `Environment.loadReportCoreAtSearchPath` freezes the `@[regula_material]`
   selector from the completed owned environment and reads module docs (Markdown and Verso) and
   docstrings with `Lean.findDocString?`, the same lookup as native feedback, so the project gate's
@@ -4895,7 +4897,7 @@ not yet proved, and are labelled so at their definition; they are not correctnes
 | project audit | changed import, changed `.olean` part | an owned module is replayed unless an offer covers it over its closure here and over artifacts read again with their frozen parts | Proved | `Admission.replayed_unless_offered`, `Admission.replayed_of_changed`, `Admission.replayed_of_changed_import`; an artifact not read again with its frozen parts cannot support an offer (`Admission.Unchanged`) |
 | checkerSelftest structural | a changed, removed and added `.olean`, `.olean.server` and `.olean.private`, each restored, for a module with three parts and with one, through `Inspection.readings` and `Admission.currentOffers` | reading the frozen parts: each change withdraws the offer and `Inspection.changedArtifact?` reports it | External | observed |
 | checkerSelftest structural | a fresh audit of two claimed libraries that import one another | the report workers, Lean's import and the kernel reuse a requested module: accepted, each module replayed in one environment, the reused module's key required | External | observed; the decision is `Admission.reuseJustified_admitted` and `Admission.replayed_of_loaded` |
-| checkerSelftest structural | fresh audits of a library and of a library that imports it, with identical, renamed and different copies of lemmas | Lean's realization and import of the copies, the report workers and the kernel: identical and renamed copies are reused, different copies are replayed again | External | observed. The decisions are `Admission.copiesAgree_iff`, `Admission.referencesWithin_iff`, `Admission.ownedAgrees_iff` and `Admission.agreesIn_iff` |
+| checkerSelftest structural | fresh audits of a library and of a library that imports it, with identical, renamed and different copies of lemmas | Lean's realization and import of the copies, the report workers and the kernel. Identical copies and the renamed copies of `Lib.Left` and `Lib.Right`, which the conditions of `Admission.renamedCopy` and `Admission.uniformUpToPrivate` accept, are reused. The renamed copies of `Lib.Near` and `Lib.Far` are replayed again, because the theorems of these modules use their private match equations. Different copies are also replayed again. | External | observed. The decisions are `Admission.copiesAgree_iff`, `Admission.referencesWithin_iff`, `Admission.ownedAgrees_iff` and `Admission.agreesIn_iff` |
 | project audit | none | a frozen `.olean` part that changes during the audit is [RG2005] | External | open: MUT-02 not yet evidenced through the gate; reading the parts is observed directly (three rows above), and no intended-reason control rewrites a part between the freeze and the final comparison |
 
 The `qualify` campaigns and what they observe:

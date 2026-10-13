@@ -9,11 +9,12 @@ A check of the first acceptance step (`qualify combined`) on this repository's o
 rule of the standard. Lean realizes an equation lemma, or another constant it derives on demand,
 in the first module that needs it, so two modules that do not import each other can each declare
 a copy of one constant. The project audit reuses an admitted module in a later environment only
-when the copies of its names agree (`Admission.copiesAgree`): each is `Identical` to the constant
-that environment keeps, or each is the copy of the module the name is attributed to up to
-exchanging names private to the module that declares it, which only that copy and those names
-use (`Admission.uniformUpToPrivate`), and owned modules alone declare the name
-(`Admission.declaredOwned`). An environment offers a module holding a shared copy only when
+when the copies of its names agree (`Admission.copiesAgree`, `Admission.agrees`). The copies of a
+name agree when each is `Identical` to the constant that environment keeps, whichever modules
+declare it. They also agree when owned modules alone declare the name (`Admission.declaredOwned`)
+and each copy is the copy of the module the name is attributed to up to exchanging names private
+to the module that declares it, which only that copy and those names use
+(`Admission.uniformUpToPrivate`). An environment offers a module holding a shared copy only when
 those copies agree and owned modules alone declare the name (`Admission.ownedAgrees`).
 An environment that loads two copies that do not agree, or a copy that a toolchain or
 trusted-dependency module also declares, therefore replays a module again, and every module that

@@ -17,9 +17,9 @@ remain subject to generated-role policy; they cannot supply logical evidence.
 An owned module that an earlier environment of the same audit admitted over the
 identical, frozen import closure is reused instead of replayed again (`reusedModules`,
 `offers`, `reuseJustified_frozen`), also when another loaded module declares a copy of one of its
-names, provided every copy is `Identical` to the kept constant or every copy is one theorem with the
-names private to the modules that declare it renamed (`copiesAgree`, `renamedCopy`); every other
-owned module is replayed (`mem_replaySet`). A
+names, when the copies of each of its names agree (`agrees`, `copiesAgree`): every copy is
+`Identical` to the kept constant, or `uniformUpToPrivate` and `declaredOwned` accept the name;
+every other owned module is replayed (`mem_replaySet`). A
 member's import closure lies within the closure (`importClosure_trans`), so one pass decides
 which candidates have every owned module of their closure reused too.
 Replay reads each replayed module's own constants (`Copy`), so a name that several
