@@ -873,7 +873,7 @@ private def observerEscapes (repo adopter : FilePath) : IO (Array String) := do
       contains := #["RG2006", "Widget.Additional:9:11: set_option doc.verso true",
         "Widget.Additional:13:12: set_option linter.unusedVariables false",
         "regula lint: VIOLATION (exit 1)"],
-      excludes := #["set_option pp.all", "FAIL[elaboration-hidden]", "linter.missingDocs"] })
+      excludes := #["set_option pp.all", "FAIL[elaboration-hidden]", "set_option linter.missingDocs"] })
   -- A `simp` user option sets the option in the tactic's own configuration, not in the scope.
   write "/-- A control. -/\ntheorem viaUserOption (n : Nat) : n + 0 = n := by \
     simp +user.exampleBool"

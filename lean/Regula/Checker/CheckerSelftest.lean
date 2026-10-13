@@ -3014,7 +3014,8 @@ private unsafe def fenceEnvironmentControl (layout : SourceLayout) (repo : FileP
 /-- Clean-checkout environment controls: each public checker that builds
 project-owned modules must itself build the claimed libraries when the main
 build directory is empty, instead of relying on a prior `lake build`. Each
-control starts from a copied repository with no `.lake/build` at all. The
+control starts from a copied repository whose `.lake/build` holds only the running Regula's
+observer library that `prepareScratchRepo` places (`Observer.placeRunning`): no module output. The
 freshChecker control then gives its workspace a `leanchecker` that fails, which an accepted run
 never ran. Only the parts in `parts` run (`fenceEnvironmentParts`). -/
 private unsafe def fenceEnvironmentQualification (layout : SourceLayout) (repo scratch : FilePath)
@@ -3026,8 +3027,16 @@ private unsafe def fenceEnvironmentQualification (layout : SourceLayout) (repo s
       let dir := scratch / name
       IO.FS.createDirAll dir
       prepareScratchRepo repo dir
-      if ← (dir / ".lake" / "build").pathExists then
-        failures.modify (·.push s!"fence-env/{name}: setup unexpectedly has a build directory")
+      let build := dir / ".lake" / "build"
+      let placed := (← Observer.running).fileName
+      let allowed := #["", ".trace", ".hash"].map fun suffix => build / "lib" / (placed ++ suffix)
+      let outputs ← if ← build.pathExists then build.walkDir else pure #[]
+      let mut unexpected := #[]
+      for path in outputs do
+        unless (← path.isDir) || allowed.contains path do unexpected := unexpected.push path
+      unless unexpected.isEmpty do
+        failures.modify (·.push s!"fence-env/{name}: setup unexpectedly has build output \
+          other than the placed observer library: {unexpected}")
       fenceEnvironmentControl layout repo failures part dir
   failures.get
 
